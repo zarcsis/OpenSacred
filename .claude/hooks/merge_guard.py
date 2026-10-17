@@ -21,6 +21,8 @@ LABEL = 'needs-maintainer'
 # allowed licenses, the deviations from the original, the screenshot references. A path ending in '/' is a directory.
 MAINTAINER_PATHS = ('CLAUDE.md', '.claude/', '.github/', 'deny.toml', 'docs/decisions.md',
                     'crates/opensacred-game/tests/screenshots/')
+# How many of those paths a refusal names.
+SHOWN_PATHS = 5
 # `gh pr merge` options that take a value; the first other word is the pull request (a number, URL or branch).
 VALUE_OPTIONS = {'-A', '--author-email', '-b', '--body', '-F', '--body-file', '--match-head-commit', '-R', '--repo',
                  '-t', '--subject'}
@@ -91,13 +93,15 @@ def refusal(args):
         reasons.append(f'it is labeled `{LABEL}`')
     if author.lower() != owner.lower():
         reasons.append(f'it was opened by {author}, not by the maintainer')
-    touched = [path for path in paths if needs_maintainer(path)]
+    touched = [f'`{path}`' for path in paths if needs_maintainer(path)]
     if touched:
-        reasons.append('it changes ' + ', '.join(f'`{path}`' for path in touched))
+        shown = touched[:SHOWN_PATHS] + ([f'{len(touched) - SHOWN_PATHS} more'] if len(touched) > SHOWN_PATHS else [])
+        reasons.append('it changes ' + ', '.join(shown))
     if not reasons:
         return None
-    return (f'pull request #{pr["number"]} waits for the maintainer: {"; ".join(reasons)}. Label it `{LABEL}` '
-            f'(`gh pr edit {pr["number"]} --add-label {LABEL}`), tell the maintainer, and leave the merge to them.')
+    label = '' if LABEL in labels else f'Label it `{LABEL}` (`gh pr edit {pr["number"]} --add-label {LABEL}`), '
+    return (f'pull request #{pr["number"]} waits for the maintainer: {"; ".join(reasons)}. {label}'
+            f'{"tell" if label else "Tell"} the maintainer, and leave the merge to them.')
 
 
 def main():
