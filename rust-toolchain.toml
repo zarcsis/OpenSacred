@@ -1,0 +1,4 @@
+# Bumped together with the dependencies (docs/03 §3.3); CI takes the version from here too.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]

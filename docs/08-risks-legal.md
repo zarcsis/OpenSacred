@@ -1,0 +1,85 @@
+# Legal policy and risks
+
+## Summary
+
+* OpenSacred is an independently written engine and converter. The repository contains no file of the game and nothing derived from one: every user converts their own copy of Sacred Gold 2.28, and the converted assets stay on that user's machine.
+* The work on the original's formats and behavior relies on the exceptions of Directive 2009/24/EC: Art. 5(3) (observing and studying the program one is entitled to use) and Art. 6 (decompilation for the interoperability of an independently created program). Under Art. 8, a contract cannot exclude them.
+* The GOG build has no copy protection. The project circumvents nothing, and publishes nothing about circumventing a protection.
+* What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words. Never: game files, converted assets, decompiler output, game texts (§3).
+* Sacred is a trademark of its owner; OpenSacred is not affiliated with THQ Nordic, Ascaron or GOG (§6).
+
+## 1. Disclaimer
+
+This is the project's policy, not legal advice. The applicable law depends on where you live; when in doubt, consult a lawyer.
+
+## 2. Legal basis
+
+| Action | Basis |
+|---|---|
+| Running, observing and testing one's own copy to determine the ideas and principles behind it | Directive 2009/24/EC, Art. 5(3) |
+| Decompiling the parts of the code that hold the information needed to read the data and reproduce the behavior in an independently created program | Art. 6(1): only by a person entitled to use the copy, only for information not readily available otherwise, only the parts needed |
+| What may be done with that information | Art. 6(2): it may not be used for other goals, given to others except where necessary for interoperability, or used for a program substantially similar in its expression. Hence the rules of §3: the information is published as facts and descriptions of behavior, never as code |
+| Contract terms against these exceptions | Art. 8: null and void |
+| Technical protection | not involved: the GOG `Sacred.exe` has no DRM (docs/01 §1–2). Means of circumventing a protection are covered by Art. 7(1)(c); the project has none and publishes none |
+| Format facts | not protected by copyright; code, texts and assets are |
+
+The text of the Directive: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32009L0024.
+
+## 3. What the project publishes and what it never does
+
+The same rules hold for the repository, issues, pull requests, discussions and their attachments.
+
+| Published | Never published |
+|---|---|
+| Our own code under MIT OR Apache-2.0 | Any file of the game, in any form: executables, archives, models, textures, sounds, movies, saves |
+| Facts about the formats (docs/02) and descriptions of the original's behavior in our own words (docs/re/) | Converted assets, atlases, glTF models, HD packs, screenshots or recordings of converted assets |
+| Addresses, offsets, identifiers, counts and hashes needed to read the data or to check a reader | Decompiler output (pseudo-C, listings) or code translated from it; memory dumps |
+| The SHA-256 manifest of the reference installation (`docs/manifest-gog-2.28.txt`) | Texts of the game, its dialogues, credits or license agreements |
+| Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
+| | Anything about removing or circumventing a protection |
+
+How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked against values recorded from the user's own executable. Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
+
+## 4. Repository and CI
+
+* The tools read the user's own GOG Sacred Gold 2.28 installation from `OriginalGame/` (ignored by Git) or from `--game-dir`; `opensacred-convert verify` checks it against the manifest.
+* The converter writes to `assets/`, which is ignored by Git as well.
+* CI has no game files. The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
+* The future oracle (PLAN.md §6.1) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI. It links Unicorn (GPL-2.0), so it is a separate development-only crate, never linked into the converter or the game.
+
+## 5. Community work
+
+| Project | License | How we use it |
+|---|---|---|
+| open-grn (a granny.dll implementation) | MIT | a reference on the Granny 1.2b format and semantics; no code is used |
+| grn2glb | MIT core, LGPL-2.1+ VTex codec | tag tables and the reading order of the MIT core, with the notice in `THIRD-PARTY-NOTICES.md`; the VTex codec is not used (FFmpeg runs as an external program) |
+| openheilig | MIT code, CC BY-SA 4.0 research | layouts from the code, with the notice; facts from the research, in our own words |
+| bssth/sacred-sdk | MIT | NetScript facts, the string hash, addresses; the notice is in `THIRD-PARTY-NOTICES.md` |
+| kirides/sacred-bild | GPL-3.0 | function names only, in a developer's local Ghidra project; nothing is committed |
+| kryotek, sacredbamboo | AGPL-3.0 and others | not used: networking is out of scope |
+| SacredEngineRemake | no license (all rights reserved) | not used |
+
+Facts about formats are not protected by copyright; code is. So from other projects we take knowledge and write our own code. A constant table or formula taken from an MIT project carries the project's notice in `THIRD-PARTY-NOTICES.md` and a comment naming the source.
+
+## 6. Name and trademark
+
+* "Sacred", "Sacred Gold" and "Sacred Underworld" are trademarks of their owner; the rights to Sacred are held by THQ Nordic GmbH. OpenSacred is not affiliated with, endorsed by or sponsored by THQ Nordic, Ascaron Entertainment or GOG.
+* The name states what the engine works with, as OpenMW and OpenGothic do for their games. The repository, the binaries and the icons use none of the game's logos, fonts or artwork.
+* If the owner of the trademark objects to the name, the project will be renamed.
+
+## 7. Risks
+
+| # | Risk | Probability | Impact | Mitigation | Signal |
+|---|---|---|---|---|---|
+| 1 | Granny animations convert with errors | medium | high | three open readers as a reference; control poses; an early start in M1 | poses in Blender do not match the original's frames |
+| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors; the deviation log | the balance "doesn't feel right" in play |
+| 3 | NetScript semantics are harder than expected | medium | high | a disassembler early; coverage by type frequency | a quest cannot be completed |
+| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine; scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
+| 5 | Ecosystem crates lag behind Bevy | high | low | upgrade after the needed crates are out; keep critical parts in our own code | a crate does not build with the new Bevy |
+| 6 | Token use exceeds the estimate | medium | medium | tracking from day one (docs/usage.md); a cheaper model for mechanical work | agent-hour cost above the model |
+| 7 | Claude Code usage limits slow the work down | medium | medium | a task queue, scheduling heavy tasks, reviews in parallel | idle time due to limits |
+| 8 | Claude Code misunderstands the original's behavior | medium | medium | vector tests, screenshot tests, review of key formulas | a test passes, but the in-game behavior is odd |
+| 9 | Technical debt piles up from fast agent iterations | medium | medium | clippy, tests, milestone retrospectives, planned refactoring | task times grow |
+| 10 | Maintainer burnout | medium | high | an early vertical slice; short milestones; visible progress | milestones drag on |
+| 11 | HD pack size | high | low | selective upscaling; separate packs | tens of GB on disk |
+| 12 | `sound.pak` in an unexpected format | retired 2026-10-16 | — | the format is confirmed by `snd_ls.py` (docs/02, §10.2) | — |

@@ -1,0 +1,84 @@
+# Research scripts
+
+## Summary
+
+* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG). They are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
+* The scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
+* The scanners read the GOG executables as is. Only the GOG build 2.28 is supported; the network protocol is out of scope.
+* The Rust converter `opensacred-convert` does the conversion; the format-parsing scripts are kept as the reference the Rust readers are cross-checked against: the tests of `opensacred-formats` that need the game files run the prototypes and compare their output record by record.
+
+## How to run
+
+* Python 3.12+ (required by numpy 2.5; tested on 3.15.0); dependencies: `pip install -r tools/requirements.txt`. After a Python upgrade, reinstall the dependencies: each version has its own packages.
+* Run from the repository root with `python3 -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
+* The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`. Output files go to the `--out` path outside the repository.
+
+```bash
+pip install -r tools/requirements.txt
+python3 -I tools/triage/pe_triage.py OriginalGame/Sacred.exe
+python3 -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --str "cEngine::simThread" --max 1
+python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --out /tmp/analysis/rtti.json
+```
+
+## Scripts
+
+| Script | Area | What it does |
+|---|---|---|
+| `triage/pe_triage.py` | PE | headers, sections with entropy, imports and exports, version, RTTI names |
+| `analysis/common/sacred_pe.py` | shared module | in-memory PE image loader, disassembler, operand annotations |
+| `analysis/pe/pe_deep.py` | PE | functions, calling conventions, import call sites, RTTI, vtables, EH |
+| `analysis/pe/class_compare.py` | PE | classes shared by the client and the server, from RTTI |
+| `analysis/pe/fn_census.py`, `thunk_check.py` | PE | normalization of the client's function database: own code, library, EH thunks (docs/01 §4.1–4.2) |
+| `analysis/pe/fn_match.py`, `fn_census2.py`, `analysis/common/fn_match_lib.py` | PE | client functions byte-identical to `GameServer.exe` functions, by module (docs/01 §5.1) |
+| `analysis/pe/fn_context.py` | PE | function context: API calls, strings, GUIDs; search by string or import |
+| `analysis/pe/detail_scan.py` | PE | targeted code reports: threads, functions by string, ranges |
+| `analysis/pe/fpu_scan.py` | PE | FPU control instructions, RNG calls, `VirtualProtect` |
+| `analysis/pe/srand_scan.py`, `control87_callers.py` | PE | `srand` seeds and `_control87` calls with context |
+| `analysis/pe/granny_args.py` | PE | Granny call arguments by call site |
+| `analysis/pe/rsrc_dump.py` | PE | resource section: types, sizes, dialogs, large resources |
+| `analysis/pe/sacred_strings.py` | PE | symbol strings and configuration keys from the data sections |
+| `analysis/render/d3d7scan.py` | render | `IDirect3DDevice7` calls with recovered arguments (render states, stages) |
+| `analysis/world/world_dump.py` | world | `sectors.keyx`, every sector of `sectors.wldx`, `tiles.pak`, `Static.PAK` and `Floor.PAK`: layout checks on every record, the static and floor chains of the cells; a per-sector table with cell, tail and chain fingerprints for the Rust reader |
+| `analysis/world/sector_stats.py` | world | statistics of sector floor cells: heights, light, surface types (reads the cells from `+0x120`, eight cells late; docs/02 §5.2) |
+| `analysis/world/static_stats.py` | world | fields of the `Static.PAK` static objects |
+| `analysis/world/uv_table.py` | world | UV table of the 18 diamonds on a tile sheet |
+| `analysis/formats/tex_decode.py` | formats | decoding of format 4 textures and comparison of pixel-format hypotheses |
+| `analysis/formats/tex_fmt6.py` | formats | format 6 textures: sizes, alpha position, menu screens assembled from tiles in BGRA and RGBA order |
+| `analysis/formats/snd_ls.py` | formats | `sound.pak` directory: WAV (PCM, IMA ADPCM) and MP3, durations, cross-check with `sndProfiles.pak` |
+| `analysis/formats/global_res_dump.py` | formats | `global.res` string table: layout checks on every record (23,123 strings), a per-record table for the Rust reader |
+| `analysis/formats/global_res_hash.py` | formats | resource name hash and its check against `global.res` |
+| `analysis/formats/amh_dump.py` | formats | AMH hero templates (and saves with `--saves`): checks on every section, per-section rows for the Rust reader |
+| `analysis/formats/mhp_probe.py`, `mhp_vs_mdt.py` | formats | `MOTIONS.PAK` fields and cross-check with `Models.tmp` |
+| `analysis/formats/grn_dump.py` | formats | MDL containers `models*.pak` and the GRN container of every record: layout checks, cross-check with `Models.tmp`, chunk tag census; the object section's string table, data extensions, transform channels and the skeleton with bone names; meshes, weights, the form's mesh bindings, textures, materials and render passes; animation tracks (split and interleaved); a per-record table with tree, skeleton, mesh, material and animation fingerprints for the Rust readers |
+| `analysis/formats/spf_names.py` | formats | `sndProfiles.pak` sound profiles |
+| `analysis/formats/sound_dump.py` | formats | `sound.pak` samples (WAV chunks and formats, MP3 frames), `sndProfiles.pak` profiles (10 zeros and 8 groups of 8 ids, variants repeated in turn) and the table of sound names in `Sacred.exe`: checks on every record, per-record tables for the Rust reader |
+| `analysis/formats/mixed_dump.py` | formats | `items.pak` (types, sprites, names) and `mixed.pak` (the sprites of the statics as pieces of atlases): layout checks on every record, per-record tables for the Rust readers |
+| `analysis/formats/bin_tables_dump.py` | formats | the data tables of `bin/`: layouts checked to the last byte, a fingerprint per file for the Rust reader |
+| `analysis/formats/tables_dump.py` | formats | the fixed-record tables `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK` and the overlay `Items03.pak`: checks on every record, per-record rows for the Rust readers |
+| `analysis/scripts/netscript_census.py` | scripts | census of NetScript record types across all directories |
+| `analysis/scripts/kwtab.py` | scripts | keyword tables of the script compiler in the client's `.data` |
+| `analysis/scripts/netscript_dump.py` | scripts | NetScript operands of every record with the tag table of the client's operand reader (checked against its dispatch tables), record type names from the compiler's keyword resolvers; per-file tables for the Rust reader; the operand tag sequences of each record type (`--signatures`) |
+| `usage/session_cost.py` | process | Claude Code session usage from its transcript: tokens, agent-hours, cost at API prices and a row for the usage log `docs/usage.md`; cross-checked against `/cost` snapshots. The dollar figures are hypothetical: development runs on a Claude subscription |
+
+## Check on the GOG client (2026-10-16, Python 3.15.0)
+
+| Check | Result |
+|---|---|
+| `pe_deep.py --no-disasm` | 389 imports, 417 RTTI types, 410 vtables, 3,224 slots, 2,539 EH frames (docs/01, §4) |
+| `fn_context.py --str "cEngine::simThread"` | function 0x60f060 found |
+| `fpu_scan.py --game-end 0x7F1000 --no-vp` | 5 `fldcw` in game code (jump-table artifacts) |
+| `tex_fmt6.py` | 227 format 6 textures, bytes B, G, R, A, uncompressed; the directory `size` excludes the 80-byte header (docs/02, §3.1) |
+| `snd_ls.py` | `SND` v1, 6,598 of 50,000 slots: 3,194 WAV and 3,404 MP3; directory has no gaps (docs/02, §10.2) |
+| `grn_dump.py` | `models.pak` 1,572 models + 3,421 motions, `models03.pak` 2 + 2; all 4,993 non-empty GRN files pass the container checks, CRC-32 included, the skeleton checks (70,242 + 258,760 bones, bone 0 `__Root`) and the model checks: 2,555 + 207 meshes, 2,891 + 302 render passes, 258,562 animation tracks (docs/02, §4.1–4.2) |
+| `sound_dump.py` | 6,598 samples (1,825 PCM, 1,369 IMA ADPCM, 3,404 MP3), 175 profiles; 102 profile ids have no sample (docs/02, §10); 6,869 sound names, every sample and profile id named |
+| `mixed_dump.py` | `items.pak` 17,408 used slots of 32,768; `mixed.pak` 16,255 sprites with 209,956 pieces, each as large in its atlas as in the sprite (docs/02, §3.3, §6.1) |
+| `world_dump.py` | 6,050 sectors, 90,132 tiles, 1,038,014 statics, 6,713,136 floor overlays; every check passes; the cells' chains reach every overlay and every static but 2; the statics' mask (`+0x2B`) is 0 or one bit, 1 in 542,635 (docs/02, §5) |
+| `amh_dump.py` | 8 templates, 64 sections: 40 compressed, 24 stored; with `--saves` on a clean installation 10 files, 80 sections; every check passes (docs/02, §9) |
+| `bin_tables_dump.py` | 12 files of `bin/` read to the last byte (docs/02, §6.3) |
+| `tables_dump.py` | 474 creatures (flags within six bits), 4,883 weapons, 3,423 motion parameter blocks, 1,246 of 2,268 triggers, one overlay item (slot 3999); every check passes (docs/02, §5.5, §6) |
+| `netscript_dump.py` | 2,203,278 records in 51 non-empty files; every record consumes its body exactly with the 40-handler tag table, but the 11 type-50 records whose last tag 0x2A has no payload; 135 record types named (docs/02, §7) |
+
+## Sources
+
+* `docs/02-data-formats.md`: descriptions of the formats that the parsing scripts implement.
+* `docs/01-binary-analysis.md`: the results of the PE scanners.

@@ -1,0 +1,49 @@
+# Dependency checks: `cargo deny check` (docs/03 §3.4). Run locally and in CI.
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec database: vulnerabilities, yanked versions, unmaintained crates.
+ignore = []
+
+[licenses]
+# Our crates are MIT OR Apache-2.0. GPL only in the future opensacred-oracle (Unicorn, GPL-2.0), a
+# development tool kept out of the converter and the game, via exceptions.
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    # Permissive like MIT; required by Bevy (ADR-04): libloading under ash (Vulkan) and inotify
+    # under gilrs are ISC, encase (the shader data layout of bevy_render) is MIT-0.
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    # Unicode data in unicode-ident, pulled in by any procedural macro (syn, clap_derive)
+    "Unicode-3.0",
+    "Zlib",
+]
+# The list is a policy for the future; not every license occurs yet.
+unused-allowed-license = "allow"
+confidence-threshold = 0.8
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+# png 0.18.1, the latest release, uses miniz_oxide 0.8 directly and 0.9 through flate2 1.1.10, so
+# the duplicate comes from png alone. png's master no longer depends on miniz_oxide directly
+# (checked 2026-10-16): remove the entry after the next png release; cargo deny then reports the
+# skip as unused.
+skip = [
+    { crate = "miniz_oxide@0.8.9", reason = "png 0.18.1 needs 0.8 directly and 0.9 through flate2; fixed in png master, not released yet" },
+]
+wildcards = "deny"
+# Path dependencies between workspace crates carry no version; allowed because the crates are
+# private (publish = false).
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

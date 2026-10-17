@@ -1,0 +1,3 @@
+# Settings of the rules in [workspace.lints.clippy] of the root Cargo.toml.
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true

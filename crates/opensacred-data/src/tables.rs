@@ -1,0 +1,147 @@
+//! The converted tables (docs/02 §6, §5.5, §4.1): one RON file each under the tables directory.
+//!
+//! Every byte of an original record lands in a field: those whose meaning is not known yet keep
+//! the original layout in spans named by their offset (`words_84` holds the u16 words from
+//! `+0x84`), so that the semantics can be added later without converting again from a lossy
+//! table.
+
+use serde::{Deserialize, Serialize};
+
+pub const CREATURES: &str = "creatures.ron";
+pub const WEAPONS: &str = "weapons.ron";
+pub const ITEMS: &str = "items.ron";
+pub const MOTIONS: &str = "motions.ron";
+pub const TRIGGERS: &str = "triggers.ron";
+pub const BALANCE: &str = "balance.ron";
+pub const WORLD_INDEX: &str = "world_index.ron";
+pub const WORLD_MAP: &str = "world_map.ron";
+pub const ITEM_SETS: &str = "item_sets.ron";
+pub const WEAPON_MODIFIERS: &str = "weapon_modifiers.ron";
+pub const WEAPON_GROUPS: &str = "weapon_groups.ron";
+pub const ARMOUR_SWITCHES: &str = "armour_switches.ron";
+pub const STAIRS: &str = "stairs.ron";
+pub const STATIC_REMAP: &str = "static_remap.ron";
+pub const MERCENARIES: &str = "mercenaries.ron";
+pub const MERCENARIES_ADDON: &str = "mercenaries_addon.ron";
+pub const START_POINTS: &str = "start_points.ron";
+
+/// A creature type of `Creature.pak`, in table order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Creature {
+    /// Also the item slot of the creature's model.
+    pub id: u32,
+    pub class: u8,
+    /// 0x01 flies, 0x02 big, 0x10 no shadow, 0x20 ghost, 0x40, 0x80.
+    pub flags: u8,
+    /// Experience `a + level × b`.
+    pub experience: [u16; 2],
+    pub base: [u8; 6],
+    pub skills: [u8; 2],
+    pub skills_extra: [u8; 16],
+    pub speed: [u16; 2],
+    pub bonus: [[u8; 2]; 6],
+    pub bonus_value: [u8; 6],
+    pub bonus_class: [u8; 6],
+    pub damping: [[u8; 5]; 4],
+}
+
+/// A weapon or armour type of `Weapon.pak`, in table order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Weapon {
+    /// The item type.
+    pub id: u32,
+    /// The item type it inherits from, or 0.
+    pub parent: u32,
+    /// An internal name.
+    pub name: String,
+    pub floats_00: [f32; 5],
+    pub bytes_14: [u8; 4],
+    pub float_18: f32,
+    pub bytes_1c: [u8; 8],
+    pub words_84: Vec<u16>,
+}
+
+/// An object type: a used slot of `Items.pak`, or of the overlay `Items03.pak`, whose one slot
+/// (3999) is empty in `Items.pak`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Item {
+    pub slot: u32,
+    pub kind: u8,
+    pub class: u8,
+    pub subclass: u8,
+    /// A `.GRN` file or an editor label.
+    pub name: String,
+    pub texture: u32,
+    /// The `mixed.pak` sprite, 0 for none.
+    pub sprite: u32,
+    pub byte_03: u8,
+    pub words_08: [u32; 2],
+    pub words_14: [u32; 8],
+    pub bytes_34: [u8; 3],
+    pub byte_57: u8,
+    pub words_58: [u32; 10],
+}
+
+/// The parameters of a motion of `MOTIONS.PAK`, in the global motion order: those of
+/// `models.pak`, then those of `models03.pak`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Motion {
+    /// The motion's `.GRN` file.
+    pub name: String,
+    pub value_06: u16,
+    pub floats_46: [f32; 4],
+    pub floats_62: [f32; 9],
+    pub value_be: u16,
+}
+
+/// `bin/Balance.bin`: the balance constants, read by key from fixed offsets (the key names are in
+/// the client).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Balance {
+    /// 4,896 words, each an f32 or an i32 by its key; 0xFFFFFFFF is "not set".
+    pub values: Vec<u32>,
+    /// The 1,185 words after them.
+    pub tail: Vec<u32>,
+}
+
+/// An item set of `bin/sets.bin`; slot 0 is unused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ItemSet {
+    pub slot: u32,
+    pub items: [u32; 10],
+    pub hash: u32,
+    pub bytes: [u8; 4],
+}
+
+/// A weapon modifier of `bin/wpmod.bin`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WeaponModifier {
+    /// The 53 words of the fixed part.
+    pub words: Vec<u32>,
+    pub entries: Vec<[u32; 6]>,
+}
+
+/// A mercenary position of `bin/merc.bin`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mercenary {
+    pub x: u32,
+    pub y: u32,
+    /// 0–3.
+    pub kind: u32,
+}
+
+/// A multiplayer start point of `bin/MultiStart.bin`, in world coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartPoint {
+    pub x: u32,
+    pub y: u32,
+}
+
+/// A used slot of `Triggers.PAK`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Trigger {
+    pub slot: u32,
+    pub id: u32,
+    /// 20 bits (hypothesis: an object of `Static.PAK`).
+    pub target: u32,
+}

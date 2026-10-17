@@ -1,0 +1,29 @@
+[package]
+name = "opensacred-convert"
+description = "Offline converter: GOG Sacred Gold 2.28 installation -> open formats in assets/"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+opensacred-data.workspace = true
+opensacred-formats.workspace = true
+miniz_oxide.workspace = true
+png.workspace = true
+postcard.workspace = true
+rayon.workspace = true
+ron.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+fluent-syntax.workspace = true
+
+[lints]
+workspace = true

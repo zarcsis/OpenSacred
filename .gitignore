@@ -1,0 +1,56 @@
+# --- Never commit anything from the game or derived from it ---
+# Your own Sacred Gold 2.28 installation, or a link to it (docs/03-toolchain.md, §1); no trailing
+# slash, so that a symbolic link is ignored too
+/OriginalGame
+# Anything made locally while studying the original: never committed (docs/08 §3)
+/reference/
+# Memory dumps
+*.dmp
+*.dump
+# Extracted and converted game assets, HD packs and analysis output
+/assets/
+/assets-hd/
+/extracted/
+/analysis-output/
+/out/
+*.ghidra/
+*.gpr
+*.rep/
+*.i64
+*.idb
+*.id0
+*.id1
+*.nam
+*.til
+*.bndb
+
+# The image of a failing screenshot test (crates/opensacred-game/src/scene_tests.rs)
+*.actual.png
+
+# --- Build output ---
+/build/
+/build-*/
+/out-*/
+/cmake-build-*/
+/target/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.pdb
+*.ilk
+*.exp
+
+# --- Tooling ---
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
