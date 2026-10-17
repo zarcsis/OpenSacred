@@ -292,6 +292,19 @@ Calendar: in an intensive mode (≈40 agent-hours and 25 maintainer hours a week
 
 Work takes this order: the known problems and bugs, then the dependency upgrades, then new features (the next steps of the milestones above). The queue is brought up to date at the start of every session, after `cargo update` (`CLAUDE.md`, "Work order").
 
+**Process** (first: it changes how every later task is done)
+
+* Set up the issue and pull-request workflow. Proposed on 2026-10-17 and not adopted yet; the repository became public the same day, so branch protection and unlimited Actions minutes on the standard runners are available.
+  * Every change to `main` goes through a pull request that closes an issue. Committed to `main` directly: the `cargo update` commit (`Cargo.lock` alone) and the session row of `docs/usage.md`.
+  * Types are labels (a repository of a personal account has no native issue types): `bug`, `deps`, `feature`, `research`, `infra`, `docs`, one per issue, the pull request taking its issue's; `needs-maintainer` for a pull request that waits for the maintainer. GitHub's default labels are removed; "duplicate" and "not planned" are close reasons.
+  * Issue forms per type in `.github/ISSUE_TEMPLATE/` that set the label (a bug: the original's behavior and the command that reproduces it; deps: the versions and what breaks), and a pull-request template: `Closes #N`, what and why, the checks run locally (`--run-ignored all` cannot run in CI), the documents updated, and the rules of docs/08 §3 (no game files, converted assets or screenshots of them).
+  * Branches `<type>/<issue>-<slug>` from a fresh `main`; squash merge only, the branch deleted on merge; titles keep the `Scope: what` style of the history.
+  * Milestones M2–M8 become GitHub milestones; a large feature is an issue with sub-issues, one pull request per sub-issue. The queue of this section moves to the issues, which become the single list; `CLAUDE.md` "Work order" step 4 then opens a `deps` issue instead of a line here.
+  * Branch protection on `main`: a pull request and a green CI are required, no force pushes.
+  * CI: triggers `push: branches: [main]` and `pull_request`, so a push to a pull request runs once; `Swatinem/rust-cache` saves only on `main` (`save-if`), since branch caches of Bevy would push `main`'s out of the 10 GB limit; a Windows job, the target platform, free for a public repository.
+  * To decide: who merges (proposed: Claude Code after a green CI, except `needs-maintainer` pull requests: a new screenshot reference, a deviation in `docs/decisions.md`, a new license in `deny.toml`, changes to `CLAUDE.md` or the process); whether `cargo update` stays a direct commit (protection with an administrator bypass, plus a Claude Code `PreToolUse` hook that refuses other commits on `main`) or goes through an auto-merged pull request.
+  * The result is described in docs/03 and `CLAUDE.md`.
+
 **Problems and bugs**
 
 * `opensacred-game`: a few frames a run take 30–150 ms, at any resolution and with the hero standing too; not the window's size, the NPCs, the GPU uploads or the music (docs/05 §3.6). Cause not found.
