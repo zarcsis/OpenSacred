@@ -1,0 +1,25 @@
+name: Documentation
+description: A document is wrong, out of date or missing something.
+labels: [docs]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Document
+      description: The file and the section.
+      placeholder: docs/02-data-formats.md §5.2
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong or missing
+    validations:
+      required: true
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This issue has no game files, converted assets, screenshots of them or game texts (docs/08 §3).
+          required: true

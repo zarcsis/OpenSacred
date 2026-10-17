@@ -1,0 +1,10 @@
+name: Infrastructure
+description: CI, the Claude Code hooks, the repository settings or the process.
+labels: [infra]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+    validations:
+      required: true

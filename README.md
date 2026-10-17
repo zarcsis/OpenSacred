@@ -83,6 +83,10 @@ Tests that need the game files are marked `#[ignore]`: CI does not have them. Cr
 
 The full index is in [PLAN.md](PLAN.md), §14.
 
+## Contributing
+
+Work goes through [issues](https://github.com/zarcsis/OpenSacred/issues) and pull requests. Open an issue from the form of its type (bug, feature, research, dependency, infrastructure, documentation), branch from `main`, and open a pull request from the template; it is merged once the checks on Linux and Windows are green and the maintainer has looked at it. CI has no game files, so run the tests on your own installation (`cargo nextest run --workspace --run-ignored all`) before opening it. The process is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
+
 ## License
 
 The code is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT), at your option. Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions. Notices of the community projects whose facts the readers follow are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

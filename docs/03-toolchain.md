@@ -95,11 +95,12 @@ MCP tools that execute arbitrary Python inside Ghidra are run only locally. The 
 
 Size rule: one task is one finished result, verifiable by a test, of 1–4 agent-hours. Large systems are cut into such tasks in the milestone plan.
 
-Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is PLAN.md §10.1. Every session starts with `cargo update` in a commit of its own, and records the newer incompatible releases of the direct dependencies and of Rust there as upgrade tasks (`CLAUDE.md`, "Work order"). Updating often keeps each step small; each `Cargo.lock` change costs CI one build without its dependency cache (about 20 minutes instead of 2), once a session.
+Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is the open issues (§3.6). Once a day the maintainer's first session starts with `cargo update` in a pull request of its own, and opens a `deps` issue for each newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"). Updating often keeps each step small. A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls back to the last cache of `main` and cargo rebuilds only the packages that changed (1.5 minutes on 2026-10-17 for a bump that Linux does not compile, against 15 for a cold build); once a day bounds those rebuilds and the cache entries that each new `Cargo.lock` leaves.
 
 ### 3.4 Guardrails
 
 * **Claude Code hooks** (`.claude/settings.json`, script `.claude/hooks/rust_checks.py`): after an edit of a `.rs` file, `cargo fmt --all`; when Claude stops, `cargo clippy --all-targets -- -D warnings` and `cargo nextest run` for the crates with uncommitted changes and the crates that depend on them. On failure Claude is sent back to fix it; if the checks still fail after that retry, Claude stops and the developer gets a warning. A passing state is remembered in `target/`, so a turn without new changes does not rebuild anything. Tests on the game files and `cargo deny check` stay manual.
+* **Merge guard** (`.claude/hooks/merge_guard.py`, a `PreToolUse` hook on shell commands): `gh pr merge` is refused when the pull request is labeled `needs-maintainer`, touches `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions.md` or a screenshot reference, or was opened by someone other than the repository's owner; `--admin` is refused always (§3.6).
 * **Converter golden data:** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
 * **Oracle vectors:** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
@@ -110,7 +111,18 @@ Order (since 2026-10-17): the known problems and bugs first, then the dependency
 ### 3.5 Parallel work and tracking
 
 * Parallel Claude Code sessions run in separate `git worktree`s, one task per tree.
-* Usage is recorded at the end of every session (`/cost` or ccusage) in the `docs/usage.md` table: task, model, agent-hours, tokens. After 30 days the estimates in `docs/07-roadmap-estimates.md` are recomputed from the actuals.
+* Usage is recorded at the end of every session (`/cost` or ccusage) in the `docs/usage.md` table: task, model, agent-hours, tokens, through an auto-merged pull request (§3.6). After 30 days the estimates in `docs/07-roadmap-estimates.md` are recomputed from the actuals.
+
+### 3.6 Issues and pull requests
+
+Since 2026-10-17 every change reaches `main` through a pull request; the queue of work is the open issues.
+
+* **Issues.** One task, one issue, opened from the form of its type in `.github/ISSUE_TEMPLATE/` (blank issues are off). The form sets the type's label; a repository of a personal account has no native issue types, so the types are labels, one per issue: `bug`, `deps`, `feature`, `research`, `infra`, `docs`. A milestone's work carries its milestone (M2–M8, PLAN.md §9.2); a large feature is an issue with sub-issues, one pull request per sub-issue. GitHub's default labels are removed: "duplicate" and "not planned" are close reasons.
+* **Branches.** `<type>/<issue>-<slug>` from a fresh `main` (`feature/3-roofs`); without an issue, `<type>/<slug>`.
+* **Pull requests.** The template (`.github/pull_request_template.md`) asks for `Closes #N`, what and why, the checks run locally (CI cannot run the tests on the game files), the documents updated, and the rules of docs/08 §3. The pull request takes its issue's label; its title, which becomes the squash commit's, keeps the history's `Scope: what` style, and the commits' messages become the body.
+* **Merging.** Squash merge only, the branch deleted on merge. Claude Code merges with `gh pr merge --squash --auto`, which waits for the checks. The maintainer merges what changes the rules or the process (`CLAUDE.md`, `.claude/`, `.github/`, this section), the allowed licenses (`deny.toml`), the deviations from the original (`docs/decisions.md`) or a screenshot reference, and every pull request from a contributor; such a pull request is labeled `needs-maintainer`, and the merge guard (§3.4) refuses to merge it.
+* **Without an issue:** the daily `Dependencies: cargo update` pull request (`Cargo.lock` alone, label `deps`) and the session's row of `docs/usage.md` (label `docs`), both auto-merged.
+* **Protection.** A ruleset on `main` for everyone, the repository's administrators included: changes only through a pull request, with the Linux, Windows and cargo deny checks green; no force pushes, no deletion. There is no bypass, so the `cargo update` and usage pull requests go the same way.
 
 ## 4. Binary analysis
 
@@ -140,7 +152,7 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 ## 5. Build and CI
 
 * A Cargo workspace with profiles: in development, dependencies are built with optimizations and our own code without; dynamic linking of Bevy for fast rebuilds.
-* CI on GitHub Actions (`.github/workflows/ci.yml`): a Linux runner on every push and pull request (fmt, clippy, tests without the game files, `cargo deny`); a Windows runner is planned on a schedule and before releases. Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
+* CI on GitHub Actions (`.github/workflows/ci.yml`), on every pull request and every push to `main`: a Linux job (fmt, clippy, tests without the game files, the screenshot test), a Windows job (the target platform: the build with `rust-lld` and the tests; no clippy, since the workspace has no Windows-only code, and no screenshot test, since the runner has no GPU) and `cargo deny`. The dependencies' build is cached by `Swatinem/rust-cache` and saved only on `main`, which pull requests restore: caches of every branch would push `main`'s out of the repository's 10 GB. Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
 * Render tests in CI run on software Vulkan (lavapipe) or are skipped if there is no GPU.
 
 ## 6. What is excluded

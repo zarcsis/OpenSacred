@@ -1,0 +1,38 @@
+name: Bug
+description: The game, the converter or the tools do something wrong.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What OpenSacred does, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: original
+    attributes:
+      label: What the original does
+      description: How Sacred Gold 2.28 behaves in the same situation, in your own words, if it matters here.
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The commands, from a converted `assets/`, and what to do in the game.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: The commit, the OS, the GPU.
+    validations:
+      required: true
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This issue has no game files, converted assets, screenshots of them or game texts (docs/08 §3).
+          required: true

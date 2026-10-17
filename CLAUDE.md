@@ -46,12 +46,22 @@ python -I tools/analysis/formats/<script>.py --game-dir ./OriginalGame   # Pytho
 
 ## Work order
 
-- Priorities: first the known problems and bugs, then the dependency upgrades, then new features. The queue is PLAN.md §10.1.
-- At the start of every maintainer's session, before other work, update the dependencies (a contributor's change leaves `Cargo.lock` alone unless the task is about dependencies):
+- The queue is the open issues (PLAN.md §10.1). Priorities: first the bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first. A problem found along the way becomes an issue of its own.
+- Once a day, at the start of the maintainer's first session of the day, before other work, update the dependencies. Skip it if, in the last 24 hours, `main` got a `Dependencies: cargo update` commit (`git fetch && git log origin/main --since=24.hours --grep='^Dependencies: cargo update'`) or such a pull request is still open. A contributor's change leaves `Cargo.lock` alone unless the task is about dependencies.
   1. `cargo update --verbose`: it moves every package to its newest compatible version and lists, as `Unchanged … (available: …)`, those that a newer incompatible release leaves behind.
-  2. `cargo deny check`, clippy and `cargo nextest run --workspace --run-ignored all`: a patch release of `png`, `miniz_oxide`, `ron` or `postcard` can change the converter's output.
-  3. Commit the new `Cargo.lock` alone (`Dependencies: cargo update`, naming the notable bumps). An update that breaks something is fixed, or held back with `cargo update -p <crate> --precise <old version>` and the reason noted in PLAN.md §10.1.
-  4. Every newer incompatible release of a direct dependency (`[workspace.dependencies]`; `cargo search <crate>` shows the latest) and of Rust (`rustup check` against `rust-toolchain.toml`) goes into PLAN.md §10.1 as an upgrade task, each a task of its own (docs/03 §3.3).
+  2. If `Cargo.lock` changed: `cargo deny check`, clippy and `cargo nextest run --workspace --run-ignored all`; a patch release of `png`, `miniz_oxide`, `ron` or `postcard` can change the converter's output.
+  3. A pull request with the new `Cargo.lock` alone: branch `deps/cargo-update-<date>`, title `Dependencies: cargo update`, the notable bumps in the body, label `deps`, no issue; merged with `gh pr merge --squash --auto`. An update that breaks something is fixed, or held back with `cargo update -p <crate> --precise <old version>` and the reason written in a `deps` issue.
+  4. Every newer incompatible release of a direct dependency (`[workspace.dependencies]`; `cargo search <crate>` shows the latest) and of Rust (`rustup check` against `rust-toolchain.toml`) gets a `deps` issue of its own, unless one is open (docs/03 §3.3).
+
+## Issues and pull requests
+
+`main` takes changes only through squash-merged pull requests with green checks (Linux, Windows, cargo deny); the process is in docs/03 §3.6.
+
+- A task is an issue, opened from the form of its type, which sets one of the labels `bug`, `deps`, `feature`, `research`, `infra`, `docs`; a milestone's work also carries its milestone (M2–M8). A large feature is an issue with sub-issues, one pull request each.
+- Branch `<type>/<issue>-<slug>` from a fresh `origin/main` (`git fetch && git switch -c feature/3-roofs origin/main`). Commits and the pull request's title keep the history's `Scope: what` style; the body follows `.github/pull_request_template.md` and starts with `Closes #N`; the pull request takes its issue's label.
+- After the checks of "Before finishing a task": `git push -u origin <branch>`, `gh pr create`, then `gh pr merge --squash --auto`: GitHub merges once the checks are green and deletes the branch. Watch them (`gh pr checks --watch`); a red check is fixed on the branch. Then `git switch main && git pull`.
+- The maintainer merges, and the pull request is labeled `needs-maintainer` instead of merged, when it changes `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions.md`, a screenshot reference or the process (docs/03 §3.6), or comes from someone else. The PreToolUse hook `.claude/hooks/merge_guard.py` refuses `gh pr merge` on such a pull request; do not merge it another way.
+- Without an issue: the daily `Dependencies: cargo update` pull request and the session's row of `docs/usage.md` (branch `docs/usage-<date>`, label `docs`), both merged with `--auto`.
 
 ## Before finishing a task
 
@@ -90,7 +100,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - A newly found fact about a format goes into `docs/02-data-formats.md`; a resolved open question is removed from the lists in PLAN.md §13 and in `docs/`.
 - Recovered logic of the original goes into `docs/re/<subsystem>.md`.
 - Deliberate deviations from the original's behavior go into `docs/decisions.md`.
-- Claude Code usage at the end of a session goes into `docs/usage.md`; `python -I tools/usage/session_cost.py` prints the table row.
+- Claude Code usage at the end of a session goes into `docs/usage.md`, through a pull request of its own ("Issues and pull requests"); `python -I tools/usage/session_cost.py` prints the table row.
 
 ## Code conventions
 
