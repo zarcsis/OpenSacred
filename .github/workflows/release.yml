@@ -1,8 +1,8 @@
 # Versions (docs/03 §3.6): a merged pull request labeled `feature` raises the minor version, one
 # labeled `bug` the patch; the other labels leave it. A version is an annotated tag vX.Y.Z on the
 # pull request's squash commit, with a GitHub Release whose notes list the pull requests since the
-# previous version (.github/release.yml). The major version is raised only at the maintainer's
-# request: `gh workflow run release.yml -f bump=major` tags the head of main.
+# previous version (.github/release.yml); before 1.0.0, a pre-release. The major version is raised
+# only at the maintainer's request: `gh workflow run release.yml -f bump=major` tags the head of main.
 name: Release
 
 on:
@@ -53,9 +53,13 @@ jobs:
             exit 1
           fi
 
-          # Publishes the release of tag $1 with the pull requests since tag $2, if any.
+          # Publishes the release of tag $1 with the pull requests since tag $2, if any; before 1.0.0,
+          # as a pre-release.
           publish() {
-            gh release create "$1" --verify-tag --title "$1" --generate-notes ${2:+--notes-start-tag "$2"}
+            local options=(--verify-tag --title "$1" --generate-notes)
+            if [[ -n $2 ]]; then options+=(--notes-start-tag "$2"); fi
+            if [[ $1 == v0.* ]]; then options+=(--prerelease); fi
+            gh release create "$1" "${options[@]}"
           }
           # Tags commit $1 with the next version, raising part $2, the message $3, and publishes it.
           release() {
