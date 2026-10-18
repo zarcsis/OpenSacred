@@ -19,4 +19,4 @@ CI runs fmt, clippy, the tests without the game files and `cargo deny`; it has n
 - [ ] No game files, converted assets, dumps or screenshots of them, and no game texts.
 - [ ] No decompiler output or code translated from it.
 
-<!-- A pull request that changes CLAUDE.md, .claude/, .github/, deny.toml, docs/decisions/, a screenshot reference or the process waits for the maintainer (label needs-maintainer). -->
+<!-- A pull request that changes CLAUDE.md, .claude/, .github/, deny.toml, a decision already in docs/decisions/, a screenshot reference or the process waits for the maintainer (label needs-maintainer); one that adds a decision is merged and labeled review-after-merge. -->

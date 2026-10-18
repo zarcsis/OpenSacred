@@ -62,9 +62,13 @@ python -I tools/analysis/formats/<script>.py --game-dir ./OriginalGame   # Pytho
 - Branch `<type>/<issue>-<slug>` from a fresh `origin/main` (`git fetch && git switch -c feature/3-roofs origin/main`). Commits and the pull request's title keep the history's `Scope: what` style; the body follows `.github/pull_request_template.md` and starts with `Closes #N`; the pull request takes its issue's label.
 - After the checks of "Before finishing a task": `git push -u origin <branch>`, `gh pr create`, then `gh pr merge --squash --auto`: GitHub merges once the checks are green and deletes the branch. Watch them (`gh pr checks --watch`); a red check is fixed on the branch. Then `git switch main && git pull`.
 - Every pull request carries its Claude Code usage: `python -I tools/usage/pr_usage.py <N> --update` writes it into the description from the transcripts of its branch and refreshes the README's badge (docs/usage.md). Run it after `gh pr create`, and again when the work on the pull request is over: after the merge, or once the checks are green for one that waits for the maintainer.
-- The maintainer merges, and the pull request is labeled `needs-maintainer` instead of merged, when it changes `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions/`, a screenshot reference or the process (docs/03 §3.6), or comes from someone else. The PreToolUse hook `.claude/hooks/merge_guard.py` refuses `gh pr merge` on such a pull request; do not merge it another way.
+- The maintainer merges, and the pull request is labeled `needs-maintainer` instead of merged, when it changes `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, a decision of `docs/decisions/` (one that is there already, or the README), a screenshot reference or the process (docs/03 §3.6), or comes from someone else.
+- A pull request that adds a decision (a new file in `docs/decisions/`) and nothing else that waits does not wait: label it `review-after-merge` and merge it; the maintainer reviews it afterwards and takes the label off, or opens an issue for what to change. The PreToolUse hook `.claude/hooks/merge_guard.py` refuses `gh pr merge` on such a pull request; do not merge it another way.
 - The label sets the version (docs/03 §3.6): after a merge, the Release workflow tags the squash commit `vX.Y.Z` and publishes a GitHub Release; `feature` raises the minor version, `bug` the patch, the other labels leave it. The major version only when the maintainer asks: `gh workflow run release.yml -f bump=major`.
 - Without an issue: the daily `Dependencies: cargo update` pull request, merged with `--auto`.
+- No deep stacks. A pull request is based on another only when it cannot be written from `main`, and at most two deep; otherwise take other work from `main`, or wait.
+- The maintainer merges only pull requests based on `main`. Once one is squash-merged, `python -I tools/stack/stack.py after <N>` brings those stacked on it up to `main` (it merges `main` in with the newest of their base's commits as the merge base, so that their own changes to its lines stand); tell the maintainer when they are ready.
+- When two or more pull requests wait, `python -I tools/stack/stack.py integrate --check` merges them all into a local branch `integration`: write the order of merging and the conflicts it finds into the pull requests, and resolve those conflicts on their branches.
 
 ## Before finishing a task
 
@@ -104,6 +108,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Recovered logic of the original goes into `docs/re/<subsystem>.md`.
 - Deliberate deviations from the original's behavior go into `docs/decisions/`, a file each (`docs/decisions/README.md`).
 - Claude Code usage goes into each pull request's description, not into a file ("Issues and pull requests"; docs/usage.md).
+- One sentence per line in the documents (`docs/`, `PLAN.md`, `tools/README.md`): two changes to one paragraph then touch different lines. A list item's later sentences are indented to stay in it.
 
 ## Code conventions
 
@@ -112,6 +117,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Dependency versions live in `[workspace.dependencies]` of the root `Cargo.toml`; crates pull them in with `workspace = true`.
 - Clippy rules live in `[workspace.lints.clippy]`. Numbers are converted with `From`/`TryFrom`, not `as`; outside tests, no `unwrap`/`expect` — return an error with context (file, record). A rule is suppressed only with `#[expect(clippy::…, reason = "…")]` and only when the code is genuinely better that way; do not rewrite code to satisfy a rule at the expense of clarity.
 - Paths inside the installation use the case from the manifest (`PAK/`, `World/`).
+- In `opensacred-game`, a module registers its own systems, resources and observers in a `Plugin` of its own; `main.rs` keeps the window, the command line, the resources read from the assets, and one line a module's plugin, in alphabetical order. The steps of `frame::Step` order the systems across modules.
 
 ## Environment
 

@@ -126,7 +126,9 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   On failure Claude is sent back to fix it; if the checks still fail after that retry, Claude stops and the developer gets a warning.
   A passing state is remembered in `target/`, so a turn without new changes does not rebuild anything.
   Tests on the game files and `cargo deny check` stay manual.
-* **Merge guard** (`.claude/hooks/merge_guard.py`, a `PreToolUse` hook on shell commands): `gh pr merge` is refused when the pull request is labeled `needs-maintainer`, touches `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions/` or a screenshot reference, or was opened by someone other than the repository's owner; `--admin` is refused always (§3.6).
+* **Merge guard** (`.claude/hooks/merge_guard.py`, a `PreToolUse` hook on shell commands): `gh pr merge` is refused when the pull request is labeled `needs-maintainer`, touches `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, a decision already in `docs/decisions/` or its README, or a screenshot reference, or was opened by someone other than the repository's owner; `--admin` is refused always (§3.6).
+  A decision added (a new file of `docs/decisions/`, by the pull request's files and their status) does not stop the merge, but the pull request must carry the label `review-after-merge`.
+  Tests: `python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
 * **Converter golden data:** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
 * **Oracle vectors:** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
@@ -162,7 +164,14 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * **Merging.**
   Squash merge only, the branch deleted on merge.
   Claude Code merges with `gh pr merge --squash --auto`, which waits for the checks.
-  The maintainer merges what changes the rules or the process (`CLAUDE.md`, `.claude/`, `.github/`, this section), the allowed licenses (`deny.toml`), the deviations from the original (`docs/decisions/`) or a screenshot reference, and every pull request from a contributor; such a pull request is labeled `needs-maintainer`, and the merge guard (§3.4) refuses to merge it.
+  The maintainer merges what changes the rules or the process (`CLAUDE.md`, `.claude/`, `.github/`, this section), the allowed licenses (`deny.toml`), a deviation from the original already recorded (a file of `docs/decisions/` that is there) or a screenshot reference, and every pull request from a contributor; such a pull request is labeled `needs-maintainer`, and the merge guard (§3.4) refuses to merge it.
+  A pull request that adds a deviation (a new file of `docs/decisions/`) and nothing else of those does not wait: it is labeled `review-after-merge` and merged, and the maintainer reviews it afterwards and takes the label off, or opens an issue for what to change.
+  Until 2026-10-18 adding a decision waited too; more than half of the pull requests that waited that day waited for that alone, and the work went on in pull requests stacked on them (#77).
+  The maintainer merges only a pull request based on `main`: one merged while its base was another pull request's branch lands in that branch (#41).
+* **Stacks.**
+  A pull request is based on another only when it cannot be written from `main`, and at most two deep; otherwise Claude Code takes other work from `main`, or waits.
+  Once the base is squash-merged, its children still carry its own commits, and where they changed its lines Git sees two versions of them; `tools/stack/stack.py after <N>` merges `main` into each child with the newest of its base's commits that it holds as the merge base, so that the child keeps its changes and gains only what `main` got beyond its base, and pushes the merge.
+  When two or more pull requests wait, `tools/stack/stack.py integrate --check` merges them all into a local branch `integration`, a stacked one after its base, with fmt, clippy and the tests: the order of merging and the conflicts are written into the pull requests, and the conflicts resolved on their branches, before the maintainer merges.
 * **Versions.**
   Since 2026-10-17 the version follows the merged pull requests.
   On every push to `main`, the Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
