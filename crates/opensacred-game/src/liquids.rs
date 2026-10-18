@@ -18,8 +18,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::{
-    AlphaMode, AssetServer, Assets, Color, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Res, ResMut, Resource, StandardMaterial, Time, Vec3, default,
+    AlphaMode, App, AssetServer, Assets, Color, Commands, Entity, Handle, Image, Mesh, Mesh3d,
+    MeshMaterial3d, Plugin, Res, ResMut, Resource, StandardMaterial, Time, Update, Vec3, default,
 };
 use opensacred_data::world::{SIDE, Sector};
 
@@ -337,6 +337,15 @@ pub fn animate(
         if let Some(mut material) = materials.get_mut(&animated.material) {
             material.base_color_texture = Some(frame.clone());
         }
+    }
+}
+
+/// The liquids' frames.
+pub struct LiquidsPlugin;
+
+impl Plugin for LiquidsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, animate);
     }
 }
 

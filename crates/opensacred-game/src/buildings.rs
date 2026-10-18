@@ -12,6 +12,7 @@
 use bevy::prelude::*;
 use opensacred_data::world::{SIDE, Sector};
 
+use crate::frame::Step;
 use crate::hero::Body;
 use crate::terrain::Heights;
 
@@ -130,6 +131,16 @@ pub fn enter(
         for (f, visibility) in &mut shown.p3() {
             furnishing(f, visibility);
         }
+    }
+}
+
+/// The buildings' states, by the building the hero is in.
+pub struct BuildingsPlugin;
+
+impl Plugin for BuildingsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Buildings>()
+            .add_systems(Update, enter.in_set(Step::Buildings));
     }
 }
 

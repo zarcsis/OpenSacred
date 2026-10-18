@@ -33,16 +33,17 @@ use anyhow::{Context, Result};
 use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::{
-    AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, AssetId,
+    AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, App, AssetId,
     AssetServer, Assets, ChildOf, Children, Commands, Component, Entity, GltfAssetLabel, Handle,
-    Image, MeshMaterial3d, Name, On, Query, Res, ResMut, Resource, StandardMaterial, Transform,
-    Vec3, Visibility, Without, WorldAssetRoot,
+    Image, IntoScheduleConfigs, MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut, Resource,
+    StandardMaterial, Transform, Update, Vec3, Visibility, Without, WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Record, Tree, Value};
 use opensacred_data::tables::{Item, Weapon};
 use opensacred_data::world::SIDE;
 
+use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::{buildings, hero, iso, models};
@@ -702,6 +703,19 @@ pub fn animate(
             player.play(node).repeat().set_speed(speed.0);
             commands.entity(entity).insert(AnimationGraphHandle(graph));
         }
+    }
+}
+
+/// The start script's NPCs and objects: placed as their sectors come in, animated, retextured and
+/// equipped.
+pub struct NpcsPlugin;
+
+impl Plugin for NpcsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Retextured>()
+            .add_observer(retexture)
+            .add_observer(equipment_ready)
+            .add_systems(Update, (place, animate, equip).chain().in_set(Step::Npcs));
     }
 }
 

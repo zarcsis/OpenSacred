@@ -220,6 +220,16 @@ pub fn gait(hero: Res<Hero>, mut labels: Query<&mut Text, With<GaitLabel>>) {
     }
 }
 
+/// The portrait, the health bar, the gait and the cursor.
+pub struct HudPlugin;
+
+impl Plugin for HudPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, (setup, cursor))
+            .add_systems(Update, (scale, gait));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,13 +14,16 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bevy::log::debug;
-use bevy::prelude::{AssetServer, Handle, Query, Res, ResMut, Resource, Time, Transform, With};
+use bevy::prelude::{
+    App, AssetServer, Handle, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+};
 use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTween, Decibels};
 use opensacred_data::sound::Sound;
 
 use crate::daynight::{Clock, Phase};
 use crate::hero::Body;
 use crate::terrain::Heights;
+use bevy_kira_audio::AudioApp;
 
 /// The ambient loop of each nature by day, by the client's switch; `None` keeps the loop.
 const DAY: [Option<&str>; 16] = [
@@ -164,4 +167,14 @@ pub fn choose(
         .fade_in(AudioTween::linear(FADE));
     atmosphere.playing = Some(file);
     atmosphere.wanted = None;
+}
+
+/// The ambient loops.
+pub struct AtmospherePlugin;
+
+impl Plugin for AtmospherePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_audio_channel::<Channel>()
+            .add_systems(Update, choose);
+    }
 }
