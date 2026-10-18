@@ -47,7 +47,7 @@ A function around `0x696B70` chooses the ambient loop (an `ATMO_*` file of `mp3/
 
 | Offset | Size | Meaning |
 |---|---|---|
-| `+0xA34` | u16 | the time of day: 1 and 2 select the night loops (hypothesis: night and dusk) |
+| `+0xA34` | u16 | the phase of the day, from the renderer's event of type 3 (docs/re/daynight.md): 0 the day, 1 the dusk, 2 the night, 3 the dawn; 1 and 2 select the night loops |
 | `+0xA36` | u16 | the nature of the cell under the hero, the cell's `+0x1F` with the low nibble 0 |
 | `+0xA3C` | u32 | a bit set: the bit of the region at `+0xA40` selects `MUSIC_VILLAGE_SIEGE_UNDEAD` |
 | `+0xA40` | u32 | an index; 0x6E is replaced by 0xB |

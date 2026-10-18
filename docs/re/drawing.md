@@ -32,8 +32,14 @@ The statics agree (**confirmed** on the sector files): in building cells, those 
 
 In the game data 47 types carry bit `0x200`, with 220 drawn objects in the whole world; by their editor names they are the floors of towers' and houses' upper storeys.
 
+## The models
+
+The world's dynamic objects (the creatures, the start script's objects) are entries of the same draw lists. After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects of the cell's layer (the layer of its building's state, above) and appends each, as an entry of kind 0 with the object's index, to list 3 (the vector at `+0x96AF4` of the view), or to list 0 or list 4 by tests of its type (`0x4280B0`, `0x4280D0`, `0x4280F0`, not followed). `0x62FF60` walks the five lists in order (the vectors from `+0x96AD0`, 12 bytes apart) and draws an entry of kind 0 by calling the object's own draw (its virtual function at `+0x14`), in its place among the list's sprites. So a model is drawn after every sprite of an earlier row and of an earlier cell of its row, and after its cell's statics; the sprites, without the depth test, cover a model drawn before them whole and lie whole under one drawn after them. The depth state of a model's own draw is not read.
+
 ## What the game does with it
 
 `opensacred-game` orders the sprites through the depth buffer instead (docs/decisions.md 2026-10-17): each lies at the depth of its cell's centre, so all the sprites of one cell, and those of the cells of one diagonal at one height, have the same depth. Its sprite shader brings each one forward by a little in the order above: by its cell's distance along the screen's right, which grows with `cx` along a diagonal, and by its place in the cell's chain (`statics::SpriteMaterial`).
 
-Not followed yet: where the models of the creatures and the objects of the start script go in this order (the "wobj" walk of `0x62AE90` appends the world's dynamic objects of a cell to the lists too), and what `0x62E410` draws.
+The models take the same depth (`models`, docs/decisions.md 2026-10-18): every vertex of a model lies at the depth of the centre of the cell its root stands in, its place after the cell's statics, plus a hundredth of its own depth from that centre, which keeps the model's parts in order among themselves. A sprite of another diagonal, 33 units of depth away, is then wholly in front of a model or wholly behind it, as in the original; the sprites of the model's own diagonal within a few cells, a tenth of a unit apart, can still cross it. Before, every sprite whose plane crossed a model cut it (#48).
+
+Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3), and what `0x62E410` draws.
