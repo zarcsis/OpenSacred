@@ -170,9 +170,15 @@ struct Cli {
     /// Save one frame to this PNG once the scene is ready, then exit
     #[arg(long)]
     screenshot: Option<PathBuf>,
-    /// Frames to render between the scene being ready and the screenshot
+    /// Frames to render between the scene being ready and the screenshot or the recording
     #[arg(long, default_value_t = 30)]
     frames: u32,
+    /// Save that many frames to DIR/frame-NNNN.png once the scene is ready, then exit
+    #[arg(long, value_name = "DIR")]
+    record: Option<PathBuf>,
+    /// Frames to save with --record
+    #[arg(long, default_value_t = 90)]
+    record_frames: u32,
     /// Render without vsync for this many seconds, print the frame rate and exit
     #[arg(long, value_name = "SECONDS")]
     benchmark: Option<f32>,
@@ -426,6 +432,16 @@ fn run(cli: Cli) -> Result<AppExit> {
     if let Some(seconds) = cli.benchmark {
         app.insert_resource(benchmark::Benchmark::new(seconds))
             .add_systems(Update, benchmark::measure);
+    }
+    if let Some(dir) = cli.record {
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| anyhow::anyhow!("creating {}: {e}", dir.display()))?;
+        app.insert_resource(screenshot::Recording::new(
+            dir,
+            cli.frames,
+            cli.record_frames,
+        ))
+        .add_systems(Update, screenshot::record);
     }
     if let Some(path) = cli.screenshot {
         app.insert_resource(screenshot::Request::new(path, cli.frames))
