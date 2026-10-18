@@ -135,6 +135,7 @@ pub fn stream(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
+    mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
     light_types: Res<daynight::LightTypes>,
 ) {
     let streamer = &mut *streamer;
@@ -169,7 +170,7 @@ pub fn stream(
             built.ground,
             &mut images,
             &mut meshes,
-            &mut materials,
+            &mut grounds,
         );
         entities.extend(liquids::spawn(
             &mut commands,
