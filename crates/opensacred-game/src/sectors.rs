@@ -134,6 +134,7 @@ pub fn stream(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
 ) {
     let streamer = &mut *streamer;
     let finished: Vec<_> = streamer
@@ -181,7 +182,7 @@ pub fn stream(
             built.statics,
             &assets,
             &mut meshes,
-            &mut materials,
+            &mut sprite_materials,
         ));
         streamer.loaded.insert(at, entities);
     }
