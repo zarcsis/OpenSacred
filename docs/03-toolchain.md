@@ -3,7 +3,7 @@
 ## Summary
 
 * All tools are free.
-  Binary analysis uses **Ghidra 12.1.4** with an MCP server for Claude Code (**GhidraMCP 2.0** or **pyghidra-mcp**); IDA Pro and Binary Ninja are excluded.
+  Binary analysis uses **Ghidra 12.1.4** with the MCP server **pyghidra-mcp** for Claude Code (**GhidraMCP 2.0** is the alternative with the Ghidra GUI); IDA Pro and Binary Ninja are excluded.
 * The product is built with **Rust 1.99.1** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.50 and the Windows SDK are needed for Rust on Windows).
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions) and **x64dbg**; optionally **dgVoodoo2** (capturing frames of the original in RenderDoc).
@@ -17,12 +17,12 @@
 | Stage | Tool | Version | License, price | Purpose |
 |---|---|---|---|---|
 | Binary analysis | Ghidra | 12.1.4 (JDK 25 LTS, Temurin) | Apache-2.0, free | disassembler and decompiler; RTTI, classes, a shared labeling database |
-| | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | MCP server: Claude Code reads the decompilation, renames functions and fields |
-| | pyghidra-mcp | current | open source | a headless alternative without the Ghidra GUI; batch decompilation |
+| | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session (§3.2) |
+| | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
 | | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.0 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 | GPL-2.0, development only | `opensacred-oracle`, a separate development-only crate run locally on your own `Sacred.exe`: the original's functions in the emulator → vectors for tests |
-| | x64dbg | current | GPL-3.0 | breakpoints in the original on Windows 11, testing hypotheses |
+| | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.x | freeware | optional: the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
 | | Visual Studio Build Tools 2026 | MSVC 14.50 + Windows SDK | free for individual development | the linker for Rust on Windows |
@@ -52,7 +52,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; Vulkan SDK; Blender.
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender.
 * **The JDK for Ghidra is 25 LTS (Temurin), not 21.**
   Ghidra 12.1.4 accepts any 64-bit JDK of version 21 or later (`application.java.min=21`, no upper bound), and Ghidra's main branch already requires 25.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -60,7 +60,10 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 * **Ghidra has no installer:** the release zip, checked against the SHA-256 in the release notes, is unpacked into `%LOCALAPPDATA%\Programs\Ghidra\`, which needs no administrator rights.
   The GUI is then `%LOCALAPPDATA%\Programs\Ghidra\ghidra_12.1.4_PUBLIC\ghidraRun.bat` and the headless analyzer `support\analyzeHeadless.bat` next to it; on 2026-10-18 the headless import and analysis of a 32-bit PE ran on Temurin 25.
   `JAVA_HOME_OVERRIDE` names Temurin's versioned directory (`C:\Program Files\Eclipse Adoptium\jdk-25.0.4.101-hotspot`), which a Temurin update replaces; Ghidra ignores an override that no longer points to a JDK, so it is updated with Temurin.
-* **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`.
+* **x64dbg comes from winget** (`winget install --id x64dbg.x64dbg --exact`): a portable zip of the GitHub release, which winget checks against the SHA-256 in its manifest and unpacks into `%LOCALAPPDATA%\Microsoft\WinGet\Packages\x64dbg.x64dbg_Microsoft.Winget.Source_8wekyb3d8bbwe\release\`.
+  `Sacred.exe` is debugged with `x32\x32dbg.exe` there (`x96dbg.exe` next to `x32\` picks the debugger by the program's bitness); on 2026-10-18 its 32-bit engine (`x32\headless.exe`) started, and `x32dbg.exe` carries a valid signature of the x64dbg author.
+  winget reports the command aliases `x32dbg` and `x64dbg` but creates no links for them, so the debugger stays outside `PATH`.
+* **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, x64dbg (above).
   The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver. glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
 * **Not every tool is needed from the start:** Ghidra and the MCP server come in with M3, KTX-Software with the texture converter, the upscalers with M7.
 
@@ -89,18 +92,47 @@ The repository root holds `CLAUDE.md` with the rules that Claude Code reads at t
 ### 3.2 Ghidra MCP server
 
 Claude Code connects to Ghidra through MCP and gets tools: decompile a function, find cross-references, rename, set a type.
-Two options:
+The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI; **GhidraMCP 2.0**, a plugin for the GUI, stays the alternative for a developer who wants to look at Ghidra alongside.
 
-* **GhidraMCP 2.0**: a plugin for Ghidra with a GUI; convenient when a developer is looking at Ghidra in parallel.
-* **pyghidra-mcp**: a headless server; convenient for batch work without an open GUI.
+* **One server for every session.**
+  pyghidra-mcp runs as a persistent Streamable HTTP server at `http://127.0.0.1:8000/mcp`, not as a stdio server that each Claude Code session would start for itself: a Ghidra project is locked by the process that opens it, and several sessions run at once.
+  Claude Code connects to it at the user scope, so the main checkout and every worktree see it; a session sees the server's tools only if it started after the connection was added.
+* **The project lies outside the repository**, in `%USERPROFILE%\GhidraProjects\`: `OpenSacred.gpr`, `OpenSacred.rep\` and `OpenSacred-pyghidra-mcp\` (the ChromaDB index of the code and the strings, and a cache of GZF files).
+  In a checkout, `git clean -xfd` would delete it with the names and comments it gathers over M3, and `.gitignore` does not cover the `-pyghidra-mcp` directory.
+* **Python.**
+  uv runs pyghidra-mcp on Python 3.13, which it downloads itself: `onnxruntime`, which chromadb needs, has wheels up to Python 3.14 and none for the research scripts' 3.15 (on 2026-10-18 uv could not resolve pyghidra-mcp 0.2.7 on 3.15).
+* **Java.**
+  pyghidra loads the JVM into its Python process and finds the JDK as Ghidra's own launchers do, so `JAVA_HOME_OVERRIDE` (§2) applies: on 2026-10-18 it loaded Temurin 25 although `JAVA_HOME` named Android Studio's runtime.
+  `GHIDRA_INSTALL_DIR`, a user environment variable, names the Ghidra directory.
+* **The first start** takes the binaries, imports them and names them with a suffix of their hash: `Sacred.exe-d98109`, `GameServer.exe-6233cd`.
+  The analysis is Ghidra's default one, in threads, in the background: the server answers while it runs, and `list_project_binaries` shows `analysis_complete`.
+  On 2026-10-18 on a Core i9-13900KF the analysis of `Sacred.exe` took 193 s, 107 s of them in the decompiler's switch analysis; the default analysis includes the Windows x86 PE RTTI analyzer (§4.1).
+  pyghidra-mcp then decompiles every function into the ChromaDB index of `search_code` (11 minutes for `Sacred.exe`, with no function failing) and loads the strings (23,745 in `Sacred.exe`); the project then takes 385 MB.
+  The server's Python takes ≈1.2 GB during the analysis, and the decompiler runs as separate `decompile.exe` processes.
+* **Later starts** take no binaries: the server opens the project, skips the analysis and the finished index, and answers in ≈7 s.
+  Binaries given again fail to import with `FileInUseException` (they are in the project already), and the server goes on without them.
+* **Stopping.**
+  Ctrl+C in the server's console saves and closes the project.
+  The hidden process is stopped with `taskkill /PID <uvx> /T /F` after the `save` tool has saved the programs' latest edits; on 2026-10-18 the project opened again after two such stops, the `OpenSacred.lock` they leave behind notwithstanding.
+* **The tools** (20 in 0.2.7): `decompile_function`, `disassemble`, `list_xrefs`, `gen_callgraph`, `search_code`, `search_strings`, `search_symbols_by_name`, `list_imports`, `list_exports`, `read_bytes`; `rename_function`, `rename_variable`, `set_variable_type`, `set_function_prototype`, `set_comment`, `save`; `import_binary`, `delete_project_binary`, `list_project_binaries`, `list_project_binary_metadata`.
+  None of them executes arbitrary code.
 
-```bash
-# Example of connecting the headless server (check the flags against the pyghidra-mcp README)
-claude mcp add ghidra -- uvx pyghidra-mcp --project-path ./re/ghidra ./OriginalGame/Sacred.exe
+```powershell
+# Once: uv, the Ghidra directory, the connection
+winget install --id astral-sh.uv --exact
+[Environment]::SetEnvironmentVariable('GHIDRA_INSTALL_DIR', "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.1.4_PUBLIC", 'User')
+claude mcp add --transport http --scope user ghidra http://127.0.0.1:8000/mcp
+
+# The server, as a hidden process of its own; started by hand after a reboot
+$d = "$env:USERPROFILE\GhidraProjects"; New-Item -ItemType Directory -Force $d | Out-Null
+$a = "--python 3.13 pyghidra-mcp@0.2.7 --transport streamable-http --project-path `"$d`" --project-name OpenSacred"
+# Only on the first start, from the main checkout (where OriginalGame/ is): the binaries to import
+$a += " `"$PWD\OriginalGame\Sacred.exe`" `"$PWD\OriginalGame\GameServer.exe`""
+Start-Process uvx -ArgumentList $a -WindowStyle Hidden -RedirectStandardOutput "$d\pyghidra-mcp.out.log" -RedirectStandardError "$d\pyghidra-mcp.err.log"
 ```
 
-MCP tools that execute arbitrary Python inside Ghidra are run only locally.
-The Ghidra project, the decompilation and anything exported from it stay on the developer's machine (Ghidra's project files are ignored by Git) and are never committed: what reaches the repository is a description of the behavior in prose in `docs/re/` and our own code (docs/04 §2, docs/08 §3).
+MCP tools that execute arbitrary code inside Ghidra (such as running a script) are run only locally.
+The Ghidra project, the decompilation and anything exported from it stay on the developer's machine and are never committed: what reaches the repository is a description of the behavior in prose in `docs/re/` and our own code (docs/04 §2, docs/08 §3).
 
 ### 3.3 Task types
 
@@ -196,7 +228,8 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 
 1. Create a local project and import the GOG `Sacred.exe` (SHA-256 `db9b86a4…71e74`) and `GameServer.exe` from your own installation.
    The GOG build has no DRM; the files are analyzed as they are.
-2. Run the analysis with the MSVC RTTI analyzer enabled; recover the classes with the RecoverClassesFromRTTI script.
+   pyghidra-mcp does this on its first start, with Ghidra's default analysis (§3.2).
+2. Run the analysis with the MSVC RTTI analyzer enabled (Ghidra's default analysis of a PE has it); recover the classes with the RecoverClassesFromRTTI script.
 3. Import the community names locally: the sacred-bild function export (GPL-3.0) and the sacred-sdk addresses (MIT).
    The GOG ENG addresses match them.
    The community files themselves are not copied into the repository.
@@ -238,9 +271,8 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 
 ## Open questions
 
-1. GhidraMCP or pyghidra-mcp as the main server: choose at the start of M3 based on convenience.
-2. Whether Unicorn stubs work for functions that access the game's global tables (`.data` from the image needs to be mapped).
-3. Whether software Vulkan in CI is enough for Bevy screenshot tests.
+1. Whether Unicorn stubs work for functions that access the game's global tables (`.data` from the image needs to be mapped).
+2. Whether software Vulkan in CI is enough for Bevy screenshot tests.
 
 ## Sources
 

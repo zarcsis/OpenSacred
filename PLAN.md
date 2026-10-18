@@ -91,7 +91,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder, the HTML video element in the browser | Everything is free and builds for Windows, Linux, Android and WebAssembly |
 | ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
 | ADR-09 Network | Not done: no server, no multiplayer; `GameServer.exe` is used only as an auxiliary binary when analyzing shared functions | Requirement (§1.1) |
-| ADR-10 Tools | Free only: Ghidra 12.1 + GhidraMCP 2.0 or pyghidra-mcp, Unicorn (emulating the original's functions for tests), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
+| ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
 | ADR-11 Process | Claude Code as the main executor: `CLAUDE.md` with rules, MCP to Ghidra, tests as guardrails (converter golden data, oracle vectors, screenshot tests), small tasks, maintainer review | Solo development; quality rests on automated checks, not on manual review of every line |
 | ADR-12 Repository and legal | The repository is public and holds no game bytes: no game files, converted assets, HD packs or dumps, in the repository or in CI; users supply their own GOG copy and run the converter locally; converted output is never published (§12, docs/08) | The game belongs to the rights holder; every user needs their own copy |
 
@@ -333,6 +333,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Since 2026-10-17 it lists 319 files: the files the game writes (`Gameserver.cfg`, the saves of `save/`, the `DefPos.bin` caches) were removed, like `Settings.cfg` before them (docs/02 §13).
 3. Moved to the start of M3 on 2026-10-16: install Ghidra 12.1.4, load the GOG `Sacred.exe` and `GameServer.exe`, import the community names, connect GhidraMCP or pyghidra-mcp to Claude Code.
    M1 and M2 work from the data and the community format descriptions; if a format question needs the original's code, Ghidra is installed earlier.
+   Done 2026-10-18, ahead of M3: Ghidra 12.1.4 on Temurin 25, pyghidra-mcp connected to Claude Code, `Sacred.exe` and `GameServer.exe` imported and analyzed (docs/03 §3.2); the community names, the classes from RTTI and the marking of the library code remain (docs/03 §4.1, #88).
 4. **M1, textures.**
    Done 2026-10-16.
    The `opensacred-formats` crate got a shared PAK reader and a TEX decoder.
