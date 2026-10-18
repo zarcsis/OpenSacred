@@ -10,6 +10,11 @@
 //! grid's axes (`0x44DDC0`, docs/02 §7.3). A `CreateObj` record has the same `0x02`, `0x04` and
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
 //! same reading).
+//!
+//! The model takes the texture its `items.pak` record names at `+0x08`, a `texture.pak` record,
+//! in place of the GRN's own (docs/02 §6.1): the chests, vases and coffins of `chest.grn`,
+//! `vase_01.grn` and `coffin_01.grn` have none of their own, and the soldiers, horses, wolves
+//! and citizens wear their record's variant of their model's skin.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -17,11 +22,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use bevy::gltf::Gltf;
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::{
-    AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, AssetServer, Assets,
-    ChildOf, Commands, Component, Entity, GltfAssetLabel, Handle, Query, Res, ResMut, Resource,
-    Transform, Vec3, Without, WorldAssetRoot,
+    AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, AssetId,
+    AssetServer, Assets, ChildOf, Children, Commands, Component, Entity, GltfAssetLabel, Handle,
+    Image, MeshMaterial3d, On, Query, Res, ResMut, Resource, StandardMaterial, Transform, Vec3,
+    Without, WorldAssetRoot,
 };
+use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Record, Tree, Value};
 use opensacred_data::tables::Item;
 use opensacred_data::world::SIDE;
@@ -46,6 +54,8 @@ struct Placement {
     heading: f32,
     /// A `CreateObj`'s object rather than an NPC.
     object: bool,
+    /// The texture its item names (`+0x08`), relative to the asset directory.
+    texture: Option<String>,
 }
 
 #[derive(Resource)]
@@ -58,6 +68,17 @@ pub struct Npcs {
 /// An object of the start script.
 #[derive(Component)]
 pub struct Object;
+
+/// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
+#[derive(Component)]
+pub struct Retexture(Handle<Image>);
+
+/// The glTF materials given an item's texture, by the material and the texture: shared by the
+/// models of one item.
+#[derive(Resource, Default)]
+pub struct Retextured(
+    HashMap<(AssetId<StandardMaterial>, AssetId<Image>), Handle<StandardMaterial>>,
+);
 
 /// An NPC's model root, until its idle clip plays.
 #[derive(Component)]
@@ -119,6 +140,31 @@ fn positions(records: &[Record]) -> HashMap<String, (i32, i32)> {
         .collect()
 }
 
+/// The PNG of every `texture.pak` record (`textures/texture/NNNNN-name.png`), by its number,
+/// relative to the asset directory.
+pub fn texture_files(assets: &Path) -> Result<HashMap<u32, String>> {
+    let path = assets.join("textures").join("texture");
+    let mut files = HashMap::new();
+    let Ok(entries) = fs::read_dir(&path) else {
+        return Ok(files);
+    };
+    for entry in entries {
+        let name = entry
+            .with_context(|| format!("reading {}", path.display()))?
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if let Some(number) = name
+            .split_once('-')
+            .and_then(|(number, _)| number.parse::<u32>().ok())
+            && name.ends_with(".png")
+        {
+            files.insert(number, format!("textures/texture/{name}"));
+        }
+    }
+    Ok(files)
+}
+
 /// The `.glb` of every model, by its upper-case `.GRN` name.
 pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
     let mut files = HashMap::new();
@@ -160,6 +206,7 @@ impl Npcs {
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let items: HashMap<u32, &Item> = items.iter().map(|i| (i.slot, i)).collect();
         let models = model_files(assets)?;
+        let textures = texture_files(assets)?;
         let named = positions(&tree.start);
         let mut placements = Vec::new();
         for record in tree
@@ -189,17 +236,22 @@ impl Npcs {
             let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
                 continue;
             };
-            let Some(model) = items
-                .get(&creature)
-                .and_then(|item| models.get(&item.name.to_ascii_uppercase()))
-            else {
+            let Some(item) = items.get(&creature) else {
                 continue;
+            };
+            let Some(model) = models.get(&item.name.to_ascii_uppercase()) else {
+                continue;
+            };
+            let texture = match item.words_08[0] {
+                0 => None,
+                number => textures.get(&number).cloned(),
             };
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
                 heading: heading.unwrap_or(0.0),
                 object: record.kind == CREATE_OBJ,
+                texture,
             });
         }
         let side = u32::try_from(SIDE)?;
@@ -257,6 +309,19 @@ pub fn place(
                     .with_rotation(hero::facing(heading(placement.heading)))
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
             ));
+            if let Some(texture) = &placement.texture {
+                // Repeated, as a glTF texture without a sampler is: the models' texture
+                // coordinates run past the image (the lid of `chest.grn` from -0.99 to -0.36).
+                let texture = assets
+                    .load_builder()
+                    .with_settings(|settings: &mut ImageLoaderSettings| {
+                        let mut sampler = ImageSamplerDescriptor::linear();
+                        sampler.set_address_mode(ImageAddressMode::Repeat);
+                        settings.sampler = ImageSampler::Descriptor(sampler);
+                    })
+                    .load(texture.clone());
+                entity.insert(Retexture(texture));
+            }
             if placement.object {
                 entity.insert(Object);
             } else {
@@ -271,6 +336,41 @@ pub fn place(
     }
     // Sectors that went out place their NPCs again when they come back.
     npcs.spawned.retain(|at| loaded.contains(at));
+}
+
+/// Gives the meshes of a placed model that has just spawned its item's texture, each glTF
+/// material copied once per texture with that texture as its base colour.
+pub fn retexture(
+    ready: On<WorldInstanceReady>,
+    models: Query<&Retexture>,
+    children: Query<&Children>,
+    mut meshes: Query<&mut MeshMaterial3d<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut retextured: ResMut<Retextured>,
+) {
+    let Ok(Retexture(texture)) = models.get(ready.entity) else {
+        return;
+    };
+    for entity in children.iter_descendants(ready.entity) {
+        let Ok(mut material) = meshes.get_mut(entity) else {
+            continue;
+        };
+        let key = (material.0.id(), texture.id());
+        let handle = match retextured.0.get(&key) {
+            Some(handle) => handle.clone(),
+            None => {
+                let Some(original) = materials.get(&material.0) else {
+                    continue;
+                };
+                let mut copy = original.clone();
+                copy.base_color_texture = Some(texture.clone());
+                let handle = materials.add(copy);
+                retextured.0.insert(key, handle.clone());
+                handle
+            }
+        };
+        material.0 = handle;
+    }
 }
 
 /// Gives each NPC's animation player an idle clip of its model: the first by name that holds
@@ -329,6 +429,22 @@ mod tests {
     use opensacred_data::netscript::Operand;
 
     use super::*;
+
+    #[test]
+    fn textures_are_found_by_their_record_number() {
+        let assets =
+            std::env::temp_dir().join(format!("opensacred-game-textures-{}", std::process::id()));
+        let dir = assets.join("textures").join("texture");
+        fs::create_dir_all(&dir).unwrap();
+        for name in ["07442-chest02.png", "00001-cab.png", "notes.txt", "x-y.png"] {
+            fs::write(dir.join(name), b"").unwrap();
+        }
+        let files = texture_files(&assets).unwrap();
+        fs::remove_dir_all(&assets).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[&7442], "textures/texture/07442-chest02.png");
+        assert_eq!(files[&1], "textures/texture/00001-cab.png");
+    }
 
     #[test]
     fn a_heading_turns_from_the_grid_x_toward_its_y() {
