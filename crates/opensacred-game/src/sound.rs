@@ -15,13 +15,14 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    AnimationClip, AnimationPlayer, AssetServer, Assets, Handle, Query, Res, ResMut, Resource,
-    Time, Transform,
+    AnimationClip, AnimationPlayer, App, AssetServer, Assets, Handle, IntoScheduleConfigs, Plugin,
+    Query, Res, ResMut, Resource, Startup, Time, Transform, Update,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, PlaybackState};
 use opensacred_data::sound::Sound;
 use opensacred_data::tables::Motion;
 
+use crate::frame::Step;
 use crate::hero::{Body, Clips, Gait};
 use crate::terrain::Heights;
 
@@ -202,6 +203,16 @@ pub fn step(
         }
     }
     footsteps.last = Some((gait, now));
+}
+
+/// The footsteps of the hero's run and walk.
+pub struct SoundPlugin;
+
+impl Plugin for SoundPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, load)
+            .add_systems(Update, step.in_set(Step::Footsteps));
+    }
 }
 
 #[cfg(test)]

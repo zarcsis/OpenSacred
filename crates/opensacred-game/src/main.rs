@@ -6,6 +6,7 @@ mod atmosphere;
 mod benchmark;
 mod buildings;
 mod daynight;
+mod frame;
 mod hero;
 mod hud;
 mod iso;
@@ -30,7 +31,6 @@ use std::process::ExitCode;
 use anyhow::Result;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, WindowResolution};
-use bevy_kira_audio::AudioApp;
 use clap::{Parser, ValueEnum};
 
 /// The heroes whose models have their own clips: the model, the clips of standing, walking and
@@ -366,13 +366,24 @@ fn run(cli: Cli) -> Result<AppExit> {
                 task_pool_options: task_pools(),
             }),
     )
+    // Each module's plugin registers its own systems, resources and observers; one line a
+    // module, in alphabetical order.
     .add_plugins((
         bevy_kira_audio::AudioPlugin,
+        buildings::BuildingsPlugin,
+        daynight::DayNightPlugin,
+        frame::FramePlugin,
+        hero::HeroPlugin,
+        hud::HudPlugin,
+        liquids::LiquidsPlugin,
+        models::ModelsPlugin,
+        npcs::NpcsPlugin,
+        sectors::SectorsPlugin,
         shaders::ShaderLibrary,
+        shadows::ShadowsPlugin,
+        sound::SoundPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
-        models::ModelsPlugin,
-        daynight::DayNightPlugin,
     ))
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
@@ -394,58 +405,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         portrait,
         cursor: hud::cursor_file(&assets),
     })
-    .init_resource::<hero::Ready>()
-    .init_resource::<buildings::Buildings>()
-    .init_resource::<npcs::Retextured>()
-    .add_observer(npcs::retexture)
-    .add_observer(npcs::equipment_ready)
-    .add_systems(
-        Startup,
-        (
-            camera,
-            light,
-            hero::load,
-            sound::load,
-            shadows::setup,
-            hud::setup,
-            hud::cursor,
-            daynight::make_glow,
-        ),
-    )
-    .add_systems(
-        Update,
-        (
-            hero::spawn,
-            hero::animate,
-            iso::zoom,
-            hero::toggle,
-            hero::steer,
-            hero::run,
-            buildings::enter,
-            sound::step,
-            hero::follow,
-            sectors::stream,
-            npcs::place,
-            npcs::animate,
-            npcs::equip,
-            models::convert,
-            models::place,
-            shadows::add,
-            shadows::follow,
-        )
-            .chain(),
-    )
-    .add_systems(Update, (hud::scale, hud::gait, liquids::animate))
-    .add_systems(
-        Update,
-        (daynight::tick, daynight::light, daynight::glow).chain(),
-    );
+    .add_systems(Startup, (camera, light))
+    .add_systems(Update, iso::zoom.in_set(frame::Step::Zoom));
     if !cli.no_music {
-        app.add_audio_channel::<atmosphere::Channel>()
-            .add_audio_channel::<music::Channel>()
+        app.add_plugins((music::MusicPlugin, atmosphere::AtmospherePlugin))
             .insert_resource(music::Music::read(&assets)?)
-            .insert_resource(atmosphere::Atmosphere::read(&assets)?)
-            .add_systems(Update, (music::play, atmosphere::choose));
+            .insert_resource(atmosphere::Atmosphere::read(&assets)?);
     }
     if let Some(seconds) = cli.benchmark {
         app.insert_resource(benchmark::Benchmark::new(seconds))

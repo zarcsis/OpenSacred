@@ -20,7 +20,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use bevy::log::debug;
-use bevy::prelude::{AssetServer, Handle, Query, Res, ResMut, Resource, Time, Transform, With};
+use bevy::prelude::{
+    App, AssetServer, Handle, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+};
 use bevy_kira_audio::prelude::{
     AudioChannel, AudioControl, AudioInstance, AudioSource, Decibels, PlaybackState,
 };
@@ -29,6 +31,7 @@ use opensacred_data::world::{SIDE, World};
 
 use crate::daynight::{Clock, Phase};
 use crate::{hero, iso};
+use bevy_kira_audio::AudioApp;
 
 const PROFILE: &str = "music";
 /// The `PEACE` group of the profile.
@@ -203,6 +206,15 @@ pub fn play(
         file,
         region,
     });
+}
+
+/// The region's music.
+pub struct MusicPlugin;
+
+impl Plugin for MusicPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_audio_channel::<Channel>().add_systems(Update, play);
+    }
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
 use opensacred_data::world::{SIDE, Sector, Sprites, World};
 
+use crate::frame::Step;
 use crate::hero::Body;
 use crate::liquids::Liquids;
 use crate::terrain::Heights;
@@ -239,6 +240,15 @@ pub fn stream(
         for entity in streamer.loaded.remove(&at).unwrap_or_default() {
             commands.entity(entity).despawn();
         }
+    }
+}
+
+/// The sectors streamed in and out around the hero.
+pub struct SectorsPlugin;
+
+impl Plugin for SectorsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, stream.in_set(Step::Sectors));
     }
 }
 

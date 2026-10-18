@@ -35,8 +35,8 @@ use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMat
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
     AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, GlobalTransform,
-    Plugin, Projection, Query, Res, ResMut, Resource, StandardMaterial, Time, Transform, With,
-    Without, default,
+    IntoScheduleConfigs, Plugin, Projection, Query, Res, ResMut, Resource, StandardMaterial,
+    Startup, Time, Transform, Update, With, Without, default,
 };
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
@@ -146,13 +146,15 @@ fn ramp(light: f32) -> (f32, f32) {
     (base + light / 4.0, base + light / 3.0)
 }
 
-/// The night's pass and its shader.
+/// The clock, the night's pass and its shader, the lights and the glows.
 pub struct DayNightPlugin;
 
 impl Plugin for DayNightPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "night.wesl");
-        app.add_plugins(FullscreenMaterialPlugin::<Night>::default());
+        app.add_plugins(FullscreenMaterialPlugin::<Night>::default())
+            .add_systems(Startup, make_glow)
+            .add_systems(Update, (tick, light, glow).chain());
     }
 }
 

@@ -19,6 +19,7 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use bevy::world_serialization::WorldInstanceReady;
 
+use crate::frame::Step;
 use crate::iso;
 use crate::terrain::Heights;
 
@@ -91,7 +92,7 @@ pub struct Unplaced;
 #[derive(Resource, Default)]
 pub struct Converted(HashMap<AssetId<StandardMaterial>, Handle<ModelMaterial>>);
 
-/// The models' material, its shader and the buffer of the anchors.
+/// The models' material, its shader and the buffer of the anchors, and the models' places.
 pub struct ModelsPlugin;
 
 impl Plugin for ModelsPlugin {
@@ -102,7 +103,8 @@ impl Plugin for ModelsPlugin {
             .init_resource::<Converted>()
             .add_observer(hold)
             .add_observer(release)
-            .add_observer(ready);
+            .add_observer(ready)
+            .add_systems(Update, (convert, place).chain().in_set(Step::Models));
     }
 }
 
