@@ -12,13 +12,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::{RenderAssetUsages, embedded_asset};
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
-    Assets, Commands, Entity, Image, Mesh, Mesh3d, MeshMaterial3d, Resource, StandardMaterial,
-    Vec3, default,
+    App, Asset, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d, MeshMaterial3d, Plugin,
+    Resource, TypePath, Vec3,
 };
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{
+    AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    TextureDimension, TextureFormat,
+};
+use bevy::shader::ShaderRef;
 use opensacred_data::world::{Cell, DIAMONDS, SIDE, Sector, World};
 
 use crate::iso;
@@ -395,7 +400,8 @@ pub fn build(assets: &Path, world: &World, sector: &Sector) -> Result<Ground> {
         },
         TextureDimension::D2,
         atlas.pixels,
-        TextureFormat::Rgba8UnormSrgb,
+        // The values as stored: the shader multiplies them by the light before decoding.
+        TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
     Ok(Ground { image, mesh })
@@ -412,6 +418,46 @@ pub fn center(sector: &Sector) -> Vec3 {
     ) + Vec3::Y * iso::height(mean)
 }
 
+/// The shader of [`GroundMaterial`], embedded in the binary.
+const SHADER: &str = "embedded://opensacred_game/ground.wesl";
+
+/// The ground's material, unlit: the atlas's texel as stored, in sRGB values, times the vertex
+/// colour, the corners' light, then decoded to linear light (`ground.wesl`). The original
+/// multiplies the 8-bit texel by its corners' diffuse colour (docs/02 §5.3); the vertex colour of
+/// a `StandardMaterial` multiplies in linear light instead, which leaves shaded ground too light.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct GroundMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    atlas: Handle<Image>,
+}
+
+impl Material for GroundMaterial {
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.primitive.cull_mode = None;
+        Ok(())
+    }
+}
+
+/// The ground's material and its shader.
+pub struct GroundPlugin;
+
+impl Plugin for GroundPlugin {
+    fn build(&self, app: &mut App) {
+        embedded_asset!(app, "ground.wesl");
+        app.add_plugins(MaterialPlugin::<GroundMaterial>::default());
+    }
+}
+
 /// Spawns a ground as an unlit mesh, the tiles carrying their own shading and the corners their
 /// light, as in the original; returns the entities.
 pub fn spawn(
@@ -419,13 +465,10 @@ pub fn spawn(
     ground: Ground,
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<GroundMaterial>,
 ) -> Vec<Entity> {
-    let material = StandardMaterial {
-        base_color_texture: Some(images.add(ground.image)),
-        unlit: true,
-        cull_mode: None,
-        ..default()
+    let material = GroundMaterial {
+        atlas: images.add(ground.image),
     };
     vec![
         commands
