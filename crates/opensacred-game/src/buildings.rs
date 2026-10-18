@@ -1,10 +1,11 @@
 //! The buildings' states (docs/re/drawing.md, "Buildings: masks and layers"). A cell with flag
 //! bit 0 belongs to a building, whose anchor cell its offsets (`+0x1C`, `+0x1D`) point to. The
-//! client draws a building's parts flagged `0x8` only when their mask is the building's state,
-//! and the world's objects of its cells from the layer the state gives (the index of its lowest
-//! bit). Outside, the state is 1: the shell with its roof. **Hypothesis**: while the hero stands
-//! on one of a building's cells, which its walls let it reach only from inside, the building's
-//! state is 2: the ground floor cut open with its furniture, and the objects of layer 1. Not all
+//! client draws a building's parts (the statics of its cells flagged `0x8`, or of the types of
+//! lists 0, 2 and 4, `statics`) only when their mask is the building's state, and the world's
+//! objects of its cells from the layer the state gives (the index of its lowest bit). Outside,
+//! the state is 1: the shell with its roof. **Hypothesis**: while the hero stands on one of a
+//! building's cells, which its walls let it reach only from inside, the building's state is 2:
+//! the ground floor cut open with its furniture, and the objects of layer 1. Not all
 //! buildings flag their rooms' cells (bit 1: the monastery does, the pub of sector 50,40 does
 //! not), and the client's own choice of the state when the hero enters is not read yet; its
 //! event on the room bit is at `0x594011` (docs/02 §5.2).
