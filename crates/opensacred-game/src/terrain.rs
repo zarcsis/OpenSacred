@@ -547,6 +547,28 @@ pub fn center(sector: &Sector) -> Vec3 {
     ) + Vec3::Y * iso::height(mean)
 }
 
+/// Where the hero starts in a sector given by hand (`--sector`): the centre of the walkable cell
+/// nearest the sector's centre, on its ground, or the sector's centre where no cell is walkable.
+pub fn start(sector: &Sector) -> Vec3 {
+    let middle = SIDE / 2;
+    let Some((index, cell)) = sector
+        .cells
+        .iter()
+        .enumerate()
+        .filter(|(_, cell)| walkable(cell.flags, cell.ground))
+        .min_by_key(|(index, _)| {
+            (index % SIDE).abs_diff(middle).pow(2) + (index / SIDE).abs_diff(middle).pow(2)
+        })
+    else {
+        return center(sector);
+    };
+    let mean = cell.heights.iter().map(|&h| f32::from(h)).sum::<f32>() / 4.0;
+    iso::ground(
+        sector.x as f32 * SIDE as f32 + (index % SIDE) as f32 + 0.5,
+        sector.y as f32 * SIDE as f32 + (index / SIDE) as f32 + 0.5,
+    ) + Vec3::Y * iso::height(mean)
+}
+
 /// Spawns a ground as an unlit mesh, the tiles carrying their own shading and the corners their
 /// light, as in the original; returns the entities.
 pub fn spawn(
@@ -615,6 +637,42 @@ mod tests {
         );
         // Outside the loaded sectors.
         assert!(!heights.walkable((0, 0)));
+    }
+
+    #[test]
+    fn a_sector_given_by_hand_starts_on_the_walkable_cell_nearest_its_centre() {
+        let cell = |ground, height| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [height; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        // Rock (nibble 1) but for two cells of grass, (40, 30) at height 8 and (10, 10).
+        let mut cells = vec![cell(0xD1, 0); SIDE * SIDE];
+        cells[30 * SIDE + 40] = cell(0x40, 8);
+        cells[10 * SIDE + 10] = cell(0x40, 0);
+        let mut sector = Sector {
+            x: 2,
+            y: 3,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+        };
+        assert_eq!(
+            start(&sector),
+            iso::ground(2.0 * 64.0 + 40.5, 3.0 * 64.0 + 30.5) + Vec3::Y * iso::height(8.0)
+        );
+        // No walkable cell: the sector's centre.
+        for cell in &mut sector.cells {
+            cell.ground = 0xD1;
+        }
+        assert_eq!(start(&sector), center(&sector));
     }
 
     #[test]

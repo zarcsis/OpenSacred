@@ -345,7 +345,7 @@ fn run(cli: Cli) -> Result<AppExit> {
             position.y = heights.at(position.x, position.z).unwrap_or(0.0);
             position
         }
-        Err(_) => terrain::center(&first.sector),
+        Err(_) => terrain::start(&first.sector),
     };
     let (grn, [idle, walk, run], portrait, footsteps) = cli.class.preset();
     let model = match cli.hero {
