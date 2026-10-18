@@ -126,9 +126,6 @@ pub struct StaticsPlugin;
 
 impl Plugin for StaticsPlugin {
     fn build(&self, app: &mut App) {
-        // A library of the shaders: loaded, so that their imports find it.
-        bevy::shader::load_shader_library!(app, "post.wesl");
-        bevy::shader::load_shader_library!(app, "order.wesl");
         embedded_asset!(app, "sprites.wesl");
         app.add_plugins(MaterialPlugin::<SpriteMaterial>::default());
     }
