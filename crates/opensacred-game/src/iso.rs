@@ -33,8 +33,8 @@ pub const GROUND_BEHIND: f32 = 5_000.0;
 
 /// The camera's pitch below the horizon: sin 30° = 1/2 squeezes a square into a 2:1 diamond.
 const PITCH: f32 = FRAC_PI_6;
-/// How far back the camera stands from what it looks at.
-const DISTANCE: f32 = 20_000.0;
+/// How far back the camera stands from what it looks at (also in `sprites.wesl`).
+pub const DISTANCE: f32 = 20_000.0;
 
 /// The point of the ground at the corner of global cell `(cx, cy)`, at height 0.
 pub fn ground(cx: f32, cy: f32) -> Vec3 {
@@ -71,8 +71,11 @@ pub fn up() -> Vec3 {
 /// The camera that looks at `target` at `zoom` (clamped to the original's range).
 pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
     let projection = OrthographicProjection {
-        near: 0.0,
-        far: 2.0 * DISTANCE,
+        // Everything drawn lies within a few thousand units of the point looked at (the
+        // ground 5,000 behind it): a narrow range keeps the depth buffer's steps small, a
+        // thousandth of a unit, against which the sprites' shader orders sprites at one depth.
+        near: 0.5 * DISTANCE,
+        far: 1.5 * DISTANCE,
         scaling_mode: ScalingMode::FixedVertical {
             viewport_height: SCREEN_HEIGHT / PIXELS_PER_UNIT,
         },

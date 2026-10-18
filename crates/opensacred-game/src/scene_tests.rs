@@ -287,6 +287,10 @@ struct Scene {
     look_at: Vec3,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources one by one"
+)]
 fn spawn_scene(
     mut commands: Commands,
     mut scene: ResMut<Scene>,
@@ -295,6 +299,7 @@ fn spawn_scene(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
 ) {
     if let Some(ground) = scene.ground.take() {
         terrain::spawn(
@@ -316,7 +321,13 @@ fn spawn_scene(
         );
     }
     if let Some(statics) = scene.statics.take() {
-        statics::spawn(&mut commands, statics, &assets, &mut meshes, &mut materials);
+        statics::spawn(
+            &mut commands,
+            statics,
+            &assets,
+            &mut meshes,
+            &mut sprite_materials,
+        );
     }
     commands.spawn((
         iso::camera(scene.look_at, 1.0),
@@ -335,7 +346,11 @@ fn settled(app: &App) -> bool {
             m.base_color_texture
                 .as_ref()
                 .is_none_or(|t| images.contains(t))
-        });
+        })
+        && world
+            .resource::<Assets<statics::SpriteMaterial>>()
+            .iter()
+            .all(|(_, m)| images.contains(&m.atlas));
     let compiling = app
         .get_sub_app(RenderApp)
         .and_then(|render| render.world().get_resource::<PipelineCache>())
@@ -370,7 +385,8 @@ fn render(dir: &Path) -> Vec<u8> {
             .disable::<LogPlugin>()
             // The render world stays in the app, so that its pipelines can be checked.
             .disable::<PipelinedRenderingPlugin>(),
-    );
+    )
+    .add_plugins(statics::StaticsPlugin);
     let mut target = Image::new_target_texture(WIDTH, HEIGHT, TextureFormat::Rgba8UnormSrgb, None);
     target.asset_usage = RenderAssetUsages::RENDER_WORLD;
     let target = app.world_mut().resource_mut::<Assets<Image>>().add(target);

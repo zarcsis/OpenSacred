@@ -4,21 +4,30 @@
 //! The original draws the ground, then the objects back to front. Here a sprite is a quad in the
 //! plane of the screen, as flat as the original's, set at the depth of the centre of its cell,
 //! so that the depth buffer orders the sprites and the hero among themselves; the ground lies
-//! behind all of them (`terrain`). The pieces of one atlas share one mesh. Miniatures (flag
-//! 0x20) are squares cut from their type's atlas; the animated ones (flag 0x40) show their
-//! first frame, still.
+//! behind all of them (`terrain`). Sprites at the same depth, those of one cell and those of the
+//! cells of one diagonal at one height, would fight; the shader brings each a little forward in
+//! the original's order of drawing (`sprites.wesl`). The pieces of one atlas share one mesh.
+//! Miniatures (flag 0x20) are squares cut from their type's atlas; the animated ones (flag 0x40)
+//! show their first frame, still.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
-use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Indices, PrimitiveTopology};
-use bevy::prelude::{
-    AlphaMode, AssetServer, Assets, Commands, Entity, Mesh, Mesh3d, MeshMaterial3d,
-    StandardMaterial, Vec2, Vec3, default,
+use bevy::asset::{RenderAssetUsages, embedded_asset};
+use bevy::mesh::{
+    Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology, VertexFormat,
 };
+use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
+use bevy::prelude::{
+    AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d,
+    MeshMaterial3d, Plugin, TypePath, Vec2, Vec3,
+};
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+};
+use bevy::shader::ShaderRef;
 use opensacred_data::world::{SIDE, Sector, Sprites, StaticObject, World};
 
 use crate::iso;
@@ -29,7 +38,77 @@ struct Batch {
     atlas: String,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
+    anchors: Vec<[f32; 4]>,
     indices: Vec<u32>,
+}
+
+/// What places a vertex's sprite in depth (`sprites.wesl`): the centre of its cell at its
+/// height and its draw list's depth, and its object's place in the cell's chain.
+pub const ATTRIBUTE_ANCHOR: MeshVertexAttribute = MeshVertexAttribute::new(
+    "SpriteAnchor",
+    0x5350_5249_5445_4143,
+    VertexFormat::Float32x4,
+);
+
+/// The shader of [`SpriteMaterial`], embedded in the binary.
+const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
+
+/// The material of the sprites of one atlas: unlit, its edges through alpha to coverage, each
+/// sprite brought a little forward in the original's order of drawing (`sprites.wesl`).
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct SpriteMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    pub atlas: Handle<Image>,
+}
+
+impl Material for SpriteMaterial {
+    fn vertex_shader() -> ShaderRef {
+        SHADER.into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::AlphaToCoverage
+    }
+
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.vertex.buffers = vec![layout.0.get_layout(&[
+            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+            Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
+            ATTRIBUTE_ANCHOR.at_shader_location(2),
+        ])?];
+        descriptor.primitive.cull_mode = None;
+        Ok(())
+    }
+}
+
+/// The sprites' material and its shader.
+pub struct StaticsPlugin;
+
+impl Plugin for StaticsPlugin {
+    fn build(&self, app: &mut App) {
+        // A library of the shaders: loaded, so that their imports find it.
+        bevy::shader::load_shader_library!(app, "post.wesl");
+        embedded_asset!(app, "sprites.wesl");
+        app.add_plugins(MaterialPlugin::<SpriteMaterial>::default());
+    }
 }
 
 /// The sprite meshes of a sector, built on the CPU.
@@ -191,12 +270,17 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     let up = iso::up();
     let mut batches: BTreeMap<u32, Batch> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
+    // The places taken in each cell's chain, by the objects drawn.
+    let mut chains: HashMap<u16, u16> = HashMap::new();
     let mut drawn = 0;
     for object in &objects {
         let quads = quads(object, sprites);
         if quads.is_empty() {
             continue;
         }
+        let place = chains.entry(object.cell).or_default();
+        let chain = f32::from(*place);
+        *place = place.saturating_add(1);
         let cell = &sector.cells[usize::from(object.cell)];
         let (row, column) = (
             usize::from(object.cell) / SIDE,
@@ -218,6 +302,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             0.0
         };
         let anchor = iso::ground(cx, cy) + Vec3::Y * iso::height(lift) + iso::forward() * back;
+        let placed = [anchor.x, anchor.y, anchor.z, chain];
         let anchor_screen = Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy) - lift);
         let position = Vec2::new(object.x as f32, object.y as f32);
         let at = |corner: Vec2| -> [f32; 3] {
@@ -248,6 +333,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
                         atlas: asset_path(assets, &dir, name)?,
                         positions: Vec::new(),
                         uvs: Vec::new(),
+                        anchors: Vec::new(),
                         indices: Vec::new(),
                     })
                 }
@@ -258,6 +344,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             let (u0, v0, u1, v1) = (u0 + 0.5, v0 + 0.5, u1 - 0.5, v1 - 0.5);
             let first = u32::try_from(batch.positions.len())?;
             batch.positions.extend(quad.corners.map(at));
+            batch.anchors.extend([placed; 4]);
             let (w, h) = size;
             batch.uvs.extend([
                 [u0 / w, v0 / h],
@@ -284,25 +371,20 @@ pub fn spawn(
     statics: Statics,
     assets: &AssetServer,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<SpriteMaterial>,
 ) -> Vec<Entity> {
     let mut entities = Vec::new();
     for batch in statics.batches {
-        let normals = vec![(-iso::forward()).to_array(); batch.positions.len()];
         let mesh = Mesh::new(
             PrimitiveTopology::TriangleList,
             RenderAssetUsages::RENDER_WORLD,
         )
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, batch.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs)
+        .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
         .with_inserted_indices(Indices::U32(batch.indices));
-        let material = StandardMaterial {
-            base_color_texture: Some(assets.load(batch.atlas)),
-            unlit: true,
-            cull_mode: None,
-            alpha_mode: AlphaMode::AlphaToCoverage,
-            ..default()
+        let material = SpriteMaterial {
+            atlas: assets.load(batch.atlas),
         };
         let entity = commands
             .spawn((
@@ -313,4 +395,118 @@ pub fn spawn(
         entities.push(entity);
     }
     entities
+}
+
+#[cfg(test)]
+mod tests {
+    use opensacred_data::world::{Cell, Piece, Sprite};
+
+    use super::*;
+
+    /// A constant `name` of the sprites' shader.
+    fn shader_constant(name: &str) -> f32 {
+        let source = include_str!("sprites.wesl");
+        let line = source
+            .lines()
+            .find(|l| l.starts_with(&format!("const {name}: f32 = ")))
+            .unwrap();
+        line.split('=')
+            .nth(1)
+            .unwrap()
+            .trim()
+            .trim_end_matches(';')
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn sprites_at_one_depth_come_forward_in_the_original_order() {
+        // An atlas of 8 × 8 pixels, and a sprite of one piece of it.
+        let dir =
+            std::env::temp_dir().join(format!("opensacred-game-order-{}", std::process::id()));
+        fs::create_dir_all(dir.join("world")).unwrap();
+        let file = fs::File::create(dir.join("world").join("atlas.png")).unwrap();
+        let mut encoder = png::Encoder::new(file, 8, 8);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[255; 8 * 8 * 4]).unwrap();
+        writer.finish().unwrap();
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["atlas.png".into()],
+        };
+        let piece = Piece {
+            atlas: 0,
+            source: [0, 0, 8, 8],
+            rect: [0, 0, 8, 8],
+        };
+        let sprites = Sprites {
+            sprites: vec![
+                None,
+                Some(Sprite {
+                    width: 8,
+                    height: 8,
+                    pieces: vec![piece],
+                }),
+            ],
+        };
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0,
+        };
+        let object = |column: u16, row: u16| StaticObject {
+            cell: row * u16::try_from(SIDE).unwrap() + column,
+            kind: 1,
+            flags: 0,
+            x: 48 * (i32::from(column) - i32::from(row)),
+            y: 24 * (i32::from(column) + i32::from(row)),
+            record: 0,
+            type_flags: 0,
+            mask: 0,
+            sprite: 1,
+            miniature: None,
+            children: Vec::new(),
+        };
+        // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal.
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell; SIDE * SIDE],
+            statics: vec![object(5, 5), object(5, 5), object(6, 4)],
+        };
+        let statics = build(&dir, &world, &sprites, &sector).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let anchors: Vec<[f32; 4]> = statics.batches[0]
+            .anchors
+            .iter()
+            .step_by(4)
+            .copied()
+            .collect();
+        let [first, second, next] = anchors[..] else {
+            panic!("{anchors:?}");
+        };
+        let at = |a: [f32; 4]| Vec3::new(a[0], a[1], a[2]);
+        // In one cell, the same anchor, and the place in the chain.
+        assert_eq!(at(first), at(second));
+        assert_eq!((first[3], second[3]), (0.0, 1.0));
+        // Along a diagonal, the same depth, and the cell of greater cx further right.
+        assert_eq!(next[3], 0.0);
+        let between = at(next) - at(first);
+        assert!(between.dot(iso::forward()).abs() < 1e-2);
+        let step = between.dot(iso::right());
+        assert!(step > 70.0);
+        // The 32 places of the longest chain stay within the step to the next cell.
+        assert!(31.0 * shader_constant("CHAIN") < shader_constant("ACROSS") * step);
+        assert_eq!(shader_constant("DISTANCE"), iso::DISTANCE);
+    }
 }

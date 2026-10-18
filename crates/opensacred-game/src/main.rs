@@ -376,7 +376,7 @@ fn run(cli: Cli) -> Result<AppExit> {
                 ..default()
             }),
     )
-    .add_plugins(bevy_kira_audio::AudioPlugin)
+    .add_plugins((bevy_kira_audio::AudioPlugin, statics::StaticsPlugin))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
     .insert_resource(streamer)
