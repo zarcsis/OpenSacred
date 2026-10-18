@@ -313,8 +313,10 @@ fn camera(mut commands: Commands, hero: Res<hero::Hero>, zoom: Res<Zoom>) {
 fn run(cli: Cli) -> Result<AppExit> {
     let assets = std::path::absolute(&cli.assets)
         .map_err(|e| anyhow::anyhow!("resolving {}: {e}", cli.assets.display()))?;
+    let world = terrain::read_world(&assets)?;
+    let dungeons = daynight::Dungeons::of(&world);
     let shared = sectors::Shared {
-        world: terrain::read_world(&assets)?,
+        world,
         sprites: statics::read_sprites(&assets)?,
         assets: assets.clone(),
     };
@@ -410,6 +412,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
+    .insert_resource(dungeons)
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
     .insert_resource(streamer)

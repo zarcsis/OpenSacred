@@ -47,6 +47,9 @@ pub struct SectorEntry {
     /// The sector's area, which the client turns into a region (docs/re/sound.md).
     #[serde(default)]
     pub area: u8,
+    /// Whether the sector is a dungeon, lit by a grey ramp at any hour (docs/re/daynight.md).
+    #[serde(default)]
+    pub dungeon: bool,
 }
 
 /// A sector: 64 × 64 cells and the static objects placed on them.

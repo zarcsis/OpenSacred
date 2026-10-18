@@ -271,6 +271,7 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
             file,
             music: 0,
             area: 0,
+            dungeon: false,
         }],
         sheets: vec!["sheet.png".into()],
         atlases: vec!["atlas.png".into()],

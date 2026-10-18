@@ -123,7 +123,7 @@ impl Music {
     clippy::cast_sign_loss,
     reason = "the sector of a point in the world, a small non-negative whole number"
 )]
-fn sector_of(x: f32, z: f32) -> (u32, u32) {
+pub fn sector_of(x: f32, z: f32) -> (u32, u32) {
     let side = SIDE as f32 * iso::CELL;
     ((x / side).max(0.0) as u32, (z / side).max(0.0) as u32)
 }

@@ -73,7 +73,8 @@ fn sectors_and_chains_match_world_dump_py() {
             "layers",
             "layers_crc",
             "area",
-            "music"
+            "music",
+            "dungeon"
         ]
     );
 
@@ -146,6 +147,7 @@ fn sectors_and_chains_match_world_dump_py() {
             layers.finalize().to_string(),
             key.area.to_string(),
             key.music.to_string(),
+            u8::from(key.dungeon).to_string(),
         ];
         let row: Vec<_> = lines.next().unwrap().split('\t').collect();
         assert_eq!(row, ours, "sector ({}, {})", key.x, key.y);
