@@ -278,6 +278,21 @@ fn light(mut commands: Commands) {
     ));
 }
 
+/// Threads of Bevy's compute pool, which runs the systems in parallel. Bevy gives it every
+/// logical core that its I/O and async pools leave, 24 of 32 on a development machine; with the
+/// main and render threads, the audio's and the rest of the system's there were more threads
+/// ready to run than cores, and a thread that lost its core waited for the scheduler's next tick
+/// (15.6 ms on Windows): a few frames a run took 30-130 ms, every thread of the process stalled
+/// with them and the sound crackled (#2). With four, none does, and the frames come faster.
+const COMPUTE_THREADS: usize = 4;
+
+/// Bevy's task pools, the compute pool limited to [`COMPUTE_THREADS`].
+fn task_pools() -> TaskPoolOptions {
+    let mut options = TaskPoolOptions::default();
+    options.compute.max_threads = COMPUTE_THREADS;
+    options
+}
+
 /// The zoom at the start.
 #[derive(Resource)]
 struct Zoom(f32);
@@ -374,6 +389,9 @@ fn run(cli: Cli) -> Result<AppExit> {
             .set(AssetPlugin {
                 file_path: assets.to_string_lossy().into_owned(),
                 ..default()
+            })
+            .set(TaskPoolPlugin {
+                task_pool_options: task_pools(),
             }),
     )
     .add_plugins((bevy_kira_audio::AudioPlugin, statics::StaticsPlugin))

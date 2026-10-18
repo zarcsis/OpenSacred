@@ -1,7 +1,13 @@
 //! `--benchmark SECONDS`: renders without vsync for that long once the hero is in place, prints
 //! the frame rate and exits. For the M2 criterion of 60 frames a second at 3840 × 2160.
+//!
+//! A thread of its own sleeps a millisecond at a time and counts the times it woke more than
+//! 20 ms late: stalls of the whole process, not of a frame's work, which came with the slow
+//! frames of #2.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 
@@ -13,15 +19,44 @@ pub struct Benchmark {
     elapsed: Duration,
     frames: u32,
     slowest: Duration,
+    stalls: Arc<Stalls>,
 }
+
+/// The process's stalls that the watching thread saw.
+#[derive(Default)]
+struct Stalls {
+    count: AtomicU32,
+    /// The longest, in microseconds.
+    longest: AtomicU32,
+}
+
+/// How late the watching thread may wake before it counts a stall.
+const STALL: Duration = Duration::from_millis(20);
 
 impl Benchmark {
     pub fn new(seconds: f32) -> Self {
+        let stalls = Arc::new(Stalls::default());
+        let seen = Arc::clone(&stalls);
+        std::thread::spawn(move || {
+            let mut last = Instant::now();
+            loop {
+                std::thread::sleep(Duration::from_millis(1));
+                let now = Instant::now();
+                let gap = now - last;
+                if gap > STALL {
+                    seen.count.fetch_add(1, Ordering::Relaxed);
+                    let micros = u32::try_from(gap.as_micros()).unwrap_or(u32::MAX);
+                    seen.longest.fetch_max(micros, Ordering::Relaxed);
+                }
+                last = now;
+            }
+        });
         Self {
             length: Duration::from_secs_f32(seconds),
             elapsed: Duration::ZERO,
             frames: 0,
             slowest: Duration::ZERO,
+            stalls,
         }
     }
 }
@@ -49,10 +84,13 @@ pub fn measure(
     if benchmark.elapsed >= benchmark.length {
         let seconds = benchmark.elapsed.as_secs_f64();
         println!(
-            "benchmark: {} frames in {seconds:.1} s, {:.1} frames a second, the slowest {:.1} ms",
+            "benchmark: {} frames in {seconds:.1} s, {:.1} frames a second, the slowest {:.1} ms; \
+             {} stalls of the process, the longest {:.1} ms",
             benchmark.frames,
             f64::from(benchmark.frames) / seconds,
-            benchmark.slowest.as_secs_f64() * 1000.0
+            benchmark.slowest.as_secs_f64() * 1000.0,
+            benchmark.stalls.count.load(Ordering::Relaxed),
+            f64::from(benchmark.stalls.longest.load(Ordering::Relaxed)) / 1000.0
         );
         exit.write(AppExit::Success);
     }
