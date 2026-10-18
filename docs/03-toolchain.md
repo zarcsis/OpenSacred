@@ -6,7 +6,7 @@
   Binary analysis uses **Ghidra 12.1.4** with an MCP server for Claude Code (**GhidraMCP 2.0** or **pyghidra-mcp**); IDA Pro and Binary Ninja are excluded.
 * The product is built with **Rust 1.99.1** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.50 and the Windows SDK are needed for Rust on Windows).
   VC6, Wine environments and byte-matching tools are not needed.
-* For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions), **x64dbg** and **dgVoodoo2** (running the original on Windows 11).
+* For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions) and **x64dbg**; optionally **dgVoodoo2** (capturing frames of the original in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
 * Quality rests on automated checks: converter golden data, oracle vectors, snapshots and screenshot tests.
   Maintainer review covers key decisions, not every line.
@@ -23,7 +23,7 @@
 | | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.0 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 | GPL-2.0, development only | `opensacred-oracle`, a separate development-only crate run locally on your own `Sacred.exe`: the original's functions in the emulator → vectors for tests |
 | | x64dbg | current | GPL-3.0 | breakpoints in the original on Windows 11, testing hypotheses |
-| | dgVoodoo2 | 2.87.x | freeware | running the original on Windows 11 (D3D7 → D3D11) for reference frames and in-game cross-checks |
+| | dgVoodoo2 | 2.87.x | freeware | optional: the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
 | | Visual Studio Build Tools 2026 | MSVC 14.50 + Windows SDK | free for individual development | the linker for Rust on Windows |
 | | sccache, cargo-nextest, cargo-deny | current | open source | build cache, fast tests, dependency license checks |
