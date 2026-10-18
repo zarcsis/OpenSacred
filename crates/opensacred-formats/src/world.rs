@@ -23,6 +23,9 @@ const NAME_SIZE: usize = 32;
 const CELL_CHUNK: usize = CELL_SIZE * CELLS;
 /// MSVC's fill of uninitialized heap memory, which some fields keep.
 const FILL: u32 = 0xCDCD_CDCD;
+/// A layer's header in the third chunk, and the kind every header has.
+const LAYER_HEADER: usize = 36;
+const LAYER_KIND: u32 = 6;
 pub const TILES_MAGIC: [u8; 3] = *b"ISO";
 pub const OBJ_MAGIC: [u8; 3] = *b"OBJ";
 /// Directory type of the records of `Static.PAK` and of `Floor.PAK`.
@@ -51,6 +54,9 @@ pub struct SectorKey {
     /// `+0x2E0`, `+0x2E1`: the liquid materials (0..=13) of the sector's `WATERA` cells (nature
     /// 9) and `WATERB` cells (nature 10).
     pub liquids: [u8; 2],
+    /// `+0x6C`, the size of the third chunk: the sector's layers, the ground's and the
+    /// buildings' insides ([`Layer`]).
+    pub layers: u32,
 }
 
 impl Keyx {
@@ -87,6 +93,8 @@ impl Keyx {
                 return Err(r.error_at(key_at, field("grid key", key.into(), "below 10000".into())));
             }
             let id = r.u32()?;
+            skip_to(&mut r, start, 0x6C)?;
+            let layers = r.u32()?;
             skip_to(&mut r, start, 0xEC)?;
             let offset = r.u32()?;
             let compressed = r.u32()?;
@@ -102,6 +110,7 @@ impl Keyx {
                 compressed,
                 inflated,
                 liquids,
+                layers,
             });
         }
         Ok(Self { sectors })
@@ -124,7 +133,7 @@ impl SectorKey {
         )?;
         let data =
             inflate(stream.rest(), to_usize(self.inflated)).map_err(|kind| stream.error(kind))?;
-        Sector::parse(&data).map_err(|mut e| {
+        Sector::parse_with(&data, self.layers).map_err(|mut e| {
             // Offsets inside the inflated stream mean little in the file; name the sector's
             // stream instead.
             e.place.offset = stream.offset();
@@ -141,8 +150,27 @@ pub struct Sector {
     pub name: [u8; NAME_SIZE],
     /// 4,096 cells, row by row; neighbours share the heights of their common corners.
     pub cells: Vec<Cell>,
-    /// The third chunk, whose items keyx counts; meaning unknown.
+    /// The third chunk: the layers' headers, the inside layers' cells, 256 bytes of unknown use.
     pub tail: Vec<u8>,
+    /// The inside layers of the third chunk, the layers from 1 (layer 0 is the sector's cells).
+    pub layers: Vec<Layer>,
+}
+
+/// An inside layer of a sector (docs/02 §5.2, docs/re/movement.md): a grid of cells of a
+/// building's own, which the hero walks inside it. Its header in the third chunk is 36 bytes:
+/// `u32 x, u32 y` the global cell of its first cell, `u16 width, u16 height`, `u32 kind` (6),
+/// `u32` the offset of its cells in the stream, `u32` their size (`width · height · 32`), 12 zero
+/// bytes; the header of layer 0 is the sector's own, at its origin, of size 0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Layer {
+    pub x: u32,
+    pub y: u32,
+    pub width: u16,
+    pub height: u16,
+    /// `width · height` cells, row by row, of the sector's cell layout: in every layer of the
+    /// game only their second heights, offsets, flags (0, or 4 a door) and ground bytes are set,
+    /// but two cells' first static.
+    pub cells: Vec<Cell>,
 }
 
 /// Floor cell, 32 bytes.
@@ -178,48 +206,108 @@ impl Cell {
     }
 }
 
+/// Reads `count` cells of 32 bytes.
+fn parse_cells(r: &mut Reader, count: usize) -> Result<Vec<Cell>> {
+    let mut cells = Vec::with_capacity(count);
+    for _ in 0..count {
+        let at = r.offset();
+        let tile = r.u32()?;
+        let first_static = r.u32()?;
+        let objects = r.u32()?;
+        if objects != 0 {
+            return Err(r.error_at(at + 8, field("cell +0x08", objects.into(), "0".into())));
+        }
+        let first_floor = r.u32()?;
+        let signed = |b: [u8; 4]| b.map(|x| i8::from_le_bytes([x]));
+        let heights = signed(r.array("cell heights")?);
+        let light = r.array("cell light")?;
+        let heights2 = signed(r.array("cell second heights")?);
+        let [a, b] = r.array("cell offsets")?;
+        let offsets = [i8::from_le_bytes([a]), i8::from_le_bytes([b])];
+        let flags = r.u8()?;
+        let ground = r.u8()?;
+        cells.push(Cell {
+            tile,
+            first_static,
+            first_floor,
+            heights,
+            light,
+            heights2,
+            offsets,
+            flags,
+            ground,
+        });
+    }
+    Ok(cells)
+}
+
 impl Sector {
-    /// Parses an inflated stream; offsets in errors are from its start.
+    /// Parses an inflated stream without its layers; offsets in errors are from its start.
     pub fn parse(data: &[u8]) -> Result<Self> {
+        Self::parse_with(data, 0)
+    }
+
+    /// Parses an inflated stream and the `layers` headers of its third chunk (`keyx +0x6C`), the
+    /// first the ground's; offsets in errors are from the stream's start.
+    pub fn parse_with(data: &[u8], layers: u32) -> Result<Self> {
         let mut r = Reader::new(data);
         let name = r.array("sector name")?;
         let mut cells_data = r.take(CELL_CHUNK, "sector cells")?;
-        let mut cells = Vec::with_capacity(CELLS);
-        for _ in 0..CELLS {
-            let at = cells_data.offset();
-            let tile = cells_data.u32()?;
-            let first_static = cells_data.u32()?;
-            let objects = cells_data.u32()?;
-            if objects != 0 {
-                return Err(
-                    cells_data.error_at(at + 8, field("cell +0x08", objects.into(), "0".into()))
-                );
+        let cells = parse_cells(&mut cells_data, CELLS)?;
+        let tail = r.rest().to_vec();
+        let mut headers = r.take(
+            to_usize(layers).saturating_mul(LAYER_HEADER),
+            "layer headers",
+        )?;
+        let mut inside = Vec::new();
+        for index in 0..to_usize(layers) {
+            let mut h = headers
+                .take(LAYER_HEADER, "layer header")?
+                .with_record(index);
+            let start = h.offset();
+            let (x, y) = (h.u32()?, h.u32()?);
+            let (width, height) = (h.u16()?, h.u16()?);
+            let kind = h.u32()?;
+            if kind != LAYER_KIND {
+                return Err(h.error_at(
+                    start + 12,
+                    field("layer kind", kind.into(), LAYER_KIND.to_string()),
+                ));
             }
-            let first_floor = cells_data.u32()?;
-            let signed = |b: [u8; 4]| b.map(|x| i8::from_le_bytes([x]));
-            let heights = signed(cells_data.array("cell heights")?);
-            let light = cells_data.array("cell light")?;
-            let heights2 = signed(cells_data.array("cell second heights")?);
-            let [a, b] = cells_data.array("cell offsets")?;
-            let offsets = [i8::from_le_bytes([a]), i8::from_le_bytes([b])];
-            let flags = cells_data.u8()?;
-            let ground = cells_data.u8()?;
-            cells.push(Cell {
-                tile,
-                first_static,
-                first_floor,
-                heights,
-                light,
-                heights2,
-                offsets,
-                flags,
-                ground,
+            let (offset, size) = (h.u32()?, h.u32()?);
+            let cells = usize::from(width) * usize::from(height);
+            if to_usize(size) != cells * CELL_SIZE {
+                return Err(h.error_at(
+                    start + 20,
+                    field("layer size", size.into(), (cells * CELL_SIZE).to_string()),
+                ));
+            }
+            if index == 0 {
+                // The ground's: the sector's own cells.
+                if cells != 0 || offset != 0 {
+                    return Err(h.error_at(
+                        start + 8,
+                        field("ground layer size", u64::from(size), "0".into()),
+                    ));
+                }
+                continue;
+            }
+            let mut data = Reader::new(data)
+                .window(to_usize(offset), to_usize(size), "layer cells")?
+                .with_record(index);
+            inside.push(Layer {
+                x,
+                y,
+                width,
+                height,
+                cells: parse_cells(&mut data, cells)?,
             });
         }
         Ok(Self {
             name,
             cells,
-            tail: r.rest().to_vec(),
+            tail,
+            layers: inside,
         })
     }
 
@@ -595,6 +683,50 @@ mod tests {
         }
         out.extend_from_slice(b"tail");
         out
+    }
+
+    #[test]
+    fn reads_the_inside_layers_of_the_third_chunk() {
+        let mut stream = sector_stream();
+        stream.truncate(NAME_SIZE + CELL_CHUNK);
+        let header = |x: u32, y: u32, (w, h): (u16, u16), offset: u32, size: u32| {
+            let mut out = Vec::new();
+            for word in [x, y] {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+            out.extend_from_slice(&w.to_le_bytes());
+            out.extend_from_slice(&h.to_le_bytes());
+            for word in [LAYER_KIND, offset, size, 0, 0, 0] {
+                out.extend_from_slice(&word.to_le_bytes());
+            }
+            out
+        };
+        let cells_at = u32::try_from(NAME_SIZE + CELL_CHUNK + 2 * LAYER_HEADER).unwrap();
+        stream.extend(header(64, 128, (0, 0), 0, 0));
+        stream.extend(header(70, 130, (3, 2), cells_at, 6 * 32));
+        for k in 0..6 {
+            let mut cell = vec![0; 32];
+            cell[0x1E] = if k == 4 { 4 } else { 0 };
+            cell[0x1F] = if k < 3 { 0xD1 } else { 0 };
+            stream.extend(cell);
+        }
+        stream.extend([0; 256]);
+        let sector = Sector::parse_with(&stream, 2).unwrap();
+        assert_eq!(sector.layers.len(), 1);
+        let layer = &sector.layers[0];
+        assert_eq!(
+            (layer.x, layer.y, layer.width, layer.height),
+            (70, 130, 3, 2)
+        );
+        let bytes: Vec<_> = layer.cells.iter().map(|c| (c.flags, c.ground)).collect();
+        assert_eq!(
+            bytes,
+            [(0, 0xD1), (0, 0xD1), (0, 0xD1), (0, 0), (4, 0), (0, 0)]
+        );
+        // A header of another kind.
+        let at = NAME_SIZE + CELL_CHUNK + LAYER_HEADER + 12;
+        stream[at] = 7;
+        assert!(Sector::parse_with(&stream, 2).is_err());
     }
 
     #[test]

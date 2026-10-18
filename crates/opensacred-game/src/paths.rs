@@ -1,10 +1,11 @@
 //! The hero's way around what blocks it (docs/re/movement.md). The client finds a way from the
 //! hero's cell to the target's by a search of the fewest steps over the walkable cells of a
-//! 64 × 64 window (`0x421B90`); the game does the same, and heads for the farthest cell of the
-//! way it can reach in a straight line, so that the hero does not zigzag from cell centre to
-//! cell centre.
+//! 64 × 64 window (`0x421B90`), on the hero's layer and, through the doors, the others; the game
+//! does the same, and heads for the farthest cell of the way on its layer that it reaches in a
+//! straight line, so that the hero does not zigzag from cell centre to cell centre.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
 
@@ -13,7 +14,7 @@ use crate::iso;
 /// The side of the window the search covers, in cells, around the hero's cell.
 const WINDOW: i32 = 64;
 /// The steps to a neighbour: the four sides, then the four corners.
-const STEPS: [(i32, i32); 8] = [
+pub const STEPS: [(i32, i32); 8] = [
     (1, 0),
     (0, 1),
     (-1, 0),
@@ -45,52 +46,59 @@ fn centre(cell: Cell) -> Vec2 {
     Vec2::new(point.x, point.z)
 }
 
-/// The cells from `from` to `to`, both included, of the fewest steps to one of the eight
-/// neighbours over walkable cells within the window around `from`; `None` when `to` lies outside
-/// the window or cannot be reached. `from` itself need not be walkable.
-pub fn path(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<Vec<Cell>> {
-    let origin = (from.0 - WINDOW / 2, from.1 - WINDOW / 2);
-    let index = |cell: Cell| {
-        let (x, y) = (cell.0 - origin.0, cell.1 - origin.1);
-        ((0..WINDOW).contains(&x) && (0..WINDOW).contains(&y))
-            .then(|| usize::try_from(y * WINDOW + x).ok())
-            .flatten()
+/// The places from `from` to a place in cell `to`, both included, of the fewest steps over the
+/// places `neighbours` gives (a cell on a layer: the walkable neighbours on its layer, and the
+/// same cell on another layer through a door), within the window around `from`'s cell; `None`
+/// when `to` lies outside the window or cannot be reached.
+pub fn path<L: Copy + Eq + Hash>(
+    from: (Cell, L),
+    to: Cell,
+    neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+) -> Option<Vec<(Cell, L)>> {
+    let inside = |cell: Cell| {
+        let (x, y) = (
+            cell.0 - from.0.0 + WINDOW / 2,
+            cell.1 - from.0.1 + WINDOW / 2,
+        );
+        (0..WINDOW).contains(&x) && (0..WINDOW).contains(&y)
     };
-    index(to)?;
-    let side = usize::try_from(WINDOW).ok()?;
-    // Where each reached cell was reached from.
-    let mut came: Vec<Option<Cell>> = vec![None; side * side];
-    let start = index(from)?;
-    came[start] = Some(from);
+    if !inside(to) {
+        return None;
+    }
+    // Where each reached place was reached from.
+    let mut came = HashMap::from([(from, from)]);
     let mut queue = VecDeque::from([from]);
-    while let Some(cell) = queue.pop_front() {
-        if cell == to {
-            let mut way = vec![to];
-            let mut at = to;
+    while let Some(place) = queue.pop_front() {
+        if place.0 == to {
+            let mut way = vec![place];
+            let mut at = place;
             while at != from {
-                at = came[index(at)?]?;
+                at = *came.get(&at)?;
                 way.push(at);
             }
             way.reverse();
             return Some(way);
         }
-        for (dx, dy) in STEPS {
-            let next = (cell.0 + dx, cell.1 + dy);
-            let Some(i) = index(next) else {
-                continue;
-            };
-            // Round a corner, not between two cells that touch at it.
-            let corner = dx != 0 && dy != 0;
-            if corner && !(walkable((cell.0 + dx, cell.1)) && walkable((cell.0, cell.1 + dy))) {
-                continue;
-            }
-            if came[i].is_none() && walkable(next) {
-                came[i] = Some(cell);
+        for next in neighbours(place) {
+            if inside(next.0) && !came.contains_key(&next) {
+                came.insert(next, place);
                 queue.push_back(next);
             }
         }
     }
     None
+}
+
+/// The walkable neighbours of `cell` on one layer, by `walkable`: round a corner, not between two
+/// cells that touch at it.
+pub fn around(cell: Cell, walkable: impl Fn(Cell) -> bool) -> impl Iterator<Item = Cell> {
+    STEPS.iter().filter_map(move |&(dx, dy)| {
+        let next = (cell.0 + dx, cell.1 + dy);
+        let corner = dx != 0 && dy != 0;
+        let between =
+            corner && !(walkable((cell.0 + dx, cell.1)) && walkable((cell.0, cell.1 + dy)));
+        (!between && walkable(next)).then_some(next)
+    })
 }
 
 /// Whether the straight line from `a` to `b` on the ground crosses walkable cells only, but
@@ -155,23 +163,50 @@ fn sign(v: f32) -> i32 {
     }
 }
 
-/// Where the hero at `position` heads for on its way to `target`: the target itself when the
-/// straight line to it is clear, else the farthest cell of the way to it that the hero reaches
-/// in a straight line; `None` when the target cannot be reached.
-pub fn next(position: Vec3, target: Vec3, walkable: impl Fn(Cell) -> bool) -> Option<Vec3> {
+/// What the hero does next on its way to its target.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Step<L> {
+    /// Heads for this point on its layer.
+    Toward(Vec3),
+    /// Goes onto another layer, through the door it stands on.
+    Through(L),
+}
+
+/// What the hero at `position` on `layer` does next on its way to `target`: heads for the target
+/// itself when the straight line to it is clear on its layer, else for the farthest place of
+/// the way on its layer that it reaches in a straight line, or goes through the door it stands
+/// on onto the way's next layer; `None` when the target cannot be reached.
+pub fn next<L: Copy + Eq + Hash>(
+    position: Vec3,
+    layer: L,
+    target: Vec3,
+    walkable: impl Fn(Cell, L) -> bool,
+    neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+) -> Option<Step<L>> {
     let (from, to) = (position.xz(), target.xz());
-    if clear(from, to, &walkable) {
-        return Some(target);
+    let on = |cell| walkable(cell, layer);
+    if clear(from, to, on) {
+        return Some(Step::Toward(target));
     }
-    let way = path(cell_of(from.x, from.y), cell_of(to.x, to.y), &walkable)?;
-    let corner = way
+    let way = path(
+        (cell_of(from.x, from.y), layer),
+        cell_of(to.x, to.y),
+        neighbours,
+    )?;
+    // The way on this layer, up to its first door.
+    let door = way.windows(2).position(|w| w[0].1 != w[1].1);
+    if door == Some(0) {
+        return way.get(1).map(|&(_, next)| Step::Through(next));
+    }
+    let stretch = &way[..door.map_or(way.len(), |at| at + 1)];
+    let corner = stretch
         .iter()
         .skip(1)
         .rev()
-        .map(|&cell| centre(cell))
-        .find(|&point| clear(from, point, &walkable))
-        .or_else(|| way.get(1).map(|&cell| centre(cell)))?;
-    Some(Vec3::new(corner.x, position.y, corner.y))
+        .map(|&(cell, _)| centre(cell))
+        .find(|&point| clear(from, point, on))
+        .or_else(|| stretch.get(1).map(|&(cell, _)| centre(cell)))?;
+    Some(Step::Toward(Vec3::new(corner.x, position.y, corner.y)))
 }
 
 #[cfg(test)]
@@ -183,13 +218,22 @@ mod tests {
         !(cell.0 == 5 && (0..=8).contains(&cell.1))
     }
 
+    /// One layer, the wall's.
+    fn flat((cell, layer): (Cell, ())) -> Vec<(Cell, ())> {
+        around(cell, wall).map(|next| (next, layer)).collect()
+    }
+
     fn at(x: f32, y: f32) -> Vec3 {
         iso::ground(x, y)
     }
 
     #[test]
     fn the_way_goes_round_a_wall() {
-        let way = path((2, 4), (8, 4), wall).unwrap();
+        let way: Vec<Cell> = path(((2, 4), ()), (8, 4), flat)
+            .unwrap()
+            .into_iter()
+            .map(|(cell, _)| cell)
+            .collect();
         assert_eq!(way.first(), Some(&(2, 4)));
         assert_eq!(way.last(), Some(&(8, 4)));
         assert!(way.iter().all(|&cell| wall(cell)));
@@ -200,15 +244,20 @@ mod tests {
                 .all(|w| (w[0].0 - w[1].0).abs() <= 1 && (w[0].1 - w[1].1).abs() <= 1)
         );
         // Out of the window, or walled in.
-        assert_eq!(path((0, 0), (40, 0), wall), None);
-        assert_eq!(path((2, 4), (8, 4), |cell| cell == (2, 4)), None);
+        assert_eq!(path(((0, 0), ()), (40, 0), flat), None);
+        assert_eq!(path(((2, 4), ()), (8, 4), |_| Vec::new()), None);
     }
 
     #[test]
     fn no_way_slips_between_two_cells_that_touch_at_a_corner() {
         let walkable = |cell: Cell| cell != (5, 5) && cell != (6, 6);
         assert!(!clear(centre((5, 6)), centre((6, 5)), walkable));
-        let way = path((5, 6), (6, 5), walkable).unwrap();
+        let way = path(((5, 6), ()), (6, 5), |(cell, layer)| {
+            around(cell, walkable)
+                .map(|next| (next, layer))
+                .collect::<Vec<_>>()
+        })
+        .unwrap();
         assert!(way.len() > 3, "{way:?}");
         // Along a row, and past a single corner.
         assert!(clear(centre((2, 2)), centre((9, 2)), walkable));
@@ -217,13 +266,59 @@ mod tests {
 
     #[test]
     fn the_hero_heads_straight_for_what_it_sees_and_round_what_it_does_not() {
-        let open = |_: Cell| true;
-        assert_eq!(next(at(2.5, 4.5), at(8.5, 4.5), open), Some(at(8.5, 4.5)));
+        let open = |_: Cell, _: ()| true;
+        let all = |(cell, layer): (Cell, ())| {
+            around(cell, |_| true)
+                .map(|c| (c, layer))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            next(at(2.5, 4.5), (), at(8.5, 4.5), open, all),
+            Some(Step::Toward(at(8.5, 4.5)))
+        );
         assert!(!clear(at(2.5, 4.5).xz(), at(8.5, 4.5).xz(), wall));
         // Behind the wall: first to the farthest cell of the way it sees, by the wall's end.
-        let corner = next(at(2.5, 4.5), at(8.5, 4.5), wall).unwrap();
+        let Some(Step::Toward(corner)) =
+            next(at(2.5, 4.5), (), at(8.5, 4.5), |cell, ()| wall(cell), flat)
+        else {
+            panic!("no way round the wall");
+        };
         let cell = cell_of(corner.x, corner.z);
         assert!(cell.1 >= 8 && cell.0 <= 5, "{cell:?}");
         assert!(clear(at(2.5, 4.5).xz(), corner.xz(), wall));
+    }
+
+    #[test]
+    fn a_door_leads_onto_the_inside_layer() {
+        // The ground: a house of cells x 4..=6, y 4..=6 with its door at (5, 6); the house's
+        // layer: its inside, the same cells, the door again.
+        let walkable = |(x, y): Cell, inside: bool| {
+            let house = (4..=6).contains(&x) && (4..=6).contains(&y);
+            (x, y) == (5, 6) || if inside { house } else { !house }
+        };
+        let neighbours = |(cell, inside): (Cell, bool)| {
+            let mut out: Vec<(Cell, bool)> = around(cell, |c| walkable(c, inside))
+                .map(|c| (c, inside))
+                .collect();
+            if cell == (5, 6) {
+                out.push((cell, !inside));
+            }
+            out
+        };
+        let way = path(((5, 9), false), (5, 4), neighbours).unwrap();
+        assert_eq!(way.last(), Some(&((5, 4), true)));
+        let through = way.windows(2).find(|w| w[0].1 != w[1].1).unwrap();
+        assert_eq!(through, [((5, 6), false), ((5, 6), true)]);
+        // On the door: through it; before it, toward it.
+        assert_eq!(
+            next(at(5.5, 6.5), false, at(5.5, 4.5), walkable, neighbours),
+            Some(Step::Through(true))
+        );
+        let Some(Step::Toward(point)) =
+            next(at(5.5, 9.5), false, at(5.5, 4.5), walkable, neighbours)
+        else {
+            panic!("no way to the door");
+        };
+        assert_eq!(cell_of(point.x, point.z), (5, 6));
     }
 }

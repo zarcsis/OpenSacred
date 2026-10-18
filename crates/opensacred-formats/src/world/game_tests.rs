@@ -34,7 +34,8 @@ fn cell_bytes(cell: &Cell) -> [u8; 32] {
 /// Every sector against the `--records` table of `world_dump.py`: the inflated size, the third
 /// chunk, the liquids, the CRC-32 of the cells rebuilt from their fields, and the chains of the
 /// cells: the number of records and the CRC-32 over the cells in order of every chained record
-/// (the cell index, then the record as stored), each static followed by its child chain.
+/// (the cell index, then the record as stored), each static followed by its child chain; and
+/// the inside layers: their number and the CRC-32 over their places, sizes and cells.
 #[test]
 #[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
 fn sectors_and_chains_match_world_dump_py() {
@@ -68,7 +69,9 @@ fn sectors_and_chains_match_world_dump_py() {
             "statics",
             "static_crc",
             "floors",
-            "floor_crc"
+            "floor_crc",
+            "layers",
+            "layers_crc"
         ]
     );
 
@@ -85,6 +88,7 @@ fn sectors_and_chains_match_world_dump_py() {
     );
 
     let mut chained = (0, 0);
+    let mut inside = 0;
     for key in &keyx.sectors {
         let sector = key.read(&wldx).unwrap();
         let mut cells = Hasher::new();
@@ -111,6 +115,17 @@ fn sectors_and_chains_match_world_dump_py() {
         }
         chained.0 += n_statics;
         chained.1 += n_floors;
+        let mut layers = Hasher::new();
+        for layer in &sector.layers {
+            layers.update(&layer.x.to_le_bytes());
+            layers.update(&layer.y.to_le_bytes());
+            layers.update(&layer.width.to_le_bytes());
+            layers.update(&layer.height.to_le_bytes());
+            for cell in &layer.cells {
+                layers.update(&cell_bytes(cell));
+            }
+        }
+        inside += sector.layers.len();
         let ours = [
             (key.y * GRID + key.x).to_string(),
             key.x.to_string(),
@@ -125,6 +140,8 @@ fn sectors_and_chains_match_world_dump_py() {
             static_crc.finalize().to_string(),
             n_floors.to_string(),
             floor_crc.finalize().to_string(),
+            sector.layers.len().to_string(),
+            layers.finalize().to_string(),
         ];
         let row: Vec<_> = lines.next().unwrap().split('\t').collect();
         assert_eq!(row, ours, "sector ({}, {})", key.x, key.y);
@@ -132,6 +149,8 @@ fn sectors_and_chains_match_world_dump_py() {
     assert!(lines.next().is_none());
     // Every static but record 0 and two orphans, every overlay but record 0 (docs/02 §5.5).
     assert_eq!(chained, (1_038_011, 6_713_135));
+    // The buildings' inside layers (docs/02 §5.2).
+    assert_eq!(inside, 1_870);
     fs::remove_dir_all(out).unwrap();
 }
 

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::packed::{DecodeError, decode, encode};
 
 /// Version of the sector and sprite encodings; a file of another version does not load.
-pub const SECTOR_VERSION: u32 = 3;
+pub const SECTOR_VERSION: u32 = 4;
 /// The index file under the world directory.
 pub const INDEX: &str = "world.ron";
 /// The sprite table under the world directory.
@@ -55,6 +55,35 @@ pub struct Sector {
     pub cells: Vec<Cell>,
     /// The objects of the cells' chains, cell by cell, in chain order.
     pub statics: Vec<StaticObject>,
+    /// The sector's inside layers, layer 1 first: the buildings' own cells, which the hero walks
+    /// inside them (docs/re/movement.md).
+    pub layers: Vec<Layer>,
+}
+
+/// An inside layer: a grid of cells of a building's own, from its first cell's global position
+/// (docs/02 §5.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Layer {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    /// `width · height` cells, row by row.
+    pub cells: Vec<LayerCell>,
+}
+
+/// A cell of an inside layer: of a cell's fields, those its layer sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayerCell {
+    /// The second heights (`+0x18`): in the inside layers 10, 15, 20, … (hypothesis: the
+    /// floor's height).
+    pub heights2: [i8; 4],
+    /// Offsets of the parent object.
+    pub offsets: [i8; 2],
+    /// 0, or 4: a door.
+    pub flags: u8,
+    /// The ground byte: its low nibble 1 or 2 makes the cell unwalkable.
+    pub ground: u8,
 }
 
 /// A floor cell: a ground tile with overlays, heights and light at its four corners (left, top,
@@ -225,6 +254,26 @@ mod tests {
                     }),
                     children: vec![],
                 }],
+            }],
+            layers: vec![Layer {
+                x: 3249,
+                y: 2568,
+                width: 2,
+                height: 1,
+                cells: vec![
+                    LayerCell {
+                        heights2: [15; 4],
+                        offsets: [-1, 2],
+                        flags: 0,
+                        ground: 0xD1,
+                    },
+                    LayerCell {
+                        heights2: [0; 4],
+                        offsets: [0, 0],
+                        flags: 4,
+                        ground: 0xD0,
+                    },
+                ],
             }],
         }
     }

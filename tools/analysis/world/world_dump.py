@@ -16,8 +16,13 @@ on the GOG files on 2026-10-17.
            +0x2E1 the two liquid materials (0..13) of the sector's WATERA and WATERB cells.
   sector   zlib stream inflating to the three chunks: +0x00 the name "Sector x,y" with a NUL, filled to 32 B (MSVC fill
            0xCD; some sectors carry another sector's name or none, so the keyx key is the position); +0x20 4096 cells of
-           32 B, row by row (r * 64 + c), which share the heights of their common corners; +0x20020 the third chunk (n
-           items; meaning unknown) up to the inflated size.
+           32 B, row by row (r * 64 + c), which share the heights of their common corners; +0x20020 the third chunk:
+           n layer headers of 36 B (n = keyx +0x6C), the inside layers' cells after them in order, then 256 B of
+           unknown use. A header: u32 x, u32 y (the global cell of the layer's first cell), u16 width, u16 height,
+           u32 kind 6, u32 offset of the cells in the stream, u32 their size (width * height * 32), 12 zero bytes;
+           the first is the ground's, the sector's own cells: at the sector's origin, of size 0 (docs/02 §5.2).
+           The inside layers' cells are the cells' layout with only +0x18..+0x1F set (the second heights, the
+           offsets, the flags 0 or 4 and the ground byte), but two cells' first static.
   cell     +0x00 u32 tile (tiles.pak index); +0x04 u32 first static (Static.PAK index, 0 none); +0x08 u32 0 in every cell
            (a removed object list); +0x0C u32 first floor overlay (Floor.PAK index, 0 none); +0x10 i8[4] corner heights
            left, top, right, bottom; +0x14 u8[4] corner light; +0x18 i8[4] a second corner height; +0x1C i8[2]; +0x1E u8
@@ -67,9 +72,11 @@ CELL_CHUNK = CELL_SIZE * CELLS
 # chunk; liquids: keyx +0x2E0, +0x2E1; cells_crc: CRC-32 of the 4096 cells as stored; tail_crc: CRC-32 of the third
 # chunk; statics, floors: records in the chains of the sector's cells; static_crc, floor_crc: CRC-32 over the cells in
 # order of every chained record, u32 LE cell index then the record as stored (64 or 16 B), head first, each static
-# followed by its child chain.
+# followed by its child chain; layers: the inside layers (the third chunk's headers but the ground's); layers_crc:
+# CRC-32 over the inside layers in order of u32 x, u32 y, u16 width, u16 height and the layer's cells as stored.
 RECORD_COLUMNS = ('index', 'x', 'y', 'id', 'inflated', 'tail', 'liquids', 'cells_crc', 'tail_crc', 'statics',
-                  'static_crc', 'floors', 'floor_crc')
+                  'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc')
+LAYER_HEADER, LAYER_KIND, LAYER_TRAILER = 36, 6, 256
 
 
 class Check:
@@ -215,6 +222,26 @@ def main():
         stats['sectors named after another sector or not at all'] += name != f'Sector {x},{y}'.encode()
         cell_bytes = d[CELLS_AT:CELLS_AT + CELL_CHUNK]
         tail = d[CELLS_AT + CELL_CHUNK:]
+        n_layers = chunks[2][1]
+        first = struct.unpack_from('<IIHHIIIIII', d, CELLS_AT + CELL_CHUNK)
+        c('layers: the first header is the ground\'s, at the sector\'s origin, of size 0',
+          first == (64 * x, 64 * y, 0, 0, LAYER_KIND, 0, 0, 0, 0, 0), where)
+        layers_crc, end = 0, CELLS_AT + CELL_CHUNK + LAYER_HEADER * n_layers
+        for k in range(1, n_layers):
+            lx, ly, w, h, kind, at, size, *zeros = struct.unpack_from('<IIHHIIIIII', d,
+                                                                         CELLS_AT + CELL_CHUNK + LAYER_HEADER * k)
+            c('layers: kind 6, size width * height * 32, cells right after the last, zeros, within the sector',
+              kind == LAYER_KIND and size == 32 * w * h and at == end and zeros == [0, 0, 0]
+              and 64 * x <= lx and lx + w <= 64 * x + 64 and 64 * y <= ly and ly + h <= 64 * y + 64, where)
+            raw_layer = np.frombuffer(d[at:at + size], np.uint8).reshape(w * h, 32)
+            c('layers: the cells set only +0x18..+0x1F (flags 0 or 4) and, in two, their first static',
+              bool(np.all(raw_layer[:, [i for i in range(0x18) if not 4 <= i < 8]] == 0)
+                   and np.all(np.isin(raw_layer[:, 0x1E], (0, 4)))), where)
+            layers_crc = zlib.crc32(struct.pack('<IIHH', lx, ly, w, h) + d[at:at + size], layers_crc)
+            stats['inside layers'] += 1
+            stats['inside layers\' cells with a static'] += int(np.count_nonzero(raw_layer[:, 4:8].any(axis=1)))
+            end = at + size
+        c('layers: 256 bytes after the last layer\'s cells end the stream', len(d) - end == LAYER_TRAILER, where)
         cells = np.frombuffer(cell_bytes, '<u4').reshape(CELLS, 8)
         c('cell: tile in tiles.pak, first static in Static.PAK, +0x08 zero, first floor in Floor.PAK',
           bool(np.all(cells[:, 0] < n_tiles) and np.all(cells[:, 1] < n_static) and np.all(cells[:, 2] == 0)
@@ -245,7 +272,7 @@ def main():
         rows.append(dict(index=key, x=x, y=y, id=sector_id, inflated=inflated, tail=len(tail),
                          liquids=f'{liquids[0]},{liquids[1]}', cells_crc=zlib.crc32(cell_bytes),
                          tail_crc=zlib.crc32(tail), statics=n_statics, static_crc=static_crc, floors=n_floors,
-                         floor_crc=floor_crc))
+                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc))
 
     static_heads = np.concatenate(all_static_heads)
     floor_heads = np.concatenate(all_floor_heads)
