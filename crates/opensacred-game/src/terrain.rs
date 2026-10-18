@@ -12,13 +12,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use bevy::asset::RenderAssetUsages;
-use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::asset::{RenderAssetUsages, embedded_asset};
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
-    Assets, Commands, Entity, Image, Mesh, Mesh3d, MeshMaterial3d, Resource, StandardMaterial,
-    Vec3, default,
+    App, Asset, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d, MeshMaterial3d, Plugin,
+    Resource, TypePath, Vec3,
 };
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::render::render_resource::{
+    AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    TextureDimension, TextureFormat,
+};
+use bevy::shader::ShaderRef;
 use opensacred_data::world::{Cell, DIAMONDS, SIDE, Sector, World};
 
 use crate::{buildings, iso};
@@ -437,8 +442,8 @@ fn compose(sector: &Sector, sheets: &mut Sheets<'_>) -> Result<Atlas> {
 
 /// The mesh of the cells: a quad per cell over its four corners (left, top, right, bottom), each
 /// at its own height, with the corner's light as the vertex colour and its flat screen position
-/// in the image as the texture coordinate.
-fn mesh(sector: &Sector, atlas: &Atlas) -> Mesh {
+/// in the sector, in pixels, as the texture coordinate (`ground.wesl` finds the cell's slot).
+fn mesh(sector: &Sector) -> Mesh {
     let (sx, sy) = (sector.x as f32 * SIDE as f32, sector.y as f32 * SIDE as f32);
     let mut positions = Vec::with_capacity(4 * sector.cells.len());
     let mut uvs = Vec::with_capacity(4 * sector.cells.len());
@@ -454,20 +459,15 @@ fn mesh(sector: &Sector, atlas: &Atlas) -> Mesh {
             ((column + 1.0, row), (48.0, 24.0)),
             ((column + 1.0, row + 1.0), (0.0, 48.0)),
         ];
-        // The top corner of the cell's diamond in its atlas slot.
-        let slot = atlas.slots[index];
-        let top_x = ((slot % SLOTS_PER_ROW) * SLOT_W + 1 + DIAMOND_W / 2) as f32;
-        let top_y = ((slot / SLOTS_PER_ROW) * SLOT_H + 1) as f32;
+        // The top corner of the cell's diamond on the sector's flat screen.
+        let (top_x, top_y) = (48.0 * (column - row), 24.0 * (column + row));
         let first = u32::try_from(positions.len()).unwrap_or(u32::MAX);
         for (k, ((cx, cy), (dx, dy))) in corners.into_iter().enumerate() {
             let point = iso::ground(sx + cx, sy + cy)
                 + Vec3::Y * iso::height(f32::from(cell.heights[k]))
                 + iso::forward() * iso::GROUND_BEHIND;
             positions.push(point.to_array());
-            uvs.push([
-                (top_x + dx) / atlas.width as f32,
-                (top_y + dy) / atlas.height as f32,
-            ]);
+            uvs.push([top_x + dx, top_y + dy]);
             let light = f32::from(cell.light[k]) / 255.0;
             colours.push([light, light, light, 1.0]);
         }
@@ -507,6 +507,7 @@ pub fn read_sector(assets: &Path, world: &World, (x, y): (u32, u32)) -> Result<O
 /// The ground of a sector, built off the main thread.
 pub struct Ground {
     image: Image,
+    cells: Image,
     mesh: Mesh,
 }
 
@@ -521,7 +522,25 @@ pub fn build(assets: &Path, world: &World, sector: &Sector) -> Result<Ground> {
         };
         compose(sector, &mut sheets)?
     };
-    let mesh = mesh(sector, &atlas);
+    let mesh = mesh(sector);
+    let side = u32::try_from(SIDE)?;
+    let slots: Vec<u8> = atlas
+        .slots
+        .iter()
+        .map(|&slot| u32::try_from(slot).map(u32::to_le_bytes))
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    let cells = Image::new(
+        Extent3d {
+            width: side,
+            height: side,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        slots,
+        TextureFormat::R32Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    );
     let image = Image::new(
         Extent3d {
             width: u32::try_from(atlas.width)?,
@@ -530,10 +549,11 @@ pub fn build(assets: &Path, world: &World, sector: &Sector) -> Result<Ground> {
         },
         TextureDimension::D2,
         atlas.pixels,
-        TextureFormat::Rgba8UnormSrgb,
+        // The values as stored: the shader multiplies them by the light before decoding.
+        TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
-    Ok(Ground { image, mesh })
+    Ok(Ground { image, cells, mesh })
 }
 
 /// The centre of a sector on its ground.
@@ -569,6 +589,51 @@ pub fn start(sector: &Sector) -> Vec3 {
     ) + Vec3::Y * iso::height(mean)
 }
 
+/// The shader of [`GroundMaterial`], embedded in the binary.
+const SHADER: &str = "embedded://opensacred_game/ground.wesl";
+
+/// The ground's material, unlit (`ground.wesl`): the sector's ground filtered as one image, each
+/// texel from the slot of the cell it lies in, so that the cells' edges blend as their insides do
+/// (filtering each cell's slot alone left a step at every edge, a grid of diamonds once
+/// magnified); the texel as stored, in sRGB values, times the vertex colour, the corners' light,
+/// then decoded to linear light. The original multiplies the 8-bit texel by its corners' diffuse
+/// colour (docs/02 §5.3); the vertex colour of a `StandardMaterial` multiplies in linear light
+/// instead, which leaves shaded ground too light.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct GroundMaterial {
+    #[texture(0)]
+    atlas: Handle<Image>,
+    /// The slot of every cell, row by row.
+    #[texture(1, sample_type = "u_int")]
+    cells: Handle<Image>,
+}
+
+impl Material for GroundMaterial {
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.primitive.cull_mode = None;
+        Ok(())
+    }
+}
+
+/// The ground's material and its shader.
+pub struct GroundPlugin;
+
+impl Plugin for GroundPlugin {
+    fn build(&self, app: &mut App) {
+        embedded_asset!(app, "ground.wesl");
+        app.add_plugins(MaterialPlugin::<GroundMaterial>::default());
+    }
+}
+
 /// Spawns a ground as an unlit mesh, the tiles carrying their own shading and the corners their
 /// light, as in the original; returns the entities.
 pub fn spawn(
@@ -576,13 +641,11 @@ pub fn spawn(
     ground: Ground,
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<GroundMaterial>,
 ) -> Vec<Entity> {
-    let material = StandardMaterial {
-        base_color_texture: Some(images.add(ground.image)),
-        unlit: true,
-        cull_mode: None,
-        ..default()
+    let material = GroundMaterial {
+        atlas: images.add(ground.image),
+        cells: images.add(ground.cells),
     };
     vec![
         commands
@@ -751,6 +814,42 @@ mod tests {
         );
         // A hero on the mass is inside.
         assert_eq!(heights.level_of((5, 5)), house);
+    }
+
+    #[test]
+    fn the_mesh_maps_the_cells_to_the_flat_screen_of_their_sector() {
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0,
+        };
+        let sector = Sector {
+            x: 3,
+            y: 5,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell; SIDE * SIDE],
+            statics: Vec::new(),
+            layers: Vec::new(),
+        };
+        let mesh = mesh(&sector);
+        let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
+            mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+        else {
+            panic!("no texture coordinates");
+        };
+        // Cell (row 2, column 5): its corners left, top, right, bottom, whatever the sector.
+        let first = 4 * (2 * SIDE + 5);
+        let top = [48.0 * 3.0, 24.0 * 7.0];
+        assert_eq!(uvs[first + 1], top);
+        assert_eq!(uvs[first], [top[0] - 48.0, top[1] + 24.0]);
+        assert_eq!(uvs[first + 2], [top[0] + 48.0, top[1] + 24.0]);
+        assert_eq!(uvs[first + 3], [top[0], top[1] + 48.0]);
     }
 
     #[test]
