@@ -330,7 +330,8 @@ fn run(cli: Cli) -> Result<AppExit> {
     let run = cli.run.unwrap_or_else(|| run.into());
     let footsteps = sound::Footsteps::read(&assets, [&walk, &run], &footsteps_profile)?;
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
-    hero.speeds = speeds(&assets, cli.creature)?;
+    let game_speed = hero::GameSpeed::read(&assets)?;
+    hero.speeds = speeds(&assets, cli.creature)?.map(|s| s * game_speed.0);
     if cli.walking {
         hero.gait = hero::Gait::Walk;
     }
@@ -376,6 +377,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
+    .insert_resource(game_speed)
     .insert_resource(daynight::GlowTexture(glow))
     .insert_resource(daynight::HeroLight {
         doubled: cli.class == Class::WoodElf,

@@ -25,12 +25,51 @@ pub enum Gait {
     Run,
 }
 
+/// The balance variable `GameSpeed` (`Balance.bin`, 1.25, docs/02 §6.3): the original scales
+/// every creature's speed and every clip's rate by it (`0x4F75F0`, `0x413610`, #72), so that
+/// the clips play a quarter faster than they were made and the steps still match the ground.
+#[derive(Resource, Clone, Copy)]
+pub struct GameSpeed(pub f32);
+
+impl Default for GameSpeed {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+/// `GameSpeed`'s word in `balance.ron`: its offset `+0x6FC` in `Balance.bin`'s image of the
+/// balance variables (`0xAD4B8C`), in words.
+const GAME_SPEED: usize = 0x6FC / 4;
+
+impl GameSpeed {
+    /// Reads `GameSpeed` from `tables/balance.ron`.
+    pub fn read(assets: &std::path::Path) -> anyhow::Result<Self> {
+        let path = assets.join("tables").join(opensacred_data::tables::BALANCE);
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+        let balance: opensacred_data::tables::Balance =
+            ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+        let word = balance
+            .values
+            .get(GAME_SPEED)
+            .ok_or_else(|| anyhow::anyhow!("no GameSpeed in {}", path.display()))?;
+        let speed = f32::from_bits(*word);
+        anyhow::ensure!(
+            speed.is_finite() && speed > 0.0,
+            "GameSpeed {speed} in {}",
+            path.display()
+        );
+        Ok(Self(speed))
+    }
+}
+
 /// Which model and clips to show, relative to the asset directory.
 #[derive(Resource)]
 pub struct Hero {
     /// World units a second when walking and when running: the creature's speed pair in
-    /// `Creature.pak` (70 and 180 for the heroes but two; **hypothesis**: the pair is walk and
-    /// run, in the units of the models, `iso::MODEL_SCALE`).
+    /// `Creature.pak` (70 and 180 for the heroes but two), in the units of the models
+    /// (`iso::MODEL_SCALE`), times [`GameSpeed`] (`0x4F75F0`, #72; **hypothesis**: the unit of a
+    /// second, and the hero's speed attribute 100).
     pub speeds: [f32; 2],
     pub model: String,
     pub idle: String,
@@ -184,6 +223,7 @@ pub fn animate(
     parents: Query<&ChildOf>,
     bodies: Query<(), With<Body>>,
     mut ready: ResMut<Ready>,
+    speed: Res<GameSpeed>,
 ) {
     let Some(mut clips) = clips else {
         return;
@@ -198,7 +238,8 @@ pub fn animate(
         let mut transitions = AnimationTransitions::new();
         transitions
             .play(&mut player, clips.idle, Duration::ZERO)
-            .repeat();
+            .repeat()
+            .set_speed(speed.0);
         commands
             .entity(entity)
             .insert((AnimationGraphHandle(clips.graph.clone()), transitions));
@@ -251,6 +292,7 @@ pub fn run(
     clips: Option<Res<Clips>>,
     mut bodies: Query<(&mut Transform, &mut Body)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    speed: Res<GameSpeed>,
 ) {
     for (mut transform, mut body) in &mut bodies {
         let mut moving = None;
@@ -322,7 +364,8 @@ pub fn run(
         };
         transitions
             .play(&mut player, clips.node(moving), BLEND)
-            .repeat();
+            .repeat()
+            .set_speed(speed.0);
         body.moving = moving;
     }
 }
@@ -337,5 +380,31 @@ pub fn follow(
     };
     for mut camera in &mut cameras {
         *camera = iso::view_of(hero.translation);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn game_speed_is_the_word_at_0x6fc_of_the_balance_image() {
+        let dir =
+            std::env::temp_dir().join(format!("opensacred-game-speed-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("tables")).unwrap();
+        let mut values = vec![0_u32; 1224];
+        values[0x6FC / 4] = 1.25_f32.to_bits();
+        let balance = opensacred_data::tables::Balance {
+            values,
+            tail: Vec::new(),
+        };
+        std::fs::write(
+            dir.join("tables").join(opensacred_data::tables::BALANCE),
+            ron::to_string(&balance).unwrap(),
+        )
+        .unwrap();
+        let speed = GameSpeed::read(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(speed.0, 1.25);
     }
 }
