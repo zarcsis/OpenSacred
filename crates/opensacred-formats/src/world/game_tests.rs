@@ -71,7 +71,9 @@ fn sectors_and_chains_match_world_dump_py() {
             "floors",
             "floor_crc",
             "layers",
-            "layers_crc"
+            "layers_crc",
+            "area",
+            "music"
         ]
     );
 
@@ -142,6 +144,8 @@ fn sectors_and_chains_match_world_dump_py() {
             floor_crc.finalize().to_string(),
             sector.layers.len().to_string(),
             layers.finalize().to_string(),
+            key.area.to_string(),
+            key.music.to_string(),
         ];
         let row: Vec<_> = lines.next().unwrap().split('\t').collect();
         assert_eq!(row, ours, "sector ({}, {})", key.x, key.y);

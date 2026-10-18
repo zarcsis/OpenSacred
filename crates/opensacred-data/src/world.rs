@@ -41,6 +41,12 @@ pub struct SectorEntry {
     pub id: u32,
     /// The file, relative to `world.ron`.
     pub file: String,
+    /// The sound id of the sector's music, 0 for none (docs/re/sound.md).
+    #[serde(default)]
+    pub music: u32,
+    /// The sector's area, which the client turns into a region (docs/re/sound.md).
+    #[serde(default)]
+    pub area: u8,
 }
 
 /// A sector: 64 × 64 cells and the static objects placed on them.
