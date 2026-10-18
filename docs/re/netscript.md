@@ -1,29 +1,45 @@
 # NetScript: the reader of the original
 
-Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17 (`tools/analysis/scripts/netscript_dump.py` checks the dispatch tables and reads the keyword resolvers; the handler widths below were read off their code). The record format is in [docs/02 §7](../02-data-formats.md#7-netscript-scripts); this document describes how the client reads it. Status: **confirmed** on the code and on all 2,203,278 records of the 20 trees, unless marked otherwise.
+Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17 (`tools/analysis/scripts/netscript_dump.py` checks the dispatch tables and reads the keyword resolvers; the handler widths below were read off their code).
+The record format is in [docs/02 §7](../02-data-formats.md#7-netscript-scripts); this document describes how the client reads it.
+Status: **confirmed** on the code and on all 2,203,278 records of the 20 trees, unless marked otherwise.
 
 ## Record walker `FUN_00475680`
 
-- The walker copies a record into a stack buffer before it handles it. Records longer than 500 bytes (0x1F4) take another path, which was not followed. The longest record in the release is 169 bytes.
-- It dispatches on the record type through a 141-entry jump table at `0x4784C0` (bound check `cmp eax, 0x8C`). 18 entries go to the default case `0x4784B3`, which returns 1 and continues the section.
+- The walker copies a record into a stack buffer before it handles it.
+  Records longer than 500 bytes (0x1F4) take another path, which was not followed.
+  The longest record in the release is 169 bytes.
+- It dispatches on the record type through a 141-entry jump table at `0x4784C0` (bound check `cmp eax, 0x8C`).
+  18 entries go to the default case `0x4784B3`, which returns 1 and continues the section.
 - Type 40 copies the 80-byte body as is into a table of 0x50-byte entries at `this+0x755C`.
-- Type 41 reads the body as a u16 and accepts 1..5, which it dispatches through a jump table at `0x478768`. Before that it checks the state at `this+0x94` and an entry of the table at `this+0x31C`. What the five cases do is not analyzed yet.
+- Type 41 reads the body as a u16 and accepts 1..5, which it dispatches through a jump table at `0x478768`.
+  Before that it checks the state at `this+0x94` and an entry of the table at `this+0x31C`.
+  What the five cases do is not analyzed yet.
 - Type 42 goes to the default case.
 - Type 43 returns 0 and ends the section.
 - Every other record reads its operands through the operand reader, one call per operand.
 
 ## Operand reader `FUN_00472BC0`
 
-**Calling convention.** `__thiscall reader(this, u32 *cursor, record *rec)`. `*cursor` is the offset of the next tag from the start of the record, header included. The reader returns 0 when `*cursor >= rec->length`.
+**Calling convention.**
+`__thiscall reader(this, u32 *cursor, record *rec)`.
+`*cursor` is the offset of the next tag from the start of the record, header included.
+The reader returns 0 when `*cursor >= rec->length`.
 
-**Dispatch.** The tag byte `t` dispatches in two steps:
+**Dispatch.**
+The tag byte `t` dispatches in two steps:
 
-- `t - 1` above 0xA0 jumps to the error exit `0x475504`, which logs an error and returns 0. This covers tag 0 and every tag from 0xA2 up.
+- `t - 1` above 0xA0 jumps to the error exit `0x475504`, which logs an error and returns 0.
+  This covers tag 0 and every tag from 0xA2 up.
 - Otherwise the byte table at `0x4755D4` selects one of the 40 handlers of the jump table at `0x475534`.
 
-**Results.** Each handler stores the value in the reader's slots: numbers at `this+0xA860…`, strings at `this+0xA460…`. It then advances `*cursor` past the tag and the payload, logs the operand and returns the tag.
+**Results.**
+Each handler stores the value in the reader's slots: numbers at `this+0xA860…`, strings at `this+0xA460…`.
+It then advances `*cursor` past the tag and the payload, logs the operand and returns the tag.
 
-**Handlers.** The table lists every handler with its cursor advance, payload first, then the tag byte. "str" is a NUL-terminated string.
+**Handlers.**
+The table lists every handler with its cursor advance, payload first, then the tag byte.
+"str" is a NUL-terminated string.
 
 | Handler | Tags | Payload |
 |---|---|---|
@@ -50,16 +66,24 @@ Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17 (`tools/ana
 | `0x4754A7` | 9F | a variable reference starting at the tag itself |
 | `0x475504` (error exit) | 17 18 21 22 76 94, and 00 and A2–FF by the bound check | ends the record; no record of the release contains one |
 
-**Variable references.** `FUN_00453970` reads the bytes `9F EF BE ED FE` followed by a name string and looks the name up in the variable vector at `this+0x7550` (entries of 0x24 bytes: `char name[32]`, `i32 value`). It moves the cursor past the name whether or not the name is found.
+**Variable references.**
+`FUN_00453970` reads the bytes `9F EF BE ED FE` followed by a name string and looks the name up in the variable vector at `this+0x7550` (entries of 0x24 bytes: `char name[32]`, `i32 value`).
+It moves the cursor past the name whether or not the name is found.
 
-- If the name is not found, the handler of tag 0x1F reads 4 more bytes as the number. The data relies on every reference resolving (**hypothesis**: the script defines its variables before using them).
+- If the name is not found, the handler of tag 0x1F reads 4 more bytes as the number.
+  The data relies on every reference resolving (**hypothesis**: the script defines its variables before using them).
 - The handler of tag 0x9F reads 4 bytes at the tag itself when the reference does not resolve.
 
-**Truncated operands.** A payload that runs past the record end is read from whatever follows the record in the copy buffer. In the release, 11 records of type 50 (`TriggerPatch`) end with tag 0x2A and no payload; each names `chestTrigger`, one in the `StartCode.bin` of each of the 9 Underworld trees and of both multiplayer trees. The handler of 0x2A reads 12 bytes past the record.
+**Truncated operands.**
+A payload that runs past the record end is read from whatever follows the record in the copy buffer.
+In the release, 11 records of type 50 (`TriggerPatch`) end with tag 0x2A and no payload; each names `chestTrigger`, one in the `StartCode.bin` of each of the 9 Underworld trees and of both multiplayer trees.
+The handler of 0x2A reads 12 bytes past the record.
 
 ## Keyword resolvers of the compiler
 
-The script compiler built into the client maps keywords to record types in five functions. Each function fills two parallel stack arrays: names ending in a null pointer, and codes. It compares the token with each name through `0x451AD0` and returns `codes[i]`.
+The script compiler built into the client maps keywords to record types in five functions.
+Each function fills two parallel stack arrays: names ending in a null pointer, and codes.
+It compares the token with each name through `0x451AD0` and returns `codes[i]`.
 
 | Function | Names → codes | Keywords |
 |---|---|---|
@@ -69,16 +93,23 @@ The script compiler built into the client maps keywords to record types in five 
 | `0x452200` | `esp+0x0C` → `esp+0x28` | 6 quest sections: `Text:` 26, `Dialog:` 31, `Belohnungen:` 32, `HideTmpToDo:` 33, `SolveTime:` 122, `Strafen:` 123 |
 | `0x4522C0` | `esp+0x0C` → `esp+0x1C` | 3 dialog commands: `ExitDlg` 43, `DelDlg` 44, `ToBegin` 111 |
 
-**Coverage.** Together the resolvers name 135 of the 141 types (`opensacred_formats::netscript::KEYWORDS`). `DelNPC` and `DelOBJ` both compile to 55. Types 0, 39, 40, 41, 42 and 47 have no keyword: the compiler emits them itself. Types 39–42 occur in the release.
+**Coverage.**
+Together the resolvers name 135 of the 141 types (`opensacred_formats::netscript::KEYWORDS`).
+`DelNPC` and `DelOBJ` both compile to 55.
+Types 0, 39, 40, 41, 42 and 47 have no keyword: the compiler emits them itself.
+Types 39–42 occur in the release.
 
 **Corrections to the earlier readings:**
 
-- 43, 44 and 111 are dialog commands. Earlier readings had 43 as a guard bracket, 44 as "the dialog dispatcher" and 111 as "end of section".
+- 43, 44 and 111 are dialog commands.
+  Earlier readings had 43 as a guard bracket, 44 as "the dialog dispatcher" and 111 as "end of section".
 - 122 and 123 are `SolveTime:` and `Strafen:`.
 
 ## Operand signatures
 
-The tags each record type carries, over the 2,203,278 records of the 20 trees (`netscript_dump.py --signatures`, 2026-10-17): the 30 commonest types, which hold 88.3 % of the records, with the number of distinct tag sequences and the two commonest (`-` for none, the count in brackets). Types 39 and 40 are no tag streams (above). What the tags mean in each type is the work of M4; `CreateNPC` is read in docs/02 §7.3.
+The tags each record type carries, over the 2,203,278 records of the 20 trees (`netscript_dump.py --signatures`, 2026-10-17): the 30 commonest types, which hold 88.3 % of the records, with the number of distinct tag sequences and the two commonest (`-` for none, the count in brackets).
+Types 39 and 40 are no tag streams (above).
+What the tags mean in each type is the work of M4; `CreateNPC` is read in docs/02 §7.3.
 
 | Type | Name | Records | Sequences | Commonest |
 |---|---|---|---|---|
@@ -124,4 +155,5 @@ openheilig's tag table (MIT; derived from a Linux build with addresses `0x08xxxx
 - 0x71 is a marker.
 - 0x0B, 0x38 and 0x5F can carry a name after the sentinel 0xFFED2979.
 - 0x6F carries an i32 before its string.
-- In openheilig, an unconsumed tail ends a record at a 0x00 tag. With the GOG table, every record of the release consumes its body exactly.
+- In openheilig, an unconsumed tail ends a record at a 0x00 tag.
+  With the GOG table, every record of the release consumes its body exactly.

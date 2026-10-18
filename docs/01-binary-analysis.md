@@ -1,8 +1,12 @@
 # Analysis of the executables
 
-Plan document 01. Subject: the GOG.com release of Sacred Gold 2.28 (English), the only version the project works with, as installed in the user's own `OriginalGame/` directory and checked against the SHA-256 manifest `docs/manifest-gog-2.28.txt`. All numbers come from static analysis by the `tools/analysis/pe/*.py` and `tools/triage/pe_triage.py` scripts ([tools/README.md](../tools/README.md)).
+Plan document 01.
+Subject: the GOG.com release of Sacred Gold 2.28 (English), the only version the project works with, as installed in the user's own `OriginalGame/` directory and checked against the SHA-256 manifest `docs/manifest-gog-2.28.txt`.
+All numbers come from static analysis by the `tools/analysis/pe/*.py` and `tools/triage/pe_triage.py` scripts ([tools/README.md](../tools/README.md)).
 
-Why this document exists in the new revision of the plan: the game is not rebuilt from recovered sources but rewritten in Rust (PLAN.md, §4). The binary is needed as a source of rules and content semantics. The document describes what the binary contains, how much it costs to analyze, and what does not need to be analyzed.
+Why this document exists in the new revision of the plan: the game is not rebuilt from recovered sources but rewritten in Rust (PLAN.md, §4).
+The binary is needed as a source of rules and content semantics.
+The document describes what the binary contains, how much it costs to analyze, and what does not need to be analyzed.
 
 The status of claims is marked with these words: **confirmed** — there is an address, offset, command output or primary source; **community-reported** — taken from sacred-bild / sacred-sdk / openheilig and not checked on the file; **hypothesis** — the author's inference, needs checking.
 
@@ -11,13 +15,16 @@ The status of claims is marked with these words: **confirmed** — there is an a
 * The GOG release: the client `Sacred.exe` (11,919,360 B, SHA-256 `db9b86a4…71e74`, VC6 SP5 + Processor Pack, no DRM), `GameServer.exe` (1,900,544 B, not packed, RTTI intact), `Config.exe` and third-party DLLs: Granny 1.2b, Miles 6.6g, TinCat 2.0.28, IJL 1.51, libxml2, MSLU.
 * The GOG client has no protection at all and is analyzed as is: 4 sections, entry point RVA 0x44D964, no traces of ProtectDISC.
 * Client code: 1,462,718 instructions; after normalization **≈5,900 game functions in 3.48 MB (≈180k logical lines of C++)**, 410 vtables and 417 RTTI classes, ~1,300 `dynamic_cast`s, 2,539 EH frames; CRT, STLport 4.x, zlib 1.2.1 and D3DX7 are statically linked in.
-* On the order of **2,000–3,000 functions** need analysis: rules, items, AI, the script interpreter (§8). Rendering, UI, sound, input, networking and the file layer are written from scratch without reading the original's code.
-* `GameServer.exe` is an auxiliary binary: 1,176 game functions (227 KB) are byte-identical to the client, which helps confirm function boundaries and classes. The server itself is not ported: networking is out of scope.
+* On the order of **2,000–3,000 functions** need analysis: rules, items, AI, the script interpreter (§8).
+  Rendering, UI, sound, input, networking and the file layer are written from scratch without reading the original's code.
+* `GameServer.exe` is an auxiliary binary: 1,176 game functions (227 KB) are byte-identical to the client, which helps confirm function boundaries and classes.
+  The server itself is not ported: networking is out of scope.
 * Behavior details useful for the reimplementation: random numbers come from the MSVC CRT LCG; object positions are integers; x87 precision in the original was not fixed, so bit-exact results are not needed (§7).
 
 ## 1. Contents of the release
 
-The installation is the GOG release of Sacred Gold 2.28 (English) in `OriginalGame/`. Executables and libraries:
+The installation is the GOG release of Sacred Gold 2.28 (English) in `OriginalGame/`.
+Executables and libraries:
 
 | File | Size, B | Toolchain | Timestamp (UTC) | Packing / protection | Role | Status |
 |---|---|---|---|---|---|---|
@@ -40,7 +47,8 @@ Specifics of the GOG release that matter for the converter and the engine:
 * 29 `QuestCode.bin` and `QuestPoolCode.bin` files in `bin/` have zero size; the converter treats them as "no script".
 * `Settings.cfg` in a clean installation: `GFX32 : 1` (32-bit color), `GFX_LIMIT128 : 1`, `COMPAT_VIDEO : 1` (§4.5), lobby `sacreduweng.ascaron-net.com` (does not work and is not needed).
 
-The client's VERSION resource is "Sacred" 2.0, SpecialBuild=ENG. The build path `F:\Buildserver\Lord_2_28_ProtectDisc6\Source\engine\object\balancing\balancing.cpp` gives the code name `Lord`, the number 2.28 and the branch name for ProtectDISC 6 (the protection itself was not applied).
+The client's VERSION resource is "Sacred" 2.0, SpecialBuild=ENG.
+The build path `F:\Buildserver\Lord_2_28_ProtectDisc6\Source\engine\object\balancing\balancing.cpp` gives the code name `Lord`, the number 2.28 and the branch name for ProtectDISC 6 (the protection itself was not applied).
 
 Other known builds (community-reported): German retail 2.0 (0x451BBE74 = 2006-09-28), Russian retail Gold 2.28 (a separate binary, the addresses differ), the official 2009 LGP Linux port (stripped i386 ELF, Itanium RTTI with 318 classes; a supplementary, not a primary, source).
 
@@ -87,7 +95,9 @@ Decoded with `pefile.parse_rich_header()`, comp.id values resolved via the richp
 | VS2003 (3077) imp / C++ | 4 / 1 | 3 / — | 95 C / 21 C++ |
 | Import0 (imported functions) | 390 | 195 | 62 |
 
-Conclusions: the client's own code is ≈230 translation units (199 + 13 SP5 + 18 PP), the server's ≈77 (55 SP5 + 22 SP6); the linker is link 6.00.8447. The 41 asm objects are the asm part of the static CRT (`memcpy`, `strlen`, `_ftol`); the "VS2002 XP SP1 DDK" objects are, as a hypothesis, the MSLU static library (`unicows.lib`) or `d3dx.lib`. What exactly the 18 Processor Pack objects build is not established (hypothesis: low-level math/skinning; yet there are no SSE intrinsics in the game code, see §3.3).
+Conclusions: the client's own code is ≈230 translation units (199 + 13 SP5 + 18 PP), the server's ≈77 (55 SP5 + 22 SP6); the linker is link 6.00.8447.
+The 41 asm objects are the asm part of the static CRT (`memcpy`, `strlen`, `_ftol`); the "VS2002 XP SP1 DDK" objects are, as a hypothesis, the MSLU static library (`unicows.lib`) or `d3dx.lib`.
+What exactly the 18 Processor Pack objects build is not established (hypothesis: low-level math/skinning; yet there are no SSE intrinsics in the game code, see §3.3).
 
 ### 3.2 Statically linked libraries
 
@@ -100,7 +110,8 @@ Conclusions: the client's own code is ≈230 translation units (199 + 13 SP5 + 1
 | MSLU loader (`unicows`) | a table of 17 DLL names, the path `\Microsoft Shared\MSLU\` | removed |
 | NA2dLib (IME) | classes `NA2dLib::CIMHandler/CW32IMHandler`, 16 KB in 0x7F1000–0x821000 | not carried over: text input via Bevy and winit |
 
-The share of third-party code in the client's `.text`: the library block 0x7F1180–0x85AB59 (1,625 functions, 426 KB) + EH glue 0x85ACD2–0x88F628 (2,538 thunks and unwind funclets, 214 KB) + STL/CRT instances in the game area (≈1,130 functions, ≈599 KB) ≈ 1.2 MB, 25% of the section. Correction: the client's main module (WinMain, window procedure, initialization) is linked *after* STLport and lies in 0x811000–0x818000, formally in the "tail", but it is game code.
+The share of third-party code in the client's `.text`: the library block 0x7F1180–0x85AB59 (1,625 functions, 426 KB) + EH glue 0x85ACD2–0x88F628 (2,538 thunks and unwind funclets, 214 KB) + STL/CRT instances in the game area (≈1,130 functions, ≈599 KB) ≈ 1.2 MB, 25% of the section.
+Correction: the client's main module (WinMain, window procedure, initialization) is linked *after* STLport and lies in 0x811000–0x818000, formally in the "tail", but it is game code.
 
 ### 3.3 Code generation style
 
@@ -151,7 +162,8 @@ Normalization of the base (confirmed):
 | Ghidra only | 405 | — | lie inside our functions (merged neighbors) |
 | **Combined base of own starts** | **≈7,050** | — | minus ≈1,130 STL/CRT ⇒ **≈5,900 game functions, 3.48 MB** |
 
-Conversion to lines: at 19 B per logical line (calibrated on Box2D v2.4.1, `clang -O2`, range 14–24 B for VC6), **≈180k logical lines of C++** (≈150–260k at the range bounds, ≈2× in physical lines). Server: ≈3,350 own functions / ≈0.8 MB.
+Conversion to lines: at 19 B per logical line (calibrated on Box2D v2.4.1, `clang -O2`, range 14–24 B for VC6), **≈180k logical lines of C++** (≈150–260k at the range bounds, ≈2× in physical lines).
+Server: ≈3,350 own functions / ≈0.8 MB.
 
 ### 4.2 Modules
 
@@ -184,7 +196,8 @@ Address layout (a hypothesis based on the labels): 0x401000–0x641000: simulati
 | Multiple inheritance | only the 14 STLport facets | the same 14 |
 | Hierarchy roots (number of descendants) | `cParticleSystem` 178, `StringInterface` 62, `ParamCommand` 36, `cEvent` 20, `cTimerListener` 19, `cCommand` 9, `cFile` 5, `cFont` 4, `cPath` 3, `cKernelListener` 3, `cObserver` 3 | `cParticleSystem` 178, `cTimerListener` 19, `cEvent` 9, `cFile` 4, `ITinCatCallback` 3 |
 
-Exactly one vtable per class: there is no virtual or multiple inheritance in the game code (confirmed). 178 particle classes: slot 0 is one shared body (30 B), slots 1/2/4 have their own bodies in 70–90% of the classes (median ≈200–230 B; this is the effect logic itself), slots 5/6 are shared among dozens of classes; the structure is generated from a table, the bodies are ≈5–6k lines of almost boilerplate code.
+Exactly one vtable per class: there is no virtual or multiple inheritance in the game code (confirmed).
+178 particle classes: slot 0 is one shared body (30 B), slots 1/2/4 have their own bodies in 70–90% of the classes (median ≈200–230 B; this is the effect logic itself), slots 5/6 are shared among dozens of classes; the structure is generated from a table, the bodies are ≈5–6k lines of almost boilerplate code.
 
 ### 4.4 Exceptions and `dynamic_cast`
 
@@ -197,7 +210,8 @@ Exactly one vtable per class: there is no virtual or multiple inheritance in the
 | Accesses to `fs:[0]` | 8,864 | 3,405 |
 | `__RTDynamicCast` calls | **≈1,300** | 237 |
 
-Practical value: the unwind maps give the order of local objects with destructors in each function and, via member destructors, the order of class fields; these are type hints that an ordinary decompilation lacks. The heavy use of `dynamic_cast` means that reading the code requires the exact class hierarchy (§5.3).
+Practical value: the unwind maps give the order of local objects with destructors in each function and, via member destructors, the order of class fields; these are type hints that an ordinary decompilation lacks.
+The heavy use of `dynamic_cast` means that reading the code requires the exact class hierarchy (§5.3).
 
 ### 4.5 Imports and call sites
 
@@ -222,7 +236,9 @@ Client: 389 imports from 16 DLLs (41 `jmp [IAT]` thunks); 31 imports are loaded 
 
 Server: 186 functions from 10 DLLs; kernel32 366 calls, user32 274 (the server has a Win32 dialog UI: `DialogBoxParamA`, `AnimateWindow`, `Shell_NotifyIcon`), ws2_32 26 (`connect` and `send` are present), tincat2 20 (`TinCat_GetBuildNumber` 16, `TinCat_CreateAPI` 2, `TinCat_CreateTinCatValues` 2); `VirtualProtect`: 0.
 
-Video: function 0x6A0D80 creates `CLSID_AMMultiMediaStream` → `IAMMultiMediaStream::Initialize/AddMediaStream(MSPID_PrimaryVideo, PrimaryAudio)/OpenFile`; frames are read via `IDirectDrawMediaStream` into a DirectDraw surface (callers 0x6A1590, 0x6A1780); 16 `.wmv` names in `.data` at 0x5DFDCC…; Microsoft has declared `amstream` deprecated → in the new engine the cutscenes are converted to AV1 via FFmpeg. The `COMPAT_VIDEO` key from `Settings.cfg` (the string at VA 0x9E0074, referenced from 0x6A0F06, 0x6A0F1E, 0x6A0F24, i.e. only inside this function; confirmed on file): according to a static reading (a **medium-confidence hypothesis**), the value is taken from the configuration object 0x182EE88; an empty value keeps the original path (a 1024×512 DirectDraw surface for `IDirectDrawMediaStream`), a non-empty one (GOG sets 1 by default) enables an alternative presentation with `GetWindowRect` and D3D7 render flags via `setRenderFlag` (0x643430): a compatibility mode for showing cutscenes on modern drivers (see [06-platform-backends.md](06-platform-backends.md), §5, §7). Dynamically loaded: `riched20.dll` (console/editor), `amstream.dll`, `snmpapi.dll` + `inetmib1.dll` (hypothesis: the MAC address as a hardware ID for the lobby), `unicows.dll`.
+Video: function 0x6A0D80 creates `CLSID_AMMultiMediaStream` → `IAMMultiMediaStream::Initialize/AddMediaStream(MSPID_PrimaryVideo, PrimaryAudio)/OpenFile`; frames are read via `IDirectDrawMediaStream` into a DirectDraw surface (callers 0x6A1590, 0x6A1780); 16 `.wmv` names in `.data` at 0x5DFDCC…; Microsoft has declared `amstream` deprecated → in the new engine the cutscenes are converted to AV1 via FFmpeg.
+The `COMPAT_VIDEO` key from `Settings.cfg` (the string at VA 0x9E0074, referenced from 0x6A0F06, 0x6A0F1E, 0x6A0F24, i.e. only inside this function; confirmed on file): according to a static reading (a **medium-confidence hypothesis**), the value is taken from the configuration object 0x182EE88; an empty value keeps the original path (a 1024×512 DirectDraw surface for `IDirectDrawMediaStream`), a non-empty one (GOG sets 1 by default) enables an alternative presentation with `GetWindowRect` and D3D7 render flags via `setRenderFlag` (0x643430): a compatibility mode for showing cutscenes on modern drivers (see [06-platform-backends.md](06-platform-backends.md), §5, §7).
+Dynamically loaded: `riched20.dll` (console/editor), `amstream.dll`, `snmpapi.dll` + `inetmib1.dll` (hypothesis: the MAC address as a hardware ID for the lobby), `unicows.dll`.
 
 ### 4.6 Resources
 
@@ -250,7 +266,8 @@ Functions were matched by the md5 of their normalized bytes (with the `rel32` of
 | ≥ 32 B | 3,769 | 2,533 | 39.6% |
 | ≥ 128 B | 2,036 | 1,372 | 37.8% |
 
-The canonical cut (≥ 32 B): **1,176 game functions / 227 KB** (game_sim 572 / 127 KB, particles 260 / 45 KB, events 83, unlabeled 98, UI 54, core 46, files 44, render 12, script 5) + 607 STL instances (143 KB) in the game area, plus 1,023 matches in the library tail; 2,806 / 592 KB in total. By bytes, ≈30% of the server's game simulation matches the client literally; the remaining 70% is built from the same source with different inlining, constants or server-side branches (`cGSclass` instead of `cGCclass`, SP6 objects).
+The canonical cut (≥ 32 B): **1,176 game functions / 227 KB** (game_sim 572 / 127 KB, particles 260 / 45 KB, events 83, unlabeled 98, UI 54, core 46, files 44, render 12, script 5) + 607 STL instances (143 KB) in the game area, plus 1,023 matches in the library tail; 2,806 / 592 KB in total.
+By bytes, ≈30% of the server's game simulation matches the client literally; the remaining 70% is built from the same source with different inlining, constants or server-side branches (`cGSclass` instead of `cGCclass`, SP6 objects).
 
 ### 5.2 Client / server classes
 
@@ -300,13 +317,17 @@ Known object sizes from the debug logs of early builds (according to openheilig,
 
 ### 5.4 What the server provides and what it does not
 
-* **Provides:** an image of the same source, four times smaller, with full RTTI: a convenient first entry point for `RecoverClassesFromRTTIScript`, OOAnalyzer/Kaiju and for building signatures; a reference for `cObject/cCreature/cItem*/cEvent*/cFile*/cWorld/cSector/TypeManager/cObjectManager/cKernel`, the item and name generators (§7.3), the network protocol (`cGSclass`, `NW_*`/`OBJECT_*` handlers), QuestDB and `TRIGGER_*` relaying. Names are carried over to the client via Ghidra Version Tracking / BSim using the 1,176 byte-identical functions and thousands of "similar" ones.
-* **Does not provide:** the NetScript interpreter (the `%s\FunkCode.bin` loader and all handlers exist only in `Sacred.exe`: the host client executes the scripts, the server stores QuestDB; confirmed from strings), rendering, UI, sound, Granny animation, pathfinding, IME, the main loop. For all of these the only source is the `Sacred.exe` client.
+* **Provides:** an image of the same source, four times smaller, with full RTTI: a convenient first entry point for `RecoverClassesFromRTTIScript`, OOAnalyzer/Kaiju and for building signatures; a reference for `cObject/cCreature/cItem*/cEvent*/cFile*/cWorld/cSector/TypeManager/cObjectManager/cKernel`, the item and name generators (§7.3), the network protocol (`cGSclass`, `NW_*`/`OBJECT_*` handlers), QuestDB and `TRIGGER_*` relaying.
+  Names are carried over to the client via Ghidra Version Tracking / BSim using the 1,176 byte-identical functions and thousands of "similar" ones.
+* **Does not provide:** the NetScript interpreter (the `%s\FunkCode.bin` loader and all handlers exist only in `Sacred.exe`: the host client executes the scripts, the server stores QuestDB; confirmed from strings), rendering, UI, sound, Granny animation, pathfinding, IME, the main loop.
+  For all of these the only source is the `Sacred.exe` client.
 * The server build is partly made of SP6 objects, so some shared functions differ in code generation rather than in logic; when carrying annotations over, this is normal noise.
 
 ## 6. Map of subsystems from log strings
 
-Strings of the form `Class::method` in `.rdata/.data` are a free partial symbol map: each one ties a function in the client's `.text` (the GOG client) to a method name (`fn_context.py --str "cEngine::renderThread"`). Client: 74 classes / 215 methods (2 junk entries); `tools/analysis/pe/sacred_strings.py` writes the full list. A sample:
+Strings of the form `Class::method` in `.rdata/.data` are a free partial symbol map: each one ties a function in the client's `.text` (the GOG client) to a method name (`fn_context.py --str "cEngine::renderThread"`).
+Client: 74 classes / 215 methods (2 junk entries); `tools/analysis/pe/sacred_strings.py` writes the full list.
+A sample:
 
 | Subsystem | Classes (methods) | Characteristic methods | What it tells us |
 |---|---|---|---|
@@ -322,7 +343,8 @@ Strings of the form `Class::method` in `.rdata/.data` are a free partial symbol 
 | Files and resources | `cFile_cached` (1), `cFile_memoryMapped` (1), `cResourceMgr` (1), `CABBCache` (1) | `async_read`, `open`, `disposeAll` | a `cFile` hierarchy with mmap and asynchronous reading |
 | Networking | `NetworkManager` (1), `cObject` (`createPacket`) | `receive_event`, `createPacket () ref/type/bakRef/bakType` | a packet factory by ref/type; ≥107 packet names from error strings (enumeration estimate 110–140) |
 
-Additional sources of names (PLAN.md, ADR-10): sacred-bild's `functions_eng.tsv` (7,631 functions, ≈145 meaningful names: `dxDriver7_*`, `cEngine_renderThreadRun/simThreadRun`, `cWorldView*`, `cTileRenderer_*`, `cFontTTF2_*`), `sacred_addr.h` (≈40 structs and globals, e.g. `g_pDxDriver`), sacred-sdk addresses: the NetScript operand reader `FUN_00472BC0`, the record walker `FUN_00475680` (123 cases), section start `FUN_0046BA90`, the `global.res` loader `FUN_0080E680` (an earlier attribution "`FUN_00472BC0` is the interpreter" is obsolete; [docs/re/netscript.md](re/netscript.md)); `FUN_0046F9B0`, once taken for a "loader": its role is not confirmed. Rule: every imported name carries a provenance tag (`src=rtti|str|xref|bsim|tsv|llm`); names from sacred-bild are facts under GPL-3 usable only as names, not as code.
+Additional sources of names (PLAN.md, ADR-10): sacred-bild's `functions_eng.tsv` (7,631 functions, ≈145 meaningful names: `dxDriver7_*`, `cEngine_renderThreadRun/simThreadRun`, `cWorldView*`, `cTileRenderer_*`, `cFontTTF2_*`), `sacred_addr.h` (≈40 structs and globals, e.g. `g_pDxDriver`), sacred-sdk addresses: the NetScript operand reader `FUN_00472BC0`, the record walker `FUN_00475680` (123 cases), section start `FUN_0046BA90`, the `global.res` loader `FUN_0080E680` (an earlier attribution "`FUN_00472BC0` is the interpreter" is obsolete; [docs/re/netscript.md](re/netscript.md)); `FUN_0046F9B0`, once taken for a "loader": its role is not confirmed.
+Rule: every imported name carries a provenance tag (`src=rtti|str|xref|bsim|tsv|llm`); names from sacred-bild are facts under GPL-3 usable only as names, not as code.
 
 ## 7. Behavior details useful for the reimplementation
 
@@ -353,7 +375,8 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | Sound, video, networking, files, IME | — | **not analyzed**: replaced or out of scope |
 | Libraries (CRT, STLport, zlib, D3DX7) | ≈2,750 | **not analyzed** |
 
-In total, on the order of 2,000–3,000 functions need analysis. At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent-hours, which are part of milestones M3 and M4 ([docs/07-roadmap-estimates.md](07-roadmap-estimates.md)).
+In total, on the order of 2,000–3,000 functions need analysis.
+At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent-hours, which are part of milestones M3 and M4 ([docs/07-roadmap-estimates.md](07-roadmap-estimates.md)).
 
 ### 8.2 How to analyze
 

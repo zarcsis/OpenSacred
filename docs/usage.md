@@ -2,17 +2,34 @@
 
 Dollar figures are the hypothetical cost of the same tokens at Anthropic API prices; development runs on a Claude subscription, so they are not money actually spent.
 
-Since 2026-10-17 (#16), every pull request carries its own usage: a "Claude Code usage" section at the end of its description, with the tokens per model, their cost at API prices and the agent-hours. The badge in the README sums every pull request's figures and the sessions before them (the table below). After 30 days, the estimates in `docs/07-roadmap-estimates.md` are recalculated from them (PLAN.md §10, step 8).
+Since 2026-10-17 (#16), every pull request carries its own usage: a "Claude Code usage" section at the end of its description, with the tokens per model, their cost at API prices and the agent-hours.
+The badge in the README sums every pull request's figures and the sessions before them (the table below).
+After 30 days, the estimates in `docs/07-roadmap-estimates.md` are recalculated from them (PLAN.md §10, step 8).
 
 ## How it is calculated
 
-`python -I tools/usage/pr_usage.py <N> --update` writes the usage of pull request `<N>` into its description. It runs after `gh pr create` and again when the work on the pull request is over: after the merge, or, for one that waits for the maintainer, once its checks are green. The description can be edited after the merge, so the figures include the CI, the fixes and the merge without another commit.
+`python -I tools/usage/pr_usage.py <N> --update` writes the usage of pull request `<N>` into its description.
+It runs after `gh pr create` and again when the work on the pull request is over: after the merge, or, for one that waits for the maintainer, once its checks are green.
+The description can be edited after the merge, so the figures include the CI, the fixes and the merge without another commit.
 
-* **Which messages.** Claude Code writes a transcript per session (`~/.claude/projects/<project>/<session>.jsonl`, the subagents' under `<session>/`) and records in every message the Git branch it was on. A pull request's usage is that of the messages on its branch, in every session and worktree of the repository. A message on `main` counts toward the session's next branch, since that is where the task it reads or the issue it opens is done; after the session's last branch, toward that branch. A session that never leaves `main` counts toward no pull request. The branch recorded is the checkout's, so sessions that share a checkout see each other's switches; a session's message keeps the branch the session itself moved to, by a `git switch`, `git checkout` or `git rebase` command, `gh pr checkout` or `gh pr merge`, or by entering or leaving a worktree, and a change of the recorded branch counts as the session's own only during such a command of its own or within 30 seconds after it (the recorded branch follows a switch a few seconds late).
-* **Tokens and cost.** Each model response counts once (by its id), at the API prices per 1M tokens (Opus 5.5: $4 input, $20 output, $0.20 cache read, $8 one-hour cache write). The tokens are input, output, cache reads and cache writes together; in a long session most of them are cache reads, the context reread by every request. The same calculation matched the `/cost` snapshots in the transcripts to the cent.
-* **Agent-hours.** The time from a prompt of the maintainer to the agent's last action; pauses longer than 10 minutes are not counted.
-* **The block.** A table for people and a comment `<!-- usage {...} -->` with the same figures for scripts, between the markers `<!-- usage:begin -->` and `<!-- usage:end -->`, which a rerun replaces.
-* **The badge.** `pr_usage.py --update` then runs the Usage workflow (`.github/workflows/usage.yml`; also daily). It sums the blocks of the maintainer's pull requests and the sessions below (`tools/usage/usage_badge.py`), lists the pull requests in its run summary, and publishes `usage.json`, a shields.io endpoint, on the branch `badges`: the ruleset on `main` takes no commit from a workflow. Contributors' pull requests are not counted: their descriptions are theirs to edit.
+* **Which messages.**
+  Claude Code writes a transcript per session (`~/.claude/projects/<project>/<session>.jsonl`, the subagents' under `<session>/`) and records in every message the Git branch it was on.
+  A pull request's usage is that of the messages on its branch, in every session and worktree of the repository.
+  A message on `main` counts toward the session's next branch, since that is where the task it reads or the issue it opens is done; after the session's last branch, toward that branch.
+  A session that never leaves `main` counts toward no pull request.
+  The branch recorded is the checkout's, so sessions that share a checkout see each other's switches; a session's message keeps the branch the session itself moved to, by a `git switch`, `git checkout` or `git rebase` command, `gh pr checkout` or `gh pr merge`, or by entering or leaving a worktree, and a change of the recorded branch counts as the session's own only during such a command of its own or within 30 seconds after it (the recorded branch follows a switch a few seconds late).
+* **Tokens and cost.**
+  Each model response counts once (by its id), at the API prices per 1M tokens (Opus 5.5: $4 input, $20 output, $0.20 cache read, $8 one-hour cache write).
+  The tokens are input, output, cache reads and cache writes together; in a long session most of them are cache reads, the context reread by every request.
+  The same calculation matched the `/cost` snapshots in the transcripts to the cent.
+* **Agent-hours.**
+  The time from a prompt of the maintainer to the agent's last action; pauses longer than 10 minutes are not counted.
+* **The block.**
+  A table for people and a comment `<!-- usage {...} -->` with the same figures for scripts, between the markers `<!-- usage:begin -->` and `<!-- usage:end -->`, which a rerun replaces.
+* **The badge.**
+  `pr_usage.py --update` then runs the Usage workflow (`.github/workflows/usage.yml`; also daily).
+  It sums the blocks of the maintainer's pull requests and the sessions below (`tools/usage/usage_badge.py`), lists the pull requests in its run summary, and publishes `usage.json`, a shields.io endpoint, on the branch `badges`: the ruleset on `main` takes no commit from a workflow.
+  Contributors' pull requests are not counted: their descriptions are theirs to edit.
 
 ## Sessions before per-pull-request tracking
 
@@ -37,10 +54,20 @@ Each row was computed by the script's predecessor, `tools/usage/session_cost.py`
 
 ## Observations for calibrating §9
 
-- 2026-10-16: ≈$19 per agent-hour versus $8–18 in the §9 model. Output (0.30M/h) and cache writes (0.61M/h) are within the model, but cache reads are 42M/h versus 5–15: a long session rereads its growing context (≈225k tokens per request on average). Cache reads are 43% of the cost. Short single-task sessions are cheaper.
+- 2026-10-16: ≈$19 per agent-hour versus $8–18 in the §9 model.
+  Output (0.30M/h) and cache writes (0.61M/h) are within the model, but cache reads are 42M/h versus 5–15: a long session rereads its growing context (≈225k tokens per request on average).
+  Cache reads are 43% of the cost.
+  Short single-task sessions are cheaper.
 - 2026-10-16 (translation): agent-hours count only the main session's time, so with 11 parallel subagents the per-agent-hour figures ($47, cache reads 97M/h) are inflated; per task it is ≈$29 for ≈1.8 MB of Russian text, cache reads ≈41% of the cost.
-- 2026-10-16/17 (night session): ≈$26 per agent-hour, above the model's $8–18. Output (0.21M/h) and cache writes (0.40M/h) are within it; cache reads (95M/h) are six times its top, as in every long session, and make up most of the cost. Splitting a night into sessions per milestone would cut them.
-- 2026-10-17 (the night session continued after a 6.6-hour pause): ≈$48 per agent-hour. Each of the 43 requests reread ≈750k tokens of the old context (cache reads 108M/h), and the hour-long cache had expired during the pause, so the context was written to it anew (cache writes ≈half the cost). Short tasks after a break are cheaper in a new session, which starts from `CLAUDE.md`, `PLAN.md` and the memory instead of the old context.
-- 2026-10-17 (publication): ≈$36 per agent-hour, but the eight subagents' tokens are in the cost and their time is not, so the per-agent-hour figures are inflated, as in the translation session. Cache reads are ≈52% of the cost, cache writes ≈35%: the audit and the editing ran in parallel subagents, each reading its share of the documents into its own context.
-- 2026-10-17 (the workflow): ≈$18 per agent-hour, the top of the model; output, cache reads and writes are all within it. Most of the wall clock was CI: the first Windows builds took 28 and 29 minutes without a cache, the next pull request 1 minute with one.
-- 2026-10-17 (versions): ≈$11 per agent-hour, within the model; cache reads 16M/h, just above its top. A short single-task session: most of the wall clock was waiting for the maintainer's merges and for CI.
+- 2026-10-16/17 (night session): ≈$26 per agent-hour, above the model's $8–18.
+  Output (0.21M/h) and cache writes (0.40M/h) are within it; cache reads (95M/h) are six times its top, as in every long session, and make up most of the cost.
+  Splitting a night into sessions per milestone would cut them.
+- 2026-10-17 (the night session continued after a 6.6-hour pause): ≈$48 per agent-hour.
+  Each of the 43 requests reread ≈750k tokens of the old context (cache reads 108M/h), and the hour-long cache had expired during the pause, so the context was written to it anew (cache writes ≈half the cost).
+  Short tasks after a break are cheaper in a new session, which starts from `CLAUDE.md`, `PLAN.md` and the memory instead of the old context.
+- 2026-10-17 (publication): ≈$36 per agent-hour, but the eight subagents' tokens are in the cost and their time is not, so the per-agent-hour figures are inflated, as in the translation session.
+  Cache reads are ≈52% of the cost, cache writes ≈35%: the audit and the editing ran in parallel subagents, each reading its share of the documents into its own context.
+- 2026-10-17 (the workflow): ≈$18 per agent-hour, the top of the model; output, cache reads and writes are all within it.
+  Most of the wall clock was CI: the first Windows builds took 28 and 29 minutes without a cache, the next pull request 1 minute with one.
+- 2026-10-17 (versions): ≈$11 per agent-hour, within the model; cache reads 16M/h, just above its top.
+  A short single-task session: most of the wall clock was waiting for the maintainer's merges and for CI.

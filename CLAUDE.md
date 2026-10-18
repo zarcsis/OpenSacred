@@ -62,7 +62,7 @@ python -I tools/analysis/formats/<script>.py --game-dir ./OriginalGame   # Pytho
 - Branch `<type>/<issue>-<slug>` from a fresh `origin/main` (`git fetch && git switch -c feature/3-roofs origin/main`). Commits and the pull request's title keep the history's `Scope: what` style; the body follows `.github/pull_request_template.md` and starts with `Closes #N`; the pull request takes its issue's label.
 - After the checks of "Before finishing a task": `git push -u origin <branch>`, `gh pr create`, then `gh pr merge --squash --auto`: GitHub merges once the checks are green and deletes the branch. Watch them (`gh pr checks --watch`); a red check is fixed on the branch. Then `git switch main && git pull`.
 - Every pull request carries its Claude Code usage: `python -I tools/usage/pr_usage.py <N> --update` writes it into the description from the transcripts of its branch and refreshes the README's badge (docs/usage.md). Run it after `gh pr create`, and again when the work on the pull request is over: after the merge, or once the checks are green for one that waits for the maintainer.
-- The maintainer merges, and the pull request is labeled `needs-maintainer` instead of merged, when it changes `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions.md`, a screenshot reference or the process (docs/03 §3.6), or comes from someone else. The PreToolUse hook `.claude/hooks/merge_guard.py` refuses `gh pr merge` on such a pull request; do not merge it another way.
+- The maintainer merges, and the pull request is labeled `needs-maintainer` instead of merged, when it changes `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions/`, a screenshot reference or the process (docs/03 §3.6), or comes from someone else. The PreToolUse hook `.claude/hooks/merge_guard.py` refuses `gh pr merge` on such a pull request; do not merge it another way.
 - The label sets the version (docs/03 §3.6): after a merge, the Release workflow tags the squash commit `vX.Y.Z` and publishes a GitHub Release; `feature` raises the minor version, `bug` the patch, the other labels leave it. The major version only when the maintainer asks: `gh workflow run release.yml -f bump=major`.
 - Without an issue: the daily `Dependencies: cargo update` pull request, merged with `--auto`.
 
@@ -102,7 +102,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Claim statuses: **confirmed**, **community-reported**, **estimate**, **hypothesis** (PLAN.md).
 - A newly found fact about a format goes into `docs/02-data-formats.md`; a resolved open question is removed from the lists in PLAN.md §13 and in `docs/`.
 - Recovered logic of the original goes into `docs/re/<subsystem>.md`.
-- Deliberate deviations from the original's behavior go into `docs/decisions.md`.
+- Deliberate deviations from the original's behavior go into `docs/decisions/`, a file each (`docs/decisions/README.md`).
 - Claude Code usage goes into each pull request's description, not into a file ("Issues and pull requests"; docs/usage.md).
 
 ## Code conventions

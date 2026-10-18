@@ -2,10 +2,16 @@
 
 ## Summary
 
-* **The language is Rust for the entire product:** the game, the asset converter, the tools. One language for everything is a project goal, with a chance to be the first project of its kind (§1.3), and it is technically feasible: Bevy, wgpu, Kira and Symphonia cover all the needed subsystems in pure Rust.
-* **No intermediate C++ layer.** The original is decompiled only to understand its formats and rules; the behavior is described in prose in `docs/re/`, implemented independently in Rust and checked against vectors recorded from the developer's own `Sacred.exe` (§2). Anything made locally while studying the original is never committed. VC6 is not needed.
-* **The engine is Bevy 0.20 on wgpu 30.** In the matrix it scores 410 out of 500, against 375 for Godot with godot-rust, 345 for Godot with C++ and 220 for Unreal Engine 5.8.
-* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies. A switch to Godot with godot-rust keeps the rules and the converter.
+* **The language is Rust for the entire product:** the game, the asset converter, the tools.
+  One language for everything is a project goal, with a chance to be the first project of its kind (§1.3), and it is technically feasible: Bevy, wgpu, Kira and Symphonia cover all the needed subsystems in pure Rust.
+* **No intermediate C++ layer.**
+  The original is decompiled only to understand its formats and rules; the behavior is described in prose in `docs/re/`, implemented independently in Rust and checked against vectors recorded from the developer's own `Sacred.exe` (§2).
+  Anything made locally while studying the original is never committed.
+  VC6 is not needed.
+* **The engine is Bevy 0.20 on wgpu 30.**
+  In the matrix it scores 410 out of 500, against 375 for Godot with godot-rust, 345 for Godot with C++ and 220 for Unreal Engine 5.8.
+* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies.
+  A switch to Godot with godot-rust keeps the rules and the converter.
 * **Unsafe code is forbidden** in all product crates (`#![forbid(unsafe_code)]`); the only exception is the development tool `opensacred-oracle`, which calls the Unicorn emulator and is a separate crate, never linked into the converter or the game.
 
 ## 1. Why Rust
@@ -31,18 +37,26 @@
 
 ### 1.3 Pioneering
 
-The survey of comparable projects (docs/09 §5) found no full reimplementation of a 1998–2006 commercial game in Rust. All the projects of that kind for Windows games of that era it found are in C/C++; the only cross-language precedent is OpenNox (C → Go through the cxgo transpiler). The project may become the first example of "asset conversion + reimplementation in Rust with Bevy" for a game of this scale.
+The survey of comparable projects (docs/09 §5) found no full reimplementation of a 1998–2006 commercial game in Rust.
+All the projects of that kind for Windows games of that era it found are in C/C++; the only cross-language precedent is OpenNox (C → Go through the cxgo transpiler).
+The project may become the first example of "asset conversion + reimplementation in Rust with Bevy" for a game of this scale.
 
 ## 2. How the original's logic gets into Rust
 
 ### 2.1 The method
 
-The original's code is translated neither into Rust nor into an intermediate C++. Every format and rule goes through four steps (the legal basis is in docs/08 §2 and §3):
+The original's code is translated neither into Rust nor into an intermediate C++.
+Every format and rule goes through four steps (the legal basis is in docs/08 §2 and §3):
 
-1. **Understand.** Where the data alone does not tell, the functions that hold a format or a rule are decompiled in the developer's local Ghidra project (docs/03 §4), only to understand what they do.
-2. **Describe.** The behavior is written down in prose: facts about the formats in `docs/02-data-formats.md`, the rules in `docs/re/<subsystem>.md` (inputs, outputs, formulas, tables, edge cases), with the original's names and addresses as references. Decompiler output is never pasted in.
-3. **Implement.** The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
-4. **Verify.** A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg, dgVoodoo2; docs/03 §1).
+1. **Understand.**
+   Where the data alone does not tell, the functions that hold a format or a rule are decompiled in the developer's local Ghidra project (docs/03 §4), only to understand what they do.
+2. **Describe.**
+   The behavior is written down in prose: facts about the formats in `docs/02-data-formats.md`, the rules in `docs/re/<subsystem>.md` (inputs, outputs, formulas, tables, edge cases), with the original's names and addresses as references.
+   Decompiler output is never pasted in.
+3. **Implement.**
+   The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
+4. **Verify.**
+   A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg, dgVoodoo2; docs/03 §1).
 
 Some functions are hard to understand from the decompilation alone:
 
@@ -64,11 +78,15 @@ For those the description is checked against more vectors and edge cases, not ag
 
 ### 2.3 The oracle: the original's functions in an emulator
 
-`opensacred-oracle` (not written yet) loads the image of the developer's own GOG `Sacred.exe` into the memory of the Unicorn emulator (the `unicorn-engine` 2.1.5 crate, GPL-2.0), substitutes stubs for CRT and Windows calls, and executes the chosen function on a set of inputs. The results are written to JSON and become the reference for the Rust tests.
+`opensacred-oracle` (not written yet) loads the image of the developer's own GOG `Sacred.exe` into the memory of the Unicorn emulator (the `unicorn-engine` 2.1.5 crate, GPL-2.0), substitutes stubs for CRT and Windows calls, and executes the chosen function on a set of inputs.
+The results are written to JSON and become the reference for the Rust tests.
 
-It is a local development tool: it needs the developer's own copy of the game, so it runs on the developer's machine, never in CI. Because GPL-2.0 cannot be combined with the project's Apache-2.0 option, it is a separate development-only crate, never linked into the converter or the game (docs/08 §4).
+It is a local development tool: it needs the developer's own copy of the game, so it runs on the developer's machine, never in CI.
+Because GPL-2.0 cannot be combined with the project's Apache-2.0 option, it is a separate development-only crate, never linked into the converter or the game (docs/08 §4).
 
-Advantages: it works on any OS, does not require running the game, and is deterministic. Limitation: it suits "pure" functions: formulas, generators, transformations. Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`).
+Advantages: it works on any OS, does not require running the game, and is deterministic.
+Limitation: it suits "pure" functions: formulas, generators, transformations.
+Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`).
 
 ## 3. Implementing the logic in Rust without unsafe
 
@@ -84,7 +102,9 @@ Advantages: it works on any OS, does not require running the game, and is determ
 | The NetScript interpreter built on `switch` and `goto` | `match` on the record type over the parsed IR; no jumps by offset |
 | Engine threads and critical sections | the Bevy system schedule; the rules are single-threaded and deterministic within one machine |
 
-The `unsafe` policy: `#![forbid(unsafe_code)]` in `opensacred-formats`, `opensacred-data`, `opensacred-convert`, `opensacred-rules`, `opensacred-game`. Unsafe operations exist inside dependencies (wgpu, Unicorn), but not in our code. The only exception is `opensacred-oracle`, and only if the Unicorn crate's wrapper requires it.
+The `unsafe` policy: `#![forbid(unsafe_code)]` in `opensacred-formats`, `opensacred-data`, `opensacred-convert`, `opensacred-rules`, `opensacred-game`.
+Unsafe operations exist inside dependencies (wgpu, Unicorn), but not in our code.
+The only exception is `opensacred-oracle`, and only if the Unicorn crate's wrapper requires it.
 
 ## 4. Engine comparison
 
@@ -130,23 +150,42 @@ The `unsafe` policy: `#![forbid(unsafe_code)]` in `opensacred-formats`, `opensac
 
 ### 4.4 Option by option
 
-**Bevy.** Pros: pure Rust; scenes and logic in code; a headless mode for tests; glTF with skeletons and an animation graph with blending; Bevy UI and the Feathers widget set; asset hot reloading; KTX2 with Basis Universal; Android and the web out of the box. Cons: three breaking releases in 2026 (0.18, 0.19, 0.20); no ready-made visual editor; part of the ecosystem lags behind the releases. Sacred barely needs an editor: the world and the content come from the converter.
+**Bevy.**
+Pros: pure Rust; scenes and logic in code; a headless mode for tests; glTF with skeletons and an animation graph with blending; Bevy UI and the Feathers widget set; asset hot reloading; KTX2 with Basis Universal; Android and the web out of the box.
+Cons: three breaking releases in 2026 (0.18, 0.19, 0.20); no ready-made visual editor; part of the ecosystem lags behind the releases.
+Sacred barely needs an editor: the world and the content come from the converter.
 
-**Our own engine on wgpu.** Pros: full control, fewer dependencies, less breakage. Cons: we would have to write the asset system, animation blending, UI, scenes and debugging tools ourselves. That is dozens of extra agent-hours with no benefit for the "play comfortably" goal.
+**Our own engine on wgpu.**
+Pros: full control, fewer dependencies, less breakage.
+Cons: we would have to write the asset system, animation blending, UI, scenes and debugging tools ourselves.
+That is dozens of extra agent-hours with no benefit for the "play comfortably" goal.
 
-**Fyrox 1.0.** Pros: a stable API (1.0), a built-in editor, animation state machines, UI. Cons: an OpenGL renderer, not Vulkan; the workflow is tied to the editor; a smaller community than Bevy's.
+**Fyrox 1.0.**
+Pros: a stable API (1.0), a built-in editor, animation state machines, UI.
+Cons: an OpenGL renderer, not Vulkan; the workflow is tied to the editor; a smaller community than Bevy's.
 
-**Godot + godot-rust.** Pros: the fastest path to playable: a mature renderer, animation trees, UI on Control nodes, audio buses, export to Android and the web. The logic can be written in Rust. Cons: two worlds, Godot scenes and Rust code; godot-rust is at version 0.x; WebAssembly support is behind the `experimental-wasm` flag, and Android is experimental too; asset import and debugging are tied to the editor, which Claude Code cannot see.
+**Godot + godot-rust.**
+Pros: the fastest path to playable: a mature renderer, animation trees, UI on Control nodes, audio buses, export to Android and the web.
+The logic can be written in Rust.
+Cons: two worlds, Godot scenes and Rust code; godot-rust is at version 0.x; WebAssembly support is behind the `experimental-wasm` flag, and Android is experimental too; asset import and debugging are tied to the editor, which Claude Code cannot see.
 
-**Godot + C++.** Pros: more stable than godot-rust, official support for all platforms. Cons: a second language; contradicts the "one language, Rust" goal.
+**Godot + C++.**
+Pros: more stable than godot-rust, official support for all platforms.
+Cons: a second language; contradicts the "one language, Rust" goal.
 
-**Unreal Engine 5.8 + C++.** Pros: the most powerful renderer and tools. Cons: binary `.uasset` files and Blueprints that Claude Code cannot edit; hundreds of gigabytes and long builds; no web export; the license is not open; the power is overkill for a 2006 isometric game. Rejected.
+**Unreal Engine 5.8 + C++.**
+Pros: the most powerful renderer and tools.
+Cons: binary `.uasset` files and Blueprints that Claude Code cannot edit; hundreds of gigabytes and long builds; no web export; the license is not open; the power is overkill for a 2006 isometric game.
+Rejected.
 
 ## 5. Decision and insurance
 
-**Decision: our own Rust version built on Bevy.** Of the two paths, "our own Rust version" or "an existing engine + C++", the project takes its own Rust version, but not from scratch: on top of Bevy as a ready-made set of subsystems.
+**Decision: our own Rust version built on Bevy.**
+Of the two paths, "our own Rust version" or "an existing engine + C++", the project takes its own Rust version, but not from scratch: on top of Bevy as a ready-made set of subsystems.
 
-**Sensitivity.** If the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust scores the same as Bevy. That is why the architecture insures against a wrong choice:
+**Sensitivity.**
+If the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust scores the same as Bevy.
+That is why the architecture insures against a wrong choice:
 
 * `opensacred-rules` (rules) and `opensacred-convert` (converter) do not depend on the engine;
 * `opensacred-data` (asset types) consists of ordinary `serde` structures that any code can read;
@@ -158,7 +197,8 @@ The `unsafe` policy: `#![forbid(unsafe_code)]` in `opensacred-formats`, `opensac
 2. Bevy's animation or UI system blocks the vertical slice for more than two weeks;
 3. Android or the web needs a capability that wgpu or Bevy lacks.
 
-**What to do when switching to Godot:** connect `opensacred-rules` through godot-rust as a GDExtension, rewrite the presentation in Godot scenes, keep the converter. The switch is estimated at 40–80 agent-hours, depending on the milestone at which it happens.
+**What to do when switching to Godot:** connect `opensacred-rules` through godot-rust as a GDExtension, rewrite the presentation in Godot scenes, keep the converter.
+The switch is estimated at 40–80 agent-hours, depending on the milestone at which it happens.
 
 ## 6. Crate set
 

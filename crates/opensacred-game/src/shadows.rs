@@ -2,7 +2,7 @@
 //! draws it through the stencil (docs/05 §1); until that is done, a soft dark ellipse lies under
 //! each character, in the original's place for shadows, draw list 1: over the ground, the
 //! liquids and the underlays of list 0 (paving, flowers), under those of list 2 and every other
-//! object (docs/decisions.md).
+//! object (docs/decisions/2026-10-17-shadows.md).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;

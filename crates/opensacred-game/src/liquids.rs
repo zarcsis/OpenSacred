@@ -7,7 +7,7 @@
 //! As the original draws them (`0x62E0E2`): a frame spans 4 × 4 cells along the grid, and every
 //! material runs through its frames once in `CYCLE_MS`, whatever their count. How it blends them
 //! is not recovered: until it is, the clear waters let the bed show through and every surface
-//! fades toward the shore, each corner by the share of dry cells around it (docs/decisions.md).
+//! fades toward the shore, each corner by the share of dry cells around it (docs/decisions/2026-10-17-liquids.md).
 
 use std::collections::HashMap;
 use std::fs;

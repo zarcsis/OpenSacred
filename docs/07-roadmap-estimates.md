@@ -6,9 +6,12 @@ Dollar figures are the hypothetical cost of the same tokens at Anthropic API pri
 
 * The work is done solo and almost entirely through Claude Code, so estimates are given in **agent-hours** (an hour of active agent work) and **maintainer hours** (task setting, review, manual and gameplay checks), and the cost is estimated through token usage at API prices.
 * To a playable version 1.0 for Windows 11: **≈390–770 agent-hours and ≈230–460 maintainer hours** (estimate, uncertainty up to ×2).
-* At API prices the same tokens would cost ≈$3.1k–13.9k on Claude Opus 5.5, ≈$1.6k–7.7k on Claude Sonnet 5.5, ≈$2.5k–11.4k with a mix of 60% Opus and 40% Sonnet. On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
-* Calendar: 2.5–4.5 months in an intensive mode, 6–12 months "evenings and weekends". The bottleneck is the maintainer's time for review and playtesting.
-* The agent-hour cost model is an estimate. It needs to be calibrated against actuals over the first 30 days: the usage that every pull request records from the Claude Code transcripts (`docs/usage.md`).
+* At API prices the same tokens would cost ≈$3.1k–13.9k on Claude Opus 5.5, ≈$1.6k–7.7k on Claude Sonnet 5.5, ≈$2.5k–11.4k with a mix of 60% Opus and 40% Sonnet.
+  On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
+* Calendar: 2.5–4.5 months in an intensive mode, 6–12 months "evenings and weekends".
+  The bottleneck is the maintainer's time for review and playtesting.
+* The agent-hour cost model is an estimate.
+  It needs to be calibrated against actuals over the first 30 days: the usage that every pull request records from the Claude Code transcripts (`docs/usage.md`).
 
 ## 1. Estimation model
 
@@ -60,7 +63,8 @@ The planning phase was carried out by multi-agent Claude Code runs, mostly on Cl
 | Writing the documents and two rounds of critique (the last run) | 35 | 1,124 | ≈1.4 h | 6.5M |
 | A later revision of the documents | 32 | 1,494 | ≈1.5 h | 6.6M |
 
-What exactly the orchestrator's counter includes (only output with reasoning, or all input) has not been verified. So these numbers indicate the order of magnitude, and the §1.3 model needs to be refined with `/cost` or ccusage on the project's real tasks (`docs/usage.md`).
+What exactly the orchestrator's counter includes (only output with reasoning, or all input) has not been verified.
+So these numbers indicate the order of magnitude, and the §1.3 model needs to be refined with `/cost` or ccusage on the project's real tasks (`docs/usage.md`).
 
 ## 2. Milestones
 
@@ -85,20 +89,23 @@ What exactly the orchestrator's counter includes (only output with reasoning, or
 | NetScript → IR and listings | 15–30 |
 | Manifest, tests, incrementality | 4–8 |
 
-* **Exit criterion:** 100% of the installation's files are processed; models pass glTF-Validator; the NetScript disassembler gets through 20 directories with no unknown records; a rerun gives the same result. All four were met on 2026-10-17 (`opensacred-convert coverage`, `gltf_validator`, `opensacred_formats::netscript`, the run manifests of two full runs).
+* **Exit criterion:** 100% of the installation's files are processed; models pass glTF-Validator; the NetScript disassembler gets through 20 directories with no unknown records; a rerun gives the same result.
+  All four were met on 2026-10-17 (`opensacred-convert coverage`, `gltf_validator`, `opensacred_formats::netscript`, the run manifests of two full runs).
 * The order within M1 is subordinate to the vertical slice: textures, models, animations and the world of the starting region come first.
 
 ### M2. Vertical slice — 30–60 agent-hours, 15–30 maintainer hours
 
 * Window, orthographic camera, sector streaming, terrain with an atlas, sprite objects, water; the hero with walk and run animations; footstep sounds and region music; a minimal HUD.
-* **Exit criterion:** the hero walks through the starting region at 3840×2160 at ≥ 60 fps; screenshot tests of the scene in CI. On 2026-10-17: about 775 fps at 3840 × 2160 (docs/05 §3.6), and the screenshot test of a synthetic scene passes locally; its CI step (lavapipe) waits for its first run.
+* **Exit criterion:** the hero walks through the starting region at 3840×2160 at ≥ 60 fps; screenshot tests of the scene in CI.
+  On 2026-10-17: about 775 fps at 3840 × 2160 (docs/05 §3.6), and the screenshot test of a synthetic scene passes locally; its CI step (lavapipe) waits for its first run.
 
 ### M3. Rules — 120–240 agent-hours, 40–80 maintainer hours
 
-* A local Ghidra 12.1.4 project on the GOG `Sacred.exe` and `GameServer.exe`, RTTI, community names; the MCP server connected to Claude Code. Moved here from M0: M1 and M2 do not need the original's code; Ghidra is installed earlier if a format question does.
+* A local Ghidra 12.1.4 project on the GOG `Sacred.exe` and `GameServer.exe`, RTTI, community names; the MCP server connected to Claude Code.
+  Moved here from M0: M1 and M2 do not need the original's code; Ghidra is installed earlier if a format question does.
 * Study in Ghidra, the behavior described in prose in `docs/re/`, and an independent implementation in `opensacred-rules` (PLAN.md §4.2): attributes and levels, skills and combat arts, combat and damage, resistances, items and loot generation, sets, creature AI, spawning.
 * `opensacred-oracle`, run locally: emulation of the formula functions of the user's own `Sacred.exe`, vectors in JSON.
-* **Exit criterion:** combat with the starting region's creatures, loot, experience and levels work; the formulas are covered by vectors; deviations are recorded in `docs/decisions.md`.
+* **Exit criterion:** combat with the starting region's creatures, loot, experience and levels work; the formulas are covered by vectors; deviations are recorded in `docs/decisions/`.
 
 ### M4. Quests and world — 60–120 agent-hours, 25–50 maintainer hours
 
@@ -150,7 +157,8 @@ The hypothetical cost of the same tokens at API prices, not money spent (see the
 | 60% Opus 5.5 + 40% Sonnet 5.5 ($6.4–14.8/h) | ≈$2.5k–11.4k | ≈$2.9k–13.5k |
 | Claude Fable 5.1 only ($18–40/h) | ≈$7k–31k | ≈$8.3k–36.4k |
 
-Which model fits where is up to the maintainer. A sensible split: the strongest model for binary analysis, architecture and hard debugging; a cheaper one for mechanical work (converter tables, UI layout, migrations).
+Which model fits where is up to the maintainer.
+A sensible split: the strongest model for binary analysis, architecture and hard debugging; a cheaper one for mechanical work (converter tables, UI layout, migrations).
 
 ### 3.2 Calendar
 
@@ -190,8 +198,9 @@ M7 and M8 come after M6
 ## 5. How to run the project with Claude Code
 
 * **Task queue:** the issues on GitHub (PLAN.md §10.1, docs/03 §3.6); each task has a definition of done and a link to the notes.
-* **Session = task:** Claude Code gets a task, does it, runs the checks and commits; the maintainer reviews the result. Contributions come as pull requests on GitHub, and the maintainer reviews and merges them.
-* **Definition of done:** formatting, clippy without warnings, tests, updated `docs/re/` notes when the original's behavior was studied, an entry in `docs/decisions.md` when deviating from the original.
+* **Session = task:** Claude Code gets a task, does it, runs the checks and commits; the maintainer reviews the result.
+  Contributions come as pull requests on GitHub, and the maintainer reviews and merges them.
+* **Definition of done:** formatting, clippy without warnings, tests, updated `docs/re/` notes when the original's behavior was studied, an entry in `docs/decisions/` when deviating from the original.
 * **Weekly:** dependency updates, a usage review, the plan for the week.
 * **After each milestone:** a retrospective and re-estimation of the remaining milestones from the actual pace.
 

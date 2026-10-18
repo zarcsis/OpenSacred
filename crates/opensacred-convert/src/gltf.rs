@@ -8,7 +8,7 @@
 //! −Y, but 148, among them `SERAPHIM.GRN` and `GLADIATOR.GRN`, face +X; in the game the
 //! animations turn them. A bone whose scale/shear is not diagonal becomes two nodes, since glTF
 //! scales along a node's own axes only ([`animation::Shear`]). Where glTF cannot hold the
-//! original, the choice is recorded in `docs/decisions.md`.
+//! original, the choice is recorded in `docs/decisions/`.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};

@@ -2,15 +2,23 @@
 
 ## Summary
 
-* OpenSacred is an independently written engine and converter. The repository contains no file of the game and nothing derived from one: every user converts their own copy of Sacred Gold 2.28, and the converted assets stay on that user's machine.
-* The work on the original's formats and behavior relies on the exceptions of Directive 2009/24/EC: Art. 5(3) (observing and studying the program one is entitled to use) and Art. 6 (decompilation for the interoperability of an independently created program). Under Art. 8, a contract cannot exclude them.
-* The GOG build has no copy protection. The project circumvents nothing, and publishes nothing about circumventing a protection.
-* What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words. Never: game files, converted assets, decompiler output, game texts (§3).
+* OpenSacred is an independently written engine and converter.
+  The repository contains no file of the game and nothing derived from one: every user converts their own copy of Sacred Gold 2.28, and the converted assets stay on that user's machine.
+* The work on the original's formats and behavior relies on the exceptions of Directive 2009/24/EC: Art.
+  5(3) (observing and studying the program one is entitled to use) and Art.
+  6 (decompilation for the interoperability of an independently created program).
+  Under Art.
+  8, a contract cannot exclude them.
+* The GOG build has no copy protection.
+  The project circumvents nothing, and publishes nothing about circumventing a protection.
+* What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words.
+  Never: game files, converted assets, decompiler output, game texts (§3).
 * Sacred is a trademark of its owner; OpenSacred is not affiliated with THQ Nordic, Ascaron or GOG (§6).
 
 ## 1. Disclaimer
 
-This is the project's policy, not legal advice. The applicable law depends on where you live; when in doubt, consult a lawyer.
+This is the project's policy, not legal advice.
+The applicable law depends on where you live; when in doubt, consult a lawyer.
 
 ## 2. Legal basis
 
@@ -38,14 +46,17 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 | Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
 | | Anything about removing or circumventing a protection |
 
-How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked against values recorded from the user's own executable. Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
+How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked against values recorded from the user's own executable.
+Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
 
 ## 4. Repository and CI
 
 * The tools read the user's own GOG Sacred Gold 2.28 installation from `OriginalGame/` (ignored by Git) or from `--game-dir`; `opensacred-convert verify` checks it against the manifest.
 * The converter writes to `assets/`, which is ignored by Git as well.
-* CI has no game files. The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
-* The future oracle (PLAN.md §6.1) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI. It links Unicorn (GPL-2.0), so it is a separate development-only crate, never linked into the converter or the game.
+* CI has no game files.
+  The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
+* The future oracle (PLAN.md §6.1) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI.
+  It links Unicorn (GPL-2.0), so it is a separate development-only crate, never linked into the converter or the game.
 
 ## 5. Community work
 
@@ -59,12 +70,16 @@ How the original's rules get into the engine: the original is studied (running i
 | kryotek, sacredbamboo | AGPL-3.0 and others | not used: networking is out of scope |
 | SacredEngineRemake | no license (all rights reserved) | not used |
 
-Facts about formats are not protected by copyright; code is. So from other projects we take knowledge and write our own code. A constant table or formula taken from an MIT project carries the project's notice in `THIRD-PARTY-NOTICES.md` and a comment naming the source.
+Facts about formats are not protected by copyright; code is.
+So from other projects we take knowledge and write our own code.
+A constant table or formula taken from an MIT project carries the project's notice in `THIRD-PARTY-NOTICES.md` and a comment naming the source.
 
 ## 6. Name and trademark
 
-* "Sacred", "Sacred Gold" and "Sacred Underworld" are trademarks of their owner; the rights to Sacred are held by THQ Nordic GmbH. OpenSacred is not affiliated with, endorsed by or sponsored by THQ Nordic, Ascaron Entertainment or GOG.
-* The name states what the engine works with, as OpenMW and OpenGothic do for their games. The repository, the binaries and the icons use none of the game's logos, fonts or artwork.
+* "Sacred", "Sacred Gold" and "Sacred Underworld" are trademarks of their owner; the rights to Sacred are held by THQ Nordic GmbH.
+  OpenSacred is not affiliated with, endorsed by or sponsored by THQ Nordic, Ascaron Entertainment or GOG.
+* The name states what the engine works with, as OpenMW and OpenGothic do for their games.
+  The repository, the binaries and the icons use none of the game's logos, fonts or artwork.
 * If the owner of the trademark objects to the name, the project will be renamed.
 
 ## 7. Risks

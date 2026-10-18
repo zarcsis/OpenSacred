@@ -2,8 +2,10 @@
 
 ## Summary
 
-* **Platforms:** Windows 11 x64 is the main one; Linux is second, with the same functionality; Android and Chrome (WebAssembly) come after version 1.0 and by a separate decision. Everything builds from one codebase on Bevy and wgpu.
-* **Sound:** Kira through `bevy_kira_audio` with Symphonia decoders (pure Rust, works on all four platforms). Sound events are taken from the original's 175 profiles, converted to RON.
+* **Platforms:** Windows 11 x64 is the main one; Linux is second, with the same functionality; Android and Chrome (WebAssembly) come after version 1.0 and by a separate decision.
+  Everything builds from one codebase on Bevy and wgpu.
+* **Sound:** Kira through `bevy_kira_audio` with Symphonia decoders (pure Rust, works on all four platforms).
+  Sound events are taken from the original's 175 profiles, converted to RON.
 * **Input:** keyboard and mouse as in the original plus a gamepad; key remapping through `leafwing-input-manager`; touch controls only for Android.
 * **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d, in the browser through the HTML video element; movies can be skipped.
 * **Saves and settings** use our own formats on serde; the original saves are not supported.
@@ -27,7 +29,8 @@ The game assets must not be made publicly available, so the web version is meant
 
 * Miles Sound System 6.6g: 57 of the 62 imported `AIL_*` functions are called: 2D samples, 3D samples through the DirectSound3D provider, MP3 streams through `mssmp3.asi`, the IMA ADPCM decoder.
 * `sndProfiles.pak`: 175 profiles map `SND_*` events (footsteps, hits, doors, chests, hero voices, creatures) to sample groups: 2,355 identifiers in total, 2,253 of which are present in `sound.pak`.
-* `sound.pak`: 6,598 samples: 3,194 RIFF WAV (PCM and IMA ADPCM) and 3,404 MP3; the profiles do not reference the MP3s (hypothesis: dialogue voice-over from the scripts). Details: docs/02, §10.2.
+* `sound.pak`: 6,598 samples: 3,194 RIFF WAV (PCM and IMA ADPCM) and 3,404 MP3; the profiles do not reference the MP3s (hypothesis: dialogue voice-over from the scripts).
+  Details: docs/02, §10.2.
 * Music: 173 MP3s in `mp3/`: background ambiences `ATMO_*`, region music `MUSIC_*`, short `JINGLE_*` stingers for combat, danger and quests.
 * Details: docs/02, §10; the sound logic recovered so far: `docs/re/sound.md`.
 
@@ -65,11 +68,13 @@ Estimate: 6–12 agent-hours.
 | Browser | the HTML video element over the canvas |
 | Controls | skip with a key; a "do not show movies" setting |
 
-Estimate: 6–12 agent-hours (M5). Movies are not needed to complete the game, so this is a low priority.
+Estimate: 6–12 agent-hours (M5).
+Movies are not needed to complete the game, so this is a low priority.
 
 ## 5. Files and assets
 
-* **Layout:** `assets/` holds the base assets from the converter; `assets-hd/` holds HD packs with the same relative paths. The game looks for a file in the HD directory first.
+* **Layout:** `assets/` holds the base assets from the converter; `assets-hd/` holds HD packs with the same relative paths.
+  The game looks for a file in the HD directory first.
 * **Loading:** Bevy's AssetServer, asynchronously; sectors and creatures are streamed in as the hero approaches.
 * **Names:** the converter normalizes paths to lowercase and forward slashes, so file system case does not matter.
 * **Installation check:** the converter cross-checks `OriginalGame/` against the SHA-256 manifest of the GOG installation (`docs/manifest-gog-2.28.txt`, 319 files, excluding the files the game writes: `Settings.cfg`, `Gameserver.cfg`, `save/`, the `DefPos.bin` caches) and refuses to work on an unknown build unless the force flag is given.
@@ -78,17 +83,22 @@ Estimate: 6–12 agent-hours (M5). Movies are not needed to complete the game, s
 
 ## 6. Saves and settings
 
-* **Saves:** our own format: a `serde` structure with a version number and migrations. RON in debug (human-readable), postcard with zstd compression in release. Autosave on a timer, like `AUTOSAVEDELAY` in the original.
+* **Saves:** our own format: a `serde` structure with a version number and migrations.
+  RON in debug (human-readable), postcard with zstd compression in release.
+  Autosave on a timer, like `AUTOSAVEDELAY` in the original.
 * **Directories:** through the `directories` crate: `%APPDATA%\OpenSacred` on Windows, XDG on Linux, app storage on Android, IndexedDB in the browser.
-* **Settings:** TOML: graphics (resolution, window mode, backend, zoom, UI scale, HD packs), sound (volumes), controls (layouts), gameplay. The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` are not needed (no networking).
-* **The original saves** (`.pax`) are not supported. The hero templates `Templates/*.ptx` are converted into starter kits for character creation.
+* **Settings:** TOML: graphics (resolution, window mode, backend, zoom, UI scale, HD packs), sound (volumes), controls (layouts), gameplay.
+  The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` are not needed (no networking).
+* **The original saves** (`.pax`) are not supported.
+  The hero templates `Templates/*.ptx` are converted into starter kits for character creation.
 
 Estimate: 8–15 agent-hours (M6).
 
 ## 7. Localization
 
 * `global.res` (UTF-16LE, 23,123 strings) → Fluent (`.ftl`) with keys from the hash identifiers; the original names are known for 56% of the strings, and the rest get a key of the form `id-<number>`.
-* English is the only language of the GOG release. Other languages can be added as Fluent files; third-party translations are for personal use only.
+* English is the only language of the GOG release.
+  Other languages can be added as Fluent files; third-party translations are for personal use only.
 * Fonts: the original TTFs + Noto (OFL) for Cyrillic and other characters.
 
 Estimate: 3–6 agent-hours (M1 and M5).

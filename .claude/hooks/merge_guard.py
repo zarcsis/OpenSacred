@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LABEL = 'needs-maintainer'
 # What a pull request changes here needs the maintainer's review: the rules, the hooks, CI and the process, the
 # allowed licenses, the deviations from the original, the screenshot references. A path ending in '/' is a directory.
-MAINTAINER_PATHS = ('CLAUDE.md', '.claude/', '.github/', 'deny.toml', 'docs/decisions.md',
+MAINTAINER_PATHS = ('CLAUDE.md', '.claude/', '.github/', 'deny.toml', 'docs/decisions/',
                     'crates/opensacred-game/tests/screenshots/')
 # How many of those paths a refusal names.
 SHOWN_PATHS = 5
