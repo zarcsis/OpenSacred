@@ -412,6 +412,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .init_resource::<buildings::Buildings>()
     .init_resource::<npcs::Retextured>()
     .add_observer(npcs::retexture)
+    .add_observer(npcs::equipment_ready)
     .add_systems(
         Startup,
         (
@@ -439,6 +440,7 @@ fn run(cli: Cli) -> Result<AppExit> {
             sectors::stream,
             npcs::place,
             npcs::animate,
+            npcs::equip,
             shadows::add,
             shadows::follow,
         )
