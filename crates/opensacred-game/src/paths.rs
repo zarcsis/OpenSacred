@@ -23,8 +23,6 @@ const STEPS: [(i32, i32); 8] = [
     (-1, -1),
     (1, -1),
 ];
-/// How finely a straight line is checked, in cells.
-const PROBE: f32 = 0.125;
 
 /// A global cell.
 pub type Cell = (i32, i32);
@@ -81,6 +79,11 @@ pub fn path(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<Vec
             let Some(i) = index(next) else {
                 continue;
             };
+            // Round a corner, not between two cells that touch at it.
+            let corner = dx != 0 && dy != 0;
+            if corner && !(walkable((cell.0 + dx, cell.1)) && walkable((cell.0, cell.1 + dy))) {
+                continue;
+            }
             if came[i].is_none() && walkable(next) {
                 came[i] = Some(cell);
                 queue.push_back(next);
@@ -92,20 +95,64 @@ pub fn path(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<Vec
 
 /// Whether the straight line from `a` to `b` on the ground crosses walkable cells only, but
 /// for the cell of `a`.
+///
+/// Every cell the line passes through counts, cell by cell along it, and where it passes a
+/// corner, the two cells beside the corner too: a hero cannot slip between two cells that touch
+/// at a corner.
 pub fn clear(a: Vec2, b: Vec2, walkable: impl Fn(Cell) -> bool) -> bool {
-    let start = cell_of(a.x, a.y);
-    let length = a.distance(b) / iso::CELL;
-    let steps = (length / PROBE).ceil().max(1.0);
-    let mut i = 1.0;
-    while i <= steps {
-        let p = a.lerp(b, i / steps);
-        let cell = cell_of(p.x, p.y);
-        if cell != start && !walkable(cell) {
+    let (from, to) = (a / iso::CELL, b / iso::CELL);
+    let (mut cell, end) = (cell_of(a.x, a.y), cell_of(b.x, b.y));
+    let d = to - from;
+    let step = (sign(d.x), sign(d.y));
+    // The line's parameter at its next crossing of a column's and of a row's edge, and between
+    // two crossings.
+    let next = |p: f32, d: f32| {
+        if d > 0.0 {
+            (p.floor() + 1.0 - p) / d
+        } else if d < 0.0 {
+            (p - p.floor()) / -d
+        } else {
+            f32::INFINITY
+        }
+    };
+    let (mut tx, mut ty) = (next(from.x, d.x), next(from.y, d.y));
+    let (dx, dy) = (1.0 / d.x.abs(), 1.0 / d.y.abs());
+    let cells = (end.0 - cell.0).abs() + (end.1 - cell.1).abs();
+    for _ in 0..cells {
+        if (tx - ty).abs() < 1e-6 {
+            // Through a corner.
+            if !walkable((cell.0 + step.0, cell.1)) || !walkable((cell.0, cell.1 + step.1)) {
+                return false;
+            }
+            cell = (cell.0 + step.0, cell.1 + step.1);
+            tx += dx;
+            ty += dy;
+        } else if tx < ty {
+            cell.0 += step.0;
+            tx += dx;
+        } else {
+            cell.1 += step.1;
+            ty += dy;
+        }
+        if !walkable(cell) {
             return false;
         }
-        i += 1.0;
+        if cell == end {
+            break;
+        }
     }
     true
+}
+
+/// -1, 0 or 1 by the sign of `v`.
+fn sign(v: f32) -> i32 {
+    if v > 0.0 {
+        1
+    } else if v < 0.0 {
+        -1
+    } else {
+        0
+    }
 }
 
 /// Where the hero at `position` heads for on its way to `target`: the target itself when the
@@ -155,6 +202,17 @@ mod tests {
         // Out of the window, or walled in.
         assert_eq!(path((0, 0), (40, 0), wall), None);
         assert_eq!(path((2, 4), (8, 4), |cell| cell == (2, 4)), None);
+    }
+
+    #[test]
+    fn no_way_slips_between_two_cells_that_touch_at_a_corner() {
+        let walkable = |cell: Cell| cell != (5, 5) && cell != (6, 6);
+        assert!(!clear(centre((5, 6)), centre((6, 5)), walkable));
+        let way = path((5, 6), (6, 5), walkable).unwrap();
+        assert!(way.len() > 3, "{way:?}");
+        // Along a row, and past a single corner.
+        assert!(clear(centre((2, 2)), centre((9, 2)), walkable));
+        assert!(clear(centre((4, 4)), centre((5, 3)), walkable));
     }
 
     #[test]
