@@ -6,7 +6,11 @@ Purpose (PLAN.md §9 and §10, step 8; docs/usage.md): every pull request carrie
 the Git branch of every message in its transcripts (`~/.claude/projects/<project>/<session>.jsonl`, the subagents'
 under `<session>/`), so a pull request's usage is that of the messages on its branch, in every session and worktree
 of the repository. A message on `main` counts toward the session's next branch, where the task it reads or the
-issue it opens is done, or, after the session's last branch, toward that branch. Model responses are taken once
+issue it opens is done, or, after the session's last branch, toward that branch. The branch Claude Code records is
+the checkout's, so when another session in the same checkout switches it, a message keeps the branch its session was
+on: a session moves to another branch only by a command of its own (`git switch`, `git checkout`, `git rebase`,
+`gh pr checkout`, `gh pr merge`, entering or leaving a worktree), during it or within 30 seconds after it, as the
+recorded branch follows a switch a few seconds late. Model responses are taken once
 each (by message.id), and the cost is computed at prices per 1M tokens (cache write: 5 minutes = 1.25× input,
 1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs on a Claude
 subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an owner's
@@ -38,6 +42,12 @@ IDLE = dt.timedelta(minutes=10)
 PROJECTS = os.path.join(os.path.expanduser('~'), '.claude', 'projects')
 # Branches of no pull request: their messages count toward a neighbouring branch of the session.
 NEUTRAL = {None, '', 'HEAD', 'main'}
+# A session's own moves to another branch: shell commands, at the start of a command line or after a separator (not
+# in an issue's text or a grep pattern), and tools; and how long after one the recorded branch may still change
+# (Claude Code records the checkout's branch a few seconds late).
+MOVES = re.compile(r'(?:^|[\n;&|(])\s*(?:git\s+(?:-C\s+\S+\s+)?(?:switch|checkout|rebase)|gh\s+pr\s+(?:checkout|merge))\b')
+MOVING_TOOLS = {'EnterWorktree', 'ExitWorktree'}
+GRACE = dt.timedelta(seconds=30)
 BEGIN, END = '<!-- usage:begin -->', '<!-- usage:end -->'
 ATTRIBUTION = '🤖 Generated with'
 WORKFLOW = 'usage.yml'
@@ -100,17 +110,52 @@ def records(path):
             continue
 
 
+def moves(block):
+    """Whether a content block is a tool call that moves the session's checkout to another branch."""
+    if not isinstance(block, dict) or block.get('type') != 'tool_use':
+        return False
+    command = (block.get('input') or {}).get('command')
+    return block.get('name') in MOVING_TOOLS or isinstance(command, str) and bool(MOVES.search(command))
+
+
+def own_branches(rows, windows, own=None):
+    """The branch a transcript's session is on at each of its messages (time, recorded branch), from the branch
+    it starts on (own, else its first recorded one): a change of the recorded branch is the session's own during one
+    of its moving calls or within GRACE after it (windows), and otherwise another session's in the same checkout,
+    which the session does not follow."""
+    out = []
+    for t, branch in rows:
+        if branch is not None and (own is None or branch != own and any(a <= t <= b for a, b in windows)):
+            own = branch
+        out.append(own)
+    return out
+
+
 def session_events(path, seen):
     """A session's messages in time order: (time, branch, kind, model, usage, from the main transcript).
     A response spans a line per content block, each with the response's usage, which is taken from the first;
-    messages already seen in another transcript (a resumed session repeats its history) are skipped."""
+    messages already seen in another transcript (a resumed session repeats its history) are skipped. The branch is
+    the one the session itself is on (own_branches), followed in each transcript apart: a subagent in the session's
+    checkout starts on the session's branch, one in a worktree of its own on its worktree's."""
     sid = os.path.splitext(os.path.basename(path))[0]
     sub = sorted(glob.glob(os.path.join(os.path.dirname(path), sid, '**', '*.jsonl'), recursive=True))
-    events = []
+    events, session, checkout = [], [], None
     for i, f in enumerate([path] + sub):
+        rows, calls, windows, cwd = [], {}, [], None
         for d in records(f):
             t = d.get('type')
-            if t not in ('user', 'assistant') or 'timestamp' not in d or not d.get('uuid') or d['uuid'] in seen:
+            if t not in ('user', 'assistant') or 'timestamp' not in d:
+                continue
+            # The same directory spelt with another case of the drive letter (VS Code's c:\ and C:\).
+            cwd = cwd or d.get('cwd') and os.path.normcase(os.path.normpath(d['cwd']))
+            content = d.get('message', {}).get('content')
+            for block in content if isinstance(content, list) else ():
+                if moves(block) and block.get('id'):
+                    calls[block['id']] = ts(d['timestamp'])
+                elif isinstance(block, dict) and block.get('type') == 'tool_result' \
+                        and block.get('tool_use_id') in calls:
+                    windows.append((calls.pop(block['tool_use_id']), ts(d['timestamp']) + GRACE))
+            if not d.get('uuid') or d['uuid'] in seen:
                 continue
             seen.add(d['uuid'])
             m = d.get('message', {})
@@ -121,7 +166,20 @@ def session_events(path, seen):
                 seen.add(m['id'])
                 usage = m['usage']
             kind = 'prompt' if is_prompt(d) else t
-            events.append((ts(d['timestamp']), d.get('gitBranch'), kind, m.get('model'), usage, i == 0))
+            rows.append((ts(d['timestamp']), d.get('gitBranch'), kind, m.get('model'), usage, i == 0))
+        rows.sort(key=lambda e: e[0])
+        # A moving call without its result yet (the transcript is still being written) moves the session until now.
+        windows += [(a, dt.datetime.now(dt.timezone.utc)) for a in calls.values()]
+        start = None
+        if i == 0:
+            checkout = cwd
+        elif rows and cwd == checkout:
+            start = next((b for t, b in reversed(session) if t <= rows[0][0]), None)
+        branches = own_branches([r[:2] for r in rows], windows, start)
+        if i == 0:
+            session = [(r[0], b) for r, b in zip(rows, branches)]
+        for row, branch in zip(rows, branches):
+            events.append((row[0], branch) + row[2:])
     events.sort(key=lambda e: e[0])
     return events
 
