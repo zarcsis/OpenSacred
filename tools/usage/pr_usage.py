@@ -10,7 +10,10 @@ issue it opens is done, or, after the session's last branch, toward that branch.
 the checkout's, so when another session in the same checkout switches it, a message keeps the branch its session was
 on: a session moves to another branch only by a command of its own (`git switch`, `git checkout`, `git rebase`,
 `gh pr checkout`, `gh pr merge`, entering or leaving a worktree), during it or within 30 seconds after it, as the
-recorded branch follows a switch a few seconds late. Model responses are taken once
+recorded branch follows a switch a few seconds late. A session that `cd`s into a linked worktree keeps recording its
+own checkout's branch, so a message in a linked worktree has the worktree's branch: the one the session gave it
+(`git worktree add -b`, `EnterWorktree`), else the one it is on now; and a branch the session renamed
+(`git branch -m`) counts under its new name. Model responses are taken once
 each (by message.id), and the cost is computed at prices per 1M tokens (cache write: 5 minutes = 1.25× input,
 1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs on a Claude
 subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an owner's
@@ -48,6 +51,10 @@ NEUTRAL = {None, '', 'HEAD', 'main'}
 MOVES = re.compile(r'(?:^|[\n;&|(])\s*(?:git\s+(?:-C\s+\S+\s+)?(?:switch|checkout|rebase)|gh\s+pr\s+(?:checkout|merge))\b')
 MOVING_TOOLS = {'EnterWorktree', 'ExitWorktree'}
 GRACE = dt.timedelta(seconds=30)
+# A session's own commands that give a worktree its branch or rename a branch, and what EnterWorktree reports.
+ADD = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?worktree\s+add\s+([^\n;&|]*)')
+RENAME = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?branch\s+(?:-[mM]|--move)\s+([^\n;&|]*)')
+ENTERED = re.compile(r'(?:Created|Entered) worktree at (.+?) on branch (\S+?)\.(?:\s|$)')
 BEGIN, END = '<!-- usage:begin -->', '<!-- usage:end -->'
 ATTRIBUTION = '🤖 Generated with'
 WORKFLOW = 'usage.yml'
@@ -66,16 +73,84 @@ def run(argv, stdin=None):
     return r.stdout
 
 
-def project_dirs():
-    """The transcript directories of this repository and of its worktrees (.claude/worktrees/): Claude Code
-    names them after the working directory, every character other than a letter or digit replaced by '-'. They are
-    found from the main checkout, the parent of the Git directory that every worktree shares, so a run in a worktree
-    finds the same ones (its --show-toplevel is the worktree's own path)."""
+def main_checkout():
+    """The main checkout, the parent of the Git directory that every worktree shares, so that a run in a worktree
+    sees the same repository (its --show-toplevel is the worktree's own path)."""
     common = run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']).strip()
-    top = os.path.dirname(os.path.abspath(common))
+    return os.path.dirname(os.path.abspath(common))
+
+
+def project_dirs(top):
+    """The transcript directories of this repository and of its worktrees (.claude/worktrees/): Claude Code
+    names them after the working directory, every character other than a letter or digit replaced by '-'."""
     name = re.sub(r'[^A-Za-z0-9]', '-', top).lower()
     return [d for d in sorted(glob.glob(os.path.join(PROJECTS, '*'))) if os.path.isdir(d)
             and (os.path.basename(d).lower() == name or os.path.basename(d).lower().startswith(name + '--claude-'))]
+
+
+def native(path):
+    """A path as the system spells it: Git Bash's /c/... is C:/... on Windows."""
+    return re.sub(r'^/([A-Za-z])(?=/|$)', r'\1:', path) if os.name == 'nt' else path
+
+
+def norm(path):
+    # The same directory spelt with another case of the drive letter (VS Code's c:\ and C:\) or other separators.
+    return os.path.normcase(os.path.normpath(native(path)))
+
+
+def linked_worktrees(top):
+    """The linked worktrees of the repository that exist now: {directory: the branch it is on}."""
+    out, path = {}, None
+    for line in run(['git', 'worktree', 'list', '--porcelain']).splitlines():
+        if line.startswith('worktree '):
+            path = norm(line[len('worktree '):])
+        elif line.startswith('branch refs/heads/') and path != norm(top):
+            out[path] = line[len('branch refs/heads/'):]
+    return out
+
+
+def words(args):
+    """A shell command's arguments up to a redirection, without their quotes."""
+    out = []
+    for w in re.findall(r'"[^"]*"|\'[^\']*\'|\S+', args):
+        if re.match(r'\d*[<>]', w):
+            break
+        out.append(w.strip('\'"'))
+    return out
+
+
+def worktree_adds(command, cwd):
+    """(worktree, branch) of each `git worktree add` with -b or -B in a shell command run in cwd."""
+    out = []
+    for where, args in ADD.findall(command):
+        branch, paths, it = None, [], iter(words(args))
+        for w in it:
+            if w in ('-b', '-B'):
+                branch = next(it, None)
+            elif w == '--reason':
+                next(it, None)
+            elif not w.startswith('-'):
+                paths.append(w)
+        if branch and paths and '$' not in where + paths[0]:  # a shell variable is not resolved
+            out.append((norm(os.path.join(cwd, native(where.strip('\'"')), native(paths[0]))), branch))
+    return out
+
+
+def branch_renames(command, cwd):
+    """(directory, old name or None for its current branch, new name) of each `git branch -m` in a shell
+    command run in cwd."""
+    out = []
+    for where, args in RENAME.findall(command):
+        names = [w for w in words(args) if not w.startswith('-')]
+        if 1 <= len(names) <= 2 and '$' not in where + ''.join(names):
+            old, new = names if len(names) == 2 else (None, names[0])
+            out.append((norm(os.path.join(cwd, native(where.strip('\'"')))), old, new))
+    return out
+
+
+def result_text(block):
+    c = block.get('content')
+    return c if isinstance(c, str) else ' '.join(b.get('text', '') for b in c or () if isinstance(b, dict))
 
 
 def ts(s):
@@ -134,30 +209,54 @@ def own_branches(rows, windows, own=None):
     return out
 
 
-def session_events(path, seen):
+def in_worktree(place, known, top):
+    """The linked worktree a directory lies in: one of the known ones, or one under the main checkout's
+    .claude/worktrees/."""
+    for w in known:
+        if place == w or place.startswith(w + os.sep):
+            return w
+    base = os.path.join(norm(top), '.claude', 'worktrees') + os.sep
+    return base + place[len(base):].split(os.sep)[0] if place.startswith(base) else None
+
+
+def session_events(path, seen, top, linked):
     """A session's messages in time order: (time, branch, kind, model, usage, from the main transcript).
     A response spans a line per content block, each with the response's usage, which is taken from the first;
     messages already seen in another transcript (a resumed session repeats its history) are skipped. The branch is
     the one the session itself is on (own_branches), followed in each transcript apart: a subagent in the session's
-    checkout starts on the session's branch, one in a worktree of its own on its worktree's."""
+    checkout starts on the session's branch, one in a worktree of its own on its worktree's. In a linked worktree it
+    is the worktree's, since a session that `cd`s into one keeps recording its own checkout's branch: the latest the
+    session gave the worktree by then (`git worktree add -b`, EnterWorktree), else the one it is on now (linked),
+    else the recorded one unless neutral, else the worktree itself, which no pull request is on. A branch the
+    session renamed counts under its new name."""
     sid = os.path.splitext(os.path.basename(path))[0]
     sub = sorted(glob.glob(os.path.join(os.path.dirname(path), sid, '**', '*.jsonl'), recursive=True))
-    events, session, checkout = [], [], None
-    for i, f in enumerate([path] + sub):
-        rows, calls, windows, cwd = [], {}, [], None
+    files, given, renamed = [], [], []
+    for f in [path] + sub:
+        rows, calls, entering, windows, cwd = [], {}, set(), [], None
         for d in records(f):
             t = d.get('type')
             if t not in ('user', 'assistant') or 'timestamp' not in d:
                 continue
-            # The same directory spelt with another case of the drive letter (VS Code's c:\ and C:\).
-            cwd = cwd or d.get('cwd') and os.path.normcase(os.path.normpath(d['cwd']))
+            when, here = ts(d['timestamp']), d.get('cwd') and norm(d['cwd'])
+            cwd = cwd or here
             content = d.get('message', {}).get('content')
             for block in content if isinstance(content, list) else ():
+                if not isinstance(block, dict):
+                    continue
+                command = (block.get('input') or {}).get('command') if block.get('type') == 'tool_use' else None
+                if isinstance(command, str) and here:
+                    given += [(when, w, b) for w, b in worktree_adds(command, here)]
+                    renamed += [(when, len(files)) + r for r in branch_renames(command, here)]
                 if moves(block) and block.get('id'):
-                    calls[block['id']] = ts(d['timestamp'])
-                elif isinstance(block, dict) and block.get('type') == 'tool_result' \
-                        and block.get('tool_use_id') in calls:
-                    windows.append((calls.pop(block['tool_use_id']), ts(d['timestamp']) + GRACE))
+                    calls[block['id']] = when
+                    if block.get('name') == 'EnterWorktree':
+                        entering.add(block['id'])
+                elif block.get('type') == 'tool_result' and block.get('tool_use_id') in calls:
+                    windows.append((calls.pop(block['tool_use_id']), when + GRACE))
+                    entered = block['tool_use_id'] in entering and ENTERED.search(result_text(block))
+                    if entered:
+                        given.append((when, norm(entered[1]), entered[2]))
             if not d.get('uuid') or d['uuid'] in seen:
                 continue
             seen.add(d['uuid'])
@@ -169,20 +268,41 @@ def session_events(path, seen):
                 seen.add(m['id'])
                 usage = m['usage']
             kind = 'prompt' if is_prompt(d) else t
-            rows.append((ts(d['timestamp']), d.get('gitBranch'), kind, m.get('model'), usage, i == 0))
+            rows.append((when, d.get('gitBranch'), kind, m.get('model'), usage, not files, here))
         rows.sort(key=lambda e: e[0])
         # A moving call without its result yet (the transcript is still being written) moves the session until now.
         windows += [(a, dt.datetime.now(dt.timezone.utc)) for a in calls.values()]
+        files.append((rows, windows, cwd))
+    given.sort(key=lambda e: e[0])
+    known = sorted(set(linked) | {w for _, w, _ in given}, key=len, reverse=True)
+
+    def branch(place, when, recorded, own):
+        w = place and in_worktree(place, known, top)
+        if not w:
+            return own
+        b = next((g for t, p, g in reversed(given) if p == w and t <= when), linked.get(w))
+        return b or (recorded if recorded not in NEUTRAL else 'worktree ' + w)
+
+    session, checkout = [], files[0][2]
+    for i, (rows, windows, cwd) in enumerate(files):
         start = None
-        if i == 0:
-            checkout = cwd
-        elif rows and cwd == checkout:
+        if i and rows and cwd == checkout:
             start = next((b for t, b in reversed(session) if t <= rows[0][0]), None)
-        branches = own_branches([r[:2] for r in rows], windows, start)
+        own = own_branches([r[:2] for r in rows], windows, start)
+        branches = [branch(r[6], r[0], r[1], b) for r, b in zip(rows, own)]
         if i == 0:
             session = [(r[0], b) for r, b in zip(rows, branches)]
-        for row, branch in zip(rows, branches):
-            events.append((row[0], branch) + row[2:])
+        files[i] = rows, branches
+    names = {}
+    for when, i, place, old, new in sorted(renamed, key=lambda e: e[0]):
+        if old is None:  # the branch of the directory it ran in
+            rows, branches = files[i]
+            old = branch(place, when, None, next((b for r, b in zip(reversed(rows), reversed(branches))
+                                                 if r[0] <= when), None))
+        if old not in NEUTRAL and old != new:
+            names = {k: new if v == old else v for k, v in names.items()}
+            names[old] = new
+    events = [(r[0], names.get(b, b)) + r[2:6] for rows, branches in files for r, b in zip(rows, branches)]
     events.sort(key=lambda e: e[0])
     return events
 
@@ -208,10 +328,12 @@ pr = json.loads(run(['gh', 'pr', 'view', str(args.pr), '--json', 'headRefName,bo
 branch, url = pr['headRefName'], pr['url']
 repo_url = url.rsplit('/pull/', 1)[0]
 
+top = main_checkout()
+linked = linked_worktrees(top)
 seen, per_model, sessions, active, wall = set(), {}, [], dt.timedelta(), dt.timedelta()
-for d in project_dirs():
+for d in project_dirs(top):
     for path in sorted(glob.glob(os.path.join(d, '*.jsonl')), key=os.path.getmtime):
-        events = session_events(path, seen)
+        events = session_events(path, seen, top, linked)
         own = owners(events)
         mine = [e for e, o in zip(events, own) if o == branch]
         if not mine:

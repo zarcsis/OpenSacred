@@ -178,6 +178,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
 ### 3.5 Parallel work and tracking
 
 * Parallel Claude Code sessions run in separate `git worktree`s, one task per tree.
+  A session creates its tree on the issue's branch, `git worktree add .claude/worktrees/<slug> -b <type>/<issue>-<slug> origin/main`, and enters it with `EnterWorktree` and its `path`: Claude Code then records the branch from the first message in the tree (docs/usage.md).
 * Usage is recorded per pull request since 2026-10-17 (#16): `tools/usage/pr_usage.py` sums the Claude Code transcripts' messages on the pull request's branch (tokens per model, their cost at API prices, agent-hours) and writes them into its description; the Usage workflow sums every pull request into the README's badge.
   The method is in `docs/usage.md`, with the sessions recorded before.
   After 30 days the estimates in `docs/07-roadmap-estimates.md` are recomputed from the actuals.
