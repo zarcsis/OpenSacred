@@ -640,14 +640,17 @@ pub fn spawn(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use opensacred_data::world::{Cell, Piece, Sprite};
 
     use super::*;
 
-    /// A constant `name` of the sprites' shader.
-    fn shader_constant(name: &str) -> f32 {
-        let source = include_str!("sprites.wesl");
+    /// The order of drawing's shader library.
+    pub(crate) const ORDER: &str = include_str!("order.wesl");
+
+    /// A constant `name` of a shader's `source`: the order of drawing (`order.wesl`), which the
+    /// sprites' shader uses, or the models' shader.
+    pub(crate) fn shader_constant(source: &str, name: &str) -> f32 {
         let line = source
             .lines()
             .find(|l| l.starts_with(&format!("const {name}: f32 = ")))
@@ -865,7 +868,7 @@ mod tests {
         let step = between.dot(iso::right());
         assert!(step > 70.0);
         // The 32 places of the longest chain stay within the step to the next cell.
-        assert!(31.0 * shader_constant("CHAIN") < shader_constant("ACROSS") * step);
-        assert_eq!(shader_constant("DISTANCE"), iso::DISTANCE);
+        assert!(31.0 * shader_constant(ORDER, "CHAIN") < shader_constant(ORDER, "ACROSS") * step);
+        assert_eq!(shader_constant(ORDER, "DISTANCE"), iso::DISTANCE);
     }
 }

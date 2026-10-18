@@ -9,8 +9,8 @@ use std::time::Duration;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 
-use crate::iso;
 use crate::terrain::Heights;
+use crate::{iso, models};
 
 /// How close to its target the hero stops.
 const ARRIVED: f32 = 4.0;
@@ -159,6 +159,7 @@ pub fn spawn(
             target: hero.target,
             moving: None,
         },
+        models::Ordered::default(),
     ));
 }
 
