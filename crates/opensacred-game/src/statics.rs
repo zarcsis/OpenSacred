@@ -1,14 +1,16 @@
 //! The static objects of a sector (docs/02 §6.1): each object's sprite, assembled from pieces of
-//! atlases, drawn with its top-left corner at the object's screen position.
+//! atlases, drawn with its top-left corner at the object's screen position. The sector's sprites
+//! are assembled once when it is built and packed into pages, so that filtering runs across the
+//! pieces' edges as within them.
 //!
 //! The original draws the ground, then the objects back to front. Here a sprite is a quad in the
 //! plane of the screen, as flat as the original's, set at the depth of the centre of its cell,
 //! so that the depth buffer orders the sprites and the hero among themselves; the ground lies
 //! behind all of them (`terrain`). Sprites at the same depth, those of one cell and those of the
 //! cells of one diagonal at one height, would fight; the shader brings each a little forward in
-//! the original's order of drawing (`sprites.wesl`). The pieces of one atlas share one mesh.
-//! Miniatures (flag 0x20) are squares cut from their type's atlas; the animated ones (flag 0x40)
-//! show their first frame, still.
+//! the original's order of drawing (`sprites.wesl`). The sprites of one page share one mesh.
+//! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
+//! one mesh; the animated ones (flag 0x40) show their first frame, still.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -25,20 +27,29 @@ use bevy::prelude::{
     MeshMaterial3d, Plugin, TypePath, Vec2, Vec3,
 };
 use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
-use opensacred_data::world::{SIDE, Sector, Sprites, StaticObject, World};
+use opensacred_data::world::{SIDE, Sector, Sprite, Sprites, StaticObject, World};
 
 use crate::iso;
+use crate::terrain::{Rgba, read_png};
 
-/// The quads of the pieces of one atlas.
+/// The texture of a batch: an atlas, relative to the asset directory, or a page of the sector's
+/// sprites.
+enum BatchTexture {
+    Atlas(String),
+    Page(usize),
+}
+
+/// The quads of one atlas or page.
 struct Batch {
-    /// The atlas, relative to the asset directory.
-    atlas: String,
+    texture: BatchTexture,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     anchors: Vec<[f32; 4]>,
+    sources: Vec<[f32; 4]>,
     indices: Vec<u32>,
 }
 
@@ -47,6 +58,14 @@ struct Batch {
 pub const ATTRIBUTE_ANCHOR: MeshVertexAttribute = MeshVertexAttribute::new(
     "SpriteAnchor",
     0x5350_5249_5445_4143,
+    VertexFormat::Float32x4,
+);
+
+/// The rectangle of the atlas that a vertex's piece may sample, in texture coordinates: its
+/// source half a texel in from each edge (`sprites.wesl`).
+pub const ATTRIBUTE_SOURCE: MeshVertexAttribute = MeshVertexAttribute::new(
+    "SpriteSource",
+    0x5350_5249_5445_5352,
     VertexFormat::Float32x4,
 );
 
@@ -93,6 +112,7 @@ impl Material for SpriteMaterial {
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
             ATTRIBUTE_ANCHOR.at_shader_location(2),
+            ATTRIBUTE_SOURCE.at_shader_location(3),
         ])?];
         descriptor.primitive.cull_mode = None;
         Ok(())
@@ -111,10 +131,11 @@ impl Plugin for StaticsPlugin {
     }
 }
 
-/// The sprite meshes of a sector, built on the CPU.
+/// The sprite meshes of a sector, built on the CPU, and the pages of its sprites.
 #[derive(Default)]
 pub struct Statics {
     batches: Vec<Batch>,
+    pages: Vec<Image>,
     pub objects: usize,
     pub drawn: usize,
 }
@@ -185,30 +206,187 @@ pub const LIST_2_BACK: f32 = 3_000.0;
 /// the original draws them over the characters too is not known.
 const LIST_4_FORWARD: f32 = 1_000.0;
 
-/// A quad to draw: an atlas, the corners on screen (top-left, top-right, bottom-right,
-/// bottom-left) relative to the object's position, and the rectangle of the atlas in pixels.
+/// The width of a page of a sector's sprites, and the most it grows to before another begins.
+const PAGE: usize = 2048;
+/// Transparent texels between two sprites of a page.
+const GUTTER: usize = 1;
+
+/// Where a quad's texels come from: a miniature's atlas, or a page of the sector's sprites.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Texture {
+    Atlas(u32),
+    Page(usize),
+}
+
+/// A quad to draw: its texture, the corners on screen (top-left, top-right, bottom-right,
+/// bottom-left) relative to the object's position, and the rectangle of the texture in pixels.
 struct Quad {
-    atlas: u32,
+    texture: Texture,
     corners: [Vec2; 4],
     source: [f32; 4],
 }
 
-/// The quads of an object: its sprite's pieces, or its miniature's square; none when the object
-/// has neither or is not drawn.
-fn quads(object: &StaticObject, sprites: &Sprites) -> Vec<Quad> {
+/// A sprite assembled from its pieces, one to one, over the rectangle the pieces cover (they may
+/// run past the sprite's size): so that filtering blends the texels on either side of a piece's
+/// edge as it does inside a piece. Filtering each piece in its own atlas could not reach the
+/// next piece's texels, and the step between two pieces showed as a line once magnified.
+struct Assembled {
+    /// The rectangle in the sprite's pixels: `x0, y0, x1, y1`.
+    rect: [i32; 4],
+    width: usize,
+    height: usize,
+    pixels: Vec<u8>,
+}
+
+/// The sprite's pieces copied from their atlases into one image; `None` without pieces.
+fn assemble(sprite: &Sprite, atlases: &mut Atlases<'_>) -> Result<Option<Assembled>> {
+    let mut rect: Option<[i32; 4]> = None;
+    for piece in &sprite.pieces {
+        let [x0, y0, x1, y1] = piece.rect.map(i32::from);
+        rect = Some(match rect {
+            None => [x0, y0, x1, y1],
+            Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
+        });
+    }
+    let Some(rect) = rect else {
+        return Ok(None);
+    };
+    let width = usize::try_from(rect[2] - rect[0])?;
+    let height = usize::try_from(rect[3] - rect[1])?;
+    let mut pixels = vec![0u8; 4 * width * height];
+    for piece in &sprite.pieces {
+        let atlas = atlases.get(piece.atlas)?;
+        let [u0, v0, u1, v1] = piece.source.map(usize::from);
+        let x0 = usize::try_from(i32::from(piece.rect[0]) - rect[0])?;
+        let y0 = usize::try_from(i32::from(piece.rect[1]) - rect[1])?;
+        for v in v0..v1.min(atlas.height) {
+            let from = 4 * (v * atlas.width + u0);
+            let to = 4 * (v * atlas.width + u1.min(atlas.width));
+            let at = 4 * ((y0 + v - v0) * width + x0);
+            pixels[at..at + to - from].copy_from_slice(&atlas.pixels[from..to]);
+        }
+    }
+    Ok(Some(Assembled {
+        rect,
+        width,
+        height,
+        pixels,
+    }))
+}
+
+/// The atlases of the sprites' pieces, decoded on first use.
+struct Atlases<'a> {
+    dir: &'a Path,
+    world: &'a World,
+    loaded: HashMap<u32, Rgba>,
+}
+
+impl Atlases<'_> {
+    fn get(&mut self, atlas: u32) -> Result<&Rgba> {
+        if !self.loaded.contains_key(&atlas) {
+            let name = self
+                .world
+                .atlases
+                .get(usize::try_from(atlas)?)
+                .with_context(|| format!("no atlas {atlas}"))?;
+            let image = read_png(&self.dir.join(name))?;
+            self.loaded.insert(atlas, image);
+        }
+        self.loaded
+            .get(&atlas)
+            .with_context(|| format!("atlas {atlas}"))
+    }
+}
+
+/// Where each sprite went on the pages: its page and the top-left corner of its image there.
+type Placed = HashMap<u32, (usize, usize, usize)>;
+
+/// A page of a sector's sprites: their images side by side in rows, a gutter apart.
+struct Page {
+    width: usize,
+    height: usize,
+    pixels: Vec<u8>,
+}
+
+/// Packs the sprites into pages, the tallest first along rows; returns the pages and where each
+/// sprite went: its page and the top-left corner of its image there.
+fn pack(sprites: &BTreeMap<u32, Assembled>) -> (Vec<Page>, Placed) {
+    let mut order: Vec<(&u32, &Assembled)> = sprites.iter().collect();
+    order.sort_by_key(|(id, s)| (std::cmp::Reverse(s.height), **id));
+    let mut placed = HashMap::new();
+    // The pages' heights so far, and the row being filled: its top, its height, its next x.
+    let mut heights: Vec<usize> = Vec::new();
+    let (mut top, mut row, mut x) = (0, 0, 0);
+    for (&id, sprite) in order {
+        let (w, h) = (sprite.width + GUTTER, sprite.height + GUTTER);
+        if heights.is_empty() || x + w > PAGE {
+            top += row;
+            x = 0;
+            row = 0;
+        }
+        if heights.is_empty() || top + h > PAGE {
+            heights.push(0);
+            top = 0;
+            x = 0;
+            row = 0;
+        }
+        let page = heights.len() - 1;
+        placed.insert(id, (page, x, top));
+        x += w;
+        row = row.max(h);
+        heights[page] = heights[page].max(top + row);
+    }
+    let mut pages: Vec<Page> = heights
+        .into_iter()
+        .map(|height| Page {
+            width: PAGE,
+            height,
+            pixels: vec![0; 4 * PAGE * height],
+        })
+        .collect();
+    for (id, &(page, x, y)) in &placed {
+        let sprite = &sprites[id];
+        let page = &mut pages[page];
+        for row in 0..sprite.height {
+            let from = 4 * row * sprite.width;
+            let at = 4 * ((y + row) * page.width + x);
+            page.pixels[at..at + 4 * sprite.width]
+                .copy_from_slice(&sprite.pixels[from..from + 4 * sprite.width]);
+        }
+    }
+    (pages, placed)
+}
+
+/// The sprite of an object, if it has one with pieces and is drawn as a sprite.
+fn sprite_of<'a>(object: &StaticObject, sprites: &'a Sprites) -> Option<(u32, &'a Sprite)> {
+    if object.flags & (HIDDEN | MINIATURE) != 0 || object.sprite == 0 {
+        return None;
+    }
+    let sprite = sprites
+        .sprites
+        .get(usize::try_from(object.sprite).ok()?)?
+        .as_ref()?;
+    (!sprite.pieces.is_empty()).then_some((object.sprite, sprite))
+}
+
+/// The quad of an object: its assembled sprite on its page, or its miniature's square; none
+/// when the object has neither or is not drawn.
+fn quad(
+    object: &StaticObject,
+    assembled: &BTreeMap<u32, Assembled>,
+    placed: &Placed,
+) -> Option<Quad> {
     if object.flags & HIDDEN != 0 {
-        return Vec::new();
+        return None;
     }
     if object.flags & MINIATURE != 0 {
-        let Some(mini) = object.miniature else {
-            return Vec::new();
-        };
+        let mini = object.miniature?;
         let [a, b, c, _, _] = mini.params.map(f32::from);
         let (size, source, angle) = if object.flags & ANIMATED != 0 {
             // Columns and rows of frames, a rotation in 1/256 turns, timing and frames: the first
             // frame is drawn, still.
             if a == 0.0 || b == 0.0 {
-                return Vec::new();
+                return None;
             }
             let size = Vec2::new(MINIATURE_ATLAS / a, MINIATURE_ATLAS / b);
             (
@@ -229,55 +407,61 @@ fn quads(object: &StaticObject, sprites: &Sprites) -> Vec<Quad> {
             Vec2::new(0.0, size.y),
         ]
         .map(turn);
-        return vec![Quad {
-            atlas: mini.atlas,
+        return Some(Quad {
+            texture: Texture::Atlas(mini.atlas),
             corners,
             source,
-        }];
+        });
     }
-    let Some(Some(sprite)) = usize::try_from(object.sprite)
-        .ok()
-        .filter(|&s| s != 0)
-        .and_then(|s| sprites.sprites.get(s))
-    else {
-        return Vec::new();
-    };
-    sprite
-        .pieces
-        .iter()
-        .map(|piece| {
-            let [x0, y0, x1, y1] = piece.rect.map(f32::from);
-            Quad {
-                atlas: piece.atlas,
-                corners: [
-                    Vec2::new(x0, y0),
-                    Vec2::new(x1, y0),
-                    Vec2::new(x1, y1),
-                    Vec2::new(x0, y1),
-                ],
-                source: piece.source.map(f32::from),
-            }
-        })
-        .collect()
+    let sprite = assembled.get(&object.sprite)?;
+    let &(page, x, y) = placed.get(&object.sprite)?;
+    let [x0, y0, x1, y1] = sprite.rect.map(|v| v as f32);
+    let (u0, v0) = (x as f32, y as f32);
+    Some(Quad {
+        texture: Texture::Page(page),
+        corners: [
+            Vec2::new(x0, y0),
+            Vec2::new(x1, y0),
+            Vec2::new(x1, y1),
+            Vec2::new(x0, y1),
+        ],
+        source: [u0, v0, u0 + sprite.width as f32, v0 + sprite.height as f32],
+    })
 }
 
-/// Builds the sprite and miniature quads of `sector`.
+/// Builds the sprite and miniature quads of `sector`, and the pages of its sprites.
 pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -> Result<Statics> {
     let dir = assets.join("world");
     let mut objects = Vec::new();
     flatten(&sector.statics, &mut objects);
+    // Each sprite of the sector assembled once, then packed into pages.
+    let mut atlases = Atlases {
+        dir: &dir,
+        world,
+        loaded: HashMap::new(),
+    };
+    let mut assembled: BTreeMap<u32, Assembled> = BTreeMap::new();
+    for object in &objects {
+        if let Some((id, sprite)) = sprite_of(object, sprites)
+            && !assembled.contains_key(&id)
+            && let Some(image) = assemble(sprite, &mut atlases)?
+        {
+            assembled.insert(id, image);
+        }
+    }
+    drop(atlases);
+    let (pages, placed) = pack(&assembled);
     let right = iso::right();
     let up = iso::up();
-    let mut batches: BTreeMap<u32, Batch> = BTreeMap::new();
+    let mut batches: BTreeMap<Texture, Batch> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
     // The places taken in each cell's chain, by the objects drawn.
     let mut chains: HashMap<u16, u16> = HashMap::new();
     let mut drawn = 0;
     for object in &objects {
-        let quads = quads(object, sprites);
-        if quads.is_empty() {
+        let Some(quad) = quad(object, &assembled, &placed) else {
             continue;
-        }
+        };
         let place = chains.entry(object.cell).or_default();
         let chain = f32::from(*place);
         *place = place.saturating_add(1);
@@ -302,7 +486,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             0.0
         };
         let anchor = iso::ground(cx, cy) + Vec3::Y * iso::height(lift) + iso::forward() * back;
-        let placed = [anchor.x, anchor.y, anchor.z, chain];
+        let placed_at = [anchor.x, anchor.y, anchor.z, chain];
         let anchor_screen = Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy) - lift);
         let position = Vec2::new(object.x as f32, object.y as f32);
         let at = |corner: Vec2| -> [f32; 3] {
@@ -312,67 +496,100 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
                 + up * ((anchor_screen.y - screen.y) / iso::PIXELS_PER_UNIT);
             p.to_array()
         };
-        for quad in quads {
-            let size = match sizes.get(&quad.atlas) {
-                Some(&size) => size,
-                None => {
-                    let name = world
-                        .atlases
-                        .get(usize::try_from(quad.atlas)?)
-                        .with_context(|| format!("no atlas {}", quad.atlas))?;
-                    let size = png_size(&dir.join(name))?;
-                    sizes.insert(quad.atlas, size);
-                    size
-                }
-            };
-            let batch = match batches.get_mut(&quad.atlas) {
-                Some(batch) => batch,
-                None => {
-                    let name = &world.atlases[usize::try_from(quad.atlas)?];
-                    batches.entry(quad.atlas).or_insert(Batch {
-                        atlas: asset_path(assets, &dir, name)?,
-                        positions: Vec::new(),
-                        uvs: Vec::new(),
-                        anchors: Vec::new(),
-                        indices: Vec::new(),
-                    })
-                }
-            };
-            // Half a texel in from the source's edges: filtering would blend in the texels
-            // around it and draw seams between the pieces of a sprite.
-            let [u0, v0, u1, v1] = quad.source;
-            let (u0, v0, u1, v1) = (u0 + 0.5, v0 + 0.5, u1 - 0.5, v1 - 0.5);
-            let first = u32::try_from(batch.positions.len())?;
-            batch.positions.extend(quad.corners.map(at));
-            batch.anchors.extend([placed; 4]);
-            let (w, h) = size;
-            batch.uvs.extend([
-                [u0 / w, v0 / h],
-                [u1 / w, v0 / h],
-                [u1 / w, v1 / h],
-                [u0 / w, v1 / h],
-            ]);
-            batch
-                .indices
-                .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
-        }
+        let (size, source) = match quad.texture {
+            Texture::Atlas(atlas) => {
+                let size = match sizes.get(&atlas) {
+                    Some(&size) => size,
+                    None => {
+                        let name = world
+                            .atlases
+                            .get(usize::try_from(atlas)?)
+                            .with_context(|| format!("no atlas {atlas}"))?;
+                        let size = png_size(&dir.join(name))?;
+                        sizes.insert(atlas, size);
+                        size
+                    }
+                };
+                let name = &world.atlases[usize::try_from(atlas)?];
+                (size, BatchTexture::Atlas(asset_path(assets, &dir, name)?))
+            }
+            Texture::Page(page) => {
+                let p = &pages[page];
+                ((p.width as f32, p.height as f32), BatchTexture::Page(page))
+            }
+        };
+        let batch = batches.entry(quad.texture).or_insert(Batch {
+            texture: source,
+            positions: Vec::new(),
+            uvs: Vec::new(),
+            anchors: Vec::new(),
+            sources: Vec::new(),
+            indices: Vec::new(),
+        });
+        // The texels map onto the quad one to one; the shader keeps the samples half a texel in
+        // from the edges, where filtering would blend in the texels around them.
+        let [u0, v0, u1, v1] = quad.source;
+        let first = u32::try_from(batch.positions.len())?;
+        batch.positions.extend(quad.corners.map(at));
+        batch.anchors.extend([placed_at; 4]);
+        let (w, h) = size;
+        batch.uvs.extend([
+            [u0 / w, v0 / h],
+            [u1 / w, v0 / h],
+            [u1 / w, v1 / h],
+            [u0 / w, v1 / h],
+        ]);
+        let inside = [
+            (u0 + 0.5) / w,
+            (v0 + 0.5) / h,
+            (u1 - 0.5) / w,
+            (v1 - 0.5) / h,
+        ];
+        batch.sources.extend([inside; 4]);
+        batch
+            .indices
+            .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
         drawn += 1;
     }
+    let pages = pages
+        .into_iter()
+        .map(|page| -> Result<Image> {
+            Ok(Image::new(
+                Extent3d {
+                    width: u32::try_from(page.width)?,
+                    height: u32::try_from(page.height.max(1))?,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                if page.pixels.is_empty() {
+                    vec![0; 4 * page.width]
+                } else {
+                    page.pixels
+                },
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::RENDER_WORLD,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(Statics {
         batches: batches.into_values().collect(),
+        pages,
         objects: objects.len(),
         drawn,
     })
 }
 
-/// Spawns a mesh per atlas, unlit, its edges through alpha to coverage; returns the entities.
+/// Spawns a mesh per atlas and per page, unlit, its edges through alpha to coverage; returns the
+/// entities.
 pub fn spawn(
     commands: &mut Commands,
     statics: Statics,
     assets: &AssetServer,
+    images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<SpriteMaterial>,
 ) -> Vec<Entity> {
+    let pages: Vec<Handle<Image>> = statics.pages.into_iter().map(|p| images.add(p)).collect();
     let mut entities = Vec::new();
     for batch in statics.batches {
         let mesh = Mesh::new(
@@ -382,10 +599,13 @@ pub fn spawn(
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, batch.positions)
         .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs)
         .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
+        .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
         .with_inserted_indices(Indices::U32(batch.indices));
-        let material = SpriteMaterial {
-            atlas: assets.load(batch.atlas),
+        let atlas = match batch.texture {
+            BatchTexture::Atlas(path) => assets.load(path),
+            BatchTexture::Page(page) => pages[page].clone(),
         };
+        let material = SpriteMaterial { atlas };
         let entity = commands
             .spawn((
                 Mesh3d(meshes.add(mesh)),
@@ -419,19 +639,95 @@ mod tests {
             .unwrap()
     }
 
+    /// Writes an RGBA PNG of `width` × `height` pixels, all of `colour`.
+    fn write_atlas(path: &Path, width: u32, height: u32, colour: [u8; 4]) {
+        let file = fs::File::create(path).unwrap();
+        let mut encoder = png::Encoder::new(file, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        let pixels: Vec<u8> = (0..width * height).flat_map(|_| colour).collect();
+        writer.write_image_data(&pixels).unwrap();
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn a_sprite_is_assembled_from_its_pieces_and_packed_apart() {
+        let dir =
+            std::env::temp_dir().join(format!("opensacred-game-pieces-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        write_atlas(&dir.join("red.png"), 8, 8, [255, 0, 0, 255]);
+        write_atlas(&dir.join("blue.png"), 8, 8, [0, 0, 255, 255]);
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["red.png".into(), "blue.png".into()],
+        };
+        // Two pieces side by side from two atlases, and a third that runs past the sprite's
+        // size, below them.
+        let piece = |atlas, source, rect| Piece {
+            atlas,
+            source,
+            rect,
+        };
+        let sprite = Sprite {
+            width: 8,
+            height: 4,
+            pieces: vec![
+                piece(0, [4, 4, 8, 8], [0, 0, 4, 4]),
+                piece(1, [0, 0, 4, 4], [4, 0, 8, 4]),
+                piece(1, [0, 0, 8, 2], [0, 4, 8, 6]),
+            ],
+        };
+        let mut atlases = Atlases {
+            dir: &dir,
+            world: &world,
+            loaded: HashMap::new(),
+        };
+        let image = assemble(&sprite, &mut atlases).unwrap().unwrap();
+        drop(atlases);
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            (image.rect, image.width, image.height),
+            ([0, 0, 8, 6], 8, 6)
+        );
+        let pixel = |x: usize, y: usize| &image.pixels[4 * (y * 8 + x)..4 * (y * 8 + x) + 4];
+        assert_eq!(pixel(3, 3), [255, 0, 0, 255]);
+        assert_eq!(pixel(4, 0), [0, 0, 255, 255]);
+        assert_eq!(pixel(7, 5), [0, 0, 255, 255]);
+        // Two of them on a page, a gutter apart and whole.
+        let sprites = BTreeMap::from([
+            (1, image),
+            (
+                2,
+                Assembled {
+                    rect: [0, 0, 3, 3],
+                    width: 3,
+                    height: 3,
+                    pixels: vec![7; 4 * 9],
+                },
+            ),
+        ]);
+        let (pages, placed) = pack(&sprites);
+        assert_eq!(pages.len(), 1);
+        let (_, x1, y1) = placed[&1];
+        let (_, x2, y2) = placed[&2];
+        assert!(x1 + 8 + GUTTER <= x2 || x2 + 3 + GUTTER <= x1 || y1 != y2);
+        let page = &pages[0];
+        let at = |x: usize, y: usize| {
+            &page.pixels[4 * (y * page.width + x)..4 * (y * page.width + x) + 4]
+        };
+        assert_eq!(at(x1 + 3, y1 + 3), [255, 0, 0, 255]);
+        assert_eq!(at(x2 + 2, y2 + 2), [7, 7, 7, 7]);
+    }
+
     #[test]
     fn sprites_at_one_depth_come_forward_in_the_original_order() {
         // An atlas of 8 × 8 pixels, and a sprite of one piece of it.
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-order-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        let file = fs::File::create(dir.join("world").join("atlas.png")).unwrap();
-        let mut encoder = png::Encoder::new(file, 8, 8);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().unwrap();
-        writer.write_image_data(&[255; 8 * 8 * 4]).unwrap();
-        writer.finish().unwrap();
+        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),

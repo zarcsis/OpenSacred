@@ -181,6 +181,7 @@ pub fn stream(
             &mut commands,
             built.statics,
             &assets,
+            &mut images,
             &mut meshes,
             &mut sprite_materials,
         ));

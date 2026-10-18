@@ -325,6 +325,7 @@ fn spawn_scene(
             &mut commands,
             statics,
             &assets,
+            &mut images,
             &mut meshes,
             &mut sprite_materials,
         );
