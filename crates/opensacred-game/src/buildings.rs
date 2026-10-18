@@ -3,12 +3,11 @@
 //! client draws a building's parts (the statics of its cells flagged `0x8`, or of the types of
 //! lists 0, 2 and 4, `statics`) only when their mask is the building's state, and the world's
 //! objects of its cells from the layer the state gives (the index of its lowest bit). Outside,
-//! the state is 1: the shell with its roof. **Hypothesis**: while the hero stands on one of a
-//! building's cells, which its walls let it reach only from inside, the building's state is 2:
-//! the ground floor cut open with its furniture, and the objects of layer 1. Not all
-//! buildings flag their rooms' cells (bit 1: the monastery does, the pub of sector 50,40 does
-//! not), and the client's own choice of the state when the hero enters is not read yet; its
-//! event on the room bit is at `0x594011` (docs/02 §5.2).
+//! the state is 1: the shell with its roof. The client sets it to 2 as the hero steps onto an
+//! entrance of the building and goes onto its inside layer, and back to 1 as the hero steps
+//! onto an exit and comes out onto the ground (`0x5FCCB0`, docs/re/movement.md): the ground
+//! floor cut open with its furniture, and the objects of layer 1, while the hero walks inside.
+//! The upper floors (states 4 to 16) are not followed (#104).
 
 use bevy::prelude::*;
 use opensacred_data::world::{SIDE, Sector};
@@ -78,8 +77,10 @@ impl Buildings {
     }
 }
 
-/// Finds the building the hero stands in and shows each building's parts and furnishings of its
-/// state, when that changes and as they come.
+/// Finds the building the hero is in and shows each building's parts and furnishings of its
+/// state, when that changes and as they come. The hero is in a building while it walks on an
+/// inside layer: in the one whose cell it went onto the layer at, its entrance or, at a start
+/// inside, the cell it starts on.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -87,7 +88,7 @@ impl Buildings {
 pub fn enter(
     mut buildings: ResMut<Buildings>,
     heights: Res<Heights>,
-    bodies: Query<&Transform, With<Body>>,
+    bodies: Query<(&Transform, &Body)>,
     mut shown: ParamSet<(
         Query<(&Part, &mut Visibility)>,
         Query<(&Part, &mut Visibility), Added<Part>>,
@@ -95,10 +96,13 @@ pub fn enter(
         Query<(&Furnishing, &mut Visibility), Added<Furnishing>>,
     )>,
 ) {
-    let entered = bodies.iter().next().and_then(|hero| {
-        heights
-            .building(hero.translation.x, hero.translation.z)
-            .map(|(building, _)| building)
+    let entered = bodies.iter().next().and_then(|(hero, body)| {
+        body.level()?;
+        buildings.entered.or_else(|| {
+            heights
+                .building(hero.translation.x, hero.translation.z)
+                .map(|(building, _)| building)
+        })
     });
     let changed = entered != buildings.entered;
     buildings.entered = entered;

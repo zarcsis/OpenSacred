@@ -126,6 +126,10 @@ impl Body {
     pub fn moving(&self) -> Option<Gait> {
         self.moving
     }
+
+    pub fn level(&self) -> Level {
+        self.level
+    }
 }
 
 /// The animation graph of the hero's clips, given to the model's player once it exists.
@@ -299,10 +303,12 @@ pub fn run(
         let mut moving = None;
         let here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
-        // A hero on a building's mass is inside it, on its layer.
+        // A hero on a building's mass is inside it, on its layer; one on an entrance goes in, one
+        // on an exit out (`0x5FCCB0`).
         if body.level.is_none() && !heights.walkable(cell) {
             body.level = heights.level_of(cell);
         }
+        body.level = heights.transition(cell, body.level);
         let level = body.level;
         if let Some(target) = body.target {
             let walkable = |cell| heights.walkable_on(cell, level);
