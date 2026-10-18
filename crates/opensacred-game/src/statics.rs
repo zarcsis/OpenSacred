@@ -31,10 +31,10 @@ use bevy::render::render_resource::{
     TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
-use opensacred_data::world::{Cell, SIDE, Sector, Sprite, Sprites, StaticObject, World};
+use opensacred_data::world::{SIDE, Sector, Sprite, Sprites, StaticObject, World};
 
-use crate::iso;
 use crate::terrain::{Rgba, read_png};
+use crate::{buildings, iso};
 
 /// The texture of a batch: an atlas, relative to the asset directory, or a page of the sector's
 /// sprites.
@@ -46,8 +46,8 @@ enum BatchTexture {
 /// The quads of one atlas or page.
 struct Batch {
     texture: BatchTexture,
-    /// Statics of a building's rooms (see [`interior`]), hidden.
-    interior: bool,
+    /// Parts of a building's: the building and their mask (see [`part_of`]).
+    part: Option<(buildings::Anchor, u8)>,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     anchors: Vec<[f32; 4]>,
@@ -188,24 +188,18 @@ pub fn read_sprites(assets: &Path) -> Result<Sprites> {
 
 /// Flags of objects the original does not draw with the world's art (`0x0062AE90`, openheilig).
 const HIDDEN: u32 = 0x290;
-/// The object flag of a building's parts that the building's state chooses by their mask, and
-/// the cell flag of a building's cells (docs/re/drawing.md).
+/// The object flag of a building's parts that the building's state chooses by their mask
+/// (docs/re/drawing.md).
 const BUILDING_PART: u32 = 0x8;
-const BUILDING_CELL: u8 = 0x1;
-/// The mask of a building's shell, which shows while the hero is outside (**hypothesis**: the
-/// building's state outside; its rooms' furniture has the masks above).
-const OUTSIDE: u8 = 1;
 
-/// A batch of the statics of buildings' rooms, hidden until the game switches a building's state
-/// as the client does when the hero enters (#3).
-#[derive(bevy::prelude::Component)]
-pub struct Interior;
-
-/// Whether `object` is part of a building's rooms: a part flagged [`BUILDING_PART`] in a
-/// building's cell, of a mask other than the shell's. The client draws it only while its
-/// building's state is its mask (`0x62AE90`).
-fn interior(object: &StaticObject, cell: &Cell) -> bool {
-    object.flags & BUILDING_PART != 0 && cell.flags & BUILDING_CELL != 0 && object.mask != OUTSIDE
+/// The building and the mask of `object`, if it is a part flagged [`BUILDING_PART`] in a
+/// building's cell: the client draws it only while its building's state is its mask
+/// (`0x62AE90`); the shells have mask 1, the rooms cut open and their furniture the masks above.
+fn part_of(object: &StaticObject, sector: &Sector) -> Option<(buildings::Anchor, u8)> {
+    if object.flags & BUILDING_PART == 0 {
+        return None;
+    }
+    buildings::anchor(sector, usize::from(object.cell)).map(|building| (building, object.mask))
 }
 /// A miniature: a square of its type's atlas instead of a sprite.
 const MINIATURE: u32 = 0x20;
@@ -474,7 +468,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     let (pages, placed) = pack(&assembled);
     let right = iso::right();
     let up = iso::up();
-    let mut batches: BTreeMap<(Texture, bool), Batch> = BTreeMap::new();
+    let mut batches: BTreeMap<(Texture, Option<(buildings::Anchor, u8)>), Batch> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
     // The places taken in each cell's chain, by the objects drawn.
     let mut chains: HashMap<u16, u16> = HashMap::new();
@@ -539,10 +533,10 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
                 ((p.width as f32, p.height as f32), BatchTexture::Page(page))
             }
         };
-        let inside = interior(object, cell);
-        let batch = batches.entry((quad.texture, inside)).or_insert(Batch {
+        let part = part_of(object, sector);
+        let batch = batches.entry((quad.texture, part)).or_insert(Batch {
             texture: source,
-            interior: inside,
+            part,
             positions: Vec::new(),
             uvs: Vec::new(),
             anchors: Vec::new(),
@@ -633,8 +627,14 @@ pub fn spawn(
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(material)),
         ));
-        if batch.interior {
-            entity.insert((Interior, Visibility::Hidden));
+        // A building's parts show while its state is their mask, the shells' outside.
+        if let Some((building, mask)) = batch.part {
+            let visibility = if mask == buildings::OUTSIDE {
+                Visibility::Inherited
+            } else {
+                Visibility::Hidden
+            };
+            entity.insert((buildings::Part { building, mask }, visibility));
         }
         entities.push(entity.id());
     }
@@ -676,7 +676,7 @@ mod tests {
     }
 
     #[test]
-    fn a_buildings_rooms_are_its_parts_of_masks_above_the_shells() {
+    fn a_buildings_parts_are_found_by_their_flag_and_cell() {
         let cell = |flags| Cell {
             tile: 0,
             overlays: Vec::new(),
@@ -700,11 +700,20 @@ mod tests {
             miniature: None,
             children: Vec::new(),
         };
-        // A room's candle, the shell's wall, a part outside a building, an ordinary static.
-        assert!(interior(&part(0x8, 2), &cell(0x3)));
-        assert!(!interior(&part(0x8, 1), &cell(0x1)));
-        assert!(!interior(&part(0x8, 4), &cell(0x0)));
-        assert!(!interior(&part(0x0, 2), &cell(0x1)));
+        let sector = |flags| Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell(flags); SIDE * SIDE],
+            statics: Vec::new(),
+        };
+        // A room's candle and the shell's wall, of the building at their cell's offsets (none
+        // here); a part outside a building, an ordinary static.
+        assert_eq!(part_of(&part(0x8, 2), &sector(0x3)), Some(((0, 0), 2)));
+        assert_eq!(part_of(&part(0x8, 1), &sector(0x1)), Some(((0, 0), 1)));
+        assert_eq!(part_of(&part(0x8, 4), &sector(0x0)), None);
+        assert_eq!(part_of(&part(0x0, 2), &sector(0x1)), None);
     }
 
     #[test]

@@ -21,7 +21,7 @@ use bevy::prelude::{
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use opensacred_data::world::{Cell, DIAMONDS, SIDE, Sector, World};
 
-use crate::iso;
+use crate::{buildings, iso};
 
 /// A diamond's box in a tile sheet and on screen.
 const DIAMOND_W: usize = 96;
@@ -43,6 +43,9 @@ pub struct Heights {
 struct LoadedCell {
     heights: [f32; 4],
     nature: u8,
+    /// The cell's flags (docs/02 §5.2) and the building it belongs to.
+    flags: u8,
+    building: Option<buildings::Anchor>,
 }
 
 impl Heights {
@@ -62,6 +65,8 @@ impl Heights {
                 LoadedCell {
                     heights: cell.heights.map(|h| iso::height(f32::from(h))),
                     nature: cell.ground >> 4,
+                    flags: cell.flags,
+                    building: buildings::anchor(sector, index),
                 },
             );
         }
@@ -81,6 +86,12 @@ impl Heights {
         }
         let cell = self.cells.get(&(cx as u32, cz as u32))?;
         Some((cell, fx - cx, fz - cz))
+    }
+
+    /// The building the cell at world `(x, z)` belongs to, and the cell's flags.
+    pub fn building(&self, x: f32, z: f32) -> Option<(buildings::Anchor, u8)> {
+        self.cell(x, z)
+            .and_then(|(cell, _, _)| cell.building.map(|building| (building, cell.flags)))
     }
 
     /// The nature of the cell at world `(x, z)`.

@@ -42,7 +42,7 @@ use opensacred_data::world::SIDE;
 
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
-use crate::{hero, iso};
+use crate::{buildings, hero, iso};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -77,8 +77,8 @@ pub struct Npcs {
 #[derive(Component)]
 pub struct Object;
 
-/// A placed NPC or object of a layer above 0: inside a building, hidden until the game draws the
-/// buildings' layers.
+/// A placed NPC or object of a layer above 0: inside a building, shown with its layer
+/// (`buildings::Furnishing`), or never outside one.
 #[derive(Component)]
 pub struct UpperLayer;
 
@@ -335,7 +335,18 @@ pub fn place(
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
             ));
             if placement.layer != 0 {
-                entity.insert((UpperLayer, Visibility::Hidden));
+                // In a building's layer: shown with it; else never.
+                match heights.building(position.x, position.z) {
+                    Some((building, _)) => entity.insert((
+                        buildings::Furnishing {
+                            building,
+                            layer: placement.layer,
+                        },
+                        UpperLayer,
+                        Visibility::Hidden,
+                    )),
+                    None => entity.insert((UpperLayer, Visibility::Hidden)),
+                };
             }
             if let Some(texture) = &placement.texture {
                 // Repeated, as a glTF texture without a sampler is: the models' texture
