@@ -99,6 +99,9 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
   Claude Code connects to it at the user scope, so the main checkout and every worktree see it; a session sees the server's tools only if it started after the connection was added.
 * **The project lies outside the repository**, in `%USERPROFILE%\GhidraProjects\`: `OpenSacred.gpr`, `OpenSacred.rep\` and `OpenSacred-pyghidra-mcp\` (the ChromaDB index of the code and the strings, and a cache of GZF files).
   In a checkout, `git clean -xfd` would delete it with the names and comments it gathers over M3, and `.gitignore` does not cover the `-pyghidra-mcp` directory.
+* **The server's working directory** is the project's directory too (`-WorkingDirectory` below), not the shell's current one.
+  A process keeps the directory it was started from as its own for as long as it runs, and Windows does not let a process's working directory be deleted.
+  On 2026-10-18 a server restarted from a worktree kept `ExitWorktree` and `Remove-Item` from deleting that worktree ("being used by another process") until it was restarted with its own working directory; started from the main checkout, as the first start is, it would pin the checkout the same way.
 * **Python.**
   uv runs pyghidra-mcp on Python 3.13, which it downloads itself: `onnxruntime`, which chromadb needs, has wheels up to Python 3.14 and none for the research scripts' 3.15 (on 2026-10-18 uv could not resolve pyghidra-mcp 0.2.7 on 3.15).
 * **Java.**
@@ -128,7 +131,7 @@ $d = "$env:USERPROFILE\GhidraProjects"; New-Item -ItemType Directory -Force $d |
 $a = "--python 3.13 pyghidra-mcp@0.2.7 --transport streamable-http --project-path `"$d`" --project-name OpenSacred"
 # Only on the first start, from the main checkout (where OriginalGame/ is): the binaries to import
 $a += " `"$PWD\OriginalGame\Sacred.exe`" `"$PWD\OriginalGame\GameServer.exe`""
-Start-Process uvx -ArgumentList $a -WindowStyle Hidden -RedirectStandardOutput "$d\pyghidra-mcp.out.log" -RedirectStandardError "$d\pyghidra-mcp.err.log"
+Start-Process uvx -ArgumentList $a -WorkingDirectory $d -WindowStyle Hidden -RedirectStandardOutput "$d\pyghidra-mcp.out.log" -RedirectStandardError "$d\pyghidra-mcp.err.log"
 ```
 
 MCP tools that execute arbitrary code inside Ghidra (such as running a script) are run only locally.
