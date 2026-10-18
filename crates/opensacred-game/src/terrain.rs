@@ -46,6 +46,17 @@ struct LoadedCell {
     /// The cell's flags (docs/02 §5.2) and the building it belongs to.
     flags: u8,
     building: Option<buildings::Anchor>,
+    /// Whether the hero may walk on the cell ([`walkable`]).
+    walkable: bool,
+}
+
+/// Whether a cell may be walked on, by the client's test (`0x636C10`, docs/re/movement.md): not
+/// when the low nibble of its ground byte is 1 or 2, or its flags have bit 3. The client walks a
+/// building's inside on the building's own cells, of another layer, through its doors (flag bit
+/// 2, open by their trigger's state); the converter does not read those cells yet, so a
+/// building is its mass, 1 in the low nibble, seen from outside (docs/decisions.md).
+fn walkable(cell: &Cell) -> bool {
+    !(matches!(cell.ground & 0xF, 1 | 2) || cell.flags & 0x8 != 0)
 }
 
 impl Heights {
@@ -67,6 +78,7 @@ impl Heights {
                     nature: cell.ground >> 4,
                     flags: cell.flags,
                     building: buildings::anchor(sector, index),
+                    walkable: walkable(cell),
                 },
             );
         }
@@ -92,6 +104,14 @@ impl Heights {
     pub fn building(&self, x: f32, z: f32) -> Option<(buildings::Anchor, u8)> {
         self.cell(x, z)
             .and_then(|(cell, _, _)| cell.building.map(|building| (building, cell.flags)))
+    }
+
+    /// Whether global cell `(cx, cy)` may be walked on; not outside the loaded sectors.
+    pub fn walkable(&self, (cx, cy): (i32, i32)) -> bool {
+        match (u32::try_from(cx), u32::try_from(cy)) {
+            (Ok(cx), Ok(cy)) => self.cells.get(&(cx, cy)).is_some_and(|cell| cell.walkable),
+            _ => false,
+        }
     }
 
     /// The nature of the cell at world `(x, z)`.
@@ -453,6 +473,44 @@ mod tests {
     use opensacred_data::world::Cell;
 
     use super::*;
+
+    #[test]
+    fn a_low_nibble_of_one_or_two_or_flag_bit_three_blocks_the_way() {
+        let cell = |ground, flags| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags,
+            ground,
+        };
+        let mut cells = vec![cell(0x40, 0); SIDE * SIDE];
+        // A grass cell, a building's mass, water, a cell of flag bit 3, a door of nibble 0.
+        cells[1] = cell(0xD1, 0x3);
+        cells[2] = cell(0x92, 0);
+        cells[3] = cell(0x40, 0x8);
+        cells[4] = cell(0xD0, 0x4);
+        let sector = Sector {
+            x: 2,
+            y: 3,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let side = i32::try_from(SIDE).unwrap();
+        let walkable = |column| heights.walkable((2 * side + column, 3 * side));
+        assert_eq!(
+            [0, 1, 2, 3, 4].map(walkable),
+            [true, false, false, false, true]
+        );
+        // Outside the loaded sectors.
+        assert!(!heights.walkable((0, 0)));
+    }
 
     #[test]
     fn heights_interpolate_between_the_corners_of_a_cell() {

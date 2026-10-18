@@ -11,6 +11,7 @@ mod iso;
 mod liquids;
 mod music;
 mod npcs;
+mod paths;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
