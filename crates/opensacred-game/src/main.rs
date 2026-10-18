@@ -16,6 +16,7 @@ mod paths;
 mod scene_tests;
 mod screenshot;
 mod sectors;
+mod shaders;
 mod shadows;
 mod sound;
 mod statics;
@@ -396,7 +397,12 @@ fn run(cli: Cli) -> Result<AppExit> {
                 task_pool_options: task_pools(),
             }),
     )
-    .add_plugins((bevy_kira_audio::AudioPlugin, statics::StaticsPlugin))
+    .add_plugins((
+        bevy_kira_audio::AudioPlugin,
+        shaders::ShaderLibrary,
+        statics::StaticsPlugin,
+        terrain::GroundPlugin,
+    ))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
     .insert_resource(streamer)
