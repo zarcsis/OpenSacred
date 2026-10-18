@@ -24,14 +24,14 @@ use bevy::mesh::{
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
     AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Plugin, TypePath, Vec2, Vec3,
+    MeshMaterial3d, Plugin, TypePath, Vec2, Vec3, Visibility,
 };
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
     TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
-use opensacred_data::world::{SIDE, Sector, Sprite, Sprites, StaticObject, World};
+use opensacred_data::world::{Cell, SIDE, Sector, Sprite, Sprites, StaticObject, World};
 
 use crate::iso;
 use crate::terrain::{Rgba, read_png};
@@ -46,6 +46,8 @@ enum BatchTexture {
 /// The quads of one atlas or page.
 struct Batch {
     texture: BatchTexture,
+    /// Statics of a building's rooms (see [`interior`]), hidden.
+    interior: bool,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     anchors: Vec<[f32; 4]>,
@@ -186,6 +188,25 @@ pub fn read_sprites(assets: &Path) -> Result<Sprites> {
 
 /// Flags of objects the original does not draw with the world's art (`0x0062AE90`, openheilig).
 const HIDDEN: u32 = 0x290;
+/// The object flag of a building's parts that the building's state chooses by their mask, and
+/// the cell flag of a building's cells (docs/re/drawing.md).
+const BUILDING_PART: u32 = 0x8;
+const BUILDING_CELL: u8 = 0x1;
+/// The mask of a building's shell, which shows while the hero is outside (**hypothesis**: the
+/// building's state outside; its rooms' furniture has the masks above).
+const OUTSIDE: u8 = 1;
+
+/// A batch of the statics of buildings' rooms, hidden until the game switches a building's state
+/// as the client does when the hero enters (#3).
+#[derive(bevy::prelude::Component)]
+pub struct Interior;
+
+/// Whether `object` is part of a building's rooms: a part flagged [`BUILDING_PART`] in a
+/// building's cell, of a mask other than the shell's. The client draws it only while its
+/// building's state is its mask (`0x62AE90`).
+fn interior(object: &StaticObject, cell: &Cell) -> bool {
+    object.flags & BUILDING_PART != 0 && cell.flags & BUILDING_CELL != 0 && object.mask != OUTSIDE
+}
 /// A miniature: a square of its type's atlas instead of a sprite.
 const MINIATURE: u32 = 0x20;
 /// An animated miniature: a grid of frames, rotated.
@@ -453,7 +474,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     let (pages, placed) = pack(&assembled);
     let right = iso::right();
     let up = iso::up();
-    let mut batches: BTreeMap<Texture, Batch> = BTreeMap::new();
+    let mut batches: BTreeMap<(Texture, bool), Batch> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
     // The places taken in each cell's chain, by the objects drawn.
     let mut chains: HashMap<u16, u16> = HashMap::new();
@@ -518,8 +539,10 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
                 ((p.width as f32, p.height as f32), BatchTexture::Page(page))
             }
         };
-        let batch = batches.entry(quad.texture).or_insert(Batch {
+        let inside = interior(object, cell);
+        let batch = batches.entry((quad.texture, inside)).or_insert(Batch {
             texture: source,
+            interior: inside,
             positions: Vec::new(),
             uvs: Vec::new(),
             anchors: Vec::new(),
@@ -606,13 +629,14 @@ pub fn spawn(
             BatchTexture::Page(page) => pages[page].clone(),
         };
         let material = SpriteMaterial { atlas };
-        let entity = commands
-            .spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(materials.add(material)),
-            ))
-            .id();
-        entities.push(entity);
+        let mut entity = commands.spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(material)),
+        ));
+        if batch.interior {
+            entity.insert((Interior, Visibility::Hidden));
+        }
+        entities.push(entity.id());
     }
     entities
 }
@@ -649,6 +673,38 @@ mod tests {
         let pixels: Vec<u8> = (0..width * height).flat_map(|_| colour).collect();
         writer.write_image_data(&pixels).unwrap();
         writer.finish().unwrap();
+    }
+
+    #[test]
+    fn a_buildings_rooms_are_its_parts_of_masks_above_the_shells() {
+        let cell = |flags| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags,
+            ground: 0,
+        };
+        let part = |flags, mask| StaticObject {
+            cell: 0,
+            kind: 1,
+            flags,
+            x: 0,
+            y: 0,
+            record: 0,
+            type_flags: 0,
+            mask,
+            sprite: 1,
+            miniature: None,
+            children: Vec::new(),
+        };
+        // A room's candle, the shell's wall, a part outside a building, an ordinary static.
+        assert!(interior(&part(0x8, 2), &cell(0x3)));
+        assert!(!interior(&part(0x8, 1), &cell(0x1)));
+        assert!(!interior(&part(0x8, 4), &cell(0x0)));
+        assert!(!interior(&part(0x0, 2), &cell(0x1)));
     }
 
     #[test]
