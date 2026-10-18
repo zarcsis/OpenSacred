@@ -10,6 +10,7 @@ mod hero;
 mod hud;
 mod iso;
 mod liquids;
+mod models;
 mod music;
 mod npcs;
 mod paths;
@@ -17,6 +18,7 @@ mod paths;
 mod scene_tests;
 mod screenshot;
 mod sectors;
+mod shaders;
 mod shadows;
 mod sound;
 mod statics;
@@ -220,55 +222,6 @@ fn speeds(assets: &std::path::Path, id: u32) -> Result<[f32; 2]> {
     Ok(creature.speed.map(|s| f32::from(s) * iso::MODEL_SCALE))
 }
 
-/// The cell nearest to `cell` in `sector` that lies outside a building (cell flag bit 1, a room's
-/// interior) and in front of it on screen (further down, `x + y` greater): the hero would stand
-/// under a roof that the game does not lift yet, or behind the walls (docs/decisions.md). `cell`
-/// itself where it is outside, or where no cell of the sector is.
-fn outside(sector: &opensacred_data::world::Sector, (x, y): (u32, u32)) -> (u32, u32) {
-    const INTERIOR: u8 = 0x2;
-    let side = opensacred_data::world::SIDE;
-    let (Ok(sx), Ok(sy)) = (
-        usize::try_from(sector.x).map(|v| v * side),
-        usize::try_from(sector.y).map(|v| v * side),
-    ) else {
-        return (x, y);
-    };
-    let (Ok(cx), Ok(cy)) = (usize::try_from(x), usize::try_from(y)) else {
-        return (x, y);
-    };
-    let inside = |c: usize, r: usize| {
-        sector
-            .cells
-            .get(r * side + c)
-            .is_some_and(|cell| cell.flags & INTERIOR != 0)
-    };
-    let (Some(c0), Some(r0)) = (cx.checked_sub(sx), cy.checked_sub(sy)) else {
-        return (x, y);
-    };
-    if c0 >= side || r0 >= side || !inside(c0, r0) {
-        return (x, y);
-    }
-    let mut best: Option<(usize, usize, usize)> = None;
-    for r in 0..side {
-        for c in 0..side {
-            if inside(c, r) || c + r <= c0 + r0 {
-                continue;
-            }
-            let d = c.abs_diff(c0).pow(2) + r.abs_diff(r0).pow(2);
-            if best.is_none_or(|(_, _, b)| d < b) {
-                best = Some((c, r, d));
-            }
-        }
-    }
-    match best {
-        Some((c, r, _)) => (
-            u32::try_from(sx + c).unwrap_or(x),
-            u32::try_from(sy + r).unwrap_or(y),
-        ),
-        None => (x, y),
-    }
-}
-
 fn light(mut commands: Commands) {
     commands.insert_resource(GlobalAmbientLight {
         brightness: 600.0,
@@ -337,8 +290,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     let mut heights = terrain::Heights::default();
     heights.add(&first.sector);
     let center = match start {
-        Ok(cell) => {
-            let (x, y) = outside(&first.sector, cell);
+        Ok((x, y)) => {
             let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
             position.y = heights.at(position.x, position.z).unwrap_or(0.0);
             position
@@ -405,7 +357,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     )
     .add_plugins((
         bevy_kira_audio::AudioPlugin,
+        shaders::ShaderLibrary,
         statics::StaticsPlugin,
+        terrain::GroundPlugin,
+        models::ModelsPlugin,
         daynight::DayNightPlugin,
     ))
     .insert_resource(cli.time.unwrap_or_default())
@@ -455,6 +410,8 @@ fn run(cli: Cli) -> Result<AppExit> {
             npcs::place,
             npcs::animate,
             npcs::equip,
+            models::convert,
+            models::place,
             shadows::add,
             shadows::follow,
         )

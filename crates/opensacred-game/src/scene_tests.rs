@@ -34,7 +34,7 @@ use opensacred_data::world::{
     Cell, DIAMONDS, Piece, SIDE, Sector, SectorEntry, Sprite, Sprites, StaticObject, World,
 };
 
-use crate::{iso, liquids, statics, terrain};
+use crate::{iso, liquids, shaders, statics, terrain};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
@@ -303,6 +303,7 @@ fn spawn_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
+    mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
 ) {
     if let Some(ground) = scene.ground.take() {
         terrain::spawn(
@@ -310,7 +311,7 @@ fn spawn_scene(
             ground,
             &mut images,
             &mut meshes,
-            &mut materials,
+            &mut grounds,
         );
     }
     if let Some(surfaces) = scene.liquids.take() {
@@ -390,7 +391,11 @@ fn render(dir: &Path) -> Vec<u8> {
             // The render world stays in the app, so that its pipelines can be checked.
             .disable::<PipelinedRenderingPlugin>(),
     )
-    .add_plugins(statics::StaticsPlugin);
+    .add_plugins((
+        shaders::ShaderLibrary,
+        statics::StaticsPlugin,
+        terrain::GroundPlugin,
+    ));
     let mut target = Image::new_target_texture(WIDTH, HEIGHT, TextureFormat::Rgba8UnormSrgb, None);
     target.asset_usage = RenderAssetUsages::RENDER_WORLD;
     let target = app.world_mut().resource_mut::<Assets<Image>>().add(target);
