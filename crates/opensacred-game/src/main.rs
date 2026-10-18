@@ -9,6 +9,7 @@ mod hero;
 mod hud;
 mod iso;
 mod liquids;
+mod models;
 mod music;
 mod npcs;
 #[cfg(test)]
@@ -395,7 +396,11 @@ fn run(cli: Cli) -> Result<AppExit> {
                 task_pool_options: task_pools(),
             }),
     )
-    .add_plugins((bevy_kira_audio::AudioPlugin, statics::StaticsPlugin))
+    .add_plugins((
+        bevy_kira_audio::AudioPlugin,
+        statics::StaticsPlugin,
+        models::ModelsPlugin,
+    ))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
     .insert_resource(streamer)
@@ -441,6 +446,8 @@ fn run(cli: Cli) -> Result<AppExit> {
             npcs::place,
             npcs::animate,
             npcs::equip,
+            models::convert,
+            models::place,
             shadows::add,
             shadows::follow,
         )
