@@ -32,7 +32,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
-    version,
+    version = env!("OPENSACRED_VERSION"),
     about = "Convert a GOG Sacred Gold 2.28 installation into open formats"
 )]
 struct Cli {

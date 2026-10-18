@@ -25,7 +25,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: The commit, the OS, the GPU.
+      description: The version (`opensacred-game --version` or `opensacred-convert --version`), the OS, the GPU.
     validations:
       required: true
   - type: checkboxes

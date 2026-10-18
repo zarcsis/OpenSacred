@@ -4120,7 +4120,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opensacred-convert"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4139,7 +4139,7 @@ dependencies = [
 
 [[package]]
 name = "opensacred-data"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "miniz_oxide 0.9.1",
  "postcard",
@@ -4148,7 +4148,7 @@ dependencies = [
 
 [[package]]
 name = "opensacred-formats"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
@@ -4158,7 +4158,7 @@ dependencies = [
 
 [[package]]
 name = "opensacred-game"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "bevy",

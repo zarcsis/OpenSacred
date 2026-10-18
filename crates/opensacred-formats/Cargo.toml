@@ -1,7 +1,6 @@
 [package]
 name = "opensacred-formats"
 description = "Readers for the original Sacred Gold 2.28 data formats"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
