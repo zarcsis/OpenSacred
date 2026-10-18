@@ -8,6 +8,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
+use crate::frame::Step;
 use crate::hero::Body;
 use crate::iso;
 use crate::npcs::{Npc, UpperLayer};
@@ -132,5 +133,15 @@ pub fn follow(
         ground.y = heights.at(ground.x, ground.z).unwrap_or(ground.y);
         transform.translation = ground + iso::forward() * BACK;
         transform.scale = Vec3::splat(iso::MODEL_SCALE);
+    }
+}
+
+/// The characters' shadows.
+pub struct ShadowsPlugin;
+
+impl Plugin for ShadowsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, setup)
+            .add_systems(Update, (add, follow).chain().in_set(Step::Shadows));
     }
 }

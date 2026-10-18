@@ -9,6 +9,7 @@ use std::time::Duration;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 
+use crate::frame::Step;
 use crate::terrain::{Heights, Level};
 use crate::{iso, models, paths};
 
@@ -380,6 +381,19 @@ pub fn follow(
     };
     for mut camera in &mut cameras {
         *camera = iso::view_of(hero.translation);
+    }
+}
+
+/// The hero: its model and clips, its gait and its run, and the camera following it.
+pub struct HeroPlugin;
+
+impl Plugin for HeroPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Ready>()
+            .add_systems(Startup, load)
+            .add_systems(Update, (spawn, animate).chain().in_set(Step::HeroSpawn))
+            .add_systems(Update, (toggle, steer, run).chain().in_set(Step::HeroMove))
+            .add_systems(Update, follow.in_set(Step::Follow));
     }
 }
 
