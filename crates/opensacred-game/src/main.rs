@@ -9,6 +9,7 @@ mod hero;
 mod hud;
 mod iso;
 mod liquids;
+mod models;
 mod music;
 mod npcs;
 mod paths;
@@ -352,6 +353,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
+        models::ModelsPlugin,
     ))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
@@ -398,6 +400,8 @@ fn run(cli: Cli) -> Result<AppExit> {
             npcs::place,
             npcs::animate,
             npcs::equip,
+            models::convert,
+            models::place,
             shadows::add,
             shadows::follow,
         )
