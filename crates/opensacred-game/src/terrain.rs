@@ -118,13 +118,13 @@ fn inside(x: usize, y: usize) -> bool {
 }
 
 /// An RGBA image decoded from a PNG.
-struct Rgba {
-    width: usize,
-    height: usize,
-    pixels: Vec<u8>,
+pub struct Rgba {
+    pub width: usize,
+    pub height: usize,
+    pub pixels: Vec<u8>,
 }
 
-fn read_png(path: &Path) -> Result<Rgba> {
+pub fn read_png(path: &Path) -> Result<Rgba> {
     let file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);

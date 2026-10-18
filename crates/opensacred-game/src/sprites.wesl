@@ -30,11 +30,14 @@ struct Vertex {
     /// The centre of the sprite's cell, at its height and its draw list's depth, and its place
     /// in the cell's chain.
     @location(2) anchor: vec4<f32>,
+    /// The part of the atlas the piece may sample: its source half a texel in from each edge.
+    @location(3) source: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) @interpolate(flat) source: vec4<f32>,
 };
 
 @vertex
@@ -61,12 +64,16 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let looked_at = view.clip_from_view[3][2] - DISTANCE * per_unit;
     out.position.z = looked_at + toward * per_unit;
     out.uv = vertex.uv;
+    out.source = vertex.source;
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    var colour = textureSample(atlas, atlas_sampler, in.uv);
+    // Within the piece's own texels: past its edge the atlas holds other pieces, and the
+    // piece's texture coordinates map its texels one to one, so the edge's texels reach to
+    // the piece's border instead of being blended with their neighbours in the atlas.
+    var colour = textureSample(atlas, atlas_sampler, clamp(in.uv, in.source.xy, in.source.zw));
     // Sharpened edges for alpha to coverage, as Bevy's own materials have them, around a cutoff
     // of a half.
     @if(ALPHA_TO_COVERAGE)
