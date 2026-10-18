@@ -1,0 +1,3 @@
+# Text files are stored with LF, whatever line endings a tool writes on Windows (#32); Git
+# detects binary files, the PNGs among them, and leaves them as they are.
+* text=auto eol=lf
