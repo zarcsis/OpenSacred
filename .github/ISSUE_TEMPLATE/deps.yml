@@ -1,0 +1,22 @@
+name: Dependency upgrade
+description: A newer incompatible release of a direct dependency or of Rust.
+labels: [deps]
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: The crate or the toolchain, the version in use and the new one.
+      placeholder: bevy 0.20.0 -> 0.21.0
+    validations:
+      required: true
+  - type: textarea
+    id: changes
+    attributes:
+      label: What changes
+      description: The release notes or the migration guide, and what of it touches our code.
+  - type: textarea
+    id: breaks
+    attributes:
+      label: What breaks
+      description: Build errors, test failures or a changed converter output found so far.

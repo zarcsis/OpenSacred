@@ -1,0 +1,28 @@
+name: Feature
+description: New behavior, usually a milestone's next step (PLAN.md §9.2).
+labels: [feature]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The behavior to add, and where it belongs (the converter, the game, a format).
+    validations:
+      required: true
+  - type: textarea
+    id: known
+    attributes:
+      label: What is known
+      description: The facts it rests on, with references (docs/02 for the formats, docs/re/ for the original's behavior).
+  - type: textarea
+    id: check
+    attributes:
+      label: How it is checked
+      description: The test, the screenshot or the manual check that shows it is done.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This issue has no game files, converted assets, screenshots of them or game texts (docs/08 §3).
+          required: true

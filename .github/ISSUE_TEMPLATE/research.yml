@@ -1,0 +1,27 @@
+name: Research
+description: A question about a format or the original's behavior.
+labels: [research]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+  - type: textarea
+    id: known
+    attributes:
+      label: What is known
+      description: Facts, with their status (confirmed, community-reported, estimate, hypothesis) and references.
+  - type: textarea
+    id: approach
+    attributes:
+      label: How to answer it
+      description: The files to look at, a prototype in tools/analysis/, the client's code. The answer goes into docs/02 or docs/re/.
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Rules
+      options:
+        - label: This issue has no game files, converted assets, screenshots of them, game texts or decompiler output (docs/08 §3).
+          required: true

@@ -1,9 +1,12 @@
-# Checks on every push (docs/03 §5): formatting, clippy, tests without game files, cargo deny.
+# Checks on every pull request and on main (docs/03 §5): formatting, clippy, tests without game files on Linux
+# and Windows, cargo deny. The ruleset on main requires the Linux, Windows and cargo deny checks (docs/03 §3.6).
 # CI has no game files; the tests that need them are #[ignore] and run locally (docs/08 §4).
 name: CI
 
 on:
+  # Branches other than main run through their pull request only, so a push to one runs CI once.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -11,7 +14,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a pull request supersedes its run; every run on main completes and saves the cache.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,17 +24,20 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
 
 jobs:
-  check:
+  linux:
+    name: Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Install toolchain from rust-toolchain.toml
         run: rustup toolchain install
       # The dependencies' build is kept even when a check fails: rebuilding Bevy takes a quarter of
-      # an hour.
+      # an hour. Only main saves it: pull requests restore main's cache, and caches of their own
+      # would push main's out of the repository's 10 GB.
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -46,7 +53,27 @@ jobs:
       - run: sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
       - run: cargo nextest run --workspace --run-ignored only -E 'test(the_scene_matches_its_screenshot)'
 
+  # The target platform: the build (rust-lld, .cargo/config.toml) and the tests. No clippy: the
+  # workspace has no Windows-only code, so it would report what the Linux job does, at the cost of a
+  # second build of the dependencies. No screenshot test: the runner has no GPU.
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run --workspace
+
   deny:
+    name: cargo deny
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
