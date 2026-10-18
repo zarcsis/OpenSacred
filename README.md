@@ -8,7 +8,7 @@ OpenSacred contains none of the game's files. You need your own copy of Sacred G
 
 - an offline converter reads your installation once and turns its assets into open formats (PNG, glTF, FLAC/MP3, AV1/Opus WebM, RON, Fluent);
 - the engine reads only those formats;
-- the game's rules are reimplemented from documented behavior ([docs/re/](docs/re/)); deliberate deviations from the original are recorded in [docs/decisions.md](docs/decisions.md).
+- the game's rules are reimplemented from documented behavior ([docs/re/](docs/re/)); deliberate deviations from the original are recorded in [docs/decisions/](docs/decisions/).
 
 No networking: no server, multiplayer or lobby. Original save files are not loaded. The full rationale is in [PLAN.md](PLAN.md).
 

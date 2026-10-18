@@ -1,17 +1,27 @@
 # Game versions, community and comparable projects
 
-Plan document 09. Scope: which Sacred Gold builds exist and which one is the baseline; why the original runs poorly on Windows 10/11 and how that is fixed today; what the community has already built (hooks, SDKs, reimplementations, lobby servers, middleware replacements) and on what terms it can be used; where players and modders gather, including Russian-speaking ones; what about twenty comparable projects teach. Formats are in docs/02-data-formats.md, tools in docs/03-toolchain.md, language and engine in docs/04-language-and-engine.md, timelines in docs/07-roadmap-estimates.md, the legal policy in docs/08-risks-legal.md.
+Plan document 09.
+Scope: which Sacred Gold builds exist and which one is the baseline; why the original runs poorly on Windows 10/11 and how that is fixed today; what the community has already built (hooks, SDKs, reimplementations, lobby servers, middleware replacements) and on what terms it can be used; where players and modders gather, including Russian-speaking ones; what about twenty comparable projects teach.
+Formats are in docs/02-data-formats.md, tools in docs/03-toolchain.md, language and engine in docs/04-language-and-engine.md, timelines in docs/07-roadmap-estimates.md, the legal policy in docs/08-risks-legal.md.
 
-Claim status. **Verified locally**: on the files of a GOG installation of Sacred Gold 2.28 (English), the project's reference build, or on strings of its executables. **Verified from the primary source**: the README, documentation, code or commit history of a GitHub repository was read in full. **From secondary sources**: the site (Steam Community, GOG, VOGONS, Nexus, gogdb, press) was unreachable from the research environment and only a search-results summary is known; such facts are re-checked before anything relies on them. **Hypothesis**: an inference of this document.
+Claim status.
+**Verified locally**: on the files of a GOG installation of Sacred Gold 2.28 (English), the project's reference build, or on strings of its executables.
+**Verified from the primary source**: the README, documentation, code or commit history of a GitHub repository was read in full.
+**From secondary sources**: the site (Steam Community, GOG, VOGONS, Nexus, gogdb, press) was unreachable from the research environment and only a search-results summary is known; such facts are re-checked before anything relies on them.
+**Hypothesis**: an inference of this document.
 
 ## Summary
 
-* The project works with a single build: Sacred Gold 2.28 (GOG, English) from 2006-10-13, `Sacred.exe` 11,919,360 B, SHA-256 `db9b86a4…`, DRM-free. The community's addresses (sacred-bild, sacred-sdk) refer to exactly this build.
+* The project works with a single build: Sacred Gold 2.28 (GOG, English) from 2006-10-13, `Sacred.exe` 11,919,360 B, SHA-256 `db9b86a4…`, DRM-free.
+  The community's addresses (sacred-bild, sacred-sdk) refer to exactly this build.
 * Other builds (the German and Russian retail editions, the 2009 LGP Linux port) are listed for reference; the project does not use them.
-* On Windows 10/11 the original is broken by the D3D7 renderer, the hard-coded 1024×768, the spin limiter, the keyboard hook and focus loss. Players fix this with dgVoodoo2 and resolution patches; the new engine removes these problems entirely.
-* Over 2025–2026 an ecosystem of ≥10 open projects has formed around Sacred. For our approach the format readers matter most: open-grn and grn2glb (Granny), openheilig (formats, bytecode), sacred-sdk (opcodes, string hash).
+* On Windows 10/11 the original is broken by the D3D7 renderer, the hard-coded 1024×768, the spin limiter, the keyboard hook and focus loss.
+  Players fix this with dgVoodoo2 and resolution patches; the new engine removes these problems entirely.
+* Over 2025–2026 an ecosystem of ≥10 open projects has formed around Sacred.
+  For our approach the format readers matter most: open-grn and grn2glb (Granny), openheilig (formats, bytecode), sacred-sdk (opcodes, string hash).
 * Borrowing rule: facts about formats and addresses we take; MIT code only as a reference, with the notice in `THIRD-PARTY-NOTICES.md` for anything borrowed; from the GPL-3 sacred-bild only names, in a local Ghidra project that is never committed; GPL, AGPL and unlicensed code never enter the converter or the game (§3.3).
-* The closest analog by goal is OpenGothic: a reimplementation of a 2002 game on the original assets, essentially by a single developer, with a modern renderer. Our project follows the same path, but with asset conversion, in Rust and with Claude Code.
+* The closest analog by goal is OpenGothic: a reimplementation of a 2002 game on the original assets, essentially by a single developer, with a modern renderer.
+  Our project follows the same path, but with asset conversion, in Rust and with Claude Code.
 
 ## 1. Versions and builds
 
@@ -52,17 +62,24 @@ All addresses, signatures and analysis results in the project refer to GOG ENG 2
 | "Inoffizieller Patch" (German) | the engine address table used in sacred-sdk (`refs_native_src.md`) | from the primary source (sacred-sdk) |
 | PureHD v.26012023, ReBorn v4.6 (2025-08-05), SacredNL | mods that modify the exe/DLLs; see §3 | from secondary sources |
 
-Two conclusions for the plan. First, exactly 2.28 counts as "vanilla": there were no official builds after it, and save and network compatibility is needed only with it. Second, the unofficial patches are distributed as binary patches without source; their contents are available to us only through sacred-sdk (MIT), which documented the addresses and ported two 2.29 fixes into code. The patches themselves do not go into the repository.
+Two conclusions for the plan.
+First, exactly 2.28 counts as "vanilla": there were no official builds after it, and save and network compatibility is needed only with it.
+Second, the unofficial patches are distributed as binary patches without source; their contents are available to us only through sacred-sdk (MIT), which documented the addresses and ported two 2.29 fixes into code.
+The patches themselves do not go into the repository.
 
 ### 1.3 The 2009 LGP Linux port
 
-According to openheilig's build survey (from the primary source), the LGP port replaces the Windows platform layer (Miles → OpenAL + Vorbis; Bink/WMV → libavcodec/avformat; TinCat → libgrapple; DirectX → SDL 1.2 + X11 with fixed-function OpenGL), carries Itanium RTTI for 318 classes, and reads the same data: 8/8 `.bin` files are byte-identical to Windows, 380/380 `balance.bin` keys are present, the PAKs are the same. So the formats are frozen across builds. The project does not use the port: its addresses do not carry over to the GOG build, and all analysis runs on the GOG build.
+According to openheilig's build survey (from the primary source), the LGP port replaces the Windows platform layer (Miles → OpenAL + Vorbis; Bink/WMV → libavcodec/avformat; TinCat → libgrapple; DirectX → SDL 1.2 + X11 with fixed-function OpenGL), carries Itanium RTTI for 318 classes, and reads the same data: 8/8 `.bin` files are byte-identical to Windows, 380/380 `balance.bin` keys are present, the PAKs are the same.
+So the formats are frozen across builds.
+The project does not use the port: its addresses do not carry over to the GOG build, and all analysis runs on the GOG build.
 
 ## 2. Problems on Windows 10/11 and existing workarounds
 
 ### 2.1 Causes
 
-Sacred is not a palettized DirectDraw game but a Direct3D 7 one (TnL HAL via `dxDriver7`, FVF 0x244/0x1C4, ~17 render states, 2 texture stages; confirmed by static analysis, see docs/05). Therefore DirectDraw-only wrappers (cnc-ddraw) do not apply; only wrappers with a D3D7 frontend work. The other root causes (confirmed by static analysis, see docs/01): the resolution is hard-coded at 1024×768 (the 512/384 center is assumed in 17 places in the code; `cDxDevices` only enumerates modes); the frame limiter is a spin on `Sleep(0)`; the low-level keyboard hook "tabblocker" swallows Win and Alt-Tab system-wide; without focus the game stops drawing; video goes through the obsolete DirectShow `IAMMultiMediaStream` into DirectDraw surfaces; the lobby `sacred<lang>.ascaron-net.com:7066` is dead; the system D3D7 runtime refuses render targets larger than 2,048 px (according to sacred-bild), a direct obstacle to 4K via ddraw.dll without a custom backend.
+Sacred is not a palettized DirectDraw game but a Direct3D 7 one (TnL HAL via `dxDriver7`, FVF 0x244/0x1C4, ~17 render states, 2 texture stages; confirmed by static analysis, see docs/05).
+Therefore DirectDraw-only wrappers (cnc-ddraw) do not apply; only wrappers with a D3D7 frontend work.
+The other root causes (confirmed by static analysis, see docs/01): the resolution is hard-coded at 1024×768 (the 512/384 center is assumed in 17 places in the code; `cDxDevices` only enumerates modes); the frame limiter is a spin on `Sleep(0)`; the low-level keyboard hook "tabblocker" swallows Win and Alt-Tab system-wide; without focus the game stops drawing; video goes through the obsolete DirectShow `IAMMultiMediaStream` into DirectDraw surfaces; the lobby `sacred<lang>.ascaron-net.com:7066` is dead; the system D3D7 runtime refuses render targets larger than 2,048 px (according to sacred-bild), a direct obstacle to 4K via ddraw.dll without a custom backend.
 
 ### 2.2 Symptoms and community-accepted workarounds
 
@@ -101,7 +118,8 @@ Sources: wrapper versions: GitHub release pages (verified from the primary sourc
 
 ### 2.4 Resolution and 4K: what breaks in "vanilla + resolution patch"
 
-PureHD and ReBorn HD get an arbitrary resolution by patching the exe (the keys `PHD_RES_SCX/SCY` in PureHD's `Settings.cfg`; the vanilla exe has no such keys, verified locally, so the exe is patched or a DLL is swapped in: hypothesis). What breaks as a result (from the primary source, sacred-bild RE_NOTES, unless stated otherwise):
+PureHD and ReBorn HD get an arbitrary resolution by patching the exe (the keys `PHD_RES_SCX/SCY` in PureHD's `Settings.cfg`; the vanilla exe has no such keys, verified locally, so the exe is patched or a DLL is swapped in: hypothesis).
+What breaks as a result (from the primary source, sacred-bild RE_NOTES, unless stated otherwise):
 
 | Problem | Gist |
 |---|---|
@@ -118,7 +136,8 @@ That is why the new engine renders at native resolution with a configurable zoom
 
 ### 2.5 Multiplayer
 
-The official lobby does not work; the community plays over LAN via VPN and through its own lobby servers. For this project, networking is out of scope.
+The official lobby does not work; the community plays over LAN via VPN and through its own lobby servers.
+For this project, networking is out of scope.
 
 ## 3. Community projects
 
@@ -140,17 +159,31 @@ The official lobby does not work; the community plays over LAN via VPN and throu
 | **pnxr/sacred2-lobby-emulator** | C# (Mono, MySQL) | 34 commits, revived in 2025 | a Sacred 2 lobby (port 6800) built from intercepted traffic | the methodology only (Wireshark + "guessing the responses") | a different game |
 | PureHD, ReBorn/ReBorn HD, SacredNL, Classic UI, Movies Fullscreen | closed mods and patches | PureHD v.26012023; ReBorn v4.6 (2025-08-05); SacredNL: a DLL (interview on DTF) | arbitrary resolutions (PureHD, ReBorn), balance and content (ReBorn), multiplayer fixes (SacredNL), the old UI, widescreen cutscenes | as a list of player expectations and regression scenarios; the authors are potential contributors | no source; contents are known from secondary sources and from the ReBorn patch catalog in sacred-sdk |
 
-The community publishes derived material (TSV name exports, headers, specifications), not decompilations. OpenSacred does the same: it commits only facts and its own code, never decompiler output (docs/08 §3).
+The community publishes derived material (TSV name exports, headers, specifications), not decompilations.
+OpenSacred does the same: it commits only facts and its own code, never decompiler output (docs/08 §3).
 
 ### 3.2 What exactly is solved and what is not
 
-**Granny 1.2b.** The version is confirmed by the string `1.2b`/`10-4-2000` in the client's `GrannyOpenVersion` call at 0x4010D0 (not 2.x, as an initial triage assumed). Three independent `.GRN` readers (openheilig GDScript, openheilig Python, open-grn) agree on 4,991/4,993 `models.pak` records, 1,571/1,571 meshes and 3,420/3,420 track counts with no discrepancies (from the primary source, sweep of 2026-09-01; docs/02, §4.2, lists the readers the same way); grn2glb additionally parses 1,571 models and 3,420 clips, but its cross-check against the others on the whole corpus has not been published; openheilig derived the interpolation for mode 2 (a corner-cutting quadratic B-spline, error 0.214° → 0.00004°) and cross-checked the materials with apitrace. But no project implements the runtime that the game calls: all 54 Granny imports are used (`GetAnimationParameter` 175 sites, `SetAnimationParameter` 72, `GetBoneState` 61), parameters 0–7 form an ADSR envelope with period 10000.0 as an "eternal" loop, `AddControlledPose` is called with FLT_MAX, `AttachSequence` with mask 0x1FF, and IK is not used (verified by static analysis). Therefore, for the new engine, models and animations are converted to glTF, and the blending semantics are carried over approximately into Bevy's animation graph (docs/02, §4.5).
+**Granny 1.2b.**
+The version is confirmed by the string `1.2b`/`10-4-2000` in the client's `GrannyOpenVersion` call at 0x4010D0 (not 2.x, as an initial triage assumed).
+Three independent `.GRN` readers (openheilig GDScript, openheilig Python, open-grn) agree on 4,991/4,993 `models.pak` records, 1,571/1,571 meshes and 3,420/3,420 track counts with no discrepancies (from the primary source, sweep of 2026-09-01; docs/02, §4.2, lists the readers the same way); grn2glb additionally parses 1,571 models and 3,420 clips, but its cross-check against the others on the whole corpus has not been published; openheilig derived the interpolation for mode 2 (a corner-cutting quadratic B-spline, error 0.214° → 0.00004°) and cross-checked the materials with apitrace.
+But no project implements the runtime that the game calls: all 54 Granny imports are used (`GetAnimationParameter` 175 sites, `SetAnimationParameter` 72, `GetBoneState` 61), parameters 0–7 form an ADSR envelope with period 10000.0 as an "eternal" loop, `AddControlledPose` is called with FLT_MAX, `AttachSequence` with mask 0x1FF, and IK is not used (verified by static analysis).
+Therefore, for the new engine, models and animations are converted to glTF, and the blending semantics are carried over approximately into Bevy's animation graph (docs/02, §4.5).
 
-**NetScript.** Two independent groups have named the VM records: openheilig 120/141 from the keyword table in the Linux binary, sacred-sdk 125 tags from the 2.28 client; the tables agree in 123 of 141 positions. The keyword table is also present in Sacred.exe itself (`.data`, file offset 0x54ce78, verified locally). The shipped scripts use 113 of the 141 record types; 45 cover 95% of the campaign's records, 68 cover 99%. The interpreter lives in the client, not in `GameServer.exe` (the server stores QuestDB and relays `TRIGGER_*`), and the community has not implemented it with any claim to accuracy: sacred-sdk executes quests and dialogs with its own runtime, openheilig with its own interpreter. The new plan estimates the interpreter and semantics at 40–80 agent-hours (docs/06, §8).
+**NetScript.**
+Two independent groups have named the VM records: openheilig 120/141 from the keyword table in the Linux binary, sacred-sdk 125 tags from the 2.28 client; the tables agree in 123 of 141 positions.
+The keyword table is also present in Sacred.exe itself (`.data`, file offset 0x54ce78, verified locally).
+The shipped scripts use 113 of the 141 record types; 45 cover 95% of the campaign's records, 68 cover 99%.
+The interpreter lives in the client, not in `GameServer.exe` (the server stores QuestDB and relays `TRIGGER_*`), and the community has not implemented it with any claim to accuracy: sacred-sdk executes quests and dialogs with its own runtime, openheilig with its own interpreter.
+The new plan estimates the interpreter and semantics at 40–80 agent-hours (docs/06, §8).
 
-**Networking.** The TinCat-2 transport (28 B frame, CRC32 of the body), the lobby (56 message types, obfuscation) and the UDP announcement are described and implemented in three codebases (C#, TS, C++). The game protocol on top of them is not described: ≥107 packet names are known from error strings, the real enum is estimated at 110–140 types; the project does not need it, since networking is out of scope.
+**Networking.**
+The TinCat-2 transport (28 B frame, CRC32 of the body), the lobby (56 message types, obfuscation) and the UDP announcement are described and implemented in three codebases (C#, TS, C++).
+The game protocol on top of them is not described: ≥107 packet names are known from error strings, the real enum is estimated at 110–140 types; the project does not need it, since networking is out of scope.
 
-**Localization and saves.** `sacred_hash` from sacred-sdk reproduces 946/947 numeric `res:N` references and 12,965/23,123 `global.res` ids from the shipped names (the rest are hashes of names from unshipped sources); the file is plain UTF-16LE. The AMH container (0x100 + 16×12, 8 occupied slots, version 0x101B in all Gold templates and saves) is covered by sacred-sdk's MIT code `hero_save.cpp`; the semantics of the sections (especially 0xCD, 822,824 B of world state) are not.
+**Localization and saves.**
+`sacred_hash` from sacred-sdk reproduces 946/947 numeric `res:N` references and 12,965/23,123 `global.res` ids from the shipped names (the rest are hashes of names from unshipped sources); the file is plain UTF-16LE.
+The AMH container (0x100 + 16×12, 8 occupied slots, version 0x101B in all Gold templates and saves) is covered by sacred-sdk's MIT code `hero_save.cpp`; the semantics of the sections (especially 0xCD, 822,824 B of world state) are not.
 
 ### 3.3 License matrix for borrowing
 
@@ -172,7 +205,8 @@ OpenSacred's code is MIT OR Apache-2.0 (docs/08 §5).
 | Unicorn (`unicorn-engine`) | GPL-2.0 | **no** | only in `opensacred-oracle`, a separate development-only crate, never linked into the converter or the game: GPL-2.0 cannot be combined with Apache-2.0 |
 | Leaked or unlicensed code, builds or SDKs | — | **no** | never used |
 
-Class and method names from the original's RTTI and log strings, as well as GOG ENG addresses, are facts of the executable; the documents and code comments cite them. Names that a community project gave to functions (the sacred-bild export) stay in the local Ghidra project (PLAN.md, ADR-10; docs/08 §5).
+Class and method names from the original's RTTI and log strings, as well as GOG ENG addresses, are facts of the executable; the documents and code comments cite them.
+Names that a community project gave to functions (the sacred-bild export) stay in the local Ghidra project (PLAN.md, ADR-10; docs/08 §5).
 
 ## 4. Communities and channels
 
@@ -203,7 +237,10 @@ The rights holder: Ascaron went into insolvency on 2009-04-14; the rights to Sac
 | 3DNews, StopGame: coverage of Sacred 2 Remaster and game pages | from secondary sources |
 | Zone of Games: no Sacred 1 thread; gameru.net: a Russian localization for Sacred 2 only; no VK/Discord groups for Sacred 1 were found | from secondary sources (three search queries) |
 
-Consequences. (1) Russian localization comes through the Russian GOG depot or Akella's disc version, for owners of the corresponding copies; the engine must read `global.res` in any language, and the new engine's fonts (cosmic-text + Noto) remove the GDI fonts' limitation on Cyrillic. (2) Potential contributors: the author of SacredNL, bssth (sacred-sdk), Russian-speaking players on the kryotek lobby. (3) Documentation language: everything in this repository is written in English, so the README and the format descriptions are accessible to the international community (§4.1).
+Consequences.
+(1) Russian localization comes through the Russian GOG depot or Akella's disc version, for owners of the corresponding copies; the engine must read `global.res` in any language, and the new engine's fonts (cosmic-text + Noto) remove the GDI fonts' limitation on Cyrillic.
+(2) Potential contributors: the author of SacredNL, bssth (sacred-sdk), Russian-speaking players on the kryotek lobby.
+(3) Documentation language: everything in this repository is written in English, so the README and the format descriptions are accessible to the international community (§4.1).
 
 ## 5. Lessons from comparable projects
 
@@ -235,9 +272,13 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 
 ### 5.2 Calibrating pace and timelines
 
-* **Decompilation pace** in public projects is 27–77 functions/month per developer: OpenJKDF2 ≈27 (one person, 99 months), dethrace ≈29 on average and ≈77 in its peak 14 months with someone else's symbols, re47 solo for ≤22 months and stalled at ≈15–20%. For engineers with good names (RTTI, log strings, the functions shared with the server, sacred-bild's 7,631 names), ≈100–200 functions per FTE-month is plausible: a hypothesis not tested on Sacred.
-* **The Sacred baseline**: ≈5,900 game functions in 3.48 MB (≈180k logical lines of C++), 410 classes; this is about twice JKDF2 (3,169 functions per the OpenJKDF2 README) and, by estimate, about an order of magnitude more than LEGO Island (the isle function count was not obtained: hypothesis). This calibration is for a team of people; the plan counts in Claude Code agent-hours (docs/07).
-* **Bridge → standalone exe**: TR2X 8 months, TR1X 10 months, OpenRCT2 ≈2.75 years, KeeperFX 15 years. The spread is explained not by the size of the game but by whether there is an exit criterion and comparison infrastructure. The plan has no bridge: the game is written from the start as its own Rust executable.
+* **Decompilation pace** in public projects is 27–77 functions/month per developer: OpenJKDF2 ≈27 (one person, 99 months), dethrace ≈29 on average and ≈77 in its peak 14 months with someone else's symbols, re47 solo for ≤22 months and stalled at ≈15–20%.
+  For engineers with good names (RTTI, log strings, the functions shared with the server, sacred-bild's 7,631 names), ≈100–200 functions per FTE-month is plausible: a hypothesis not tested on Sacred.
+* **The Sacred baseline**: ≈5,900 game functions in 3.48 MB (≈180k logical lines of C++), 410 classes; this is about twice JKDF2 (3,169 functions per the OpenJKDF2 README) and, by estimate, about an order of magnitude more than LEGO Island (the isle function count was not obtained: hypothesis).
+  This calibration is for a team of people; the plan counts in Claude Code agent-hours (docs/07).
+* **Bridge → standalone exe**: TR2X 8 months, TR1X 10 months, OpenRCT2 ≈2.75 years, KeeperFX 15 years.
+  The spread is explained not by the size of the game but by whether there is an exit criterion and comparison infrastructure.
+  The plan has no bridge: the game is written from the start as its own Rust executable.
 * **Client and server on a shared engine**: fallout1-ce took ≈8 months after fallout2-ce; Sacred has 1,176 game functions and 258 classes shared; for our project this means that `GameServer.exe` is useful as an auxiliary binary during analysis, while the server itself is not reimplemented.
 
 ### 5.3 How comparable projects handled each subsystem
@@ -288,11 +329,13 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 
 1. The contents of the unofficial 2.29/2.29.14 patches beyond the two fixes ported into sacred-sdk; where they are hosted (Discord) and whether there is a changelog.
 2. The authors and sources of PureHD, ReBorn HD and SacredNL; whether they are willing to participate; whether PureHD has open code.
-3. The fingerprint (PE stamp, size) of Akella's Russian 2.28 build and of the Russian GOG depot: a separate exe or the ENG exe with a different `global.res`? The project is verified only on the English GOG depot; the answer determines whether other depots can be supported.
+3. The fingerprint (PE stamp, size) of Akella's Russian 2.28 build and of the Russian GOG depot: a separate exe or the ENG exe with a different `global.res`?
+   The project is verified only on the English GOG depot; the answer determines whether other depots can be supported.
 4. Whether to coordinate a shared GRN specification with openheilig, grn2glb and open-grn.
 5. WSGF/PCGamingWiki entries for Sacred Gold, the ProtonDB rating, the state of the Lutris script: the sites were unreachable from the research environment.
 6. The "Resacred" project (a C++ remake, a source of pak/keyx/iso structures according to links from sacred-sdk and openheilig): the repository was not found.
-7. The meaning of the `COMPAT_VIDEO` key, which the GOG release enables by default (a medium-confidence hypothesis from static analysis: a compatibility mode for cutscene playback, §2.2): confirm it by analyzing the cutscene playback function and comparing captures on the original with and without the key (docs/01). What the GOG installer writes to the registry has not been checked.
+7. The meaning of the `COMPAT_VIDEO` key, which the GOG release enables by default (a medium-confidence hypothesis from static analysis: a compatibility mode for cutscene playback, §2.2): confirm it by analyzing the cutscene playback function and comparing captures on the original with and without the key (docs/01).
+   What the GOG installer writes to the registry has not been checked.
 
 ## Sources
 

@@ -2,16 +2,20 @@
 
 ## Summary
 
-* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG). They are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
+* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG).
+  They are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
 * The scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
-* The scanners read the GOG executables as is. Only the GOG build 2.28 is supported; the network protocol is out of scope.
+* The scanners read the GOG executables as is.
+  Only the GOG build 2.28 is supported; the network protocol is out of scope.
 * The Rust converter `opensacred-convert` does the conversion; the format-parsing scripts are kept as the reference the Rust readers are cross-checked against: the tests of `opensacred-formats` that need the game files run the prototypes and compare their output record by record.
 
 ## How to run
 
-* Python 3.12+ (required by numpy 2.5; tested on 3.15.0); dependencies: `pip install -r tools/requirements.txt`. After a Python upgrade, reinstall the dependencies: each version has its own packages.
+* Python 3.12+ (required by numpy 2.5; tested on 3.15.0); dependencies: `pip install -r tools/requirements.txt`.
+  After a Python upgrade, reinstall the dependencies: each version has its own packages.
 * Run from the repository root with `python3 -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
-* The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`. Output files go to the `--out` path outside the repository.
+* The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`.
+  Output files go to the `--out` path outside the repository.
 
 ```bash
 pip install -r tools/requirements.txt

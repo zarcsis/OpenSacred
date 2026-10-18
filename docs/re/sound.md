@@ -1,10 +1,14 @@
 # Sound: music, atmosphere and the ground
 
-Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17. The formats are in [docs/02 §10](../02-data-formats.md#10-sound-music-video), the natures of the cells in [docs/02 §5.2](../02-data-formats.md#52-a-sector-in-sectorswldx-the-32-b-floor-cell). Status: **confirmed** on the code unless marked otherwise.
+Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17.
+The formats are in [docs/02 §10](../02-data-formats.md#10-sound-music-video), the natures of the cells in [docs/02 §5.2](../02-data-formats.md#52-a-sector-in-sectorswldx-the-32-b-floor-cell).
+Status: **confirmed** on the code unless marked otherwise.
 
 ## Sound names
 
-A table in `.data` at VA `0x964870` names every sound id: 6,869 records of `{u32 id; char name[64]}` from `SOUND_FX_INVALID` (docs/02 §10.2). The music files carry the same names (`MUSIC_WOOD01.mp3` is `SOUND_FX_MUSIC_WOOD01`, id 6,560), so a sound id names a sample of `sound.pak` or a file of `mp3/` alike. `opensacred-convert sound` writes the table to `sound.ron`.
+A table in `.data` at VA `0x964870` names every sound id: 6,869 records of `{u32 id; char name[64]}` from `SOUND_FX_INVALID` (docs/02 §10.2).
+The music files carry the same names (`MUSIC_WOOD01.mp3` is `SOUND_FX_MUSIC_WOOD01`, id 6,560), so a sound id names a sample of `sound.pak` or a file of `mp3/` alike.
+`opensacred-convert sound` writes the table to `sound.ron`.
 
 ## Profile groups
 
@@ -35,15 +39,18 @@ A function around `0x68EDDA` plays a footstep: it switches on the nature (`natur
 | `WATERA`, `WATERB` | 2 `FOOTSTEP_WATER` |
 | `IND-WOOD` | 7 `FOOTSTEP_WOOD` |
 
-Before the switch it skips three values of a word in `esi` (`0x22D`, `0x22E`, `0x48`; hypothesis: creature types that make no footsteps of the ground) to a path that checks for water (`0x68EE24`); not followed. `opensacred-game` plays the hero's footsteps by this table (`sound.rs`).
+Before the switch it skips three values of a word in `esi` (`0x22D`, `0x22E`, `0x48`; hypothesis: creature types that make no footsteps of the ground) to a path that checks for water (`0x68EE24`); not followed.
+`opensacred-game` plays the hero's footsteps by this table (`sound.rs`).
 
 ## Footprints
 
-A function around `0x6392AE` loads a footprint texture by the nature of the cell (`nature − 0x10` up to `0x90`, byte table `0x639AB0`, jump table `0x639A9C`): `DESERT` `FOOTSTEPDESERT.TGA`, `ARCTIC` `FOOTSTEPSNOW.TGA`, `SUMPF` `FOOTSTEPSWAMP.TGA`, `WATERA` and `WATERB` the ripples `footstepWaterA_01.tga` to `05`; the other natures leave none. On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`) and goes on if they differ and one of the second is above 0 (not followed further).
+A function around `0x6392AE` loads a footprint texture by the nature of the cell (`nature − 0x10` up to `0x90`, byte table `0x639AB0`, jump table `0x639A9C`): `DESERT` `FOOTSTEPDESERT.TGA`, `ARCTIC` `FOOTSTEPSNOW.TGA`, `SUMPF` `FOOTSTEPSWAMP.TGA`, `WATERA` and `WATERB` the ripples `footstepWaterA_01.tga` to `05`; the other natures leave none.
+On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`) and goes on if they differ and one of the second is above 0 (not followed further).
 
 ## The atmosphere by the ground
 
-A function around `0x696B70` chooses the ambient loop (an `ATMO_*` file of `mp3/`) and some of the music. Its object holds the state at fixed offsets; what they are is read off the code and their use, so their names are **hypotheses**:
+A function around `0x696B70` chooses the ambient loop (an `ATMO_*` file of `mp3/`) and some of the music.
+Its object holds the state at fixed offsets; what they are is read off the code and their use, so their names are **hypotheses**:
 
 | Offset | Size | Meaning |
 |---|---|---|
@@ -52,7 +59,9 @@ A function around `0x696B70` chooses the ambient loop (an `ATMO_*` file of `mp3/
 | `+0xA3C` | u32 | a bit set: the bit of the region at `+0xA40` selects `MUSIC_VILLAGE_SIEGE_UNDEAD` |
 | `+0xA40` | u32 | an index; 0x6E is replaced by 0xB |
 
-It plays a loop through `0x694510(id, 0, 0)`, `cMSS::playMusic` (its log line), which plays the music too: it takes the volume at `+0x78` for a name that starts with `ATMO` (after `SOUND_FX_`) and the one at `+0x7C` for the rest. Whether an ambient loop and a music track can sound at once is not read yet. By the nature, through a switch on `nature − 0x10` (byte table `0x696F50`, jump table `0x696F38`, entry at `0x696C27`) by day and another (`0x696E54`, `0x696E40`, entry at `0x696BDA`) by night:
+It plays a loop through `0x694510(id, 0, 0)`, `cMSS::playMusic` (its log line), which plays the music too: it takes the volume at `+0x78` for a name that starts with `ATMO` (after `SOUND_FX_`) and the one at `+0x7C` for the rest.
+Whether an ambient loop and a music track can sound at once is not read yet.
+By the nature, through a switch on `nature − 0x10` (byte table `0x696F50`, jump table `0x696F38`, entry at `0x696C27`) by day and another (`0x696E54`, `0x696E40`, entry at `0x696BDA`) by night:
 
 | Nature | Day | Night |
 |---|---|---|
@@ -67,28 +76,45 @@ Before the switch the function leaves the loop alone while one of the region mus
 
 `opensacred-game` plays the day's column by day and at the dawn, the night's in the dusk and by night (`atmosphere.rs`, by the game's clock, docs/re/daynight.md).
 
-The regions' share is driven by the scripts (not followed): the campaign's functions set variables `atmos_rg<N>` (`bekannter1` does `IncVar atmos_rg1`), and the client holds the string `atmo_rg` (VA `0x94F4FC`), presumably to read them; 163 lines of the campaign's listing name them. M4 recovers the link.
+The regions' share is driven by the scripts (not followed): the campaign's functions set variables `atmos_rg<N>` (`bekannter1` does `IncVar atmos_rg1`), and the client holds the string `atmo_rg` (VA `0x94F4FC`), presumably to read them; 163 lines of the campaign's listing name them.
+M4 recovers the link.
 
 ## The music profile
 
-The sound profile `music` (slot 1 of `sndProfiles.pak`) names music by sound id in its groups, which the table above names: 0 `PEACE` and 1 `NEARBY` `MUSIC_WOOD01`–`03`, 2 `FIGHT` `MUSIC_FIGHT01`–`04`, 3 `JINGLE_DANGER01`–`08`, 4 `JINGLE_FIGHT_NORMAL01`–`08`, 5 `…HARD01`–`08`, 6 `JINGLE_FIGHT_OVER01`–`08`, 7 `JINGLE_FIGHT_EASY01`–`08` (docs/02 §10.3). A function around `0x697730` plays `PEACE`: `0x4261D0(1, 0)` picks a variant of the `music` profile's group 0 and returns its sound id, which goes to `cMSS::playMusic`; the same function plays the `JINGLE_FIGHT_OVER` group (6) through `0x694FE0`. Its conditions are read below, with the region's music.
+The sound profile `music` (slot 1 of `sndProfiles.pak`) names music by sound id in its groups, which the table above names: 0 `PEACE` and 1 `NEARBY` `MUSIC_WOOD01`–`03`, 2 `FIGHT` `MUSIC_FIGHT01`–`04`, 3 `JINGLE_DANGER01`–`08`, 4 `JINGLE_FIGHT_NORMAL01`–`08`, 5 `…HARD01`–`08`, 6 `JINGLE_FIGHT_OVER01`–`08`, 7 `JINGLE_FIGHT_EASY01`–`08` (docs/02 §10.3).
+A function around `0x697730` plays `PEACE`: `0x4261D0(1, 0)` picks a variant of the `music` profile's group 0 and returns its sound id, which goes to `cMSS::playMusic`; the same function plays the `JINGLE_FIGHT_OVER` group (6) through `0x694FE0`.
+Its conditions are read below, with the region's music.
 
 ## The region's music
 
-Recovered 2026-10-18. Each sector names its music: `sectors.keyx +0x2D8` is a sound id, 0 in 1,892 sectors, else one of 24 (docs/02 §5.1): `MUSIC_WOOD01`–`03` (1,406 sectors, the start's `WOOD01`), `MUSIC_DESERT01` (524), `MUSIC_DUNGEON01`–`04` (550), `MUSIC_LAVA01`, `MUSIC_ICE01`, `MUSIC_VILLAGE01`, the regions' `MUSIC_PILZWALD`, `HAUPTSTADT`, `NUKNUK`, `KARIBIK`, `DRYADEN`, `WAYTOHELL`, `HELL`, `MASCARELL`, `DUNGEON_NUKNUK`, and a few loops: `ATMOSPOT_CEMETERY` in the 15 sectors of the start's cemetery (sector 50,40 among them), `ATMOSPOT_ARENA_OUTDOOR`, `ATMO_ICE_NIGHT`.
+Recovered 2026-10-18.
+Each sector names its music: `sectors.keyx +0x2D8` is a sound id, 0 in 1,892 sectors, else one of 24 (docs/02 §5.1): `MUSIC_WOOD01`–`03` (1,406 sectors, the start's `WOOD01`), `MUSIC_DESERT01` (524), `MUSIC_DUNGEON01`–`04` (550), `MUSIC_LAVA01`, `MUSIC_ICE01`, `MUSIC_VILLAGE01`, the regions' `MUSIC_PILZWALD`, `HAUPTSTADT`, `NUKNUK`, `KARIBIK`, `DRYADEN`, `WAYTOHELL`, `HELL`, `MASCARELL`, `DUNGEON_NUKNUK`, and a few loops: `ATMOSPOT_CEMETERY` in the 15 sectors of the start's cemetery (sector 50,40 among them), `ATMOSPOT_ARENA_OUTDOOR`, `ATMO_ICE_NIGHT`.
 
-- **The event.** `0x6263B0`, a pass of the world view over its sectors, takes the record that the hero's sector's object points to at `+0x17C` and, when its `+0xEF` is not 0, posts the engine's event of type 2 and subtype 0 (`0x6770E0`) with its byte at `+0xD7`, the music `+0xEF` and a byte of the sector's object at `+0x2C`; in sector 59,5 the music is `0x196C` instead (`ATMOSPOT_ARENA_INDOOR`). **Hypothesis**: the record holds the sector's keyx record from its `+0x1E9`, as `+0xEF` and `+0xD7` are keyx's `+0x2D8`, the music, and `+0x2C0`, a byte of 56 values, the area, at the same distance. The same pass posts subtype 2 with the value of the scripts' variable `Globalchange1` and subtype 1 with that of `RegionChange` (below); the handler keeps them at `+0xA38` and `+0xA3C`, bit sets.
-- **The handler** (`0x67A7A0`, type 2, subtype 0) keeps the music at `+0x692` (the one before at `+0x694`, when the state at `+0x698` is 3) and the area's region at `+0xA40` (`0x602250`, the table of 69 bytes at `0x95CBFC`). It overrides the music: `MUSIC_VILLAGE01` (`0x1996`) and `MUSIC_MASCARELL` (`0x1990`) become `MUSIC_VILLAGE_SIEGE_MILITARY` (`0x1997`) in the regions 8–10 and `0x6F`, and, with bit 1 of `+0xA38`, in the regions 2, 4–10, 12–17, `0x6E` and `0x6F`; a region whose bit is set in `+0xA3C` (bit 11 for the region `0x6E`) takes `MUSIC_VILLAGE_SIEGE_UNDEAD` (`0x1998`). Then, in peace (`+0x698` 3) and when nothing else holds the music (`0x679260`), it plays `+0x692` at once (`cMSS::playMusic`, `0x694510`); `0x1968`, `0x196D` and `0x196C` take their own ways (`0x691310`, `0x695400`).
+- **The event.**
+  `0x6263B0`, a pass of the world view over its sectors, takes the record that the hero's sector's object points to at `+0x17C` and, when its `+0xEF` is not 0, posts the engine's event of type 2 and subtype 0 (`0x6770E0`) with its byte at `+0xD7`, the music `+0xEF` and a byte of the sector's object at `+0x2C`; in sector 59,5 the music is `0x196C` instead (`ATMOSPOT_ARENA_INDOOR`).
+  **Hypothesis**: the record holds the sector's keyx record from its `+0x1E9`, as `+0xEF` and `+0xD7` are keyx's `+0x2D8`, the music, and `+0x2C0`, a byte of 56 values, the area, at the same distance.
+  The same pass posts subtype 2 with the value of the scripts' variable `Globalchange1` and subtype 1 with that of `RegionChange` (below); the handler keeps them at `+0xA38` and `+0xA3C`, bit sets.
+- **The handler** (`0x67A7A0`, type 2, subtype 0) keeps the music at `+0x692` (the one before at `+0x694`, when the state at `+0x698` is 3) and the area's region at `+0xA40` (`0x602250`, the table of 69 bytes at `0x95CBFC`).
+  It overrides the music: `MUSIC_VILLAGE01` (`0x1996`) and `MUSIC_MASCARELL` (`0x1990`) become `MUSIC_VILLAGE_SIEGE_MILITARY` (`0x1997`) in the regions 8–10 and `0x6F`, and, with bit 1 of `+0xA38`, in the regions 2, 4–10, 12–17, `0x6E` and `0x6F`; a region whose bit is set in `+0xA3C` (bit 11 for the region `0x6E`) takes `MUSIC_VILLAGE_SIEGE_UNDEAD` (`0x1998`).
+  Then, in peace (`+0x698` 3) and when nothing else holds the music (`0x679260`), it plays `+0x692` at once (`cMSS::playMusic`, `0x694510`); `0x1968`, `0x196D` and `0x196C` take their own ways (`0x691310`, `0x695400`).
 - **When a track ends** (`0x697710`, above): with a music at `+0x692`, in peace and not at night (`+0xA34` other than 2) it plays it again; with none, a variant of `PEACE`; at night neither, but a jingle of group 6 and the ambient loop (`0x696A90`).
 
-**The regions.** `0x602250` turns an area (keyx `+0x2C0`) into a region by the table of 69 signed bytes at `0x95CBFC`, constant data: the areas 0–49 become 0, 1, 2, 3, 4, 7, 10, 9, 8, `0x6F`, 6, 5, 0, 25, 26, 24, 24, 24, 24, 0, 15, 12, 13, 0, `0x6E`, 0, 0, 25, 0, 0, 13, 17, 16, 18, 19, 0, 19, 20, 21, 23, 0, 0, 22, 22, 25, 27, 14, 28, 20, 26, and the areas 50–68 the regions 51–69. The regions 8, 9, 10 and `0x6F` are the areas 8, 7, 6 and 9, of which no sector has `MUSIC_VILLAGE01` or `MUSIC_MASCARELL` (their 97 sectors lie in 19 other areas; every sector of `world.ron`, 2026-10-18): the overrides without the variables change no sector's music.
+**The regions.**
+`0x602250` turns an area (keyx `+0x2C0`) into a region by the table of 69 signed bytes at `0x95CBFC`, constant data: the areas 0–49 become 0, 1, 2, 3, 4, 7, 10, 9, 8, `0x6F`, 6, 5, 0, 25, 26, 24, 24, 24, 24, 0, 15, 12, 13, 0, `0x6E`, 0, 0, 25, 0, 0, 13, 17, 16, 18, 19, 0, 19, 20, 21, 23, 0, 0, 22, 22, 25, 27, 14, 28, 20, 26, and the areas 50–68 the regions 51–69.
+The regions 8, 9, 10 and `0x6F` are the areas 8, 7, 6 and 9, of which no sector has `MUSIC_VILLAGE01` or `MUSIC_MASCARELL` (their 97 sectors lie in 19 other areas; every sector of `world.ron`, 2026-10-18): the overrides without the variables change no sector's music.
 
-**The variables.** The two words are the values of two named variables of the scripts. The client keeps a copy of those variables, a vector of 36-byte records at `0xAB44D0` (the name, 32 bytes, and the value, a u32 at `+0x20`), which the game server's messages keep, in the client's loop over its message queue (`0x7DC260`): `0xA3` adds a record (`0x807460`), `0xA4` sets the record at an index (`0x8074D0`); `0x460720` puts their values into strings. `0x6263B0` finds the two by name, the case aside (the scripts write `RegionChange`, `Regionchange` and `Globalchange1`). In the campaign's trees (`NetScriptCamp`, the heroes' `type_npc_*`; the listings of `opensacred-convert netscript --listing`):
+**The variables.**
+The two words are the values of two named variables of the scripts.
+The client keeps a copy of those variables, a vector of 36-byte records at `0xAB44D0` (the name, 32 bytes, and the value, a u32 at `+0x20`), which the game server's messages keep, in the client's loop over its message queue (`0x7DC260`): `0xA3` adds a record (`0x807460`), `0xA4` sets the record at an index (`0x8074D0`); `0x460720` puts their values into strings.
+`0x6263B0` finds the two by name, the case aside (the scripts write `RegionChange`, `Regionchange` and `Globalchange1`).
+In the campaign's trees (`NetScriptCamp`, the heroes' `type_npc_*`; the listings of `opensacred-convert netscript --listing`):
 
 - the start script sets both to 0, so the game starts with no override but the regions';
 - quest functions set bits of `RegionChange` (`SetVarBit`), a region's siege each: the quest 50's the bits 7, 8, 13 and 15, the quest 55's 3 and 5, 57's 2 and 4, 58's 1 and 6, 61's 9–12, 16 and 17, 67's 18, 71's 14;
 - `GoodToBad`, called by the quest 45, sets bit 1 of `Globalchange1` and changes the creatures of 13 places (the scripts' commands `RegionChange` and `ReplaceSpawn`, of a number, 4–8, 10, 11, 20–24 or 31, whether an area or a region not read, and pairs of creature or item types: the soldiers of one type become another's); `BadToGood`, called by the quest 72, changes them back, clears the bit and sets `RegionChange` to 0.
 
-The variables `atmos_rg<N>` (above, the atmosphere) are others. So the sieges' and the world changes' music follows the campaign's quests, which the game has not (M4).
+The variables `atmos_rg<N>` (above, the atmosphere) are others.
+So the sieges' and the world changes' music follows the campaign's quests, which the game has not (M4).
 
-`opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`): entering a sector of another music switches to it at once, the one playing fading out (**hypothesis**: what `cMSS::playMusic` does with the track playing is not read); a track that ends plays again; out of a sector with music into one without, the track plays to its end, then `PEACE`. Not in the game: the sieges and the world changes, which wait for the quests (#55), the fights' music, and the night (#5).
+`opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`): entering a sector of another music switches to it at once, the one playing fading out (**hypothesis**: what `cMSS::playMusic` does with the track playing is not read); a track that ends plays again; out of a sector with music into one without, the track plays to its end, then `PEACE`.
+Not in the game: the sieges and the world changes, which wait for the quests (#55), the fights' music, and the night (#5).

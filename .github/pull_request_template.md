@@ -12,11 +12,11 @@ CI runs fmt, clippy, the tests without the game files and `cargo deny`; it has n
 
 ## Documents updated
 
-<!-- docs/02 for a fact about a format, docs/re/ for the original's behavior, docs/decisions.md for a deviation, PLAN.md §13 for a closed question; or "none". -->
+<!-- docs/02 for a fact about a format, docs/re/ for the original's behavior, docs/decisions/ for a deviation (a file of its own), PLAN.md §13 for a closed question; or "none". -->
 
 ## Rules (docs/08 §3)
 
 - [ ] No game files, converted assets, dumps or screenshots of them, and no game texts.
 - [ ] No decompiler output or code translated from it.
 
-<!-- A pull request that changes CLAUDE.md, .claude/, .github/, deny.toml, docs/decisions.md, a screenshot reference or the process waits for the maintainer (label needs-maintainer). -->
+<!-- A pull request that changes CLAUDE.md, .claude/, .github/, deny.toml, docs/decisions/, a screenshot reference or the process waits for the maintainer (label needs-maintainer). -->

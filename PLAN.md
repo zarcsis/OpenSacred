@@ -1,17 +1,31 @@
 # Plan: OpenSacred
 
-The main plan document. The project's goal is to **play Sacred Gold 2.28 (GOG) comfortably on modern hardware**: Windows 11 x64 at 4K, later Linux, possibly Android and the Chrome browser (WebAssembly). The tools work on the user's own GOG installation; the repository holds no game files (§12). This document is self-contained; details are in `docs/01…09`, analysis scripts in `tools/` ([description](tools/README.md)).
+The main plan document.
+The project's goal is to **play Sacred Gold 2.28 (GOG) comfortably on modern hardware**: Windows 11 x64 at 4K, later Linux, possibly Android and the Chrome browser (WebAssembly).
+The tools work on the user's own GOG installation; the repository holds no game files (§12).
+This document is self-contained; details are in `docs/01…09`, analysis scripts in `tools/` ([description](tools/README.md)).
 
 Claim status is marked with the words **confirmed** (verified on GOG release files with a script or a disassembler), **community-reported** (not verified on a file), **estimate** (model calculation) and **hypothesis**.
 
 ## Summary
 
-* **Approach: "convert the assets + rewrite the game", not "decompile and rebuild".** A toolset reads the assets of the user's GOG installation once and converts them into open formats (PNG/KTX2, glTF, FLAC/Ogg, AV1, RON/Fluent). The new game reads only these formats. Where the game's rules are not evident from the data, `Sacred.exe` is studied only to understand them; the behavior is described in prose and implemented independently in Rust with a redesign; an exact copy of the behavior is not required.
-* **Language: Rust for the entire product**: the game, the converter, the tools. VC6 and old toolchains are not needed: byte-for-byte matching is not a goal.
-* **Engine: Bevy 0.20 on wgpu** (Vulkan on Windows, Linux and Android; WebGPU in Chrome). The game rules live in a separate crate with no engine dependency, so if needed we can switch to Godot with godot-rust without losing the logic. Unreal Engine and Godot with C++ were considered and rejected (§5).
-* **Nothing networked:** no server, no multiplayer, no lobby. Compatibility with the original saves is not needed.
+* **Approach: "convert the assets + rewrite the game", not "decompile and rebuild".**
+  A toolset reads the assets of the user's GOG installation once and converts them into open formats (PNG/KTX2, glTF, FLAC/Ogg, AV1, RON/Fluent).
+  The new game reads only these formats.
+  Where the game's rules are not evident from the data, `Sacred.exe` is studied only to understand them; the behavior is described in prose and implemented independently in Rust with a redesign; an exact copy of the behavior is not required.
+* **Language: Rust for the entire product**: the game, the converter, the tools.
+  VC6 and old toolchains are not needed: byte-for-byte matching is not a goal.
+* **Engine: Bevy 0.20 on wgpu** (Vulkan on Windows, Linux and Android; WebGPU in Chrome).
+  The game rules live in a separate crate with no engine dependency, so if needed we can switch to Godot with godot-rust without losing the logic.
+  Unreal Engine and Godot with C++ were considered and rejected (§5).
+* **Nothing networked:** no server, no multiplayer, no lobby.
+  Compatibility with the original saves is not needed.
 * **Only free tools and dependencies:** Ghidra 12.1 with an MCP server for Claude Code, Rust, Visual Studio Build Tools 2026, Vulkan SDK, Unicorn, FFmpeg, Blender, RenderDoc.
-* **Solo development, almost entirely through Claude Code.** Estimates are given in hours of active agent work and in tokens (§9). To a playable version on Windows 11: **≈390–770 agent-hours** (estimate). At API prices for Claude Opus 5.5 the same tokens would cost ≈$3k–14k, center ≈$6k; development runs on a Claude subscription, so this is a hypothetical figure, not money spent (§9). The first visible result, a walk through the starting region in 4K, comes after ≈80–160 agent-hours.
+* **Solo development, almost entirely through Claude Code.**
+  Estimates are given in hours of active agent work and in tokens (§9).
+  To a playable version on Windows 11: **≈390–770 agent-hours** (estimate).
+  At API prices for Claude Opus 5.5 the same tokens would cost ≈$3k–14k, center ≈$6k; development runs on a Claude subscription, so this is a hypothetical figure, not money spent (§9).
+  The first visible result, a walk through the starting region in 4K, comes after ≈80–160 agent-hours.
 
 ## 1. Requirements and goals
 
@@ -47,7 +61,8 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 
 ## 2. What is already known
 
-All figures are for the GOG release of Sacred Gold 2.28 (English). Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data-formats.md](docs/02-data-formats.md).
+All figures are for the GOG release of Sacred Gold 2.28 (English).
+Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data-formats.md](docs/02-data-formats.md).
 
 | Topic | Fact | Status |
 |---|---|---|
@@ -101,15 +116,22 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 
 ### 4.2 How the rules are recovered
 
-1. **A local Ghidra project on the user's own GOG `Sacred.exe`** with imported community names (sacred-bild, sacred-sdk) and RTTI. Claude Code reads the decompilation through the MCP server only to understand the formats and the rules.
+1. **A local Ghidra project on the user's own GOG `Sacred.exe`** with imported community names (sacred-bild, sacred-sdk) and RTTI.
+   Claude Code reads the decompilation through the MCP server only to understand the formats and the rules.
 2. **Choosing a mode for each subsystem:**
    * rules with numbers (damage, defense, resistances, experience, skills, item generation, prices) are studied in the code;
    * content semantics (NetScript opcodes, triggers, spawning) are studied in the code and the data;
    * everything else (rendering, UI, sound, input, files, camera, pathfinding) is written from scratch without reading the original's code.
-3. **A description in prose.** What the original does (inputs, outputs, formulas, tables, order of events) is written down per subsystem in `docs/re/`, in our own words, not as code.
-4. **Reference vectors.** For formula functions, `opensacred-oracle` runs the functions of the user's own `Sacred.exe` in the Unicorn emulator on sets of inputs and records the outputs as vectors. It runs locally on any OS and does not require running the game; CI has no `Sacred.exe`, so the tests on the vectors run locally, like the other tests on the game files.
-5. **Rust, written independently, then redesigned.** `opensacred-rules` implements the behavior from the description and passes the vectors. After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions.md`).
-6. **Nothing from the study is committed.** The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
+3. **A description in prose.**
+   What the original does (inputs, outputs, formulas, tables, order of events) is written down per subsystem in `docs/re/`, in our own words, not as code.
+4. **Reference vectors.**
+   For formula functions, `opensacred-oracle` runs the functions of the user's own `Sacred.exe` in the Unicorn emulator on sets of inputs and records the outputs as vectors.
+   It runs locally on any OS and does not require running the game; CI has no `Sacred.exe`, so the tests on the vectors run locally, like the other tests on the game files.
+5. **Rust, written independently, then redesigned.**
+   `opensacred-rules` implements the behavior from the description and passes the vectors.
+   After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
+6. **Nothing from the study is committed.**
+   The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
 ### 4.3 Rejected options
 
@@ -153,16 +175,27 @@ Detailed comparison: [docs/04-language-and-engine.md](docs/04-language-and-engin
 
 Notes on the debatable scores:
 
-* **Bevy, stability 2.** Before 1.0, Bevy breaks its API in every release: 0.18 (January 2026), 0.19 (June), 0.20 (October). A migration is a 2–6 agent-hour task per release (estimate); every release has a migration guide. The project takes the newest dependencies (§1.1), so this is a price paid knowingly.
-* **Own engine, work 1.** We would have to write the asset system, animation blending, UI and scenes, which Bevy already provides.
-* **Godot, convenience for Claude Code 3.** `.tscn` scenes are text, but asset import and debugging are tied to the editor. In godot-rust, WebAssembly support is behind the `experimental-wasm` flag, and Android is experimental too.
-* **UE5, convenience 1.** Blueprints and `.uasset` are binary and Claude Code cannot edit them; builds are heavy; there is no web export; the only language is C++.
+* **Bevy, stability 2.**
+  Before 1.0, Bevy breaks its API in every release: 0.18 (January 2026), 0.19 (June), 0.20 (October).
+  A migration is a 2–6 agent-hour task per release (estimate); every release has a migration guide.
+  The project takes the newest dependencies (§1.1), so this is a price paid knowingly.
+* **Own engine, work 1.**
+  We would have to write the asset system, animation blending, UI and scenes, which Bevy already provides.
+* **Godot, convenience for Claude Code 3.**
+  `.tscn` scenes are text, but asset import and debugging are tied to the editor.
+  In godot-rust, WebAssembly support is behind the `experimental-wasm` flag, and Android is experimental too.
+* **UE5, convenience 1.**
+  Blueprints and `.uasset` are binary and Claude Code cannot edit them; builds are heavy; there is no web export; the only language is C++.
 
 ### 5.3 Decision
 
-**Our own Rust version built on Bevy.** An existing engine with C++ loses on the criteria that matter most to the project: a single language and working through Claude Code. Godot with C++ wins only on time to playable and API stability.
+**Our own Rust version built on Bevy.**
+An existing engine with C++ loses on the criteria that matter most to the project: a single language and working through Claude Code.
+Godot with C++ wins only on time to playable and API stability.
 
-Sensitivity: if the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust catches up with Bevy. That is why the game rules live in a separate crate with no engine dependencies. A switch to Godot with godot-rust keeps `opensacred-rules` and `opensacred-convert`; only the presentation layer would have to be rewritten.
+Sensitivity: if the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust catches up with Bevy.
+That is why the game rules live in a separate crate with no engine dependencies.
+A switch to Godot with godot-rust keeps `opensacred-rules` and `opensacred-convert`; only the presentation layer would have to be rewritten.
 
 Triggers for revisiting: Bevy migrations regularly take more than 10 agent-hours; Bevy's animation or UI systems block the vertical slice for more than two weeks; Android or the web needs capabilities that wgpu lacks.
 
@@ -199,7 +232,9 @@ OpenSacred/
 
 ### 6.3 Rules layer (`opensacred-rules`)
 
-Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quest script interpreter. The layer is tested without graphics. The Bevy layer calls it through a thin ECS adapter.
+Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quest script interpreter.
+The layer is tested without graphics.
+The Bevy layer calls it through a thin ECS adapter.
 
 ## 7. Asset converter
 
@@ -221,7 +256,10 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters | rendering all strings |
 | `Templates/*.ptx` | hero starter kits in RON; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, until their layout is recovered | character creation |
 
-Principles: the converter is deterministic and incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file. Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten), and two full runs into empty directories write identical files (83 s, then 160 s with the deterministic video encoding). Outputs are never committed. MIT-licensed community work (open-grn, grn2glb, sacred-sdk) is used as a reference with attribution; code without a license (SacredEngineRemake) is not used.
+Principles: the converter is deterministic and incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
+Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten), and two full runs into empty directories write identical files (83 s, then 160 s with the deterministic video encoding).
+Outputs are never committed.
+MIT-licensed community work (open-grn, grn2glb, sacred-sdk) is used as a reference with attribution; code without a license (SacredEngineRemake) is not used.
 
 ## 8. Graphics and 4K
 
@@ -229,10 +267,12 @@ Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
 
 * Rendering at the screen's native resolution; 3840×2160 is the main target mode.
 * Vulkan through wgpu by default on Windows and Linux; DX12 as the fallback on Windows; WebGPU in Chrome; Vulkan or GLES on Android.
-* The original's bottleneck is thousands of draw calls on the CPU. Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
+* The original's bottleneck is thousands of draw calls on the CPU.
+  Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
 * Visible area: by default as in the original at zoom 1.0, but with 4K pixel density; an extended view is an option.
 * The UI scales independently of the scene resolution; fonts are rasterized for the actual DPI.
-* HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate), separate alpha channel processing, packing into KTX2 with mipmaps. Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
+* HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate), separate alpha channel processing, packing into KTX2 with mipmaps.
+  Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
 
 ## 9. Estimates: Claude Code time and token cost
 
@@ -242,11 +282,16 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 
 ### 9.1 Units
 
-* **Agent-hour**: an hour of active Claude Code work on a task (the agent reads code, writes, runs tests). Parallel sessions add up.
+* **Agent-hour**: an hour of active Claude Code work on a task (the agent reads code, writes, runs tests).
+  Parallel sessions add up.
 * **Maintainer hours**: setting tasks, review, manual checks, playtesting.
 * **Cost**: at API prices per million tokens as of 2026-10-16: Claude Opus 5.5: $4 input, $20 output, $0.20 cache read, $5 cache write; Claude Sonnet 5.5: $2 / $10 / $0.20 / $2.50; Claude Fable 5.1: $10 / $50 / $0.25 / $12.50.
-* **Agent-hour cost model (estimate):** output with reasoning 0.2–0.5M tokens, cache reads 5–15M, cache writes 0.5–1M. For Opus 5.5 that is ≈$8–18 per agent-hour, for Sonnet 5.5 ≈$4–10, for Fable 5.1 ≈$18–40. On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
-* **Calibration on this project:** the planning-phase research took 16 agents, 1,502 tool calls, ≈4 hours and 5.1M tokens by the orchestrator's counter. A later revision of the documents took 32 agents, ≈1.5 hours, 6.6M tokens. What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
+* **Agent-hour cost model (estimate):** output with reasoning 0.2–0.5M tokens, cache reads 5–15M, cache writes 0.5–1M.
+  For Opus 5.5 that is ≈$8–18 per agent-hour, for Sonnet 5.5 ≈$4–10, for Fable 5.1 ≈$18–40.
+  On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
+* **Calibration on this project:** the planning-phase research took 16 agents, 1,502 tool calls, ≈4 hours and 5.1M tokens by the orchestrator's counter.
+  A later revision of the documents took 32 agents, ≈1.5 hours, 6.6M tokens.
+  What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
 
 ### 9.2 Milestones
 
@@ -273,25 +318,69 @@ Hypothetical cost at API prices (not money spent, see above):
 | Claude Sonnet 5.5 | ≈$1.6k–7.7k | ≈$1.8k–9.1k |
 | Claude Fable 5.1 | ≈$7k–31k | ≈$8.3k–36.4k |
 
-A sensible mode is Opus 5.5 for binary analysis and architecture, and Sonnet 5.5 for mechanical work (converter tables, UI layout). The choice of model is up to the maintainer.
+A sensible mode is Opus 5.5 for binary analysis and architecture, and Sonnet 5.5 for mechanical work (converter tables, UI layout).
+The choice of model is up to the maintainer.
 
-Calendar: in an intensive mode (≈40 agent-hours and 25 maintainer hours a week), the vertical slice comes in ≈1 month and version 1.0 in ≈2.5–4.5 months; "evenings and weekends" (≈15 and 10 hours) gives ≈2–3 and ≈6–12 months. The pace is limited more by the maintainer's time for review and playtesting (≈230–460 hours) than by the agents' work. The main sources of uncertainty (each up to ×2): recovering the combat and loot rules, NetScript semantics, correctness of the Granny animation conversion, how often the Bevy API breaks.
+Calendar: in an intensive mode (≈40 agent-hours and 25 maintainer hours a week), the vertical slice comes in ≈1 month and version 1.0 in ≈2.5–4.5 months; "evenings and weekends" (≈15 and 10 hours) gives ≈2–3 and ≈6–12 months.
+The pace is limited more by the maintainer's time for review and playtesting (≈230–460 hours) than by the agents' work.
+The main sources of uncertainty (each up to ×2): recovering the combat and loot rules, NetScript semantics, correctness of the Granny animation conversion, how often the Bevy API breaks.
 
 ## 10. Work order: the first 30 days
 
-1. **M0.** Done 2026-10-16: Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with the `verify` command), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions; `.gitignore` excludes `assets/`, `assets-hd/`, `target/`.
-2. Done 2026-10-16: the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt` (`sha256sum` format); the converter checks the installation against it. Since 2026-10-17 it lists 319 files: the files the game writes (`Gameserver.cfg`, the saves of `save/`, the `DefPos.bin` caches) were removed, like `Settings.cfg` before them (docs/02 §13).
-3. Moved to the start of M3 on 2026-10-16: install Ghidra 12.1.4, load the GOG `Sacred.exe` and `GameServer.exe`, import the community names, connect GhidraMCP or pyghidra-mcp to Claude Code. M1 and M2 work from the data and the community format descriptions; if a format question needs the original's code, Ghidra is installed earlier.
-4. **M1, textures.** Done 2026-10-16. The `opensacred-formats` crate got a shared PAK reader and a TEX decoder. `opensacred-convert textures` produces 25,536 PNGs: 25,534 from `texture.pak` (one directory entry is empty) and 2 from `texture03.pak`. Tests cross-check the pixels against `tools/analysis/formats/tex_decode.py` and `tex_fmt6.py` (docs/02 §3.1).
-5. **M1, models.** A Granny 1.2b parser in Rust based on the open format descriptions; export of one hero model with its skeleton to glTF; checks in Blender and glTF-Validator. Started 2026-10-16: `opensacred_formats::mdl` reads the `models*.pak` containers, `opensacred_formats::grn` reads the GRN container (sections, CRCs, node trees) and the skeleton (bones, parents, bind-pose local transforms, names through the form's bone channels), and all of it is cross-checked on every record against the prototype `tools/analysis/formats/grn_dump.py` (docs/02 §4.1–4.2). The prototype also reads, on every file, the meshes, weights, the form's mesh bindings, textures, materials and render passes; the bind pose composition is confirmed by the per-bone bounds of the meshes, and every scale/shear matrix is symmetric, so its order does not matter (docs/02 §4.2). The same day `opensacred_formats::grn::Model` reads them in Rust and matches the prototype's mesh and material fingerprints on every record, and `opensacred-convert models` writes all 1,572 models to `.glb` files that glTF-Validator passes without errors or warnings; `SERAPHIM.GRN` draws in the six batches of the game's own trace (docs/02 §4.5). Animations, done 2026-10-16 (night session): `opensacred_formats::grn::Animation` reads every track and matches `grn_dump.py` on every record; `opensacred-convert models` now writes all 4,993 records, a model's file carrying the motions of its slots as glTF animations (quadratic curves as cubic splines, exact for translations and within 0.0025° for rotations; sheared bones as two nodes, exact), and glTF-Validator passes all of them without errors or warnings; Blender renders of the hero, wolf, dwarf and bear clips look right (docs/02 §4.2, §4.5). Embedded textures, done 2026-10-17: every texture binds by name to `texture.pak` as in the game (244 of the 270 embedded ones); the other 26 are decoded (VTex, a one-frame Bink 1 file, by FFmpeg as an external program) and stored in the `.glb`.
-6. **M1, world.** Reading one sector of the starting region: floor cells with heights, static objects. Readers done 2026-10-17: `opensacred_formats::world` reads `sectors.keyx`, every sector of `sectors.wldx`, `tiles.pak`, `Static.PAK` and `Floor.PAK`, and matches the new prototype `tools/analysis/world/world_dump.py` on every sector. The cells start at `+0x20` of a sector stream, not at `+0x120` as first assumed, and the cells' chains reach every static and floor overlay (docs/02 §5). The same day `opensacred-convert world` writes all 6,050 sectors (cells, overlays, static objects) and the sprites of the statics: `mixed.pak` holds them as pieces of atlases, and `items.pak +0x10` names a type's sprite; a render of the starting sector from the ground tiles and the sprites shows the monastery, the pond, the garden and the field in place.
-7. **M2, start.** A Bevy application with an orthographic camera, rendering one sector and the hero model at 3840×2160. Done 2026-10-17: `opensacred-game` (Bevy 0.20) shows the starting sector's ground (every cell's tile and floor overlays composed into one image, draped over the cells with their corner heights and light) under a 2:1 dimetric orthographic camera in the original's units, and `SERAPHIM.GRN` playing `SERA_WALK_1H`; `--screenshot` renders a frame at any resolution, 3840×2160 included. Bevy's features are chosen in the root `Cargo.toml` (no Wayland, `zstd_c`) and `deny.toml` admits ISC and MIT-0 for Bevy's dependencies. The same night the static objects followed (743 of the starting sector's 936 objects have a sprite; the monastery courtyard renders in place): each sprite is a quad in the plane of the screen at the depth of its cell's centre, and the ground lies behind every object along the line of sight, as the original draws the ground first. Then walking: the left mouse button sends the hero running over the ground (the height interpolated between the corners of the cell), turning toward the target, blending the idle and run clips, the camera following. Then sector streaming: the 3 × 3 sectors around the hero's are built in the background and spawned when ready (the eight neighbours of the start in about 1.5 s), those beyond two sectors go. `--benchmark 8` at 3840 × 2160 while the hero runs across three sectors: 650–775 frames a second on a development machine (a few frames a run took 30–150 ms at that size, a stall of every thread of the process: Bevy's compute pool used all the cores the other pools left, and the threads ready to run outnumbered the cores; four compute threads remove it, #2, docs/05 §3.6), after the ground moved from one image per sector (75 MB) to an atlas of the distinct stacks of layers (13 MB for the median sector). Then the miniatures (squares of their type's atlas; the animated ones show their first frame) and the original's draw lists approximated in depth: the types flagged as underlays lie under the ordinary sprites. The liquids show the frames of their sector's two liquid materials, cycling in 2,048 ms and mapped a frame over 4 × 4 cells as the client does (docs/re/liquids.md), the clear waters translucent and every surface fading at the shore until its blending is recovered (docs/decisions.md). Footsteps through Kira (`bevy_kira_audio`): each step of the run clip, at the moments that the clip's motion parameters in `MOTIONS.PAK` give (a hypothesis the run and walk clips support: two fractions half a cycle apart), plays the next sample of `footsteps_hero_female` in the group that the cell's nature calls for, by the client's own table (docs/re/sound.md). Fixed the same night: a hero sent off before its model's player existed ran with the idle clip. The run speed comes from the hero's record in `Creature.pak` (180 units a second, a hypothesis), and the models and speeds are scaled from the units of the original's model projection (534 × 400 on 1024 × 768) to the ground's by 1.52, which sizes the hero against the sprites as in the original. Ahead of M4, the start script's 319 `CreateNPC` records place their creatures' models (soldiers, citizens, horses) at their `DefPos` or cell, each sector's when it comes in, playing an idle clip (docs/02 §7.3). Later that night: soft shadows under the characters; walking at the creature's walk speed (`R` toggles it); the client's names of the sound ids and of the profiles' groups, which make the music profile's group 0 the peace music, and its choice of the ambient loop by the ground, both playing (docs/re/sound.md); the cells' natures named by the client (docs/02 §5.2); a minimal HUD (the portrait, a health bar, the gait) and the original's cursor; the start script's 1,990 objects (barrels, chests, book stands) placed like its NPCs, and the NPCs facing their headings the client's way; the draw lists 0, 2 and 4 by the type's flags and the object's mask (world format version 3); and the screenshot test of a synthetic scene, rendered without a window, which CI runs on lavapipe (docs/05 §7). Fixed: the hero's clips went to the NPCs' animation players too, so the hero stopped switching clips once their models loaded. On 2026-10-18 the NPCs took up their weapons and shields in the hands the client gives them (#4, docs/re/equipment.md). Next: the issues of the M2 milestone (the frame time spikes #2, the roofs and walls in front of the hero #3, day and night #5, the regions' music #6).
-8. Usage tracking: done 2026-10-16, per pull request since 2026-10-17 (#16). Every pull request's description carries its Claude Code usage (agent-hours, tokens and their hypothetical cost at API prices, §9), which `tools/usage/pr_usage.py` computes from the transcripts' messages on its branch; the README's badge sums them with the sessions recorded before in `docs/usage.md`. After 30 days, the §9 estimates are recomputed from the actual agent-hours.
-9. Issues and pull requests: done 2026-10-17 (#1). Every change reaches `main` through a squash-merged pull request with green checks on Linux and Windows; Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the rules, the process, the licenses, the deviations from the original, the screenshot references, and contributors' work). The dependencies are updated at most once a day, in an auto-merged pull request. The process is in docs/03 §3.6.
+1. **M0.**
+   Done 2026-10-16: Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with the `verify` command), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions; `.gitignore` excludes `assets/`, `assets-hd/`, `target/`.
+2. Done 2026-10-16: the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt` (`sha256sum` format); the converter checks the installation against it.
+   Since 2026-10-17 it lists 319 files: the files the game writes (`Gameserver.cfg`, the saves of `save/`, the `DefPos.bin` caches) were removed, like `Settings.cfg` before them (docs/02 §13).
+3. Moved to the start of M3 on 2026-10-16: install Ghidra 12.1.4, load the GOG `Sacred.exe` and `GameServer.exe`, import the community names, connect GhidraMCP or pyghidra-mcp to Claude Code.
+   M1 and M2 work from the data and the community format descriptions; if a format question needs the original's code, Ghidra is installed earlier.
+4. **M1, textures.**
+   Done 2026-10-16.
+   The `opensacred-formats` crate got a shared PAK reader and a TEX decoder.
+   `opensacred-convert textures` produces 25,536 PNGs: 25,534 from `texture.pak` (one directory entry is empty) and 2 from `texture03.pak`.
+   Tests cross-check the pixels against `tools/analysis/formats/tex_decode.py` and `tex_fmt6.py` (docs/02 §3.1).
+5. **M1, models.**
+   A Granny 1.2b parser in Rust based on the open format descriptions; export of one hero model with its skeleton to glTF; checks in Blender and glTF-Validator.
+   Started 2026-10-16: `opensacred_formats::mdl` reads the `models*.pak` containers, `opensacred_formats::grn` reads the GRN container (sections, CRCs, node trees) and the skeleton (bones, parents, bind-pose local transforms, names through the form's bone channels), and all of it is cross-checked on every record against the prototype `tools/analysis/formats/grn_dump.py` (docs/02 §4.1–4.2).
+   The prototype also reads, on every file, the meshes, weights, the form's mesh bindings, textures, materials and render passes; the bind pose composition is confirmed by the per-bone bounds of the meshes, and every scale/shear matrix is symmetric, so its order does not matter (docs/02 §4.2).
+   The same day `opensacred_formats::grn::Model` reads them in Rust and matches the prototype's mesh and material fingerprints on every record, and `opensacred-convert models` writes all 1,572 models to `.glb` files that glTF-Validator passes without errors or warnings; `SERAPHIM.GRN` draws in the six batches of the game's own trace (docs/02 §4.5).
+   Animations, done 2026-10-16 (night session): `opensacred_formats::grn::Animation` reads every track and matches `grn_dump.py` on every record; `opensacred-convert models` now writes all 4,993 records, a model's file carrying the motions of its slots as glTF animations (quadratic curves as cubic splines, exact for translations and within 0.0025° for rotations; sheared bones as two nodes, exact), and glTF-Validator passes all of them without errors or warnings; Blender renders of the hero, wolf, dwarf and bear clips look right (docs/02 §4.2, §4.5).
+   Embedded textures, done 2026-10-17: every texture binds by name to `texture.pak` as in the game (244 of the 270 embedded ones); the other 26 are decoded (VTex, a one-frame Bink 1 file, by FFmpeg as an external program) and stored in the `.glb`.
+6. **M1, world.**
+   Reading one sector of the starting region: floor cells with heights, static objects.
+   Readers done 2026-10-17: `opensacred_formats::world` reads `sectors.keyx`, every sector of `sectors.wldx`, `tiles.pak`, `Static.PAK` and `Floor.PAK`, and matches the new prototype `tools/analysis/world/world_dump.py` on every sector.
+   The cells start at `+0x20` of a sector stream, not at `+0x120` as first assumed, and the cells' chains reach every static and floor overlay (docs/02 §5).
+   The same day `opensacred-convert world` writes all 6,050 sectors (cells, overlays, static objects) and the sprites of the statics: `mixed.pak` holds them as pieces of atlases, and `items.pak +0x10` names a type's sprite; a render of the starting sector from the ground tiles and the sprites shows the monastery, the pond, the garden and the field in place.
+7. **M2, start.**
+   A Bevy application with an orthographic camera, rendering one sector and the hero model at 3840×2160.
+   Done 2026-10-17: `opensacred-game` (Bevy 0.20) shows the starting sector's ground (every cell's tile and floor overlays composed into one image, draped over the cells with their corner heights and light) under a 2:1 dimetric orthographic camera in the original's units, and `SERAPHIM.GRN` playing `SERA_WALK_1H`; `--screenshot` renders a frame at any resolution, 3840×2160 included.
+   Bevy's features are chosen in the root `Cargo.toml` (no Wayland, `zstd_c`) and `deny.toml` admits ISC and MIT-0 for Bevy's dependencies.
+   The same night the static objects followed (743 of the starting sector's 936 objects have a sprite; the monastery courtyard renders in place): each sprite is a quad in the plane of the screen at the depth of its cell's centre, and the ground lies behind every object along the line of sight, as the original draws the ground first.
+   Then walking: the left mouse button sends the hero running over the ground (the height interpolated between the corners of the cell), turning toward the target, blending the idle and run clips, the camera following.
+   Then sector streaming: the 3 × 3 sectors around the hero's are built in the background and spawned when ready (the eight neighbours of the start in about 1.5 s), those beyond two sectors go.
+   `--benchmark 8` at 3840 × 2160 while the hero runs across three sectors: 650–775 frames a second on a development machine (a few frames a run took 30–150 ms at that size, a stall of every thread of the process: Bevy's compute pool used all the cores the other pools left, and the threads ready to run outnumbered the cores; four compute threads remove it, #2, docs/05 §3.6), after the ground moved from one image per sector (75 MB) to an atlas of the distinct stacks of layers (13 MB for the median sector).
+   Then the miniatures (squares of their type's atlas; the animated ones show their first frame) and the original's draw lists approximated in depth: the types flagged as underlays lie under the ordinary sprites.
+   The liquids show the frames of their sector's two liquid materials, cycling in 2,048 ms and mapped a frame over 4 × 4 cells as the client does (docs/re/liquids.md), the clear waters translucent and every surface fading at the shore until its blending is recovered (docs/decisions/2026-10-17-liquids.md).
+   Footsteps through Kira (`bevy_kira_audio`): each step of the run clip, at the moments that the clip's motion parameters in `MOTIONS.PAK` give (a hypothesis the run and walk clips support: two fractions half a cycle apart), plays the next sample of `footsteps_hero_female` in the group that the cell's nature calls for, by the client's own table (docs/re/sound.md).
+   Fixed the same night: a hero sent off before its model's player existed ran with the idle clip.
+   The run speed comes from the hero's record in `Creature.pak` (180 units a second, a hypothesis), and the models and speeds are scaled from the units of the original's model projection (534 × 400 on 1024 × 768) to the ground's by 1.52, which sizes the hero against the sprites as in the original.
+   Ahead of M4, the start script's 319 `CreateNPC` records place their creatures' models (soldiers, citizens, horses) at their `DefPos` or cell, each sector's when it comes in, playing an idle clip (docs/02 §7.3).
+   Later that night: soft shadows under the characters; walking at the creature's walk speed (`R` toggles it); the client's names of the sound ids and of the profiles' groups, which make the music profile's group 0 the peace music, and its choice of the ambient loop by the ground, both playing (docs/re/sound.md); the cells' natures named by the client (docs/02 §5.2); a minimal HUD (the portrait, a health bar, the gait) and the original's cursor; the start script's 1,990 objects (barrels, chests, book stands) placed like its NPCs, and the NPCs facing their headings the client's way; the draw lists 0, 2 and 4 by the type's flags and the object's mask (world format version 3); and the screenshot test of a synthetic scene, rendered without a window, which CI runs on lavapipe (docs/05 §7).
+   Fixed: the hero's clips went to the NPCs' animation players too, so the hero stopped switching clips once their models loaded.
+   On 2026-10-18 the NPCs took up their weapons and shields in the hands the client gives them (#4, docs/re/equipment.md).
+   Next: the issues of the M2 milestone (the frame time spikes #2, the roofs and walls in front of the hero #3, day and night #5, the regions' music #6).
+8. Usage tracking: done 2026-10-16, per pull request since 2026-10-17 (#16).
+   Every pull request's description carries its Claude Code usage (agent-hours, tokens and their hypothetical cost at API prices, §9), which `tools/usage/pr_usage.py` computes from the transcripts' messages on its branch; the README's badge sums them with the sessions recorded before in `docs/usage.md`.
+   After 30 days, the §9 estimates are recomputed from the actual agent-hours.
+9. Issues and pull requests: done 2026-10-17 (#1).
+   Every change reaches `main` through a squash-merged pull request with green checks on Linux and Windows; Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the rules, the process, the licenses, the deviations from the original, the screenshot references, and contributors' work).
+   The dependencies are updated at most once a day, in an auto-merged pull request.
+   The process is in docs/03 §3.6.
 
 ### 10.1 Priority queue
 
-Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M8 of §9.2 are GitHub milestones. Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first. The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-17 there were none: all 15 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable.
+Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M8 of §9.2 are GitHub milestones.
+Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
+The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-17 there were none: all 15 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable.
 
 ## 11. Top risks
 
@@ -308,12 +397,18 @@ Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/O
 
 ## 12. Legal and asset policy
 
-Details: [docs/08-risks-legal.md](docs/08-risks-legal.md). This is not legal advice.
+Details: [docs/08-risks-legal.md](docs/08-risks-legal.md).
+This is not legal advice.
 
-* Every user needs their own lawful copy of the GOG release. Interoperability work (studying the formats and the behavior, writing our own code) relies on Articles 5(3) and 6 of Directive 2009/24/EC, which a contract cannot override (Article 8). The GOG release has no copy protection, so nothing is circumvented.
-* The repository and CI hold no game bytes: no game files, no `Sacred.exe`, no converted assets, HD packs, memory dumps, decompiler output or game texts. Tests that need the game run locally on the user's installation in `OriginalGame/` (git-ignored); CI runs only the tests that need no game files.
-* Converted output is generated locally from the user's own copy and is never published. The same rules apply to issues and pull requests.
-* OpenSacred is not affiliated with the rights holder; Sacred is a trademark of THQ Nordic GmbH. The name and its use: docs/08 §6, "Name and trademark".
+* Every user needs their own lawful copy of the GOG release.
+  Interoperability work (studying the formats and the behavior, writing our own code) relies on Articles 5(3) and 6 of Directive 2009/24/EC, which a contract cannot override (Article 8).
+  The GOG release has no copy protection, so nothing is circumvented.
+* The repository and CI hold no game bytes: no game files, no `Sacred.exe`, no converted assets, HD packs, memory dumps, decompiler output or game texts.
+  Tests that need the game run locally on the user's installation in `OriginalGame/` (git-ignored); CI runs only the tests that need no game files.
+* Converted output is generated locally from the user's own copy and is never published.
+  The same rules apply to issues and pull requests.
+* OpenSacred is not affiliated with the rights holder; Sacred is a trademark of THQ Nordic GmbH.
+  The name and its use: docs/08 §6, "Name and trademark".
 
 ## 13. Open questions
 
@@ -336,7 +431,7 @@ Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2),
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | risks and the legal framework |
 | [docs/09-ecosystem.md](docs/09-ecosystem.md) | game versions, community work, comparable projects |
 | [docs/re/](docs/re/) | the original's behavior described in prose, per subsystem |
-| [docs/decisions.md](docs/decisions.md) | deliberate deviations from the original's behavior |
+| [docs/decisions/](docs/decisions/) | deliberate deviations from the original's behavior |
 | [docs/usage.md](docs/usage.md) | how Claude Code usage is recorded per pull request; the sessions before |
 | [tools/README.md](tools/README.md) | research analysis scripts |
 
