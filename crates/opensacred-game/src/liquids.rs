@@ -21,7 +21,7 @@ use bevy::prelude::{
     AlphaMode, App, AssetServer, Assets, Color, Commands, Entity, Handle, Image, Mesh, Mesh3d,
     MeshMaterial3d, Plugin, Res, ResMut, Resource, StandardMaterial, Time, Update, Vec3, default,
 };
-use opensacred_data::world::{SIDE, Sector};
+use opensacred_data::world::{Cell, SIDE, Sector};
 
 use crate::iso;
 
@@ -69,8 +69,13 @@ const CYCLE_MS: u128 = 2048;
 const CLEAR_ALPHA: f32 = 0.7;
 /// Cells a frame spans along each axis of the grid.
 const FRAME_CELLS: f32 = 4.0;
-/// How far in front of the ground the surfaces lie along the line of sight.
-const IN_FRONT: f32 = 10.0;
+/// How far back along the line of sight the surfaces lie: in front of the ground and of the
+/// miniatures of the liquid cells, which the original draws before them, behind the underlays
+/// of list 0, which it draws after them (`0x62AE90`, docs/re/drawing.md). The margins hold
+/// across the tallest of those miniatures (`statics::UNDER_LIQUIDS_BACK`) and the underlays of
+/// list 0 beside the water, up to 124 pixels below their cell's centre, which the surface's
+/// slope brings 170 units nearer.
+pub const BACK: f32 = 4_300.0;
 /// Cells per side of a surface's mesh: a sector's liquid is cut into pieces so that each sorts
 /// among the blended objects (the shadows) by its own depth, not by the middle of a whole sector.
 const CHUNK: usize = 16;
@@ -87,16 +92,17 @@ struct Piece {
     indices: Vec<u32>,
 }
 
+/// Whether `cell` lies under a liquid, of either slot.
+pub fn liquid(cell: &Cell) -> bool {
+    SLOTS.contains(&(cell.ground >> 4))
+}
+
 /// Builds the surfaces of `sector`'s liquid cells.
 pub fn build(sector: &Sector) -> Surfaces {
     let (sx, sy) = (sector.x as usize * SIDE, sector.y as usize * SIDE);
     // Any liquid, of either slot: the two surfaces meet without fading.
-    let liquid = |row: usize, column: usize| {
-        sector
-            .cells
-            .get(row * SIDE + column)
-            .is_some_and(|c| SLOTS.contains(&(c.ground >> 4)))
-    };
+    let liquid =
+        |row: usize, column: usize| sector.cells.get(row * SIDE + column).is_some_and(liquid);
     // The share of the four cells around grid point (row, column) under a liquid; the sector's
     // edge counts as liquid. A corner fades with it toward the shore.
     let submerged = |row: usize, column: usize| {
@@ -145,7 +151,7 @@ pub fn build(sector: &Sector) -> Surfaces {
                 let (gx, gy) = ((sx + c) as f32, (sy + r) as f32);
                 let point = iso::ground(gx, gy)
                     + Vec3::Y * iso::height(f32::from(cell.heights[k]))
-                    + iso::forward() * (iso::GROUND_BEHIND - IN_FRONT);
+                    + iso::forward() * BACK;
                 positions.push(point.to_array());
                 // A frame spans 4 × 4 cells; which grid axis is u is not verified.
                 uvs.push([gx / FRAME_CELLS, gy / FRAME_CELLS]);

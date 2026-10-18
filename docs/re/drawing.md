@@ -88,5 +88,7 @@ The models take the same depth (`models`, docs/decisions/2026-10-18-models-among
 A sprite of another diagonal, 33 units of depth away, is then wholly in front of a model or wholly behind it, as in the original; the sprites of the model's own diagonal within a few cells, a tenth of a unit apart, can still cross it.
 Before, every sprite whose plane crossed a model cut it (#48).
 
-Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3), and the trees' fade above.
-The game draws the objects of the liquid cells with the lists, over the liquids' surfaces (#96).
+The miniatures of list 0 in the liquid cells lie between the ground and the liquids' surfaces, 4,600 units back against the surfaces' 4,300 and list 0's 4,000, in the order of list 0 among themselves (`statics::UNDER_LIQUIDS_BACK`, #96).
+A sprite is a quad in the plane of the screen while the bed and the surface slope away under it, 1.37 units nearer per pixel down the screen and 1.83 per pixel of height: the margins hold for the tallest of these miniatures, from 68 pixels above their cell's centre to 139 below, over a bed up to 61 pixels off their cell's height, and for the underlays of list 0 beside the water, up to 124 pixels below their cell's centre (counted on the sector files 2026-10-18).
+
+Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3), which world objects `0x434070` sends under the water, the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20), and the trees' fade above.

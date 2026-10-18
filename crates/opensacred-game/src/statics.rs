@@ -6,7 +6,8 @@
 //! The original draws the ground, then the objects back to front. Here a sprite is a quad in the
 //! plane of the screen, as flat as the original's, set at the depth of the centre of its cell,
 //! so that the depth buffer orders the sprites and the hero among themselves; the ground lies
-//! behind all of them (`terrain`). Sprites at the same depth, those of one cell and those of the
+//! behind all of them (`terrain`), and the miniatures of the liquid cells between it and the
+//! liquids' surfaces (`liquids`). Sprites at the same depth, those of one cell and those of the
 //! cells of one diagonal at one height, would fight; the shader brings each a little forward in
 //! the original's order of drawing (`sprites.wesl`). The sprites of one page share one mesh.
 //! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
@@ -36,7 +37,7 @@ use bevy::shader::ShaderRef;
 use opensacred_data::world::{SIDE, Sector, Sprite, Sprites, StaticObject, World};
 
 use crate::terrain::{Rgba, read_png};
-use crate::{buildings, iso};
+use crate::{buildings, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, or a page of the sector's
 /// sprites.
@@ -239,6 +240,14 @@ const OVERLAY: u32 = 0x80_0000;
 /// list 3 and the hero, above the ground, their order within a list unchanged.
 pub const LIST_0_BACK: f32 = 4_000.0;
 pub const LIST_2_BACK: f32 = 3_000.0;
+/// How far back the miniatures of list 0 in a liquid cell go: the original draws them before
+/// the liquids' surfaces (`0x62E410`, docs/re/drawing.md), so they lie between the ground and the
+/// surfaces (`liquids::BACK`), their order among themselves that of list 0. A quad stands in the
+/// plane of the screen while the bed and the surface slope away under it, a unit and a third
+/// nearer per pixel down the screen: the margins hold for the tallest of these miniatures, from
+/// 68 pixels above their cell's centre to 139 below, over a bed up to 61 pixels off their cell's
+/// height (counted on the sector files 2026-10-18).
+pub const UNDER_LIQUIDS_BACK: f32 = 4_600.0;
 /// How far forward the objects of list 4 come: over the sprites of list 3 around them. Whether
 /// the original draws them over the characters too is not known.
 const LIST_4_FORWARD: f32 = 1_000.0;
@@ -519,7 +528,12 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
         let back = if object.type_flags & OVERLAY != 0 {
             -LIST_4_FORWARD
         } else if object.type_flags & UNDERLAY != 0 {
-            if object.flags & MINIATURE != 0 || object.mask == 1 {
+            // A liquid cell's miniatures go under the surface (`0x62AE90`); the exception of
+            // liquid material 13 while the building at (3563, 1336) has the state 2 is not
+            // followed.
+            if object.flags & MINIATURE != 0 && liquids::liquid(cell) {
+                UNDER_LIQUIDS_BACK
+            } else if object.flags & MINIATURE != 0 || object.mask == 1 {
                 LIST_0_BACK
             } else {
                 LIST_2_BACK
@@ -963,6 +977,100 @@ pub(crate) mod tests {
         assert!(off.dot(iso::right()).abs() < 1e-3 && off.dot(iso::up()).abs() < 1e-3);
         // In front of its lamp.
         assert!((off.dot(iso::forward()) + GLOW_FORWARD).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_liquid_cells_miniatures_lie_between_the_ground_and_the_surface() {
+        let dir =
+            std::env::temp_dir().join(format!("opensacred-game-liquid-{}", std::process::id()));
+        fs::create_dir_all(dir.join("world")).unwrap();
+        write_atlas(&dir.join("world").join("mini.png"), 256, 256, [255; 4]);
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["mini.png".into()],
+        };
+        // Water in cell (5, 5), the bank in (6, 5), every height 0.
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let mut cells = vec![cell(0x40); SIDE * SIDE];
+        cells[5 * SIDE + 5] = cell(0x90);
+        // An underlay's miniature of `size` pixels with its top left corner at `(x, y)`.
+        let object = |column: usize, x, y, size| StaticObject {
+            cell: u16::try_from(5 * SIDE + column).unwrap(),
+            kind: 1053,
+            flags: MINIATURE,
+            x,
+            y,
+            record: 0,
+            type_flags: UNDERLAY,
+            mask: 0,
+            sprite: 0,
+            miniature: Some(opensacred_data::world::Miniature {
+                atlas: 0,
+                params: [0, 0, size, 0, 0],
+            }),
+            children: Vec::new(),
+        };
+        // The centres of the two cells are at (0, 264) and (48, 288) on screen. In the water,
+        // the tallest reach counted: from 68 pixels above the centre to 139 below; on the bank,
+        // 124 below.
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: vec![object(5, -103, 264 - 68, 207), object(6, 0, 288, 124)],
+            layers: Vec::new(),
+        };
+        let statics = build(
+            &dir,
+            &world,
+            &Sprites {
+                sprites: Vec::new(),
+            },
+            &sector,
+        )
+        .unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let positions: Vec<Vec3> = statics.batches[0]
+            .positions
+            .iter()
+            .map(|&p| Vec3::from(p))
+            .collect();
+        assert_eq!(positions.len(), 8);
+        let (wet, dry) = positions.split_at(4);
+        // How far behind a vertex along the line of sight a surface lies at the vertex's place on
+        // screen: a surface `back` behind a bed at height `bed` pixels. The shader moves a sprite
+        // a few units at most.
+        let behind =
+            |p: Vec3, back: f32, bed: f32| back + (p.y - iso::height(bed)) / -iso::forward().y;
+        let shift = 5.0;
+        // A bed up to 61 pixels off the cell's height.
+        for &p in wet {
+            for bed in [-61.25, 61.25] {
+                assert!(
+                    behind(p, iso::GROUND_BEHIND, bed) > shift,
+                    "the ground over {p}"
+                );
+                assert!(
+                    behind(p, liquids::BACK, bed) < -shift,
+                    "the water under {p}"
+                );
+            }
+        }
+        for &p in dry {
+            assert!(behind(p, liquids::BACK, 0.0) > shift, "the water over {p}");
+        }
     }
 
     #[test]

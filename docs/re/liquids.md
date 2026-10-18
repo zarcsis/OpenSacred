@@ -37,3 +37,4 @@ Hypothesis: a second, translucent layer over the clear waters (reflection or cau
 What texture and blending the two layers use is not followed.
 
 `opensacred-game` follows the slots, the timing and the 4 × 4 mapping (`liquids.rs`).
+Its surfaces lie over the miniatures of the liquid cells and under the draw lists, as the original draws them between the two (docs/re/drawing.md, "The liquid cells").
