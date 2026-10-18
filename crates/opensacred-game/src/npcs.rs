@@ -45,7 +45,7 @@ use opensacred_data::world::SIDE;
 
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
-use crate::{buildings, hero, iso};
+use crate::{buildings, hero, iso, models};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -427,6 +427,7 @@ pub fn place(
                 Transform::from_translation(position)
                     .with_rotation(hero::facing(heading(placement.heading)))
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
+                models::Ordered::default(),
             ));
             if placement.layer != 0 {
                 // In a building's layer: shown with it; else never.
@@ -566,6 +567,7 @@ pub fn equip(
                 WorldAssetRoot(scene),
                 Transform::from_matrix(pose.to_matrix().inverse()),
                 ChildOf(holder),
+                models::OrderedWith(npc),
             ));
             if let Some(texture) = &item.texture {
                 weapon.insert(Retexture(texture.clone()));
