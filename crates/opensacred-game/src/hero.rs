@@ -9,7 +9,7 @@ use std::time::Duration;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 
-use crate::terrain::Heights;
+use crate::terrain::{Heights, Level};
 use crate::{iso, models, paths};
 
 /// How close to its target the hero stops.
@@ -76,6 +76,8 @@ pub struct Ready(pub bool);
 #[derive(Component)]
 pub struct Body {
     target: Option<Vec3>,
+    /// Where it walks: the ground or a building's inside layer.
+    level: Level,
     /// The clip playing: standing, walking or running.
     moving: Option<Gait>,
 }
@@ -157,6 +159,7 @@ pub fn spawn(
             .with_scale(Vec3::splat(iso::MODEL_SCALE)),
         Body {
             target: hero.target,
+            level: None,
             moving: None,
         },
         models::Ordered::default(),
@@ -251,17 +254,39 @@ pub fn run(
 ) {
     for (mut transform, mut body) in &mut bodies {
         let mut moving = None;
+        let here = transform.translation;
+        let cell = paths::cell_of(here.x, here.z);
+        // A hero on a building's mass is inside it, on its layer.
+        if body.level.is_none() && !heights.walkable(cell) {
+            body.level = heights.level_of(cell);
+        }
+        let level = body.level;
         if let Some(target) = body.target {
-            let here = transform.translation;
-            let walkable = |cell| heights.walkable(cell);
-            // Round what blocks the way; straight on toward a target that cannot be reached,
-            // up to what blocks it.
-            let toward = paths::next(here, target, walkable).unwrap_or(target);
+            let walkable = |cell| heights.walkable_on(cell, level);
+            // Round what blocks the way and through the doors; straight on toward a target that
+            // cannot be reached, up to what blocks it.
+            let toward = match paths::next(
+                here,
+                level,
+                target,
+                |cell, at| heights.walkable_on(cell, at),
+                |place| heights.neighbours(place),
+            ) {
+                Some(paths::Step::Through(next)) => {
+                    body.level = next;
+                    here
+                }
+                Some(paths::Step::Toward(point)) => point,
+                None => target,
+            };
             let to = (toward - here).with_y(0.0);
             let distance = to.length();
             let left = (target - here).with_y(0.0).length();
-            if left <= ARRIVED || distance <= f32::EPSILON {
+            if left <= ARRIVED {
                 body.target = None;
+            } else if distance <= f32::EPSILON {
+                // Through a door: on, the next frame.
+                moving = body.moving;
             } else {
                 let step = (hero.speed() * time.delta_secs()).min(distance);
                 let mut position = here + to / distance * step;

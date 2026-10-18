@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use opensacred_data::world::{
-    Cell, INDEX, Miniature, Overlay, Piece, SPRITES_FILE, Sector, SectorEntry, Sprite, Sprites,
-    StaticObject, World,
+    Cell, INDEX, Layer, LayerCell, Miniature, Overlay, Piece, SPRITES_FILE, Sector, SectorEntry,
+    Sprite, Sprites, StaticObject, World,
 };
 use opensacred_formats::items::Items;
 use opensacred_formats::mixed::Sprites as MixedPak;
@@ -322,6 +322,26 @@ fn convert_sector(key: &SectorKey, wldx: &[u8], tables: &Tables) -> Result<Secto
             ground: cell.ground,
         });
     }
+    let layers = sector
+        .layers
+        .iter()
+        .map(|layer| Layer {
+            x: layer.x,
+            y: layer.y,
+            width: u32::from(layer.width),
+            height: u32::from(layer.height),
+            cells: layer
+                .cells
+                .iter()
+                .map(|cell| LayerCell {
+                    heights2: cell.heights2,
+                    offsets: cell.offsets,
+                    flags: cell.flags,
+                    ground: cell.ground,
+                })
+                .collect(),
+        })
+        .collect();
     Ok(Sector {
         x: key.x,
         y: key.y,
@@ -329,6 +349,7 @@ fn convert_sector(key: &SectorKey, wldx: &[u8], tables: &Tables) -> Result<Secto
         liquids: key.liquids,
         cells,
         statics: objects,
+        layers,
     })
 }
 

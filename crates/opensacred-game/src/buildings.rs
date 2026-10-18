@@ -162,6 +162,7 @@ mod tests {
             liquids: [0; 2],
             cells,
             statics: Vec::new(),
+            layers: Vec::new(),
         };
         let side = u32::try_from(SIDE).unwrap();
         assert_eq!(

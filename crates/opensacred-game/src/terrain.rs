@@ -43,7 +43,39 @@ const SLOTS_PER_ROW: usize = 64;
 #[derive(Resource, Default)]
 pub struct Heights {
     cells: HashMap<(u32, u32), LoadedCell>,
+    /// The inside layers of the loaded sectors.
+    layers: HashMap<LayerKey, LoadedLayer>,
 }
+
+/// An inside layer: of its sector, by its index from 1 (docs/re/movement.md).
+pub type LayerKey = (u32, u32, u16);
+/// Where the hero walks: the ground (`None`) or an inside layer.
+pub type Level = Option<LayerKey>;
+
+/// An inside layer's grid: its first cell, its size, and whether each cell may be walked on.
+struct LoadedLayer {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    cells: Vec<bool>,
+}
+
+impl LoadedLayer {
+    /// Whether global cell `(cx, cy)` may be walked on, if the grid holds it.
+    fn get(&self, (cx, cy): (i32, i32)) -> Option<bool> {
+        let (x, y) = (cx - self.x, cy - self.y);
+        if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
+            return None;
+        }
+        self.cells
+            .get(usize::try_from(y * self.width + x).ok()?)
+            .copied()
+    }
+}
+
+/// A cell's flag of a door.
+const DOOR: u8 = 0x4;
 
 struct LoadedCell {
     heights: [f32; 4],
@@ -55,18 +87,44 @@ struct LoadedCell {
     walkable: bool,
 }
 
-/// Whether a cell may be walked on, by the client's test (`0x636C10`, docs/re/movement.md): not
-/// when the low nibble of its ground byte is 1 or 2, or its flags have bit 3. The client walks a
-/// building's inside on the building's own cells, of another layer, through its doors (flag bit
-/// 2, open by their trigger's state); the converter does not read those cells yet, so a
-/// building is its mass, 1 in the low nibble, seen from outside (docs/decisions.md).
-fn walkable(cell: &Cell) -> bool {
-    !(matches!(cell.ground & 0xF, 1 | 2) || cell.flags & 0x8 != 0)
+/// Whether a cell of the ground or of an inside layer may be walked on, by its flags and ground
+/// byte, by the client's test (`0x636C10`, docs/re/movement.md): not when the low nibble of its
+/// ground byte is 1 or 2, or its flags have bit 3, but a door (flag bit 2), which its trigger's
+/// state opens (**hypothesis**: the game has no states, and the doors are open). A building is
+/// its mass on the ground, 1 in the low nibble, and its inside a layer of its own.
+fn walkable(flags: u8, ground: u8) -> bool {
+    flags & DOOR != 0 || !(matches!(ground & 0xF, 1 | 2) || flags & 0x8 != 0)
 }
 
 impl Heights {
-    /// Adds the cells of `sector`.
+    /// Adds the cells of `sector` and its inside layers.
     pub fn add(&mut self, sector: &Sector) {
+        for (index, layer) in sector.layers.iter().enumerate() {
+            let (Ok(key), Ok(x), Ok(y), Ok(width), Ok(height)) = (
+                u16::try_from(index + 1),
+                i32::try_from(layer.x),
+                i32::try_from(layer.y),
+                i32::try_from(layer.width),
+                i32::try_from(layer.height),
+            ) else {
+                continue;
+            };
+            let cells = layer
+                .cells
+                .iter()
+                .map(|cell| walkable(cell.flags, cell.ground))
+                .collect();
+            self.layers.insert(
+                (sector.x, sector.y, key),
+                LoadedLayer {
+                    x,
+                    y,
+                    width,
+                    height,
+                    cells,
+                },
+            );
+        }
         for (index, cell) in sector.cells.iter().enumerate() {
             let (Ok(row), Ok(column), Ok(side)) = (
                 u32::try_from(index / SIDE),
@@ -83,7 +141,7 @@ impl Heights {
                     nature: cell.ground >> 4,
                     flags: cell.flags,
                     building: buildings::anchor(sector, index),
-                    walkable: walkable(cell),
+                    walkable: walkable(cell.flags, cell.ground),
                 },
             );
         }
@@ -111,12 +169,58 @@ impl Heights {
             .and_then(|(cell, _, _)| cell.building.map(|building| (building, cell.flags)))
     }
 
-    /// Whether global cell `(cx, cy)` may be walked on; not outside the loaded sectors.
+    /// Whether global cell `(cx, cy)` of the ground may be walked on; not outside the loaded
+    /// sectors.
     pub fn walkable(&self, (cx, cy): (i32, i32)) -> bool {
         match (u32::try_from(cx), u32::try_from(cy)) {
             (Ok(cx), Ok(cy)) => self.cells.get(&(cx, cy)).is_some_and(|cell| cell.walkable),
             _ => false,
         }
+    }
+
+    /// Whether a cell may be walked on at a level: on the ground, or in an inside layer's grid.
+    pub fn walkable_on(&self, cell: (i32, i32), level: Level) -> bool {
+        match level {
+            None => self.walkable(cell),
+            Some(key) => self
+                .layers
+                .get(&key)
+                .and_then(|layer| layer.get(cell))
+                .unwrap_or(false),
+        }
+    }
+
+    /// The walkable neighbours of a cell at a level, and the same cell at the other levels where
+    /// it is walkable too (the ground and the inside layers whose grids hold it): a building's
+    /// door, or the openings of the monastery's inside onto its courtyard and the road, whose
+    /// layer has no doors (docs/re/movement.md, **hypothesis**).
+    pub fn neighbours(&self, (cell, level): ((i32, i32), Level)) -> Vec<((i32, i32), Level)> {
+        let mut out: Vec<_> = crate::paths::around(cell, |next| self.walkable_on(next, level))
+            .map(|next| (next, level))
+            .collect();
+        if self.walkable_on(cell, level) {
+            let others = std::iter::once(None).chain(
+                self.layers
+                    .iter()
+                    .filter(|(_, layer)| layer.get(cell).is_some())
+                    .map(|(&key, _)| Some(key)),
+            );
+            out.extend(
+                others
+                    .filter(|&other| other != level && self.walkable_on(cell, other))
+                    .map(|other| (cell, other)),
+            );
+        }
+        out
+    }
+
+    /// The level a hero at a cell it may not walk on, on the ground, walks at: an inside layer
+    /// whose grid holds the cell walkable (the hero who starts inside a building).
+    pub fn level_of(&self, cell: (i32, i32)) -> Level {
+        self.layers
+            .iter()
+            .find(|(_, layer)| layer.get(cell).unwrap_or(false))
+            .map(|(&key, _)| key)
     }
 
     /// The nature of the cell at world `(x, z)`.
@@ -533,7 +637,7 @@ pub fn spawn(
 
 #[cfg(test)]
 mod tests {
-    use opensacred_data::world::Cell;
+    use opensacred_data::world::{Cell, Layer, LayerCell};
 
     use super::*;
 
@@ -562,6 +666,7 @@ mod tests {
             liquids: [0; 2],
             cells,
             statics: Vec::new(),
+            layers: Vec::new(),
         };
         let mut heights = Heights::default();
         heights.add(&sector);
@@ -573,6 +678,84 @@ mod tests {
         );
         // Outside the loaded sectors.
         assert!(!heights.walkable((0, 0)));
+    }
+
+    #[test]
+    fn a_door_joins_the_ground_and_a_buildings_inside() {
+        let cell = |ground, flags| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags,
+            ground,
+        };
+        // A house of cells 4..=6 on row 4..=6 of sector (0, 0): a mass with its door at (5, 6).
+        let mut cells = vec![cell(0x40, 0); SIDE * SIDE];
+        for y in 4..=6 {
+            for x in 4..=6 {
+                cells[y * SIDE + x] = cell(0xD1, 0x1);
+            }
+        }
+        cells[6 * SIDE + 5] = cell(0xD1, 0x5);
+        // Its inside: free but its back wall, the door again.
+        let inside = |x: u32, y: u32| LayerCell {
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: if (x, y) == (1, 2) { 4 } else { 0 },
+            ground: if y == 0 { 0xD1 } else { 0xD0 },
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: vec![Layer {
+                x: 4,
+                y: 4,
+                width: 3,
+                height: 3,
+                cells: (0..3)
+                    .flat_map(|y| (0..3).map(move |x| inside(x, y)))
+                    .collect(),
+            }],
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let house = Some((0, 0, 1));
+        assert!(!heights.walkable((5, 5)) && heights.walkable_on((5, 5), house));
+        assert!(!heights.walkable_on((5, 4), house));
+        assert!(heights.walkable((5, 6)) && heights.walkable_on((5, 6), house));
+        // Through the door, either way; elsewhere no other level.
+        assert!(
+            heights
+                .neighbours(((5, 6), None))
+                .contains(&((5, 6), house))
+        );
+        assert!(
+            heights
+                .neighbours(((5, 6), house))
+                .contains(&((5, 6), None))
+        );
+        assert!(
+            heights
+                .neighbours(((5, 7), None))
+                .iter()
+                .all(|&(_, l)| l.is_none())
+        );
+        // At the house's back wall, walkable on the ground only: no other level.
+        assert!(
+            heights
+                .neighbours(((7, 4), None))
+                .iter()
+                .all(|&(_, l)| l.is_none())
+        );
+        // A hero on the mass is inside.
+        assert_eq!(heights.level_of((5, 5)), house);
     }
 
     #[test]
@@ -594,6 +777,7 @@ mod tests {
             liquids: [0; 2],
             cells: vec![cell; SIDE * SIDE],
             statics: Vec::new(),
+            layers: Vec::new(),
         };
         let mesh = mesh(&sector);
         let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
@@ -632,6 +816,7 @@ mod tests {
             liquids: [0; 2],
             cells,
             statics: Vec::new(),
+            layers: Vec::new(),
         };
         let mut heights = Heights::default();
         heights.add(&sector);

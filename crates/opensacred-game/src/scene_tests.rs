@@ -215,6 +215,7 @@ fn sector() -> Sector {
         liquids: [0, 0],
         cells,
         statics,
+        layers: Vec::new(),
     }
 }
 

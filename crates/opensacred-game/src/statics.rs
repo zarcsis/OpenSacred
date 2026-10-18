@@ -708,6 +708,7 @@ pub(crate) mod tests {
             liquids: [0; 2],
             cells: vec![cell(flags); SIDE * SIDE],
             statics: Vec::new(),
+            layers: Vec::new(),
         };
         // A room's candle and the shell's wall, of the building at their cell's offsets (none
         // here); a part outside a building, an ordinary static.
@@ -845,6 +846,7 @@ pub(crate) mod tests {
             liquids: [0; 2],
             cells: vec![cell; SIDE * SIDE],
             statics: vec![object(5, 5), object(5, 5), object(6, 4)],
+            layers: Vec::new(),
         };
         let statics = build(&dir, &world, &sprites, &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
