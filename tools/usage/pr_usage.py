@@ -68,8 +68,11 @@ def run(argv, stdin=None):
 
 def project_dirs():
     """The transcript directories of this repository and of its worktrees (.claude/worktrees/): Claude Code
-    names them after the working directory, every character other than a letter or digit replaced by '-'."""
-    top = os.path.abspath(run(['git', 'rev-parse', '--show-toplevel']).strip())
+    names them after the working directory, every character other than a letter or digit replaced by '-'. They are
+    found from the main checkout, the parent of the Git directory that every worktree shares, so a run in a worktree
+    finds the same ones (its --show-toplevel is the worktree's own path)."""
+    common = run(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']).strip()
+    top = os.path.dirname(os.path.abspath(common))
     name = re.sub(r'[^A-Za-z0-9]', '-', top).lower()
     return [d for d in sorted(glob.glob(os.path.join(PROJECTS, '*'))) if os.path.isdir(d)
             and (os.path.basename(d).lower() == name or os.path.basename(d).lower().startswith(name + '--claude-'))]

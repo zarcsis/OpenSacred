@@ -15,6 +15,7 @@ The description can be edited after the merge, so the figures include the CI, th
 * **Which messages.**
   Claude Code writes a transcript per session (`~/.claude/projects/<project>/<session>.jsonl`, the subagents' under `<session>/`) and records in every message the Git branch it was on.
   A pull request's usage is that of the messages on its branch, in every session and worktree of the repository.
+  The script finds the same transcripts from the main checkout and from any of its worktrees: their directories are named after the main checkout's path.
   A message on `main` counts toward the session's next branch, since that is where the task it reads or the issue it opens is done; after the session's last branch, toward that branch.
   A session that never leaves `main` counts toward no pull request.
   The branch recorded is the checkout's, so sessions that share a checkout see each other's switches; a session's message keeps the branch the session itself moved to, by a `git switch`, `git checkout` or `git rebase` command, `gh pr checkout` or `gh pr merge`, or by entering or leaving a worktree, and a change of the recorded branch counts as the session's own only during such a command of its own or within 30 seconds after it (the recorded branch follows a switch a few seconds late).
