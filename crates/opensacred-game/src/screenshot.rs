@@ -52,3 +52,77 @@ pub fn take(
             },
         );
 }
+
+/// `--record`: from the same moment as a screenshot, save every frame to a numbered PNG for a
+/// number of frames, then exit, to look at flicker or a stutter frame by frame.
+#[derive(Resource)]
+pub struct Recording {
+    dir: PathBuf,
+    settle: u32,
+    frames: u32,
+    /// Frames rendered since the scene was ready.
+    rendered: u32,
+    /// Frames saved, which the last one's capture counts down.
+    saved: std::sync::Arc<std::sync::atomic::AtomicU32>,
+}
+
+impl Recording {
+    pub fn new(dir: PathBuf, settle: u32, frames: u32) -> Self {
+        Self {
+            dir,
+            settle,
+            frames,
+            rendered: 0,
+            saved: std::sync::Arc::default(),
+        }
+    }
+}
+
+/// The file of frame `n` of a recording.
+fn frame_file(dir: &std::path::Path, n: u32) -> PathBuf {
+    dir.join(format!("frame-{n:04}.png"))
+}
+
+pub fn record(
+    mut commands: Commands,
+    mut recording: ResMut<Recording>,
+    ready: Res<Ready>,
+    streamer: Res<Streamer>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if recording.saved.load(std::sync::atomic::Ordering::Acquire) >= recording.frames {
+        exit.write(AppExit::Success);
+        return;
+    }
+    if !ready.0 || (recording.rendered == 0 && !streamer.idle()) {
+        return;
+    }
+    recording.rendered += 1;
+    let Some(n) = recording.rendered.checked_sub(recording.settle) else {
+        return;
+    };
+    if n >= recording.frames {
+        return;
+    }
+    let saved = recording.saved.clone();
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(frame_file(&recording.dir, n)))
+        .observe(move |_: On<ScreenshotCaptured>| {
+            saved.fetch_add(1, std::sync::atomic::Ordering::Release);
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frames_are_numbered_in_order() {
+        let dir = std::path::Path::new("frames");
+        assert_eq!(frame_file(dir, 7), dir.join("frame-0007.png"));
+        let mut names: Vec<_> = [10, 9, 100].map(|n| frame_file(dir, n)).to_vec();
+        names.sort();
+        assert_eq!(names, [9, 10, 100].map(|n| frame_file(dir, n)));
+    }
+}
