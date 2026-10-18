@@ -1,0 +1,51 @@
+# The Claude Code usage badge (docs/usage.md): sums the usage blocks that tools/usage/pr_usage.py writes into the
+# maintainer's pull requests, with the sessions before them, and publishes the total as a shields.io endpoint,
+# usage.json on the branch `badges`, which the README's badge reads. The ruleset on main takes no commit from a
+# workflow, so the badge lives on a branch of its own: one commit, replaced on every change. The run summary
+# lists the pull requests. Contributors' pull requests are not counted: their descriptions are theirs to edit.
+name: Usage
+
+on:
+  workflow_dispatch: # pr_usage.py --update runs it after writing a pull request's usage
+  schedule:
+    - cron: '23 4 * * *' # in case a manual run failed
+
+permissions:
+  contents: write # the branch badges
+  pull-requests: read # the descriptions
+
+# The newest run reads every description anew, so it supersedes the older ones.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  badge:
+    name: Badge
+    # Not in forks.
+    if: github.repository == 'zarcsis/OpenSacred'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Sum the usage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          gh pr list --state all --author "$OWNER" --limit 10000 --json number,title,body > "$RUNNER_TEMP/prs.json"
+          python3 -I tools/usage/usage_badge.py "$RUNNER_TEMP/prs.json" \
+            --badge "$RUNNER_TEMP/usage.json" --summary "$GITHUB_STEP_SUMMARY"
+      - name: Publish on the branch badges
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          blob=$(git hash-object -w "$RUNNER_TEMP/usage.json")
+          tree=$(printf '100644 blob %s\tusage.json\n' "$blob" | git mktree)
+          if git fetch -q --depth=1 origin badges 2> /dev/null && [[ $(git rev-parse 'FETCH_HEAD^{tree}') == "$tree" ]]; then
+            echo 'The badge is unchanged.'
+            exit 0
+          fi
+          commit=$(git commit-tree "$tree" -m 'Usage: the Claude Code badge')
+          git push -f origin "$commit:refs/heads/badges"

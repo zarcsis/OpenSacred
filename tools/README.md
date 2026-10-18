@@ -58,7 +58,8 @@ python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --ou
 | `analysis/scripts/netscript_census.py` | scripts | census of NetScript record types across all directories |
 | `analysis/scripts/kwtab.py` | scripts | keyword tables of the script compiler in the client's `.data` |
 | `analysis/scripts/netscript_dump.py` | scripts | NetScript operands of every record with the tag table of the client's operand reader (checked against its dispatch tables), record type names from the compiler's keyword resolvers; per-file tables for the Rust reader; the operand tag sequences of each record type (`--signatures`) |
-| `usage/session_cost.py` | process | Claude Code session usage from its transcript: tokens, agent-hours, cost at API prices and a row for the usage log `docs/usage.md`; cross-checked against `/cost` snapshots. The dollar figures are hypothetical: development runs on a Claude subscription |
+| `usage/pr_usage.py` | process | Claude Code usage of a pull request from the transcripts' messages on its branch: tokens per model, cost at API prices, agent-hours; `--update` writes them into its description and refreshes the badge (`docs/usage.md`). The dollar figures are hypothetical: development runs on a Claude subscription |
+| `usage/usage_badge.py` | process | the README's usage badge: sums the usage blocks of the pull requests' descriptions and the sessions before, for the Usage workflow |
 
 ## Check on the GOG client (2026-10-16, Python 3.15.0)
 
