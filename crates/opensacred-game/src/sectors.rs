@@ -15,7 +15,7 @@ use opensacred_data::world::{SIDE, Sector, Sprites, World};
 use crate::hero::Body;
 use crate::liquids::Liquids;
 use crate::terrain::Heights;
-use crate::{iso, liquids, statics, terrain};
+use crate::{daynight, iso, liquids, statics, terrain};
 
 /// Sectors around the hero's that load: a radius of 1 is 3 × 3.
 const LOAD_RADIUS: i64 = 1;
@@ -135,6 +135,7 @@ pub fn stream(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
+    light_types: Res<daynight::LightTypes>,
 ) {
     let streamer = &mut *streamer;
     let finished: Vec<_> = streamer
@@ -162,6 +163,7 @@ pub fn stream(
             at.0, at.1, built.statics.objects, built.statics.drawn
         );
         heights.add(&built.sector);
+        let lights = daynight::sources(&built.sector, &light_types);
         let mut entities = terrain::spawn(
             &mut commands,
             built.ground,
@@ -185,6 +187,14 @@ pub fn stream(
             &mut meshes,
             &mut sprite_materials,
         ));
+        entities.extend(lights.into_iter().map(|(position, radius)| {
+            commands
+                .spawn((
+                    Transform::from_translation(position),
+                    daynight::Light(radius),
+                ))
+                .id()
+        }));
         streamer.loaded.insert(at, entities);
     }
 

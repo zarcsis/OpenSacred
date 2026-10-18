@@ -347,7 +347,7 @@ A diamond is 95.5 × 47.5 texels (96.4 × 48.4 on screen at zoom 1), the row ste
 | `+0x18 u16` | the client's index of the type's `Weapon.pak` record (`0x434030`); 0 in every record on file, so the client fills it (**hypothesis**: by the weapon record whose id is the slot, §6.2) |
 | `+0x20 u32 id` | own index for types 2/34 |
 | `+0x2E u8 category` | for the type-2 items, what the item is and where it goes (**confirmed** by code 2026-10-18, `0x54ACC0`, `0x401AE0`; the names by the models): 1 gibs and stones, 3 creatures, 5 weapons (240), 6 armour, 8 rings, 12 effects, 13 shields (42), 15 runes, 16 books and scrolls, 17 helmets, 18 shoes, 19 belts, 20 amulets, 21 shoulders, 22 arms, 23 legs, 24 gloves, 25 the Seraphim's wings, 27 arrows, 29 bridles, 33 the dwarf's cannons. A shield goes in the left hand, a weapon in the hand its kind gives (docs/re/equipment.md) |
-| `+0x32 u16` | 120/180/135 for heroes; hypothesis: height/radius |
+| `+0x32 u16` | 120/180/135 for heroes. **Confirmed** by code 2026-10-18 (`0x62FF60`, docs/re/daynight.md): for a type of flag `0x20000` (`+0x00` as a u32), the radius of its light by night, in pixels of the screen at zoom 1; 54 types have the flag: the heroes, some creatures, fires and spells, the torches `TORCH_SMALL_ON`/`LARGE_ON`, three miniatures and the invisible statics `SimpleLightTiny`, `Small`, `Medium`, `Big` (220, 300, 450, 600) |
 | `+0x37 char name[32]` | `SERAPHIM.GRN`, `Tree17`, `FX_BLOODPUDDLE`, building mesh names |
 | `+0x57 float` | 90.0 for creatures; hypothesis: angle/scale |
 | `+0x70 u32 modelIdx` | model index in `Models.tmp` (≤ 1,571): a cache of `.GRN` name resolution |

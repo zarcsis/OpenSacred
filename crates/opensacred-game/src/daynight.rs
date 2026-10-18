@@ -10,18 +10,35 @@
 //! by night a ramp of the light's level, built from the setting `NIGHT_DARKNESS` (50), and
 //! `255 − level` added to each channel, so that the day is white. The game draws the frame first
 //! and then multiplies it by that colour (`night.wesl`, a fullscreen pass): the same for the art,
-//! which the original multiplies by its vertices' colour, if not for its blending. **Not yet**: the
-//! light sources (#59), so that the light's level is the dark's everywhere (the original's sources and
-//! their radii are not read), and the dungeons' grey ramp.
+//! which the original multiplies by its vertices' colour, if not for its blending.
+//!
+//! The light's level at a point is 32 and, for every light source whose radius reaches it, the
+//! radius less the distance, at most 223 each and 255 in all, in the pixels of the original's
+//! screen at zoom 1 (`0x41B510`). The sources are the static objects of the types flagged
+//! `0x20000` (the invisible `SimpleLightTiny`, `Small`, `Medium` and `Big`, of radii 220, 300, 450
+//! and 600, some miniatures, the fires), each of its type's radius (`items.pak +0x32`), and the
+//! hero, of radius 1000 − level · 700/255 between the dusk and the dawn (`0x54A7B0`). **Not
+//! yet** (#61): the creatures' and the spells' lights, the torches, the Wood Elf's and the Vampiress's
+//! doubled radius, and the dungeons' grey ramp.
 
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+
+use anyhow::{Context, Result};
 use bevy::asset::embedded_asset;
 use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
-use bevy::math::Vec4;
-use bevy::prelude::{App, Component, Plugin, Query, Res, ResMut, Resource, Time};
+use bevy::math::{Vec2, Vec3, Vec4};
+use bevy::prelude::{
+    App, Camera, Component, GlobalTransform, Plugin, Projection, Query, Res, ResMut, Resource,
+    Time, Transform, With, Without,
+};
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
 use bevy::render::render_resource::ShaderType;
 use bevy::shader::ShaderRef;
+use opensacred_data::tables::Item;
+use opensacred_data::world::{Sector, StaticObject};
 
 /// The shader of [`Night`], embedded in the binary.
 pub const SHADER: &str = "embedded://opensacred_game/night.wesl";
@@ -41,6 +58,12 @@ const PER_MINUTE: f64 = 2.125;
 const DARKNESS: f32 = 0.5;
 /// The light's level at a point that no light source reaches.
 const DARK: f32 = 32.0;
+/// The type flag of the light sources (`items.pak +0x00`).
+const LIGHT: u32 = 0x20000;
+/// The light sources the pass takes, the nearest the screen's centre first.
+pub const LIGHTS: usize = 32;
+/// The original's screen height, in whose pixels the radii are (`iso::SCREEN_HEIGHT`).
+const SCREEN: f32 = 768.0;
 
 /// The phase of the day, as the renderer tells the sound manager (`+0xA34`: 0 to 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +134,8 @@ pub fn level(minutes: f64) -> f64 {
 }
 
 /// The night ramp's red and green, and its blue, at a light's level, out of 255 (the renderer's
-/// tables, `0x417F00`).
+/// tables, `0x417F00`; `night.wesl` computes them).
+#[cfg(test)]
 fn ramp(light: f32) -> (f32, f32) {
     let base = 64.0 + 64.0 * DARKNESS;
     (base + light / 4.0, base + light / 3.0)
@@ -143,13 +167,77 @@ pub fn tick(time: Res<Time>, mut clock: ResMut<Clock>) {
     clock.advance(f64::from(time.delta_secs()));
 }
 
-/// The frame's colour by the night: the ramp at the dark's level, and the part of the day's
+/// The frame's colour by the night: the ramp of the light's level, and the part of the day's
 /// white that the night's level leaves, added to it.
 #[derive(Component, ExtractComponent, Clone, Copy, ShaderType, Default)]
 #[extract_app(RenderApp)]
 pub struct Night {
-    /// Red, green and blue of the ramp, and the day's part, each out of 1.
-    colour: Vec4,
+    /// The darkness (`NIGHT_DARKNESS` as a fraction), the dark's level, the day's part out of 1,
+    /// and the light sources' count.
+    params: Vec4,
+    /// The original's screen pixels per unit of the texture coordinates across and down.
+    scale: Vec4,
+    /// The light sources: their texture coordinates and radius in the original's pixels.
+    lights: [Vec4; LIGHTS],
+}
+
+/// The radius of each light source's type, by the type (`items.pak +0x32` of the types flagged
+/// [`LIGHT`]).
+#[derive(Resource, Default)]
+pub struct LightTypes(HashMap<u32, f32>);
+
+impl LightTypes {
+    /// Reads the light sources' types of `items.ron`.
+    pub fn read(assets: &Path) -> Result<Self> {
+        let path = assets.join("tables").join(opensacred_data::tables::ITEMS);
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let items: Vec<Item> =
+            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        Ok(Self(
+            items
+                .iter()
+                .filter(|item| flags(item) & LIGHT != 0)
+                .map(|item| (item.slot, f32::from(radius(item))))
+                .collect(),
+        ))
+    }
+}
+
+/// A type's flags, `items.pak +0x00` as a u32.
+fn flags(item: &Item) -> u32 {
+    u32::from_le_bytes([item.kind, item.class, item.subclass, item.byte_03])
+}
+
+/// A light source's radius, `items.pak +0x32`.
+fn radius(item: &Item) -> u16 {
+    let [_, _, low, high] = item.words_14[7].to_le_bytes();
+    u16::from_le_bytes([low, high])
+}
+
+/// A light source in the world, of its radius in the pixels of the original's screen.
+#[derive(Component)]
+pub struct Light(pub f32);
+
+/// The light sources among `sector`'s static objects: where they stand on the ground (at height
+/// 0) and their radii.
+pub fn sources(sector: &Sector, types: &LightTypes) -> Vec<(Vec3, f32)> {
+    fn walk(objects: &[StaticObject], types: &LightTypes, out: &mut Vec<(Vec3, f32)>) {
+        for object in objects {
+            if object.type_flags & LIGHT != 0
+                && let Some(&radius) = types.0.get(&object.kind)
+            {
+                // `48 (cx − cy)` and `24 (cx + cy)` back to the cell.
+                let (across, down) = (object.x as f32 / 48.0, object.y as f32 / 24.0);
+                let (cx, cy) = ((across + down) / 2.0, (down - across) / 2.0);
+                out.push((crate::iso::ground(cx, cy), radius));
+            }
+            walk(&object.children, types, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(&sector.statics, types, &mut out);
+    out
 }
 
 impl FullscreenMaterial for Night {
@@ -158,23 +246,77 @@ impl FullscreenMaterial for Night {
     }
 }
 
-/// Keeps the camera's night by the clock.
+/// The hero's light's radius at the night's level (`0x54A7B0`): 700, and from the dusk to the
+/// dawn 1000 − level · 700/255.
+fn hero_radius(phase: Phase, level: f32) -> f32 {
+    if phase == Phase::Day {
+        700.0
+    } else {
+        1000.0 - level * 700.0 / 255.0
+    }
+}
+
+/// Keeps the camera's night by the clock and the light sources on screen.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "a level from 0 to 255 in a float of the shader"
+    clippy::cast_precision_loss,
+    reason = "a level from 0 to 255 and a count of 32 in floats of the shader"
 )]
-pub fn light(clock: Res<Clock>, mut nights: Query<&mut Night>) {
-    let level = level(clock.minutes()) as f32;
-    let (red_green, blue) = ramp(DARK);
-    let colour = Vec4::new(
-        red_green / 255.0,
-        red_green / 255.0,
-        blue / 255.0,
-        (255.0 - level) / 255.0,
-    );
-    for mut night in &mut nights {
-        if night.colour != colour {
-            night.colour = colour;
+pub fn light(
+    clock: Res<Clock>,
+    mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
+    hero: Query<&Transform, With<crate::hero::Body>>,
+    lights: Query<(&Transform, &Light), Without<crate::hero::Body>>,
+) {
+    let minutes = clock.minutes();
+    let level = level(minutes) as f32;
+    for (camera, view, projection, mut night) in &mut cameras {
+        let Some(size) = camera.logical_viewport_size() else {
+            continue;
+        };
+        // The view spans the original's 768 pixels down at zoom 1, and its share of them across.
+        let scale = match projection {
+            Projection::Orthographic(ortho) => ortho.scale,
+            _ => 1.0,
+        };
+        let down = SCREEN * scale;
+        let across = down * size.x / size.y;
+        let uv = |world: Vec3| {
+            camera
+                .world_to_viewport(view, world)
+                .ok()
+                .map(|p| Vec2::new(p.x / size.x, p.y / size.y))
+        };
+        let mut found: Vec<(Vec2, f32)> = hero
+            .iter()
+            .filter_map(|t| uv(t.translation).map(|p| (p, hero_radius(phase(minutes), level))))
+            .chain(
+                lights
+                    .iter()
+                    .filter_map(|(t, light)| uv(t.translation).map(|p| (p, light.0))),
+            )
+            // The sources that can reach the view.
+            .filter(|(p, r)| {
+                let reach = Vec2::new(r / across, r / down);
+                p.x > -reach.x && p.x < 1.0 + reach.x && p.y > -reach.y && p.y < 1.0 + reach.y
+            })
+            .collect();
+        found.sort_by(|a, b| {
+            let d = |p: Vec2| (p - Vec2::splat(0.5)).length_squared();
+            d(a.0).total_cmp(&d(b.0))
+        });
+        found.truncate(LIGHTS);
+        let mut lights = [Vec4::ZERO; LIGHTS];
+        for (slot, (p, r)) in lights.iter_mut().zip(&found) {
+            *slot = Vec4::new(p.x, p.y, *r, 0.0);
+        }
+        let next = Night {
+            params: Vec4::new(DARKNESS, DARK, (255.0 - level) / 255.0, found.len() as f32),
+            scale: Vec4::new(across, down, 0.0, 0.0),
+            lights,
+        };
+        if night.params != next.params || night.scale != next.scale || night.lights != next.lights {
+            *night = next;
         }
     }
 }
@@ -208,6 +350,39 @@ mod tests {
         clock.advance(1800.0);
         assert_eq!(clock.minutes(), 480.0);
         assert_eq!(Clock::at(22, 30).phase(), Phase::Night);
+    }
+
+    #[test]
+    fn a_static_light_stands_at_its_cell() {
+        // `SimpleLightSmall` of radius 300 at the iso position of cell (10, 4).
+        let mut types = LightTypes::default();
+        types.0.insert(1000, 300.0);
+        let object = |kind, type_flags| StaticObject {
+            cell: 0,
+            kind,
+            flags: 0,
+            x: 48 * (10 - 4),
+            y: 24 * (10 + 4),
+            record: 0,
+            type_flags,
+            mask: 0,
+            sprite: 0,
+            miniature: None,
+            children: Vec::new(),
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: Vec::new(),
+            statics: vec![object(1000, 0x20009), object(1001, 0x9)],
+            layers: Vec::new(),
+        };
+        let found = sources(&sector, &types);
+        assert_eq!(found, [(crate::iso::ground(10.0, 4.0), 300.0)]);
+        assert_eq!(hero_radius(Phase::Night, 255.0), 300.0);
+        assert_eq!(hero_radius(Phase::Dusk, 0.0), 1000.0);
     }
 
     #[test]

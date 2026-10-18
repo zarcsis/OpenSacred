@@ -409,6 +409,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         daynight::DayNightPlugin,
     ))
     .insert_resource(cli.time.unwrap_or_default())
+    .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
     .insert_resource(streamer)
