@@ -1,5 +1,7 @@
 # OpenSacred
 
+[![Claude Code usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzarcsis%2FOpenSacred%2Fbadges%2Fusage.json)](docs/usage.md)
+
 An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, the GOG release 2.28), written in Rust on [Bevy](https://bevyengine.org/). The goal is to play Sacred and Underworld comfortably on modern hardware: Windows 11 x64 at 4K first, later Linux, possibly Android and Chrome (WebAssembly).
 
 OpenSacred contains none of the game's files. You need your own copy of Sacred Gold from GOG:

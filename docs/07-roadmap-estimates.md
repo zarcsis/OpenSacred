@@ -8,7 +8,7 @@ Dollar figures are the hypothetical cost of the same tokens at Anthropic API pri
 * To a playable version 1.0 for Windows 11: **≈390–770 agent-hours and ≈230–460 maintainer hours** (estimate, uncertainty up to ×2).
 * At API prices the same tokens would cost ≈$3.1k–13.9k on Claude Opus 5.5, ≈$1.6k–7.7k on Claude Sonnet 5.5, ≈$2.5k–11.4k with a mix of 60% Opus and 40% Sonnet. On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
 * Calendar: 2.5–4.5 months in an intensive mode, 6–12 months "evenings and weekends". The bottleneck is the maintainer's time for review and playtesting.
-* The agent-hour cost model is an estimate. It needs to be calibrated against actuals over the first 30 days: `/cost` at the end of sessions or the ccusage utility, recorded in `docs/usage.md`.
+* The agent-hour cost model is an estimate. It needs to be calibrated against actuals over the first 30 days: the usage that every pull request records from the Claude Code transcripts (`docs/usage.md`).
 
 ## 1. Estimation model
 

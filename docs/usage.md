@@ -2,7 +2,21 @@
 
 Dollar figures are the hypothetical cost of the same tokens at Anthropic API prices; development runs on a Claude subscription, so they are not money actually spent.
 
-One row per session; the data comes from `/cost` at the end of the session or from ccusage. After 30 days, the estimates in `docs/07-roadmap-estimates.md` are recalculated from this table (PLAN.md §10, step 8).
+Since 2026-10-17 (#16), every pull request carries its own usage: a "Claude Code usage" section at the end of its description, with the tokens per model, their cost at API prices and the agent-hours. The badge in the README sums every pull request's figures and the sessions before them (the table below). After 30 days, the estimates in `docs/07-roadmap-estimates.md` are recalculated from them (PLAN.md §10, step 8).
+
+## How it is calculated
+
+`python -I tools/usage/pr_usage.py <N> --update` writes the usage of pull request `<N>` into its description. It runs after `gh pr create` and again when the work on the pull request is over: after the merge, or, for one that waits for the maintainer, once its checks are green. The description can be edited after the merge, so the figures include the CI, the fixes and the merge without another commit.
+
+* **Which messages.** Claude Code writes a transcript per session (`~/.claude/projects/<project>/<session>.jsonl`, the subagents' under `<session>/`) and records in every message the Git branch it was on. A pull request's usage is that of the messages on its branch, in every session and worktree of the repository. A message on `main` counts toward the session's next branch, since that is where the task it reads or the issue it opens is done; after the session's last branch, toward that branch. A session that never leaves `main` counts toward no pull request.
+* **Tokens and cost.** Each model response counts once (by its id), at the API prices per 1M tokens (Opus 5.5: $4 input, $20 output, $0.20 cache read, $8 one-hour cache write). The tokens are input, output, cache reads and cache writes together; in a long session most of them are cache reads, the context reread by every request. The same calculation matched the `/cost` snapshots in the transcripts to the cent.
+* **Agent-hours.** The time from a prompt of the maintainer to the agent's last action; pauses longer than 10 minutes are not counted.
+* **The block.** A table for people and a comment `<!-- usage {...} -->` with the same figures for scripts, between the markers `<!-- usage:begin -->` and `<!-- usage:end -->`, which a rerun replaces.
+* **The badge.** `pr_usage.py --update` then runs the Usage workflow (`.github/workflows/usage.yml`; also daily). It sums the blocks of the maintainer's pull requests and the sessions below (`tools/usage/usage_badge.py`), lists the pull requests in its run summary, and publishes `usage.json`, a shields.io endpoint, on the branch `badges`: the ruleset on `main` takes no commit from a workflow. Contributors' pull requests are not counted: their descriptions are theirs to edit.
+
+## Sessions before per-pull-request tracking
+
+One row per session, from 2026-10-16 to 2026-10-17, each recorded through a pull request of its own.
 
 | Date | Task | Model | Agent-hours | Tokens, M (input / output / cache) | Cost at API prices, $ |
 |---|---|---|---|---|---|
@@ -19,7 +33,7 @@ One row per session; the data comes from `/cost` at the end of the session or fr
 | 2026-10-17 | The issue and pull-request workflow (#1, #7): labels, milestones M2–M8, issue forms and a pull-request template, CI on pull requests and `main` with a Windows job, a ruleset on `main`, the merge guard hook; the queue moved to issues #2–#6; `cargo update` at most once a day; the bug form fixed (#8, #9) | Opus 5.5 | ≈0.3 (wall clock 1.4) | ≈0 / 0.07 / read 10.8, write 0.29 | 5.9 (+ Haiku 5.5, not priced) |
 | 2026-10-17 | Versions from the pull requests' labels (#11, #12): the Release workflow (an annotated tag `vX.Y.Z` and a GitHub Release after every `feature` or `bug` merge), no version in `Cargo.toml`, `--version` from `git describe` (`build.rs`), the base `v0.1.0`, a ruleset on the `v*` tags; releases before 1.0.0 are pre-releases (#13, #14) | Opus 5.5 | ≈0.3 (wall clock 0.7) | ≈0 / 0.05 / read 4.3, write 0.10 | 2.8 |
 
-How it is calculated: run `python -I tools/usage/session_cost.py` at the end of the session. The script reads the Claude Code transcript (`~/.claude/projects/<project>/<session>.jsonl`), takes the responses without duplicates and computes the cost at API prices (Opus 5.5: $4 input, $20 output, $0.20 cache read, $8 one-hour cache write per 1M tokens), then prints a ready-made row for this table. The calculation matches the `/cost` snapshots in the transcript to the cent. Agent-hours are the time from a user's prompt to the agent's last action; pauses longer than 10 minutes are not counted. With a Claude subscription, this is the equivalent at API prices, not a bill.
+Each row was computed by the script's predecessor, `tools/usage/session_cost.py`, from the whole transcript of its session (in the Git history).
 
 ## Observations for calibrating §9
 
