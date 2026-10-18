@@ -136,6 +136,7 @@ pub fn stream(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
     light_types: Res<daynight::LightTypes>,
+    glow: Option<Res<statics::Glow>>,
 ) {
     let streamer = &mut *streamer;
     let finished: Vec<_> = streamer
@@ -157,7 +158,7 @@ pub fn stream(
         }
     }
     // One sector a frame: uploading a ground image takes a few milliseconds.
-    if let Some((at, built)) = streamer.ready.pop() {
+    if let Some((at, mut built)) = streamer.ready.pop() {
         info!(
             "sector {},{}: {} static objects, {} with a sprite",
             at.0, at.1, built.statics.objects, built.statics.drawn
@@ -179,6 +180,15 @@ pub fn stream(
             &mut meshes,
             &mut materials,
         ));
+        let glows = std::mem::take(&mut built.statics.glows);
+        if let Some(glow) = &glow {
+            entities.extend(statics::spawn_glows(
+                &mut commands,
+                glows,
+                &mut meshes,
+                &glow.0,
+            ));
+        }
         entities.extend(statics::spawn(
             &mut commands,
             built.statics,

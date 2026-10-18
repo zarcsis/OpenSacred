@@ -315,6 +315,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         .map_err(|e| anyhow::anyhow!("resolving {}: {e}", cli.assets.display()))?;
     let world = terrain::read_world(&assets)?;
     let dungeons = daynight::Dungeons::of(&world);
+    // The lamps' glow, `PARTICLE_GLOW01` of `texture.pak`.
+    let glow = hud::find_texture(&assets, "particle_glow01")
+        .and_then(|path| {
+            path.strip_prefix(&assets)
+                .ok()
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+        })
+        .unwrap_or_default();
     let shared = sectors::Shared {
         world,
         sprites: statics::read_sprites(&assets)?,
@@ -413,6 +421,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
+    .insert_resource(daynight::GlowTexture(glow))
     .insert_resource(daynight::HeroLight {
         doubled: cli.class == Class::WoodElf,
     })
@@ -443,6 +452,7 @@ fn run(cli: Cli) -> Result<AppExit> {
             shadows::setup,
             hud::setup,
             hud::cursor,
+            daynight::make_glow,
         ),
     )
     .add_systems(
@@ -467,7 +477,10 @@ fn run(cli: Cli) -> Result<AppExit> {
             .chain(),
     )
     .add_systems(Update, (hud::scale, hud::gait, liquids::animate))
-    .add_systems(Update, (daynight::tick, daynight::light).chain());
+    .add_systems(
+        Update,
+        (daynight::tick, daynight::light, daynight::glow).chain(),
+    );
     if !cli.no_music {
         app.add_audio_channel::<atmosphere::Channel>()
             .add_audio_channel::<music::Channel>()
