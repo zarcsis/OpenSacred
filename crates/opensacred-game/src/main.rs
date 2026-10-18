@@ -12,6 +12,7 @@ mod liquids;
 mod models;
 mod music;
 mod npcs;
+mod paths;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;

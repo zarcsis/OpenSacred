@@ -10,7 +10,7 @@ use bevy::gltf::Gltf;
 use bevy::prelude::*;
 
 use crate::terrain::Heights;
-use crate::{iso, models};
+use crate::{iso, models, paths};
 
 /// How close to its target the hero stops.
 const ARRIVED: f32 = 4.0;
@@ -252,19 +252,34 @@ pub fn run(
     for (mut transform, mut body) in &mut bodies {
         let mut moving = None;
         if let Some(target) = body.target {
-            let to = (target - transform.translation).with_y(0.0);
+            let here = transform.translation;
+            let walkable = |cell| heights.walkable(cell);
+            // Round what blocks the way; straight on toward a target that cannot be reached,
+            // up to what blocks it.
+            let toward = paths::next(here, target, walkable).unwrap_or(target);
+            let to = (toward - here).with_y(0.0);
             let distance = to.length();
-            if distance <= ARRIVED {
+            let left = (target - here).with_y(0.0).length();
+            if left <= ARRIVED || distance <= f32::EPSILON {
                 body.target = None;
             } else {
                 let step = (hero.speed() * time.delta_secs()).min(distance);
-                let mut position = transform.translation + to / distance * step;
-                if let Some(y) = heights.at(position.x, position.z) {
-                    position.y = y;
+                let mut position = here + to / distance * step;
+                // A step into a cell it may not walk on, out of one it may, is not taken.
+                let (from, into) = (
+                    paths::cell_of(here.x, here.z),
+                    paths::cell_of(position.x, position.z),
+                );
+                if into != from && !walkable(into) && walkable(from) {
+                    body.target = None;
+                } else {
+                    if let Some(y) = heights.at(position.x, position.z) {
+                        position.y = y;
+                    }
+                    transform.translation = position;
+                    transform.rotation = facing(to);
+                    moving = Some(hero.gait);
                 }
-                transform.translation = position;
-                transform.rotation = facing(to);
-                moving = Some(hero.gait);
             }
         }
         if moving == body.moving {
