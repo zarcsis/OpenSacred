@@ -1,7 +1,7 @@
 # Game versions, community and comparable projects
 
 Plan document 09.
-Scope: which Sacred Gold builds exist and which one is the baseline; why the original runs poorly on Windows 10/11 and how that is fixed today; what the community has already built (hooks, SDKs, reimplementations, lobby servers, middleware replacements) and on what terms it can be used; where players and modders gather, including Russian-speaking ones; what about twenty comparable projects teach.
+Scope: which Sacred Gold builds exist and which one is the baseline; what players report about the original on Windows 10/11 and how they fix it; what the community has already built (hooks, SDKs, reimplementations, lobby servers, middleware replacements) and on what terms it can be used; where players and modders gather, including Russian-speaking ones; what about twenty comparable projects teach.
 Formats are in docs/02-data-formats.md, tools in docs/03-toolchain.md, language and engine in docs/04-language-and-engine.md, timelines in docs/07-roadmap-estimates.md, the legal policy in docs/08-risks-legal.md.
 
 Claim status.
@@ -15,8 +15,8 @@ Claim status.
 * The project works with a single build: Sacred Gold 2.28 (GOG, English) from 2006-10-13, `Sacred.exe` 11,919,360 B, SHA-256 `db9b86a4…`, DRM-free.
   The community's addresses (sacred-bild, sacred-sdk) refer to exactly this build.
 * Other builds (the German and Russian retail editions, the 2009 LGP Linux port) are listed for reference; the project does not use them.
-* On Windows 10/11 the original is broken by the D3D7 renderer, the hard-coded 1024×768, the spin limiter, the keyboard hook and focus loss.
-  Players fix this with dgVoodoo2 and resolution patches; the new engine removes these problems entirely.
+* Players report the original broken on Windows 10/11 by the D3D7 renderer, the hard-coded 1024×768, the spin limiter, the keyboard hook and focus loss, and fix it with dgVoodoo2 and resolution patches.
+  The GOG build itself runs on Windows 11 without a wrapper, in a borderless 1024×768 window (§2.2); the new engine removes the other problems entirely.
 * Over 2025–2026 an ecosystem of ≥10 open projects has formed around Sacred.
   For our approach the format readers matter most: open-grn and grn2glb (Granny), openheilig (formats, bytecode), sacred-sdk (opcodes, string hash).
 * Borrowing rule: facts about formats and addresses we take; MIT code only as a reference, with the notice in `THIRD-PARTY-NOTICES.md` for anything borrowed; from the GPL-3 sacred-bild only names, in a local Ghidra project that is never committed; GPL, AGPL and unlicensed code never enter the converter or the game (§3.3).
@@ -82,6 +82,10 @@ Therefore DirectDraw-only wrappers (cnc-ddraw) do not apply; only wrappers with 
 The other root causes (confirmed by static analysis, see docs/01): the resolution is hard-coded at 1024×768 (the 512/384 center is assumed in 17 places in the code; `cDxDevices` only enumerates modes); the frame limiter is a spin on `Sleep(0)`; the low-level keyboard hook "tabblocker" swallows Win and Alt-Tab system-wide; without focus the game stops drawing; video goes through the obsolete DirectShow `IAMMultiMediaStream` into DirectDraw surfaces; the lobby `sacred<lang>.ascaron-net.com:7066` is dead; the system D3D7 runtime refuses render targets larger than 2,048 px (according to sacred-bild), a direct obstacle to 4K via ddraw.dll without a custom backend.
 
 ### 2.2 Symptoms and community-accepted workarounds
+
+On the development machine (Windows 11 Pro build 26300, NVIDIA GeForce RTX 4080; 2026-10-18) the GOG installation runs without any wrapper: with `FULLSCREEN : 0` in `Settings.cfg` the game opens a borderless 1024×768 window and plays normally (verified locally, by running it).
+The installation holds no wrapper DLL (`ddraw.dll`, `D3DImm.dll` or the like), only the DLLs of the manifest, and the only compatibility layer the registry holds for its executables is `HIGHDPIAWARE` (verified locally).
+That observation does not cover fullscreen mode, long sessions, Alt-Tab or the cutscenes; the symptoms below are what players report.
 
 | Symptom | Cause | Workaround | Status |
 |---|---|---|---|

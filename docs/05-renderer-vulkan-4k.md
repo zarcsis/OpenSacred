@@ -158,7 +158,8 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 * **Screenshot tests:** a headless render of test scenes (a sector, a character, an effect) to PNG and comparison with a reference within a tolerance.
   **Implemented 2026-10-17** for a sector: `opensacred-game`'s `scene_tests` writes a synthetic world in the converter's formats (a patterned tile sheet, a sector with a hill, a pond and light, trees and an underlay slab), renders it through the game's terrain, sprite and camera code into an image with no window, waits until every texture is loaded and no pipeline compiles, and compares it with `crates/opensacred-game/tests/screenshots/scene.png` in blocks of 4 × 4 pixels (at most 1 % of the blocks may differ by more than 12 levels; a 2 % zoom fails).
   It needs no game files, so CI runs it, on Mesa's software Vulkan; the reference was rendered on a development machine's GPU, and Windows' software adapter (WARP, `WGPU_BACKEND=dx12 WGPU_FORCE_FALLBACK_ADAPTER=1`) matches it too, in 70 s instead of 1: neither differs in any block, while a 2 % zoom differs in 6.5 % of them.
-* **Cross-check with the original:** reference frames of the original through dgVoodoo2 on Windows 11 in 32-bit color mode (`GFX32 : 1`, the GOG default), for visual cross-checking, with no requirement for pixel matching.
+* **Cross-check with the original:** reference frames of the original, which runs on Windows 11 without a wrapper in a 1024×768 window (docs/09 §2.2), in 32-bit color mode (`GFX32 : 1`, the GOG default), for visual cross-checking, with no requirement for pixel matching.
+  A frame whose draw calls have to be inspected is captured in RenderDoc through dgVoodoo2, since RenderDoc does not capture D3D7 (docs/03 §1).
 * **Debugging:** RenderDoc, the Vulkan SDK validation layers, Bevy's built-in diagnostics (frame time, number of draw calls).
 
 ## 8. Rendering milestones
