@@ -19,7 +19,6 @@ body:
     attributes:
       label: How to reproduce
       description: The commands, from a converted `assets/`, and what to do in the game.
-      render: shell
     validations:
       required: true
   - type: input
