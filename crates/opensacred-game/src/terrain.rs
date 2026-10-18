@@ -47,19 +47,18 @@ pub type LayerKey = (u32, u32, u16);
 /// Where the hero walks: the ground (`None`) or an inside layer.
 pub type Level = Option<LayerKey>;
 
-/// An inside layer's grid: its first cell, its size, and whether each cell may be walked on and
-/// is a door.
+/// An inside layer's grid: its first cell, its size, and whether each cell may be walked on.
 struct LoadedLayer {
     x: i32,
     y: i32,
     width: i32,
     height: i32,
-    cells: Vec<(bool, bool)>,
+    cells: Vec<bool>,
 }
 
 impl LoadedLayer {
-    /// The walkability and the door of global cell `(cx, cy)`, if the grid holds it.
-    fn get(&self, (cx, cy): (i32, i32)) -> Option<(bool, bool)> {
+    /// Whether global cell `(cx, cy)` may be walked on, if the grid holds it.
+    fn get(&self, (cx, cy): (i32, i32)) -> Option<bool> {
         let (x, y) = (cx - self.x, cy - self.y);
         if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
             return None;
@@ -108,7 +107,7 @@ impl Heights {
             let cells = layer
                 .cells
                 .iter()
-                .map(|cell| (walkable(cell.flags, cell.ground), cell.flags & DOOR != 0))
+                .map(|cell| walkable(cell.flags, cell.ground))
                 .collect();
             self.layers.insert(
                 (sector.x, sector.y, key),
@@ -182,36 +181,19 @@ impl Heights {
                 .layers
                 .get(&key)
                 .and_then(|layer| layer.get(cell))
-                .is_some_and(|(walkable, _)| walkable),
+                .unwrap_or(false),
         }
     }
 
-    /// Whether a cell is a door at a level.
-    fn door(&self, (cx, cy): (i32, i32), level: Level) -> bool {
-        match level {
-            None => match (u32::try_from(cx), u32::try_from(cy)) {
-                (Ok(x), Ok(y)) => self
-                    .cells
-                    .get(&(x, y))
-                    .is_some_and(|cell| cell.flags & DOOR != 0),
-                _ => false,
-            },
-            Some(key) => self
-                .layers
-                .get(&key)
-                .and_then(|layer| layer.get((cx, cy)))
-                .is_some_and(|(_, door)| door),
-        }
-    }
-
-    /// The walkable neighbours of a cell at a level, and through a door the same cell at the
-    /// other levels where it is a door too (the ground and the inside layers whose grids hold
-    /// it).
+    /// The walkable neighbours of a cell at a level, and the same cell at the other levels where
+    /// it is walkable too (the ground and the inside layers whose grids hold it): a building's
+    /// door, or the openings of the monastery's inside onto its courtyard and the road, whose
+    /// layer has no doors (docs/re/movement.md, **hypothesis**).
     pub fn neighbours(&self, (cell, level): ((i32, i32), Level)) -> Vec<((i32, i32), Level)> {
         let mut out: Vec<_> = crate::paths::around(cell, |next| self.walkable_on(next, level))
             .map(|next| (next, level))
             .collect();
-        if self.door(cell, level) {
+        if self.walkable_on(cell, level) {
             let others = std::iter::once(None).chain(
                 self.layers
                     .iter()
@@ -220,7 +202,7 @@ impl Heights {
             );
             out.extend(
                 others
-                    .filter(|&other| other != level && self.door(cell, other))
+                    .filter(|&other| other != level && self.walkable_on(cell, other))
                     .map(|other| (cell, other)),
             );
         }
@@ -232,7 +214,7 @@ impl Heights {
     pub fn level_of(&self, cell: (i32, i32)) -> Level {
         self.layers
             .iter()
-            .find(|(_, layer)| layer.get(cell).is_some_and(|(walkable, _)| walkable))
+            .find(|(_, layer)| layer.get(cell).unwrap_or(false))
             .map(|(&key, _)| key)
     }
 
@@ -699,6 +681,13 @@ mod tests {
         assert!(
             heights
                 .neighbours(((5, 7), None))
+                .iter()
+                .all(|&(_, l)| l.is_none())
+        );
+        // At the house's back wall, walkable on the ground only: no other level.
+        assert!(
+            heights
+                .neighbours(((7, 4), None))
                 .iter()
                 .all(|&(_, l)| l.is_none())
         );
