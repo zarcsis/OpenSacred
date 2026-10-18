@@ -10,7 +10,9 @@
 //! cells of one diagonal at one height, would fight; the shader brings each a little forward in
 //! the original's order of drawing (`sprites.wesl`). The sprites of one page share one mesh.
 //! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
-//! one mesh; the animated ones (flag 0x40) show their first frame, still.
+//! one mesh; the animated ones (flag 0x40) show their first frame, still. A light source's
+//! miniature (type flag `0x20000`, the lamps) carries a glow, a quad of `PARTICLE_GLOW01` three
+//! times its size about it, which `daynight` shows by night (`0x62E410`, docs/re/daynight.md).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -24,7 +26,7 @@ use bevy::mesh::{
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
     AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Plugin, TypePath, Vec2, Vec3, Visibility,
+    MeshMaterial3d, Plugin, Resource, StandardMaterial, TypePath, Vec2, Vec3, Visibility,
 };
 use bevy::render::render_resource::{
     AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
@@ -136,9 +138,29 @@ impl Plugin for StaticsPlugin {
 pub struct Statics {
     batches: Vec<Batch>,
     pages: Vec<Image>,
+    /// The glows over the light sources' miniatures, for [`spawn_glows`].
+    pub glows: Vec<Glows>,
     pub objects: usize,
     pub drawn: usize,
 }
+
+/// The glows over the light sources' miniatures of a building's part, or of none.
+pub struct Glows {
+    part: Option<(buildings::Anchor, u8)>,
+    positions: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
+}
+
+/// The glows' material, one for all (`daynight::glow` keeps its colour by the night).
+#[derive(Resource)]
+pub struct Glow(pub Handle<StandardMaterial>);
+
+/// The type flag of the light sources (`items.pak +0x00`), whose miniatures glow.
+const LIGHT: u32 = 0x2_0000;
+/// How far forward a glow comes, in world units, past the sprites of its cell (`sprites.wesl`
+/// brings them forward a few units at most): over its own lamp, under the next diagonal's.
+const GLOW_FORWARD: f32 = 8.0;
 
 /// `dir/relative` with `..` resolved, relative to `root`, with `/` separators.
 fn asset_path(root: &Path, dir: &Path, relative: &str) -> Result<String> {
@@ -237,6 +259,8 @@ struct Quad {
     texture: Texture,
     corners: [Vec2; 4],
     source: [f32; 4],
+    /// A miniature's size across on screen, by which its glow reaches past it.
+    size: Option<f32>,
 }
 
 /// A sprite assembled from its pieces, one to one, over the rectangle the pieces cover (they may
@@ -424,6 +448,7 @@ fn quad(
             texture: Texture::Atlas(mini.atlas),
             corners,
             source,
+            size: Some(size.x),
         });
     }
     let sprite = assembled.get(&object.sprite)?;
@@ -439,6 +464,7 @@ fn quad(
             Vec2::new(x0, y1),
         ],
         source: [u0, v0, u0 + sprite.width as f32, v0 + sprite.height as f32],
+        size: None,
     })
 }
 
@@ -467,6 +493,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     let right = iso::right();
     let up = iso::up();
     let mut batches: BTreeMap<(Texture, Option<(buildings::Anchor, u8)>), Batch> = BTreeMap::new();
+    let mut glows: BTreeMap<Option<(buildings::Anchor, u8)>, Glows> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
     // The places taken in each cell's chain, by the objects drawn.
     let mut chains: HashMap<u16, u16> = HashMap::new();
@@ -532,6 +559,33 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             }
         };
         let part = part_of(object, sector);
+        // A lamp's glow: each corner of its miniature moved out by its size, so three times it
+        // across and down, the whole texture over it (`0x62E410`).
+        if object.type_flags & LIGHT != 0
+            && let Some(size) = quad.size
+        {
+            let glow = glows.entry(part).or_insert(Glows {
+                part,
+                positions: Vec::new(),
+                uvs: Vec::new(),
+                indices: Vec::new(),
+            });
+            let first = u32::try_from(glow.positions.len())?;
+            let out = [
+                Vec2::new(-size, -size),
+                Vec2::new(size, -size),
+                Vec2::new(size, size),
+                Vec2::new(-size, size),
+            ];
+            for (corner, out) in quad.corners.iter().zip(out) {
+                let p = Vec3::from(at(*corner + out)) - iso::forward() * GLOW_FORWARD;
+                glow.positions.push(p.to_array());
+            }
+            glow.uvs
+                .extend([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+            glow.indices
+                .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
+        }
         let batch = batches.entry((quad.texture, part)).or_insert(Batch {
             texture: source,
             part,
@@ -589,9 +643,43 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     Ok(Statics {
         batches: batches.into_values().collect(),
         pages,
+        glows: glows.into_values().collect(),
         objects: objects.len(),
         drawn,
     })
+}
+
+/// Spawns the glows of a sector, a mesh per building's part and one for the rest, of the
+/// glows' material; returns the entities.
+pub fn spawn_glows(
+    commands: &mut Commands,
+    glows: Vec<Glows>,
+    meshes: &mut Assets<Mesh>,
+    material: &Handle<StandardMaterial>,
+) -> Vec<Entity> {
+    glows
+        .into_iter()
+        .map(|glow| {
+            let mesh = Mesh::new(
+                PrimitiveTopology::TriangleList,
+                RenderAssetUsages::RENDER_WORLD,
+            )
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, glow.positions)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, glow.uvs)
+            .with_inserted_indices(Indices::U32(glow.indices));
+            let mut entity =
+                commands.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.clone())));
+            if let Some((building, mask)) = glow.part {
+                let visibility = if mask == buildings::OUTSIDE {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+                entity.insert((buildings::Part { building, mask }, visibility));
+            }
+            entity.id()
+        })
+        .collect()
 }
 
 /// Spawns a mesh per atlas and per page, unlit, its edges through alpha to coverage; returns the
@@ -786,6 +874,80 @@ pub(crate) mod tests {
         };
         assert_eq!(at(x1 + 3, y1 + 3), [255, 0, 0, 255]);
         assert_eq!(at(x2 + 2, y2 + 2), [7, 7, 7, 7]);
+    }
+
+    #[test]
+    fn a_lamps_miniature_glows_three_times_its_size_about_it() {
+        let dir = std::env::temp_dir().join(format!("opensacred-game-glow-{}", std::process::id()));
+        fs::create_dir_all(dir.join("world")).unwrap();
+        write_atlas(&dir.join("world").join("mini.png"), 256, 256, [255; 4]);
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["mini.png".into()],
+        };
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0,
+        };
+        // Two miniatures of 32 pixels in cell (5, 5): a lamp's and another's.
+        let object = |type_flags| StaticObject {
+            cell: 5 * u16::try_from(SIDE).unwrap() + 5,
+            kind: 1053,
+            flags: MINIATURE,
+            x: 0,
+            y: 240,
+            record: 0,
+            type_flags,
+            mask: 0,
+            sprite: 0,
+            miniature: Some(opensacred_data::world::Miniature {
+                atlas: 0,
+                params: [0, 0, 32, 0, 0],
+            }),
+            children: Vec::new(),
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell; SIDE * SIDE],
+            statics: vec![object(LIGHT | 0x8), object(0x8)],
+            layers: Vec::new(),
+        };
+        let statics = build(
+            &dir,
+            &world,
+            &Sprites {
+                sprites: Vec::new(),
+            },
+            &sector,
+        )
+        .unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let [glow] = &statics.glows[..] else {
+            panic!("{} glows", statics.glows.len());
+        };
+        assert_eq!(glow.positions.len(), 4);
+        let mini: Vec<Vec3> = statics.batches[0].positions[..4]
+            .iter()
+            .map(|&p| Vec3::from(p))
+            .collect();
+        let lit: Vec<Vec3> = glow.positions.iter().map(|&p| Vec3::from(p)).collect();
+        let across = |q: &[Vec3]| (q[1] - q[0]).dot(iso::right());
+        let centre = |q: &[Vec3]| (q[0] + q[2]) / 2.0;
+        assert!((across(&lit) - 3.0 * across(&mini)).abs() < 1e-3);
+        let off = centre(&lit) - centre(&mini);
+        assert!(off.dot(iso::right()).abs() < 1e-3 && off.dot(iso::up()).abs() < 1e-3);
+        // In front of its lamp.
+        assert!((off.dot(iso::forward()) + GLOW_FORWARD).abs() < 1e-3);
     }
 
     #[test]

@@ -20,7 +20,9 @@
 //! hero, of radius 1000 − level · 700/255 between the dusk and the dawn, twice that for the Wood
 //! Elf (`0x54A7B0`). In a dungeon (`world.ron`'s `dungeon`, keyx's entries of code 4) the lights
 //! shine at any hour, the hero's of radius 200, and the colour is a grey ramp,
-//! `(blue ramp) · 0.75 + 64`, whatever the night's level. **Not yet** (#61): the creatures' and
+//! `(blue ramp) · 0.75 + 64`, whatever the night's level. The lamps' glows (`statics`) show from
+//! the dusk to the dawn, (255, 236, 149) at an opacity of half the night's level, and in a
+//! dungeon (255, 218, 43) at 64 out of 255 (`0x62E410`). **Not yet** (#61): the creatures' and
 //! the spells' lights, and the torches.
 
 use std::collections::{HashMap, HashSet};
@@ -32,8 +34,9 @@ use bevy::asset::embedded_asset;
 use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
-    App, Camera, Component, GlobalTransform, Plugin, Projection, Query, Res, ResMut, Resource,
-    Time, Transform, With, Without,
+    AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, GlobalTransform,
+    Plugin, Projection, Query, Res, ResMut, Resource, StandardMaterial, Time, Transform, With,
+    Without, default,
 };
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
@@ -240,6 +243,74 @@ impl Dungeons {
     }
 }
 
+/// The glows' texture, relative to the asset directory (`PARTICLE_GLOW01`).
+#[derive(Resource)]
+pub struct GlowTexture(pub String);
+
+/// Makes the glows' material (`statics::Glow`), hidden until the dusk: the texture times the
+/// colour, unlit, blended over what is drawn by its opacity, as the original blends it.
+pub fn make_glow(
+    mut commands: Commands,
+    texture: Option<Res<GlowTexture>>,
+    assets: Res<AssetServer>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(texture) = texture.filter(|t| !t.0.is_empty()) else {
+        return;
+    };
+    let material = StandardMaterial {
+        base_color: Color::NONE,
+        base_color_texture: Some(assets.load(texture.0.clone())),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        cull_mode: None,
+        ..default()
+    };
+    commands.insert_resource(crate::statics::Glow(materials.add(material)));
+}
+
+/// The glows' colour by the night (`0x62E410`): from the dusk to the dawn (255, 236, 149) at an
+/// opacity of half the night's level, in a dungeon (255, 218, 43) at 64, at any hour; none by day.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "half the night's level, from 0 to 127"
+)]
+fn glow_colour(minutes: f64, dungeon: bool) -> Color {
+    if dungeon {
+        Color::srgba_u8(255, 218, 43, 64)
+    } else if phase(minutes) == Phase::Day {
+        Color::NONE
+    } else {
+        Color::srgba_u8(255, 236, 149, (level(minutes) / 2.0) as u8)
+    }
+}
+
+/// Keeps the glows' colour by the clock and the hero's sector.
+pub fn glow(
+    clock: Res<Clock>,
+    dungeons: Res<Dungeons>,
+    hero: Query<&Transform, With<crate::hero::Body>>,
+    glow: Option<Res<crate::statics::Glow>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Some(glow) = glow else {
+        return;
+    };
+    let dungeon = hero
+        .iter()
+        .next()
+        .is_some_and(|t| dungeons.holds(t.translation.x, t.translation.z));
+    let colour = glow_colour(clock.minutes(), dungeon);
+    if materials
+        .get(&glow.0)
+        .is_some_and(|m| m.base_color != colour)
+        && let Some(mut material) = materials.get_mut(&glow.0)
+    {
+        material.base_color = colour;
+    }
+}
+
 /// A light source in the world, of its radius in the pixels of the original's screen.
 #[derive(Component)]
 pub struct Light(pub f32);
@@ -437,6 +508,25 @@ mod tests {
         assert_eq!(hero_radius(Phase::Night, 255.0, false, true), 600.0);
         assert_eq!(hero_radius(Phase::Dusk, 0.0, false, false), 1000.0);
         assert_eq!(hero_radius(Phase::Night, 255.0, true, true), 200.0);
+    }
+
+    #[test]
+    fn the_glows_show_by_night_and_in_the_dungeons() {
+        let minutes = |h: f64| h * 60.0;
+        assert_eq!(glow_colour(minutes(12.0), false), Color::NONE);
+        assert_eq!(
+            glow_colour(minutes(23.5), false),
+            Color::srgba_u8(255, 236, 149, 127)
+        );
+        // Half way through the dusk: the night's level 127, the glow's opacity 63.
+        assert_eq!(
+            glow_colour(minutes(21.0) + 20.0, false),
+            Color::srgba_u8(255, 236, 149, 63)
+        );
+        assert_eq!(
+            glow_colour(minutes(12.0), true),
+            Color::srgba_u8(255, 218, 43, 64)
+        );
     }
 
     #[test]
