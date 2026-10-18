@@ -4,6 +4,7 @@
 
 mod atmosphere;
 mod benchmark;
+mod buildings;
 mod hero;
 mod hud;
 mod iso;
@@ -408,6 +409,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         cursor: hud::cursor_file(&assets),
     })
     .init_resource::<hero::Ready>()
+    .init_resource::<buildings::Buildings>()
     .init_resource::<npcs::Retextured>()
     .add_observer(npcs::retexture)
     .add_systems(
@@ -431,6 +433,7 @@ fn run(cli: Cli) -> Result<AppExit> {
             hero::toggle,
             hero::steer,
             hero::run,
+            buildings::enter,
             sound::step,
             hero::follow,
             sectors::stream,
