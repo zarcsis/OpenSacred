@@ -390,6 +390,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         cursor: hud::cursor_file(&assets),
     })
     .init_resource::<hero::Ready>()
+    .init_resource::<npcs::Retextured>()
+    .add_observer(npcs::retexture)
     .add_systems(
         Startup,
         (
