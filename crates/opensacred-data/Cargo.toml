@@ -1,7 +1,6 @@
 [package]
 name = "opensacred-data"
 description = "Open-format data types shared by the converter and the game"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

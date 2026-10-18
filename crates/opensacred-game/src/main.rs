@@ -109,7 +109,10 @@ impl Class {
 }
 
 #[derive(Parser)]
-#[command(version, about = "OpenSacred: the game on the converted assets")]
+#[command(
+    version = env!("OPENSACRED_VERSION"),
+    about = "OpenSacred: the game on the converted assets"
+)]
 struct Cli {
     /// Directory of the converted assets (opensacred-convert all)
     #[arg(long, default_value = "assets")]

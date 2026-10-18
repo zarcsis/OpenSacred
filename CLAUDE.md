@@ -12,6 +12,7 @@ An open-source engine for Sacred Gold 2.28 (GOG), written in Rust: an offline co
 | `crates/opensacred-game` | the game on Bevy 0.20 (ADR-04), reading only `assets/`: the M2 vertical slice (streamed sectors with ground, liquids and static objects, the hero walking and running, the start script's NPCs, footsteps, music and ambient loops, a minimal HUD); `--screenshot` saves a frame and exits, `--benchmark` measures |
 | `OriginalGame/` | the developer's own GOG installation, ignored by Git — the reference, read-only |
 | `docs/manifest-gog-2.28.txt` | SHA-256 of the reference installation (`sha256sum` format), embedded in `opensacred-convert` |
+| `build.rs` | the build script of the converter and the game: their `--version` from `git describe` (`Cargo.toml` has no version) |
 | `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`) |
 
 `opensacred-rules`, `opensacred-oracle` (PLAN.md §6.1) appear when their turn comes; do not create them in advance.
@@ -61,6 +62,7 @@ python -I tools/analysis/formats/<script>.py --game-dir ./OriginalGame   # Pytho
 - Branch `<type>/<issue>-<slug>` from a fresh `origin/main` (`git fetch && git switch -c feature/3-roofs origin/main`). Commits and the pull request's title keep the history's `Scope: what` style; the body follows `.github/pull_request_template.md` and starts with `Closes #N`; the pull request takes its issue's label.
 - After the checks of "Before finishing a task": `git push -u origin <branch>`, `gh pr create`, then `gh pr merge --squash --auto`: GitHub merges once the checks are green and deletes the branch. Watch them (`gh pr checks --watch`); a red check is fixed on the branch. Then `git switch main && git pull`.
 - The maintainer merges, and the pull request is labeled `needs-maintainer` instead of merged, when it changes `CLAUDE.md`, `.claude/`, `.github/`, `deny.toml`, `docs/decisions.md`, a screenshot reference or the process (docs/03 §3.6), or comes from someone else. The PreToolUse hook `.claude/hooks/merge_guard.py` refuses `gh pr merge` on such a pull request; do not merge it another way.
+- The label sets the version (docs/03 §3.6): after a merge, the Release workflow tags the squash commit `vX.Y.Z` and publishes a GitHub Release; `feature` raises the minor version, `bug` the patch, the other labels leave it. The major version only when the maintainer asks: `gh workflow run release.yml -f bump=major`.
 - Without an issue: the daily `Dependencies: cargo update` pull request and the session's row of `docs/usage.md` (branch `docs/usage-<date>`, label `docs`), both merged with `--auto`.
 
 ## Before finishing a task

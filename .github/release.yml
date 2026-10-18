@@ -1,0 +1,16 @@
+# The notes of the releases that the Release workflow publishes (docs/03 §3.6): the pull requests
+# since the previous version, by their type label.
+changelog:
+  categories:
+    - title: Features
+      labels: [feature]
+    - title: Fixes
+      labels: [bug]
+    - title: Research
+      labels: [research]
+    - title: Dependencies
+      labels: [deps]
+    - title: Infrastructure and documentation
+      labels: [infra, docs]
+    - title: Other
+      labels: ["*"]

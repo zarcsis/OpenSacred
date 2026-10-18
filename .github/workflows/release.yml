@@ -1,0 +1,92 @@
+# Versions (docs/03 §3.6): a merged pull request labeled `feature` raises the minor version, one
+# labeled `bug` the patch; the other labels leave it. A version is an annotated tag vX.Y.Z on the
+# pull request's squash commit, with a GitHub Release whose notes list the pull requests since the
+# previous version (.github/release.yml). The major version is raised only at the maintainer's
+# request: `gh workflow run release.yml -f bump=major` tags the head of main.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: The part of the version to raise on the head of main
+        type: choice
+        options: [major, minor, patch]
+        default: major
+
+permissions:
+  contents: write # the tags and the releases
+  pull-requests: read # the labels of the merged pull requests
+
+# One run at a time. GitHub keeps only the newest pending run of a group and cancels the others, so a
+# run versions every commit since the last tag, not only its own.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    # Not in forks; a manual run only on main.
+    if: github.repository == 'zarcsis/OpenSacred' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the history and the tags
+      - name: Tag and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # The versions on main, the highest first.
+          versions() { git tag --merged HEAD --list 'v[0-9]*' --sort=-v:refname; }
+          last=$(versions | sed -n 1p)
+          if [[ -z $last ]]; then
+            echo '::error::main has no version tag v*'
+            exit 1
+          fi
+
+          # Publishes the release of tag $1 with the pull requests since tag $2, if any.
+          publish() {
+            gh release create "$1" --verify-tag --title "$1" --generate-notes ${2:+--notes-start-tag "$2"}
+          }
+          # Tags commit $1 with the next version, raising part $2, the message $3, and publishes it.
+          release() {
+            local major minor patch next
+            IFS=. read -r major minor patch <<< "${last#v}"
+            case $2 in
+              major) next=v$((major + 1)).0.0 ;;
+              minor) next=v$major.$((minor + 1)).0 ;;
+              patch) next=v$major.$minor.$((patch + 1)) ;;
+            esac
+            git tag -a "$next" -m "$3" "$1"
+            git push origin "refs/tags/$next"
+            publish "$next" "$last"
+            last=$next
+          }
+
+          # A run that pushed a tag but failed to publish it leaves the release to the next run.
+          if ! gh release view "$last" > /dev/null 2>&1; then
+            publish "$last" "$(versions | sed -n 2p)"
+          fi
+
+          for commit in $(git rev-list --reverse --first-parent "$last..HEAD"); do
+            labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" \
+              --jq ".[] | select(.merge_commit_sha == \"$commit\") | .labels[].name")
+            if grep -qx feature <<< "$labels"; then
+              release "$commit" minor "$(git log -1 --format=%s "$commit")"
+            elif grep -qx bug <<< "$labels"; then
+              release "$commit" patch "$(git log -1 --format=%s "$commit")"
+            fi
+          done
+
+          if [[ -n $BUMP ]]; then
+            release HEAD "$BUMP" "The $BUMP version, raised at the maintainer's request"
+          fi
