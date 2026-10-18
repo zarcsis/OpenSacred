@@ -75,9 +75,10 @@ CELL_CHUNK = CELL_SIZE * CELLS
 # order of every chained record, u32 LE cell index then the record as stored (64 or 16 B), head first, each static
 # followed by its child chain; layers: the inside layers (the third chunk's headers but the ground's); layers_crc:
 # CRC-32 over the inside layers in order of u32 x, u32 y, u16 width, u16 height and the layer's cells as stored;
-# area: keyx +0x2C0; music: keyx +0x2D8, the sound id of the sector's music (0 none).
+# area: keyx +0x2C0; music: keyx +0x2D8, the sound id of the sector's music (0 none); dungeon: 1 when one of the four
+# entries of 28 B from keyx +0x1EE whose bit is set in the mask at +0x1ED starts with the word 4, else 0.
 RECORD_COLUMNS = ('index', 'x', 'y', 'id', 'inflated', 'tail', 'liquids', 'cells_crc', 'tail_crc', 'statics',
-                  'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc', 'area', 'music')
+                  'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc', 'area', 'music', 'dungeon')
 LAYER_HEADER, LAYER_KIND, LAYER_TRAILER = 36, 6, 256
 
 
@@ -217,6 +218,9 @@ def main():
         inflated = struct.unpack_from('<I', r, 0x108)[0]
         liquids = (r[0x2E0], r[0x2E1])
         area, music = r[0x2C0], struct.unpack_from('<I', r, 0x2D8)[0]
+        dungeon = int(any(r[0x1ED] >> k & 1 and struct.unpack_from('<H', r, 0x1EE + 28 * k)[0] == 4
+                          for k in range(4)))
+        stats['dungeons'] += dungeon
         c('keyx: liquid materials 0..13', max(liquids) <= 13, where)
         d = zlib.decompress(wldx[off:off + csize])
         name = d[:32].split(b'\0')[0]
@@ -275,7 +279,7 @@ def main():
         rows.append(dict(index=key, x=x, y=y, id=sector_id, inflated=inflated, tail=len(tail),
                          liquids=f'{liquids[0]},{liquids[1]}', cells_crc=zlib.crc32(cell_bytes),
                          tail_crc=zlib.crc32(tail), statics=n_statics, static_crc=static_crc, floors=n_floors,
-                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc, area=area, music=music))
+                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc, area=area, music=music, dungeon=dungeon))
 
     static_heads = np.concatenate(all_static_heads)
     floor_heads = np.concatenate(all_floor_heads)

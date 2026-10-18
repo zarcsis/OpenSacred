@@ -17,11 +17,13 @@
 //! screen at zoom 1 (`0x41B510`). The sources are the static objects of the types flagged
 //! `0x20000` (the invisible `SimpleLightTiny`, `Small`, `Medium` and `Big`, of radii 220, 300, 450
 //! and 600, some miniatures, the fires), each of its type's radius (`items.pak +0x32`), and the
-//! hero, of radius 1000 − level · 700/255 between the dusk and the dawn (`0x54A7B0`). **Not
-//! yet** (#61): the creatures' and the spells' lights, the torches, the Wood Elf's and the Vampiress's
-//! doubled radius, and the dungeons' grey ramp.
+//! hero, of radius 1000 − level · 700/255 between the dusk and the dawn, twice that for the Wood
+//! Elf (`0x54A7B0`). In a dungeon (`world.ron`'s `dungeon`, keyx's entries of code 4) the lights
+//! shine at any hour, the hero's of radius 200, and the colour is a grey ramp,
+//! `(blue ramp) · 0.75 + 64`, whatever the night's level. **Not yet** (#61): the creatures' and
+//! the spells' lights, and the torches.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -38,7 +40,7 @@ use bevy::render::extract_component::ExtractComponent;
 use bevy::render::render_resource::ShaderType;
 use bevy::shader::ShaderRef;
 use opensacred_data::tables::Item;
-use opensacred_data::world::{Sector, StaticObject};
+use opensacred_data::world::{Sector, StaticObject, World};
 
 /// The shader of [`Night`], embedded in the binary.
 pub const SHADER: &str = "embedded://opensacred_game/night.wesl";
@@ -175,7 +177,8 @@ pub struct Night {
     /// The darkness (`NIGHT_DARKNESS` as a fraction), the dark's level, the day's part out of 1,
     /// and the light sources' count.
     params: Vec4,
-    /// The original's screen pixels per unit of the texture coordinates across and down.
+    /// The original's screen pixels per unit of the texture coordinates across and down, and 1
+    /// in a dungeon.
     scale: Vec4,
     /// The light sources: their texture coordinates and radius in the original's pixels.
     lights: [Vec4; LIGHTS],
@@ -215,6 +218,28 @@ fn radius(item: &Item) -> u16 {
     u16::from_le_bytes([low, high])
 }
 
+/// The dungeons' sectors (`world.ron`).
+#[derive(Resource, Default)]
+pub struct Dungeons(HashSet<(u32, u32)>);
+
+impl Dungeons {
+    pub fn of(world: &World) -> Self {
+        Self(
+            world
+                .sectors
+                .iter()
+                .filter(|s| s.dungeon)
+                .map(|s| (s.x, s.y))
+                .collect(),
+        )
+    }
+
+    /// Whether world `(x, z)` lies in a dungeon's sector.
+    fn holds(&self, x: f32, z: f32) -> bool {
+        self.0.contains(&crate::music::sector_of(x, z))
+    }
+}
+
 /// A light source in the world, of its radius in the pixels of the original's screen.
 #[derive(Component)]
 pub struct Light(pub f32);
@@ -246,13 +271,26 @@ impl FullscreenMaterial for Night {
     }
 }
 
-/// The hero's light's radius at the night's level (`0x54A7B0`): 700, and from the dusk to the
-/// dawn 1000 − level · 700/255.
-fn hero_radius(phase: Phase, level: f32) -> f32 {
-    if phase == Phase::Day {
+/// The hero's light.
+#[derive(Resource, Default)]
+pub struct HeroLight {
+    /// Whether the hero's light is doubled by night: the Wood Elf's, class 5 (and the
+    /// Vampiress's in her night's form, class 7, who is not a class of the game yet).
+    pub doubled: bool,
+}
+
+/// The hero's light's radius at the night's level (`0x54A7B0`): 200 in a dungeon at any hour;
+/// elsewhere 700, and from the dusk to the dawn 1000 − level · 700/255, `doubled` or not. Not
+/// yet: a torch in hand (`TORCH_SMALL_ON`, `TORCH_LARGE_ON`), which makes it 300 in a dungeon and
+/// half as much again elsewhere, and the attribute `0x361`, which replaces it when it is set.
+fn hero_radius(phase: Phase, level: f32, dungeon: bool, doubled: bool) -> f32 {
+    if dungeon {
+        200.0
+    } else if phase == Phase::Day {
         700.0
     } else {
-        1000.0 - level * 700.0 / 255.0
+        let radius = 1000.0 - level * 700.0 / 255.0;
+        if doubled { 2.0 * radius } else { radius }
     }
 }
 
@@ -264,12 +302,18 @@ fn hero_radius(phase: Phase, level: f32) -> f32 {
 )]
 pub fn light(
     clock: Res<Clock>,
+    dungeons: Res<Dungeons>,
+    hero_light: Res<HeroLight>,
     mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
     hero: Query<&Transform, With<crate::hero::Body>>,
     lights: Query<(&Transform, &Light), Without<crate::hero::Body>>,
 ) {
     let minutes = clock.minutes();
     let level = level(minutes) as f32;
+    let dungeon = hero
+        .iter()
+        .next()
+        .is_some_and(|t| dungeons.holds(t.translation.x, t.translation.z));
     for (camera, view, projection, mut night) in &mut cameras {
         let Some(size) = camera.logical_viewport_size() else {
             continue;
@@ -289,7 +333,14 @@ pub fn light(
         };
         let mut found: Vec<(Vec2, f32)> = hero
             .iter()
-            .filter_map(|t| uv(t.translation).map(|p| (p, hero_radius(phase(minutes), level))))
+            .filter_map(|t| {
+                uv(t.translation).map(|p| {
+                    (
+                        p,
+                        hero_radius(phase(minutes), level, dungeon, hero_light.doubled),
+                    )
+                })
+            })
             .chain(
                 lights
                     .iter()
@@ -312,7 +363,7 @@ pub fn light(
         }
         let next = Night {
             params: Vec4::new(DARKNESS, DARK, (255.0 - level) / 255.0, found.len() as f32),
-            scale: Vec4::new(across, down, 0.0, 0.0),
+            scale: Vec4::new(across, down, f32::from(u8::from(dungeon)), 0.0),
             lights,
         };
         if night.params != next.params || night.scale != next.scale || night.lights != next.lights {
@@ -381,8 +432,11 @@ mod tests {
         };
         let found = sources(&sector, &types);
         assert_eq!(found, [(crate::iso::ground(10.0, 4.0), 300.0)]);
-        assert_eq!(hero_radius(Phase::Night, 255.0), 300.0);
-        assert_eq!(hero_radius(Phase::Dusk, 0.0), 1000.0);
+        assert_eq!(hero_radius(Phase::Day, 0.0, false, true), 700.0);
+        assert_eq!(hero_radius(Phase::Night, 255.0, false, false), 300.0);
+        assert_eq!(hero_radius(Phase::Night, 255.0, false, true), 600.0);
+        assert_eq!(hero_radius(Phase::Dusk, 0.0, false, false), 1000.0);
+        assert_eq!(hero_radius(Phase::Night, 255.0, true, true), 200.0);
     }
 
     #[test]

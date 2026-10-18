@@ -230,6 +230,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
             file: format!("sectors/{}", file_name(k.x, k.y)),
             music: k.music,
             area: k.area,
+            dungeon: k.dungeon,
         })
         .collect();
     entries.sort_by_key(|e| (e.y, e.x));

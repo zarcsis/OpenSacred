@@ -10,7 +10,8 @@ import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 struct Night {
     /// The darkness, the dark's level, the day's part out of 1, the light sources' count.
     params: vec4<f32>,
-    /// The original's screen pixels per unit of the texture coordinates across and down.
+    /// The original's screen pixels per unit of the texture coordinates across and down, and 1
+    /// in a dungeon.
     scale: vec4<f32>,
     /// The light sources: texture coordinates, and radius in the original's pixels.
     lights: array<vec4<f32>, 32>,
@@ -48,6 +49,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // to white.
     let base = 64.0 + 64.0 * night.params.x;
     let ramp = vec3(base + level / 4.0, base + level / 4.0, base + level / 3.0) / 255.0;
-    let light = min(ramp + night.params.z, vec3(1.0));
+    var light = min(ramp + night.params.z, vec3(1.0));
+    // In a dungeon, at any hour: the grey ramp, the blue one's three quarters and 64.
+    if night.scale.z > 0.5 {
+        light = vec3(((base + level / 3.0) * 0.75 + 64.0) / 255.0);
+    }
     return vec4(to_linear(to_srgb(colour.rgb) * light), colour.a);
 }

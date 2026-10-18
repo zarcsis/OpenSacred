@@ -63,6 +63,9 @@ pub struct SectorKey {
     /// `+0x2D8`: the sound id of the sector's music (`MUSIC_WOOD01` in the start sector), 0 for
     /// none (docs/re/sound.md).
     pub music: u32,
+    /// Whether the sector is a dungeon: of the four entries of 28 bytes from `+0x1EE`, one whose
+    /// bit is set in the mask at `+0x1ED` starts with the word 4 (`0x622E20`, docs/re/daynight.md).
+    pub dungeon: bool,
 }
 
 impl Keyx {
@@ -106,6 +109,14 @@ impl Keyx {
             let compressed = r.u32()?;
             skip_to(&mut r, start, 0x108)?;
             let inflated = r.u32()?;
+            skip_to(&mut r, start, 0x1ED)?;
+            let mask = r.u8()?;
+            let mut dungeon = false;
+            for entry in 0..4 {
+                let code = r.u16()?;
+                dungeon |= mask & (1 << entry) != 0 && code == 4;
+                r.bytes(26, "keyx sector entry")?;
+            }
             skip_to(&mut r, start, 0x2C0)?;
             let area = r.u8()?;
             skip_to(&mut r, start, 0x2D8)?;
@@ -123,6 +134,7 @@ impl Keyx {
                 layers,
                 area,
                 music,
+                dungeon,
             });
         }
         Ok(Self { sectors })
