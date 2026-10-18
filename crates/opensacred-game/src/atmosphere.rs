@@ -3,9 +3,9 @@
 //! `DESERT` and `KIES` play `ATMO_DESERT`, `ARCTIC` `ATMO_ICE`, `WALD`, `GRASS` and `SUMPF`
 //! `ATMO_WOOD`, `LAVA` `ATMO_VULCANO`, `DUNGEON` `ATMO_DUNGEON`; the other natures (bridges,
 //! waters, roads, floors) keep the loop that plays. The same function picks the `…_NIGHT` loops
-//! by night (a second switch at `0x696BDA`) and leaves the loop alone while some regions' music
-//! plays (docs/re/sound.md); the night is not in the game yet, and the regions' exceptions are
-//! not followed, so the day's loops play.
+//! in the dusk and by night (a second switch at `0x696BDA`, by the phase of the day at `+0xA34`,
+//! docs/re/daynight.md) and leaves the loop alone while some regions' music plays
+//! (docs/re/sound.md); the regions' exceptions are not followed.
 
 use std::collections::HashMap;
 use std::fs;
@@ -18,6 +18,7 @@ use bevy::prelude::{AssetServer, Handle, Query, Res, ResMut, Resource, Time, Tra
 use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTween, Decibels};
 use opensacred_data::sound::Sound;
 
+use crate::daynight::{Clock, Phase};
 use crate::hero::Body;
 use crate::terrain::Heights;
 
@@ -40,6 +41,25 @@ const DAY: [Option<&str>; 16] = [
     None,
     Some("SOUND_FX_ATMO_DESERT"),
 ];
+/// The ambient loop of each nature in the dusk and by night (`0x696BDA`).
+const NIGHT: [Option<&str>; 16] = [
+    None,
+    Some("SOUND_FX_ATMO_DESERT_NIGHT"),
+    Some("SOUND_FX_ATMO_ICE_NIGHT"),
+    Some("SOUND_FX_ATMO_WOOD_NIGHT"),
+    Some("SOUND_FX_ATMO_WOOD_NIGHT"),
+    Some("SOUND_FX_ATMO_WOOD_NIGHT"),
+    Some("SOUND_FX_ATMO_VULCANO_NIGHT"),
+    None,
+    Some("SOUND_FX_ATMO_WOOD_NIGHT"),
+    None,
+    None,
+    None,
+    None,
+    None,
+    None,
+    Some("SOUND_FX_ATMO_DESERT_NIGHT"),
+];
 const FADE: Duration = Duration::from_secs(3);
 /// How long the hero stays on ground that calls for another loop before it changes: walking along
 /// a border changes nothing.
@@ -53,8 +73,9 @@ pub struct Channel;
 
 #[derive(Resource)]
 pub struct Atmosphere {
-    /// The loop file of each nature, relative to the asset directory.
+    /// The loop file of each nature, relative to the asset directory, by day and by night.
     files: [Option<String>; 16],
+    night: [Option<String>; 16],
     /// The loop file playing.
     playing: Option<String>,
     /// The loop the ground calls for, and since when.
@@ -79,6 +100,7 @@ impl Atmosphere {
         };
         Ok(Self {
             files: DAY.map(|name| name.and_then(file)),
+            night: NIGHT.map(|name| name.and_then(file)),
             playing: None,
             wanted: None,
             loaded: HashMap::new(),
@@ -94,6 +116,7 @@ pub fn choose(
     time: Res<Time>,
     channel: Res<AudioChannel<Channel>>,
     assets: Res<AssetServer>,
+    clock: Res<Clock>,
 ) {
     let Some(hero) = bodies.iter().next() else {
         return;
@@ -101,7 +124,11 @@ pub fn choose(
     let Some(nature) = heights.nature(hero.translation.x, hero.translation.z) else {
         return;
     };
-    let Some(Some(file)) = atmosphere.files.get(usize::from(nature)).cloned() else {
+    let files = match clock.phase() {
+        Phase::Dusk | Phase::Night => &atmosphere.night,
+        Phase::Day | Phase::Dawn => &atmosphere.files,
+    };
+    let Some(Some(file)) = files.get(usize::from(nature)).cloned() else {
         return;
     };
     let now = time.elapsed();
