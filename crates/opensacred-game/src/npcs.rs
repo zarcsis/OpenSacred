@@ -11,6 +11,12 @@
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
 //! same reading).
 //!
+//! A position's third number is the layer the object lies in (**hypothesis**, docs/re/drawing.md):
+//! the client draws a building's cells with the world's objects of the building's current layer,
+//! layer 0 while the hero is outside. The game has no buildings' layers yet (#3), so the objects
+//! of the upper layers, the furniture inside the houses, stay hidden: drawn, they stood over the
+//! houses' walls.
+//!
 //! The model takes the texture its `items.pak` record names at `+0x08`, a `texture.pak` record,
 //! in place of the GRN's own (docs/02 §6.1): the chests, vases and coffins of `chest.grn`,
 //! `vase_01.grn` and `coffin_01.grn` have none of their own, and the soldiers, horses, wolves
@@ -27,7 +33,7 @@ use bevy::prelude::{
     AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, AssetId,
     AssetServer, Assets, ChildOf, Children, Commands, Component, Entity, GltfAssetLabel, Handle,
     Image, MeshMaterial3d, On, Query, Res, ResMut, Resource, StandardMaterial, Transform, Vec3,
-    Without, WorldAssetRoot,
+    Visibility, Without, WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Record, Tree, Value};
@@ -56,6 +62,8 @@ struct Placement {
     object: bool,
     /// The texture its item names (`+0x08`), relative to the asset directory.
     texture: Option<String>,
+    /// The position's third number, the layer.
+    layer: i32,
 }
 
 #[derive(Resource)]
@@ -68,6 +76,11 @@ pub struct Npcs {
 /// An object of the start script.
 #[derive(Component)]
 pub struct Object;
+
+/// A placed NPC or object of a layer above 0: inside a building, hidden until the game draws the
+/// buildings' layers.
+#[derive(Component)]
+pub struct UpperLayer;
 
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
 #[derive(Component)]
@@ -138,6 +151,21 @@ fn positions(records: &[Record]) -> HashMap<String, (i32, i32)> {
             Some((name.to_ascii_lowercase(), (x, y)))
         })
         .collect()
+}
+
+/// A record's position (`0x04`): the global cell and the layer, of a `DefPos` name (layer 0) or
+/// given as `(x, y, layer)`.
+fn position(
+    ops: &[opensacred_data::netscript::Operand],
+    named: &HashMap<String, (i32, i32)>,
+) -> Option<(i32, i32, i32)> {
+    ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (0x04, Value::Name(name)) => named
+            .get(&name.to_ascii_lowercase())
+            .map(|&(x, y)| (x, y, 0)),
+        (0x04, Value::I32x3([x, y, layer])) => Some((*x, *y, *layer)),
+        _ => None,
+    })
 }
 
 /// The PNG of every `texture.pak` record (`textures/texture/NNNNN-name.png`), by its number,
@@ -221,16 +249,12 @@ impl Npcs {
                 (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
                 _ => None,
             });
-            let cell = ops.iter().find_map(|o| match (o.tag, &o.value) {
-                (0x04, Value::Name(name)) => named.get(&name.to_ascii_lowercase()).copied(),
-                (0x04, Value::I32x3([x, y, _])) => Some((*x, *y)),
-                _ => None,
-            });
+            let cell = position(ops, &named);
             let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
                 (0x03, Value::U16(v)) => Some(f32::from(*v)),
                 _ => None,
             });
-            let (Some(creature), Some((x, y))) = (creature, cell) else {
+            let (Some(creature), Some((x, y, layer))) = (creature, cell) else {
                 continue;
             };
             let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
@@ -252,6 +276,7 @@ impl Npcs {
                 heading: heading.unwrap_or(0.0),
                 object: record.kind == CREATE_OBJ,
                 texture,
+                layer,
             });
         }
         let side = u32::try_from(SIDE)?;
@@ -309,6 +334,9 @@ pub fn place(
                     .with_rotation(hero::facing(heading(placement.heading)))
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
             ));
+            if placement.layer != 0 {
+                entity.insert((UpperLayer, Visibility::Hidden));
+            }
             if let Some(texture) = &placement.texture {
                 // Repeated, as a glTF texture without a sampler is: the models' texture
                 // coordinates run past the image (the lid of `chest.grn` from -0.99 to -0.36).
@@ -474,5 +502,10 @@ mod tests {
         let named = positions(&records);
         assert_eq!(named.len(), 1);
         assert_eq!(named["hauptmann3"], (3349, 2534));
+        // A name is on layer 0; a cell carries its layer.
+        let at = |value| position(&[op(0x02, Value::I32(5207)), op(0x04, value)], &named);
+        assert_eq!(at(Value::Name("HAUPTMANN3".into())), Some((3349, 2534, 0)));
+        assert_eq!(at(Value::I32x3([3259, 2569, 1])), Some((3259, 2569, 1)));
+        assert_eq!(at(Value::Name("elsewhere".into())), None);
     }
 }

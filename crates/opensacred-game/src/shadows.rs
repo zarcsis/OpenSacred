@@ -10,7 +10,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::hero::Body;
 use crate::iso;
-use crate::npcs::Npc;
+use crate::npcs::{Npc, UpperLayer};
 use crate::statics;
 use crate::terrain::Heights;
 
@@ -99,8 +99,12 @@ pub fn setup(
     });
 }
 
-/// Gives each new character a shadow.
-pub fn add(mut commands: Commands, blob: Res<Blob>, characters: Query<Entity, NewCharacter>) {
+/// Gives each new character a shadow, but those of the hidden layers.
+pub fn add(
+    mut commands: Commands,
+    blob: Res<Blob>,
+    characters: Query<Entity, (NewCharacter, Without<UpperLayer>)>,
+) {
     for character in &characters {
         commands.spawn((
             Mesh3d(blob.mesh.clone()),
