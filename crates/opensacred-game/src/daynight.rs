@@ -22,7 +22,7 @@
 //! shine at any hour, the hero's of radius 200, and the colour is a grey ramp,
 //! `(blue ramp) · 0.75 + 64`, whatever the night's level. The lamps' glows (`statics`) show from
 //! the dusk to the dawn, (255, 236, 149) at an opacity of half the night's level, and in a
-//! dungeon (255, 218, 43) at 64 out of 255 (`0x62E410`). **Not yet** (#61): the creatures' and
+//! dungeon (255, 218, 43) at 64 out of 255 (`0x62FF60`). **Not yet** (#61): the creatures' and
 //! the spells' lights, and the torches.
 
 use std::collections::{HashMap, HashSet};
@@ -271,7 +271,7 @@ pub fn make_glow(
     commands.insert_resource(crate::statics::Glow(materials.add(material)));
 }
 
-/// The glows' colour by the night (`0x62E410`): from the dusk to the dawn (255, 236, 149) at an
+/// The glows' colour by the night (`0x62FF60`): from the dusk to the dawn (255, 236, 149) at an
 /// opacity of half the night's level, in a dungeon (255, 218, 43) at 64, at any hour; none by day.
 #[expect(
     clippy::cast_possible_truncation,

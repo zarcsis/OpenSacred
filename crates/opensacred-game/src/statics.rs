@@ -12,7 +12,7 @@
 //! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
 //! one mesh; the animated ones (flag 0x40) show their first frame, still. A light source's
 //! miniature (type flag `0x20000`, the lamps) carries a glow, a quad of `PARTICLE_GLOW01` three
-//! times its size about it, which `daynight` shows by night (`0x62E410`, docs/re/daynight.md).
+//! times its size about it, which `daynight` shows by night (`0x62FF60`, docs/re/daynight.md).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -208,15 +208,17 @@ pub fn read_sprites(assets: &Path) -> Result<Sprites> {
 
 /// Flags of objects the original does not draw with the world's art (`0x0062AE90`, openheilig).
 const HIDDEN: u32 = 0x290;
-/// The object flag of a building's parts that the building's state chooses by their mask
-/// (docs/re/drawing.md).
+/// The object flag of a building's parts of list 3 that the building's state chooses by their
+/// mask (docs/re/drawing.md).
 const BUILDING_PART: u32 = 0x8;
 
-/// The building and the mask of `object`, if it is a part flagged [`BUILDING_PART`] in a
-/// building's cell: the client draws it only while its building's state is its mask
-/// (`0x62AE90`); the shells have mask 1, the rooms cut open and their furniture the masks above.
+/// The building and the mask of `object`, if it is a part of a building: in a building's cell,
+/// an object flagged [`BUILDING_PART`] or of a type of lists 0, 2 and 4 ([`UNDERLAY`],
+/// [`OVERLAY`]), whatever its flags. The client draws it only while its building's state is its
+/// mask (`0x62AE90`): the shells have mask 1, the rooms cut open and their furniture the masks
+/// above, and the miniatures under a building mask 0, which no state shows.
 fn part_of(object: &StaticObject, sector: &Sector) -> Option<(buildings::Anchor, u8)> {
-    if object.flags & BUILDING_PART == 0 {
+    if object.flags & BUILDING_PART == 0 && object.type_flags & (UNDERLAY | OVERLAY) == 0 {
         return None;
     }
     buildings::anchor(sector, usize::from(object.cell)).map(|building| (building, object.mask))
@@ -560,7 +562,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
         };
         let part = part_of(object, sector);
         // A lamp's glow: each corner of its miniature moved out by its size, so three times it
-        // across and down, the whole texture over it (`0x62E410`).
+        // across and down, the whole texture over it (`0x62FF60`).
         if object.type_flags & LIGHT != 0
             && let Some(size) = quad.size
         {
@@ -776,14 +778,14 @@ pub(crate) mod tests {
             flags,
             ground: 0,
         };
-        let part = |flags, mask| StaticObject {
+        let part = |flags, type_flags, mask| StaticObject {
             cell: 0,
             kind: 1,
             flags,
             x: 0,
             y: 0,
             record: 0,
-            type_flags: 0,
+            type_flags,
             mask,
             sprite: 1,
             miniature: None,
@@ -800,10 +802,23 @@ pub(crate) mod tests {
         };
         // A room's candle and the shell's wall, of the building at their cell's offsets (none
         // here); a part outside a building, an ordinary static.
-        assert_eq!(part_of(&part(0x8, 2), &sector(0x3)), Some(((0, 0), 2)));
-        assert_eq!(part_of(&part(0x8, 1), &sector(0x1)), Some(((0, 0), 1)));
-        assert_eq!(part_of(&part(0x8, 4), &sector(0x0)), None);
-        assert_eq!(part_of(&part(0x0, 2), &sector(0x1)), None);
+        assert_eq!(part_of(&part(0x8, 0x9, 2), &sector(0x3)), Some(((0, 0), 2)));
+        assert_eq!(part_of(&part(0x8, 0x9, 1), &sector(0x1)), Some(((0, 0), 1)));
+        assert_eq!(part_of(&part(0x8, 0x9, 4), &sector(0x0)), None);
+        assert_eq!(part_of(&part(0x0, 0x1_0009, 2), &sector(0x1)), None);
+        // In a building's cell the objects of lists 0, 2 and 4 are parts whatever their flags: a
+        // slab's miniature of mask 0 under the chapel's stairs, which no state shows (#82), a
+        // flower of mask 1 and an object over the sprites; outside a building, none.
+        assert_eq!(
+            part_of(&part(0x20, 0xC, 0), &sector(0x1)),
+            Some(((0, 0), 0))
+        );
+        assert_eq!(part_of(&part(0x0, 0xD, 1), &sector(0x1)), Some(((0, 0), 1)));
+        assert_eq!(
+            part_of(&part(0x0, 0x80_0009, 2), &sector(0x1)),
+            Some(((0, 0), 2))
+        );
+        assert_eq!(part_of(&part(0x20, 0xC, 0), &sector(0x0)), None);
     }
 
     #[test]
