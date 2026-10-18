@@ -660,6 +660,7 @@ pub fn animate(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut players: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
     parents: Query<&ChildOf>,
+    speed: Res<hero::GameSpeed>,
 ) {
     for (entity, mut player) in &mut players {
         // The NPC this player belongs to: the nearest ancestor with `Npc`.
@@ -696,7 +697,7 @@ pub fn animate(
             npc.graph = Some((graphs.add(graph), node));
         }
         if let Some((graph, node)) = npc.graph.clone() {
-            player.play(node).repeat();
+            player.play(node).repeat().set_speed(speed.0);
             commands.entity(entity).insert(AnimationGraphHandle(graph));
         }
     }
