@@ -12,8 +12,9 @@ on: a session moves to another branch only by a command of its own (`git switch`
 `gh pr checkout`, `gh pr merge`, entering or leaving a worktree), during it or within 30 seconds after it, as the
 recorded branch follows a switch a few seconds late. A session that `cd`s into a linked worktree keeps recording its
 own checkout's branch, so a message in a linked worktree has the worktree's branch: the one the session gave it
-(`git worktree add -b`, `EnterWorktree`), else the one it is on now; and a branch the session renamed
-(`git branch -m`) counts under its new name. Model responses are taken once
+(`git worktree add -b`, `EnterWorktree`), else the one it is on now. So does a response whose tool calls work in a
+linked worktree from elsewhere (a `cd` or `git -C` into it, a file tool on a path in it), with their results. A
+branch the session renamed (`git branch -m`) counts under its new name. Model responses are taken once
 each (by message.id), and the cost is computed at prices per 1M tokens (cache write: 5 minutes = 1.25× input,
 1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs on a Claude
 subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an owner's
@@ -55,6 +56,13 @@ GRACE = dt.timedelta(seconds=30)
 ADD = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?worktree\s+add\s+([^\n;&|]*)')
 RENAME = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?branch\s+(?:-[mM]|--move)\s+([^\n;&|]*)')
 ENTERED = re.compile(r'(?:Created|Entered) worktree at (.+?) on branch (\S+?)\.(?:\s|$)')
+# Where a shell command works: a change of directory or `git -C`; and the variables it assigns itself (Bash's
+# NAME=value, PowerShell's $name = value) and uses.
+WORKS_IN = re.compile(r'(?:^|[\n;&|(])\s*(?:cd|pushd|Set-Location|Push-Location)\s+(?:-(?:Literal)?Path\s+)?'
+                      r'("[^"]*"|\'[^\']*\'|[^\s;&|)]+)|\bgit\s+-C\s+("[^"]*"|\'[^\']*\'|\S+)', re.I)
+ASSIGN = re.compile(r'(?:^|[\n;&|(])\s*(?:\$(\w+)\s*=\s*|([A-Za-z_]\w*)=)("[^"\n]*"|\'[^\'\n]*\'|[^\s;&|]+)')
+VARIABLE = re.compile(r'\$(?:\{(\w+)\}|(\w+))')
+FILE_INPUTS = ('file_path', 'notebook_path', 'path')
 BEGIN, END = '<!-- usage:begin -->', '<!-- usage:end -->'
 ATTRIBUTION = '🤖 Generated with'
 WORKFLOW = 'usage.yml'
@@ -153,6 +161,32 @@ def result_text(block):
     return c if isinstance(c, str) else ' '.join(b.get('text', '') for b in c or () if isinstance(b, dict))
 
 
+def expand(command):
+    """A shell command with the variables it assigns itself replaced by their values (W="…", $w = '…'), so that
+    the paths it works on can be read; other variables stay as they are."""
+    values = {}
+
+    def value(m):
+        return values.get((m[1] or m[2]).lower(), m[0])
+
+    for ps, sh, v in ASSIGN.findall(command):
+        values[(ps or sh).lower()] = VARIABLE.sub(value, v.strip('\'"'))
+    return VARIABLE.sub(value, command) if values else command
+
+
+def worked_in(block, cwd):
+    """The directories a tool call run in cwd works in: a shell command's changes of directory, its `git -C` and
+    the worktrees it adds, and a file tool's path."""
+    inp = block.get('input') or {}
+    out = []
+    if isinstance(inp.get('command'), str):
+        command = expand(inp['command'])
+        out += [(a or b).strip('\'"') for a, b in WORKS_IN.findall(command)]
+        out += [w for w, _ in worktree_adds(command, cwd)]
+    out += [inp[k] for k in FILE_INPUTS if isinstance(inp.get(k), str)]
+    return [norm(os.path.join(cwd, native(d))) for d in out if '$' not in d]
+
+
 def ts(s):
     return dt.datetime.fromisoformat(s.replace('Z', '+00:00'))
 
@@ -227,27 +261,37 @@ def session_events(path, seen, top, linked):
     checkout starts on the session's branch, one in a worktree of its own on its worktree's. In a linked worktree it
     is the worktree's, since a session that `cd`s into one keeps recording its own checkout's branch: the latest the
     session gave the worktree by then (`git worktree add -b`, EnterWorktree), else the one it is on now (linked),
-    else the recorded one unless neutral, else the worktree itself, which no pull request is on. A branch the
-    session renamed counts under its new name."""
+    else the recorded one unless neutral, else the worktree itself, which no pull request is on. A response whose
+    tool calls work in one linked worktree from elsewhere (worked_in), and their results, are in that worktree. A
+    branch the session renamed counts under its new name."""
     sid = os.path.splitext(os.path.basename(path))[0]
     sub = sorted(glob.glob(os.path.join(os.path.dirname(path), sid, '**', '*.jsonl'), recursive=True))
     files, given, renamed = [], [], []
     for f in [path] + sub:
         rows, calls, entering, windows, cwd = [], {}, set(), [], None
+        called, responding = {}, {}  # the directories each tool call and each response works in
         for d in records(f):
             t = d.get('type')
             if t not in ('user', 'assistant') or 'timestamp' not in d:
                 continue
             when, here = ts(d['timestamp']), d.get('cwd') and norm(d['cwd'])
             cwd = cwd or here
-            content = d.get('message', {}).get('content')
+            m = d.get('message', {})
+            content, results = m.get('content'), []
             for block in content if isinstance(content, list) else ():
                 if not isinstance(block, dict):
                     continue
-                command = (block.get('input') or {}).get('command') if block.get('type') == 'tool_use' else None
-                if isinstance(command, str) and here:
-                    given += [(when, w, b) for w, b in worktree_adds(command, here)]
-                    renamed += [(when, len(files)) + r for r in branch_renames(command, here)]
+                if block.get('type') == 'tool_use' and here:
+                    dirs = called[block.get('id')] = worked_in(block, here)
+                    if m.get('id'):
+                        responding.setdefault(m['id'], []).extend(dirs)
+                    command = (block.get('input') or {}).get('command')
+                    if isinstance(command, str):
+                        command = expand(command)
+                        given += [(when, w, b) for w, b in worktree_adds(command, here)]
+                        renamed += [(when, len(files)) + r for r in branch_renames(command, here)]
+                elif block.get('type') == 'tool_result':
+                    results.append(block.get('tool_use_id'))
                 if moves(block) and block.get('id'):
                     calls[block['id']] = when
                     if block.get('name') == 'EnterWorktree':
@@ -260,7 +304,6 @@ def session_events(path, seen, top, linked):
             if not d.get('uuid') or d['uuid'] in seen:
                 continue
             seen.add(d['uuid'])
-            m = d.get('message', {})
             usage = None
             # '<synthetic>' marks the messages that Claude Code writes itself, such as an interruption.
             if t == 'assistant' and m.get('usage') and m.get('id') and m['id'] not in seen \
@@ -268,7 +311,11 @@ def session_events(path, seen, top, linked):
                 seen.add(m['id'])
                 usage = m['usage']
             kind = 'prompt' if is_prompt(d) else t
-            rows.append((when, d.get('gitBranch'), kind, m.get('model'), usage, not files, here))
+            rows.append((when, d.get('gitBranch'), kind, m.get('model'), usage, not files, here,
+                         m.get('id') if t == 'assistant' else None, results))
+        # A response works where its tool calls do, its first line (which carries the usage) included, and a tool
+        # result where its call does.
+        rows = [r[:7] + (responding.get(r[7]) or [p for c in r[8] for p in called.get(c, ())],) for r in rows]
         rows.sort(key=lambda e: e[0])
         # A moving call without its result yet (the transcript is still being written) moves the session until now.
         windows += [(a, dt.datetime.now(dt.timezone.utc)) for a in calls.values()]
@@ -276,11 +323,16 @@ def session_events(path, seen, top, linked):
     given.sort(key=lambda e: e[0])
     known = sorted(set(linked) | {w for _, w, _ in given}, key=len, reverse=True)
 
-    def branch(place, when, recorded, own):
+    def branch(place, dirs, when, recorded, own):
         w = place and in_worktree(place, known, top)
+        worked = {in_worktree(p, known, top) for p in dirs} - {None}
+        if len(worked) == 1 and w not in worked:  # from elsewhere: the recorded branch is the checkout's
+            w, recorded = worked.pop(), None
         if not w:
             return own
-        b = next((g for t, p, g in reversed(given) if p == w and t <= when), linked.get(w))
+        # Before the first branch the session gave it, the response that gives it (whose first line comes first).
+        ties = [(t, g) for t, p, g in given if p == w]
+        b = next((g for t, g in reversed(ties) if t <= when), ties[0][1] if ties else linked.get(w))
         return b or (recorded if recorded not in NEUTRAL else 'worktree ' + w)
 
     session, checkout = [], files[0][2]
@@ -289,7 +341,7 @@ def session_events(path, seen, top, linked):
         if i and rows and cwd == checkout:
             start = next((b for t, b in reversed(session) if t <= rows[0][0]), None)
         own = own_branches([r[:2] for r in rows], windows, start)
-        branches = [branch(r[6], r[0], r[1], b) for r, b in zip(rows, own)]
+        branches = [branch(r[6], r[7], r[0], r[1], b) for r, b in zip(rows, own)]
         if i == 0:
             session = [(r[0], b) for r, b in zip(rows, branches)]
         files[i] = rows, branches
@@ -297,8 +349,8 @@ def session_events(path, seen, top, linked):
     for when, i, place, old, new in sorted(renamed, key=lambda e: e[0]):
         if old is None:  # the branch of the directory it ran in
             rows, branches = files[i]
-            old = branch(place, when, None, next((b for r, b in zip(reversed(rows), reversed(branches))
-                                                 if r[0] <= when), None))
+            old = branch(place, (), when, None, next((b for r, b in zip(reversed(rows), reversed(branches))
+                                                     if r[0] <= when), None))
         if old not in NEUTRAL and old != new:
             names = {k: new if v == old else v for k, v in names.items()}
             names[old] = new
