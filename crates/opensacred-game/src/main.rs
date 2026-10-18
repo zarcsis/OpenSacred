@@ -5,6 +5,7 @@
 mod atmosphere;
 mod benchmark;
 mod buildings;
+mod daynight;
 mod hero;
 mod hud;
 mod iso;
@@ -186,6 +187,9 @@ struct Cli {
     /// Render without vsync for this many seconds, print the frame rate and exit
     #[arg(long, value_name = "SECONDS")]
     benchmark: Option<f32>,
+    /// The time of day at the start, as HH:MM (08:00, as in the original)
+    #[arg(long, value_parser = daynight::parse_time)]
+    time: Option<daynight::Clock>,
 }
 
 /// `x,y` of an offset in cells.
@@ -253,7 +257,10 @@ fn task_pools() -> TaskPoolOptions {
 struct Zoom(f32);
 
 fn camera(mut commands: Commands, hero: Res<hero::Hero>, zoom: Res<Zoom>) {
-    commands.spawn(iso::camera(hero.position, zoom.0));
+    commands.spawn((
+        iso::camera(hero.position, zoom.0),
+        daynight::Night::default(),
+    ));
 }
 
 fn run(cli: Cli) -> Result<AppExit> {
@@ -354,7 +361,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         terrain::GroundPlugin,
         models::ModelsPlugin,
+        daynight::DayNightPlugin,
     ))
+    .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(footsteps)
     .insert_resource(streamer)
@@ -407,7 +416,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         )
             .chain(),
     )
-    .add_systems(Update, (hud::scale, hud::gait, liquids::animate));
+    .add_systems(Update, (hud::scale, hud::gait, liquids::animate))
+    .add_systems(Update, (daynight::tick, daynight::light).chain());
     if !cli.no_music {
         app.add_audio_channel::<atmosphere::Channel>()
             .add_audio_channel::<music::Channel>()

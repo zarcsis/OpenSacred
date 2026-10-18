@@ -34,4 +34,4 @@ The glows of the lamps (`PARTICLE_GLOW01`) take `N` in their alpha at night (`0x
 
 ## In `opensacred-game`
 
-Not yet (#5): the world is lit as at noon.
+`daynight` keeps the clock (08:00 at the start, `--time HH:MM` for another hour), advances it by 24 seconds a second of the frames' time, and takes its phase and the night's level as above. The colour by the night is laid over the frame drawn, a fullscreen pass that multiplies each pixel's 8-bit values by it (`night.wesl`; the interface is drawn after it), rather than over each vertex: the same for the art, which the original multiplies by its vertices' colour, but not for what the original blends (docs/decisions.md). The light sources are not read yet (#59), so the light's level is 32 everywhere and the night a uniform grey of (104, 104, 107); the dungeons' grey ramp is not used. The ambient loops of the night play in the dusk and by night (`atmosphere`), and no music starts by night (`music`).

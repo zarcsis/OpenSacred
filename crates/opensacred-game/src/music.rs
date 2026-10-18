@@ -10,8 +10,8 @@
 //! The profile names the music by sound id in groups that the client names `PEACE`, `NEARBY`,
 //! `FIGHT` and the jingles of danger and of fights (docs/re/sound.md): `PEACE` and `NEARBY` hold
 //! the wood tracks (`MUSIC_WOOD01` to `03`), `FIGHT` the first four fight tracks; where the client
-//! switches to the others is not read yet. The night, which plays no music, is not in the game
-//! yet (#5).
+//! switches to the others is not read yet. By night no track starts (the client plays none, its
+//! phase of the day at `+0xA34` being 2, docs/re/daynight.md); the one playing plays to its end.
 
 use std::collections::HashMap;
 use std::fs;
@@ -27,6 +27,7 @@ use bevy_kira_audio::prelude::{
 use opensacred_data::sound::Sound;
 use opensacred_data::world::{SIDE, World};
 
+use crate::daynight::{Clock, Phase};
 use crate::{hero, iso};
 
 const PROFILE: &str = "music";
@@ -135,6 +136,7 @@ pub fn play(
     assets: Res<AssetServer>,
     time: Res<Time>,
     bodies: Query<&Transform, With<hero::Body>>,
+    clock: Res<Clock>,
 ) {
     // Nothing before the hero is in the world: its sector chooses.
     let Some(hero) = bodies.iter().next() else {
@@ -173,6 +175,10 @@ pub fn play(
                 return;
             }
         }
+    }
+    if clock.phase() == Phase::Night {
+        music.playing = None;
+        return;
     }
     let file = match &region {
         Some(file) => file.clone(),
