@@ -9,6 +9,7 @@
 use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_6, SQRT_2};
 
 use bevy::camera::ScalingMode;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 
 /// World units per cell side: 24·√5, the edge of a cell's diamond in screen pixels, as the
@@ -84,6 +85,10 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
     };
     (
         Camera3d::default(),
+        // The art's texels reach the screen as they are, as in the original, which has no
+        // display transform: Bevy's default tone mapping dulled the bright tones (#28).
+        Tonemapping::None,
+        DebandDither::Disabled,
         Projection::Orthographic(projection),
         view_of(target),
     )
