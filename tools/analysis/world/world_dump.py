@@ -12,8 +12,9 @@ on the GOG files on 2026-10-17.
            -18432 and 112152 (meaning unknown). count records of 768 B: +0x20 u32 grid key y*100 + x, +0x24 u32 sector
            id (Static.PAK +0x0C refers to it), +0x50 three chunks {u32 offset, u32 size, u32 type} at their offsets in
            an uncompressed world file with a 0x100 header: (o, 32, 1), (o + 32, 131072, 6), (o + 131104, n, 0); +0xEC u32
-           offset and +0xF0 u32 compressed size of the sector in sectors.wldx; +0x108 u32 inflated size; +0x2E0 and
-           +0x2E1 the two liquid materials (0..13) of the sector's WATERA and WATERB cells.
+           offset and +0xF0 u32 compressed size of the sector in sectors.wldx; +0x108 u32 inflated size; +0x2C0 u8
+           the area; +0x2D8 u32 the sector's music (a sound id, 0 none); +0x2E0 and +0x2E1 the two liquid materials
+           (0..13) of the sector's WATERA and WATERB cells.
   sector   zlib stream inflating to the three chunks: +0x00 the name "Sector x,y" with a NUL, filled to 32 B (MSVC fill
            0xCD; some sectors carry another sector's name or none, so the keyx key is the position); +0x20 4096 cells of
            32 B, row by row (r * 64 + c), which share the heights of their common corners; +0x20020 the third chunk:
@@ -73,9 +74,10 @@ CELL_CHUNK = CELL_SIZE * CELLS
 # chunk; statics, floors: records in the chains of the sector's cells; static_crc, floor_crc: CRC-32 over the cells in
 # order of every chained record, u32 LE cell index then the record as stored (64 or 16 B), head first, each static
 # followed by its child chain; layers: the inside layers (the third chunk's headers but the ground's); layers_crc:
-# CRC-32 over the inside layers in order of u32 x, u32 y, u16 width, u16 height and the layer's cells as stored.
+# CRC-32 over the inside layers in order of u32 x, u32 y, u16 width, u16 height and the layer's cells as stored;
+# area: keyx +0x2C0; music: keyx +0x2D8, the sound id of the sector's music (0 none).
 RECORD_COLUMNS = ('index', 'x', 'y', 'id', 'inflated', 'tail', 'liquids', 'cells_crc', 'tail_crc', 'statics',
-                  'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc')
+                  'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc', 'area', 'music')
 LAYER_HEADER, LAYER_KIND, LAYER_TRAILER = 36, 6, 256
 
 
@@ -214,6 +216,7 @@ def main():
         off, csize = struct.unpack_from('<II', r, 0xEC)
         inflated = struct.unpack_from('<I', r, 0x108)[0]
         liquids = (r[0x2E0], r[0x2E1])
+        area, music = r[0x2C0], struct.unpack_from('<I', r, 0x2D8)[0]
         c('keyx: liquid materials 0..13', max(liquids) <= 13, where)
         d = zlib.decompress(wldx[off:off + csize])
         name = d[:32].split(b'\0')[0]
@@ -272,7 +275,7 @@ def main():
         rows.append(dict(index=key, x=x, y=y, id=sector_id, inflated=inflated, tail=len(tail),
                          liquids=f'{liquids[0]},{liquids[1]}', cells_crc=zlib.crc32(cell_bytes),
                          tail_crc=zlib.crc32(tail), statics=n_statics, static_crc=static_crc, floors=n_floors,
-                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc))
+                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc, area=area, music=music))
 
     static_heads = np.concatenate(all_static_heads)
     floor_heads = np.concatenate(all_floor_heads)

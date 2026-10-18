@@ -57,6 +57,12 @@ pub struct SectorKey {
     /// `+0x6C`, the size of the third chunk: the sector's layers, the ground's and the
     /// buildings' insides ([`Layer`]).
     pub layers: u32,
+    /// `+0x2C0`: the sector's area (56 values; the client's region music turns it into a region
+    /// through a table, docs/re/sound.md).
+    pub area: u8,
+    /// `+0x2D8`: the sound id of the sector's music (`MUSIC_WOOD01` in the start sector), 0 for
+    /// none (docs/re/sound.md).
+    pub music: u32,
 }
 
 impl Keyx {
@@ -100,6 +106,10 @@ impl Keyx {
             let compressed = r.u32()?;
             skip_to(&mut r, start, 0x108)?;
             let inflated = r.u32()?;
+            skip_to(&mut r, start, 0x2C0)?;
+            let area = r.u8()?;
+            skip_to(&mut r, start, 0x2D8)?;
+            let music = r.u32()?;
             skip_to(&mut r, start, 0x2E0)?;
             let liquids = [r.u8()?, r.u8()?];
             sectors.push(SectorKey {
@@ -111,6 +121,8 @@ impl Keyx {
                 inflated,
                 liquids,
                 layers,
+                area,
+                music,
             });
         }
         Ok(Self { sectors })

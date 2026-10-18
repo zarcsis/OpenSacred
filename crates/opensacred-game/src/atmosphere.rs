@@ -3,8 +3,9 @@
 //! `DESERT` and `KIES` play `ATMO_DESERT`, `ARCTIC` `ATMO_ICE`, `WALD`, `GRASS` and `SUMPF`
 //! `ATMO_WOOD`, `LAVA` `ATMO_VULCANO`, `DUNGEON` `ATMO_DUNGEON`; the other natures (bridges,
 //! waters, roads, floors) keep the loop that plays. The same function picks the `…_NIGHT` loops
-//! by night (a second switch at `0x696BDA`) and the music of sieged villages and of a few
-//! regions; neither day and night nor the regions are in the game yet, so the day's loops play.
+//! by night (a second switch at `0x696BDA`) and leaves the loop alone while some regions' music
+//! plays (docs/re/sound.md); the night is not in the game yet, and the regions' exceptions are
+//! not followed, so the day's loops play.
 
 use std::collections::HashMap;
 use std::fs;
