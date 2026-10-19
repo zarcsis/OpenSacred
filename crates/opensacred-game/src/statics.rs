@@ -10,7 +10,9 @@
 //! them (`terrain`), and the miniatures of the liquid cells between it and the liquids' surfaces
 //! (`liquids`). Sprites at the same depth, those of one cell and those of the cells of one
 //! diagonal, would fight; the shader brings each a little forward in the original's order of
-//! drawing (`sprites.wesl`). The sprites of one page share one mesh.
+//! drawing (`sprites.wesl`). An upper storey's floor lies in its plane, as the original's does,
+//! and what its building's part draws after it stays in front of it ([`Standing`]). The sprites
+//! of one page share one mesh.
 //! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
 //! one mesh; the animated ones (flag 0x40) show their first frame, still.
 //!
@@ -77,6 +79,10 @@ struct Batch {
     sources: Vec<[f32; 4]>,
     screens: Vec<[f32; 2]>,
     fades: Vec<f32>,
+    floors: Vec<[f32; 4]>,
+    footprints: Vec<[f32; 2]>,
+    /// Whether a quad of the batch stands on an upper storey's floor ([`Standing`]).
+    on_floor: bool,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
     quads: Vec<(f64, u32)>,
     indices: Vec<u32>,
@@ -115,6 +121,24 @@ pub const ATTRIBUTE_SCREEN: MeshVertexAttribute = MeshVertexAttribute::new(
 pub const ATTRIBUTE_FADE: MeshVertexAttribute =
     MeshVertexAttribute::new("SpriteFade", 0x5350_5249_5445_4644, VertexFormat::Float32);
 
+/// For a sprite standing on an upper storey's floor ([`Standing`]), the place of the floor's
+/// plane at the vertex's point, brought a little forward: the sprite lies no further back than
+/// that over the floor (`sprites.wesl`). A vertex's own anchor for any other sprite.
+pub const ATTRIBUTE_FLOOR: MeshVertexAttribute = MeshVertexAttribute::new(
+    "SpriteFloor",
+    0x5350_5249_5445_464C,
+    VertexFormat::Float32x4,
+);
+
+/// For a sprite standing on an upper storey's floor, where the ground point under the floor's
+/// point at the vertex lies in the cells of the floor's part, from 0 to 1 along each axis inside
+/// them (`sprites.wesl`); −1 for any other sprite.
+pub const ATTRIBUTE_FOOTPRINT: MeshVertexAttribute = MeshVertexAttribute::new(
+    "SpriteFootprint",
+    0x5350_5249_5445_4650,
+    VertexFormat::Float32x2,
+);
+
 /// The shader of [`SpriteMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
 
@@ -136,6 +160,9 @@ pub struct SpriteMaterial {
     /// Whether the texels go through the original's alpha test first: a sprite's do, a
     /// miniature's do not (docs/re/drawing.md, "Blending").
     pub alpha_test: bool,
+    /// Whether some of the sprites stand on an upper storey's floor ([`Standing`]): their
+    /// fragments then take their depth from the shader, which keeps them in front of the floor.
+    pub on_floor: bool,
 }
 
 /// The texels of its sprites that a [`SpriteMaterial`] draws.
@@ -153,6 +180,7 @@ pub enum Pass {
 pub struct SpriteKey {
     fringe: bool,
     alpha_test: bool,
+    on_floor: bool,
 }
 
 impl From<&SpriteMaterial> for SpriteKey {
@@ -160,6 +188,7 @@ impl From<&SpriteMaterial> for SpriteKey {
         Self {
             fringe: material.pass != Pass::Body,
             alpha_test: material.alpha_test,
+            on_floor: material.on_floor,
         }
     }
 }
@@ -208,9 +237,15 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_SOURCE.at_shader_location(3),
             ATTRIBUTE_SCREEN.at_shader_location(4),
             ATTRIBUTE_FADE.at_shader_location(5),
+            ATTRIBUTE_FLOOR.at_shader_location(6),
+            ATTRIBUTE_FOOTPRINT.at_shader_location(7),
         ])?];
         descriptor.primitive.cull_mode = None;
-        let SpriteKey { fringe, alpha_test } = key.bind_group_data;
+        let SpriteKey {
+            fringe,
+            alpha_test,
+            on_floor,
+        } = key.bind_group_data;
         if let Some(fragment) = descriptor.fragment.as_mut() {
             // In both passes, which take the texels that the test leaves.
             if alpha_test {
@@ -219,6 +254,13 @@ impl Material for SpriteMaterial {
             if fringe {
                 fragment.shader_defs.push("FRINGE".into());
             }
+            // Writing the depth turns the early depth test off: only for the sprites that need it.
+            let entry = if on_floor {
+                "fragment_on_floor"
+            } else {
+                "fragment"
+            };
+            fragment.entry_point = Some(entry.into());
         }
         if fringe {
             // Only nearer than the depth there: the sprite's own opaque texels, which the first
@@ -698,20 +740,57 @@ fn shadow_quad(shadow: &Shadow) -> Quad {
 }
 
 /// How far behind the ground point under it an upper storey's floor lies, along the line of
-/// sight: a cell's depth from its centre to its front corner (33 units) and the half unit that a
-/// model spreads about its place (`models.wesl`), so that what stands anywhere on a cell of the
-/// floor, at its cell's place, lies in front of the floor under it.
-const FLOOR_BEHIND: f32 = 34.0;
+/// sight: a cell's depth from its centre to its front corner (33 units), the half unit that a
+/// model spreads about its place (`models.wesl`) and the room of the quads that stand on the
+/// floor ([`ON_FLOOR`], [`FLOOR_ROOM`]), so that what stands anywhere on a cell of the floor, at
+/// its cell's place, lies in front of the floor under it and of the quads standing on it.
+const FLOOR_BEHIND: f32 = 37.0;
+
+/// How far in front of an upper storey's floor the quads standing on it lie at least
+/// ([`Standing`]): past the floor's own place in its cell's chain, 32 places of [`CHAIN`] at most,
+/// 0.14 units.
+const ON_FLOOR: f32 = 0.5;
+/// The room over which the quads standing on a floor come forward from [`ON_FLOOR`], in their
+/// order of drawing.
+const FLOOR_ROOM: f32 = 2.5;
+const _: () = assert!(FLOOR_BEHIND > 33.0 + 0.5 + ON_FLOOR + FLOOR_ROOM);
+
+/// The floor that a quad stands on: the first upper storey's floor in the order of drawing of
+/// the quad's building's part, which the original draws through the depth buffer before the
+/// quad, and then the quad over it whole, without the depth test (`0x62FF60`, docs/re/drawing.md,
+/// "Depth"). Over the floor's part the quad lies at least `raise` in front of the floor's plane,
+/// in the shader (`sprites.wesl`).
+#[derive(Clone, Copy)]
+struct Standing {
+    /// The height of the floor's plane in pixels, and its list's depth.
+    height: f32,
+    back: f32,
+    /// How far in front of the floor's plane: from [`ON_FLOOR`], a little further for each quad
+    /// that the original draws after another on the floor.
+    raise: f32,
+    /// The cells of the floor's part, over which the floor lies: the first column and row, and
+    /// those past the last.
+    cells: [f32; 4],
+}
 
 /// A quad's place: the centre of its cell at height 0, at its list's depth, with its place in
-/// the cell, and that centre on the original's screen; for an upper storey's floor, the height
-/// of its plane in pixels.
+/// the cell, and that centre on the original's screen and in cells; for an upper storey's floor,
+/// the height of its plane in pixels; for a quad standing on one, that floor.
 struct Spot {
     anchor: Vec3,
     back: f32,
     chain: f32,
     screen: Vec2,
+    cell: Vec2,
     floor: Option<f32>,
+    standing: Option<Standing>,
+}
+
+/// The ground point, in cells, under the point at `screen` of a plane `height` pixels high, both
+/// on the original's screen at zoom 1: `48 (cx − cy)`, `24 (cx + cy)`.
+fn under(screen: Vec2, height: f32) -> Vec2 {
+    let (across, down) = (screen.x / 48.0, (screen.y + height) / 24.0);
+    Vec2::new((down + across) / 2.0, (down - across) / 2.0)
 }
 
 impl Spot {
@@ -723,7 +802,9 @@ impl Spot {
             back,
             chain,
             screen: Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy)),
+            cell: Vec2::new(cx, cy),
             floor: None,
+            standing: None,
         }
     }
 
@@ -752,11 +833,28 @@ impl Spot {
         let Some(height) = self.floor else {
             return self.placed();
         };
-        // The ground point `height` pixels below on the screen: `48 (cx − cy)`, `24 (cx + cy)`.
-        let (across, down) = (screen.x / 48.0, (screen.y + height) / 24.0);
-        let ground = iso::ground((down + across) / 2.0, (down - across) / 2.0)
-            + iso::forward() * (self.back + FLOOR_BEHIND);
+        let cell = under(screen, height);
+        let ground = iso::ground(cell.x, cell.y) + iso::forward() * (self.back + FLOOR_BEHIND);
         [ground.x, ground.y, ground.z, self.chain]
+    }
+
+    /// For a quad standing on a floor, at its corner at `screen`: the place of the floor's
+    /// plane there, `raise` forward, at the first place of the cell's chain, whose depth the
+    /// shader keeps the quad in front of over the floor's part; and where the ground point under
+    /// that point lies in the part's cells, from 0 to 1 along each axis inside them. For any other
+    /// quad its own place, and outside.
+    fn floor_at(&self, screen: Vec2) -> ([f32; 4], [f32; 2]) {
+        let Some(on) = self.standing else {
+            return (self.placed(), [-1.0; 2]);
+        };
+        let cell = under(screen, on.height);
+        let plane =
+            iso::ground(cell.x, cell.y) + iso::forward() * (on.back + FLOOR_BEHIND - on.raise);
+        let [x0, y0, x1, y1] = on.cells;
+        (
+            [plane.x, plane.y, plane.z, 0.0],
+            [(cell.x - x0) / (x1 - x0), (cell.y - y0) / (y1 - y0)],
+        )
     }
 
     /// The point of the world in the plane of the screen through the anchor that shows at
@@ -769,17 +867,86 @@ impl Spot {
     }
 }
 
-/// Adds `quad`, of the object at `position`, to the batch `key` (of `texture`, `size` texels
-/// across and down), at `spot`.
-fn add_quad(
-    batches: &mut BTreeMap<BatchKey, Batch>,
+/// A quad of an object on its way to its batch `key` (of `texture`, `size` texels across and
+/// down), at `spot`, once the floors that the quads of its building's part stand on are known
+/// ([`stand_on_floors`]).
+struct Pending {
     key: BatchKey,
     texture: BatchTexture,
     size: (f32, f32),
-    quad: &Quad,
+    quad: Quad,
+    /// The object's position.
     position: Vec2,
-    spot: &Spot,
-) -> Result<()> {
+    spot: Spot,
+}
+
+/// Stands the quads of each building's part on its first upper storey's floor in the order of
+/// drawing, if it has one: those that the original draws after it ([`Standing`]), the floor's
+/// own pieces aside. They lie in front of the floor's plane over the cells of the part, each a
+/// little further forward than the one before, so that they keep their order there.
+fn stand_on_floors(pending: &mut [Pending]) {
+    /// A part's first floor, at its place, height and list's depth, and the cells of its quads.
+    struct Part {
+        first: Option<(f64, f32, f32)>,
+        cells: [f32; 4],
+    }
+    let mut parts: HashMap<(buildings::Anchor, u8), Part> = HashMap::new();
+    for quad in pending.iter() {
+        let Some(part) = quad.key.1 else {
+            continue;
+        };
+        let Part { first, cells } = parts.entry(part).or_insert(Part {
+            first: None,
+            cells: [f32::MAX, f32::MAX, f32::MIN, f32::MIN],
+        });
+        let c = quad.spot.cell;
+        *cells = [
+            cells[0].min(c.x - 0.5),
+            cells[1].min(c.y - 0.5),
+            cells[2].max(c.x + 0.5),
+            cells[3].max(c.y + 0.5),
+        ];
+        if let Some(height) = quad.spot.floor {
+            let place = nearness(quad.spot.placed());
+            if first.is_none_or(|(before, _, _)| place < before) {
+                *first = Some((place, height, quad.spot.back));
+            }
+        }
+    }
+    for (part, Part { first, cells }) in parts {
+        let Some((floor, height, back)) = first else {
+            continue;
+        };
+        let mut on: Vec<(f64, usize)> = pending
+            .iter()
+            .enumerate()
+            .filter(|(_, q)| q.key.1 == Some(part) && q.spot.floor.is_none())
+            .map(|(i, q)| (nearness(q.spot.placed()), i))
+            .filter(|&(place, _)| place > floor)
+            .collect();
+        on.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let count = on.len() as f32;
+        for (k, (_, i)) in on.into_iter().enumerate() {
+            pending[i].spot.standing = Some(Standing {
+                height,
+                back,
+                raise: ON_FLOOR + FLOOR_ROOM * k as f32 / count,
+                cells,
+            });
+        }
+    }
+}
+
+/// Adds the quad of `pending` to its batch.
+fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result<()> {
+    let Pending {
+        key,
+        texture,
+        size,
+        quad,
+        position,
+        spot,
+    } = pending;
     let (_, part, layer) = key;
     let batch = batches.entry(key).or_insert(Batch {
         texture,
@@ -791,6 +958,9 @@ fn add_quad(
         sources: Vec::new(),
         screens: Vec::new(),
         fades: Vec::new(),
+        floors: Vec::new(),
+        footprints: Vec::new(),
+        on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
     });
@@ -811,6 +981,12 @@ fn add_quad(
     batch
         .anchors
         .extend(screens.map(|screen| spot.anchor_at(screen)));
+    for screen in screens {
+        let (floor, footprint) = spot.floor_at(screen);
+        batch.floors.push(floor);
+        batch.footprints.push(footprint);
+    }
+    batch.on_floor |= spot.standing.is_some();
     let (w, h) = size;
     batch.uvs.extend([
         [u0 / w, v0 / h],
@@ -894,6 +1070,7 @@ pub fn build(
     };
     // The places taken in each cell's chain, by the objects drawn.
     let mut chains: HashMap<u16, u16> = HashMap::new();
+    let mut pending = Vec::new();
     let mut drawn = 0;
     for object in &objects {
         let quad = quad(object, &assembled, &placed);
@@ -936,7 +1113,7 @@ pub fn build(
         let part = part_of(object, sector);
         // The shadow: list 1's under list 2, or one drawn right before its sprite in the sprite's
         // list and with its building's part, half a place behind it (`0x62FF60`).
-        if let Some((shadow, entry)) = &shadow {
+        if let Some((shadow, entry)) = shadow {
             let (spot, shadow_part, shadow_layer) = match entry {
                 Entry::List1 => (
                     Spot::new(cx, cy, LIST_1_BACK, chain),
@@ -946,8 +1123,14 @@ pub fn build(
                 Entry::WithSprite => (Spot::new(cx, cy, back, chain - 0.5), part, Layer::Shadows),
             };
             let (size, texture) = texture_of(Texture::Shadows)?;
-            let key = (Texture::Shadows, shadow_part, shadow_layer);
-            add_quad(&mut batches, key, texture, size, shadow, position, &spot)?;
+            pending.push(Pending {
+                key: (Texture::Shadows, shadow_part, shadow_layer),
+                texture,
+                size,
+                quad: shadow,
+                position,
+                spot,
+            });
         }
         let Some(quad) = quad else {
             continue;
@@ -982,16 +1165,19 @@ pub fn build(
             glow.indices
                 .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
         }
-        add_quad(
-            &mut batches,
-            (quad.texture, part, layer),
-            source,
+        pending.push(Pending {
+            key: (quad.texture, part, layer),
+            texture: source,
             size,
-            &quad,
+            quad,
             position,
-            &spot,
-        )?;
+            spot,
+        });
         drawn += 1;
+    }
+    stand_on_floors(&mut pending);
+    for quad in pending {
+        add_quad(&mut batches, quad)?;
     }
     for batch in batches.values_mut() {
         batch.quads.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -1182,10 +1368,12 @@ pub struct ShadowAtlas(pub String);
 /// The materials of the statics' shadows, which every sector's share, so that the night fades
 /// them all (`daynight::shadows`): list 1's, and those drawn with their sprites. The original
 /// draws them blended by their alpha, filtered linearly, without the alpha test (`0x631EB0`).
+/// Those of the sprites on an upper storey's floor have a material of their own ([`Standing`]).
 #[derive(Resource)]
 pub struct StaticShadows {
     pub list1: Handle<SpriteMaterial>,
     pub with_sprites: Handle<SpriteMaterial>,
+    pub on_floors: Handle<SpriteMaterial>,
 }
 
 /// Makes the shadows' materials, when the converted textures have the shadow atlas.
@@ -1200,18 +1388,20 @@ fn make_shadows(
         return;
     };
     let texture: Handle<Image> = assets.load(atlas.0.clone());
-    let mut material = |layer| {
+    let mut material = |layer, on_floor| {
         materials.add(SpriteMaterial {
             atlas: texture.clone(),
             tint: Vec4::ONE,
             fade: fade.buffer.clone(),
             pass: Pass::Fringe(layer),
             alpha_test: false,
+            on_floor,
         })
     };
     commands.insert_resource(StaticShadows {
-        list1: material(Layer::StaticShadows),
-        with_sprites: material(Layer::Shadows),
+        list1: material(Layer::StaticShadows, false),
+        with_sprites: material(Layer::Shadows, false),
+        on_floors: material(Layer::Shadows, true),
     });
 }
 
@@ -1234,14 +1424,17 @@ pub fn spawn(
         let passes: Vec<Handle<SpriteMaterial>> = match batch.texture {
             BatchTexture::Shadows => match shadows {
                 Some(shadows) if batch.layer == Layer::StaticShadows => vec![shadows.list1.clone()],
+                Some(shadows) if batch.on_floor => vec![shadows.on_floors.clone()],
                 Some(shadows) => vec![shadows.with_sprites.clone()],
                 None => continue,
             },
             BatchTexture::Atlas(path) => {
-                sprite_passes(materials, assets.load(path), fade, batch.layer, false)
+                let atlas = assets.load(path);
+                sprite_passes(materials, atlas, fade, batch.layer, false, batch.on_floor)
             }
             BatchTexture::Page(page) => {
-                sprite_passes(materials, pages[page].clone(), fade, batch.layer, true)
+                let page = pages[page].clone();
+                sprite_passes(materials, page, fade, batch.layer, true, batch.on_floor)
             }
         };
         let mesh = meshes.add(
@@ -1255,6 +1448,8 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
             .with_inserted_attribute(ATTRIBUTE_SCREEN, batch.screens)
             .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades)
+            .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors)
+            .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         for material in passes {
@@ -1281,6 +1476,7 @@ fn sprite_passes(
     fade: &Fade,
     layer: Layer,
     alpha_test: bool,
+    on_floor: bool,
 ) -> Vec<Handle<SpriteMaterial>> {
     [Pass::Body, Pass::Fringe(layer)]
         .into_iter()
@@ -1291,6 +1487,7 @@ fn sprite_passes(
                 fade: fade.buffer.clone(),
                 pass,
                 alpha_test,
+                on_floor,
             })
         })
         .collect()
@@ -1349,10 +1546,12 @@ pub(crate) mod tests {
                     let (gx, gy) = (cx as f32 + dx, cy as f32 + dy);
                     let foot = Vec2::new(48.0 * (gx - gy), 24.0 * (gx + gy) - h);
                     let floor = nearness(spot.anchor_at(foot));
-                    // In front by more than the half unit a model spreads about its place.
+                    // In front by more than the half unit a model spreads about its place, of the
+                    // floor and of the quads standing on it, however far they come forward.
+                    let standing = floor + f64::from(ON_FLOOR + FLOOR_ROOM);
                     assert!(
-                        model - 0.5 > floor,
-                        "{height} ({gx}, {gy}): {model} {floor}"
+                        model - 0.5 > standing,
+                        "{height} ({gx}, {gy}): {model} {standing}"
                     );
                     // The floor further up the screen, further back on it, lies further back.
                     let above = nearness(spot.anchor_at(foot - Vec2::new(0.0, 24.0)));
@@ -1371,6 +1570,197 @@ pub(crate) mod tests {
         // Any other sprite takes its own anchor at every corner.
         let spot = Spot::new(3300.5, 2500.5, 0.0, 3.0);
         assert_eq!(spot.anchor_at(Vec2::new(10.0, 20.0)), spot.placed());
+    }
+
+    #[test]
+    fn what_stands_on_a_floor_lies_over_it_whole() {
+        let dir =
+            std::env::temp_dir().join(format!("opensacred-game-floor-{}", std::process::id()));
+        fs::create_dir_all(dir.join("world")).unwrap();
+        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["atlas.png".into()],
+        };
+        // Sprites over their whole rectangles: a floor, a carpet, a chest and a wall.
+        let sprite = |width, height| {
+            Some(Sprite {
+                width,
+                height,
+                pieces: vec![Piece {
+                    atlas: 0,
+                    source: [0, 0, 8, 8],
+                    rect: [0, 0, width, height],
+                }],
+            })
+        };
+        let sprites = Sprites {
+            sprites: vec![
+                None,
+                sprite(400, 300),
+                sprite(200, 150),
+                sprite(60, 60),
+                sprite(100, 400),
+            ],
+        };
+        // A building over the cells (4..=12, 5..=20), its anchor at (8, 8), as the house of
+        // sector 52,39.
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0,
+        };
+        let mut cells = vec![cell; SIDE * SIDE];
+        for cy in 5..=20i8 {
+            for cx in 4..=12i8 {
+                let at =
+                    &mut cells[usize::try_from(cy).unwrap() * SIDE + usize::try_from(cx).unwrap()];
+                at.flags = buildings::BUILDING_CELL;
+                at.offsets = [8 - cx, 8 - cy];
+            }
+        }
+        // Its floor 2's parts, of mask 4, at `(x, y)` on the screen, and an object outside it.
+        let side = u16::try_from(SIDE).unwrap();
+        let object = |cx: u16, cy: u16, sprite, (x, y), type_flags, floor| StaticObject {
+            cell: cy * side + cx,
+            kind: 1,
+            flags: BUILDING_PART,
+            x,
+            y,
+            record: 0,
+            type_flags,
+            mask: 4,
+            sprite,
+            miniature: None,
+            shadow: None,
+            floor,
+            children: Vec::new(),
+        };
+        // The floor's plane 140 units high (`+0x33` 5), 240 pixels over the ground.
+        let height = 140;
+        let h = f32::from(height) * iso::PIXELS_PER_MODEL_HEIGHT;
+        let mut outside = object(30, 30, 3, (0, 1440), 9, None);
+        outside.flags = 0;
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: vec![
+                // A wall of the row before the floor's.
+                object(4, 5, 4, (-98, -300), 9, None),
+                // The floor, of a cell at the back.
+                object(5, 5, 1, (-200, 24), 0x209, Some(height)),
+                // A carpet with its top corner at its cell's point on the floor, its art reaching
+                // six rows down the screen, as the carpet of that house does.
+                object(8, 8, 2, (-100, 168), 9, None),
+                // A chest on the carpet, three rows down the screen.
+                object(9, 10, 3, (-78, 210), 9, None),
+                // A wall at the front corner, which reaches down to the ground.
+                object(12, 20, 4, (-434, 452), 9, None),
+                outside,
+            ],
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let batch = statics
+            .batches
+            .iter()
+            .find(|b| b.part == Some(((8, 8), 4)))
+            .unwrap();
+        let other = statics.batches.iter().find(|b| b.part.is_none()).unwrap();
+        assert!(batch.on_floor && !other.on_floor);
+        // What the shader makes of quad `q` of the batch at `p` on the screen, from its corners,
+        // linear across its rectangle: the depth of its place, or the floor's plane's brought
+        // forward over the floor's part, whichever is nearer (`sprites.wesl`).
+        let depth = |q: usize, p: Vec2| -> f64 {
+            let corners = 4 * q..4 * q + 4;
+            let s: Vec<Vec2> = batch.screens[corners.clone()]
+                .iter()
+                .map(|&s| Vec2::from(s))
+                .collect();
+            let tx = f64::from((p.x - s[0].x) / (s[1].x - s[0].x));
+            let ty = f64::from((p.y - s[0].y) / (s[3].y - s[0].y));
+            let lerp = |v: Vec<f64>| {
+                let top = v[0] + (v[1] - v[0]) * tx;
+                let bottom = v[3] + (v[2] - v[3]) * tx;
+                top + (bottom - top) * ty
+            };
+            let own = lerp(
+                batch.anchors[corners.clone()]
+                    .iter()
+                    .map(|&a| nearness(a))
+                    .collect(),
+            );
+            let floor = lerp(
+                batch.floors[corners.clone()]
+                    .iter()
+                    .map(|&a| nearness(a))
+                    .collect(),
+            );
+            let over = (0..2).all(|axis| {
+                let f = lerp(
+                    batch.footprints[corners.clone()]
+                        .iter()
+                        .map(|f| f64::from(f[axis]))
+                        .collect(),
+                );
+                (0.0..1.0).contains(&f)
+            });
+            if over { own.max(floor) } else { own }
+        };
+        // Points of a rectangle of the screen, ten steps across and down.
+        let grid = |x: f32, y: f32, w: f32, h: f32| {
+            (0..=10u8).flat_map(move |i| {
+                (0..=10u8).map(move |j| {
+                    Vec2::new(x + w * f32::from(i) / 10.0, y + h * f32::from(j) / 10.0)
+                })
+            })
+        };
+        let (wall, floor, carpet, chest, front) = (0, 1, 2, 3, 4);
+        // The carpet over all its rows, and the chest over the carpet, in front of the floor's
+        // plane, as the original draws them over it.
+        for p in grid(-100.0, 168.0, 200.0, 150.0) {
+            assert!(
+                depth(carpet, p) > depth(floor, p) + f64::from(ON_FLOOR) - 1e-3,
+                "{p}"
+            );
+        }
+        for p in grid(-78.0, 210.0, 60.0, 60.0) {
+            assert!(depth(chest, p) > depth(carpet, p), "{p}");
+            assert!(depth(chest, p) > depth(floor, p), "{p}");
+        }
+        // A model on the floor in front of them, at the cell (11, 11), its foot on the floor at
+        // its cell's centre, lies in front of them from its head down to its cell's front corner.
+        let place = iso::ground(11.5, 11.5);
+        let model = nearness([place.x, 0.0, place.z, crate::models::PLACE]) - 0.5;
+        let foot = Vec2::new(0.0, 24.0 * 23.0 - h);
+        for p in grid(-30.0, foot.y - 120.0, 60.0, 144.0) {
+            assert!(model > depth(carpet, p) && model > depth(chest, p), "{p}");
+        }
+        // Where a sprite does not reach below its cell's point on the floor by half a cell, its
+        // place: the carpet's top corner.
+        let top = Vec2::new(0.0, 168.0);
+        assert_eq!(depth(carpet, top), nearness(batch.anchors[4 * carpet]));
+        // The wall before the floor stands on none; the wall at the front comes forward over the
+        // floor's part alone, not down to the ground before the building.
+        assert!(
+            (4 * wall..4 * wall + 4)
+                .all(|i| batch.floors[i] == batch.anchors[i] && batch.footprints[i] == [-1.0; 2])
+        );
+        let ground = Vec2::new(-384.0, 24.0 * 33.0);
+        assert_eq!(depth(front, ground), nearness(batch.anchors[4 * front]));
+        let edge = Vec2::new(-384.0, 24.0 * 33.0 - h + 20.0);
+        assert!(depth(front, edge) > depth(floor, edge));
     }
 
     #[test]
