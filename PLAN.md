@@ -379,7 +379,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    The process is in docs/03 §3.6.
 10. **M2, tools to test and drive the game.**
     Planned 2026-10-19 (#165): every option of the game is a command line flag read before Bevy starts, so the hero is fixed for the process and each change is a restart.
-    The plan, in [docs/10](docs/10-game-tools.md): settings in `%APPDATA%\OpenSacred\settings.toml` with borderless full screen by default and F11 for a window (#167); the HUD's portrait, health bar and gait removed (#168); the log on F4 and in a file (#169); a debug overlay on F3 (#170); the game's states, so that a game starts and ends inside the process (#171); a main menu with the choice of the hero (#172); one set of commands for the command line's scripts (#173), the console on `~` (#174) and remote control over Bevy's Remote Protocol (#175); and a project skill or an MCP server through which Claude Code drives the game (#176).
+    The plan, in [docs/10](docs/10-game-tools.md): settings in `%APPDATA%\OpenSacred\settings.toml` with borderless full screen by default and F11 for a window (#167); the HUD's portrait, health bar and gait removed (#168); the log on F4 and in a file (#169); a debug overlay on F3 (#170); the game's states, so that a game starts and ends inside the process (#171); a main menu with the choice of the hero (#172) and a pause menu on Esc (#178); one set of commands for the command line's scripts (#173), the console on `~` (#174) and remote control over Bevy's Remote Protocol (#175); and a project skill or an MCP server through which Claude Code drives the game (#176).
     ≈10–20 agent-hours (estimate).
 
 ### 10.1 Priority queue
