@@ -16,8 +16,8 @@
 //! same reading).
 //!
 //! A position's third number is the layer the object lies in (**hypothesis**, docs/re/drawing.md):
-//! the client draws a building's cells with the world's objects of the building's current layer,
-//! layer 0 while the hero is outside, so an object or NPC on a building's cell or floor shows
+//! the client draws every cell with the world's objects of layer 0, and a building's cells with
+//! those of the building's current layer too, so an object or NPC on a building's floor shows
 //! with its building's state (`buildings::Layered`). A walking NPC changes layers as the hero
 //! does, onto a building's inside through its entrance and out at an exit (`0x5FCCB0`).
 //!

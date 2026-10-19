@@ -34,7 +34,9 @@ The table holds the records of `Triggers.PAK` as the file has them, which `0x638
 
 - A static in such a cell is appended only when its mask (`+0x2B`, read as a word: 0 or one bit of 1 to 16) equals that state, if its type has bit `0x4` or `0x800000` (lists 0, 2 and 4) whatever its flags, or if it has flag `0x8` (list 3); the other statics of list 3, and the statics of cells outside buildings, are appended whatever their mask (`0x62BAD0`, read again 2026-10-18, #82).
   A mask of 0 equals no state: the 3,804 miniatures in the world's buildings' cells, all of mask 0 and without the flag, are never drawn (the slabs under the ends of the start's monastery chapel's stairs among them), and the 115 sprites of list 0 there without the flag, all of mask 1, only in the state 1 (counted on the sector files).
-- The world's dynamic objects of such a cell are taken from the layer that `0x416570` gives, the index of the lowest bit of the state (bit 0, layer 0; bit 1, layer 1; …), when it is not 0 or the building's object has flag `0x400`; otherwise from layer 0, like the cells outside buildings.
+- The world's dynamic objects of the cell's own chain, layer 0, are drawn on every cell, a building's too, whatever its state (read again 2026-10-19, #148).
+  Before them, when the layer that `0x416570` gives, the index of the lowest bit of the state (bit 0, layer 0; bit 1, layer 1; …), is not 0, the walk takes the objects of the building's floor of that number at the cell (`0x6354D0` for the floor, `0x634C50` for its cell); when the building's object has flag `0x400`, those of every floor of the building, whatever the state (#149).
+  The first reading (#99) had the floor's objects taken in place of layer 0's.
 
 The state is the building's exterior (with its roof) while the hero is outside, and the client changes it as the local player's hero walks in and out (**confirmed** by code 2026-10-18, #99; docs/re/movement.md, "Changing layers"): to 2 as the hero steps onto an entrance of the building and goes onto its inside, back to 1 as it steps onto an exit and comes out onto the ground, to `1 << n` as it climbs to the building's layer `n`.
 This is how the original hides a roof and shows the rooms and their furniture (#3): at the chapel of the start, as the hero passes its doorway, not on its stairs.
@@ -48,8 +50,9 @@ A building's state is 1 while the hero is outside: the file's value, and the exi
 The parts of mask 2 include the rooms cut open: the pub of sector 50,40 has its shell as `TH_PUB_0_*` (mask 1) and its ground floor, floor boards, bar and inner walls as `TH_PUB_1_*` (mask 2, by their editor names), and every cell of a building points to one anchor cell through its offsets (the pub's 12 × 11 cells to the cell of `TH_PUB_1_BODEN`, its floor).
 
 `opensacred-game` keeps a state per building, by its anchor cell (`buildings`): `1 << n` for the building on whose floor `n` the hero walks, 2 on its ground floor, which it goes onto at the building's entrance and leaves at an exit as the client does, and the upper floors up and down its stairs (docs/re/movement.md), else 1.
-The parts (the statics above that the state chooses) show while the state is their mask, and the start script's objects of a building's cells while the state shows their layer: inside, the roof and the shell's walls go, the ground floor with its furniture comes (#3).
-The start script's objects and NPCs of layer 0 that stand on a building's cells go while the hero is inside it, as the original draws its cells' objects of layer 1 then.
+The parts (the statics above that the state chooses) show while the state is their mask, and the start script's objects on a building's floors while the state shows their floor: inside, the roof and the shell's walls go, the ground floor with its furniture comes (#3).
+The start script's objects and NPCs of layer 0 show whatever the states, on a building's cells too, as the original draws every cell's objects of layer 0 (#148): quest 1's novice on the chapel's stairs, cells of the monastery, while the hero is in the chapel and the monastery's state is 2.
+Before, they went while the hero was inside their building, by the first reading above, and the novice vanished on the stairs.
 An NPC that a script sends somewhere takes the layer of the level it walks on, onto the building's inside at its entrance and out at an exit as the hero does (`0x5FCCB0`, docs/re/movement.md), and keeps it where it stops (#138).
 Before, it stayed in layer 0 after going in: quest 1's novice, at the chapel's benches, showed through the chapel's wall while the hero stood outside.
 
@@ -123,7 +126,7 @@ The types of bit `0x800000` (list 4) always cover the hero, and a building's lev
 ## The models
 
 The world's dynamic objects (the creatures, the start script's objects) are entries of the same draw lists.
-After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects of the cell's layer (the layer of its building's state, above) and appends each, as an entry of kind 0 with the object's index, to list 3 (the vector at `+0x96AF4` of the view), or to list 0 or list 4 by tests of its type (`0x4280B0`, `0x4280D0`, `0x4280F0`, not followed), or in a liquid cell to the liquid cells' vector (above).
+After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects of its building's floor that the state shows, if any, then those of the cell's own chain, layer 0 (above), and appends each, as an entry of kind 0 with the object's index, to list 3 (the vector at `+0x96AF4` of the view), or to list 0 or list 4 by tests of its type (`0x4280B0`, `0x4280D0`, `0x4280F0`, not followed), or in a liquid cell to the liquid cells' vector (above).
 `0x62FF60` walks the five lists in order (the vectors from `+0x96AD0`, 12 bytes apart) and draws an entry of kind 0 by calling the object's own draw (its virtual function at `+0x14`), in its place among the list's sprites.
 So a model is drawn after every sprite of an earlier row and of an earlier cell of its row, and after its cell's statics; the sprites, without the depth test, cover a model drawn before them whole and lie whole under one drawn after them.
 The depth state of a model's own draw is not read.
