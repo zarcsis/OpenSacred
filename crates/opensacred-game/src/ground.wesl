@@ -7,7 +7,7 @@
 // the frame holds (`post::post_process`).
 
 import bevy_pbr::render::forward_io::VertexOutput;
-import package::{magnify, post::post_process};
+import package::post::post_process;
 
 /// The slots of the sector's distinct stacks of layers (`terrain::compose`).
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var atlas: texture_2d<f32>;
@@ -42,10 +42,10 @@ fn texel(t: vec2<f32>) -> vec4<f32> {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Filtering by hand, between the four texels around the fragment (`magnify.wesl`).
+    // Bilinear filtering by hand, between the four texels around the fragment.
     let p = in.uv - 0.5;
     let base = floor(p) + 0.5;
-    let f = magnify::weights(p);
+    let f = p - floor(p);
     let top = mix(texel(base), texel(base + vec2(1.0, 0.0)), f.x);
     let bottom = mix(texel(base + vec2(0.0, 1.0)), texel(base + vec2(1.0, 1.0)), f.x);
     let colour = mix(top, bottom, f.y);
