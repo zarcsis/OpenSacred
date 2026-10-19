@@ -345,14 +345,12 @@ impl Heights {
             .unwrap_or(0.0)
     }
 
-    /// The height of floor `floor` (from 1) of `building` above the ground ([`Self::lift`]).
-    pub fn lift_on(&self, building: buildings::Anchor, floor: usize) -> f32 {
-        let key = self
-            .floors
+    /// The level of floor `floor` (from 1) of `building`: `None` where it is not loaded.
+    pub fn floor_level(&self, building: buildings::Anchor, floor: usize) -> Level {
+        self.floors
             .get(&building)
             .and_then(|floors| floors.get(floor.checked_sub(1)?))
-            .copied();
-        self.lift(key)
+            .copied()
     }
 
     /// The building and the floor, from 1, that a level is.
@@ -1134,7 +1132,8 @@ mod tests {
         assert!(raised.abs() < 0.1, "{raised}");
         assert_eq!(heights.lift(first), 0.0);
         assert_eq!(heights.lift(None), 0.0);
-        assert_eq!(heights.lift_on((4, 4), 2), heights.lift(second));
+        assert_eq!(heights.floor_level((4, 4), 2), second);
+        assert_eq!(heights.floor_level((4, 4), 3), None);
         // Up the stair to (5, 4) of floor 2, down again to (6, 5); two floors down, the ground.
         assert_eq!(heights.climb((6, 5), first), Some(((5, 4), second)));
         assert_eq!(heights.climb((5, 4), second), Some(((6, 5), first)));

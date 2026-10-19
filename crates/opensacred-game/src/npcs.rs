@@ -17,8 +17,9 @@
 //!
 //! A position's third number is the layer the object lies in (**hypothesis**, docs/re/drawing.md):
 //! the client draws a building's cells with the world's objects of the building's current layer,
-//! layer 0 while the hero is outside; the objects of the upper layers show with their building's
-//! state (`buildings`).
+//! layer 0 while the hero is outside, so an object or NPC on a building's cell or floor shows
+//! with its building's state (`buildings::Layered`). A walking NPC changes layers as the hero
+//! does, onto a building's inside through its entrance and out at an exit (`0x5FCCB0`).
 //!
 //! An NPC holds its weapons and its shield as the client equips them (docs/re/equipment.md): each
 //! item's model is attached by its socket bone, `Bone_weapon_02` in the left hand and
@@ -38,9 +39,10 @@ use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::{
     AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, App, AssetId,
-    AssetServer, Assets, ChildOf, Children, Commands, Component, Entity, GltfAssetLabel, Handle,
-    Has, Image, IntoScheduleConfigs, MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut,
-    Resource, StandardMaterial, Time, Transform, Update, Vec3, Visibility, Without, WorldAssetRoot,
+    AssetServer, Assets, ChildOf, Children, Commands, Component, DetectChangesMut, Entity,
+    GltfAssetLabel, Handle, Has, Image, IntoScheduleConfigs, MeshMaterial3d, Name, On, Plugin,
+    Query, Res, ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec3, Without,
+    WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
@@ -153,11 +155,6 @@ pub struct Npcs {
 /// An object of the start script.
 #[derive(Component)]
 pub struct Object;
-
-/// A placed NPC or object of a layer above 0: inside a building, shown with its layer
-/// (`buildings::Furnishing`), or never outside one.
-#[derive(Component)]
-pub struct UpperLayer;
 
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
 #[derive(Component)]
@@ -562,6 +559,7 @@ pub fn place(
     mut npcs: ResMut<Npcs>,
     mut streamer: ResMut<Streamer>,
     heights: Res<Heights>,
+    states: Res<buildings::Buildings>,
     assets: Res<AssetServer>,
 ) {
     let npcs = &mut *npcs;
@@ -588,9 +586,20 @@ pub fn place(
                 (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
                 _ => None,
             };
-            if let (Some(building), Some(floor)) = (on_floor, floor) {
-                position.y += heights.lift_on(building, floor);
-            }
+            let level = match (on_floor, floor) {
+                (Some(building), Some(floor)) => heights.floor_level(building, floor),
+                _ => None,
+            };
+            position.y += heights.lift(level);
+            // In its layer of the building whose floor or cell it is on, if any.
+            let layered = buildings::Layered {
+                building: on_floor.or_else(|| {
+                    heights
+                        .building(position.x, position.z)
+                        .map(|(building, _)| building)
+                }),
+                layer: placement.layer,
+            };
             let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
             let mut entity = commands.spawn((
                 WorldAssetRoot(scene),
@@ -598,26 +607,9 @@ pub fn place(
                     .with_rotation(hero::facing(heading(placement.heading)))
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
                 models::Ordered::default(),
+                layered,
+                layered.visibility(&states),
             ));
-            if placement.layer != 0 {
-                // On a building's floor: shown with it; else never.
-                let building = on_floor.or_else(|| {
-                    heights
-                        .building(position.x, position.z)
-                        .map(|(building, _)| building)
-                });
-                match building {
-                    Some(building) => entity.insert((
-                        buildings::Furnishing {
-                            building,
-                            layer: placement.layer,
-                        },
-                        UpperLayer,
-                        Visibility::Hidden,
-                    )),
-                    None => entity.insert((UpperLayer, Visibility::Hidden)),
-                };
-            }
             if let Some(texture) = &placement.texture {
                 entity.insert(Retexture(load_texture(&assets, texture)));
             }
@@ -650,7 +642,7 @@ pub fn place(
                 if let Some(((tx, ty), speed)) = placement.walk {
                     entity.insert(Walk {
                         target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
-                        level: None,
+                        level,
                         speed,
                         climbed: false,
                     });
@@ -925,10 +917,16 @@ pub fn walk(
     time: Res<Time>,
     heights: Res<Heights>,
     speed: Res<hero::GameSpeed>,
-    mut walkers: Query<(Entity, &mut Transform, &mut Walk, &Npc)>,
+    mut walkers: Query<(
+        Entity,
+        &mut Transform,
+        &mut Walk,
+        &mut buildings::Layered,
+        &Npc,
+    )>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
-    for (entity, mut transform, mut walk, npc) in &mut walkers {
+    for (entity, mut transform, mut walk, mut layered, npc) in &mut walkers {
         let mut here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         if walk.level.is_none() && !heights.walkable(cell) {
@@ -950,6 +948,8 @@ pub fn walk(
             walk.level = level;
             walk.climbed = true;
         }
+        // In the layer of its level, at the cell it stands on: it stays there once it stands.
+        layered.set_if_neq(buildings::Layered::at(&heights, here.x, here.z, walk.level));
         let level = walk.level;
         let target = walk.target;
         let toward = match paths::next(
