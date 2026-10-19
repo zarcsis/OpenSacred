@@ -18,7 +18,8 @@ import bevy_pbr::render::{
 import package::order;
 
 /// Each model's anchor (`models::Anchors`), by the mesh's tag: the centre of its cell at the cell's
-/// height, and its place in the cell.
+/// height, and its place in the cell. The order takes the centre at height 0, as it does the
+/// sprites' (`order.wesl`); the model's own depth is measured from the centre at its height.
 @group(constants::MATERIAL_BIND_GROUP) @binding(100) var<storage, read> anchors: array<vec4<f32>>;
 
 /// The part of a vertex's own depth from its model's anchor that it keeps: a model about 80 units
@@ -81,7 +82,8 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     // The anchor's place, and the vertex's own depth from the anchor, squeezed.
     let anchor = anchors[mesh_functions::get_tag(vertex_no_morph.instance_index)];
     let back = view.world_from_view[2].xyz;
-    out.position.z = order::depth(anchor, SQUEEZE * dot(out.world_position.xyz - anchor.xyz, back));
+    let place = vec4(anchor.x, 0.0, anchor.z, anchor.w);
+    out.position.z = order::depth(place, SQUEEZE * dot(out.world_position.xyz - anchor.xyz, back));
 
 @if(VERTEX_UVS_A)
     out.uv = vertex.uv;
