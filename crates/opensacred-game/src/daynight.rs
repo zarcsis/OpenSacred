@@ -529,6 +529,7 @@ mod tests {
             sprite: 0,
             miniature: None,
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         let sector = Sector {

@@ -31,6 +31,11 @@ const BUILDING: u32 = 0x10;
 /// The bit of a type's flags (`items.pak +0x00` as a u32) whose statics cast a shadow
 /// (`0x62AE90`, docs/re/drawing.md).
 const CASTS_SHADOW: u32 = 0x1_0000;
+/// The bit of a type's flags whose statics, the upper storeys' floors, the client draws in a
+/// horizontal plane through the depth buffer (`0x62FF60`, docs/re/drawing.md, "Depth").
+const FLOOR: u32 = 0x200;
+/// Units of the models' height per step of a floor's `+0x33` (`0x62FF60`).
+const FLOOR_STEP: u16 = 28;
 
 /// Directory of the converted world.
 pub fn output_dir(out: &Path) -> PathBuf {
@@ -375,7 +380,7 @@ fn building(tables: &Tables, key: &SectorKey, head: u32, cell: u16) -> Result<Op
         if object.flags & BUILDING == 0 {
             continue;
         }
-        let mut floors = Vec::new();
+        let (mut floors, mut heights) = (Vec::new(), Vec::new());
         for child in tables.statics.chain(object.first_child)? {
             let floor = tables.statics.get(to_index(child)?)?;
             if u32::from(floor.sector) != key.id {
@@ -385,8 +390,13 @@ fn building(tables: &Tables, key: &SectorKey, head: u32, cell: u16) -> Result<Op
                 );
             }
             floors.push(u16::from(floor.layer));
+            heights.push(u16::from(floor.height) * FLOOR_STEP);
         }
-        return Ok(Some(Building { cell, floors }));
+        return Ok(Some(Building {
+            cell,
+            floors,
+            heights,
+        }));
     }
     Ok(None)
 }
@@ -439,6 +449,9 @@ fn chain_objects(tables: &Tables, head: u32, cell: u16, depth: usize) -> Result<
                         leaning: shadow.shape != 0,
                     }
                 }),
+            floor: item
+                .filter(|item| item.flags & FLOOR != 0)
+                .map(|_| u16::from(object.height) * FLOOR_STEP),
             children: chain_objects(tables, object.first_child, cell, depth + 1)?,
         });
     }
@@ -500,6 +513,11 @@ mod tests {
             .find(|b| (i32::from(b.cell) % 64, i32::from(b.cell) / 64) == anchor)
             .unwrap();
         assert_eq!(monastery.floors.len(), MONASTERY_FLOORS);
+        // Every building's floor 1 at the ground's height, as many heights as floors.
+        for building in &sector.buildings {
+            assert_eq!(building.heights.len(), building.floors.len());
+            assert_eq!(building.heights.first(), Some(&0), "{building:?}");
+        }
         // The statics that cast a shadow carry their type's: the benches' a rectangle.
         const BENCH_2: u32 = 9181;
         // Counted on Static.PAK and items.pak for #100.

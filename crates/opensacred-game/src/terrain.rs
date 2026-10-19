@@ -49,6 +49,9 @@ pub struct Heights {
     floors: HashMap<buildings::Anchor, Vec<LayerKey>>,
     /// The building and the floor, from 1, that each inside layer is.
     floor_of: HashMap<LayerKey, (buildings::Anchor, u8)>,
+    /// How high, in world units, each inside layer that is a building's floor lies above the
+    /// ground ([`Self::lift`]).
+    lifts: HashMap<LayerKey, f32>,
 }
 
 /// An inside layer: of its sector, by its index from 1 (docs/re/movement.md).
@@ -200,6 +203,12 @@ impl Heights {
                 if let Ok(floor) = u8::try_from(n + 1) {
                     self.floor_of.insert(key, (anchor, floor));
                 }
+                if let Some(&height) = building.heights.get(n) {
+                    self.lifts.insert(
+                        key,
+                        iso::height(f32::from(height) * iso::PIXELS_PER_MODEL_HEIGHT),
+                    );
+                }
             }
             self.floors.insert(anchor, floors);
         }
@@ -322,6 +331,28 @@ impl Heights {
             .get(usize::try_from(to - 1).ok()?)?;
         let [dx, dy] = stair.offsets.map(i32::from);
         Some(((cell.0 + dx, cell.1 + dy), Some(next)))
+    }
+
+    /// How high above the ground a creature at a level stands: a building's floor's height
+    /// (`Static.PAK +0x33` of the floor's object, times 28 units of the models' height), 0 on the
+    /// ground and on floor 1. **Hypothesis** (docs/re/drawing.md, "Depth"): the client draws a
+    /// floor's sprites through the depth buffer in a plane at that height, which would hide a
+    /// creature lower than it, and the grids of a building's floors lie over one another.
+    pub fn lift(&self, level: Level) -> f32 {
+        level
+            .and_then(|key| self.lifts.get(&key))
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+    /// The height of floor `floor` (from 1) of `building` above the ground ([`Self::lift`]).
+    pub fn lift_on(&self, building: buildings::Anchor, floor: usize) -> f32 {
+        let key = self
+            .floors
+            .get(&building)
+            .and_then(|floors| floors.get(floor.checked_sub(1)?))
+            .copied();
+        self.lift(key)
     }
 
     /// The building and the floor, from 1, that a level is.
@@ -1087,6 +1118,7 @@ mod tests {
             buildings: vec![opensacred_data::world::Building {
                 cell: u16::try_from(4 * SIDE + 4).unwrap(),
                 floors: vec![1, 2],
+                heights: vec![0, 112],
             }],
         };
         let mut heights = Heights::default();
@@ -1096,6 +1128,13 @@ mod tests {
         assert_eq!(heights.transition((5, 6), None), first);
         assert_eq!(heights.level_of((5, 5)), first);
         assert_eq!(heights.floor(second), Some(((4, 4), 2)));
+        // Floor 2 112 units of the models' height up, 192 pixels on the original's screen; the
+        // ground and floor 1 at the ground's.
+        let raised = iso::height(192.32) - heights.lift(second);
+        assert!(raised.abs() < 0.1, "{raised}");
+        assert_eq!(heights.lift(first), 0.0);
+        assert_eq!(heights.lift(None), 0.0);
+        assert_eq!(heights.lift_on((4, 4), 2), heights.lift(second));
         // Up the stair to (5, 4) of floor 2, down again to (6, 5); two floors down, the ground.
         assert_eq!(heights.climb((6, 5), first), Some(((5, 4), second)));
         assert_eq!(heights.climb((5, 4), second), Some(((6, 5), first)));

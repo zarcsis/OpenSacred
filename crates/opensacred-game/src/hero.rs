@@ -324,7 +324,7 @@ pub fn run(
             let shift = iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32);
             here += shift.with_y(0.0);
             if let Some(y) = heights.at(here.x, here.z) {
-                here.y = y;
+                here.y = y + heights.lift(level);
             }
             transform.translation = here;
             body.level = level;
@@ -371,8 +371,9 @@ pub fn run(
                 if into != from && !walkable(into) && walkable(from) {
                     body.target = None;
                 } else {
+                    // On a building's floor, its height over the ground.
                     if let Some(y) = heights.at(position.x, position.z) {
-                        position.y = y;
+                        position.y = y + heights.lift(body.level);
                     }
                     transform.translation = position;
                     transform.rotation = facing(to);
