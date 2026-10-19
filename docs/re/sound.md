@@ -40,12 +40,15 @@ A function around `0x68EDDA` plays a footstep: it switches on the nature (`natur
 | `IND-WOOD` | 7 `FOOTSTEP_WOOD` |
 
 Before the switch it skips three values of a word in `esi` (`0x22D`, `0x22E`, `0x48`; hypothesis: creature types that make no footsteps of the ground) to a path that checks for water (`0x68EE24`); not followed.
-`opensacred-game` plays the hero's footsteps by this table (`sound.rs`).
+
+Read 2026-10-19 (#141, **confirmed** by code): a creature's step, `0x639080`, calls the footstep with the nature of the ground's cell under it, but with `BRIDGE` (`0x70`) on a `WATERA` or `WATERB` cell whose second corner heights (`+0x18`, left, top, right, bottom) differ from its first and lie above 0 at the right or the bottom corner, or at both the left and the top: on a bridge over the water the steps are stone's, as the creature stands on the bridge's deck (docs/re/movement.md, "The height").
+
+`opensacred-game` plays the hero's footsteps by this table (`sound.rs`), with `BRIDGE` on a bridge over a liquid (`terrain::Heights::step_nature`).
 
 ## Footprints
 
 A function around `0x6392AE` loads a footprint texture by the nature of the cell (`nature − 0x10` up to `0x90`, byte table `0x639AB0`, jump table `0x639A9C`): `DESERT` `FOOTSTEPDESERT.TGA`, `ARCTIC` `FOOTSTEPSNOW.TGA`, `SUMPF` `FOOTSTEPSWAMP.TGA`, `WATERA` and `WATERB` the ripples `footstepWaterA_01.tga` to `05`; the other natures leave none.
-On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`) and goes on if they differ and one of the second is above 0 (not followed further).
+On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`), as for the footsteps above: on a bridge over the water and on `WATERB` it reads the byte at `+0xF8` of a table of the creature's (at `+0x17C`), else the one at `+0xF7` (not followed further).
 
 ## The atmosphere by the ground
 

@@ -38,8 +38,9 @@ const SLOT_H: usize = DIAMOND_H + 2;
 /// Slots per row of the atlas.
 const SLOTS_PER_ROW: usize = 64;
 
-/// The corner heights of the cells of the loaded sectors, in world units, and their natures (the
-/// high nibble of the ground byte, docs/02 §5.2), by global cell.
+/// The corner heights of the cells of the loaded sectors, in world units, the drawn ground's and
+/// the heights the creatures stand at, and their natures (the high nibble of the ground byte,
+/// docs/02 §5.2), by global cell.
 #[derive(Resource, Default)]
 pub struct Heights {
     cells: HashMap<(u32, u32), LoadedCell>,
@@ -74,12 +75,14 @@ struct LoadedLayer {
 }
 
 /// A cell of an inside layer: whether the hero may walk on it, whether it is an exit, which
-/// takes the hero out onto the ground, and whether it is a stair.
+/// takes the hero out onto the ground, whether it is a stair, and the heights a creature stands
+/// at on its corners ([`second_height`]).
 #[derive(Clone, Copy)]
 struct Spot {
     walkable: bool,
     exit: bool,
     stair: Option<Stair>,
+    standing: [f32; 4],
 }
 
 /// A stair of a building's floor (the low nibbles 5 to 8 of the ground byte, `0x5FCCB0`): it
@@ -135,10 +138,52 @@ const DOOR: u8 = 0x4;
 /// inside layer, takes it out onto the ground.
 const ENTRANCE: u8 = 9;
 const EXIT: u8 = 10;
+/// The natures of the two liquids, `WATERA` and `WATERB`, and of a bridge (docs/02 §5.2).
+const LIQUIDS: [u8; 2] = [9, 10];
+const BRIDGE: u8 = 7;
+
+/// Units of the models' height a step of a cell's second corner heights (`+0x18`) is: the client
+/// stands a creature on them, times 2.5 (`0x636520`, docs/re/movement.md, "The height").
+const STANDING_STEP: f32 = 2.5;
+
+/// The height in world units of a second corner height.
+fn second_height(step: i8) -> f32 {
+    iso::height(f32::from(step) * STANDING_STEP * iso::PIXELS_PER_MODEL_HEIGHT)
+}
+
+/// The height at `(u, v)` of a cell (its fractions along X and Z from its top corner) whose
+/// corners, left, top, right and bottom, stand at `corners`, as the client interpolates them
+/// (`0x636520`): linearly in the triangle of the diamond's centre, at the corners' mean, and of
+/// its side the point lies by, toward the right or the left corner as the point lies right or
+/// left of the centre on the screen, toward the bottom or the top one as it lies below or above.
+fn on_triangles([left, top, right, bottom]: [f32; 4], u: f32, v: f32) -> f32 {
+    let centre = (left + top + right + bottom) / 4.0;
+    // On the screen, the point lies `48 (u − v)` pixels right of the centre and `24 (u + v − 1)`
+    // below it.
+    let (across, down) = (u - v, u + v - 1.0);
+    let side = if across > 0.0 { right } else { left };
+    let end = if down > 0.0 { bottom } else { top };
+    centre + across.abs() * (side - centre) + down.abs() * (end - centre)
+}
+
+/// Whether a creature's step on a cell sounds as on a bridge over a liquid, as the client's
+/// `0x639080` gives the footstep `BRIDGE` for the cell's nature: a liquid cell whose second corner
+/// heights (left, top, right, bottom) differ from its first and rise above 0 at the right or the
+/// bottom corner, or at both the left and the top.
+fn bridged(cell: &Cell) -> bool {
+    let [left, top, right, bottom] = cell.heights2;
+    LIQUIDS.contains(&(cell.ground >> 4))
+        && cell.heights2 != cell.heights
+        && ((left > 0 && top > 0) || right > 0 || bottom > 0)
+}
 
 struct LoadedCell {
     heights: [f32; 4],
+    /// The heights a creature stands at on the cell's corners ([`second_height`]).
+    standing: [f32; 4],
     nature: u8,
+    /// Whether a step on the cell sounds as on a bridge ([`bridged`]).
+    bridged: bool,
     /// The cell's flags (docs/02 §5.2) and the building it belongs to.
     flags: u8,
     building: Option<buildings::Anchor>,
@@ -177,6 +222,7 @@ impl Heights {
                     walkable: walkable(cell.flags, cell.ground),
                     exit: cell.ground & 0xF == EXIT,
                     stair: Stair::of(cell),
+                    standing: cell.heights2.map(second_height),
                 })
                 .collect();
             self.layers.insert(
@@ -225,7 +271,9 @@ impl Heights {
                 key,
                 LoadedCell {
                     heights: cell.heights.map(|h| iso::height(f32::from(h))),
+                    standing: cell.heights2.map(second_height),
                     nature: cell.ground >> 4,
+                    bridged: bridged(cell),
                     flags: cell.flags,
                     building: buildings::anchor(sector, index),
                     walkable: walkable(cell.flags, cell.ground),
@@ -333,11 +381,10 @@ impl Heights {
         Some(((cell.0 + dx, cell.1 + dy), Some(next)))
     }
 
-    /// How high above the ground a creature at a level stands: a building's floor's height
+    /// How high over its grid's heights a creature at a level stands: a building's floor's height
     /// (`Static.PAK +0x33` of the floor's object, times 28 units of the models' height), 0 on the
-    /// ground and on floor 1. **Hypothesis** (docs/re/drawing.md, "Depth"): the client draws a
-    /// floor's sprites through the depth buffer in a plane at that height, which would hide a
-    /// creature lower than it, and the grids of a building's floors lie over one another.
+    /// ground and on floor 1, as the client adds it (`0x449950`, docs/re/movement.md, "The
+    /// height").
     pub fn lift(&self, level: Level) -> f32 {
         level
             .and_then(|key| self.lifts.get(&key))
@@ -430,8 +477,32 @@ impl Heights {
         self.cell(x, z).map(|(cell, _, _)| cell.nature)
     }
 
-    /// The height of the ground at world `(x, z)`, interpolated between the corners of its cell
-    /// (left, top, right, bottom); `None` outside the loaded sectors.
+    /// The nature a creature's step on the cell at world `(x, z)` sounds by, as the client's
+    /// `0x639080` gives it to the footstep: `BRIDGE` on a bridge over a liquid ([`bridged`]),
+    /// else the cell's own.
+    pub fn step_nature(&self, x: f32, z: f32) -> Option<u8> {
+        self.cell(x, z)
+            .map(|(cell, _, _)| if cell.bridged { BRIDGE } else { cell.nature })
+    }
+
+    /// The height a creature at world `(x, z)` on a level stands at, as the client gives it
+    /// (`0x636520`, `0x449950`): the second corner heights of the level's cell there, or of the
+    /// ground's where the level's grid has none, interpolated on the triangles of the cell's
+    /// centre ([`on_triangles`]), and on a building's floor the floor's height over them
+    /// ([`Self::lift`]); `None` outside the loaded sectors.
+    pub fn standing(&self, x: f32, z: f32, level: Level) -> Option<f32> {
+        let (fx, fz) = (x / iso::CELL, z / iso::CELL);
+        let corners = level
+            .and_then(|key| self.layers.get(&key))
+            .and_then(|layer| layer.spot(crate::paths::cell_of(x, z)))
+            .map(|spot| spot.standing)
+            .or_else(|| self.cell(x, z).map(|(cell, _, _)| cell.standing))?;
+        Some(on_triangles(corners, fx - fx.floor(), fz - fz.floor()) + self.lift(level))
+    }
+
+    /// The height of the drawn ground at world `(x, z)`, interpolated between the corners of its
+    /// cell (left, top, right, bottom); `None` outside the loaded sectors. A creature stands at
+    /// [`Self::standing`] instead.
     pub fn at(&self, x: f32, z: f32) -> Option<f32> {
         let (cell, u, v) = self.cell(x, z)?;
         let [left, top, right, bottom] = cell.heights;
@@ -770,7 +841,9 @@ pub fn center(sector: &Sector) -> Vec3 {
 }
 
 /// Where the hero starts in a sector given by hand (`--sector`): the centre of the walkable cell
-/// nearest the sector's centre, on its ground, or the sector's centre where no cell is walkable.
+/// nearest the sector's centre, at the height a creature stands at there (the mean of the cell's
+/// second corner heights, [`Heights::standing`]), or the sector's centre where no cell is
+/// walkable.
 pub fn start(sector: &Sector) -> Vec3 {
     let middle = SIDE / 2;
     let Some((index, cell)) = sector
@@ -784,11 +857,11 @@ pub fn start(sector: &Sector) -> Vec3 {
     else {
         return center(sector);
     };
-    let mean = cell.heights.iter().map(|&h| f32::from(h)).sum::<f32>() / 4.0;
+    let mean = cell.heights2.map(second_height).iter().sum::<f32>() / 4.0;
     iso::ground(
         sector.x as f32 * SIDE as f32 + (index % SIDE) as f32 + 0.5,
         sector.y as f32 * SIDE as f32 + (index / SIDE) as f32 + 0.5,
-    ) + Vec3::Y * iso::height(mean)
+    ) + Vec3::Y * mean
 }
 
 /// The shader of [`GroundMaterial`], embedded in the binary.
@@ -910,9 +983,9 @@ mod tests {
         let cell = |ground, height| Cell {
             tile: 0,
             overlays: Vec::new(),
-            heights: [height; 4],
+            heights: [5 * height; 4],
             light: [255; 4],
-            heights2: [0; 4],
+            heights2: [height; 4],
             offsets: [0; 2],
             flags: 0,
             ground,
@@ -931,9 +1004,10 @@ mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
+        // At the height a creature stands at there, its second heights' (`+0x18`).
         assert_eq!(
             start(&sector),
-            iso::ground(2.0 * 64.0 + 40.5, 3.0 * 64.0 + 30.5) + Vec3::Y * iso::height(8.0)
+            iso::ground(2.0 * 64.0 + 40.5, 3.0 * 64.0 + 30.5) + Vec3::Y * second_height(8)
         );
         // No walkable cell: the sector's centre.
         for cell in &mut sector.cells {
@@ -1240,5 +1314,129 @@ mod tests {
         assert!((corner(1.999, 0.0) - iso::height(10.0)).abs() < 0.05);
         assert!((corner(1.5, 0.5) - iso::height(15.0)).abs() < 1e-3);
         assert!(heights.at(-1.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn a_creature_stands_on_the_second_heights_on_the_triangles_of_its_cell() {
+        let cell = |heights2| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            // A pond's bed, which the creatures do not stand on.
+            heights: [-10; 4],
+            light: [255; 4],
+            heights2,
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0x90,
+        };
+        let mut cells = vec![cell([0; 4]); SIDE * SIDE];
+        // Left, top, right, bottom of cell (row 0, column 1): its centre at their mean, 3.
+        cells[1] = cell([4, 0, 8, 0]);
+        // A grid of one cell over it, 10 steps up, floor 1 of a building raised 28 units.
+        let sector = Sector {
+            x: 2,
+            y: 3,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: vec![Layer {
+                x: 2 * 64 + 1,
+                y: 3 * 64,
+                width: 1,
+                height: 1,
+                cells: vec![LayerCell {
+                    heights2: [10; 4],
+                    offsets: [0; 2],
+                    flags: 0,
+                    ground: 0xD0,
+                }],
+            }],
+            buildings: vec![opensacred_data::world::Building {
+                cell: 1,
+                floors: vec![1],
+                heights: vec![28],
+            }],
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let at = |cx: f32, cy: f32, level| {
+            let p = iso::ground(2.0 * SIDE as f32 + cx, 3.0 * SIDE as f32 + cy);
+            heights.standing(p.x, p.z, level).unwrap()
+        };
+        let steps = |value: f32| value * second_height(1);
+        let close = |a: f32, b: f32| (a - b).abs() < 0.05;
+        // The corners and the centre.
+        assert!(close(at(1.0, 0.0, None), 0.0));
+        assert!(close(at(1.5, 0.5, None), steps(3.0)));
+        assert!(close(at(1.999, 0.001, None), steps(8.0)));
+        assert!(close(at(1.001, 0.999, None), steps(4.0)));
+        // One point in each triangle, off its medians, where a bilinear surface differs: right
+        // and bottom, right and top, left and top, left and bottom.
+        assert!(close(at(1.75, 0.375, None), steps(4.5)));
+        assert!(close(at(1.625, 0.125, None), steps(4.75)));
+        assert!(close(at(1.125, 0.375, None), steps(1.75)));
+        assert!(close(at(1.375, 0.875, None), steps(2.75)));
+        // A unit of the second heights is 2.5 units of the models' height.
+        assert!(close(
+            second_height(4),
+            iso::height(10.0 * iso::PIXELS_PER_MODEL_HEIGHT)
+        ));
+        // On the layer: its cell's heights and the floor's over them; beside its grid, the
+        // ground's cell's heights and the floor's.
+        let floor = Some((2, 3, 1));
+        let lift = iso::height(28.0 * iso::PIXELS_PER_MODEL_HEIGHT);
+        assert!(close(heights.lift(floor), lift));
+        assert!(close(at(1.5, 0.5, floor), steps(10.0) + lift));
+        assert!(close(at(2.5, 0.5, floor), lift));
+        // Outside the loaded sectors.
+        assert!(heights.standing(-1.0, 0.0, None).is_none());
+    }
+
+    #[test]
+    fn a_step_on_a_bridge_over_a_liquid_sounds_as_on_a_bridge() {
+        let cell = |ground, heights, heights2| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights,
+            light: [255; 4],
+            heights2,
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let bed = [-10; 4];
+        let mut cells = vec![cell(0x40, [0; 4], [0; 4]); SIDE * SIDE];
+        // Water under a deck; under one at the left corner alone; under its own heights; water
+        // a little below the surface; water B under a deck; grass raised.
+        cells[1] = cell(0x90, bed, [3, 3, 6, 6]);
+        cells[2] = cell(0x90, bed, [5, 0, 0, 0]);
+        cells[3] = cell(0x90, [5; 4], [5; 4]);
+        cells[4] = cell(0x90, bed, [0, -1, -1, 0]);
+        cells[5] = cell(0xA0, bed, [0, 0, 0, 2]);
+        cells[6] = cell(0x40, [10; 4], [2; 4]);
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let nature = |column: f32| {
+            let p = iso::ground(column + 0.5, 0.5);
+            heights.step_nature(p.x, p.z).unwrap()
+        };
+        assert_eq!(
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0].map(nature),
+            [BRIDGE, 9, 9, 9, BRIDGE, 4]
+        );
+        // The ambient loop takes the cell's own nature.
+        let p = iso::ground(1.5, 0.5);
+        assert_eq!(heights.nature(p.x, p.z), Some(9));
     }
 }

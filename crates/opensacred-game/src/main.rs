@@ -308,7 +308,9 @@ fn run(cli: Cli) -> Result<AppExit> {
     let center = match start {
         Ok((x, y)) => {
             let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
-            position.y = heights.at(position.x, position.z).unwrap_or(0.0);
+            position.y = heights
+                .standing(position.x, position.z, None)
+                .unwrap_or(0.0);
             position
         }
         Err(_) => terrain::start(&first.sector),

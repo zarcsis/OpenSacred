@@ -578,9 +578,8 @@ pub fn place(
             let placement = &npcs.placements[index];
             let (x, y) = placement.cell;
             let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
-            position.y = heights.at(position.x, position.z).unwrap_or(0.0);
             // On a building's floor: the building whose floor's grid holds the cell, or the
-            // cell's on the ground; at the floor's height.
+            // cell's on the ground; on its level's heights, a floor's at the floor's height.
             let floor = usize::try_from(placement.layer).ok().filter(|&f| f > 0);
             let on_floor = match (i32::try_from(x), i32::try_from(y), floor) {
                 (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
@@ -590,7 +589,9 @@ pub fn place(
                 (Some(building), Some(floor)) => heights.floor_level(building, floor),
                 _ => None,
             };
-            position.y += heights.lift(level);
+            position.y = heights
+                .standing(position.x, position.z, level)
+                .unwrap_or(0.0);
             // In its layer of the building whose floor or cell it is on, if any.
             let layered = buildings::Layered {
                 building: on_floor.or_else(|| {
@@ -941,8 +942,8 @@ pub fn walk(
             && let Some((to, level)) = heights.climb(cell, walk.level)
         {
             here += iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32).with_y(0.0);
-            if let Some(y) = heights.at(here.x, here.z) {
-                here.y = y + heights.lift(level);
+            if let Some(y) = heights.standing(here.x, here.z, level) {
+                here.y = y;
             }
             transform.translation = here;
             walk.level = level;
@@ -987,9 +988,9 @@ pub fn walk(
             }
             continue;
         }
-        // On a building's floor, its height over the ground.
-        if let Some(y) = heights.at(position.x, position.z) {
-            position.y = y + heights.lift(walk.level);
+        // On its level's heights: a bridge's deck, a building's floor.
+        if let Some(y) = heights.standing(position.x, position.z, walk.level) {
+            position.y = y;
         }
         transform.translation = position;
         transform.rotation = hero::facing(to);
