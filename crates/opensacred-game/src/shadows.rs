@@ -1,28 +1,27 @@
 //! Shadows under the characters. The original flattens each character's mesh onto the ground and
-//! draws it through the stencil (docs/05 §1); until that is done, a soft dark ellipse lies under
-//! each character, in the original's place for shadows, draw list 1: over the ground, the
-//! liquids and the underlays of list 0 (paving, flowers), under those of list 2 and every other
-//! object (docs/decisions/2026-10-17-shadows.md).
+//! draws it through the stencil (docs/05 §1), with the model, in the model's place in the draw
+//! lists (`cGranny::renderShadow`, #101). Until that is done, a soft dark ellipse lies under each
+//! character, drawn as a part of its model that lies on the ground (`models::ModelMaterial`,
+//! tagged with the character's slot of the anchors): over what the original draws before the
+//! model (the ground, the liquids, the underlays, the floor and the stairs the character stands
+//! on), under the model itself and what it draws after (docs/decisions/2026-10-17-shadows.md).
 
 use bevy::asset::RenderAssetUsages;
+use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::iso;
-use crate::npcs::{Npc, UpperLayer};
-use crate::statics;
+use crate::models::{self, Anchors, ModelMaterial, Ordered};
+use crate::npcs::Npc;
 use crate::terrain::Heights;
 
 /// The ellipse's radius in world units: a little more than a model's shoulders.
 const RADIUS: f32 = 30.0;
 /// How dark the centre is: the blending is linear, so 0.9 leaves about a third of the light.
 const DARKNESS: f32 = 0.9;
-/// How far back along the line of sight the shadows lie: between the underlays of lists 0 and 2,
-/// as the original draws its shadows as list 1 (docs/02 §6.1), far enough from both for the
-/// ellipse's own depth.
-const BACK: f32 = (statics::LIST_0_BACK + statics::LIST_2_BACK) / 2.0;
 /// How long the ellipse is across the line of sight to its depth along it.
 const FLAT: f32 = 0.7;
 /// The part of the radius as dark as the centre.
@@ -43,7 +42,7 @@ pub struct Shadow(Entity);
 #[derive(Resource)]
 pub struct Blob {
     mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
+    material: Handle<ModelMaterial>,
 }
 
 /// The fade of the ellipse, as an image: black, its alpha `DARKNESS` up to `SOLID` of the radius,
@@ -84,7 +83,8 @@ pub fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<ModelMaterial>>,
+    anchors: Res<Anchors>,
 ) {
     let mesh = Plane3d::new(Vec3::Y, Vec2::new(RADIUS, RADIUS * FLAT));
     let material = StandardMaterial {
@@ -96,43 +96,55 @@ pub fn setup(
     };
     commands.insert_resource(Blob {
         mesh: meshes.add(mesh),
-        material: materials.add(material),
+        material: materials.add(models::in_order(material, &anchors)),
     });
 }
 
-/// Gives each new character a shadow, but those of the hidden layers.
+/// Gives each new character a shadow at its place in the order, hidden until it follows the
+/// character.
 pub fn add(
     mut commands: Commands,
     blob: Res<Blob>,
-    characters: Query<Entity, (NewCharacter, Without<UpperLayer>)>,
+    characters: Query<(Entity, &Ordered), NewCharacter>,
 ) {
-    for character in &characters {
+    for (character, ordered) in &characters {
+        let Some(slot) = ordered.slot() else {
+            continue;
+        };
         commands.spawn((
             Mesh3d(blob.mesh.clone()),
             MeshMaterial3d(blob.material.clone()),
+            MeshTag::new(slot),
             Transform::IDENTITY,
+            Visibility::Hidden,
             Shadow(character),
         ));
     }
 }
 
-/// Keeps each shadow under its character, on the ground, in the ground's layer; a shadow whose
-/// character went goes too.
+/// Keeps each shadow under its character, on the ground, and shown while its character is (an
+/// NPC of a building's inside only while the building shows it); a shadow whose character went
+/// goes too.
 pub fn follow(
     mut commands: Commands,
     heights: Res<Heights>,
-    characters: Query<&Transform, Character>,
-    mut shadows: Query<(Entity, &Shadow, &mut Transform)>,
+    characters: Query<(&Transform, Option<&Visibility>), Character>,
+    mut shadows: Query<(Entity, &Shadow, &mut Transform, &mut Visibility)>,
 ) {
-    for (entity, shadow, mut transform) in &mut shadows {
-        let Ok(character) = characters.get(shadow.0) else {
+    for (entity, shadow, mut transform, mut visibility) in &mut shadows {
+        let Ok((character, shown)) = characters.get(shadow.0) else {
             commands.entity(entity).despawn();
             continue;
         };
         let mut ground = character.translation;
         ground.y = heights.at(ground.x, ground.z).unwrap_or(ground.y);
-        transform.translation = ground + iso::forward() * BACK;
+        transform.translation = ground;
         transform.scale = Vec3::splat(iso::MODEL_SCALE);
+        visibility.set_if_neq(if shown == Some(&Visibility::Hidden) {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
     }
 }
 

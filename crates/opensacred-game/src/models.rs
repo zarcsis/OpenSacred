@@ -80,6 +80,24 @@ impl FromWorld for Anchors {
 #[derive(Component, Default)]
 pub struct Ordered(Option<u32>);
 
+impl Ordered {
+    /// The model's slot of the [`Anchors`], which the tags of the meshes at its place name.
+    pub fn slot(&self) -> Option<u32> {
+        self.0
+    }
+}
+
+/// The model material of `base`: a mesh of it, tagged with a model's slot of the `anchors`, is
+/// drawn at that model's place in the order.
+pub fn in_order(base: StandardMaterial, anchors: &Anchors) -> ModelMaterial {
+    ModelMaterial {
+        base,
+        extension: InOrder {
+            anchors: anchors.buffer.clone(),
+        },
+    }
+}
+
 /// The root of a model drawn at its holder's place: an NPC's weapon.
 #[derive(Component)]
 pub struct OrderedWith(pub Entity);
@@ -183,14 +201,7 @@ pub fn convert(
             let handle = converted
                 .0
                 .entry(material.0.id())
-                .or_insert_with(|| {
-                    materials.add(ModelMaterial {
-                        base: base.clone(),
-                        extension: InOrder {
-                            anchors: anchors.buffer.clone(),
-                        },
-                    })
-                })
+                .or_insert_with(|| materials.add(in_order(base.clone(), &anchors)))
                 .clone();
             commands
                 .entity(entity)
