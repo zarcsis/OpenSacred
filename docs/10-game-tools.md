@@ -69,7 +69,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
   New Game shows the seven classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game.
   The mouse, or the arrows, Enter and Esc.
 * The pause menu (#178): Esc in the game pauses it under a small menu over the frame dimmed, Continue, Main menu and Quit; Continue or Esc again goes on.
-  The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input; the music and the ambient loops go on.
+  The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input.
+  The sound pauses too, the music, the ambient loops and the footsteps fading out and, on Continue, in again from where they stopped: paused rather than muted, so that a track does not run on unheard.
   With the console open, Esc closes the console instead.
 * A game named on the command line (`--class` or another of the game's options, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
