@@ -164,6 +164,16 @@ fn anchor(heights: &Heights, position: Vec3) -> Vec4 {
     Vec4::new(centre.x, height, centre.z, PLACE)
 }
 
+/// The place in the order of a model whose root stands at `position`: the centre of its cell at
+/// height 0, after the cell's statics, as `models.wesl` takes its anchor.
+pub fn place_of(position: Vec3) -> Vec4 {
+    let centre = iso::ground(
+        (position.x / iso::CELL).floor() + 0.5,
+        (position.z / iso::CELL).floor() + 0.5,
+    );
+    Vec4::new(centre.x, 0.0, centre.z, PLACE)
+}
+
 /// Gives a new model root a slot of the anchors.
 fn hold(added: On<Add<Ordered>>, mut anchors: ResMut<Anchors>, mut roots: Query<&mut Ordered>) {
     let Ok(mut ordered) = roots.get_mut(added.entity) else {

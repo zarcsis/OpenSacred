@@ -397,6 +397,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
     .insert_resource(game_speed)
+    .insert_resource(statics::TreeFade::read(&assets)?)
     .insert_resource(daynight::GlowTexture(glow))
     .insert_resource(daynight::HeroLight {
         doubled: cli.class == Class::WoodElf,
