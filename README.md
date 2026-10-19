@@ -18,7 +18,7 @@ No networking: no server, multiplayer or lobby. Original save files are not load
 |---|---|
 | M0 Foundation: Cargo workspace, CI, the SHA-256 manifest of the reference installation | done |
 | M1 Converter: textures, Granny models and animations → glTF, world sectors, sound, texts, videos, interface, tables, hero templates, scripts | done |
-| M2 Vertical slice: streamed sectors with ground, water and objects, the hero walking and running, the start script's NPCs, footsteps, music and ambience, a minimal HUD | in progress |
+| M2 Vertical slice: streamed sectors with ground, water and objects, the hero walking and running, the start script's NPCs, footsteps, music and ambience, the original's cursor | in progress |
 | M3–M6: rules, quests, the full interface, version 1.0 for Windows 11 | planned |
 
 It is not a game you can play through yet. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10.

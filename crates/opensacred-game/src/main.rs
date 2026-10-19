@@ -37,7 +37,7 @@ use bevy::window::{PresentMode, WindowResolution};
 use clap::{Parser, ValueEnum};
 
 /// The heroes whose models have their own clips: the model, the clips of standing, walking and
-/// running, the portrait and the footstep profile of each.
+/// running and the footstep profile of each.
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Class {
     Seraphim,
@@ -64,52 +64,44 @@ impl Class {
         }
     }
 
-    /// The model's `.GRN` name, the idle, walk and run clips, the portrait's texture name and
-    /// the footstep profile.
-    fn preset(self) -> (&'static str, [&'static str; 3], &'static str, &'static str) {
+    /// The model's `.GRN` name, the idle, walk and run clips and the footstep profile.
+    fn preset(self) -> (&'static str, [&'static str; 3], &'static str) {
         const FEMALE: &str = "footsteps_hero_female";
         const MALE: &str = "footsteps_hero_male";
         match self {
             Class::Seraphim => (
                 "SERAPHIM.GRN",
                 ["SERA_IDLE_BH", "SERA_WALK_1H", "SERA_RUN_1H"],
-                "gui_qbp_sera",
                 FEMALE,
             ),
             Class::Gladiator => (
                 "GLADIATOR.GRN",
                 ["GLAD_IDLE_BH", "GLAD_WALK_BH", "GLAD_RUN_1H"],
-                "gui_qbp_glad",
                 MALE,
             ),
             Class::Mage => (
                 "MAGICIAN.GRN",
                 ["MAGE_IDLE_BH", "MAGE_WALK_BH", "MAGE_RUN_1H"],
-                "gui_qbp_mage",
                 MALE,
             ),
             Class::WoodElf => (
                 "AMAZONE.GRN",
                 ["AMAZ_IDLE_BH", "AMAZ_WALK_1H", "AMAZ_RUN_1H"],
-                "gui_qbp_welf",
                 FEMALE,
             ),
             Class::DarkElf => (
                 "DARKELVE.GRN",
                 ["DELV_IDLE_1H", "DELV_WALK_BH", "DELV_RUN_BH"],
-                "gui_qbp_delf",
                 MALE,
             ),
             Class::Daemon => (
                 "DAEMONIA.GRN",
                 ["DAEM_IDLE_BH", "DAEM_WALK_BH", "DAEM_RUN_BH"],
-                "gui_qbp_dae",
                 FEMALE,
             ),
             Class::Dwarf => (
                 "DWARF.GRN",
                 ["DWAR_IDLE_BH", "DWAR_WALK_1H", "DWAR_RUN_1H"],
-                "gui_qbp_dwa",
                 MALE,
             ),
         }
@@ -138,7 +130,7 @@ struct Cli {
     /// The camera's zoom at the start, 0.5 to 2 as in the original (the mouse wheel changes it)
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
-    /// The hero: its model, clips, portrait and footsteps, which the options below override
+    /// The hero: its model, clips and footsteps, which the options below override
     #[arg(long, value_enum, default_value = "seraphim")]
     class: Class,
     /// The hero model, relative to the asset directory
@@ -163,9 +155,6 @@ struct Cli {
     /// (netscript/<TREE>.nsc); by default the class's
     #[arg(long)]
     tree: Option<String>,
-    /// The hero's portrait in the HUD, relative to the asset directory
-    #[arg(long)]
-    portrait: Option<String>,
     /// The hero's footstep sound profile
     #[arg(long)]
     footsteps: Option<String>,
@@ -316,22 +305,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         }
         Err(_) => terrain::start(&first.sector),
     };
-    let (grn, [idle, walk, run], portrait, footsteps) = cli.class.preset();
+    let (grn, [idle, walk, run], footsteps) = cli.class.preset();
     let model = match cli.hero {
         Some(model) => model,
         None => npcs::model_files(&assets)?
             .remove(grn)
             .ok_or_else(|| anyhow::anyhow!("no model {grn} in {}", assets.display()))?,
-    };
-    let portrait = match cli.portrait {
-        Some(portrait) => portrait,
-        None => hud::find_texture(&assets, portrait)
-            .and_then(|path| {
-                path.strip_prefix(&assets)
-                    .ok()
-                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-            })
-            .unwrap_or_default(),
     };
     let footsteps_profile = cli.footsteps.unwrap_or_else(|| footsteps.into());
     let idle = cli.idle.unwrap_or_else(|| idle.into());
@@ -414,7 +393,6 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(Zoom(cli.zoom))
     .insert_resource(hero)
     .insert_resource(hud::Hud {
-        portrait,
         cursor: hud::cursor_file(&assets),
     })
     .add_systems(Startup, (camera, light))
