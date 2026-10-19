@@ -229,6 +229,7 @@ OpenSacred/
 * **Camera:** orthographic with the original's angle; zoom with smooth approach; an extended view option.
 * **UI:** a new scalable interface in Bevy UI; text through cosmic-text at native resolution; the original UI textures serve as skins.
 * **Sound:** event profiles from `sndProfiles` → RON tables → Kira.
+* **Tools:** settings in TOML, a stopgap menu, a debug overlay and the log on the screen, a console of the game's commands, and remote control through which Claude Code drives the game ([docs/10](docs/10-game-tools.md)).
 
 ### 6.3 Rules layer (`opensacred-rules`)
 
@@ -376,6 +377,10 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Every change reaches `main` through a squash-merged pull request with green checks on Linux and Windows; Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the rules, the process, the licenses, the deviations from the original that can change the play seriously or carry legal consequences, the screenshot references, and contributors' work).
    The dependencies are updated at most once a day, in an auto-merged pull request.
    The process is in docs/03 §3.6.
+10. **M2, tools to test and drive the game.**
+    Planned 2026-10-19 (#165): every option of the game is a command line flag read before Bevy starts, so the hero is fixed for the process and each change is a restart.
+    The plan, in [docs/10](docs/10-game-tools.md): settings in `%APPDATA%\OpenSacred\settings.toml` with borderless full screen by default and F11 for a window (#167); the HUD's portrait, health bar and gait removed (#168); the log on F4 and in a file (#169); a debug overlay on F3 (#170); the game's states, so that a game starts and ends inside the process (#171); a main menu with the choice of the hero (#172); one set of commands for the command line's scripts (#173), the console on `~` (#174) and remote control over Bevy's Remote Protocol (#175); and a project skill or an MCP server through which Claude Code drives the game (#176).
+    ≈10–20 agent-hours (estimate).
 
 ### 10.1 Priority queue
 
@@ -431,6 +436,7 @@ Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2),
 | [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.md) | milestones, agent-hours, tokens and their hypothetical cost at API prices |
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | risks and the legal framework |
 | [docs/09-ecosystem.md](docs/09-ecosystem.md) | game versions, community work, comparable projects |
+| [docs/10-game-tools.md](docs/10-game-tools.md) | tools to test and drive the game: settings, menu, overlays, log, console, remote control |
 | [docs/re/](docs/re/) | the original's behavior described in prose, per subsystem |
 | [docs/decisions/](docs/decisions/) | deliberate deviations from the original's behavior |
 | [docs/usage.md](docs/usage.md) | how Claude Code usage is recorded per pull request; the sessions before |

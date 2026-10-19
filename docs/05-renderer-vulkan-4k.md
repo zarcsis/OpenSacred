@@ -169,6 +169,7 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 * **Cross-check with the original:** reference frames of the original, which runs on Windows 11 without a wrapper in a 1024×768 window (docs/09 §2.2), in 32-bit color mode (`GFX32 : 1`, the GOG default), for visual cross-checking, with no requirement for pixel matching.
   A frame whose draw calls have to be inspected is captured in RenderDoc through dgVoodoo2, since RenderDoc does not capture D3D7 (docs/03 §1).
 * **Debugging:** RenderDoc, the Vulkan SDK validation layers, Bevy's built-in diagnostics (frame time, number of draw calls).
+  In the game, F3 shows the frame rate and times and F4 the log (docs/10 §5, #170, #169).
 
 ## 8. Rendering milestones
 
