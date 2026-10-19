@@ -71,6 +71,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * The menu: New Game and Quit, in the original's interface font.
   New Game shows the seven classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game.
   The mouse, or the arrows, Enter and Esc.
+  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/2026-10-19-menus.md): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.png`).
+  A game that the command line names starts at once, and a screenshot's, a recording's or a benchmark's ends the process when it does not load; any other goes back to the menu.
 * The pause menu (#178): Esc in the game pauses it under a small menu over the frame dimmed, Continue, Main menu and Quit; Continue or Esc again goes on.
   The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input.
   The sound pauses too, the music, the ambient loops and the footsteps fading out and, on Continue, in again from where they stopped: paused rather than muted, so that a track does not run on unheard.

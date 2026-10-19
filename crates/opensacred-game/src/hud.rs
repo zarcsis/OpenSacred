@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageLoaderSettings;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage};
@@ -48,8 +49,34 @@ pub fn find_texture(assets: &Path, name: &str) -> Option<PathBuf> {
         })
 }
 
+/// The converted textures named `names`, relative to the asset directory with `/` between the
+/// parts, as the asset server takes them; one look through the directory for all.
+pub fn find_textures(assets: &Path, names: &[&str]) -> Vec<Option<String>> {
+    let suffixes: Vec<String> = names.iter().map(|name| format!("-{name}.png")).collect();
+    let mut found = vec![None; names.len()];
+    let dir = assets.join("textures").join("texture");
+    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let file = entry.file_name();
+        let Some(file) = file.to_str() else {
+            continue;
+        };
+        if let Some(i) = suffixes.iter().position(|suffix| file.ends_with(suffix)) {
+            found[i] = Some(format!("textures/texture/{file}"));
+        }
+    }
+    found
+}
+
 pub fn cursor_file(assets: &Path) -> Option<PathBuf> {
     find_texture(assets, CURSOR)
+}
+
+/// An interface image, read as stored: in the frame's sRGB values.
+pub fn image(assets: &AssetServer, path: impl Into<String>) -> Handle<Image> {
+    assets
+        .load_builder()
+        .with_settings(|settings: &mut ImageLoaderSettings| settings.is_srgb = false)
+        .load(path.into())
 }
 
 /// The top left `CURSOR_SIDE` square of an RGBA PNG, each pixel `scale` times wider and taller.
