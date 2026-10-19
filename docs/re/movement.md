@@ -60,6 +60,30 @@ It searches from the start's cell for the target's by the fewest steps: a queue 
 Reaching the target's cell and layer, it walks the steps back to the start and returns the cells of the way; with the queue empty, it returns that there is none.
 Not read: the table of steps (filled at run time, nine entries, so perhaps the eight neighbours and a change of layer), how the hero then walks the way's cells, and what the caller does when there is no way.
 
+Read 2026-10-19 (#154): `cPathFloodfill`'s search has no caller in the code but through its vtable, and a creature ordered somewhere finds its way otherwise.
+`0x4F7710`, the order to go to a point (the AI's states and the player's commands call it), finds the way with `0x4FABE0` and keeps the way's points in the creature (`+0x2ED`).
+`0x4FABE0` works in a window of 55 × 55 cells about the creature (`0x1B` cells each side); a target further than 25 cells along an axis it first brings nearer along the line, to the farthest cell of the line within the window that `0x4EBCA0` (the rule of `0x636C10`, with the water's exceptions for some creatures) lets it stand on.
+It tries the straight line first, cell by cell (`0x4FAA60`), and else searches the window (`0x4F8AF0`, or `0x4F9410` for some creatures by their type, **hypothesis**: those that fly); every cell either way passes the test of a step, `0x4F7E10` (below).
+Not read in detail: the search's order, its costs, and the points it keeps.
+
+## The objects in the way
+
+Read 2026-10-19 (#154).
+A cell's `+0x08`, 0 in every file (docs/02 §5.2), is at run time the head of its chain of the world's dynamic objects: the id of the first object, which the object manager resolves (`0x5FE000`), each object's `+0x30` the id of the next.
+The object manager links an object into the chain of its cell as it places it (`0x5FDE80`) and out as it removes it (`0x5FC8B0`); the world pass walks the chain to draw a cell's objects (`0x62C306`).
+
+`0x4F7E10` tests whether a creature may step into a cell, on the ground or on a building's floor (by the cells of the floor's grid):
+
+- the cell's own test, `0x4EBCA0`;
+- then each object of the cell's chain: an object that is not a creature (the category of its type, `items.pak +0x2E`, other than 2, 3 and `0x20`) stops the step when its category is 4, a `cChest3D` (the chests, the barrels, the vases, the coffins, the cabinets, the book stands and the shrines), and the creature's id (`+0x0C`) is above 16;
+- another creature stops it under conditions of the two creatures' flags and states (`+0x1F4`, `+0x245`, `+0x2B7`, a list at `+0x39C`) that are not read yet;
+- with bit 2 of the global `0x182EE3C` set, a creature of id 16 or below may step anywhere (**hypothesis**: a debug switch).
+
+`0x5941A0`, the creatures' update, tests the cells of a straight line to where the creature heads with the same test (`0x4F7DD0`, at `0x5961F5`), and the way's search tests every cell with it, so a creature goes round a chest, and stops at one that stands in its way.
+
+The maintainer checked in the game (2026-10-19): the hero does not pass through a chest or a barrel, and sent to a point beyond one, it goes round it.
+So the hero's id is above 16 (**hypothesis**: the ids up to 16 are the network game's players', and the single player's hero is not one of them; `0x54ACC0` holds a creature of id 16 or below to the equipment slots of its class, and the update of the hostile creatures about the hero, `0x547070`, treats such a creature apart).
+
 ## The height
 
 Read 2026-10-19 (#141).
@@ -87,6 +111,8 @@ A hero on a building's mass on the ground is put on its building's floor 1 where
 A hero that steps onto a stair from off the stairs goes to the stair's floor at the cell its offsets give (`terrain::Heights::climb`, `hero::run`), and the way's search knows the stairs as the client's flag `0x100` makes them: a place of the way carries whether the step onto it climbs (`terrain::Footing`).
 The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
 The hero and the NPCs stand at the height that `0x636520` and `0x449950` give (`terrain::Heights::standing`, #141): on the second heights of their level's cell, a bridge's deck over the water, and on a building's floor at the floor's height above them.
+The start scripts' objects of category 4 take their cells at their levels (`terrain::Heights::occupy`, placed by `npcs::place`, #154), as `0x4F7E10` has a chest stop a creature of id above 16: the way of the hero and of a walking NPC goes round them, and a step into one stops, as into a cell that may not be walked on.
+The creatures do not stop one another yet: the conditions under which `0x4F7E10` has a creature stop a step are not read (#157).
 The deviations are in docs/decisions/2026-10-18-walking.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.

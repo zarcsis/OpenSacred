@@ -2,7 +2,9 @@
 //! tree's `StartCode.bin` (`netscript/<tree>.nsc`), and of the `OnEnter` functions of the quests
 //! that the start script enters (the novice in the chapel, quest 1's), each placed when its sector
 //! is in; an NPC plays the clip of its model that the client plays standing, by the class of what
-//! it holds (`motions`), an object (a barrel, a chest, a book stand, a signpost) stands. An NPC
+//! it holds (`motions`), an object (a barrel, a chest, a book stand, a signpost) stands, and a
+//! chest, a barrel or a book stand takes its cell, which the creatures go round
+//! (`terrain::Heights::occupy`, docs/re/movement.md, "The objects in the way"). An NPC
 //! that a quest sends somewhere at the start (`NPC_Goto`) walks there from where it was made,
 //! along the hero's way, with its walk clip at its creature's walk speed, or its run's where its
 //! model has no walk, then stands (docs/decisions/2026-10-19-quest-npcs.md).
@@ -83,6 +85,8 @@ struct Placement {
     equipment: Vec<Held>,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
+    /// Whether it takes its cell, which no creature steps into (`terrain::Heights::occupy`).
+    blocks: bool,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
     /// is a run.
@@ -103,7 +107,9 @@ const WEAPON: u8 = 5;
 const SHIELD: u8 = 13;
 /// The category of the chests, the barrels, the vases, the coffins, the cabinets, the book stands
 /// and the shrines, which the client makes `cChest3D`s, whose draw draws their shadows
-/// (`0x451300`, `0x5C97B0`); the signposts are of 15, `cSpecial3D`, which casts none.
+/// (`0x451300`, `0x5C97B0`), and which take their cells: a creature does not step into a cell
+/// that holds one (`0x4F7E10`); the signposts are of 15, `cSpecial3D`, which casts none and
+/// takes no cell.
 const CHEST: u8 = 4;
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
@@ -574,6 +580,7 @@ impl Npcs {
                 } else {
                     !shadowless.contains(&creature)
                 },
+                blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
                 texture,
                 layer,
                 equipment: if record.kind == CREATE_NPC {
@@ -607,12 +614,13 @@ impl Npcs {
     }
 }
 
-/// Places the NPCs of every sector that came in, as entities of that sector.
+/// Places the NPCs of every sector that came in, as entities of that sector, and marks the cells
+/// that its objects take.
 pub fn place(
     mut commands: Commands,
     mut npcs: ResMut<Npcs>,
     mut streamer: ResMut<Streamer>,
-    heights: Res<Heights>,
+    mut heights: ResMut<Heights>,
     states: Res<buildings::Buildings>,
     assets: Res<AssetServer>,
 ) {
@@ -646,6 +654,11 @@ pub fn place(
             position.y = heights
                 .standing(position.x, position.z, level)
                 .unwrap_or(0.0);
+            if placement.blocks
+                && let (Ok(cx), Ok(cy)) = (i32::try_from(x), i32::try_from(y))
+            {
+                heights.occupy((cx, cy), level);
+            }
             // In its layer of the building whose floor or cell it is on, if any.
             let layered = buildings::Layered {
                 building: on_floor.or_else(|| {

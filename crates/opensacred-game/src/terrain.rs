@@ -7,7 +7,7 @@
 //! The atlas of the median sector is 13 MB, a fifth of the sector's image on screen; a shader
 //! that composes the layers would shrink it further.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -53,6 +53,9 @@ pub struct Heights {
     /// How high, in world units, each inside layer that is a building's floor lies above the
     /// ground ([`Self::lift`]).
     lifts: HashMap<LayerKey, f32>,
+    /// The cells that an object takes, at their levels, into which no creature steps
+    /// ([`Self::occupy`]).
+    occupied: HashSet<((i32, i32), Level)>,
 }
 
 /// An inside layer: of its sector, by its index from 1 (docs/re/movement.md).
@@ -315,16 +318,27 @@ impl Heights {
         }
     }
 
-    /// Whether a cell may be walked on at a level: on the ground, or in an inside layer's grid.
+    /// Whether a creature may step into a cell at a level, as the client's test of a step does
+    /// (`0x4F7E10`, docs/re/movement.md, "The objects in the way"): the cell may be walked on, on
+    /// the ground or in an inside layer's grid, and no object takes it.
     pub fn walkable_on(&self, cell: (i32, i32), level: Level) -> bool {
-        match level {
+        let walkable = match level {
             None => self.walkable(cell),
             Some(key) => self
                 .layers
                 .get(&key)
                 .and_then(|layer| layer.get(cell))
                 .unwrap_or(false),
-        }
+        };
+        walkable && !self.occupied.contains(&(cell, level))
+    }
+
+    /// Marks a cell at a level as taken by an object that stops the creatures: a chest, a
+    /// barrel, a vase, a coffin, a cabinet, a book stand or a shrine (`0x4F7E10`), which the ways
+    /// go round and the steps stop at. It stays taken while the game runs: the objects do not
+    /// move, and a sector that comes in again places them again on the same cells.
+    pub fn occupy(&mut self, cell: (i32, i32), level: Level) {
+        self.occupied.insert((cell, level));
     }
 
     /// The places a hero at a place goes to next, as the client moves an object between levels
@@ -976,6 +990,55 @@ mod tests {
         );
         // Outside the loaded sectors.
         assert!(!heights.walkable((0, 0)));
+    }
+
+    #[test]
+    fn an_object_takes_its_cell_which_the_way_goes_round() {
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0x40,
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell; SIDE * SIDE],
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        // A chest at (5, 5) on the ground.
+        heights.occupy((5, 5), None);
+        assert!(heights.walkable((5, 5)), "its cell may be walked on");
+        assert!(
+            !heights.walkable_on((5, 5), None),
+            "but no creature steps in"
+        );
+        assert!(heights.walkable_on((5, 6), None));
+        let around: Vec<_> = heights
+            .neighbours(((5, 4), (None, false)))
+            .into_iter()
+            .map(|(cell, _)| cell)
+            .collect();
+        // Not into it, nor past its corner.
+        assert!(around.contains(&(6, 4)));
+        assert!(!around.contains(&(5, 5)) && !around.contains(&(6, 5)));
+        // The way from one side of it to the other goes round it: two steps more.
+        let way = crate::paths::path(((5, 4), (None, false)), (5, 6), |place| {
+            heights.neighbours(place)
+        })
+        .unwrap();
+        assert_eq!(way.len(), 5);
+        assert!(way.iter().all(|&(cell, _)| cell != (5, 5)));
     }
 
     #[test]

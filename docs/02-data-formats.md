@@ -397,7 +397,7 @@ Cell fields (the meanings per openheilig `formats/world-sectors.md` where marked
 |---|---|---|---|---|
 | +0x00 | u32 | tile: index into `tiles.pak` (90,132 tiles, so above 16 bits in 5% of cells); the tile names its `texture.pak` sheet and diamond 0..17 | `renderTileRow` 0x62AE90 | confirmed on every cell (range) |
 | +0x04 | u32 | the first static of the cell's chain in Static.PAK, 0 none (openheilig) | — | confirmed on every cell (§5.5) |
-| +0x08 | u32 | 0 in every cell: the head of an object list removed before release (openheilig) | — | confirmed on every cell |
+| +0x08 | u32 | 0 in every cell: at run time the head of the cell's chain of dynamic objects, the id of the first, each object's `+0x30` the next's (**confirmed** by code 2026-10-19, docs/re/movement.md, "The objects in the way"; openheilig took it for a list removed before release) | the world pass draws the chain (`0x62C306`); the test of a step reads it (`0x4F7E10`) | confirmed on every cell (0) and by code (use) |
 | +0x0C | u32 | the first floor overlay of the cell's chain in Floor.PAK, 0 none | copy of the quad into the layer list (cap 0x6D5) | confirmed on every cell (§5.5) |
 | +0x10…+0x13 | int8[4] | **corner heights** in the order left, top, right, bottom; multiples of 5, range −128…+125; all zeros in 78.4% of cells | `v.y -= h / zoom` | confirmed by code and statistics |
 | +0x14…+0x17 | u8[4] | **corner light** L,T,R,B: 255 (93.3%), 235, 215, … step 20 | gray diffuse `0xFF·L·L·L` | confirmed |
