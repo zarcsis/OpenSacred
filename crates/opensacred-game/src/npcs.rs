@@ -2,7 +2,8 @@
 //! tree's `StartCode.bin` (`netscript/<tree>.nsc`), and of the `OnEnter` functions of the quests
 //! that the start script enters (the novice in the chapel, quest 1's), each placed when its sector
 //! is in; an NPC plays an idle clip of its model, an object (a barrel, a chest, a book stand, a
-//! signpost) stands. An NPC that a quest sends somewhere at the start (`NPC_Goto`) stands there
+//! signpost) stands. An NPC that a quest sends somewhere at the start (`NPC_Goto`) walks there
+//! from where it was made, along the hero's way, at its creature's walk speed, then stands
 //! (docs/decisions/2026-10-19-quest-npcs.md).
 //!
 //! What the operands mean is read off the data (**hypothesis**, docs/02 §7.3): the first `0x02`
@@ -38,8 +39,8 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::prelude::{
     AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer, App, AssetId,
     AssetServer, Assets, ChildOf, Children, Commands, Component, Entity, GltfAssetLabel, Handle,
-    Image, IntoScheduleConfigs, MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut, Resource,
-    StandardMaterial, Transform, Update, Vec3, Visibility, Without, WorldAssetRoot,
+    Has, Image, IntoScheduleConfigs, MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut,
+    Resource, StandardMaterial, Time, Transform, Update, Vec3, Visibility, Without, WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
@@ -49,7 +50,8 @@ use opensacred_data::world::SIDE;
 use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
-use crate::{buildings, hero, iso, models, shadows};
+use crate::terrain::Level;
+use crate::{buildings, hero, iso, models, paths, shadows};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -78,6 +80,9 @@ struct Placement {
     equipment: Vec<Held>,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
+    /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its walk speed in
+    /// world units a second, before the game's speed.
+    walk: Option<((u32, u32), f32)>,
 }
 
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
@@ -165,11 +170,33 @@ pub struct Retextured(
     HashMap<(AssetId<StandardMaterial>, AssetId<Image>), Handle<StandardMaterial>>,
 );
 
-/// An NPC's model root, until its idle clip plays.
+/// An NPC's model root.
 #[derive(Component)]
 pub struct Npc {
     gltf: Handle<Gltf>,
-    graph: Option<(Handle<AnimationGraph>, AnimationNodeIndex)>,
+    graph: Option<Clips>,
+    /// The entity of its model's animation player, once it has its clips.
+    player: Option<Entity>,
+}
+
+/// An NPC's animation graph: its idle clip, and its walk clip if it has one.
+#[derive(Clone)]
+struct Clips {
+    graph: Handle<AnimationGraph>,
+    idle: AnimationNodeIndex,
+    walk: Option<AnimationNodeIndex>,
+}
+
+/// An NPC walking where a script sent it (`NPC_Goto`, `0x49E210`, which orders the creature to
+/// walk there): the point, the level it walks on, and its walk speed in world units a second,
+/// before the game's speed.
+#[derive(Component)]
+pub struct Walk {
+    target: Vec3,
+    level: Level,
+    speed: f32,
+    /// Whether it stands on a stair it has climbed already or arrived on.
+    climbed: bool,
 }
 
 fn value_i32(value: &Value) -> Option<i32> {
@@ -404,6 +431,8 @@ impl Npcs {
             .filter(|c| c.flags & NO_SHADOW != 0)
             .map(|c| c.id)
             .collect();
+        // Each creature's walk speed (`+0x26`, the models' units a second).
+        let walk_speeds: HashMap<u32, u16> = creatures.iter().map(|c| (c.id, c.speed[0])).collect();
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -453,10 +482,9 @@ impl Npcs {
                     })
                 })
                 .collect();
-            // An NPC sent somewhere at the start stands there.
-            let cell = name_of(ops)
-                .and_then(|name| targets.get(&name).copied())
-                .or_else(|| position(ops, &named));
+            // An NPC sent somewhere at the start walks there from where it was made.
+            let target = name_of(ops).and_then(|name| targets.get(&name).copied());
+            let cell = position(ops, &named).or(target);
             let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
                 (0x03, Value::U16(v)) => Some(f32::from(*v)),
                 _ => None,
@@ -477,9 +505,18 @@ impl Npcs {
                 0 => None,
                 number => textures.get(&number).cloned(),
             };
+            let walk = target
+                .filter(|_| record.kind == CREATE_NPC)
+                .and_then(|(tx, ty, _)| Some((u32::try_from(tx).ok()?, u32::try_from(ty).ok()?)))
+                .filter(|&to| to != (x, y))
+                .map(|to| {
+                    let speed = walk_speeds.get(&creature).copied().unwrap_or(0);
+                    (to, f32::from(speed) * iso::MODEL_SCALE)
+                });
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
+                walk,
                 heading: heading.unwrap_or(0.0),
                 object: record.kind == CREATE_OBJ,
                 casts: if record.kind == CREATE_OBJ {
@@ -608,7 +645,16 @@ pub fn place(
                 entity.insert(Npc {
                     gltf: assets.load(placement.model.clone()),
                     graph: None,
+                    player: None,
                 });
+                if let Some(((tx, ty), speed)) = placement.walk {
+                    entity.insert(Walk {
+                        target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
+                        level: None,
+                        speed,
+                        climbed: false,
+                    });
+                }
             }
             let entity = entity.id();
             streamer.adopt(at, entity);
@@ -794,11 +840,22 @@ pub fn retexture(
     }
 }
 
+/// The clip of `names` (sorted) that holds `kind` (`IDLE`, `WALK`) but not `FUN`, else one that
+/// holds it.
+fn clip_named<'a>(names: &[&'a str], kind: &str) -> Option<&'a str> {
+    names
+        .iter()
+        .find(|n| n.contains(kind) && !n.contains("FUN"))
+        .or_else(|| names.iter().find(|n| n.contains(kind)))
+        .copied()
+}
+
 /// Gives each NPC's animation player an idle clip of its model: the first by name that holds
-/// `IDLE` but not `FUN`, else one with `IDLE`, else the first clip.
+/// `IDLE` but not `FUN`, else one with `IDLE`, else the first clip; and its walk clip, the same
+/// way with `WALK`, which plays while the NPC walks.
 pub fn animate(
     mut commands: Commands,
-    mut npcs: Query<&mut Npc>,
+    mut npcs: Query<(&mut Npc, Has<Walk>)>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut players: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
@@ -817,7 +874,7 @@ pub fn animate(
                 Err(_) => break None,
             }
         };
-        let Some(mut npc) = npc else {
+        let Some((mut npc, walking)) = npc else {
             continue;
         };
         if npc.graph.is_none() {
@@ -827,27 +884,120 @@ pub fn animate(
             // The plain idle before the fidgets (`*_FUN_IDLE_*`, a horse rearing), by name.
             let mut names: Vec<&str> = gltf.named_animations.keys().map(|n| &**n).collect();
             names.sort_unstable();
-            let idle = names
-                .iter()
-                .find(|n| n.contains("IDLE") && !n.contains("FUN"))
-                .or_else(|| names.iter().find(|n| n.contains("IDLE")))
-                .and_then(|n| gltf.named_animations.get(*n));
-            let clip = idle.cloned().or_else(|| gltf.animations.first().cloned());
-            let Some(clip) = clip else {
+            let idle = clip_named(&names, "IDLE")
+                .and_then(|n| gltf.named_animations.get(n))
+                .cloned()
+                .or_else(|| gltf.animations.first().cloned());
+            let Some(idle) = idle else {
                 continue;
             };
-            let (graph, node) = AnimationGraph::from_clip(clip);
-            npc.graph = Some((graphs.add(graph), node));
+            let walk = clip_named(&names, "WALK").and_then(|n| gltf.named_animations.get(n));
+            let mut graph = AnimationGraph::new();
+            let root = graph.root;
+            let idle = graph.add_clip(idle, 1.0, root);
+            let walk = walk.map(|clip| graph.add_clip(clip.clone(), 1.0, root));
+            npc.graph = Some(Clips {
+                graph: graphs.add(graph),
+                idle,
+                walk,
+            });
         }
-        if let Some((graph, node)) = npc.graph.clone() {
+        if let Some(clips) = npc.graph.clone() {
+            let node = match (walking, clips.walk) {
+                (true, Some(walk)) => walk,
+                _ => clips.idle,
+            };
             player.play(node).repeat().set_speed(speed.0);
-            commands.entity(entity).insert(AnimationGraphHandle(graph));
+            commands
+                .entity(entity)
+                .insert(AnimationGraphHandle(clips.graph));
+            npc.player = Some(entity);
         }
     }
 }
 
-/// The start script's NPCs and objects: placed as their sectors come in, animated, retextured and
-/// equipped.
+/// Walks each walking NPC toward its target as the hero walks (`hero::run`): round what blocks
+/// the way and through the doors, at its walk speed times the game's, facing its way; at the
+/// target it stands, its idle clip playing. A target it cannot reach it walks straight toward,
+/// up to what blocks it, and stands there.
+pub fn walk(
+    mut commands: Commands,
+    time: Res<Time>,
+    heights: Res<Heights>,
+    speed: Res<hero::GameSpeed>,
+    mut walkers: Query<(Entity, &mut Transform, &mut Walk, &Npc)>,
+    mut players: Query<&mut AnimationPlayer>,
+) {
+    for (entity, mut transform, mut walk, npc) in &mut walkers {
+        let mut here = transform.translation;
+        let cell = paths::cell_of(here.x, here.z);
+        if walk.level.is_none() && !heights.walkable(cell) {
+            walk.level = heights.level_of(cell);
+        }
+        walk.level = heights.transition(cell, walk.level);
+        // Up or down a stair it stepped onto from off the stairs (`0x5FCCB0`).
+        if !heights.on_stairs(cell, walk.level) {
+            walk.climbed = false;
+        }
+        if !walk.climbed
+            && let Some((to, level)) = heights.climb(cell, walk.level)
+        {
+            here += iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32).with_y(0.0);
+            if let Some(y) = heights.at(here.x, here.z) {
+                here.y = y + heights.lift(level);
+            }
+            transform.translation = here;
+            walk.level = level;
+            walk.climbed = true;
+        }
+        let level = walk.level;
+        let target = walk.target;
+        let toward = match paths::next(
+            here,
+            (level, false),
+            target,
+            |cell, (at, _)| heights.walkable_on(cell, at),
+            |place| heights.neighbours(place),
+            |(at, _)| at,
+        ) {
+            Some(paths::Step::Through((next, _))) => {
+                walk.level = next;
+                continue;
+            }
+            Some(paths::Step::Toward(point)) => point,
+            None => target,
+        };
+        let to = (toward - here).with_y(0.0);
+        let distance = to.length();
+        let left = (target - here).with_y(0.0).length();
+        let step = (walk.speed * speed.0 * time.delta_secs()).min(distance);
+        let mut position = here + to / distance.max(f32::EPSILON) * step;
+        let (from, into) = (cell, paths::cell_of(position.x, position.z));
+        let blocked = into != from
+            && !heights.walkable_on(into, walk.level)
+            && heights.walkable_on(from, walk.level);
+        if left <= hero::ARRIVED || blocked || distance <= f32::EPSILON {
+            // There, or as near as it gets: it stands.
+            commands.entity(entity).remove::<Walk>();
+            if let Some(clips) = &npc.graph
+                && let Some(mut player) = npc.player.and_then(|p| players.get_mut(p).ok())
+            {
+                player.stop_all();
+                player.play(clips.idle).repeat().set_speed(speed.0);
+            }
+            continue;
+        }
+        // On a building's floor, its height over the ground.
+        if let Some(y) = heights.at(position.x, position.z) {
+            position.y = y + heights.lift(walk.level);
+        }
+        transform.translation = position;
+        transform.rotation = hero::facing(to);
+    }
+}
+
+/// The start script's NPCs and objects: placed as their sectors come in, animated, walked,
+/// retextured and equipped.
 pub struct NpcsPlugin;
 
 impl Plugin for NpcsPlugin {
@@ -855,7 +1005,10 @@ impl Plugin for NpcsPlugin {
         app.init_resource::<Retextured>()
             .add_observer(retexture)
             .add_observer(equipment_ready)
-            .add_systems(Update, (place, animate, equip).chain().in_set(Step::Npcs));
+            .add_systems(
+                Update,
+                (place, animate, walk, equip).chain().in_set(Step::Npcs),
+            );
     }
 }
 
@@ -938,6 +1091,23 @@ mod tests {
         assert_eq!(at(Value::Name("HAUPTMANN3".into())), Some((3349, 2534, 0)));
         assert_eq!(at(Value::I32x3([3259, 2569, 1])), Some((3259, 2569, 1)));
         assert_eq!(at(Value::Name("elsewhere".into())), None);
+    }
+
+    #[test]
+    fn an_npc_idles_and_walks_with_its_plain_clips() {
+        let names = [
+            "HORSE_FUN_IDLE_A",
+            "HORSE_IDLE",
+            "NOVI_ATTACK_1H_A",
+            "NOVI_FUN_WALK",
+            "NOVI_RUN_BH",
+            "NOVI_WALK_BH",
+        ];
+        assert_eq!(clip_named(&names, "IDLE"), Some("HORSE_IDLE"));
+        assert_eq!(clip_named(&names, "WALK"), Some("NOVI_WALK_BH"));
+        assert_eq!(clip_named(&names[..2], "IDLE"), Some("HORSE_IDLE"));
+        assert_eq!(clip_named(&names[..1], "IDLE"), Some("HORSE_FUN_IDLE_A"));
+        assert_eq!(clip_named(&names[..3], "WALK"), None);
     }
 
     #[test]

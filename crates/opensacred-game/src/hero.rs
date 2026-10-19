@@ -14,7 +14,7 @@ use crate::terrain::{Heights, Level};
 use crate::{iso, models, paths, shadows};
 
 /// How close to its target the hero stops.
-const ARRIVED: f32 = 4.0;
+pub(crate) const ARRIVED: f32 = 4.0;
 /// The blend between the idle and the run clips.
 const BLEND: Duration = Duration::from_millis(150);
 
