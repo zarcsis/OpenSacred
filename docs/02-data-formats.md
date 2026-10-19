@@ -712,8 +712,8 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 | Slot | Tag | Size (template / save) | Storage | Contents |
 |---|---|---|---|---|
 | 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | `cCreatureHero` dump (starts with 0xFEEDF00D; per sacred-sdk: class @0x3DD, experience @0x3E1, gold @0x41B, level @0x42B; not checked byte by byte) |
-| 1 | 0xCA (202) | 4,444 | zlib | skill table |
-| 2 | 0xCB (203) | 4,444 | zlib | combat arts/combos |
+| 1 | 0xCA (202) | 4,444 | zlib | the hero's backpack: an inventory container (below), 20 × 8 cells |
+| 2 | 0xCB (203) | 4,444 | zlib | a second inventory container, 20 × 10 cells, of the reference `0x11`, empty in all 10 files |
 | 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: repeating blocks starting with 0xFEEDF00D (6 in a template, 52/58 in saves) |
 | 4 | 0xC3 (195) | 556 | uncompressed | summary: `u32 level`, `u32 classId` (1..9, see §6.1), `wchar name[32]`, statistics (kills, gold, time) |
 | 5 | 0xC4 (196) | 64 on disk (556 in the table) | uncompressed | mini block |
@@ -723,6 +723,10 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 Compressed sections: a 32-byte prefix `u32 0xBAADC0DE, u32 csize, 24 × 0` + zlib (`78 DA`); inflate yields exactly `size`.
 **Confirmed on every section 2026-10-17** by `tools/analysis/formats/amh_dump.py`: the sections follow the table in slot order, back to back, the last to the end of the file; a stored section is `size` bytes on disk but for 0xC4 (64 bytes for a size of 556).
 The 8 templates are of 8 different classes (1–6, 8, 9), level 1, without a name; the 2 saves are level-29 heroes.
+
+**The inventory containers** `0xCA` and `0xCB`, **confirmed** 2026-10-19 (#133) by the client's reader (`0x5DDA30`, which the hero's loader `0x6058A0` calls for both, `0xCB` for the reference `0x11`) and on every section of the 10 files, read back to their exact 4,444 bytes: six u16, the container's number (1 for the backpack, 17 = `0x11` for the second), flags (16 in every backpack, 0 or 4 in the second container; `+0x1162` of the object), two more (the second 392 in the saves' backpacks, 0 in the templates', 20 in every second container), the grid's width and height (20 × 8 and 20 × 10); `0x400` bytes (zeros in all 10); the grid, `0xC00` bytes of 256 cells of 12 bytes, row by row, width × height of them used, a cell's first u32 an item reference (0 none); `0x78` bytes, five records of 24 bytes of two references each; 200 bytes; two u32; then the quest items, a u32 count and 8 bytes each (the client logs it as `NumQuestItem`), and the scrolls, a u32 count and 4 bytes each (`NumScrolls`), both 0 in all 10 files.
+The backpack of a template holds 4 items, one cell each (the three healing potions and the large torch of `Hero01.ptx`'s inventory), the saves' 33 and 39; the second container is empty in all 10.
+The earlier names, the skill table and the combat arts, were wrong.
 The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): the converter reads only the templates, and `amh_dump.py --saves` checks the saves of a clean installation.
 Implemented: `opensacred_formats::amh`; `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level and class in `heroes.ron`.
 The sections stay whole until their layout is recovered.
