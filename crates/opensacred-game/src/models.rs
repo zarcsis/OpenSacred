@@ -140,6 +140,7 @@ pub struct ModelsPlugin;
 impl Plugin for ModelsPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "models.wesl");
+        crate::shaders::embed_standard(app);
         app.add_plugins(MaterialPlugin::<ModelMaterial>::default())
             .init_resource::<Anchors>()
             .init_resource::<Converted>()

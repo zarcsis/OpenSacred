@@ -12,7 +12,8 @@ fn encode(colour: vec4<f32>) -> vec4<f32> {
     return vec4(linear_to_srgb(colour.rgb), colour.a);
 }
 
-/// The colour in linear light as the frame takes it, at the fragment's position.
+/// The colour in linear light as the frame takes it, at the fragment's position: after Bevy's
+/// last steps, encoded.
 fn post_process(colour: vec4<f32>, frag_coord: vec2<f32>) -> vec4<f32> {
     var out = colour;
 @if(TONEMAP_IN_SHADER) {

@@ -104,6 +104,7 @@ pub struct BlendedPlugin;
 
 impl Plugin for BlendedPlugin {
     fn build(&self, app: &mut App) {
+        crate::shaders::embed_standard(app);
         app.add_plugins(MaterialPlugin::<Sorted>::default());
     }
 }
