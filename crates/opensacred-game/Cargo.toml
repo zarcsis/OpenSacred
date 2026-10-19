@@ -17,6 +17,7 @@ clap.workspace = true
 opensacred-data.workspace = true
 png.workspace = true
 ron.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

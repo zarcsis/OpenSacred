@@ -13,6 +13,7 @@ mod hud;
 mod iso;
 mod liquids;
 mod models;
+mod motions;
 mod music;
 mod npcs;
 mod paths;

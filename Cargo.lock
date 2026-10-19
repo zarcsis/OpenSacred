@@ -4167,6 +4167,7 @@ dependencies = [
  "opensacred-data",
  "png",
  "ron",
+ "serde_json",
 ]
 
 [[package]]
