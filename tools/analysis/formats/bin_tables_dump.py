@@ -7,7 +7,8 @@ Purpose (docs/02 §6.3): the reference prototype. The layouts below are checked 
 follow the client's loader (0x42F8CE: fread of 0xD4 bytes, a u32 count, count x 0x18). Measured on the GOG files on
 2026-10-17.
 
-  Balance.bin     u32 4896, 4896 words (f32 or i32 by key; 0xFFFFFFFF "not set"), 1185 more words to the end
+  Balance.bin     u32 4896, the size in bytes of an image of the client's balance variables: 1224 words (f32 or
+                  i32 by key, tools/analysis/pe/balance_keys.py); then 4857 words of another layout to the end
   World.bin       u32 n, n x {i32, i32, i32}
   World2.bin      u32 32768, 32768 bytes
   sets.bin        u32 66, 66 x 112 B: the first all 0xCC, the others {u32 items[10]; u32 hash; u8 bytes[4]; 64 zeros}
@@ -85,10 +86,11 @@ def line(values):
 def balance(d, check):
     c = Cursor(d)
     n = c.u32()
-    values = c.u32s(n)
-    tail = c.u32s(c.left() // 4)
-    check('Balance.bin: 4896 words and a tail of whole words', n == 4896 and c.left() == 0, n)
-    return [line(values), line(tail)]
+    image = c.u32s(n // 4)
+    rest = c.u32s(c.left() // 4)
+    check('Balance.bin: an image of 4896 bytes, then 4857 words to the end',
+          n == 4896 and len(rest) == 4857 and c.left() == 0, n)
+    return [line(image), line(rest)]
 
 
 def world(d, check):

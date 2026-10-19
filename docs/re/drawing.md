@@ -98,7 +98,12 @@ For a vertex within `R / zoom` of a point across and down, `d` is its distance t
 The list is emptied before the rows (`0x6325C8`) and filled as `0x62E410` and `0x62FF60` pass the creatures, up to 100: the local player's hero (an object of id up to 16 that is the local player's, `0x7D84A0`), the creatures it owns (the owner at `+0x1EC`) and its companions (`+0x251` the player's, flag `0x104` at `+0x1F4`), each at the centre of its bounds on the screen, with `k` 0.
 So a tree fades about the creatures drawn before it in the frame, not about one drawn after it.
 
-The game has no such fade: a hero behind a tree is hidden (#69).
+`opensacred-game` fades them so (#122): the sprites of a type of bit `0x10` that its order puts after the hero's place take that alpha by their distance to the hero's point, 60 pixels above its feet, per point rather than per corner of their pieces (docs/decisions/2026-10-19-tree-fade.md), before the sprites' alpha test, which drops the faded texels within 13 pixels of the point (`statics::Fade`, `sprites.wesl`).
+Type 25 holds the walls of the buildings' shells too (`KLOSTER_KAPELLE01_0U1_*`), which fade the same way.
+For a hero behind the other sprites the client does nothing (read 2026-10-19, #69, **confirmed** by code): the sprites' path of `0x62FF60` (and of `0x62E410`, the same code) tests the hero's place nowhere else, and reads the points at `+0x96B3C` only for a type of bit `0x10`.
+A sprite of any other type, a building's part of type 9 such as the chapel's tower, is neither faded nor skipped nor moved in the order for the hero: drawn after the hero, it hides it.
+No model is drawn as a silhouette or an outline: none of the 24 modes of a model's draw (`0x44A9D0`) sets the depth function `GREATER` or the stencil, which the shadows alone use (`0x4073B0`, `0x406FF0`), and nothing after the lists draws the hero again; `0x41F7F0` draws there eight models that cross the map on straight paths at height 240, with their shadows (**hypothesis**: birds).
+The types of bit `0x800000` (list 4) always cover the hero, and a building's levels show by its state alone (`0x62AE90`), so the game, which hides the hero behind such a sprite, does as the original.
 
 ## The models
 
@@ -135,4 +140,4 @@ A sprite is a quad in the plane of the screen while the bed and the surface slop
 The anchors at height 0 (#112) take a quad 0.46 units back per pixel of its cell's height: the liquid cells holding these miniatures lie from 67.5 pixels below height 0 to 25 above, and over every cell whose diamond's box meets one of them the miniatures stay at least 210 units in front of the ground and 155 behind the surfaces; of the underlays of list 0 beside the water, none whose margin over a surface held before loses it (counted on the sector files 2026-10-18 with the cells' boxes, which overstate the overlaps).
 With the surfaces flat at height 0 and 4,450 back (#103), the miniatures stay at least 73 units behind them, and no underlay of list 0 whose margin held over the surfaces at their beds' heights loses it, while 331 pairs of an underlay and a cell that failed the boxes' count before now pass it (the same count, 2026-10-19).
 
-Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3), which world objects `0x434070` sends under the water, the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20), and the trees' fade above.
+Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3), which world objects `0x434070` sends under the water, the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20), and the trees' fade about the creatures other than the hero (`k` above 0).

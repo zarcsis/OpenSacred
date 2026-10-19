@@ -94,14 +94,51 @@ pub struct Motion {
     pub value_be: u16,
 }
 
-/// `bin/Balance.bin`: the balance constants, read by key from fixed offsets (the key names are in
-/// the client).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), the 330 that the keys of the
+/// balance text name by name, and the image of all of them as stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Balance {
-    /// 4,896 words, each an f32 or an i32 by its key; 0xFFFFFFFF is "not set".
-    pub values: Vec<u32>,
-    /// The 1,185 words after them.
-    pub tail: Vec<u32>,
+    /// The named variables, in the image's order.
+    pub variables: Vec<BalanceVariable>,
+    /// The image's 1,224 words as stored, the named and the unnamed: each an f32 or an i32.
+    pub image: Vec<u32>,
+    /// The 4,857 words after the image, of another layout, not read.
+    pub rest: Vec<u32>,
+}
+
+/// A balance variable that a key of the balance text names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BalanceVariable {
+    /// The key, as the client's parser has it (a key that ends in `:` heads a row of values).
+    pub name: String,
+    /// Its offset in the image, in bytes.
+    pub offset: u16,
+    pub value: BalanceValue,
+}
+
+/// A balance variable's value, of its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum BalanceValue {
+    F32(f32),
+    I32(i32),
+}
+
+impl Balance {
+    /// The value of the float variable `name`.
+    pub fn f32(&self, name: &str) -> Option<f32> {
+        match self.variables.iter().find(|v| v.name == name)?.value {
+            BalanceValue::F32(value) => Some(value),
+            BalanceValue::I32(_) => None,
+        }
+    }
+
+    /// The value of the integer variable `name`.
+    pub fn i32(&self, name: &str) -> Option<i32> {
+        match self.variables.iter().find(|v| v.name == name)?.value {
+            BalanceValue::I32(value) => Some(value),
+            BalanceValue::F32(_) => None,
+        }
+    }
 }
 
 /// An item set of `bin/sets.bin`; slot 0 is unused.

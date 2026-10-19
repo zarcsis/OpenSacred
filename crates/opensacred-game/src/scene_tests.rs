@@ -305,6 +305,7 @@ fn spawn_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
+    fade: Res<statics::Fade>,
     mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
 ) {
     if let Some(ground) = scene.ground.take() {
@@ -314,6 +315,7 @@ fn spawn_scene(
             &mut images,
             &mut meshes,
             &mut grounds,
+            crate::magnify::Filter::Linear,
         );
     }
     if let Some(surfaces) = scene.liquids.take() {
@@ -334,7 +336,11 @@ fn spawn_scene(
             &mut images,
             &mut meshes,
             &mut sprite_materials,
-            None,
+            statics::Common {
+                fade: &fade,
+                shadows: None,
+                filter: crate::magnify::Filter::Linear,
+            },
         );
     }
     commands.spawn((

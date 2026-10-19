@@ -6,14 +6,41 @@
 use crate::error::{Result, field};
 use crate::reader::Reader;
 
-/// `Balance.bin`: the balance constants, read by key from fixed offsets; the key names are in
-/// the client (openheilig, `balance-bin.md`).
+mod balance_keys;
+pub use balance_keys::BALANCE_KEYS;
+
+/// `Balance.bin`: `u32` the size in bytes of an image of the client's balance variables (at
+/// `0xAD4490`), the image, then words of another layout (docs/02 §6.3). The balance text's keys
+/// name 330 of the image's words ([`BALANCE_KEYS`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Balance {
-    /// 4,896 words, each an f32 or an i32 by its key; 0xFFFFFFFF is "not set".
-    pub values: Vec<u32>,
-    /// The 1,185 words after them.
-    pub tail: Vec<u32>,
+    /// The image's words, 1,224: each an f32 or an i32, by its key where it has one.
+    pub image: Vec<u32>,
+    /// The words after the image, 4,857, 1,253 of them `0xFFFFFFFF`: not read.
+    pub rest: Vec<u32>,
+}
+
+/// What a balance variable holds: the parser stores a float with `fstp`, an integer with `mov`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    F32,
+    I32,
+}
+
+/// A key of the balance text, and the variable it names: its offset in the image, in bytes,
+/// and its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BalanceKey {
+    pub name: &'static str,
+    pub offset: u16,
+    pub kind: Kind,
+}
+
+impl Balance {
+    /// The word that `key` names; `None` past the image.
+    pub fn word(&self, key: &BalanceKey) -> Option<u32> {
+        self.image.get(usize::from(key.offset / 4)).copied()
+    }
 }
 
 /// An item set of `sets.bin`.
@@ -77,19 +104,22 @@ fn end(r: &Reader<'_>, what: &'static str) -> Result<()> {
 
 pub fn balance(data: &[u8]) -> Result<Balance> {
     let mut r = Reader::new(data);
-    let n = count(&mut r, 4)?;
-    let values = (0..n).map(|_| r.u32()).collect::<Result<_>>()?;
+    let size = r.u32()?;
+    if !size.is_multiple_of(4) {
+        return Err(r.error(field("balance image", size.into(), "whole words".into())));
+    }
+    let image = (0..size / 4).map(|_| r.u32()).collect::<Result<_>>()?;
     if !r.rest().len().is_multiple_of(4) {
         return Err(r.error(field(
-            "balance tail",
+            "balance rest",
             u64::try_from(r.rest().len()).unwrap_or(u64::MAX),
             "whole words".into(),
         )));
     }
-    let tail = (0..r.rest().len() / 4)
+    let rest = (0..r.rest().len() / 4)
         .map(|_| r.u32())
         .collect::<Result<_>>()?;
-    Ok(Balance { values, tail })
+    Ok(Balance { image, rest })
 }
 
 /// `World.bin`: `u32 n` and n rows of three i32.
@@ -242,14 +272,20 @@ mod tests {
                 entries: vec![[1, 2, 3, 4, 5, 6]]
             }]
         );
-        let data = le(&[2, 0x3F80_0000, u32::MAX, 849]);
+        // An image of 8 bytes, two words, then a word of the rest.
+        let data = le(&[8, 0x3F80_0000, u32::MAX, 849]);
+        let b = balance(&data).unwrap();
         assert_eq!(
-            balance(&data).unwrap(),
+            b,
             Balance {
-                values: vec![0x3F80_0000, u32::MAX],
-                tail: vec![849]
+                image: vec![0x3F80_0000, u32::MAX],
+                rest: vec![849]
             }
         );
+        // The first key, BalanceDmg, names the image's first word, 1.0.
+        assert_eq!(BALANCE_KEYS[0].name, "BalanceDmg");
+        assert_eq!(b.word(&BALANCE_KEYS[0]), Some(0x3F80_0000));
+        assert_eq!(b.word(BALANCE_KEYS.last().unwrap()), None);
         let data = le(&[2, 1, 3392, 0, 2, 3456, 0]);
         assert_eq!(world_index(&data).unwrap(), [[1, 3392, 0], [2, 3456, 0]]);
     }
