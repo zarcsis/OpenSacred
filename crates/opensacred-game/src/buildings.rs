@@ -14,7 +14,7 @@ use opensacred_data::world::{SIDE, Sector};
 
 use crate::frame::Step;
 use crate::hero::Body;
-use crate::terrain::Heights;
+use crate::terrain::{Heights, Level};
 
 /// The cell flag of a building's cells.
 pub const BUILDING_CELL: u8 = 0x1;
@@ -60,12 +60,59 @@ pub struct Part {
     pub mask: u8,
 }
 
-/// A start script's object or NPC of a building's layer above 0: shown while the building's
-/// state shows `layer`.
-#[derive(Component)]
-pub struct Furnishing {
-    pub building: Anchor,
+/// The layer that a start script's object or NPC lies in, and the building it lies in it of:
+/// layer 0 on the ground, of the building whose cell it stands on, if any; layer `n` on a
+/// building's floor `n`. The client draws a building's cells with the world's objects of the
+/// layer that the building's state shows, and the other cells with those of layer 0
+/// (`0x62AE90`, docs/re/drawing.md): it shows while that is its layer.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Layered {
+    pub building: Option<Anchor>,
     pub layer: i32,
+}
+
+impl Layered {
+    /// An object at world `(x, z)` on `level`: on a building's floor, that floor; on an inside
+    /// layer of no known building's, floor 1 of the building of its cell; on the ground, layer 0.
+    pub fn at(heights: &Heights, x: f32, z: f32, level: Level) -> Self {
+        let ground = heights.building(x, z).map(|(building, _)| building);
+        match (level, heights.floor(level)) {
+            (_, Some((building, floor))) => Self {
+                building: Some(building),
+                layer: i32::from(floor),
+            },
+            (Some(_), None) => Self {
+                building: ground,
+                layer: 1,
+            },
+            (None, None) => Self {
+                building: ground,
+                layer: 0,
+            },
+        }
+    }
+
+    /// Whether it shows while the buildings are in their states: never above the ground where
+    /// it is in no building.
+    pub fn shown(&self, buildings: &Buildings) -> bool {
+        match self.building {
+            Some(building) => self.layer == layer(buildings.state(building)),
+            None => self.layer == 0,
+        }
+    }
+
+    /// Its visibility while the buildings are in their states.
+    pub fn visibility(&self, buildings: &Buildings) -> Visibility {
+        visibility(self.shown(buildings))
+    }
+}
+
+fn visibility(shown: bool) -> Visibility {
+    if shown {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    }
 }
 
 /// The building the hero is in and its floor, from 1, whose state is `1 << floor` ([`INSIDE`]
@@ -87,10 +134,10 @@ impl Buildings {
     }
 }
 
-/// Finds the building the hero is in and shows each building's parts and furnishings of its
-/// state, when that changes and as they come. The hero is in a building while it walks on an
-/// inside layer: in the one whose cell it went onto the layer at, its entrance or, at a start
-/// inside, the cell it starts on.
+/// Finds the building the hero is in and shows each building's parts and objects of its state,
+/// when that changes, as they come and as the objects change layers. The hero is in a building
+/// while it walks on an inside layer: in the one whose cell it went onto the layer at, its
+/// entrance or, at a start inside, the cell it starts on.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -102,8 +149,8 @@ pub fn enter(
     mut shown: ParamSet<(
         Query<(&Part, &mut Visibility)>,
         Query<(&Part, &mut Visibility), Added<Part>>,
-        Query<(&Furnishing, &mut Visibility)>,
-        Query<(&Furnishing, &mut Visibility), Added<Furnishing>>,
+        Query<(&Layered, &mut Visibility)>,
+        Query<(&Layered, &mut Visibility), Changed<Layered>>,
     )>,
 ) {
     // The building and the floor of the hero's level, or for a layer of no known building's,
@@ -121,34 +168,27 @@ pub fn enter(
     let changed = entered != buildings.entered;
     buildings.entered = entered;
     let buildings = &*buildings;
-    let show = |visible: bool| {
-        if visible {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        }
+    let part = |part: &Part, mut shown: Mut<Visibility>| {
+        shown.set_if_neq(visibility(part.mask == buildings.state(part.building)));
     };
-    let part = |part: &Part, mut visibility: Mut<Visibility>| {
-        visibility.set_if_neq(show(part.mask == buildings.state(part.building)));
+    let object = |layered: &Layered, mut shown: Mut<Visibility>| {
+        shown.set_if_neq(layered.visibility(buildings));
     };
-    let furnishing = |furnishing: &Furnishing, mut visibility: Mut<Visibility>| {
-        let state = buildings.state(furnishing.building);
-        visibility.set_if_neq(show(furnishing.layer == layer(state)));
-    };
-    // All of them when the hero enters or leaves a building, else those that just came.
+    // All of them when the hero enters or leaves a building, else those that just came or
+    // changed layers.
     if changed {
         for (p, visibility) in &mut shown.p0() {
             part(p, visibility);
         }
-        for (f, visibility) in &mut shown.p2() {
-            furnishing(f, visibility);
+        for (l, visibility) in &mut shown.p2() {
+            object(l, visibility);
         }
     } else {
         for (p, visibility) in &mut shown.p1() {
             part(p, visibility);
         }
-        for (f, visibility) in &mut shown.p3() {
-            furnishing(f, visibility);
+        for (l, visibility) in &mut shown.p3() {
+            object(l, visibility);
         }
     }
 }
@@ -165,7 +205,7 @@ impl Plugin for BuildingsPlugin {
 
 #[cfg(test)]
 mod tests {
-    use opensacred_data::world::Cell;
+    use opensacred_data::world::{Cell, Layer, LayerCell};
 
     use super::*;
 
@@ -217,5 +257,77 @@ mod tests {
         assert_eq!(state(2), (4, OUTSIDE));
         assert_eq!(state(3), (8, OUTSIDE));
         assert_eq!(Buildings::default().state((1, 1)), OUTSIDE);
+    }
+
+    #[test]
+    fn an_object_shows_with_the_layer_of_its_buildings_state() {
+        let cell = |flags| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0, 0],
+            flags,
+            ground: 0x40,
+        };
+        // Cell (5, 5) of sector (0, 0) a building's, its own anchor, with an inside layer over
+        // it, of no known building's floors.
+        let mut cells = vec![cell(0); SIDE * SIDE];
+        cells[5 * SIDE + 5] = cell(BUILDING_CELL);
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: vec![Layer {
+                x: 5,
+                y: 5,
+                width: 1,
+                height: 1,
+                cells: vec![LayerCell {
+                    heights2: [0; 4],
+                    offsets: [0; 2],
+                    flags: 0,
+                    ground: 0x40,
+                }],
+            }],
+            buildings: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let chapel = (5, 5);
+        let at = |cell: f32, level| {
+            let point = crate::iso::ground(cell + 0.5, cell + 0.5);
+            Layered::at(&heights, point.x, point.z, level)
+        };
+        let on = |building, layer| Layered { building, layer };
+        // In the building, through its door: its layer 1; on its cell of the ground, layer 0;
+        // elsewhere, the ground's.
+        let novice = at(5.0, Some((0, 0, 1)));
+        let doorway = at(5.0, None);
+        assert_eq!(
+            (novice, doorway),
+            (on(Some(chapel), 1), on(Some(chapel), 0))
+        );
+        assert_eq!(at(2.0, None), on(None, 0));
+        // The hero outside, inside, upstairs: layer 1 shows inside alone, layer 0 outside alone.
+        let outside = Buildings::default();
+        let inside = Buildings {
+            entered: Some((chapel, 1)),
+        };
+        let upstairs = Buildings {
+            entered: Some((chapel, 2)),
+        };
+        let shown = |object: Layered| {
+            [&outside, &inside, &upstairs].map(|buildings| object.shown(buildings))
+        };
+        assert_eq!(shown(novice), [false, true, false]);
+        assert_eq!(shown(doorway), [true, false, false]);
+        // Off the buildings, the ground's shows always and a layer above it never.
+        assert_eq!(shown(on(None, 0)), [true; 3]);
+        assert_eq!(shown(on(None, 1)), [false; 3]);
     }
 }
