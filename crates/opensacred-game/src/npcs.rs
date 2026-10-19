@@ -40,13 +40,13 @@ use bevy::prelude::{
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Record, Tree, Value};
-use opensacred_data::tables::{Item, Weapon};
+use opensacred_data::tables::{Creature, Item, Weapon};
 use opensacred_data::world::SIDE;
 
 use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
-use crate::{buildings, hero, iso, models};
+use crate::{buildings, hero, iso, models, shadows};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -70,11 +70,19 @@ struct Placement {
     layer: i32,
     /// The items an NPC holds.
     equipment: Vec<Held>,
+    /// Whether it casts a shadow (`shadows::Casts`).
+    casts: bool,
 }
 
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
 const WEAPON: u8 = 5;
 const SHIELD: u8 = 13;
+/// The category of the chests, the barrels, the vases, the coffins, the cabinets, the book stands
+/// and the shrines, which the client makes `cChest3D`s, whose draw draws their shadows
+/// (`0x451300`, `0x5C97B0`); the signposts are of 15, `cSpecial3D`, which casts none.
+const CHEST: u8 = 4;
+/// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
+const NO_SHADOW: u8 = 0x10;
 /// The weapon kinds of `Weapon.pak +0x1E` held in the left hand: bows and crossbows.
 const BOW: u8 = 7;
 const CROSSBOW: u8 = 12;
@@ -291,6 +299,18 @@ impl Npcs {
         let items: Vec<Item> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let items: HashMap<u32, &Item> = items.iter().map(|i| (i.slot, i)).collect();
+        let path = assets
+            .join("tables")
+            .join(opensacred_data::tables::CREATURES);
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let creatures: Vec<Creature> =
+            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let shadowless: HashSet<u32> = creatures
+            .iter()
+            .filter(|c| c.flags & NO_SHADOW != 0)
+            .map(|c| c.id)
+            .collect();
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -365,6 +385,11 @@ impl Npcs {
                 cell: (x, y),
                 heading: heading.unwrap_or(0.0),
                 object: record.kind == CREATE_OBJ,
+                casts: if record.kind == CREATE_OBJ {
+                    category(item) == CHEST
+                } else {
+                    !shadowless.contains(&creature)
+                },
                 texture,
                 layer,
                 equipment: if record.kind == CREATE_NPC {
@@ -461,6 +486,9 @@ pub fn place(
                         })
                         .collect(),
                 ));
+            }
+            if placement.casts {
+                entity.insert(shadows::Casts);
             }
             if placement.object {
                 entity.insert(Object);
