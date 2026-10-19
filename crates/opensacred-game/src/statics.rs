@@ -54,7 +54,6 @@ use opensacred_data::world::{SIDE, Sector, Shadow, Sprite, Sprites, StaticObject
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
-use crate::magnify::Filter;
 use crate::terrain::{Rgba, read_png};
 use crate::{buildings, iso, liquids};
 
@@ -137,8 +136,6 @@ pub struct SpriteMaterial {
     /// Whether the texels go through the original's alpha test first: a sprite's do, a
     /// miniature's do not (docs/re/drawing.md, "Blending").
     pub alpha_test: bool,
-    /// How the texels are filtered where they are magnified (`magnify.wesl`).
-    pub filter: Filter,
 }
 
 /// The texels of its sprites that a [`SpriteMaterial`] draws.
@@ -156,7 +153,6 @@ pub enum Pass {
 pub struct SpriteKey {
     fringe: bool,
     alpha_test: bool,
-    filter: Filter,
 }
 
 impl From<&SpriteMaterial> for SpriteKey {
@@ -164,7 +160,6 @@ impl From<&SpriteMaterial> for SpriteKey {
         Self {
             fringe: material.pass != Pass::Body,
             alpha_test: material.alpha_test,
-            filter: material.filter,
         }
     }
 }
@@ -215,15 +210,8 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_FADE.at_shader_location(5),
         ])?];
         descriptor.primitive.cull_mode = None;
-        let SpriteKey {
-            fringe,
-            alpha_test,
-            filter,
-        } = key.bind_group_data;
+        let SpriteKey { fringe, alpha_test } = key.bind_group_data;
         if let Some(fragment) = descriptor.fragment.as_mut() {
-            if let Some(def) = filter.shader_def() {
-                fragment.shader_defs.push(def.into());
-            }
             // In both passes, which take the texels that the test leaves.
             if alpha_test {
                 fragment.shader_defs.push("ALPHA_TEST".into());
@@ -1185,7 +1173,6 @@ fn fade(
 pub struct Common<'a> {
     pub fade: &'a Fade,
     pub shadows: Option<&'a StaticShadows>,
-    pub filter: Filter,
 }
 
 /// The shadow atlas, relative to the asset directory (`SHADOW_TREE00`).
@@ -1220,8 +1207,6 @@ fn make_shadows(
             fade: fade.buffer.clone(),
             pass: Pass::Fringe(layer),
             alpha_test: false,
-            // The original filters the shadows linearly (`0x631EB0`).
-            filter: Filter::Linear,
         })
     };
     commands.insert_resource(StaticShadows {
@@ -1239,11 +1224,7 @@ pub fn spawn(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<SpriteMaterial>,
-    Common {
-        shadows,
-        fade,
-        filter,
-    }: Common<'_>,
+    Common { shadows, fade }: Common<'_>,
 ) -> Vec<Entity> {
     let pages: Vec<Handle<Image>> = statics.pages.into_iter().map(|p| images.add(p)).collect();
     let mut entities = Vec::new();
@@ -1256,20 +1237,12 @@ pub fn spawn(
                 Some(shadows) => vec![shadows.with_sprites.clone()],
                 None => continue,
             },
-            BatchTexture::Atlas(path) => sprite_passes(
-                materials,
-                assets.load(path),
-                (fade, filter),
-                batch.layer,
-                false,
-            ),
-            BatchTexture::Page(page) => sprite_passes(
-                materials,
-                pages[page].clone(),
-                (fade, filter),
-                batch.layer,
-                true,
-            ),
+            BatchTexture::Atlas(path) => {
+                sprite_passes(materials, assets.load(path), fade, batch.layer, false)
+            }
+            BatchTexture::Page(page) => {
+                sprite_passes(materials, pages[page].clone(), fade, batch.layer, true)
+            }
         };
         let mesh = meshes.add(
             Mesh::new(
@@ -1305,7 +1278,7 @@ pub fn spawn(
 fn sprite_passes(
     materials: &mut Assets<SpriteMaterial>,
     atlas: Handle<Image>,
-    (fade, filter): (&Fade, Filter),
+    fade: &Fade,
     layer: Layer,
     alpha_test: bool,
 ) -> Vec<Handle<SpriteMaterial>> {
@@ -1318,7 +1291,6 @@ fn sprite_passes(
                 fade: fade.buffer.clone(),
                 pass,
                 alpha_test,
-                filter,
             })
         })
         .collect()
