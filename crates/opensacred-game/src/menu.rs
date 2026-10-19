@@ -1,7 +1,8 @@
-//! The main menu and the choice of the hero (docs/10 §4), until the original's interface of M5
-//! (docs/decisions/2026-10-19-menus.md): the game's logo over New Game and Quit, then the seven
-//! classes of `--class` with their portraits. The mouse chooses by pointing and clicking, the
-//! keyboard with the arrows and Enter; Esc goes back a screen. A hero starts a game with the
+//! The main menu, the choice of the hero and the pause's menu (docs/10 §4), until the original's
+//! interface of M5 (docs/decisions/2026-10-19-menus.md): the game's logo over New Game and Quit,
+//! then the seven classes of `--class` with their portraits; in a paused game (`pause`),
+//! Continue, Main menu and Quit over the frame dimmed. The mouse chooses by pointing and clicking,
+//! the keyboard with the arrows and Enter; Esc goes back a screen. A hero starts a game with the
 //! command line's other options (`game::Request`).
 
 use std::path::Path;
@@ -14,6 +15,7 @@ use clap::ValueEnum;
 
 use crate::game::{AppState, Class, FONT, GOLD, Request};
 use crate::hud;
+use crate::pause::Play;
 
 /// The menu's screen.
 #[derive(SubStates, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -30,6 +32,8 @@ pub enum Item {
     NewGame,
     Quit,
     Hero(Class),
+    Continue,
+    MainMenu,
 }
 
 /// An item's place on its screen, in the order of the arrows.
@@ -70,6 +74,8 @@ const PORTRAIT: f32 = 112.0;
 /// The colour of the items not chosen, in the frame's sRGB values (`hud`).
 const DIM: Color = Color::linear_rgb(0.5, 0.42, 0.27);
 const FRAME: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.0);
+/// What the pause's menu lays over the frame.
+const SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.6);
 
 /// The classes in the order of the screen: `--class`'s.
 fn classes() -> &'static [Class] {
@@ -129,25 +135,62 @@ fn main_screen(
                     },
                 ));
             }
-            for (place, (entry, text)) in [(Item::NewGame, "New Game"), (Item::Quit, "Quit")]
-                .into_iter()
-                .enumerate()
-            {
-                item(
-                    column,
-                    entry,
-                    place,
-                    (
-                        Text::new(text),
-                        TextFont {
-                            font: font.clone().into(),
-                            font_size: FontSize::Px(ITEM),
-                            ..default()
-                        },
-                        TextColor(DIM),
-                    ),
-                );
-            }
+            words(
+                column,
+                &font,
+                &[(Item::NewGame, "New Game"), (Item::Quit, "Quit")],
+            );
+        });
+}
+
+/// Items of a word each, in order.
+fn words(column: &mut ChildSpawnerCommands, font: &Handle<Font>, entries: &[(Item, &str)]) {
+    for (place, (entry, text)) in entries.iter().enumerate() {
+        item(
+            column,
+            *entry,
+            place,
+            (
+                Text::new(*text),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(ITEM),
+                    ..default()
+                },
+                TextColor(DIM),
+            ),
+        );
+    }
+}
+
+/// The pause's menu over the frame dimmed.
+fn pause_screen(mut commands: Commands, assets: Res<AssetServer>, mut chosen: ResMut<Chosen>) {
+    chosen.0 = 0;
+    let font: Handle<Font> = assets.load(FONT);
+    commands
+        .spawn((
+            DespawnOnExit(Play::Paused),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(16.0),
+                ..default()
+            },
+            BackgroundColor(SHADE),
+        ))
+        .with_children(|column| {
+            words(
+                column,
+                &font,
+                &[
+                    (Item::Continue, "Continue"),
+                    (Item::MainMenu, "Main menu"),
+                    (Item::Quit, "Quit"),
+                ],
+            );
         });
 }
 
@@ -239,6 +282,7 @@ fn act(
     mut request: ResMut<Request>,
     mut screen: ResMut<NextState<Screen>>,
     mut state: ResMut<NextState<AppState>>,
+    play: Option<ResMut<NextState<Play>>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     match item {
@@ -250,14 +294,21 @@ fn act(
             request.0.class = Some(class);
             state.set(AppState::Loading);
         }
+        Item::Continue => {
+            if let Some(mut play) = play {
+                play.set(Play::Running);
+            }
+        }
+        Item::MainMenu => state.set(AppState::Menu),
     }
 }
 
-/// The arrows move the choice, Enter does it, Esc goes back a screen.
+/// The arrows move the choice, Enter does it, Esc goes back from the heroes to the main menu
+/// (the pause's Esc is the pause's, `pause`).
 fn keys(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    screen: Res<State<Screen>>,
+    screen: Option<Res<State<Screen>>>,
     mut next: ResMut<NextState<Screen>>,
     mut chosen: ResMut<Chosen>,
     items: Query<(&Item, &Place)>,
@@ -278,7 +329,7 @@ fn keys(
     {
         commands.run_system_cached_with(act, *item);
     }
-    if pressed(&[KeyCode::Escape]) && *screen.get() == Screen::Heroes {
+    if pressed(&[KeyCode::Escape]) && screen.is_some_and(|screen| *screen.get() == Screen::Heroes) {
         next.set(Screen::Main);
     }
 }
@@ -314,7 +365,13 @@ fn light(
     }
 }
 
-/// The main menu, the choice of the hero and their keys.
+/// Whether a menu shows: the main menu's, or the pause's.
+fn shown(app: Option<Res<State<AppState>>>, play: Option<Res<State<Play>>>) -> bool {
+    app.is_some_and(|app| *app.get() == AppState::Menu)
+        || play.is_some_and(|play| *play.get() == Play::Paused)
+}
+
+/// The main menu, the choice of the hero, the pause's menu and their keys.
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
@@ -324,10 +381,8 @@ impl Plugin for MenuPlugin {
             .init_resource::<Images>()
             .add_systems(OnEnter(Screen::Main), main_screen)
             .add_systems(OnEnter(Screen::Heroes), heroes_screen)
-            .add_systems(
-                Update,
-                (keys, light).chain().run_if(in_state(AppState::Menu)),
-            );
+            .add_systems(OnEnter(Play::Paused), pause_screen)
+            .add_systems(Update, (keys, light).chain().run_if(shown));
     }
 }
 
@@ -382,5 +437,42 @@ mod tests {
             AppState::Loading
         );
         assert_eq!(app.world().resource::<Request>().0.class, Some(Class::Mage));
+    }
+
+    #[test]
+    fn the_pauses_menu_continues_or_leaves_for_the_main_menu() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::state::app::StatesPlugin,
+            AssetPlugin::default(),
+        ))
+        .init_asset::<Font>()
+        .init_asset::<Image>()
+        .insert_state(AppState::InGame)
+        .add_plugins((MenuPlugin, crate::pause::PausePlugin))
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<Request>();
+        app.update();
+        let play = |app: &App| app.world().get_resource::<State<Play>>().map(|s| *s.get());
+        let items = |app: &mut App| app.world_mut().query::<&Item>().iter(app.world()).count();
+        assert_eq!(items(&mut app), 0);
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(play(&app), Some(Play::Paused));
+        assert_eq!(items(&mut app), 3);
+        // Continue.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(play(&app), Some(Play::Running));
+        assert_eq!(items(&mut app), 0);
+        press(&mut app, KeyCode::Escape);
+        press(&mut app, KeyCode::ArrowDown);
+        // Main menu.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            *app.world().resource::<State<AppState>>().get(),
+            AppState::Menu
+        );
+        assert_eq!(play(&app), None);
+        assert!(!app.world().resource::<Time<Virtual>>().is_paused());
     }
 }

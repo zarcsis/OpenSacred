@@ -22,7 +22,7 @@ use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTwe
 use opensacred_data::sound::Sound;
 
 use crate::daynight::{Clock, Phase};
-use crate::frame::Playing;
+use crate::frame::{Playing, Unpaused};
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::terrain::Heights;
@@ -185,7 +185,10 @@ impl Plugin for AtmospherePlugin {
         app.add_audio_channel::<Channel>()
             .add_systems(
                 Update,
-                choose.in_set(Playing).run_if(resource_exists::<Atmosphere>),
+                choose
+                    .in_set(Playing)
+                    .in_set(Unpaused)
+                    .run_if(resource_exists::<Atmosphere>),
             )
             .add_systems(OnExit(AppState::InGame), leave);
     }

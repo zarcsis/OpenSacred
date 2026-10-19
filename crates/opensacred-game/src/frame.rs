@@ -37,6 +37,11 @@ pub enum Step {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Playing;
 
+/// The systems of a game that stop while it is paused (`pause`): the player's keys and mouse on
+/// the world, and what starts a sound. The rest goes on, standing still on the paused time.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Unpaused;
+
 /// The order of the steps.
 pub struct FramePlugin;
 

@@ -213,7 +213,10 @@ pub struct SoundPlugin;
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::InGame), load)
-            .add_systems(Update, step.in_set(Step::Footsteps));
+            .add_systems(
+                Update,
+                step.in_set(Step::Footsteps).in_set(crate::frame::Unpaused),
+            );
     }
 }
 

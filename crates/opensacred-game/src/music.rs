@@ -223,7 +223,9 @@ impl Plugin for MusicPlugin {
         app.add_audio_channel::<Channel>()
             .add_systems(
                 Update,
-                play.in_set(frame::Playing).run_if(resource_exists::<Music>),
+                play.in_set(frame::Playing)
+                    .in_set(frame::Unpaused)
+                    .run_if(resource_exists::<Music>),
             )
             .add_systems(OnExit(AppState::InGame), leave);
     }
