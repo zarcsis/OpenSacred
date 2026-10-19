@@ -38,6 +38,7 @@ python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --ou
 | `analysis/pe/detail_scan.py` | PE | targeted code reports: threads, functions by string, ranges |
 | `analysis/pe/fpu_scan.py` | PE | FPU control instructions, RNG calls, `VirtualProtect` |
 | `analysis/pe/srand_scan.py`, `control87_callers.py` | PE | `srand` seeds and `_control87` calls with context |
+| `analysis/pe/balance_keys.py` | PE, `bin/Balance.bin` | the balance text's keys, the variables they name in the balance image and their kinds (docs/02 §6.3, #71) |
 | `analysis/pe/granny_args.py` | PE | Granny call arguments by call site |
 | `analysis/pe/rsrc_dump.py` | PE | resource section: types, sizes, dialogs, large resources |
 | `analysis/pe/sacred_strings.py` | PE | symbol strings and configuration keys from the data sections |

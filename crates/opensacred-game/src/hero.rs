@@ -38,10 +38,6 @@ impl Default for GameSpeed {
     }
 }
 
-/// `GameSpeed`'s word in `balance.ron`: its offset `+0x6FC` in `Balance.bin`'s image of the
-/// balance variables (`0xAD4B8C`), in words.
-const GAME_SPEED: usize = 0x6FC / 4;
-
 impl GameSpeed {
     /// Reads `GameSpeed` from `tables/balance.ron`.
     pub fn read(assets: &std::path::Path) -> anyhow::Result<Self> {
@@ -50,11 +46,9 @@ impl GameSpeed {
             .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
         let balance: opensacred_data::tables::Balance =
             ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
-        let word = balance
-            .values
-            .get(GAME_SPEED)
+        let speed = balance
+            .f32("GameSpeed")
             .ok_or_else(|| anyhow::anyhow!("no GameSpeed in {}", path.display()))?;
-        let speed = f32::from_bits(*word);
         anyhow::ensure!(
             speed.is_finite() && speed > 0.0,
             "GameSpeed {speed} in {}",
@@ -432,15 +426,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn game_speed_is_the_word_at_0x6fc_of_the_balance_image() {
+    fn game_speed_is_the_balance_variable_of_its_name() {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-speed-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("tables")).unwrap();
-        let mut values = vec![0_u32; 1224];
-        values[0x6FC / 4] = 1.25_f32.to_bits();
+        let variable = |name: &str, value: f32| opensacred_data::tables::BalanceVariable {
+            name: name.to_owned(),
+            offset: 0,
+            value: opensacred_data::tables::BalanceValue::F32(value),
+        };
         let balance = opensacred_data::tables::Balance {
-            values,
-            tail: Vec::new(),
+            variables: vec![variable("GameSpeed", 1.25)],
+            image: Vec::new(),
+            rest: Vec::new(),
         };
         std::fs::write(
             dir.join("tables").join(opensacred_data::tables::BALANCE),

@@ -144,6 +144,23 @@ What the tags mean in each type is the work of M4; `CreateNPC` is read in docs/0
 | 122 | SolveTime | 16,830 | 1 | `1c 38 (16830)` |
 | 32 | Belohnungen | 16,830 | 1 | `1c 0b 0b (16830)` |
 
+## Quests
+
+Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless marked.
+
+- The quests are records of 0x124 bytes in a vector at `0xAABF18` (index 0 unused), the first u32 the quest's number.
+  As it loads a tree (`0x465690`), the client finds each quest's section functions by name in the function table (`0xAAB708`, entries of 0x54 bytes: the name, `+0x40` the offset, `+0x44` the size, `+0x48` the owning quest, `+0x50` done; `0x460590` finds one) and keeps their indices: `+0x10C` `QIS_Trigger<n>`, `+0x110` `QIS_OnEnter<n>`, `+0x114` `QIS_OnSetUp<n>`, `+0x118` `QIS_OnExit<n>`, `+0x11C` `QIS_OnLose<n>` (the compiler `0x45A370` names a quest's sections so).
+  `+0x120` holds the quest's flags: 1 set up, 4 entered, 2 finished, 8 while it is set up.
+- `0x46BA90` runs a function by its index: none for the index 0, −1 or one out of range, nor for a function whose quest is not set up; it answers whether the body ran to its end, so an empty body runs through.
+- `SetUpQuest` (21, `0x48F7F0`, `0x46DB20`) sets a quest up once: the flags 1 and 8, its `OnSetUp`, its trigger (the answer ignored), then the flag 8 off; it does not enter it.
+- `TriggerQuest` (20, `0x48F030`) needs the flag 1, runs the quest's trigger, and if that runs through enters the quest (`0x46C160`): unless the flag 4 is set, a quest log entry, the flag 4, then the quest's `OnEnter`.
+- `ExitQuest` (15) and `LoseQuest` (54) (`0x48EE20`, `0x46CBE0`) need the flag 4 and not 2, run `OnExit` or `OnLose`, and set the flag 2; `UnTriggerQuest` (77, `0x48E600`) takes the flag 4 off and the log entry out.
+- A new game runs its tree's start script through, record by record (`0x46F9B0`, `0x470AC0`, from `0x60C2DC`); a saved game's load does not.
+  The Seraphim's start script sets quest 1 up and triggers it at once, and its `QIS_Trigger1` is empty: the world starts with quest 1 entered and its `QIS_OnEnter1` run, which creates the novice (`CreateNPC`, creature 679, at the `DefPos` `novizin1`) and sends her to the chapel's benches (`NPC_Goto` to (3237, 2514, 0)).
+  The other heroes' start scripts trigger a quest 1 of their own the same way, but the Daemon's, which triggers none; the Underworld trees' start scripts trigger none.
+- `NPC_Goto` (72, `0x49E210`) takes the NPC's name, then a cell (`0x04`, through `0x6224B0`) or raw coordinates (`0x20`), and an optional flag (`0x66`): it does not move the creature, but posts it an event of walking there (a `cEvent_creature`, id 4), starting a motion first; `Teleport` (46, `0x491D40`) places the creature at once.
+- `QuestKompassObj` (64, `0x49AC80`) points the quest compass at the named object: the quest log alone.
+
 ## Differences from the openheilig table
 
 openheilig's tag table (MIT; derived from a Linux build with addresses `0x08xxxxxx`) differs from the GOG client in eight places:

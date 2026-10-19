@@ -21,7 +21,8 @@ fn lines(path: &str, data: &[u8]) -> Vec<String> {
     match path {
         "bin/Balance.bin" => {
             let b = balance(data).unwrap();
-            vec![line(b.values), line(b.tail)]
+            assert_eq!((b.image.len(), b.rest.len()), (1224, 4857));
+            vec![line(b.image), line(b.rest)]
         }
         "bin/World.bin" => world_index(data).unwrap().into_iter().map(line).collect(),
         "bin/World2.bin" => vec![line(world_map(data).unwrap())],
@@ -97,4 +98,55 @@ fn every_table_matches_bin_tables_dump_py() {
         assert_eq!(ours, row);
     }
     fs::remove_dir_all(out).unwrap();
+}
+
+/// The key table against `tools/analysis/pe/balance_keys.py`'s, read off the client's code; and
+/// the variables it names in `Balance.bin` (docs/02 §6.3).
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+fn the_balance_keys_match_balance_keys_py() {
+    let out = scratch_dir("balance-keys");
+    let table = out.join("keys.tsv");
+    let game = repo_root().join("OriginalGame");
+    run_python(
+        "tools/analysis/pe/balance_keys.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--table"),
+            table.as_os_str(),
+        ],
+    );
+    let theirs = fs::read_to_string(&table).unwrap();
+    let ours: Vec<String> = BALANCE_KEYS
+        .iter()
+        .map(|k| {
+            let kind = match k.kind {
+                Kind::F32 => "f32",
+                Kind::I32 => "i32",
+            };
+            format!("{}\t{}\t{kind}", k.name, k.offset)
+        })
+        .collect();
+    assert_eq!(theirs.lines().skip(1).collect::<Vec<_>>(), ours);
+    fs::remove_dir_all(out).unwrap();
+    let b = balance(&game_file("bin/Balance.bin")).unwrap();
+    let f32_of = |name: &str| {
+        let key = BALANCE_KEYS.iter().find(|k| k.name == name).unwrap();
+        assert_eq!(key.kind, Kind::F32);
+        f32::from_bits(b.word(key).unwrap())
+    };
+    assert_eq!(
+        (
+            f32_of("GameSpeed"),
+            f32_of("TransSize"),
+            f32_of("TransValu")
+        ),
+        (1.25, 190.0, 50.0)
+    );
+    let skill = BALANCE_KEYS
+        .iter()
+        .find(|k| k.name == "skilllearn2")
+        .unwrap();
+    assert_eq!((skill.kind, b.word(skill)), (Kind::I32, Some(6)));
 }

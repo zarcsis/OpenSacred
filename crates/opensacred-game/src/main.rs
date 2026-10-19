@@ -12,6 +12,7 @@ mod hero;
 mod hud;
 mod iso;
 mod liquids;
+mod magnify;
 mod models;
 mod music;
 mod npcs;
@@ -192,6 +193,10 @@ struct Cli {
     /// The time of day at the start, as HH:MM (08:00, as in the original)
     #[arg(long, value_parser = daynight::parse_time)]
     time: Option<daynight::Clock>,
+    /// How the art is filtered where it is magnified: linear, point (the original's sprites) or
+    /// sharp (square texels blended across a pixel at their edges), for #42's decision
+    #[arg(long, value_enum, default_value = "linear")]
+    filter: magnify::Filter,
 }
 
 /// `x,y` of an offset in cells.
@@ -345,7 +350,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     let streamer = sectors::Streamer::new(shared, at, first);
     let npcs = npcs::Npcs::read(&assets, &tree)?;
     let (npc_count, object_count) = npcs.counts();
-    println!("{tree}: {npc_count} NPCs and {object_count} objects in the start script");
+    println!("{tree}: {npc_count} NPCs and {object_count} objects at the start");
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -394,9 +399,11 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((statics::StaticsPlugin, terrain::GroundPlugin))
     .insert_resource(cli.time.unwrap_or_default())
+    .insert_resource(cli.filter)
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
     .insert_resource(game_speed)
+    .insert_resource(statics::TreeFade::read(&assets)?)
     .insert_resource(daynight::GlowTexture(glow))
     .insert_resource(daynight::HeroLight {
         doubled: cli.class == Class::WoodElf,

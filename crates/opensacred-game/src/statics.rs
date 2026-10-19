@@ -24,6 +24,9 @@
 //! A static of a type that casts a shadow has a quad of a cell of the shadow atlas
 //! (`SHADOW_TREE00`) at its foot, in list 1 or right before its sprite (docs/re/drawing.md, "The
 //! statics' shadows"): blended, through the materials of [`StaticShadows`], which the night fades.
+//!
+//! The trees and the walls of type 25, the sprites of a type of bit [`FADES`], fade about the
+//! hero when they are drawn after it, as the original's do ([`Fade`], `sprites.wesl`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -37,17 +40,21 @@ use bevy::mesh::{
 };
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
-    AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Plugin, Res, ResMut, Resource, Startup, TypePath, Vec2, Vec3, Vec4, Visibility,
+    AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, FromWorld, Handle, Image,
+    IntoScheduleConfigs, Mesh, Mesh3d, MeshMaterial3d, Plugin, Query, Res, ResMut, Resource,
+    Startup, Transform, TypePath, Update, Vec2, Vec3, Vec4, Visibility, With,
 };
 use bevy::render::render_resource::{
     AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
     TextureDimension, TextureFormat,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use opensacred_data::world::{SIDE, Sector, Shadow, Sprite, Sprites, StaticObject, World};
 
 use crate::blended::{self, Layer};
+use crate::frame::Step;
+use crate::magnify::Filter;
 use crate::terrain::{Rgba, read_png};
 use crate::{buildings, iso, liquids};
 
@@ -70,6 +77,7 @@ struct Batch {
     anchors: Vec<[f32; 4]>,
     sources: Vec<[f32; 4]>,
     screens: Vec<[f32; 2]>,
+    fades: Vec<f32>,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
     quads: Vec<(f64, u32)>,
     indices: Vec<u32>,
@@ -103,6 +111,11 @@ pub const ATTRIBUTE_SCREEN: MeshVertexAttribute = MeshVertexAttribute::new(
     VertexFormat::Float32x2,
 );
 
+/// Whether a vertex's sprite fades about the hero, 1 or 0: a sprite of a type of bit [`FADES`]
+/// (`sprites.wesl`, [`Fade`]).
+pub const ATTRIBUTE_FADE: MeshVertexAttribute =
+    MeshVertexAttribute::new("SpriteFade", 0x5350_5249_5445_4644, VertexFormat::Float32);
+
 /// The shader of [`SpriteMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
 
@@ -117,10 +130,15 @@ pub struct SpriteMaterial {
     /// night takes away (`daynight::shadows`).
     #[uniform(1)]
     pub tint: Vec4,
+    /// What the sprites of the types of bit [`FADES`] fade about ([`Fade`]), shared.
+    #[storage(2, read_only)]
+    pub fade: Handle<ShaderBuffer>,
     pub pass: Pass,
     /// Whether the texels go through the original's alpha test first: a sprite's do, a
     /// miniature's do not (docs/re/drawing.md, "Blending").
     pub alpha_test: bool,
+    /// How the texels are filtered where they are magnified (`magnify.wesl`).
+    pub filter: Filter,
 }
 
 /// The texels of its sprites that a [`SpriteMaterial`] draws.
@@ -138,6 +156,7 @@ pub enum Pass {
 pub struct SpriteKey {
     fringe: bool,
     alpha_test: bool,
+    filter: Filter,
 }
 
 impl From<&SpriteMaterial> for SpriteKey {
@@ -145,6 +164,7 @@ impl From<&SpriteMaterial> for SpriteKey {
         Self {
             fringe: material.pass != Pass::Body,
             alpha_test: material.alpha_test,
+            filter: material.filter,
         }
     }
 }
@@ -192,10 +212,18 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_ANCHOR.at_shader_location(2),
             ATTRIBUTE_SOURCE.at_shader_location(3),
             ATTRIBUTE_SCREEN.at_shader_location(4),
+            ATTRIBUTE_FADE.at_shader_location(5),
         ])?];
         descriptor.primitive.cull_mode = None;
-        let SpriteKey { fringe, alpha_test } = key.bind_group_data;
+        let SpriteKey {
+            fringe,
+            alpha_test,
+            filter,
+        } = key.bind_group_data;
         if let Some(fragment) = descriptor.fragment.as_mut() {
+            if let Some(def) = filter.shader_def() {
+                fragment.shader_defs.push(def.into());
+            }
             // In both passes, which take the texels that the test leaves.
             if alpha_test {
                 fragment.shader_defs.push("ALPHA_TEST".into());
@@ -222,7 +250,9 @@ impl Plugin for StaticsPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "sprites.wesl");
         app.add_plugins(MaterialPlugin::<SpriteMaterial>::default())
-            .add_systems(Startup, make_shadows);
+            .init_resource::<Fade>()
+            .add_systems(Startup, make_shadows)
+            .add_systems(Update, fade.in_set(Step::Models));
     }
 }
 
@@ -388,6 +418,8 @@ struct Quad {
     source: [f32; 4],
     /// A miniature's size across on screen, by which its glow reaches past it.
     size: Option<f32>,
+    /// Whether it fades about the hero: a sprite of a type of bit [`FADES`].
+    fades: bool,
 }
 
 /// A sprite assembled from its pieces, one to one, over its rectangle: so that filtering blends
@@ -592,6 +624,7 @@ fn quad(
             corners,
             source,
             size: Some(size.x),
+            fades: object.type_flags & FADES != 0,
         });
     }
     let sprite = assembled.get(&object.sprite)?;
@@ -608,6 +641,7 @@ fn quad(
         ],
         source: [u0, v0, u0 + sprite.width as f32, v0 + sprite.height as f32],
         size: None,
+        fades: object.type_flags & FADES != 0,
     })
 }
 
@@ -671,6 +705,7 @@ fn shadow_quad(shadow: &Shadow) -> Quad {
         ],
         source: [u, v, u + SHADOW_CELL, v + SHADOW_CELL],
         size: None,
+        fades: false,
     }
 }
 
@@ -729,6 +764,7 @@ fn add_quad(
         anchors: Vec::new(),
         sources: Vec::new(),
         screens: Vec::new(),
+        fades: Vec::new(),
         quads: Vec::new(),
         indices: Vec::new(),
     });
@@ -744,6 +780,7 @@ fn add_quad(
     batch
         .screens
         .extend(screens.map(|screen| screen.to_array()));
+    batch.fades.extend([f32::from(u8::from(quad.fades)); 4]);
     let placed = spot.placed();
     batch.anchors.extend([placed; 4]);
     let (w, h) = size;
@@ -998,6 +1035,119 @@ pub fn spawn_glows(
         .collect()
 }
 
+/// The bit of a type's flags whose sprites fade about the hero, drawn after it: the trees and
+/// the walls of type 25, the floors of type 29 (`0x62FF60`, docs/re/drawing.md, "The trees about
+/// the heroes").
+const FADES: u32 = 0x10;
+
+/// How far about the hero a sprite fades and how opaque it is there: the balance variables
+/// `TransSize` and `TransValu` (`0xAD4DF0`, `0xAD4DF4`), 190 pixels at zoom 1 and 50 out of
+/// 255 (docs/02 §6.3), by name in `balance.ron`.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct TreeFade {
+    pub radius: f32,
+    pub alpha: f32,
+}
+
+impl TreeFade {
+    /// Reads `TransSize` and `TransValu` from `tables/balance.ron`.
+    pub fn read(assets: &Path) -> Result<Self> {
+        let path = assets.join("tables").join(opensacred_data::tables::BALANCE);
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let balance: opensacred_data::tables::Balance =
+            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let variable = |name: &str| -> Result<f32> {
+            let value = balance
+                .f32(name)
+                .with_context(|| format!("no {name} in {}", path.display()))?;
+            anyhow::ensure!(value.is_finite(), "{name} of {}: {value}", path.display());
+            Ok(value)
+        };
+        Ok(Self {
+            radius: variable("TransSize")?,
+            alpha: variable("TransValu")?,
+        })
+    }
+
+    /// The alpha out of 1 that a sprite takes at `offset` from the point it fades about, in the
+    /// original's pixels at zoom 1: within the radius across and down, from the alpha at the
+    /// point to 1 at the radius' distance, else 1 (`0x62FF60`). As `sprites.wesl` has it, for the
+    /// tests.
+    #[cfg(test)]
+    fn at(&self, offset: Vec2) -> f32 {
+        if self.radius <= 0.0 || offset.x.abs() >= self.radius || offset.y.abs() >= self.radius {
+            return 1.0;
+        }
+        let t = (offset.length() / self.radius).min(1.0);
+        (self.alpha + (255.0 - self.alpha) * t) / 255.0
+    }
+}
+
+/// What the sprites fade about, for the sprites' shader (`sprites.wesl`): the hero's point on the
+/// original's screen, the centre of its figure, with [`TreeFade`]'s radius and alpha, and its
+/// place in the order of drawing, which only the sprites drawn after it fade about. One buffer
+/// that every sprite material shares.
+#[derive(Resource)]
+pub struct Fade {
+    pub buffer: Handle<ShaderBuffer>,
+    last: [[f32; 4]; 2],
+}
+
+impl FromWorld for Fade {
+    fn from_world(world: &mut bevy::prelude::World) -> Self {
+        let last = [[0.0; 4]; 2];
+        let buffer = world
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .add(ShaderBuffer::new(
+                last.to_vec(),
+                RenderAssetUsages::default(),
+            ));
+        Self { buffer, last }
+    }
+}
+
+/// How high above the hero's feet the centre of its figure stands, in the original's pixels at
+/// zoom 1: half its height, about 120 pixels (`iso::MODEL_SCALE`). The client takes the centre
+/// of the hero's bounds on the screen (**hypothesis**: the model's).
+const HERO_MIDDLE: f32 = 60.0;
+
+/// Keeps the hero's point and place in the fade's buffer.
+fn fade(
+    heroes: Query<&Transform, With<crate::hero::Body>>,
+    size: Option<Res<TreeFade>>,
+    mut fade: ResMut<Fade>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+) {
+    let (Some(hero), Some(size)) = (heroes.iter().next(), size) else {
+        return;
+    };
+    let at = hero.translation;
+    let point = Vec2::new(at.dot(iso::right()), -at.dot(iso::up())) * iso::PIXELS_PER_UNIT
+        - Vec2::new(0.0, HERO_MIDDLE);
+    let place = crate::models::place_of(at);
+    let data = [
+        [point.x, point.y, size.radius, size.alpha],
+        place.to_array(),
+    ];
+    if data == fade.last {
+        return;
+    }
+    fade.last = data;
+    if let Some(mut buffer) = buffers.get_mut(&fade.buffer) {
+        *buffer = ShaderBuffer::new(data.to_vec(), RenderAssetUsages::default());
+    }
+}
+
+/// What every sector's sprite materials share: the fade's buffer, and the statics' shadows'
+/// materials, when there is a shadow atlas.
+#[derive(Clone, Copy)]
+pub struct Common<'a> {
+    pub fade: &'a Fade,
+    pub shadows: Option<&'a StaticShadows>,
+    pub filter: Filter,
+}
+
 /// The shadow atlas, relative to the asset directory (`SHADOW_TREE00`).
 #[derive(Resource)]
 pub struct ShadowAtlas(pub String);
@@ -1016,6 +1166,7 @@ fn make_shadows(
     mut commands: Commands,
     atlas: Option<Res<ShadowAtlas>>,
     assets: Res<AssetServer>,
+    fade: Res<Fade>,
     mut materials: ResMut<Assets<SpriteMaterial>>,
 ) {
     let Some(atlas) = atlas else {
@@ -1026,8 +1177,11 @@ fn make_shadows(
         materials.add(SpriteMaterial {
             atlas: texture.clone(),
             tint: Vec4::ONE,
+            fade: fade.buffer.clone(),
             pass: Pass::Fringe(layer),
             alpha_test: false,
+            // The original filters the shadows linearly (`0x631EB0`).
+            filter: Filter::Linear,
         })
     };
     commands.insert_resource(StaticShadows {
@@ -1045,7 +1199,11 @@ pub fn spawn(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<SpriteMaterial>,
-    shadows: Option<&StaticShadows>,
+    Common {
+        shadows,
+        fade,
+        filter,
+    }: Common<'_>,
 ) -> Vec<Entity> {
     let pages: Vec<Handle<Image>> = statics.pages.into_iter().map(|p| images.add(p)).collect();
     let mut entities = Vec::new();
@@ -1058,12 +1216,20 @@ pub fn spawn(
                 Some(shadows) => vec![shadows.with_sprites.clone()],
                 None => continue,
             },
-            BatchTexture::Atlas(path) => {
-                sprite_passes(materials, assets.load(path), batch.layer, false)
-            }
-            BatchTexture::Page(page) => {
-                sprite_passes(materials, pages[page].clone(), batch.layer, true)
-            }
+            BatchTexture::Atlas(path) => sprite_passes(
+                materials,
+                assets.load(path),
+                (fade, filter),
+                batch.layer,
+                false,
+            ),
+            BatchTexture::Page(page) => sprite_passes(
+                materials,
+                pages[page].clone(),
+                (fade, filter),
+                batch.layer,
+                true,
+            ),
         };
         let mesh = meshes.add(
             Mesh::new(
@@ -1075,6 +1241,7 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
             .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
             .with_inserted_attribute(ATTRIBUTE_SCREEN, batch.screens)
+            .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         for material in passes {
@@ -1098,6 +1265,7 @@ pub fn spawn(
 fn sprite_passes(
     materials: &mut Assets<SpriteMaterial>,
     atlas: Handle<Image>,
+    (fade, filter): (&Fade, Filter),
     layer: Layer,
     alpha_test: bool,
 ) -> Vec<Handle<SpriteMaterial>> {
@@ -1107,8 +1275,10 @@ fn sprite_passes(
             materials.add(SpriteMaterial {
                 atlas: atlas.clone(),
                 tint: Vec4::ONE,
+                fade: fade.buffer.clone(),
                 pass,
                 alpha_test,
+                filter,
             })
         })
         .collect()
@@ -1570,6 +1740,47 @@ pub(crate) mod tests {
         // The 32 places of the longest chain stay within the step to the next cell.
         assert!(31.0 * shader_constant(ORDER, "CHAIN") < shader_constant(ORDER, "ACROSS") * step);
         assert_eq!(shader_constant(ORDER, "DISTANCE"), iso::DISTANCE);
+    }
+
+    #[test]
+    fn a_tree_fades_about_the_hero() {
+        // `TransSize` and `TransValu` of the balance table.
+        let dir = std::env::temp_dir().join(format!("opensacred-game-fade-{}", std::process::id()));
+        fs::create_dir_all(dir.join("tables")).unwrap();
+        let variable = |name: &str, value: f32| opensacred_data::tables::BalanceVariable {
+            name: name.to_owned(),
+            offset: 0,
+            value: opensacred_data::tables::BalanceValue::F32(value),
+        };
+        let balance = opensacred_data::tables::Balance {
+            variables: vec![variable("TransSize", 190.0), variable("TransValu", 50.0)],
+            image: Vec::new(),
+            rest: Vec::new(),
+        };
+        fs::write(
+            dir.join("tables").join(opensacred_data::tables::BALANCE),
+            ron::to_string(&balance).unwrap(),
+        )
+        .unwrap();
+        let size = TreeFade::read(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            size,
+            TreeFade {
+                radius: 190.0,
+                alpha: 50.0
+            }
+        );
+        let alpha = |x: f32, y: f32| (size.at(Vec2::new(x, y)) * 255.0).round();
+        // 50 out of 255 at the hero, half way at 95 pixels, whole at 190 and beyond, and past the
+        // radius' distance within its box.
+        assert_eq!(alpha(0.0, 0.0), 50.0);
+        assert_eq!(alpha(95.0, 0.0), 153.0);
+        assert_eq!(alpha(0.0, -190.0), 255.0);
+        assert_eq!(alpha(150.0, 150.0), 255.0);
+        // So the original's alpha test drops the faded texels within 13 pixels of the hero.
+        assert!(size.at(Vec2::new(13.0, 0.0)) * 255.0 < 64.5);
+        assert!(size.at(Vec2::new(14.0, 0.0)) * 255.0 > 64.5);
     }
 
     #[test]

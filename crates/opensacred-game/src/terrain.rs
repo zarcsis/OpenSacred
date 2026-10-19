@@ -26,6 +26,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 
+use crate::magnify::Filter;
 use crate::{buildings, iso};
 
 /// A diamond's box in a tile sheet and on screen.
@@ -773,12 +774,25 @@ const SHADER: &str = "embedded://opensacred_game/ground.wesl";
 /// colour (docs/02 §5.3); the vertex colour of a `StandardMaterial` multiplies in linear light
 /// instead, which leaves shaded ground too light.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[bind_group_data(GroundKey)]
 pub struct GroundMaterial {
     #[texture(0)]
     atlas: Handle<Image>,
     /// The slot of every cell, row by row.
     #[texture(1, sample_type = "u_int")]
     cells: Handle<Image>,
+    /// How the ground is filtered where it is magnified (`magnify.wesl`).
+    filter: Filter,
+}
+
+/// What the pipeline of a [`GroundMaterial`] depends on: its filter.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GroundKey(Filter);
+
+impl From<&GroundMaterial> for GroundKey {
+    fn from(material: &GroundMaterial) -> Self {
+        Self(material.filter)
+    }
 }
 
 impl Material for GroundMaterial {
@@ -790,9 +804,15 @@ impl Material for GroundMaterial {
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialPipelineKey<Self>,
+        key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.primitive.cull_mode = None;
+        if let (Some(def), Some(fragment)) = (
+            key.bind_group_data.0.shader_def(),
+            descriptor.fragment.as_mut(),
+        ) {
+            fragment.shader_defs.push(def.into());
+        }
         Ok(())
     }
 }
@@ -815,10 +835,12 @@ pub fn spawn(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<GroundMaterial>,
+    filter: Filter,
 ) -> Vec<Entity> {
     let material = GroundMaterial {
         atlas: images.add(ground.image),
         cells: images.add(ground.cells),
+        filter,
     };
     vec![
         commands
