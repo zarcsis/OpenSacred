@@ -44,7 +44,12 @@ Its colour is white, or while the renderer's flag `0x20` (the night) or the dung
 It is blended by its alpha (`SRCALPHA`, `INVSRCALPHA`), filtered linearly, with the frame of the moment bound per cell (`0x628F90`).
 
 At `DETAILLEVEL` 2, before the surfaces, the clear waters (`+0xCC`) have a second layer: the cell's own ground quad, on the bed, each corner moved 0.2 pixels inward over the zoom, with the 2 × 2 template's coordinates, added to the frame (`ONE`, `ONE`), its grey at each corner `clamp(−8 · h, 0, 255) · (255 − N) >> 8` for the bed's height `h` and the night's level `N`.
-Its texture is not bound by the pass and is not followed (#118).
+The pass binds no texture of its own for it (read 2026-10-19, #118): its quads and the surfaces' go into one batcher (`+0x818C0` of the view), which draws its quads with the texture that `0x628F90` last gave it, and only the surfaces call `0x628F90`, with the frame of the moment of their cell's material.
+The second layer's quads are flushed (`0x62E0A3`) before the surfaces' first call, so they take the frame that the batcher kept from the frame before: the frame of the moment then of the material of the last liquid cell drawn (none at the very first frame).
+So the second layer shows the water's own frames, mapped a frame over 2 × 2 cells, a frame of the clock behind the surfaces.
+The view's constructor (`0x624A00`) also loads 32 textures `CAUST00` to `CAUST31` into handles at `+0x81840` that nothing else names: loaded and never bound.
+After the quads, `0x6770E0` and `0x690690` get the average of the drawn cells' positions (`0x622620`), and with nothing drawn, 0: not followed (**hypothesis**: the water's ambient sound at its middle).
 
-`opensacred-game` follows the slots, the timing, the 4 × 4 mapping and the surfaces, flat at height 0 and as opaque as the bed is deep (`liquids.rs`); the second layer waits for its texture (docs/decisions/2026-10-17-liquids.md).
+`opensacred-game` follows the slots, the timing, the 4 × 4 mapping and the surfaces, flat at height 0 and as opaque as the bed is deep (`liquids.rs`).
+It draws the clear waters' second layer before the surfaces (#118): each cell's ground quad on the screen where its bed lies, at the surface's depth there, with its own material's frame of the moment over 2 × 2 cells, added to the frame, each corner's grey by the bed's depth and the whole by the night's level (docs/decisions/2026-10-17-liquids.md).
 Its surfaces lie over the miniatures of the liquid cells and under the draw lists, as the original draws them between the two (docs/re/drawing.md, "The liquid cells").
