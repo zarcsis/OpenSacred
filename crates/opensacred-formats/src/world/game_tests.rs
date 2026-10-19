@@ -74,7 +74,9 @@ fn sectors_and_chains_match_world_dump_py() {
             "layers_crc",
             "area",
             "music",
-            "dungeon"
+            "dungeon",
+            "buildings",
+            "buildings_crc"
         ]
     );
 
@@ -129,6 +131,26 @@ fn sectors_and_chains_match_world_dump_py() {
             }
         }
         inside += sector.layers.len();
+        // The buildings: the first static of flag 0x10 in a cell's chain, its children its floors,
+        // each with the inside layer that holds its grid.
+        let (mut buildings, mut buildings_crc) = (0, Hasher::new());
+        for (index, cell) in sector.cells.iter().enumerate() {
+            let chain = statics.chain(cell.first_static).unwrap();
+            let Some(building) = chain
+                .iter()
+                .map(|&k| statics.get(to_usize(k)).unwrap())
+                .find(|s| s.flags & 0x10 != 0)
+            else {
+                continue;
+            };
+            let floors = statics.chain(building.first_child).unwrap();
+            buildings += 1;
+            buildings_crc.update(&u32::try_from(index).unwrap().to_le_bytes());
+            buildings_crc.update(&u32::try_from(floors.len()).unwrap().to_le_bytes());
+            for floor in floors {
+                buildings_crc.update(&[statics.get(to_usize(floor)).unwrap().layer]);
+            }
+        }
         let ours = [
             (key.y * GRID + key.x).to_string(),
             key.x.to_string(),
@@ -148,6 +170,8 @@ fn sectors_and_chains_match_world_dump_py() {
             key.area.to_string(),
             key.music.to_string(),
             u8::from(key.dungeon).to_string(),
+            buildings.to_string(),
+            buildings_crc.finalize().to_string(),
         ];
         let row: Vec<_> = lines.next().unwrap().split('\t').collect();
         assert_eq!(row, ours, "sector ({}, {})", key.x, key.y);

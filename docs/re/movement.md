@@ -13,9 +13,15 @@ Status: **confirmed** on the code unless marked otherwise.
 
 **The layers.**
 For layer 0 `0x634C50` returns the sector's own cell.
-For another layer it finds the object that the layer names (`0x635E50`), and through a byte at its `+0x2D` a grid of cells of its own: an origin and a size in cells, and the cells, 32 bytes each, row by row; a position outside the grid has no cell.
+For another layer it reads the `Static.PAK` record that the layer names (`0x635E50`, a cache of the records by index), and through the record's sector (`+0x0C`) and its byte at `+0x2D` a grid of cells of its own: an origin and a size in cells, and the cells, 32 bytes each, row by row; a position outside the grid has no cell.
 So a building's inside is a grid of cells of its own, which the hero walks on another layer.
 The grids are the layers of the sector's third chunk (docs/02 §5.2, **confirmed** on the files: 1,870 of them, the buildings' insides, their walls 1 or 2 in the low nibble and their doors flag bit 2).
+
+Read 2026-10-19 (#104): a creature's layer is the record of a building's floor, and its position carries the floor's number (a byte at `+0x24` of the object).
+`0x6354D0` finds the building of a position: the ground cell there, moved by its offsets (`+0x1C`, `+0x1D`) to the building's anchor, and in the anchor cell's chain the first static of flag `0x10`, the building's object.
+`0x635440` gives a building's floor `n`: the building itself for 0, else its `n`-th child (its first child, `+0x17`, then the children's chain, `+0x1F`); `0x6353A0` gives a layer's floor, its place among its parent's (`+0x1B`) children from 1.
+So floor 1, the ground floor inside, is the building's first child, floor 2 the next, and each child's `+0x2D` is the index from 1 of the inside layer of its sector that holds its grid.
+The data agree (**confirmed** on the files, `tools/analysis/world/world_dump.py`): 1,245 buildings, of 1 (660), 2 (549), 3 (34) and 4 (2) floors; every floor lies in its building's sector and names one of its inside layers, and 1,868 of the 1,870 layers are a building's floor; every one of the 973 entrances leads onto a floor 1 whose grid holds the entrance walkable.
 
 The data agree (**confirmed** on the sector files): in the start sector, the monastery's footprint has 1 in the low nibble, so it is a mass to a hero outside it, and the pond, the fences and the walls have 2; its inside, a layer of 34 × 30 cells, has its rooms and corridors free and its walls 1 or 2.
 In sector 50,40 each house is a mass of 1 with one cell of flag bit 2 on its side, its door, and its inside layer has a door at the same cell; the cemetery is a railing of 2 with a gate of two such cells and no layer.
@@ -28,8 +34,10 @@ Read 2026-10-18 (#99).
 
 - 9, an entrance: on a cell of a building (flag bit 0), a creature that is not on the building's inside yet goes onto it, the layer of the building's object's first child (its `+0x17`).
 - 10, an exit: a creature on a layer goes onto the ground.
-- 5, 6, 7 and 8: a creature on a building's layer goes one layer up, one down, two up or two down (not below the ground).
-- 3: a creature is put at a cell and on a layer that an object of the cell names (`0x6356E0`; the object's `+0x23`, `+0x25` and `+0x2D`), when that object's trigger is open (bit 0) or it has none: a teleport, not followed further.
+- 5, 6, 7 and 8: a creature on a building's layer goes one floor up, one down, two up or two down (not below the ground): onto the ground at the same cell for floor 0, else onto that floor of the building whose ground cell the position lies on (`0x635440`), and, when it was on a layer, moved by the stair cell's offsets (`+0x1C`, `+0x1D` of the layer's cell), where the stairs arrive on the other floor's grid; nothing where the building has no such floor.
+  The move sets the creature's flag `0x100` (`+0x14`), which a cell outside the nibbles 5 to 8 clears and which keeps the stairs from moving it again: a creature changes floor only on a stair it stepped onto from off the stairs.
+- 3: a creature is put at a cell and on a layer that an object of the cell names (`0x6356E0`: the first static of flag `0x80` in the chain of the cell on the creature's layer; the object's `+0x23` and `+0x25`, a global cell as two `i16`, and `+0x2D`, the floor of the building there, 0 for the ground), when that object's trigger is open (bit 0) or it has none: a teleport.
+  None of the 17 cells of the ground with the nibble 3 has such a static in its chain in `Static.PAK` (**hypothesis**: the teleports are objects that the scripts or the game place at run time).
 - A creature that comes onto a building's mass (1 or 2) on the ground, of a type outside `0x300`…`0x39C` (not followed), is put onto the building's layer 1 where the cell is walkable there.
 
 For the local player's hero and the creatures it owns (an object whose id is the local player's, `0x7D84A0`, or a creature whose owner, `+0x1EC`, is), the same steps set the building's state, the word at `+0x0A` of its trigger's record (docs/re/drawing.md, "Buildings: masks and layers"), through `cTrigger::resetState` (`0x416280`, every bit) and `cTrigger::setState` (`0x415F00`):
@@ -40,6 +48,7 @@ For the local player's hero and the creatures it owns (an object whose id is the
 - a move onto another building's layer sets the old building's state to 1 and the new one's to `1 << n`.
 
 The data agree (**confirmed** on the sector files): over the world, 973 cells of the ground have the nibble 9, all of them a building's, and 2,545 the nibble 10; the inside layers have 968 and 2,535 at the same places, and 214, 237, 3 and 22 of the nibbles 5 to 8; 827 of the 1,870 layers have an entrance.
+Of the stairs (counted 2026-10-19), 20 lead down onto the ground and the rest onto a floor that their building has, 7 of them at the same cell (offsets 0) and the others a few cells off; 438 arrive on a cell of the nibble 0, 9 on a cell the creature may not walk on, 4 on a stair back (5 onto 6, 6 onto 5, 7 onto 8, 8 onto 7), where the flag `0x100` keeps the creature, and 3 on a cell of the nibble 9.
 In the start sector the chapel's door is an entrance, (3237, 2519) and (3238, 2519), and the cells just outside it, (3237, 2520) to (3239, 2520), are exits; its stairs and porch in front of them (rows 2521 to 2523) are ordinary cells of the building, bit 0 without bit 1.
 The monastery has two more entrances, (3227, 2516) and (3221, 2523), each with its exits.
 In sector 50,40 the house's door (3256, 2578), flags 5, is its entrance and the three cells in front of it, (3255, 2579) to (3257, 2579), its exits.
@@ -64,7 +73,9 @@ In what unit of time the speed is, is not read.
 `terrain::Heights` keeps each loaded cell's walkability by the rule above, on the ground and on the sectors' inside layers; the doors' triggers have no states in the game, so the doors are open (**hypothesis**).
 `paths` searches the way as the client does, over the eight neighbours in a 64 × 64 window but not between two cells that touch at a corner (the client's search is not read to do so), at the hero's level and, at an entrance on the ground or an exit on a layer, only onto the level it leads to (`terrain::Heights::neighbours`), and the hero heads for the farthest cell of the way on its level that it reaches in a straight line, or for the target itself when nothing stands between; at a change of level on its way it goes onto the way's next level.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
-A hero on a building's mass on the ground is put on the inside layer whose grid holds its cell walkable (a start inside the monastery), and a hero that steps onto an entrance or an exit goes in or out as the client's does (`terrain::Heights::transition`), onto the first of the inside layers whose grids hold the cell walkable (**hypothesis**: the building's first child); the floors (5 to 8) and the teleports (3) are not followed (#104).
+A hero on a building's mass on the ground is put on its building's floor 1 where its grid holds the cell walkable (a start inside the monastery), and a hero that steps onto an entrance or an exit goes in or out as the client's does (`terrain::Heights::transition`), the floors read from the world format (version 6: the buildings and their floors, `opensacred-convert world`).
+A hero that steps onto a stair from off the stairs goes to the stair's floor at the cell its offsets give (`terrain::Heights::climb`, `hero::run`), and the way's search knows the stairs as the client's flag `0x100` makes them: a place of the way carries whether the step onto it climbs (`terrain::Footing`).
+The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
 The deviations are in docs/decisions/2026-10-18-walking.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.

@@ -47,7 +47,7 @@ The statics agree (**confirmed** on the sector files): in building cells, those 
 A building's state is 1 while the hero is outside: the file's value, and the exits' (above).
 The parts of mask 2 include the rooms cut open: the pub of sector 50,40 has its shell as `TH_PUB_0_*` (mask 1) and its ground floor, floor boards, bar and inner walls as `TH_PUB_1_*` (mask 2, by their editor names), and every cell of a building points to one anchor cell through its offsets (the pub's 12 × 11 cells to the cell of `TH_PUB_1_BODEN`, its floor).
 
-`opensacred-game` keeps a state per building, by its anchor cell (`buildings`): 2 for the building whose inside layer the hero walks on, which it goes onto at the building's entrance and leaves at an exit as the client does (docs/re/movement.md), else 1; the upper floors' states are not followed (#104).
+`opensacred-game` keeps a state per building, by its anchor cell (`buildings`): `1 << n` for the building on whose floor `n` the hero walks, 2 on its ground floor, which it goes onto at the building's entrance and leaves at an exit as the client does, and the upper floors up and down its stairs (docs/re/movement.md), else 1.
 The parts (the statics above that the state chooses) show while the state is their mask, and the start script's objects of a building's cells while the state shows their layer: inside, the roof and the shell's walls go, the ground floor with its furniture comes (#3).
 
 ## Depth

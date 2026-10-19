@@ -431,9 +431,23 @@ pub fn place(
                 models::Ordered::default(),
             ));
             if placement.layer != 0 {
-                // In a building's layer: shown with it; else never.
-                match heights.building(position.x, position.z) {
-                    Some((building, _)) => entity.insert((
+                // On a building's floor: shown with it, the building whose floor's grid holds
+                // the cell, or the cell's on the ground; else never.
+                let on_floor = match (
+                    i32::try_from(x),
+                    i32::try_from(y),
+                    usize::try_from(placement.layer),
+                ) {
+                    (Ok(cx), Ok(cy), Ok(floor)) => heights.building_on_floor((cx, cy), floor),
+                    _ => None,
+                };
+                let building = on_floor.or_else(|| {
+                    heights
+                        .building(position.x, position.z)
+                        .map(|(building, _)| building)
+                });
+                match building {
+                    Some(building) => entity.insert((
                         buildings::Furnishing {
                             building,
                             layer: placement.layer,

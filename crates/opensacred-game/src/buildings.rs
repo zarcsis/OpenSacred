@@ -7,7 +7,7 @@
 //! entrance of the building and goes onto its inside layer, and back to 1 as the hero steps
 //! onto an exit and comes out onto the ground (`0x5FCCB0`, docs/re/movement.md): the ground
 //! floor cut open with its furniture, and the objects of layer 1, while the hero walks inside.
-//! The upper floors (states 4 to 16) are not followed (#104).
+//! On the stairs to an upper floor `n` it becomes `1 << n`: that floor's parts and objects.
 
 use bevy::prelude::*;
 use opensacred_data::world::{SIDE, Sector};
@@ -25,6 +25,14 @@ pub const INSIDE: u8 = 2;
 
 /// A building, by the global cell its parts' cells point to.
 pub type Anchor = (u32, u32);
+
+/// The global cell of cell `index` of `sector`.
+pub fn cell(sector: &Sector, index: usize) -> Option<Anchor> {
+    let side = u32::try_from(SIDE).ok()?;
+    let column = u32::try_from(index % SIDE).ok()?;
+    let row = u32::try_from(index / SIDE).ok()?;
+    Some((sector.x * side + column, sector.y * side + row))
+}
 
 /// The building that cell `index` of `sector` belongs to, if it belongs to one.
 pub fn anchor(sector: &Sector, index: usize) -> Option<Anchor> {
@@ -60,19 +68,21 @@ pub struct Furnishing {
     pub layer: i32,
 }
 
-/// The building the hero is in, whose state is [`INSIDE`]; every other one's is [`OUTSIDE`].
+/// The building the hero is in and its floor, from 1, whose state is `1 << floor` ([`INSIDE`]
+/// on the ground floor); every other one's is [`OUTSIDE`].
 #[derive(Resource, Default)]
 pub struct Buildings {
-    entered: Option<Anchor>,
+    entered: Option<(Anchor, u8)>,
 }
 
 impl Buildings {
     /// A building's state.
     pub fn state(&self, building: Anchor) -> u8 {
-        if self.entered == Some(building) {
-            INSIDE
-        } else {
-            OUTSIDE
+        match self.entered {
+            Some((entered, floor)) if entered == building => {
+                1u8.checked_shl(u32::from(floor)).unwrap_or(INSIDE)
+            }
+            _ => OUTSIDE,
         }
     }
 }
@@ -96,12 +106,16 @@ pub fn enter(
         Query<(&Furnishing, &mut Visibility), Added<Furnishing>>,
     )>,
 ) {
+    // The building and the floor of the hero's level, or for a layer of no known building's,
+    // the one whose cell it went onto the layer at, on its floor 1.
     let entered = bodies.iter().next().and_then(|(hero, body)| {
-        body.level()?;
-        buildings.entered.or_else(|| {
-            heights
-                .building(hero.translation.x, hero.translation.z)
-                .map(|(building, _)| building)
+        let level = body.level()?;
+        heights.floor(Some(level)).or_else(|| {
+            buildings.entered.or_else(|| {
+                heights
+                    .building(hero.translation.x, hero.translation.z)
+                    .map(|(building, _)| (building, 1))
+            })
         })
     });
     let changed = entered != buildings.entered;
@@ -179,6 +193,7 @@ mod tests {
             cells,
             statics: Vec::new(),
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let side = u32::try_from(SIDE).unwrap();
         assert_eq!(
@@ -187,5 +202,20 @@ mod tests {
         );
         assert_eq!(anchor(&sector, 17 * SIDE + 25), None);
         assert_eq!((layer(1), layer(2), layer(4), layer(16)), (0, 1, 2, 4));
+    }
+
+    #[test]
+    fn a_buildings_state_is_its_floors_bit() {
+        let state = |floor| {
+            let buildings = Buildings {
+                entered: Some(((1, 1), floor)),
+            };
+            (buildings.state((1, 1)), buildings.state((2, 2)))
+        };
+        // Floor 1 the ground floor inside, state 2; up the stairs 4 and 8; the others outside.
+        assert_eq!(state(1), (INSIDE, OUTSIDE));
+        assert_eq!(state(2), (4, OUTSIDE));
+        assert_eq!(state(3), (8, OUTSIDE));
+        assert_eq!(Buildings::default().state((1, 1)), OUTSIDE);
     }
 }
