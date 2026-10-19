@@ -1,6 +1,9 @@
 //! The NPCs and objects of the start script: the `CreateNPC` and `CreateObj` records of the hero's
-//! tree's `StartCode.bin` (`netscript/<tree>.nsc`), each placed when its sector is in; an NPC plays
-//! an idle clip of its model, an object (a barrel, a chest, a book stand, a signpost) stands.
+//! tree's `StartCode.bin` (`netscript/<tree>.nsc`), and of the `OnEnter` functions of the quests
+//! that the start script enters (the novice in the chapel, quest 1's), each placed when its sector
+//! is in; an NPC plays an idle clip of its model, an object (a barrel, a chest, a book stand, a
+//! signpost) stands. An NPC that a quest sends somewhere at the start (`NPC_Goto`) stands there
+//! (docs/decisions/2026-10-19-quest-npcs.md).
 //!
 //! What the operands mean is read off the data (**hypothesis**, docs/02 §7.3): the first `0x02`
 //! is the creature, which is also the `items.pak` slot of its model (`SOLDIER.GRN`, `HORSE.GRN`),
@@ -39,7 +42,7 @@ use bevy::prelude::{
     StandardMaterial, Transform, Update, Vec3, Visibility, Without, WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
-use opensacred_data::netscript::{Body, Record, Tree, Value};
+use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
 use opensacred_data::tables::{Item, Weapon};
 use opensacred_data::world::SIDE;
 
@@ -51,8 +54,11 @@ use crate::{buildings, hero, iso, models};
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
+const TRIGGER_QUEST: u16 = 20;
+const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
 const START_POSITION: u16 = 45;
+const NPC_GOTO: u16 = 72;
 
 /// An NPC or an object to place.
 struct Placement {
@@ -192,10 +198,97 @@ pub fn start_position(assets: &Path, tree: &str) -> Result<Option<(u32, u32)>> {
         }))
 }
 
-/// The named positions of the start script: `DefPos` name, x, y.
-fn positions(records: &[Record]) -> HashMap<String, (i32, i32)> {
+/// The function of `tree` named `name`, whatever the case.
+fn function<'a>(tree: &'a Tree, name: &str) -> Option<&'a Function> {
+    tree.functions
+        .iter()
+        .find(|f| f.name.eq_ignore_ascii_case(name))
+}
+
+/// The quest a `SetUpQuest` or a `TriggerQuest` record names, its first operand.
+fn quest_of(record: &Record) -> Option<i32> {
+    let Body::Operands(ops) = &record.body else {
+        return None;
+    };
+    value_i32(&ops.first()?.value)
+}
+
+/// The quests that the start script enters as the world starts, in order (docs/re/netscript.md,
+/// "Quests"): a new game runs the start script through, and its `TriggerQuest` of a quest that a
+/// `SetUpQuest` before it has set up runs the quest's trigger function, `QIS_Trigger<n>`, then
+/// enters the quest if it ran through (`0x48F030`, `0x46BA90`); an empty trigger runs through,
+/// a missing one does not, and one with records is taken as not run through, the game having no
+/// conditions yet.
+fn entered_quests(tree: &Tree) -> Vec<i32> {
+    let mut set_up = HashSet::new();
+    let mut entered = Vec::new();
+    for record in &tree.start {
+        let Some(quest) = quest_of(record) else {
+            continue;
+        };
+        match record.kind {
+            SET_UP_QUEST => {
+                set_up.insert(quest);
+            }
+            TRIGGER_QUEST
+                if set_up.contains(&quest)
+                    && !entered.contains(&quest)
+                    && function(tree, &format!("QIS_Trigger{quest}"))
+                        .is_some_and(|f| f.records.is_empty()) =>
+            {
+                entered.push(quest);
+            }
+            _ => {}
+        }
+    }
+    entered
+}
+
+/// The records that place the world's NPCs and objects at the start: the start script's, then
+/// those of the `OnEnter` function of each quest it enters, which the client runs as it enters
+/// the quest (`QIS_OnEnter<n>`, `0x46C160`).
+fn start_records(tree: &Tree) -> Vec<&Record> {
+    let mut records: Vec<&Record> = tree.start.iter().collect();
+    for quest in entered_quests(tree) {
+        if let Some(on_enter) = function(tree, &format!("QIS_OnEnter{quest}")) {
+            records.extend(&on_enter.records);
+        }
+    }
+    records
+}
+
+/// A record's name (`0x01`), lower case: an NPC's, which `CreateNPC` gives it and `NPC_Goto`
+/// names it by.
+fn name_of(ops: &[opensacred_data::netscript::Operand]) -> Option<String> {
+    ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (0x01, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+        _ => None,
+    })
+}
+
+/// Where the records' `NPC_Goto`s send the NPCs they name, by name: the global cell and the
+/// layer of the last that names each (`0x49E210`, which orders the creature to walk there).
+fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
     records
         .iter()
+        .filter(|r| r.kind == NPC_GOTO)
+        .filter_map(|r| {
+            let Body::Operands(ops) = &r.body else {
+                return None;
+            };
+            let target = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                (0x04, Value::I32x3([x, y, layer])) => Some((*x, *y, *layer)),
+                _ => None,
+            })?;
+            Some((name_of(ops)?, target))
+        })
+        .collect()
+}
+
+/// The named positions of the start script: `DefPos` name, x, y.
+fn positions<'a>(records: impl IntoIterator<Item = &'a Record>) -> HashMap<String, (i32, i32)> {
+    records
+        .into_iter()
         .filter(|r| r.kind == DEF_POS)
         .filter_map(|r| {
             let Body::Operands(ops) = &r.body else {
@@ -300,10 +393,11 @@ impl Npcs {
         let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
-        let named = positions(&tree.start);
+        let records = start_records(&tree);
+        let named = positions(records.iter().copied());
+        let targets = goto_targets(&records);
         let mut placements = Vec::new();
-        for record in tree
-            .start
+        for record in records
             .iter()
             .filter(|r| r.kind == CREATE_NPC || r.kind == CREATE_OBJ)
         {
@@ -339,7 +433,10 @@ impl Npcs {
                     })
                 })
                 .collect();
-            let cell = position(ops, &named);
+            // An NPC sent somewhere at the start stands there.
+            let cell = name_of(ops)
+                .and_then(|name| targets.get(&name).copied())
+                .or_else(|| position(ops, &named));
             let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
                 (0x03, Value::U16(v)) => Some(f32::from(*v)),
                 _ => None,
@@ -813,5 +910,76 @@ mod tests {
         assert_eq!(at(Value::Name("HAUPTMANN3".into())), Some((3349, 2534, 0)));
         assert_eq!(at(Value::I32x3([3259, 2569, 1])), Some((3259, 2569, 1)));
         assert_eq!(at(Value::Name("elsewhere".into())), None);
+    }
+
+    #[test]
+    fn the_quests_the_start_enters_place_their_npcs() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        let quest = |kind, n| record(kind, vec![op(0x0B, Value::I32(n))]);
+        let function = |name: &str, records| Function {
+            name: name.into(),
+            quest: 1,
+            region: 0,
+            records,
+        };
+        let novice = || {
+            record(
+                CREATE_NPC,
+                vec![
+                    op(0x01, Value::Str("res:17095".into())),
+                    op(0x02, Value::I32(679)),
+                    op(0x04, Value::Name("novizin1".into())),
+                ],
+            )
+        };
+        let tree = Tree {
+            start: vec![
+                // Quest 1 set up and triggered; quest 2 triggered, not set up; quest 3 set up and
+                // triggered, but its trigger has a condition.
+                quest(SET_UP_QUEST, 1),
+                quest(TRIGGER_QUEST, 1),
+                quest(TRIGGER_QUEST, 2),
+                quest(SET_UP_QUEST, 3),
+                quest(TRIGGER_QUEST, 3),
+            ],
+            quest: Vec::new(),
+            functions: vec![
+                function("QIS_Trigger1", Vec::new()),
+                function(
+                    "QIS_OnEnter1",
+                    vec![
+                        novice(),
+                        record(
+                            NPC_GOTO,
+                            vec![
+                                op(0x01, Value::Str("Res:17095".into())),
+                                op(0x04, Value::I32x3([3237, 2514, 0])),
+                            ],
+                        ),
+                    ],
+                ),
+                function("QIS_Trigger2", Vec::new()),
+                function("QIS_OnEnter2", vec![novice()]),
+                function("QIS_Trigger3", vec![quest(TRIGGER_QUEST, 9)]),
+                function("QIS_OnEnter3", vec![novice()]),
+            ],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        assert_eq!(entered_quests(&tree), [1]);
+        let records = start_records(&tree);
+        assert_eq!(records.len(), 7);
+        assert_eq!(
+            records.iter().filter(|r| r.kind == CREATE_NPC).count(),
+            1,
+            "quest 1's novice alone"
+        );
+        // She stands where the quest sends her, whatever the case of her name.
+        let targets = goto_targets(&records);
+        assert_eq!(targets["res:17095"], (3237, 2514, 0));
     }
 }
