@@ -64,6 +64,7 @@ struct Batch {
     uvs: Vec<[f32; 2]>,
     anchors: Vec<[f32; 4]>,
     sources: Vec<[f32; 4]>,
+    screens: Vec<[f32; 2]>,
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
     quads: Vec<(f64, u32)>,
     indices: Vec<u32>,
@@ -83,6 +84,18 @@ pub const ATTRIBUTE_SOURCE: MeshVertexAttribute = MeshVertexAttribute::new(
     "SpriteSource",
     0x5350_5249_5445_5352,
     VertexFormat::Float32x4,
+);
+
+/// Where a vertex lies on the original's screen, in its pixels at zoom 1 (`48 (cx − cy)`,
+/// `24 (cx + cy)` less the height): the shader places the vertex on screen from it, so that two
+/// sprites whose edges meet at one pixel of the original meet on screen too (`sprites.wesl`).
+/// The world position, worked out from the sprite's own cell, rounds apart from its neighbour's
+/// by a sixteenth of a unit at the world's coordinates, and a column of pixels between two
+/// abutting floors could fall in neither (#113).
+pub const ATTRIBUTE_SCREEN: MeshVertexAttribute = MeshVertexAttribute::new(
+    "SpriteScreen",
+    0x5350_5249_5445_5343,
+    VertexFormat::Float32x2,
 );
 
 /// The shader of [`SpriteMaterial`], embedded in the binary.
@@ -169,6 +182,7 @@ impl Material for SpriteMaterial {
             Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
             ATTRIBUTE_ANCHOR.at_shader_location(2),
             ATTRIBUTE_SOURCE.at_shader_location(3),
+            ATTRIBUTE_SCREEN.at_shader_location(4),
         ])?];
         descriptor.primitive.cull_mode = None;
         let SpriteKey { fringe, alpha_test } = key.bind_group_data;
@@ -714,6 +728,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             uvs: Vec::new(),
             anchors: Vec::new(),
             sources: Vec::new(),
+            screens: Vec::new(),
             quads: Vec::new(),
             indices: Vec::new(),
         });
@@ -723,6 +738,10 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
         let [u0, v0, u1, v1] = quad.source;
         let first = u32::try_from(batch.positions.len())?;
         batch.positions.extend(quad.corners.map(at));
+        // Whole pixels for a sprite, exact in an `f32` across the world's 307,200 of them.
+        batch
+            .screens
+            .extend(quad.corners.map(|corner| (position + corner).to_array()));
         batch.anchors.extend([placed_at; 4]);
         let (w, h) = size;
         batch.uvs.extend([
@@ -833,6 +852,7 @@ pub fn spawn(
             .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs)
             .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
             .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
+            .with_inserted_attribute(ATTRIBUTE_SCREEN, batch.screens)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
         // The sprites are tested against the original's reference, the miniatures are not
@@ -1312,5 +1332,75 @@ pub(crate) mod tests {
         // The 32 places of the longest chain stay within the step to the next cell.
         assert!(31.0 * shader_constant(ORDER, "CHAIN") < shader_constant(ORDER, "ACROSS") * step);
         assert_eq!(shader_constant(ORDER, "DISTANCE"), iso::DISTANCE);
+    }
+
+    #[test]
+    fn abutting_sprites_meet_on_the_screen() {
+        let dir = std::env::temp_dir().join(format!("opensacred-game-abut-{}", std::process::id()));
+        fs::create_dir_all(dir.join("world")).unwrap();
+        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["atlas.png".into()],
+        };
+        let sprites = Sprites {
+            sprites: vec![
+                None,
+                Some(Sprite {
+                    width: 8,
+                    height: 8,
+                    pieces: vec![Piece {
+                        atlas: 0,
+                        source: [0, 0, 8, 8],
+                        rect: [0, 0, 8, 8],
+                    }],
+                }),
+            ],
+        };
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0,
+        };
+        // Two sprites of cells far apart in the start's sector, the second's left edge on the
+        // first's right edge, where the chapel's two floors meet (#113).
+        let object = |cell: u16, x: i32| StaticObject {
+            cell,
+            kind: 1,
+            flags: 0,
+            x,
+            y: 137_827,
+            record: 0,
+            type_flags: 0,
+            mask: 0,
+            sprite: 1,
+            miniature: None,
+            children: Vec::new(),
+        };
+        let side = u16::try_from(SIDE).unwrap();
+        let sector = Sector {
+            x: 50,
+            y: 39,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell; SIDE * SIDE],
+            statics: vec![object(5 * side + 5, 34_806), object(side + 9, 34_814)],
+            layers: Vec::new(),
+        };
+        let statics = build(&dir, &world, &sprites, &sector).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let screens = &statics.batches[0].screens;
+        // Corners top-left, top-right, bottom-right, bottom-left: the first's right edge is the
+        // second's left edge, to the bit.
+        assert_eq!((screens[1], screens[2]), (screens[4], screens[7]));
+        assert_eq!(screens[4], [34_814.0, 137_827.0]);
+        let shader = shader_constant(include_str!("sprites.wesl"), "PIXELS_PER_UNIT");
+        assert!((shader - iso::PIXELS_PER_UNIT).abs() < 1e-6);
     }
 }
