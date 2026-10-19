@@ -69,6 +69,26 @@ Before a sprite's pieces `0x62FF60` turns the lighting and the culling off, the 
 So the original drops a sprite's texels of alpha 64 or less, the atlases' 4-bit alphas 0 to 3 (`MIXnnnn.444`, docs/02 §3.3), and blends the rest by their alpha over what is drawn, in the order of its lists, a texel to a pixel at zoom 1.
 A miniature (`0x630F2C`…) is blended by its alpha too, without the test, which the sprite's path leaves off; it is filtered linearly while the float at `+0xB60` of the renderer is over 1.2, else point (the float not followed).
 
+## The statics' shadows
+
+Read 2026-10-18 and 2026-10-19 (#100).
+The shadows are not painted into the sprites: the trees' and the bushes' sprites have no half-transparent texels.
+The world view's constructor (`0x624430`) loads `SHADOW_TREE00.TGA` (`texture.pak` record 14942, 512 × 512, black, its alpha up to 170) into `+0x97070` of the view, a grid of 16 × 16 silhouettes of 32 × 32 texels (trees, bushes, posts, fences, rocks, round and oblong blobs), and fills a table at `+0x30` with the texture coordinates of each cell's top-left corner, `(column / 16, row / 16)` for cell `16 · row + column`.
+
+`0x62AE90` appends an entry of kind 8 to list 1 for every static whose type has bit `0x10000` (`items.pak +0x00` as a u32), that lacks flag `0x800`, whose mask is 1, while `DETAILLEVEL` is 1 or more (`0x62BA03`).
+It does so before it tests the building's state or looks for the static's sprite, so the static need not be drawn, and a static of a liquid cell sends its shadow to list 1 too.
+A sprite of such a type with a mask of 2 or more, the buildings' furniture, goes to its list as an entry of kind `0x11` instead of 1 (docs/02 §6.1): drawn with its building's part.
+
+`0x62FF60` draws an entry of kind 8 with `0x631EB0` at the entry's screen position, the static's position, the sprite's top-left corner (`0x6301FF`); for an entry of kind `0x11` it draws the shadow the same way right before the sprite (`0x63025B`); `0x62E410` does the same for the entries of the liquid cells.
+`0x631EB0` draws one strip of four vertices (FVF `0x1C4`: a transformed position, a diffuse and a specular colour, one pair of texture coordinates) from the static's type's fields (docs/02 §6.1): the cell `c` (`+0x5B`), the foot `(2·dx, 2·dy)` from the halves at `+0x5D` and `+0x5F`, the shape (`+0x63`) and the size `s` (`+0x64`), all in pixels at zoom 1 from the static's position, scaled by the zoom about the screen's centre.
+Its top-left and top-right corners lie at `2dy − s`, from `2dx − s` to `2dx + s` for the shape 0 and from `2dx` to `2dx + 2s` for any other, the shadow leaning up and to the right; its bottom-left and bottom-right corners at `2dy`, from `2dx − s` to `2dx + s`.
+The four corners take the cell's corners of the atlas in the same order, so the whole cell stretches over the quad.
+The depth test and the depth write are off, the blending `SRCALPHA` and `INVSRCALPHA`, the filter linear (`0x643430` with `0x100`, `1`, `8`, `0x10` off and `0x800` on), and the alpha test as the list pass leaves it between two sprites, off.
+Every vertex is white with an alpha of `255 − N` (`0x41B9E0`), `N` the night's level (docs/re/daynight.md): the shadows fade out over the dusk, are gone by night and come back over the dawn, in a dungeon too, where `N` follows the clock as well.
+
+On the data: 2,043 types have the bit, 1,635 of them leaning and 408 rectangles (docs/02 §6.1); 356,356 statics are of those types, 347,123 of them of mask 1 and 9,232 of a mask of 2 or more; 6,195 have flag `0x800`.
+In the starting sector 50,39, 267 statics carry a shadow: bushes, fences, benches, beds, posts, braziers, trees, rocks, chairs, chandeliers.
+
 ## The trees about the heroes
 
 Read 2026-10-18.
@@ -95,7 +115,12 @@ Its sprite shader brings each one forward by a little in the order above: by its
 Before, the centre lay at the cell's height, 0.46 units forward per pixel against 0.15 from a cell to the next of its diagonal: a sprite on a cell a third of a pixel higher than the next came over that cell's sprites, as the chapel's back right wall (5 pixels high) over the cabinet against it at the start (#112).
 
 It draws a sprite in two passes (docs/decisions/2026-10-18-sprite-alpha.md): its opaque texels through the depth buffer, then the others blended by their alpha over what lies behind them, after the original's alpha test for the sprites and without it for the miniatures, each texel's colour weighted by its alpha as the shader filters them.
-Bevy draws the blended things after the opaque ones, back to front by their meshes' centres; they go in layers in the original's order instead (`blended`): the miniatures of the liquid cells, the liquids' surfaces, the underlays, the characters' shadows, the sprites of lists 3 and 4, the lamps' glows, and a mesh's quads go far to near.
+Bevy draws the blended things after the opaque ones, back to front by their meshes' centres; they go in layers in the original's order instead (`blended`): the miniatures of the liquid cells, the liquids' surfaces, the underlays of list 0, the statics' shadows of list 1, the underlays of list 2, the characters' shadows and the shadows drawn with their sprites, the sprites of lists 3 and 4, the lamps' glows, and a mesh's quads go far to near.
+
+The statics' shadows (`statics`, #100) are quads of the shadow atlas's cells drawn by the sprites' shader in its blended pass, all their texels translucent, through two materials that every sector shares and whose alpha the night takes down to 0 (`daynight::shadows`).
+List 1 lies 3,000 units back, between list 0 (4,000) and list 2 (2,000, 3,000 before list 1 came): a thousand units, 30 diagonals, from either, so that a shadow lies over every underlay of list 0 and under every one of list 2 whose cell is within 30 diagonals of its own.
+A shadow drawn with its sprite takes the sprite's place, its list, its building's part, half a place behind it, and the characters' shadows' layer.
+The sprites' shader samples a cell's own texels alone, where the original's linear filter takes in half a texel of the neighbouring cells at the edges.
 Before, the sprites' edges went through alpha to coverage: the texels of alpha around a half came out dithered, those under it dropped, and a sprite's edge over another sprite showed as a dotted line (#35).
 The blending takes the frame's sRGB values as they are, as the original's does (`srgb`, #109); before, an sRGB target blended in linear light, and a translucent dark texel darkened less.
 

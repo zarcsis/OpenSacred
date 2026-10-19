@@ -37,6 +37,27 @@ pub struct Item<'a> {
     pub sprite: u32,
     /// `+0x37`: the name (Latin-1): a `.GRN` file, or an editor label such as `Tree17`.
     pub name: &'a [u8],
+    /// `+0x5B`…`+0x65`: the shadow that the client draws for a static of the type when its
+    /// [`flags`](Item::flags) have bit `0x10000` (`0x631EB0`, docs/re/drawing.md).
+    pub shadow: Shadow,
+}
+
+/// A type's shadow: a quad of the shadow atlas `SHADOW_TREE00` (16 × 16 cells of 32 × 32
+/// texels) on the ground at the static's foot. Confirmed by code (`0x631EB0`) and on every record
+/// by `tools/analysis/formats/mixed_dump.py`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Shadow {
+    /// `+0x5B`: the silhouette's cell, `16 · row + column`.
+    pub cell: u16,
+    /// `+0x5D`, `+0x5F`: half the offset of the static's foot from its sprite's top-left
+    /// corner, in pixels at zoom 1.
+    pub half_foot: [i16; 2],
+    /// `+0x63`: 0 a rectangle about the foot; otherwise its top edge is shifted right by its
+    /// height, the shadow leaning up and to the right.
+    pub shape: u8,
+    /// `+0x64`: the quad's height in pixels at zoom 1; it is twice as wide, its bottom edge on
+    /// the foot's line.
+    pub size: u16,
 }
 
 /// Every field of a used slot, 128 bytes; spans whose meaning is not known yet are named by their
@@ -105,6 +126,15 @@ impl<'a> Items<'a> {
         let sprite = r.u32()?;
         r.bytes(0x37 - 0x14, "item")?;
         let name = r.bytes(32, "item name")?;
+        r.bytes(0x5B - 0x57, "item")?;
+        let cell = r.u16()?;
+        let half_foot = [
+            i16::from_le_bytes(r.array("item shadow")?),
+            i16::from_le_bytes(r.array("item shadow")?),
+        ];
+        r.bytes(0x63 - 0x61, "item")?;
+        let shape = r.u8()?;
+        let size = r.u16()?;
         Ok(Some(Item {
             kind,
             class,
@@ -113,6 +143,12 @@ impl<'a> Items<'a> {
             texture,
             sprite,
             name: name.split(|&b| b == 0).next().unwrap_or_default(),
+            shadow: Shadow {
+                cell,
+                half_foot,
+                shape,
+                size,
+            },
         }))
     }
 
@@ -170,6 +206,31 @@ mod tests {
         r[0x10..0x14].copy_from_slice(&sprite.to_le_bytes());
         r[0x37..0x37 + name.len()].copy_from_slice(name);
         r
+    }
+
+    #[test]
+    fn reads_a_types_shadow() {
+        // A tree's: cell 2, its foot at (190, 440), 240 tall, leaning.
+        let mut tree = record(25, 812, b"Tree17");
+        tree[2] = 1;
+        tree[0x5B..0x5D].copy_from_slice(&2u16.to_le_bytes());
+        tree[0x5D..0x5F].copy_from_slice(&95i16.to_le_bytes());
+        tree[0x5F..0x61].copy_from_slice(&220i16.to_le_bytes());
+        tree[0x63] = 1;
+        tree[0x64..0x66].copy_from_slice(&240u16.to_le_bytes());
+        let data = build_pak(MAGIC, VERSION, &[Some(PakRecord::new(USED, &tree))]);
+        let items = Items::parse(&data).unwrap();
+        let item = items.get(0).unwrap().unwrap();
+        assert_eq!(item.flags & 0x10000, 0x10000);
+        assert_eq!(
+            item.shadow,
+            Shadow {
+                cell: 2,
+                half_foot: [95, 220],
+                shape: 1,
+                size: 240,
+            }
+        );
     }
 
     #[test]

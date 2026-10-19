@@ -10,6 +10,9 @@ import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process};
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var atlas: texture_2d<f32>;
+/// What the texels are multiplied by (`statics::SpriteMaterial::tint`): white, but for the
+/// statics' shadows, which fade by night.
+@group(constants::MATERIAL_BIND_GROUP) @binding(1) var<uniform> tint: vec4<f32>;
 
 struct Vertex {
     /// The vertex in the world, from its sprite's cell: unused here (`on_screen`).
@@ -102,7 +105,7 @@ fn filtered(uv: vec2<f32>, source: vec4<i32>) -> vec4<f32> {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let weighted = filtered(in.uv, vec4<i32>(in.source));
-    var colour = vec4(weighted.rgb / max(weighted.a, 0.0001), weighted.a);
+    var colour = vec4(weighted.rgb / max(weighted.a, 0.0001), weighted.a) * tint;
 @if(FRINGE) {
     if colour.a >= OPAQUE || colour.a < CLEAR {
         discard;

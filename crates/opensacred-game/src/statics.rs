@@ -20,6 +20,10 @@
 //! with the blended things of its layer (`blended`), its quads far to near. A light source's
 //! miniature (type flag `0x20000`, the lamps) carries a glow, a quad of `PARTICLE_GLOW01` three
 //! times its size about it, which `daynight` shows by night (`0x62FF60`, docs/re/daynight.md).
+//!
+//! A static of a type that casts a shadow has a quad of a cell of the shadow atlas
+//! (`SHADOW_TREE00`) at its foot, in list 1 or right before its sprite (docs/re/drawing.md, "The
+//! statics' shadows"): blended, through the materials of [`StaticShadows`], which the night fades.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -34,24 +38,25 @@ use bevy::mesh::{
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
     AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Plugin, Resource, TypePath, Vec2, Vec3, Visibility,
+    MeshMaterial3d, Plugin, Res, ResMut, Resource, Startup, TypePath, Vec2, Vec3, Vec4, Visibility,
 };
 use bevy::render::render_resource::{
     AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
     TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
-use opensacred_data::world::{SIDE, Sector, Sprite, Sprites, StaticObject, World};
+use opensacred_data::world::{SIDE, Sector, Shadow, Sprite, Sprites, StaticObject, World};
 
 use crate::blended::{self, Layer};
 use crate::terrain::{Rgba, read_png};
 use crate::{buildings, iso, liquids};
 
-/// The texture of a batch: an atlas, relative to the asset directory, or a page of the sector's
-/// sprites.
+/// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
+/// sprites, or the shadow atlas, whose materials [`StaticShadows`] holds.
 enum BatchTexture {
     Atlas(String),
     Page(usize),
+    Shadows,
 }
 
 /// The quads of one atlas or page in one layer of the blended things.
@@ -108,6 +113,10 @@ const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
 pub struct SpriteMaterial {
     #[texture(0)]
     pub atlas: Handle<Image>,
+    /// What the texels are multiplied by: white, but for the statics' shadows, whose alpha the
+    /// night takes away (`daynight::shadows`).
+    #[uniform(1)]
+    pub tint: Vec4,
     pub pass: Pass,
     /// Whether the texels go through the original's alpha test first: a sprite's do, a
     /// miniature's do not (docs/re/drawing.md, "Blending").
@@ -212,7 +221,8 @@ pub struct StaticsPlugin;
 impl Plugin for StaticsPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "sprites.wesl");
-        app.add_plugins(MaterialPlugin::<SpriteMaterial>::default());
+        app.add_plugins(MaterialPlugin::<SpriteMaterial>::default())
+            .add_systems(Startup, make_shadows);
     }
 }
 
@@ -318,10 +328,13 @@ const MINIATURE_ATLAS: f32 = 256.0;
 /// the rest; `0x800000` in list 4, over them.
 const UNDERLAY: u32 = 0x4;
 const OVERLAY: u32 = 0x80_0000;
-/// How far back along the line of sight the objects of lists 0 and 2 go: under the sprites of
-/// list 3 and the hero, above the ground, their order within a list unchanged.
+/// How far back along the line of sight the objects of lists 0, 1 (the statics' shadows) and 2
+/// go: under the sprites of list 3 and the hero, above the ground, their order within a list
+/// unchanged, each list a thousand units (30 diagonals) from the next.
 pub const LIST_0_BACK: f32 = 4_000.0;
-pub const LIST_2_BACK: f32 = 3_000.0;
+pub const LIST_1_BACK: f32 = 3_000.0;
+pub const LIST_2_BACK: f32 = 2_000.0;
+const _: () = assert!(LIST_2_BACK < LIST_1_BACK && LIST_1_BACK < LIST_0_BACK);
 /// How far back the miniatures of list 0 in a liquid cell go: the original draws them before
 /// the liquids' surfaces (`0x62E410`, docs/re/drawing.md), so they lie between the ground and the
 /// surfaces (`liquids::BACK`), their order among themselves that of list 0. A quad stands in the
@@ -355,11 +368,13 @@ const PAGE: usize = 2048;
 /// Transparent texels between two sprites of a page.
 const GUTTER: usize = 1;
 
-/// Where a quad's texels come from: a miniature's atlas, or a page of the sector's sprites.
+/// Where a quad's texels come from: a miniature's atlas, a page of the sector's sprites, or the
+/// shadow atlas.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Texture {
     Atlas(u32),
     Page(usize),
+    Shadows,
 }
 
 /// What the quads of a batch share: their texture, their building's part and their layer.
@@ -596,8 +611,168 @@ fn quad(
     })
 }
 
-/// Builds the sprite and miniature quads of `sector`, and the pages of its sprites.
-pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -> Result<Statics> {
+/// The bit of a type's flags whose statics cast a shadow, and the static's flag that takes it
+/// away (`0x62AE90`).
+const CASTS_SHADOW: u32 = 0x1_0000;
+const NO_SHADOW: u32 = 0x800;
+/// The shadow atlas's cells a side, and their side in texels (`SHADOW_TREE00`).
+const SHADOW_CELLS: u16 = 16;
+const SHADOW_CELL: f32 = 32.0;
+
+/// Where the original draws a static's shadow (`0x62AE90`, `0x62FF60`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Entry {
+    /// An entry of kind 8 in list 1, for a static of mask 1, whether it is drawn or not.
+    List1,
+    /// With its sprite, right before it, in the sprite's list (an entry of kind `0x11`), for a
+    /// sprite of mask 2 or more: the buildings' furniture.
+    WithSprite,
+}
+
+/// The shadow quad of `object` and where it goes, for an object of a type that casts one, without
+/// flag `0x800`, of mask 1, or of mask 2 or more drawn as a sprite (`quad`); `DETAILLEVEL` is 1
+/// or more, as the GOG settings have it. A shadow of size 0 draws nothing.
+fn shadow_of(object: &StaticObject, quad: Option<&Quad>) -> Option<(Quad, Entry)> {
+    let shadow = object.shadow?;
+    if object.type_flags & CASTS_SHADOW == 0
+        || object.flags & (NO_SHADOW | HIDDEN) != 0
+        || shadow.size == 0
+    {
+        return None;
+    }
+    let entry = match object.mask {
+        1 => Entry::List1,
+        2.. if quad.is_some_and(|q| matches!(q.texture, Texture::Page(_))) => Entry::WithSprite,
+        _ => return None,
+    };
+    Some((shadow_quad(&shadow), entry))
+}
+
+/// The quad of `shadow` relative to its static's position (`0x631EB0`): `2s` wide and `s` tall
+/// for a size `s`, its bottom edge on the foot's line and centred on the foot, its top edge too
+/// for a rectangle, shifted right by `s` for a shadow that leans; the whole of its cell of the
+/// atlas over it.
+fn shadow_quad(shadow: &Shadow) -> Quad {
+    let s = f32::from(shadow.size);
+    let foot = Vec2::new(shadow.foot[0] as f32, shadow.foot[1] as f32);
+    let top = if shadow.leaning { foot.x } else { foot.x - s };
+    let (row, column) = (shadow.cell / SHADOW_CELLS, shadow.cell % SHADOW_CELLS);
+    let (u, v) = (
+        f32::from(column) * SHADOW_CELL,
+        f32::from(row) * SHADOW_CELL,
+    );
+    Quad {
+        texture: Texture::Shadows,
+        corners: [
+            Vec2::new(top, foot.y - s),
+            Vec2::new(top + 2.0 * s, foot.y - s),
+            Vec2::new(foot.x + s, foot.y),
+            Vec2::new(foot.x - s, foot.y),
+        ],
+        source: [u, v, u + SHADOW_CELL, v + SHADOW_CELL],
+        size: None,
+    }
+}
+
+/// A quad's place: the centre of its cell at height 0, at its list's depth, with its place in
+/// the cell, and that centre on the original's screen.
+struct Spot {
+    anchor: Vec3,
+    chain: f32,
+    screen: Vec2,
+}
+
+impl Spot {
+    /// The spot of cell centre `(cx, cy)`, `back` units back along the line of sight, at place
+    /// `chain` of the cell.
+    fn new(cx: f32, cy: f32, back: f32, chain: f32) -> Self {
+        Self {
+            anchor: iso::ground(cx, cy) + iso::forward() * back,
+            chain,
+            screen: Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy)),
+        }
+    }
+
+    /// The anchor as the shader takes it, its place in the cell last.
+    fn placed(&self) -> [f32; 4] {
+        [self.anchor.x, self.anchor.y, self.anchor.z, self.chain]
+    }
+
+    /// The point of the world in the plane of the screen through the anchor that shows at
+    /// `screen`, a point of the original's screen at zoom 1.
+    fn at(&self, screen: Vec2) -> [f32; 3] {
+        let p = self.anchor
+            + iso::right() * ((screen.x - self.screen.x) / iso::PIXELS_PER_UNIT)
+            + iso::up() * ((self.screen.y - screen.y) / iso::PIXELS_PER_UNIT);
+        p.to_array()
+    }
+}
+
+/// Adds `quad`, of the object at `position`, to the batch `key` (of `texture`, `size` texels
+/// across and down), at `spot`.
+fn add_quad(
+    batches: &mut BTreeMap<BatchKey, Batch>,
+    key: BatchKey,
+    texture: BatchTexture,
+    size: (f32, f32),
+    quad: &Quad,
+    position: Vec2,
+    spot: &Spot,
+) -> Result<()> {
+    let (_, part, layer) = key;
+    let batch = batches.entry(key).or_insert(Batch {
+        texture,
+        part,
+        layer,
+        positions: Vec::new(),
+        uvs: Vec::new(),
+        anchors: Vec::new(),
+        sources: Vec::new(),
+        screens: Vec::new(),
+        quads: Vec::new(),
+        indices: Vec::new(),
+    });
+    // The texels map onto the quad one to one; the shader samples only the texels whose centres
+    // lie within the quad's source, where filtering would blend in the texels around them.
+    let [u0, v0, u1, v1] = quad.source;
+    let first = u32::try_from(batch.positions.len())?;
+    let screens = quad.corners.map(|corner| position + corner);
+    batch
+        .positions
+        .extend(screens.map(|screen| spot.at(screen)));
+    // Whole pixels for a sprite, exact in an `f32` across the world's 307,200 of them.
+    batch
+        .screens
+        .extend(screens.map(|screen| screen.to_array()));
+    let placed = spot.placed();
+    batch.anchors.extend([placed; 4]);
+    let (w, h) = size;
+    batch.uvs.extend([
+        [u0 / w, v0 / h],
+        [u1 / w, v0 / h],
+        [u1 / w, v1 / h],
+        [u0 / w, v1 / h],
+    ]);
+    let texels = [
+        (u0 + 0.5).floor(),
+        (v0 + 0.5).floor(),
+        (u1 - 0.5).floor(),
+        (v1 - 0.5).floor(),
+    ];
+    batch.sources.extend([texels; 4]);
+    batch.quads.push((nearness(placed), first));
+    Ok(())
+}
+
+/// Builds the sprite and miniature quads of `sector`, the shadows of its statics over `shadows`,
+/// the shadow atlas relative to `assets` (none without it), and the pages of its sprites.
+pub fn build(
+    assets: &Path,
+    world: &World,
+    sprites: &Sprites,
+    shadows: Option<&str>,
+    sector: &Sector,
+) -> Result<Statics> {
     let dir = assets.join("world");
     let mut objects = Vec::new();
     flatten(&sector.statics, &mut objects);
@@ -618,21 +793,54 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     }
     drop(atlases);
     let (pages, placed) = pack(&assembled);
-    let right = iso::right();
-    let up = iso::up();
+    let shadow_size = shadows
+        .map(|path| png_size(&assets.join(path)))
+        .transpose()?;
     let mut batches: BTreeMap<BatchKey, Batch> = BTreeMap::new();
     let mut glows: BTreeMap<Option<(buildings::Anchor, u8)>, Glows> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
+    // The size of a quad's texture and the batch's texture.
+    let mut texture_of = |texture: Texture| -> Result<((f32, f32), BatchTexture)> {
+        Ok(match texture {
+            Texture::Atlas(atlas) => {
+                let name = world
+                    .atlases
+                    .get(usize::try_from(atlas)?)
+                    .with_context(|| format!("no atlas {atlas}"))?;
+                let size = match sizes.get(&atlas) {
+                    Some(&size) => size,
+                    None => {
+                        let size = png_size(&dir.join(name))?;
+                        sizes.insert(atlas, size);
+                        size
+                    }
+                };
+                (size, BatchTexture::Atlas(asset_path(assets, &dir, name)?))
+            }
+            Texture::Page(page) => {
+                let p = &pages[page];
+                ((p.width as f32, p.height as f32), BatchTexture::Page(page))
+            }
+            Texture::Shadows => (
+                shadow_size.context("no shadow atlas")?,
+                BatchTexture::Shadows,
+            ),
+        })
+    };
     // The places taken in each cell's chain, by the objects drawn.
     let mut chains: HashMap<u16, u16> = HashMap::new();
     let mut drawn = 0;
     for object in &objects {
-        let Some(quad) = quad(object, &assembled, &placed) else {
+        let quad = quad(object, &assembled, &placed);
+        let shadow = shadows.and_then(|_| shadow_of(object, quad.as_ref()));
+        if quad.is_none() && shadow.is_none() {
             continue;
-        };
+        }
         let place = chains.entry(object.cell).or_default();
         let chain = f32::from(*place);
-        *place = place.saturating_add(1);
+        if quad.is_some() {
+            *place = place.saturating_add(1);
+        }
         let cell = &sector.cells[usize::from(object.cell)];
         let (row, column) = (
             usize::from(object.cell) / SIDE,
@@ -654,45 +862,33 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             } else if object.flags & MINIATURE != 0 || object.mask == 1 {
                 (LIST_0_BACK, Layer::Underlays)
             } else {
-                (LIST_2_BACK, Layer::Underlays)
+                (LIST_2_BACK, Layer::LateUnderlays)
             }
         } else {
             (0.0, Layer::Objects)
         };
-        let anchor = iso::ground(cx, cy) + iso::forward() * back;
-        let placed_at = [anchor.x, anchor.y, anchor.z, chain];
-        let anchor_screen = Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy));
         let position = Vec2::new(object.x as f32, object.y as f32);
-        let at = |corner: Vec2| -> [f32; 3] {
-            let screen = position + corner;
-            let p = anchor
-                + right * ((screen.x - anchor_screen.x) / iso::PIXELS_PER_UNIT)
-                + up * ((anchor_screen.y - screen.y) / iso::PIXELS_PER_UNIT);
-            p.to_array()
-        };
-        let (size, source) = match quad.texture {
-            Texture::Atlas(atlas) => {
-                let size = match sizes.get(&atlas) {
-                    Some(&size) => size,
-                    None => {
-                        let name = world
-                            .atlases
-                            .get(usize::try_from(atlas)?)
-                            .with_context(|| format!("no atlas {atlas}"))?;
-                        let size = png_size(&dir.join(name))?;
-                        sizes.insert(atlas, size);
-                        size
-                    }
-                };
-                let name = &world.atlases[usize::try_from(atlas)?];
-                (size, BatchTexture::Atlas(asset_path(assets, &dir, name)?))
-            }
-            Texture::Page(page) => {
-                let p = &pages[page];
-                ((p.width as f32, p.height as f32), BatchTexture::Page(page))
-            }
-        };
         let part = part_of(object, sector);
+        // The shadow: list 1's under list 2, or one drawn right before its sprite in the sprite's
+        // list and with its building's part, half a place behind it (`0x62FF60`).
+        if let Some((shadow, entry)) = &shadow {
+            let (spot, shadow_part, shadow_layer) = match entry {
+                Entry::List1 => (
+                    Spot::new(cx, cy, LIST_1_BACK, chain),
+                    None,
+                    Layer::StaticShadows,
+                ),
+                Entry::WithSprite => (Spot::new(cx, cy, back, chain - 0.5), part, Layer::Shadows),
+            };
+            let (size, texture) = texture_of(Texture::Shadows)?;
+            let key = (Texture::Shadows, shadow_part, shadow_layer);
+            add_quad(&mut batches, key, texture, size, shadow, position, &spot)?;
+        }
+        let Some(quad) = quad else {
+            continue;
+        };
+        let spot = Spot::new(cx, cy, back, chain);
+        let (size, source) = texture_of(quad.texture)?;
         // A lamp's glow: each corner of its miniature moved out by its size, so three times it
         // across and down, the whole texture over it (`0x62FF60`).
         if object.type_flags & LIGHT != 0
@@ -712,7 +908,8 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
                 Vec2::new(-size, size),
             ];
             for (corner, out) in quad.corners.iter().zip(out) {
-                let p = Vec3::from(at(*corner + out)) - iso::forward() * GLOW_FORWARD;
+                let p =
+                    Vec3::from(spot.at(position + *corner + out)) - iso::forward() * GLOW_FORWARD;
                 glow.positions.push(p.to_array());
             }
             glow.uvs
@@ -720,44 +917,15 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             glow.indices
                 .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
         }
-        let batch = batches.entry((quad.texture, part, layer)).or_insert(Batch {
-            texture: source,
-            part,
-            layer,
-            positions: Vec::new(),
-            uvs: Vec::new(),
-            anchors: Vec::new(),
-            sources: Vec::new(),
-            screens: Vec::new(),
-            quads: Vec::new(),
-            indices: Vec::new(),
-        });
-        // The texels map onto the quad one to one; the shader samples only the texels whose
-        // centres lie within the quad's source, where filtering would blend in the texels
-        // around them.
-        let [u0, v0, u1, v1] = quad.source;
-        let first = u32::try_from(batch.positions.len())?;
-        batch.positions.extend(quad.corners.map(at));
-        // Whole pixels for a sprite, exact in an `f32` across the world's 307,200 of them.
-        batch
-            .screens
-            .extend(quad.corners.map(|corner| (position + corner).to_array()));
-        batch.anchors.extend([placed_at; 4]);
-        let (w, h) = size;
-        batch.uvs.extend([
-            [u0 / w, v0 / h],
-            [u1 / w, v0 / h],
-            [u1 / w, v1 / h],
-            [u0 / w, v1 / h],
-        ]);
-        let texels = [
-            (u0 + 0.5).floor(),
-            (v0 + 0.5).floor(),
-            (u1 - 0.5).floor(),
-            (v1 - 0.5).floor(),
-        ];
-        batch.sources.extend([texels; 4]);
-        batch.quads.push((nearness(placed_at), first));
+        add_quad(
+            &mut batches,
+            (quad.texture, part, layer),
+            source,
+            size,
+            &quad,
+            position,
+            &spot,
+        )?;
         drawn += 1;
     }
     for batch in batches.values_mut() {
@@ -830,8 +998,46 @@ pub fn spawn_glows(
         .collect()
 }
 
-/// Spawns a mesh per atlas and per page and layer, unlit, in its two passes; returns the
-/// entities.
+/// The shadow atlas, relative to the asset directory (`SHADOW_TREE00`).
+#[derive(Resource)]
+pub struct ShadowAtlas(pub String);
+
+/// The materials of the statics' shadows, which every sector's share, so that the night fades
+/// them all (`daynight::shadows`): list 1's, and those drawn with their sprites. The original
+/// draws them blended by their alpha, filtered linearly, without the alpha test (`0x631EB0`).
+#[derive(Resource)]
+pub struct StaticShadows {
+    pub list1: Handle<SpriteMaterial>,
+    pub with_sprites: Handle<SpriteMaterial>,
+}
+
+/// Makes the shadows' materials, when the converted textures have the shadow atlas.
+fn make_shadows(
+    mut commands: Commands,
+    atlas: Option<Res<ShadowAtlas>>,
+    assets: Res<AssetServer>,
+    mut materials: ResMut<Assets<SpriteMaterial>>,
+) {
+    let Some(atlas) = atlas else {
+        return;
+    };
+    let texture: Handle<Image> = assets.load(atlas.0.clone());
+    let mut material = |layer| {
+        materials.add(SpriteMaterial {
+            atlas: texture.clone(),
+            tint: Vec4::ONE,
+            pass: Pass::Fringe(layer),
+            alpha_test: false,
+        })
+    };
+    commands.insert_resource(StaticShadows {
+        list1: material(Layer::StaticShadows),
+        with_sprites: material(Layer::Shadows),
+    });
+}
+
+/// Spawns a mesh per atlas and per page and layer, unlit, in its two passes, and the shadows'
+/// meshes in their one with `shadows`' materials; returns the entities.
 pub fn spawn(
     commands: &mut Commands,
     statics: Statics,
@@ -839,10 +1045,26 @@ pub fn spawn(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<SpriteMaterial>,
+    shadows: Option<&StaticShadows>,
 ) -> Vec<Entity> {
     let pages: Vec<Handle<Image>> = statics.pages.into_iter().map(|p| images.add(p)).collect();
     let mut entities = Vec::new();
     for batch in statics.batches {
+        // The sprites are tested against the original's reference, the miniatures are not
+        // (docs/re/drawing.md, "Blending"); a shadow's texels are all translucent.
+        let passes: Vec<Handle<SpriteMaterial>> = match batch.texture {
+            BatchTexture::Shadows => match shadows {
+                Some(shadows) if batch.layer == Layer::StaticShadows => vec![shadows.list1.clone()],
+                Some(shadows) => vec![shadows.with_sprites.clone()],
+                None => continue,
+            },
+            BatchTexture::Atlas(path) => {
+                sprite_passes(materials, assets.load(path), batch.layer, false)
+            }
+            BatchTexture::Page(page) => {
+                sprite_passes(materials, pages[page].clone(), batch.layer, true)
+            }
+        };
         let mesh = meshes.add(
             Mesh::new(
                 PrimitiveTopology::TriangleList,
@@ -855,22 +1077,8 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_SCREEN, batch.screens)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
-        // The sprites are tested against the original's reference, the miniatures are not
-        // (docs/re/drawing.md, "Blending").
-        let (atlas, alpha_test) = match batch.texture {
-            BatchTexture::Atlas(path) => (assets.load(path), false),
-            BatchTexture::Page(page) => (pages[page].clone(), true),
-        };
-        for pass in [Pass::Body, Pass::Fringe(batch.layer)] {
-            let material = SpriteMaterial {
-                atlas: atlas.clone(),
-                pass,
-                alpha_test,
-            };
-            let mut entity = commands.spawn((
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(materials.add(material)),
-            ));
+        for material in passes {
+            let mut entity = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
             // A building's parts show while its state is their mask, the shells' outside.
             if let Some((building, mask)) = batch.part {
                 let visibility = if mask == buildings::OUTSIDE {
@@ -884,6 +1092,26 @@ pub fn spawn(
         }
     }
     entities
+}
+
+/// The materials of a batch's two passes over `atlas`, the second in `layer`.
+fn sprite_passes(
+    materials: &mut Assets<SpriteMaterial>,
+    atlas: Handle<Image>,
+    layer: Layer,
+    alpha_test: bool,
+) -> Vec<Handle<SpriteMaterial>> {
+    [Pass::Body, Pass::Fringe(layer)]
+        .into_iter()
+        .map(|pass| {
+            materials.add(SpriteMaterial {
+                atlas: atlas.clone(),
+                tint: Vec4::ONE,
+                pass,
+                alpha_test,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -946,6 +1174,7 @@ pub(crate) mod tests {
             mask,
             sprite: 1,
             miniature: None,
+            shadow: None,
             children: Vec::new(),
         };
         let sector = |flags| Sector {
@@ -1085,6 +1314,7 @@ pub(crate) mod tests {
                 atlas: 0,
                 params: [0, 0, 32, 0, 0],
             }),
+            shadow: None,
             children: Vec::new(),
         };
         let sector = Sector {
@@ -1102,6 +1332,7 @@ pub(crate) mod tests {
             &Sprites {
                 sprites: Vec::new(),
             },
+            None,
             &sector,
         )
         .unwrap();
@@ -1161,6 +1392,7 @@ pub(crate) mod tests {
                 atlas: 0,
                 params: [0, 0, size, 0, 0],
             }),
+            shadow: None,
             children: Vec::new(),
         };
         // How far behind a vertex along the line of sight a surface lies at the vertex's place on
@@ -1193,6 +1425,7 @@ pub(crate) mod tests {
                 &Sprites {
                     sprites: Vec::new(),
                 },
+                None,
                 &sector,
             )
             .unwrap();
@@ -1283,6 +1516,7 @@ pub(crate) mod tests {
             mask: 0,
             sprite: 1,
             miniature: None,
+            shadow: None,
             children: Vec::new(),
         };
         // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal, and one
@@ -1301,7 +1535,7 @@ pub(crate) mod tests {
             statics: vec![object(5, 5), object(5, 5), object(6, 4), object(4, 4)],
             layers: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, &sector).unwrap();
+        let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         let batch = &statics.batches[0];
         let anchors: Vec<[f32; 4]> = batch.anchors.iter().step_by(4).copied().collect();
@@ -1381,6 +1615,7 @@ pub(crate) mod tests {
             mask: 0,
             sprite: 1,
             miniature: None,
+            shadow: None,
             children: Vec::new(),
         };
         let side = u16::try_from(SIDE).unwrap();
@@ -1393,7 +1628,7 @@ pub(crate) mod tests {
             statics: vec![object(5 * side + 5, 34_806), object(side + 9, 34_814)],
             layers: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, &sector).unwrap();
+        let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         let screens = &statics.batches[0].screens;
         // Corners top-left, top-right, bottom-right, bottom-left: the first's right edge is the
@@ -1402,5 +1637,159 @@ pub(crate) mod tests {
         assert_eq!(screens[4], [34_814.0, 137_827.0]);
         let shader = shader_constant(include_str!("sprites.wesl"), "PIXELS_PER_UNIT");
         assert!((shader - iso::PIXELS_PER_UNIT).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_shadow_is_a_rectangle_or_leans_right_over_its_cell() {
+        // `Bench 2`'s: cell 74, the foot at (78, 100), 80 tall, a rectangle.
+        let bench = shadow_quad(&Shadow {
+            cell: 74,
+            foot: [78, 100],
+            size: 80,
+            leaning: false,
+        });
+        assert_eq!(
+            bench.corners,
+            [
+                Vec2::new(-2.0, 20.0),
+                Vec2::new(158.0, 20.0),
+                Vec2::new(158.0, 100.0),
+                Vec2::new(-2.0, 100.0),
+            ]
+        );
+        // Row 4, column 10 of the atlas's 32-texel cells.
+        assert_eq!(bench.source, [320.0, 128.0, 352.0, 160.0]);
+        // `Tree17`'s: cell 2, the foot at (190, 440), 240 tall, its top edge shifted right by 240.
+        let tree = shadow_quad(&Shadow {
+            cell: 2,
+            foot: [190, 440],
+            size: 240,
+            leaning: true,
+        });
+        assert_eq!(
+            tree.corners,
+            [
+                Vec2::new(190.0, 200.0),
+                Vec2::new(670.0, 200.0),
+                Vec2::new(430.0, 440.0),
+                Vec2::new(-50.0, 440.0),
+            ]
+        );
+        assert_eq!(tree.source, [64.0, 0.0, 96.0, 32.0]);
+    }
+
+    #[test]
+    fn a_shadow_goes_to_list_1_or_with_its_sprite() {
+        let dir =
+            std::env::temp_dir().join(format!("opensacred-game-shadows-{}", std::process::id()));
+        fs::create_dir_all(dir.join("world")).unwrap();
+        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
+        write_atlas(&dir.join("shadows.png"), 512, 512, [0, 0, 0, 170]);
+        let world = World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["atlas.png".into()],
+        };
+        let sprites = Sprites {
+            sprites: vec![
+                None,
+                Some(Sprite {
+                    width: 8,
+                    height: 8,
+                    pieces: vec![Piece {
+                        atlas: 0,
+                        source: [0, 0, 8, 8],
+                        rect: [0, 0, 8, 8],
+                    }],
+                }),
+            ],
+        };
+        let cell = Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0,
+        };
+        let shadow = Shadow {
+            cell: 74,
+            foot: [4, 8],
+            size: 8,
+            leaning: false,
+        };
+        // In cell (5, 5): a bench of mask 1 without a sprite, one of mask 2 with its sprite, one
+        // without a shadow by its flag, and one of mask 0.
+        let object = |mask, sprite, flags| StaticObject {
+            cell: 5 * u16::try_from(SIDE).unwrap() + 5,
+            kind: 9181,
+            flags,
+            x: 0,
+            y: 264,
+            record: 0,
+            type_flags: CASTS_SHADOW | 9,
+            mask,
+            sprite,
+            miniature: None,
+            shadow: Some(shadow),
+            children: Vec::new(),
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell; SIDE * SIDE],
+            statics: vec![
+                object(1, 0, 0),
+                object(2, 1, 0),
+                object(1, 1, NO_SHADOW),
+                object(0, 1, 0),
+            ],
+            layers: Vec::new(),
+        };
+        let statics = build(&dir, &world, &sprites, Some("shadows.png"), &sector).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let shadows: Vec<&Batch> = statics
+            .batches
+            .iter()
+            .filter(|b| matches!(b.texture, BatchTexture::Shadows))
+            .collect();
+        let [list1, with_sprite] = shadows[..] else {
+            panic!("two batches of shadows");
+        };
+        assert_eq!(
+            (list1.layer, with_sprite.layer),
+            (Layer::StaticShadows, Layer::Shadows)
+        );
+        assert_eq!((list1.quads.len(), with_sprite.quads.len()), (1, 1));
+        // List 1's in place 0 of the cell, which the first static, without a sprite, leaves to
+        // the second's sprite; that one's shadow half a place before its sprite.
+        let sprite = statics
+            .batches
+            .iter()
+            .find(|b| matches!(b.texture, BatchTexture::Page(_)))
+            .unwrap();
+        assert_eq!(
+            (list1.anchors[0][3], with_sprite.anchors[0][3]),
+            (0.0, -0.5)
+        );
+        assert_eq!(sprite.anchors[0][3], 0.0);
+        assert_eq!(
+            Vec3::from_slice(&with_sprite.anchors[0]),
+            Vec3::from_slice(&sprite.anchors[0])
+        );
+        // List 1's depth.
+        let back = |b: &Batch| -Vec3::from_slice(&b.anchors[0]).dot(-iso::forward());
+        let ground = -iso::ground(5.5, 5.5).dot(-iso::forward());
+        assert!((back(list1) - ground - LIST_1_BACK).abs() < 1e-2);
+        // The rectangle about the foot, over the whole of its cell.
+        assert_eq!(
+            list1.screens[..4],
+            [[-4.0, 264.0], [12.0, 264.0], [12.0, 272.0], [-4.0, 272.0]]
+        );
+        assert_eq!(list1.uvs[0], [320.0 / 512.0, 128.0 / 512.0]);
     }
 }

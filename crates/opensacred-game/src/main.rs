@@ -270,18 +270,22 @@ fn run(cli: Cli) -> Result<AppExit> {
         .map_err(|e| anyhow::anyhow!("resolving {}: {e}", cli.assets.display()))?;
     let world = terrain::read_world(&assets)?;
     let dungeons = daynight::Dungeons::of(&world);
-    // The lamps' glow, `PARTICLE_GLOW01` of `texture.pak`.
-    let glow = hud::find_texture(&assets, "particle_glow01")
-        .and_then(|path| {
+    // A converted texture of `texture.pak`, relative to the asset directory.
+    let texture = |name: &str| {
+        hud::find_texture(&assets, name).and_then(|path| {
             path.strip_prefix(&assets)
                 .ok()
                 .map(|p| p.to_string_lossy().replace('\\', "/"))
         })
-        .unwrap_or_default();
+    };
+    // The lamps' glow, `PARTICLE_GLOW01`, and the statics' shadows, `SHADOW_TREE00`.
+    let glow = texture("particle_glow01").unwrap_or_default();
+    let shadows = texture("shadow_tree00");
     let shared = sectors::Shared {
         world,
         sprites: statics::read_sprites(&assets)?,
         assets: assets.clone(),
+        shadows: shadows.clone(),
     };
     let tree = cli.tree.unwrap_or_else(|| cli.class.tree().into());
     let side = u32::try_from(opensacred_data::world::SIDE)?;
@@ -411,6 +415,9 @@ fn run(cli: Cli) -> Result<AppExit> {
     })
     .add_systems(Startup, (camera, light))
     .add_systems(Update, iso::zoom.in_set(frame::Step::Zoom));
+    if let Some(shadows) = shadows {
+        app.insert_resource(statics::ShadowAtlas(shadows));
+    }
     if !cli.no_music {
         app.add_plugins((music::MusicPlugin, atmosphere::AtmospherePlugin))
             .insert_resource(music::Music::read(&assets)?)

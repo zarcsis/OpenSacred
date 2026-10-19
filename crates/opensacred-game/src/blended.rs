@@ -31,10 +31,15 @@ pub enum Layer {
     UnderLiquids,
     /// The liquids' surfaces (`0x62DD00`).
     Liquids,
-    /// The sprites of lists 0 and 2.
+    /// The sprites of list 0.
     Underlays,
+    /// The statics' shadows of list 1 (`0x631EB0`).
+    StaticShadows,
+    /// The sprites of list 2.
+    LateUnderlays,
     /// The characters' shadows, which the original draws with their models, in list 3
-    /// (`cGranny::renderShadow`).
+    /// (`cGranny::renderShadow`), and the shadows that it draws right before their statics in
+    /// their lists (entries of kind `0x11`).
     Shadows,
     /// The sprites of lists 3 and 4.
     Objects,
@@ -49,9 +54,11 @@ impl Layer {
             Layer::UnderLiquids => -1.0,
             Layer::Liquids => 0.0,
             Layer::Underlays => 1.0,
-            Layer::Shadows => 2.0,
-            Layer::Objects => 3.0,
-            Layer::Glows => 4.0,
+            Layer::StaticShadows => 2.0,
+            Layer::LateUnderlays => 3.0,
+            Layer::Shadows => 4.0,
+            Layer::Objects => 5.0,
+            Layer::Glows => 6.0,
         }
     }
 }
@@ -119,6 +126,8 @@ mod tests {
             Layer::UnderLiquids,
             Layer::Liquids,
             Layer::Underlays,
+            Layer::StaticShadows,
+            Layer::LateUnderlays,
             Layer::Shadows,
             Layer::Objects,
             Layer::Glows,

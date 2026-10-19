@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use opensacred_data::world::{
     Cell, INDEX, Layer, LayerCell, Miniature, Overlay, Piece, SPRITES_FILE, Sector, SectorEntry,
-    Sprite, Sprites, StaticObject, World,
+    Shadow, Sprite, Sprites, StaticObject, World,
 };
 use opensacred_formats::items::Items;
 use opensacred_formats::mixed::Sprites as MixedPak;
@@ -26,6 +26,9 @@ use crate::verify::read_game_file;
 const MAX_DEPTH: usize = 8;
 /// Flag of a miniature static: a square of its type's atlas instead of a sprite.
 const MINIATURE: u32 = 0x20;
+/// The bit of a type's flags (`items.pak +0x00` as a u32) whose statics cast a shadow
+/// (`0x62AE90`, docs/re/drawing.md).
+const CASTS_SHADOW: u32 = 0x1_0000;
 
 /// Directory of the converted world.
 pub fn output_dir(out: &Path) -> PathBuf {
@@ -393,6 +396,17 @@ fn chain_objects(tables: &Tables, head: u32, cell: u16, depth: usize) -> Result<
                 _ => 0,
             },
             miniature,
+            shadow: item
+                .filter(|item| item.flags & CASTS_SHADOW != 0)
+                .map(|item| {
+                    let shadow = item.shadow;
+                    Shadow {
+                        cell: shadow.cell,
+                        foot: shadow.half_foot.map(|half| 2 * i32::from(half)),
+                        size: shadow.size,
+                        leaning: shadow.shape != 0,
+                    }
+                }),
             children: chain_objects(tables, object.first_child, cell, depth + 1)?,
         });
     }
@@ -430,6 +444,30 @@ mod tests {
         assert!(
             summary.sprite_statics > 500 && summary.miniatures > 0,
             "{summary:?}"
+        );
+        // The statics that cast a shadow carry their type's: the benches' a rectangle.
+        const BENCH_2: u32 = 9181;
+        // Counted on Static.PAK and items.pak for #100.
+        const SHADOWS_AT_START: usize = 267;
+        let shadows = count(&sector.statics, &|o| o.shadow.is_some());
+        assert_eq!(shadows, SHADOWS_AT_START);
+        let mut all = Vec::new();
+        fn flatten<'a>(list: &'a [StaticObject], out: &mut Vec<&'a StaticObject>) {
+            for o in list {
+                out.push(o);
+                flatten(&o.children, out);
+            }
+        }
+        flatten(&sector.statics, &mut all);
+        let bench = all.iter().find(|o| o.kind == BENCH_2).unwrap();
+        assert_eq!(
+            bench.shadow,
+            Some(Shadow {
+                cell: 74,
+                foot: [78, 100],
+                size: 80,
+                leaning: false
+            })
         );
         let sprites = Sprites::decode(&fs::read(dir.join(SPRITES_FILE)).unwrap()).unwrap();
         assert_eq!(sprites.sprites.len(), 32_096);

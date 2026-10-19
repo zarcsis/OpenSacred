@@ -197,6 +197,7 @@ fn sector() -> Sector {
             mask: 0,
             sprite,
             miniature: None,
+            shadow: None,
             children: Vec::new(),
         }
     };
@@ -333,6 +334,7 @@ fn spawn_scene(
             &mut images,
             &mut meshes,
             &mut sprite_materials,
+            None,
         );
     }
     commands.spawn((
@@ -371,7 +373,7 @@ fn render(dir: &Path) -> Vec<u8> {
     let (world, sector, sprites) = write_world(dir);
     let ground = terrain::build(dir, &world, &sector).unwrap();
     let surfaces = liquids::build(&sector);
-    let statics = statics::build(dir, &world, &sprites, &sector).unwrap();
+    let statics = statics::build(dir, &world, &sprites, None, &sector).unwrap();
     assert_eq!(statics.drawn, 4);
     let look_at = terrain::center(&sector);
 
