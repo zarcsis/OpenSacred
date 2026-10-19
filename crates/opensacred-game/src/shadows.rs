@@ -21,8 +21,9 @@ use crate::terrain::Heights;
 
 /// The ellipse's radius in world units: a little more than a model's shoulders.
 const RADIUS: f32 = 30.0;
-/// How dark the centre is: the blending is linear, so 0.9 leaves about a third of the light.
-const DARKNESS: f32 = 0.9;
+/// How dark the centre is: it leaves a third of the light, blended in the frame's sRGB values
+/// (`srgb`) as the original blends its 8-bit values.
+const DARKNESS: f32 = 2.0 / 3.0;
 /// How long the ellipse is across the line of sight to its depth along it.
 const FLAT: f32 = 0.7;
 /// The part of the radius as dark as the centre.

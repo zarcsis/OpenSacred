@@ -3,12 +3,17 @@
 //! (docs/02 §11); until that layout is recovered, the HUD is laid out here with whole textures as
 //! skins, on the original's 768-pixel-high screen scaled to the window's height, as the world is.
 //! The cursor is the original's `MOUSE_MAIN.TGA`, scaled the same way in whole steps.
+//!
+//! Bevy's interface writes its colours and texels into the frame as they are, and the frame holds
+//! sRGB values (`srgb`): the HUD gives them in those values, its colours as linear ones and its
+//! images read as stored, so that they show as given and blend as the original's interface does.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
 use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageLoaderSettings;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::text::FontSize;
@@ -24,9 +29,10 @@ const BAR_HEIGHT: f32 = 8.0;
 /// The original's interface font (`opensacred-convert ui`).
 const FONT: &str = "ui/fonts/antqs__.ttf";
 const FONT_SIZE: f32 = 18.0;
-const HEALTH: Color = Color::srgb(0.70, 0.06, 0.04);
-const BAR_BACK: Color = Color::srgba(0.0, 0.0, 0.0, 0.6);
-const GOLD: Color = Color::srgb(0.86, 0.74, 0.45);
+/// The colours, in the frame's sRGB values.
+const HEALTH: Color = Color::linear_rgb(0.70, 0.06, 0.04);
+const BAR_BACK: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.6);
+const GOLD: Color = Color::linear_rgb(0.86, 0.74, 0.45);
 
 /// The original's cursor: the arrow in the top left 32 × 32 of its 64 × 64 image, its tip at the
 /// corner.
@@ -159,8 +165,13 @@ pub fn setup(mut commands: Commands, hud: Res<Hud>, hero: Res<Hero>, assets: Res
             ..default()
         })
         .with_children(|column| {
+            // Read as stored, in the frame's sRGB values.
+            let portrait = assets
+                .load_builder()
+                .with_settings(|settings: &mut ImageLoaderSettings| settings.is_srgb = false)
+                .load(hud.portrait.clone());
             column.spawn((
-                ImageNode::new(assets.load(hud.portrait.clone())),
+                ImageNode::new(portrait),
                 Node {
                     width: Val::Px(PORTRAIT),
                     height: Val::Px(PORTRAIT),

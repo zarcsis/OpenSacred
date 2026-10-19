@@ -23,6 +23,7 @@ mod sectors;
 mod shaders;
 mod shadows;
 mod sound;
+mod srgb;
 mod statics;
 mod terrain;
 
@@ -385,9 +386,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
-        statics::StaticsPlugin,
+        srgb::SrgbPlugin,
     ))
-    .add_plugins(terrain::GroundPlugin)
+    .add_plugins((statics::StaticsPlugin, terrain::GroundPlugin))
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)

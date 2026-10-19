@@ -34,7 +34,7 @@ use opensacred_data::world::{
     Cell, DIAMONDS, Piece, SIDE, Sector, SectorEntry, Sprite, Sprites, StaticObject, World,
 };
 
-use crate::{iso, liquids, shaders, statics, terrain};
+use crate::{blended, iso, liquids, shaders, srgb, statics, terrain};
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
@@ -302,7 +302,7 @@ fn spawn_scene(
     assets: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
     mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
 ) {
@@ -346,10 +346,11 @@ fn settled(app: &App) -> bool {
     let world = app.world();
     let images = world.resource::<Assets<Image>>();
     let loaded = world
-        .resource::<Assets<StandardMaterial>>()
+        .resource::<Assets<blended::Sorted>>()
         .iter()
         .all(|(_, m)| {
-            m.base_color_texture
+            m.base
+                .base_color_texture
                 .as_ref()
                 .is_none_or(|t| images.contains(t))
         })
@@ -393,7 +394,9 @@ fn render(dir: &Path) -> Vec<u8> {
             .disable::<PipelinedRenderingPlugin>(),
     )
     .add_plugins((
+        blended::BlendedPlugin,
         shaders::ShaderLibrary,
+        srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
     ));

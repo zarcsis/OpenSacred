@@ -6,8 +6,7 @@
 //! "The rows"). Within a layer, the centres order them.
 //!
 //! Bevy's own material also moves the depth that it tests by its `depth_bias`; [`Sorted`] keeps
-//! the bias for the order alone, and the liquids, of Bevy's own material, have the layer of
-//! bias 0.
+//! the bias for the order alone, and encodes its colour for the frame (`srgb`).
 
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{
@@ -18,6 +17,7 @@ use bevy::prelude::{App, Asset, Plugin, StandardMaterial, TypePath};
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
+use bevy::shader::ShaderRef;
 
 /// The `depth_bias` between two layers: beyond the spread of the meshes' depths, which the
 /// camera's range bounds (`iso::camera`, 20,000 units).
@@ -29,7 +29,7 @@ pub enum Layer {
     /// The miniatures of the liquid cells, which the original draws before the surfaces
     /// (`0x62E410`).
     UnderLiquids,
-    /// The liquids' surfaces (`0x62DD00`), of Bevy's own material, without a bias.
+    /// The liquids' surfaces (`0x62DD00`).
     Liquids,
     /// The sprites of lists 0 and 2.
     Underlays,
@@ -64,6 +64,11 @@ pub type Sorted = ExtendedMaterial<StandardMaterial, Unbiased>;
 pub struct Unbiased {}
 
 impl MaterialExtension for Unbiased {
+    /// Bevy's own, its colour encoded for the frame (`srgb`).
+    fn fragment_shader() -> ShaderRef {
+        crate::shaders::STANDARD.into()
+    }
+
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -99,6 +104,7 @@ pub struct BlendedPlugin;
 
 impl Plugin for BlendedPlugin {
     fn build(&self, app: &mut App) {
+        crate::shaders::embed_standard(app);
         app.add_plugins(MaterialPlugin::<Sorted>::default());
     }
 }
@@ -122,7 +128,5 @@ mod tests {
             // units of range apart.
             assert!(pair[1].bias() - pair[0].bias() > 2.0 * 20_000.0, "{pair:?}");
         }
-        // The liquids' material is Bevy's own, which would move their depth by any other bias.
-        assert_eq!(Layer::Liquids.bias(), 0.0);
     }
 }

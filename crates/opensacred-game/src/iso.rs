@@ -89,6 +89,8 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
         // display transform: Bevy's default tone mapping dulled the bright tones (#28).
         Tonemapping::None,
         DebandDither::Disabled,
+        // What is drawn blends with the frame's sRGB values as they are, as in the original.
+        crate::srgb::Frame,
         Projection::Orthographic(projection),
         view_of(target),
     )
