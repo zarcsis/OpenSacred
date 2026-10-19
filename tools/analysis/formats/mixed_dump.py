@@ -11,7 +11,10 @@ BY-SA 4.0), measured on the GOG files on 2026-10-17.
            slots, 0 for the 15360 empty ones, whose records are all zeros but in slots 0 and 8191 (a few stray
            bytes). A used record: +0x00 u8 type (2 creatures
            and equipment, 9 world statics, 12 miniatures, 13 interactive objects, 25 trees and walls, ...), +0x10 u32
-           the record of mixed.pak with the type's sprite (0 none), +0x37 char name[32] (Latin-1, as `Brücke`).
+           the record of mixed.pak with the type's sprite (0 none), +0x37 char name[32] (Latin-1, as `Brücke`); the
+           shadow of a type whose +0x00 as a u32 has bit 0x10000 (the client's 0x631EB0, 2026-10-19): +0x5B u16 its
+           cell of SHADOW_TREE00 (16 x 16 cells), +0x5D i16 and +0x5F i16 half the foot's offset from the sprite's
+           top-left corner, +0x63 u8 the shape (0 a rectangle, else leaning right), +0x64 u16 its size.
   mixed    "MIX" v0, 32096 records back to back after the directory, directory type 99, then 16 B to the end of the
            file (meaning unknown). Record 0 is 16 B: u32 99,
            u32 the file size - 16, u32 16, the fill 0xCCCCCCCC. A sprite: u32 n, u16 width, u16 height, i16 dx, i16
@@ -26,8 +29,10 @@ Example
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --items /tmp/items.tsv --sprites /tmp/sprites.tsv
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --alpha
 
-Expected output (2.28): every check passes on all of its items; statistics follow. --items writes a row per items.pak
-record (index, used, type, sprite, crc of the 128 bytes); --sprites a row per mixed.pak record (index, pieces, width,
+Expected output (2.28): every check passes on all of its items; statistics follow, among them 2043 types of bit
+0x10000, 1635 of them leaning and 408 rectangles, one of size 0 (Dunkelbaum21), in 137 distinct cells up to 143.
+--items writes a row per items.pak record (index, used, type,
+sprite, the shadow's cell, dx, dy, shape and size, crc of the 128 bytes); --sprites a row per mixed.pak record (index, pieces, width,
 height, crc of the record). --alpha also decodes the atlases' alpha from texture.pak (a minute) and checks every sprite's
 texels against its size. Dependencies: numpy (tools/requirements.txt).
 """
@@ -138,21 +143,32 @@ def main():
     mdirs, mfirst = directory(mx)
     nm = len(mdirs)
     item_rows = []
+    shadow_cells = set()
     for i in range(n):
         r = it[first + 128 * i:first + 128 * (i + 1)]
         used = dirs[i, 0] == 2
         if not used:
             c('items: an empty slot is all zeros but slots 0 and 8191', not any(r) or i in (0, 8191), f'#{i}')
-            item_rows.append((i, 0, 0, 0, zlib.crc32(r)))
+            item_rows.append((i, 0, 0, 0, 0, 0, 0, 0, 0, zlib.crc32(r)))
             continue
         kind = r[0]
         sprite = struct.unpack_from('<I', r, 0x10)[0]
         name = r[0x37:0x57].split(b'\0')[0]
+        cell, dx, dy = struct.unpack_from('<Hhh', r, 0x5B)
+        shape, size = struct.unpack_from('<BH', r, 0x63)
         stats[f'used items of type {kind}'] += 1
         c('items: sprite below the mixed.pak count', sprite < nm, f'#{i}')
         c('items: name without control characters (Latin-1)', all(b >= 0x20 and b != 0x7F for b in name), f'#{i}')
-        item_rows.append((i, 1, kind, sprite, zlib.crc32(r)))
+        if struct.unpack_from('<I', r, 0)[0] & 0x10000:
+            stats['types of bit 0x10000 (a shadow)'] += 1
+            stats['  of them leaning' if shape else '  of them rectangles'] += 1
+            stats['  of them of size 0 (nothing drawn)'] += size == 0
+            shadow_cells.add(cell)
+            c('items: a shadow of bit 0x10000 in one of the 256 cells', cell < 256, f'#{i}')
+        item_rows.append((i, 1, kind, sprite, cell, dx, dy, shape, size, zlib.crc32(r)))
 
+    stats['  the distinct cells of their shadows'] = len(shadow_cells)
+    stats['  the highest of those cells'] = max(shadow_cells)
     sizes = texture_sizes(g(TEXTURES))
     sizes64 = mdirs[:, 2].astype(np.int64)
     c('mixed: MIX v0, directory type 99, records back to back after the directory, then 16 B',
@@ -203,7 +219,9 @@ def main():
     print(f'items: {n} records, {int((dirs[:, 0] == 2).sum())} used; mixed: {nm} records')
     c.report()
     print(f'  {dict(sorted(stats.items()))}')
-    for path, rows, columns in ((args.items, item_rows, ('index', 'used', 'type', 'sprite', 'crc')),
+    item_columns = ('index', 'used', 'type', 'sprite', 'shadow_cell', 'shadow_dx', 'shadow_dy', 'shadow_shape',
+                    'shadow_size', 'crc')
+    for path, rows, columns in ((args.items, item_rows, item_columns),
                                 (args.sprites, sprite_rows, ('index', 'pieces', 'width', 'height', 'crc'))):
         if path:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

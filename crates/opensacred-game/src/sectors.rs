@@ -27,11 +27,13 @@ const GRID: i64 = 100;
 /// Sectors built at once: Bevy compiles its pipelines on the same pool of threads.
 const BUILDING_AT_ONCE: usize = 2;
 
-/// What every build reads: the asset directory, the world index and the sprite table.
+/// What every build reads: the asset directory, the world index, the sprite table and the
+/// shadow atlas, relative to the asset directory, if the converted textures have it.
 pub struct Shared {
     pub assets: PathBuf,
     pub world: World,
     pub sprites: Sprites,
+    pub shadows: Option<String>,
 }
 
 /// A sector built off the main thread.
@@ -52,7 +54,13 @@ pub fn build(shared: &Shared, at: (u32, u32)) -> Building {
     };
     let ground = terrain::build(&shared.assets, &shared.world, &sector)?;
     let liquids = liquids::build(&sector);
-    let statics = statics::build(&shared.assets, &shared.world, &shared.sprites, &sector)?;
+    let statics = statics::build(
+        &shared.assets,
+        &shared.world,
+        &shared.sprites,
+        shared.shadows.as_deref(),
+        &sector,
+    )?;
     Ok(Some(Built {
         sector,
         ground,
@@ -139,6 +147,7 @@ pub fn stream(
     mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
     light_types: Res<daynight::LightTypes>,
     glow: Option<Res<statics::Glow>>,
+    shadows: Option<Res<statics::StaticShadows>>,
 ) {
     let streamer = &mut *streamer;
     let finished: Vec<_> = streamer
@@ -198,6 +207,7 @@ pub fn stream(
             &mut images,
             &mut meshes,
             &mut sprite_materials,
+            shadows.as_deref(),
         ));
         entities.extend(lights.into_iter().map(|(position, radius)| {
             commands

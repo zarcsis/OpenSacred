@@ -31,15 +31,28 @@ fn items_and_sprites_match_mixed_dump_py() {
     let items = Items::parse(&data).unwrap();
     let text = fs::read_to_string(&items_table).unwrap();
     let mut lines = text.lines().skip(1);
+    let (mut shadows, mut leaning) = (0, 0);
     for index in 0..items.len() {
         let crc = crc32fast::hash(items.bytes(index).unwrap());
         let ours = match items.get(index).unwrap() {
-            Some(item) => format!("{index}\t1\t{}\t{}\t{crc}", item.kind, item.sprite),
-            None => format!("{index}\t0\t0\t0\t{crc}"),
+            Some(item) => {
+                let s = item.shadow;
+                if item.flags & 0x10000 != 0 {
+                    shadows += 1;
+                    leaning += usize::from(s.shape != 0);
+                }
+                format!(
+                    "{index}\t1\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{crc}",
+                    item.kind, item.sprite, s.cell, s.half_foot[0], s.half_foot[1], s.shape, s.size
+                )
+            }
+            None => format!("{index}\t0\t0\t0\t0\t0\t0\t0\t0\t{crc}"),
         };
         assert_eq!(lines.next().unwrap(), ours);
     }
     assert!(lines.next().is_none());
+    // The types that cast a shadow, and those of them whose shadow leans (docs/02 §6.1).
+    assert_eq!((shadows, leaning), (2043, 1635));
 
     let data = game_file("PAK/mixed.pak");
     let sprites = Sprites::parse(&data).unwrap();

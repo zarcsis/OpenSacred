@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::packed::{DecodeError, decode, encode};
 
 /// Version of the sector and sprite encodings; a file of another version does not load.
-pub const SECTOR_VERSION: u32 = 4;
+pub const SECTOR_VERSION: u32 = 5;
 /// The index file under the world directory.
 pub const INDEX: &str = "world.ron";
 /// The sprite table under the world directory.
@@ -149,8 +149,30 @@ pub struct StaticObject {
     pub sprite: u32,
     /// For a miniature (flag `0x20`): what it cuts from its type's atlas instead of a sprite.
     pub miniature: Option<Miniature>,
+    /// The type's shadow, for a type that casts one (bit `0x10000` of [`type_flags`]).
+    ///
+    /// [`type_flags`]: StaticObject::type_flags
+    pub shadow: Option<Shadow>,
     /// Objects that belong to this one, in chain order.
     pub children: Vec<StaticObject>,
+}
+
+/// A static's shadow, its type's (`items.pak +0x5B`…`+0x65`, docs/02 §6.1): a quad of a cell of
+/// the shadow atlas `SHADOW_TREE00` (16 × 16 cells of 32 × 32 texels) on the ground at the
+/// static's foot (docs/re/drawing.md, "The statics' shadows").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Shadow {
+    /// The silhouette's cell, `16 · row + column`.
+    pub cell: u16,
+    /// The static's foot, from its position (its sprite's top-left corner), in pixels at
+    /// zoom 1.
+    pub foot: [i32; 2],
+    /// The quad's height in pixels at zoom 1; it is twice as wide, its bottom edge on the foot's
+    /// line, centred on the foot.
+    pub size: u16,
+    /// Whether the quad's top edge is shifted right by its height: the shadow leans up and to the
+    /// right; otherwise a rectangle.
+    pub leaning: bool,
 }
 
 /// A miniature: a square of an atlas, still or animated (community-reported, openheilig).
@@ -243,10 +265,16 @@ mod tests {
                 x: 96,
                 y: -48,
                 record: 7,
-                type_flags: 9,
+                type_flags: 0x1_0009,
                 mask: 1,
                 sprite: 812,
                 miniature: None,
+                shadow: Some(Shadow {
+                    cell: 74,
+                    foot: [78, 100],
+                    size: 80,
+                    leaning: false,
+                }),
                 children: vec![StaticObject {
                     cell: 65,
                     kind: 1036,
@@ -261,6 +289,7 @@ mod tests {
                         atlas: 3,
                         params: [64, 0, 64, 0, 0],
                     }),
+                    shadow: None,
                     children: vec![],
                 }],
             }],

@@ -148,7 +148,7 @@ fn ramp(light: f32) -> (f32, f32) {
     (base + light / 4.0, base + light / 3.0)
 }
 
-/// The clock, the night's pass and its shader, the lights and the glows.
+/// The clock, the night's pass and its shader, the lights, the glows and the shadows' fading.
 pub struct DayNightPlugin;
 
 impl Plugin for DayNightPlugin {
@@ -156,7 +156,7 @@ impl Plugin for DayNightPlugin {
         embedded_asset!(app, "night.wesl");
         app.add_plugins(FullscreenMaterialPlugin::<Night>::default())
             .add_systems(Startup, make_glow)
-            .add_systems(Update, (tick, light, glow).chain());
+            .add_systems(Update, (tick, light, glow, shadows).chain());
     }
 }
 
@@ -315,6 +315,37 @@ pub fn glow(
         && let Some(mut material) = materials.get_mut(&glow.0)
     {
         material.base.base_color = colour;
+    }
+}
+
+/// The statics' shadows' alpha at a minute of the day, out of 1: their vertices' `255 − N`
+/// (`0x41B9E0`, `0x631EB0`), so they fade out over the dusk and come back over the dawn, in a
+/// dungeon too.
+fn shadow_alpha(minutes: f64) -> f32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a level of 0 to 255, out of 255"
+    )]
+    let alpha = ((255.0 - level(minutes)) / 255.0) as f32;
+    alpha
+}
+
+/// Keeps the statics' shadows' alpha by the clock.
+pub fn shadows(
+    clock: Res<Clock>,
+    shadows: Option<Res<crate::statics::StaticShadows>>,
+    mut materials: ResMut<Assets<crate::statics::SpriteMaterial>>,
+) {
+    let Some(shadows) = shadows else {
+        return;
+    };
+    let alpha = shadow_alpha(clock.minutes());
+    for handle in [&shadows.list1, &shadows.with_sprites] {
+        if materials.get(handle).is_some_and(|m| m.tint.w != alpha)
+            && let Some(mut material) = materials.get_mut(handle)
+        {
+            material.tint.w = alpha;
+        }
     }
 }
 
@@ -497,6 +528,7 @@ mod tests {
             mask: 0,
             sprite: 0,
             miniature: None,
+            shadow: None,
             children: Vec::new(),
         };
         let sector = Sector {
@@ -534,6 +566,15 @@ mod tests {
             glow_colour(minutes(12.0), true),
             Color::srgba_u8(255, 218, 43, 64)
         );
+    }
+
+    #[test]
+    fn the_shadows_fade_out_by_night() {
+        let minutes = |h: f64| h * 60.0;
+        assert_eq!(shadow_alpha(minutes(12.0)), 1.0);
+        assert_eq!(shadow_alpha(minutes(23.5)), 0.0);
+        // Half way through the dusk, the night's level 127.5.
+        assert!((shadow_alpha(minutes(21.0) + 20.0) - 0.5).abs() < 0.01);
     }
 
     #[test]
