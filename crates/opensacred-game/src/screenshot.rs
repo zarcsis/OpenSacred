@@ -83,6 +83,13 @@ fn frame_file(dir: &std::path::Path, n: u32) -> PathBuf {
     dir.join(format!("frame-{n:04}.png"))
 }
 
+/// The number in the recording of the frame rendered `rendered`-th since the scene was ready
+/// (from 1): from 0 at the `settle`-th, the frame a screenshot takes ([`take`]), or at the first
+/// when `settle` is 0; `None` before it.
+fn frame_number(rendered: u32, settle: u32) -> Option<u32> {
+    rendered.checked_sub(settle.max(1))
+}
+
 pub fn record(
     mut commands: Commands,
     mut recording: ResMut<Recording>,
@@ -98,7 +105,7 @@ pub fn record(
         return;
     }
     recording.rendered += 1;
-    let Some(n) = recording.rendered.checked_sub(recording.settle) else {
+    let Some(n) = frame_number(recording.rendered, recording.settle) else {
         return;
     };
     if n >= recording.frames {
@@ -124,5 +131,15 @@ mod tests {
         let mut names: Vec<_> = [10, 9, 100].map(|n| frame_file(dir, n)).to_vec();
         names.sort();
         assert_eq!(names, [9, 10, 100].map(|n| frame_file(dir, n)));
+    }
+
+    #[test]
+    fn a_recording_starts_at_frame_0() {
+        // With the 30 frames of settling the default, the 30th is frame 0; with none, the first
+        // is, so that the frames asked for are all saved and the recording ends (#150).
+        let numbers = |settle| [1, 29, 30, 31].map(|rendered| frame_number(rendered, settle));
+        assert_eq!(numbers(30), [None, None, Some(0), Some(1)]);
+        assert_eq!(numbers(0), [Some(0), Some(28), Some(29), Some(30)]);
+        assert_eq!(numbers(1), numbers(0));
     }
 }
