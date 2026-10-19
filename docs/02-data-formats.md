@@ -446,7 +446,8 @@ Confirmed by code 2026-10-17; the meaning of `+0xCC` and `+0xD0` by code 2026-10
 
 `+0xD0` is the factor of a surface's corner's alpha: the bed's height there times it, held to 0…255, so a water of −12 is opaque from a bed 22 pixels deep and a lava of −255 over any bed below 0.
 `+0xCC` gives a clear water its second layer at `DETAILLEVEL` 2, added over the bed under its surface (#118).
-Hypothesis: `+0xD4` marks the glowing ones (the "glow pass" of docs/05 §1); the `CAUST00`… frames (64 × 64, grey) are the second layer's texture.
+Hypothesis: `+0xD4` marks the glowing ones (the "glow pass" of docs/05 §1).
+The `CAUST00`… frames (64 × 64, grey) are loaded by the world view's constructor and never bound; the second layer shows the water's own frames (**confirmed** by code 2026-10-19, docs/re/liquids.md).
 How the client picks a cell's material, the frame of the moment (every material cycles in 2,048 ms) and the mapping (a frame over 4 × 4 cells) is in [docs/re/liquids.md](re/liquids.md).
 
 ### 5.3 Heights and the render contract
