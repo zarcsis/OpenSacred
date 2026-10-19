@@ -424,11 +424,12 @@ Confirmed by code 2026-10-17; the shares are the high nibbles of all 24.8 millio
 | 7 | `BRIDGE` | 3 per 100,000 | | 15 | `KIES` (gravel) | 3.2% |
 
 The footstep profiles' groups are another list: 0 environment, 1 grass, 2 water, 3 snow, 4 swamp, 5 stone, 6 sand, 7 wood (the client's `SND_*` names, [docs/re/sound.md](re/sound.md)); the client plays a footstep's group by the nature (a switch at `0x68EDDA`: the deserts and gravels sand, the stone roads, floors, dungeons, bridges and lava stone, `IND-WOOD` wood, the rest grass), and it also picks the ambient loop and the footprint texture by the nature ([docs/re/sound.md](re/sound.md)).
-Under a liquid the first corner heights are the bed (−10 in most of the start's pond) and the second (`+0x18`) mostly 0 or a little below (−1, −2): hypothesis, the second heights give the surface, in the ×2.5 units openheilig reports.
+Under a liquid the first corner heights are the bed (−10 in most of the start's pond) and the second (`+0x18`) mostly 0 or a little below (−1, −2).
+The surface lies flat at height 0 and takes its corners' alphas from the bed's heights (**confirmed** by code 2026-10-19, `0x62DD00`, docs/re/liquids.md); the liquids' pass does not read the second heights.
 
 **Liquid materials.**
 The client fills a table of 14 materials at `0x4189DF` (records of 0xD8 B from `this + 0x91E8`: the frames' texture handles, `+0xC8` the frame count, `+0xCC` a byte, `+0xD0` an int, `+0xD4` a byte), each from a series of `texture.pak` frames `<SERIES>%.2d.TGA` (128 × 128, opaque, tileable); a sector's two slots (§5.1) index it.
-Confirmed by code 2026-10-17; the meaning of the parameters is not:
+Confirmed by code 2026-10-17; the meaning of `+0xCC` and `+0xD0` by code 2026-10-19 (#103, docs/re/liquids.md):
 
 | Material | Series | Frames | `+0xCC` | `+0xD0` | `+0xD4` |
 |---|---|---|---|---|---|
@@ -443,7 +444,9 @@ Confirmed by code 2026-10-17; the meaning of the parameters is not:
 | 12 | `E_LAVA` | 50 | 0 | −255 | 1 |
 | 13 | `B_WATER` | 50 | 0 | −12 | 0 |
 
-Hypothesis: `+0xCC` marks the clear waters (drawn translucent over the bed, with a second layer) and `+0xD4` the glowing ones (the "glow pass" of docs/05 §1); the `CAUST00`… frames (64 × 64, grey) are the caustics on a bed.
+`+0xD0` is the factor of a surface's corner's alpha: the bed's height there times it, held to 0…255, so a water of −12 is opaque from a bed 22 pixels deep and a lava of −255 over any bed below 0.
+`+0xCC` gives a clear water its second layer at `DETAILLEVEL` 2, added over the bed under its surface (#118).
+Hypothesis: `+0xD4` marks the glowing ones (the "glow pass" of docs/05 §1); the `CAUST00`… frames (64 × 64, grey) are the second layer's texture.
 How the client picks a cell's material, the frame of the moment (every material cycles in 2,048 ms) and the mapping (a frame over 4 × 4 cells) is in [docs/re/liquids.md](re/liquids.md).
 
 ### 5.3 Heights and the render contract
