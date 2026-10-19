@@ -88,6 +88,7 @@ Movies are not needed to complete the game, so this is a low priority.
   Autosave on a timer, like `AUTOSAVEDELAY` in the original.
 * **Directories:** through the `directories` crate: `%APPDATA%\OpenSacred` on Windows, XDG on Linux, app storage on Android, IndexedDB in the browser.
 * **Settings:** TOML: graphics (resolution, window mode, backend, zoom, UI scale, HD packs), sound (volumes), controls (layouts), gameplay.
+  The file, `settings.toml`, comes ahead of M6 with its display section (borderless full screen or a window, F11 between them) and the debug overlays' switches (docs/10 §3, #167).
   The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` are not needed (no networking).
 * **The original saves** (`.pax`) are not supported.
   The hero templates `Templates/*.ptx` are converted into starter kits for character creation.
