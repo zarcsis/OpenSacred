@@ -1,0 +1,213 @@
+//! A creature's clips by the original's motion slots (docs/re/motions.md): a model's file keeps,
+//! with each clip, the slots of its `ModelDesc` that name it (`extras.slots`, docs/02 §4.1), and
+//! the client plays for an action the slot that a table gives by the class of what the creature
+//! holds, or the nearest slot the model has (`0x5467A0`).
+
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+use anyhow::{Context, Result, bail};
+use serde_json::Value;
+
+/// What a creature does, of the client's actions (`0x5467A0`'s 0, 1 and 2): the clip it plays,
+/// and the gait it moves at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    Stand,
+    Walk,
+    Run,
+}
+
+/// The class of what a creature holds (`0x546F80`), by which it picks its clips: `Weapon.pak
+/// +0x1E` of the weapon in its right hand, else of the one in its left, 0 for bare hands; with
+/// a weapon in each hand, the left not a shield, class 8, two blades (0 if neither has a class);
+/// class 14 counts as 12. `left` is the left hand's item, whether a shield, and its class.
+pub fn class(left: Option<(bool, u8)>, right: Option<u8>) -> u8 {
+    let class = match (left, right) {
+        (Some((false, left)), Some(right)) => {
+            if left == 0 && right == 0 {
+                0
+            } else {
+                8
+            }
+        }
+        (_, Some(right)) => right,
+        (Some((_, left)), None) => left,
+        (None, None) => 0,
+    };
+    if class == 14 { 12 } else { class }
+}
+
+/// The slot of `action` for `class` (`0x956E40`, a row of 20 slots an action): the 13 classes
+/// from 0, bare hands, to 12 in order from the action's first slot, standing 1, walking 27,
+/// running 40; class 13 has slots of its own, class 14 takes 12's, and the rest of the row is 0.
+fn table(action: Action, class: u8) -> u16 {
+    let first = match action {
+        Action::Stand => 1,
+        Action::Walk => 27,
+        Action::Run => 40,
+    };
+    match class {
+        0..=12 => first + u16::from(class),
+        13 => match action {
+            Action::Stand => 235,
+            Action::Walk => 237,
+            Action::Run => 238,
+        },
+        14 => first + 12,
+        _ => 0,
+    }
+}
+
+/// The slot a creature plays for `action` holding `class`, of a model that has the slots `has`,
+/// and the gait it moves at, as `0x5467A0` picks them: the table's slot (`table`) where the
+/// model has it; else, standing, slot 2 where it has that, else 1; walking, the first it has of
+/// the walks 27, 28 and 29, then of the runs 40, 41 and 42, at a run, else the standing slot;
+/// running, the runs first, then the walks, at a walk. Its other cases are not followed: a
+/// mounted creature's 179, the small spider's walk, the fight stance (#155).
+pub fn slot(action: Action, class: u8, has: impl Fn(u16) -> bool) -> (u16, Action) {
+    let slot = table(action, class);
+    if slot != 0 && has(slot) {
+        return (slot, action);
+    }
+    let walks = [27, 28, 29].map(|s| (s, Action::Walk));
+    let runs = [40, 41, 42].map(|s| (s, Action::Run));
+    let tried = match action {
+        Action::Stand => None,
+        Action::Walk => walks.into_iter().chain(runs).find(|&(s, _)| has(s)),
+        Action::Run => runs.into_iter().chain(walks).find(|&(s, _)| has(s)),
+    };
+    tried.unwrap_or((if has(2) { 2 } else { 1 }, action))
+}
+
+/// A model's clips by their slots.
+#[derive(Clone, Debug, Default)]
+pub struct Slots(HashMap<u16, String>);
+
+impl Slots {
+    /// The slots of the clips of the `.glb` at `path`, from its JSON chunk.
+    pub fn read(path: &Path) -> Result<Self> {
+        let what = || format!("reading {}", path.display());
+        let mut file = File::open(path).with_context(what)?;
+        let mut header = [0; 20];
+        file.read_exact(&mut header).with_context(what)?;
+        if &header[..4] != b"glTF" || &header[16..] != b"JSON" {
+            bail!("{}: not a binary glTF with a JSON chunk", path.display());
+        }
+        let length = u32::from_le_bytes([header[12], header[13], header[14], header[15]]);
+        let mut json = vec![0; usize::try_from(length)?];
+        file.read_exact(&mut json).with_context(what)?;
+        Self::parse(&json).with_context(what)
+    }
+
+    /// The slots of the clips of a glTF's JSON: each animation's name by the slots in its
+    /// `extras.slots`.
+    fn parse(json: &[u8]) -> Result<Self> {
+        let root: Value = serde_json::from_slice(json).context("parsing the glTF JSON")?;
+        let mut slots = HashMap::new();
+        for animation in root["animations"].as_array().into_iter().flatten() {
+            let Some(name) = animation["name"].as_str() else {
+                continue;
+            };
+            for slot in animation["extras"]["slots"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                if let Some(slot) = slot.as_u64().and_then(|s| u16::try_from(s).ok()) {
+                    slots.entry(slot).or_insert_with(|| name.to_owned());
+                }
+            }
+        }
+        Ok(Self(slots))
+    }
+
+    /// The clip a creature plays for `action` holding `class`, and the gait it moves at; `None`
+    /// where the model has no clip in the slot it falls back to.
+    pub fn clip(&self, action: Action, class: u8) -> Option<(&str, Action)> {
+        let (slot, gait) = slot(action, class, |s| self.0.contains_key(&s));
+        self.0.get(&slot).map(|name| (name.as_str(), gait))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The slots of `THFM`'s clips, a thief's: its idle in 1, 14 and 21, its walk in 27, its run
+    /// in 40, a rider's idle in 169.
+    fn thief() -> Slots {
+        Slots::parse(
+            br#"{"animations": [
+                {"name": "THFM_HORSE_IDLE", "extras": {"slots": [169]}},
+                {"name": "THFM_IDLE_BH", "extras": {"slots": [1, 14, 21]}},
+                {"name": "THFM_RUN_BH", "extras": {"slots": [40]}},
+                {"name": "THFM_WALK_BH", "extras": {"slots": [27]}},
+                {"name": "THFM_DYING_A"}
+            ]}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_creature_holds_its_weapons_class() {
+        // Bare hands; a sword (1) and a kite shield (0); a crossbow (12) alone in the left hand;
+        // two blades; two weapons without a class; 14 as 12.
+        assert_eq!(class(None, None), 0);
+        assert_eq!(class(Some((true, 0)), Some(1)), 1);
+        assert_eq!(class(Some((false, 12)), None), 12);
+        assert_eq!(class(Some((false, 9)), Some(9)), 8);
+        assert_eq!(class(Some((false, 0)), Some(0)), 0);
+        assert_eq!(class(None, Some(14)), 12);
+    }
+
+    #[test]
+    fn a_thief_with_a_dagger_stands_in_its_plain_idle() {
+        // The dagger's class 5 has slot 6, which the thief lacks, as it lacks 2.
+        let thief = thief();
+        assert_eq!(
+            thief.clip(Action::Stand, 5),
+            Some(("THFM_IDLE_BH", Action::Stand))
+        );
+        assert_eq!(
+            thief.clip(Action::Walk, 5),
+            Some(("THFM_WALK_BH", Action::Walk))
+        );
+        assert_eq!(
+            thief.clip(Action::Run, 0),
+            Some(("THFM_RUN_BH", Action::Run))
+        );
+    }
+
+    #[test]
+    fn a_creature_falls_back_as_the_client_does() {
+        let has = |slots: &'static [u16]| move |s| slots.contains(&s);
+        // A sword's idle where the model has it, else the one-handed idle 2, else 1.
+        assert_eq!(slot(Action::Stand, 1, has(&[1, 2])), (2, Action::Stand));
+        assert_eq!(slot(Action::Stand, 7, has(&[1, 2, 8])), (8, Action::Stand));
+        assert_eq!(slot(Action::Stand, 7, has(&[1, 2])), (2, Action::Stand));
+        assert_eq!(slot(Action::Stand, 7, has(&[1])), (1, Action::Stand));
+        // A bat walks with what is in its walk slot, its idle; a model without walks runs.
+        assert_eq!(slot(Action::Walk, 0, has(&[1, 27])), (27, Action::Walk));
+        assert_eq!(slot(Action::Walk, 3, has(&[1, 28, 40])), (28, Action::Walk));
+        assert_eq!(slot(Action::Walk, 0, has(&[1, 41])), (41, Action::Run));
+        assert_eq!(slot(Action::Run, 0, has(&[1, 29])), (29, Action::Walk));
+        // Neither walks nor runs: the standing slot.
+        assert_eq!(slot(Action::Walk, 0, has(&[2])), (2, Action::Walk));
+        // Class 13's own slots, and a class past the table.
+        assert_eq!(
+            slot(Action::Stand, 13, has(&[1, 235])),
+            (235, Action::Stand)
+        );
+        assert_eq!(slot(Action::Stand, 200, has(&[1])), (1, Action::Stand));
+    }
+
+    #[test]
+    fn a_model_without_the_slot_has_no_clip() {
+        assert_eq!(Slots::default().clip(Action::Stand, 0), None);
+        assert!(Slots::parse(b"{}").unwrap().0.is_empty());
+        assert!(Slots::parse(b"not json").is_err());
+    }
+}

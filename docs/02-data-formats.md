@@ -164,7 +164,7 @@ Implemented the same day: `opensacred_formats::mdl`, cross-checked against the s
 - **ModelDesc** (1,194 B): `+0x70` holds 256 u32 motion slots.
   A slot is the ordinal of a motion among the motions of the same pak (record `nModels + ordinal`); 0 is none, and slot 0 is always 0.
   `models.pak` fills 5,110 slots, the largest ordinal is 3,420.
-  According to openheilig the slot number is the game's motion enum (community-reported).
+  The slot number is the game's motion enum (openheilig; **confirmed** by code 2026-10-19, [docs/re/motions.md](re/motions.md)): the client plays a creature's action by slot, standing 1–13, the fight stance 14–26, walking 27–39, running 40–52, defending 53–65 and attacking from 79, by the class of what the creature holds, and a rider's idle 169.
   `+0x470` holds three equal floats: 1.0 in 1,538 of 1,574 models, otherwise 1.1, 0.5, 0.33 and others (hypothesis: the model scale).
   `+0x47C u32` and `+0x4A8 u16` hold the MSVC fill `0xCC` in the pak; the cache fills them in.
 - **MotionDesc** (256 B): `+0x2E u16` holds `0xCCCC` in the pak; the parameter block `+0x42…+0x100` is described with `MOTIONS.PAK` below.
@@ -565,6 +565,7 @@ Of the 1,038,011 placed statics, 586,002 draw a sprite and 445,943 are miniature
 - **The CIF field map**, from the client's own dump of the table (openheilig, `creature-pak.md`, read for facts): `u32 id` (also the `items.pak` slot of the model), `u8 class` (1–15), `u8 0`, `u8 flags` (0x01 flies, 0x02 big, 0x10 no shadow, 0x20 ghost, 0x40, 0x80; no other bit is set in any record), `u8 0`, `u16 experience[2]` (a + level × b), `u8 base[6]`, `u8 0, 0`, `u8 skills[2]`, `u8 skills_extra[16]`, `u16 speed[2]` (walk at `+0x26`, run at `+0x28`: `0x4F75F0` takes them by the gait, confirmed 2026-10-18, docs/re/movement.md), six bonuses `{u8 kind, u8 target}`, `u8 bonus_value[6]`, `u8 bonus_class[6]`, `u8 damping[4][5]`: 86 bytes, every one placed.
   The earlier reading below put a `u16` id at `+0`; it is a `u32`.
 - **The weapon kind**, `u8 +0x1E` (the byte 30 below): 1 swords and axes, 4 staves and polearms, 5 daggers and short swords, 7 bows, 10 the dark elves' blades, 12 crossbows, 14 muskets, among others; 0 for every type that is no weapon.
+  The client picks a creature's clips by the kind of what it holds (**confirmed** by code 2026-10-19, [docs/re/motions.md](re/motions.md)).
   The client holds a weapon of kind 7 or 12 in the left hand, any other in the right (`0x54ACC0`, **confirmed** by code 2026-10-18).
   **Hypothesis**: a weapon record belongs to the `items.pak` slot equal to its id (`+0x80`): 2,383 of the 4,883 ids are item slots, and the kinds they give agree with the items' models (`BOW_LONG.GRN` 7, `BOW_HEAVYARM.GRN` 12, `muskette_1.grn` 14, `SHIELD_KITE.GRN` 0).
 - **WPN**: the floats at `+0x00…+0x10` and `+0x18` are finite in every record, the name `+0x28` takes 88 bytes padded with zeros (up to 48 characters, Latin-1), `u32 +0x24` is the parent type (openheilig: the client copies the parent's item definition into the child at load), the reserve after the table is zero.

@@ -1,10 +1,11 @@
 //! The NPCs and objects of the start script: the `CreateNPC` and `CreateObj` records of the hero's
 //! tree's `StartCode.bin` (`netscript/<tree>.nsc`), and of the `OnEnter` functions of the quests
 //! that the start script enters (the novice in the chapel, quest 1's), each placed when its sector
-//! is in; an NPC plays an idle clip of its model, an object (a barrel, a chest, a book stand, a
-//! signpost) stands. An NPC that a quest sends somewhere at the start (`NPC_Goto`) walks there
-//! from where it was made, along the hero's way, at its creature's walk speed, then stands
-//! (docs/decisions/2026-10-19-quest-npcs.md).
+//! is in; an NPC plays the clip of its model that the client plays standing, by the class of what
+//! it holds (`motions`), an object (a barrel, a chest, a book stand, a signpost) stands. An NPC
+//! that a quest sends somewhere at the start (`NPC_Goto`) walks there from where it was made,
+//! along the hero's way, with its walk clip at its creature's walk speed, or its run's where its
+//! model has no walk, then stands (docs/decisions/2026-10-19-quest-npcs.md).
 //!
 //! What the operands mean is read off the data (**hypothesis**, docs/02 §7.3): the first `0x02`
 //! is the creature, which is also the `items.pak` slot of its model (`SOLDIER.GRN`, `HORSE.GRN`),
@@ -53,7 +54,7 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{buildings, hero, iso, models, paths, shadows};
+use crate::{buildings, hero, iso, models, motions, paths, shadows};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -82,9 +83,19 @@ struct Placement {
     equipment: Vec<Held>,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
-    /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its walk speed in
-    /// world units a second, before the game's speed.
+    /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
+    /// units a second, before the game's speed: its walk speed, or its run speed where its walk
+    /// is a run.
     walk: Option<((u32, u32), f32)>,
+    /// The clips an NPC plays.
+    clips: ClipNames,
+}
+
+/// The clips an NPC plays, by name (`motions`): standing, and walking where a script sends it.
+#[derive(Clone, Debug, Default)]
+struct ClipNames {
+    stand: Option<String>,
+    walk: Option<String>,
 }
 
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
@@ -145,6 +156,20 @@ fn hands(items: &[(u8, Option<u8>)]) -> Vec<Option<Hand>> {
         .collect()
 }
 
+/// The class of what an NPC holds (`motions::class`): its items' categories and kinds in the
+/// hands they go in (`hands`), a weapon without a kind of class 0.
+fn held_class(items: &[(u8, Option<u8>)]) -> u8 {
+    let (mut left, mut right) = (None, None);
+    for (&(category, kind), hand) in items.iter().zip(hands(items)) {
+        match hand {
+            Some(Hand::Left) => left = Some((category == SHIELD, kind.unwrap_or(0))),
+            Some(Hand::Right) => right = Some(kind.unwrap_or(0)),
+            None => {}
+        }
+    }
+    motions::class(left, right)
+}
+
 #[derive(Resource)]
 pub struct Npcs {
     placements: Vec<Placement>,
@@ -171,6 +196,8 @@ pub struct Retextured(
 #[derive(Component)]
 pub struct Npc {
     gltf: Handle<Gltf>,
+    /// The clips it plays, by name.
+    names: ClipNames,
     graph: Option<Clips>,
     /// The entity of its model's animation player, once it has its clips.
     player: Option<Entity>,
@@ -428,8 +455,8 @@ impl Npcs {
             .filter(|c| c.flags & NO_SHADOW != 0)
             .map(|c| c.id)
             .collect();
-        // Each creature's walk speed (`+0x26`, the models' units a second).
-        let walk_speeds: HashMap<u32, u16> = creatures.iter().map(|c| (c.id, c.speed[0])).collect();
+        // Each creature's walk and run speeds (`+0x26`, `+0x28`, the models' units a second).
+        let speeds: HashMap<u32, [u16; 2]> = creatures.iter().map(|c| (c.id, c.speed)).collect();
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -442,6 +469,8 @@ impl Npcs {
         let records = start_records(&tree);
         let named = positions(records.iter().copied());
         let targets = goto_targets(&records);
+        // The NPCs' models' clips by their slots, each model read once.
+        let mut model_slots: HashMap<String, motions::Slots> = HashMap::new();
         let mut placements = Vec::new();
         for record in records
             .iter()
@@ -502,12 +531,36 @@ impl Npcs {
                 0 => None,
                 number => textures.get(&number).cloned(),
             };
+            // An NPC's clips standing and walking, by the class of what it holds; walking at a
+            // run where its walk is a run.
+            let (clips, gait) = if record.kind == CREATE_NPC {
+                if !model_slots.contains_key(model) {
+                    let slots = motions::Slots::read(&assets.join(model))?;
+                    model_slots.insert(model.clone(), slots);
+                }
+                let slots = &model_slots[model];
+                let class = held_class(&categories);
+                let stand = slots.clip(motions::Action::Stand, class);
+                let walk = slots.clip(motions::Action::Walk, class);
+                let clips = ClipNames {
+                    stand: stand.map(|(name, _)| name.to_owned()),
+                    walk: walk.map(|(name, _)| name.to_owned()),
+                };
+                (clips, walk.map(|(_, gait)| gait))
+            } else {
+                (ClipNames::default(), None)
+            };
             let walk = target
                 .filter(|_| record.kind == CREATE_NPC)
                 .and_then(|(tx, ty, _)| Some((u32::try_from(tx).ok()?, u32::try_from(ty).ok()?)))
                 .filter(|&to| to != (x, y))
                 .map(|to| {
-                    let speed = walk_speeds.get(&creature).copied().unwrap_or(0);
+                    let [walking, running] = speeds.get(&creature).copied().unwrap_or_default();
+                    let speed = if gait == Some(motions::Action::Run) {
+                        running
+                    } else {
+                        walking
+                    };
                     (to, f32::from(speed) * iso::MODEL_SCALE)
                 });
             placements.push(Placement {
@@ -528,6 +581,7 @@ impl Npcs {
                 } else {
                     Vec::new()
                 },
+                clips,
             });
         }
         let side = u32::try_from(SIDE)?;
@@ -637,6 +691,7 @@ pub fn place(
             } else {
                 entity.insert(Npc {
                     gltf: assets.load(placement.model.clone()),
+                    names: placement.clips.clone(),
                     graph: None,
                     player: None,
                 });
@@ -833,19 +888,8 @@ pub fn retexture(
     }
 }
 
-/// The clip of `names` (sorted) that holds `kind` (`IDLE`, `WALK`) but not `FUN`, else one that
-/// holds it.
-fn clip_named<'a>(names: &[&'a str], kind: &str) -> Option<&'a str> {
-    names
-        .iter()
-        .find(|n| n.contains(kind) && !n.contains("FUN"))
-        .or_else(|| names.iter().find(|n| n.contains(kind)))
-        .copied()
-}
-
-/// Gives each NPC's animation player an idle clip of its model: the first by name that holds
-/// `IDLE` but not `FUN`, else one with `IDLE`, else the first clip; and its walk clip, the same
-/// way with `WALK`, which plays while the NPC walks.
+/// Gives each NPC's animation player its clips (`ClipNames`): the one it stands in, else its
+/// model's first, and its walk clip, which plays while the NPC walks.
 pub fn animate(
     mut commands: Commands,
     mut npcs: Query<(&mut Npc, Has<Walk>)>,
@@ -874,17 +918,17 @@ pub fn animate(
             let Some(gltf) = gltfs.get(&npc.gltf) else {
                 continue;
             };
-            // The plain idle before the fidgets (`*_FUN_IDLE_*`, a horse rearing), by name.
-            let mut names: Vec<&str> = gltf.named_animations.keys().map(|n| &**n).collect();
-            names.sort_unstable();
-            let idle = clip_named(&names, "IDLE")
-                .and_then(|n| gltf.named_animations.get(n))
+            let clip = |name: &Option<String>| {
+                name.as_deref()
+                    .and_then(|name| gltf.named_animations.get(name))
+            };
+            let Some(idle) = clip(&npc.names.stand)
+                .or_else(|| gltf.animations.first())
                 .cloned()
-                .or_else(|| gltf.animations.first().cloned());
-            let Some(idle) = idle else {
+            else {
                 continue;
             };
-            let walk = clip_named(&names, "WALK").and_then(|n| gltf.named_animations.get(n));
+            let walk = clip(&npc.names.walk);
             let mut graph = AnimationGraph::new();
             let root = graph.root;
             let idle = graph.add_clip(idle, 1.0, root);
@@ -1095,20 +1139,15 @@ mod tests {
     }
 
     #[test]
-    fn an_npc_idles_and_walks_with_its_plain_clips() {
-        let names = [
-            "HORSE_FUN_IDLE_A",
-            "HORSE_IDLE",
-            "NOVI_ATTACK_1H_A",
-            "NOVI_FUN_WALK",
-            "NOVI_RUN_BH",
-            "NOVI_WALK_BH",
-        ];
-        assert_eq!(clip_named(&names, "IDLE"), Some("HORSE_IDLE"));
-        assert_eq!(clip_named(&names, "WALK"), Some("NOVI_WALK_BH"));
-        assert_eq!(clip_named(&names[..2], "IDLE"), Some("HORSE_IDLE"));
-        assert_eq!(clip_named(&names[..1], "IDLE"), Some("HORSE_FUN_IDLE_A"));
-        assert_eq!(clip_named(&names[..3], "WALK"), None);
+    fn an_npc_picks_its_clips_by_what_it_holds() {
+        // A soldier's sword (1) and kite shield; a crossbow (12); a thief's dagger (5); a dark
+        // elf's two blades; a weapon without a `Weapon.pak` record; a ring alone.
+        assert_eq!(held_class(&[(WEAPON, Some(1)), (SHIELD, Some(0))]), 1);
+        assert_eq!(held_class(&[(WEAPON, Some(CROSSBOW))]), 12);
+        assert_eq!(held_class(&[(WEAPON, Some(5))]), 5);
+        assert_eq!(held_class(&[(WEAPON, Some(9)), (WEAPON, Some(9))]), 8);
+        assert_eq!(held_class(&[(WEAPON, None)]), 0);
+        assert_eq!(held_class(&[(8, None)]), 0);
     }
 
     #[test]
