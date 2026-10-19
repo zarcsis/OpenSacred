@@ -11,7 +11,7 @@ use bevy::prelude::*;
 
 use crate::frame::Step;
 use crate::terrain::{Heights, Level};
-use crate::{iso, models, paths};
+use crate::{iso, models, paths, shadows};
 
 /// How close to its target the hero stops.
 const ARRIVED: f32 = 4.0;
@@ -205,6 +205,7 @@ pub fn spawn(
             moving: None,
         },
         models::Ordered::default(),
+        shadows::Casts,
     ));
 }
 

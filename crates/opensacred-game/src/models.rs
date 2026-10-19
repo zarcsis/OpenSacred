@@ -84,6 +84,13 @@ pub struct Anchors {
     changed: bool,
 }
 
+impl Anchors {
+    /// The shader's buffer of the anchors, by slot.
+    pub fn buffer(&self) -> &Handle<ShaderBuffer> {
+        &self.buffer
+    }
+}
+
 impl FromWorld for Anchors {
     fn from_world(world: &mut World) -> Self {
         let buffer = world

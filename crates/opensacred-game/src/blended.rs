@@ -40,7 +40,7 @@ pub enum Layer {
     StaticShadows,
     /// The sprites of list 2.
     LateUnderlays,
-    /// The characters' shadows, which the original draws with their models, in list 3
+    /// The models' shadows, which the original draws with their models, in list 3
     /// (`cGranny::renderShadow`), and the shadows that it draws right before their statics in
     /// their lists (entries of kind `0x11`).
     Shadows,
