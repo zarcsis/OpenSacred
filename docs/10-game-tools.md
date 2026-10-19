@@ -6,10 +6,11 @@
   The tools let the maintainer test the game as a game, and let Claude Code drive a running game by itself.
 * **Settings:** `settings.toml` in the user's directory; borderless full screen by default, F11 for a window, both kept.
 * **Menu:** a main menu (New Game, Quit) and the choice of the hero, which needs the game to start and end inside one process: states, and a loading in the background.
+  Esc in the game pauses it under a small menu: Continue, Main menu, Quit.
 * **On the screen:** the HUD's portrait, health bar and gait go; F3 shows a debug overlay (the frame rate and times, the hero's place), F4 the log, which a file keeps too.
 * **Commands:** one set of commands, which the command line's scripts, the console on `~` and the remote protocol run alike; the command line's options become commands.
 * **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/`, then a project skill or an MCP server for Claude Code.
-* **Work:** the issue #165 and its sub-issues #166–#176, in M2; ≈10–20 agent-hours (estimate).
+* **Work:** the issue #165 and its sub-issues #166–#179, in M2; ≈10–20 agent-hours (estimate).
 
 ## 1. Goals
 
@@ -55,7 +56,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * `--screenshot`, `--record` and `--benchmark` run in a window of the given size, as now, so that their frames do not depend on the monitor.
 * The overlays add `[debug] overlay` and `[debug] log` (§5); the rest of docs/06 §6 (sound, controls, gameplay) comes with M6.
 
-## 4. States, the menu and the choice of the hero (#171, #172)
+## 4. States, the menus and the choice of the hero (#171, #172, #178)
 
 * `main.rs` now reads the world, the hero, the start script and the first sector before Bevy starts.
   For a menu, the game must start and end inside one process.
@@ -66,9 +67,13 @@ The commands are the one way in: the console, the scripts and the remote protoco
   Leaving `InGame` despawns the game's entities (`DespawnOnExit`) and removes its resources.
 * The menu: New Game and Quit, in the original's interface font.
   New Game shows the seven classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game.
-  The mouse, or the arrows, Enter and Esc; Esc in the game goes back to the menu until the game's own menu of M5.
-* `--class`, `--screenshot`, `--record` and `--benchmark` go straight into the game, so that the scripts, the benchmarks and Claude Code's runs need no menu.
-* The menu departs from the original's screens (the hero's name, difficulty, a turning model): a decision in `docs/decisions/`, a stopgap that does not change the play.
+  The mouse, or the arrows, Enter and Esc.
+* The pause menu (#178): Esc in the game pauses it under a small menu over the frame dimmed, Continue, Main menu and Quit; Continue or Esc again goes on.
+  The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input; the music and the ambient loops go on.
+  With the console open, Esc closes the console instead.
+* A game named on the command line (`--class` or another of the game's options, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
+  The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
+* The menus depart from the original's screens (the hero's name, difficulty, a turning model; saving and the options in the game's menu): a decision in `docs/decisions/`, a stopgap that does not change the play.
 
 ## 5. The HUD, the overlay and the log (#168, #170, #169)
 
@@ -93,6 +98,7 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 |---|---|---|
 | `new-game [--class C] [--sector X,Y] […]` | ends the game, if any, and starts a new one | the same options |
 | `menu`, `quit` | back to the main menu; end the process | |
+| `pause on\|off` | pauses the game without the pause menu, for a still frame | |
 | `sector X,Y`, `cell X,Y` | puts the hero at a sector's centre or at a cell; the sectors stream around it | `--sector` |
 | `go X,Y`, `go +DX,+DY` | sends the hero to a cell, or by an offset in cells, as a click does | `--target` |
 | `gait walk\|run` | as R | `--walking` |
@@ -149,7 +155,7 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 | Left mouse button | the game | the hero walks or runs to the cursor (as now) |
 | R | the game | walk or run (as now) |
 | Wheel | the game | zoom (as now) |
-| Esc | the menu, the game, the console | back a screen; from the game to the menu; closes the console |
+| Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
 | F3 | everywhere | the overlay |
 | F4 | everywhere | the log |
@@ -161,13 +167,14 @@ The original's own keys come with remapping in M6 (docs/06 §3); F3, F4 and F11 
 
 | Issue | Part | Needs | Agent-hours (estimate) |
 |---|---|---|---|
-| #166 | this plan | | 0.3–0.5 |
+| #166, #179 | this plan and its refinements | | 0.3–0.5 |
 | #167 | settings, borderless, F11 | | 0.5–1.5 |
 | #168 | the HUD trimmed | | 0.2–0.5 |
 | #169 | the log on F4 and in a file | | 0.5–1.5 |
 | #170 | the overlay on F3 | #168 | 0.5–1.5 |
 | #171 | the game's states | | 1.5–3 |
 | #172 | the menu and the choice of the hero | #171 | 1–2 |
+| #178 | the pause menu on Esc | #172 | 0.5–1 |
 | #173 | commands and scripts | #171 | 1.5–3 |
 | #174 | the console | #173, #169 | 1–2.5 |
 | #175 | remote control | #173, #170 | 1.5–3 |
@@ -179,5 +186,4 @@ The estimates follow the game's recent pull requests, ≈0.7 agent-hours each; t
 ## 11. Open questions
 
 1. Whether F3 and F4 clash with the original's keys: settled with remapping in M6.
-2. Whether Esc in the game should open a small game menu (Continue, Main menu, Quit) rather than go straight to the main menu: Esc goes to the menu until the interface of M5.
-3. Whether the remote protocol stays in release builds: on at runtime only with `--remote`; a Cargo feature can leave it out of a player's build later.
+2. Whether the remote protocol stays in release builds: on at runtime only with `--remote`; a Cargo feature can leave it out of a player's build later.
