@@ -25,7 +25,7 @@ pub enum Step {
     Npcs,
     /// The models' materials and places among the sprites (`models`).
     Models,
-    /// The characters' shadows (`shadows`).
+    /// The models' shadows (`shadows`).
     Shadows,
 }
 

@@ -175,13 +175,15 @@ pub enum Step<L> {
 /// What the hero at `position` on `layer` does next on its way to `target`: heads for the target
 /// itself when the straight line to it is clear on its layer, else for the farthest place of
 /// the way on its layer that it reaches in a straight line, or goes through the door it stands
-/// on onto the way's next layer; `None` when the target cannot be reached.
-pub fn next<L: Copy + Eq + Hash>(
+/// on onto the way's next layer; `None` when the target cannot be reached. A place's layer is
+/// `level` of its `L`, which may carry more than the layer, the same along a stretch of the way.
+pub fn next<L: Copy + Eq + Hash, K: PartialEq>(
     position: Vec3,
     layer: L,
     target: Vec3,
     walkable: impl Fn(Cell, L) -> bool,
     neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+    level: impl Fn(L) -> K,
 ) -> Option<Step<L>> {
     let (from, to) = (position.xz(), target.xz());
     let on = |cell| walkable(cell, layer);
@@ -194,7 +196,7 @@ pub fn next<L: Copy + Eq + Hash>(
         neighbours,
     )?;
     // The way on this layer, up to its first door.
-    let door = way.windows(2).position(|w| w[0].1 != w[1].1);
+    let door = way.windows(2).position(|w| level(w[0].1) != level(w[1].1));
     if door == Some(0) {
         return way.get(1).map(|&(_, next)| Step::Through(next));
     }
@@ -273,14 +275,19 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            next(at(2.5, 4.5), (), at(8.5, 4.5), open, all),
+            next(at(2.5, 4.5), (), at(8.5, 4.5), open, all, |l| l),
             Some(Step::Toward(at(8.5, 4.5)))
         );
         assert!(!clear(at(2.5, 4.5).xz(), at(8.5, 4.5).xz(), wall));
         // Behind the wall: first to the farthest cell of the way it sees, by the wall's end.
-        let Some(Step::Toward(corner)) =
-            next(at(2.5, 4.5), (), at(8.5, 4.5), |cell, ()| wall(cell), flat)
-        else {
+        let Some(Step::Toward(corner)) = next(
+            at(2.5, 4.5),
+            (),
+            at(8.5, 4.5),
+            |cell, ()| wall(cell),
+            flat,
+            |l| l,
+        ) else {
             panic!("no way round the wall");
         };
         let cell = cell_of(corner.x, corner.z);
@@ -311,12 +318,24 @@ mod tests {
         assert_eq!(through, [((5, 6), false), ((5, 6), true)]);
         // On the door: through it; before it, toward it.
         assert_eq!(
-            next(at(5.5, 6.5), false, at(5.5, 4.5), walkable, neighbours),
+            next(
+                at(5.5, 6.5),
+                false,
+                at(5.5, 4.5),
+                walkable,
+                neighbours,
+                |l| l
+            ),
             Some(Step::Through(true))
         );
-        let Some(Step::Toward(point)) =
-            next(at(5.5, 9.5), false, at(5.5, 4.5), walkable, neighbours)
-        else {
+        let Some(Step::Toward(point)) = next(
+            at(5.5, 9.5),
+            false,
+            at(5.5, 4.5),
+            walkable,
+            neighbours,
+            |l| l,
+        ) else {
             panic!("no way to the door");
         };
         assert_eq!(cell_of(point.x, point.z), (5, 6));

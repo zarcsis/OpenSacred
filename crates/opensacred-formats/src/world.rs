@@ -479,10 +479,17 @@ pub struct Static {
     /// `+0x2B`: the mask (openheilig): 0 or one bit of 1 to 16; an underlay type's object with
     /// mask 1 goes to draw list 0 (docs/02 §6.1).
     pub mask: u8,
+    /// `+0x2D`: for a building's floor (a child of a static of flag `0x10`), the index from 1 of
+    /// the inside layer of its sector (`+0x0C`) that holds its grid (`0x634C50`,
+    /// docs/re/movement.md).
+    pub layer: u8,
     /// `+0x2E`: for a miniature (flag `0x20`), the square of its type's atlas: x, y and size in
     /// pixels; with flag `0x40` columns, rows, rotation, timing and frames of an animation
     /// (openheilig).
     pub miniature: [u8; 5],
+    /// `+0x33`: for a type of bit `0x200`, an upper storey's floor, the height of the plane the
+    /// client draws it in, in steps of 28 pixels (`0x62FF60`, docs/re/drawing.md, "Depth").
+    pub height: u8,
 }
 
 impl<'a> Statics<'a> {
@@ -534,8 +541,10 @@ impl<'a> Statics<'a> {
         r.bytes(0x27 - 0x23, "static")?;
         let trigger = r.u32()?;
         let mask = r.u8()?;
-        r.bytes(0x2E - 0x2C, "static")?;
+        r.bytes(0x2D - 0x2C, "static")?;
+        let layer = r.u8()?;
         let miniature = r.array("static miniature")?;
+        let height = r.u8()?;
         Ok(Static {
             kind,
             flags,
@@ -547,7 +556,9 @@ impl<'a> Statics<'a> {
             next,
             trigger,
             mask,
+            layer,
             miniature,
+            height,
         })
     }
 
@@ -865,6 +876,7 @@ mod tests {
             }
             r[0x27..0x2B].copy_from_slice(&(own * 10).to_le_bytes());
             r[0x2B] = 1;
+            r[0x2D] = 3;
             r
         };
         pak(
@@ -898,7 +910,9 @@ mod tests {
                 next: 2,
                 trigger: 10,
                 mask: 1,
+                layer: 3,
                 miniature: [0; 5],
+                height: 0,
             }
         );
         assert_eq!(statics.chain(1).unwrap(), [1, 2]);

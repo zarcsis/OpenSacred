@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use opensacred_data::world::{
-    Cell, INDEX, Layer, LayerCell, Miniature, Overlay, Piece, SPRITES_FILE, Sector, SectorEntry,
-    Shadow, Sprite, Sprites, StaticObject, World,
+    Building, Cell, INDEX, Layer, LayerCell, Miniature, Overlay, Piece, SPRITES_FILE, Sector,
+    SectorEntry, Shadow, Sprite, Sprites, StaticObject, World,
 };
 use opensacred_formats::items::Items;
 use opensacred_formats::mixed::Sprites as MixedPak;
@@ -26,9 +26,16 @@ use crate::verify::read_game_file;
 const MAX_DEPTH: usize = 8;
 /// Flag of a miniature static: a square of its type's atlas instead of a sprite.
 const MINIATURE: u32 = 0x20;
+/// The flag of a building's object, whose children are its floors (`0x6354D0`).
+const BUILDING: u32 = 0x10;
 /// The bit of a type's flags (`items.pak +0x00` as a u32) whose statics cast a shadow
 /// (`0x62AE90`, docs/re/drawing.md).
 const CASTS_SHADOW: u32 = 0x1_0000;
+/// The bit of a type's flags whose statics, the upper storeys' floors, the client draws in a
+/// horizontal plane through the depth buffer (`0x62FF60`, docs/re/drawing.md, "Depth").
+const FLOOR: u32 = 0x200;
+/// Units of the models' height per step of a floor's `+0x33` (`0x62FF60`).
+const FLOOR_STEP: u16 = 28;
 
 /// Directory of the converted world.
 pub fn output_dir(out: &Path) -> PathBuf {
@@ -306,6 +313,7 @@ fn convert_sector(key: &SectorKey, wldx: &[u8], tables: &Tables) -> Result<Secto
     let sector = key.read(wldx)?;
     let mut cells = Vec::with_capacity(sector.cells.len());
     let mut objects = Vec::new();
+    let mut buildings = Vec::new();
     for (index, cell) in sector.cells.iter().enumerate() {
         let cell_index = u16::try_from(index).context("cell index")?;
         let mut overlays = Vec::new();
@@ -317,6 +325,9 @@ fn convert_sector(key: &SectorKey, wldx: &[u8], tables: &Tables) -> Result<Secto
             });
         }
         objects.extend(chain_objects(tables, cell.first_static, cell_index, 0)?);
+        if let Some(building) = building(tables, key, cell.first_static, cell_index)? {
+            buildings.push(building);
+        }
         cells.push(Cell {
             tile: cell.tile,
             overlays,
@@ -356,7 +367,38 @@ fn convert_sector(key: &SectorKey, wldx: &[u8], tables: &Tables) -> Result<Secto
         cells,
         statics: objects,
         layers,
+        buildings,
     })
+}
+
+/// The building whose object lies in the chain from `head`, of cell `cell`: the first static of
+/// [`BUILDING`] there, its children its floors in order, each the inside layer of the sector that
+/// holds its grid (`0x6354D0`, `0x635440`, `0x634C50`; docs/re/movement.md).
+fn building(tables: &Tables, key: &SectorKey, head: u32, cell: u16) -> Result<Option<Building>> {
+    for record in tables.statics.chain(head)? {
+        let object = tables.statics.get(to_index(record)?)?;
+        if object.flags & BUILDING == 0 {
+            continue;
+        }
+        let (mut floors, mut heights) = (Vec::new(), Vec::new());
+        for child in tables.statics.chain(object.first_child)? {
+            let floor = tables.statics.get(to_index(child)?)?;
+            if u32::from(floor.sector) != key.id {
+                bail!(
+                    "building {record}: floor {child} lies in sector {}",
+                    floor.sector
+                );
+            }
+            floors.push(u16::from(floor.layer));
+            heights.push(u16::from(floor.height) * FLOOR_STEP);
+        }
+        return Ok(Some(Building {
+            cell,
+            floors,
+            heights,
+        }));
+    }
+    Ok(None)
 }
 
 /// The objects of the chain from `head`, each with the objects of its child chain.
@@ -407,6 +449,9 @@ fn chain_objects(tables: &Tables, head: u32, cell: u16, depth: usize) -> Result<
                         leaning: shadow.shape != 0,
                     }
                 }),
+            floor: item
+                .filter(|item| item.flags & FLOOR != 0)
+                .map(|_| u16::from(object.height) * FLOOR_STEP),
             children: chain_objects(tables, object.first_child, cell, depth + 1)?,
         });
     }
@@ -445,10 +490,39 @@ mod tests {
             summary.sprite_statics > 500 && summary.miniatures > 0,
             "{summary:?}"
         );
+        // The buildings, each floor an inside layer of the sector; the monastery the hero starts
+        // in, whose cells point to its anchor, of one floor (docs/re/movement.md).
+        assert!(!sector.buildings.is_empty());
+        for building in &sector.buildings {
+            assert!(
+                building
+                    .floors
+                    .iter()
+                    .all(|&f| f >= 1 && usize::from(f) <= sector.layers.len()),
+                "{building:?}"
+            );
+        }
+        let start = &sector.cells[(2511 - 39 * 64) * 64 + (3236 - 50 * 64)];
+        let anchor = (
+            (3236 - 50 * 64) + i32::from(start.offsets[0]),
+            (2511 - 39 * 64) + i32::from(start.offsets[1]),
+        );
+        let monastery = sector
+            .buildings
+            .iter()
+            .find(|b| (i32::from(b.cell) % 64, i32::from(b.cell) / 64) == anchor)
+            .unwrap();
+        assert_eq!(monastery.floors.len(), MONASTERY_FLOORS);
+        // Every building's floor 1 at the ground's height, as many heights as floors.
+        for building in &sector.buildings {
+            assert_eq!(building.heights.len(), building.floors.len());
+            assert_eq!(building.heights.first(), Some(&0), "{building:?}");
+        }
         // The statics that cast a shadow carry their type's: the benches' a rectangle.
         const BENCH_2: u32 = 9181;
         // Counted on Static.PAK and items.pak for #100.
         const SHADOWS_AT_START: usize = 267;
+        const MONASTERY_FLOORS: usize = 1;
         let shadows = count(&sector.statics, &|o| o.shadow.is_some());
         assert_eq!(shadows, SHADOWS_AT_START);
         let mut all = Vec::new();

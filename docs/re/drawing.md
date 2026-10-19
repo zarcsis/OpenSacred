@@ -47,7 +47,7 @@ The statics agree (**confirmed** on the sector files): in building cells, those 
 A building's state is 1 while the hero is outside: the file's value, and the exits' (above).
 The parts of mask 2 include the rooms cut open: the pub of sector 50,40 has its shell as `TH_PUB_0_*` (mask 1) and its ground floor, floor boards, bar and inner walls as `TH_PUB_1_*` (mask 2, by their editor names), and every cell of a building points to one anchor cell through its offsets (the pub's 12 × 11 cells to the cell of `TH_PUB_1_BODEN`, its floor).
 
-`opensacred-game` keeps a state per building, by its anchor cell (`buildings`): 2 for the building whose inside layer the hero walks on, which it goes onto at the building's entrance and leaves at an exit as the client does (docs/re/movement.md), else 1; the upper floors' states are not followed (#104).
+`opensacred-game` keeps a state per building, by its anchor cell (`buildings`): `1 << n` for the building on whose floor `n` the hero walks, 2 on its ground floor, which it goes onto at the building's entrance and leaves at an exit as the client does, and the upper floors up and down its stairs (docs/re/movement.md), else 1.
 The parts (the statics above that the state chooses) show while the state is their mask, and the start script's objects of a building's cells while the state shows their layer: inside, the roof and the shell's walls go, the ground floor with its furniture comes (#3).
 
 ## Depth
@@ -58,6 +58,13 @@ For a sprite whose type (the `items.pak` record's `+0x00` as a u32) has bit `0x2
 For every other sprite the two states are off and the depth is 0: it is drawn over what is there, in the order of its list.
 
 In the game data 47 types carry bit `0x200`, with 220 drawn objects in the whole world; by their editor names they are the floors of towers' and houses' upper storeys.
+
+Read again 2026-10-19 (#120): `0x6288A0` returns `(2 · zoom · (200 − y · 400/768) − h / sin(atan ½) + b) / 3100 + 0.002` for the screen's `y` and the height `h`, `b` the renderer's `+0x970AC`, which the world view's constructor (`0x624A00`) sets to the distance from the camera to the point it looks at, `√(1200² + 600²)`, plus 600: the depth of the models' own projection (`ortho(±267, ±200, −600, 2500)` under the view of `0x6284E0`, which looks down at atan(1/2) from 1,200 units back and 600 up), of the point at that height in the models' frame.
+So the plane is at `h` units of the models' height: `+0x33` 4, 112 units, lies 192 pixels above the ground at zoom 1 (a unit of height `768/400 · 2/√5` pixels, 1.72).
+The 220 floors' `+0x33` are 4 (126 of them), 5 (39), 8 (34), 6, 7, 12, 14, 16 and 21.
+A building's floor objects (its static of flag `0x10`'s children, docs/re/movement.md) carry the same byte: 0 for every floor 1, 3 to 10 for floor 2 (mostly 3 and 4), 8 to 28 for floor 3, 21 for the one floor 4 that has it (counted over the 1,245 buildings 2026-10-19).
+The grids of a building's floors lie at one place (the two floors of the house of sector 52,39 at (3328, 2519)), so the cells of floor 2 lie over those of floor 1.
+**Hypothesis**: a creature on a building's floor stands at its floor object's height, `+0x33 · 28` units over the ground: lower, the floor's plane would hide it; where the client sets it is not read.
 
 The other states of that table (`0x643470`, the engine's switch of Direct3D 7 states, through `IDirect3DDevice7::SetRenderState` and `SetTextureStageState` at `+0x50` and `+0x94` of the device's table; read again 2026-10-18): `8` and `0x10` make the source and the destination blend factors `ONE` (else `SRCALPHA` and `INVSRCALPHA`), `0x40` the depth function `GREATER` (else `LESSEQUAL`; only `cGranny::renderShadowFake`, `0x4073B0`, sets it, for a second pass of a model's fake shadow), `0x800` the linear filter of both texture stages (else point), `0x2` the culling of counter-clockwise faces (else none), `0x4` the alpha blending, `0x20` the lighting, `0x4000` the alpha test.
 
@@ -113,14 +120,38 @@ After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects
 So a model is drawn after every sprite of an earlier row and of an earlier cell of its row, and after its cell's statics; the sprites, without the depth test, cover a model drawn before them whole and lie whole under one drawn after them.
 The depth state of a model's own draw is not read.
 
+## The models' shadows
+
+Read off the client with Ghidra 2026-10-19 (#101), **confirmed** by code unless marked.
+
+`cGranny::renderShadow` (`0x406FF0`) draws a model's shadow, right before the model, in the object's own draw: `cObject3D`'s (`0x44B230`, the virtual table at `0x890D10`) for an object of the categories 2, 3 and `0x20` (the creatures, `0x426610`) whose creature has no flag `0x10` (`NOSHADOW`, `0x426D30`), `cChest3D`'s (`0x5C97B0`) and `cArrow3D`'s (`0x5BAF00`).
+The object factory (`0x451300`) makes an object of category 4 (`items.pak +0x2E`) a `cChest3D`: of the 1,990 objects of the Seraphim's start script, the chests, the barrels, the vases, the coffins, the cabinets, the book stands and the shrines.
+The signposts are of category 15, `cSpecial3D`, whose draw is `cObject3D`'s, and cast none.
+The size that the draws pass is the object's height (`+0xF0`, the third coordinate of its position).
+They draw it when `DETAILLEVEL` is 1 or more (2 in the GOG `Settings.cfg`; the setting is stored at `0x814152`, and at 0 `0x407960` draws a few dots of `SHADOWDOT.TGA` about the bones instead) and the value at `+0x1FC` of the renderer is set (else `cGranny::renderShadowFake`, `0x4073B0`, draws a quad of `GRN_SHADETEXTURE03.TGA`, the texture at `+0xA4`).
+
+The shadow's matrix is the identity with its third row `(0.5, −0.5, 0, 0)` and its fourth `(−s/2, s/2, s, 1)` for the size `s`, after the model's own matrix (`+0x0C`, when there is one) and before a mesh's own (`0x653B30` multiplies `A × B`, `A` applied first).
+So a point `h` above the plane `z = s` goes to `(x + h/2, y − h/2, s)`: flattened onto the plane at the object's height, moved by half its height along `x` and against `y`.
+**Hypothesis**: a deformed mesh's vertices come from Granny in the world's frame, without a matrix of their own, as the bounds test of the shadow (`0x4057D0`) takes the bones' state through the same matrix and the plane is at the object's height.
+The frame is the models' (`0x6284E0` sets the view): the camera stands 1,200 units toward `+y` and 600 up from the point it looks at, looking down at atan(1/2), `z` up; `x` runs right on the screen and `y` down it, toward the viewer.
+A creature's position becomes that frame's by the screen (`0x6239C0`): from its cell position to the screen's pixels, `48 (x − y)` and `24 (x + y)` over 53.67, then back through the view and `ortho(±267, ±200)`.
+On the screen at zoom 1, the shadow of a point `h` model units high lies 0.96·h pixels right of its foot and 0.43·h up: leaning up and to the right, 24° above the horizontal, as the statics' shadows lean.
+
+It draws every mesh with the model's deformed vertices (`GrannyLockSequenceForRendering` with `0x21`) through `DrawIndexedPrimitiveStrided` (FVF `0x142`), the vertices' colour opaque black (`0xFF000000`) and the texture at `+0x9C` of the `cGranny` object, `WEATHER_RAIN01.TGA` (`0x401030`), black at alpha 170 in all its 16 × 16 texels: a shadow leaves a third of the light, by day and by night.
+The depth test is on and its write off, the culling on, the lighting and the alpha test off, the blending `SRCALPHA`, `INVSRCALPHA`.
+The engine's state `0x10000` turns the stencil on with the reference 1 and the mask 1 (`0x643470`), over the device's `STENCILFUNC` `NOTEQUAL`, `STENCILPASS` `REPLACE` and `KEEP` otherwise (`0x643190`): a pixel is darkened by the first shadow drawn over it and by no other, until the stencil is cleared (**hypothesis**: once a frame).
+
 ## What the game does with it
 
 `opensacred-game` orders the sprites through the depth buffer instead (docs/decisions/2026-10-17-sprite-depth.md): each lies at the depth of its cell's centre at height 0, whatever the cell's height, so all the sprites of one cell, and those of the cells of one diagonal, have the same depth.
 Its sprite shader brings each one forward by a little in the order above: by its cell's distance along the screen's right, which grows with `cx` along a diagonal, and by its place in the cell's chain (`statics::SpriteMaterial`).
 Before, the centre lay at the cell's height, 0.46 units forward per pixel against 0.15 from a cell to the next of its diagonal: a sprite on a cell a third of a pixel higher than the next came over that cell's sprites, as the chapel's back right wall (5 pixels high) over the cabinet against it at the start (#112).
 
+An upper storey's floor (a type of bit `0x200`, #120) takes at each corner of its pieces the place of the ground point under the floor's point there, at its plane's height, 34 units further back (`statics::Spot`): what stands anywhere on a cell of the floor, at its cell's place, lies in front of the floor under it, and the floor's points further up the screen lie further back, as a plane through the depth buffer has them.
+The hero, the NPCs and the objects on a building's floor stand at the floor's height (`terrain::Heights::lift`), the hypothesis above; before, at the ground's, 192 pixels below the floor of the house of sector 52,39, where the floor's carpet covered the hero's legs.
+
 It draws a sprite in two passes (docs/decisions/2026-10-18-sprite-alpha.md): its opaque texels through the depth buffer, then the others blended by their alpha over what lies behind them, after the original's alpha test for the sprites and without it for the miniatures, each texel's colour weighted by its alpha as the shader filters them.
-Bevy draws the blended things after the opaque ones, back to front by their meshes' centres; they go in layers in the original's order instead (`blended`): the miniatures of the liquid cells, the liquids' surfaces, the underlays of list 0, the statics' shadows of list 1, the underlays of list 2, the characters' shadows and the shadows drawn with their sprites, the sprites of lists 3 and 4, the lamps' glows, and a mesh's quads go far to near.
+Bevy draws the blended things after the opaque ones, back to front by their meshes' centres; they go in layers in the original's order instead (`blended`): the miniatures of the liquid cells, the clear waters' second layer, the liquids' surfaces, the underlays of list 0, the statics' shadows of list 1, the underlays of list 2, the characters' shadows and the shadows drawn with their sprites, the sprites of lists 3 and 4, the lamps' glows, and a mesh's quads go far to near.
 
 The statics' shadows (`statics`, #100) are quads of the shadow atlas's cells drawn by the sprites' shader in its blended pass, all their texels translucent, through two materials that every sector shares and whose alpha the night takes down to 0 (`daynight::shadows`).
 List 1 lies 3,000 units back, between list 0 (4,000) and list 2 (2,000, 3,000 before list 1 came): a thousand units, 30 diagonals, from either, so that a shadow lies over every underlay of list 0 and under every one of list 2 whose cell is within 30 diagonals of its own.
@@ -132,11 +163,15 @@ The blending takes the frame's sRGB values as they are, as the original's does (
 The models take the same depth (`models`, docs/decisions/2026-10-18-models-among-sprites.md): every vertex of a model lies at the depth of the centre of the cell its root stands in, at height 0 as the sprites', its place after the cell's statics, plus a hundredth of its own depth from that centre at the cell's height, which keeps the model's parts in order among themselves.
 A sprite of another diagonal, 33 units of depth away, is then wholly in front of a model or wholly behind it, as in the original; the sprites of the model's own diagonal within a few cells, a tenth of a unit apart, can still cross it.
 Before, every sprite whose plane crossed a model cut it (#48).
-A character's shadow takes its model's anchor and squeeze, a flat part of the model lying on the ground (`shadows`, #102): the squeeze keeps the order of depths, so the ground under a model lies behind the model, and the shadow comes over what the original draws before the model, a floor or the stairs it stands on, as the original draws a model's shadow with the model (`cGranny::renderShadow`, #101).
-Before, it lay among the underlays (between lists 0 and 2), and a building's floor or its stairs covered it.
+A model's shadow (`shadows`, #101) is a copy of each of the model's meshes, skinned to the same joints, that the shadows' shader flattens onto the plane at the root's height: a point moves 0.037 units along X and 0.670 against Z per unit of its height above the plane, which on the screen is the original's lean (`shadows.wesl`).
+It takes its model's anchor and squeeze, in the shadows' layer: over what the original draws before the model, a floor or the stairs it stands on, and under the model and what it draws after.
+For the stencil, its fragments take the depth of the plane in their pixel's row, computed from the row alone, a unit of the model's own depth behind, and write it, drawn only where they are nearer than what lies there: a shadow's own triangles give a pixel the same depth to the bit, and darken it once (docs/decisions/2026-10-19-model-shadows.md).
+It casts from the hero, from every NPC whose creature has no flag `0x10` and from the start script's objects of category 4; an NPC's weapons cast none, as the client flattens the creature's own model alone.
+Before, a soft ellipse lay under each character, and the objects had none (#102).
 
-The miniatures of list 0 in the liquid cells lie between the ground and the liquids' surfaces, 4,600 units back against the surfaces' 4,300 and list 0's 4,000, in the order of list 0 among themselves (`statics::UNDER_LIQUIDS_BACK`, #96).
+The miniatures of list 0 in the liquid cells lie between the ground and the liquids' surfaces, 4,600 units back against the surfaces' 4,450 (4,300 before the surfaces lay flat at height 0, #103) and list 0's 4,000, in the order of list 0 among themselves (`statics::UNDER_LIQUIDS_BACK`, #96).
 A sprite is a quad in the plane of the screen while the bed and the surface slope away under it, 1.37 units nearer per pixel down the screen and 1.83 per pixel of height: the margins hold for the tallest of these miniatures, from 68 pixels above their cell's centre to 139 below, over a bed up to 61 pixels off their cell's height, and for the underlays of list 0 beside the water, up to 124 pixels below their cell's centre (counted on the sector files 2026-10-18).
 The anchors at height 0 (#112) take a quad 0.46 units back per pixel of its cell's height: the liquid cells holding these miniatures lie from 67.5 pixels below height 0 to 25 above, and over every cell whose diamond's box meets one of them the miniatures stay at least 210 units in front of the ground and 155 behind the surfaces; of the underlays of list 0 beside the water, none whose margin over a surface held before loses it (counted on the sector files 2026-10-18 with the cells' boxes, which overstate the overlaps).
+With the surfaces flat at height 0 and 4,450 back (#103), the miniatures stay at least 73 units behind them, and no underlay of list 0 whose margin held over the surfaces at their beds' heights loses it, while 331 pairs of an underlay and a cell that failed the boxes' count before now pass it (the same count, 2026-10-19).
 
 Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3), which world objects `0x434070` sends under the water, the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20), and the trees' fade about the creatures other than the hero (`k` above 0).

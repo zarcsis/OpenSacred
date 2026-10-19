@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::packed::{DecodeError, decode, encode};
 
 /// Version of the sector and sprite encodings; a file of another version does not load.
-pub const SECTOR_VERSION: u32 = 5;
+pub const SECTOR_VERSION: u32 = 7;
 /// The index file under the world directory.
 pub const INDEX: &str = "world.ron";
 /// The sprite table under the world directory.
@@ -67,6 +67,26 @@ pub struct Sector {
     /// The sector's inside layers, layer 1 first: the buildings' own cells, which the hero walks
     /// inside them (docs/re/movement.md).
     pub layers: Vec<Layer>,
+    /// The sector's buildings, by their anchors' cells in order.
+    pub buildings: Vec<Building>,
+}
+
+/// A building (docs/re/movement.md, "The layers"): the first static of flag `0x10` in its anchor
+/// cell's chain, to which the offsets of its cells point; its children are its floors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Building {
+    /// The anchor, cell `r · 64 + c` of the sector.
+    pub cell: u16,
+    /// The floors from the first, the ground floor inside, up: of each, the index from 1 in
+    /// [`Sector::layers`] of the inside layer that holds its grid.
+    pub floors: Vec<u16>,
+    /// Each floor's height above the ground, as [`floors`]: its object's `Static.PAK +0x33`
+    /// times 28, in the models' units (0 for floor 1; **hypothesis**: the height the client
+    /// raises the floor's creatures to, the height of the plane of its floor's sprites,
+    /// docs/re/drawing.md, "Depth").
+    ///
+    /// [`floors`]: Building::floors
+    pub heights: Vec<u16>,
 }
 
 /// An inside layer: a grid of cells of a building's own, from its first cell's global position
@@ -153,6 +173,12 @@ pub struct StaticObject {
     ///
     /// [`type_flags`]: StaticObject::type_flags
     pub shadow: Option<Shadow>,
+    /// For a type of bit `0x200` of [`type_flags`], an upper storey's floor: the height of the
+    /// plane the original draws it in, in the models' units (`Static.PAK +0x33` times 28,
+    /// docs/re/drawing.md, "Depth").
+    ///
+    /// [`type_flags`]: StaticObject::type_flags
+    pub floor: Option<u16>,
     /// Objects that belong to this one, in chain order.
     pub children: Vec<StaticObject>,
 }
@@ -275,6 +301,7 @@ mod tests {
                     size: 80,
                     leaning: false,
                 }),
+                floor: None,
                 children: vec![StaticObject {
                     cell: 65,
                     kind: 1036,
@@ -290,6 +317,7 @@ mod tests {
                         params: [64, 0, 64, 0, 0],
                     }),
                     shadow: None,
+                    floor: None,
                     children: vec![],
                 }],
             }],
@@ -312,6 +340,11 @@ mod tests {
                         ground: 0xD0,
                     },
                 ],
+            }],
+            buildings: vec![Building {
+                cell: 65,
+                floors: vec![1],
+                heights: vec![0],
             }],
         }
     }

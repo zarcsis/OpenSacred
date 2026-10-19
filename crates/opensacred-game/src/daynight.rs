@@ -529,6 +529,7 @@ mod tests {
             sprite: 0,
             miniature: None,
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         let sector = Sector {
@@ -539,6 +540,7 @@ mod tests {
             cells: Vec::new(),
             statics: vec![object(1000, 0x20009), object(1001, 0x9)],
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let found = sources(&sector, &types);
         assert_eq!(found, [(crate::iso::ground(10.0, 4.0), 300.0)]);

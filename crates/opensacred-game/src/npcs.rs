@@ -51,7 +51,7 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{buildings, hero, iso, models, paths};
+use crate::{buildings, hero, iso, models, paths, shadows};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -78,6 +78,8 @@ struct Placement {
     layer: i32,
     /// The items an NPC holds.
     equipment: Vec<Held>,
+    /// Whether it casts a shadow (`shadows::Casts`).
+    casts: bool,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its walk speed in
     /// world units a second, before the game's speed.
     walk: Option<((u32, u32), f32)>,
@@ -86,6 +88,12 @@ struct Placement {
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
 const WEAPON: u8 = 5;
 const SHIELD: u8 = 13;
+/// The category of the chests, the barrels, the vases, the coffins, the cabinets, the book stands
+/// and the shrines, which the client makes `cChest3D`s, whose draw draws their shadows
+/// (`0x451300`, `0x5C97B0`); the signposts are of 15, `cSpecial3D`, which casts none.
+const CHEST: u8 = 4;
+/// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
+const NO_SHADOW: u8 = 0x10;
 /// The weapon kinds of `Weapon.pak +0x1E` held in the left hand: bows and crossbows.
 const BOW: u8 = 7;
 const CROSSBOW: u8 = 12;
@@ -187,6 +195,8 @@ pub struct Walk {
     target: Vec3,
     level: Level,
     speed: f32,
+    /// Whether it stands on a stair it has climbed already or arrived on.
+    climbed: bool,
 }
 
 fn value_i32(value: &Value) -> Option<i32> {
@@ -409,13 +419,6 @@ impl Npcs {
         let items: Vec<Item> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let items: HashMap<u32, &Item> = items.iter().map(|i| (i.slot, i)).collect();
-        let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
-        let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let weapons: Vec<Weapon> =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        // A weapon's kind, by its type, which is its item's slot (docs/02 §6.2).
-        let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
         let path = assets
             .join("tables")
             .join(opensacred_data::tables::CREATURES);
@@ -423,8 +426,20 @@ impl Npcs {
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let creatures: Vec<Creature> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let shadowless: HashSet<u32> = creatures
+            .iter()
+            .filter(|c| c.flags & NO_SHADOW != 0)
+            .map(|c| c.id)
+            .collect();
         // Each creature's walk speed (`+0x26`, the models' units a second).
         let walk_speeds: HashMap<u32, u16> = creatures.iter().map(|c| (c.id, c.speed[0])).collect();
+        let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let weapons: Vec<Weapon> =
+            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        // A weapon's kind, by its type, which is its item's slot (docs/02 §6.2).
+        let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
         let records = start_records(&tree);
@@ -504,6 +519,11 @@ impl Npcs {
                 walk,
                 heading: heading.unwrap_or(0.0),
                 object: record.kind == CREATE_OBJ,
+                casts: if record.kind == CREATE_OBJ {
+                    category(item) == CHEST
+                } else {
+                    !shadowless.contains(&creature)
+                },
                 texture,
                 layer,
                 equipment: if record.kind == CREATE_NPC {
@@ -561,6 +581,16 @@ pub fn place(
             let (x, y) = placement.cell;
             let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
             position.y = heights.at(position.x, position.z).unwrap_or(0.0);
+            // On a building's floor: the building whose floor's grid holds the cell, or the
+            // cell's on the ground; at the floor's height.
+            let floor = usize::try_from(placement.layer).ok().filter(|&f| f > 0);
+            let on_floor = match (i32::try_from(x), i32::try_from(y), floor) {
+                (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
+                _ => None,
+            };
+            if let (Some(building), Some(floor)) = (on_floor, floor) {
+                position.y += heights.lift_on(building, floor);
+            }
             let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
             let mut entity = commands.spawn((
                 WorldAssetRoot(scene),
@@ -570,9 +600,14 @@ pub fn place(
                 models::Ordered::default(),
             ));
             if placement.layer != 0 {
-                // In a building's layer: shown with it; else never.
-                match heights.building(position.x, position.z) {
-                    Some((building, _)) => entity.insert((
+                // On a building's floor: shown with it; else never.
+                let building = on_floor.or_else(|| {
+                    heights
+                        .building(position.x, position.z)
+                        .map(|(building, _)| building)
+                });
+                match building {
+                    Some(building) => entity.insert((
                         buildings::Furnishing {
                             building,
                             layer: placement.layer,
@@ -601,6 +636,9 @@ pub fn place(
                         .collect(),
                 ));
             }
+            if placement.casts {
+                entity.insert(shadows::Casts);
+            }
             if placement.object {
                 entity.insert(Object);
             } else {
@@ -614,6 +652,7 @@ pub fn place(
                         target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
                         level: None,
                         speed,
+                        climbed: false,
                     });
                 }
             }
@@ -890,22 +929,38 @@ pub fn walk(
     mut players: Query<&mut AnimationPlayer>,
 ) {
     for (entity, mut transform, mut walk, npc) in &mut walkers {
-        let here = transform.translation;
+        let mut here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         if walk.level.is_none() && !heights.walkable(cell) {
             walk.level = heights.level_of(cell);
         }
         walk.level = heights.transition(cell, walk.level);
+        // Up or down a stair it stepped onto from off the stairs (`0x5FCCB0`).
+        if !heights.on_stairs(cell, walk.level) {
+            walk.climbed = false;
+        }
+        if !walk.climbed
+            && let Some((to, level)) = heights.climb(cell, walk.level)
+        {
+            here += iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32).with_y(0.0);
+            if let Some(y) = heights.at(here.x, here.z) {
+                here.y = y + heights.lift(level);
+            }
+            transform.translation = here;
+            walk.level = level;
+            walk.climbed = true;
+        }
         let level = walk.level;
         let target = walk.target;
         let toward = match paths::next(
             here,
-            level,
+            (level, false),
             target,
-            |cell, at| heights.walkable_on(cell, at),
+            |cell, (at, _)| heights.walkable_on(cell, at),
             |place| heights.neighbours(place),
+            |(at, _)| at,
         ) {
-            Some(paths::Step::Through(next)) => {
+            Some(paths::Step::Through((next, _))) => {
                 walk.level = next;
                 continue;
             }
@@ -932,8 +987,9 @@ pub fn walk(
             }
             continue;
         }
+        // On a building's floor, its height over the ground.
         if let Some(y) = heights.at(position.x, position.z) {
-            position.y = y;
+            position.y = y + heights.lift(walk.level);
         }
         transform.translation = position;
         transform.rotation = hero::facing(to);
