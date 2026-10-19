@@ -82,6 +82,16 @@ pub struct Item {
     pub words_58: [u32; 10],
 }
 
+impl Item {
+    /// The float at `+0x57` (docs/02 §6.1), which the packed record splits between `byte_57` and
+    /// the low three bytes of `words_58[0]`: the angle on the screen, in degrees, that an object of
+    /// the type faces as it is made (`0x5FB530`'s event `0x40`, `0x44BCD0`); −30 for the chests,
+    /// barrels and book stands of the start scripts, 90 for the heroes, 0 for most types.
+    pub fn angle(&self) -> f32 {
+        f32::from_bits(u32::from(self.byte_57) | self.words_58[0] << 8)
+    }
+}
+
 /// The parameters of a motion of `MOTIONS.PAK`, in the global motion order: those of
 /// `models.pak`, then those of `models03.pak`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -181,4 +191,33 @@ pub struct Trigger {
     pub id: u32,
     /// 20 bits (hypothesis: an object of `Static.PAK`).
     pub target: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_items_angle_is_the_float_across_its_packed_fields() {
+        let item = |word| Item {
+            slot: 5201,
+            kind: 34,
+            class: 0,
+            subclass: 0,
+            name: "chest.grn".into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0; 8],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [word, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        // `chest.grn`'s record: `00 00 F0 C1` at `+0x57`, and a byte of the next field at `+0x5B`.
+        assert_eq!(item(0x7FC1_F000).angle(), -30.0);
+        // A hero's, 90.0.
+        assert_eq!(item(0x0042_B400).angle(), 90.0);
+        assert_eq!(item(0).angle(), 0.0);
+    }
 }

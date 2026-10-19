@@ -131,6 +131,19 @@ After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects
 So a model is drawn after every sprite of an earlier row and of an earlier cell of its row, and after its cell's statics; the sprites, without the depth test, cover a model drawn before them whole and lie whole under one drawn after them.
 The depth state of a model's own draw is not read.
 
+## The models' turn
+
+Read 2026-10-19 (#159).
+An object keeps its direction at `+0x70`, a vector on the grid's plane, and `0x44DBF0` turns its model by it: it takes the object's position and the position moved by the direction to the screen (`0x6239C0`, the cells' projection `48 (x − y)`, `24 (x + y)` pixels a cell, then back through the models' view), normalises their difference to `(a, b)` in the models' frame (`x` right on the screen, `y` toward the viewer) and sets the model's orientation (`GrannySetSequenceOrientationM`) to the rows `(a, b, 0)`, `(−b, a, 0)`, `(0, 0, 1)`: the model's `x` points along the direction.
+It does so at once when the object has its model (`+0x14` bit 26), and the model's load (`0x44C330`, the object's virtual function at `+0x28`, which its first draw calls) does it again from `+0x70`.
+
+- A creature on the move turns by the vector of its step on the grid (`0x5941A0` through `0x44DD90`, at `0x5992A6`), so it faces where it goes.
+- A heading in degrees (`0x44DDC0`, which `CreateNPC` and `CreateObj` call) is an angle on the screen: `(cos, sin)` of it, 0° to the right and 90° down, goes back through the inverse of the cells' projection (`0x622660`, the 2 × 2 matrix of `0x6239C0` inverted) into the grid's plane, so the model shows at that angle on the screen.
+- As the object manager makes an object (`0x5FB530`), it sends it the event `0x40` with the float at `+0x57` of its `items.pak` record (docs/02 §6.1), which `cObject3D`'s receive (`0x44BCD0`) turns into its direction the same way: the angle on the screen an object faces until something turns it, −30° for the chests, barrels and book stands of the start scripts.
+- `CreateObj`'s handler (`0x485C10`) turns the object by its heading only when it is above 0, so a script's object without one keeps its item's angle; `CreateNPC`'s takes a random heading without one (docs/02 §7.3).
+
+The maintainer's screenshots of the original agree (2026-10-19): the black chest by the chapel's pews (no heading, `chest.grn`'s −30°) and the wooden chest of a house of sector 50,40 (heading 330) stand alike, their long sides up and to the right, and the chest by the chapel's outer corner (heading 20) almost level; `opensacred-game` drew them turned along the grid's axes before, a quarter turn off for the first two.
+
 ## The models' shadows
 
 Read off the client with Ghidra 2026-10-19 (#101), **confirmed** by code unless marked.

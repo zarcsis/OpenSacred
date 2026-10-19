@@ -13,10 +13,11 @@
 //! is the creature, which is also the `items.pak` slot of its model (`SOLDIER.GRN`, `HORSE.GRN`),
 //! the further `0x02` its equipment (swords, bows, shields); `0x04` its position, the
 //! name of a `DefPos` record (whose two `0x0B` give the global cell) or a global cell `(x, y, 0)`;
-//! `0x03` a heading in degrees, which the client turns into the direction `(cos, sin)` in the
-//! grid's axes (`0x44DDC0`, docs/02 §7.3). A `CreateObj` record has the same `0x02`, `0x04` and
+//! `0x03` a heading in degrees, an angle on the screen that the client takes into the grid's axes
+//! (`0x44DDC0`, docs/02 §7.3, `heading`). A `CreateObj` record has the same `0x02`, `0x04` and
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
-//! same reading).
+//! same reading); an object without a heading above 0 faces its item's own angle
+//! (`Item::angle`).
 //!
 //! A position's third number is the layer the object lies in (**hypothesis**, docs/re/drawing.md):
 //! the client draws every cell with the world's objects of layer 0, and a building's cells with
@@ -236,11 +237,25 @@ fn value_i32(value: &Value) -> Option<i32> {
     }
 }
 
-/// The direction of a heading in degrees on the ground, as the client turns it (`0x44DDC0`):
-/// 0° along the grid's x (the world's X), 90° along its y (the world's Z).
+/// The direction on the ground of a heading in degrees, as the client turns it (`0x44DDC0`): the
+/// direction `(cos, sin)` on the screen, 0° to the right and 90° down, which `0x622660` takes
+/// back through the projection of the cells, a cell's x running `(48, 24)` pixels and its y
+/// `(−48, 24)`, into the grid's axes (docs/02 §7.3). The model then shows at that angle on the
+/// screen.
 fn heading(degrees: f32) -> Vec3 {
     let (sin, cos) = degrees.to_radians().sin_cos();
-    Vec3::new(cos, 0.0, sin)
+    Vec3::new(cos + 2.0 * sin, 0.0, 2.0 * sin - cos).normalize()
+}
+
+/// The heading a placement faces: an object's when above 0, else its item's own angle, which
+/// it takes as it is made (`CreateObj`'s handler `0x485C10` turns it only for a heading above
+/// 0); an NPC's, or 0 without one, where the client takes a random one (`0x482510`).
+fn facing_degrees(object: bool, heading: Option<f32>, angle: f32) -> f32 {
+    match (object, heading) {
+        (true, Some(heading)) if heading > 0.0 => heading,
+        (true, _) => angle,
+        (false, heading) => heading.unwrap_or(0.0),
+    }
 }
 
 /// The hero's start: the global cell of the `StartPosition` record of `tree`'s start script
@@ -573,7 +588,7 @@ impl Npcs {
                 model: model.clone(),
                 cell: (x, y),
                 walk,
-                heading: heading.unwrap_or(0.0),
+                heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
                 object: record.kind == CREATE_OBJ,
                 casts: if record.kind == CREATE_OBJ {
                     category(item) == CHEST
@@ -1072,6 +1087,7 @@ impl Plugin for NpcsPlugin {
 
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::Vec2;
     use opensacred_data::netscript::Operand;
 
     use super::*;
@@ -1117,11 +1133,33 @@ mod tests {
     }
 
     #[test]
-    fn a_heading_turns_from_the_grid_x_toward_its_y() {
+    fn a_heading_is_an_angle_on_the_screen() {
         let close = |a: Vec3, b: Vec3| (a - b).length() < 1e-6;
-        assert!(close(heading(0.0), Vec3::X));
-        assert!(close(heading(90.0), Vec3::Z));
-        assert!(close(heading(180.0), -Vec3::X));
+        // To the right on the screen, between the grid's x and its −y; down, between x and y.
+        assert!(close(heading(0.0), Vec3::new(1.0, 0.0, -1.0).normalize()));
+        assert!(close(heading(90.0), Vec3::new(1.0, 0.0, 1.0).normalize()));
+        // At its angle on the screen, clockwise from the right: a chest of heading 20 shows its
+        // long side almost level, one of 330 up and to the right.
+        for degrees in [0.0_f32, 20.0, 45.0, 135.0, 200.0, 330.0] {
+            let direction = heading(degrees);
+            let on_screen = Vec2::new(direction.dot(iso::right()), -direction.dot(iso::up()));
+            let (sin, cos) = degrees.to_radians().sin_cos();
+            assert!(
+                (on_screen.normalize() - Vec2::new(cos, sin)).length() < 1e-5,
+                "{degrees}: {on_screen}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_object_without_a_heading_faces_its_items_angle() {
+        // `chest.grn`'s −30: without a heading, or with 0, which `CreateObj` leaves alone.
+        assert_eq!(facing_degrees(true, None, -30.0), -30.0);
+        assert_eq!(facing_degrees(true, Some(0.0), -30.0), -30.0);
+        assert_eq!(facing_degrees(true, Some(20.0), -30.0), 20.0);
+        // An NPC takes its heading, 0 without one.
+        assert_eq!(facing_degrees(false, Some(45.0), 90.0), 45.0);
+        assert_eq!(facing_degrees(false, None, 90.0), 0.0);
     }
 
     #[test]
