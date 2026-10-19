@@ -8,6 +8,7 @@ mod blended;
 mod buildings;
 mod daynight;
 mod frame;
+mod game;
 mod hero;
 mod hud;
 mod iso;
@@ -32,84 +33,13 @@ mod terrain;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use anyhow::Result;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PresentMode, WindowResolution};
-use clap::{Parser, ValueEnum};
-
-/// The heroes whose models have their own clips: the model, the clips of standing, walking and
-/// running and the footstep profile of each.
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum Class {
-    Seraphim,
-    Gladiator,
-    Mage,
-    WoodElf,
-    DarkElf,
-    Daemon,
-    Dwarf,
-}
-
-impl Class {
-    /// The hero's script tree (`netscript/<tree>.nsc`), whose start script places the hero, the
-    /// NPCs and the objects.
-    fn tree(self) -> &'static str {
-        match self {
-            Class::Seraphim => "type_npc_seraphim",
-            Class::Gladiator => "type_npc_gladiator",
-            Class::Mage => "type_npc_magician",
-            Class::WoodElf => "type_npc_elve",
-            Class::DarkElf => "type_npc_darkelve",
-            Class::Daemon => "type_npc_daemonin",
-            Class::Dwarf => "type_npc_zwerg",
-        }
-    }
-
-    /// The model's `.GRN` name, the idle, walk and run clips and the footstep profile.
-    fn preset(self) -> (&'static str, [&'static str; 3], &'static str) {
-        const FEMALE: &str = "footsteps_hero_female";
-        const MALE: &str = "footsteps_hero_male";
-        match self {
-            Class::Seraphim => (
-                "SERAPHIM.GRN",
-                ["SERA_IDLE_BH", "SERA_WALK_1H", "SERA_RUN_1H"],
-                FEMALE,
-            ),
-            Class::Gladiator => (
-                "GLADIATOR.GRN",
-                ["GLAD_IDLE_BH", "GLAD_WALK_BH", "GLAD_RUN_1H"],
-                MALE,
-            ),
-            Class::Mage => (
-                "MAGICIAN.GRN",
-                ["MAGE_IDLE_BH", "MAGE_WALK_BH", "MAGE_RUN_1H"],
-                MALE,
-            ),
-            Class::WoodElf => (
-                "AMAZONE.GRN",
-                ["AMAZ_IDLE_BH", "AMAZ_WALK_1H", "AMAZ_RUN_1H"],
-                FEMALE,
-            ),
-            Class::DarkElf => (
-                "DARKELVE.GRN",
-                ["DELV_IDLE_1H", "DELV_WALK_BH", "DELV_RUN_BH"],
-                MALE,
-            ),
-            Class::Daemon => (
-                "DAEMONIA.GRN",
-                ["DAEM_IDLE_BH", "DAEM_WALK_BH", "DAEM_RUN_BH"],
-                FEMALE,
-            ),
-            Class::Dwarf => (
-                "DWARF.GRN",
-                ["DWAR_IDLE_BH", "DWAR_WALK_1H", "DWAR_RUN_1H"],
-                MALE,
-            ),
-        }
-    }
-}
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(
@@ -120,10 +50,6 @@ struct Cli {
     /// Directory of the converted assets (opensacred-convert all)
     #[arg(long, default_value = "assets")]
     assets: PathBuf,
-    /// The sector to start in, as X,Y on the 100 × 100 grid, at its centre; by default the
-    /// hero's start in its start script
-    #[arg(long, value_parser = parse_position)]
-    sector: Option<(u32, u32)>,
     /// The settings file, instead of settings.toml in the user's configuration directory
     /// (%APPDATA%\OpenSacred on Windows)
     #[arg(long, value_name = "FILE")]
@@ -144,43 +70,8 @@ struct Cli {
     /// The window's height in physical pixels for this run; the settings' by default
     #[arg(long)]
     height: Option<u32>,
-    /// The camera's zoom at the start, 0.5 to 2 as in the original (the mouse wheel changes it)
-    #[arg(long, default_value_t = 1.0)]
-    zoom: f32,
-    /// The hero: its model, clips and footsteps, which the options below override
-    #[arg(long, value_enum, default_value = "seraphim")]
-    class: Class,
-    /// The hero model, relative to the asset directory
-    #[arg(long)]
-    hero: Option<String>,
-    /// The hero's clip when standing
-    #[arg(long)]
-    idle: Option<String>,
-    /// The hero's clip when walking
-    #[arg(long)]
-    walk: Option<String>,
-    /// The hero's clip when running
-    #[arg(long)]
-    run: Option<String>,
-    /// Walk rather than run at the start (the R key toggles it)
-    #[arg(long)]
-    walking: bool,
-    /// The hero's creature record in Creature.pak, for its speeds
-    #[arg(long, default_value_t = 1)]
-    creature: u32,
-    /// The script tree whose start script places the hero, the NPCs and the objects
-    /// (netscript/<TREE>.nsc); by default the class's
-    #[arg(long)]
-    tree: Option<String>,
-    /// The hero's footstep sound profile
-    #[arg(long)]
-    footsteps: Option<String>,
-    /// No music and no ambient loops
-    #[arg(long)]
-    no_music: bool,
-    /// Send the hero this many cells along X,Y (screen right-down, left-down) at the start
-    #[arg(long, value_parser = parse_offset, allow_hyphen_values = true)]
-    target: Option<(f32, f32)>,
+    #[command(flatten)]
+    game: game::NewGame,
     /// Save one frame to this PNG once the scene is ready, then exit
     #[arg(long)]
     screenshot: Option<PathBuf>,
@@ -196,54 +87,6 @@ struct Cli {
     /// Render without vsync for this many seconds, print the frame rate and exit
     #[arg(long, value_name = "SECONDS")]
     benchmark: Option<f32>,
-    /// The time of day at the start, as HH:MM (08:00, as in the original)
-    #[arg(long, value_parser = daynight::parse_time)]
-    time: Option<daynight::Clock>,
-}
-
-/// `x,y` of an offset in cells.
-fn parse_offset(text: &str) -> Result<(f32, f32), String> {
-    let (x, y) = text.split_once(',').ok_or("expected X,Y")?;
-    let number = |s: &str| s.trim().parse::<f32>().map_err(|e| format!("{s}: {e}"));
-    Ok((number(x)?, number(y)?))
-}
-
-/// `x,y` of a grid position.
-fn parse_position(text: &str) -> Result<(u32, u32), String> {
-    let (x, y) = text.split_once(',').ok_or("expected X,Y")?;
-    let number = |s: &str| s.trim().parse::<u32>().map_err(|e| format!("{s}: {e}"));
-    Ok((number(x)?, number(y)?))
-}
-
-/// The walk and run speeds of creature `id` (see `hero::Hero`).
-fn speeds(assets: &std::path::Path, id: u32) -> Result<[f32; 2]> {
-    let path = assets
-        .join("tables")
-        .join(opensacred_data::tables::CREATURES);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-    let creatures: Vec<opensacred_data::tables::Creature> =
-        ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
-    let creature = creatures
-        .iter()
-        .find(|c| c.id == id)
-        .ok_or_else(|| anyhow::anyhow!("no creature {id} in {}", path.display()))?;
-    Ok(creature.speed.map(|s| f32::from(s) * iso::MODEL_SCALE))
-}
-
-fn light(mut commands: Commands) {
-    commands.insert_resource(GlobalAmbientLight {
-        brightness: 600.0,
-        ..default()
-    });
-    // From the upper left of the screen, as the original's sprites are shaded.
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 4_000.0,
-            ..default()
-        },
-        Transform::IDENTITY.looking_to(Vec3::new(1.0, -1.5, -0.2), Vec3::Y),
-    ));
 }
 
 /// Threads of Bevy's compute pool, which runs the systems in parallel. Bevy gives it every
@@ -259,17 +102,6 @@ fn task_pools() -> TaskPoolOptions {
     let mut options = TaskPoolOptions::default();
     options.compute.max_threads = COMPUTE_THREADS;
     options
-}
-
-/// The zoom at the start.
-#[derive(Resource)]
-struct Zoom(f32);
-
-fn camera(mut commands: Commands, hero: Res<hero::Hero>, zoom: Res<Zoom>) {
-    commands.spawn((
-        iso::camera(hero.position, zoom.0),
-        daynight::Night::default(),
-    ));
 }
 
 fn run(cli: Cli) -> Result<AppExit> {
@@ -294,56 +126,6 @@ fn run(cli: Cli) -> Result<AppExit> {
         assets: assets.clone(),
         shadows: shadows.clone(),
     };
-    let tree = cli.tree.unwrap_or_else(|| cli.class.tree().into());
-    let side = u32::try_from(opensacred_data::world::SIDE)?;
-    // The sector given, at its centre, or the start script's start cell.
-    let start = match cli.sector {
-        Some(sector) => Err(sector),
-        None => match npcs::start_position(&assets, &tree)? {
-            Some(cell) => Ok(cell),
-            None => Err((50, 39)),
-        },
-    };
-    let at = match start {
-        Ok((x, y)) => (x / side, y / side),
-        Err(sector) => sector,
-    };
-    let first = sectors::build(&shared, at)?
-        .ok_or_else(|| anyhow::anyhow!("no sector at {},{}", at.0, at.1))?;
-    let mut heights = terrain::Heights::default();
-    heights.add(&first.sector);
-    let center = match start {
-        Ok((x, y)) => {
-            let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
-            position.y = heights
-                .standing(position.x, position.z, None)
-                .unwrap_or(0.0);
-            position
-        }
-        Err(_) => terrain::start(&first.sector),
-    };
-    let (grn, [idle, walk, run], footsteps) = cli.class.preset();
-    let model = match cli.hero {
-        Some(model) => model,
-        None => npcs::model_files(&assets)?
-            .remove(grn)
-            .ok_or_else(|| anyhow::anyhow!("no model {grn} in {}", assets.display()))?,
-    };
-    let footsteps_profile = cli.footsteps.unwrap_or_else(|| footsteps.into());
-    let idle = cli.idle.unwrap_or_else(|| idle.into());
-    let walk = cli.walk.unwrap_or_else(|| walk.into());
-    let run = cli.run.unwrap_or_else(|| run.into());
-    let footsteps = sound::Footsteps::read(&assets, [&walk, &run], &footsteps_profile)?;
-    let mut hero = hero::Hero::new(model, [idle, walk, run], center);
-    let game_speed = hero::GameSpeed::read(&assets)?;
-    hero.speeds = speeds(&assets, cli.creature)?.map(|s| s * game_speed.0);
-    if cli.walking {
-        hero.gait = hero::Gait::Walk;
-    }
-    hero.target = cli.target.map(|(dx, dy)| center + iso::ground(dx, dy));
-    let streamer = sectors::Streamer::new(shared, at, first);
-    let npcs = npcs::Npcs::read(&assets, &tree)?;
-    let (npc_count, object_count) = npcs.counts();
     let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
     // frames do not depend on the monitor.
@@ -399,23 +181,26 @@ fn run(cli: Cli) -> Result<AppExit> {
     // module, in alphabetical order.
     // Bevy takes 15 plugins at a time.
     .add_plugins((
+        atmosphere::AtmospherePlugin,
         bevy_kira_audio::AudioPlugin,
         blended::BlendedPlugin,
         buildings::BuildingsPlugin,
         daynight::DayNightPlugin,
         frame::FramePlugin,
+        game::GamePlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         journal::JournalPlugin,
         liquids::LiquidsPlugin,
         models::ModelsPlugin,
+        music::MusicPlugin,
         npcs::NpcsPlugin,
         sectors::SectorsPlugin,
+    ))
+    .add_plugins((
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-    ))
-    .add_plugins((
         sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
@@ -423,40 +208,29 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .insert_resource(settings)
     .insert_resource(settings_file)
-    .insert_resource(cli.time.unwrap_or_default())
+    .insert_resource(game::Data(Arc::new(shared)))
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
-    .insert_resource(game_speed)
+    .insert_resource(hero::GameSpeed::read(&assets)?)
     .insert_resource(statics::TreeFade::read(&assets)?)
     .insert_resource(daynight::GlowTexture(glow))
-    .insert_resource(daynight::HeroLight {
-        doubled: cli.class == Class::WoodElf,
-    })
     .insert_resource(ClearColor(Color::BLACK))
-    .insert_resource(footsteps)
-    .insert_resource(streamer)
-    .insert_resource(npcs)
-    .insert_resource(heights)
     .insert_resource(liquids::Liquids::read(&assets)?)
-    .insert_resource(Zoom(cli.zoom))
-    .insert_resource(hero)
     .insert_resource(hud::Hud {
         cursor: hud::cursor_file(&assets),
     })
-    .add_systems(Startup, (camera, light))
     .add_systems(Update, iso::zoom.in_set(frame::Step::Zoom));
-    info!("{tree}: {npc_count} NPCs and {object_count} objects at the start");
     if let Some(shadows) = shadows {
         app.insert_resource(statics::ShadowAtlas(shadows));
     }
-    if !cli.no_music {
-        app.add_plugins((music::MusicPlugin, atmosphere::AtmospherePlugin))
-            .insert_resource(music::Music::read(&assets)?)
-            .insert_resource(atmosphere::Atmosphere::read(&assets)?);
-    }
+    // Until the menu, the process goes straight into the game that the command line names, and
+    // ends when it does not load.
+    app.insert_resource(game::Request(cli.game))
+        .insert_resource(game::QuitOnFailure)
+        .insert_state(game::AppState::Loading);
     if let Some(seconds) = cli.benchmark {
         app.insert_resource(benchmark::Benchmark::new(seconds))
-            .add_systems(Update, benchmark::measure);
+            .add_systems(Update, benchmark::measure.in_set(frame::Playing));
     }
     if let Some(dir) = cli.record {
         std::fs::create_dir_all(&dir)
@@ -466,11 +240,11 @@ fn run(cli: Cli) -> Result<AppExit> {
             cli.frames,
             cli.record_frames,
         ))
-        .add_systems(Update, screenshot::record);
+        .add_systems(Update, screenshot::record.in_set(frame::Playing));
     }
     if let Some(path) = cli.screenshot {
         app.insert_resource(screenshot::Request::new(path, cli.frames))
-            .add_systems(Update, screenshot::take);
+            .add_systems(Update, screenshot::take.in_set(frame::Playing));
     }
     Ok(app.run())
 }

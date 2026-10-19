@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use opensacred_data::world::{SIDE, Sector};
 
 use crate::frame::Step;
+use crate::game::AppState;
 use crate::hero::Body;
 use crate::terrain::{Heights, Level};
 
@@ -196,13 +197,19 @@ pub fn enter(
     }
 }
 
+/// Forgets the building that the hero of the game left was in.
+fn leave(mut buildings: ResMut<Buildings>) {
+    *buildings = Buildings::default();
+}
+
 /// The buildings' states, by the building the hero is in.
 pub struct BuildingsPlugin;
 
 impl Plugin for BuildingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Buildings>()
-            .add_systems(Update, enter.in_set(Step::Buildings));
+            .add_systems(Update, enter.in_set(Step::Buildings))
+            .add_systems(OnExit(AppState::InGame), leave);
     }
 }
 

@@ -15,12 +15,15 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Handle, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+    App, AssetServer, Handle, IntoScheduleConfigs, OnExit, Plugin, Query, Res, ResMut, Resource,
+    Time, Transform, Update, With, resource_exists,
 };
 use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTween, Decibels};
 use opensacred_data::sound::Sound;
 
 use crate::daynight::{Clock, Phase};
+use crate::frame::Playing;
+use crate::game::AppState;
 use crate::hero::Body;
 use crate::terrain::Heights;
 use bevy_kira_audio::AudioApp;
@@ -169,12 +172,21 @@ pub fn choose(
     atmosphere.wanted = None;
 }
 
-/// The ambient loops.
+/// Stops the ambient loop of the game left, at once.
+pub fn leave(channel: Res<AudioChannel<Channel>>) {
+    channel.stop();
+}
+
+/// The ambient loops, in a game whose music is on (`game`).
 pub struct AtmospherePlugin;
 
 impl Plugin for AtmospherePlugin {
     fn build(&self, app: &mut App) {
         app.add_audio_channel::<Channel>()
-            .add_systems(Update, choose);
+            .add_systems(
+                Update,
+                choose.in_set(Playing).run_if(resource_exists::<Atmosphere>),
+            )
+            .add_systems(OnExit(AppState::InGame), leave);
     }
 }

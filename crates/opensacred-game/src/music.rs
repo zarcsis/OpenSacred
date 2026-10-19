@@ -21,7 +21,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Handle, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+    App, AssetServer, Handle, IntoScheduleConfigs, OnExit, Plugin, Query, Res, ResMut, Resource,
+    Time, Transform, Update, With, resource_exists,
 };
 use bevy_kira_audio::prelude::{
     AudioChannel, AudioControl, AudioInstance, AudioSource, Decibels, PlaybackState,
@@ -30,7 +31,8 @@ use opensacred_data::sound::Sound;
 use opensacred_data::world::{SIDE, World};
 
 use crate::daynight::{Clock, Phase};
-use crate::{hero, iso};
+use crate::game::AppState;
+use crate::{frame, hero, iso};
 use bevy_kira_audio::AudioApp;
 
 const PROFILE: &str = "music";
@@ -208,12 +210,22 @@ pub fn play(
     });
 }
 
-/// The region's music.
+/// Stops the music of the game left, at once.
+pub fn leave(audio: Res<AudioChannel<Channel>>) {
+    audio.stop();
+}
+
+/// The region's music, in a game whose music is on (`game`).
 pub struct MusicPlugin;
 
 impl Plugin for MusicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_audio_channel::<Channel>().add_systems(Update, play);
+        app.add_audio_channel::<Channel>()
+            .add_systems(
+                Update,
+                play.in_set(frame::Playing).run_if(resource_exists::<Music>),
+            )
+            .add_systems(OnExit(AppState::InGame), leave);
     }
 }
 

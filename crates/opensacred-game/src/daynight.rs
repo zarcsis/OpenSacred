@@ -35,8 +35,8 @@ use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMat
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
     AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, GlobalTransform,
-    IntoScheduleConfigs, Plugin, Projection, Query, Res, ResMut, Resource, StandardMaterial,
-    Startup, Time, Transform, Update, With, Without, default,
+    IntoScheduleConfigs, OnExit, Plugin, Projection, Query, Res, ResMut, Resource,
+    StandardMaterial, Startup, Time, Transform, Update, With, Without, default,
 };
 use bevy::render::RenderApp;
 use bevy::render::extract_component::ExtractComponent;
@@ -82,7 +82,7 @@ pub enum Phase {
 }
 
 /// The game's clock: the seconds of the day.
-#[derive(Resource, Clone)]
+#[derive(Resource, Clone, Debug)]
 pub struct Clock {
     seconds: f64,
 }
@@ -156,7 +156,20 @@ impl Plugin for DayNightPlugin {
         embedded_asset!(app, "night.wesl");
         app.add_plugins(FullscreenMaterialPlugin::<Night>::default())
             .add_systems(Startup, make_glow)
-            .add_systems(Update, (tick, light, glow, shadows).chain());
+            .add_systems(
+                Update,
+                (tick, light, glow, shadows)
+                    .chain()
+                    .in_set(crate::frame::Playing),
+            )
+            .add_systems(OnExit(crate::game::AppState::InGame), leave);
+    }
+}
+
+/// Lifts the night of the game left off the camera, which the menus draw through.
+fn leave(mut nights: Query<&mut Night>) {
+    for mut night in &mut nights {
+        *night = Night::default();
     }
 }
 
