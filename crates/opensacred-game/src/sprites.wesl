@@ -7,7 +7,7 @@
 // them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 
 import bevy_pbr::render::mesh_view_bindings::view;
-import package::{order, post::post_process};
+import package::{magnify, order, post::post_process};
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var atlas: texture_2d<f32>;
 /// What the texels are multiplied by (`statics::SpriteMaterial::tint`): white, but for the
@@ -111,7 +111,7 @@ fn texel(at: vec2<i32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
 fn filtered(uv: vec2<f32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
     let at = uv * vec2<f32>(textureDimensions(atlas)) - 0.5;
     let corner = floor(at);
-    let t = at - corner;
+    let t = magnify::weights(at);
     let i = vec2<i32>(corner);
     let top = mix(texel(i, source, alpha), texel(i + vec2(1, 0), source, alpha), t.x);
     let bottom = mix(

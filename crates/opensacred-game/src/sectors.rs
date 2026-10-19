@@ -149,6 +149,7 @@ pub fn stream(
     glow: Option<Res<statics::Glow>>,
     shadows: Option<Res<statics::StaticShadows>>,
     fade: Res<statics::Fade>,
+    filter: Res<crate::magnify::Filter>,
 ) {
     let streamer = &mut *streamer;
     let finished: Vec<_> = streamer
@@ -183,6 +184,7 @@ pub fn stream(
             &mut images,
             &mut meshes,
             &mut grounds,
+            *filter,
         );
         entities.extend(liquids::spawn(
             &mut commands,
@@ -211,6 +213,7 @@ pub fn stream(
             statics::Common {
                 fade: &fade,
                 shadows: shadows.as_deref(),
+                filter: *filter,
             },
         ));
         entities.extend(lights.into_iter().map(|(position, radius)| {

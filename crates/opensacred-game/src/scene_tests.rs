@@ -315,6 +315,7 @@ fn spawn_scene(
             &mut images,
             &mut meshes,
             &mut grounds,
+            crate::magnify::Filter::Linear,
         );
     }
     if let Some(surfaces) = scene.liquids.take() {
@@ -338,6 +339,7 @@ fn spawn_scene(
             statics::Common {
                 fade: &fade,
                 shadows: None,
+                filter: crate::magnify::Filter::Linear,
             },
         );
     }
