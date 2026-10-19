@@ -11,18 +11,19 @@ the checkout's, so when another session in the same checkout switches it, a mess
 on: a session moves to another branch only by a command of its own (`git switch`, `git checkout`, `git rebase`,
 `gh pr checkout`, `gh pr merge`, entering or leaving a worktree), during it or within 30 seconds after it, as the
 recorded branch follows a switch a few seconds late. A session that `cd`s into a linked worktree keeps recording its
-own checkout's branch, so a message in a linked worktree has the worktree's branch: the one the session gave it
-(`git worktree add -b`, `EnterWorktree`), else the one it is on now. So does a response whose tool calls work in a
-linked worktree from elsewhere (a `cd` or `git -C` into it, a file tool on a path in it), with their results. A
-branch the session renamed (`git branch -m`) counts under its new name. Model responses are taken once
-each (by message.id), and the cost is computed at prices per 1M tokens (cache write: 5 minutes = 1.25× input,
-1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs on a Claude
-subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an owner's
-prompt to the agent's last action; pauses longer than 10 minutes are not counted.
+own checkout's branch, so a message in a linked worktree has the worktree's branch: the latest the session gave it
+(`git worktree add -b`, `EnterWorktree`, a `git switch` or `git checkout` run in it), else the one it is on now. So
+does a response whose tool calls work in a linked worktree from elsewhere (a `cd` or `git -C` into it, a file tool on
+a path in it), with their results. A branch the session renamed (`git branch -m`) counts under its new name. Model
+responses are taken once each (by message.id), and the cost is computed at prices per 1M tokens (cache write:
+5 minutes = 1.25× input, 1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs
+on a Claude subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an
+owner's prompt to the agent's last action; pauses longer than 10 minutes are not counted.
 
 Example
   python -I tools/usage/pr_usage.py 17            # print the usage of pull request #17
   python -I tools/usage/pr_usage.py 17 --update   # also write it into the description and refresh the badge
+  python -I -m unittest discover -s tools/usage -p "test_*.py"   # the tests, on synthetic transcripts
 
 Expected output: the sessions that worked on the pull request; the block for its description (a per-model table of
 requests, tokens in M and cost, the agent-hours, and a machine-readable comment that the Usage workflow sums for
@@ -54,6 +55,9 @@ MOVING_TOOLS = {'EnterWorktree', 'ExitWorktree'}
 GRACE = dt.timedelta(seconds=30)
 # A session's own commands that give a worktree its branch or rename a branch, and what EnterWorktree reports.
 ADD = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?worktree\s+add\s+([^\n;&|]*)')
+SWITCH = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?(switch|checkout)\s+([^\n;&|]*)')
+# The options of a switch that name the branch it creates.
+CREATE = {'switch': ('-c', '-C', '--create', '--force-create', '--orphan'), 'checkout': ('-b', '-B', '--orphan')}
 RENAME = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?branch\s+(?:-[mM]|--move)\s+([^\n;&|]*)')
 ENTERED = re.compile(r'(?:Created|Entered) worktree at (.+?) on branch (\S+?)\.(?:\s|$)')
 # Where a shell command works: a change of directory or `git -C`; and the variables it assigns itself (Bash's
@@ -66,13 +70,6 @@ FILE_INPUTS = ('file_path', 'notebook_path', 'path')
 BEGIN, END = '<!-- usage:begin -->', '<!-- usage:end -->'
 ATTRIBUTION = '🤖 Generated with'
 WORKFLOW = 'usage.yml'
-
-ap = argparse.ArgumentParser(description='Claude Code usage of a pull request, from the transcripts of its branch.')
-ap.add_argument('pr', type=int, help='pull request number')
-ap.add_argument('--update', action='store_true',
-                help='write the usage into the pull request description and refresh the badge')
-args = ap.parse_args()
-
 
 def run(argv, stdin=None):
     r = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding='utf-8')
@@ -117,6 +114,16 @@ def linked_worktrees(top):
     return out
 
 
+def repository_branches():
+    """The names of the repository's local and remote-tracking branches that exist now."""
+    out = set()
+    for ref in run(['git', 'for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes']).splitlines():
+        name = ref[len('refs/heads/'):] if ref.startswith('refs/heads/') else ref.split('/', 3)[-1]
+        if name != 'HEAD':  # refs/remotes/origin/HEAD
+            out.add(name)
+    return out
+
+
 def words(args):
     """A shell command's arguments up to a redirection, without their quotes."""
     out = []
@@ -127,11 +134,23 @@ def words(args):
     return out
 
 
+def located(command, m, cwd, path=''):
+    """The directory a git command works in, or that a path it names is (m: a match of ADD, SWITCH or RENAME, whose
+    first group is its -C path), in a shell command run in cwd: after the changes of directory earlier in the
+    command, then its -C path; None when a shell variable is not resolved or the place is not known (`cd -`, `~`)."""
+    parts = [c[1] for c in WORKS_IN.finditer(command, 0, m.start()) if c[1]] + [m[1] or '', path]
+    parts = [native(p.strip('\'"')) for p in parts]
+    parts = parts[max((i for i, p in enumerate(parts) if os.path.isabs(p)), default=0):]  # from the last absolute one
+    if any('$' in p or p == '-' or p.startswith('~') for p in parts):
+        return None
+    return norm(os.path.join(cwd, *parts))
+
+
 def worktree_adds(command, cwd):
     """(worktree, branch) of each `git worktree add` with -b or -B in a shell command run in cwd."""
     out = []
-    for where, args in ADD.findall(command):
-        branch, paths, it = None, [], iter(words(args))
+    for m in ADD.finditer(command):
+        branch, paths, it = None, [], iter(words(m[2]))
         for w in it:
             if w in ('-b', '-B'):
                 branch = next(it, None)
@@ -139,8 +158,33 @@ def worktree_adds(command, cwd):
                 next(it, None)
             elif not w.startswith('-'):
                 paths.append(w)
-        if branch and paths and '$' not in where + paths[0]:  # a shell variable is not resolved
-            out.append((norm(os.path.join(cwd, native(where.strip('\'"')), native(paths[0]))), branch))
+        place = branch and paths and located(command, m, cwd, paths[0])
+        if place:
+            out.append((place, branch))
+    return out
+
+
+def branch_moves(command, cwd):
+    """(directory, branch, certain) of each `git switch` or `git checkout` in a shell command run in cwd that moves
+    its checkout to a named branch. A `git checkout <name>` without -b may restore a path instead: not certain."""
+    out = []
+    for m in SWITCH.finditer(command):
+        verb, branch, names, restores, it = m[2], None, [], False, iter(words(m[3]))
+        for w in it:
+            option, _, value = w.partition('=')
+            if option in CREATE[verb]:
+                branch = value or next(it, None)
+            elif w in ('--', '--detach') or verb == 'switch' and w == '-d':  # paths follow, or a commit
+                restores = True
+                break
+            elif not w.startswith('-'):
+                names.append(w)
+        certain = bool(branch) or verb == 'switch'
+        if not branch and not restores and len(names) == 1 and names[0] != '-':  # `-` is the previous branch
+            branch = names[0]
+        place = branch and located(command, m, cwd)
+        if place:
+            out.append((place, branch, certain))
     return out
 
 
@@ -148,11 +192,12 @@ def branch_renames(command, cwd):
     """(directory, old name or None for its current branch, new name) of each `git branch -m` in a shell
     command run in cwd."""
     out = []
-    for where, args in RENAME.findall(command):
-        names = [w for w in words(args) if not w.startswith('-')]
-        if 1 <= len(names) <= 2 and '$' not in where + ''.join(names):
+    for m in RENAME.finditer(command):
+        names = [w for w in words(m[2]) if not w.startswith('-')]
+        place = 1 <= len(names) <= 2 and '$' not in ''.join(names) and located(command, m, cwd)
+        if place:
             old, new = names if len(names) == 2 else (None, names[0])
-            out.append((norm(os.path.join(cwd, native(where.strip('\'"')))), old, new))
+            out.append((place, old, new))
     return out
 
 
@@ -215,11 +260,12 @@ def cost(model, u):
 
 
 def records(path):
-    for line in open(path, encoding='utf-8'):
-        try:
-            yield json.loads(line)
-        except ValueError:  # the last line of a transcript being written
-            continue
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            try:
+                yield json.loads(line)
+            except ValueError:  # the last line of a transcript being written
+                continue
 
 
 def moves(block):
@@ -253,23 +299,26 @@ def in_worktree(place, known, top):
     return base + place[len(base):].split(os.sep)[0] if place.startswith(base) else None
 
 
-def session_events(path, seen, top, linked):
+def session_events(path, seen, top, linked, existing=()):
     """A session's messages in time order: (time, branch, kind, model, usage, from the main transcript).
     A response spans a line per content block, each with the response's usage, which is taken from the first;
     messages already seen in another transcript (a resumed session repeats its history) are skipped. The branch is
     the one the session itself is on (own_branches), followed in each transcript apart: a subagent in the session's
     checkout starts on the session's branch, one in a worktree of its own on its worktree's. In a linked worktree it
     is the worktree's, since a session that `cd`s into one keeps recording its own checkout's branch: the latest the
-    session gave the worktree by then (`git worktree add -b`, EnterWorktree), else the one it is on now (linked),
-    else the recorded one unless neutral, else the worktree itself, which no pull request is on. A response whose
-    tool calls work in one linked worktree from elsewhere (worked_in), and their results, are in that worktree. A
-    branch the session renamed counts under its new name."""
+    session gave the worktree by then (`git worktree add -b`, EnterWorktree, or a `git switch` or `git checkout` run
+    in it, from the first line of its response on), else the one it is on now (linked), else the recorded one unless
+    neutral, else the worktree itself, which no pull request is on. A `git checkout <name>` without -b gives a branch
+    only when the name is one: of the branches that exist now (existing), or one the session recorded or gave a
+    worktree. A response whose tool calls work in one linked worktree from elsewhere (worked_in), and their results,
+    are in that worktree. A branch the session renamed counts under its new name."""
     sid = os.path.splitext(os.path.basename(path))[0]
     sub = sorted(glob.glob(os.path.join(os.path.dirname(path), sid, '**', '*.jsonl'), recursive=True))
-    files, given, renamed = [], [], []
+    files, given, switched, renamed = [], [], [], []
     for f in [path] + sub:
         rows, calls, entering, windows, cwd = [], {}, set(), [], None
         called, responding = {}, {}  # the directories each tool call and each response works in
+        begun = {}  # the time of each response's first line
         for d in records(f):
             t = d.get('type')
             if t not in ('user', 'assistant') or 'timestamp' not in d:
@@ -278,6 +327,8 @@ def session_events(path, seen, top, linked):
             cwd = cwd or here
             m = d.get('message', {})
             content, results = m.get('content'), []
+            if t == 'assistant' and m.get('id'):
+                begun.setdefault(m['id'], when)
             for block in content if isinstance(content, list) else ():
                 if not isinstance(block, dict):
                     continue
@@ -289,6 +340,7 @@ def session_events(path, seen, top, linked):
                     if isinstance(command, str):
                         command = expand(command)
                         given += [(when, w, b) for w, b in worktree_adds(command, here)]
+                        switched += [(begun.get(m.get('id'), when),) + s for s in branch_moves(command, here)]
                         renamed += [(when, len(files)) + r for r in branch_renames(command, here)]
                 elif block.get('type') == 'tool_result':
                     results.append(block.get('tool_use_id'))
@@ -320,8 +372,13 @@ def session_events(path, seen, top, linked):
         # A moving call without its result yet (the transcript is still being written) moves the session until now.
         windows += [(a, dt.datetime.now(dt.timezone.utc)) for a in calls.values()]
         files.append((rows, windows, cwd))
-    given.sort(key=lambda e: e[0])
     known = sorted(set(linked) | {w for _, w, _ in given}, key=len, reverse=True)
+    named = set(existing) | {b for _, _, b in given} | {r[1] for rows, _, _ in files for r in rows}
+    for when, place, b, certain in switched:
+        w = in_worktree(place, known, top)
+        if w and (certain or b in named):
+            given.append((when, w, b))
+    given.sort(key=lambda e: e[0])
 
     def branch(place, dirs, when, recorded, own):
         w = place and in_worktree(place, known, top)
@@ -376,77 +433,89 @@ def owners(events):
     return out
 
 
-pr = json.loads(run(['gh', 'pr', 'view', str(args.pr), '--json', 'headRefName,body,url']))
-branch, url = pr['headRefName'], pr['url']
-repo_url = url.rsplit('/pull/', 1)[0]
+def main():
+    ap = argparse.ArgumentParser(description='Claude Code usage of a pull request, from the transcripts of its branch.')
+    ap.add_argument('pr', type=int, help='pull request number')
+    ap.add_argument('--update', action='store_true',
+                    help='write the usage into the pull request description and refresh the badge')
+    args = ap.parse_args()
 
-top = main_checkout()
-linked = linked_worktrees(top)
-seen, per_model, sessions, active, wall = set(), {}, [], dt.timedelta(), dt.timedelta()
-for d in project_dirs(top):
-    for path in sorted(glob.glob(os.path.join(d, '*.jsonl')), key=os.path.getmtime):
-        events = session_events(path, seen, top, linked)
-        own = owners(events)
-        mine = [e for e, o in zip(events, own) if o == branch]
-        if not mine:
-            continue
-        sessions.append((os.path.basename(path)[:8], len(mine)))
-        for _, _, kind, model, usage, _ in mine:
-            if kind == 'assistant' and usage:
-                row = per_model.setdefault(model, [0, 0, 0, 0, 0, 0, 0.0])
-                row[0] += 1
-                for k, n in enumerate(split(usage)):
-                    row[k + 1] += n
-                row[6] += cost(model, usage)
-        timeline = [(e, o) for e, o in zip(events, own) if e[5]]  # time counts in the main transcript only
-        for (a, _), (b, o) in zip(timeline, timeline[1:]):
-            if o == branch and b[2] != 'prompt':  # a pause before an owner's prompt is time spent waiting for the human
-                active += min(b[0] - a[0], IDLE)
-        times = [e[0] for e, o in timeline if o == branch]
-        if times:
-            wall += times[-1] - times[0]
+    pr = json.loads(run(['gh', 'pr', 'view', str(args.pr), '--json', 'headRefName,body,url']))
+    branch, url = pr['headRefName'], pr['url']
+    repo_url = url.rsplit('/pull/', 1)[0]
 
-if not per_model:
-    sys.exit('no transcript of this repository has responses on branch %s' % branch)
+    top = main_checkout()
+    linked, existing = linked_worktrees(top), repository_branches() | {branch}
+    seen, per_model, sessions, active, wall = set(), {}, [], dt.timedelta(), dt.timedelta()
+    for d in project_dirs(top):
+        for path in sorted(glob.glob(os.path.join(d, '*.jsonl')), key=os.path.getmtime):
+            events = session_events(path, seen, top, linked, existing)
+            own = owners(events)
+            mine = [e for e, o in zip(events, own) if o == branch]
+            if not mine:
+                continue
+            sessions.append((os.path.basename(path)[:8], len(mine)))
+            for _, _, kind, model, usage, _ in mine:
+                if kind == 'assistant' and usage:
+                    row = per_model.setdefault(model, [0, 0, 0, 0, 0, 0, 0.0])
+                    row[0] += 1
+                    for k, n in enumerate(split(usage)):
+                        row[k + 1] += n
+                    row[6] += cost(model, usage)
+            timeline = [(e, o) for e, o in zip(events, own) if e[5]]  # time counts in the main transcript only
+            for (a, _), (b, o) in zip(timeline, timeline[1:]):
+                # A pause before an owner's prompt is time spent waiting for the human.
+                if o == branch and b[2] != 'prompt':
+                    active += min(b[0] - a[0], IDLE)
+            times = [e[0] for e, o in timeline if o == branch]
+            if times:
+                wall += times[-1] - times[0]
 
-print('pull request #%d, branch %s' % (args.pr, branch))
-print('sessions: %s' % ', '.join('%s (%d messages)' % s for s in sessions))
+    if not per_model:
+        sys.exit('no transcript of this repository has responses on branch %s' % branch)
 
-hours, wall_hours = active.total_seconds() / 3600, wall.total_seconds() / 3600
-total = [sum(r[k] for r in per_model.values()) for k in range(1, 6)]
-cost_usd = sum(r[6] for r in per_model.values())
-data = {'input': total[0], 'output': total[1], 'cache_read': total[2], 'cache_write': total[3] + total[4],
-        'cost_usd': round(cost_usd, 2), 'agent_hours': round(hours, 2), 'wall_hours': round(wall_hours, 2),
-        'sessions': len(sessions)}
+    print('pull request #%d, branch %s' % (args.pr, branch))
+    print('sessions: %s' % ', '.join('%s (%d messages)' % s for s in sessions))
 
-lines = [BEGIN, '## Claude Code usage', '',
-         '| Model | Requests | Input, M | Output, M | Cache read, M | Cache write, M | At API prices, $ |',
-         '|---|---|---|---|---|---|---|']
-for m, r in sorted(per_model.items(), key=lambda kv: -kv[1][6]):
-    lines.append('| %s | %d | %.3f | %.3f | %.2f | %.3f | %s |' % (
-        NAMES.get(m, m), r[0], r[1] / 1e6, r[2] / 1e6, r[3] / 1e6, (r[4] + r[5]) / 1e6,
-        '%.2f' % r[6] if m in PRICES else 'not priced'))
-lines += ['', '≈%.1f agent-hours (wall clock %.1f) in %d session%s. The dollars are the cost of the same tokens at '
-          'API prices, not money spent: development runs on a Claude subscription ([docs/usage.md](%s/blob/main/'
-          'docs/usage.md)).' % (hours, wall_hours, len(sessions), '' if len(sessions) == 1 else 's', repo_url),
-          '<!-- usage %s -->' % json.dumps(data, separators=(', ', ': ')), END]
-block = '\n'.join(lines)
-print('\n' + block)
+    hours, wall_hours = active.total_seconds() / 3600, wall.total_seconds() / 3600
+    total = [sum(r[k] for r in per_model.values()) for k in range(1, 6)]
+    cost_usd = sum(r[6] for r in per_model.values())
+    data = {'input': total[0], 'output': total[1], 'cache_read': total[2], 'cache_write': total[3] + total[4],
+            'cost_usd': round(cost_usd, 2), 'agent_hours': round(hours, 2), 'wall_hours': round(wall_hours, 2),
+            'sessions': len(sessions)}
 
-if args.update:
-    body = pr['body'] or ''
-    if BEGIN in body and END in body[body.index(BEGIN):]:
-        start = body.index(BEGIN)
-        body = body[:start] + block + body[body.index(END, start) + len(END):]
-    elif ATTRIBUTION in body:
-        i = body.rindex(ATTRIBUTION)
-        body = body[:i] + block + '\n\n' + body[i:]
-    else:
-        body = body.rstrip() + '\n\n' + block + '\n'
-    run(['gh', 'pr', 'edit', str(args.pr), '--body-file', '-'], stdin=body)
-    print('\nwritten into %s' % url)
-    # The badge sums every pull request's block; the workflow runs from main, so it is missing on a branch
-    # that adds it.
-    r = subprocess.run(['gh', 'workflow', 'run', WORKFLOW], capture_output=True, text=True, encoding='utf-8')
-    print('badge: %s' % ('refreshing (the Usage workflow)' if r.returncode == 0
-                         else 'not refreshed: %s' % r.stderr.strip()))
+    lines = [BEGIN, '## Claude Code usage', '',
+             '| Model | Requests | Input, M | Output, M | Cache read, M | Cache write, M | At API prices, $ |',
+             '|---|---|---|---|---|---|---|']
+    for m, r in sorted(per_model.items(), key=lambda kv: -kv[1][6]):
+        lines.append('| %s | %d | %.3f | %.3f | %.2f | %.3f | %s |' % (
+            NAMES.get(m, m), r[0], r[1] / 1e6, r[2] / 1e6, r[3] / 1e6, (r[4] + r[5]) / 1e6,
+            '%.2f' % r[6] if m in PRICES else 'not priced'))
+    lines += ['', '≈%.1f agent-hours (wall clock %.1f) in %d session%s. The dollars are the cost of the same tokens '
+              'at API prices, not money spent: development runs on a Claude subscription ([docs/usage.md](%s/blob/'
+              'main/docs/usage.md)).' % (hours, wall_hours, len(sessions), '' if len(sessions) == 1 else 's', repo_url),
+              '<!-- usage %s -->' % json.dumps(data, separators=(', ', ': ')), END]
+    block = '\n'.join(lines)
+    print('\n' + block)
+
+    if args.update:
+        body = pr['body'] or ''
+        if BEGIN in body and END in body[body.index(BEGIN):]:
+            start = body.index(BEGIN)
+            body = body[:start] + block + body[body.index(END, start) + len(END):]
+        elif ATTRIBUTION in body:
+            i = body.rindex(ATTRIBUTION)
+            body = body[:i] + block + '\n\n' + body[i:]
+        else:
+            body = body.rstrip() + '\n\n' + block + '\n'
+        run(['gh', 'pr', 'edit', str(args.pr), '--body-file', '-'], stdin=body)
+        print('\nwritten into %s' % url)
+        # The badge sums every pull request's block; the workflow runs from main, so it is missing on a branch
+        # that adds it.
+        r = subprocess.run(['gh', 'workflow', 'run', WORKFLOW], capture_output=True, text=True, encoding='utf-8')
+        print('badge: %s' % ('refreshing (the Usage workflow)' if r.returncode == 0
+                             else 'not refreshed: %s' % r.stderr.strip()))
+
+
+if __name__ == '__main__':
+    main()
