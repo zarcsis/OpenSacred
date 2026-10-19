@@ -11,6 +11,7 @@ mod frame;
 mod hero;
 mod hud;
 mod iso;
+mod journal;
 mod liquids;
 mod models;
 mod motions;
@@ -33,6 +34,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
+use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PresentMode, WindowResolution};
 use clap::{Parser, ValueEnum};
@@ -126,6 +128,10 @@ struct Cli {
     /// (%APPDATA%\OpenSacred on Windows)
     #[arg(long, value_name = "FILE")]
     settings: Option<PathBuf>,
+    /// The log file, instead of logs\opensacred.log in the user's state directory
+    /// (%LOCALAPPDATA%\OpenSacred on Windows); the two before it are kept as FILE.1, FILE.2
+    #[arg(long, value_name = "FILE")]
+    log_file: Option<PathBuf>,
     /// A window for this run, whatever the settings say (F11 switches)
     #[arg(long, conflicts_with = "borderless")]
     windowed: bool,
@@ -338,7 +344,6 @@ fn run(cli: Cli) -> Result<AppExit> {
     let streamer = sectors::Streamer::new(shared, at, first);
     let npcs = npcs::Npcs::read(&assets, &tree)?;
     let (npc_count, object_count) = npcs.counts();
-    println!("{tree}: {npc_count} NPCs and {object_count} objects at the start");
     let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
     // frames do not depend on the monitor.
@@ -351,9 +356,18 @@ fn run(cli: Cli) -> Result<AppExit> {
     }
     settings.display.width = cli.width.unwrap_or(settings.display.width);
     settings.display.height = cli.height.unwrap_or(settings.display.height);
+    let log_file = cli
+        .log_file
+        .or_else(|| settings::state_dir().map(|dir| dir.join("logs").join("opensacred.log")));
     let mut app = App::new();
+    // Before Bevy's plugins, whose `LogPlugin` takes the log's layer from it.
+    app.insert_resource(journal::Journal::new(log_file));
     app.add_plugins(
         DefaultPlugins
+            .set(LogPlugin {
+                custom_layer: journal::layer,
+                ..default()
+            })
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "OpenSacred".into(),
@@ -392,6 +406,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         frame::FramePlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
+        journal::JournalPlugin,
         liquids::LiquidsPlugin,
         models::ModelsPlugin,
         npcs::NpcsPlugin,
@@ -399,9 +414,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-        sound::SoundPlugin,
     ))
     .add_plugins((
+        sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
@@ -430,6 +445,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     })
     .add_systems(Startup, (camera, light))
     .add_systems(Update, iso::zoom.in_set(frame::Step::Zoom));
+    info!("{tree}: {npc_count} NPCs and {object_count} objects at the start");
     if let Some(shadows) = shadows {
         app.insert_resource(statics::ShadowAtlas(shadows));
     }

@@ -81,6 +81,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 
 * The HUD's portrait, health bar and Walk/Run label go (#168): the health is always full until M3, and the gait is the overlay's now.
   The cursor and the interface's scale stay; `docs/decisions/2026-10-17-hud.md` changes with it.
+  Done 2026-10-19.
 * **The overlay (F3)**, in the upper left, refreshed four times a second in a monospaced font.
   One function gathers its values, which the remote protocol returns too (§8):
   * the frames a second, the mean and slowest frame time of the last second;
@@ -90,6 +91,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the version, the GPU adapter and backend, the window's size and mode.
 * **The log (F4)**: a `tracing` layer keeps the last 1,000 records in a ring with sequence numbers; F4 shows the last 15 at the lower left, warnings yellow and errors red.
   The same records go to `%LOCALAPPDATA%\OpenSacred\logs\opensacred.log` (`$XDG_STATE_HOME` on Linux), a new file each start with the two before kept, so that a crash's log can be read after it; `--log-file` writes another one.
+  Done 2026-10-19 (#169): the records are those that Bevy's filter lets through (INFO and above), each line of the file `seconds-since-the-start LEVEL target: message`; the panel takes one line a record, its targets in the game without `opensacred_game::`, and whether it shows is the setting `[debug] log`.
 
 ## 6. Commands and scripts (#173)
 
