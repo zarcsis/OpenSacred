@@ -54,6 +54,11 @@ impl MaterialExtension for InOrder {
         SHADER.into()
     }
 
+    /// Bevy's own, its colour encoded for the frame (`srgb`).
+    fn fragment_shader() -> ShaderRef {
+        crate::shaders::STANDARD.into()
+    }
+
     /// The depth as the vertex shader puts it: a blended material's `depth_bias` is its layer of
     /// the blended things (the shadows').
     fn specialize(

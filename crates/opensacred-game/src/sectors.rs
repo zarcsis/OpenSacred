@@ -16,7 +16,7 @@ use crate::frame::Step;
 use crate::hero::Body;
 use crate::liquids::Liquids;
 use crate::terrain::Heights;
-use crate::{daynight, iso, liquids, statics, terrain};
+use crate::{blended, daynight, iso, liquids, statics, terrain};
 
 /// Sectors around the hero's that load: a radius of 1 is 3 × 3.
 const LOAD_RADIUS: i64 = 1;
@@ -134,7 +134,7 @@ pub fn stream(
     assets: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<blended::Sorted>>,
     mut sprite_materials: ResMut<Assets<statics::SpriteMaterial>>,
     mut grounds: ResMut<Assets<terrain::GroundMaterial>>,
     light_types: Res<daynight::LightTypes>,

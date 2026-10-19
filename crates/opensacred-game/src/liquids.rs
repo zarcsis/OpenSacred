@@ -23,7 +23,7 @@ use bevy::prelude::{
 };
 use opensacred_data::world::{Cell, SIDE, Sector};
 
-use crate::blended::Layer;
+use crate::blended::{self, Layer, Sorted};
 use crate::iso;
 
 /// A liquid material of the original's table.
@@ -185,7 +185,7 @@ pub fn build(sector: &Sector) -> Surfaces {
 /// A material's frames and the one material that shows them on every surface.
 struct Animated {
     frames: Vec<Handle<Image>>,
-    material: Handle<StandardMaterial>,
+    material: Handle<Sorted>,
 }
 
 /// The frames of every liquid material, loaded when a surface first needs them.
@@ -247,8 +247,8 @@ impl Liquids {
         &mut self,
         material: u8,
         assets: &AssetServer,
-        materials: &mut Assets<StandardMaterial>,
-    ) -> Option<Handle<StandardMaterial>> {
+        materials: &mut Assets<Sorted>,
+    ) -> Option<Handle<Sorted>> {
         if let Some(animated) = self.animated.get(&material) {
             return Some(animated.material.clone());
         }
@@ -270,15 +270,17 @@ impl Liquids {
                     .load(file.clone())
             })
             .collect();
-        let handle = materials.add(StandardMaterial {
-            base_color: Color::WHITE,
-            base_color_texture: frames.first().cloned(),
-            unlit: true,
-            cull_mode: None,
-            alpha_mode: AlphaMode::Blend,
-            depth_bias: Layer::Liquids.bias(),
-            ..default()
-        });
+        let handle = materials.add(blended::sorted(
+            StandardMaterial {
+                base_color: Color::WHITE,
+                base_color_texture: frames.first().cloned(),
+                unlit: true,
+                cull_mode: None,
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            },
+            Layer::Liquids,
+        ));
         self.animated.insert(
             material,
             Animated {
@@ -297,7 +299,7 @@ pub fn spawn(
     liquids: &mut Liquids,
     assets: &AssetServer,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
+    materials: &mut Assets<Sorted>,
 ) -> Vec<Entity> {
     let mut entities = Vec::new();
     for (material, mesh) in surfaces.0 {
@@ -326,7 +328,7 @@ pub fn animate(
     time: Res<Time>,
     liquids: Res<Liquids>,
     images: Res<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<Sorted>>,
 ) {
     let ms = time.elapsed().as_millis();
     for animated in liquids.animated.values() {
@@ -339,11 +341,11 @@ pub fn animate(
         let Some(material) = materials.get(&animated.material) else {
             continue;
         };
-        if material.base_color_texture.as_ref() == Some(frame) {
+        if material.base.base_color_texture.as_ref() == Some(frame) {
             continue;
         }
         if let Some(mut material) = materials.get_mut(&animated.material) {
-            material.base_color_texture = Some(frame.clone());
+            material.base.base_color_texture = Some(frame.clone());
         }
     }
 }

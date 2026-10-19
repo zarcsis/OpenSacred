@@ -3,7 +3,8 @@
 // makes of them, each texel taken from the slot of the cell it lies in, so that filtering runs
 // across the cells' edges as within the cells. The texel, as stored in sRGB values, is multiplied
 // by the corners' light, as the original multiplies the 8-bit texel by the diffuse colour of its
-// corners (docs/02 §5.3), and the product is decoded to linear light for the frame.
+// corners (docs/02 §5.3); the product, decoded to linear light for Bevy's last steps, is what
+// the frame holds (`post::post_process`).
 
 import bevy_pbr::render::forward_io::VertexOutput;
 import package::post::post_process;

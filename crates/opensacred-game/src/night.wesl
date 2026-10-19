@@ -1,6 +1,6 @@
 // The night's darkness (`daynight::Night`): the frame, drawn, multiplied by the colour the
-// original gives the world by night (docs/re/daynight.md), in its 8-bit values, as the original
-// multiplies the art by its vertices' colour.
+// original gives the world by night (docs/re/daynight.md), in the sRGB values the frame holds
+// (`srgb::Frame`), as the original multiplies the art's 8-bit values by its vertices' colour.
 
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
@@ -17,18 +17,6 @@ struct Night {
     lights: array<vec4<f32>, 32>,
 };
 @group(0) @binding(2) var<uniform> night: Night;
-
-fn to_srgb(linear: vec3<f32>) -> vec3<f32> {
-    let low = linear * 12.92;
-    let high = 1.055 * pow(linear, vec3(1.0 / 2.4)) - 0.055;
-    return select(high, low, linear <= vec3(0.0031308));
-}
-
-fn to_linear(srgb: vec3<f32>) -> vec3<f32> {
-    let low = srgb / 12.92;
-    let high = pow((srgb + 0.055) / 1.055, vec3(2.4));
-    return select(high, low, srgb <= vec3(0.04045));
-}
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
@@ -54,5 +42,5 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if night.scale.z > 0.5 {
         light = vec3(((base + level / 3.0) * 0.75 + 64.0) / 255.0);
     }
-    return vec4(to_linear(to_srgb(colour.rgb) * light), colour.a);
+    return vec4(colour.rgb * light, colour.a);
 }
