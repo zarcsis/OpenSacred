@@ -59,7 +59,15 @@ For every other sprite the two states are off and the depth is 0: it is drawn ov
 
 In the game data 47 types carry bit `0x200`, with 220 drawn objects in the whole world; by their editor names they are the floors of towers' and houses' upper storeys.
 
-The other states of that table (`0x643470`, the engine's switch of Direct3D 8 states): `8` and `0x10` make the source and the destination blend factors `ONE` (else `SRCALPHA` and `INVSRCALPHA`), `0x40` the depth function `GREATER` (else `LESSEQUAL`; only `cGranny::renderShadowFake`, `0x4073B0`, sets it, for a second pass of a model's fake shadow), `0x800` the linear filter of both texture stages (else point).
+The other states of that table (`0x643470`, the engine's switch of Direct3D 7 states, through `IDirect3DDevice7::SetRenderState` and `SetTextureStageState` at `+0x50` and `+0x94` of the device's table; read again 2026-10-18): `8` and `0x10` make the source and the destination blend factors `ONE` (else `SRCALPHA` and `INVSRCALPHA`), `0x40` the depth function `GREATER` (else `LESSEQUAL`; only `cGranny::renderShadowFake`, `0x4073B0`, sets it, for a second pass of a model's fake shadow), `0x800` the linear filter of both texture stages (else point), `0x2` the culling of counter-clockwise faces (else none), `0x4` the alpha blending, `0x20` the lighting, `0x4000` the alpha test.
+
+## Blending
+
+Read 2026-10-18 (#35).
+The device's setup (`0x643190`) puts the alpha test's reference at `0x40` and its function at `GREATER`, turns the alpha blending on and the alpha test off.
+Before a sprite's pieces `0x62FF60` turns the lighting and the culling off, the blend factors to `SRCALPHA` and `INVSRCALPHA`, the filter to point and the alpha test on (`0x630367`…`0x6303AA`); after them, the depth states and the alpha test off again (`0x63098F`…`0x6309B0`).
+So the original drops a sprite's texels of alpha 64 or less, the atlases' 4-bit alphas 0 to 3 (`MIXnnnn.444`, docs/02 §3.3), and blends the rest by their alpha over what is drawn, in the order of its lists, a texel to a pixel at zoom 1.
+A miniature (`0x630F2C`…) is blended by its alpha too, without the test, which the sprite's path leaves off; it is filtered linearly while the float at `+0xB60` of the renderer is over 1.2, else point (the float not followed).
 
 ## The trees about the heroes
 
@@ -84,6 +92,10 @@ The depth state of a model's own draw is not read.
 
 `opensacred-game` orders the sprites through the depth buffer instead (docs/decisions/2026-10-17-sprite-depth.md): each lies at the depth of its cell's centre, so all the sprites of one cell, and those of the cells of one diagonal at one height, have the same depth.
 Its sprite shader brings each one forward by a little in the order above: by its cell's distance along the screen's right, which grows with `cx` along a diagonal, and by its place in the cell's chain (`statics::SpriteMaterial`).
+
+It draws a sprite in two passes (docs/decisions/2026-10-18-sprite-alpha.md): its opaque texels through the depth buffer, then the others blended by their alpha over what lies behind them, after the original's alpha test for the sprites and without it for the miniatures, each texel's colour weighted by its alpha as the shader filters them.
+Bevy draws the blended things after the opaque ones, back to front by their meshes' centres; they go in layers in the original's order instead (`blended`): the miniatures of the liquid cells, the liquids' surfaces, the underlays, the characters' shadows, the sprites of lists 3 and 4, the lamps' glows, and a mesh's quads go far to near.
+Before, the sprites' edges went through alpha to coverage: the texels of alpha around a half came out dithered, those under it dropped, and a sprite's edge over another sprite showed as a dotted line (#35).
 
 The models take the same depth (`models`, docs/decisions/2026-10-18-models-among-sprites.md): every vertex of a model lies at the depth of the centre of the cell its root stands in, its place after the cell's statics, plus a hundredth of its own depth from that centre, which keeps the model's parts in order among themselves.
 A sprite of another diagonal, 33 units of depth away, is then wholly in front of a model or wholly behind it, as in the original; the sprites of the model's own diagonal within a few cells, a tenth of a unit apart, can still cross it.

@@ -23,6 +23,7 @@ use bevy::prelude::{
 };
 use opensacred_data::world::{Cell, SIDE, Sector};
 
+use crate::blended::Layer;
 use crate::iso;
 
 /// A liquid material of the original's table.
@@ -275,6 +276,7 @@ impl Liquids {
             unlit: true,
             cull_mode: None,
             alpha_mode: AlphaMode::Blend,
+            depth_bias: Layer::Liquids.bias(),
             ..default()
         });
         self.animated.insert(

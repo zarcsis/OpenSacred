@@ -4,6 +4,7 @@
 
 mod atmosphere;
 mod benchmark;
+mod blended;
 mod buildings;
 mod daynight;
 mod frame;
@@ -368,8 +369,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     )
     // Each module's plugin registers its own systems, resources and observers; one line a
     // module, in alphabetical order.
+    // Bevy takes 15 plugins at a time.
     .add_plugins((
         bevy_kira_audio::AudioPlugin,
+        blended::BlendedPlugin,
         buildings::BuildingsPlugin,
         daynight::DayNightPlugin,
         frame::FramePlugin,
@@ -383,8 +386,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
         statics::StaticsPlugin,
-        terrain::GroundPlugin,
     ))
+    .add_plugins(terrain::GroundPlugin)
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
