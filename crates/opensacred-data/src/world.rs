@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::packed::{DecodeError, decode, encode};
 
 /// Version of the sector and sprite encodings; a file of another version does not load.
-pub const SECTOR_VERSION: u32 = 5;
+pub const SECTOR_VERSION: u32 = 6;
 /// The index file under the world directory.
 pub const INDEX: &str = "world.ron";
 /// The sprite table under the world directory.
@@ -67,6 +67,19 @@ pub struct Sector {
     /// The sector's inside layers, layer 1 first: the buildings' own cells, which the hero walks
     /// inside them (docs/re/movement.md).
     pub layers: Vec<Layer>,
+    /// The sector's buildings, by their anchors' cells in order.
+    pub buildings: Vec<Building>,
+}
+
+/// A building (docs/re/movement.md, "The layers"): the first static of flag `0x10` in its anchor
+/// cell's chain, to which the offsets of its cells point; its children are its floors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Building {
+    /// The anchor, cell `r · 64 + c` of the sector.
+    pub cell: u16,
+    /// The floors from the first, the ground floor inside, up: of each, the index from 1 in
+    /// [`Sector::layers`] of the inside layer that holds its grid.
+    pub floors: Vec<u16>,
 }
 
 /// An inside layer: a grid of cells of a building's own, from its first cell's global position
@@ -312,6 +325,10 @@ mod tests {
                         ground: 0xD0,
                     },
                 ],
+            }],
+            buildings: vec![Building {
+                cell: 65,
+                floors: vec![1],
             }],
         }
     }

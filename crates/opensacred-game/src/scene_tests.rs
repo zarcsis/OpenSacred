@@ -217,6 +217,7 @@ fn sector() -> Sector {
         cells,
         statics,
         layers: Vec::new(),
+        buildings: Vec::new(),
     }
 }
 

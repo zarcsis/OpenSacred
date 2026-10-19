@@ -112,6 +112,9 @@ pub struct Body {
     target: Option<Vec3>,
     /// Where it walks: the ground or a building's inside layer.
     level: Level,
+    /// Whether it came onto the stairs it stands on by climbing: it climbs again only from a
+    /// stair it stepped onto from off the stairs (the client's flag `0x100`, `0x5FCCB0`).
+    climbed: bool,
     /// The clip playing: standing, walking or running.
     moving: Option<Gait>,
 }
@@ -198,6 +201,7 @@ pub fn spawn(
         Body {
             target: hero.target,
             level: None,
+            climbed: false,
             moving: None,
         },
         models::Ordered::default(),
@@ -298,24 +302,44 @@ pub fn run(
         let here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         // A hero on a building's mass is inside it, on its layer; one on an entrance goes in, one
-        // on an exit out (`0x5FCCB0`).
+        // on an exit out; one on a stair it stepped onto from off the stairs to the stair's
+        // floor, at the cell the stair gives (`0x5FCCB0`).
         if body.level.is_none() && !heights.walkable(cell) {
             body.level = heights.level_of(cell);
         }
         body.level = heights.transition(cell, body.level);
+        if !heights.on_stairs(cell, body.level) {
+            body.climbed = false;
+        }
+        let mut here = here;
+        if !body.climbed
+            && let Some((to, level)) = heights.climb(cell, body.level)
+        {
+            let shift = iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32);
+            here += shift.with_y(0.0);
+            if let Some(y) = heights.at(here.x, here.z) {
+                here.y = y;
+            }
+            transform.translation = here;
+            body.level = level;
+            body.climbed = true;
+        }
         let level = body.level;
         if let Some(target) = body.target {
             let walkable = |cell| heights.walkable_on(cell, level);
             // Round what blocks the way and through the doors; straight on toward a target that
             // cannot be reached, up to what blocks it.
+            // From where it stands it climbs no more: the stair it stands on, if any, it has
+            // climbed already or arrived on.
             let toward = match paths::next(
                 here,
-                level,
+                (level, false),
                 target,
-                |cell, at| heights.walkable_on(cell, at),
+                |cell, (at, _)| heights.walkable_on(cell, at),
                 |place| heights.neighbours(place),
+                |(at, _)| at,
             ) {
-                Some(paths::Step::Through(next)) => {
+                Some(paths::Step::Through((next, _))) => {
                     body.level = next;
                     here
                 }

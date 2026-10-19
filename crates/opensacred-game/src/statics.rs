@@ -1355,6 +1355,7 @@ pub(crate) mod tests {
             cells: vec![cell(flags); SIDE * SIDE],
             statics: Vec::new(),
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         // A room's candle and the shell's wall, of the building at their cell's offsets (none
         // here); a part outside a building, an ordinary static.
@@ -1495,6 +1496,7 @@ pub(crate) mod tests {
             cells: vec![cell; SIDE * SIDE],
             statics: vec![object(LIGHT | 0x8), object(0x8)],
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let statics = build(
             &dir,
@@ -1588,6 +1590,7 @@ pub(crate) mod tests {
                 cells,
                 statics: vec![object(5, -103, top, 207), object(6, 0, 288, 124)],
                 layers: Vec::new(),
+                buildings: Vec::new(),
             };
             let statics = build(
                 &dir,
@@ -1704,6 +1707,7 @@ pub(crate) mod tests {
             cells,
             statics: vec![object(5, 5), object(5, 5), object(6, 4), object(4, 4)],
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
@@ -1838,6 +1842,7 @@ pub(crate) mod tests {
             cells: vec![cell; SIDE * SIDE],
             statics: vec![object(5 * side + 5, 34_806), object(side + 9, 34_814)],
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let statics = build(&dir, &world, &sprites, None, &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
@@ -1960,6 +1965,7 @@ pub(crate) mod tests {
                 object(0, 1, 0),
             ],
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let statics = build(&dir, &world, &sprites, Some("shadows.png"), &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
