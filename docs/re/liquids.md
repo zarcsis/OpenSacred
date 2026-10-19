@@ -32,9 +32,19 @@ The vertices of a liquid cell come from a template built at `0x624AB6`: 4 × 4 s
 A cell takes the sub-cell of its grid position `& 3` on both axes, so a frame spans 4 × 4 cells along the grid, its corners at the cells' corners.
 Which grid axis is u is not verified.
 
-A second template at `0x81640` has 2 × 2 sub-cells, UV stepping by 0.5, diffuse `0x00AAAAAA`; the pass at `0x62DDD7` fills it only for the materials with `+0xCC` set (the clear waters) and positions it with the cell's parity (`& 1`).
-Hypothesis: a second, translucent layer over the clear waters (reflection or caustics, `CAUST00`…).
-What texture and blending the two layers use is not followed.
+A second template at `0x81640` has 2 × 2 sub-cells, UV stepping by 0.5, diffuse `0x00AAAAAA`; the pass at `0x62DDD7` fills it only for the materials with `+0xCC` set (the clear waters) and positions it with the cell's parity (`& 1`): the second layer below.
 
-`opensacred-game` follows the slots, the timing and the 4 × 4 mapping (`liquids.rs`).
+## The surfaces
+
+Read 2026-10-19 (#103), `0x62DD00`.
+A cell's surface is a strip of four vertices, left, top, bottom and right, at the cell's position on the screen plus the four offsets of a diamond at `+0xA90` of the view: no height is added, so the surface lies flat at height 0 while the bed lies at its heights (`+0x10`…`+0x13`, docs/02 §5.3).
+Each corner's alpha is its own corner's bed height times the material's int at `+0xD0` (docs/02 §5.2), held to 0…255: under the waters of −12, clear over a bed at 0 or above, 60 at −5, 120 at −10, 180 at −15 and opaque from −22 down (from −11 for `F_WATER`, −24); the liquids of −255 (the lavas, the sulphur, `E_WATER`) opaque over any bed below 0 and clear at 0.
+So a pond is clear at its shore, where the bed comes up to 0, and as deep as its bed is opaque.
+Its colour is white, or while the renderer's flag `0x20` (the night) or the dungeons' `+0x9E0C` is set, the light at the corner's point of the screen (`0x41B510`, docs/re/daynight.md).
+It is blended by its alpha (`SRCALPHA`, `INVSRCALPHA`), filtered linearly, with the frame of the moment bound per cell (`0x628F90`).
+
+At `DETAILLEVEL` 2, before the surfaces, the clear waters (`+0xCC`) have a second layer: the cell's own ground quad, on the bed, each corner moved 0.2 pixels inward over the zoom, with the 2 × 2 template's coordinates, added to the frame (`ONE`, `ONE`), its grey at each corner `clamp(−8 · h, 0, 255) · (255 − N) >> 8` for the bed's height `h` and the night's level `N`.
+Its texture is not bound by the pass and is not followed (#118).
+
+`opensacred-game` follows the slots, the timing, the 4 × 4 mapping and the surfaces, flat at height 0 and as opaque as the bed is deep (`liquids.rs`); the second layer waits for its texture (docs/decisions/2026-10-17-liquids.md).
 Its surfaces lie over the miniatures of the liquid cells and under the draw lists, as the original draws them between the two (docs/re/drawing.md, "The liquid cells").
