@@ -487,6 +487,9 @@ pub struct Static {
     /// pixels; with flag `0x40` columns, rows, rotation, timing and frames of an animation
     /// (openheilig).
     pub miniature: [u8; 5],
+    /// `+0x33`: for a type of bit `0x200`, an upper storey's floor, the height of the plane the
+    /// client draws it in, in steps of 28 pixels (`0x62FF60`, docs/re/drawing.md, "Depth").
+    pub height: u8,
 }
 
 impl<'a> Statics<'a> {
@@ -541,6 +544,7 @@ impl<'a> Statics<'a> {
         r.bytes(0x2D - 0x2C, "static")?;
         let layer = r.u8()?;
         let miniature = r.array("static miniature")?;
+        let height = r.u8()?;
         Ok(Static {
             kind,
             flags,
@@ -554,6 +558,7 @@ impl<'a> Statics<'a> {
             mask,
             layer,
             miniature,
+            height,
         })
     }
 
@@ -907,6 +912,7 @@ mod tests {
                 mask: 1,
                 layer: 3,
                 miniature: [0; 5],
+                height: 0,
             }
         );
         assert_eq!(statics.chain(1).unwrap(), [1, 2]);

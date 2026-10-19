@@ -27,6 +27,11 @@ pub const SCREEN_HEIGHT: f32 = 768.0;
 /// citizens of the village suggest.
 pub const MODEL_SCALE: f32 = 1024.0 / 534.0 / PIXELS_PER_UNIT;
 
+/// Screen pixels at zoom 1 per unit of the models' height in the original, whose view looks
+/// down at atan(1/2) (`0x6284E0`) under `ortho(±200)` on 768 pixels: the original raises a point
+/// of height `z` by this many pixels, `768 / 400 · 2 / √5` (docs/re/drawing.md, "Depth").
+pub const PIXELS_PER_MODEL_HEIGHT: f32 = 1.717_300_2;
+
 /// How far behind the objects the ground lies along the line of sight: it changes nothing on
 /// screen, but the ground never hides an object, as in the original, which draws the ground
 /// first and the objects over it.
@@ -144,6 +149,10 @@ mod tests {
             screen(Vec3::new(0.0, height(10.0), 0.0)),
             Vec2::new(0.0, -10.0)
         ));
+        // The original's unit of the models' height: 400 units over 768 pixels, seen at
+        // atan(1/2) from above.
+        let unit = 768.0 / 400.0 * 2.0 / 5.0_f32.sqrt();
+        assert!((PIXELS_PER_MODEL_HEIGHT - unit).abs() < 1e-5);
         // The ground pushed back stays where it was on screen.
         assert!(close(screen(forward() * GROUND_BEHIND), Vec2::ZERO));
     }

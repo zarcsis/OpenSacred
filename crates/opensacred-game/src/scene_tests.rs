@@ -198,6 +198,7 @@ fn sector() -> Sector {
             sprite,
             miniature: None,
             shadow: None,
+            floor: None,
             children: Vec::new(),
         }
     };

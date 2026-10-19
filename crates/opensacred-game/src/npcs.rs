@@ -519,6 +519,16 @@ pub fn place(
             let (x, y) = placement.cell;
             let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
             position.y = heights.at(position.x, position.z).unwrap_or(0.0);
+            // On a building's floor: the building whose floor's grid holds the cell, or the
+            // cell's on the ground; at the floor's height.
+            let floor = usize::try_from(placement.layer).ok().filter(|&f| f > 0);
+            let on_floor = match (i32::try_from(x), i32::try_from(y), floor) {
+                (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
+                _ => None,
+            };
+            if let (Some(building), Some(floor)) = (on_floor, floor) {
+                position.y += heights.lift_on(building, floor);
+            }
             let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
             let mut entity = commands.spawn((
                 WorldAssetRoot(scene),
@@ -528,16 +538,7 @@ pub fn place(
                 models::Ordered::default(),
             ));
             if placement.layer != 0 {
-                // On a building's floor: shown with it, the building whose floor's grid holds
-                // the cell, or the cell's on the ground; else never.
-                let on_floor = match (
-                    i32::try_from(x),
-                    i32::try_from(y),
-                    usize::try_from(placement.layer),
-                ) {
-                    (Ok(cx), Ok(cy), Ok(floor)) => heights.building_on_floor((cx, cy), floor),
-                    _ => None,
-                };
+                // On a building's floor: shown with it; else never.
                 let building = on_floor.or_else(|| {
                     heights
                         .building(position.x, position.z)

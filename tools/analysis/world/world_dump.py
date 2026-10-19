@@ -82,7 +82,8 @@ CELL_CHUNK = CELL_SIZE * CELLS
 # entries of 28 B from keyx +0x1EE whose bit is set in the mask at +0x1ED starts with the word 4, else 0;
 # buildings: the cells whose chain holds a static of flag 0x10 (the first such is the building); buildings_crc: CRC-32
 # over those cells in order of u32 LE cell index, u32 LE the number of the building's children (its floors), then
-# each child's +0x2D (u8, the index from 1 of the inside layer holding its grid).
+# each child's +0x2D (u8, the index from 1 of the inside layer holding its grid) and +0x33 (u8, the floor's height
+# in steps of 28 units of the models' height, 0 for floor 1).
 RECORD_COLUMNS = ('index', 'x', 'y', 'id', 'inflated', 'tail', 'liquids', 'cells_crc', 'tail_crc', 'statics',
                   'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc', 'area', 'music', 'dungeon',
                   'buildings', 'buildings_crc')
@@ -295,8 +296,9 @@ def main():
             for k in kids:
                 c("buildings: a floor lies in its building's sector, on one of its inside layers",
                   static_sector[k] == sector_id and 1 <= s[k, 0x2D] < max(n_layers, 1), where)
-            buildings_crc = zlib.crc32(struct.pack('<II', cell, len(kids)) + bytes(s[k, 0x2D] for k in kids),
-                                       buildings_crc)
+            c("buildings: floor 1 at the ground's height (+0x33 0)", s[kids[0], 0x33] == 0, where)
+            buildings_crc = zlib.crc32(struct.pack('<II', cell, len(kids))
+                                       + bytes(b for k in kids for b in (s[k, 0x2D], s[k, 0x33])), buildings_crc)
         stats['buildings'] += n_buildings
         stats['statics in chains'] += n_statics
         stats['floor overlays in chains'] += n_floors

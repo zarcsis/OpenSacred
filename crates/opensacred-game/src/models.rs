@@ -37,7 +37,7 @@ const SHADER: &str = "embedded://opensacred_game/models.wesl";
 /// the places from 0, short of the next cell of the diagonal, at 33.8. The model's own depth
 /// spreads it half a unit either way (`models.wesl`), over the places of a few cells of its
 /// diagonal, and far from the next diagonal's.
-const PLACE: f32 = 24.0;
+pub(crate) const PLACE: f32 = 24.0;
 
 /// A glTF material of a model, drawn at the model's place in the order.
 pub type ModelMaterial = ExtendedMaterial<StandardMaterial, InOrder>;
@@ -154,13 +154,19 @@ impl Plugin for ModelsPlugin {
 }
 
 /// The anchor of a model whose root stands at `position`: the centre of its cell, at the cell's
-/// height, from which the model's own depth is measured, after the cell's statics.
+/// height and as high again over it as the root stands over its own ground (on a building's
+/// floor), from which the model's own depth is measured, after the cell's statics.
 fn anchor(heights: &Heights, position: Vec3) -> Vec4 {
     let centre = iso::ground(
         (position.x / iso::CELL).floor() + 0.5,
         (position.z / iso::CELL).floor() + 0.5,
     );
-    let height = heights.at(centre.x, centre.z).unwrap_or(position.y);
+    let lift = heights
+        .at(position.x, position.z)
+        .map_or(0.0, |ground| position.y - ground);
+    let height = heights
+        .at(centre.x, centre.z)
+        .map_or(position.y, |ground| ground + lift);
     Vec4::new(centre.x, height, centre.z, PLACE)
 }
 

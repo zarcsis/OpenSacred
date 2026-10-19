@@ -709,12 +709,21 @@ fn shadow_quad(shadow: &Shadow) -> Quad {
     }
 }
 
+/// How far behind the ground point under it an upper storey's floor lies, along the line of
+/// sight: a cell's depth from its centre to its front corner (33 units) and the half unit that a
+/// model spreads about its place (`models.wesl`), so that what stands anywhere on a cell of the
+/// floor, at its cell's place, lies in front of the floor under it.
+const FLOOR_BEHIND: f32 = 34.0;
+
 /// A quad's place: the centre of its cell at height 0, at its list's depth, with its place in
-/// the cell, and that centre on the original's screen.
+/// the cell, and that centre on the original's screen; for an upper storey's floor, the height
+/// of its plane in pixels.
 struct Spot {
     anchor: Vec3,
+    back: f32,
     chain: f32,
     screen: Vec2,
+    floor: Option<f32>,
 }
 
 impl Spot {
@@ -723,14 +732,43 @@ impl Spot {
     fn new(cx: f32, cy: f32, back: f32, chain: f32) -> Self {
         Self {
             anchor: iso::ground(cx, cy) + iso::forward() * back,
+            back,
             chain,
             screen: Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy)),
+            floor: None,
+        }
+    }
+
+    /// The spot of an upper storey's floor whose plane lies `floor` units of the models' height
+    /// high, if any.
+    fn on_floor(self, floor: Option<u16>) -> Self {
+        Self {
+            floor: floor.map(|units| f32::from(units) * iso::PIXELS_PER_MODEL_HEIGHT),
+            ..self
         }
     }
 
     /// The anchor as the shader takes it, its place in the cell last.
     fn placed(&self) -> [f32; 4] {
         [self.anchor.x, self.anchor.y, self.anchor.z, self.chain]
+    }
+
+    /// The anchor of the quad's corner at `screen`, a point of the original's screen at zoom 1:
+    /// the quad's own, but for an upper storey's floor, which the original draws through the
+    /// depth buffer in a horizontal plane at its height (`0x62FF60`, `0x6288A0`). Each corner of
+    /// a floor takes the place of the ground point under the floor's point there, `FLOOR_BEHIND`
+    /// further back: what stands on the floor, at its cell's place, lies in front of the floor
+    /// wherever it stands, and the floor's points further up the screen, further back on the
+    /// floor, lie behind what stands before them.
+    fn anchor_at(&self, screen: Vec2) -> [f32; 4] {
+        let Some(height) = self.floor else {
+            return self.placed();
+        };
+        // The ground point `height` pixels below on the screen: `48 (cx − cy)`, `24 (cx + cy)`.
+        let (across, down) = (screen.x / 48.0, (screen.y + height) / 24.0);
+        let ground = iso::ground((down + across) / 2.0, (down - across) / 2.0)
+            + iso::forward() * (self.back + FLOOR_BEHIND);
+        [ground.x, ground.y, ground.z, self.chain]
     }
 
     /// The point of the world in the plane of the screen through the anchor that shows at
@@ -782,7 +820,9 @@ fn add_quad(
         .extend(screens.map(|screen| screen.to_array()));
     batch.fades.extend([f32::from(u8::from(quad.fades)); 4]);
     let placed = spot.placed();
-    batch.anchors.extend([placed; 4]);
+    batch
+        .anchors
+        .extend(screens.map(|screen| spot.anchor_at(screen)));
     let (w, h) = size;
     batch.uvs.extend([
         [u0 / w, v0 / h],
@@ -924,7 +964,7 @@ pub fn build(
         let Some(quad) = quad else {
             continue;
         };
-        let spot = Spot::new(cx, cy, back, chain);
+        let spot = Spot::new(cx, cy, back, chain).on_floor(object.floor);
         let (size, source) = texture_of(quad.texture)?;
         // A lamp's glow: each corner of its miniature moved out by its size, so three times it
         // across and down, the whole texture over it (`0x62FF60`).
@@ -1322,6 +1362,46 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn what_stands_on_a_floor_lies_in_front_of_it() {
+        // A floor of the cell (3300, 2500), its plane 112 or 224 units of the models' height high
+        // (`+0x33` 4 or 8).
+        for height in [112, 224] {
+            let spot = Spot::new(3300.5, 2500.5, 0.0, 0.0).on_floor(Some(height));
+            let h = f32::from(height) * iso::PIXELS_PER_MODEL_HEIGHT;
+            // A model standing anywhere on a cell of the floor around it: its foot on the screen
+            // `h` pixels above its ground point, its place its cell's centre after its statics.
+            for (cx, cy) in [(3300, 2500), (3298, 2503), (3304, 2497)] {
+                let place = iso::ground(cx as f32 + 0.5, cy as f32 + 0.5);
+                let model = nearness([place.x, 0.0, place.z, crate::models::PLACE]);
+                for (dx, dy) in [(0.0, 0.0), (0.99, 0.0), (0.0, 0.99), (0.99, 0.99)] {
+                    let (gx, gy) = (cx as f32 + dx, cy as f32 + dy);
+                    let foot = Vec2::new(48.0 * (gx - gy), 24.0 * (gx + gy) - h);
+                    let floor = nearness(spot.anchor_at(foot));
+                    // In front by more than the half unit a model spreads about its place.
+                    assert!(
+                        model - 0.5 > floor,
+                        "{height} ({gx}, {gy}): {model} {floor}"
+                    );
+                    // The floor further up the screen, further back on it, lies further back.
+                    let above = nearness(spot.anchor_at(foot - Vec2::new(0.0, 24.0)));
+                    assert!(above < floor - 30.0, "{height} ({gx}, {gy})");
+                }
+            }
+            // Its anchor is the ground point under the floor's point, `FLOOR_BEHIND` back.
+            let corner = Vec2::new(48.0 * 0.3, 24.0 * 5000.0 - h);
+            let ground = Vec3::from_array(spot.anchor_at(corner)[..3].try_into().unwrap())
+                - iso::forward() * FLOOR_BEHIND;
+            let (cx, cy) = (ground.x / iso::CELL, ground.z / iso::CELL);
+            assert!((48.0 * (cx - cy) - corner.x).abs() < 1e-2);
+            assert!((24.0 * (cx + cy) - (corner.y + h)).abs() < 1e-2);
+            assert!(ground.y.abs() < 1e-3);
+        }
+        // Any other sprite takes its own anchor at every corner.
+        let spot = Spot::new(3300.5, 2500.5, 0.0, 3.0);
+        assert_eq!(spot.anchor_at(Vec2::new(10.0, 20.0)), spot.placed());
+    }
+
+    #[test]
     fn a_buildings_parts_are_found_by_their_flag_and_cell() {
         let cell = |flags| Cell {
             tile: 0,
@@ -1345,6 +1425,7 @@ pub(crate) mod tests {
             sprite: 1,
             miniature: None,
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         let sector = |flags| Sector {
@@ -1486,6 +1567,7 @@ pub(crate) mod tests {
                 params: [0, 0, 32, 0, 0],
             }),
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         let sector = Sector {
@@ -1565,6 +1647,7 @@ pub(crate) mod tests {
                 params: [0, 0, size, 0, 0],
             }),
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         // How far behind a vertex along the line of sight a surface lies at the vertex's place on
@@ -1690,6 +1773,7 @@ pub(crate) mod tests {
             sprite: 1,
             miniature: None,
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal, and one
@@ -1831,6 +1915,7 @@ pub(crate) mod tests {
             sprite: 1,
             miniature: None,
             shadow: None,
+            floor: None,
             children: Vec::new(),
         };
         let side = u16::try_from(SIDE).unwrap();
@@ -1950,6 +2035,7 @@ pub(crate) mod tests {
             sprite,
             miniature: None,
             shadow: Some(shadow),
+            floor: None,
             children: Vec::new(),
         };
         let sector = Sector {

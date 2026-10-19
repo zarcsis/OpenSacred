@@ -148,7 +148,8 @@ fn sectors_and_chains_match_world_dump_py() {
             buildings_crc.update(&u32::try_from(index).unwrap().to_le_bytes());
             buildings_crc.update(&u32::try_from(floors.len()).unwrap().to_le_bytes());
             for floor in floors {
-                buildings_crc.update(&[statics.get(to_usize(floor)).unwrap().layer]);
+                let floor = statics.get(to_usize(floor)).unwrap();
+                buildings_crc.update(&[floor.layer, floor.height]);
             }
         }
         let ours = [
