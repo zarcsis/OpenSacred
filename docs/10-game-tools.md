@@ -37,7 +37,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 
 ## 3. Settings (#167)
 
-* The file is `settings.toml` in the user's configuration directory: `%APPDATA%\OpenSacred\` on Windows, `$XDG_CONFIG_HOME/OpenSacred/` on Linux, through the `directories` crate (docs/06 §6, ADR-08).
+* The file is `settings.toml` in the user's configuration directory: `%APPDATA%\OpenSacred\` on Windows, `$XDG_CONFIG_HOME/OpenSacred/` on Linux, taken from the environment (docs/06 §6, ADR-08).
+  Done 2026-10-19 (#167).
 * The first section is the display:
 
   ```toml
