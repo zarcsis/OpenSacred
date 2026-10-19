@@ -666,6 +666,7 @@ The interpreter must **refuse** an unknown type rather than skip it, otherwise t
 
 Confirmed from the strings of both exes: the loader (`%s\FunkCode.bin`) and all handler strings (`CreateOBJ`, `GetPoolPos`, `IsNotVarBit`, …) exist only in Sacred.exe; GameServer.exe has only `SelfTriggerQuest%d`, `TRIGGER_INSERT_QUEST`, `NW_TRIGGER_UPDATE_QUESTDB`.
 The scripts are executed by the **host client**; the server stores QuestDB and relays `TRIGGER_*` packets.
+A new game runs its tree's start script through, which sets quests up (`SetUpQuest`) and enters some (`TriggerQuest`), running their `QIS_OnEnter<n>` functions (**confirmed** by code 2026-10-19, docs/re/netscript.md, "Quests").
 This refutes an earlier guess ("the VM on the server is the best entry point") and means the VM's semantics have to be recovered from the client.
 Addresses according to sacred-sdk: the operand reader `FUN_00472BC0` (a table of 256 markers in 40 groups), the walker `FUN_00475680`, section start `FUN_0046BA90`.
 The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScriptedSequenceR`, `cInterpretSQW`, error messages with line numbers, keyword and directive tables `ToDoBloecke:`/`Delay:`/`Belohnungen:`/`Dialog:`) is built into the exe: the grammar can be recovered by decompilation, which opens up quest modding from text.

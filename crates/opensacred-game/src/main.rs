@@ -350,7 +350,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     let streamer = sectors::Streamer::new(shared, at, first);
     let npcs = npcs::Npcs::read(&assets, &tree)?;
     let (npc_count, object_count) = npcs.counts();
-    println!("{tree}: {npc_count} NPCs and {object_count} objects in the start script");
+    println!("{tree}: {npc_count} NPCs and {object_count} objects at the start");
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
