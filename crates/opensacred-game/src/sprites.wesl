@@ -17,8 +17,8 @@ struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
     @location(1) uv: vec2<f32>,
-    /// The centre of the sprite's cell, at its height and its draw list's depth, and its place
-    /// in the cell's chain.
+    /// The centre of the sprite's cell, at height 0 and its draw list's depth, and its place in
+    /// the cell's chain.
     @location(2) anchor: vec4<f32>,
     /// The piece's texels in the atlas: its first column and row, and its last.
     @location(3) source: vec4<f32>,

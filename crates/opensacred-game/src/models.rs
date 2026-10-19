@@ -73,7 +73,9 @@ impl MaterialExtension for InOrder {
 }
 
 /// Every model's anchor, by the slot its root holds, for the shader by its meshes' tags: the
-/// centre of the model's cell at the cell's height, and the place in the cell.
+/// centre of the model's cell at the cell's height, from which the model's own depth is measured,
+/// and the place in the cell. The place in the order is that centre at height 0, as the sprites'
+/// (#112).
 #[derive(Resource)]
 pub struct Anchors {
     buffer: Handle<ShaderBuffer>,
@@ -152,7 +154,7 @@ impl Plugin for ModelsPlugin {
 }
 
 /// The anchor of a model whose root stands at `position`: the centre of its cell, at the cell's
-/// height (the mean of its corners', as the sprites' anchors), after the cell's statics.
+/// height, from which the model's own depth is measured, after the cell's statics.
 fn anchor(heights: &Heights, position: Vec3) -> Vec4 {
     let centre = iso::ground(
         (position.x / iso::CELL).floor() + 0.5,

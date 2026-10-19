@@ -4,12 +4,13 @@
 //! pieces' edges as within them.
 //!
 //! The original draws the ground, then the objects back to front. Here a sprite is a quad in the
-//! plane of the screen, as flat as the original's, set at the depth of the centre of its cell,
-//! so that the depth buffer orders the sprites and the hero among themselves; the ground lies
-//! behind all of them (`terrain`), and the miniatures of the liquid cells between it and the
-//! liquids' surfaces (`liquids`). Sprites at the same depth, those of one cell and those of the
-//! cells of one diagonal at one height, would fight; the shader brings each a little forward in
-//! the original's order of drawing (`sprites.wesl`). The sprites of one page share one mesh.
+//! plane of the screen, as flat as the original's, set at the depth of the centre of its cell at
+//! height 0, so that the depth buffer orders the sprites and the hero among themselves as the
+//! original orders them, by their cells whatever their heights; the ground lies behind all of
+//! them (`terrain`), and the miniatures of the liquid cells between it and the liquids' surfaces
+//! (`liquids`). Sprites at the same depth, those of one cell and those of the cells of one
+//! diagonal, would fight; the shader brings each a little forward in the original's order of
+//! drawing (`sprites.wesl`). The sprites of one page share one mesh.
 //! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
 //! one mesh; the animated ones (flag 0x40) show their first frame, still.
 //!
@@ -68,8 +69,8 @@ struct Batch {
     indices: Vec<u32>,
 }
 
-/// What places a vertex's sprite in depth (`sprites.wesl`): the centre of its cell at its
-/// height and its draw list's depth, and its object's place in the cell's chain.
+/// What places a vertex's sprite in depth (`sprites.wesl`): the centre of its cell at height 0
+/// and its draw list's depth, and its object's place in the cell's chain.
 pub const ATTRIBUTE_ANCHOR: MeshVertexAttribute = MeshVertexAttribute::new(
     "SpriteAnchor",
     0x5350_5249_5445_4143,
@@ -313,7 +314,9 @@ pub const LIST_2_BACK: f32 = 3_000.0;
 /// plane of the screen while the bed and the surface slope away under it, a unit and a third
 /// nearer per pixel down the screen: the margins hold for the tallest of these miniatures, from
 /// 68 pixels above their cell's centre to 139 below, over a bed up to 61 pixels off their cell's
-/// height (counted on the sector files 2026-10-18).
+/// height, their cells from 67.5 pixels below height 0, where the anchors lie, to 25 above: a
+/// pixel of its cell's height takes a quad 0.46 units further back (counted on the sector files
+/// 2026-10-18).
 pub const UNDER_LIQUIDS_BACK: f32 = 4_600.0;
 /// How far forward the objects of list 4 come: over the sprites of list 3 around them. Whether
 /// the original draws them over the characters too is not known.
@@ -623,9 +626,9 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
         );
         let cx = (sector.x as usize * SIDE + column) as f32 + 0.5;
         let cy = (sector.y as usize * SIDE + row) as f32 + 0.5;
-        let lift = cell.heights.iter().map(|&h| f32::from(h)).sum::<f32>() / 4.0;
-        // The centre of the cell in the world and on screen; the depth of the object's draw list,
-        // and its layer of the blended things.
+        // The centre of the cell in the world and on screen, at height 0 whatever the cell's
+        // height: the original orders a list's objects by their cells alone (#112); the depth of
+        // the object's draw list, and its layer of the blended things.
         let (back, layer) = if object.type_flags & OVERLAY != 0 {
             (-LIST_4_FORWARD, Layer::Objects)
         } else if object.type_flags & UNDERLAY != 0 {
@@ -642,9 +645,9 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
         } else {
             (0.0, Layer::Objects)
         };
-        let anchor = iso::ground(cx, cy) + Vec3::Y * iso::height(lift) + iso::forward() * back;
+        let anchor = iso::ground(cx, cy) + iso::forward() * back;
         let placed_at = [anchor.x, anchor.y, anchor.z, chain];
-        let anchor_screen = Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy) - lift);
+        let anchor_screen = Vec2::new(48.0 * (cx - cy), 24.0 * (cx + cy));
         let position = Vec2::new(object.x as f32, object.y as f32);
         let at = |corner: Vec2| -> [f32; 3] {
             let screen = position + corner;
@@ -1112,19 +1115,17 @@ pub(crate) mod tests {
             sheets: Vec::new(),
             atlases: vec!["mini.png".into()],
         };
-        // Water in cell (5, 5), the bank in (6, 5), every height 0.
-        let cell = |ground| Cell {
+        // Water in cell (5, 5), the bank in (6, 5) at height 0.
+        let cell = |ground, heights| Cell {
             tile: 0,
             overlays: Vec::new(),
-            heights: [0; 4],
+            heights,
             light: [255; 4],
             heights2: [0; 4],
             offsets: [0; 2],
             flags: 0,
             ground,
         };
-        let mut cells = vec![cell(0x40); SIDE * SIDE];
-        cells[5 * SIDE + 5] = cell(0x90);
         // An underlay's miniature of `size` pixels with its top left corner at `(x, y)`.
         let object = |column: usize, x, y, size| StaticObject {
             cell: u16::try_from(5 * SIDE + column).unwrap(),
@@ -1142,64 +1143,76 @@ pub(crate) mod tests {
             }),
             children: Vec::new(),
         };
-        // The centres of the two cells are at (0, 264) and (48, 288) on screen. In the water,
-        // the tallest reach counted: from 68 pixels above the centre to 139 below; on the bank,
-        // 124 below.
-        let sector = Sector {
-            x: 0,
-            y: 0,
-            id: 0,
-            liquids: [0; 2],
-            cells,
-            statics: vec![object(5, -103, 264 - 68, 207), object(6, 0, 288, 124)],
-            layers: Vec::new(),
-        };
-        let statics = build(
-            &dir,
-            &world,
-            &Sprites {
-                sprites: Vec::new(),
-            },
-            &sector,
-        )
-        .unwrap();
-        fs::remove_dir_all(&dir).unwrap();
-        // Blended with the liquids' layers on either side of the surfaces.
-        let layer = |layer| -> Vec<Vec3> {
-            let [batch] = &statics
-                .batches
-                .iter()
-                .filter(|b| b.layer == layer)
-                .collect::<Vec<_>>()[..]
-            else {
-                panic!("one batch of {layer:?}");
-            };
-            batch.positions.iter().map(|&p| Vec3::from(p)).collect()
-        };
-        let (wet, dry) = (layer(Layer::UnderLiquids), layer(Layer::Underlays));
-        assert_eq!((wet.len(), dry.len()), (4, 4));
         // How far behind a vertex along the line of sight a surface lies at the vertex's place on
         // screen: a surface `back` behind a bed at height `bed` pixels. The shader moves a sprite
         // a few units at most.
         let behind =
             |p: Vec3, back: f32, bed: f32| back + (p.y - iso::height(bed)) / -iso::forward().y;
         let shift = 5.0;
-        // A bed up to 61 pixels off the cell's height.
-        for &p in &wet {
-            for bed in [-61.25, 61.25] {
+        // The water's cell at height 0 and at either end of the heights counted, where the
+        // anchors at height 0 take its miniatures furthest from the cell's height.
+        for lift in [0_i8, -68, 25] {
+            let mut cells = vec![cell(0x40, [0; 4]); SIDE * SIDE];
+            cells[5 * SIDE + 5] = cell(0x90, [lift; 4]);
+            // The centres of the two cells are at (0, 264 - lift) and (48, 288) on screen. In
+            // the water, the tallest reach counted: from 68 pixels above the centre to 139 below;
+            // on the bank, 124 below.
+            let top = 264 - 68 - i32::from(lift);
+            let sector = Sector {
+                x: 0,
+                y: 0,
+                id: 0,
+                liquids: [0; 2],
+                cells,
+                statics: vec![object(5, -103, top, 207), object(6, 0, 288, 124)],
+                layers: Vec::new(),
+            };
+            let statics = build(
+                &dir,
+                &world,
+                &Sprites {
+                    sprites: Vec::new(),
+                },
+                &sector,
+            )
+            .unwrap();
+            // Blended with the liquids' layers on either side of the surfaces.
+            let layer = |layer| -> Vec<Vec3> {
+                let [batch] = &statics
+                    .batches
+                    .iter()
+                    .filter(|b| b.layer == layer)
+                    .collect::<Vec<_>>()[..]
+                else {
+                    panic!("one batch of {layer:?}");
+                };
+                batch.positions.iter().map(|&p| Vec3::from(p)).collect()
+            };
+            let (wet, dry) = (layer(Layer::UnderLiquids), layer(Layer::Underlays));
+            assert_eq!((wet.len(), dry.len()), (4, 4));
+            // A bed up to 61 pixels off the cell's height.
+            let lift = f32::from(lift);
+            for &p in &wet {
+                for bed in [lift - 61.25, lift + 61.25] {
+                    assert!(
+                        behind(p, iso::GROUND_BEHIND, bed) > shift,
+                        "the ground over {p} at {lift}"
+                    );
+                    assert!(
+                        behind(p, liquids::BACK, bed) < -shift,
+                        "the water under {p} at {lift}"
+                    );
+                }
+            }
+            // The surface at the water's height.
+            for &p in &dry {
                 assert!(
-                    behind(p, iso::GROUND_BEHIND, bed) > shift,
-                    "the ground over {p}"
-                );
-                assert!(
-                    behind(p, liquids::BACK, bed) < -shift,
-                    "the water under {p}"
+                    behind(p, liquids::BACK, lift) > shift,
+                    "the water over {p} at {lift}"
                 );
             }
         }
-        for &p in &dry {
-            assert!(behind(p, liquids::BACK, 0.0) > shift, "the water over {p}");
-        }
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1253,13 +1266,18 @@ pub(crate) mod tests {
             children: Vec::new(),
         };
         // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal, and one
-        // of the diagonal behind.
+        // of the diagonal behind. The cell (5, 5) lies 5 pixels higher than the next, as the
+        // chapel's wall beside its cabinet (#112), and the cell behind as high as a cell goes:
+        // neither height changes the order.
+        let mut cells = vec![cell; SIDE * SIDE];
+        cells[5 * SIDE + 5].heights = [5; 4];
+        cells[4 * SIDE + 4].heights = [i8::MAX; 4];
         let sector = Sector {
             x: 0,
             y: 0,
             id: 0,
             liquids: [0; 2],
-            cells: vec![cell; SIDE * SIDE],
+            cells,
             statics: vec![object(5, 5), object(5, 5), object(6, 4), object(4, 4)],
             layers: Vec::new(),
         };
@@ -1267,12 +1285,13 @@ pub(crate) mod tests {
         fs::remove_dir_all(&dir).unwrap();
         let batch = &statics.batches[0];
         let anchors: Vec<[f32; 4]> = batch.anchors.iter().step_by(4).copied().collect();
-        let [first, second, next, _] = anchors[..] else {
+        let [first, second, next, behind] = anchors[..] else {
             panic!("{anchors:?}");
         };
         // Its quads go far to near, the one behind first.
         let quads: Vec<u32> = batch.indices.chunks(6).map(|q| q[0] / 4).collect();
         assert_eq!(quads, [3, 0, 1, 2]);
+        assert!(nearness(behind) < nearness(first) && nearness(second) < nearness(next));
         for (name, value) in [("ACROSS", ACROSS), ("CHAIN", CHAIN)] {
             let shader = f64::from(shader_constant(ORDER, name));
             assert!(

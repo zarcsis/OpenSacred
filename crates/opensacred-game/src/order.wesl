@@ -1,5 +1,7 @@
 // The original's order of drawing as depth (docs/re/drawing.md): a place in the order is an
-// anchor, the centre of a cell at its height and its draw list's depth, and a place in the cell.
+// anchor, the centre of a cell at height 0 and its draw list's depth, and a place in the cell.
+// The cell's height has no part in it: the original orders a list's objects by their cells alone
+// (#112).
 // Shared by the sprites' shader (`sprites.wesl`) and the models' (`models.wesl`).
 
 import bevy_pbr::render::mesh_view_bindings::view;
