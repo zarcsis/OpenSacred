@@ -340,7 +340,7 @@ pub fn shadows(
         return;
     };
     let alpha = shadow_alpha(clock.minutes());
-    for handle in [&shadows.list1, &shadows.with_sprites] {
+    for handle in [&shadows.list1, &shadows.with_sprites, &shadows.on_floors] {
         if materials.get(handle).is_some_and(|m| m.tint.w != alpha)
             && let Some(mut material) = materials.get_mut(handle)
         {

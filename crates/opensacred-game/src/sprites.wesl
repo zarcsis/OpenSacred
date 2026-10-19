@@ -4,7 +4,8 @@
 // original's pixels, so that abutting sprites meet (`on_screen`). A sprite is drawn twice
 // (docs/decisions/2026-10-18-sprite-alpha.md): its opaque texels through the depth buffer, then the
 // others (`FRINGE`) blended by their alpha over what lies behind them, as the original blends
-// them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
+// them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`). The sprites standing on an
+// upper storey's floor stay in front of its plane (`fragment_on_floor`).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process};
@@ -30,6 +31,12 @@ struct Vertex {
     @location(4) screen: vec2<f32>,
     /// 1 for a sprite of a type that fades about the hero.
     @location(5) fades: f32,
+    /// For a sprite standing on an upper storey's floor, the place of the floor's plane at the
+    /// vertex's point, a little in front of it; the anchor for any other.
+    @location(6) floor: vec4<f32>,
+    /// Where the ground point under the floor's point lies in the cells of the floor's part, 0 to
+    /// 1 along each axis inside them; −1 for a sprite on no floor.
+    @location(7) footprint: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -40,6 +47,16 @@ struct VertexOutput {
     @location(2) screen: vec2<f32>,
     /// 1 where the sprite fades about the hero: of a fading type, drawn after the hero.
     @location(3) @interpolate(flat) fades: f32,
+    /// The depth of the floor's plane brought forward, which the sprite lies no further back
+    /// than over the floor's part (`fragment_on_floor`); a plane, linear across the screen.
+    @location(4) floor: f32,
+    @location(5) footprint: vec2<f32>,
+};
+
+/// What `fragment_on_floor` writes: the colour and the depth.
+struct OnFloor {
+    @location(0) colour: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
 };
 
 /// The alpha of the opaque texels, which the first pass draws: all of it, the atlases' 4 bits of
@@ -83,6 +100,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.uv = vertex.uv;
     out.source = vertex.source;
     out.screen = vertex.screen;
+    out.floor = order::depth(vertex.floor, 0.0);
+    out.footprint = vertex.footprint;
     // Drawn after the hero: nearer than its place in the reversed depth.
     let after = order::depth(vertex.anchor, 0.0) > order::depth(fade[1], 0.0);
     out.fades = select(0.0, 1.0, vertex.fades > 0.5 && after);
@@ -140,6 +159,25 @@ fn faded(screen: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    return shade(in);
+}
+
+/// The fragment of a mesh some of whose sprites stand on an upper storey's floor
+/// (`statics::Standing`): the original draws them after the floor, over it whole and without the
+/// depth test, while the floor tests the depth in its plane (`0x62FF60`, docs/re/drawing.md,
+/// "Depth"). Over the floor's part such a sprite lies no further back than the floor's plane,
+/// brought forward a little in their order; elsewhere at its place, as any sprite.
+@fragment
+fn fragment_on_floor(in: VertexOutput) -> OnFloor {
+    var out: OnFloor;
+    out.colour = shade(in);
+    let over = all(in.footprint >= vec2(0.0)) && all(in.footprint < vec2(1.0));
+    out.depth = select(in.position.z, max(in.position.z, in.floor), over);
+    return out;
+}
+
+/// The colour of a sprite's fragment, or none in the pass that leaves it to the other.
+fn shade(in: VertexOutput) -> vec4<f32> {
     let alpha = select(1.0, faded(in.screen), in.fades > 0.5);
     let weighted = filtered(in.uv, vec4<i32>(in.source), alpha);
     var colour = vec4(weighted.rgb / max(weighted.a, 0.0001), weighted.a) * tint;
