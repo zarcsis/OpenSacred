@@ -1443,7 +1443,8 @@ pub(crate) mod tests {
             };
             let (wet, dry) = (layer(Layer::UnderLiquids), layer(Layer::Underlays));
             assert_eq!((wet.len(), dry.len()), (4, 4));
-            // A bed up to 61 pixels off the cell's height.
+            // A bed up to 61 pixels off the cell's height; the surface flat at height 0
+            // (`liquids::build`).
             let lift = f32::from(lift);
             for &p in &wet {
                 for bed in [lift - 61.25, lift + 61.25] {
@@ -1451,16 +1452,15 @@ pub(crate) mod tests {
                         behind(p, iso::GROUND_BEHIND, bed) > shift,
                         "the ground over {p} at {lift}"
                     );
-                    assert!(
-                        behind(p, liquids::BACK, bed) < -shift,
-                        "the water under {p} at {lift}"
-                    );
                 }
+                assert!(
+                    behind(p, liquids::BACK, 0.0) < -shift,
+                    "the water under {p} at {lift}"
+                );
             }
-            // The surface at the water's height.
             for &p in &dry {
                 assert!(
-                    behind(p, liquids::BACK, lift) > shift,
+                    behind(p, liquids::BACK, 0.0) > shift,
                     "the water over {p} at {lift}"
                 );
             }
