@@ -52,18 +52,26 @@ pub type LayerKey = (u32, u32, u16);
 /// Where the hero walks: the ground (`None`) or an inside layer.
 pub type Level = Option<LayerKey>;
 
-/// An inside layer's grid: its first cell, its size, and whether each cell may be walked on.
+/// An inside layer's grid: its first cell, its size, and its cells.
 struct LoadedLayer {
     x: i32,
     y: i32,
     width: i32,
     height: i32,
-    cells: Vec<bool>,
+    cells: Vec<Spot>,
+}
+
+/// A cell of an inside layer: whether the hero may walk on it, and whether it is an exit, which
+/// takes the hero out onto the ground.
+#[derive(Clone, Copy)]
+struct Spot {
+    walkable: bool,
+    exit: bool,
 }
 
 impl LoadedLayer {
-    /// Whether global cell `(cx, cy)` may be walked on, if the grid holds it.
-    fn get(&self, (cx, cy): (i32, i32)) -> Option<bool> {
+    /// The cell at global `(cx, cy)`, if the grid holds it.
+    fn spot(&self, (cx, cy): (i32, i32)) -> Option<Spot> {
         let (x, y) = (cx - self.x, cy - self.y);
         if !(0..self.width).contains(&x) || !(0..self.height).contains(&y) {
             return None;
@@ -72,10 +80,21 @@ impl LoadedLayer {
             .get(usize::try_from(y * self.width + x).ok()?)
             .copied()
     }
+
+    /// Whether global cell `(cx, cy)` may be walked on, if the grid holds it.
+    fn get(&self, cell: (i32, i32)) -> Option<bool> {
+        self.spot(cell).map(|spot| spot.walkable)
+    }
 }
 
 /// A cell's flag of a door.
 const DOOR: u8 = 0x4;
+/// The low nibbles of the ground byte that move an object between the ground and a building's
+/// inside as it steps onto the cell (`0x5FCCB0`, docs/re/movement.md): an entrance, on a
+/// building's cell of the ground, takes it onto the building's inside layer; an exit, on an
+/// inside layer, takes it out onto the ground.
+const ENTRANCE: u8 = 9;
+const EXIT: u8 = 10;
 
 struct LoadedCell {
     heights: [f32; 4],
@@ -85,6 +104,8 @@ struct LoadedCell {
     building: Option<buildings::Anchor>,
     /// Whether the hero may walk on the cell ([`walkable`]).
     walkable: bool,
+    /// Whether the cell is an entrance of its building ([`ENTRANCE`]).
+    entrance: bool,
 }
 
 /// Whether a cell of the ground or of an inside layer may be walked on, by its flags and ground
@@ -112,7 +133,10 @@ impl Heights {
             let cells = layer
                 .cells
                 .iter()
-                .map(|cell| walkable(cell.flags, cell.ground))
+                .map(|cell| Spot {
+                    walkable: walkable(cell.flags, cell.ground),
+                    exit: cell.ground & 0xF == EXIT,
+                })
                 .collect();
             self.layers.insert(
                 (sector.x, sector.y, key),
@@ -142,6 +166,8 @@ impl Heights {
                     flags: cell.flags,
                     building: buildings::anchor(sector, index),
                     walkable: walkable(cell.flags, cell.ground),
+                    entrance: cell.ground & 0xF == ENTRANCE
+                        && cell.flags & buildings::BUILDING_CELL != 0,
                 },
             );
         }
@@ -190,37 +216,52 @@ impl Heights {
         }
     }
 
-    /// The walkable neighbours of a cell at a level, and the same cell at the other levels where
-    /// it is walkable too (the ground and the inside layers whose grids hold it): a building's
-    /// door, or the openings of the monastery's inside onto its courtyard and the road, whose
-    /// layer has no doors (docs/re/movement.md, **hypothesis**).
+    /// The places a hero at a cell and a level goes to next: the walkable neighbours at its level
+    /// or, at an entrance or an exit, only the same cell at the level that it leads to, as the
+    /// client moves an object between the ground and a building's inside as it steps onto such
+    /// a cell (`0x5FCCB0`, docs/re/movement.md).
     pub fn neighbours(&self, (cell, level): ((i32, i32), Level)) -> Vec<((i32, i32), Level)> {
-        let mut out: Vec<_> = crate::paths::around(cell, |next| self.walkable_on(next, level))
-            .map(|next| (next, level))
-            .collect();
-        if self.walkable_on(cell, level) {
-            let others = std::iter::once(None).chain(
-                self.layers
-                    .iter()
-                    .filter(|(_, layer)| layer.get(cell).is_some())
-                    .map(|(&key, _)| Some(key)),
-            );
-            out.extend(
-                others
-                    .filter(|&other| other != level && self.walkable_on(cell, other))
-                    .map(|other| (cell, other)),
-            );
+        let through = self.transition(cell, level);
+        if through != level && self.walkable_on(cell, through) {
+            return vec![(cell, through)];
         }
-        out
+        crate::paths::around(cell, |next| self.walkable_on(next, level))
+            .map(|next| (next, level))
+            .collect()
     }
 
-    /// The level a hero at a cell it may not walk on, on the ground, walks at: an inside layer
-    /// whose grid holds the cell walkable (the hero who starts inside a building).
+    /// The level of a hero at a level that steps onto a cell: on the ground, an entrance of a
+    /// building takes it onto the building's inside ([`Self::level_of`]); on an inside layer, an
+    /// exit takes it out onto the ground; any other cell leaves it where it is (`0x5FCCB0`).
+    pub fn transition(&self, cell: (i32, i32), level: Level) -> Level {
+        match level {
+            None => {
+                let entrance = match (u32::try_from(cell.0), u32::try_from(cell.1)) {
+                    (Ok(cx), Ok(cy)) => self.cells.get(&(cx, cy)).is_some_and(|c| c.entrance),
+                    _ => false,
+                };
+                if entrance { self.level_of(cell) } else { None }
+            }
+            Some(key) => {
+                let exit = self
+                    .layers
+                    .get(&key)
+                    .and_then(|layer| layer.spot(cell))
+                    .is_some_and(|spot| spot.exit);
+                if exit { None } else { level }
+            }
+        }
+    }
+
+    /// The inside layer that a hero at a cell of a building goes onto, through its entrance or
+    /// at a start on its mass: the first of the inside layers whose grids hold the cell walkable
+    /// (**hypothesis**: a building's ground floor, the client's first child of the building).
     pub fn level_of(&self, cell: (i32, i32)) -> Level {
         self.layers
             .iter()
-            .find(|(_, layer)| layer.get(cell).unwrap_or(false))
+            .filter(|(_, layer)| layer.get(cell).unwrap_or(false))
             .map(|(&key, _)| key)
+            .min()
     }
 
     /// The nature of the cell at world `(x, z)`.
@@ -739,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn a_door_joins_the_ground_and_a_buildings_inside() {
+    fn an_entrance_takes_the_hero_in_and_an_exit_out() {
         let cell = |ground, flags| Cell {
             tile: 0,
             overlays: Vec::new(),
@@ -750,20 +791,29 @@ mod tests {
             flags,
             ground,
         };
-        // A house of cells 4..=6 on row 4..=6 of sector (0, 0): a mass with its door at (5, 6).
+        // A house of cells 4..=6 on rows 4..=6 of sector (0, 0), as in sector 50,40: a mass with
+        // its door at (5, 6), an entrance (nibble 9), and the cells in front of it on row 7
+        // building cells of nibble 10, exits.
         let mut cells = vec![cell(0x40, 0); SIDE * SIDE];
-        for y in 4..=6 {
-            for x in 4..=6 {
+        for x in 4..=6 {
+            for y in 4..=6 {
                 cells[y * SIDE + x] = cell(0xD1, 0x1);
             }
+            cells[7 * SIDE + x] = cell(0x4A, 0x1);
         }
-        cells[6 * SIDE + 5] = cell(0xD1, 0x5);
-        // Its inside: free but its back wall, the door again.
+        cells[6 * SIDE + 5] = cell(0xD9, 0x5);
+        // Its inside, of cells 4..=7 on rows 4..=7: free but its back wall, the door again, the
+        // exits in front of it, and a column (7) that is walkable on the ground too.
         let inside = |x: u32, y: u32| LayerCell {
             heights2: [0; 4],
             offsets: [0; 2],
             flags: if (x, y) == (1, 2) { 4 } else { 0 },
-            ground: if y == 0 { 0xD1 } else { 0xD0 },
+            ground: match (x, y) {
+                (0..=2, 0) => 0xD1,
+                (1, 2) => 0xD9,
+                (0..=2, 3) => 0xDA,
+                _ => 0xD0,
+            },
         };
         let sector = Sector {
             x: 0,
@@ -775,10 +825,10 @@ mod tests {
             layers: vec![Layer {
                 x: 4,
                 y: 4,
-                width: 3,
-                height: 3,
-                cells: (0..3)
-                    .flat_map(|y| (0..3).map(move |x| inside(x, y)))
+                width: 4,
+                height: 4,
+                cells: (0..4)
+                    .flat_map(|y| (0..4).map(move |x| inside(x, y)))
                     .collect(),
             }],
         };
@@ -788,30 +838,42 @@ mod tests {
         assert!(!heights.walkable((5, 5)) && heights.walkable_on((5, 5), house));
         assert!(!heights.walkable_on((5, 4), house));
         assert!(heights.walkable((5, 6)) && heights.walkable_on((5, 6), house));
-        // Through the door, either way; elsewhere no other level.
-        assert!(
-            heights
-                .neighbours(((5, 6), None))
-                .contains(&((5, 6), house))
-        );
-        assert!(
-            heights
-                .neighbours(((5, 6), house))
-                .contains(&((5, 6), None))
-        );
-        assert!(
-            heights
-                .neighbours(((5, 7), None))
-                .iter()
-                .all(|&(_, l)| l.is_none())
-        );
-        // At the house's back wall, walkable on the ground only: no other level.
-        assert!(
-            heights
-                .neighbours(((7, 4), None))
-                .iter()
-                .all(|&(_, l)| l.is_none())
-        );
+        // Onto the door from outside, in; onto the cells in front of it from inside, out.
+        assert_eq!(heights.transition((5, 6), None), house);
+        assert_eq!(heights.transition((5, 7), house), None);
+        assert_eq!(heights.neighbours(((5, 6), None)), vec![((5, 6), house)]);
+        assert_eq!(heights.neighbours(((5, 7), house)), vec![((5, 7), None)]);
+        // Nowhere else: an exit on the ground, the entrance inside, a cell walkable at both
+        // levels.
+        assert_eq!(heights.transition((5, 7), None), None);
+        assert_eq!(heights.transition((5, 6), house), house);
+        assert_eq!(heights.transition((7, 5), None), None);
+        assert_eq!(heights.transition((7, 5), house), house);
+        for place in [
+            ((5, 7), None),
+            ((5, 6), house),
+            ((7, 5), None),
+            ((7, 5), house),
+        ] {
+            assert!(
+                heights
+                    .neighbours(place)
+                    .iter()
+                    .all(|&(_, level)| level == place.1),
+                "{place:?}"
+            );
+        }
+        // The way in and the way out pass the door and the cells in front of it.
+        let neighbours = |place| heights.neighbours(place);
+        let way = crate::paths::path(((5, 9), None), (5, 5), neighbours).unwrap();
+        assert_eq!(way.last(), Some(&((5, 5), house)));
+        let through = way.windows(2).find(|w| w[0].1 != w[1].1).unwrap();
+        assert_eq!(through, [((5, 6), None), ((5, 6), house)]);
+        let way = crate::paths::path(((5, 5), house), (5, 9), neighbours).unwrap();
+        assert_eq!(way.last(), Some(&((5, 9), None)));
+        let through = way.windows(2).find(|w| w[0].1 != w[1].1).unwrap();
+        assert_eq!(through[1].1, None);
+        assert_eq!(through[0].0.1, 7);
         // A hero on the mass is inside.
         assert_eq!(heights.level_of((5, 5)), house);
     }
