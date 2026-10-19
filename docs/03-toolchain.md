@@ -116,6 +116,7 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
   Binaries given again fail to import with `FileInUseException` (they are in the project already), and the server goes on without them.
 * **Stopping.**
   Ctrl+C in the server's console saves and closes the project.
+  A shell started before `GHIDRA_INSTALL_DIR` was set lacks it, and pyghidra then stops at once ("GHIDRA_INSTALL_DIR is not set"): take it from the user's environment first (`$env:GHIDRA_INSTALL_DIR = [Environment]::GetEnvironmentVariable('GHIDRA_INSTALL_DIR', 'User')`).
   The hidden process is stopped with `taskkill /PID <uvx> /T /F` after the `save` tool has saved the programs' latest edits; on 2026-10-18 the project opened again after two such stops, the `OpenSacred.lock` they leave behind notwithstanding.
 * **The tools** (20 in 0.2.7): `decompile_function`, `disassemble`, `list_xrefs`, `gen_callgraph`, `search_code`, `search_strings`, `search_symbols_by_name`, `list_imports`, `list_exports`, `read_bytes`; `rename_function`, `rename_variable`, `set_variable_type`, `set_function_prototype`, `set_comment`, `save`; `import_binary`, `delete_project_binary`, `list_project_binaries`, `list_project_binary_metadata`.
   None of them executes arbitrary code.
@@ -233,12 +234,23 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 1. Create a local project and import the GOG `Sacred.exe` (SHA-256 `db9b86a4…71e74`) and `GameServer.exe` from your own installation.
    The GOG build has no DRM; the files are analyzed as they are.
    pyghidra-mcp does this on its first start, with Ghidra's default analysis (§3.2).
-2. Run the analysis with the MSVC RTTI analyzer enabled (Ghidra's default analysis of a PE has it); recover the classes with the RecoverClassesFromRTTI script.
+2. Recover the classes from RTTI.
+   Done 2026-10-19 (#88) with `tools/ghidra/RttiClassesScript.java`: Ghidra's RTTI analyzer, in the default analysis, marked the type descriptors alone (417 in `Sacred.exe`, 259 in `GameServer.exe`), no complete object locator and one vftable, and the RecoverClassesFromRTTI script, which builds on them, recovered no class.
+   The script finds the locators itself (signature 0, a type descriptor at `+12`, a hierarchy descriptor at `+16`, in `.rdata`) and each vftable after a pointer to a locator, makes each descriptor's namespace a class, labels its vftables, makes a function at each vftable slot that the analysis left without one, and moves into the class the virtual functions that only its vftables hold and the functions that write only its vftables (its constructors and destructors).
+   In `Sacred.exe`: 410 locators, vftables and classes (419 classes with the namespaces that were classes already), 1,194 functions made at the slots (the analysis had not found them: 25,246 functions before, 26,440 after), 1,936 virtual functions and 714 constructors or destructors moved, 2,658 functions in classes; virtual functions held by several classes' vftables stay global.
+   In `GameServer.exe`: 253 vftables and classes (261), 971 functions made (9,417 in all), 1,903 functions in classes.
+   The classes' data types and their hierarchy are not built, and pyghidra-mcp's index of `search_code` does not take the new functions (it skips a finished collection).
 3. Import the community names locally: the sacred-bild function export (GPL-3.0) and the sacred-sdk addresses (MIT).
    The GOG ENG addresses match them.
    The community files themselves are not copied into the repository.
+   Done 2026-10-19: `tools/ghidra/community_names.py` merges the named entry points of sacred-bild's `functions_eng.tsv` (193 of its 25,337; the rest are Ghidra's own default and exception-handler names) and the 73 addresses of sacred-sdk's `engine/addresses.h` and `re/reborn_extra_syms.json` (prefixed `sdk_`) into a file outside the repository, which `ImportNamesScript.java` applied to `Sacred.exe`: 137 functions named, 92 that had the name already (54 by Ghidra's analysis, 38 thunks showing their target's), 37 data addresses labeled; every address lay in the image.
 4. Mark the library code (CRT, STLport, zlib, D3DX7); it is not analyzed.
+   Done 2026-10-19: Function ID's default databases match 54 functions of `Sacred.exe` and 55 of `GameServer.exe`, none of VC6's library; `MarkLibraryScript.java` tags `LIBRARY` the functions of the library block (docs/01 §3.2: 0x7F1180–0x85AB59 but the main module, 0x811000–0x818000), 1,725, `EH` the exception glue 0x85ACD2–0x88F628, 17,422 funclets, and `STL` the functions of the classes under `_STL`, 241 (197 in `GameServer.exe`).
+   STLport's template instances in the game's own code have no class of their own and stay untagged.
 5. Use `GameServer.exe` as an auxiliary binary: 1,176 game functions in it are byte-identical to the client, which helps confirm function boundaries.
+   Done 2026-10-19: `CarryNamesScript.java` matches the two programs' functions by the MD5 of their normalized bytes, as docs/01 §5.1 does, 32 bytes or more and unique on both sides, 1,546 pairs over Ghidra's function boundaries; a function of a default name in the global namespace takes the other's name and namespace: 11 names went into `GameServer.exe` and 2 functions into classes of `Sacred.exe` (each program's classes come from its own RTTI).
+
+The steps run on the project with the server stopped (`save`, then `taskkill`, §3.2), each through Ghidra's headless analyzer with the scripts of `tools/ghidra/` (`ProjectStatsScript.java` counts before and after; tools/README.md has the commands), then the server is started again; a Claude Code session connected before the stop reconnects with `/mcp`.
 
 ### 4.2 What to analyze and what not
 

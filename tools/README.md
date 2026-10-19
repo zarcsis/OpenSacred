@@ -24,6 +24,30 @@ python3 -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --str "cEngin
 python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --out /tmp/analysis/rtti.json
 ```
 
+## The Ghidra project's scripts
+
+`tools/ghidra/` holds the Ghidra scripts (Java, compiled by Ghidra as it runs them) that build up the local project of docs/03 §4.1, and the merger of the community's names; they run on the project with the pyghidra-mcp server stopped (docs/03 §3.2), and their outputs stay in the project, never in the repository.
+
+```powershell
+$g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.1.4_PUBLIC\support\analyzeHeadless.bat"
+& $g "$env:USERPROFILE\GhidraProjects" OpenSacred -process Sacred.exe-d98109 -noanalysis -scriptPath tools\ghidra `
+  -postScript RttiClassesScript.java `
+  -postScript ImportNamesScript.java <dir>\community-names.tsv `
+  -postScript MarkLibraryScript.java LIBRARY:7F1180-811000 LIBRARY:818000-85AB5A EH:85ACD2-88F629 `
+  -postScript CarryNamesScript.java /GameServer.exe-6233cd `
+  -postScript ProjectStatsScript.java
+```
+
+| Script | What it does |
+|---|---|
+| `ghidra/RttiClassesScript.java` | classes from the MSVC RTTI type descriptors: the locators, the vftables, a class for each, its virtual functions and constructors moved into it |
+| `ghidra/RttiStatsScript.java` | the RTTI structures and vftables the analyzers marked, the analysis options of RTTI and Function ID |
+| `ghidra/community_names.py` | merges sacred-bild's named entry points and sacred-sdk's addresses into an `address<TAB>name` file outside the repository |
+| `ghidra/ImportNamesScript.java` | names the functions and labels the data of such a file |
+| `ghidra/MarkLibraryScript.java` | tags the functions of address ranges (`TAG:start-end`) and of the `_STL` classes |
+| `ghidra/CarryNamesScript.java` | carries names and classes from another program of the project over the functions matched by their normalized bytes |
+| `ghidra/ProjectStatsScript.java` | the counts: functions by the source of their names, library, in classes; classes; vftables |
+
 ## Scripts
 
 | Script | Area | What it does |
