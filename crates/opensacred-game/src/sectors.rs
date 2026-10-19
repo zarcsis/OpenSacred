@@ -148,6 +148,7 @@ pub fn stream(
     light_types: Res<daynight::LightTypes>,
     glow: Option<Res<statics::Glow>>,
     shadows: Option<Res<statics::StaticShadows>>,
+    fade: Res<statics::Fade>,
 ) {
     let streamer = &mut *streamer;
     let finished: Vec<_> = streamer
@@ -207,7 +208,10 @@ pub fn stream(
             &mut images,
             &mut meshes,
             &mut sprite_materials,
-            shadows.as_deref(),
+            statics::Common {
+                fade: &fade,
+                shadows: shadows.as_deref(),
+            },
         ));
         entities.extend(lights.into_iter().map(|(position, radius)| {
             commands

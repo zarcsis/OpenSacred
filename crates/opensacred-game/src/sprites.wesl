@@ -13,6 +13,9 @@ import package::{order, post::post_process};
 /// What the texels are multiplied by (`statics::SpriteMaterial::tint`): white, but for the
 /// statics' shadows, which fade by night.
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var<uniform> tint: vec4<f32>;
+/// What the sprites of the fading types fade about (`statics::Fade`): the hero's point on the
+/// original's screen, the radius and the alpha there; then its place in the order.
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> fade: array<vec4<f32>>;
 
 struct Vertex {
     /// The vertex in the world, from its sprite's cell: unused here (`on_screen`).
@@ -25,12 +28,18 @@ struct Vertex {
     @location(3) source: vec4<f32>,
     /// The vertex on the original's screen, in its pixels at zoom 1.
     @location(4) screen: vec2<f32>,
+    /// 1 for a sprite of a type that fades about the hero.
+    @location(5) fades: f32,
 };
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) source: vec4<f32>,
+    /// The point on the original's screen.
+    @location(2) screen: vec2<f32>,
+    /// 1 where the sprite fades about the hero: of a fading type, drawn after the hero.
+    @location(3) @interpolate(flat) fades: f32,
 };
 
 /// The alpha of the opaque texels, which the first pass draws: all of it, the atlases' 4 bits of
@@ -73,38 +82,66 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.position = vec4(on_screen(vertex.screen), order::depth(vertex.anchor, 0.0), 1.0);
     out.uv = vertex.uv;
     out.source = vertex.source;
+    out.screen = vertex.screen;
+    // Drawn after the hero: nearer than its place in the reversed depth.
+    let after = order::depth(vertex.anchor, 0.0) > order::depth(fade[1], 0.0);
+    out.fades = select(0.0, 1.0, vertex.fades > 0.5 && after);
     return out;
 }
 
 /// The atlas's texel at `at`, held within the piece's texels, its colour weighted by its alpha;
 /// none where the alpha test drops it, as the original tests each texel before it blends.
-fn texel(at: vec2<i32>, source: vec4<i32>) -> vec4<f32> {
+fn texel(at: vec2<i32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
     let texel = textureLoad(atlas, clamp(at, source.xy, source.zw), 0);
+    // The vertices' alpha times the texel's, as the original's texture stage modulates them,
+    // before its alpha test.
+    let a = texel.a * alpha;
 @if(ALPHA_TEST) {
-    if texel.a <= CUTOFF {
+    if a <= CUTOFF {
         return vec4(0.0);
     }
 }
-    return vec4(texel.rgb * texel.a, texel.a);
+    return vec4(texel.rgb * a, a);
 }
 
 /// The atlas at `uv`, filtered linearly between the piece's four nearest texels, their colours
 /// weighted by their alphas: a transparent texel, black in the atlases, adds nothing to the colour
 /// of its neighbours, which a sampler's filtering darkened. Past the piece's edge the atlas holds
 /// other pieces; its edge's texels stand in for them.
-fn filtered(uv: vec2<f32>, source: vec4<i32>) -> vec4<f32> {
+fn filtered(uv: vec2<f32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
     let at = uv * vec2<f32>(textureDimensions(atlas)) - 0.5;
     let corner = floor(at);
     let t = at - corner;
     let i = vec2<i32>(corner);
-    let top = mix(texel(i, source), texel(i + vec2(1, 0), source), t.x);
-    let bottom = mix(texel(i + vec2(0, 1), source), texel(i + vec2(1, 1), source), t.x);
+    let top = mix(texel(i, source, alpha), texel(i + vec2(1, 0), source, alpha), t.x);
+    let bottom = mix(
+        texel(i + vec2(0, 1), source, alpha),
+        texel(i + vec2(1, 1), source, alpha),
+        t.x,
+    );
     return mix(top, bottom, t.y);
+}
+
+/// The alpha out of 1 of a fading sprite's point at `screen` (`0x62FF60`): within the radius of
+/// the hero's point across and down, from the alpha at the point to 1 at the radius' distance;
+/// else 1. Per point here, where the original gives each corner of its sprites' pieces of 64
+/// pixels this alpha and lets the rasterizer blend it between them
+/// (docs/decisions/2026-10-19-tree-fade.md). The same as `statics::TreeFade::at`.
+fn faded(screen: vec2<f32>) -> f32 {
+    let point = fade[0].xy;
+    let radius = fade[0].z;
+    let offset = screen - point;
+    if radius <= 0.0 || abs(offset.x) >= radius || abs(offset.y) >= radius {
+        return 1.0;
+    }
+    let t = min(length(offset) / radius, 1.0);
+    return (fade[0].w + (255.0 - fade[0].w) * t) / 255.0;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let weighted = filtered(in.uv, vec4<i32>(in.source));
+    let alpha = select(1.0, faded(in.screen), in.fades > 0.5);
+    let weighted = filtered(in.uv, vec4<i32>(in.source), alpha);
     var colour = vec4(weighted.rgb / max(weighted.a, 0.0001), weighted.a) * tint;
 @if(FRINGE) {
     if colour.a >= OPAQUE || colour.a < CLEAR {
