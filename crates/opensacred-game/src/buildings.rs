@@ -1,8 +1,9 @@
 //! The buildings' states (docs/re/drawing.md, "Buildings: masks and layers"). A cell with flag
 //! bit 0 belongs to a building, whose anchor cell its offsets (`+0x1C`, `+0x1D`) point to. The
 //! client draws a building's parts (the statics of its cells flagged `0x8`, or of the types of
-//! lists 0, 2 and 4, `statics`) only when their mask is the building's state, and the world's
-//! objects of its cells from the layer the state gives (the index of its lowest bit). Outside,
+//! lists 0, 2 and 4, `statics`) only when their mask is the building's state, and with the
+//! world's objects of layer 0, the ground's, which it draws on every cell, the objects of its
+//! cells on the floor the state gives (the index of its lowest bit) when that is not 0. Outside,
 //! the state is 1: the shell with its roof. The client sets it to 2 as the hero steps onto an
 //! entrance of the building and goes onto its inside layer, and back to 1 as the hero steps
 //! onto an exit and comes out onto the ground (`0x5FCCB0`, docs/re/movement.md): the ground
@@ -62,9 +63,10 @@ pub struct Part {
 
 /// The layer that a start script's object or NPC lies in, and the building it lies in it of:
 /// layer 0 on the ground, of the building whose cell it stands on, if any; layer `n` on a
-/// building's floor `n`. The client draws a building's cells with the world's objects of the
-/// layer that the building's state shows, and the other cells with those of layer 0
-/// (`0x62AE90`, docs/re/drawing.md): it shows while that is its layer.
+/// building's floor `n`. The client draws every cell with the world's objects of layer 0, and a
+/// building's cells with those of the layer that the building's state shows too, when that is
+/// not 0 (`0x62AE90`, docs/re/drawing.md): it shows on the ground always, and on a floor while
+/// that is the state's layer.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layered {
     pub building: Option<Anchor>,
@@ -92,12 +94,13 @@ impl Layered {
         }
     }
 
-    /// Whether it shows while the buildings are in their states: never above the ground where
-    /// it is in no building.
+    /// Whether it shows while the buildings are in their states: on the ground, on a building's
+    /// cells too, whatever its state; never above the ground where it is in no building.
     pub fn shown(&self, buildings: &Buildings) -> bool {
-        match self.building {
-            Some(building) => self.layer == layer(buildings.state(building)),
-            None => self.layer == 0,
+        match (self.layer, self.building) {
+            (0, _) => true,
+            (floor, Some(building)) => floor == layer(buildings.state(building)),
+            (_, None) => false,
         }
     }
 
@@ -304,16 +307,14 @@ mod tests {
             Layered::at(&heights, point.x, point.z, level)
         };
         let on = |building, layer| Layered { building, layer };
-        // In the building, through its door: its layer 1; on its cell of the ground, layer 0;
-        // elsewhere, the ground's.
+        // In the building, through its door: its layer 1; on its cell of the ground, its stairs,
+        // layer 0; elsewhere, the ground's.
         let novice = at(5.0, Some((0, 0, 1)));
-        let doorway = at(5.0, None);
-        assert_eq!(
-            (novice, doorway),
-            (on(Some(chapel), 1), on(Some(chapel), 0))
-        );
+        let stairs = at(5.0, None);
+        assert_eq!((novice, stairs), (on(Some(chapel), 1), on(Some(chapel), 0)));
         assert_eq!(at(2.0, None), on(None, 0));
-        // The hero outside, inside, upstairs: layer 1 shows inside alone, layer 0 outside alone.
+        // The hero outside, inside, upstairs: layer 1 shows inside alone, layer 0 always, on the
+        // building's cells too (#148).
         let outside = Buildings::default();
         let inside = Buildings {
             entered: Some((chapel, 1)),
@@ -325,7 +326,7 @@ mod tests {
             [&outside, &inside, &upstairs].map(|buildings| object.shown(buildings))
         };
         assert_eq!(shown(novice), [false, true, false]);
-        assert_eq!(shown(doorway), [true, false, false]);
+        assert_eq!(shown(stairs), [true; 3]);
         // Off the buildings, the ground's shows always and a layer above it never.
         assert_eq!(shown(on(None, 0)), [true; 3]);
         assert_eq!(shown(on(None, 1)), [false; 3]);
