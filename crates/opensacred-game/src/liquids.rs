@@ -393,6 +393,7 @@ mod tests {
             cells,
             statics: Vec::new(),
             layers: Vec::new(),
+            buildings: Vec::new(),
         };
         let Surfaces(surfaces) = build(&sector);
         let [(0, mesh)] = &surfaces[..] else {
