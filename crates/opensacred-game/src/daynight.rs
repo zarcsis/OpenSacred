@@ -45,6 +45,8 @@ use bevy::shader::ShaderRef;
 use opensacred_data::tables::Item;
 use opensacred_data::world::{Sector, StaticObject, World};
 
+use crate::blended::{self, Layer};
+
 /// The shader of [`Night`], embedded in the binary.
 pub const SHADER: &str = "embedded://opensacred_game/night.wesl";
 
@@ -250,12 +252,13 @@ impl Dungeons {
 pub struct GlowTexture(pub String);
 
 /// Makes the glows' material (`statics::Glow`), hidden until the dusk: the texture times the
-/// colour, unlit, blended over what is drawn by its opacity, as the original blends it.
+/// colour, unlit, blended over what is drawn by its opacity, as the original blends it, over the
+/// other blended things.
 pub fn make_glow(
     mut commands: Commands,
     texture: Option<Res<GlowTexture>>,
     assets: Res<AssetServer>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<blended::Sorted>>,
 ) {
     let Some(texture) = texture.filter(|t| !t.0.is_empty()) else {
         return;
@@ -268,7 +271,9 @@ pub fn make_glow(
         cull_mode: None,
         ..default()
     };
-    commands.insert_resource(crate::statics::Glow(materials.add(material)));
+    commands.insert_resource(crate::statics::Glow(
+        materials.add(blended::sorted(material, Layer::Glows)),
+    ));
 }
 
 /// The glows' colour by the night (`0x62FF60`): from the dusk to the dawn (255, 236, 149) at an
@@ -294,7 +299,7 @@ pub fn glow(
     dungeons: Res<Dungeons>,
     hero: Query<&Transform, With<crate::hero::Body>>,
     glow: Option<Res<crate::statics::Glow>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<blended::Sorted>>,
 ) {
     let Some(glow) = glow else {
         return;
@@ -306,10 +311,10 @@ pub fn glow(
     let colour = glow_colour(clock.minutes(), dungeon);
     if materials
         .get(&glow.0)
-        .is_some_and(|m| m.base_color != colour)
+        .is_some_and(|m| m.base.base_color != colour)
         && let Some(mut material) = materials.get_mut(&glow.0)
     {
-        material.base_color = colour;
+        material.base.base_color = colour;
     }
 }
 

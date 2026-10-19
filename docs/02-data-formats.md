@@ -134,6 +134,8 @@ This is the `cTextureManager` cache, sorted by name; the new engine builds the i
 - `mixed.pak` (`MIX` v0, 32,096 records, directory type 99): **the sprites of the static objects**, not blended ground tiles as an earlier reading guessed.
   Confirmed on every record 2026-10-17 by `tools/analysis/formats/mixed_dump.py` (layout per openheilig, engine `formats/mixed.gd`, MIT): record 0 is 16 B, `u32 99`, the file size − 16, `u32 16` and the fill `0xCCCCCCCC`; a sprite is `u32 n`, `u16 width`, `u16 height`, `i16 dx, dy` (meaning unknown; openheilig found that adding them misplaces the sprite), the fill `0xCCCCCCCC`, then `n` pieces of 64 B: `char atlas[32]` (`MIXnnn.444`), `u32` texture.pak record (10,585 atlases of 256 × 256), `u16 x1, y1, x0, y0` (the piece in sprite pixels), `u32 0`, `f32 u0, v0, u1, v1` (the piece in the atlas as fractions of its size).
   Every piece is as large in the atlas as in the sprite and falls on whole pixels; 62,406 of the 209,956 pieces (blocks of up to 64 pixels) run past the sprite's width or height.
+  The width and height count from the pieces' smallest corner (the negation of `dx, dy`, §6.1): past them the pieces hold only texels of alpha 0, in every one of the 16,255 sprites with pieces, while 2,122 sprites have texels of some alpha past the width and height counted from their origin.
+  Confirmed 2026-10-18 by `mixed_dump.py --alpha`, which decodes the atlases' alpha from `texture.pak`.
   16,255 sprites have pieces, 15,840 none.
   16 more bytes follow the last record (an empty sprite header, 30 × 61, outside the directory).
   An object type of Items.pak names its sprite at `+0x10` (§6.1), and a static object of Static.PAK puts the sprite's top left corner at its position (§5.5).

@@ -18,15 +18,18 @@ BY-SA 4.0), measured on the GOG files on 2026-10-17.
            dy (meaning unknown), the fill 0xCCCCCCCC; then n pieces of 64 B: char name[32] ("MIXnnn.444", the atlas),
            u32 texture.pak record, u16 x1, y1, x0, y0 (the piece in sprite pixels; pieces of 64-pixel blocks may run
            past width and height), u32 0, f32 u0, v0, u1, v1 (the piece in the atlas, as fractions of its size). A
-           piece is as large in the atlas as in the sprite, at whole pixels: no resampling.
+           piece is as large in the atlas as in the sprite, at whole pixels: no resampling. The width and height
+           count from the pieces' smallest corner: past them the pieces' texels are all transparent (--alpha).
 
 Example
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --items /tmp/items.tsv --sprites /tmp/sprites.tsv
+  python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --alpha
 
 Expected output (2.28): every check passes on all of its items; statistics follow. --items writes a row per items.pak
 record (index, used, type, sprite, crc of the 128 bytes); --sprites a row per mixed.pak record (index, pieces, width,
-height, crc of the record). Dependencies: numpy (tools/requirements.txt).
+height, crc of the record). --alpha also decodes the atlases' alpha from texture.pak (a minute) and checks every sprite's
+texels against its size. Dependencies: numpy (tools/requirements.txt).
 """
 import argparse
 import collections
@@ -80,11 +83,45 @@ def texture_sizes(path):
     return sizes
 
 
+def check_alpha(c, stats, textures, sprite_pieces):
+    """Whether any texel of non-zero alpha lies past a sprite's width and height, counted from its pieces' smallest
+    corner (none should) and from the sprite's origin."""
+    tx = open(textures, 'rb').read()
+    tdirs, _ = directory(tx)
+    by_texture = collections.defaultdict(list)
+    for i, (width, height, pieces) in sprite_pieces.items():
+        left, top = min(p[0] for p in pieces), min(p[1] for p in pieces)
+        for x0, y0, x1, y1, tex, u, v in pieces:
+            by_texture[tex].append((i, left + width, top + height, width, height, x0, y0, x1, y1, u, v))
+    past_size, past_origin = set(), set()
+    for tex, pieces in sorted(by_texture.items()):
+        off, size = int(tdirs[tex, 1]), int(tdirs[tex, 2])
+        tw, th, fmt = struct.unpack_from('<HHB', tx, off + 0x20)
+        if not c('mixed alpha: atlas in ARGB4444 (format 4)', fmt == 4, f'texture {tex}'):
+            continue
+        # The stream defines its own length; the record's size is an upper bound (docs/02 §3.1).
+        raw = zlib.decompressobj().decompress(tx[off + 0x50:off + 0x50 + size], tw * th * 2)
+        alpha = np.frombuffer(raw, '<u2', tw * th).reshape(th, tw) >> 12
+        for i, right, bottom, width, height, x0, y0, x1, y1, u, v in pieces:
+            ys, xs = np.nonzero(alpha[v:v + y1 - y0, u:u + x1 - x0])
+            xs, ys = xs + x0, ys + y0
+            if np.any((xs >= right) | (ys >= bottom)):
+                past_size.add(i)
+            if np.any((xs >= width) | (ys >= height)):
+                past_origin.add(i)
+    for i in sprite_pieces:
+        c("mixed alpha: no texel of non-zero alpha past the sprite's width and height from its pieces' smallest corner",
+          i not in past_size, f'#{i}')
+    stats['sprites with texels past their width and height from their origin'] = len(past_origin)
+
+
 def main():
     ap = argparse.ArgumentParser(description='Check items.pak and mixed.pak; per-record tables.')
     ap.add_argument('--game-dir', default=DEFAULT_GAME_DIR)
     ap.add_argument('--items', help='write one tab-separated row per items.pak record to this file')
     ap.add_argument('--sprites', help='write one tab-separated row per mixed.pak record to this file')
+    ap.add_argument('--alpha', action='store_true',
+                    help="decode the atlases' alpha and check the sprites' texels against their size")
     args = ap.parse_args()
     c = Check()
     g = lambda rel: os.path.join(args.game_dir, rel)
@@ -126,6 +163,8 @@ def main():
       struct.unpack_from('<4I', mx, mfirst) == (99, len(mx) - 16, 16, 0xCCCCCCCC))
     sprite_rows = []
     sprite_rows.append((0, 0, 0, 0, zlib.crc32(mx[mfirst:mfirst + 16])))
+    # Per sprite with pieces: its width and height, and each piece's rectangle, texture and corner in the atlas.
+    sprite_pieces = {}
     for i in range(1, nm):
         off, size = int(mdirs[i, 1]), int(mdirs[i, 2])
         r = mx[off:off + size]
@@ -154,7 +193,12 @@ def main():
               and round((v1 - v0) * th) == y1 - y0, where)
             c('mixed piece: atlas offsets are whole pixels', abs(u0 * tw - round(u0 * tw)) < 1e-3
               and abs(v0 * th - round(v0 * th)) < 1e-3, where)
+            sprite_pieces.setdefault(i, (width, height, []))[2].append(
+                (x0, y0, x1, y1, tex, round(u0 * tw), round(v0 * th)))
         sprite_rows.append((i, count, width, height, zlib.crc32(r)))
+
+    if args.alpha:
+        check_alpha(c, stats, g(TEXTURES), sprite_pieces)
 
     print(f'items: {n} records, {int((dirs[:, 0] == 2).sum())} used; mixed: {nm} records')
     c.report()

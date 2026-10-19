@@ -11,7 +11,12 @@
 //! cells of one diagonal at one height, would fight; the shader brings each a little forward in
 //! the original's order of drawing (`sprites.wesl`). The sprites of one page share one mesh.
 //! Miniatures (flag 0x20) are squares cut from their type's atlas, the miniatures of one atlas
-//! one mesh; the animated ones (flag 0x40) show their first frame, still. A light source's
+//! one mesh; the animated ones (flag 0x40) show their first frame, still.
+//!
+//! The original blends a sprite by its alpha, after an alpha test (docs/re/drawing.md,
+//! "Blending"). A mesh is drawn twice here (docs/decisions/2026-10-18-sprite-alpha.md): its
+//! opaque texels through the depth buffer, then the others blended over what lies behind them,
+//! with the blended things of its layer (`blended`), its quads far to near. A light source's
 //! miniature (type flag `0x20000`, the lamps) carries a glow, a quad of `PARTICLE_GLOW01` three
 //! times its size about it, which `daynight` shows by night (`0x62FF60`, docs/re/daynight.md).
 
@@ -21,21 +26,23 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
+use bevy::math::DVec3;
 use bevy::mesh::{
     Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology, VertexFormat,
 };
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
     AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Plugin, Resource, StandardMaterial, TypePath, Vec2, Vec3, Visibility,
+    MeshMaterial3d, Plugin, Resource, TypePath, Vec2, Vec3, Visibility,
 };
 use bevy::render::render_resource::{
-    AsBindGroup, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
     TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
 use opensacred_data::world::{SIDE, Sector, Sprite, Sprites, StaticObject, World};
 
+use crate::blended::{self, Layer};
 use crate::terrain::{Rgba, read_png};
 use crate::{buildings, iso, liquids};
 
@@ -46,15 +53,18 @@ enum BatchTexture {
     Page(usize),
 }
 
-/// The quads of one atlas or page.
+/// The quads of one atlas or page in one layer of the blended things.
 struct Batch {
     texture: BatchTexture,
     /// Parts of a building's: the building and their mask (see [`part_of`]).
     part: Option<(buildings::Anchor, u8)>,
+    layer: Layer,
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     anchors: Vec<[f32; 4]>,
     sources: Vec<[f32; 4]>,
+    /// Each quad's [`nearness`] and first vertex, until the indices take their order.
+    quads: Vec<(f64, u32)>,
     indices: Vec<u32>,
 }
 
@@ -66,8 +76,8 @@ pub const ATTRIBUTE_ANCHOR: MeshVertexAttribute = MeshVertexAttribute::new(
     VertexFormat::Float32x4,
 );
 
-/// The rectangle of the atlas that a vertex's piece may sample, in texture coordinates: its
-/// source half a texel in from each edge (`sprites.wesl`).
+/// The texels of the atlas that a vertex's piece may sample: its first column and row, and its
+/// last (`sprites.wesl`).
 pub const ATTRIBUTE_SOURCE: MeshVertexAttribute = MeshVertexAttribute::new(
     "SpriteSource",
     0x5350_5249_5445_5352,
@@ -77,13 +87,43 @@ pub const ATTRIBUTE_SOURCE: MeshVertexAttribute = MeshVertexAttribute::new(
 /// The shader of [`SpriteMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/sprites.wesl";
 
-/// The material of the sprites of one atlas: unlit, its edges through alpha to coverage, each
+/// The material of the sprites of one atlas or page in one of their two passes: unlit, each
 /// sprite brought a little forward in the original's order of drawing (`sprites.wesl`).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[bind_group_data(SpriteKey)]
 pub struct SpriteMaterial {
     #[texture(0)]
-    #[sampler(1)]
     pub atlas: Handle<Image>,
+    pub pass: Pass,
+    /// Whether the texels go through the original's alpha test first: a sprite's do, a
+    /// miniature's do not (docs/re/drawing.md, "Blending").
+    pub alpha_test: bool,
+}
+
+/// The texels of its sprites that a [`SpriteMaterial`] draws.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pass {
+    /// The opaque ones, through the depth buffer.
+    Body,
+    /// The others, blended by their alpha over what lies behind them, in their layer of the
+    /// blended things.
+    Fringe(Layer),
+}
+
+/// What the pipeline of a [`SpriteMaterial`] depends on.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SpriteKey {
+    fringe: bool,
+    alpha_test: bool,
+}
+
+impl From<&SpriteMaterial> for SpriteKey {
+    fn from(material: &SpriteMaterial) -> Self {
+        Self {
+            fringe: material.pass != Pass::Body,
+            alpha_test: material.alpha_test,
+        }
+    }
 }
 
 impl Material for SpriteMaterial {
@@ -96,7 +136,17 @@ impl Material for SpriteMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::AlphaToCoverage
+        match self.pass {
+            Pass::Body => AlphaMode::Opaque,
+            Pass::Fringe(_) => AlphaMode::Blend,
+        }
+    }
+
+    fn depth_bias(&self) -> f32 {
+        match self.pass {
+            Pass::Body => 0.0,
+            Pass::Fringe(layer) => layer.bias(),
+        }
     }
 
     fn enable_prepass() -> bool {
@@ -111,7 +161,7 @@ impl Material for SpriteMaterial {
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialPipelineKey<Self>,
+        key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         descriptor.vertex.buffers = vec![layout.0.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
@@ -120,6 +170,23 @@ impl Material for SpriteMaterial {
             ATTRIBUTE_SOURCE.at_shader_location(3),
         ])?];
         descriptor.primitive.cull_mode = None;
+        let SpriteKey { fringe, alpha_test } = key.bind_group_data;
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            // In both passes, which take the texels that the test leaves.
+            if alpha_test {
+                fragment.shader_defs.push("ALPHA_TEST".into());
+            }
+            if fringe {
+                fragment.shader_defs.push("FRINGE".into());
+            }
+        }
+        if fringe {
+            // Only nearer than the depth there: the sprite's own opaque texels, which the first
+            // pass drew at the same depth, are passed over before the shader runs.
+            if let Some(depth) = descriptor.depth_stencil.as_mut() {
+                depth.depth_compare = Some(CompareFunction::Greater);
+            }
+        }
         Ok(())
     }
 }
@@ -155,7 +222,7 @@ pub struct Glows {
 
 /// The glows' material, one for all (`daynight::glow` keeps its colour by the night).
 #[derive(Resource)]
-pub struct Glow(pub Handle<StandardMaterial>);
+pub struct Glow(pub Handle<blended::Sorted>);
 
 /// The type flag of the light sources (`items.pak +0x00`), whose miniatures glow.
 const LIGHT: u32 = 0x2_0000;
@@ -252,6 +319,20 @@ pub const UNDER_LIQUIDS_BACK: f32 = 4_600.0;
 /// the original draws them over the characters too is not known.
 const LIST_4_FORWARD: f32 = 1_000.0;
 
+/// The original's order of drawing as the sprites' shader has it (`order.wesl`): how far forward
+/// a place comes per world unit its cell lies right, and per place in its cell's chain.
+const ACROSS: f64 = 0.002;
+const CHAIN: f64 = 0.0045;
+
+/// How near the camera the place `anchor` lies in the order, as the sprites' shader puts it up to
+/// a constant (`order.wesl`): a batch's quads go far to near, so that each one's blended texels
+/// lie over those behind them.
+fn nearness(anchor: [f32; 4]) -> f64 {
+    let [x, y, z, chain] = anchor.map(f64::from);
+    let at = DVec3::new(x, y, z);
+    at.dot(-iso::forward().as_dvec3()) + ACROSS * at.dot(iso::right().as_dvec3()) + CHAIN * chain
+}
+
 /// The width of a page of a sector's sprites, and the most it grows to before another begins.
 const PAGE: usize = 2048;
 /// Transparent texels between two sprites of a page.
@@ -264,6 +345,9 @@ enum Texture {
     Page(usize),
 }
 
+/// What the quads of a batch share: their texture, their building's part and their layer.
+type BatchKey = (Texture, Option<(buildings::Anchor, u8)>, Layer);
+
 /// A quad to draw: its texture, the corners on screen (top-left, top-right, bottom-right,
 /// bottom-left) relative to the object's position, and the rectangle of the texture in pixels.
 struct Quad {
@@ -274,10 +358,14 @@ struct Quad {
     size: Option<f32>,
 }
 
-/// A sprite assembled from its pieces, one to one, over the rectangle the pieces cover (they may
-/// run past the sprite's size): so that filtering blends the texels on either side of a piece's
-/// edge as it does inside a piece. Filtering each piece in its own atlas could not reach the
-/// next piece's texels, and the step between two pieces showed as a line once magnified.
+/// A sprite assembled from its pieces, one to one, over its rectangle: so that filtering blends
+/// the texels on either side of a piece's edge as it does inside a piece. Filtering each piece in
+/// its own atlas could not reach the next piece's texels, and the step between two pieces showed
+/// as a line once magnified. The rectangle is the sprite's size from its pieces' smallest corner,
+/// past which the pieces' blocks hold transparent texels only (docs/02 §3.3): where the art is
+/// cut at the rectangle's edge to go on in another sprite, its edge's texels then reach the edge,
+/// as the original draws them, rather than fading out into those texels half a texel short of
+/// it, where what lay behind both sprites showed through as a line (#35).
 struct Assembled {
     /// The rectangle in the sprite's pixels: `x0, y0, x1, y1`.
     rect: [i32; 4],
@@ -288,29 +376,41 @@ struct Assembled {
 
 /// The sprite's pieces copied from their atlases into one image; `None` without pieces.
 fn assemble(sprite: &Sprite, atlases: &mut Atlases<'_>) -> Result<Option<Assembled>> {
-    let mut rect: Option<[i32; 4]> = None;
+    let mut covered: Option<[i32; 4]> = None;
     for piece in &sprite.pieces {
         let [x0, y0, x1, y1] = piece.rect.map(i32::from);
-        rect = Some(match rect {
+        covered = Some(match covered {
             None => [x0, y0, x1, y1],
             Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
         });
     }
-    let Some(rect) = rect else {
+    let Some([x0, y0, x1, y1]) = covered else {
         return Ok(None);
     };
+    let rect = [
+        x0,
+        y0,
+        x1.min(x0 + i32::from(sprite.width)),
+        y1.min(y0 + i32::from(sprite.height)),
+    ];
     let width = usize::try_from(rect[2] - rect[0])?;
     let height = usize::try_from(rect[3] - rect[1])?;
     let mut pixels = vec![0u8; 4 * width * height];
     for piece in &sprite.pieces {
         let atlas = atlases.get(piece.atlas)?;
         let [u0, v0, u1, v1] = piece.source.map(usize::from);
-        let x0 = usize::try_from(i32::from(piece.rect[0]) - rect[0])?;
-        let y0 = usize::try_from(i32::from(piece.rect[1]) - rect[1])?;
-        for v in v0..v1.min(atlas.height) {
+        let x = usize::try_from(i32::from(piece.rect[0]) - rect[0])?;
+        let y = usize::try_from(i32::from(piece.rect[1]) - rect[1])?;
+        // The part of the piece within the rectangle and the atlas.
+        let u1 = u1.min(atlas.width).min((u0 + width).saturating_sub(x));
+        let v1 = v1.min(atlas.height).min((v0 + height).saturating_sub(y));
+        if u1 <= u0 {
+            continue;
+        }
+        for v in v0..v1 {
             let from = 4 * (v * atlas.width + u0);
-            let to = 4 * (v * atlas.width + u1.min(atlas.width));
-            let at = 4 * ((y0 + v - v0) * width + x0);
+            let to = 4 * (v * atlas.width + u1);
+            let at = 4 * ((y + v - v0) * width + x);
             pixels[at..at + to - from].copy_from_slice(&atlas.pixels[from..to]);
         }
     }
@@ -503,7 +603,7 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
     let (pages, placed) = pack(&assembled);
     let right = iso::right();
     let up = iso::up();
-    let mut batches: BTreeMap<(Texture, Option<(buildings::Anchor, u8)>), Batch> = BTreeMap::new();
+    let mut batches: BTreeMap<BatchKey, Batch> = BTreeMap::new();
     let mut glows: BTreeMap<Option<(buildings::Anchor, u8)>, Glows> = BTreeMap::new();
     let mut sizes: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
     // The places taken in each cell's chain, by the objects drawn.
@@ -524,22 +624,23 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
         let cx = (sector.x as usize * SIDE + column) as f32 + 0.5;
         let cy = (sector.y as usize * SIDE + row) as f32 + 0.5;
         let lift = cell.heights.iter().map(|&h| f32::from(h)).sum::<f32>() / 4.0;
-        // The centre of the cell in the world and on screen; the depth of the object's draw list.
-        let back = if object.type_flags & OVERLAY != 0 {
-            -LIST_4_FORWARD
+        // The centre of the cell in the world and on screen; the depth of the object's draw list,
+        // and its layer of the blended things.
+        let (back, layer) = if object.type_flags & OVERLAY != 0 {
+            (-LIST_4_FORWARD, Layer::Objects)
         } else if object.type_flags & UNDERLAY != 0 {
             // A liquid cell's miniatures go under the surface (`0x62AE90`); the exception of
             // liquid material 13 while the building at (3563, 1336) has the state 2 is not
             // followed.
             if object.flags & MINIATURE != 0 && liquids::liquid(cell) {
-                UNDER_LIQUIDS_BACK
+                (UNDER_LIQUIDS_BACK, Layer::UnderLiquids)
             } else if object.flags & MINIATURE != 0 || object.mask == 1 {
-                LIST_0_BACK
+                (LIST_0_BACK, Layer::Underlays)
             } else {
-                LIST_2_BACK
+                (LIST_2_BACK, Layer::Underlays)
             }
         } else {
-            0.0
+            (0.0, Layer::Objects)
         };
         let anchor = iso::ground(cx, cy) + Vec3::Y * iso::height(lift) + iso::forward() * back;
         let placed_at = [anchor.x, anchor.y, anchor.z, chain];
@@ -602,17 +703,20 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             glow.indices
                 .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
         }
-        let batch = batches.entry((quad.texture, part)).or_insert(Batch {
+        let batch = batches.entry((quad.texture, part, layer)).or_insert(Batch {
             texture: source,
             part,
+            layer,
             positions: Vec::new(),
             uvs: Vec::new(),
             anchors: Vec::new(),
             sources: Vec::new(),
+            quads: Vec::new(),
             indices: Vec::new(),
         });
-        // The texels map onto the quad one to one; the shader keeps the samples half a texel in
-        // from the edges, where filtering would blend in the texels around them.
+        // The texels map onto the quad one to one; the shader samples only the texels whose
+        // centres lie within the quad's source, where filtering would blend in the texels
+        // around them.
         let [u0, v0, u1, v1] = quad.source;
         let first = u32::try_from(batch.positions.len())?;
         batch.positions.extend(quad.corners.map(at));
@@ -624,17 +728,23 @@ pub fn build(assets: &Path, world: &World, sprites: &Sprites, sector: &Sector) -
             [u1 / w, v1 / h],
             [u0 / w, v1 / h],
         ]);
-        let inside = [
-            (u0 + 0.5) / w,
-            (v0 + 0.5) / h,
-            (u1 - 0.5) / w,
-            (v1 - 0.5) / h,
+        let texels = [
+            (u0 + 0.5).floor(),
+            (v0 + 0.5).floor(),
+            (u1 - 0.5).floor(),
+            (v1 - 0.5).floor(),
         ];
-        batch.sources.extend([inside; 4]);
-        batch
-            .indices
-            .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
+        batch.sources.extend([texels; 4]);
+        batch.quads.push((nearness(placed_at), first));
         drawn += 1;
+    }
+    for batch in batches.values_mut() {
+        batch.quads.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for &(_, first) in &batch.quads {
+            batch
+                .indices
+                .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
+        }
     }
     let pages = pages
         .into_iter()
@@ -671,7 +781,7 @@ pub fn spawn_glows(
     commands: &mut Commands,
     glows: Vec<Glows>,
     meshes: &mut Assets<Mesh>,
-    material: &Handle<StandardMaterial>,
+    material: &Handle<blended::Sorted>,
 ) -> Vec<Entity> {
     glows
         .into_iter()
@@ -698,7 +808,7 @@ pub fn spawn_glows(
         .collect()
 }
 
-/// Spawns a mesh per atlas and per page, unlit, its edges through alpha to coverage; returns the
+/// Spawns a mesh per atlas and per page and layer, unlit, in its two passes; returns the
 /// entities.
 pub fn spawn(
     commands: &mut Commands,
@@ -711,34 +821,44 @@ pub fn spawn(
     let pages: Vec<Handle<Image>> = statics.pages.into_iter().map(|p| images.add(p)).collect();
     let mut entities = Vec::new();
     for batch in statics.batches {
-        let mesh = Mesh::new(
-            PrimitiveTopology::TriangleList,
-            RenderAssetUsages::RENDER_WORLD,
-        )
-        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, batch.positions)
-        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs)
-        .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
-        .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
-        .with_inserted_indices(Indices::U32(batch.indices));
-        let atlas = match batch.texture {
-            BatchTexture::Atlas(path) => assets.load(path),
-            BatchTexture::Page(page) => pages[page].clone(),
+        let mesh = meshes.add(
+            Mesh::new(
+                PrimitiveTopology::TriangleList,
+                RenderAssetUsages::RENDER_WORLD,
+            )
+            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, batch.positions)
+            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs)
+            .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
+            .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
+            .with_inserted_indices(Indices::U32(batch.indices)),
+        );
+        // The sprites are tested against the original's reference, the miniatures are not
+        // (docs/re/drawing.md, "Blending").
+        let (atlas, alpha_test) = match batch.texture {
+            BatchTexture::Atlas(path) => (assets.load(path), false),
+            BatchTexture::Page(page) => (pages[page].clone(), true),
         };
-        let material = SpriteMaterial { atlas };
-        let mut entity = commands.spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(material)),
-        ));
-        // A building's parts show while its state is their mask, the shells' outside.
-        if let Some((building, mask)) = batch.part {
-            let visibility = if mask == buildings::OUTSIDE {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
+        for pass in [Pass::Body, Pass::Fringe(batch.layer)] {
+            let material = SpriteMaterial {
+                atlas: atlas.clone(),
+                pass,
+                alpha_test,
             };
-            entity.insert((buildings::Part { building, mask }, visibility));
+            let mut entity = commands.spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(materials.add(material)),
+            ));
+            // A building's parts show while its state is their mask, the shells' outside.
+            if let Some((building, mask)) = batch.part {
+                let visibility = if mask == buildings::OUTSIDE {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+                entity.insert((buildings::Part { building, mask }, visibility));
+            }
+            entities.push(entity.id());
         }
-        entities.push(entity.id());
     }
     entities
 }
@@ -847,8 +967,8 @@ pub(crate) mod tests {
             sheets: Vec::new(),
             atlases: vec!["red.png".into(), "blue.png".into()],
         };
-        // Two pieces side by side from two atlases, and a third that runs past the sprite's
-        // size, below them.
+        // Two pieces side by side from two atlases, and a third below them that runs past the
+        // sprite's size, which counts from the pieces' smallest corner.
         let piece = |atlas, source, rect| Piece {
             atlas,
             source,
@@ -856,11 +976,11 @@ pub(crate) mod tests {
         };
         let sprite = Sprite {
             width: 8,
-            height: 4,
+            height: 5,
             pieces: vec![
-                piece(0, [4, 4, 8, 8], [0, 0, 4, 4]),
-                piece(1, [0, 0, 4, 4], [4, 0, 8, 4]),
-                piece(1, [0, 0, 8, 2], [0, 4, 8, 6]),
+                piece(0, [4, 4, 8, 8], [2, 1, 6, 5]),
+                piece(1, [0, 0, 4, 4], [6, 1, 10, 5]),
+                piece(1, [0, 0, 8, 2], [2, 5, 10, 7]),
             ],
         };
         let mut atlases = Atlases {
@@ -871,14 +991,16 @@ pub(crate) mod tests {
         let image = assemble(&sprite, &mut atlases).unwrap().unwrap();
         drop(atlases);
         fs::remove_dir_all(&dir).unwrap();
+        // Cut at the size: the third piece's second row goes.
         assert_eq!(
             (image.rect, image.width, image.height),
-            ([0, 0, 8, 6], 8, 6)
+            ([2, 1, 10, 6], 8, 5)
         );
+        assert_eq!(image.pixels.len(), 4 * 8 * 5);
         let pixel = |x: usize, y: usize| &image.pixels[4 * (y * 8 + x)..4 * (y * 8 + x) + 4];
         assert_eq!(pixel(3, 3), [255, 0, 0, 255]);
         assert_eq!(pixel(4, 0), [0, 0, 255, 255]);
-        assert_eq!(pixel(7, 5), [0, 0, 255, 255]);
+        assert_eq!(pixel(7, 4), [0, 0, 255, 255]);
         // Two of them on a page, a gutter apart and whole.
         let sprites = BTreeMap::from([
             (1, image),
@@ -1042,13 +1164,20 @@ pub(crate) mod tests {
         )
         .unwrap();
         fs::remove_dir_all(&dir).unwrap();
-        let positions: Vec<Vec3> = statics.batches[0]
-            .positions
-            .iter()
-            .map(|&p| Vec3::from(p))
-            .collect();
-        assert_eq!(positions.len(), 8);
-        let (wet, dry) = positions.split_at(4);
+        // Blended with the liquids' layers on either side of the surfaces.
+        let layer = |layer| -> Vec<Vec3> {
+            let [batch] = &statics
+                .batches
+                .iter()
+                .filter(|b| b.layer == layer)
+                .collect::<Vec<_>>()[..]
+            else {
+                panic!("one batch of {layer:?}");
+            };
+            batch.positions.iter().map(|&p| Vec3::from(p)).collect()
+        };
+        let (wet, dry) = (layer(Layer::UnderLiquids), layer(Layer::Underlays));
+        assert_eq!((wet.len(), dry.len()), (4, 4));
         // How far behind a vertex along the line of sight a surface lies at the vertex's place on
         // screen: a surface `back` behind a bed at height `bed` pixels. The shader moves a sprite
         // a few units at most.
@@ -1056,7 +1185,7 @@ pub(crate) mod tests {
             |p: Vec3, back: f32, bed: f32| back + (p.y - iso::height(bed)) / -iso::forward().y;
         let shift = 5.0;
         // A bed up to 61 pixels off the cell's height.
-        for &p in wet {
+        for &p in &wet {
             for bed in [-61.25, 61.25] {
                 assert!(
                     behind(p, iso::GROUND_BEHIND, bed) > shift,
@@ -1068,7 +1197,7 @@ pub(crate) mod tests {
                 );
             }
         }
-        for &p in dry {
+        for &p in &dry {
             assert!(behind(p, liquids::BACK, 0.0) > shift, "the water over {p}");
         }
     }
@@ -1123,27 +1252,34 @@ pub(crate) mod tests {
             miniature: None,
             children: Vec::new(),
         };
-        // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal.
+        // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal, and one
+        // of the diagonal behind.
         let sector = Sector {
             x: 0,
             y: 0,
             id: 0,
             liquids: [0; 2],
             cells: vec![cell; SIDE * SIDE],
-            statics: vec![object(5, 5), object(5, 5), object(6, 4)],
+            statics: vec![object(5, 5), object(5, 5), object(6, 4), object(4, 4)],
             layers: Vec::new(),
         };
         let statics = build(&dir, &world, &sprites, &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
-        let anchors: Vec<[f32; 4]> = statics.batches[0]
-            .anchors
-            .iter()
-            .step_by(4)
-            .copied()
-            .collect();
-        let [first, second, next] = anchors[..] else {
+        let batch = &statics.batches[0];
+        let anchors: Vec<[f32; 4]> = batch.anchors.iter().step_by(4).copied().collect();
+        let [first, second, next, _] = anchors[..] else {
             panic!("{anchors:?}");
         };
+        // Its quads go far to near, the one behind first.
+        let quads: Vec<u32> = batch.indices.chunks(6).map(|q| q[0] / 4).collect();
+        assert_eq!(quads, [3, 0, 1, 2]);
+        for (name, value) in [("ACROSS", ACROSS), ("CHAIN", CHAIN)] {
+            let shader = f64::from(shader_constant(ORDER, name));
+            assert!(
+                (shader - value).abs() < 1e-9,
+                "{name}: {shader} in the shader"
+            );
+        }
         let at = |a: [f32; 4]| Vec3::new(a[0], a[1], a[2]);
         // In one cell, the same anchor, and the place in the chain.
         assert_eq!(at(first), at(second));

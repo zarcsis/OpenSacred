@@ -12,13 +12,20 @@ use std::collections::HashMap;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::mesh::MeshTag;
-use bevy::pbr::{ExtendedMaterial, MaterialExtension, MaterialPlugin};
+use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+    MaterialPlugin,
+};
 use bevy::prelude::*;
-use bevy::render::render_resource::AsBindGroup;
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+};
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use bevy::world_serialization::WorldInstanceReady;
 
+use crate::blended;
 use crate::frame::Step;
 use crate::iso;
 use crate::terrain::Heights;
@@ -45,6 +52,18 @@ pub struct InOrder {
 impl MaterialExtension for InOrder {
     fn vertex_shader() -> ShaderRef {
         SHADER.into()
+    }
+
+    /// The depth as the vertex shader puts it: a blended material's `depth_bias` is its layer of
+    /// the blended things (the shadows').
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        blended::unbias(descriptor);
+        Ok(())
     }
 }
 

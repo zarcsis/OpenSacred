@@ -11,6 +11,7 @@ use bevy::mesh::MeshTag;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
+use crate::blended::Layer;
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::iso;
@@ -92,6 +93,7 @@ pub fn setup(
         unlit: true,
         cull_mode: None,
         alpha_mode: AlphaMode::Blend,
+        depth_bias: Layer::Shadows.bias(),
         ..default()
     };
     commands.insert_resource(Blob {
