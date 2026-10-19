@@ -60,6 +60,16 @@ It searches from the start's cell for the target's by the fewest steps: a queue 
 Reaching the target's cell and layer, it walks the steps back to the start and returns the cells of the way; with the queue empty, it returns that there is none.
 Not read: the table of steps (filled at run time, nine entries, so perhaps the eight neighbours and a change of layer), how the hero then walks the way's cells, and what the caller does when there is no way.
 
+## The height
+
+Read 2026-10-19 (#141).
+`0x636520` gives the height that a position on a layer stands at: the layer's cell there (`0x634C50`), or the ground's cell where the layer's grid has none, and of it the second corner heights (`+0x18`…`+0x1B`, left, top, right, bottom), each times 2.5, in units of the models' height; the first corner heights (`+0x10`), the drawn ground's, are not read.
+It interpolates them linearly in one of the four triangles that the diamond's centre, at the mean of the four corners, makes with the diamond's sides: the one toward the right or the left corner as the point lies right or left of the centre on the screen, and toward the bottom or the top corner as it lies below or above it.
+`0x449950`, for an object on a building's floor (its layer at `+0x2C`), and `0x636310`, for a position that carries its floor's number, add the floor object's `Static.PAK +0x33` times 28 units (0 for floor 1).
+`CreateNPC` (`0x48377E`) takes a new creature's height from `0x449950`, and so does the creatures' update (`0x5941A0`, at `0x595290`) for the place it moves a creature to.
+So a creature stands on the second heights: on a bridge on its deck, above the water or the ground; on an upper floor at the floor's height above its grid's, which confirms the hypothesis of docs/re/drawing.md, "Depth".
+The data agree (**confirmed** on the sector files, docs/02 §5.2): the second heights follow the drawn ground over most of the walkable cells and rise above it on the bridges and walkways.
+
 ## The speed
 
 Read 2026-10-18 (#72).
@@ -76,6 +86,7 @@ A target it cannot reach it runs straight toward, until a step would take it int
 A hero on a building's mass on the ground is put on its building's floor 1 where its grid holds the cell walkable (a start inside the monastery), and a hero that steps onto an entrance or an exit goes in or out as the client's does (`terrain::Heights::transition`), the floors read from the world format (version 6: the buildings and their floors, `opensacred-convert world`).
 A hero that steps onto a stair from off the stairs goes to the stair's floor at the cell its offsets give (`terrain::Heights::climb`, `hero::run`), and the way's search knows the stairs as the client's flag `0x100` makes them: a place of the way carries whether the step onto it climbs (`terrain::Footing`).
 The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
+The hero and the NPCs stand at the height that `0x636520` and `0x449950` give (`terrain::Heights::standing`, #141): on the second heights of their level's cell, a bridge's deck over the water, and on a building's floor at the floor's height above them.
 The deviations are in docs/decisions/2026-10-18-walking.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.

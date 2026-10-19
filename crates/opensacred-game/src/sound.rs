@@ -5,8 +5,9 @@
 //! `MOTIONS.PAK` (`tables/motions.ron`): fractions of the clip about half a cycle apart for the
 //! run and walk clips, such as 0.5 and 0.0 for `SERA_RUN_1H` and 0.63 and 0.06 for
 //! `SERA_WALK_1H` (**hypothesis**, docs/02 §4.1). The group of the profile follows the nature
-//! of the cell under the hero (docs/02 §5.2), as the client's switch at `0x68EDDA` maps them
-//! (docs/re/sound.md).
+//! of the cell under the hero (docs/02 §5.2), `BRIDGE` on a bridge over a liquid as the client's
+//! step gives it (`0x639080`, `terrain::Heights::step_nature`), as the client's switch at
+//! `0x68EDDA` maps them (docs/re/sound.md).
 
 use std::fs;
 use std::path::Path;
@@ -174,7 +175,7 @@ pub fn step(
         Gait::Run => 1,
     };
     // The ground's group, or grass where the profile has nothing for it.
-    let wanted = heights.nature(at.x, at.z).map_or(GRASS, group);
+    let wanted = heights.step_nature(at.x, at.z).map_or(GRASS, group);
     let group = if footsteps.samples[wanted].is_empty() {
         GRASS
     } else {

@@ -212,7 +212,8 @@ pub struct Cell {
     pub heights: [i8; 4],
     /// `+0x14`: corner light.
     pub light: [u8; 4],
-    /// `+0x18`: a second corner height (openheilig: ×2.5, sampled like the first).
+    /// `+0x18`: a second corner height, the height a creature stands at, in steps of 2.5 units
+    /// of the models' height (docs/re/movement.md, "The height").
     pub heights2: [i8; 4],
     /// `+0x1C`: offsets of the parent object (openheilig).
     pub offsets: [i8; 2],

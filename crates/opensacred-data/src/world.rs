@@ -104,8 +104,8 @@ pub struct Layer {
 /// A cell of an inside layer: of a cell's fields, those its layer sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LayerCell {
-    /// The second heights (`+0x18`): in the inside layers 10, 15, 20, … (hypothesis: the
-    /// floor's height).
+    /// The second heights (`+0x18`), in the inside layers 10, 15, 20, …: the heights a creature
+    /// stands at inside, as [`Cell::heights2`].
     pub heights2: [i8; 4],
     /// Offsets of the parent object.
     pub offsets: [i8; 2],
@@ -125,7 +125,8 @@ pub struct Cell {
     /// Screen pixels at zoom 1; under a liquid the depth of the bed.
     pub heights: [i8; 4],
     pub light: [u8; 4],
-    /// A second height per corner (meaning community-reported).
+    /// A second height per corner: the height a creature stands at there, in steps of 2.5 units
+    /// of the models' height (docs/re/movement.md, "The height").
     pub heights2: [i8; 4],
     /// Offsets of the parent object (community-reported).
     pub offsets: [i8; 2],
