@@ -86,9 +86,12 @@ Movies are not needed to complete the game, so this is a low priority.
 * **Saves:** our own format: a `serde` structure with a version number and migrations.
   RON in debug (human-readable), postcard with zstd compression in release.
   Autosave on a timer, like `AUTOSAVEDELAY` in the original.
-* **Directories:** through the `directories` crate: `%APPDATA%\OpenSacred` on Windows, XDG on Linux, app storage on Android, IndexedDB in the browser.
+* **Directories:** `%APPDATA%\OpenSacred` on Windows, `$XDG_CONFIG_HOME/OpenSacred` (`~/.config/OpenSacred`) on Linux, app storage on Android, IndexedDB in the browser.
+  Since 2026-10-19 the game takes them from the environment (`APPDATA`, `XDG_CONFIG_HOME`, `HOME`), which needs no crate; `directories` stays the option when Android needs its app storage.
 * **Settings:** TOML: graphics (resolution, window mode, backend, zoom, UI scale, HD packs), sound (volumes), controls (layouts), gameplay.
-  The file, `settings.toml`, comes ahead of M6 with its display section (borderless full screen or a window, F11 between them) and the debug overlays' switches (docs/10 §3, #167).
+  Done ahead of M6 on 2026-10-19 (#167): `settings.toml` with its display section, `mode` (`borderless`, the default: borderless full screen at the monitor's resolution; or `windowed`) and the window's `width` and `height` in physical pixels; F11 switches the mode and writes it at once (docs/10 §3).
+  The game writes only the key it changes, through `toml_edit`, so the user's comments, order and unknown keys stay; a file that does not read is reported, the defaults are taken, and it is never written; an unknown key is reported.
+  `--settings FILE` reads and writes another file, `--windowed`, `--borderless`, `--width` and `--height` override it for one run, and `--screenshot`, `--record` and `--benchmark` run in a window of the given size.
   The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` are not needed (no networking).
 * **The original saves** (`.pax`) are not supported.
   The hero templates `Templates/*.ptx` are converted into starter kits for character creation.

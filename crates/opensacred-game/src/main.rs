@@ -21,6 +21,7 @@ mod paths;
 mod scene_tests;
 mod screenshot;
 mod sectors;
+mod settings;
 mod shaders;
 mod shadows;
 mod sound;
@@ -33,7 +34,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use bevy::prelude::*;
-use bevy::window::{PresentMode, WindowResolution};
+use bevy::window::{MonitorSelection, PresentMode, WindowResolution};
 use clap::{Parser, ValueEnum};
 
 /// The heroes whose models have their own clips: the model, the clips of standing, walking and
@@ -121,12 +122,22 @@ struct Cli {
     /// hero's start in its start script
     #[arg(long, value_parser = parse_position)]
     sector: Option<(u32, u32)>,
-    /// Window width in physical pixels
-    #[arg(long, default_value_t = 1920)]
-    width: u32,
-    /// Window height in physical pixels
-    #[arg(long, default_value_t = 1080)]
-    height: u32,
+    /// The settings file, instead of settings.toml in the user's configuration directory
+    /// (%APPDATA%\OpenSacred on Windows)
+    #[arg(long, value_name = "FILE")]
+    settings: Option<PathBuf>,
+    /// A window for this run, whatever the settings say (F11 switches)
+    #[arg(long, conflicts_with = "borderless")]
+    windowed: bool,
+    /// Borderless full screen for this run, whatever the settings say (F11 switches)
+    #[arg(long)]
+    borderless: bool,
+    /// The window's width in physical pixels for this run; the settings' by default
+    #[arg(long)]
+    width: Option<u32>,
+    /// The window's height in physical pixels for this run; the settings' by default
+    #[arg(long)]
+    height: Option<u32>,
     /// The camera's zoom at the start, 0.5 to 2 as in the original (the mouse wheel changes it)
     #[arg(long, default_value_t = 1.0)]
     zoom: f32,
@@ -328,6 +339,18 @@ fn run(cli: Cli) -> Result<AppExit> {
     let npcs = npcs::Npcs::read(&assets, &tree)?;
     let (npc_count, object_count) = npcs.counts();
     println!("{tree}: {npc_count} NPCs and {object_count} objects at the start");
+    let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
+    // A screenshot, a recording and a benchmark run in a window of the given size, so that their
+    // frames do not depend on the monitor.
+    let fixed = cli.screenshot.is_some() || cli.record.is_some() || cli.benchmark.is_some();
+    if cli.windowed || fixed {
+        settings.display.mode = settings::Mode::Windowed;
+    }
+    if cli.borderless {
+        settings.display.mode = settings::Mode::Borderless;
+    }
+    settings.display.width = cli.width.unwrap_or(settings.display.width);
+    settings.display.height = cli.height.unwrap_or(settings.display.height);
     let mut app = App::new();
     app.add_plugins(
         DefaultPlugins
@@ -335,8 +358,12 @@ fn run(cli: Cli) -> Result<AppExit> {
                 primary_window: Some(Window {
                     title: "OpenSacred".into(),
                     // The size in physical pixels, whatever the desktop's scaling.
-                    resolution: WindowResolution::new(cli.width, cli.height)
-                        .with_scale_factor_override(1.0),
+                    resolution: WindowResolution::new(
+                        settings.display.width,
+                        settings.display.height,
+                    )
+                    .with_scale_factor_override(1.0),
+                    mode: settings.display.window_mode(MonitorSelection::Primary),
                     present_mode: if cli.benchmark.is_some() {
                         PresentMode::AutoNoVsync
                     } else {
@@ -369,12 +396,18 @@ fn run(cli: Cli) -> Result<AppExit> {
         models::ModelsPlugin,
         npcs::NpcsPlugin,
         sectors::SectorsPlugin,
+        settings::SettingsPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
-        srgb::SrgbPlugin,
     ))
-    .add_plugins((statics::StaticsPlugin, terrain::GroundPlugin))
+    .add_plugins((
+        srgb::SrgbPlugin,
+        statics::StaticsPlugin,
+        terrain::GroundPlugin,
+    ))
+    .insert_resource(settings)
+    .insert_resource(settings_file)
     .insert_resource(cli.time.unwrap_or_default())
     .insert_resource(daynight::LightTypes::read(&assets)?)
     .insert_resource(dungeons)
