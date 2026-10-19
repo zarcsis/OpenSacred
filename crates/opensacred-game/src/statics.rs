@@ -1042,17 +1042,12 @@ const FADES: u32 = 0x10;
 
 /// How far about the hero a sprite fades and how opaque it is there: the balance variables
 /// `TransSize` and `TransValu` (`0xAD4DF0`, `0xAD4DF4`), 190 pixels at zoom 1 and 50 out of
-/// 255 (docs/02 §6.3).
+/// 255 (docs/02 §6.3), by name in `balance.ron`.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct TreeFade {
     pub radius: f32,
     pub alpha: f32,
 }
-
-/// The words of `TransSize` and `TransValu` in `balance.ron`: their offsets `+0x960` and
-/// `+0x964` in `Balance.bin`'s image of the balance variables, in words.
-const TRANS_SIZE: usize = 0x960 / 4;
-const TRANS_VALU: usize = 0x964 / 4;
 
 impl TreeFade {
     /// Reads `TransSize` and `TransValu` from `tables/balance.ron`.
@@ -1062,23 +1057,16 @@ impl TreeFade {
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let balance: opensacred_data::tables::Balance =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let word = |at: usize| -> Result<f32> {
-            let value = f32::from_bits(
-                *balance
-                    .values
-                    .get(at)
-                    .with_context(|| format!("no word {at} in {}", path.display()))?,
-            );
-            anyhow::ensure!(
-                value.is_finite(),
-                "word {at} of {}: {value}",
-                path.display()
-            );
+        let variable = |name: &str| -> Result<f32> {
+            let value = balance
+                .f32(name)
+                .with_context(|| format!("no {name} in {}", path.display()))?;
+            anyhow::ensure!(value.is_finite(), "{name} of {}: {value}", path.display());
             Ok(value)
         };
         Ok(Self {
-            radius: word(TRANS_SIZE)?,
-            alpha: word(TRANS_VALU)?,
+            radius: variable("TransSize")?,
+            alpha: variable("TransValu")?,
         })
     }
 
@@ -1752,15 +1740,18 @@ pub(crate) mod tests {
 
     #[test]
     fn a_tree_fades_about_the_hero() {
-        // `TransSize` and `TransValu`, words 600 and 601 of the balance table.
+        // `TransSize` and `TransValu` of the balance table.
         let dir = std::env::temp_dir().join(format!("opensacred-game-fade-{}", std::process::id()));
         fs::create_dir_all(dir.join("tables")).unwrap();
-        let mut values = vec![0_u32; 1224];
-        values[600] = 190.0_f32.to_bits();
-        values[601] = 50.0_f32.to_bits();
+        let variable = |name: &str, value: f32| opensacred_data::tables::BalanceVariable {
+            name: name.to_owned(),
+            offset: 0,
+            value: opensacred_data::tables::BalanceValue::F32(value),
+        };
         let balance = opensacred_data::tables::Balance {
-            values,
-            tail: Vec::new(),
+            variables: vec![variable("TransSize", 190.0), variable("TransValu", 50.0)],
+            image: Vec::new(),
+            rest: Vec::new(),
         };
         fs::write(
             dir.join("tables").join(opensacred_data::tables::BALANCE),

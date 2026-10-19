@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
-    ARMOUR_SWITCHES, BALANCE, Balance, CREATURES, Creature, ITEM_SETS, ITEMS, Item, ItemSet,
-    MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, STAIRS, START_POINTS, STATIC_REMAP,
-    StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX,
-    WORLD_MAP, Weapon, WeaponModifier,
+    ARMOUR_SWITCHES, BALANCE, Balance, BalanceValue, BalanceVariable, CREATURES, Creature,
+    ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion,
+    STAIRS, START_POINTS, STATIC_REMAP, StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS,
+    WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponModifier,
 };
 use opensacred_formats::bin_tables;
 use opensacred_formats::items::{self, Items};
@@ -207,12 +207,31 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
 fn convert_bin_tables(game_dir: &Path, dir: &Path) -> Result<usize> {
     let file = |path: &str| -> Result<Vec<u8>> { read(game_dir, path) };
     let b = bin_tables::balance(&file("bin/Balance.bin")?).context("bin/Balance.bin")?;
+    let variables = bin_tables::BALANCE_KEYS
+        .iter()
+        .map(|key| -> Result<BalanceVariable> {
+            let word = b
+                .word(key)
+                .with_context(|| format!("bin/Balance.bin: no word for {}", key.name))?;
+            Ok(BalanceVariable {
+                name: key.name.to_owned(),
+                offset: key.offset,
+                value: match key.kind {
+                    bin_tables::Kind::F32 => BalanceValue::F32(f32::from_bits(word)),
+                    bin_tables::Kind::I32 => {
+                        BalanceValue::I32(i32::from_le_bytes(word.to_le_bytes()))
+                    }
+                },
+            })
+        })
+        .collect::<Result<_>>()?;
     write(
         dir,
         BALANCE,
         &Balance {
-            values: b.values,
-            tail: b.tail,
+            variables,
+            image: b.image,
+            rest: b.rest,
         },
     )?;
     let index = bin_tables::world_index(&file("bin/World.bin")?).context("bin/World.bin")?;
