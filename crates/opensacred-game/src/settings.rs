@@ -1,6 +1,6 @@
 //! The game's settings, `settings.toml` in the user's configuration directory (docs/06 §6,
 //! docs/10 §3): for now the display, borderless full screen on the monitor or a window of a given
-//! size, which F11 switches between.
+//! size, which F11 switches between, and which debug panels show.
 //!
 //! The file is read once, at the start. A key the game sets is written back at once, alone, into
 //! the document as it was read, so that the user's comments, order and unknown keys stay; a file
@@ -74,11 +74,20 @@ impl Display {
     }
 }
 
+/// `[debug]`: the panels that the function keys show.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Panels {
+    /// The log's last records at the lower left (F4).
+    pub log: bool,
+}
+
 /// The settings in force: the file's, with the command line's for this run.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub display: Display,
+    pub debug: Panels,
 }
 
 /// The game's directory in the user's configuration directory: `%APPDATA%\OpenSacred` on Windows,
@@ -88,6 +97,19 @@ pub fn config_dir() -> Option<PathBuf> {
         env_dir("APPDATA")
     } else {
         env_dir("XDG_CONFIG_HOME").or_else(|| env_dir("HOME").map(|home| home.join(".config")))
+    };
+    base.map(|base| base.join(DIRECTORY))
+}
+
+/// The game's directory in the user's state directory, for what it leaves behind such as its
+/// logs: `%LOCALAPPDATA%\OpenSacred` on Windows, `$XDG_STATE_HOME/OpenSacred`
+/// (`~/.local/state/OpenSacred`) elsewhere.
+pub fn state_dir() -> Option<PathBuf> {
+    let base = if cfg!(windows) {
+        env_dir("LOCALAPPDATA")
+    } else {
+        env_dir("XDG_STATE_HOME")
+            .or_else(|| env_dir("HOME").map(|home| home.join(".local").join("state")))
     };
     base.map(|base| base.join(DIRECTORY))
 }
@@ -351,10 +373,16 @@ mod tests {
                 width: 1280,
                 height: 720,
             },
+            debug: Panels { log: true },
         };
         file.save(
             &settings,
-            &["display.mode", "display.width", "display.height"],
+            &[
+                "display.mode",
+                "display.width",
+                "display.height",
+                "debug.log",
+            ],
         )
         .unwrap();
         let (file, read) = SettingsFile::read(Some(path));

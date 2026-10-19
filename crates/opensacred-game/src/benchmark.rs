@@ -83,7 +83,7 @@ pub fn measure(
     }
     if benchmark.elapsed >= benchmark.length {
         let seconds = benchmark.elapsed.as_secs_f64();
-        println!(
+        let result = format!(
             "benchmark: {} frames in {seconds:.1} s, {:.1} frames a second, the slowest {:.1} ms; \
              {} stalls of the process, the longest {:.1} ms",
             benchmark.frames,
@@ -92,6 +92,9 @@ pub fn measure(
             benchmark.stalls.count.load(Ordering::Relaxed),
             f64::from(benchmark.stalls.longest.load(Ordering::Relaxed)) / 1000.0
         );
+        // On the standard output for the scripts that read it, and in the log.
+        println!("{result}");
+        info!("{result}");
         exit.write(AppExit::Success);
     }
 }
