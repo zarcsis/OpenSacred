@@ -6,7 +6,8 @@
 //! its anchor's place, the centre of the cell its root stands in, with a small part of its own
 //! depth (`models.wesl`). A model's root carries [`Ordered`], with its slot of the [`Anchors`]
 //! that its meshes' tags name; a model that another holds, an NPC's weapon, [`OrderedWith`] its
-//! holder, whose slot its meshes take.
+//! holder, whose slot its meshes take. A model standing on an upper storey's floor lies no
+//! further back than the floor's plane, as the sprites standing on it do ([`statics::Floor`]).
 
 use std::collections::HashMap;
 
@@ -25,10 +26,11 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use bevy::world_serialization::WorldInstanceReady;
 
-use crate::blended;
+use crate::buildings::{self, Layered};
 use crate::frame::Step;
-use crate::iso;
+use crate::hero::Body;
 use crate::terrain::Heights;
+use crate::{blended, iso, statics};
 
 /// The shader of [`ModelMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/models.wesl";
@@ -42,11 +44,13 @@ pub(crate) const PLACE: f32 = 24.0;
 /// A glTF material of a model, drawn at the model's place in the order.
 pub type ModelMaterial = ExtendedMaterial<StandardMaterial, InOrder>;
 
-/// The models' anchors, which every [`ModelMaterial`] shares.
+/// The models' anchors and floors, which every [`ModelMaterial`] shares.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct InOrder {
     #[storage(100, read_only)]
     anchors: Handle<ShaderBuffer>,
+    #[storage(101, read_only)]
+    floors: Handle<ShaderBuffer>,
 }
 
 impl MaterialExtension for InOrder {
@@ -75,11 +79,14 @@ impl MaterialExtension for InOrder {
 /// Every model's anchor, by the slot its root holds, for the shader by its meshes' tags: the
 /// centre of the model's cell at the cell's height, from which the model's own depth is measured,
 /// and the place in the cell. The place in the order is that centre at height 0, as the sprites'
-/// (#112).
+/// (#112). And the floor that the model stands on, if it stands on an upper storey's
+/// ([`statics::Floor::under`]), zero for any other.
 #[derive(Resource)]
 pub struct Anchors {
     buffer: Handle<ShaderBuffer>,
     anchors: Vec<Vec4>,
+    floor_buffer: Handle<ShaderBuffer>,
+    floors: Vec<Vec4>,
     free: Vec<u32>,
     changed: bool,
 }
@@ -93,15 +100,18 @@ impl Anchors {
 
 impl FromWorld for Anchors {
     fn from_world(world: &mut World) -> Self {
-        let buffer = world
-            .resource_mut::<Assets<ShaderBuffer>>()
-            .add(ShaderBuffer::new(
+        let mut buffers = world.resource_mut::<Assets<ShaderBuffer>>();
+        let mut zero = || {
+            buffers.add(ShaderBuffer::new(
                 vec![[0.0_f32; 4]],
                 RenderAssetUsages::default(),
-            ));
+            ))
+        };
         Self {
-            buffer,
+            buffer: zero(),
             anchors: vec![Vec4::ZERO],
+            floor_buffer: zero(),
+            floors: vec![Vec4::ZERO],
             free: Vec::new(),
             changed: false,
         }
@@ -127,6 +137,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors) -> ModelMaterial {
         base,
         extension: InOrder {
             anchors: anchors.buffer.clone(),
+            floors: anchors.floor_buffer.clone(),
         },
     }
 }
@@ -195,6 +206,7 @@ fn hold(added: On<Add<Ordered>>, mut anchors: ResMut<Anchors>, mut roots: Query<
     let slot = anchors.free.pop().or_else(|| {
         let slot = u32::try_from(anchors.anchors.len()).ok()?;
         anchors.anchors.push(Vec4::ZERO);
+        anchors.floors.push(Vec4::ZERO);
         Some(slot)
     });
     ordered.0 = slot;
@@ -261,36 +273,80 @@ pub fn convert(
     }
 }
 
-/// Keeps each model's anchor at the cell its root stands in, and the shader's buffer with them.
+/// The building's part whose floor a model stands on, if it stands on an upper storey's: the
+/// hero's by its level, an NPC's or an object's by its layer. A model on the ground or on a
+/// building's floor 1 stands on none.
+fn storey(
+    heights: &Heights,
+    layered: Option<&Layered>,
+    body: Option<&Body>,
+) -> Option<(buildings::Anchor, u8)> {
+    let (building, floor) = match (body, layered) {
+        (Some(body), _) => heights.floor(body.level())?,
+        (
+            None,
+            Some(&Layered {
+                building: Some(building),
+                layer,
+            }),
+        ) => (building, u8::try_from(layer).ok()?),
+        _ => return None,
+    };
+    let level = heights.floor_level(building, usize::from(floor));
+    if heights.lift(level) <= 0.0 {
+        return None;
+    }
+    Some((building, 1u8.checked_shl(u32::from(floor))?))
+}
+
+/// Keeps each model's anchor at the cell its root stands in, and the floor it stands on, and the
+/// shader's buffers with them.
 pub fn place(
     heights: Res<Heights>,
-    roots: Query<(&Transform, &Ordered)>,
+    roots: Query<(&Transform, &Ordered, Option<&Layered>, Option<&Body>)>,
+    floors: Query<&statics::Floor>,
     mut anchors: ResMut<Anchors>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
-    for (transform, ordered) in &roots {
+    let floors: HashMap<(buildings::Anchor, u8), &statics::Floor> =
+        floors.iter().map(|floor| (floor.part, floor)).collect();
+    for (transform, ordered, layered, body) in &roots {
         let Some(slot) = ordered.0.and_then(|slot| usize::try_from(slot).ok()) else {
             continue;
         };
         let at = anchor(&heights, transform.translation);
-        if let Some(anchor) = anchors.anchors.get_mut(slot)
-            && *anchor != at
+        let on = storey(&heights, layered, body)
+            .and_then(|part| floors.get(&part))
+            .map_or(Vec4::ZERO, |floor| {
+                floor.under(place_of(transform.translation))
+            });
+        let anchors = &mut *anchors;
+        if let (Some(anchor), Some(floor)) =
+            (anchors.anchors.get_mut(slot), anchors.floors.get_mut(slot))
+            && (*anchor, *floor) != (at, on)
         {
-            *anchor = at;
+            (*anchor, *floor) = (at, on);
             anchors.changed = true;
         }
     }
     if anchors.changed {
         anchors.changed = false;
-        let data: Vec<[f32; 4]> = anchors.anchors.iter().map(|a| a.to_array()).collect();
-        if let Some(mut buffer) = buffers.get_mut(&anchors.buffer) {
-            *buffer = ShaderBuffer::new(data, RenderAssetUsages::default());
+        for (handle, values) in [
+            (&anchors.buffer, &anchors.anchors),
+            (&anchors.floor_buffer, &anchors.floors),
+        ] {
+            let data: Vec<[f32; 4]> = values.iter().map(|a| a.to_array()).collect();
+            if let Some(mut buffer) = buffers.get_mut(handle) {
+                *buffer = ShaderBuffer::new(data, RenderAssetUsages::default());
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use opensacred_data::world::{Building, Sector};
+
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
 
@@ -313,6 +369,35 @@ mod tests {
         // Its parts a tenth of a unit apart stay a step of the depth buffer (a thousandth of a
         // unit, docs/05 §3.6) apart.
         assert!(squeeze * 0.1 >= 0.001);
+    }
+
+    #[test]
+    fn a_model_stands_on_its_buildings_upper_storeys() {
+        // A building anchored at the cell (5, 5), its floor 1 on the ground, its floor 2 140 units
+        // of the models' height up.
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: Vec::new(),
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: vec![Building {
+                cell: 5 * 64 + 5,
+                floors: vec![1, 2],
+                heights: vec![0, 140],
+            }],
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let on = |building, layer| storey(&heights, Some(&Layered { building, layer }), None);
+        // On floor 2, its part of mask 4; on floor 1 and on the ground, no floor's.
+        assert_eq!(on(Some((5, 5)), 2), Some(((5, 5), 4)));
+        assert_eq!(on(Some((5, 5)), 1), None);
+        assert_eq!(on(Some((5, 5)), 0), None);
+        assert_eq!(on(None, 2), None);
+        assert_eq!(storey(&heights, None, None), None);
     }
 
     #[test]
