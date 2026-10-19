@@ -424,11 +424,12 @@ Confirmed by code 2026-10-17; the shares are the high nibbles of all 24.8 millio
 | 7 | `BRIDGE` | 3 per 100,000 | | 15 | `KIES` (gravel) | 3.2% |
 
 The footstep profiles' groups are another list: 0 environment, 1 grass, 2 water, 3 snow, 4 swamp, 5 stone, 6 sand, 7 wood (the client's `SND_*` names, [docs/re/sound.md](re/sound.md)); the client plays a footstep's group by the nature (a switch at `0x68EDDA`: the deserts and gravels sand, the stone roads, floors, dungeons, bridges and lava stone, `IND-WOOD` wood, the rest grass), and it also picks the ambient loop and the footprint texture by the nature ([docs/re/sound.md](re/sound.md)).
-Under a liquid the first corner heights are the bed (−10 in most of the start's pond) and the second (`+0x18`) mostly 0 or a little below (−1, −2): hypothesis, the second heights give the surface, in the ×2.5 units openheilig reports.
+Under a liquid the first corner heights are the bed (−10 in most of the start's pond) and the second (`+0x18`) mostly 0 or a little below (−1, −2).
+The surface lies flat at height 0 and takes its corners' alphas from the bed's heights (**confirmed** by code 2026-10-19, `0x62DD00`, docs/re/liquids.md); the liquids' pass does not read the second heights.
 
 **Liquid materials.**
 The client fills a table of 14 materials at `0x4189DF` (records of 0xD8 B from `this + 0x91E8`: the frames' texture handles, `+0xC8` the frame count, `+0xCC` a byte, `+0xD0` an int, `+0xD4` a byte), each from a series of `texture.pak` frames `<SERIES>%.2d.TGA` (128 × 128, opaque, tileable); a sector's two slots (§5.1) index it.
-Confirmed by code 2026-10-17; the meaning of the parameters is not:
+Confirmed by code 2026-10-17; the meaning of `+0xCC` and `+0xD0` by code 2026-10-19 (#103, docs/re/liquids.md):
 
 | Material | Series | Frames | `+0xCC` | `+0xD0` | `+0xD4` |
 |---|---|---|---|---|---|
@@ -443,7 +444,9 @@ Confirmed by code 2026-10-17; the meaning of the parameters is not:
 | 12 | `E_LAVA` | 50 | 0 | −255 | 1 |
 | 13 | `B_WATER` | 50 | 0 | −12 | 0 |
 
-Hypothesis: `+0xCC` marks the clear waters (drawn translucent over the bed, with a second layer) and `+0xD4` the glowing ones (the "glow pass" of docs/05 §1); the `CAUST00`… frames (64 × 64, grey) are the caustics on a bed.
+`+0xD0` is the factor of a surface's corner's alpha: the bed's height there times it, held to 0…255, so a water of −12 is opaque from a bed 22 pixels deep and a lava of −255 over any bed below 0.
+`+0xCC` gives a clear water its second layer at `DETAILLEVEL` 2, added over the bed under its surface (#118).
+Hypothesis: `+0xD4` marks the glowing ones (the "glow pass" of docs/05 §1); the `CAUST00`… frames (64 × 64, grey) are the second layer's texture.
 How the client picks a cell's material, the frame of the moment (every material cycles in 2,048 ms) and the mapping (a frame over 4 × 4 cells) is in [docs/re/liquids.md](re/liquids.md).
 
 ### 5.3 Heights and the render contract
@@ -714,8 +717,8 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 | Slot | Tag | Size (template / save) | Storage | Contents |
 |---|---|---|---|---|
 | 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | `cCreatureHero` dump (starts with 0xFEEDF00D; per sacred-sdk: class @0x3DD, experience @0x3E1, gold @0x41B, level @0x42B; not checked byte by byte) |
-| 1 | 0xCA (202) | 4,444 | zlib | skill table |
-| 2 | 0xCB (203) | 4,444 | zlib | combat arts/combos |
+| 1 | 0xCA (202) | 4,444 | zlib | the hero's backpack: an inventory container (below), 20 × 8 cells |
+| 2 | 0xCB (203) | 4,444 | zlib | a second inventory container, 20 × 10 cells, of the reference `0x11`, empty in all 10 files |
 | 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: repeating blocks starting with 0xFEEDF00D (6 in a template, 52/58 in saves) |
 | 4 | 0xC3 (195) | 556 | uncompressed | summary: `u32 level`, `u32 classId` (1..9, see §6.1), `wchar name[32]`, statistics (kills, gold, time) |
 | 5 | 0xC4 (196) | 64 on disk (556 in the table) | uncompressed | mini block |
@@ -725,6 +728,10 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 Compressed sections: a 32-byte prefix `u32 0xBAADC0DE, u32 csize, 24 × 0` + zlib (`78 DA`); inflate yields exactly `size`.
 **Confirmed on every section 2026-10-17** by `tools/analysis/formats/amh_dump.py`: the sections follow the table in slot order, back to back, the last to the end of the file; a stored section is `size` bytes on disk but for 0xC4 (64 bytes for a size of 556).
 The 8 templates are of 8 different classes (1–6, 8, 9), level 1, without a name; the 2 saves are level-29 heroes.
+
+**The inventory containers** `0xCA` and `0xCB`, **confirmed** 2026-10-19 (#133) by the client's reader (`0x5DDA30`, which the hero's loader `0x6058A0` calls for both, `0xCB` for the reference `0x11`) and on every section of the 10 files, read back to their exact 4,444 bytes: six u16, the container's number (1 for the backpack, 17 = `0x11` for the second), flags (16 in every backpack, 0 or 4 in the second container; `+0x1162` of the object), two more (the second 392 in the saves' backpacks, 0 in the templates', 20 in every second container), the grid's width and height (20 × 8 and 20 × 10); `0x400` bytes (zeros in all 10); the grid, `0xC00` bytes of 256 cells of 12 bytes, row by row, width × height of them used, a cell's first u32 an item reference (0 none); `0x78` bytes, five records of 24 bytes of two references each; 200 bytes; two u32; then the quest items, a u32 count and 8 bytes each (the client logs it as `NumQuestItem`), and the scrolls, a u32 count and 4 bytes each (`NumScrolls`), both 0 in all 10 files.
+The backpack of a template holds 4 items, one cell each (the three healing potions and the large torch of `Hero01.ptx`'s inventory), the saves' 33 and 39; the second container is empty in all 10.
+The earlier names, the skill table and the combat arts, were wrong.
 The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): the converter reads only the templates, and `amh_dump.py --saves` checks the saves of a clean installation.
 Implemented: `opensacred_formats::amh`; `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level and class in `heroes.ron`.
 The sections stay whole until their layout is recovered.
