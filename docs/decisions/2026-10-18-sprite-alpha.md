@@ -1,6 +1,6 @@
 # The sprites' alpha
 
-Rendering (`opensacred-game`), 2026-10-18.
+Rendering (`opensacred-game`), 2026-10-18; changed 2026-10-19 (#100, #118).
 
 ## The original
 
@@ -10,7 +10,7 @@ Every sprite is blended by its alpha (`SRCALPHA`, `INVSRCALPHA`) over what is dr
 
 A sprite is drawn twice.
 Its opaque texels go through the depth buffer with the opaque things, as before; the others are blended by their alpha over what lies behind them, tested against the depth but not written to it, after the original's alpha test for the sprites.
-The blended things go in layers in the original's order: the miniatures of the liquid cells, the liquids' surfaces, the underlays (lists 0 and 2), the characters' shadows, the sprites of lists 3 and 4, the lamps' glows (`blended`); within a layer, by their meshes' centres, and a mesh's quads far to near.
+The blended things go in layers in the original's order: the miniatures of the liquid cells, the clear waters' second layer, the liquids' surfaces, the underlays of list 0, the statics' shadows of list 1, the underlays of list 2, the characters' shadows and the shadows drawn with their sprites, the sprites of lists 3 and 4, the lamps' glows (`blended`); within a layer, by their meshes' centres, and a mesh's quads far to near.
 The shader filters the texels linearly, each colour weighted by its alpha, and a sprite's image is its size from its pieces' smallest corner.
 
 ## Why

@@ -128,7 +128,9 @@ The data agree (**confirmed** on the sector files, docs/02 §5.2): the second he
 
 Read 2026-10-18 (#72).
 `0x4F75F0`, as a creature takes a gait, sets its speed (`+0x375`, an integer) to its `Creature.pak` record's walk speed (`+0x26`, for the gait 1 at `+0x1F8`) or run speed (`+0x28`), to a default of `0x4F73C0` where that is 0, or to 200 for a mounted creature (`+0x1F4` bit `0x200000`), times the balance variable `GameSpeed` (1.25 in `Balance.bin`, docs/02 §6.3) times `f`, truncated; `f` is a short of the creature's attributes (`0x585070`, `+0x40` of its block at `+0x3A8`, a mount's or an owner's for some) times the creature's float at `+0x2C9` times 0.01 (**hypothesis**: a percentage, 100 for a hero without bonuses, and 1.0).
-The same call sets the rate of the creature's clip (`0x413610`, Granny's animation parameter 2) to `GameSpeed · f`, times the motion's own factor where that lies in [0.8, 5) and is not 1: `MotionDesc +0x9C`, which is `MOTIONS.PAK +0x5A`, zero in every record (docs/02 §4.1), so it never applies.
+The same call sets the rate of the creature's clip (`0x413610`, Granny's animation parameter 2) to `GameSpeed · f`, times the motion's own factor where that lies in [0.8, 5) and is not 1: `MotionDesc +0x9C`, which is `MOTIONS.PAK +0x62`, `floats_62[0]` of `tables/motions.ron` (docs/02 §4.1).
+29 records hold one and 13 of them lie in that range, all attacks: 12 with a bow or a crossbow, on foot or riding, and one special (counted on `MOTIONS.PAK` and `Models.tmp` 2026-10-20, #322); no walk or run has one.
+**Hypothesis**: the factor applies only if this call runs while one of those attacks plays, which is not read.
 So the creatures move and their clips play a quarter faster than the tables and the clips have it, together, and the steps match the ground as they were made to.
 In what unit of time the speed is, is not read.
 
@@ -152,7 +154,7 @@ So a click sends the hero to the walkable cell whose ground or floor, at its own
 
 ## In `opensacred-game`
 
-`terrain::Heights` keeps each loaded cell's walkability by the rule above, on the ground and on the sectors' inside layers; the doors' triggers have no states in the game, so the doors are open (**hypothesis**).
+`terrain::Heights` keeps each loaded cell's walkability by the rule above, on the ground and on the sectors' inside layers; the doors' states do not change their cells in the game, the doors opening and closing for the townsfolk alone (#268), so the doors are open (**hypothesis**).
 `paths` searches the way as the client does, over the eight neighbours in a 64 × 64 window but not between two cells that touch at a corner (the client's search is not read to do so), at the hero's level and, at an entrance on the ground or an exit on a layer, only onto the level it leads to (`terrain::Heights::neighbours`), and the hero heads for the farthest cell of the way on its level that it reaches in a straight line, or for the target itself when nothing stands between; at a change of level on its way it goes onto the way's next level.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
 A click sends the hero to the cell under the cursor and onto its level as the original finds them (`pick`, #208), the way's search ending on that level (`paths::path_onto`); the test of nearness is a circle of √1200 · 1.52 world units, not the models' frame's slightly squeezed one, and where nothing is found the hero goes to the point of the cursor's line of sight at its own height.
@@ -165,8 +167,9 @@ The cells that the start script's and the sectors' functions' `TriggerPatch`es p
 The objects of category 4 stop the walking NPCs alone besides, as `0x4F7E10` has them stop a creature of id above 16 (`crowd`), so the hero passes the few that no patch closes.
 No trigger changes its state in the game yet: a cell closed at the start stays closed.
 The creatures stop one another's steps by the conditions above (`crowd`, #212): each frame takes the cells the hero and the NPCs stand on at their levels, and the hero's way and steps go round a cell only where a creature of bit 0 or 1 of its flags word stands (the start's captain `hauptmann3`), a walking NPC's round any creature's but its own; a big creature (`Creature.pak` flags `0x02`) or a critter stops none.
-The flags word is made from each `CreateNPC` record's tags as the client makes it (`crowd::flags_word`); the goals (`+0x259`) and the followers (`+0x39C`) are not followed, there being neither yet.
+The flags word is made from each `CreateNPC` record's tags as the client makes it (`crowd::flags_word`); the goals (`+0x259`) and the followers (`+0x39C`) are not followed.
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
 The deviations are in docs/decisions/2026-10-18-walking.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.
+The motions' own factors (`MotionDesc +0x9C`, above) are not followed.

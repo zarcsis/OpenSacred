@@ -120,4 +120,5 @@ The variables `atmos_rg<N>` (above, the atmosphere) are others.
 So the sieges' and the world changes' music follows the campaign's quests, which the game has not (M4).
 
 `opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`): entering a sector of another music switches to it at once, the one playing fading out (**hypothesis**: what `cMSS::playMusic` does with the track playing is not read); a track that ends plays again; out of a sector with music into one without, the track plays to its end, then `PEACE`.
-Not in the game: the sieges and the world changes, which wait for the quests (#55), the fights' music, and the night (#5).
+By night no track starts, and the one playing plays to its end, without the jingle (#5).
+Not in the game: the sieges and the world changes, which wait for the quests (#55), and the fights' music (docs/decisions/2026-10-17-region-music.md).
