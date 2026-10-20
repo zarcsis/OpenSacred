@@ -22,8 +22,9 @@ use bevy::color::ColorToComponents;
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::{
-    AlphaMode, App, AssetServer, Assets, Color, Commands, Entity, Handle, Image, Mesh, Mesh3d,
-    MeshMaterial3d, Plugin, Res, ResMut, Resource, StandardMaterial, Time, Update, default,
+    AlphaMode, App, AssetServer, Assets, Color, Commands, Entity, Handle, Image,
+    IntoScheduleConfigs, Mesh, Mesh3d, MeshMaterial3d, Plugin, Res, ResMut, Resource,
+    StandardMaterial, Time, Update, default,
 };
 use opensacred_data::world::{Cell, SIDE, Sector};
 
@@ -483,7 +484,7 @@ pub struct LiquidsPlugin;
 
 impl Plugin for LiquidsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, animate);
+        app.add_systems(Update, animate.in_set(crate::frame::Playing));
     }
 }
 

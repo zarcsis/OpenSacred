@@ -66,6 +66,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * What every game shares (the world's index, the sprites, the tables) is read once; `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.
 * The modules' systems run only in `InGame`: the steps of `frame::Step` take the condition once, and the plugins' `Startup` systems move to `OnEnter(InGame)`.
   Leaving `InGame` despawns the game's entities (`DespawnOnExit`) and removes its resources.
+* Done 2026-10-19 (#171), in a module `game`: the systems of a game are in a set `frame::Playing`, which runs only in `InGame`; the camera and the light are spawned once and stay, so that the menus draw through the same camera and its sRGB frame; each module takes back what it made on `OnExit(InGame)`, the sectors with what they adopted, the hero, the building it was in, the music and the night, and `game` the resources it loaded, and warns of anything left in the world when the menu comes.
+  Until the menu (#172), the process goes straight into the game that the command line gives and ends, failing, when it does not load.
 * The menu: New Game and Quit, in the original's interface font.
   New Game shows the seven classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game.
   The mouse, or the arrows, Enter and Esc.

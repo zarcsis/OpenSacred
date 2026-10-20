@@ -1,8 +1,11 @@
 //! The order of a frame's systems across the modules: each module's plugin puts its systems of
 //! `Update` that others depend on in one of these steps, which run in this order, each step's
-//! commands applied before the next.
+//! commands applied before the next. Every step, and every other system of a game, is
+//! [`Playing`]: it runs only while a game is played.
 
-use bevy::prelude::{App, IntoScheduleConfigs, Plugin, SystemSet, Update};
+use bevy::prelude::{App, IntoScheduleConfigs, Plugin, SystemSet, Update, in_state};
+
+use crate::game::AppState;
 
 /// The steps of a frame, in order.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,26 +32,33 @@ pub enum Step {
     Shadows,
 }
 
+/// The systems of a game, which run only while one is played (`game::AppState::InGame`): the
+/// steps, and the systems of a game outside them.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Playing;
+
 /// The order of the steps.
 pub struct FramePlugin;
 
 impl Plugin for FramePlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(
-            Update,
-            (
-                Step::HeroSpawn,
-                Step::Zoom,
-                Step::HeroMove,
-                Step::Buildings,
-                Step::Footsteps,
-                Step::Follow,
-                Step::Sectors,
-                Step::Npcs,
-                Step::Models,
-                Step::Shadows,
-            )
-                .chain(),
-        );
+        app.configure_sets(Update, Playing.run_if(in_state(AppState::InGame)))
+            .configure_sets(
+                Update,
+                (
+                    Step::HeroSpawn,
+                    Step::Zoom,
+                    Step::HeroMove,
+                    Step::Buildings,
+                    Step::Footsteps,
+                    Step::Follow,
+                    Step::Sectors,
+                    Step::Npcs,
+                    Step::Models,
+                    Step::Shadows,
+                )
+                    .chain()
+                    .in_set(Playing),
+            );
     }
 }
