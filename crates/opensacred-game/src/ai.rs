@@ -293,7 +293,8 @@ impl Mind {
         }
     }
 
-    fn hostile(&self) -> bool {
+    /// Whether it is hostile to the hero.
+    pub fn hostile(&self) -> bool {
         self.flags & 0x3 != 0
     }
 }

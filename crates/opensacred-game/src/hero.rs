@@ -75,6 +75,11 @@ pub struct Hero {
     pub run: String,
     /// The model's fight stance for bare hands, if it has one (`motions::Slots::stance`).
     pub stance: Option<String>,
+    /// The model's attack clips for bare hands (`motions::Slots::attacks`) and the fractions of
+    /// each at which it hits (`attack`).
+    pub attacks: Vec<(String, [f32; 2])>,
+    /// Its attack, defence, damage and resistances, by its type's record (`fight::combat`).
+    pub combat: Option<crate::fight::Combat>,
     pub position: Vec3,
     /// Where to go first, if anywhere.
     pub target: Option<Vec3>,
@@ -92,6 +97,8 @@ impl Hero {
             walk,
             run,
             stance: None,
+            attacks: Vec::new(),
+            combat: None,
             position,
             target: None,
             gait: Gait::Run,
@@ -161,6 +168,12 @@ impl Body {
         self.onto = Some(level);
     }
 
+    /// Stops it where it stands.
+    pub fn stop(&mut self) {
+        self.target = None;
+        self.onto = None;
+    }
+
     /// Puts it at `position` on the ground, going nowhere; it stands on the ground there as soon
     /// as the ground's sector is in ([`run`]).
     pub fn teleport(&mut self, transform: &mut Transform, position: Vec3) {
@@ -182,6 +195,8 @@ pub struct Clips {
     stance: Option<AnimationNodeIndex>,
     /// The walk and the run clips and their nodes.
     moving: [(Handle<AnimationClip>, AnimationNodeIndex); 2],
+    /// The attack clips' nodes, the clips and the fractions at which they hit.
+    pub attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -238,18 +253,30 @@ pub fn spawn(
         (clip(&hero.idle), clip(&hero.walk), clip(&hero.run))
     {
         let stance = hero.stance.as_ref().and_then(|name| clip(name));
+        let attacks: Vec<_> = hero
+            .attacks
+            .iter()
+            .filter_map(|(name, fractions)| Some((clip(name)?, *fractions)))
+            .collect();
         let mut clips = vec![idle, walk.clone(), run.clone()];
+        let stances = usize::from(stance.is_some());
         clips.extend(stance);
+        clips.extend(attacks.iter().map(|(clip, _)| clip.clone()));
         let (graph, nodes) = AnimationGraph::from_clips(clips);
         commands.insert_resource(Clips {
             graph: graphs.add(graph),
             idle: nodes[0],
-            stance: nodes.get(3).copied(),
+            stance: (stances > 0).then(|| nodes[3]),
             moving: [(walk, nodes[1]), (run, nodes[2])],
+            attacks: attacks
+                .into_iter()
+                .zip(&nodes[3 + stances..])
+                .map(|((clip, fractions), &node)| (node, clip, fractions))
+                .collect(),
             player: None,
         });
     }
-    commands.spawn((
+    let mut body = commands.spawn((
         WorldAssetRoot(scene),
         Transform::from_translation(hero.position)
             .with_rotation(facing(Vec3::new(1.0, 0.0, 1.0)))
@@ -267,6 +294,9 @@ pub fn spawn(
         models::Ordered::default(),
         shadows::Casts,
     ));
+    if let Some(combat) = hero.combat {
+        body.insert(combat);
+    }
 }
 
 /// The rotation that turns a model facing +X in its bind pose, as `SERAPHIM.GRN` does (docs/02
@@ -331,9 +361,11 @@ pub fn steer(
     camera: Single<(&Camera, &GlobalTransform)>,
     heights: Res<Heights>,
     buildings: Res<crate::buildings::Buildings>,
+    aim: Res<crate::attack::Aim>,
     mut bodies: Query<(&Transform, &mut Body)>,
 ) {
-    if !buttons.pressed(MouseButton::Left) {
+    // A press that went to an attack does not steer (`attack::aim`).
+    if !buttons.pressed(MouseButton::Left) || aim.0 {
         return;
     }
     let Some(cursor) = pointer.0 else {
@@ -368,11 +400,16 @@ pub fn run(
     clips: Option<Res<Clips>>,
     crowd: Res<crate::crowd::Crowd>,
     nearest: Res<crate::crowd::Nearest>,
-    mut bodies: Query<(Entity, &mut Transform, &mut Body)>,
+    mut bodies: Query<(
+        Entity,
+        &mut Transform,
+        &mut Body,
+        Has<crate::attack::Striking>,
+    )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body) in &mut bodies {
+    for (me, mut transform, mut body, striking) in &mut bodies {
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
@@ -468,10 +505,14 @@ pub fn run(
             }
         }
         // The state changes only with the clip: before the model's player exists, the next
-        // frame tries again.
+        // frame tries again. A strike plays its own clip (`attack`).
         let Some(clips) = clips.as_ref() else {
             continue;
         };
+        if striking {
+            body.moving = None;
+            continue;
+        }
         // Standing, in its stance while the last look found a hostile within 350 units (the
         // client's bit `0x8000`, `0x547070`; 1,000 with a bow, which the hero does not hold yet).
         let fight = nearest.found && nearest.distance < HERO_STANCE_WITHIN;
@@ -571,6 +612,7 @@ mod tests {
             idle: node(1),
             stance,
             moving: [(Handle::default(), node(2)), (Handle::default(), node(3))],
+            attacks: Vec::new(),
             player: None,
         };
         let with = clips(Some(node(4)));

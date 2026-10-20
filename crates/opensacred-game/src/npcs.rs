@@ -736,11 +736,9 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
     Some(spawning::Fill { per_area, entries })
 }
 
-/// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
-/// where `tables/balance.ron` lacks them.
 /// The fractions of the attack's clips at which they hit (`0x4EA1F0`, docs/re/fight.md), none
 /// where `tables/motions.ron` cannot be read.
-fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
+pub fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
     let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
     let motions: Vec<opensacred_data::tables::Motion> = fs::read_to_string(&path)
         .ok()
@@ -757,6 +755,8 @@ fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
         .collect()
 }
 
+/// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
+/// where `tables/balance.ron` lacks them.
 fn factors(balance: Option<&opensacred_data::tables::Balance>) -> spawning::Factors {
     let factor = |name, default| balance.and_then(|b| b.f32(name)).unwrap_or(default);
     spawning::Factors {
@@ -1569,7 +1569,10 @@ fn spawn(
         let right = holds(Hand::Right, None);
         let armed = placement.held != 0 || right;
         let two = placement.held == 8 || (right && holds(Hand::Left, Some(false)));
-        entity.insert(fight::combat(&placement.base, grade, armed, rules));
+        entity.insert((
+            fight::combat(&placement.base, grade, armed, rules),
+            fight::Worth(placement.base.experience),
+        ));
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),

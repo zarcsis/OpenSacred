@@ -36,19 +36,29 @@ const DEFENCE: [f32; 2] = [20.0, 80.0];
 #[derive(Resource)]
 struct Dice(Rng);
 
+/// The hero's experience, which its kills earn (`0x57D860`); it gains no level yet (#300).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Experience(pub u64);
+
+/// What a creature is worth: `Creature.pak`'s experience `a + E·b` (`+0x08`, `+0x0A`).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Worth(pub [u16; 2]);
+
 /// Resolves each hit (`0x56B130`): a target that has no health yet (the hero, #292), or that is
 /// dying, ignores it; else the strike may miss, and its damage takes the target's health down,
 /// shows over it, and at 0 the target dies (the AI's state 9, `0x53E7C0`), one of its two dying
-/// clips at random.
+/// clips at random, and a hero that killed it earns its experience (the event 9, `0x57D860`).
 fn resolve(
     mut commands: Commands,
     mut hits: MessageReader<Hit>,
     mut dice: ResMut<Dice>,
-    attackers: Query<&Combat>,
-    mut targets: Query<(&mut Health, &Combat, &GlobalTransform), Without<Dies>>,
+    mut experience: ResMut<Experience>,
+    rules: Res<Rules>,
+    attackers: Query<(&Combat, Has<crate::hero::Body>)>,
+    mut targets: Query<(&mut Health, &Combat, &GlobalTransform, Option<&Worth>), Without<Dies>>,
 ) {
     for hit in hits.read() {
-        let (Ok(attacker), Ok((mut health, defender, at))) =
+        let (Ok((attacker, hero)), Ok((mut health, defender, at, worth))) =
             (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -82,8 +92,45 @@ fn resolve(
             commands
                 .entity(hit.target)
                 .insert(Dies::new(dice.0.below(2)));
+            if let (true, Some(worth)) = (hero, worth) {
+                let earned = experience_of(worth.0, health.level, HERO_LEVEL, &rules);
+                experience.0 += u64::from(earned);
+                info!(
+                    "fight: the hero kills {} and earns {earned} experience, {} in all",
+                    hit.target, experience.0
+                );
+            }
         }
     }
+}
+
+/// The experience that a hero of level `hero` earns for a creature of level `level` worth
+/// `[a, b]` (`0x57D860`): `a + E·b`, `E` the level on bronze's scale, the game's, times bronze's
+/// `ProzExp`, times the factor of the levels (`0x551530`): with `r = (E + 9)/(H + 9)` against
+/// the threshold `t` of the test of the levels (`takes_on`), 0.04 up to `t`, then
+/// `(r − t)/(UnterExpVoll − t)`, 1 from `UnterExpVoll` to `ObereEXPVoll`, `ObereEXPVoll/r` above,
+/// at least 0.04; whole. No cap of the level (`LevelKap`) or bonuses of the killer yet
+/// (docs/decisions/2026-10-20-hero-attack.md).
+pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
+    let [share, anteil, voll, upper] = rules.experience;
+    let (e, h) = (to_f32(level), to_f32(hero));
+    let r = (e + 9.0) / (h + 9.0);
+    let t = match hero {
+        0..=10 => (h + 6.0) / (h + 9.0),
+        92.. => (h - 6.0) / (h + 9.0),
+        _ => anteil,
+    };
+    let factor = if r <= t {
+        0.04
+    } else if r > upper {
+        upper / r
+    } else if r >= voll {
+        1.0
+    } else {
+        (r - t) / (voll - t)
+    };
+    let base = f32::from(a) + e * f32::from(b);
+    whole(base * share * factor.max(0.04))
 }
 
 /// How long a damage's number shows, in seconds, how high over the target's feet it starts and
@@ -175,6 +222,12 @@ impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(
+                OnEnter(AppState::InGame),
+                |mut experience: ResMut<Experience>| *experience = Experience::default(),
+            )
             .add_systems(Update, (resolve, rise).chain());
     }
 }
@@ -191,8 +244,10 @@ pub struct Health {
 /// health of a creature not a hero (`HP_s1`…`HP_w5`) and the difficulty's `ProzHP`; the offset
 /// of the level's factor of the attributes (`BalStatOff`), the divisors of each kind's damage
 /// and resistance multipliers (`BalChar*D`, `BalChar*R`) and of the resistances
-/// (`BalanceRes*`), and the factors of all damages and resistances (`BalanceDmg`, `BalanceRes`).
-#[derive(Clone, Debug, PartialEq)]
+/// (`BalanceRes*`), and the factors of all damages and resistances (`BalanceDmg`, `BalanceRes`);
+/// the experience's factor of bronze (`ProzExp`) and the levels' (`UnterExpAnteil`,
+/// `UnterExpVoll`, `ObereEXPVoll`).
+#[derive(Resource, Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
     factor: f32,
@@ -201,6 +256,7 @@ pub struct Rules {
     resistance_divisors: [f32; KINDS],
     resistances: [f32; KINDS],
     balance: [f32; 2],
+    experience: [f32; 4],
 }
 
 impl Default for Rules {
@@ -214,6 +270,7 @@ impl Default for Rules {
             resistance_divisors: [280.0, 280.0, 320.0, 260.0],
             resistances: [22.0, 17.0, 17.0, 25.0],
             balance: [1.0, 1.0],
+            experience: [1.0, 0.85, 1.0, 1.1],
         }
     }
 }
@@ -261,6 +318,12 @@ impl Rules {
             balance: [
                 b.f32("BalanceDmg").unwrap_or(1.0),
                 b.f32("BalanceRes").unwrap_or(1.0),
+            ],
+            experience: [
+                b.row_f32("ProzExp", BRONZE).unwrap_or(1.0),
+                b.f32("UnterExpAnteil").unwrap_or(0.85),
+                b.f32("UnterExpVoll").unwrap_or(1.0),
+                b.f32("ObereEXPVoll").unwrap_or(1.1),
             ],
         }
     }
@@ -312,8 +375,8 @@ fn whole(value: f32) -> u32 {
 
 /// A creature type's values of `Creature.pak` that its fight takes: its six base attributes
 /// (`+0x0C`), its six bonuses (`+0x2A`: a kind and a target; their values `+0x36` and the
-/// opponents' classes `+0x3C`) and the per cent of each kind's damage that it takes off on each
-/// difficulty (`+0x42`).
+/// opponents' classes `+0x3C`), the per cent of each kind's damage that it takes off on each
+/// difficulty (`+0x42`), and its experience (`+0x08`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Base {
     pub attributes: [u8; 6],
@@ -321,6 +384,7 @@ pub struct Base {
     pub bonus_value: [u8; 6],
     pub bonus_class: [u8; 6],
     pub damping: [[u8; 5]; KINDS],
+    pub experience: [u16; 2],
 }
 
 impl Base {
@@ -331,6 +395,7 @@ impl Base {
             bonus_value: creature.bonus_value,
             bonus_class: creature.bonus_class,
             damping: creature.damping,
+            experience: creature.experience,
         }
     }
 }
@@ -660,6 +725,26 @@ mod tests {
             let d = roll_damage(&large, &mut rng)[0] * 10.0;
             (d - d.round()).abs() < 1e-3
         }));
+    }
+
+    #[test]
+    fn a_kill_earns_the_creatures_experience_by_the_levels() {
+        let rules = Rules::default();
+        let worth = [20, 5];
+        // Of the hero's level, or one above, the whole `a + E·b`.
+        assert_eq!(experience_of(worth, 1, 1, &rules), 25);
+        assert_eq!(experience_of(worth, 2, 1, &rules), 30);
+        // Above `ObereEXPVoll`, less by `ObereEXPVoll/r`: 35 · 1.1/1.2.
+        assert_eq!(experience_of(worth, 3, 1, &rules), 32);
+        // Below the hero's: at the threshold 0.04, above it `(r − t)/(1 − t)`.
+        assert_eq!(experience_of(worth, 2, 5, &rules), 1);
+        assert_eq!(experience_of(worth, 3, 5, &rules), 11);
+        // Bronze's `ProzExp` and the balance's values.
+        let more = Rules {
+            experience: [2.0, 0.85, 1.0, 1.1],
+            ..Rules::default()
+        };
+        assert_eq!(experience_of(worth, 1, 1, &more), 50);
     }
 
     #[test]

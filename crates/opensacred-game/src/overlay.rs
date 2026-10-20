@@ -15,7 +15,7 @@ use bevy::window::{PrimaryWindow, WindowMode};
 use serde::Serialize;
 
 use crate::daynight::{Clock, Phase};
-use crate::fight::Health;
+use crate::fight::{Experience, Health};
 use crate::game::AppState;
 use crate::hero::{Body, Gait, Hero, Ready};
 use crate::npcs::{Npc, Object};
@@ -115,6 +115,8 @@ pub struct Snapshot {
     pub entities: usize,
     /// The health of the creature nearest the hero, its most and its level.
     pub nearest: Option<(u32, u32, u32)>,
+    /// The hero's experience (`fight::Experience`).
+    pub experience: Option<u64>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -199,6 +201,9 @@ impl Snapshot {
                     "nearest creature  health {current}/{most}  level {level}"
                 ));
             }
+            if let Some(experience) = self.experience {
+                lines.push(format!("hero experience {experience}"));
+            }
         }
         lines
     }
@@ -220,6 +225,7 @@ pub struct Probe<'w, 's> {
     ready: Option<Res<'w, Ready>>,
     npcs: Query<'w, 's, (), With<Npc>>,
     healths: Query<'w, 's, (&'static Transform, &'static Health), Without<Body>>,
+    experience: Option<Res<'w, Experience>>,
     objects: Query<'w, 's, (), With<Object>>,
     entities: Query<'w, 's, ()>,
 }
@@ -322,6 +328,7 @@ impl Probe<'_, '_> {
                     })
                     .map(|(_, health)| (health.current, health.most, health.level))
             }),
+            experience: self.experience.as_deref().map(|experience| experience.0),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies
