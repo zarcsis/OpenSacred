@@ -98,6 +98,11 @@ impl Streamer {
         self.building.is_empty() && self.ready.is_empty()
     }
 
+    /// The sectors being built or waiting to spawn.
+    pub fn building(&self) -> usize {
+        self.building.len() + self.ready.len()
+    }
+
     /// A streamer that starts with sector `at`, built already.
     pub fn new(shared: Arc<Shared>, at: (u32, u32), first: Built) -> Self {
         Self {

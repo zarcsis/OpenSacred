@@ -95,6 +95,9 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the clock and its phase, the zoom;
   * the sectors spawned and being built, the NPCs and objects placed, the entities;
   * the version, the GPU adapter and backend, the window's size and mode.
+
+  Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
+  At 3840 × 2160, running across sectors, the overlay shown took 2.3 % of the frame rate (580 frames a second without it, 566 with it, about 0.04 ms a frame).
 * **The log (F4)**: a `tracing` layer keeps the last 1,000 records in a ring with sequence numbers; F4 shows the last 15 at the lower left, warnings yellow and errors red.
   The same records go to `%LOCALAPPDATA%\OpenSacred\logs\opensacred.log` (`$XDG_STATE_HOME` on Linux), a new file each start with the two before kept, so that a crash's log can be read after it; `--log-file` writes another one.
   Done 2026-10-19 (#169): the records are those that Bevy's filter lets through (INFO and above), each line of the file `seconds-since-the-start LEVEL target: message`; the panel takes one line a record, its targets in the game without `opensacred_game::`, and whether it shows is the setting `[debug] log`.

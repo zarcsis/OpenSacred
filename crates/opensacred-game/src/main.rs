@@ -19,6 +19,7 @@ mod models;
 mod motions;
 mod music;
 mod npcs;
+mod overlay;
 mod paths;
 mod pause;
 #[cfg(test)]
@@ -200,6 +201,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         npcs::NpcsPlugin,
     ))
     .add_plugins((
+        overlay::OverlayPlugin,
         pause::PausePlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,

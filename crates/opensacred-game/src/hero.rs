@@ -128,6 +128,11 @@ impl Body {
     pub fn level(&self) -> Level {
         self.level
     }
+
+    /// Where it goes, if anywhere.
+    pub fn target(&self) -> Option<Vec3> {
+        self.target
+    }
 }
 
 /// The animation graph of the hero's clips, given to the model's player once it exists.
