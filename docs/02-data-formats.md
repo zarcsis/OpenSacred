@@ -593,7 +593,7 @@ Confirmed on file (`tools/analysis/formats/bin_tables_dump.py`):
 | `World.bin` | 46,264 | `u32 3855` and 3,855 rows of 3 × i32: the first `(−1, −1, −1)`, then mostly `(i, 3392 + 64·(i − 1), 0)` (not all: the last is `(3854, 4096, 6336)`) | a table of id → offset of 64-byte blocks (hypothesis) |
 | `World2.bin` | 32,772 | `u32 32768` + 32,768 bytes (11,823 nonzero) | a 256×128 byte map (hypothesis) |
 | `sets.bin` | 7,396 | `u32 66` + 66 × 112 B: the first all 0xCC, the others `{u32 items[10]; u32 hash; u8 bytes[4]; 64 zero bytes}` | item sets |
-| `wpmod.bin` | 147,796 | `u32 572` + 572 × `{u32 words[53]; u32 k; k × u32[6]}` (the client's loader `0x42F8CE`) | weapon modifiers |
+| `wpmod.bin` | 147,796 | `u32 572` + 572 × `{u32 words[53]; u32 k; k × u32[6]}` (the client's loader `0x42F8CE`) | weapon modifiers: the templates of the items' values, the words' meanings in docs/re/items.md (#294) |
 | `wea.bin` | 4,648 | 256 lists `{u32 k; u32 ids[k]}` to the end (the leading 10 is the first list's count) | weapon groups |
 | `treppe.bin` | 19,952 | 1,247 × 4 u32 | "stairs": quadruples of object/position ids |
 | `static10_18.bin` | 41,440 | `map\0`, u32 2574, zeros to 0x100, 2,574 × `u32[4]`: two (old, new) pairs, the second 0xCCCCCCCC twice when unset (8 rows) | remap of static ids v1.0 → v1.8 |
