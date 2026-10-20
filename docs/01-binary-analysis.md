@@ -16,7 +16,7 @@ The status of claims is marked with these words: **confirmed** — there is an a
 * The GOG client has no protection at all and is analyzed as is: 4 sections, entry point RVA 0x44D964, no traces of ProtectDISC.
 * Client code: 1,462,718 instructions; after normalization **≈5,900 game functions in 3.48 MB (≈180k logical lines of C++)**, 410 vtables and 417 RTTI classes, ~1,300 `dynamic_cast`s, 2,539 EH frames; CRT, STLport 4.x, zlib 1.2.1 and D3DX7 are statically linked in.
 * On the order of **2,000–3,000 functions** need analysis: rules, items, AI, the script interpreter (§8).
-  Rendering, UI, sound, input, networking and the file layer are written from scratch without reading the original's code.
+  Rendering and sound are written anew, but what they show (the draw order, the liquids, the light by the hour, the music and the footsteps by the ground) is read off the code into `docs/re/`; UI, input, networking and the file layer are written from scratch without reading the original's code.
 * `GameServer.exe` is an auxiliary binary: 1,176 game functions (227 KB) are byte-identical to the client, which helps confirm function boundaries and classes.
   The server itself is not ported: networking is out of scope.
 * Behavior details useful for the reimplementation: random numbers come from the MSVC CRT LCG; object positions are integers; x87 precision in the original was not fixed, so bit-exact results are not needed (§7).
@@ -103,14 +103,14 @@ What exactly the 18 Processor Pack objects build is not established (hypothesis:
 
 | Library | Evidence | Consequence for the port |
 |---|---|---|
-| VC6 CRT (static, multithreaded) | no imports from `MSVCRT.dll` in either the client or the server; strings `Microsoft Visual C++ Runtime Library`, `R6xxx`; `rand`/`srand` with a per-thread seed via `_getptd` (§7.3) | replaced by a modern CRT/`std`; the semantics of `rand()` and `_ftol` are preserved by explicit wrappers |
-| STLport 4.x (namespace `_STL`) | ≈50 RTTI classes of facets and streams; ≈209 KB of byte-identical code in the server; the exact release (4.5.x / 4.6.x) cannot be determined from RTTI | `std::` instead of `_STL::`; template instances inside game objects (≈1,130 functions, 0.56–0.6 MB) are not rewritten but tagged `TEMPLATE` semi-automatically (BSim, `_STL::` RTTI, carrying over the 607 shared with the server; §3.4) |
+| VC6 CRT (static, multithreaded) | no imports from `MSVCRT.dll` in either the client or the server; strings `Microsoft Visual C++ Runtime Library`, `R6xxx`; `rand`/`srand` with a per-thread seed via `_getptd` (§7) | replaced by a modern CRT/`std`; the semantics of `rand()` and `_ftol` are preserved by explicit wrappers |
+| STLport 4.x (namespace `_STL`) | ≈50 RTTI classes of facets and streams; ≈209 KB of byte-identical code in the server; the exact release (4.5.x / 4.6.x) cannot be determined from RTTI | `std::` instead of `_STL::`; template instances inside game objects (≈1,130 functions, 0.56–0.6 MB) are not rewritten; in Ghidra the functions of the `_STL` classes are tagged `STL` (241), and the template instances in the game code stay untagged (§3.4) |
 | zlib 1.2.1 | strings `deflate 1.2.1`/`inflate 1.2.1` in `.rdata` at 0x494338 / 0x495548 | current zlib; the stream format is compatible |
 | D3DX7 (with PSGP) | strings `D3DX: (WARN) …`, `DisableD3DXPSGP`, the key `Software\Microsoft\Direct3D` at 0x49B6F0…; a 64 KB block 0x821000–0x831000 with 7,853 SSE/MMX/3DNow! instructions (matrix math implementations for Katmai/K6-2); hypothesis: the neighboring blocks 0x811000–0x841000 are the rest of D3DX7 (≈100–150 KB) | not needed: matrices/texture loading are written from scratch; needed only as a source of signatures |
 | MSLU loader (`unicows`) | a table of 17 DLL names, the path `\Microsoft Shared\MSLU\` | removed |
 | NA2dLib (IME) | classes `NA2dLib::CIMHandler/CW32IMHandler`, 16 KB in 0x7F1000–0x821000 | not carried over: text input via Bevy and winit |
 
-The share of third-party code in the client's `.text`: the library block 0x7F1180–0x85AB59 (1,625 functions, 426 KB) + EH glue 0x85ACD2–0x88F628 (2,538 thunks and unwind funclets, 214 KB) + STL/CRT instances in the game area (≈1,130 functions, ≈599 KB) ≈ 1.2 MB, 25% of the section.
+The share of third-party code in the client's `.text`: the library block 0x7F1180–0x85AB59 (1,625 functions, 426 KB) + EH glue 0x85ACD2–0x88F628 (2,538 thunks and their unwind funclets, 17,422 functions in Ghidra, 214 KB) + STL/CRT instances in the game area (≈1,130 functions, ≈599 KB) ≈ 1.2 MB, 25% of the section.
 Correction: the client's main module (WinMain, window procedure, initialization) is linked *after* STLport and lies in 0x811000–0x818000, formally in the "tail", but it is game code.
 
 ### 3.3 Code generation style
@@ -127,7 +127,8 @@ Correction: the client's main module (WinMain, window procedure, initialization)
 ### 3.4 Consequences for the project
 
 * The game is not rebuilt from recovered sources, so VC6, the Processor Pack and byte-matching tools are not needed.
-* ≈2,750 library functions (1,625 in the library block and ≈1,130 STL/CRT instances in the game code) are not analyzed: in Ghidra they are marked as library functions by signatures and by `_STL::` names.
+* ≈2,750 library functions (1,625 in the library block and ≈1,130 STL/CRT instances in the game code) are not analyzed.
+  Function ID's databases match 54 functions and none of VC6's library, so in Ghidra the library block is tagged `LIBRARY` by its address range (1,725 functions by Ghidra's boundaries) and the functions of the `_STL` classes `STL` (241); the template instances in the game code stay untagged ([docs/03-toolchain.md](03-toolchain.md), §4.1).
 * Strings in the original are UTF-16 (VC6 `wchar_t` = 16 bits): this matters only to the converter of `global.res` and the templates.
 * The original's C++ exceptions and SEH filter are not carried over: in Rust, errors are handled with `Result` types, and crashes by the standard panic mechanism with a report.
 
@@ -148,7 +149,8 @@ Correction: the client's main module (WinMain, window procedure, initialization)
 | `switch` tables | 910 | 382 |
 | Indirect `[reg+disp]` calls (virtual/COM) | 10,292 | 4,982 |
 
-Hypothesis: the giant functions (25–44 KB) are the NetScript interpreter (`cInterpretSQW`), network packet handlers and balancing (huge `switch`es); when decompiling, they will have to be split by case branches manually.
+Of the five largest, `0x67A7A0` handles the engine's events of type 2 and `0x7DC260` is the client's loop over its message queue ([docs/re/sound.md](re/sound.md)), and `0x5EAC70` holds the balance text's parser (docs/02 §6.3); the NetScript walker `0x475680` is not among them ([docs/re/netscript.md](re/netscript.md)).
+Hypothesis: the other giant functions (25–44 KB) are network packet handlers and similar huge `switch`es; when decompiling, they will have to be split by case branches manually.
 
 Normalization of the base (confirmed):
 
@@ -156,8 +158,8 @@ Normalization of the base (confirmed):
 |---|---|---|---|
 | Starts in the game area 0x401000–0x7F1000 ("own") | **6,660** | 4,079,784 | including ≈1,130 STLport/CRT instances (≈599 KB) inside game translation units |
 | Library block 0x7F1180–0x85AB59 | 1,625 | 425,877 | STLport 654, CRT 321, D3DX 183, IME 62 (+ ≈400 tagged as game code; hypothesis: an artifact of label propagation) |
-| EH glue 0x85ACD2–0x88F628 | 2,538 | 214,060 | `mov eax, FuncInfo; jmp __CxxFrameHandler` + unwind funclets; no need to write them |
-| Ghidra sacred-bild (`functions_eng.tsv`) | 7,631 | — | 7,409 `FUN_` + 197 named + 25 thunks; 6,048 in the game area |
+| EH glue 0x85ACD2–0x88F628 | 2,538 | 214,060 | the `mov eax, FuncInfo; jmp __CxxFrameHandler` thunks; their unwind funclets, which Ghidra counts as functions (17,422 tagged `EH`, docs/03 §4.1), are not counted here; no need to write them |
+| Ghidra sacred-bild (`functions_eng.tsv`) | 7,631 | — | 7,409 `FUN_` + 197 named + 25 thunks, without its `Unwind@` and `Catch@` entries (`fn_census.py`; docs/03 §4.1 counts 25,337 entries with them and 193 named entry points, leaving out names such as `LAB_` and `switchD` too); 6,048 in the game area |
 | Ours only, game area | 1,017 | 509,266 | reachable only via vtables (637 of the 1,270 particle functions); Ghidra did not detect them |
 | Ghidra only | 405 | — | lie inside our functions (merged neighbors) |
 | **Combined base of own starts** | **≈7,050** | — | minus ≈1,130 STL/CRT ⇒ **≈5,900 game functions, 3.48 MB** |
@@ -184,6 +186,7 @@ Labels come from the vtable owner class and from string references, propagated t
 | **Total own** | **6,660** | **4,080 KB** | 2,726 | 1,783 / 370 KB | |
 
 Address layout (a hypothesis based on the labels): 0x401000–0x641000: simulation, events, file layer, script (`cInterpretSQW` around 0x431000), core; 0x641000–0x651000: rendering; 0x6A1000–0x761000: UI; 0x761000–0x7D1000: particles; 0x7D1000–0x7F1000: networking/end of the game code; 0x7F1000–0x861000: STLport, IME, D3DX7 (0x811000–0x841000), CRT (0x851000); 0x811000–0x818000: the main module (WinMain).
+The code read since corrects it in two places: the NetScript reader and its handlers lie at 0x465000–0x4A0000 (the tree's load 0x465690, the walker 0x475680, the handlers up to 0x49E210; [docs/re/netscript.md](re/netscript.md)), and the world view's drawing at 0x622000–0x632000 (the cells' projection 0x622660, the draw loop 0x62AE90, the liquids 0x62DD00, the lists' walk 0x62FF60, the statics' shadows 0x631EB0; docs/02 §5.2–5.4, [docs/re/drawing.md](re/drawing.md)), not in 0x641000–0x651000.
 
 ### 4.3 Classes
 
@@ -219,7 +222,7 @@ Client: 389 imports from 16 DLLs (41 `jmp [IAT]` thunks); 31 imports are loaded 
 
 | DLL | Functions | Calls | Purpose | In the new engine |
 |---|---|---|---|---|
-| KERNEL32 | 123 | 657 | files, `CreateFileMappingA`/`MapViewOfFile` (mmap PAK), threads, mutexes (`ReleaseMutex` 64, `WaitForSingleObject` 55), `VirtualProtect` 72 (§7.5) | std, Bevy AssetServer |
+| KERNEL32 | 123 | 657 | files, `CreateFileMappingA`/`MapViewOfFile` (mmap PAK), threads, mutexes (`ReleaseMutex` 64, `WaitForSingleObject` 55), `VirtualProtect` 72 (§7) | std, Bevy AssetServer |
 | USER32 | ≈60 | 190 | window, message loop, `GetAsyncKeyState` 39, `ChangeDisplaySettingsA` 2, dialogs of the built-in UI editor, the `tabblocker` hook | Bevy (winit) |
 | GDI32 | 19 | 94 | rasterizing TTF into 256² pages (`CreateFontIndirectA`, `TextOutA` 11, `SetTextColor` 15, `BitBlt`) | cosmic-text via Bevy |
 | granny.dll | 54 | 424 | Granny 1.2b: 51 are called directly, the rest via pointers; per `granny_args.py`, the most frequent are `GrannyGetAnimationParameter` (175), `SetAnimationParameter` (72), `GetBoneState` (61), `LockSequenceForRendering` (25) | models and animations are converted to glTF; Bevy animation graph |
@@ -237,7 +240,7 @@ Client: 389 imports from 16 DLLs (41 `jmp [IAT]` thunks); 31 imports are loaded 
 Server: 186 functions from 10 DLLs; kernel32 366 calls, user32 274 (the server has a Win32 dialog UI: `DialogBoxParamA`, `AnimateWindow`, `Shell_NotifyIcon`), ws2_32 26 (`connect` and `send` are present), tincat2 20 (`TinCat_GetBuildNumber` 16, `TinCat_CreateAPI` 2, `TinCat_CreateTinCatValues` 2); `VirtualProtect`: 0.
 
 Video: function 0x6A0D80 creates `CLSID_AMMultiMediaStream` → `IAMMultiMediaStream::Initialize/AddMediaStream(MSPID_PrimaryVideo, PrimaryAudio)/OpenFile`; frames are read via `IDirectDrawMediaStream` into a DirectDraw surface (callers 0x6A1590, 0x6A1780); 16 `.wmv` names in `.data` at 0x5DFDCC…; Microsoft has declared `amstream` deprecated → in the new engine the cutscenes are converted to AV1 via FFmpeg.
-The `COMPAT_VIDEO` key from `Settings.cfg` (the string at VA 0x9E0074, referenced from 0x6A0F06, 0x6A0F1E, 0x6A0F24, i.e. only inside this function; confirmed on file): according to a static reading (a **medium-confidence hypothesis**), the value is taken from the configuration object 0x182EE88; an empty value keeps the original path (a 1024×512 DirectDraw surface for `IDirectDrawMediaStream`), a non-empty one (GOG sets 1 by default) enables an alternative presentation with `GetWindowRect` and D3D7 render flags via `setRenderFlag` (0x643430): a compatibility mode for showing cutscenes on modern drivers (see [06-platform-backends.md](06-platform-backends.md), §5, §7).
+The `COMPAT_VIDEO` key from `Settings.cfg` (the string at VA 0x9E0074, referenced from 0x6A0F06, 0x6A0F1E, 0x6A0F24, i.e. only inside this function; confirmed on file): according to a static reading (a **medium-confidence hypothesis**), the value is taken from the configuration object 0x182EE88; an empty value keeps the original path (a 1024×512 DirectDraw surface for `IDirectDrawMediaStream`), a non-empty one (GOG sets 1 by default) enables an alternative presentation with `GetWindowRect` and D3D7 render flags via `setRenderFlag` (0x643430): a compatibility mode for showing cutscenes on modern drivers (see [06-platform-backends.md](06-platform-backends.md), §4, and [09-ecosystem.md](09-ecosystem.md), §2.2).
 Dynamically loaded: `riched20.dll` (console/editor), `amstream.dll`, `snmpapi.dll` + `inetmib1.dll` (hypothesis: the MAC address as a hardware ID for the lobby), `unicows.dll`.
 
 ### 4.6 Resources
@@ -317,8 +320,8 @@ Known object sizes from the debug logs of early builds (according to openheilig,
 
 ### 5.4 What the server provides and what it does not
 
-* **Provides:** an image of the same source, four times smaller, with full RTTI: a convenient first entry point for `RecoverClassesFromRTTIScript`, OOAnalyzer/Kaiju and for building signatures; a reference for `cObject/cCreature/cItem*/cEvent*/cFile*/cWorld/cSector/TypeManager/cObjectManager/cKernel`, the item and name generators (§7.3), the network protocol (`cGSclass`, `NW_*`/`OBJECT_*` handlers), QuestDB and `TRIGGER_*` relaying.
-  Names are carried over to the client via Ghidra Version Tracking / BSim using the 1,176 byte-identical functions and thousands of "similar" ones.
+* **Provides:** an image of the same source, four times smaller, with full RTTI, whose 253 classes `tools/ghidra/RttiClassesScript.java` recovers (Ghidra's `RecoverClassesFromRTTIScript` recovers none on these binaries, docs/03 §4.1); a source of signatures; a reference for `cObject/cCreature/cItem*/cEvent*/cFile*/cWorld/cSector/TypeManager/cObjectManager/cKernel`, the item and name generators (§7), the network protocol (`cGSclass`, `NW_*`/`OBJECT_*` handlers), QuestDB and `TRIGGER_*` relaying.
+  Names are carried between the two binaries by `tools/ghidra/CarryNamesScript.java` over the 1,546 functions it matches by their normalized bytes (§5.1): on 2026-10-19, 11 names went into `GameServer.exe` and 2 functions into classes of `Sacred.exe` (docs/03 §4.1); Version Tracking and BSim remain for the "similar" ones.
 * **Does not provide:** the NetScript interpreter (the `%s\FunkCode.bin` loader and all handlers exist only in `Sacred.exe`: the host client executes the scripts, the server stores QuestDB; confirmed from strings), rendering, UI, sound, Granny animation, pathfinding, IME, the main loop.
   For all of these the only source is the `Sacred.exe` client.
 * The server build is partly made of SP6 objects, so some shared functions differ in code generation rather than in logic; when carrying annotations over, this is normal noise.
@@ -343,7 +346,7 @@ A sample:
 | Files and resources | `cFile_cached` (1), `cFile_memoryMapped` (1), `cResourceMgr` (1), `CABBCache` (1) | `async_read`, `open`, `disposeAll` | a `cFile` hierarchy with mmap and asynchronous reading |
 | Networking | `NetworkManager` (1), `cObject` (`createPacket`) | `receive_event`, `createPacket () ref/type/bakRef/bakType` | a packet factory by ref/type; ≥107 packet names from error strings (enumeration estimate 110–140) |
 
-Additional sources of names (PLAN.md, ADR-10): sacred-bild's `functions_eng.tsv` (7,631 functions, ≈145 meaningful names: `dxDriver7_*`, `cEngine_renderThreadRun/simThreadRun`, `cWorldView*`, `cTileRenderer_*`, `cFontTTF2_*`), `sacred_addr.h` (≈40 structs and globals, e.g. `g_pDxDriver`), sacred-sdk addresses: the NetScript operand reader `FUN_00472BC0`, the record walker `FUN_00475680` (123 cases), section start `FUN_0046BA90`, the `global.res` loader `FUN_0080E680` (an earlier attribution "`FUN_00472BC0` is the interpreter" is obsolete; [docs/re/netscript.md](re/netscript.md)); `FUN_0046F9B0`, once taken for a "loader": its role is not confirmed.
+Additional sources of names (PLAN.md, ADR-10): sacred-bild's `functions_eng.tsv` (7,631 functions without the exception funclets, §4.1; ≈145 meaningful names: `dxDriver7_*`, `cEngine_renderThreadRun/simThreadRun`, `cWorldView*`, `cTileRenderer_*`, `cFontTTF2_*`), `sacred_addr.h` (≈40 structs and globals, e.g. `g_pDxDriver`), sacred-sdk addresses: the NetScript operand reader `FUN_00472BC0`, the record walker `FUN_00475680` (123 cases), section start `FUN_0046BA90`, the `global.res` loader `FUN_0080E680` (an earlier attribution "`FUN_00472BC0` is the interpreter" is obsolete; [docs/re/netscript.md](re/netscript.md)); `FUN_0046F9B0`, once taken for a "loader", runs a new game's start script record by record ([docs/re/netscript.md](re/netscript.md), "Quests").
 Rule: every imported name carries a provenance tag (`src=rtti|str|xref|bsim|tsv|llm`); names from sacred-bild are facts under GPL-3 usable only as names, not as code.
 
 ## 7. Behavior details useful for the reimplementation
@@ -371,8 +374,9 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | Events (`cEvent*`) | 257 / 85 KB | **selective analysis**: which events the rules generate |
 | Particles (178 classes) | 1,270 / 345 KB | **data**: effect parameters are extracted semi-automatically, the code is not carried over |
 | UI | 987 / 572 KB | **not analyzed**: a new interface; only the formulas the UI displays are taken from the code |
-| Rendering, D3D7, fonts | 134 / 56 KB | **not analyzed**: the facts are already collected ([docs/05-renderer-vulkan-4k.md](05-renderer-vulkan-4k.md)) |
-| Sound, video, networking, files, IME | — | **not analyzed**: replaced or out of scope |
+| Rendering, D3D7, fonts | 134 / 56 KB | **selective analysis**: what is drawn and in what order ([docs/re/drawing.md](re/drawing.md), [liquids.md](re/liquids.md), [daynight.md](re/daynight.md)), not the D3D7 calls, whose facts are in [docs/05-renderer-vulkan-4k.md](05-renderer-vulkan-4k.md) |
+| Sound | — | **selective analysis**: the choice of the music, the footsteps and the ambient loops ([docs/re/sound.md](re/sound.md)); the Miles layer is replaced |
+| Video, networking, files, IME | — | **not analyzed**: replaced or out of scope |
 | Libraries (CRT, STLport, zlib, D3DX7) | ≈2,750 | **not analyzed** |
 
 In total, on the order of 2,000–3,000 functions need analysis.
@@ -380,17 +384,17 @@ At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent
 
 ### 8.2 How to analyze
 
-1. A Ghidra 12.1.4 project with the GOG `Sacred.exe` and `GameServer.exe`; RTTI, class recovery, community names (sacred-bild only locally, sacred-sdk), library tagging ([docs/03-toolchain.md](03-toolchain.md), §4).
-2. Claude Code works with the decompilation through an MCP server and writes per-subsystem notes into `docs/re/`.
+1. A Ghidra 12.1.4 project with the GOG `Sacred.exe` and `GameServer.exe`, outside the repository, set up on 2026-10-18 (#87) and completed on 2026-10-19 (#88; [docs/03-toolchain.md](03-toolchain.md), §4.1): the classes from RTTI by `tools/ghidra/RttiClassesScript.java` (410 in the client, 253 in the server), the community names (sacred-bild only locally, sacred-sdk: 137 functions named, 37 data addresses labeled), the library code tagged (`LIBRARY` 1,725, `EH` 17,422 and `STL` 241 functions in the client) and the names carried between the two binaries over 1,546 matched functions.
+2. Claude Code works with the decompilation through an MCP server (pyghidra-mcp) and writes per-subsystem notes into `docs/re/`: so far `ai`, `daynight`, `drawing`, `equipment`, `fight`, `items`, `liquids`, `motions`, `movement`, `netscript`, `sound` and `spawning`.
 3. For formula functions: the behavior is described in prose in `docs/re/`, implemented independently in Rust and verified against vectors from the user's own executable in the Unicorn emulator ([docs/04-language-and-engine.md](04-language-and-engine.md), §2).
 4. `GameServer.exe` helps where functions are shared: boundaries, types, class names.
 
 ## Open questions
 
-1. Which values the deterministically seeded functions 0x425ec0 (name generator) and 0x549920 (creatures) generate; decompilation is needed to reimplement the generation.
+1. Which values the deterministically seeded functions 0x425ec0 (name generator) and 0x549920 (a creature's talk line, [docs/re/ai.md](re/ai.md)) generate; decompilation is needed to reimplement the generation.
 2. Whether the 77 KB of `game_sim` and 21 KB of `events` in the library block 0x7F1180–0x85AB59 are game code or a labeling artifact.
 3. The semantics of the `COMPAT_VIDEO` key (a medium-confidence hypothesis, §4.5): unimportant for the new engine, of interest only for running the original.
-4. The exact STLport release (4.5.3 or 4.6.x): needed only for automatic tagging of library functions.
+4. The exact STLport release (4.5.3 or 4.6.x): no longer needed for tagging the library code, which is tagged by address range and by the `_STL` classes ([docs/03-toolchain.md](03-toolchain.md), §4.1); it would help only to tag the template instances in the game code.
 
 ## Sources
 
@@ -404,6 +408,7 @@ Scripts ([tools/README.md](../tools/README.md); run with `python3 -I` on the use
 * `tools/analysis/pe/rsrc_dump.py` — the resource section (§4.6).
 * `tools/analysis/pe/fpu_scan.py`, `srand_scan.py`, `control87_callers.py` — FPU control, `_ftol`, RNG, `VirtualProtect` (§7).
 * `tools/analysis/scripts/kwtab.py` — the keyword tables of the script compiler in `.data` (§6).
+* `tools/ghidra/*.java`, `tools/ghidra/community_names.py` — the Ghidra project's classes, names and library marks (§3.4, §5.4, §8.2; docs/03 §4.1).
 
 The data formats referenced by §4–6 are in [docs/02-data-formats.md](02-data-formats.md).
 
