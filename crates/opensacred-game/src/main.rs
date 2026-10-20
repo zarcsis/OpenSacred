@@ -4,6 +4,7 @@
 
 mod ai;
 mod atmosphere;
+mod attack;
 mod benchmark;
 mod blended;
 mod buildings;
@@ -209,6 +210,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         ai::AiPlugin,
         atmosphere::AtmospherePlugin,
+        attack::AttackPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blended::BlendedPlugin,

@@ -24,6 +24,8 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
         "In the game",
         &[
             ("Left button", "walk or run to the cursor"),
+            ("Left button on a foe", "attack it"),
+            ("Ctrl+left button", "strike at once"),
             ("R", "walk or run"),
             ("Wheel", "zoom in and out"),
             ("Esc", "pause: Continue, Main menu, Quit"),
@@ -203,6 +205,7 @@ mod tests {
             "Esc",
             "Tab",
             "Ctrl+V, Ctrl+C",
+            "Ctrl+left button",
         ] {
             assert!(keys.contains(&key), "{key}");
         }

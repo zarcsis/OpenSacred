@@ -16,7 +16,8 @@ use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
 use crate::{
-    ai, atmosphere, daynight, hero, iso, lines, motions, music, npcs, sectors, sound, terrain,
+    ai, atmosphere, daynight, fight, hero, iso, lines, motions, music, npcs, sectors, sound,
+    terrain,
 };
 
 /// Where the process is.
@@ -261,12 +262,14 @@ struct Loaded {
     hero_light: daynight::HeroLight,
     daemon: ai::Daemon,
     texts: lines::Texts,
+    rules: fight::Rules,
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
 }
 
-/// The walk and run speeds of creature `id` (see `hero::Hero`).
-fn speeds(assets: &Path, id: u32) -> Result<[f32; 2]> {
+/// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
+/// values of its fight.
+fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
     let path = assets
         .join("tables")
         .join(opensacred_data::tables::CREATURES);
@@ -274,11 +277,10 @@ fn speeds(assets: &Path, id: u32) -> Result<[f32; 2]> {
         std::fs::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
     let creatures: Vec<opensacred_data::tables::Creature> =
         ron::from_str(&text).map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
-    let creature = creatures
-        .iter()
+    creatures
+        .into_iter()
         .find(|c| c.id == id)
-        .ok_or_else(|| anyhow!("no creature {id} in {}", path.display()))?;
-    Ok(creature.speed.map(|s| f32::from(s) * iso::MODEL_SCALE))
+        .ok_or_else(|| anyhow!("no creature {id} in {}", path.display()))
 }
 
 /// Loads the game `game` would start: the hero at its start, the first sector built, the start
@@ -326,13 +328,44 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     let walk = game.walk.clone().unwrap_or_else(|| walk.into());
     let run = game.run.clone().unwrap_or_else(|| run.into());
     let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
-    // Its fight stance for bare hands, by its model's slots (`0x5467A0`).
-    let stance = motions::Slots::read(&assets.join(&model))
-        .ok()
+    // Its fight stance and its attacks for bare hands, by its model's slots (`0x5467A0`), and
+    // the fractions of its attacks at which they hit.
+    let slots = motions::Slots::read(&assets.join(&model)).ok();
+    let stance = slots
+        .as_ref()
         .and_then(|slots| slots.stance(0).map(str::to_owned));
+    let hits = npcs::hit_fractions(assets);
+    let attacks = slots
+        .map(|slots| slots.attacks(0))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| {
+            let fractions = hits
+                .get(&name.to_ascii_uppercase())
+                .copied()
+                .unwrap_or_default();
+            (name, fractions)
+        })
+        .collect();
+    // The balance's values of the fight, and the hero's own by its type's record, unarmed.
+    let balance =
+        std::fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
+            .ok()
+            .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
+    let rules = fight::Rules::of(balance.as_ref());
+    let record = record(assets, game.creature.unwrap_or(class.creature()))?;
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.stance = stance;
-    hero.speeds = speeds(assets, game.creature.unwrap_or(class.creature()))?.map(|s| s * speed);
+    hero.attacks = attacks;
+    hero.combat = Some(fight::combat(
+        &fight::Base::of(&record),
+        fight::HERO_LEVEL,
+        false,
+        &rules,
+    ));
+    hero.speeds = record
+        .speed
+        .map(|s| f32::from(s) * iso::MODEL_SCALE * speed);
     if game.walking {
         hero.gait = hero::Gait::Walk;
     }
@@ -359,6 +392,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         },
         daemon: ai::Daemon(class == Class::Daemon),
         texts: lines::Texts::read(assets),
+        rules,
         zoom: game.zoom.unwrap_or(1.0),
         music,
     })
@@ -477,6 +511,7 @@ fn finish(
     commands.insert_resource(loaded.hero_light);
     commands.insert_resource(loaded.daemon);
     commands.insert_resource(loaded.texts);
+    commands.insert_resource(loaded.rules);
     commands.insert_resource(Zoom(loaded.zoom));
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);
