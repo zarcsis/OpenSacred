@@ -37,18 +37,18 @@ Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in t
 | `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one |
 | `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, whether the scene is ready |
 | `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then, through the game's start too (`--timeout`, 120 s) |
-| `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
+| `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F1`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
 | `type "TEXT"` | type text, as into the console |
 | `click X Y` (`--button`, `--hold`) | click a pixel of the window: a menu's item, or the ground for the hero to walk there |
 | `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |
 | `screenshot FILE` | the next frame, waiting until the PNG is written; look at it with Read |
 | `logs --after N` | the log's records from number N on |
 
-The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM]`, `menu`, `quit`, `sector X,Y`, `cell X,Y`, `go X,Y` or `go +DX,+DY`, `gait walk|run`, `zoom Z`, `time HH:MM`, `pause on|off` (a still frame without the pause's menu), `overlay on|off`, `log on|off`, `console on|off`, `window windowed W H`, `state`, `record DIR N`, `benchmark SECONDS`. Prefer a command to a click where one exists: `go` names a cell, a click a pixel.
+The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM]`, `menu`, `quit`, `sector X,Y`, `cell X,Y`, `go X,Y` or `go +DX,+DY`, `gait walk|run`, `zoom Z`, `time HH:MM`, `pause on|off` (a still frame without the pause's menu), `keys on|off` (the keys' help), `overlay on|off`, `log on|off`, `console on|off`, `window windowed W H`, `state`, `record DIR N`, `benchmark SECONDS`. Prefer a command to a click where one exists: `go` names a cell, a click a pixel.
 
 ## Keys of the game
 
-The left button walks the hero, R walks or runs, the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F3 the overlay, F4 the log, F11 borderless or windowed; the key under Esc the console.
+The left button walks the hero, R walks or runs, the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F1 the keys' help (a frame of it lists them all), F3 the overlay, F4 the log, F11 borderless or windowed; the key under Esc the console.
 
 ## Rules
 
