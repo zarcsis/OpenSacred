@@ -120,6 +120,153 @@ pub fn level_of(points: u64, current: u32) -> u32 {
         .map_or(current, |level| level + 1)
 }
 
+/// A creature's rank (docs/re/fight.md, "Bosses and champions"): a boss (`+0x1F4` bit
+/// `0x80000`), a champion (`+0x2B8` bit `0x40`), or neither.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Rank {
+    #[default]
+    Common,
+    Boss,
+    Champion,
+}
+
+impl Rank {
+    /// The rank of a fill's creature of type `creature` (`FillSector`, `0x47E6B7`): the types
+    /// 203, 342 and 349 champions; 37, 48, 55 and 84 a boss or a champion by a coin, 127 and 49
+    /// so in one case of two; else, `hostile` to the hero, a champion when a roll of 0 to 1,000
+    /// is below `HarteSau`.
+    pub fn of_fill(creature: u32, hostile: bool, rng: &mut Rng, rules: &Rules) -> Self {
+        let coin = |rng: &mut Rng| {
+            if rng.below(2) == 1 {
+                Self::Boss
+            } else {
+                Self::Champion
+            }
+        };
+        match creature {
+            203 | 342 | 349 => Self::Champion,
+            37 | 48 | 55 | 84 => coin(rng),
+            127 | 49 if rng.below(2) == 0 => coin(rng),
+            _ if hostile && to_f32(rng.below(1001)) < rules.ranks.champions => Self::Champion,
+            _ => Self::Common,
+        }
+    }
+
+    /// Its level, made at the hero's level `hero` (`0x550E50`): the hero's plus `LevelUpBoss` or
+    /// `LevelUpChamp`, at least `OffLevel` plus the sector's lowest, and unless its type is big at
+    /// most `LevelKap` plus the sector's highest plus the same; a common creature's `level`.
+    pub fn level(
+        self,
+        level: u32,
+        hero: u32,
+        values: &SpawnValues,
+        big: bool,
+        rules: &Rules,
+    ) -> u32 {
+        let up = match self {
+            Self::Common => return level,
+            Self::Boss => rules.ranks.level_up[0],
+            Self::Champion => rules.ranks.level_up[1],
+        };
+        let mut target = hero + up;
+        let top = rules.ranks.cap + values.highest + up;
+        if !big && target > top {
+            target = top;
+        }
+        target.max(rules.ranks.off + values.lowest).max(1)
+    }
+
+    /// The factor of its most health (`0x5658F0`): `HPFakBoss` or `HPFakChamp`, three times for
+    /// the types 701, 137 and 53, 1.8 times for a creature of class 10 on bronze.
+    pub fn health(self, creature: u32, class: u8, rules: &Rules) -> f32 {
+        let factor = match self {
+            Self::Common => return 1.0,
+            Self::Boss => rules.ranks.health[0],
+            Self::Champion => rules.ranks.health[1],
+        };
+        match (creature, class) {
+            (701 | 137 | 53, _) => 3.0 * factor,
+            (_, 10) => 1.8 * factor,
+            _ => factor,
+        }
+    }
+
+    /// Its attack's and its defence's factors (`0x56B9AC`): `AWFak…` and `VWFak…`.
+    pub fn fight(self, rules: &Rules) -> [f32; 2] {
+        match self {
+            Self::Common => [1.0, 1.0],
+            Self::Boss => rules.ranks.fight[0],
+            Self::Champion => rules.ranks.fight[1],
+        }
+    }
+
+    /// Its kill's factor of the experience (`0x57D860`): twice for a boss, 1.5 times for a
+    /// champion.
+    pub fn experience(self) -> f32 {
+        match self {
+            Self::Common => 1.0,
+            Self::Boss => 2.0,
+            Self::Champion => 1.5,
+        }
+    }
+}
+
+/// The balance's values of the bosses and the champions: the chance in 1,001 of a champion
+/// (`HarteSau`), the levels above the hero's (`LevelUpBoss`, `LevelUpChamp`), bronze's
+/// `OffLevel` and `LevelKap` by its column, and the factors of the health (`HPFak…`) and of the
+/// attack and the defence (`AWFak…`, `VWFak…`), the boss's first.
+#[derive(Clone, Debug, PartialEq)]
+struct Ranks {
+    champions: f32,
+    level_up: [u32; 2],
+    off: u32,
+    cap: u32,
+    health: [f32; 2],
+    fight: [[f32; 2]; 2],
+}
+
+impl Default for Ranks {
+    /// The original's values.
+    fn default() -> Self {
+        Self {
+            champions: 20.0,
+            level_up: [2, 2],
+            off: 0,
+            cap: 0,
+            health: [2.5, 2.0],
+            fight: [[1.5, 2.0], [1.3, 1.5]],
+        }
+    }
+}
+
+impl Ranks {
+    fn of(b: &Balance) -> Self {
+        let default = Self::default();
+        let f = |name: &str, or: f32| b.f32(name).unwrap_or(or);
+        let u = |name: &str, or: u32| {
+            b.i32(name)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(or)
+        };
+        let row = |name: &str, or: u32| {
+            b.row_i32(name, BRONZE)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(or)
+        };
+        Self {
+            champions: f("HarteSau", default.champions),
+            level_up: [u("LevelUpBoss", 2), u("LevelUpChamp", 2)],
+            off: row("OffLevel", default.off),
+            cap: row("LevelKap", default.cap),
+            health: [f("HPFakBoss", 2.5), f("HPFakChamp", 2.0)],
+            fight: [
+                [f("AWFakBoss", 1.5), f("VWFakBoss", 2.0)],
+                [f("AWFakChamp", 1.3), f("VWFakChamp", 1.5)],
+            ],
+        }
+    }
+}
+
 /// What a creature is worth: `Creature.pak`'s experience `a + E·b` (`+0x08`, `+0x0A`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Worth(pub [u16; 2]);
@@ -146,12 +293,13 @@ fn resolve(
             &GlobalTransform,
             Option<&Worth>,
             Has<Body>,
+            Option<&Rank>,
         ),
         Without<Dies>,
     >,
 ) {
     for hit in hits.read() {
-        let (Ok((attacker, hero, mind)), Ok((mut health, defender, at, worth, hero_hit))) =
+        let (Ok((attacker, hero, mind)), Ok((mut health, defender, at, worth, hero_hit, rank))) =
             (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -196,6 +344,10 @@ fn resolve(
                 .insert(Dies::new(dice.0.below(2)));
             if let (true, Some(worth)) = (hero, worth) {
                 let earned = experience_of(worth.0, health.level, experience.level, &rules);
+                // Twice for a boss, 1.5 times for a champion (**hypothesis**: the order of the
+                // factors makes no difference but at the least of 1).
+                let factor = rank.copied().unwrap_or_default().experience();
+                let earned = whole(to_f32(earned) * factor);
                 let grew = experience.add(u64::from(earned), &rules);
                 info!(
                     "fight: the hero kills {} and earns {earned} experience, {} in all",
@@ -517,6 +669,7 @@ pub struct Rules {
     level_cap: f32,
     start_levels: [f32; 2],
     skill_levels: [u32; 6],
+    ranks: Ranks,
 }
 
 impl Default for Rules {
@@ -537,6 +690,7 @@ impl Default for Rules {
             level_cap: 50.0,
             start_levels: [60.0, 100.0],
             skill_levels: [3, 6, 12, 20, 30, 50],
+            ranks: Ranks::default(),
         }
     }
 }
@@ -632,6 +786,7 @@ impl Rules {
                 }
                 levels
             },
+            ranks: Ranks::of(b),
         }
     }
 
@@ -1807,6 +1962,45 @@ mod tests {
             near(goblin.damage[0][0], 12.0 * 1.2037) && near(goblin.damage[0][1], 15.0 * 1.2037)
         );
         assert!(near(goblin.attack, 28.5));
+    }
+
+    #[test]
+    fn the_fills_make_bosses_and_champions_by_type_and_by_chance() {
+        let rules = Rules::default();
+        let mut rng = Rng::of(50, 39, 0);
+        assert_eq!(Rank::of_fill(203, false, &mut rng, &rules), Rank::Champion);
+        let coins: Vec<Rank> = (0..100)
+            .map(|_| Rank::of_fill(48, false, &mut rng, &rules))
+            .collect();
+        assert!(coins.contains(&Rank::Boss) && coins.contains(&Rank::Champion));
+        assert!(!coins.contains(&Rank::Common));
+        // About 2 % of the hostile creatures, none of the peaceful.
+        let champions = (0..10_000)
+            .filter(|_| Rank::of_fill(76, true, &mut rng, &rules) == Rank::Champion)
+            .count();
+        assert!((120..290).contains(&champions), "{champions}");
+        assert!((0..1000).all(|_| Rank::of_fill(76, false, &mut rng, &rules) == Rank::Common));
+    }
+
+    #[test]
+    fn a_boss_or_champion_takes_the_heros_level_plus_two_within_its_sectors() {
+        let rules = Rules::default();
+        let values = SpawnValues {
+            density: 50,
+            lowest: 4,
+            highest: 7,
+        };
+        assert_eq!(Rank::Boss.level(5, 1, &values, false, &rules), 4);
+        assert_eq!(Rank::Champion.level(5, 6, &values, false, &rules), 8);
+        // At most the sector's highest plus two, but for a big type.
+        assert_eq!(Rank::Boss.level(5, 20, &values, false, &rules), 9);
+        assert_eq!(Rank::Boss.level(5, 20, &values, true, &rules), 22);
+        assert_eq!(Rank::Common.level(5, 20, &values, false, &rules), 5);
+        // Its factors.
+        assert!((Rank::Boss.health(76, 8, &rules) - 2.5).abs() < 1e-6);
+        assert!((Rank::Champion.health(137, 8, &rules) - 6.0).abs() < 1e-6);
+        assert_eq!(Rank::Boss.fight(&rules), [1.5, 2.0]);
+        assert!((Rank::Champion.experience() - 1.5).abs() < 1e-6);
     }
 
     #[test]
