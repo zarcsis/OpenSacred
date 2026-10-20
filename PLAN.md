@@ -383,6 +383,16 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     ≈10–20 agent-hours (estimate).
     Done the same night in ten pull requests of the game (#183–#193) and this skill's: the game opens on its menu, borderless, and a game starts and ends inside the process; the console and `--exec` scripts run the game's commands, and Claude Code drives a game started with `--remote` through `tools/game/remote.py` (docs/03 §3.7, the skill `game`).
     Pasting into the console followed once the maintainer allowed BSL-1.0, the licence of the clipboard's Windows backend (#189).
+11. **M2 into M3: the walk and the start's world.**
+    The night of 2026-10-20, with the queue of M2 run out but for what waits on later milestones, the research and the features went on in some twenty pull requests (#205–#231), the code's reading shared with subagents of the session:
+    the open buildings, the castles' walls and towers, whose upper floors show from outside (#149, #203);
+    a click that sends the hero to the cell under the cursor and onto its level, as the original picks it (#204, #208);
+    the hero's id, 1, by which the creatures in its way stop it only when hostile, while the NPCs stop at it and at one another (#157, #212);
+    the chests' cells, closed by the scripts' trigger patches rather than by their objects (#211, #216);
+    the world peopled as the original peoples it, by the sectors' `Init` and `Enter` script functions and their `FillSector` records (#215, #221, #222: the start's novices and animals, rabbits about it, goblins and thieves placed, bandits further out), standing idle, hostile ones in the hero's way;
+    and the fight stance, which the NPCs take by the distance of the hero's nearest hostile and the hero by its own (#155, #219, #230).
+    The rules read off the code and not yet seen in the original are gathered for the maintainer in #227.
+    Next: the creatures' items and packs (#228, #229) and their life while no foe is near (#232), before their fight.
 
 ### 10.1 Priority queue
 
