@@ -266,6 +266,8 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 Principles: the converter is deterministic and incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
 Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten), and two full runs into empty directories write identical files (83 s, then 160 s with the deterministic video encoding).
 Outputs are never committed.
+The converter repairs the defects of the original's data as it writes them (#348): `assets/` holds sound data, the game reads it as it is, and the HD packs made from it (M7) start clean, while `opensacred-formats` reads the original's files as they are.
+Each repair is as narrow as its defect, described in docs/02 and recorded as a decision in `docs/decisions/`.
 MIT-licensed community work (open-grn, grn2glb, sacred-sdk) is used as a reference with attribution; code without a license (SacredEngineRemake) is not used.
 
 ## 8. Graphics and 4K
