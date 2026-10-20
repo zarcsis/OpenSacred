@@ -85,7 +85,7 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
         scaling_mode: ScalingMode::FixedVertical {
             viewport_height: SCREEN_HEIGHT / PIXELS_PER_UNIT,
         },
-        scale: 1.0 / zoom.clamp(*ZOOM.start(), *ZOOM.end()),
+        scale: zoom.clamp(*ZOOM.start(), *ZOOM.end()),
         ..OrthographicProjection::default_3d()
     };
     (
@@ -101,10 +101,13 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
     )
 }
 
-/// The original's zoom range: 0.5 shows twice the world, 2 half of it.
+/// The original's zoom range. Its zoom scales its projection, `ortho(±267·zoom, ±200·zoom, …)`
+/// (docs/02 §5.3), as it scales the camera's here: 2 shows twice the world, the widest view, and
+/// 0.5 half of it.
 pub const ZOOM: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
-/// Zooms with the mouse wheel within the original's range, by a tenth a notch.
+/// Zooms with the mouse wheel within the original's range, by a tenth a notch: the wheel turned
+/// forward brings the world closer.
 pub fn zoom(
     scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
     mut projections: Query<&mut Projection, With<Camera>>,
@@ -114,10 +117,9 @@ pub fn zoom(
     }
     for mut projection in &mut projections {
         if let Projection::Orthographic(ortho) = &mut *projection {
-            // The scale is the inverse of the zoom.
-            let zoom = (1.0 / ortho.scale * 1.1_f32.powf(scroll.delta.y.signum()))
+            // The scale is the zoom.
+            ortho.scale = (ortho.scale * 1.1_f32.powf(-scroll.delta.y.signum()))
                 .clamp(*ZOOM.start(), *ZOOM.end());
-            ortho.scale = 1.0 / zoom;
         }
     }
 }
@@ -155,5 +157,28 @@ mod tests {
         assert!((PIXELS_PER_MODEL_HEIGHT - unit).abs() < 1e-5);
         // The ground pushed back stays where it was on screen.
         assert!(close(screen(forward() * GROUND_BEHIND), Vec2::ZERO));
+    }
+
+    #[test]
+    fn zoom_2_shows_twice_the_world() {
+        use bevy::camera::CameraProjection;
+
+        let area = |zoom: f32| {
+            let mut world = World::new();
+            let camera = world.spawn(camera(Vec3::ZERO, zoom)).id();
+            let Some(Projection::Orthographic(mut ortho)) =
+                world.get::<Projection>(camera).cloned()
+            else {
+                panic!("the camera is not orthographic");
+            };
+            ortho.update(1024.0, 768.0);
+            ortho.area.size()
+        };
+        assert_eq!(area(2.0), area(1.0) * 2.0);
+        assert_eq!(area(0.5), area(1.0) / 2.0);
+        // At zoom 1 the view is the original's screen, 768 pixels down.
+        assert!((area(1.0).y * PIXELS_PER_UNIT - SCREEN_HEIGHT).abs() < 1e-2);
+        // Beyond the original's range the zoom stops at its ends.
+        assert_eq!(area(3.0), area(2.0));
     }
 }

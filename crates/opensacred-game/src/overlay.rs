@@ -306,7 +306,7 @@ impl Probe<'_, '_> {
             .as_ref()
             .and(self.cameras.iter().next())
             .and_then(|projection| match projection {
-                Projection::Orthographic(ortho) if ortho.scale > 0.0 => Some(1.0 / ortho.scale),
+                Projection::Orthographic(ortho) => Some(ortho.scale),
                 _ => None,
             });
         Snapshot {

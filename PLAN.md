@@ -421,7 +421,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     Next: the doors in the way, the places about the hero and the archers (#284), the last open sub-issue of #285; the hero's items and its character sheet come with the interface.
 14. **The documents against the code.**
     On 2026-10-20 the documents were audited against the code, the issues and the pull requests (#321–#325), and the problems found were filed as issues of their own (#326–#333).
-    Among them: the rules live in `opensacred-game`, with no `opensacred-rules` or `opensacred-oracle` yet (#328); a creature killed or moved comes back whole with its sector (#329); and the game's zoom number is the inverse of the original's (#330).
+    Among them: the rules live in `opensacred-game`, with no `opensacred-rules` or `opensacred-oracle` yet (#328); a creature killed or moved comes back whole with its sector (#329); and the game's zoom number was the inverse of the original's (#330, since fixed).
 
 ### 10.1 Priority queue
 
