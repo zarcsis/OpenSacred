@@ -53,6 +53,11 @@ SOFTWARE.
   text is copied. The comments that rely on it name it.
 * **open-grn** (https://github.com/karolak6612/open-grn, MIT): a reference on the semantics of the
   Granny 1.2b format. No code is used.
+* **sacred-bild** (https://github.com/kirides/sacred-bild, GPL-3.0): the names and addresses of the
+  original's functions in its Ghidra export (`functions_eng.tsv`), which the research scripts
+  (`tools/analysis/pe/`, `tools/ghidra/community_names.py`) read from a path given to them and which
+  name functions in the developer's local Ghidra project (docs/03 §4.1). Only those facts are used;
+  no file or code of it is in the repository.
 
 ## Binary distributions
 
