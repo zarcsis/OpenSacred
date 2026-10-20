@@ -19,8 +19,9 @@ anyhow = "1.0.104"
 # through X11 and XWayland); zstd_rust, whose ruzstd 0.8 has RUSTSEC-2026-0344 (zstd_c decodes
 # the KTX2 tone-mapping tables instead); webgl2 until the web build; Bevy's audio (sound goes
 # through Kira, ADR-07); 2D rendering, and the picking of meshes and sprites, until they are
-# needed. Plus png, for the converted interface textures that the HUD loads, and the picking of
-# the interface's nodes, which the menus' items take their pointing and clicks from.
+# needed. Plus png, for the converted interface textures that the HUD loads; the picking of the
+# interface's nodes, which the menus' items take their pointing and clicks from; the Remote
+# Protocol of `--remote` (docs/10 §8); and the system's clipboard, which the console pastes from.
 bevy = { version = "0.20.0", default-features = false, features = [
     "async_executor",
     "bevy_anti_alias",
@@ -54,6 +55,7 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "smaa_luts",
     "std",
     "sysinfo_plugin",
+    "system_clipboard",
     "tonemapping_luts",
     "ui_api",
     "ui_bevy_render",

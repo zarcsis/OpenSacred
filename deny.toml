@@ -14,6 +14,10 @@ allow = [
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    # The Boost Software License: permissive like MIT, and asks nothing of compiled code, only that
+    # copies of the sources keep their notice. clipboard-win and error-code, under arboard, are the
+    # Windows backend of Bevy's system clipboard, which the console pastes from (#189).
+    "BSL-1.0",
     # Permissive like MIT; required by Bevy (ADR-04): libloading under ash (Vulkan) and inotify
     # under gilrs are ISC, encase (the shader data layout of bevy_render) is MIT-0.
     "ISC",

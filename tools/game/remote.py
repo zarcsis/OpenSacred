@@ -116,7 +116,8 @@ def main():
     p = sub.add_parser('wait-state', help='wait for the state: menu, loading, game or paused')
     p.add_argument('state', choices=['menu', 'loading', 'game', 'paused'])
     p.add_argument('--timeout', type=float, default=120)
-    p = sub.add_parser('key', help='press and release a key: F11, Escape, Enter, R, Backquote, ArrowUp, …')
+    p = sub.add_parser('key', help='press and release a key: F11, Escape, Enter, R, Backquote, ArrowUp, …, '
+                                   'or keys held together: Control+V')
     p.add_argument('name')
     p = sub.add_parser('type', help='type text, as into the console')
     p.add_argument('text')

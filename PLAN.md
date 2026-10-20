@@ -382,7 +382,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The plan, in [docs/10](docs/10-game-tools.md): settings in `%APPDATA%\OpenSacred\settings.toml` with borderless full screen by default and F11 for a window (#167); the HUD's portrait, health bar and gait removed (#168); the log on F4 and in a file (#169); a debug overlay on F3 (#170); the game's states, so that a game starts and ends inside the process (#171); a main menu with the choice of the hero (#172) and a pause menu on Esc (#178); one set of commands for the command line's scripts (#173), the console on `~` (#174) and remote control over Bevy's Remote Protocol (#175); and a project skill or an MCP server through which Claude Code drives the game (#176).
     ≈10–20 agent-hours (estimate).
     Done the same night in ten pull requests of the game (#183–#193) and this skill's: the game opens on its menu, borderless, and a game starts and ends inside the process; the console and `--exec` scripts run the game's commands, and Claude Code drives a game started with `--remote` through `tools/game/remote.py` (docs/03 §3.7, the skill `game`).
-    Left: pasting into the console, which waits for a licence (#189).
+    Pasting into the console followed once the maintainer allowed BSL-1.0, the licence of the clipboard's Windows backend (#189).
 
 ### 10.1 Priority queue
 

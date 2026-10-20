@@ -6,7 +6,8 @@
 //!
 //! - `opensacred/exec {"line": …}`: runs a command (`command`) and gives its output lines;
 //! - `opensacred/state`: the overlay's values (`overlay::Snapshot`);
-//! - `opensacred/input {…}`: the player's input as if from the system, one of `{"key": "F11"}`,
+//! - `opensacred/input {…}`: the player's input as if from the system, one of `{"key": "F11"}`
+//!   (or keys held together, `{"key": "Control+V"}`),
 //!   `{"text": "zoom 2"}`, `{"move": [x, y]}`, `{"click": [x, y], "button": "left", "hold": 2}`
 //!   or `{"wheel": 1}`, in the window's pixels: the keys and clicks go through the game's own code,
 //!   the menus' and the console's too, and the system's cursor stays where it is;
@@ -127,7 +128,8 @@ fn logs(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct Input {
-    /// A key, by its place: `F11`, `Escape`, `Enter`, `R`, `Backquote`, `ArrowUp`, …
+    /// A key, by its place: `F11`, `Escape`, `Enter`, `R`, `Backquote`, `ArrowUp`, …, or keys held
+    /// together: `Control+V`, `Shift+R`.
     key: Option<String>,
     /// Text typed a character at a time, as the console takes it.
     text: Option<String>,
@@ -220,6 +222,9 @@ fn key(name: &str) -> Option<(KeyCode, Key, Option<&'static str>)> {
         "ArrowLeft" => Some((KeyCode::ArrowLeft, Key::ArrowLeft, None)),
         "ArrowRight" => Some((KeyCode::ArrowRight, Key::ArrowRight, None)),
         "Backquote" => Some((KeyCode::Backquote, Key::Character("`".into()), Some("`"))),
+        "Control" | "Ctrl" => Some((KeyCode::ControlLeft, Key::Control, None)),
+        "Shift" => Some((KeyCode::ShiftLeft, Key::Shift, None)),
+        "Alt" => Some((KeyCode::AltLeft, Key::Alt, None)),
         _ => None,
     };
     if named.is_some() {
@@ -263,13 +268,27 @@ fn input(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
             window,
         })
     };
-    if let Some(name) = &input.key {
-        let (code, logical, text) = key(name).ok_or_else(|| failure(format!("no key {name}")))?;
-        sent.push((
-            0,
-            keyboard(code, logical.clone(), text, ButtonState::Pressed),
-        ));
-        sent.push((1, keyboard(code, logical, text, ButtonState::Released)));
+    if let Some(names) = &input.key {
+        // `Control+V`: the keys pressed in order, and released together a frame later.
+        let mut chord = Vec::new();
+        for name in names.split('+') {
+            chord.push(key(name).ok_or_else(|| failure(format!("no key {name}")))?);
+        }
+        // A key held with Control or Alt types nothing.
+        let typing = chord.len() == 1
+            || chord[..chord.len() - 1]
+                .iter()
+                .all(|k| k.0 == KeyCode::ShiftLeft);
+        for (code, logical, text) in &chord {
+            let text = if typing { *text } else { None };
+            sent.push((
+                0,
+                keyboard(*code, logical.clone(), text, ButtonState::Pressed),
+            ));
+        }
+        for (code, logical, text) in chord.into_iter().rev() {
+            sent.push((1, keyboard(code, logical, text, ButtonState::Released)));
+        }
     }
     if let Some(text) = &input.text {
         for c in text.chars() {
@@ -409,6 +428,7 @@ mod tests {
         );
         assert_eq!(key("KeyQ").map(|k| k.0), Some(KeyCode::KeyQ));
         assert_eq!(key("Backquote").map(|k| k.0), Some(KeyCode::Backquote));
+        assert_eq!(key("Control").map(|k| k.0), Some(KeyCode::ControlLeft));
         assert_eq!(key("F13"), None);
         assert_eq!(key("Ж"), None);
     }
