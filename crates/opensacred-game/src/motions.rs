@@ -131,6 +131,12 @@ impl Slots {
         self.0.get(&slot).map(|name| (name.as_str(), gait))
     }
 
+    /// The clip of the talk, slot 177 (`*_TALK_A`), which a townsperson plays once as it meets
+    /// its partner (`0x4FC490`) or reaches a trader.
+    pub fn talk(&self) -> Option<&str> {
+        self.0.get(&177).map(String::as_str)
+    }
+
     /// The fight stance's clip for `class`, only where the model has its slot: 14 to 26 for the
     /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
     /// standing creature takes it instead of its idle only then (`0x5467A0`,
