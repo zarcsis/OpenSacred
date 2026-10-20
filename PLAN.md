@@ -374,7 +374,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Every pull request's description carries its Claude Code usage (agent-hours, tokens and their hypothetical cost at API prices, §9), which `tools/usage/pr_usage.py` computes from the transcripts' messages on its branch; the README's badge sums them with the sessions recorded before in `docs/usage.md`.
    After 30 days, the §9 estimates are recomputed from the actual agent-hours.
 9. Issues and pull requests: done 2026-10-17 (#1).
-   Every change reaches `main` through a squash-merged pull request with green checks on Linux and Windows; Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the rules, the process, the licenses, the deviations from the original that can change the play seriously or carry legal consequences, the screenshot references, and contributors' work).
+   Every change reaches `main` through a squash-merged pull request with green checks on Linux and Windows; Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the guardrails, the rules, the process, the licenses, the deviations from the original that can change the play seriously or carry legal consequences, the screenshot references, and contributors' work).
    The dependencies are updated at most once a day, in an auto-merged pull request.
    The process is in docs/03 §3.6.
 10. **M2, tools to test and drive the game.**

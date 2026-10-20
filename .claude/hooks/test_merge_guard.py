@@ -17,16 +17,20 @@ import merge_guard  # noqa: E402
 
 class Waiting(unittest.TestCase):
     def test_a_decision_does_not_wait_but_asks_for_the_review_label(self):
-        waits, decides = merge_guard.waiting(['docs/decisions/2026-10-17-hud.md', 'crates/a.rs'])
-        self.assertEqual((waits, decides), ([], True))
+        waits, reviews = merge_guard.waiting(['docs/decisions/2026-10-17-hud.md', 'crates/a.rs'])
+        self.assertEqual((waits, reviews), ([], ['docs/decisions/2026-10-17-hud.md']))
 
-    def test_the_decisions_readme_and_the_rules_wait(self):
-        waits, decides = merge_guard.waiting(['docs/decisions/README.md', 'CLAUDE.md', '.github/workflows/ci.yml'])
-        self.assertEqual(waits, ['docs/decisions/README.md', 'CLAUDE.md', '.github/workflows/ci.yml'])
-        self.assertFalse(decides)
+    def test_claude_md_and_a_skill_are_reviewed_after_the_merge(self):
+        paths = ['CLAUDE.md', '.claude/skills/game/SKILL.md']
+        self.assertEqual(merge_guard.waiting(paths), ([], paths))
+
+    def test_the_guardrails_wait(self):
+        paths = ['docs/decisions/README.md', '.claude/hooks/merge_guard.py', '.claude/settings.json',
+                 '.github/workflows/ci.yml', 'deny.toml', 'crates/opensacred-game/tests/screenshots/scene.png']
+        self.assertEqual(merge_guard.waiting(paths), (paths, []))
 
     def test_other_files_do_not_wait(self):
-        self.assertEqual(merge_guard.waiting(['docs/re/sound.md', 'tools/x.py']), ([], False))
+        self.assertEqual(merge_guard.waiting(['docs/re/sound.md', 'tools/x.py']), ([], []))
 
 
 class Refusal(unittest.TestCase):
@@ -48,6 +52,20 @@ class Refusal(unittest.TestCase):
     def test_a_decision_labeled_for_the_maintainer_waits(self):
         reason = self.refusal(['needs-maintainer', 'review-after-merge'], ['docs/decisions/2026-10-17-hud.md'])
         self.assertIn('waits for the maintainer', reason)
+
+    def test_claude_md_with_the_review_label_merges(self):
+        self.assertIsNone(self.refusal(['infra', 'review-after-merge'], ['CLAUDE.md', '.claude/skills/game/SKILL.md']))
+
+    def test_claude_md_without_a_label_names_both(self):
+        reason = self.refusal(['infra'], ['CLAUDE.md'])
+        self.assertIn('review-after-merge', reason)
+        self.assertIn('needs-maintainer', reason)
+        self.assertIn('`CLAUDE.md`', reason)
+
+    def test_a_hook_waits_whatever_its_labels(self):
+        reason = self.refusal(['infra', 'review-after-merge'], ['CLAUDE.md', '.claude/hooks/merge_guard.py'])
+        self.assertIn('waits for the maintainer', reason)
+        self.assertIn('`.claude/hooks/merge_guard.py`', reason)
 
     def test_a_contributors_pull_request_waits(self):
         self.assertIn('opened by someone', self.refusal(['bug'], ['crates/a.rs'], author='someone'))
