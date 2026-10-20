@@ -122,6 +122,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Dependency versions live in `[workspace.dependencies]` of the root `Cargo.toml`; crates pull them in with `workspace = true`.
 - Clippy rules live in `[workspace.lints.clippy]`. Numbers are converted with `From`/`TryFrom`, not `as`; outside tests, no `unwrap`/`expect` — return an error with context (file, record). A rule is suppressed only with `#[expect(clippy::…, reason = "…")]` and only when the code is genuinely better that way; do not rewrite code to satisfy a rule at the expense of clarity.
 - Paths inside the installation use the case from the manifest (`PAK/`, `World/`).
+- A defect of the original's data (garbage or broken pixels, a record that is wrong or points at nothing, junk in a file) is repaired by `opensacred-convert` as it writes `assets/`, never worked around in `opensacred-game`; `opensacred-formats` still reads the files as they are. A repair is as narrow as the defect (named files, series or records), tested, described in `docs/02-data-formats.md` next to the format and recorded as a decision in `docs/decisions/`, which waits for the maintainer when the repair changes the play (a table's values, a script).
 - In `opensacred-game`, a module registers its own systems, resources and observers in a `Plugin` of its own; `main.rs` keeps the window, the command line, the resources read from the assets, and one line a module's plugin, in alphabetical order. The steps of `frame::Step` order the systems across modules.
 
 ## Environment
