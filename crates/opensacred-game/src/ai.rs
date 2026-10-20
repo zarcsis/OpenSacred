@@ -14,6 +14,7 @@ use crate::crowd::{Crowd, InTheWay};
 use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
+use crate::lines::Says;
 use crate::npcs::{Door, Plays, PutAt, Swing, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
@@ -106,6 +107,47 @@ const WANDERS: i32 = 400;
 const DAEMON_NEAR: f32 = 500.0;
 /// How far a child runs from the Daemon (`0x539F60`).
 const FLEES_DAEMON: f32 = 700.0;
+/// The children's lines, of which one near the hero says one at random (`0x4F2AD7`), green
+/// (**hypothesis** for the shade), and the townsfolk's fear of the Daemon, red (`0xFFFF3030`).
+const CHILD_LINES: [&str; 35] = [
+    "KIND_0_0",
+    "KIND_1_2",
+    "KIND_2_0",
+    "KIND_2_3",
+    "KIND_3_1",
+    "KIND_3_6",
+    "KINDGENERVT_2",
+    "KINDGENERVT_4",
+    "KINDGENERVT_5",
+    "KID01",
+    "KID02",
+    "KID03",
+    "KID04",
+    "KID05",
+    "KID06",
+    "KID07",
+    "KID08",
+    "KID09",
+    "KID10",
+    "KID11",
+    "KID12",
+    "KID13",
+    "KID14",
+    "KID15",
+    "KID16",
+    "KID17",
+    "KID18",
+    "KID19",
+    "KID20",
+    "KID21",
+    "KID22",
+    "KID23",
+    "KID24",
+    "KID25",
+    "KID26",
+];
+const CHILD_GREEN: Color = Color::srgb(0.19, 1.0, 0.19);
+const FEAR_RED: Color = Color::srgb(1.0, 0.19, 0.19);
 
 /// Whether the hero is the Daemon, its type 9, before whom the townsfolk are in danger and the
 /// children flee (docs/re/ai.md, "Danger and the Daemon").
@@ -592,6 +634,8 @@ enum Child {
     RunsUp(Vec3),
     /// It runs from the Daemon to the point.
     Flees(Vec3),
+    /// It turns to the hero and says the line.
+    Speaks(&'static str),
 }
 
 /// What a child at `here` does by its roll, the hero at `hero`, `inside` a building (`0x4F2AD7`):
@@ -625,7 +669,10 @@ fn child(
     let d = (hero - here).xz().length();
     if d > GATHERS {
         Child::FollowsHero
-    } else if (rng.below(9) == 0 && d < LOOKS_UP) || rng.below(15) != 0 {
+    } else if rng.below(9) == 0 && d < LOOKS_UP {
+        let index = usize::try_from(rng.below(35)).unwrap_or(0);
+        Child::Speaks(CHILD_LINES[index % CHILD_LINES.len()])
+    } else if rng.below(15) != 0 {
         Child::LooksUp
     } else {
         let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
@@ -1118,6 +1165,12 @@ fn behave(
             // it goes into the house of the nearest door, by stages from afar, and without a
             // door it wanders.
             let daemon_near = daemon.0 && (hero - here).xz().length() < DAEMON_NEAR;
+            // Before the Daemon, in one case of three, it shows its fear over itself
+            // (`0x4F0DAC`, `DaeAh1` to `6`, red while the hero has solved fewer than 25 quests).
+            if daemon_near && !crowded && minds.rng.below(3) == 0 {
+                let line = format!("DaeAh{}", 1 + minds.rng.below(6));
+                commands.entity(entity).insert(Says::new(line, FEAR_RED));
+            }
             if (evening || daemon_near) && !crowded {
                 let stage = if way.level.is_some() {
                     indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
@@ -1240,6 +1293,10 @@ fn behave(
                             mind.runs_after = true;
                         }
                         Child::LooksUp => turns.push((entity, hero)),
+                        Child::Speaks(line) => {
+                            turns.push((entity, hero));
+                            commands.entity(entity).insert(Says::new(line, CHILD_GREEN));
+                        }
                         Child::RunsUp(to) | Child::Flees(to) => {
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                         }
@@ -1629,7 +1686,12 @@ mod tests {
         // Near, it mostly turns to the hero.
         let near = Vec3::new(100.0, 0.0, 0.0);
         let looks = (0..1300)
-            .filter(|_| child(&kid, home, (near, false), true, &mut rng) == Child::LooksUp)
+            .filter(|_| {
+                matches!(
+                    child(&kid, home, (near, false), true, &mut rng),
+                    Child::LooksUp | Child::Speaks(_)
+                )
+            })
             .count();
         assert!((1_050..1_250).contains(&looks), "{looks}");
         // Before the Daemon it runs 700 away, within 400 more.

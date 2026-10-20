@@ -18,6 +18,7 @@ mod hero;
 mod hud;
 mod iso;
 mod journal;
+mod lines;
 mod liquids;
 mod menu;
 mod models;
@@ -223,6 +224,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         journal::JournalPlugin,
+        lines::LinesPlugin,
         liquids::LiquidsPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
@@ -236,9 +238,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
-        srgb::SrgbPlugin,
     ))
-    .add_plugins((statics::StaticsPlugin, terrain::GroundPlugin))
+    .add_plugins((
+        srgb::SrgbPlugin,
+        statics::StaticsPlugin,
+        terrain::GroundPlugin,
+    ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
