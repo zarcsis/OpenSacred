@@ -277,7 +277,9 @@ struct Clips {
 impl Clips {
     /// The clip of a walk: its run clip where it runs and has one, else its walk clip.
     fn moving(&self, walk: &Walk) -> Option<AnimationNodeIndex> {
-        if walk.runs {
+        if !walk.moved {
+            None
+        } else if walk.runs {
             self.run.or(self.walk)
         } else {
             self.walk
@@ -297,7 +299,15 @@ pub struct Walk {
     runs: bool,
     /// Whether it stands on a stair it has climbed already or arrived on.
     climbed: bool,
+    /// Whether it has stepped yet: its walk clip plays from then on.
+    moved: bool,
+    /// How long it still stands where a walk that could not start left it, in seconds of the
+    /// game: the walk ends then, so that no behaviour orders it again at every frame.
+    balked: f32,
 }
+
+/// How long a creature whose walk could not start stands before its walk ends, in seconds.
+const BALKS: f32 = 1.0;
 
 impl Walk {
     /// A walk to `target` from `level` at `speed`, in world units a second before the game's
@@ -309,6 +319,8 @@ impl Walk {
             speed,
             runs: false,
             climbed: false,
+            moved: false,
+            balked: 0.0,
         }
     }
 
@@ -1642,7 +1654,8 @@ pub fn animate(
 /// Walks each walking NPC toward its target as the hero walks (`hero::run`): round what blocks
 /// the way and through the doors, at its walk speed times the game's, facing its way; at the
 /// target it stands, its idle clip playing. A target it cannot reach it walks straight toward,
-/// up to what blocks it, and stands there.
+/// up to what blocks it, and stands there; one whose first step is blocked stands a second in
+/// its idle before its walk ends (#258).
 pub fn walk(
     mut commands: Commands,
     time: Res<Time>,
@@ -1660,6 +1673,13 @@ pub fn walk(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
     for (entity, mut transform, mut walk, mut layered, mut way, npc) in &mut walkers {
+        if walk.balked > 0.0 {
+            walk.balked -= time.delta_secs();
+            if walk.balked <= 0.0 {
+                commands.entity(entity).remove::<Walk>();
+            }
+            continue;
+        }
         let mut here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         if walk.level.is_none() && !heights.walkable(cell) {
@@ -1680,6 +1700,7 @@ pub fn walk(
             transform.translation = here;
             walk.level = level;
             walk.climbed = true;
+            walk.moved = true;
         }
         // In the layer of its level, at the cell it stands on: it stays there once it stands.
         layered.set_if_neq(buildings::Layered::at(&heights, here.x, here.z, walk.level));
@@ -1719,8 +1740,12 @@ pub fn walk(
         let blocked =
             into != from && !free(into, walk.level) && heights.walkable_on(from, walk.level);
         if left <= hero::ARRIVED || blocked || distance <= f32::EPSILON {
-            // There, or as near as it gets: it stands.
-            commands.entity(entity).remove::<Walk>();
+            // There, or as near as it gets: it stands; held from its first step, a while.
+            if walk.moved || left <= hero::ARRIVED {
+                commands.entity(entity).remove::<Walk>();
+            } else {
+                walk.balked = BALKS;
+            }
             if let Some(clips) = &npc.graph
                 && let Some((mut player, mut transitions)) =
                     npc.player.and_then(|p| players.get_mut(p).ok())
@@ -1738,6 +1763,7 @@ pub fn walk(
         }
         transform.translation = position;
         transform.rotation = hero::facing(to);
+        walk.moved = true;
     }
 }
 
@@ -1900,6 +1926,26 @@ mod tests {
         assert_eq!(at(Value::Name("HAUPTMANN3".into())), Some((3349, 2534, 0)));
         assert_eq!(at(Value::I32x3([3259, 2569, 1])), Some((3259, 2569, 1)));
         assert_eq!(at(Value::Name("elsewhere".into())), None);
+    }
+
+    #[test]
+    fn a_walk_shows_its_clip_once_it_has_stepped() {
+        let node = AnimationNodeIndex::new;
+        let clips = Clips {
+            graph: Handle::default(),
+            idle: node(0),
+            walk: Some(node(1)),
+            run: Some(node(2)),
+            stance: None,
+        };
+        let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
+        // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.
+        assert_eq!(clips.moving(&walk), None);
+        walk.moved = true;
+        assert_eq!(clips.moving(&walk), Some(node(1)));
+        let mut run = Walk::run(Vec3::ZERO, None, 140.0);
+        run.moved = true;
+        assert_eq!(clips.moving(&run), Some(node(2)));
     }
 
     #[test]
