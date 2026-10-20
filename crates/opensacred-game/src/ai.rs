@@ -101,6 +101,16 @@ const DOOR_FAR: f32 = 1_000.0;
 const DOOR_STAGE: f32 = 700.0;
 const DOOR_STAGE_ASTRAY: i32 = 150;
 const WANDERS: i32 = 400;
+/// How near the Daemon puts the townsfolk in danger, while the hero has solved fewer than 25
+/// quests (`0x4F0BDA`, the hero's `+0x2CF`; **hypothesis**: the quests solved, none yet).
+const DAEMON_NEAR: f32 = 500.0;
+/// How far a child runs from the Daemon (`0x539F60`).
+const FLEES_DAEMON: f32 = 700.0;
+
+/// Whether the hero is the Daemon, its type 9, before whom the townsfolk are in danger and the
+/// children flee (docs/re/ai.md, "Danger and the Daemon").
+#[derive(Resource, Clone, Copy, Debug, Default)]
+pub struct Daemon(pub bool);
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -577,6 +587,8 @@ enum Child {
     LooksUp,
     /// It runs to the point by the hero.
     RunsUp(Vec3),
+    /// It runs from the Daemon to the point.
+    Flees(Vec3),
 }
 
 /// What a child at `here` does by its roll, the hero at `hero`, `inside` a building (`0x4F2AD7`):
@@ -584,7 +596,18 @@ enum Child {
 /// of itself, farther than 1,000 a point 800 toward home, else one within 400 of home; else it
 /// follows the hero from farther than 349, and nearer turns to it, but in one case of 15 runs to
 /// a point 150 from it at random.
-fn child(mind: &Mind, here: Vec3, hero: Vec3, inside: bool, rng: &mut Rng) -> Child {
+fn child(
+    mind: &Mind,
+    here: Vec3,
+    (hero, daemon): (Vec3, bool),
+    inside: bool,
+    rng: &mut Rng,
+) -> Child {
+    // Before the Daemon it runs 700 away from it, within 400 more (`0x539F60`).
+    if daemon {
+        let away = (here - hero).with_y(0.0).normalize_or_zero();
+        return Child::Flees(about(here + away * FLEES_DAEMON, WANDERS, rng));
+    }
     if rng.below(13) == 0 || !inside {
         let from_home = (mind.home - here).xz().length();
         let to = if from_home <= PLAYS_NEAR {
@@ -830,6 +853,7 @@ fn behave(
     cameras: Query<&Projection, With<Camera3d>>,
     doors: Query<&Transform, (With<Door>, Without<Mind>)>,
     clock: Res<Clock>,
+    daemon: Res<Daemon>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
@@ -1072,10 +1096,12 @@ fn behave(
                         .length_squared()
                         .total_cmp(&(*b - here).length_squared())
                 });
-            // At dusk and by night, on a free cell, it takes the evening's way (`0x4F0F5E`):
-            // indoors it walks among the building's cells; outdoors it goes into the house of
-            // the nearest door, by stages from afar, and without a door it wanders.
-            if evening && !crowded {
+            // At dusk and by night, or with the Daemon near, on a free cell, it takes the
+            // evening's way (`0x4F0F5E`): indoors it walks among the building's cells; outdoors
+            // it goes into the house of the nearest door, by stages from afar, and without a
+            // door it wanders.
+            let daemon_near = daemon.0 && (hero - here).xz().length() < DAEMON_NEAR;
+            if (evening || daemon_near) && !crowded {
                 let stage = if way.level.is_some() {
                     indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
                 } else if let Some(door) = door {
@@ -1180,7 +1206,7 @@ fn behave(
                     continue;
                 }
                 Decision::Child => {
-                    let does = child(&mind, here, hero, inside, &mut minds.rng);
+                    let does = child(&mind, here, (hero, daemon.0), inside, &mut minds.rng);
                     debug!("ai: {entity} {:?} {does:?}", Why::Plays);
                     match does {
                         Child::Plays(to) => {
@@ -1192,7 +1218,7 @@ fn behave(
                             mind.runs_after = true;
                         }
                         Child::LooksUp => turns.push((entity, hero)),
-                        Child::RunsUp(to) => {
+                        Child::RunsUp(to) | Child::Flees(to) => {
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                         }
                     }
@@ -1314,13 +1340,15 @@ pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Minds>().add_systems(
-            Update,
-            (think, aside, behave)
-                .chain()
-                .after(crate::crowd::gather)
-                .in_set(Step::Crowd),
-        );
+        app.init_resource::<Minds>()
+            .init_resource::<Daemon>()
+            .add_systems(
+                Update,
+                (think, aside, behave)
+                    .chain()
+                    .after(crate::crowd::gather)
+                    .in_set(Step::Crowd),
+            );
     }
 }
 
@@ -1557,27 +1585,32 @@ mod tests {
         let hero = Vec3::new(1000.0, 0.0, 0.0);
         // Outside, it plays about itself near home, toward home from afar.
         for _ in 0..50 {
-            let Child::Plays(to) = child(&kid, home, hero, false, &mut rng) else {
+            let Child::Plays(to) = child(&kid, home, (hero, false), false, &mut rng) else {
                 panic!("plays");
             };
             assert!(to.x.abs() <= 400.0 && to.z.abs() <= 400.0, "{to}");
             let far = Vec3::new(2000.0, 0.0, 0.0);
-            let Child::Plays(to) = child(&kid, far, hero, false, &mut rng) else {
+            let Child::Plays(to) = child(&kid, far, (hero, false), false, &mut rng) else {
                 panic!("plays");
             };
             assert!((to - Vec3::new(1200.0, 0.0, 0.0)).length() < 0.01, "{to}");
         }
         // Inside, from afar it follows the hero (but in one case of 13 it plays).
         let follows = (0..1300)
-            .filter(|_| child(&kid, home, hero, true, &mut rng) == Child::FollowsHero)
+            .filter(|_| child(&kid, home, (hero, false), true, &mut rng) == Child::FollowsHero)
             .count();
         assert!((1_150..1_250).contains(&follows), "{follows}");
         // Near, it mostly turns to the hero.
         let near = Vec3::new(100.0, 0.0, 0.0);
         let looks = (0..1300)
-            .filter(|_| child(&kid, home, near, true, &mut rng) == Child::LooksUp)
+            .filter(|_| child(&kid, home, (near, false), true, &mut rng) == Child::LooksUp)
             .count();
         assert!((1_050..1_250).contains(&looks), "{looks}");
+        // Before the Daemon it runs 700 away, within 400 more.
+        let Child::Flees(to) = child(&kid, home, (near, true), true, &mut rng) else {
+            panic!("flees");
+        };
+        assert!((to.x + 700.0).abs() <= 400.0 && to.z.abs() <= 400.0, "{to}");
     }
 
     #[test]
