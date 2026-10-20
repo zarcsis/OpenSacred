@@ -4,11 +4,8 @@
 
 * OpenSacred is an independently written engine and converter.
   The repository contains no file of the game and nothing derived from one: every user converts their own copy of Sacred Gold 2.28, and the converted assets stay on that user's machine.
-* The work on the original's formats and behavior relies on the exceptions of Directive 2009/24/EC: Art.
-  5(3) (observing and studying the program one is entitled to use) and Art.
-  6 (decompilation for the interoperability of an independently created program).
-  Under Art.
-  8, a contract cannot exclude them.
+* The work on the original's formats and behavior relies on the exceptions of Directive 2009/24/EC: Article 5(3) (observing and studying the program one is entitled to use) and Article 6 (decompilation for the interoperability of an independently created program).
+  Under Article 8, a contract cannot exclude them.
 * The GOG build has no copy protection.
   The project circumvents nothing, and publishes nothing about circumventing a protection.
 * What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words.
@@ -46,7 +43,7 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 | Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
 | | Anything about removing or circumventing a protection |
 
-How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked against values recorded from the user's own executable.
+How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227), and against values recorded from the user's own executable once the oracle exists (PLAN.md §6.1; planned, not created yet, #328).
 Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
 
 ## 4. Repository and CI
@@ -57,6 +54,9 @@ Anything made locally while studying the original (Ghidra projects, notes with d
   The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
 * The future oracle (PLAN.md §6.1) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI.
   It links Unicorn (GPL-2.0), so it is a separate development-only crate, never linked into the converter or the game.
+* A dependency comes only under a license that `deny.toml` allows (`CLAUDE.md`, "Prohibitions"): Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0, ISC, MIT, MIT-0, MPL-2.0, Unicode-3.0 and Zlib.
+  `cargo deny check` checks the licenses on every pull request (docs/03 §3.4, §5).
+* A binary release must ship with the executable the SIL Open Font License 1.1 of the Fira Mono font, which Bevy's `default_font` feature embeds, together with the licenses of the other dependencies (`cargo deny list` prints them; `THIRD-PARTY-NOTICES.md`, "Binary distributions").
 
 ## 5. Community work
 
@@ -87,9 +87,9 @@ A constant table or formula taken from an MIT project carries the project's noti
 | # | Risk | Probability | Impact | Mitigation | Signal |
 |---|---|---|---|---|---|
 | 1 | Granny animations convert with errors | medium | high | three open readers as a reference; control poses; an early start in M1 | poses in Blender do not match the original's frames |
-| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors; the deviation log | the balance "doesn't feel right" in play |
+| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors (planned, not created yet, #328); checks in the running original (#227); the deviation log | the balance "doesn't feel right" in play |
 | 3 | NetScript semantics are harder than expected | medium | high | a disassembler early; coverage by type frequency | a quest cannot be completed |
-| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine; scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
+| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`: planned, not created yet; the rules followed so far live in `opensacred-game`, #328); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
 | 5 | Ecosystem crates lag behind Bevy | high | low | upgrade after the needed crates are out; keep critical parts in our own code | a crate does not build with the new Bevy |
 | 6 | Token use exceeds the estimate | medium | medium | tracking from day one (docs/usage.md); a cheaper model for mechanical work | agent-hour cost above the model |
 | 7 | Claude Code usage limits slow the work down | medium | medium | a task queue, scheduling heavy tasks, reviews in parallel | idle time due to limits |
@@ -98,3 +98,4 @@ A constant table or formula taken from an MIT project carries the project's noti
 | 10 | Maintainer burnout | medium | high | an early vertical slice; short milestones; visible progress | milestones drag on |
 | 11 | HD pack size | high | low | selective upscaling; separate packs | tens of GB on disk |
 | 12 | `sound.pak` in an unexpected format | retired 2026-10-16 | — | the format is confirmed by `snd_ls.py` (docs/02, §10.2) | — |
+| 13 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests on synthetic data or on the user's local installation; the same rules for issues and pull requests (§3; PLAN.md §11) | a game file, a converted asset or a screenshot of one in a diff, an issue or a pull request |
