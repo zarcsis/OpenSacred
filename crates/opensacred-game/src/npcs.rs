@@ -1,7 +1,8 @@
 //! The NPCs and objects of the start script: the `CreateNPC` and `CreateObj` records of the hero's
-//! tree's `StartCode.bin` (`netscript/<tree>.nsc`), and of the `OnEnter` functions of the quests
-//! that the start script enters (the novice in the chapel, quest 1's), each placed when its sector
-//! is in; an NPC plays the clip of its model that the client plays standing, by the class of what
+//! tree's `StartCode.bin` (`netscript/<tree>.nsc`), of the `OnEnter` functions of the quests
+//! that the start script enters (the novice in the chapel, quest 1's), and of the sectors' `Init`
+//! and `Enter` functions (the villagers, the animals and the placed monsters, docs/re/spawning.md),
+//! each placed when its sector is in; an NPC plays the clip of its model that the client plays standing, by the class of what
 //! it holds (`motions`), an object (a barrel, a chest, a book stand, a signpost) stands, and a
 //! chest, a barrel or a book stand takes its cell, which the creatures go round
 //! (`terrain::Heights::occupy`, docs/re/movement.md, "The objects in the way"). An NPC
@@ -339,9 +340,11 @@ fn entered_quests(tree: &Tree) -> Vec<i32> {
     entered
 }
 
-/// The records that place the world's NPCs and objects at the start: the start script's, then
-/// those of the `OnEnter` function of each quest it enters, which the client runs as it enters
-/// the quest (`QIS_OnEnter<n>`, `0x46C160`).
+/// The records that place the world's NPCs and objects: the start script's, then those of the
+/// `OnEnter` function of each quest it enters, which the client runs as it enters the quest
+/// (`QIS_OnEnter<n>`, `0x46C160`), then the sectors' `Init` and `Enter` functions', which the
+/// engine runs as their sectors come near (docs/re/spawning.md); each record's NPC or object is
+/// placed as the sector of its cell comes in.
 fn start_records(tree: &Tree) -> Vec<&Record> {
     let mut records: Vec<&Record> = tree.start.iter().collect();
     for quest in entered_quests(tree) {
@@ -349,7 +352,29 @@ fn start_records(tree: &Tree) -> Vec<&Record> {
             records.extend(&on_enter.records);
         }
     }
+    for sector in tree
+        .functions
+        .iter()
+        .filter(|f| sector_function(&f.name).is_some())
+    {
+        records.extend(&sector.records);
+    }
     records
+}
+
+/// The sector of a function of the sectors', by its name, `Sector<x><yyy>Init` or `…Enter` as the
+/// engine makes it (`Sector%d%3.3dInit`, `0x94F088`); `None` for any other function, and for the
+/// few named another way (`Sector28Enter`), which the engine never asks for.
+fn sector_function(name: &str) -> Option<(u32, u32)> {
+    let digits = name.strip_prefix("Sector")?;
+    let digits = digits
+        .strip_suffix("Init")
+        .or_else(|| digits.strip_suffix("Enter"))?;
+    if digits.len() < 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let (x, y) = digits.split_at(digits.len() - 3);
+    Some((x.parse().ok()?, y.parse().ok()?))
 }
 
 /// A record's name (`0x01`), lower case: an NPC's, which `CreateNPC` gives it and `NPC_Goto`
@@ -1417,5 +1442,17 @@ mod tests {
                 (3200, 2490, 0)
             ]
         );
+    }
+
+    #[test]
+    fn the_sectors_functions_are_named_by_their_sectors() {
+        assert_eq!(sector_function("Sector50039Init"), Some((50, 39)));
+        assert_eq!(sector_function("Sector51039Enter"), Some((51, 39)));
+        assert_eq!(sector_function("Sector0028Enter"), Some((0, 28)));
+        assert_eq!(sector_function("Sector5001Init"), Some((5, 1)));
+        // Not the engine's names: two digits only, another ending, another function.
+        assert_eq!(sector_function("Sector28Enter"), None);
+        assert_eq!(sector_function("Sector50039Exit"), None);
+        assert_eq!(sector_function("QIS_OnEnter1"), None);
     }
 }

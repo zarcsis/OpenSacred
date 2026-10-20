@@ -64,4 +64,6 @@ The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; 
 
 ## In `opensacred-game`
 
-The game places the start script's NPCs and objects alone (`npcs`); the sectors' functions are not run (#221 for their placed creatures, objects and closed cells; #222 for `FillSector`).
+The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` records of the sectors' `Init` and `Enter` functions with the start script's (`npcs`, #221): each NPC or object is placed as the sector of its cell comes in and placed again when it comes back, which the original's `Init` creatures, made once, and its `Enter` creatures, made again at each coming, both look like while nothing changes them (no fight, no AI yet); the placed monsters stand idle and, hostile, stop the hero's steps (docs/re/movement.md).
+In the Seraphim's tree that makes 3,137 NPCs and 3,122 objects over the world, against the start script's 320 and 1,990: the start sector's novices, chicken and rabbit, and the four goblins of 51,39 among them.
+`FillSector`, `MakeGroup` and the sectors' levels are not followed (#222).
