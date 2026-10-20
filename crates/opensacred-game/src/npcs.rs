@@ -64,6 +64,8 @@ use crate::{ai, buildings, crowd, daynight, hero, iso, models, motions, paths, s
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
+/// The operand of a `CreateNPC` that names its dialogue.
+const DIALOGUE: u8 = 0x09;
 const TRIGGER_QUEST: u16 = 20;
 const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
@@ -112,8 +114,10 @@ struct Placement {
     speed: [f32; 2],
     class: u8,
     /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
-    /// fill; its group, if it is in one (`ai::Mind`).
+    /// fill; its group, if it is in one; whether it has a dialogue, a `CreateNPC` with one
+    /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
     made: (bool, bool),
+    dialogue: bool,
     group: Option<u32>,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
@@ -988,6 +992,7 @@ impl Npcs {
                 speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                 class: classes.get(&creature).copied().unwrap_or_default(),
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
+                dialogue: record.kind == CREATE_NPC && ops.iter().any(|o| o.tag == DIALOGUE),
                 group: None,
                 heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
                 object: record.kind == CREATE_OBJ,
@@ -1057,6 +1062,7 @@ impl Npcs {
                         .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                     class: classes.get(&creature).copied().unwrap_or_default(),
                     made: (true, false),
+                    dialogue: false,
                     group: None,
                     heading: 0.0,
                     object: false,
@@ -1352,6 +1358,15 @@ fn spawn(
         }
     } else {
         let (creature, record_flags, word) = placement.creature;
+        let mut mind = ai::Mind::new(
+            position,
+            word,
+            placement.made,
+            placement.group,
+            placement.speed,
+            (creature, placement.class),
+        );
+        mind.dialogue = placement.dialogue;
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),
@@ -1360,14 +1375,7 @@ fn spawn(
                 player: None,
             },
             crowd::InTheWay::of(creature, record_flags, word, level),
-            ai::Mind::new(
-                position,
-                word,
-                placement.made,
-                placement.group,
-                placement.speed,
-                (creature, placement.class),
-            ),
+            mind,
         ));
         if let Some(((tx, ty), speed)) = placement.walk {
             entity.insert(Walk::to(

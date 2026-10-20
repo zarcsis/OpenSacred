@@ -2,8 +2,9 @@
 //! timer or the hero's look wakes it, and dormant again farther than 1,500 from the hero; a
 //! hostile creature in the hero's reach steps about by the idle action (`0x54EA30`), a group's
 //! members together; a peaceful animal awake flees, steps away and strolls about home, and a
-//! guard keeps its post, by their behaviours (`0x4EF150`); a creature that shares its cell with
-//! another parts from it, and one that walks into the hero's way steps aside. The fight is not followed: an awake hostile creature, which would
+//! guard keeps its post, and a townsperson rolls what it does next at each of the hero's looks,
+//! by their behaviours (`0x4EF150`); a creature that shares its cell with another parts from it,
+//! and one that walks into the hero's way steps aside. The fight is not followed: an awake hostile creature, which would
 //! attack the hero by a test of the levels, goes dormant again and steps about as one beyond it
 //! (docs/decisions/2026-10-20-idle.md).
 
@@ -47,7 +48,16 @@ const FARM: u32 = 0x10;
 const FARM_LOOSE: u32 = 0x20;
 const GUARD: u32 = 0x4000;
 const TOWNSFOLK: u32 = 0x8;
-const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD;
+const CITIZEN: u32 = 0x400;
+/// `CreateNPC`'s tag `0x4C`, which the behaviours take as 8 (`0x4EE030`).
+const TOWNSFOLK_TOO: u32 = 0x8000;
+const TOWNSFOLKS: u32 = TOWNSFOLK | CITIZEN | TOWNSFOLK_TOO | JUGGLER;
+const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD | TOWNSFOLKS;
+/// How far from the hero, times the camera's zoom, a townsperson goes dormant again
+/// (`0x4F0A87`, the float at `0x891028`; the zoom `0x611400`).
+const TOWNSFOLK_RANGE: f32 = 600.0;
+/// The children's types (`0x43F670`), which always roll 20.
+const CHILDREN: [u32; 7] = [229, 230, 231, 702, 703, 704, 705];
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -97,8 +107,14 @@ pub struct Mind {
     /// Its walk speed in world units a second, before the game's speed, and its run speed.
     pub speed: f32,
     pub run: f32,
-    /// Its `Creature.pak` class: the animals (4 and 6) flee from the others.
+    /// Its type, and its `Creature.pak` class: the animals (4 and 6) flee from the others.
+    pub creature: u32,
     pub class: u8,
+    /// Whether it has a dialogue (`+0x245`, `sdk_STAMP_IDX` `0x5498F0`), which holds it: a
+    /// townsperson keeps still, a guard does not stroll, a crowded creature does not part.
+    pub dialogue: bool,
+    /// The creature it went to last, which it does not go to next (`+0x24D`).
+    last: Option<Entity>,
     awake: bool,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     active: bool,
@@ -135,7 +151,10 @@ impl Mind {
             group,
             speed,
             run,
+            creature,
             class,
+            dialogue: false,
+            last: None,
             active: false,
             awake: hostile && created,
             clock: 0.0,
@@ -371,6 +390,41 @@ enum Why {
     Strolls,
     Parts,
     StepsAside,
+    Visits,
+    GoesHome,
+}
+
+/// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
+/// always 9, one of the jugglers' types 9 in one case of six, and anyone else's 9 counts as 10.
+fn roll(mind: &Mind, rng: &mut Rng) -> u32 {
+    if CHILDREN.contains(&mind.creature) {
+        return 20;
+    }
+    let roll = rng.below(26);
+    if mind.flags & JUGGLER != 0 || (JUGGLERS.contains(&mind.creature) && rng.below(6) == 0) {
+        9
+    } else if roll == 9 {
+        10
+    } else {
+        roll
+    }
+}
+
+/// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 1 walks to
+/// the nearest animal, `animal`, 2 and 3 walk home; 0 and 2 take a partner, 4, 6 and 7 go into a
+/// house, 5 and 8 visit a trader, 9 plays an instrument and 20 a child's play, which wait for
+/// their features (#250, #248, #251, #253, #252); the rest stop. The walk's target, why it walks
+/// and whom it goes to.
+fn townsperson(
+    mind: &Mind,
+    animal: Option<(Entity, Vec3)>,
+    rng: &mut Rng,
+) -> Option<(Vec3, Why, Option<Entity>)> {
+    match roll(mind, rng) {
+        1 => animal.map(|(entity, at)| (at, Why::Visits, Some(entity))),
+        2 | 3 => Some((mind.home, Why::GoesHome, None)),
+        _ => None,
+    }
 }
 
 /// Where a creature at `here` that shares its cell parts to (`0x544890`): within 100 of its home
@@ -499,7 +553,7 @@ fn behaviour(
         return strolls.then(|| (about(mind.home, STROLL_FARM, rng), Why::Strolls));
     }
     if mind.flags & GUARD != 0 {
-        if strolls {
+        if strolls && !mind.dialogue {
             return Some((about(mind.home, STROLL_GUARD, rng), Why::Strolls));
         }
         let from_post = (here - mind.home).abs();
@@ -509,8 +563,11 @@ fn behaviour(
 }
 
 /// The peaceful creatures' behaviours while they stand awake, at every frame (`0x4EF150`); a
-/// creature farther than 1,500 from the hero goes dormant again. An idle creature that shares
-/// its cell with another parts from it by chance (`0x544890`); an animal awake strolls at once.
+/// creature farther than 1,500 from the hero goes dormant again, a townsperson farther than 600
+/// times the camera's zoom. A townsperson decides at each of the hero's looks, which wake it, as
+/// the original's goes dormant after most of its rolls and decides again when woken. An idle
+/// creature, or a townsperson between its rolls, that shares its cell with another parts from it
+/// by chance (`0x544890`); an animal awake strolls at once.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -521,6 +578,7 @@ fn behave(
     mut minds: ResMut<Minds>,
     crowd: Res<Crowd>,
     hero: Query<&Transform, With<Body>>,
+    cameras: Query<&Projection, With<Camera3d>>,
     mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
     let Some(hero) = hero.iter().next() else {
@@ -528,6 +586,14 @@ fn behave(
     };
     let hero = hero.translation;
     let dt = time.delta_secs();
+    // The camera's zoom, the inverse of its scale.
+    let zoom = cameras
+        .iter()
+        .find_map(|projection| match projection {
+            Projection::Orthographic(ortho) => Some(1.0 / ortho.scale),
+            _ => None,
+        })
+        .unwrap_or(1.0);
     let side = crate::iso::CELL * 64.0;
     let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
     // What the animals fear: every creature but the animals, and the hero.
@@ -537,6 +603,18 @@ fn behave(
         .map(|(entity, transform, ..)| (entity, transform.translation))
         .chain(std::iter::once((Entity::PLACEHOLDER, hero)))
         .collect();
+    // What the townsfolk visit: the farm and wild animals, at the hero's looks.
+    let animals: Vec<(Entity, Vec3)> = if minds.looked {
+        creatures
+            .iter()
+            .filter(|(_, _, _, mind, _)| {
+                mind.class == 6 && mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0
+            })
+            .map(|(entity, transform, ..)| (entity, transform.translation))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut walks = Vec::new();
     for (entity, transform, way, mut mind, walking) in &mut creatures {
         if walking {
@@ -544,8 +622,47 @@ fn behave(
         }
         let here = transform.translation;
         let crowded = crowd.crowded(paths::cell_of(here.x, here.z), way.level, entity);
-        if !mind.active {
-            if crowded && mind.flags & STAYS == 0 && chance(&mut minds.rng, PARTS_A_SECOND, dt) {
+        let folk = mind.flags & TOWNSFOLKS != 0;
+        let range = if folk {
+            TOWNSFOLK_RANGE * zoom
+        } else {
+            BEHAVES_WITHIN
+        };
+        if mind.active && (here - hero).xz().length() > range {
+            mind.active = false;
+        }
+        // A townsperson awake decides at a look of the hero's, unless its dialogue holds it.
+        if mind.active && folk && minds.looked && !mind.dialogue {
+            let (x, y) = sector(here);
+            let animal = animals
+                .iter()
+                .filter(|&&(other, at)| {
+                    let (ax, ay) = sector(at);
+                    Some(other) != mind.last && (ax - x).abs() <= 1.0 && (ay - y).abs() <= 1.0
+                })
+                .min_by(|a, b| {
+                    let da = (a.1 - here).length_squared();
+                    da.total_cmp(&(b.1 - here).length_squared())
+                })
+                .copied();
+            if let Some((target, why, whom)) = townsperson(&mind, animal, &mut minds.rng) {
+                if whom.is_some() {
+                    mind.last = whom;
+                }
+                debug!(
+                    "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
+                    here.x, here.z, target.x, target.z
+                );
+                walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                continue;
+            }
+        }
+        if !mind.active || folk {
+            if crowded
+                && mind.flags & STAYS == 0
+                && !mind.dialogue
+                && chance(&mut minds.rng, PARTS_A_SECOND, dt)
+            {
                 let target = parting(mind.home, here, &mut minds.rng);
                 debug!(
                     "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -557,10 +674,6 @@ fn behave(
                 );
                 walks.push((entity, Walk::to(target, way.level, mind.speed)));
             }
-            continue;
-        }
-        if (here - hero).xz().length() > BEHAVES_WITHIN {
-            mind.active = false;
             continue;
         }
         // The nearest it fears in its own sector.
@@ -741,6 +854,37 @@ mod tests {
         }
         // On the diagonal at home, its measure 0: about itself.
         assert!(near(parting(here, here, &mut rng), here));
+    }
+
+    #[test]
+    fn a_townsperson_rolls_home_an_animal_or_a_stop() {
+        let mut rng = Rng::of(50, 39, 6);
+        let home = Vec3::new(1000.0, 0.0, 1000.0);
+        let farmer = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (640, 3));
+        let pig = (
+            Entity::from_raw_u32(7).unwrap(),
+            Vec3::new(1300.0, 0.0, 900.0),
+        );
+        let (mut homes, mut visits, mut stops) = (0, 0, 0);
+        for _ in 0..26_000 {
+            match townsperson(&farmer, Some(pig), &mut rng) {
+                Some((to, Why::GoesHome, None)) if to == home => homes += 1,
+                Some((to, Why::Visits, Some(_))) if to == pig.1 => visits += 1,
+                None => stops += 1,
+                other => panic!("{other:?}"),
+            }
+        }
+        // Home in two rolls of 26, the animal in one, else none yet.
+        assert!((1_700..2_300).contains(&homes), "{homes}");
+        assert!((800..1_200).contains(&visits), "{visits}");
+        assert_eq!(homes + visits + stops, 26_000);
+        // Without an animal the roll of 1 stops; a child always rolls 20, a juggler 9.
+        assert!((0..100).all(|_| roll(&farmer, &mut rng) != 9));
+        let child = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));
+        assert!((0..100).all(|_| roll(&child, &mut rng) == 20));
+        let juggler = Mind::new(home, 0, (true, true), None, SPEEDS, (78, 3));
+        assert_eq!(juggler.flags, JUGGLER);
+        assert!((0..100).all(|_| roll(&juggler, &mut rng) == 9));
     }
 
     #[test]

@@ -1,0 +1,16 @@
+# The townsfolk's day, a step at a time
+
+AI (`opensacred-game`), 2026-10-20 (#247, of #255).
+
+## The original
+
+A townsperson (docs/re/ai.md, "The townsfolk") rolls one of 26 by day: a partner, an animal, home, a house, a trader, a juggler's instrument, a child's play, or a stop; at dusk, by night and in danger it goes into the houses through their doors, or runs from the threat.
+
+## Ours
+
+The rolls of the animal and of home walk as the original's; the partners (#250), the houses (#248), the traders (#251), the instruments (#253) and the children's play (#252) stop the townsperson until their features come, and so does the roll of a partner and home but for the walk home.
+The evening's way (#249) and danger (#254) are not followed: by night and near a fight the townsfolk keep the day's way.
+
+## Why
+
+Each of the left-out outcomes needs what the game does not have yet, the doors and their houses, the traders' tags, the instruments, the texts over the creatures, the hero's hostiles in a fight; a stop is what the original's townsperson does in most of its rolls, so the town looks as it does, if quieter, until they come.
