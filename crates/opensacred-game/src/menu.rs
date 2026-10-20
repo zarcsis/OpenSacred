@@ -163,8 +163,16 @@ fn words(column: &mut ChildSpawnerCommands, font: &Handle<Font>, entries: &[(Ite
     }
 }
 
-/// The pause's menu over the frame dimmed.
-fn pause_screen(mut commands: Commands, assets: Res<AssetServer>, mut chosen: ResMut<Chosen>) {
+/// The pause's menu over the frame dimmed, unless the pause is a still frame's.
+fn pause_screen(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    mut chosen: ResMut<Chosen>,
+    still: Option<Res<crate::pause::Still>>,
+) {
+    if still.is_some_and(|still| still.0) {
+        return;
+    }
     chosen.0 = 0;
     let font: Handle<Font> = assets.load(FONT);
     commands

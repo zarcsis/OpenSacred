@@ -22,7 +22,7 @@ const FILE: &str = "settings.toml";
 const DIRECTORY: &str = "OpenSacred";
 
 /// How the game shows on the screen.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     /// Borderless full screen on the monitor the window is on, at its resolution.

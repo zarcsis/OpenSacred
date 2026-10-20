@@ -6,6 +6,7 @@ mod atmosphere;
 mod benchmark;
 mod blended;
 mod buildings;
+mod command;
 mod daynight;
 mod frame;
 mod game;
@@ -90,6 +91,13 @@ struct Cli {
     /// Render without vsync for this many seconds, print the frame rate and exit
     #[arg(long, value_name = "SECONDS")]
     benchmark: Option<f32>,
+    /// Run these commands, between semicolons, from the start (`help` lists them), for example
+    /// "new-game --class mage; wait ready; screenshot a.png; quit"
+    #[arg(long, value_name = "COMMANDS")]
+    exec: Option<String>,
+    /// Run the commands of this file from the start, a line each, after those of --exec
+    #[arg(long, value_name = "FILE")]
+    script: Option<PathBuf>,
 }
 
 /// Threads of Bevy's compute pool, which runs the systems in parallel. Bevy gives it every
@@ -185,9 +193,11 @@ fn run(cli: Cli) -> Result<AppExit> {
     // Bevy takes 15 plugins at a time.
     .add_plugins((
         atmosphere::AtmospherePlugin,
+        benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blended::BlendedPlugin,
         buildings::BuildingsPlugin,
+        command::CommandPlugin,
         daynight::DayNightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
@@ -197,12 +207,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         liquids::LiquidsPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
-        music::MusicPlugin,
-        npcs::NpcsPlugin,
     ))
     .add_plugins((
+        music::MusicPlugin,
+        npcs::NpcsPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
+        screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
@@ -245,8 +256,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         app.insert_resource(game::QuitOnFailure);
     }
     if let Some(seconds) = cli.benchmark {
-        app.insert_resource(benchmark::Benchmark::new(seconds))
-            .add_systems(Update, benchmark::measure.in_set(frame::Playing));
+        app.insert_resource(benchmark::Benchmark::new(seconds, true));
     }
     if let Some(dir) = cli.record {
         std::fs::create_dir_all(&dir)
@@ -255,13 +265,22 @@ fn run(cli: Cli) -> Result<AppExit> {
             dir,
             cli.frames,
             cli.record_frames,
-        ))
-        .add_systems(Update, screenshot::record.in_set(frame::Playing));
+            true,
+        ));
     }
     if let Some(path) = cli.screenshot {
-        app.insert_resource(screenshot::Request::new(path, cli.frames))
-            .add_systems(Update, screenshot::take.in_set(frame::Playing));
+        app.insert_resource(screenshot::Request::new(path, cli.frames));
     }
+    let mut script = command::Script::default();
+    if let Some(exec) = &cli.exec {
+        script.push(command::exec_lines(exec));
+    }
+    if let Some(path) = &cli.script {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+        script.push(command::script_lines(&text));
+    }
+    app.insert_resource(script);
     Ok(app.run())
 }
 

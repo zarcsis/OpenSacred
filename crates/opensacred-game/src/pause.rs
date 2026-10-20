@@ -22,6 +22,10 @@ pub enum Play {
     Paused,
 }
 
+/// A pause without the pause's menu, for a still frame (the command `pause on`).
+#[derive(Resource, Default)]
+pub struct Still(pub bool);
+
 /// How long the sound takes to fade out and in.
 const FADE: Duration = Duration::from_millis(200);
 
@@ -81,10 +85,14 @@ pub struct PausePlugin;
 impl Plugin for PausePlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<Play>()
+            .init_resource::<Still>()
             .configure_sets(Update, Unpaused.run_if(in_state(Play::Running)))
             .add_systems(Update, toggle.run_if(in_state(AppState::InGame)))
             .add_systems(OnEnter(Play::Paused), pause)
-            .add_systems(OnExit(Play::Paused), resume);
+            .add_systems(
+                OnExit(Play::Paused),
+                (resume, |mut still: ResMut<Still>| still.0 = false),
+            );
     }
 }
 
