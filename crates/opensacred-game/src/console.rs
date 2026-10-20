@@ -218,8 +218,8 @@ pub fn closed(console: Option<Res<Console>>) -> bool {
 /// The key under Esc opens and closes the console, Esc closes it; while it is open, the keys
 /// edit its line, and Ctrl+V and Ctrl+C, by their places, paste and copy through the system's
 /// clipboard. It runs right after Bevy reads the input, and takes the keys it uses from the game:
-/// Esc does not pause a game as it closes the console.
-fn keys(
+/// Esc does not pause a game as it closes the console, nor hides the keys' help under it.
+pub fn keys(
     mut console: ResMut<Console>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut input: MessageReader<KeyboardInput>,
@@ -312,7 +312,8 @@ fn spawn(mut commands: Commands) {
                 height: Val::Percent(100.0),
                 ..default()
             },
-            GlobalZIndex(i32::MAX - 1),
+            // Over everything, the keys' help too.
+            GlobalZIndex(i32::MAX),
             Visibility::Hidden,
         ))
         .with_children(|screen| {

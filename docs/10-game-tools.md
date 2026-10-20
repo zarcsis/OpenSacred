@@ -186,11 +186,13 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 | Wheel | the game | zoom (as now) |
 | Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
+| F1 | everywhere | the keys' help (#196); Esc hides it too |
 | F3 | everywhere | the overlay |
 | F4 | everywhere | the log |
 | F11 | everywhere | borderless or windowed |
 
-The original's own keys come with remapping in M6 (docs/06 §3); F3, F4 and F11 move then if they clash.
+The original's own keys come with remapping in M6 (docs/06 §3); F1, F3, F4 and F11 move then if they clash.
+F1 shows this table in the game, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
 
 ## 10. Order and estimates
 

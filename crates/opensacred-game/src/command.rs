@@ -19,6 +19,7 @@ use crate::benchmark::Benchmark;
 use crate::console::Console;
 use crate::daynight::{self, Clock};
 use crate::game::{AppState, Data, NewGame, Request};
+use crate::help::Help;
 use crate::hero::{Body, Gait, Hero, Ready};
 use crate::overlay::Probe;
 use crate::pause::{Play, Still};
@@ -91,6 +92,8 @@ enum Command {
     Log { on: Option<Switch> },
     /// Open or close the console (the key under Esc)
     Console { on: Option<Switch> },
+    /// Show or hide the keys' help (F1)
+    Keys { on: Option<Switch> },
     /// The state of the process, the game, the hero, the clock and the frames
     State,
     /// In a script: wait before the next command
@@ -390,6 +393,15 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         }
         Command::Overlay { on } => panel(world, on, "debug.overlay", false),
         Command::Log { on } => panel(world, on, "debug.log", true),
+        Command::Keys { on } => {
+            let mut help = world.get_resource_mut::<Help>().ok_or("no help")?;
+            help.shown = match on {
+                Some(Switch::On) => true,
+                Some(Switch::Off) => false,
+                None => !help.shown,
+            };
+            Ok(Outcome::say(if help.shown { "shown" } else { "hidden" }))
+        }
         Command::Console { on } => {
             let mut console = world.get_resource_mut::<Console>().ok_or("no console")?;
             let open = match on {

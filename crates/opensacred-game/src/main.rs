@@ -11,6 +11,7 @@ mod console;
 mod daynight;
 mod frame;
 mod game;
+mod help;
 mod hero;
 mod hud;
 mod iso;
@@ -210,13 +211,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         daynight::DayNightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
+        help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         journal::JournalPlugin,
         liquids::LiquidsPlugin,
-        menu::MenuPlugin,
     ))
     .add_plugins((
+        menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
