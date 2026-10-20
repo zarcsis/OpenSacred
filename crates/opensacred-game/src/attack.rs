@@ -158,6 +158,7 @@ fn engage(
             &mut Body,
             &mut Attack,
             Option<&mut Striking>,
+            Option<&fight::Combat>,
         ),
         Without<Dies>,
     >,
@@ -168,7 +169,7 @@ fn engage(
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, attack, striking) in &mut heroes {
+    for (hero, mut transform, mut body, attack, striking, combat) in &mut heroes {
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
@@ -246,9 +247,11 @@ fn engage(
             .get(clip)
             .map_or(1.0, AnimationClip::duration)
             .max(0.01);
+        // At its attack speed (`0x4E4CF0`).
+        let attack_speed = combat.map_or(1.0, fight::Combat::clip_speed);
         transitions
             .play(&mut player, *node, BLEND)
-            .set_speed(speed.0);
+            .set_speed(speed.0 * attack_speed);
         commands.entity(hero).insert(Striking {
             node: *node,
             length,

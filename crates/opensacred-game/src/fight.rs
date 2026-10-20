@@ -513,6 +513,8 @@ fn whole(value: f32) -> u32 {
 /// difficulty (`+0x42`), and its experience (`+0x08`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Base {
+    /// Its type, the record's id.
+    pub id: u32,
     pub attributes: [u8; 6],
     pub bonus: [[u8; 2]; 6],
     pub bonus_value: [u8; 6],
@@ -527,6 +529,7 @@ pub struct Base {
 impl Base {
     pub fn of(creature: &Creature) -> Self {
         Self {
+            id: creature.id,
             attributes: creature.base,
             bonus: creature.bonus,
             bonus_value: creature.bonus_value,
@@ -662,7 +665,8 @@ impl Curves {
 }
 
 /// A creature's attack `A`, defence `D`, each kind's least and most damage and resistance, with
-/// the balance's factors, and the per cent of each kind's damage that it takes off.
+/// the balance's factors, the per cent of each kind's damage that it takes off, and its attack
+/// speed in per cent.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Combat {
     pub attack: f32,
@@ -670,6 +674,21 @@ pub struct Combat {
     pub damage: [[f32; 2]; KINDS],
     pub resistance: [f32; KINDS],
     pub damping: [u8; KINDS],
+    pub speed: f32,
+}
+
+impl Combat {
+    /// The speed of its attack's clip (`0x4E4CF0`): its attack speed over 100, times the
+    /// factor of chained strikes (`+0x210`, 1 for a strike that is not chained).
+    pub fn clip_speed(&self) -> f32 {
+        self.speed / 100.0
+    }
+}
+
+/// The attack speed of a creature of type `id` (`0x5796A0`, `0x584FE0`): 140 for every type but
+/// the 5th's (the Wood Elf's), 100; no items, weapon skills or effects yet (#294).
+pub fn attack_speed(id: u32) -> f32 {
+    if id == 5 { 100.0 } else { 140.0 }
 }
 
 /// The attack, defence, damage and resistances of an NPC of `base` and level `level`, `armed`
@@ -798,6 +817,7 @@ pub fn combat(
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
+        speed: attack_speed(base.id),
     }
 }
 
@@ -991,6 +1011,7 @@ mod tests {
     /// A wolf (512) and a goblin warrior (76) of `Creature.pak`, as far as their fight goes.
     fn a_wolf() -> Base {
         Base {
+            id: 512,
             attributes: [8, 10, 18, 13, 0, 1],
             bonus: [[1, 1], [2, 5], [0, 0], [0, 0], [0, 0], [0, 0]],
             bonus_value: [50, 30, 0, 0, 0, 0],
@@ -1001,6 +1022,7 @@ mod tests {
 
     fn a_goblin() -> Base {
         Base {
+            id: 76,
             attributes: [15, 20, 22, 12, 0, 4],
             bonus: [[1, 1], [2, 5], [2, 6], [0, 0], [0, 0], [0, 0]],
             bonus_value: [120, 20, 20, 0, 0, 0],
@@ -1076,6 +1098,7 @@ mod tests {
             damage: [[10.0, 10.0], [0.0; 2], [0.0; 2], [0.0; 2]],
             resistance: [0.0; 4],
             damping: [0; 4],
+            speed: 140.0,
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -1196,6 +1219,7 @@ mod tests {
             damage: [[10.0, 10.0], [0.0; 2], [0.0; 2], [0.0; 2]],
             resistance: [0.0; 4],
             damping: [0; 4],
+            speed: 140.0,
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -1251,6 +1275,14 @@ mod tests {
             ..Rules::default()
         };
         assert_eq!(experience_of(worth, 1, 1, &more), 50);
+    }
+
+    #[test]
+    fn every_creature_strikes_at_140_per_cent_but_the_wood_elf() {
+        assert!((attack_speed(76) - 140.0).abs() < f32::EPSILON);
+        assert!((attack_speed(5) - 100.0).abs() < f32::EPSILON);
+        let goblin = combat(&a_goblin(), 1, Holds::default(), &[], &Rules::default());
+        assert!((goblin.clip_speed() - 1.4).abs() < 1e-6);
     }
 
     #[test]
