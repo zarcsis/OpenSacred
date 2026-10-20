@@ -59,7 +59,7 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{buildings, crowd, hero, iso, models, motions, paths, shadows, spawning};
+use crate::{buildings, crowd, daynight, hero, iso, models, motions, paths, shadows, spawning};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -818,12 +818,11 @@ impl Npcs {
         // hands empty, its shadow, and its flags word, to which a hostile entry adds bit 0.
         let fills = fills(&tree);
         let mut templates: HashMap<u32, Placement> = HashMap::new();
-        for entry in fills
+        for creature in fills
             .values()
             .flat_map(|(_, fills)| fills)
-            .flat_map(|fill| &fill.entries)
+            .flat_map(spawning::types)
         {
-            let creature = entry.creature;
             if templates.contains_key(&creature) {
                 continue;
             }
@@ -919,6 +918,7 @@ pub fn place(
     mut streamer: ResMut<Streamer>,
     mut heights: ResMut<Heights>,
     states: Res<buildings::Buildings>,
+    dungeons: Res<daynight::Dungeons>,
     assets: Res<AssetServer>,
 ) {
     let npcs = &mut *npcs;
@@ -976,30 +976,27 @@ pub fn place(
             } else {
                 npcs.factors.enemies
             };
-            for _ in 0..spawning::count(fill, *values, HERO_LEVEL, factor, &mut rng) {
-                let Some(entry) = spawning::choose(&fill.entries, &mut rng) else {
-                    break;
-                };
-                let Some(cell) = spawning::spot(
-                    (x0, y0),
-                    &mut rng,
-                    |cell| heights.walkable_on(cell, None),
-                    |cell| heights.flags(cell),
-                ) else {
-                    continue;
-                };
+            let count = spawning::count(fill, *values, HERO_LEVEL, factor, &mut rng);
+            let ground = spawning::Ground {
+                origin: (x0, y0),
+                dungeon: dungeons.sector(at),
+                class: |creature| npcs.classes.get(&creature).copied(),
+                walkable: |cell| heights.walkable_on(cell, None),
+                flags: |cell| heights.flags(cell),
+            };
+            for made in spawning::make(fill, count, &ground, &mut rng) {
                 let (Some(template), Ok(cx), Ok(cy)) = (
-                    npcs.templates.get(&entry.creature),
-                    u32::try_from(cell.0),
-                    u32::try_from(cell.1),
+                    npcs.templates.get(&made.creature),
+                    u32::try_from(made.cell.0),
+                    u32::try_from(made.cell.1),
                 ) else {
                     continue;
                 };
                 let mut placement = template.clone();
                 placement.cell = (cx, cy);
-                // A random heading, as `CreateNPC` gives one without its own (`rand() % 361`).
+                // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
-                if entry.hostile {
+                if made.hostile {
                     placement.creature.2 |= crowd::HOSTILE;
                 }
                 let entity = spawn(&mut commands, &placement, &heights, &states, &assets);
