@@ -46,7 +46,7 @@ One more is a gate of one floor (sector 55,20, `GATE_RAND_*`, `GATE_TUER_*`), an
 A render of sector 45,52 by `opensacred-game` shows a stone curtain wall with a wooden walk behind its battlements and a tower with a crenellated top.
 So the flag marks a building open to the sky: what stands on its upper floor, a guard on the wall walk or an archer on a tower, shows to a hero outside, whatever the hero's state of the building.
 Of the sixty-odd functions that look up a building or its object (`0x6354D0`, `0x635440`, `0x635E50`), two test the flag (read 2026-10-20): the row walk above, and the cursor's point (`0x616AD0`, docs/re/movement.md, "The cursor's point"), which takes every floor of such a building besides the ground; the changes of the states (`0x5FCCB0`), the objects' drawing (`0x62FF60`), the light (`0x62E410`) and the creatures' movement do not.
-On the cells of these buildings the start scripts place 3 chests of layer 0 and nothing of layer 1 or above (the same in all 10 start trees), so `opensacred-game`, which shows a floor's objects only while the building's state shows that floor, differs from the original there only once creatures walk on the walls (#203).
+On the cells of these buildings the start scripts place 3 chests of layer 0 and nothing of layer 1 or above (the same in all 10 start trees), so the flag shows only once creatures walk on the walls.
 
 The state is the building's exterior (with its roof) while the hero is outside, and the client changes it as the local player's hero walks in and out (**confirmed** by code 2026-10-18, #99; docs/re/movement.md, "Changing layers"): to 2 as the hero steps onto an entrance of the building and goes onto its inside, back to 1 as it steps onto an exit and comes out onto the ground, to `1 << n` as it climbs to the building's layer `n`.
 This is how the original hides a roof and shows the rooms and their furniture (#3): at the chapel of the start, as the hero passes its doorway, not on its stairs.
@@ -65,6 +65,7 @@ The start script's objects and NPCs of layer 0 show whatever the states, on a bu
 Before, they went while the hero was inside their building, by the first reading above, and the novice vanished on the stairs.
 An NPC that a script sends somewhere takes the layer of the level it walks on, onto the building's inside at its entrance and out at an exit as the hero does (`0x5FCCB0`, docs/re/movement.md), and keeps it where it stops (#138).
 Before, it stayed in layer 0 after going in: quest 1's novice, at the chapel's benches, showed through the chapel's wall while the hero stood outside.
+The objects and NPCs on any floor of an open building show whatever its state, by the flag that the world format (version 8) carries with each building (#203).
 
 ## Depth
 

@@ -28,6 +28,9 @@ const MAX_DEPTH: usize = 8;
 const MINIATURE: u32 = 0x20;
 /// The flag of a building's object, whose children are its floors (`0x6354D0`).
 const BUILDING: u32 = 0x10;
+/// The flag of a building's object open to the sky, all of whose floors' objects the client
+/// draws whatever its state (`0x62AE90`, docs/re/drawing.md).
+const OPEN: u32 = 0x400;
 /// The bit of a type's flags (`items.pak +0x00` as a u32) whose statics cast a shadow
 /// (`0x62AE90`, docs/re/drawing.md).
 const CASTS_SHADOW: u32 = 0x1_0000;
@@ -396,6 +399,7 @@ fn building(tables: &Tables, key: &SectorKey, head: u32, cell: u16) -> Result<Op
             cell,
             floors,
             heights,
+            open: object.flags & OPEN != 0,
         }));
     }
     Ok(None)
@@ -470,6 +474,26 @@ mod tests {
     #[test]
     fn file_names_are_grid_positions() {
         assert_eq!(file_name(50, 39), "50-39.sector");
+    }
+
+    /// Sector 45,52 holds walls and towers of a castle, buildings of flag 0x400 of two floors
+    /// (docs/re/drawing.md, "Buildings: masks and layers", #149); the start's are closed.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_castles_walls_are_open_buildings() {
+        // Counted on Static.PAK for #149: the buildings of flag 0x400 whose object lies there.
+        const CASTLE_OPEN_BUILDINGS: usize = 22;
+        let out = scratch_dir("world-open");
+        let game = repo_root().join("OriginalGame");
+        convert(&game, &out, Some((45, 52))).unwrap();
+        let sectors = output_dir(&out).join("sectors");
+        let sector = Sector::decode(&fs::read(sectors.join("45-52.sector")).unwrap()).unwrap();
+        let open: Vec<_> = sector.buildings.iter().filter(|b| b.open).collect();
+        assert_eq!(open.len(), CASTLE_OPEN_BUILDINGS, "{open:?}");
+        assert!(open.iter().all(|b| b.floors.len() == 2), "{open:?}");
+        convert(&game, &out, Some((50, 39))).unwrap();
+        let start = Sector::decode(&fs::read(sectors.join("50-39.sector")).unwrap()).unwrap();
+        assert!(start.buildings.iter().all(|b| !b.open));
     }
 
     /// The starting sector converts and loads back; the village has its overlays and objects.

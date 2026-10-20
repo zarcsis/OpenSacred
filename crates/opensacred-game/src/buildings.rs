@@ -66,12 +66,15 @@ pub struct Part {
 /// layer 0 on the ground, of the building whose cell it stands on, if any; layer `n` on a
 /// building's floor `n`. The client draws every cell with the world's objects of layer 0, and a
 /// building's cells with those of the layer that the building's state shows too, when that is
-/// not 0 (`0x62AE90`, docs/re/drawing.md): it shows on the ground always, and on a floor while
-/// that is the state's layer.
+/// not 0, or of all its floors when the building is open to the sky (`0x62AE90`,
+/// docs/re/drawing.md): it shows on the ground always, on an open building's floor always, and
+/// on another's floor while that is the state's layer.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layered {
     pub building: Option<Anchor>,
     pub layer: i32,
+    /// Whether the building is open to the sky ([`Heights::open`]).
+    pub open: bool,
 }
 
 impl Layered {
@@ -79,27 +82,30 @@ impl Layered {
     /// layer of no known building's, floor 1 of the building of its cell; on the ground, layer 0.
     pub fn at(heights: &Heights, x: f32, z: f32, level: Level) -> Self {
         let ground = heights.building(x, z).map(|(building, _)| building);
-        match (level, heights.floor(level)) {
-            (_, Some((building, floor))) => Self {
-                building: Some(building),
-                layer: i32::from(floor),
-            },
-            (Some(_), None) => Self {
-                building: ground,
-                layer: 1,
-            },
-            (None, None) => Self {
-                building: ground,
-                layer: 0,
-            },
+        let (building, layer) = match (level, heights.floor(level)) {
+            (_, Some((building, floor))) => (Some(building), i32::from(floor)),
+            (Some(_), None) => (ground, 1),
+            (None, None) => (ground, 0),
+        };
+        Self::of(heights, building, layer)
+    }
+
+    /// An object in `layer` of `building`, open to the sky or not as the building is.
+    pub fn of(heights: &Heights, building: Option<Anchor>, layer: i32) -> Self {
+        Self {
+            building,
+            layer,
+            open: building.is_some_and(|building| heights.open(building)),
         }
     }
 
     /// Whether it shows while the buildings are in their states: on the ground, on a building's
-    /// cells too, whatever its state; never above the ground where it is in no building.
+    /// cells too, whatever its state, and on an open building's floors; never above the ground
+    /// where it is in no building.
     pub fn shown(&self, buildings: &Buildings) -> bool {
         match (self.layer, self.building) {
             (0, _) => true,
+            (_, Some(_)) if self.open => true,
             (floor, Some(building)) => floor == layer(buildings.state(building)),
             (_, None) => false,
         }
@@ -313,7 +319,11 @@ mod tests {
             let point = crate::iso::ground(cell + 0.5, cell + 0.5);
             Layered::at(&heights, point.x, point.z, level)
         };
-        let on = |building, layer| Layered { building, layer };
+        let on = |building, layer| Layered {
+            building,
+            layer,
+            open: false,
+        };
         // In the building, through its door: its layer 1; on its cell of the ground, its stairs,
         // layer 0; elsewhere, the ground's.
         let novice = at(5.0, Some((0, 0, 1)));
@@ -337,5 +347,43 @@ mod tests {
         // Off the buildings, the ground's shows always and a layer above it never.
         assert_eq!(shown(on(None, 0)), [true; 3]);
         assert_eq!(shown(on(None, 1)), [false; 3]);
+    }
+
+    #[test]
+    fn an_open_buildings_floors_show_whatever_its_state() {
+        // Two buildings of two floors, a castle's wall open to the sky and a closed tower.
+        let building = |cell, open| opensacred_data::world::Building {
+            cell,
+            floors: vec![1, 2],
+            heights: vec![0, 112],
+            open,
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: Vec::new(),
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: vec![building(5, true), building(9, false)],
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let (wall, tower) = ((5, 0), (9, 0));
+        assert!(heights.open(wall) && !heights.open(tower));
+        let guard = |building| Layered::of(&heights, Some(building), 2);
+        let outside = Buildings::default();
+        let in_tower = Buildings {
+            entered: Some((tower, 1)),
+        };
+        // A guard on the wall walk shows to a hero outside and in the tower (#203); one on the
+        // tower's top only while the hero is up there.
+        assert!(guard(wall).shown(&outside) && guard(wall).shown(&in_tower));
+        assert!(!guard(tower).shown(&outside) && !guard(tower).shown(&in_tower));
+        let on_top = Buildings {
+            entered: Some((tower, 2)),
+        };
+        assert!(guard(tower).shown(&on_top));
     }
 }

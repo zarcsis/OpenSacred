@@ -288,6 +288,7 @@ fn storey(
             Some(&Layered {
                 building: Some(building),
                 layer,
+                ..
             }),
         ) => (building, u8::try_from(layer).ok()?),
         _ => return None,
@@ -387,11 +388,18 @@ mod tests {
                 cell: 5 * 64 + 5,
                 floors: vec![1, 2],
                 heights: vec![0, 140],
+                open: false,
             }],
         };
         let mut heights = Heights::default();
         heights.add(&sector);
-        let on = |building, layer| storey(&heights, Some(&Layered { building, layer }), None);
+        let on = |building, layer| {
+            storey(
+                &heights,
+                Some(&Layered::of(&heights, building, layer)),
+                None,
+            )
+        };
         // On floor 2, its part of mask 4; on floor 1 and on the ground, no floor's.
         assert_eq!(on(Some((5, 5)), 2), Some(((5, 5), 4)));
         assert_eq!(on(Some((5, 5)), 1), None);
