@@ -1,8 +1,8 @@
 //! The creatures' idle life while no foe is near (docs/re/ai.md): each is dormant until its own
 //! timer or the hero's look wakes it, and dormant again farther than 1,500 from the hero; a
 //! hostile creature in the hero's reach steps about by the idle action (`0x54EA30`), a group's
-//! members together; a peaceful animal awake flees, steps away and strolls about home by its
-//! behaviour (`0x4EF150`). The fight is not followed: an awake hostile creature, which would
+//! members together; a peaceful animal awake flees, steps away and strolls about home, and a
+//! guard keeps its post, by their behaviours (`0x4EF150`). The fight is not followed: an awake hostile creature, which would
 //! attack the hero by a test of the levels, goes dormant again and steps about as one beyond it
 //! (docs/decisions/2026-10-20-idle.md).
 
@@ -36,12 +36,17 @@ const PERIOD_HOSTILE: f32 = 2.5;
 const JITTER: f32 = 1.5;
 /// The flags whose creatures' own timers wake them: the hostile ones and the townsfolk.
 const TIMED: u32 = 0x3 | 0x408;
-/// The behaviours' flags: the wild animals, the farm animals, the townsfolk (`0x4EF150`).
+/// The behaviours' flags: the wild animals, the farm animals, the guards, the townsfolk
+/// (`0x4EF150`); those that the game follows.
 const WILD: u32 = 0x40;
 const WILD_TOO: u32 = 0x80;
 const FARM: u32 = 0x10;
 const FARM_LOOSE: u32 = 0x20;
+const GUARD: u32 = 0x4000;
 const TOWNSFOLK: u32 = 0x8;
+const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD;
+/// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
+const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
 /// yet.
 const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
@@ -56,6 +61,10 @@ const BACK: i32 = 50;
 /// How far about home the animals stroll: the wild within 100, the farm within 150.
 const STROLL_WILD: i32 = 100;
 const STROLL_FARM: i32 = 150;
+/// How far from its post along an axis sends a guard back to it, and how far about it a guard
+/// strolls.
+const POST: f32 = 90.0;
+const STROLL_GUARD: i32 = 200;
 /// The chance of a stroll, a frame's 1 in 101 at 30 frames a second, as a rate a second.
 const STROLLS_A_SECOND: f32 = 30.0 / 101.0;
 
@@ -267,7 +276,7 @@ fn think(
                     // The fight is not followed: dormant again, by chance stepping about.
                     idle = true;
                 }
-            } else if mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0 {
+            } else if mind.flags & BEHAVIOURS != 0 {
                 mind.active = true;
             }
         }
@@ -334,7 +343,8 @@ fn about(at: Vec3, within: i32, rng: &mut Rng) -> Vec3 {
     at + Vec3::new(offset(), 0.0, offset())
 }
 
-/// Why an animal walks: it flees at a run, steps away, goes back home or strolls.
+/// Why a creature of a behaviour walks: it flees at a run, steps away, goes back home or to its
+/// post, or strolls.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Why {
     Flees,
@@ -364,13 +374,14 @@ fn flight(here: Vec3, fear: Vec3, rng: &mut Rng) -> Vec3 {
     here + Vec3::new(dx, 0.0, dz)
 }
 
-/// What a peaceful animal awake does now, standing at `here` (`0x4EF150`): a wild one (flags
-/// `0x40`, `0x80`) runs from the nearest creature other than an animal within 300 of it, `fear`,
-/// the hero among them ([`flight`]), walks back within 50 of home from farther than 380 along an
-/// axis, and strolls within 100 of home by chance; a farm one (`0x10`, `0x20`) steps away from
-/// such a creature within 200, to the point beyond itself, and strolls within 150 of home. The
-/// walk's target and why it walks.
-fn animal(
+/// What a peaceful creature awake does now by its behaviour, standing at `here` (`0x4EF150`): a
+/// wild animal (flags `0x40`, `0x80`) runs from the nearest creature other than an animal within
+/// 300 of it, `fear`, the hero among them ([`flight`]), walks back within 50 of home from farther
+/// than 380 along an axis, and strolls within 100 of home by chance; a farm animal (`0x10`,
+/// `0x20`) steps away from such a creature within 200, to the point beyond itself, and strolls
+/// within 150 of home; a guard (`0x4000`) strolls within 200 of its post by chance, else walks
+/// back to it from farther than 90 along an axis. The walk's target and why it walks.
+fn behaviour(
     mind: &Mind,
     here: Vec3,
     fear: Option<Vec3>,
@@ -394,11 +405,18 @@ fn animal(
         }
         return strolls.then(|| (about(mind.home, STROLL_FARM, rng), Why::Strolls));
     }
+    if mind.flags & GUARD != 0 {
+        if strolls {
+            return Some((about(mind.home, STROLL_GUARD, rng), Why::Strolls));
+        }
+        let from_post = (here - mind.home).abs();
+        return (from_post.x > POST || from_post.z > POST).then_some((mind.home, Why::GoesBack));
+    }
     None
 }
 
 /// The peaceful creatures' behaviours while they stand awake, at every frame (`0x4EF150`); a
-/// creature farther than 1,500 or 1,000 from the hero along the grid's axes goes dormant again.
+/// creature farther than 1,500 from the hero goes dormant again.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -430,8 +448,7 @@ fn behave(
             continue;
         }
         let here = transform.translation;
-        let away = (here - hero).abs();
-        if away.x > FAR_X || away.z > FAR_Y {
+        if (here - hero).xz().length() > BEHAVES_WITHIN {
             mind.active = false;
             continue;
         }
@@ -445,7 +462,7 @@ fn behave(
                 da.total_cmp(&db)
             });
         let strolls = chance(&mut minds.rng, STROLLS_A_SECOND, dt);
-        let Some((target, why)) = animal(&mind, here, fear, strolls, &mut minds.rng) else {
+        let Some((target, why)) = behaviour(&mind, here, fear, strolls, &mut minds.rng) else {
             continue;
         };
         debug!(
@@ -527,7 +544,7 @@ mod tests {
         // Within 300 of the hero the rabbit runs from it, by half to twice its distance along x
         // and across by up to half of none; beyond, it stands.
         for _ in 0..100 {
-            let (to, why) = animal(&rabbit, home, Some(hero), false, &mut rng).unwrap();
+            let (to, why) = behaviour(&rabbit, home, Some(hero), false, &mut rng).unwrap();
             assert_eq!(why, Why::Flees);
             assert!(
                 (800.0..=950.0).contains(&to.x) && (950.0..=1050.0).contains(&to.z),
@@ -535,18 +552,18 @@ mod tests {
             );
         }
         let far = Vec3::new(1400.0, 0.0, 1000.0);
-        assert_eq!(animal(&rabbit, home, Some(far), false, &mut rng), None);
+        assert_eq!(behaviour(&rabbit, home, Some(far), false, &mut rng), None);
         // Within 200 the pig walks to the point beyond itself; at 300 it stands.
-        let (to, why) = animal(&pig, home, Some(hero), false, &mut rng).unwrap();
+        let (to, why) = behaviour(&pig, home, Some(hero), false, &mut rng).unwrap();
         assert!(
             why == Why::StepsAway && (to - Vec3::new(900.0, 0.0, 1000.0)).length() < 0.01,
             "{to}"
         );
         let near = Vec3::new(1300.0, 0.0, 1000.0);
-        assert_eq!(animal(&pig, home, Some(near), false, &mut rng), None);
+        assert_eq!(behaviour(&pig, home, Some(near), false, &mut rng), None);
         // Farther than 380 from home the rabbit walks back within 50 of it.
         let strayed = home + Vec3::new(0.0, 0.0, 400.0);
-        let (to, why) = animal(&rabbit, strayed, None, false, &mut rng).unwrap();
+        let (to, why) = behaviour(&rabbit, strayed, None, false, &mut rng).unwrap();
         let d = to - home;
         assert!(
             why == Why::GoesBack && d.x.abs() <= 50.0 && d.z.abs() <= 50.0,
@@ -554,12 +571,37 @@ mod tests {
         );
         // A stroll stays within 100 of home for the rabbit, 150 for the pig.
         for _ in 0..200 {
-            let (to, _) = animal(&rabbit, home, None, true, &mut rng).unwrap();
+            let (to, _) = behaviour(&rabbit, home, None, true, &mut rng).unwrap();
             let d = to - home;
             assert!(d.x.abs() <= 100.0 && d.z.abs() <= 100.0, "{d}");
-            let (to, _) = animal(&pig, home, None, true, &mut rng).unwrap();
+            let (to, _) = behaviour(&pig, home, None, true, &mut rng).unwrap();
             let d = to - home;
             assert!(d.x.abs() <= 150.0 && d.z.abs() <= 150.0, "{d}");
+        }
+    }
+
+    #[test]
+    fn a_guard_strolls_about_its_post_and_goes_back_to_it() {
+        let mut rng = Rng::of(50, 39, 4);
+        let post = Vec3::new(1000.0, 0.0, 1000.0);
+        let guard = Mind::new(post, 0x4000, (false, true), None, SPEEDS, (0, 3));
+        // Within 90 of its post along each axis it stands; farther it walks back to it.
+        let near = post + Vec3::new(90.0, 0.0, -90.0);
+        assert_eq!(behaviour(&guard, near, None, false, &mut rng), None);
+        let far = post + Vec3::new(20.0, 0.0, 95.0);
+        assert_eq!(
+            behaviour(&guard, far, None, false, &mut rng),
+            Some((post, Why::GoesBack))
+        );
+        // By chance it strolls within 200 of its post, from wherever it stands; it fears no one.
+        let hero = Some(far + Vec3::X);
+        for _ in 0..100 {
+            let (to, why) = behaviour(&guard, far, hero, true, &mut rng).unwrap();
+            let d = to - post;
+            assert!(
+                why == Why::Strolls && d.x.abs() <= 200.0 && d.z.abs() <= 200.0,
+                "{d}"
+            );
         }
     }
 
