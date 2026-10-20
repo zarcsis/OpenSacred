@@ -96,7 +96,9 @@ Read 2026-10-18 (#35).
 The device's setup (`0x643190`) puts the alpha test's reference at `0x40` and its function at `GREATER`, turns the alpha blending on and the alpha test off.
 Before a sprite's pieces `0x62FF60` turns the lighting and the culling off, the blend factors to `SRCALPHA` and `INVSRCALPHA`, the filter to point and the alpha test on (`0x630367`…`0x6303AA`); after them, the depth states and the alpha test off again (`0x63098F`…`0x6309B0`).
 So the original drops a sprite's texels of alpha 64 or less, the atlases' 4-bit alphas 0 to 3 (`MIXnnnn.444`, docs/02 §3.3), and blends the rest by their alpha over what is drawn, in the order of its lists, a texel to a pixel at zoom 1.
-A miniature (`0x630F2C`…) is blended by its alpha too, without the test, which the sprite's path leaves off; it is filtered linearly while the float at `+0xB60` of the renderer is over 1.2, else point (the float not followed).
+A miniature (`0x630F2C`…) is blended by its alpha too, without the test, which the sprite's path leaves off; it is filtered linearly while the zoom is over 1.2, else by point (`0x630F5B`, and `0x62F321` for one of a liquid cell, `0x62E410`).
+The zoom is the world view's float at `+0xB60`, which the two setters of the zoom (`0x628130` and `0x628310`) keep within 0.5 to 2 and which scales the projection, 2 the widest view (docs/02 §5.3, docs/re/ai.md); so the miniatures are filtered linearly in the wider views, where a texel of the art covers less than 5/6 of a pixel, and by point at 1.2 and closer (read again 2026-10-20, #343).
+The ground takes the same switch: `0x62AE90` sets the state `0x800` by the same test against 1.2 at the head of each row, before the row's quads (`0x62AF32`; docs/02 §5.4).
 
 ## The statics' shadows
 
