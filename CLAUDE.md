@@ -9,11 +9,12 @@ An open-source engine for Sacred Gold 2.28 (GOG), written in Rust: an offline co
 | `crates/opensacred-formats` | reading the original formats (PAK, TEX, GRN, sectors, NetScript, `global.res`, AMH); parsing only, no writing |
 | `crates/opensacred-data` | types of the open formats, shared by the converter and the game (`world`, `sound`) |
 | `crates/opensacred-convert` | CLI: GOG installation → `assets/`; supports `verify` (cross-check against the manifest), `textures` (TEX → PNG), `models` (GRN models and motions → glTF binary with animations) `world` (sectors, statics and sprites → postcard files) `sound` (samples → FLAC/MP3, profiles → RON) `text` (global.res → Fluent) `video` (WMV → AV1/Opus WebM), `ui` (screens, fonts, credits), `netscript` (the script trees → postcard files, listings on request), `tables` (creatures, weapons, items, motions, triggers → RON), `heroes` (the starting templates), `all` and `coverage` |
-| `crates/opensacred-game` | the game on Bevy 0.20 (ADR-04), reading only `assets/`: the M2 vertical slice (streamed sectors with ground, liquids and static objects, the hero walking and running, the start script's NPCs, footsteps, music and ambient loops, a minimal HUD); `--screenshot` saves a frame and exits, `--benchmark` measures |
+| `crates/opensacred-game` | the game on Bevy 0.20 (ADR-04), reading only `assets/`: the M2 vertical slice (streamed sectors with ground, liquids and static objects, the hero walking and running, the start script's NPCs, footsteps, music and ambient loops), a main menu with the choice of the hero and a pause menu (Esc), settings in `%APPDATA%\OpenSacred\settings.toml` (borderless or windowed, F11), a debug overlay (F3), the log (F4 and a file), a console of the game's commands (the key under Esc), scripts (`--exec`, `--script`) and remote control (`--remote`, docs/10); `--screenshot` saves a frame and exits, `--benchmark` measures |
 | `OriginalGame/` | the developer's own GOG installation, ignored by Git — the reference, read-only |
 | `docs/manifest-gog-2.28.txt` | SHA-256 of the reference installation (`sha256sum` format), embedded in `opensacred-convert` |
 | `build.rs` | the build script of the converter and the game: their `--version` from `git describe` (`Cargo.toml` has no version) |
-| `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`) |
+| `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`); the game's remote-control client `tools/game/remote.py` |
+| `.claude/skills/game/` | the project skill `game`: how to run the game and drive it (scripts, remote control) |
 
 `opensacred-rules`, `opensacred-oracle` (PLAN.md §6.1) appear when their turn comes; do not create them in advance.
 
@@ -34,8 +35,11 @@ cargo run --release -p opensacred-convert -- heroes       # Templates/*.ptx → 
 cargo run --release -p opensacred-convert -- netscript    # bin/**/{Funk,Start,Quest}Code.bin + Vectoren.bin → assets/netscript/ (--listing: <tree>.txt)
 cargo run --release -p opensacred-convert -- all          # every conversion in order; skips those whose assets/manifest/<command>.ron still holds (--force runs all)
 cargo run -p opensacred-convert -- coverage               # what becomes of each file of the manifest
-cargo run --release -p opensacred-game                    # the game on assets/: left mouse moves, R walks/runs, the wheel zooms (--class seraphim|gladiator|mage|wood-elf|dark-elf|daemon|dwarf, --sector X,Y, --zoom, --width/--height, --no-music)
+cargo run --release -p opensacred-game                    # the game on assets/, from its menu: left mouse moves, R walks/runs, the wheel zooms, Esc pauses, F3 the overlay, F4 the log, F11 windowed, ~ the console (--class seraphim|gladiator|mage|wood-elf|dark-elf|daemon|dwarf starts a game at once; --sector X,Y, --zoom, --windowed, --width/--height, --no-music, --settings, --log-file)
 cargo run --release -p opensacred-game -- --screenshot shot.png   # render one frame once the scene is ready, then exit
+cargo run --release -p opensacred-game -- --windowed --no-music --exec "new-game --class mage; wait ready; screenshot shot.png; quit"   # a script of the game's commands (help lists them)
+cargo run --release -p opensacred-game -- --remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log   # remote control on 127.0.0.1:15702 (the skill `game`, docs/03 §3.7)
+python -I tools/game/remote.py exec "go +6,+2"          # drive a game started with --remote: exec, state, wait-ready, key, type, click, screenshot, logs
 gltf_validator assets/models                         # writes a .report.json next to every .glb
 cargo nextest run --workspace                       # tests without the game files (as in CI)
 cargo nextest run --workspace --run-ignored all     # plus tests on the game files and the GPU

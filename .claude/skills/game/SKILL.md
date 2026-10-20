@@ -1,0 +1,57 @@
+---
+name: game
+description: Run opensacred-game and drive it yourself - start it windowed with --remote and play it through tools/game/remote.py (its commands, its state, keys, text, clicks, screenshots, the log), or run a one-shot script with --exec. Use to see a change working in the game, to reproduce a bug, to take a screenshot of a scene, or to measure the frame rate.
+---
+
+# Running and driving the game
+
+The game is `opensacred-game` (docs/10). It reads the converted assets of `assets/`; in a worktree, point it at the main checkout's with `--assets ../../../assets` (or link them, see the memory on worktrees).
+
+## Choose the way
+
+- **One shot, nothing to wait on** (a screenshot, a benchmark, a scripted tour): a script on the command line, no server.
+
+  ```bash
+  cargo run --release -p opensacred-game -- --assets <assets> --windowed --no-music \
+    --settings <scratch>/settings.toml --log-file <scratch>/game.log \
+    --exec "new-game --class mage; wait ready; go +6,+2; wait arrived; screenshot <scratch>/shot.png; quit"
+  ```
+
+  `--script FILE` takes the same commands from a file, a line each, `#` for comments. The process ends with `quit`; read the log file for each command's output (`> line`, then its lines, `ERROR` for a failure).
+- **Interactive** (look, decide, act again): start the game with `--remote` in the background, then call `tools/game/remote.py` as often as needed.
+
+  ```bash
+  cargo run --release -p opensacred-game -- --assets <assets> --remote --windowed --no-music \
+    --settings <scratch>/settings.toml --log-file <scratch>/game.log      # run_in_background
+  python -I tools/game/remote.py wait-state menu        # up, on its main menu
+  python -I tools/game/remote.py exec "new-game --class dwarf"
+  python -I tools/game/remote.py wait-ready             # loaded, the hero animating, the sectors in place
+  ```
+
+Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), console history and log. With `--remote` the window opens without taking the focus.
+
+## What the client does
+
+| Call | What it does |
+|---|---|
+| `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one |
+| `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, whether the scene is ready |
+| `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then, through the game's start too (`--timeout`, 120 s) |
+| `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, … |
+| `type "TEXT"` | type text, as into the console |
+| `click X Y` (`--button`, `--hold`) | click a pixel of the window: a menu's item, or the ground for the hero to walk there |
+| `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |
+| `screenshot FILE` | the next frame, waiting until the PNG is written; look at it with Read |
+| `logs --after N` | the log's records from number N on |
+
+The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM]`, `menu`, `quit`, `sector X,Y`, `cell X,Y`, `go X,Y` or `go +DX,+DY`, `gait walk|run`, `zoom Z`, `time HH:MM`, `pause on|off` (a still frame without the pause's menu), `overlay on|off`, `log on|off`, `console on|off`, `window windowed W H`, `state`, `record DIR N`, `benchmark SECONDS`. Prefer a command to a click where one exists: `go` names a cell, a click a pixel.
+
+## Keys of the game
+
+The left button walks the hero, R walks or runs, the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F3 the overlay, F4 the log, F11 borderless or windowed; the key under Esc the console.
+
+## Rules
+
+- Screenshots, recordings and logs show the converted assets: keep them in the scratchpad, look at them, never commit them and never attach them to an issue or a pull request (docs/08 §3). Describe what they show in words.
+- End the game you started (`exec quit`), or it keeps its port: a second `--remote` on the same port fails to listen; pass another port (`--remote 15703`, `--port 15703`).
+- A click posted to the window from outside (`PostMessage`, `SendKeys`) does not walk the hero: the system reports the cursor leaving a window it is not over. Use the client.
