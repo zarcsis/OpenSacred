@@ -44,11 +44,11 @@ use anyhow::{Context, Result};
 use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::{
-    AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
+    AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
-    Component, DetectChangesMut, Entity, GltfAssetLabel, Handle, Has, Image, IntoScheduleConfigs,
-    MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut, Resource, StandardMaterial, Time,
-    Transform, Update, Vec3, With, Without, WorldAssetRoot,
+    Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image,
+    IntoScheduleConfigs, MeshMaterial3d, MessageWriter, Name, On, Plugin, Query, Res, ResMut,
+    Resource, StandardMaterial, Time, Transform, Update, Vec3, With, Without, WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
@@ -154,6 +154,8 @@ struct ClipNames {
     /// The jugglers' clips of the slots 180 to 183 (`*_FUN_IDLE_*`), by which they play their
     /// instruments.
     fun: [Option<String>; 4],
+    /// Its attack's clips (`motions::Slots::attacks`).
+    attacks: Vec<String>,
 }
 
 /// The instruments a juggler takes (`0x4F29E2`): the flute, the bell, the harp and the horn, their
@@ -262,6 +264,9 @@ pub struct Npcs {
     slots: HashMap<String, motions::Slots>,
     /// The instruments' models and textures, of [`INSTRUMENTS`].
     instruments: Vec<Option<(String, Option<String>)>>,
+    /// The fractions of the attack's clips at which they hit, by the clips' names upper-cased
+    /// (`MotionDesc +0xA0`, `+0xA4`: `floats_62[1]` and `[2]` of `tables/motions.ron`).
+    hits: HashMap<String, [f32; 2]>,
     spawned: HashSet<(u32, u32)>,
 }
 
@@ -307,6 +312,8 @@ struct Clips {
     stance: Option<AnimationNodeIndex>,
     talk: Option<AnimationNodeIndex>,
     fun: [Option<AnimationNodeIndex>; 4],
+    /// The attack's clips, each with its clip and the fractions at which it hits.
+    attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
 }
 
 impl Clips {
@@ -723,6 +730,25 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
 
 /// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
 /// where `tables/balance.ron` lacks them.
+/// The fractions of the attack's clips at which they hit (`0x4EA1F0`, docs/re/fight.md), none
+/// where `tables/motions.ron` cannot be read.
+fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
+    let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
+    let motions: Vec<opensacred_data::tables::Motion> = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| ron::from_str(&text).ok())
+        .unwrap_or_default();
+    motions
+        .iter()
+        .filter(|m| m.floats_62[1] > 0.0 || m.floats_62[2] > 0.0)
+        .map(|m| {
+            let name = m.name.to_ascii_uppercase();
+            let name = name.strip_suffix(".GRN").unwrap_or(&name).to_owned();
+            (name, [m.floats_62[1], m.floats_62[2]])
+        })
+        .collect()
+}
+
 fn factors(balance: Option<&opensacred_data::tables::Balance>) -> spawning::Factors {
     let factor = |name, default| balance.and_then(|b| b.f32(name)).unwrap_or(default);
     spawning::Factors {
@@ -1034,6 +1060,7 @@ impl Npcs {
                         .clip(motions::Action::Run, class)
                         .map(|(name, _)| name.to_owned()),
                     stance: slots.stance(class).map(str::to_owned),
+                    attacks: slots.attacks(class),
                     talk: slots.talk().map(str::to_owned),
                     fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
                 };
@@ -1166,6 +1193,7 @@ impl Npcs {
                         walk: clip(motions::Action::Walk),
                         run: clip(motions::Action::Run),
                         stance: slots.stance(held_class(&[])).map(str::to_owned),
+                        attacks: slots.attacks(held_class(&[])),
                         talk: slots.talk().map(str::to_owned),
                         fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
                     },
@@ -1221,6 +1249,7 @@ impl Npcs {
             pools,
             gear,
             slots: model_slots,
+            hits: hit_fractions(assets),
             instruments: INSTRUMENTS
                 .iter()
                 .map(|&(slot, _)| {
@@ -1359,6 +1388,7 @@ pub fn place(
                             walk: clip(motions::Action::Walk),
                             run: clip(motions::Action::Run),
                             stance: slots.stance(class).map(str::to_owned),
+                            attacks: slots.attacks(class),
                             talk: slots.talk().map(str::to_owned),
                             fun: [180, 181, 182, 183]
                                 .map(|slot| slots.slot(slot).map(str::to_owned)),
@@ -1705,8 +1735,13 @@ pub fn retexture(
 
 /// Gives each NPC's animation player its clips (`ClipNames`): the one it stands in, else its
 /// model's first, and its walk and run clips, which play while the NPC walks or runs.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 pub fn animate(
     mut commands: Commands,
+    data: Res<Npcs>,
     mut npcs: Query<(&mut Npc, Option<&Walk>)>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
@@ -1755,6 +1790,20 @@ pub fn animate(
             );
             let names = npc.names.fun.clone();
             let fun = [0, 1, 2, 3].map(|i| add(&names[i]));
+            let attacks = npc
+                .names
+                .attacks
+                .iter()
+                .filter_map(|name| {
+                    let clip = gltf.named_animations.get(name.as_str())?.clone();
+                    let hits = data
+                        .hits
+                        .get(&name.to_ascii_uppercase())
+                        .copied()
+                        .unwrap_or_default();
+                    Some((graph.add_clip(clip.clone(), 1.0, root), clip, hits))
+                })
+                .collect();
             npc.graph = Some(Clips {
                 graph: graphs.add(graph),
                 idle,
@@ -1763,6 +1812,7 @@ pub fn animate(
                 stance,
                 talk,
                 fun,
+                attacks,
             });
         }
         if let Some(clips) = npc.graph.clone() {
@@ -1916,7 +1966,7 @@ const STANCE_WITHIN: f32 = 550.0;
 pub fn stance(
     mut commands: Commands,
     nearest: Res<crowd::Nearest>,
-    npcs: Query<(Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>)>,
+    npcs: Query<(Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>), Without<Strikes>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
@@ -2109,6 +2159,105 @@ fn put(
     }
 }
 
+/// An NPC that strikes at `target` (the attack action 3, `0x4E4CF0`): one of its attack's clips,
+/// chosen by `choice`, once, which hits at its fractions (`0x4EA1F0`).
+#[derive(Component)]
+pub struct Strikes {
+    target: Entity,
+    choice: u32,
+    /// The clip it plays, its length and the fractions at which it hits, once it plays.
+    playing: Option<(AnimationNodeIndex, f32, [f32; 2])>,
+    /// How many hits it has struck.
+    struck: u8,
+}
+
+impl Strikes {
+    /// A strike at `target`, with the clip `choice` of its attack's.
+    pub fn at(target: Entity, choice: u32) -> Self {
+        Self {
+            target,
+            choice,
+            playing: None,
+            struck: 0,
+        }
+    }
+}
+
+/// How far a strike reaches when it hits, times the reach (`0x4EA1F0`; **hypothesis** that the base
+/// is the reach of the fight's band).
+const HITS_WITHIN: f32 = 3.0 * 130.0;
+
+/// Plays each striking NPC's attack once, and at the clip's fractions (0.5 for a first of 0; a
+/// second when it is above 0) sends a hit when the target is then within reach; a walk ends the
+/// strike (`0x4E4CF0`, `0x4EA1F0`).
+fn strike(
+    mut commands: Commands,
+    mut strikers: Query<(Entity, &Npc, &mut Strikes, Has<Walk>, &GlobalTransform)>,
+    places: Query<&GlobalTransform>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    clips: Res<Assets<AnimationClip>>,
+    speed: Res<hero::GameSpeed>,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    for (entity, npc, mut strikes, walking, at) in &mut strikers {
+        let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
+            continue;
+        };
+        let Ok((mut player, mut transitions)) = players.get_mut(player) else {
+            continue;
+        };
+        if walking || graph.attacks.is_empty() {
+            commands.entity(entity).remove::<Strikes>();
+            continue;
+        }
+        let Some((node, length, fractions)) = strikes.playing else {
+            let index = usize::try_from(strikes.choice).unwrap_or(0) % graph.attacks.len();
+            let (node, clip, fractions) = &graph.attacks[index];
+            let length = clips.get(clip).map_or(1.0, AnimationClip::duration);
+            transitions
+                .play(&mut player, *node, BLEND)
+                .set_speed(speed.0);
+            strikes.playing = Some((*node, length.max(0.01), *fractions));
+            continue;
+        };
+        let Some(active) = player.animation(node) else {
+            commands.entity(entity).remove::<Strikes>();
+            continue;
+        };
+        let done = active.seek_time() / length;
+        let first = if fractions[0] > 0.0 {
+            fractions[0]
+        } else {
+            0.5
+        };
+        let due = match strikes.struck {
+            0 => done >= first,
+            1 => fractions[1] > 0.0 && done >= fractions[1],
+            _ => false,
+        };
+        if due {
+            strikes.struck += 1;
+            let reaches = places.get(strikes.target).is_ok_and(|target| {
+                (target.translation() - at.translation())
+                    .with_y(0.0)
+                    .length()
+                    <= HITS_WITHIN
+            });
+            if reaches {
+                let share = if fractions[1] > 0.0 { 0.5 } else { 1.0 };
+                hits.write(fight::Hit {
+                    attacker: entity,
+                    target: strikes.target,
+                    share,
+                });
+            }
+        }
+        if active.is_finished() {
+            commands.entity(entity).remove::<Strikes>();
+        }
+    }
+}
+
 /// A juggler that plays its instrument where it stands (`0x4F29E2`): `instrument` the one it
 /// takes into its right hand when both its hands are empty, of [`INSTRUMENTS`]; `on` whether it
 /// plays on, one of the flag `0x10000000`.
@@ -2160,7 +2309,7 @@ impl Plugin for NpcsPlugin {
             .add_systems(
                 Update,
                 (
-                    place, animate, door_clips, walk, put, swing, instrument, stance, equip,
+                    place, animate, door_clips, walk, put, swing, instrument, strike, stance, equip,
                 )
                     .chain()
                     .in_set(Step::Npcs),
@@ -2283,6 +2432,7 @@ mod tests {
             stance: None,
             talk: None,
             fun: [None; 4],
+            attacks: Vec::new(),
         };
         let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
         // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.

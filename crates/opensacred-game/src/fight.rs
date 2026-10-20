@@ -12,6 +12,34 @@ pub const HERO_LEVEL: u32 = 1;
 /// value (docs/re/fight.md).
 const BRONZE: usize = 5;
 
+/// A hit of a strike (`0x4EA3F0`, the event 5): its attacker, its target and its share of the
+/// strike, 0.5 for each hit of two (docs/re/fight.md, "A strike's resolution").
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct Hit {
+    pub attacker: Entity,
+    pub target: Entity,
+    pub share: f32,
+}
+
+/// Notes each hit; its resolution follows (#282).
+fn resolve(mut hits: MessageReader<Hit>) {
+    for hit in hits.read() {
+        debug!(
+            "fight: {} hits {} ({:.1})",
+            hit.attacker, hit.target, hit.share
+        );
+    }
+}
+
+/// The fight's rules.
+pub struct FightPlugin;
+
+impl Plugin for FightPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_message::<Hit>().add_systems(Update, resolve);
+    }
+}
+
 /// A creature's health, its most, and its level.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Health {
