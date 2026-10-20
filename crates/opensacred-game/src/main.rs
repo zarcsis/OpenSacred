@@ -36,6 +36,7 @@ mod settings;
 mod shaders;
 mod shadows;
 mod sound;
+mod spawning;
 mod srgb;
 mod statics;
 mod terrain;

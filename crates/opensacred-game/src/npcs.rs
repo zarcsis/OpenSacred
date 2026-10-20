@@ -58,7 +58,7 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{buildings, crowd, hero, iso, models, motions, paths, shadows};
+use crate::{buildings, crowd, hero, iso, models, motions, paths, shadows, spawning};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -68,6 +68,10 @@ const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
 const CREATE_TRIGGER: u16 = 48;
 const TRIGGER_PATCH: u16 = 50;
+const FILL_SECTOR: u16 = 51;
+const SPAWN_VALUES: u16 = 100;
+/// The hero's level, for the fills' counts: the game has no levels yet.
+const HERO_LEVEL: u32 = 1;
 /// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit
 /// (`0x496520`).
 const OPEN: u8 = 0x26;
@@ -76,6 +80,7 @@ const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
 
 /// An NPC or an object to place.
+#[derive(Clone)]
 struct Placement {
     /// The model, relative to the asset directory.
     model: String,
@@ -137,6 +142,7 @@ enum Hand {
 }
 
 /// An item an NPC holds.
+#[derive(Clone)]
 struct Held {
     /// The model, relative to the asset directory.
     model: String,
@@ -194,6 +200,12 @@ pub struct Npcs {
     by_sector: HashMap<(u32, u32), Vec<usize>>,
     /// The cells of the closed triggers ([`closed_cells`]), by sector.
     closed: HashMap<(u32, u32), Vec<Spot>>,
+    /// The sectors' fills ([`fills`]), and what each type they make is placed as.
+    fills: HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawning::Fill>)>,
+    templates: HashMap<u32, Placement>,
+    /// Each creature type's `Creature.pak` class, which picks a fill's factor.
+    classes: HashMap<u32, u8>,
+    factors: spawning::Factors,
     spawned: HashSet<(u32, u32)>,
 }
 
@@ -360,6 +372,108 @@ fn start_records(tree: &Tree) -> Vec<&Record> {
         records.extend(&sector.records);
     }
     records
+}
+
+/// The `FillSector` records of the sectors' `Enter` functions, by sector, each sector's with the
+/// `SpawnValues` of its function (docs/re/spawning.md, "`FillSector`").
+fn fills(tree: &Tree) -> HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawning::Fill>)> {
+    let mut out = HashMap::new();
+    for function in tree.functions.iter().filter(|f| f.name.ends_with("Enter")) {
+        let Some(sector) = sector_function(&function.name) else {
+            continue;
+        };
+        let mut values = spawning::SpawnValues::default();
+        let mut fills = Vec::new();
+        for record in &function.records {
+            let Body::Operands(ops) = &record.body else {
+                continue;
+            };
+            match record.kind {
+                SPAWN_VALUES => {
+                    let numbers: Vec<u32> = ops
+                        .iter()
+                        .filter_map(|o| match (o.tag, &o.value) {
+                            (0x0B, Value::I32(v)) => u32::try_from(*v).ok(),
+                            _ => None,
+                        })
+                        .collect();
+                    if let [density, lowest, highest, ..] = numbers[..] {
+                        values = spawning::SpawnValues {
+                            density,
+                            lowest,
+                            highest,
+                        };
+                    }
+                }
+                FILL_SECTOR => fills.extend(fill_of(ops)),
+                _ => {}
+            }
+        }
+        if !fills.is_empty() {
+            out.insert(sector, (values, fills));
+        }
+    }
+    out
+}
+
+/// A `FillSector` record's count (`35`) and entries (`19:(type, weight, hostile)`, or a bare `02`
+/// type of weight 100, peaceful), its `08` or `0E` making every entry hostile or peaceful.
+fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill> {
+    let per_area = ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (0x35, Value::I32x3([a, b, area])) => Some((
+            u32::try_from(*a).ok()?,
+            u32::try_from(*b).ok()?,
+            u32::try_from(*area).ok()?,
+        )),
+        _ => None,
+    })?;
+    let forced = ops
+        .iter()
+        .filter_map(|o| match (o.tag, &o.value) {
+            (0x08, Value::Marker) => Some(true),
+            (0x0E, Value::Marker) => Some(false),
+            _ => None,
+        })
+        .next_back();
+    let entries = ops
+        .iter()
+        .filter_map(|o| match (o.tag, &o.value) {
+            (0x19, Value::I32x3([creature, weight, hostile])) => Some(spawning::Entry {
+                creature: u32::try_from(*creature).ok()?,
+                weight: u32::try_from(*weight).ok()?,
+                hostile: *hostile != 0,
+            }),
+            (0x02, Value::I32(creature)) => Some(spawning::Entry {
+                creature: u32::try_from(*creature).ok()?,
+                weight: 100,
+                hostile: false,
+            }),
+            _ => None,
+        })
+        .map(|entry| spawning::Entry {
+            hostile: forced.unwrap_or(entry.hostile),
+            ..entry
+        })
+        .collect();
+    Some(spawning::Fill { per_area, entries })
+}
+
+/// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
+/// where `tables/balance.ron` lacks them.
+fn factors(assets: &Path) -> spawning::Factors {
+    let balance = fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
+        .ok()
+        .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
+    let factor = |name, default| {
+        balance
+            .as_ref()
+            .and_then(|b| b.f32(name))
+            .unwrap_or(default)
+    };
+    spawning::Factors {
+        animals: factor("SpawnAnimalsSP", 0.8),
+        enemies: factor("SpawnEnemysSP", 1.2),
+    }
 }
 
 /// The sector of a function of the sectors', by its name, `Sector<x><yyy>Init` or `…Enter` as the
@@ -695,6 +809,64 @@ impl Npcs {
                 clips,
             });
         }
+        // What each type that the sectors' fills make is placed as: its model standing with its
+        // hands empty, its shadow, and its flags word, to which a hostile entry adds bit 0.
+        let fills = fills(&tree);
+        let mut templates: HashMap<u32, Placement> = HashMap::new();
+        for entry in fills
+            .values()
+            .flat_map(|(_, fills)| fills)
+            .flat_map(|fill| &fill.entries)
+        {
+            let creature = entry.creature;
+            if templates.contains_key(&creature) {
+                continue;
+            }
+            let Some(item) = items.get(&creature) else {
+                continue;
+            };
+            let Some(model) = models.get(&item.name.to_ascii_uppercase()) else {
+                continue;
+            };
+            if !model_slots.contains_key(model) {
+                let slots = motions::Slots::read(&assets.join(model))?;
+                model_slots.insert(model.clone(), slots);
+            }
+            let slots = &model_slots[model];
+            let clip = |action| {
+                slots
+                    .clip(action, held_class(&[]))
+                    .map(|(name, _)| name.to_owned())
+            };
+            templates.insert(
+                creature,
+                Placement {
+                    model: model.clone(),
+                    cell: (0, 0),
+                    walk: None,
+                    heading: 0.0,
+                    object: false,
+                    casts: !shadowless.contains(&creature),
+                    blocks: false,
+                    creature: (
+                        creature,
+                        record_flags.get(&creature).copied().unwrap_or_default(),
+                        0,
+                    ),
+                    texture: match item.words_08[0] {
+                        0 => None,
+                        number => textures.get(&number).cloned(),
+                    },
+                    layer: 0,
+                    equipment: Vec::new(),
+                    clips: ClipNames {
+                        stand: clip(motions::Action::Stand),
+                        walk: clip(motions::Action::Walk),
+                    },
+                },
+            );
+        }
+        let classes = creatures.iter().map(|c| (c.id, c.class)).collect();
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
         for (index, placement) in placements.iter().enumerate() {
@@ -717,6 +889,10 @@ impl Npcs {
             placements,
             by_sector,
             closed,
+            fills,
+            templates,
+            classes,
+            factors: factors(assets),
             spawned: HashSet::new(),
         })
     }
@@ -766,95 +942,162 @@ pub fn place(
             .map(Vec::as_slice)
             .unwrap_or_default()
         {
-            let placement = &npcs.placements[index];
-            let (x, y) = placement.cell;
-            let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
-            // On a building's floor: the building whose floor's grid holds the cell, or the
-            // cell's on the ground; on its level's heights, a floor's at the floor's height.
-            let floor = usize::try_from(placement.layer).ok().filter(|&f| f > 0);
-            let on_floor = match (i32::try_from(x), i32::try_from(y), floor) {
-                (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
-                _ => None,
-            };
-            let level = match (on_floor, floor) {
-                (Some(building), Some(floor)) => heights.floor_level(building, floor),
-                _ => None,
-            };
-            position.y = heights
-                .standing(position.x, position.z, level)
-                .unwrap_or(0.0);
-            // In its layer of the building whose floor or cell it is on, if any.
-            let layered = buildings::Layered::of(
+            let entity = spawn(
+                &mut commands,
+                &npcs.placements[index],
                 &heights,
-                on_floor.or_else(|| {
-                    heights
-                        .building(position.x, position.z)
-                        .map(|(building, _)| building)
-                }),
-                placement.layer,
+                &states,
+                &assets,
             );
-            let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
-            let mut entity = commands.spawn((
-                WorldAssetRoot(scene),
-                Transform::from_translation(position)
-                    .with_rotation(hero::facing(heading(placement.heading)))
-                    .with_scale(Vec3::splat(iso::MODEL_SCALE)),
-                models::Ordered::default(),
-                layered,
-                layered.visibility(&states),
-            ));
-            if let Some(texture) = &placement.texture {
-                entity.insert(Retexture(load_texture(&assets, texture)));
-            }
-            if !placement.equipment.is_empty() {
-                entity.insert(Equipment(
-                    placement
-                        .equipment
-                        .iter()
-                        .map(|held| Equip {
-                            gltf: assets.load(held.model.clone()),
-                            texture: held.texture.as_ref().map(|t| load_texture(&assets, t)),
-                            hand: held.hand,
-                            shield: held.shield,
-                            ready: false,
-                        })
-                        .collect(),
-                ));
-            }
-            if placement.casts {
-                entity.insert(shadows::Casts);
-            }
-            if placement.object {
-                entity.insert(Object);
-                if placement.blocks {
-                    entity.insert(crowd::InTheWay::object(level));
-                }
-            } else {
-                let (creature, record_flags, word) = placement.creature;
-                entity.insert((
-                    Npc {
-                        gltf: assets.load(placement.model.clone()),
-                        names: placement.clips.clone(),
-                        graph: None,
-                        player: None,
-                    },
-                    crowd::InTheWay::of(creature, record_flags, word, level),
-                ));
-                if let Some(((tx, ty), speed)) = placement.walk {
-                    entity.insert(Walk {
-                        target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
-                        level,
-                        speed,
-                        climbed: false,
-                    });
-                }
-            }
-            let entity = entity.id();
             streamer.adopt(at, entity);
+        }
+        // The creatures that the sector's fills make, on cells at random that they may stand
+        // on, the same ones each time the sector comes in (`spawning`).
+        let Some((values, fills)) = npcs.fills.get(&at) else {
+            continue;
+        };
+        let (Ok(x0), Ok(y0)) = (i32::try_from(at.0 * 64), i32::try_from(at.1 * 64)) else {
+            continue;
+        };
+        for (index, fill) in fills.iter().enumerate() {
+            let mut rng = spawning::Rng::of(at.0, at.1, index);
+            let first = fill
+                .entries
+                .first()
+                .and_then(|entry| npcs.classes.get(&entry.creature).copied());
+            let factor = if spawning::animals(first) {
+                npcs.factors.animals
+            } else {
+                npcs.factors.enemies
+            };
+            for _ in 0..spawning::count(fill, *values, HERO_LEVEL, factor, &mut rng) {
+                let Some(entry) = spawning::choose(&fill.entries, &mut rng) else {
+                    break;
+                };
+                let Some(cell) = spawning::spot(
+                    (x0, y0),
+                    &mut rng,
+                    |cell| heights.walkable_on(cell, None),
+                    |cell| heights.flags(cell),
+                ) else {
+                    continue;
+                };
+                let (Some(template), Ok(cx), Ok(cy)) = (
+                    npcs.templates.get(&entry.creature),
+                    u32::try_from(cell.0),
+                    u32::try_from(cell.1),
+                ) else {
+                    continue;
+                };
+                let mut placement = template.clone();
+                placement.cell = (cx, cy);
+                // A random heading, as `CreateNPC` gives one without its own (`rand() % 361`).
+                placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
+                if entry.hostile {
+                    placement.creature.2 |= crowd::HOSTILE;
+                }
+                let entity = spawn(&mut commands, &placement, &heights, &states, &assets);
+                streamer.adopt(at, entity);
+            }
         }
     }
     // Sectors that went out place their NPCs again when they come back.
     npcs.spawned.retain(|at| loaded.contains(at));
+}
+
+/// Spawns the NPC or the object of `placement`: its model on its cell and level, turned to its
+/// heading, with its texture, its items, its shadow, its clips, its walk and its place in the
+/// others' way.
+fn spawn(
+    commands: &mut Commands,
+    placement: &Placement,
+    heights: &Heights,
+    states: &buildings::Buildings,
+    assets: &AssetServer,
+) -> Entity {
+    let (x, y) = placement.cell;
+    let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
+    // On a building's floor: the building whose floor's grid holds the cell, or the
+    // cell's on the ground; on its level's heights, a floor's at the floor's height.
+    let floor = usize::try_from(placement.layer).ok().filter(|&f| f > 0);
+    let on_floor = match (i32::try_from(x), i32::try_from(y), floor) {
+        (Ok(cx), Ok(cy), Some(floor)) => heights.building_on_floor((cx, cy), floor),
+        _ => None,
+    };
+    let level = match (on_floor, floor) {
+        (Some(building), Some(floor)) => heights.floor_level(building, floor),
+        _ => None,
+    };
+    position.y = heights
+        .standing(position.x, position.z, level)
+        .unwrap_or(0.0);
+    // In its layer of the building whose floor or cell it is on, if any.
+    let layered = buildings::Layered::of(
+        heights,
+        on_floor.or_else(|| {
+            heights
+                .building(position.x, position.z)
+                .map(|(building, _)| building)
+        }),
+        placement.layer,
+    );
+    let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
+    let mut entity = commands.spawn((
+        WorldAssetRoot(scene),
+        Transform::from_translation(position)
+            .with_rotation(hero::facing(heading(placement.heading)))
+            .with_scale(Vec3::splat(iso::MODEL_SCALE)),
+        models::Ordered::default(),
+        layered,
+        layered.visibility(states),
+    ));
+    if let Some(texture) = &placement.texture {
+        entity.insert(Retexture(load_texture(assets, texture)));
+    }
+    if !placement.equipment.is_empty() {
+        entity.insert(Equipment(
+            placement
+                .equipment
+                .iter()
+                .map(|held| Equip {
+                    gltf: assets.load(held.model.clone()),
+                    texture: held.texture.as_ref().map(|t| load_texture(assets, t)),
+                    hand: held.hand,
+                    shield: held.shield,
+                    ready: false,
+                })
+                .collect(),
+        ));
+    }
+    if placement.casts {
+        entity.insert(shadows::Casts);
+    }
+    if placement.object {
+        entity.insert(Object);
+        if placement.blocks {
+            entity.insert(crowd::InTheWay::object(level));
+        }
+    } else {
+        let (creature, record_flags, word) = placement.creature;
+        entity.insert((
+            Npc {
+                gltf: assets.load(placement.model.clone()),
+                names: placement.clips.clone(),
+                graph: None,
+                player: None,
+            },
+            crowd::InTheWay::of(creature, record_flags, word, level),
+        ));
+        if let Some(((tx, ty), speed)) = placement.walk {
+            entity.insert(Walk {
+                target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
+                level,
+                speed,
+                climbed: false,
+            });
+        }
+    }
+    entity.id()
 }
 
 /// An item's texture, repeated, as a glTF texture without a sampler is: the models' texture

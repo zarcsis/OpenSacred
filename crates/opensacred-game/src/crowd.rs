@@ -20,6 +20,8 @@ use crate::terrain::Level;
 /// The bits of a creature's flags word (`+0x1F4`) that stop the hero: a hostile creature, awake
 /// (bit 0) or of a dormant group (bit 1).
 const STOPS_THE_HERO: u32 = 0x3;
+/// The bit of the flags word that the creature maker sets on a hostile creature (`0x480D40`).
+pub const HOSTILE: u32 = 0x1;
 /// The bit of a creature's flags word that keeps it from stopping others: the critters.
 const CRITTER: u32 = 0x100_0000;
 /// The bit of a `Creature.pak` record's flags of the big creatures, which stop no step by their
