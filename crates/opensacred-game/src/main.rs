@@ -11,6 +11,7 @@ mod command;
 mod console;
 mod crowd;
 mod daynight;
+mod fight;
 mod frame;
 mod game;
 mod help;
