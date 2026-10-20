@@ -1,8 +1,10 @@
 //! The fight's rules as far as the game follows them (docs/re/fight.md): the creatures' levels,
 //! their health, their attack, defence, damage and resistances, and a strike's hit.
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
-use opensacred_data::tables::{Balance, Creature};
+use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -719,12 +721,209 @@ impl Base {
     }
 }
 
-/// What a creature holds, as its values take it: a weapon (`0x546F80`) and a shield
-/// (`0x54A660`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// What a creature holds, as its values take it: a weapon (`0x546F80`), a shield (`0x54A660`),
+/// and the values of the items in its hands that have them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
     pub shield: bool,
+    pub items: [Option<ItemValues>; 2],
+}
+
+/// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
+/// resistances, its `A` and `D`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ItemValues {
+    pub damage: [[f32; 2]; KINDS],
+    pub resistance: [f32; KINDS],
+    pub attack: f32,
+    pub defence: f32,
+}
+
+/// The words of a template of the items' values (`wpmod.bin`, docs/re/items.md).
+type TemplateWords = [u32; 53];
+
+/// The templates of the items' values by the item types they serve, the first in the file's
+/// order for a type (`0x42CA70`), and the types' parents (`Weapon.pak +0x24`).
+#[derive(Clone, Debug, Default)]
+pub struct Templates {
+    by_type: HashMap<u32, TemplateWords>,
+    parents: HashMap<u32, u32>,
+}
+
+/// The constant 0.01 of the item maker, a single-precision float a little below it.
+const HUNDREDTH: f64 = 0.009_999_999_776_482_582;
+
+/// A value stored as a single-precision float.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the original stores the value as a float"
+)]
+fn single(value: f64) -> f64 {
+    f64::from(value as f32)
+}
+
+/// The whole part of a double, 0 below 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "an item's value, whole and positive, far below the integers' range"
+)]
+fn whole_f64(value: f64) -> u32 {
+    value.max(0.0).floor() as u32
+}
+
+/// A word of a template read as signed.
+fn signed(word: u32) -> i64 {
+    i64::from(i32::from_ne_bytes(word.to_ne_bytes()))
+}
+
+/// The game's roll of a whole number between `least` and `most` (`0x443B20`): a negative least
+/// counts as 0, a negative most as 1, the two swapped when reversed.
+fn roll_between(least: i64, most: i64, rng: &mut Rng) -> f64 {
+    let (a, b) = (least.max(0), if most < 0 { 1 } else { most });
+    let (low, high) = (a.min(b), a.max(b));
+    let span = u32::try_from(high - low + 1).unwrap_or(1);
+    let rolled = low + i64::from(rng.below(span));
+    f64::from(u32::try_from(rolled).unwrap_or(0))
+}
+
+impl Templates {
+    /// The templates of `modifiers` and the parents of `weapons`.
+    pub fn new(modifiers: &[WeaponModifier], weapons: &[Weapon]) -> Self {
+        let mut by_type = HashMap::new();
+        for modifier in modifiers {
+            let Ok(words) = TemplateWords::try_from(modifier.words.as_slice()) else {
+                continue;
+            };
+            let count = usize::try_from(words[5]).unwrap_or(0).min(5);
+            for &item in &words[..count] {
+                by_type.entry(item).or_insert(words);
+            }
+        }
+        let parents = weapons
+            .iter()
+            .filter(|w| w.parent != 0)
+            .map(|w| (w.id, w.parent))
+            .collect();
+        Self { by_type, parents }
+    }
+
+    /// The template of an item of type `item`, its parent's while the type lies within 2000–2999
+    /// or 6500–7999, at most six times (`0x5D5080`).
+    fn of(&self, item: u32) -> Option<&TemplateWords> {
+        let mut item = item;
+        for _ in 0..6 {
+            if !matches!(item, 2000..=2999 | 6500..=7999) {
+                break;
+            }
+            match self.parents.get(&item) {
+                Some(&parent) => item = parent,
+                None => break,
+            }
+        }
+        self.by_type.get(&item)
+    }
+
+    /// The values of an item of type `item` made at `level` on bronze (`0x5D5080`,
+    /// docs/re/items.md), none without a template or for its word 38 of 29: the level's factor
+    /// `f = 25 + 2.5·level`; the damage's budget `p = max(S·f/100 + 0.5, 1)` by the scale `S`,
+    /// its kinds rolled by their chances, normalised to `p` and split by the spread `w` into a
+    /// least and a most; the resistances likewise, unsplit; `A` and `D` by their chances times
+    /// `f`. No magic bonus yet (docs/decisions/2026-10-20-weapons.md).
+    pub fn make(&self, item: u32, level: u32, rng: &mut Rng) -> Option<ItemValues> {
+        let words = self.of(item)?;
+        if words[38] == 29 {
+            return None;
+        }
+        let w = |i: usize| signed(words[i]);
+        let level = f64::from(level.min(270));
+        let f = single(25.0 + 250.0 * level * HUNDREDTH);
+        let p = single((f64::from(words[6]) * f * HUNDREDTH + 0.5).max(1.0));
+        let chance = |i: usize, rng: &mut Rng| i64::from(rng.below(100)) < w(i);
+        // A triple's least and most, the most above the least.
+        let rolled = |i: usize, rng: &mut Rng| {
+            let (least, most) = (w(i + 1), w(i + 2));
+            roll_between(least, most.max(least + 1), rng)
+        };
+        let mut values = ItemValues::default();
+        // The damage: fire, magic, poison (unless both others), then physical.
+        if [8, 11, 14, 17].iter().any(|&i| w(i) > 0) {
+            let mut a = [0_u32; KINDS];
+            for (kind, i) in [(1, 11), (2, 14), (3, 17)] {
+                if kind == 3 && a[1] > 0 && a[2] > 0 {
+                    continue;
+                }
+                if chance(i, rng) {
+                    a[kind] = whole_f64((rolled(i, rng) * p * HUNDREDTH).max(1.0));
+                }
+            }
+            if chance(8, rng) {
+                a[0] = if a[1..].iter().all(|&v| v == 0) {
+                    whole_f64(p)
+                } else {
+                    whole_f64(rolled(8, rng) * p * HUNDREDTH)
+                };
+            }
+            let n = normalised(a, p);
+            let q = (f64::from(words[7]) * HUNDREDTH).min(100.0);
+            for (ends, &n) in values.damage.iter_mut().zip(&n) {
+                if n > 0 {
+                    let n = f64::from(n);
+                    *ends = [
+                        to_f32(whole_f64((n - n * q).max(1.0))),
+                        to_f32(whole_f64((q + 1.0) * n)),
+                    ];
+                }
+            }
+        }
+        // The resistances: 1, 2, 3 (unless both others), then 0.
+        if [20, 23, 26, 29].iter().any(|&i| w(i) > 0) {
+            let mut a = [0_u32; KINDS];
+            for (kind, i) in [(1, 23), (2, 26), (3, 29)] {
+                if kind == 3 && a[1] > 0 && a[2] > 0 {
+                    continue;
+                }
+                if chance(i, rng) {
+                    a[kind] = whole_f64((rolled(i, rng) * p * HUNDREDTH).max(1.0));
+                }
+            }
+            if chance(20, rng) {
+                a[0] = if a[1..].iter().all(|&v| v == 0) {
+                    whole_f64(p)
+                } else {
+                    whole_f64(rolled(20, rng) * p * HUNDREDTH)
+                };
+            }
+            values.resistance = normalised(a, p).map(to_f32);
+        }
+        for (value, i) in [(&mut values.attack, 32), (&mut values.defence, 35)] {
+            if chance(i, rng) {
+                let (least, most) = (w(i + 1), w(i + 2));
+                *value = to_f32(whole_f64(roll_between(least, most, rng) * f * HUNDREDTH));
+            }
+        }
+        Some(values)
+    }
+}
+
+/// The raw values `a` normalised to the budget `p` (`0x5D0280`): each `⌊a·p/T⌋` of their total
+/// `T`, the physical `⌊p⌋` when the total is 0, the remainder `⌊p − Σ + 0.5⌋` to the first that
+/// has any.
+fn normalised(mut a: [u32; KINDS], p: f64) -> [u32; KINDS] {
+    if a.iter().all(|&v| v == 0) {
+        a[0] = whole_f64(p);
+    }
+    let total = f64::from(a.iter().sum::<u32>());
+    if total <= 0.0 {
+        return a;
+    }
+    let mut n = a.map(|v| whole_f64(f64::from(v) * p / total));
+    let rest = whole_f64(p - f64::from(n.iter().sum::<u32>()) + 0.5);
+    if let Some(first) = n.iter_mut().find(|v| **v > 0) {
+        *first += rest;
+    }
+    n
 }
 
 /// The skills a creature of `base` counts at level `level`, and their levels: an NPC the first
@@ -929,7 +1128,26 @@ pub fn combat(
             _ => {}
         }
     }
-    if damage[0][1] == 0.0 {
+    // The items' own damage, resistances, `A` and `D` (`0x5796A0`).
+    let (mut item_attack, mut item_defence) = (0.0, 0.0);
+    for item in holds.items.iter().flatten() {
+        for (ends, item) in damage.iter_mut().zip(item.damage) {
+            ends[0] += item[0];
+            ends[1] += item[1];
+        }
+        for (value, item) in resistance.iter_mut().zip(item.resistance) {
+            *value += item;
+        }
+        item_attack += item.attack;
+        item_defence += item.defence;
+    }
+    // Unarmed, or with a weapon whose values are not made, the default.
+    let made = holds
+        .items
+        .iter()
+        .flatten()
+        .any(|item| item.damage[0][1] > 0.0);
+    if damage[0][1] == 0.0 && (!armed || !made) {
         damage[0][1] += 0.15 * (2.0 * a[0] + a[2]) + l / 2.0;
         damage[0][0] += 0.175 * (a[0] + a[2]) + l / 2.0;
     }
@@ -980,9 +1198,12 @@ pub fn combat(
         }
     };
     Combat {
-        attack: multiplied((a[0] * ATTACK[0] + a[2] * ATTACK[1]) / 100.0, attack_skill),
+        attack: multiplied(
+            (a[0] * ATTACK[0] + a[2] * ATTACK[1]) / 100.0 + item_attack,
+            attack_skill,
+        ),
         defence: multiplied(
-            (a[0] * DEFENCE[0] + a[2] * DEFENCE[1]) / 100.0,
+            (a[0] * DEFENCE[0] + a[2] * DEFENCE[1]) / 100.0 + item_defence,
             defence_skill,
         ),
         damage,
@@ -1225,7 +1446,7 @@ mod tests {
             1,
             Holds {
                 weapon: true,
-                shield: false,
+                ..Holds::default()
             },
             &[],
             &rules,
@@ -1519,6 +1740,73 @@ mod tests {
         assert_eq!(experience_of(worth, 101, 101, &rules), 1);
         assert!((decay(110) - 0.985_f32.powi(11)).abs() < 1e-5);
         assert!((decay(99) - 1.0).abs() < f32::EPSILON);
+    }
+
+    /// The template 29 of `wpmod.bin`, of the daggers 1712 and others (docs/re/items.md).
+    fn dagger_template() -> WeaponModifier {
+        let mut words = vec![
+            1764, 1728, 1774, 1712, 0, 4, 50, 10, 100, 64, 77, 8, 23, 36, 8, 23, 36, 0, 23, 36, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 20, 80, 0, 15, 25, 1, 0,
+        ];
+        words.resize(53, 0);
+        WeaponModifier {
+            words,
+            entries: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_goblins_dagger_of_level_1_does_12_to_15_by_its_template() {
+        let templates = Templates::new(&[dagger_template()], &[]);
+        let mut rng = Rng::of(51, 39, 0);
+        let made: Vec<ItemValues> = (0..400)
+            .filter_map(|_| templates.make(1712, 1, &mut rng))
+            .collect();
+        assert_eq!(made.len(), 400);
+        // Physical alone in most: 12 to 15; with an element, its most and the physical's sum
+        // to 14 or 15.
+        let alone = made
+            .iter()
+            .filter(|v| v.damage[1..].iter().all(|ends| ends[1] == 0.0))
+            .count();
+        assert!((300..380).contains(&alone), "{alone}");
+        for values in &made {
+            let most: f32 = values.damage.iter().map(|ends| ends[1]).sum();
+            if values.damage[1..].iter().all(|ends| ends[1] == 0.0) {
+                assert_eq!(values.damage[0], [12.0, 15.0]);
+            } else {
+                assert!((13.0..=16.0).contains(&most), "{values:?}");
+            }
+            assert!((5.0..=21.0).contains(&values.attack) && values.defence == 0.0);
+        }
+        // At level 5, 17 to 20.
+        let level_5 = (0..50)
+            .filter_map(|_| templates.make(1712, 5, &mut rng))
+            .find(|v| v.damage[1..].iter().all(|ends| ends[1] == 0.0));
+        assert_eq!(level_5.map(|v| v.damage[0]), Some([17.0, 20.0]));
+        // No template, no values.
+        assert_eq!(templates.make(9999, 1, &mut rng), None);
+    }
+
+    #[test]
+    fn an_armed_creature_takes_its_weapons_damage_for_its_bonuses() {
+        let rules = Rules::default();
+        let dagger = ItemValues {
+            damage: [[12.0, 15.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            attack: 10.0,
+            ..ItemValues::default()
+        };
+        let held = Holds {
+            weapon: true,
+            shield: false,
+            items: [Some(dagger), None],
+        };
+        let goblin = combat(&a_goblin(), 1, held, &[], &rules);
+        // 12 to 15 times the goblin's multiplier, 1.204; its attack 18.5 + 10.
+        assert!(
+            near(goblin.damage[0][0], 12.0 * 1.2037) && near(goblin.damage[0][1], 15.0 * 1.2037)
+        );
+        assert!(near(goblin.attack, 28.5));
     }
 
     #[test]

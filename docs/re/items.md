@@ -80,4 +80,4 @@ The words 40, 43, 46 and 49; the items table's byte `+0x2E` and the three kinds 
 
 ## In `opensacred-game`
 
-Not yet (#309): an armed creature's damage is the default an unarmed one takes (docs/decisions/2026-10-20-hits.md).
+An NPC's items in its hands are made at its level by their templates (#309, `fight::Templates::make`): their damage, resistances, `A` and `D`, without the magic bonus, the triples, the quality pass, the difficulty's term (bronze's 0) or a fixed item's own values (docs/decisions/2026-10-20-weapons.md).
