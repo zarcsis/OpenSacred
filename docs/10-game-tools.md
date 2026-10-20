@@ -77,6 +77,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input.
   The sound pauses too, the music, the ambient loops and the footsteps fading out and, on Continue, in again from where they stopped: paused rather than muted, so that a track does not run on unheard.
   With the console open, Esc closes the console instead.
+  Done 2026-10-19 (#178): a module `pause` with a sub-state `Play { Running, Paused }` of `InGame`, Bevy's virtual time paused, the three channels of the sound paused and resumed with a fade of 0.2 s, and a set `frame::Unpaused` of what stops with the pause, the hero's keys and clicks, the zoom, and the systems that start a sound; the menu is the third screen of `menu`.
+  The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
 * A game named on the command line (`--class` or another of the game's options, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
 * The menus depart from the original's screens (the hero's name, difficulty, a turning model; saving and the options in the game's menu): a decision in `docs/decisions/`, a stopgap that does not change the play.

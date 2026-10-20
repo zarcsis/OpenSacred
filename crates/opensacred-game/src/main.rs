@@ -20,6 +20,7 @@ mod motions;
 mod music;
 mod npcs;
 mod paths;
+mod pause;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
@@ -199,6 +200,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         npcs::NpcsPlugin,
     ))
     .add_plugins((
+        pause::PausePlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
@@ -223,7 +225,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     })
     .insert_resource(menu::Images::find(&assets))
     .insert_resource(game::LoadingScreen::find(&assets))
-    .add_systems(Update, iso::zoom.in_set(frame::Step::Zoom));
+    .add_systems(
+        Update,
+        iso::zoom.in_set(frame::Step::Zoom).in_set(frame::Unpaused),
+    );
     if let Some(shadows) = shadows {
         app.insert_resource(statics::ShadowAtlas(shadows));
     }
