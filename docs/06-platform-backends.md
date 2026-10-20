@@ -11,7 +11,7 @@
   The conversion is done (`opensacred-convert video`); playback comes in M5.
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
 * **Scripts:** NetScript bytecode is converted into an intermediate representation (IR); the interpreter will live in `opensacred-rules` (planned, #328).
-  Until then `opensacred-game` places the start script's NPCs and objects.
+  Until then `opensacred-game` places the NPCs and objects of the start script and of the sectors' `Init`, `Enter` and `FillSector` records.
 * **No networking:** no server, no multiplayer, no lobby; no Steam or GOG Galaxy integration is needed.
 
 ## 1. Platforms
