@@ -8,7 +8,7 @@
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions) and **x64dbg**; optionally **dgVoodoo2** (capturing frames of the original in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
-* Quality rests on automated checks: converter golden data, oracle vectors, snapshots and screenshot tests.
+* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02 and screenshot tests; converter golden data, oracle vectors and snapshots are planned.
   Maintainer review covers key decisions, not every line.
 * The game files are never in the repository: every developer points the tools at their own GOG installation in `OriginalGame/` (§1).
 
@@ -21,22 +21,22 @@
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
 | | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.0 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
-| Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 | GPL-2.0, development only | `opensacred-oracle`, a separate development-only crate run locally on your own `Sacred.exe`: the original's functions in the emulator → vectors for tests |
+| Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 | GPL-2.0, development only | `opensacred-oracle` (planned, #328), a separate development-only crate run locally on your own `Sacred.exe`: the original's functions in the emulator → vectors for tests |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.x | freeware | optional: the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
 | | Visual Studio Build Tools 2026 | MSVC 14.50 + Windows SDK | free for individual development | the linker for Rust on Windows |
-| | sccache, cargo-nextest, cargo-deny | current | open source | build cache, fast tests, dependency license checks |
+| | cargo-nextest, cargo-deny | current | open source | fast tests, dependency license checks |
 | Assets | Blender | 5.2 LTS | GPL | inspecting glTF models and animations |
 | | Khronos glTF-Validator | 2.0.0-dev.3.10 (latest release, a pre-release) | Apache-2.0 | checking the `.glb` files from the converter |
 | | KTX-Software (`ktx`, `toktx`) | current | Apache-2.0 | KTX2, BC7, Basis Universal |
-| | FFmpeg | 9.0 | LGPL/GPL | WMV → AV1 + Opus in WebM; the VTex textures of GRN files (one-frame Bink 1) → RGBA (invoked by the converter as an external program) |
+| | FFmpeg | 9.0 | LGPL/GPL | WMV → AV1 + Opus in WebM; the WAV samples of `sound.pak` → FLAC; the VTex textures of GRN files (one-frame Bink 1) → RGBA (invoked by the converter as an external program, `FFMPEG` or `ffmpeg` from `PATH`) |
 | | Real-ESRGAN ncnn-vulkan, waifu2x-ncnn-vulkan | current | BSD-3 / MIT | offline upscaling (M7) |
 | Rendering | Vulkan SDK (LunarG) | 1.4.363.0 | free | validation layers, vkconfig |
 | | RenderDoc | 1.46 | MIT | capturing and analyzing frames of our renderer |
 | Process | Claude Code | current | subscription or API | the main executor of tasks |
 | | Git, GitHub Actions | current | free (standard runners cost nothing for a public repository) | history, CI |
-| | ccusage | current | open source | per-session tracking of Claude Code token usage |
+| | `tools/usage/pr_usage.py` | — | ours, MIT or Apache-2.0 | Claude Code usage per pull request, from the transcripts (§3.5, `docs/usage.md`) |
 
 **The game files.**
 The repository holds no file of the game.
@@ -52,7 +52,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender.
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender.
 * **The JDK for Ghidra is 25 LTS (Temurin), not 21.**
   Ghidra 12.1.4 accepts any 64-bit JDK of version 21 or later (`application.java.min=21`, no upper bound), and Ghidra's main branch already requires 25.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -64,13 +64,14 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   `Sacred.exe` is debugged with `x32\x32dbg.exe` there (`x96dbg.exe` next to `x32\` picks the debugger by the program's bitness); on 2026-10-18 its 32-bit engine (`x32\headless.exe`) started, and `x32dbg.exe` carries a valid signature of the x64dbg author.
   winget reports the command aliases `x32dbg` and `x64dbg` but creates no links for them, so the debugger stays outside `PATH`.
 * **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, x64dbg (above).
-  The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver. glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
-* **Not every tool is needed from the start:** Ghidra and the MCP server come in with M3, KTX-Software with the texture converter, the upscalers with M7.
+  The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver.
+  glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
+* **Not every tool is needed from the start:** Ghidra and the MCP server were set up on 2026-10-18, ahead of M3; KTX-Software comes when the textures move to KTX2 (the texture converter writes PNG), the upscalers with M7.
 
 ```powershell
 # Toolchain check
 rustup update stable
-rustc --version            # expect 1.99.1 or newer
+rustc --version            # 1.99.1, the version of rust-toolchain.toml, which rustup installs in the checkout
 cargo --version
 cl                         # MSVC 19.50 from Build Tools 2026 (in Developer PowerShell)
 cargo run -p opensacred-convert -- verify   # your installation in OriginalGame/ against the manifest
@@ -143,8 +144,8 @@ The Ghidra project, the decompilation and anything exported from it stay on the 
 | Type | Input | Output | Check |
 |---|---|---|---|
 | Parse a format | a file from `OriginalGame/`, the facts in `docs/02-data-formats.md` | a reader in `opensacred-formats` + a converter in `opensacred-convert` | a test on all files of the installation; cross-check with the Python prototype |
-| Recover a rule | the original's function in the local Ghidra project | a description of the behavior in `docs/re/`, oracle vectors, an independent implementation in `opensacred-rules` | the vectors pass; clippy without warnings |
-| Implement a system | notes in `docs/re/`, data from `assets/` | code in `opensacred-game` or `opensacred-rules` | snapshot and screenshot tests; a manual check in the game |
+| Recover a rule | the original's function in the local Ghidra project | a description of the behavior in `docs/re/`, oracle vectors, an independent implementation in `opensacred-rules` (planned, #328; until then in `opensacred-game`) | the vectors pass; clippy without warnings |
+| Implement a system | notes in `docs/re/`, data from `assets/` | code in `opensacred-game` or `opensacred-rules` (planned, #328) | snapshot and screenshot tests; a manual check in the game |
 | Migrate Bevy | the migration guide | an updated `opensacred-game` | everything builds, tests and screenshots match |
 | Update dependencies | `cargo update` | a new `Cargo.lock` | CI is green, `cargo deny check` reports no violations |
 
@@ -166,14 +167,16 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   A decision (another file of `docs/decisions/`, added, changed or removed), `CLAUDE.md` or the rest of `.claude/` (the skills) does not stop the merge, but the pull request must carry the label `review-after-merge`.
   Whether the change waits for the maintainer instead (§3.6) the guard cannot judge: Claude Code labels such a pull request `needs-maintainer`, and the guard refuses it by the label.
   Tests: `python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
-* **Converter golden data:** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
-* **Oracle vectors:** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
+* **Converter golden data (planned):** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
+  Today the readers are cross-checked against the Python prototypes of `tools/analysis/` and the counts of docs/02, in the tests that need the game files.
+* **Oracle vectors (planned, #328):** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
+  Neither the crate nor the vectors exist yet.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
 * **Clippy:** the default rule set as errors, plus targeted rules for this project: numeric casts via `as`, `unwrap`/`expect` outside tests, suppressing rules only through `#[expect(…, reason = "…")]`, leftover `dbg!`/`todo!`.
   The pedantic and nursery groups are not enabled wholesale: on the project's code they produce mostly stylistic noise.
   Configuration: `[workspace.lints.clippy]` in `Cargo.toml` and `clippy.toml`.
-* **License checks:** our crates are MIT OR Apache-2.0; `cargo deny check licenses` allows MIT, MIT-0, Apache-2.0, BSD, ISC, Zlib, MPL-2.0 and Unicode-3.0 (Unicode data in `unicode-ident`).
-  The future `opensacred-oracle` links Unicorn (GPL-2.0), which cannot be combined with the Apache-2.0 option: it will be a separate development-only crate, never linked into the converter or the game.
+* **License checks:** our crates are MIT OR Apache-2.0; `cargo deny check licenses` allows MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0 (the Windows backend of Bevy's system clipboard, #189), ISC, Zlib, MPL-2.0 and Unicode-3.0 (Unicode data in `unicode-ident`).
+  The future `opensacred-oracle` (#328) links Unicorn (GPL-2.0), which cannot be combined with the Apache-2.0 option: it will be a separate development-only crate, never linked into the converter or the game.
   Configuration: `deny.toml`.
 * **Tests that need the game files** are marked and run only locally: CI has no game files.
 
@@ -181,7 +184,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
 
 * Parallel Claude Code sessions run in separate `git worktree`s, one task per tree.
   A session creates its tree on the issue's branch, `git worktree add .claude/worktrees/<slug> -b <type>/<issue>-<slug> origin/main`, and enters it with `EnterWorktree` and its `path`: Claude Code then records the branch from the first message in the tree (docs/usage.md).
-* Usage is recorded per pull request since 2026-10-17 (#16): `tools/usage/pr_usage.py` sums the Claude Code transcripts' messages on the pull request's branch (tokens per model, their cost at API prices, agent-hours) and writes them into its description; the Usage workflow sums every pull request into the README's badge.
+* Usage is recorded per pull request since 2026-10-17 (#16): `tools/usage/pr_usage.py` sums the Claude Code transcripts' messages on the pull request's branch (tokens per model, their cost at API prices, agent-hours) and writes them into its description; the Usage workflow sums the maintainer's pull requests (contributors' are not counted) into the README's badge.
   The method is in `docs/usage.md`, with the sessions recorded before.
   After 30 days the estimates in `docs/07-roadmap-estimates.md` are recomputed from the actuals.
 
@@ -298,12 +301,13 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 
 ## 5. Build and CI
 
-* A Cargo workspace with profiles: in development, dependencies are built with optimizations and our own code without; dynamic linking of Bevy for fast rebuilds.
+* A Cargo workspace with profiles: in development, dependencies are built with optimizations and our own code without.
+  Bevy is linked statically; `rust-lld` (`.cargo/config.toml`) keeps the links fast on Windows.
 * CI on GitHub Actions (`.github/workflows/ci.yml`), on every pull request and every push to `main`: a Linux job (fmt, clippy, tests without the game files, the screenshot test), a Windows job (the target platform: the build with `rust-lld` and the tests; no clippy, since the workspace has no Windows-only code, and no screenshot test, since the runner has no GPU) and `cargo deny`.
   The dependencies' build is cached by `Swatinem/rust-cache` and saved only on `main`, which pull requests restore: caches of every branch would push `main`'s out of the repository's 10 GB.
   Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
 * The Release workflow (`.github/workflows/release.yml`) runs on every push to `main` and versions the merged pull requests (§3.6).
-* Render tests in CI run on software Vulkan (lavapipe) or are skipped if there is no GPU.
+* The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.
 
 ## 6. What is excluded
 
@@ -317,7 +321,8 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 ## Open questions
 
 1. Whether Unicorn stubs work for functions that access the game's global tables (`.data` from the image needs to be mapped).
-2. Whether software Vulkan in CI is enough for Bevy screenshot tests.
+
+Closed: software Vulkan in CI is enough for the screenshot test, which runs on lavapipe in the Linux job (§5).
 
 ## Sources
 

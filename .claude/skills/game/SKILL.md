@@ -5,7 +5,7 @@ description: Run opensacred-game and drive it yourself - start it windowed with 
 
 # Running and driving the game
 
-The game is `opensacred-game` (docs/10). It reads the converted assets of `assets/`; in a worktree, point it at the main checkout's with `--assets ../../../assets` (or link them, see the memory on worktrees).
+The game is `opensacred-game` (docs/10). It reads the converted assets of `assets/`; in a worktree, point it at the main checkout's with `--assets ../../../assets` (or link `assets` there with a junction).
 
 ## Choose the way
 
@@ -34,8 +34,8 @@ Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in t
 
 | Call | What it does |
 |---|---|
-| `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one |
-| `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, whether the scene is ready |
+| `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one; `wait` is for scripts: from the client, use `wait-ready` or `wait-state` |
+| `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, the NPCs, objects and entities, the nearest creature's health and level, the hero's level, health and experience, the version, GPU and window, whether the scene is ready (`--json` has them all; `exec state` prints the game's own lines) |
 | `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then, through the game's start too (`--timeout`, 120 s) |
 | `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F1`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
 | `type "TEXT"` | type text, as into the console |
@@ -43,12 +43,15 @@ Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in t
 | `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |
 | `screenshot FILE` | the next frame, waiting until the PNG is written; look at it with Read |
 | `logs --after N` | the log's records from number N on |
+| `call METHOD [JSON]` | any method of the protocol, Bevy's too, with JSON parameters |
+
+`--port N` before the call talks to a game on another port (15702 by default).
 
 The commands most used: `new-game [--class …] [--sector X,Y] [--time HH:MM]`, `menu`, `quit`, `sector X,Y`, `cell X,Y`, `go X,Y` or `go +DX,+DY`, `gait walk|run`, `zoom Z`, `time HH:MM`, `pause on|off` (a still frame without the pause's menu), `keys on|off` (the keys' help), `overlay on|off`, `log on|off`, `console on|off`, `window windowed W H`, `state`, `record DIR N`, `benchmark SECONDS`. Prefer a command to a click where one exists: `go` names a cell, a click a pixel.
 
 ## Keys of the game
 
-The left button walks the hero, R walks or runs, the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F1 the keys' help (a frame of it lists them all), F3 the overlay, F4 the log, F11 borderless or windowed; the key under Esc the console.
+The left button walks the hero, or attacks a foe under the cursor, Ctrl with it strikes at once, R walks or runs, the wheel zooms; Esc pauses (Continue, Main menu, Quit) or goes back in the menus; F1 the keys' help (a frame of it lists them all), F3 the overlay, F4 the log, F11 borderless or windowed; the key under Esc the console.
 
 ## Rules
 
