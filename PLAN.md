@@ -400,6 +400,15 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     and the townsfolk's day, read (#241) and followed in the sub-issues of #255 (#247–#254): they roll at the hero's looks within the zoom's range, walk home, to the animals, the traders and their partners, and meet them; the children play and gather about the hero; the jugglers play their instruments; they run from danger and from the Daemon (#269); and at dusk and by night the town goes into its houses.
     Their departures are docs/decisions/2026-10-20-animals.md, -guards.md, -crowds.md and -townsfolk.md; the checks for the maintainer are added to #227.
     Next: the doors that open and close (#268) and the lines over the creatures (#270), then the fight's rules (M3), which the creatures' attacks, the guards' torches (#61) and the danger of a fight wait for.
+13. **M3: the fight.**
+    The rest of the night of 2026-10-20 read the fight off the code (#276, #281, #294, #300; docs/re/fight.md, docs/re/items.md) and followed it in some twenty pull requests (#286–#313), the sub-issues of #285, the research shared with subagents of the session:
+    the balance's rows by the difficulty (#277) and the creatures' health by their levels (#278);
+    the hostile creatures coming at the hero and keeping the band of their reach (#279), striking with their attack clips at their attack speed (#280, #306), their hits resolved by the chance of attack against defence, the damage against the resistances and the damping, the number over the target, and death (#282);
+    an NPC's attack, defence, damage and resistances by its attributes, its level, its bonuses and its skills (#281, #293), and an armed one's by its weapon, made by its template (#294, #309);
+    the hero attacking at a click, its strikes chained faster (#283, #312), taking the creatures' hits by bronze's factors, regenerating, falling and rising at the start (#292), and gaining levels by its kills' experience (#300);
+    the wounded creatures fleeing and the far ones going home (#304); each hero at its own speed (#298), and the creatures' lines over them in a tall window (#296).
+    Their departures are docs/decisions/2026-10-20-health.md, -pursuit.md, -hits.md, -hero-attack.md, -hero-health.md, -skills.md, -levels.md and -weapons.md; the checks for the maintainer are added to #227.
+    Next: the doors in the way, the places about the hero, the archers, the bosses and the champions (#284); the hero's items and its character sheet come with the interface.
 
 ### 10.1 Priority queue
 
