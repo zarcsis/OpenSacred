@@ -11,9 +11,10 @@
 use bevy::prelude::*;
 
 use crate::crowd::{Crowd, InTheWay};
+use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
-use crate::npcs::{Door, Talks, Walk};
+use crate::npcs::{Door, PutAt, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
@@ -94,6 +95,12 @@ const DOOR_WITHIN: f32 = 1_500.0;
 const INDOORS: (i32, i32) = (2, 9);
 const OUTDOORS: (i32, i32) = (-4, 5);
 const DOOR_TRIES: usize = 15;
+/// How far from a door a townsperson walks toward it by stages, how far a stage goes, within
+/// 150 more along each axis, and how far it wanders without a door at dusk (`0x4F0F5E`).
+const DOOR_FAR: f32 = 1_000.0;
+const DOOR_STAGE: f32 = 700.0;
+const DOOR_STAGE_ASTRAY: i32 = 150;
+const WANDERS: i32 = 400;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -450,6 +457,8 @@ enum Why {
     Gathers,
     GoesIn,
     GoesOut,
+    Wanders,
+    PutIn,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -816,6 +825,7 @@ fn behave(
     hero: Query<(Entity, &Transform), With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
     doors: Query<&Transform, (With<Door>, Without<Mind>)>,
+    clock: Res<Clock>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
@@ -894,6 +904,8 @@ fn behave(
     } else {
         Vec::new()
     };
+    // At dusk and by night the townsfolk take the evening's way (`0x41BB50`, `0x41BAB0`).
+    let evening = matches!(clock.phase(), Phase::Dusk | Phase::Night);
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
@@ -994,6 +1006,32 @@ fn behave(
         };
         if mind.active && (here - hero).xz().length() > range {
             mind.active = false;
+            // At dusk and by night one on the ground goes dormant in a house: by the nearest door
+            // within 1,500 of it, put there at once (`0x4F0ADC`, `0x4EEFA0`).
+            if folk && evening && way.level.is_none() {
+                let door = doors
+                    .iter()
+                    .copied()
+                    .filter(|&at| (at - here).xz().length() <= DOOR_WITHIN)
+                    .min_by(|a, b| {
+                        (*a - here)
+                            .length_squared()
+                            .total_cmp(&(*b - here).length_squared())
+                    });
+                if let Some((at, level)) =
+                    door.and_then(|door| indoors(door, &heights, &mut minds.rng))
+                {
+                    debug!(
+                        "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                        Why::PutIn,
+                        here.x,
+                        here.z,
+                        at.x,
+                        at.z
+                    );
+                    commands.entity(entity).insert(PutAt { at, level });
+                }
+            }
         }
         // A townsperson awake in danger runs from its threat, at every frame it stands.
         if mind.active
@@ -1030,6 +1068,36 @@ fn behave(
                         .length_squared()
                         .total_cmp(&(*b - here).length_squared())
                 });
+            // At dusk and by night, on a free cell, it takes the evening's way (`0x4F0F5E`):
+            // indoors it walks among the building's cells; outdoors it goes into the house of
+            // the nearest door, by stages from afar, and without a door it wanders.
+            if evening && !crowded {
+                let stage = if way.level.is_some() {
+                    indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
+                } else if let Some(door) = door {
+                    if (door - here).xz().length() > DOOR_FAR {
+                        let toward = (door - here).with_y(0.0).normalize_or_zero();
+                        let to = about(
+                            here + toward * DOOR_STAGE,
+                            DOOR_STAGE_ASTRAY,
+                            &mut minds.rng,
+                        );
+                        Some((to, Why::GoesIn))
+                    } else {
+                        indoors(door, &heights, &mut minds.rng).map(|(to, _)| (to, Why::GoesIn))
+                    }
+                } else {
+                    Some((about(here, WANDERS, &mut minds.rng), Why::Wanders))
+                };
+                if let Some((target, why)) = stage {
+                    debug!(
+                        "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
+                        here.x, here.z, target.x, target.z
+                    );
+                    walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                }
+                continue;
+            }
             // Indoors on a free cell, it leaves by day (`0x4F1AB9`).
             if way.level.is_some()
                 && !crowded
