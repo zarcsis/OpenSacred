@@ -367,6 +367,21 @@ impl Walk {
         Self { within, ..self }
     }
 
+    /// Its target.
+    pub fn target(&self) -> Vec3 {
+        self.target
+    }
+
+    /// Whether it runs.
+    pub fn runs(&self) -> bool {
+        self.runs
+    }
+
+    /// How near its target it stops.
+    pub fn within_of(&self) -> f32 {
+        self.within
+    }
+
     /// A run to `target` from `level` at `speed`.
     pub fn run(target: Vec3, level: Level, speed: f32) -> Self {
         Self {
@@ -1474,6 +1489,7 @@ fn spawn(
         );
         mind.dialogue = placement.dialogue;
         mind.trader = placement.trader;
+        mind.level = grade;
         // Its health, full, by its base and its level (`0x5658F0`).
         let most = fight::most_health(placement.base, grade, rules);
         entity.insert(fight::Health {

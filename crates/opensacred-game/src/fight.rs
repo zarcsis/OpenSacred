@@ -68,6 +68,27 @@ impl HealthRules {
     }
 }
 
+/// Whether a creature of level `level` takes on a hero of level `hero` (`0x542B20`, docs/re/fight.md,
+/// "Who fights"): its level on bronze's scale, `E` (the game plays bronze), against the hero's,
+/// `r = (E + 9)/(H + 9)` above the threshold `t` (`(H + 6)/(H + 9)` up to level 10, `(H − 6)/(H + 9)`
+/// from 92, else `anteil`), by more than 0.04 of `voll − t`: when the hero would earn more than the
+/// least experience from it.
+pub fn takes_on(level: u32, hero: u32, (anteil, voll): (f32, f32)) -> bool {
+    let (e, h) = (to_f32(level), to_f32(hero));
+    let r = (e + 9.0) / (h + 9.0);
+    let t = match hero {
+        0..=10 => (h + 6.0) / (h + 9.0),
+        92.. => (h - 6.0) / (h + 9.0),
+        _ => anteil,
+    };
+    r > t && (r - t) / (voll - t) > 0.04
+}
+
+/// A level as a float.
+fn to_f32(level: u32) -> f32 {
+    f32::from(u16::try_from(level).unwrap_or(u16::MAX))
+}
+
 /// A creature's level (docs/re/spawning.md): the hero's held within its sector's lowest and
 /// highest, and for one of a fill, `jitter`, moved by 0 to 1 below 6, −1 to 2 below 30, −2 to 3
 /// below 90, −3 to 6 below 250; at least 1.
@@ -141,6 +162,16 @@ mod tests {
         assert!((rules.level_factor(1.0) - (0.75 + 0.05 / 3.0)).abs() < 1e-6);
         assert!((rules.level_factor(20.0) - (0.9 + 20.0 * 0.1 / 10.0)).abs() < 1e-6);
         assert!((rules.level_factor(40.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_creature_takes_on_a_hero_from_whom_it_is_worth_experience() {
+        let balance = (0.85, 1.0);
+        // A hero of level 1 is taken on by every creature; of level 5, by those of 3 and up; of
+        // level 20, by those of 16 and up.
+        assert!((1..50).all(|level| takes_on(level, 1, balance)));
+        assert!(!takes_on(2, 5, balance) && takes_on(3, 5, balance));
+        assert!(!takes_on(15, 20, balance) && takes_on(16, 20, balance));
     }
 
     #[test]
