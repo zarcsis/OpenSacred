@@ -237,6 +237,8 @@ pub fn spawn(
         Transform::from_translation(hero.position)
             .with_rotation(facing(Vec3::new(1.0, 0.0, 1.0)))
             .with_scale(Vec3::splat(iso::MODEL_SCALE)),
+        // The single player's hero, of id 1: it stops the others' steps (#157).
+        crate::crowd::InTheWay::of(1, 0, 0, None),
         Body {
             target: hero.target,
             onto: None,
@@ -338,16 +340,21 @@ pub fn steer(
 
 /// Moves the hero toward its target over the ground, turning to face it, and switches between
 /// the idle, the walk and the run clips.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources one by one"
+)]
 pub fn run(
     time: Res<Time>,
     hero: Res<Hero>,
     heights: Res<Heights>,
     clips: Option<Res<Clips>>,
-    mut bodies: Query<(&mut Transform, &mut Body)>,
+    crowd: Res<crate::crowd::Crowd>,
+    mut bodies: Query<(Entity, &mut Transform, &mut Body)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (mut transform, mut body) in &mut bodies {
+    for (me, mut transform, mut body) in &mut bodies {
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
@@ -383,7 +390,9 @@ pub fn run(
         }
         let level = body.level;
         if let Some(target) = body.target {
-            let walkable = |cell| heights.walkable_on(cell, level);
+            // A cell it may step into: walkable, no object and no hostile creature in it.
+            let free = |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, me, true);
+            let walkable = |cell| free(cell, level);
             // Round what blocks the way and through the doors; straight on toward a target that
             // cannot be reached, up to what blocks it.
             // From where it stands it climbs no more: the stair it stands on, if any, it has
@@ -394,8 +403,12 @@ pub fn run(
                 (level, false),
                 target,
                 onto,
-                |cell, (at, _)| heights.walkable_on(cell, at),
-                |place| heights.neighbours(place),
+                |cell, (at, _)| free(cell, at),
+                |place| {
+                    let mut next = heights.neighbours(place);
+                    next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
+                    next
+                },
                 |(at, _)| at,
             ) {
                 Some(paths::Step::Through((next, _))) => {

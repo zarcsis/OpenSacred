@@ -152,7 +152,9 @@ A hero that steps onto a stair from off the stairs goes to the stair's floor at 
 The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
 The hero and the NPCs stand at the height that `0x636520` and `0x449950` give (`terrain::Heights::standing`, #141): on the second heights of their level's cell, a bridge's deck over the water, and on a building's floor at the floor's height above them.
 The start scripts' objects of category 4 take their cells at their levels (`terrain::Heights::occupy`, placed by `npcs::place`, #154): the way of the hero and of a walking NPC goes round them, and a step into one stops, as into a cell that may not be walked on; for a walking NPC as `0x4F7E10` has a chest stop a creature of id above 16, for the hero as the maintainer saw it in the game, by a test not read (#211).
-The creatures do not stop one another yet (#212).
+The creatures stop one another's steps by the conditions above (`crowd`, #212): each frame takes the cells the hero and the NPCs stand on at their levels, and the hero's way and steps go round a cell only where a creature of bit 0 or 1 of its flags word stands (the start's captain `hauptmann3`), a walking NPC's round any creature's but its own; a big creature (`Creature.pak` flags `0x02`) or a critter stops none.
+The flags word is made from each `CreateNPC` record's tags as the client makes it (`crowd::flags_word`); the goals (`+0x259`) and the followers (`+0x39C`) are not followed, there being neither yet.
+At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
 The deviations are in docs/decisions/2026-10-18-walking.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.
