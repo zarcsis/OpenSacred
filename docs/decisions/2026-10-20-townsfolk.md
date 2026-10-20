@@ -12,7 +12,7 @@ The rolls of the animal, of home, of the partners, of the traders and of the hou
 A townsperson goes in and out of a house by the way through its entrance, not by the door's outer and inner points (`0x43B290`, a table of 94 types not read into the game), and the door neither opens nor closes behind it: the hero passes the doors so too.
 The children do not flee from the Daemon or the Vampiress, the hero cannot shoo them, and they say nothing: the hero's type, its keys and the texts over the creatures are not the AI's yet.
 At a meeting a woman never slaps her partner (the attack's clip in one case of 11, **hypothesis** for its sense): the NPCs' graphs hold no attack's clip yet.
-The evening's way (#249) is not followed: by night the townsfolk keep the day's way.
+The evening's way (#249) is followed but for the torches, which wait for the lights in hand (#61); a townsperson takes it at the hero's looks rather than at every frame, as its day's decisions.
 In danger (#254) a townsperson runs 700 from the threat, as the original's does where no door is near, rather than into the nearest house (#248); a walking one finishes its walk first, rather than turning at once; the fights' targets, which no creature has yet, put none in danger; and the Daemon's reactions (its fear, curiosity or welcome, its lines) are left out, the AI not knowing the hero's type or its solved quests.
 
 ## Why

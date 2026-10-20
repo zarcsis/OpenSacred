@@ -1869,6 +1869,39 @@ pub fn stance(
 #[derive(Component)]
 pub struct Door;
 
+/// An NPC that `ai` puts at a place on a level at once, as the client puts the townsfolk far from
+/// the hero into a house at dusk (`0x54D9D0`).
+#[derive(Component)]
+pub struct PutAt {
+    pub at: Vec3,
+    pub level: Level,
+}
+
+/// Puts each NPC that `ai` sends somewhere at once there: its place on its level's heights, its
+/// level and its layer.
+fn put(
+    mut commands: Commands,
+    heights: Res<Heights>,
+    mut npcs: Query<(
+        Entity,
+        &PutAt,
+        &mut Transform,
+        &mut crowd::InTheWay,
+        &mut buildings::Layered,
+    )>,
+) {
+    for (entity, put, mut transform, mut way, mut layered) in &mut npcs {
+        let mut at = put.at;
+        if let Some(y) = heights.standing(at.x, at.z, put.level) {
+            at.y = y;
+        }
+        transform.translation = at;
+        way.level = put.level;
+        layered.set_if_neq(buildings::Layered::at(&heights, at.x, at.z, put.level));
+        commands.entity(entity).remove::<PutAt>();
+    }
+}
+
 /// An NPC that plays its talk once where it stands (`*_TALK_A`, slot 177; `ai`'s meetings).
 #[derive(Component)]
 pub struct Talks;
@@ -1884,7 +1917,7 @@ impl Plugin for NpcsPlugin {
             .add_observer(equipment_ready)
             .add_systems(
                 Update,
-                (place, animate, walk, stance, equip)
+                (place, animate, walk, put, stance, equip)
                     .chain()
                     .in_set(Step::Npcs),
             );
