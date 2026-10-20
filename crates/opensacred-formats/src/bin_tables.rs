@@ -11,7 +11,7 @@ pub use balance_keys::BALANCE_KEYS;
 
 /// `Balance.bin`: `u32` the size in bytes of an image of the client's balance variables (at
 /// `0xAD4490`), the image, then words of another layout (docs/02 §6.3). The balance text's keys
-/// name 330 of the image's words ([`BALANCE_KEYS`]).
+/// name 354 of the image's words ([`BALANCE_KEYS`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Balance {
     /// The image's words, 1,224: each an f32 or an i32, by its key where it has one.

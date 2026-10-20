@@ -10,16 +10,18 @@ and stores it at the key's variable, with `fstp dword ptr [A]` for a float (the 
 `mov dword ptr [A], eax` for an integer. The variables lie in the image that Balance.bin holds, 0xAD4490 to 0xAD57AF.
 
   keys     every `push imm32; push esi; call 0x5E3700` whose imm32 is a string: 380 tests of a key; the key's
-           variable is the first store into the image after it, before the next key's test. 50 keys store elsewhere
-           (other tables, arrays, through registers: SKILL_, MOVES, HorseData:, ...) and are not listed.
-  Checks   330 keys with a variable in the image, each its own word; the first at +0x000 (BalanceDmg), the last at
+           variable is the first store into the image after it, before the next key's test, or, for a row of values
+           that it stores through a register, the word `mov esi, <the row>` sets (24 keys: ProzAW, ProzHP, OffLevel,
+           LevelKap, OffLevelProz, BaseOffLevel, ...). 26 keys store elsewhere (other tables: SKILL_, MOVES,
+           HorseData:, ...) and are not listed.
+  Checks   354 keys with a variable in the image, each its own word; the first at +0x000 (BalanceDmg), the last at
            +0x131C (DaemonDamageBonus); every float's value finite in Balance.bin.
 
 Example
   python3 -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame
   python3 -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame --table /tmp/balance_keys.tsv
 
-Expected output (2.28): "330 keys, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 260 floats, 70 integers",
+Expected output (2.28): "354 keys, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 276 floats, 78 integers",
 every check passing, GameSpeed 1.25, TransSize 190, TransValu 50, skilllearn2 6. --table writes a row per key in the image's order (key, offset, kind).
 Dependencies: pefile, capstone.
 """
@@ -78,6 +80,15 @@ def main():
                         and IMAGE <= op.mem.disp < IMAGE_END:
                     found = (op.mem.disp - IMAGE, 'f32' if x.mnemonic == 'fstp' else 'i32')
                     break
+        if found is None:
+            # A row of values stored through a register: `mov esi, <the row's first word>`, then the stores
+            # through esi, a float's by fstp.
+            for j, x in enumerate(ins[i + 3:stop]):
+                if x.mnemonic == 'mov' and x.op_str.startswith('esi, 0x') \
+                        and IMAGE <= int(x.op_str.split(', ')[1], 16) < IMAGE_END:
+                    floats = any(y.mnemonic == 'fstp' and 'esi' in y.op_str for y in ins[i + 3 + j:stop])
+                    found = (int(x.op_str.split(', ')[1], 16) - IMAGE, 'f32' if floats else 'i32')
+                    break
         keys.append((name, found))
 
     found = sorted((f[0], k, f[1]) for k, f in keys if f is not None)
@@ -86,7 +97,7 @@ def main():
     size = struct.unpack_from('<I', bal, 0)[0]
     value = lambda o, kind: struct.unpack_from('<f' if kind == 'f32' else '<i', bal, 4 + o)[0]
     checks = [
-        ('380 tests of a key, 330 of them with a variable in the image', len(keys) == 380 and len(found) == 330),
+        ('380 tests of a key, 354 of them with a variable in the image', len(keys) == 380 and len(found) == 354),
         ('each its own variable, word-aligned', len(set(offsets)) == len(offsets) and all(o % 4 == 0 for o in offsets)),
         ('the first BalanceDmg at +0x000, the last DaemonDamageBonus at +0x131C',
          found[0][:2] == (0, 'BalanceDmg') and found[-1][:2] == (0x131C, 'DaemonDamageBonus')),
