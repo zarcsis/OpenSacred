@@ -100,7 +100,7 @@ The value times the rate times the frame's time (**hypothesis**: in seconds) add
 
 ## Open
 
-The items' generation (`wpmod.bin`, `0x5D5080`) and so an armed NPC's damage; the weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 5 on; the arrow (the action 5) and its range; the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5).
+Applying the items' values (docs/re/items.md) to an armed NPC's damage; the weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 5 on; the arrow (the action 5) and its range; the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5).
 
 ## In `opensacred-game`
 
