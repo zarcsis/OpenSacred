@@ -86,6 +86,21 @@ impl Class {
         }
     }
 
+    /// The hero's type: its `Creature.pak` record, whose id is also the `items.pak` slot of the
+    /// class's own model (1 `SERAPHIM.GRN` … 9 `Daemonia.grn`), and the type of the class's
+    /// template (`heroes.ron`; docs/02 §6.2).
+    pub fn creature(self) -> u32 {
+        match self {
+            Class::Seraphim => 1,
+            Class::Gladiator => 2,
+            Class::Mage => 3,
+            Class::DarkElf => 4,
+            Class::WoodElf => 5,
+            Class::Dwarf => 8,
+            Class::Daemon => 9,
+        }
+    }
+
     /// The model's `.GRN` name, the idle, walk and run clips and the footstep profile.
     fn preset(self) -> (&'static str, [&'static str; 3], &'static str) {
         const FEMALE: &str = "footsteps_hero_female";
@@ -161,7 +176,7 @@ pub struct NewGame {
     /// Walk rather than run at the start (the R key toggles it)
     #[arg(long)]
     pub walking: bool,
-    /// The hero's creature record in Creature.pak, for its speeds (1 by default)
+    /// The hero's creature record in Creature.pak, for its speeds (by default the class's own)
     #[arg(long)]
     pub creature: Option<u32>,
     /// The script tree whose start script places the hero, the NPCs and the objects
@@ -317,7 +332,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         .and_then(|slots| slots.stance(0).map(str::to_owned));
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.stance = stance;
-    hero.speeds = speeds(assets, game.creature.unwrap_or(1))?.map(|s| s * speed);
+    hero.speeds = speeds(assets, game.creature.unwrap_or(class.creature()))?.map(|s| s * speed);
     if game.walking {
         hero.gait = hero::Gait::Walk;
     }
@@ -581,6 +596,22 @@ mod tests {
         assert_eq!(game.creature, Some(7));
         assert_eq!(game.target, Some((-3.0, 4.0)));
         assert_eq!(game.sector, Some((50, 39)));
+    }
+
+    #[test]
+    fn each_class_is_a_heroes_type_of_its_own() {
+        use clap::ValueEnum;
+        let types: Vec<u32> = Class::value_variants()
+            .iter()
+            .map(|c| c.creature())
+            .collect();
+        // The templates' types (docs/02 §6.2), but the vampiress's.
+        assert!(types.iter().all(|t| [1, 2, 3, 4, 5, 8, 9].contains(t)));
+        let mut unique = types.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), types.len());
+        assert_eq!(Class::Daemon.creature(), 9);
     }
 
     #[test]
