@@ -2,15 +2,15 @@
 
 ## Summary
 
-* **Why:** everything the game can be told today is a command line option, read before Bevy starts; the hero's class is fixed for the process, and a change means a restart.
+* **Why:** before this work everything the game could be told was a command line option, read before Bevy started; the hero's class was fixed for the process, and a change meant a restart.
   The tools let the maintainer test the game as a game, and let Claude Code drive a running game by itself.
 * **Settings:** `settings.toml` in the user's directory; borderless full screen by default, F11 for a window, both kept.
 * **Menu:** a main menu (New Game, Quit) and the choice of the hero, which needs the game to start and end inside one process: states, and a loading in the background.
   Esc in the game pauses it under a small menu: Continue, Main menu, Quit.
 * **On the screen:** the HUD's portrait, health bar and gait go; F3 shows a debug overlay (the frame rate and times, the hero's place), F4 the log, which a file keeps too.
 * **Commands:** one set of commands, which the command line's scripts, the console on `~` and the remote protocol run alike; the command line's options become commands.
-* **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/`, then a project skill or an MCP server for Claude Code.
-* **Work:** the issue #165 and its sub-issues #166–#179, in M2; ≈10–20 agent-hours (estimate).
+* **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/` and the project skill `game` for Claude Code, no MCP server.
+* **Work:** the issue #165 and its sub-issues #166–#181 and #189, in M2, then #196, #198 and #202; done 2026-10-19 and 2026-10-20.
 
 ## 1. Goals
 
@@ -59,10 +59,10 @@ The commands are the one way in: the console, the scripts and the remote protoco
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 
-* `main.rs` now reads the world, the hero, the start script and the first sector before Bevy starts.
+* Before #171, `main.rs` read the world, the hero, the start script and the first sector before Bevy started.
   For a menu, the game must start and end inside one process.
 * States `AppState { Menu, Loading, InGame }`.
-  A resource `NewGame` holds what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`), as a `clap::Args` struct that the command `new-game` reuses (§6).
+  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`), as a `clap::Args` struct that the command `new-game` reuses (§6).
 * What every game shares (the world's index, the sprites, the tables) is read once; `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.
 * The modules' systems run only in `InGame`: the steps of `frame::Step` take the condition once, and the plugins' `Startup` systems move to `OnEnter(InGame)`.
   Leaving `InGame` despawns the game's entities (`DespawnOnExit`) and removes its resources.
@@ -79,13 +79,14 @@ The commands are the one way in: the console, the scripts and the remote protoco
   With the console open, Esc closes the console instead.
   Done 2026-10-19 (#178): a module `pause` with a sub-state `Play { Running, Paused }` of `InGame`, Bevy's virtual time paused, the three channels of the sound paused and resumed with a fade of 0.2 s, and a set `frame::Unpaused` of what stops with the pause, the hero's keys and clicks, the zoom, and the systems that start a sound; the menu is the third screen of `menu`.
   The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
-* A game named on the command line (`--class` or another of the game's options, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
+* A game named on the command line (`--class` or another of the game's options but `--zoom` and `--no-music`, which only say how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
 * The menus depart from the original's screens (the hero's name, difficulty, a turning model; saving and the options in the game's menu): a decision in `docs/decisions/`, a stopgap that does not change the play.
 
 ## 5. The HUD, the overlay and the log (#168, #170, #169)
 
-* The HUD's portrait, health bar and Walk/Run label go (#168): the health is always full until M3, and the gait is the overlay's now.
+* The HUD's portrait, health bar and Walk/Run label go (#168): the health was always full until M3, and the gait is the overlay's now.
+  Since #292 the overlay shows the hero's health too; the bar comes back with the interface of M5.
   The cursor and the interface's scale stay; `docs/decisions/2026-10-17-hud.md` changes with it.
   Done 2026-10-19.
 * **The overlay (F3)**, in the upper left, refreshed four times a second in a monospaced font.
@@ -95,7 +96,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the clock and its phase, the zoom;
   * the sectors spawned and being built, the NPCs and objects placed, the entities;
   * the health of the creature nearest the hero, its most and its level (#278);
-  * the hero's health and its most (#292) and its experience (#283);
+  * the hero's level, its health and its most (#292) and its experience (#283);
   * the version, the GPU adapter and backend, the window's size and mode.
 
   Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
@@ -109,7 +110,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 Each command gives lines of output or an error.
 They are parsed by clap, as a REPL (`multicall`, the line split as a shell does), so that a command takes the same options as the command line and has `help`, and they run between frames with exclusive access to the world.
 
-| Command | What it does | Command line now |
+| Command | What it does | Command line |
 |---|---|---|
 | `new-game [--class C] [--sector X,Y] […]` | ends the game, if any, and starts a new one | the same options |
 | `menu`, `quit` | back to the main menu; end the process | |
@@ -120,17 +121,17 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 | `zoom Z` | the camera's zoom, 0.5 to 2 | `--zoom` |
 | `time HH:MM` | sets the clock | `--time` |
 | `music on\|off` | the music and the ambient loops | `--no-music` |
-| `screenshot FILE [--frames N]` | saves a frame and goes on | `--screenshot`, `--frames` |
+| `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
 | `record DIR N` | saves N frames | `--record`, `--record-frames` |
 | `benchmark SECONDS` | measures and prints | `--benchmark` |
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
-| `overlay on\|off`, `log on\|off` | as F3 and F4 | |
+| `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F3, F4, F1 and the key under Esc; without a switch, toggles | |
 | `state` | the app's state, the hero, the clock, the frames (the overlay's values) | |
 | `wait ready\|arrived`, `wait frames N`, `wait seconds S` | in a script, the next command waits for that | |
 | `exec FILE` | runs a script: a command a line, `#` comments | |
 | `help [COMMAND]` | | |
 
-* `--exec "CMD; CMD"` and `--script FILE` run commands from the start, for example `--class mage --exec "go +10,+4; wait arrived; screenshot a.png; quit"`.
+* `--exec "CMD; CMD"` and `--script FILE` run commands from the start, for example `--class mage --exec "wait ready; go +10,+4; wait arrived; screenshot a.png; quit"`.
   `--screenshot`, `--record`, `--benchmark` and `--target` stay as shortcuts.
 * `--assets` and `--settings` stay the command line's alone.
 * `sector` and `cell` jump: the streamer drops the sectors beyond two of the new place and builds the 3 × 3 around it, and the hero waits for its ground.
@@ -143,7 +144,7 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 ## 7. The console (#174)
 
 * The key under Esc opens and closes it, by its place rather than its character (`KeyCode::Backquote`: `~` in an English layout, `Ё` in a Russian one); Esc closes it too.
-* The top half of the screen: one scrolling view of the log and the commands' output, and a line of input (Bevy 0.20's `TextInput`, so no `bevy_egui`).
+* The top half of the screen: one scrolling view of the log and the commands' output, and a line of input of its own (no `bevy_egui`).
 * Enter runs the line; Up and Down walk the history, kept between runs; Tab completes the commands' names and the options' values; Ctrl+V pastes.
 * While it is open the game takes no keys or clicks (no walking, no R, the wheel scrolls the console); F3, F4 and F11 still work, and the game goes on under it.
 * Done 2026-10-19 (#174), in a module `console`, with a line of input of its own rather than Bevy's `TextInput`: a console needs a line, a cursor and the history, which take a few dozen lines.
@@ -163,19 +164,20 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
   |---|---|
   | `opensacred/exec {line}` | runs a command (§6) and returns its output or its error |
   | `opensacred/state` | the overlay's values (§5) and whether the scene is ready |
-  | `opensacred/input {…}` | a key, the cursor's move to a pixel, a mouse button or the wheel, sent into the window as if from the system, so that the menu, the clicks on the ground and the keys run through their own code |
+  | `opensacred/input {…}` | a key, text typed, the cursor's move to a pixel, a mouse button or the wheel, sent into the window as if from the system, so that the menu, the clicks on the ground and the keys run through their own code |
   | `opensacred/screenshot {path}` | schedules a capture; the client waits for the file |
-  | `opensacred/logs {after}` | the log's records after a sequence number |
+  | `opensacred/logs {after}` | the log's records numbered `after` and later |
 
-* Bevy's own methods (`rpc.discover`, `world.query`, `world.get_resources`, `world.mutate_resources`, …) see what is registered for reflection: the hero, the clock and the zoom are.
-* The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-ready`, `key F11`, `click X Y`, `screenshot FILE`, `logs`.
+* Bevy's own methods (`rpc.discover`, `world.query`, `world.get_resources`, `world.mutate_resources`, …) see what is registered for reflection, which is none of the game's types yet.
+* The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-state`, `wait-ready`, `key F11`, `type`, `click X Y`, `move`, `wheel`, `screenshot FILE`, `logs`, `call METHOD`, and `--port`.
 * Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window opening unfocused.
 * Screenshots and logs taken this way are pictures of the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
 * Done 2026-10-19 (#175), in a module `remote`, with the client `tools/game/remote.py` and the recipe in docs/03 §3.7.
   The input waits in a queue that sends each message in its frame before Bevy reads the input: a key's release a frame after its press, a click's press a frame after the cursor's move and its release `hold` frames later (2 by default), so that the game's systems see the key and the button held.
   The cursor the game steers by is now the one its input saw last (`hud::Pointer`), the system's moves and the protocol's alike, so that a click sent from afar moves the hero and the system's cursor stays where it is.
   Bevy's own methods see no type of the game for reflection yet: `opensacred/state` and the commands cover what the plan named.
-* Done 2026-10-19 (#176): the project skill `game` (`.claude/skills/game/SKILL.md`), which says when to take a script and when the remote protocol, how to start the game without covering the desktop or touching the maintainer's settings, what the client does, the commands and the keys, and the rules for screenshots; CLAUDE.md's commands name it. No MCP server for now: the skill and `remote.py` need nothing installed.
+* Done 2026-10-19 (#176): the project skill `game` (`.claude/skills/game/SKILL.md`), which says when to take a script and when the remote protocol, how to start the game without covering the desktop or touching the maintainer's settings, what the client does, the commands and the keys, and the rules for screenshots; CLAUDE.md's commands name it.
+  No MCP server for now: the skill and `remote.py` need nothing installed.
 * How Claude Code learns all this in a new session (#176): a project skill that describes the run and the client, needing nothing installed, or the MCP server `bevy_brp_mcp` (0.23 for Bevy 0.20), whose tools are discoverable but generic and which has to be installed and to follow Bevy's releases.
   The skill comes first, and MCP if it falls short.
 * `bevy_brp_extras` 0.23 has ready methods for screenshots and keys; the game's own methods are a few small systems that do not wait for its releases after Bevy's.
@@ -184,9 +186,11 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 
 | Key | Where | What it does |
 |---|---|---|
-| Left mouse button | the game | the hero walks or runs to the cursor (as now) |
-| R | the game | walk or run (as now) |
-| Wheel | the game | zoom (as now) |
+| Left mouse button | the game | the hero walks or runs to the cursor |
+| Left mouse button on a foe | the game | attack it |
+| Ctrl + left mouse button | the game | strike at once |
+| R | the game | walk or run |
+| Wheel | the game | zoom |
 | Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
 | F1 | everywhere | the keys' help (#196); Esc hides it too |
@@ -195,7 +199,7 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 | F11 | everywhere | borderless or windowed |
 
 The original's own keys come with remapping in M6 (docs/06 §3); F1, F3, F4 and F11 move then if they clash.
-F1 shows this table in the game, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
+F1 shows these keys in the game, with the console's, by where the keys work (a module `help`, 2026-10-19, #196); the command `keys on|off` shows and hides it.
 
 ## 10. Order and estimates
 

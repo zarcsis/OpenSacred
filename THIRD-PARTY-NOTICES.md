@@ -19,7 +19,7 @@ Each of the following projects is distributed under the MIT License, whose text 
   VTex codec (`src/codecs/vtex_*`, LGPL-2.1-or-later) is not used: FFmpeg runs as an external
   program.
 * **sacred-sdk** (https://github.com/bssth/sacred-sdk): Copyright (c) 2026 SacredSDK contributors.
-  The string hash of `global.res` (`crates/opensacred-formats/src/text.rs`) and facts about the
+  The string hash of `global.res` (`crates/opensacred-data/src/text.rs`) and facts about the
   NetScript records.
 * **OpenHeilig engine and tools** (https://github.com/openheilig/engine,
   https://github.com/openheilig/tools): Copyright (c) 2026 Roman Linev and the OpenHeilig

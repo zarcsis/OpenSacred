@@ -1,10 +1,11 @@
-# Research scripts
+# Tools
 
 ## Summary
 
-* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG).
-  They are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
-* The scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
+* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`) and the game's remote-control client (`game/`).
+  The research scripts are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
+* The research scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
+  The process tools work on Git and GitHub, as their rows say: `stack/stack.py` commits and pushes branches, `usage/pr_usage.py --update` edits a pull request's description.
 * The scanners read the GOG executables as is.
   Only the GOG build 2.28 is supported; the network protocol is out of scope.
 * The Rust converter `opensacred-convert` does the conversion; the format-parsing scripts are kept as the reference the Rust readers are cross-checked against: the tests of `opensacred-formats` that need the game files run the prototypes and compare their output record by record.
