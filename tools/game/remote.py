@@ -61,6 +61,8 @@ def lines(snapshot):
                 f"{place}, {hero['gait']}, {'moving' if hero['moving'] else 'standing'}")
         if hero.get('target'):
             line += ' to {},{}'.format(*hero['target'])
+            if hero.get('onto'):
+                line += f" {hero['onto']}"
         out.append(line)
     if snapshot.get('clock'):
         out.append(f"{snapshot['clock'][0]} {snapshot['clock'][1]}  zoom {snapshot.get('zoom') or 0:.2f}  "

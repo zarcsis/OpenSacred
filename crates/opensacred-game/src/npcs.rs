@@ -1030,6 +1030,7 @@ pub fn walk(
             here,
             (level, false),
             target,
+            None,
             |cell, (at, _)| heights.walkable_on(cell, at),
             |place| heights.neighbours(place),
             |(at, _)| at,

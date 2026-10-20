@@ -50,9 +50,21 @@ fn centre(cell: Cell) -> Vec2 {
 /// places `neighbours` gives (a cell on a layer: the walkable neighbours on its layer, and the
 /// same cell on another layer through a door), within the window around `from`'s cell; `None`
 /// when `to` lies outside the window or cannot be reached.
+#[cfg(test)]
 pub fn path<L: Copy + Eq + Hash>(
     from: (Cell, L),
     to: Cell,
+    neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+) -> Option<Vec<(Cell, L)>> {
+    path_onto(from, to, |_| true, neighbours)
+}
+
+/// As [`path`], to a place in cell `to` on a layer that `arrives` takes: the level that a click
+/// chose (docs/re/movement.md, "The cursor's point").
+pub fn path_onto<L: Copy + Eq + Hash>(
+    from: (Cell, L),
+    to: Cell,
+    arrives: impl Fn(L) -> bool,
     neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
 ) -> Option<Vec<(Cell, L)>> {
     let inside = |cell: Cell| {
@@ -69,7 +81,7 @@ pub fn path<L: Copy + Eq + Hash>(
     let mut came = HashMap::from([(from, from)]);
     let mut queue = VecDeque::from([from]);
     while let Some(place) = queue.pop_front() {
-        if place.0 == to {
+        if place.0 == to && arrives(place.1) {
             let mut way = vec![place];
             let mut at = place;
             while at != from {
@@ -172,27 +184,31 @@ pub enum Step<L> {
     Through(L),
 }
 
-/// What the hero at `position` on `layer` does next on its way to `target`: heads for the target
-/// itself when the straight line to it is clear on its layer, else for the farthest place of
-/// the way on its layer that it reaches in a straight line, or goes through the door it stands
-/// on onto the way's next layer; `None` when the target cannot be reached. A place's layer is
-/// `level` of its `L`, which may carry more than the layer, the same along a stretch of the way.
+/// What the hero at `position` on `layer` does next on its way to `target`, on level `onto` when
+/// given: heads for the target itself when the straight line to it is clear on its layer and
+/// the target is on it, else for the farthest place of the way on its layer that it reaches in a
+/// straight line, or goes through the door it stands on onto the way's next layer; `None` when
+/// the target cannot be reached. A place's layer is `level` of its `L`, which may carry more
+/// than the layer, the same along a stretch of the way.
 pub fn next<L: Copy + Eq + Hash, K: PartialEq>(
     position: Vec3,
     layer: L,
     target: Vec3,
+    onto: Option<K>,
     walkable: impl Fn(Cell, L) -> bool,
     neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
     level: impl Fn(L) -> K,
 ) -> Option<Step<L>> {
     let (from, to) = (position.xz(), target.xz());
     let on = |cell| walkable(cell, layer);
-    if clear(from, to, on) {
+    let arrives = |at: L| onto.as_ref().is_none_or(|onto| level(at) == *onto);
+    if arrives(layer) && clear(from, to, on) {
         return Some(Step::Toward(target));
     }
-    let way = path(
+    let way = path_onto(
         (cell_of(from.x, from.y), layer),
         cell_of(to.x, to.y),
+        arrives,
         neighbours,
     )?;
     // The way on this layer, up to its first door.
@@ -275,7 +291,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            next(at(2.5, 4.5), (), at(8.5, 4.5), open, all, |l| l),
+            next(at(2.5, 4.5), (), at(8.5, 4.5), None, open, all, |l| l),
             Some(Step::Toward(at(8.5, 4.5)))
         );
         assert!(!clear(at(2.5, 4.5).xz(), at(8.5, 4.5).xz(), wall));
@@ -284,6 +300,7 @@ mod tests {
             at(2.5, 4.5),
             (),
             at(8.5, 4.5),
+            None,
             |cell, ()| wall(cell),
             flat,
             |l| l,
@@ -322,6 +339,7 @@ mod tests {
                 at(5.5, 6.5),
                 false,
                 at(5.5, 4.5),
+                None,
                 walkable,
                 neighbours,
                 |l| l
@@ -332,6 +350,7 @@ mod tests {
             at(5.5, 9.5),
             false,
             at(5.5, 4.5),
+            None,
             walkable,
             neighbours,
             |l| l,
@@ -339,5 +358,26 @@ mod tests {
             panic!("no way to the door");
         };
         assert_eq!(cell_of(point.x, point.z), (5, 6));
+        // The door's cell lies on both layers: the way to it ends on the level asked for, and on
+        // the nearer when none is (#208).
+        let to_door = |arrives: fn(bool) -> bool| {
+            path_onto(((5, 9), false), (5, 6), arrives, neighbours)
+                .and_then(|way| way.last().copied())
+        };
+        assert_eq!(to_door(|_| true), Some(((5, 6), false)));
+        assert_eq!(to_door(|inside| inside), Some(((5, 6), true)));
+        // Standing at the door outside, sent to it inside: through the door, not there already.
+        assert_eq!(
+            next(
+                at(5.5, 6.5),
+                false,
+                at(5.5, 6.5),
+                Some(true),
+                walkable,
+                neighbours,
+                |l| l
+            ),
+            Some(Step::Through(true))
+        );
     }
 }

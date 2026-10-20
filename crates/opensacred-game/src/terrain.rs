@@ -327,15 +327,25 @@ impl Heights {
     /// (`0x4F7E10`, docs/re/movement.md, "The objects in the way"): the cell may be walked on, on
     /// the ground or in an inside layer's grid, and no object takes it.
     pub fn walkable_on(&self, cell: (i32, i32), level: Level) -> bool {
-        let walkable = match level {
+        self.walkable_at(cell, level) && !self.occupied.contains(&(cell, level))
+    }
+
+    /// Whether a cell may be walked on at a level, on the ground or in an inside layer's grid,
+    /// whatever objects take it (`0x636C10`).
+    pub fn walkable_at(&self, cell: (i32, i32), level: Level) -> bool {
+        match level {
             None => self.walkable(cell),
             Some(key) => self
                 .layers
                 .get(&key)
                 .and_then(|layer| layer.get(cell))
                 .unwrap_or(false),
-        };
-        walkable && !self.occupied.contains(&(cell, level))
+        }
+    }
+
+    /// How many floors a loaded building has.
+    pub fn floor_count(&self, building: buildings::Anchor) -> usize {
+        self.floors.get(&building).map_or(0, Vec::len)
     }
 
     /// Marks a cell at a level as taken by an object that stops the creatures: a chest, a

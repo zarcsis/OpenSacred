@@ -25,6 +25,7 @@ mod npcs;
 mod overlay;
 mod paths;
 mod pause;
+mod pick;
 mod remote;
 #[cfg(test)]
 mod scene_tests;
