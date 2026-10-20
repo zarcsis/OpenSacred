@@ -4492,6 +4492,7 @@ version = "0.0.0"
 dependencies = [
  "crc32fast",
  "miniz_oxide 0.9.1",
+ "opensacred-data",
  "png",
  "thiserror 2.0.21",
 ]

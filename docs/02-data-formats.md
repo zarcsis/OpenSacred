@@ -719,7 +719,7 @@ The file itself is not encoded: the encoding that community notes mention belong
 
 All ids are `sacred_hash(name) & 0x7fffffff`; numeric references `res:N` are hashed as the string `str(N)` (`res:1` → 49, `res:1024` → 71,320,567): 946 of the 947 numeric references in the scripts resolve, 12,965 of the 23,122 ids are reproduced from names present in the release; the rest are hashes of names from unshipped sources (not needed by the port).
 The formula of the client's `FUN_0080E780` (credited to sacred-sdk, MIT; confirmed by rebuilding all slots with `tools/analysis/formats/global_res_hash.py`): starting from `h = 0`, for each byte `c` of the name, with ASCII `a`–`z` upper-cased, `h = (h·113 + c) mod 999,999,991`, where `h·113 + c` wraps to 32 bits and is taken as a signed 32-bit integer, and the remainder has the sign of the dividend (C's `%`); the id is `h & 0x7fffffff`.
-The port is `opensacred_formats::text::sacred_hash` (`crates/opensacred-formats/src/text.rs`).
+The port is `opensacred_data::text::sacred_hash` (`crates/opensacred-data/src/text.rs`), the key of the open format's texts, which `opensacred_formats::text` re-exports and the game looks its lines up by (#270).
 A "mathematical" version without the 32-bit overflow and the signed remainder gives different values (checked by brute force).
 For the engine: an in-memory index, UTF-16LE → UTF-8 at load time, byte comparisons wherever gameplay depends on them (inventory sort order), a `mods:/<lang>/global.res` overlay and CSV/PO export/import by a tool; font fallbacks for Cyrillic/CJK: §11 and docs/06.
 Ready-made code: sacred-sdk (`sacred_hash.h`, a `global.res` generator), SacredUtils (Apache-2.0, decompiler/compiler).

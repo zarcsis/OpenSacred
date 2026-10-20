@@ -8,6 +8,7 @@ pub mod netscript;
 mod packed;
 pub mod sound;
 pub mod tables;
+pub mod text;
 pub mod video;
 pub mod world;
 

@@ -122,18 +122,8 @@ fn as_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
-/// The id of the string named `name` (`FUN_0080E780`, per sacred-sdk, MIT): a hash over the
-/// bytes, ASCII letters upper-cased, with the original's 32-bit overflow and signed remainder
-/// (docs/02 §8). A numeric reference `res:N` hashes the text of `N`.
-pub fn sacred_hash(name: &[u8]) -> u32 {
-    let mut h: u32 = 0;
-    for &b in name {
-        let c = u32::from(b.to_ascii_uppercase());
-        let v = h.wrapping_mul(113).wrapping_add(c).cast_signed() % 999_999_991;
-        h = v.cast_unsigned();
-    }
-    h & 0x7FFF_FFFF
-}
+/// The id of the string named `name`, the open format's key (`opensacred_data::text`).
+pub use opensacred_data::text::sacred_hash;
 
 #[cfg(test)]
 mod game_tests;

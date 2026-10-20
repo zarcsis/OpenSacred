@@ -15,7 +15,9 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
-use crate::{ai, atmosphere, daynight, hero, iso, motions, music, npcs, sectors, sound, terrain};
+use crate::{
+    ai, atmosphere, daynight, hero, iso, lines, motions, music, npcs, sectors, sound, terrain,
+};
 
 /// Where the process is.
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -243,6 +245,7 @@ struct Loaded {
     clock: daynight::Clock,
     hero_light: daynight::HeroLight,
     daemon: ai::Daemon,
+    texts: lines::Texts,
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
 }
@@ -340,6 +343,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             doubled: class == Class::WoodElf,
         },
         daemon: ai::Daemon(class == Class::Daemon),
+        texts: lines::Texts::read(assets),
         zoom: game.zoom.unwrap_or(1.0),
         music,
     })
@@ -457,6 +461,7 @@ fn finish(
     commands.insert_resource(loaded.clock);
     commands.insert_resource(loaded.hero_light);
     commands.insert_resource(loaded.daemon);
+    commands.insert_resource(loaded.texts);
     commands.insert_resource(Zoom(loaded.zoom));
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);
