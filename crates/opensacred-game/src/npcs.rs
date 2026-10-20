@@ -107,6 +107,8 @@ struct Placement {
     /// The items an NPC holds, and their types, in the hands.
     equipment: Vec<Held>,
     items: Vec<u32>,
+    /// A fill's boss or champion (`fight::Rank`).
+    rank: fight::Rank,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
     /// Whether it stops the NPCs' steps into its cell, an object of category 4 (`0x4F7E10`
@@ -1165,6 +1167,7 @@ impl Npcs {
                 } else {
                     Vec::new()
                 },
+                rank: fight::Rank::Common,
                 clips,
             });
         }
@@ -1231,6 +1234,7 @@ impl Npcs {
                     layer: 0,
                     equipment: Vec::new(),
                     items: Vec::new(),
+                    rank: fight::Rank::Common,
                     clips: ClipNames {
                         stand: clip(motions::Action::Stand),
                         walk: clip(motions::Action::Walk),
@@ -1475,6 +1479,11 @@ pub fn place(
                     Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
                 });
                 let level = fight::level(values, hero, Some(&mut rng));
+                // A boss or a champion, at the hero's level and more (`0x47E6B7`, `0x550E50`).
+                placement.rank =
+                    fight::Rank::of_fill(made.creature, made.hostile, &mut rng, &npcs.fight);
+                let big = placement.creature.1 & crowd::BIG != 0;
+                let level = placement.rank.level(level, hero, values, big, &npcs.fight);
                 let entity = spawn(
                     &mut commands,
                     &placement,
@@ -1587,8 +1596,15 @@ fn spawn(
         mind.dialogue = placement.dialogue;
         mind.trader = placement.trader;
         mind.level = grade;
-        // Its health, full, by its base and its level (`0x5658F0`).
+        // Its health, full, by its base and its level and its rank (`0x5658F0`).
         let most = fight::most_health(placement.base.attributes, grade, rules);
+        let factor = placement.rank.health(creature, placement.class, rules);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a health, whole and positive, far below the integers' range"
+        )]
+        let most = (f64::from(most) * f64::from(factor)).floor() as u32;
         entity.insert(fight::Health {
             current: most,
             most,
@@ -1623,8 +1639,19 @@ fn spawn(
         for (item, values) in placement.items.iter().zip(held.items.iter().flatten()) {
             bevy::log::debug!("npcs: {creature} holds {item}: {values:?}");
         }
+        let mut values = fight::combat(&placement.base, grade, held, &skills, rules);
+        let [attack, defence] = placement.rank.fight(rules);
+        values.attack *= attack;
+        values.defence *= defence;
+        if placement.rank != fight::Rank::Common {
+            bevy::log::debug!(
+                "npcs: {creature} is a {:?} of level {grade}",
+                placement.rank
+            );
+        }
         entity.insert((
-            fight::combat(&placement.base, grade, held, &skills, rules),
+            values,
+            placement.rank,
             fight::Worth(placement.base.experience),
             fight::Regenerates::new(fight::regeneration(&placement.base, grade, &skills, rules)),
         ));
