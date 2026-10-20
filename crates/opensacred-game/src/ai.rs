@@ -1,8 +1,9 @@
 //! The creatures' idle life while no foe is near (docs/re/ai.md): each is dormant until its own
 //! timer or the hero's look wakes it, and dormant again farther than 1,500 from the hero; a
 //! hostile creature in the hero's reach steps about by the idle action (`0x54EA30`), a group's
-//! members together. The fight is not followed: an awake hostile creature, which would attack
-//! the hero by a test of the levels, goes dormant again and steps about as one beyond it
+//! members together; a peaceful animal awake flees, steps away and strolls about home by its
+//! behaviour (`0x4EF150`). The fight is not followed: an awake hostile creature, which would
+//! attack the hero by a test of the levels, goes dormant again and steps about as one beyond it
 //! (docs/decisions/2026-10-20-idle.md).
 
 use bevy::prelude::*;
@@ -35,6 +36,28 @@ const PERIOD_HOSTILE: f32 = 2.5;
 const JITTER: f32 = 1.5;
 /// The flags whose creatures' own timers wake them: the hostile ones and the townsfolk.
 const TIMED: u32 = 0x3 | 0x408;
+/// The behaviours' flags: the wild animals, the farm animals, the townsfolk (`0x4EF150`).
+const WILD: u32 = 0x40;
+const WILD_TOO: u32 = 0x80;
+const FARM: u32 = 0x10;
+const FARM_LOOSE: u32 = 0x20;
+const TOWNSFOLK: u32 = 0x8;
+/// The jugglers' types, and the flags they take at their first update, which no behaviour reads
+/// yet.
+const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
+const JUGGLER: u32 = 0x1000_0000;
+/// How near a creature other than an animal makes a wild animal flee and a farm animal step
+/// away (800 when it attacks, which none does yet).
+const FLEE: f32 = 300.0;
+const SHY: f32 = 200.0;
+/// How far from home along an axis brings a wild animal back, within 50 of it.
+const ROAMS: f32 = 380.0;
+const BACK: i32 = 50;
+/// How far about home the animals stroll: the wild within 100, the farm within 150.
+const STROLL_WILD: i32 = 100;
+const STROLL_FARM: i32 = 150;
+/// The chance of a stroll, a frame's 1 in 101 at 30 frames a second, as a rate a second.
+const STROLLS_A_SECOND: f32 = 30.0 / 101.0;
 
 /// A creature's mind while no foe is near.
 #[derive(Component, Clone, Debug)]
@@ -48,9 +71,14 @@ pub struct Mind {
     pub enter: bool,
     /// Its group, if it is in one (`+0x249`).
     pub group: Option<u32>,
-    /// Its walk speed in world units a second, before the game's speed.
+    /// Its walk speed in world units a second, before the game's speed, and its run speed.
     pub speed: f32,
+    pub run: f32,
+    /// Its `Creature.pak` class: the animals (4 and 6) flee from the others.
+    pub class: u8,
     awake: bool,
+    /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
+    active: bool,
     clock: f32,
     period: f32,
 }
@@ -64,15 +92,28 @@ impl Mind {
         flags: u32,
         (enter, created): (bool, bool),
         group: Option<u32>,
-        speed: f32,
+        [speed, run]: [f32; 2],
+        (creature, class): (u32, u8),
     ) -> Self {
         let hostile = flags & 0x3 != 0;
+        // A creature of an `Enter` function still without flags takes them at its first update
+        // (`0x5375C0`): the animals of class 6 the loose farm animals', the jugglers theirs, the
+        // others the townsfolk's.
+        let flags = match (enter, flags, class) {
+            (true, 0, 6) => FARM_LOOSE,
+            (true, 0, _) if JUGGLERS.contains(&creature) => JUGGLER,
+            (true, 0, _) => TOWNSFOLK,
+            _ => flags,
+        };
         Self {
             home,
             flags,
             enter,
             group,
             speed,
+            run,
+            class,
+            active: false,
             awake: hostile && created,
             clock: 0.0,
             period: if hostile && created {
@@ -85,6 +126,29 @@ impl Mind {
 
     fn hostile(&self) -> bool {
         self.flags & 0x3 != 0
+    }
+}
+
+/// The flags the creature maker (`0x480D40`) gives a peaceful creature of type `creature` made
+/// without flags, as a sector's fill makes them: the wild animals' to the wolves, the crows, the
+/// bats, the first rabbit, the deer, the bears, the bulls and the wild boars; the farm animals'
+/// to the pigs, the cows, the sheep, the horses and the chickens; none to the others, the two
+/// other rabbits among them. `CreateNPC` writes its own flags over them (`0x4839F6`).
+pub fn of_type(creature: u32) -> u32 {
+    const WILD_TYPES: [u32; 25] = [
+        512, 513, 514, 515, 516, 530, 531, 532, 533, 536, 537, 538, 540, 541, 543, 545, 567, 568,
+        569, 570, 589, 590, 594, 595, 596,
+    ];
+    const FARM_TYPES: [u32; 25] = [
+        520, 521, 522, 523, 524, 525, 526, 527, 528, 544, 550, 551, 552, 553, 554, 555, 556, 557,
+        558, 560, 561, 562, 563, 565, 566,
+    ];
+    if WILD_TYPES.contains(&creature) {
+        WILD
+    } else if FARM_TYPES.contains(&creature) {
+        FARM
+    } else {
+        0
     }
 }
 
@@ -203,6 +267,8 @@ fn think(
                     // The fight is not followed: dormant again, by chance stepping about.
                     idle = true;
                 }
+            } else if mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0 {
+                mind.active = true;
             }
         }
         if idle
@@ -246,13 +312,167 @@ fn think(
     }
 }
 
+/// Whether a chance of `rate` a second comes in a frame of `dt` seconds.
+fn chance(rng: &mut Rng, rate: f32, dt: f32) -> bool {
+    let p = 1.0 - (-rate * dt).exp();
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a probability between 0 and 1, in parts of 10,000"
+    )]
+    let parts = (p.clamp(0.0, 1.0) * 10_000.0) as u32;
+    rng.below(10_000) < parts
+}
+
+/// A point within `within` of `at` along each axis, at random.
+fn about(at: Vec3, within: i32, rng: &mut Rng) -> Vec3 {
+    let mut offset = || {
+        let span = u32::try_from(2 * within + 1).unwrap_or(1);
+        let d = i32::try_from(rng.below(span)).unwrap_or(within) - within;
+        f32::from(i16::try_from(d).unwrap_or(0))
+    };
+    at + Vec3::new(offset(), 0.0, offset())
+}
+
+/// Why an animal walks: it flees at a run, steps away, goes back home or strolls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Why {
+    Flees,
+    StepsAway,
+    GoesBack,
+    Strolls,
+}
+
+/// A number between `low` and `high`, at random.
+fn between(low: f32, high: f32, rng: &mut Rng) -> f32 {
+    let part = f32::from(u16::try_from(rng.below(10_001)).unwrap_or(0)) / 10_000.0;
+    low + (high - low) * part
+}
+
+/// Where a wild animal at `here` runs from `fear` (`0x4EF150`): along each axis of the grid away
+/// from it by half to twice its distance along that axis, and across by up to half its distance
+/// along the other either way.
+fn flight(here: Vec3, fear: Vec3, rng: &mut Rng) -> Vec3 {
+    let d = (here - fear).xz();
+    let (x, y) = (d.x.abs(), d.y.abs());
+    let along = |offset: f32, rng: &mut Rng| {
+        let away = between(offset.abs() / 2.0, offset.abs() * 2.0, rng);
+        if offset < 0.0 { -away } else { away }
+    };
+    let dx = along(d.x, rng) + between(-y / 2.0, y / 2.0, rng);
+    let dz = along(d.y, rng) + between(-x / 2.0, x / 2.0, rng);
+    here + Vec3::new(dx, 0.0, dz)
+}
+
+/// What a peaceful animal awake does now, standing at `here` (`0x4EF150`): a wild one (flags
+/// `0x40`, `0x80`) runs from the nearest creature other than an animal within 300 of it, `fear`,
+/// the hero among them ([`flight`]), walks back within 50 of home from farther than 380 along an
+/// axis, and strolls within 100 of home by chance; a farm one (`0x10`, `0x20`) steps away from
+/// such a creature within 200, to the point beyond itself, and strolls within 150 of home. The
+/// walk's target and why it walks.
+fn animal(
+    mind: &Mind,
+    here: Vec3,
+    fear: Option<Vec3>,
+    strolls: bool,
+    rng: &mut Rng,
+) -> Option<(Vec3, Why)> {
+    let near = |within: f32| fear.filter(|f| (*f - here).xz().length() < within);
+    if mind.flags & (WILD | WILD_TOO) != 0 {
+        if let Some(fear) = near(FLEE) {
+            return Some((flight(here, fear, rng), Why::Flees));
+        }
+        let from_home = (here - mind.home).abs();
+        if from_home.x > ROAMS || from_home.z > ROAMS {
+            return Some((about(mind.home, BACK, rng), Why::GoesBack));
+        }
+        return strolls.then(|| (about(mind.home, STROLL_WILD, rng), Why::Strolls));
+    }
+    if mind.flags & (FARM | FARM_LOOSE) != 0 {
+        if let Some(fear) = near(SHY) {
+            return Some((here + (here - fear).with_y(0.0), Why::StepsAway));
+        }
+        return strolls.then(|| (about(mind.home, STROLL_FARM, rng), Why::Strolls));
+    }
+    None
+}
+
+/// The peaceful creatures' behaviours while they stand awake, at every frame (`0x4EF150`); a
+/// creature farther than 1,500 or 1,000 from the hero along the grid's axes goes dormant again.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn behave(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut minds: ResMut<Minds>,
+    hero: Query<&Transform, With<Body>>,
+    mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
+) {
+    let Some(hero) = hero.iter().next() else {
+        return;
+    };
+    let hero = hero.translation;
+    let dt = time.delta_secs();
+    let side = crate::iso::CELL * 64.0;
+    let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
+    // What the animals fear: every creature but the animals, and the hero.
+    let feared: Vec<(Entity, Vec3)> = creatures
+        .iter()
+        .filter(|(_, _, _, mind, _)| !matches!(mind.class, 4 | 6))
+        .map(|(entity, transform, ..)| (entity, transform.translation))
+        .chain(std::iter::once((Entity::PLACEHOLDER, hero)))
+        .collect();
+    let mut walks = Vec::new();
+    for (entity, transform, way, mut mind, walking) in &mut creatures {
+        if !mind.active || walking {
+            continue;
+        }
+        let here = transform.translation;
+        let away = (here - hero).abs();
+        if away.x > FAR_X || away.z > FAR_Y {
+            mind.active = false;
+            continue;
+        }
+        // The nearest it fears in its own sector.
+        let fear = feared
+            .iter()
+            .filter(|&&(other, at)| other != entity && sector(at) == sector(here))
+            .map(|&(_, at)| at)
+            .min_by(|a, b| {
+                let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
+                da.total_cmp(&db)
+            });
+        let strolls = chance(&mut minds.rng, STROLLS_A_SECOND, dt);
+        let Some((target, why)) = animal(&mind, here, fear, strolls, &mut minds.rng) else {
+            continue;
+        };
+        debug!(
+            "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
+            here.x, here.z, target.x, target.z
+        );
+        walks.push((
+            entity,
+            if why == Why::Flees {
+                Walk::run(target, way.level, mind.run)
+            } else {
+                Walk::to(target, way.level, mind.speed)
+            },
+        ));
+    }
+    for (entity, walk) in walks {
+        commands.entity(entity).insert(walk);
+    }
+}
+
 /// The creatures' idle life.
 pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Minds>()
-            .add_systems(Update, think.in_set(Step::Crowd));
+            .add_systems(Update, (think, behave).chain().in_set(Step::Crowd));
     }
 }
 
@@ -263,13 +483,103 @@ mod tests {
     #[test]
     fn a_hostile_creature_of_a_script_wakes_as_it_is_made_and_looks_every_2_5_s() {
         let home = Vec3::ZERO;
-        let script = Mind::new(home, 0x1, (false, true), None, 70.0);
+        let script = Mind::new(home, 0x1, (false, true), None, SPEEDS, (0, 0));
         assert!(script.awake && script.period == PERIOD_HOSTILE);
         // A fill's hostile creature and a peaceful one sleep until woken, on a timer of 5 s.
-        let fill = Mind::new(home, 0x1, (true, false), Some(7), 70.0);
+        let fill = Mind::new(home, 0x1, (true, false), Some(7), SPEEDS, (0, 0));
         assert!(!fill.awake && fill.period == PERIOD);
-        let villager = Mind::new(home, 0x400, (true, true), None, 70.0);
+        let villager = Mind::new(home, 0x400, (true, true), None, SPEEDS, (0, 0));
         assert!(!villager.awake && !villager.hostile());
+    }
+
+    const SPEEDS: [f32; 2] = [70.0, 140.0];
+
+    #[test]
+    fn a_peaceful_creature_of_an_enter_function_takes_a_behaviour_by_its_class() {
+        let made = |flags, created, creature, class| {
+            let made = (true, created);
+            Mind::new(Vec3::ZERO, flags, made, None, SPEEDS, (creature, class)).flags
+        };
+        // A fill's animals by the creature maker's lists: the first rabbit wild, a pig farm, the
+        // other rabbits without, so of class 6 the loose farm animals' at the first update.
+        assert_eq!(made(of_type(516), false, 516, 6), WILD);
+        assert_eq!(made(of_type(520), false, 520, 6), FARM);
+        assert_eq!(made(of_type(592), false, 592, 6), FARM_LOOSE);
+        // `CreateNPC`'s without a tag: class 6 the loose farm animals', the jugglers theirs, the
+        // others the townsfolk's; a tag or hostility keeps its own.
+        assert_eq!(made(0, true, 560, 6), FARM_LOOSE);
+        assert_eq!(made(0, true, 78, 3), JUGGLER);
+        assert_eq!(made(0, true, 640, 3), TOWNSFOLK);
+        assert_eq!(made(0x4000, true, 640, 3), 0x4000);
+        assert_eq!(made(0x1, false, 512, 6), 0x1);
+        // An `Init` function's creature without a tag keeps none and stands.
+        let init = Mind::new(Vec3::ZERO, 0, (false, true), None, SPEEDS, (560, 6));
+        assert_eq!(init.flags, 0);
+    }
+
+    #[test]
+    fn a_wild_animal_flees_at_a_run_and_a_farm_animal_steps_away() {
+        let mut rng = Rng::of(48, 39, 2);
+        let home = Vec3::new(1000.0, 0.0, 1000.0);
+        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let pig = Mind::new(home, of_type(520), (true, false), None, SPEEDS, (520, 6));
+        let hero = Vec3::new(1100.0, 0.0, 1000.0);
+        // Within 300 of the hero the rabbit runs from it, by half to twice its distance along x
+        // and across by up to half of none; beyond, it stands.
+        for _ in 0..100 {
+            let (to, why) = animal(&rabbit, home, Some(hero), false, &mut rng).unwrap();
+            assert_eq!(why, Why::Flees);
+            assert!(
+                (800.0..=950.0).contains(&to.x) && (950.0..=1050.0).contains(&to.z),
+                "{to}"
+            );
+        }
+        let far = Vec3::new(1400.0, 0.0, 1000.0);
+        assert_eq!(animal(&rabbit, home, Some(far), false, &mut rng), None);
+        // Within 200 the pig walks to the point beyond itself; at 300 it stands.
+        let (to, why) = animal(&pig, home, Some(hero), false, &mut rng).unwrap();
+        assert!(
+            why == Why::StepsAway && (to - Vec3::new(900.0, 0.0, 1000.0)).length() < 0.01,
+            "{to}"
+        );
+        let near = Vec3::new(1300.0, 0.0, 1000.0);
+        assert_eq!(animal(&pig, home, Some(near), false, &mut rng), None);
+        // Farther than 380 from home the rabbit walks back within 50 of it.
+        let strayed = home + Vec3::new(0.0, 0.0, 400.0);
+        let (to, why) = animal(&rabbit, strayed, None, false, &mut rng).unwrap();
+        let d = to - home;
+        assert!(
+            why == Why::GoesBack && d.x.abs() <= 50.0 && d.z.abs() <= 50.0,
+            "{d}"
+        );
+        // A stroll stays within 100 of home for the rabbit, 150 for the pig.
+        for _ in 0..200 {
+            let (to, _) = animal(&rabbit, home, None, true, &mut rng).unwrap();
+            let d = to - home;
+            assert!(d.x.abs() <= 100.0 && d.z.abs() <= 100.0, "{d}");
+            let (to, _) = animal(&pig, home, None, true, &mut rng).unwrap();
+            let d = to - home;
+            assert!(d.x.abs() <= 150.0 && d.z.abs() <= 150.0, "{d}");
+        }
+    }
+
+    #[test]
+    fn a_rate_a_second_comes_about_as_often_at_any_frame_rate() {
+        let mut rng = Rng::of(0, 0, 3);
+        for frames in [30.0_f32, 144.0] {
+            let dt = 1.0 / frames;
+            // 1,000 seconds' frames, about 297 strolls.
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a whole count of frames"
+            )]
+            let count = (1_000.0 * frames) as u32;
+            let strolls = (0..count)
+                .filter(|_| chance(&mut rng, STROLLS_A_SECOND, dt))
+                .count();
+            assert!((240..360).contains(&strolls), "{frames}: {strolls}");
+        }
     }
 
     #[test]
@@ -282,9 +592,10 @@ mod tests {
             0x1,
             (false, true),
             None,
-            70.0,
+            SPEEDS,
+            (0, 0),
         );
-        let fill = Mind::new(here, 0x1, (true, false), None, 70.0);
+        let fill = Mind::new(here, 0x1, (true, false), None, SPEEDS, (0, 0));
         let (mut steps, mut homes) = (0, 0);
         for _ in 0..2000 {
             if let Some(target) = idle_step(&script, here, hero, &mut rng) {

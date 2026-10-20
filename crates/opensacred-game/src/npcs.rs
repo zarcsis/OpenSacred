@@ -46,7 +46,7 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::prelude::{
     AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
-    Component, DetectChangesMut, Entity, GltfAssetLabel, Handle, Has, Image, IntoScheduleConfigs,
+    Component, DetectChangesMut, Entity, GltfAssetLabel, Handle, Image, IntoScheduleConfigs,
     MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut, Resource, StandardMaterial, Time,
     Transform, Update, Vec3, Without, WorldAssetRoot,
 };
@@ -107,8 +107,10 @@ struct Placement {
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
-    /// An NPC's walk speed in world units a second, before the game's speed (`ai::Mind`).
-    speed: f32,
+    /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
+    /// `Creature.pak` class (`ai::Mind`).
+    speed: [f32; 2],
+    class: u8,
     /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
     /// fill; its group, if it is in one (`ai::Mind`).
     made: (bool, bool),
@@ -121,12 +123,14 @@ struct Placement {
     clips: ClipNames,
 }
 
-/// The clips an NPC plays, by name (`motions`): standing, walking where a script sends it, and
-/// its fight stance where its model has one (`motions::Slots::stance`).
+/// The clips an NPC plays, by name (`motions`): standing, walking where a script sends it,
+/// running where it flees, and its fight stance where its model has one
+/// (`motions::Slots::stance`).
 #[derive(Clone, Debug, Default)]
 struct ClipNames {
     stand: Option<String>,
     walk: Option<String>,
+    run: Option<String>,
     stance: Option<String>,
 }
 
@@ -256,13 +260,25 @@ pub struct Npc {
     player: Option<Entity>,
 }
 
-/// An NPC's animation graph: its idle clip, and its walk clip if it has one.
+/// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
 #[derive(Clone)]
 struct Clips {
     graph: Handle<AnimationGraph>,
     idle: AnimationNodeIndex,
     walk: Option<AnimationNodeIndex>,
+    run: Option<AnimationNodeIndex>,
     stance: Option<AnimationNodeIndex>,
+}
+
+impl Clips {
+    /// The clip of a walk: its run clip where it runs and has one, else its walk clip.
+    fn moving(&self, walk: &Walk) -> Option<AnimationNodeIndex> {
+        if walk.runs {
+            self.run.or(self.walk)
+        } else {
+            self.walk
+        }
+    }
 }
 
 /// An NPC walking where a script sent it (`NPC_Goto`, `0x49E210`, which orders the creature to
@@ -273,6 +289,8 @@ pub struct Walk {
     target: Vec3,
     level: Level,
     speed: f32,
+    /// Whether it runs, playing its run clip.
+    runs: bool,
     /// Whether it stands on a stair it has climbed already or arrived on.
     climbed: bool,
 }
@@ -285,7 +303,16 @@ impl Walk {
             target,
             level,
             speed,
+            runs: false,
             climbed: false,
+        }
+    }
+
+    /// A run to `target` from `level` at `speed`.
+    pub fn run(target: Vec3, level: Level, speed: f32) -> Self {
+        Self {
+            runs: true,
+            ..Self::to(target, level, speed)
         }
     }
 }
@@ -834,6 +861,7 @@ impl Npcs {
         let record_flags: HashMap<u32, u8> = creatures.iter().map(|c| (c.id, c.flags)).collect();
         // Each creature's walk and run speeds (`+0x26`, `+0x28`, the models' units a second).
         let speeds: HashMap<u32, [u16; 2]> = creatures.iter().map(|c| (c.id, c.speed)).collect();
+        let classes: HashMap<u32, u8> = creatures.iter().map(|c| (c.id, c.class)).collect();
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -930,6 +958,9 @@ impl Npcs {
                 let clips = ClipNames {
                     stand: stand.map(|(name, _)| name.to_owned()),
                     walk: walk.map(|(name, _)| name.to_owned()),
+                    run: slots
+                        .clip(motions::Action::Run, class)
+                        .map(|(name, _)| name.to_owned()),
                     stance: slots.stance(class).map(str::to_owned),
                 };
                 (clips, walk.map(|(_, gait)| gait))
@@ -949,12 +980,13 @@ impl Npcs {
                     };
                     (to, f32::from(speed) * iso::MODEL_SCALE)
                 });
-            let [walking, _] = speeds.get(&creature).copied().unwrap_or_default();
+            let [walking, running] = speeds.get(&creature).copied().unwrap_or_default();
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
                 walk,
-                speed: f32::from(walking) * iso::MODEL_SCALE,
+                speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
+                class: classes.get(&creature).copied().unwrap_or_default(),
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
                 group: None,
                 heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
@@ -1018,8 +1050,12 @@ impl Npcs {
                     model: model.clone(),
                     cell: (0, 0),
                     walk: None,
-                    speed: f32::from(speeds.get(&creature).copied().unwrap_or_default()[0])
-                        * iso::MODEL_SCALE,
+                    speed: speeds
+                        .get(&creature)
+                        .copied()
+                        .unwrap_or_default()
+                        .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
+                    class: classes.get(&creature).copied().unwrap_or_default(),
                     made: (true, false),
                     group: None,
                     heading: 0.0,
@@ -1040,12 +1076,12 @@ impl Npcs {
                     clips: ClipNames {
                         stand: clip(motions::Action::Stand),
                         walk: clip(motions::Action::Walk),
+                        run: clip(motions::Action::Run),
                         stance: slots.stance(held_class(&[])).map(str::to_owned),
                     },
                 },
             );
         }
-        let classes = creatures.iter().map(|c| (c.id, c.class)).collect();
         let pools = pools(&records);
         let gear = pools
             .values()
@@ -1215,15 +1251,19 @@ pub fn place(
                         placement.clips = ClipNames {
                             stand: clip(motions::Action::Stand),
                             walk: clip(motions::Action::Walk),
+                            run: clip(motions::Action::Run),
                             stance: slots.stance(class).map(str::to_owned),
                         };
                     }
                 }
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
-                if made.hostile {
-                    placement.creature.2 |= crowd::HOSTILE;
-                }
+                // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`).
+                placement.creature.2 |= if made.hostile {
+                    crowd::HOSTILE
+                } else {
+                    ai::of_type(made.creature)
+                };
                 // A pack's group, by its sector, its record and its leader.
                 placement.group = made.pack.and_then(|leader| {
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
@@ -1326,15 +1366,15 @@ fn spawn(
                 placement.made,
                 placement.group,
                 placement.speed,
+                (creature, placement.class),
             ),
         ));
         if let Some(((tx, ty), speed)) = placement.walk {
-            entity.insert(Walk {
-                target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
+            entity.insert(Walk::to(
+                iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
                 level,
                 speed,
-                climbed: false,
-            });
+            ));
         }
     }
     entity.id()
@@ -1517,10 +1557,10 @@ pub fn retexture(
 }
 
 /// Gives each NPC's animation player its clips (`ClipNames`): the one it stands in, else its
-/// model's first, and its walk clip, which plays while the NPC walks.
+/// model's first, and its walk and run clips, which play while the NPC walks or runs.
 pub fn animate(
     mut commands: Commands,
-    mut npcs: Query<(&mut Npc, Has<Walk>)>,
+    mut npcs: Query<(&mut Npc, Option<&Walk>)>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut players: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
@@ -1539,7 +1579,7 @@ pub fn animate(
                 Err(_) => break None,
             }
         };
-        let Some((mut npc, walking)) = npc else {
+        let Some((mut npc, walk)) = npc else {
             continue;
         };
         if npc.graph.is_none() {
@@ -1556,25 +1596,27 @@ pub fn animate(
             else {
                 continue;
             };
-            let walk = clip(&npc.names.walk);
-            let stance = clip(&npc.names.stance);
             let mut graph = AnimationGraph::new();
             let root = graph.root;
             let idle = graph.add_clip(idle, 1.0, root);
-            let walk = walk.map(|clip| graph.add_clip(clip.clone(), 1.0, root));
-            let stance = stance.map(|clip| graph.add_clip(clip.clone(), 1.0, root));
+            let mut add = |name| clip(name).map(|clip| graph.add_clip(clip.clone(), 1.0, root));
+            let (walk, run, stance) = (
+                add(&npc.names.walk),
+                add(&npc.names.run),
+                add(&npc.names.stance),
+            );
             npc.graph = Some(Clips {
                 graph: graphs.add(graph),
                 idle,
                 walk,
+                run,
                 stance,
             });
         }
         if let Some(clips) = npc.graph.clone() {
-            let node = match (walking, clips.walk) {
-                (true, Some(walk)) => walk,
-                _ => clips.idle,
-            };
+            let node = walk
+                .and_then(|walk| clips.moving(walk))
+                .unwrap_or(clips.idle);
             // The clips change through transitions, which blend them (`stance`).
             let mut transitions = AnimationTransitions::new();
             transitions
@@ -1697,25 +1739,25 @@ const BLEND: Duration = Duration::from_millis(150);
 /// world units (`0x546A7E`).
 const STANCE_WITHIN: f32 = 550.0;
 
-/// Puts each walking NPC in its walk clip, and each standing NPC whose model has a fight stance
-/// into it while the hero's nearest hostile is within 550 units, wherever the NPC stands, and back
-/// into its idle otherwise, blending over 0.15 s (`0x5467A0`, which a standing creature asks at every update, `0x544890`;
-/// docs/re/motions.md, "The fight stance").
+/// Puts each walking NPC in its walk or run clip, and each standing NPC whose model has a fight
+/// stance into it while the hero's nearest hostile is within 550 units, wherever the NPC stands,
+/// and back into its idle otherwise, blending over 0.15 s (`0x5467A0`, which a standing creature
+/// asks at every update, `0x544890`; docs/re/motions.md, "The fight stance").
 pub fn stance(
     nearest: Res<crowd::Nearest>,
-    npcs: Query<(&Npc, Has<Walk>)>,
+    npcs: Query<(&Npc, Option<&Walk>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
     let fight = nearest.distance < STANCE_WITHIN;
-    for (npc, walking) in &npcs {
+    for (npc, walk) in &npcs {
         let (Some(clips), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
         // A walking NPC walks; a standing one stands, in its stance where it fights.
-        let wanted = match (walking, clips.walk, fight, clips.stance) {
-            (true, Some(walk), _, _) => walk,
-            (false, _, true, Some(stance)) => stance,
+        let wanted = match (walk, fight, clips.stance) {
+            (Some(walk), _, _) => clips.moving(walk).unwrap_or(clips.idle),
+            (None, true, Some(stance)) => stance,
             _ => clips.idle,
         };
         let Ok((mut player, mut transitions)) = players.get_mut(player) else {
