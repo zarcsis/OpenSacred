@@ -93,9 +93,14 @@ impl Streamer {
         self.loaded.entry(at).or_default().push(entity);
     }
 
-    /// Whether every sector near the hero is in place.
-    pub fn idle(&self) -> bool {
-        self.building.is_empty() && self.ready.is_empty()
+    /// Whether every sector near world point `hero` is in place, spawned or known to be missing,
+    /// and nothing more is building. Right after a teleport the sectors of the new place are not
+    /// asked for yet, so empty queues alone do not tell (#202).
+    pub fn settled(&self, hero: Vec3) -> bool {
+        self.building.is_empty()
+            && self.ready.is_empty()
+            && around(sector_of(hero), LOAD_RADIUS)
+                .all(|at| self.loaded.contains_key(&at) || self.missing.contains(&at))
     }
 
     /// The sectors being built or waiting to spawn.
@@ -295,9 +300,8 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn leaving_the_game_despawns_its_sectors_and_what_they_adopted() {
-        let shared = Arc::new(Shared {
+    fn shared() -> Arc<Shared> {
+        Arc::new(Shared {
             assets: PathBuf::new(),
             world: World {
                 sectors: Vec::new(),
@@ -308,7 +312,12 @@ mod tests {
                 sprites: Vec::new(),
             },
             shadows: None,
-        });
+        })
+    }
+
+    #[test]
+    fn leaving_the_game_despawns_its_sectors_and_what_they_adopted() {
+        let shared = shared();
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .insert_state(AppState::InGame)
@@ -344,5 +353,22 @@ mod tests {
             around((0, 0), 1).collect::<Vec<_>>(),
             [(0, 0), (1, 0), (0, 1), (1, 1)]
         );
+    }
+
+    #[test]
+    fn the_sectors_are_settled_only_around_where_the_hero_is_now() {
+        let mut streamer = Streamer::empty(shared());
+        for at in around((50, 39), LOAD_RADIUS) {
+            streamer.loaded.insert(at, Vec::new());
+        }
+        let start = iso::ground(50.5 * SIDE as f32, 39.5 * SIDE as f32);
+        assert!(streamer.settled(start));
+        // Teleported: nothing builds yet, but the sectors of the new place are not in.
+        let away = iso::ground(45.5 * SIDE as f32, 52.5 * SIDE as f32);
+        assert!(!streamer.settled(away));
+        for at in around((45, 52), LOAD_RADIUS) {
+            streamer.missing.insert(at);
+        }
+        assert!(streamer.settled(away));
     }
 }

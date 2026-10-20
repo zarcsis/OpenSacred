@@ -293,7 +293,14 @@ impl Probe<'_, '_> {
             objects: self.objects.iter().count(),
             entities: self.entities.iter().count(),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
-                && self.streamer.as_deref().is_some_and(Streamer::idle),
+                && self
+                    .bodies
+                    .iter()
+                    .next()
+                    .zip(self.streamer.as_deref())
+                    .is_some_and(|((transform, _), streamer)| {
+                        streamer.settled(transform.translation)
+                    }),
         }
     }
 }

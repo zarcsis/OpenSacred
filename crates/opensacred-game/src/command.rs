@@ -546,14 +546,29 @@ impl Script {
     }
 }
 
-/// Whether what the script waits for has come; it counts a frame of a wait for frames.
+/// Whether what the script waits for has come; it counts a frame of a wait for frames. A script
+/// also waits for the screenshots it asked for to be written, so that a `quit` or a teleport
+/// after a `screenshot` cannot come before its frame (#202).
 fn waited(world: &mut World) -> bool {
+    if world
+        .get_resource::<screenshot::Saving>()
+        .is_some_and(screenshot::Saving::pending)
+    {
+        return false;
+    }
     let done = match &world.resource::<Script>().waiting {
         None => return true,
         Some(Waiting::Ready) => {
+            let hero = world
+                .query_filtered::<&Transform, With<Body>>()
+                .iter(world)
+                .next()
+                .map(|transform| transform.translation);
             in_game(world).is_ok()
                 && world.get_resource::<Ready>().is_some_and(|ready| ready.0)
-                && world.get_resource::<Streamer>().is_some_and(Streamer::idle)
+                && hero
+                    .zip(world.get_resource::<Streamer>())
+                    .is_some_and(|(hero, streamer)| streamer.settled(hero))
         }
         Some(Waiting::Arrived) => {
             let mut bodies = world.query::<&Body>();

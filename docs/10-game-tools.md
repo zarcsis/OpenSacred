@@ -136,6 +136,7 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
   `screenshot FILE` saves the next frame; a script waits the frames it wants before it, instead of `--frames`.
   A jumping hero stands on the ground as soon as its sector's ground is in; the streamer needed nothing more.
   `--exec` splits at every semicolon, so a command in it cannot hold one.
+* Fixed 2026-10-20 (#202): a script goes on after a `screenshot` only once its file is written, a frame or two later, so that a `quit` or a jump right after it cannot come first (the last frame of a script was lost, and a frame asked for before a jump showed the new place before its sectors); and `wait ready` (and the state's `ready`) holds only once the sectors around the hero's place of now are in, not merely when the streamer has nothing to build, which it had right after a jump.
 
 ## 7. The console (#174)
 
