@@ -344,6 +344,13 @@ impl Heights {
         }
     }
 
+    /// The flags (`+0x1E`) of global cell `(cx, cy)` of the ground; `None` outside the loaded
+    /// sectors.
+    pub fn flags(&self, (cx, cy): (i32, i32)) -> Option<u8> {
+        let cell = (u32::try_from(cx).ok()?, u32::try_from(cy).ok()?);
+        self.cells.get(&cell).map(|cell| cell.flags)
+    }
+
     /// How many floors a loaded building has.
     pub fn floor_count(&self, building: buildings::Anchor) -> usize {
         self.floors.get(&building).map_or(0, Vec::len)
