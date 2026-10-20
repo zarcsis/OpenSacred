@@ -104,18 +104,26 @@ In what unit of time the speed is, is not read.
 
 ## The cursor's point
 
-Read 2026-10-20 (#149).
-`0x616AD0`, which `cEngine::updateWorldCursor` (`0x612A00`) calls with the local player's hero and `0x617030` with another object, finds the cell under the cursor: it walks cells along the cursor's line (three a step, by a table at `0x95F208`), and for each cell takes its ground and every floor of the building there (`0x635400` gives their count), each at its floor's height (`+0x33 · 28` units, docs/re/drawing.md, "Depth").
-It skips the cells of a mass or a wall (the ground byte's low nibble 1 or 2), and keeps, of those that the line passes within √1200 units of and that may be walked on (`0x636C10`), the one of the smallest parameter along the line.
-A floor `n` ≥ 1 counts when the building's object has flag `0x400` (an open building, docs/re/drawing.md, "Buildings: masks and layers"), when `n` is 1 and the hero's word at `+0x2C` is 0 (not read), when the building's state shows the layer `n`, or when `n` is the hero's own floor (its position's byte `+0x24`).
-**Hypothesis**: so a click reaches a castle's wall walk from outside, and the upper floors of a closed building only while the hero is in it.
-Not read: the line's origin and direction, the number of steps, and what `0x612A00` does with the cell (#204).
+Read 2026-10-20 (#149, #204).
+`0x616AD0` finds the cell under a point of the screen for a creature, the local player's hero: `cEngine::updateWorldCursor` (`0x612A00`) calls it for the cursor, and `0x617030` for the point of an order.
+
+- It takes the screen point into the world at height 0 (`0x6239C0`, through the view's matrices) and the cell there, and walks from that cell down the screen, one cell along both axes a step (`+1, +1`), for `|h / 24| + 8` steps, `h` the creature's own height (`0x449950`: its cell's height on its level, plus its floor's).
+  At each step it tests three cells, the step's own and the next along each axis (a table at `0x95F208`: `(0, 0)`, `(1, 0)`, `(0, 1)`), so that the walk covers the cells whose ground, raised, shows under the point.
+- In each cell it tests the ground and every floor of the building there (`0x635400` gives their count), each at its height: the cell's height on that level (`0x636520`) plus, from floor 2 up, the floor's (`+0x33 · 28` units, docs/re/drawing.md, "Depth").
+- It skips the cells of a mass or a wall (the ground byte's low nibble 1 or 2) and those that may not be walked on (`0x636C10`), and keeps the one whose point lies within √1200 units (0.65 of a cell) of where the screen point's line of sight crosses the level of that point's height, the line's direction `(0, −400, −200)` in the frame of `0x6239C0`; of several, the one of the smallest parameter along the line, the nearest the eye (**hypothesis** for the sense).
+- A floor `n` ≥ 1 counts when the building's object has flag `0x400` (an open building, docs/re/drawing.md, "Buildings: masks and layers"), when `n` is 1 and the creature's word at `+0x2C` is 0 (not read), when the building's state shows the layer `n`, or when `n` is the creature's own floor (its position's byte `+0x24`).
+
+The cursor's update shows the action cursor (`mouse_action.tga`) over a cell of the nibbles 3 (a teleport) and 5 to 8 (the stairs), and over a cell that a map keyed by the packed cell and layer holds (`0xAB4498`, `layer << 26 | y << 13 | x`).
+An order of the player (`0x617030`, events of the types 4 and `0x105` with a point) takes the cell found as its target, its point and its layer, unless that map holds the cell, whose stored cell and layer then replace it, and passes the order on to the creature (its vtable's `+0x18`); where nothing is found it passes the order unchanged.
+Not read: where the map is filled, and how the creature's order reaches the way's search (`0x4F7710`).
+So a click sends the hero to the walkable cell whose ground or floor, at its own height, shows under the cursor: up a hill, onto a bridge's deck, onto a castle's wall walk from outside, and onto the upper floors of a closed building only while the hero is in it.
 
 ## In `opensacred-game`
 
 `terrain::Heights` keeps each loaded cell's walkability by the rule above, on the ground and on the sectors' inside layers; the doors' triggers have no states in the game, so the doors are open (**hypothesis**).
 `paths` searches the way as the client does, over the eight neighbours in a 64 × 64 window but not between two cells that touch at a corner (the client's search is not read to do so), at the hero's level and, at an entrance on the ground or an exit on a layer, only onto the level it leads to (`terrain::Heights::neighbours`), and the hero heads for the farthest cell of the way on its level that it reaches in a straight line, or for the target itself when nothing stands between; at a change of level on its way it goes onto the way's next level.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
+A click sends the hero to the point of the cursor's line of sight at the hero's own height (`hero::steer`), not to the cell that the original finds under the cursor and onto its level (#208).
 A hero on a building's mass on the ground is put on its building's floor 1 where its grid holds the cell walkable (a start inside the monastery), and a hero that steps onto an entrance or an exit goes in or out as the client's does (`terrain::Heights::transition`), the floors read from the world format (version 6: the buildings and their floors, `opensacred-convert world`).
 A hero that steps onto a stair from off the stairs goes to the stair's floor at the cell its offsets give (`terrain::Heights::climb`, `hero::run`), and the way's search knows the stairs as the client's flag `0x100` makes them: a place of the way carries whether the step onto it climbs (`terrain::Footing`).
 The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
