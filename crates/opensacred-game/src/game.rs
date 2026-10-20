@@ -524,7 +524,7 @@ impl Plugin for GamePlugin {
         app.init_state::<AppState>()
             .init_resource::<Request>()
             .add_systems(Startup, setup)
-            .add_systems(OnEnter(AppState::Loading), begin)
+            .add_systems(OnEnter(AppState::Loading), (leftovers, begin))
             .add_systems(Update, finish.run_if(in_state(AppState::Loading)))
             .add_systems(OnEnter(AppState::InGame), place_camera)
             .add_systems(OnExit(AppState::InGame), leave)

@@ -74,6 +74,8 @@ ron = "0.12.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
+# The game's commands split their lines as a shell does (docs/10 §6).
+shlex = "2.0.1"
 thiserror = "2.0.21"
 # The game's settings file (docs/10 §3): read through serde, written key by key keeping the
 # user's comments and order, which the toml crate does not keep.

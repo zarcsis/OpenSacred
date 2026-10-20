@@ -132,6 +132,10 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
   `--screenshot`, `--record`, `--benchmark` and `--target` stay as shortcuts.
 * `--assets` and `--settings` stay the command line's alone.
 * `sector` and `cell` jump: the streamer drops the sectors beyond two of the new place and builds the 3 × 3 around it, and the hero waits for its ground.
+* Done 2026-10-19 (#173), in a module `command`: `run` parses a line and does it with the whole world at hand, giving an `Outcome` of lines (and for `wait` what a script waits for) or an error; a script runs up to 256 lines a frame, logs each line and its output, and starts a wait with the next frame, so that `wait frames 3` lets three frames render.
+  `screenshot FILE` saves the next frame; a script waits the frames it wants before it, instead of `--frames`.
+  A jumping hero stands on the ground as soon as its sector's ground is in; the streamer needed nothing more.
+  `--exec` splits at every semicolon, so a command in it cannot hold one.
 
 ## 7. The console (#174)
 

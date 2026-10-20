@@ -1,11 +1,14 @@
 //! `--screenshot`: once the hero animates and every sector near it is in place, render a few
 //! more frames, save one to a PNG and exit. The first step toward the screenshot tests of M2.
+//! The command `screenshot` saves the next frame at once ([`save`]), and `record` records as
+//! `--record` does, going on after it (`command`).
 
 use std::path::PathBuf;
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 
+use crate::frame::Playing;
 use crate::hero::Ready;
 use crate::sectors::Streamer;
 
@@ -53,8 +56,16 @@ pub fn take(
         );
 }
 
+/// Saves the next frame of the window to `path`, as it is.
+pub fn save(world: &mut World, path: PathBuf) {
+    world
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(path));
+}
+
 /// `--record`: from the same moment as a screenshot, save every frame to a numbered PNG for a
-/// number of frames, then exit, to look at flicker or a stutter frame by frame.
+/// number of frames, then exit, to look at flicker or a stutter frame by frame; the command
+/// `record` goes on after its frames.
 #[derive(Resource)]
 pub struct Recording {
     dir: PathBuf,
@@ -64,16 +75,19 @@ pub struct Recording {
     rendered: u32,
     /// Frames saved, which the last one's capture counts down.
     saved: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// Whether the process ends with the recording.
+    exit: bool,
 }
 
 impl Recording {
-    pub fn new(dir: PathBuf, settle: u32, frames: u32) -> Self {
+    pub fn new(dir: PathBuf, settle: u32, frames: u32, exit: bool) -> Self {
         Self {
             dir,
             settle,
             frames,
             rendered: 0,
             saved: std::sync::Arc::default(),
+            exit,
         }
     }
 }
@@ -98,7 +112,16 @@ pub fn record(
     mut exit: MessageWriter<AppExit>,
 ) {
     if recording.saved.load(std::sync::atomic::Ordering::Acquire) >= recording.frames {
-        exit.write(AppExit::Success);
+        if recording.exit {
+            exit.write(AppExit::Success);
+        } else {
+            info!(
+                "recorded {} frames to {}",
+                recording.frames,
+                recording.dir.display()
+            );
+            commands.remove_resource::<Recording>();
+        }
         return;
     }
     if !ready.0 || (recording.rendered == 0 && !streamer.idle()) {
@@ -118,6 +141,22 @@ pub fn record(
         .observe(move |_: On<ScreenshotCaptured>| {
             saved.fetch_add(1, std::sync::atomic::Ordering::Release);
         });
+}
+
+/// The screenshot of `--screenshot` and the recordings, in a game, when asked for.
+pub struct ScreenshotPlugin;
+
+impl Plugin for ScreenshotPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            (
+                take.run_if(resource_exists::<Request>),
+                record.run_if(resource_exists::<Recording>),
+            )
+                .in_set(Playing),
+        );
+    }
 }
 
 #[cfg(test)]

@@ -118,6 +118,8 @@ pub struct Body {
     climbed: bool,
     /// The clip playing: standing, walking or running.
     moving: Option<Gait>,
+    /// Put somewhere whose ground had not come in: it stands on the ground once it has.
+    unplaced: bool,
 }
 
 impl Body {
@@ -132,6 +134,21 @@ impl Body {
     /// Where it goes, if anywhere.
     pub fn target(&self) -> Option<Vec3> {
         self.target
+    }
+
+    /// Sends it to `target`.
+    pub fn send(&mut self, target: Vec3) {
+        self.target = Some(target);
+    }
+
+    /// Puts it at `position` on the ground, going nowhere; it stands on the ground there as soon
+    /// as the ground's sector is in ([`run`]).
+    pub fn teleport(&mut self, transform: &mut Transform, position: Vec3) {
+        transform.translation = position;
+        self.target = None;
+        self.level = None;
+        self.climbed = false;
+        self.unplaced = true;
     }
 }
 
@@ -209,6 +226,7 @@ pub fn spawn(
             level: None,
             climbed: false,
             moving: None,
+            unplaced: false,
         },
         models::Ordered::default(),
         shadows::Casts,
@@ -306,6 +324,13 @@ pub fn run(
 ) {
     for (mut transform, mut body) in &mut bodies {
         let mut moving = None;
+        if body.unplaced
+            && let Some(y) =
+                heights.standing(transform.translation.x, transform.translation.z, None)
+        {
+            transform.translation.y = y;
+            body.unplaced = false;
+        }
         let here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         // A hero on a building's mass is inside it, on its layer; one on an entrance goes in, one
