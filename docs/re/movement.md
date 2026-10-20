@@ -102,6 +102,15 @@ The same call sets the rate of the creature's clip (`0x413610`, Granny's animati
 So the creatures move and their clips play a quarter faster than the tables and the clips have it, together, and the steps match the ground as they were made to.
 In what unit of time the speed is, is not read.
 
+## The cursor's point
+
+Read 2026-10-20 (#149).
+`0x616AD0`, which `cEngine::updateWorldCursor` (`0x612A00`) calls with the local player's hero and `0x617030` with another object, finds the cell under the cursor: it walks cells along the cursor's line (three a step, by a table at `0x95F208`), and for each cell takes its ground and every floor of the building there (`0x635400` gives their count), each at its floor's height (`+0x33 · 28` units, docs/re/drawing.md, "Depth").
+It skips the cells of a mass or a wall (the ground byte's low nibble 1 or 2), and keeps, of those that the line passes within √1200 units of and that may be walked on (`0x636C10`), the one of the smallest parameter along the line.
+A floor `n` ≥ 1 counts when the building's object has flag `0x400` (an open building, docs/re/drawing.md, "Buildings: masks and layers"), when `n` is 1 and the hero's word at `+0x2C` is 0 (not read), when the building's state shows the layer `n`, or when `n` is the hero's own floor (its position's byte `+0x24`).
+**Hypothesis**: so a click reaches a castle's wall walk from outside, and the upper floors of a closed building only while the hero is in it.
+Not read: the line's origin and direction, the number of steps, and what `0x612A00` does with the cell (#204).
+
 ## In `opensacred-game`
 
 `terrain::Heights` keeps each loaded cell's walkability by the rule above, on the ground and on the sectors' inside layers; the doors' triggers have no states in the game, so the doors are open (**hypothesis**).
