@@ -10,6 +10,7 @@ Status: **confirmed** on the code unless marked otherwise.
 
 - Not when the low nibble of the cell's ground byte (`+0x1F`) is 1 or 2, or its flags (`+0x1E`) have bit 3.
 - A cell with flag bit 2, a door, is looked up by its position and layer (packed as `((x << 14 | y) << 4) | layer`) in a tree of the world's triggers; when it has one, the cell may be walked on when bit 0 of the word at `+0x0A` of the trigger's 16-byte record is set (the table at `+0x268` of the world, whose records also give the buildings' states, docs/re/drawing.md); otherwise the rule above decides.
+  The tree is the scripts' (`0xAB44C8`, `+0x7548` of the script manager at `0xAACF80`), and the scripts' `TriggerPatch` records fill it at run time, setting the flag on the cells they name (#211, "The objects in the way"): the doors of the sector files are not its only cells.
 
 **The layers.**
 For layer 0 `0x634C50` returns the sector's own cell.
@@ -83,7 +84,16 @@ The object manager links an object into the chain of its cell as it places it (`
 
 **The hero's id is 1** (read 2026-10-20, #157): a new single-player game (`0x70D6E0`) and a loaded one (`0x71CC90`) store 1 as the local player's id (`+0x14` of the context that `0x7D84A0` gives), and the object manager hands out no id below 17 to other objects (`0x600AA0` keeps the slots 0 to 16 apart); the ids 1 to 16 are the players'.
 So `0x4F7E10` does not stop the hero at a chest; yet the maintainer saw in the game (2026-10-19) that the hero does not pass through a chest or a barrel, and goes round one to a point beyond it.
-Something else keeps the hero off the chests' cells, not read (#211).
+
+**The chests' cells** (read 2026-10-20, #211): the cell keeps the hero off, not the object.
+Every start script creates one trigger closed, `CreateTrigger "chestTrigger" 28:0 27` (type 48, `0x496520`: tag `0x27` clears bit 0 of the state, `0x26` would set it), and names the cells of each chest before its `CreateObj` in a `TriggerPatch 01:"chestTrigger" 2A:(x, y, floor)` (type 50, `0x496F20`), several for a wide object.
+`0x463F50`, for each position of the patch (up to 100), puts the key `((x << 14 | y) << 4) | (floor ≥ 2 ? floor : 0)` in the scripts' tree of trigger cells (`0xAB44C8`, `0x4BF460`) with the trigger's index, keeps the position in the script manager's list (`+0x37C`), and sets bit 2 of the cell's flags (`+0x1E`): of the ground's cell for the floors 0 and 1, of the floor's cell above; `0x493440` sets the flags again as a sector comes in (`0x637AF0`).
+The cell's own test `0x4EBCA0`, which `0x4F7E10` makes first for every creature, refuses a cell of that flag whose trigger lacks bit 0 of its state (but to a creature of `+0x1F4` bit `0x200000` on the ground, outside a dungeon).
+No script opens `chestTrigger` (it is named only by 310 `CreateTrigger`, 49,241 `TriggerPatch` and 279 `CreateObj` records over the trees; a chest opens by its own trigger), so the chests' cells stay closed to every creature, the hero included.
+In the Seraphim's tree, 1,843 of the 1,930 objects of category 4 stand on a cell of `chestTrigger`, 67 book stands on cells of `PanelTrigger` and 4 on their own trigger's; 16 have no patch (5 barrels, 11 chests, coffins or cabinets), which only the rule of `0x4F7E10` keeps the NPCs off, not the hero; 413 cells of `chestTrigger` hold no object of their own, the side cells of wide objects; and the signposts (category 15) stand on cells of `WWTrigger` and `WWTriggerMP`, closed as well.
+The same patches close the scripts' other blocking cells (triggers of names such as `nogo…`, `…stopper…`, `Blocker…`), which open as the scripts set their states.
+A click on a closed cell sends the hero to the walkable neighbour of the eight nearest to it (`0x4F8560`), so it stops beside a chest.
+(**confirmed** by code and on the trees' listings)
 
 **The creatures in the way** (read 2026-10-20, #157).
 A creature in the cell stops the step when all of these hold:
@@ -151,7 +161,7 @@ A hero on a building's mass on the ground is put on its building's floor 1 where
 A hero that steps onto a stair from off the stairs goes to the stair's floor at the cell its offsets give (`terrain::Heights::climb`, `hero::run`), and the way's search knows the stairs as the client's flag `0x100` makes them: a place of the way carries whether the step onto it climbs (`terrain::Footing`).
 The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
 The hero and the NPCs stand at the height that `0x636520` and `0x449950` give (`terrain::Heights::standing`, #141): on the second heights of their level's cell, a bridge's deck over the water, and on a building's floor at the floor's height above them.
-The start scripts' objects of category 4 take their cells at their levels (`terrain::Heights::occupy`, placed by `npcs::place`, #154): the way of the hero and of a walking NPC goes round them, and a step into one stops, as into a cell that may not be walked on; for a walking NPC as `0x4F7E10` has a chest stop a creature of id above 16, for the hero as the maintainer saw it in the game, by a test not read (#211).
+The start scripts' objects of category 4 take their cells at their levels (`terrain::Heights::occupy`, placed by `npcs::place`, #154): the way of the hero and of a walking NPC goes round them, and a step into one stops, as into a cell that may not be walked on; for a walking NPC as `0x4F7E10` has a chest stop a creature of id above 16, for the hero as the closed `chestTrigger`'s cells do in most cases; the trigger patches' own cells are not followed yet (#216).
 The creatures stop one another's steps by the conditions above (`crowd`, #212): each frame takes the cells the hero and the NPCs stand on at their levels, and the hero's way and steps go round a cell only where a creature of bit 0 or 1 of its flags word stands (the start's captain `hauptmann3`), a walking NPC's round any creature's but its own; a big creature (`Creature.pak` flags `0x02`) or a critter stops none.
 The flags word is made from each `CreateNPC` record's tags as the client makes it (`crowd::flags_word`); the goals (`+0x259`) and the followers (`+0x39C`) are not followed, there being neither yet.
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
