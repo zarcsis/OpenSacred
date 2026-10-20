@@ -675,14 +675,15 @@ pub fn place(
                 heights.occupy((cx, cy), level);
             }
             // In its layer of the building whose floor or cell it is on, if any.
-            let layered = buildings::Layered {
-                building: on_floor.or_else(|| {
+            let layered = buildings::Layered::of(
+                &heights,
+                on_floor.or_else(|| {
                     heights
                         .building(position.x, position.z)
                         .map(|(building, _)| building)
                 }),
-                layer: placement.layer,
-            };
+                placement.layer,
+            );
             let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
             let mut entity = commands.spawn((
                 WorldAssetRoot(scene),

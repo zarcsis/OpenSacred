@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::packed::{DecodeError, decode, encode};
 
 /// Version of the sector and sprite encodings; a file of another version does not load.
-pub const SECTOR_VERSION: u32 = 7;
+pub const SECTOR_VERSION: u32 = 8;
 /// The index file under the world directory.
 pub const INDEX: &str = "world.ron";
 /// The sprite table under the world directory.
@@ -87,6 +87,10 @@ pub struct Building {
     ///
     /// [`floors`]: Building::floors
     pub heights: Vec<u16>,
+    /// Whether the building is open to the sky, its object's flag `0x400`: the castles' walls
+    /// and towers, whose floors' objects the client draws whatever the building's state
+    /// (docs/re/drawing.md, "Buildings: masks and layers").
+    pub open: bool,
 }
 
 /// An inside layer: a grid of cells of a building's own, from its first cell's global position
@@ -346,6 +350,7 @@ mod tests {
                 cell: 65,
                 floors: vec![1],
                 heights: vec![0],
+                open: true,
             }],
         }
     }

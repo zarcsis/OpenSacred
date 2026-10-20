@@ -50,6 +50,8 @@ pub struct Heights {
     floors: HashMap<buildings::Anchor, Vec<LayerKey>>,
     /// The building and the floor, from 1, that each inside layer is.
     floor_of: HashMap<LayerKey, (buildings::Anchor, u8)>,
+    /// The loaded sectors' buildings open to the sky ([`Self::open`]).
+    open: HashSet<buildings::Anchor>,
     /// How high, in world units, each inside layer that is a building's floor lies above the
     /// ground ([`Self::lift`]).
     lifts: HashMap<LayerKey, f32>,
@@ -260,6 +262,9 @@ impl Heights {
                 }
             }
             self.floors.insert(anchor, floors);
+            if building.open {
+                self.open.insert(anchor);
+            }
         }
         for (index, cell) in sector.cells.iter().enumerate() {
             let (Ok(row), Ok(column), Ok(side)) = (
@@ -417,6 +422,13 @@ impl Heights {
     /// The building and the floor, from 1, that a level is.
     pub fn floor(&self, level: Level) -> Option<(buildings::Anchor, u8)> {
         self.floor_of.get(&level?).copied()
+    }
+
+    /// Whether a building is open to the sky, its object's flag `0x400`: the client draws the
+    /// objects of all its floors whatever its state (docs/re/drawing.md, "Buildings: masks and
+    /// layers").
+    pub fn open(&self, building: buildings::Anchor) -> bool {
+        self.open.contains(&building)
     }
 
     /// The building one of whose floor `floor` (from 1) has a grid that holds global `cell`: the
@@ -1254,6 +1266,7 @@ mod tests {
                 cell: u16::try_from(4 * SIDE + 4).unwrap(),
                 floors: vec![1, 2],
                 heights: vec![0, 112],
+                open: false,
             }],
         };
         let mut heights = Heights::default();
@@ -1419,6 +1432,7 @@ mod tests {
                 cell: 1,
                 floors: vec![1],
                 heights: vec![28],
+                open: false,
             }],
         };
         let mut heights = Heights::default();
