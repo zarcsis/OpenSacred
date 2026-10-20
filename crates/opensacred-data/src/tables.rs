@@ -104,7 +104,7 @@ pub struct Motion {
     pub value_be: u16,
 }
 
-/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), the 330 that the keys of the
+/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), the 354 that the keys of the
 /// balance text name by name, and the image of all of them as stored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Balance {
