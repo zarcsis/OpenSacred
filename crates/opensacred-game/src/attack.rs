@@ -34,14 +34,30 @@ const BLEND: Duration = Duration::from_millis(100);
 pub struct Aim(pub bool);
 
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
-/// at once, where it stands, once; and whether it ends with its strike, the player having sent
-/// the hero elsewhere.
+/// at once, where it stands, once; whether it ends with its strike, the player having sent the
+/// hero elsewhere; and the factor of its chained strikes (`+0x210`) with their count.
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
     point: Vec3,
     at_once: bool,
     ends: bool,
+    chain: f32,
+    strikes: u32,
+}
+
+/// How much each chained strike raises the speed of the next, and the most (`0x4E4CF0`).
+const CHAIN_STEP: f32 = 0.1;
+const CHAIN_MOST: f32 = 1.7;
+
+/// The factor of a strike that follows `strikes` strikes of a chain whose factor was `chain`:
+/// 1 for the first, else raised by 0.1, at most 1.7.
+fn chained(chain: f32, strikes: u32) -> f32 {
+    if strikes == 0 {
+        1.0
+    } else {
+        (chain + CHAIN_STEP).min(CHAIN_MOST)
+    }
 }
 
 /// The strike the hero plays (the attack action 3, `0x4E4CF0`): its clip's node, its length,
@@ -119,9 +135,18 @@ fn aim(
             point,
             at_once,
             ends: false,
+            chain: 1.0,
+            strikes: 0,
         };
         match (aim.0, attack) {
-            (true, Some(mut attack)) => *attack = next,
+            // A new order while the attack goes on keeps its chain.
+            (true, Some(mut attack)) => {
+                *attack = Attack {
+                    chain: attack.chain,
+                    strikes: attack.strikes,
+                    ..next
+                };
+            }
             (true, None) => {
                 commands.entity(hero).insert(next);
             }
@@ -169,7 +194,7 @@ fn engage(
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, attack, striking, combat) in &mut heroes {
+    for (hero, mut transform, mut body, mut attack, striking, combat) in &mut heroes {
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
@@ -230,7 +255,10 @@ fn engage(
             continue;
         }
         if !attack.at_once && (aimed - here).with_y(0.0).length() > BAND {
+            // Coming on, its chain breaks.
             body.send(aimed);
+            attack.strikes = 0;
+            attack.chain = 1.0;
             continue;
         }
         body.stop();
@@ -247,8 +275,10 @@ fn engage(
             .get(clip)
             .map_or(1.0, AnimationClip::duration)
             .max(0.01);
-        // At its attack speed (`0x4E4CF0`).
-        let attack_speed = combat.map_or(1.0, fight::Combat::clip_speed);
+        // At its attack speed times its chain's factor (`0x4E4CF0`).
+        attack.chain = chained(attack.chain, attack.strikes);
+        attack.strikes += 1;
+        let attack_speed = combat.map_or(1.0, fight::Combat::clip_speed) * attack.chain;
         transitions
             .play(&mut player, *node, BLEND)
             .set_speed(speed.0 * attack_speed);
@@ -283,6 +313,19 @@ impl Plugin for AttackPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chain_of_strikes_grows_faster_by_a_tenth_up_to_1_7() {
+        let mut chain = 1.0;
+        let factors: Vec<f32> = (0..10)
+            .map(|strikes| {
+                chain = chained(chain, strikes);
+                chain
+            })
+            .collect();
+        assert!((factors[0] - 1.0).abs() < 1e-6 && (factors[1] - 1.1).abs() < 1e-6);
+        assert!((factors[7] - 1.7).abs() < 1e-5 && (factors[9] - 1.7).abs() < 1e-5);
+    }
 
     #[test]
     fn a_creature_is_picked_near_the_line_of_sight_up_to_its_height() {
