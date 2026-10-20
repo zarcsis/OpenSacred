@@ -146,6 +146,16 @@ impl Slots {
     /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
     /// standing creature takes it instead of its idle only then (`0x5467A0`,
     /// docs/re/motions.md, "The fight stance").
+    /// The attack's clips for `class`, the slots 79 + 5 · class to 4 more where the model has them
+    /// (`0x5467A0`, the action 4; class 14 taking 12's; docs/re/motions.md).
+    pub fn attacks(&self, class: u8) -> Vec<String> {
+        let class = if class == 14 { 12 } else { class.min(12) };
+        let first = 79 + 5 * u16::from(class);
+        (first..first + 5)
+            .filter_map(|slot| self.slot(slot).map(str::to_owned))
+            .collect()
+    }
+
     pub fn stance(&self, class: u8) -> Option<&str> {
         let slot = match class {
             0..=12 => 14 + u16::from(class),

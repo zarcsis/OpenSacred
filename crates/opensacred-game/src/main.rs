@@ -217,13 +217,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         console::ConsolePlugin,
         crowd::CrowdPlugin,
         daynight::DayNightPlugin,
+        fight::FightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
         help::HelpPlugin,
-        hero::HeroPlugin,
-        hud::HudPlugin,
     ))
     .add_plugins((
+        hero::HeroPlugin,
+        hud::HudPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
@@ -237,10 +238,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
-        shadows::ShadowsPlugin,
-        sound::SoundPlugin,
     ))
     .add_plugins((
+        shadows::ShadowsPlugin,
+        sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,

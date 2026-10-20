@@ -15,7 +15,7 @@ use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::lines::Says;
-use crate::npcs::{Door, Plays, PutAt, Swing, Talks, Walk};
+use crate::npcs::{Door, Plays, PutAt, Strikes, Swing, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
@@ -546,18 +546,25 @@ impl Default for FightRules {
 fn pursue(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
-    hero: Query<&Transform, With<Body>>,
+    hero: Query<(Entity, &Transform), With<Body>>,
     mut creatures: Query<
-        (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
+        (
+            Entity,
+            &mut Transform,
+            &InTheWay,
+            &mut Mind,
+            Option<&Walk>,
+            Has<Strikes>,
+        ),
         Without<Body>,
     >,
 ) {
-    let Some(hero) = hero.iter().next() else {
+    let Some((the_hero, hero)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
     let (lo, hi) = (REACH - BAND, REACH + BAND);
-    for (entity, mut transform, way, mut mind, walk) in &mut creatures {
+    for (entity, mut transform, way, mut mind, walk, striking) in &mut creatures {
         if !mind.fighting {
             continue;
         }
@@ -590,7 +597,17 @@ fn pursue(
                     .entity(entity)
                     .insert(Walk::to(target, way.level, mind.speed));
             }
-            None => transform.rotation = crate::hero::facing(hero - here),
+            // In the band, turned to the hero, it strikes, and decides again when the strike
+            // ends (`0x4E2147`).
+            None => {
+                transform.rotation = crate::hero::facing(hero - here);
+                if !striking {
+                    let choice = minds.rng.below(5);
+                    commands
+                        .entity(entity)
+                        .insert(Strikes::at(the_hero, choice));
+                }
+            }
         }
     }
 }
