@@ -381,8 +381,9 @@ fn idle_step(mind: &Mind, here: Vec3, hero: Vec3, rng: &mut Rng) -> Option<Vec3>
 
 /// Runs the creatures' timers, the hero's look every 0.3 s, and the awake creatures' thought.
 #[expect(
+    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn think(
     mut commands: Commands,
@@ -390,6 +391,7 @@ fn think(
     mut minds: ResMut<Minds>,
     heights: Res<Heights>,
     balance: Res<FightRules>,
+    experience: Res<crate::fight::Experience>,
     hero: Query<(&Transform, &Body)>,
     mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
@@ -449,11 +451,9 @@ fn think(
                 let from_home = (here - mind.home).abs();
                 // The hero worth experience to it, or within its reach, within 800, a straight
                 // line of walkable cells to it: it comes at the hero (`0x542B20`).
-                let takes_on = crate::fight::takes_on(
-                    mind.level,
-                    crate::fight::HERO_LEVEL,
-                    balance.experience,
-                ) || distance <= REACH;
+                let takes_on =
+                    crate::fight::takes_on(mind.level, experience.level, balance.experience)
+                        || distance <= REACH;
                 let line = paths::clear(here.xz(), hero.xz(), |cell| {
                     heights.walkable_on(cell, way.level)
                 });

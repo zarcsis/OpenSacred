@@ -388,6 +388,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             &skills,
             &rules,
         )),
+        base,
     ));
     hero.dying = dying;
     hero.speeds = record

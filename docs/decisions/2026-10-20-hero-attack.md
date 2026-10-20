@@ -12,7 +12,7 @@ The hero's attack, defence and damage are its stats' recomputation's, with its a
 
 The hero strikes with its bare hands' clips at its attack speed (#306), without chained strikes growing faster and without pushing its target; it strikes on until the target dies, which the original's player does by keeping the button held or clicking again (**hypothesis**: the hero's idle handler does not take it back into state 4 by itself).
 A creature is picked within 45 units of the cursor's line of sight, up to 110 over its feet, rather than by its model's shape.
-Its values are its type's record's at level 1, unarmed, with its two skills at level 1 (docs/decisions/2026-10-20-skills.md) and no attribute points or items (#294); its experience grows with its kills, without the cap of the level or the bonuses, and it gains no level (#300).
+Its values are its type's record's at level 1, unarmed, with its two skills at level 1 (docs/decisions/2026-10-20-skills.md) and no attribute points or items (#294); its experience grows with its kills and gives it levels (#300, docs/decisions/2026-10-20-levels.md).
 
 ## Why
 

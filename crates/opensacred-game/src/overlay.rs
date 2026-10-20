@@ -115,8 +115,8 @@ pub struct Snapshot {
     pub entities: usize,
     /// The health of the creature nearest the hero, its most and its level.
     pub nearest: Option<(u32, u32, u32)>,
-    /// The hero's experience (`fight::Experience`), and its health and most.
-    pub experience: Option<u64>,
+    /// The hero's level and experience (`fight::Experience`), and its health and most.
+    pub experience: Option<(u32, u64)>,
     pub health: Option<(u32, u32)>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
@@ -203,11 +203,11 @@ impl Snapshot {
                 ));
             }
             match (self.health, self.experience) {
-                (Some((current, most)), Some(experience)) => lines.push(format!(
-                    "hero health {current}/{most}  experience {experience}"
+                (Some((current, most)), Some((level, experience))) => lines.push(format!(
+                    "hero level {level}  health {current}/{most}  experience {experience}"
                 )),
-                (None, Some(experience)) => {
-                    lines.push(format!("hero experience {experience}"));
+                (None, Some((level, experience))) => {
+                    lines.push(format!("hero level {level}  experience {experience}"));
                 }
                 _ => {}
             }
@@ -336,7 +336,10 @@ impl Probe<'_, '_> {
                     })
                     .map(|(_, health)| (health.current, health.most, health.level))
             }),
-            experience: self.experience.as_deref().map(|experience| experience.0),
+            experience: self
+                .experience
+                .as_deref()
+                .map(|experience| (experience.level, experience.points)),
             health: self
                 .hero_health
                 .iter()
