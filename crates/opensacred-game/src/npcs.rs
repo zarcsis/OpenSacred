@@ -82,8 +82,6 @@ const FILL_SECTOR: u16 = 51;
 const SPAWN_VALUES: u16 = 100;
 const WAFFENPOOL: u16 = 114;
 const MAKE_GROUP: u16 = 115;
-/// The hero's level, for the fills' counts: the game has no levels yet.
-const HERO_LEVEL: u32 = 1;
 /// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit
 /// (`0x496520`).
 const OPEN: u8 = 0x26;
@@ -1301,6 +1299,10 @@ impl Npcs {
 
 /// Places the NPCs of every sector that came in, as entities of that sector, and marks the cells
 /// that its objects take.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 pub fn place(
     mut commands: Commands,
     mut npcs: ResMut<Npcs>,
@@ -1309,8 +1311,10 @@ pub fn place(
     states: Res<buildings::Buildings>,
     dungeons: Res<daynight::Dungeons>,
     assets: Res<AssetServer>,
+    experience: Res<fight::Experience>,
 ) {
     let npcs = &mut *npcs;
+    let hero = experience.level;
     let loaded: Vec<(u32, u32)> = streamer.sectors().collect();
     for &at in &loaded {
         if npcs.spawned.contains(&at) {
@@ -1338,7 +1342,7 @@ pub fn place(
             .unwrap_or_default()
         {
             let values = npcs.fills.get(&at).map(|(values, _)| *values);
-            let level = fight::level(&values.unwrap_or_default(), None);
+            let level = fight::level(&values.unwrap_or_default(), hero, None);
             let entity = spawn(
                 &mut commands,
                 &npcs.placements[index],
@@ -1368,7 +1372,7 @@ pub fn place(
             } else {
                 npcs.factors.enemies
             };
-            let count = spawning::count(fill, *values, HERO_LEVEL, factor, &mut rng);
+            let count = spawning::count(fill, *values, hero, factor, &mut rng);
             let ground = spawning::Ground {
                 origin: (x0, y0),
                 dungeon: dungeons.sector(at),
@@ -1438,7 +1442,7 @@ pub fn place(
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
                     Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
                 });
-                let level = fight::level(values, Some(&mut rng));
+                let level = fight::level(values, hero, Some(&mut rng));
                 let entity = spawn(
                     &mut commands,
                     &placement,

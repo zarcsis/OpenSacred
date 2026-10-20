@@ -82,7 +82,11 @@ pub struct Hero {
     /// Its attack, defence, damage and resistances, by its type's record (`fight::combat`).
     pub combat: Option<crate::fight::Combat>,
     /// Its health, full, and its regeneration, by its type's record (`fight::hero_health`).
-    pub vitals: Option<(crate::fight::Health, crate::fight::Regenerates)>,
+    pub vitals: Option<(
+        crate::fight::Health,
+        crate::fight::Regenerates,
+        crate::fight::Base,
+    )>,
     /// The model's dying clips, the slots 173 and 174 (`npcs`).
     pub dying: Vec<String>,
     pub position: Vec3,

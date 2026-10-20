@@ -150,6 +150,15 @@ impl Balance {
         self.image.get(word).copied().map(f32::from_bits)
     }
 
+    /// The integer `index` of the row that the key `name` heads, as [`Balance::row_f32`].
+    pub fn row_i32(&self, name: &str, index: usize) -> Option<i32> {
+        let variable = self.variables.iter().find(|v| v.name == name)?;
+        let word = usize::from(variable.offset) / 4 + index;
+        self.image
+            .get(word)
+            .map(|&word| i32::from_ne_bytes(word.to_ne_bytes()))
+    }
+
     /// The value of the integer variable `name`.
     pub fn i32(&self, name: &str) -> Option<i32> {
         match self.variables.iter().find(|v| v.name == name)?.value {

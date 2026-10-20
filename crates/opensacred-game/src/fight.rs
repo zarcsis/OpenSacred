@@ -37,9 +37,86 @@ const DEFENCE: [f32; 2] = [20.0, 80.0];
 #[derive(Resource)]
 struct Dice(Rng);
 
-/// The hero's experience, which its kills earn (`0x57D860`); it gains no level yet (#300).
-#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Experience(pub u64);
+/// The hero's experience, which its kills earn (`0x57D860`), its level by it (`0x57F8D0`), and
+/// the attribute and skill points its levels gave (`0x57E160`), which it cannot spend yet, and
+/// the skills it may still learn.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Experience {
+    pub points: u64,
+    pub level: u32,
+    pub attribute_points: u32,
+    pub skill_points: u32,
+    to_learn: u32,
+}
+
+impl Default for Experience {
+    fn default() -> Self {
+        Self {
+            points: 0,
+            level: HERO_LEVEL,
+            attribute_points: 0,
+            skill_points: 0,
+            to_learn: 0,
+        }
+    }
+}
+
+/// The skill slots a hero holds at the start (**hypothesis**, docs/re/fight.md).
+const HELD_SKILLS: u32 = 2;
+/// The highest level (`0x57F8D0`).
+const TOP_LEVEL: u32 = 216;
+
+impl Experience {
+    /// Adds `earned` (`0x57E160`), the experience held below the top level's end, and gives the
+    /// levels it reaches: for each, an attribute point, and for each level `p` reached, half,
+    /// rounded up, of the skill slots held and open (two held, one more open from each of the
+    /// balance's `skilllearn` levels up to `p`); returns whether the level grew.
+    pub fn add(&mut self, earned: u64, rules: &Rules) -> bool {
+        self.points = (self.points + earned).min(level_end(TOP_LEVEL) - 1);
+        let reached = level_of(self.points, self.level);
+        if reached <= self.level {
+            return false;
+        }
+        let from = self.level;
+        for p in from + 1..=reached {
+            let opened = rules
+                .skill_levels
+                .iter()
+                .filter(|&&t| from < t && t <= p)
+                .count();
+            let n = HELD_SKILLS + self.to_learn + u32::try_from(opened).unwrap_or(0);
+            self.skill_points += n.div_ceil(2);
+        }
+        self.attribute_points += reached - from;
+        let opened = rules
+            .skill_levels
+            .iter()
+            .filter(|&&t| from < t && t <= reached)
+            .count();
+        self.to_learn += u32::try_from(opened).unwrap_or(0);
+        self.level = reached;
+        true
+    }
+}
+
+/// The experience at which level `level` ends (`0x57F6E0`):
+/// `⌊(L⁴ + 40L³ + 150L² + 200L − 90)/100⌋·100`.
+pub fn level_end(level: u32) -> u64 {
+    let l = u64::from(level);
+    (l.pow(4) + 40 * l.pow(3) + 150 * l.pow(2) + 200 * l).saturating_sub(90) / 100 * 100
+}
+
+/// The level of `points` of experience (`0x57F8D0`): the one whose span holds them, at most 216,
+/// the level `current` while they are below the first level's end.
+pub fn level_of(points: u64, current: u32) -> u32 {
+    if points < level_end(1) {
+        return current;
+    }
+    (1..TOP_LEVEL)
+        .take_while(|&level| level_end(level) <= points)
+        .last()
+        .map_or(current, |level| level + 1)
+}
 
 /// What a creature is worth: `Creature.pak`'s experience `a + E·b` (`+0x08`, `+0x0A`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,7 +166,7 @@ fn resolve(
             (false, true) => Some(Side::Defender),
             _ => None,
         };
-        let level = mind.map_or(HERO_LEVEL, |mind| mind.level);
+        let level = mind.map_or(experience.level, |mind| mind.level);
         let (attacker, defender, k) =
             weighed(*attacker, *defender, side, (level, health.level), &rules);
         let Some(damage) = strike(&attacker, &defender, (hit.share, k), &mut dice.0) else {
@@ -116,12 +193,15 @@ fn resolve(
                 .entity(hit.target)
                 .insert(Dies::new(dice.0.below(2)));
             if let (true, Some(worth)) = (hero, worth) {
-                let earned = experience_of(worth.0, health.level, HERO_LEVEL, &rules);
-                experience.0 += u64::from(earned);
+                let earned = experience_of(worth.0, health.level, experience.level, &rules);
+                let grew = experience.add(u64::from(earned), &rules);
                 info!(
                     "fight: the hero kills {} and earns {earned} experience, {} in all",
-                    hit.target, experience.0
+                    hit.target, experience.points
                 );
+                if grew {
+                    info!("fight: the hero reaches level {}", experience.level);
+                }
             }
         }
     }
@@ -132,8 +212,10 @@ fn resolve(
 /// `ProzExp`, times the factor of the levels (`0x551530`): with `r = (E + 9)/(H + 9)` against
 /// the threshold `t` of the test of the levels (`takes_on`), 0.04 up to `t`, then
 /// `(r − t)/(UnterExpVoll − t)`, 1 from `UnterExpVoll` to `ObereEXPVoll`, `ObereEXPVoll/r` above,
-/// at least 0.04; whole. No cap of the level (`LevelKap`) or bonuses of the killer yet
-/// (docs/decisions/2026-10-20-hero-attack.md).
+/// at least 0.04, and 1 for none; above bronze's `LevelKap` the hero's level `H` takes it down by
+/// `(LevelKap/H)²`, from level 100 the decay of a high hero (`0x57E050`), and above the bronze
+/// levels the fade of a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of
+/// the killer, bosses or champions yet (docs/decisions/2026-10-20-levels.md).
 pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
     let [share, anteil, voll, upper] = rules.experience;
     let (e, h) = (to_f32(level), to_f32(hero));
@@ -152,8 +234,38 @@ pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> 
     } else {
         (r - t) / (voll - t)
     };
-    let base = f32::from(a) + e * f32::from(b);
-    whole(base * share * factor.max(0.04))
+    let mut x = (f32::from(a) + e * f32::from(b)) * share;
+    let cap = rules.level_cap;
+    if cap > 0.0 && h > cap {
+        x *= cap * cap / (h * h);
+    }
+    x *= factor.max(0.04);
+    if x <= 0.0 {
+        x = 1.0;
+    }
+    x *= decay(hero) * fade(h, rules.start_levels);
+    whole(x.max(1.0))
+}
+
+/// The decay of the experience of a hero of level `hero` (`0x57E050`): 1 up to level 99,
+/// `0.985^(H − 99)` to 124, `0.98^(H − 99)` to 149, `0.975^(H − 109)` from 150.
+fn decay(hero: u32) -> f32 {
+    let power = |base: f32, from: u32| base.powf(to_f32(hero.saturating_sub(from)));
+    match hero {
+        0..=99 => 1.0,
+        100..=124 => power(0.985, 99),
+        125..=149 => power(0.98, 99),
+        _ => power(0.975, 109),
+    }
+}
+
+/// The fade of a difficulty outgrown, on bronze (`0x57D860`): 1 up to `S1 + 10`, then
+/// `(S2 + 1 − H)/(S2 − S1 − 9)`, at least 0, of the row `StartLevMulti`'s `S1` and `S2`.
+fn fade(h: f32, [s1, s2]: [f32; 2]) -> f32 {
+    if h <= s1 + 10.0 {
+        return 1.0;
+    }
+    ((s2 + 1.0 - h) / (s2 - s1 - 9.0)).max(0.0)
 }
 
 /// A creature's regeneration (`0x562730`): its value (`+0x138`) and what it has gathered toward
@@ -234,6 +346,37 @@ fn regenerate(
         if gained > 0 && health.current < health.most {
             health.current = (health.current + gained).min(health.most);
         }
+    }
+}
+
+/// The hero's level-up (`0x564D60` from `0x57E160`): its attack, defence, damage, resistances,
+/// most health and regeneration by its new level, its health refilled.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn level_up(
+    experience: Res<Experience>,
+    rules: Res<Rules>,
+    mut heroes: Query<
+        (&Base, &mut Combat, &mut Health, &mut Regenerates),
+        (With<Body>, Without<Dies>),
+    >,
+) {
+    for (base, mut values, mut health, mut regenerates) in &mut heroes {
+        let level = experience.level;
+        if health.level == level {
+            continue;
+        }
+        let skills = skills(base, level, true);
+        *values = combat(base, level, Holds::default(), &skills, &rules);
+        let most = hero_health(base.attributes, level);
+        *health = Health {
+            current: most,
+            most,
+            level,
+        };
+        regenerates.value = regeneration(base, level, &skills, &rules);
     }
 }
 
@@ -334,7 +477,7 @@ impl Plugin for FightPlugin {
                 OnEnter(AppState::InGame),
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
-            .add_systems(Update, (resolve, rise).chain())
+            .add_systems(Update, (resolve, level_up, rise).chain())
             .add_systems(Update, regenerate.in_set(crate::frame::Unpaused));
     }
 }
@@ -369,6 +512,9 @@ pub struct Rules {
     difficulty: [f32; 3],
     regeneration: [f32; 3],
     curves: Curves,
+    level_cap: f32,
+    start_levels: [f32; 2],
+    skill_levels: [u32; 6],
 }
 
 impl Default for Rules {
@@ -386,6 +532,9 @@ impl Default for Rules {
             difficulty: [0.65, 0.9, 1.0],
             regeneration: [36.0, 48.0, 128.0],
             curves: Curves::default(),
+            level_cap: 50.0,
+            start_levels: [60.0, 100.0],
+            skill_levels: [3, 6, 12, 20, 30, 50],
         }
     }
 }
@@ -459,6 +608,28 @@ impl Rules {
                 rates
             },
             curves: Curves::of(b),
+            // The cap and the start levels by the difficulty itself, bronze's first.
+            level_cap: b
+                .row_i32("LevelKap", 0)
+                .and_then(|v| i16::try_from(v).ok())
+                .map_or(default.level_cap, f32::from),
+            start_levels: [1, 2].map(|i| {
+                b.row_i32("StartLevMulti", i)
+                    .and_then(|v| i16::try_from(v).ok())
+                    .map_or(default.start_levels[i - 1], f32::from)
+            }),
+            skill_levels: {
+                let mut levels = default.skill_levels;
+                for (i, level) in levels.iter_mut().enumerate() {
+                    if let Some(value) = b
+                        .i32(&format!("skilllearn{}", i + 1))
+                        .and_then(|v| u32::try_from(v).ok())
+                    {
+                        *level = value;
+                    }
+                }
+                levels
+            },
         }
     }
 
@@ -511,7 +682,7 @@ fn whole(value: f32) -> u32 {
 /// (`+0x0C`), its six bonuses (`+0x2A`: a kind and a target; their values `+0x36` and the
 /// opponents' classes `+0x3C`), the per cent of each kind's damage that it takes off on each
 /// difficulty (`+0x42`), and its experience (`+0x08`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Base {
     /// Its type, the record's id.
     pub id: u32,
@@ -919,11 +1090,11 @@ pub fn strike(
     Some(whole(total * share))
 }
 
-/// A creature's level (docs/re/spawning.md): the hero's held within its sector's lowest and
-/// highest, and for one of a fill, `jitter`, moved by 0 to 1 below 6, −1 to 2 below 30, −2 to 3
-/// below 90, −3 to 6 below 250; at least 1.
-pub fn level(values: &SpawnValues, jitter: Option<&mut Rng>) -> u32 {
-    let level = HERO_LEVEL.clamp(values.lowest.min(values.highest), values.highest);
+/// A creature's level (docs/re/spawning.md): the hero's, `hero`, held within its sector's lowest
+/// and highest, and for one of a fill, `jitter`, moved by 0 to 1 below 6, −1 to 2 below 30, −2 to
+/// 3 below 90, −3 to 6 below 250; at least 1.
+pub fn level(values: &SpawnValues, hero: u32, jitter: Option<&mut Rng>) -> u32 {
+    let level = hero.clamp(values.lowest.min(values.highest), values.highest);
     let Some(rng) = jitter else {
         return level.max(1);
     };
@@ -1286,6 +1457,71 @@ mod tests {
     }
 
     #[test]
+    fn the_levels_end_at_the_originals_experience() {
+        assert_eq!(
+            [1, 2, 3, 4, 5, 9, 10].map(level_end),
+            [300, 1_200, 3_000, 5_900, 10_200, 49_500, 66_900]
+        );
+        // The top level's end, one above the original's cap of the experience.
+        assert_eq!(level_end(TOP_LEVEL), 2_586_931_600);
+        assert_eq!(level_of(299, 1), 1);
+        assert_eq!(level_of(300, 1), 2);
+        assert_eq!(level_of(1_199, 1), 2);
+        assert_eq!(level_of(1_200, 2), 3);
+        assert_eq!(level_of(49_500, 3), 10);
+        assert_eq!(level_of(u64::MAX, 1), TOP_LEVEL);
+    }
+
+    #[test]
+    fn a_level_gives_an_attribute_point_and_skill_points_by_the_slots() {
+        let rules = Rules::default();
+        let mut experience = Experience::default();
+        assert!(!experience.add(299, &rules));
+        // Level 2: one attribute point, one skill point.
+        assert!(experience.add(1, &rules));
+        assert_eq!(
+            (
+                experience.level,
+                experience.attribute_points,
+                experience.skill_points
+            ),
+            (2, 1, 1)
+        );
+        // Level 3: another attribute point, two skill points, a third skill to learn.
+        assert!(experience.add(900, &rules));
+        assert_eq!(
+            (
+                experience.level,
+                experience.attribute_points,
+                experience.skill_points
+            ),
+            (3, 2, 3)
+        );
+        assert_eq!(experience.to_learn, 1);
+    }
+
+    #[test]
+    fn a_high_heros_kills_earn_less_by_the_cap_the_decay_and_the_fade() {
+        let rules = Rules::default();
+        let worth = [52, 48];
+        // Up to level 50 the whole; at 60 by (50/60)².
+        assert_eq!(experience_of(worth, 1, 1, &rules), 100);
+        let at_60 = experience_of(worth, 60, 60, &rules);
+        assert!(
+            (to_f32(at_60) - 2_932.0 * 2_500.0 / 3_600.0).abs() <= 1.0,
+            "{at_60}"
+        );
+        // At 80 also by the fade of bronze, (101 − 80)/31.
+        let at_80 = experience_of(worth, 80, 80, &rules);
+        let expected = 3_892.0 * 2_500.0 / 6_400.0 * 21.0 / 31.0;
+        assert!((to_f32(at_80) - expected).abs() <= 1.0, "{at_80}");
+        // From 101 on bronze, 1 a kill.
+        assert_eq!(experience_of(worth, 101, 101, &rules), 1);
+        assert!((decay(110) - 0.985_f32.powi(11)).abs() < 1e-5);
+        assert!((decay(99) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn a_creature_takes_on_a_hero_from_whom_it_is_worth_experience() {
         let balance = (0.85, 1.0);
         // A hero of level 1 is taken on by every creature; of level 5, by those of 3 and up; of
@@ -1307,10 +1543,10 @@ mod tests {
             lowest: 25,
             highest: 38,
         };
-        assert_eq!(level(&start, None), 1);
-        assert_eq!(level(&west, None), 25);
+        assert_eq!(level(&start, HERO_LEVEL, None), 1);
+        assert_eq!(level(&west, HERO_LEVEL, None), 25);
         let mut rng = Rng::of(50, 39, 0);
-        assert!((0..200).all(|_| (1..=2).contains(&level(&start, Some(&mut rng)))));
-        assert!((0..200).all(|_| (24..=27).contains(&level(&west, Some(&mut rng)))));
+        assert!((0..200).all(|_| (1..=2).contains(&level(&start, HERO_LEVEL, Some(&mut rng)))));
+        assert!((0..200).all(|_| (24..=27).contains(&level(&west, HERO_LEVEL, Some(&mut rng)))));
     }
 }
