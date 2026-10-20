@@ -72,7 +72,7 @@ fn read_png(path: &Path) -> (u32, u32, Vec<u8>) {
 }
 
 /// A tile sheet: diamond `k` a two-tone checker of its own hue, so that a wrong diamond, a
-/// mirrored one or blurred filtering shows (docs/02 §5.6 for the layout).
+/// mirrored one or blurred filtering shows (docs/02 §5.4 for the layout).
 fn sheet() -> Vec<u8> {
     let mut rgba = vec![0u8; 256 * 256 * 4];
     for k in 0..DIAMONDS {

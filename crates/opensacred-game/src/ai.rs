@@ -1,12 +1,15 @@
-//! The creatures' idle life while no foe is near (docs/re/ai.md): each is dormant until its own
+//! The creatures' life and their way of fighting (docs/re/ai.md): each is dormant until its own
 //! timer or the hero's look wakes it, and dormant again farther than 1,500 from the hero; a
 //! hostile creature in the hero's reach steps about by the idle action (`0x54EA30`), a group's
 //! members together; a peaceful animal awake flees, steps away and strolls about home, and a
 //! guard keeps its post, and a townsperson rolls what it does next at each of the hero's looks,
 //! by their behaviours (`0x4EF150`); a creature that shares its cell with another parts from it,
-//! and one that walks into the hero's way steps aside. The fight is not followed: an awake hostile creature, which would
-//! attack the hero by a test of the levels, goes dormant again and steps about as one beyond it
-//! (docs/decisions/2026-10-20-idle.md).
+//! and one that walks into the hero's way steps aside. An awake hostile creature that the test of
+//! the levels sends at the hero, or that has the hero within its reach, comes at it from up to
+//! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
+//! wounded it flees, and too far from home it goes back ([`pursue`],
+//! docs/decisions/2026-10-20-pursuit.md); one that the test holds back goes dormant again and
+//! steps about as one beyond it (docs/decisions/2026-10-20-idle.md).
 
 use bevy::prelude::*;
 
@@ -172,12 +175,13 @@ const FEAR_RED: Color = Color::srgb(1.0, 0.19, 0.19);
 pub struct Daemon(pub bool);
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
-/// The jugglers' types, and the flags they take at their first update, which no behaviour reads
-/// yet.
+/// The jugglers' types, and the flag they take at their first update, with which a juggler is a
+/// townsperson that always rolls 9 and plays its instrument ([`roll`]).
 const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
 const JUGGLER: u32 = 0x1000_0000;
 /// How near a creature other than an animal makes a wild animal flee and a farm animal step
-/// away (800 when it attacks, which none does yet).
+/// away (800 when it attacks, which the game does not follow yet:
+/// docs/decisions/2026-10-20-animals.md).
 const FLEE: f32 = 300.0;
 const SHY: f32 = 200.0;
 /// How far from home along an axis brings a wild animal back, within 50 of it.
@@ -900,8 +904,8 @@ fn child(
 /// the nearest human, `human`, for its partner, 2 too and walks home, 1 walks to the nearest
 /// animal, `animal`, 3 walks home, 5 and 8 visit the trader `trader`, one of 8 in one case of
 /// three only (in the other two its field's branch finds no field, `0x4F2643`); 4, 6 and 7 go
-/// into a house, 9 plays an instrument and 20 a child's play, which wait for their features
-/// (#248, #253, #252); the rest stop.
+/// into a house (#248), 9 plays an instrument (#253) and a child's 20 its play (#252); the rest
+/// stop.
 fn townsperson(
     mind: &Mind,
     human: Option<Entity>,
@@ -1214,8 +1218,8 @@ fn behave(
         if let Some(door) = mind.door.take() {
             swings.push((door, false));
         }
-        // At the trader it walked to, it talks once (the sub-states 12 and 13), and would then
-        // go into a house (#248).
+        // At the trader it walked to, it talks once (the sub-states 12 and 13), and stays, where
+        // the original's goes into a house (docs/decisions/2026-10-20-townsfolk.md).
         if mind.visiting.take().is_some() {
             commands.entity(entity).insert(Talks);
             continue;

@@ -1,4 +1,4 @@
-//! The original's isometric view in 3D (docs/02 §5.6): a 2:1 dimetric orthographic camera over
+//! The original's isometric view in 3D (docs/02 §5.3): a 2:1 dimetric orthographic camera over
 //! the ground plane, so that a cell's diamond is 96 × 48 pixels at zoom 1 and the world keeps the
 //! original's units (a sector is 3,434 units, docs/02 §5.1), the units of the models too.
 //!

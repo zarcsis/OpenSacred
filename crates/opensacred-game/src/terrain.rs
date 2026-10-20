@@ -561,7 +561,7 @@ impl Heights {
 }
 
 /// The top-left corner of diamond `k` (0..18) in its 256 × 256 sheet: nine rows 25 texels apart,
-/// two columns 104 apart, odd rows shifted by 52, a margin of 2 (docs/02 §5.6).
+/// two columns 104 apart, odd rows shifted by 52, a margin of 2 (docs/02 §5.4).
 fn diamond_origin(k: u32) -> (usize, usize) {
     let (row, column) = (k as usize / 2, k as usize % 2);
     let shift = if row % 2 == 1 { 52 } else { 0 };

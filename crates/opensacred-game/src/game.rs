@@ -73,8 +73,8 @@ impl Class {
         }
     }
 
-    /// The hero's script tree (`netscript/<tree>.nsc`), whose start script places the hero, the
-    /// NPCs and the objects.
+    /// The hero's script tree (`netscript/<tree>.nsc`), whose start script places the hero and
+    /// whose scripts the NPCs and the objects (`npcs`).
     fn tree(self) -> &'static str {
         match self {
             Class::Seraphim => "type_npc_seraphim",
@@ -180,8 +180,8 @@ pub struct NewGame {
     /// The hero's creature record in Creature.pak, for its speeds (by default the class's own)
     #[arg(long)]
     pub creature: Option<u32>,
-    /// The script tree whose start script places the hero, the NPCs and the objects
-    /// (netscript/<TREE>.nsc); by default the class's
+    /// The script tree (`netscript/<tree>.nsc`) whose start script places the hero and whose
+    /// scripts the NPCs and the objects; by default the class's
     #[arg(long)]
     pub tree: Option<String>,
     /// The hero's footstep sound profile

@@ -29,8 +29,8 @@ use crate::models::{Anchors, ModelMaterial, Ordered, OrderedWith};
 const SHADER: &str = "embedded://opensacred_game/shadows.wesl";
 
 /// The root of a model that casts a shadow: the hero, an NPC whose creature has no flag `0x10`
-/// (`NOSHADOW`, `0x426D30`), an object of the start script of category 4, which the client makes
-/// a `cChest3D` (`0x451300`, whose draw `0x5C97B0` draws the shadow).
+/// (`NOSHADOW`, `0x426D30`), a script's object (a `CreateObj` record) of category 4, which the
+/// client makes a `cChest3D` (`0x451300`, whose draw `0x5C97B0` draws the shadow).
 #[derive(Component)]
 pub struct Casts;
 

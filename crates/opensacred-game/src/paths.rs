@@ -46,10 +46,7 @@ fn centre(cell: Cell) -> Vec2 {
     Vec2::new(point.x, point.z)
 }
 
-/// The places from `from` to a place in cell `to`, both included, of the fewest steps over the
-/// places `neighbours` gives (a cell on a layer: the walkable neighbours on its layer, and the
-/// same cell on another layer through a door), within the window around `from`'s cell; `None`
-/// when `to` lies outside the window or cannot be reached.
+/// As [`path_onto`], to a place in cell `to` on any layer.
 #[cfg(test)]
 pub fn path<L: Copy + Eq + Hash>(
     from: (Cell, L),
@@ -59,8 +56,11 @@ pub fn path<L: Copy + Eq + Hash>(
     path_onto(from, to, |_| true, neighbours)
 }
 
-/// As [`path`], to a place in cell `to` on a layer that `arrives` takes: the level that a click
-/// chose (docs/re/movement.md, "The cursor's point").
+/// The places from `from` to a place in cell `to` on a layer that `arrives` takes (the level that
+/// a click chose, docs/re/movement.md, "The cursor's point"), both included, of the fewest steps
+/// over the places `neighbours` gives (a cell on a layer: the walkable neighbours on its layer,
+/// and the same cell on another layer through a door), within the window around `from`'s cell;
+/// `None` when `to` lies outside the window or cannot be reached.
 pub fn path_onto<L: Copy + Eq + Hash>(
     from: (Cell, L),
     to: Cell,

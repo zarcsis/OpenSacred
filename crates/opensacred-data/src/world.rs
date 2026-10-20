@@ -71,8 +71,8 @@ pub struct Sector {
     pub buildings: Vec<Building>,
 }
 
-/// A building (docs/re/movement.md, "The layers"): the first static of flag `0x10` in its anchor
-/// cell's chain, to which the offsets of its cells point; its children are its floors.
+/// A building (docs/re/movement.md, "Changing layers"): the first static of flag `0x10` in its
+/// anchor cell's chain, to which the offsets of its cells point; its children are its floors.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Building {
     /// The anchor, cell `r · 64 + c` of the sector.
@@ -115,7 +115,8 @@ pub struct LayerCell {
     pub offsets: [i8; 2],
     /// 0, or 4: a door.
     pub flags: u8,
-    /// The ground byte: its low nibble 1 or 2 makes the cell unwalkable.
+    /// The ground byte: its low nibble 1 or 2 makes the cell unwalkable, and 3 and 5 to 10 change
+    /// the layer of what steps onto it, as [`Cell::ground`]'s.
     pub ground: u8,
 }
 
@@ -132,12 +133,15 @@ pub struct Cell {
     /// A second height per corner: the height a creature stands at there, in steps of 2.5 units
     /// of the models' height (docs/re/movement.md, "The height").
     pub heights2: [i8; 4],
-    /// Offsets of the parent object (community-reported).
+    /// The offsets to the cell of the building's anchor, whose chain holds the building's object
+    /// (docs/02 §5.2).
     pub offsets: [i8; 2],
-    /// Bit 0 structure, bit 1 room interior, bit 2 door (community-reported).
+    /// Bit 0 structure, bit 1 room interior, bit 2 door, a cell walked by its trigger's state, bit
+    /// 3 unwalkable (docs/02 §5.2).
     pub flags: u8,
-    /// High nibble the nature (4 `GRASS`, 9 `WATERA`, 10 `WATERB`, 11 `STONEROAD`, …, docs/02
-    /// §5.2), low nibble unknown.
+    /// High nibble the nature (4 `GRASS`, 9 `WATERA`, 10 `WATERB`, 11 `STONEROAD`, …), low nibble
+    /// 1 or 2 unwalkable, 3 and 5 to 10 a change of layer for what steps onto the cell (docs/02
+    /// §5.2; docs/re/movement.md, "Which cells may be walked on", "Changing layers").
     pub ground: u8,
 }
 

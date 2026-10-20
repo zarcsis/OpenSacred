@@ -54,8 +54,8 @@ pub struct SectorKey {
     /// `+0x2E0`, `+0x2E1`: the liquid materials (0..=13) of the sector's `WATERA` cells (nature
     /// 9) and `WATERB` cells (nature 10).
     pub liquids: [u8; 2],
-    /// `+0x6C`, the size of the third chunk: the sector's layers, the ground's and the
-    /// buildings' insides ([`Layer`]).
+    /// `+0x6C`, the count of the layers' headers at the head of the third chunk: the sector's
+    /// layers, the ground's first, then the buildings' insides ([`Layer`]; docs/02 §5.2).
     pub layers: u32,
     /// `+0x2C0`: the sector's area (56 values; the client's region music turns it into a region
     /// through a table, docs/re/sound.md).
@@ -215,12 +215,15 @@ pub struct Cell {
     /// `+0x18`: a second corner height, the height a creature stands at, in steps of 2.5 units
     /// of the models' height (docs/re/movement.md, "The height").
     pub heights2: [i8; 4],
-    /// `+0x1C`: offsets of the parent object (openheilig).
+    /// `+0x1C`, `+0x1D`: the offsets to the cell of the building's anchor, whose chain holds the
+    /// building's object (openheilig's offsets of the parent object; docs/02 §5.2).
     pub offsets: [i8; 2],
-    /// `+0x1E`: bit 0 structure, bit 1 room interior, bit 2 door (openheilig).
+    /// `+0x1E`: bit 0 structure, bit 1 room interior, bit 2 door (openheilig), a cell walked by
+    /// its trigger's state, bit 3 unwalkable (docs/02 §5.2).
     pub flags: u8,
-    /// `+0x1F`: high nibble the nature (4 `GRASS`, 9 `WATERA`, 10 `WATERB`, 11 `STONEROAD`, …,
-    /// docs/02 §5.2), low nibble unknown.
+    /// `+0x1F`: high nibble the nature (4 `GRASS`, 9 `WATERA`, 10 `WATERB`, 11 `STONEROAD`, …),
+    /// low nibble 1 or 2 unwalkable, 3 and 5 to 10 a change of layer for what steps onto the cell
+    /// (docs/02 §5.2; docs/re/movement.md, "Which cells may be walked on", "Changing layers").
     pub ground: u8,
 }
 
