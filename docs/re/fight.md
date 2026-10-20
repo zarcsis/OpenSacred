@@ -38,6 +38,26 @@ In one case of four an NPC whose target attacks plays another clip instead (**hy
 `0x4DBFC0` keeps an archer 300 to 800 from its target: within 300, up to ten times a fight, it backs off; beyond 800 it comes on, stopping within 450; between, without a straight line, it moves to a point near the target, turned −30° to +30°; else it shoots (the action 5, the arrow not read), its `+0x210` ramping between 250 and 650.
 It gives up farther than 2,000, and goes back to melee without a ranged weapon.
 
+## Bosses and champions
+
+Status: **confirmed** by code (#316) unless marked otherwise.
+A boss is a creature of `+0x1F4` bit `0x80000`, a champion one of `+0x2B8` bit `0x40`.
+`FillSector` makes them after the creature maker (`0x47E6B7`…`0x47E863`): the types 203, 342 and 349 always champions; 37, 48, 55 and 84 a boss or a champion by a coin; 127 and 49 the same in one case of two, else as the others; any other creature hostile to a living hero a champion when `rand() % 1001` is below `HarteSau` (20); 343 and 212 only take a champion's levelling (`+0xB0` bit `0x400`, which a champion has too).
+They are made at the marker level 1; the black rider (256) is a boss at its fill's level.
+`CreateNPC` makes a boss with the level tag `0x1F` of 1000 (at the marker level) or the tag `0x72`, never a champion; the script command `0x49E760` with the level 1000 makes a group's creatures bosses (**hypothesis**: `SetNPCState`).
+At its first strike or hit (`0x56B130` for both sides, `0x550E50`), a boss or champion of level 1 or 1000 takes its opponent's level plus `LevelUpBoss` or `LevelUpChamp` (2 and 2), at least `OffLevel` plus its sector's lowest level, and, unless its type is "big" (`Creature.pak` flag `0x02`), at most `LevelKap` plus its sector's highest plus the same bonus; it is then marked (`+0x1F4` bit `0x200`), its health refilled and its worn items made again at the new level.
+An archer makes this levelling in its state 8 against the local hero rather than its target.
+Its most health is times `HPFakBoss` (2.5) or `HPFakChamp` (2.0), three times that for the types 701, 137 and 53, and 1.8, 2.8 or 4 times for a dragon or flyer (class 10) by the difficulty; a boss attacks with `A` times `AWFakBoss` (1.5) and defends with `D` times `VWFakBoss` (2.0), a champion with `AWFakChamp` (1.3) and `VWFakChamp` (1.5); its kill's experience is twice or 1.5 times.
+
+## The archers
+
+A creature of `+0x2B8` bit `0x10` takes a bow once (`0x4D4A80`): the state 8, its slot 13 emptied, `BOW_SHORT` (1732) or `BOW_LONG` (1733) at random made at its level and held in slot 12, the bit cleared.
+In the state 8 a creature that another targets from within 1.5 times the reach goes back to melee in one case of two (`0x4D4B70`): its bow away, `SWORD` (1753) in one case of four, else `DAGGER` (1712) in one of three, else `SWORD_BASTARD` (1724) or `STREITKOLBEN` (1719), and most take the bit back, to switch to the bow again.
+It shoots when its target is between 250 and 650, else it moves to the band of 300 to 800 (above); a shot that has left raises `+0x210` by 0.1 up to 1.7 for the next, any other action resets it.
+The shot is the action 5 (`0x4DCB80`): the attack clip of what it holds at the attack speed times `+0x210`, turned to the target; the arrow leaves at a fraction of the clip read from its motion (0.5 for none; **hypothesis**: the strike's `+0xA0`), an object of type 3070 from the left hand toward the target at the speed 600 (**hypothesis**: a second), with a `cEventArrow` that carries the shooter, the weapon and the target; a multi-shot fans its arrows by 0.05 rad each, and the item's byte `+0x3A` picks special projectiles.
+A creature's target farther than 1,000 sends it back to the state 8.
+The arrow's flight and hit, its range and how it resolves are **not read**.
+
 ## The hero's attack
 
 A left click on a creature (`0x6172C0`) sends the hero the event 7: the AI's state 1 (`0x53A170`), which for a creature alive and hostile to the hero, without a dialogue, takes state 4, or 8 with a ranged weapon; a creature with a dialogue or a trader takes the talk (state 10) unless a hostile is within reach.
@@ -111,7 +131,7 @@ The value times the rate times the frame's time (**hypothesis**: in seconds) add
 
 ## Open
 
-Applying the items' values (docs/re/items.md) to an armed NPC's damage; the weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 5 on; the arrow (the action 5) and its range; the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5).
+The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 5 on; the arrow's flight and hit (the object 3070, `cEventArrow`), its range, `FernAll` and `Multipfeil`; the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5).
 
 ## In `opensacred-game`
 

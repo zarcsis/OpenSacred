@@ -53,7 +53,7 @@ A creature's level is the hero's (`+0x3FE`) held within those bounds.
 `34:(x, y)` names the record's sector, always its own function's; `33:(lowest, highest)` a level range, which the sector's `SpawnValues` overrides (always, in the files); `36:n`, 100 for the animals' records and 310 for the monsters', goes to the creature's `+0x255`, whose one reader, a branch of the group's alarm (`0x46AE70`), none of its callers takes: it serves nothing in 2.28.
 
 A group's alarm (`0x46AE70`, called at `0x54EB19`, `0x5337CE`, `0x535DD3` and `0x5442DC`; **hypothesis**: as a member is hit or alerted) sends the group's other idle members to the alerter's target (the creature event `0x100`) or wakes them.
-The creature's level is the hero's held within the sector's bounds and jittered (by 0 to 1 below 6, −1 to 2 below 30, −2 to 3 below 90, −3 to 6 below 250), one or two more in a dungeon's cell; some types and about 2 % of the creatures hostile to a living hero are made champions (`HarteSau`, 20 in a thousand), the types 37, 48, 55 and 84 bosses; their real level is not read.
+The creature's level is the hero's held within the sector's bounds and jittered (by 0 to 1 below 6, −1 to 2 below 30, −2 to 3 below 90, −3 to 6 below 250), one or two more in a dungeon's cell; some types and about 2 % of the creatures hostile to a living hero are made champions (`HarteSau`, 20 in 1,001), the types 37, 48, 55 and 84 a boss or a champion by a coin, 127 and 49 so in one case of two; they are made at the level 1, which their first fight raises (docs/re/fight.md, "Bosses and champions").
 A black rider's horse (261) brings its rider (256), hostile, a boss, with a short bow or a tribal axe.
 
 ## `MakeGroup`
