@@ -2,17 +2,20 @@
 //! timer or the hero's look wakes it, and dormant again farther than 1,500 from the hero; a
 //! hostile creature in the hero's reach steps about by the idle action (`0x54EA30`), a group's
 //! members together; a peaceful animal awake flees, steps away and strolls about home, and a
-//! guard keeps its post, by their behaviours (`0x4EF150`). The fight is not followed: an awake hostile creature, which would
+//! guard keeps its post, by their behaviours (`0x4EF150`); a creature that shares its cell with
+//! another parts from it, and one that walks into the hero's way steps aside. The fight is not followed: an awake hostile creature, which would
 //! attack the hero by a test of the levels, goes dormant again and steps about as one beyond it
 //! (docs/decisions/2026-10-20-idle.md).
 
 use bevy::prelude::*;
 
-use crate::crowd::InTheWay;
+use crate::crowd::{Crowd, InTheWay};
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::npcs::Walk;
+use crate::paths;
 use crate::spawning::Rng;
+use crate::terrain::Heights;
 
 /// How often the hero looks about, in seconds (`0x547070`), and how far, in world units.
 const LOOK_EVERY: f32 = 0.3;
@@ -67,6 +70,17 @@ const POST: f32 = 90.0;
 const STROLL_GUARD: i32 = 200;
 /// The chance of a stroll, a frame's 1 in 101 at 30 frames a second, as a rate a second.
 const STROLLS_A_SECOND: f32 = 30.0 / 101.0;
+/// The chance that an idle creature sharing its cell parts, a frame's 1 in 6, as a rate a second
+/// (`0x544890`), and how far about home or itself it goes.
+const PARTS_A_SECOND: f32 = 30.0 / 6.0;
+const PART: i32 = 100;
+/// The flag that keeps a creature from parting (`CreateNPC`'s tag `0x74`).
+const STAYS: u32 = 0x800_0000;
+/// How near the hero a creature not hostile that walks steps aside, how far about itself it
+/// looks for a point it reaches, and in how many tries (`0x547070`).
+const ASIDE_WITHIN: f32 = 91.0;
+const ASIDE: i32 = 200;
+const ASIDE_TRIES: usize = 10;
 
 /// A creature's mind while no foe is near.
 #[derive(Component, Clone, Debug)]
@@ -161,11 +175,13 @@ pub fn of_type(creature: u32) -> u32 {
     }
 }
 
-/// The game's generator for the creatures' chances, and the time since the hero last looked.
+/// The game's generator for the creatures' chances, the time since the hero last looked, and
+/// whether it looked this frame.
 #[derive(Resource)]
 struct Minds {
     rng: Rng,
     since: f32,
+    looked: bool,
 }
 
 impl Default for Minds {
@@ -173,6 +189,7 @@ impl Default for Minds {
         Self {
             rng: Rng::of(0, 0, 0),
             since: 0.0,
+            looked: false,
         }
     }
 }
@@ -228,6 +245,7 @@ fn think(
     if look {
         minds.since = 0.0;
     }
+    minds.looked = look;
     let side = crate::iso::CELL * 64.0;
     let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
     let (sx, sy) = sector(hero);
@@ -343,14 +361,89 @@ fn about(at: Vec3, within: i32, rng: &mut Rng) -> Vec3 {
     at + Vec3::new(offset(), 0.0, offset())
 }
 
-/// Why a creature of a behaviour walks: it flees at a run, steps away, goes back home or to its
-/// post, or strolls.
+/// Why a creature walks by itself: it flees at a run, steps away, goes back home or to its post,
+/// strolls, parts from another in its cell, or steps out of the hero's way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Why {
     Flees,
     StepsAway,
     GoesBack,
     Strolls,
+    Parts,
+    StepsAside,
+}
+
+/// Where a creature at `here` that shares its cell parts to (`0x544890`): within 100 of its home
+/// when the original's measure of its distance from home lies between 30 and 400, else within
+/// 100 of itself. The measure takes, of each point, its y from its x (`0x545B30`), not the home
+/// from the creature, and gives up past ±32,000, so that a creature parts about itself but near
+/// the world's diagonal.
+fn parting(home: Vec3, here: Vec3, rng: &mut Rng) -> Vec3 {
+    let (a, b) = (here.x - here.z, home.x - home.z);
+    let measure = (a * a + b * b).sqrt();
+    let measured = a.abs() <= 32_000.0 && b.abs() <= 32_000.0;
+    if measured && measure > 30.0 && measure < 400.0 {
+        about(home, PART, rng)
+    } else {
+        about(here, PART, rng)
+    }
+}
+
+/// Sends the creatures not hostile that walk within 91 of the hero, at its look, to a point
+/// within 200 of themselves that they reach, the first of 10 tries (`0x547070`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn aside(
+    mut commands: Commands,
+    mut minds: ResMut<Minds>,
+    heights: Res<Heights>,
+    crowd: Res<Crowd>,
+    hero: Query<&Transform, With<Body>>,
+    creatures: Query<(Entity, &Transform, &InTheWay, &Mind), (With<Walk>, Without<Body>)>,
+) {
+    let (Some(hero), true) = (hero.iter().next(), minds.looked) else {
+        return;
+    };
+    let hero = hero.translation;
+    for (entity, transform, way, mind) in &creatures {
+        let here = transform.translation;
+        if mind.hostile() || (here - hero).xz().length() >= ASIDE_WITHIN {
+            continue;
+        }
+        let from = (paths::cell_of(here.x, here.z), (way.level, false));
+        let reaches = |to: Vec3| {
+            paths::path_onto(
+                from,
+                paths::cell_of(to.x, to.z),
+                |_| true,
+                |place| {
+                    let mut next = heights.neighbours(place);
+                    next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, entity, false));
+                    next
+                },
+            )
+            .is_some()
+        };
+        let Some(target) = (0..ASIDE_TRIES)
+            .map(|_| about(here, ASIDE, &mut minds.rng))
+            .find(|&to| reaches(to))
+        else {
+            continue;
+        };
+        debug!(
+            "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+            Why::StepsAside,
+            here.x,
+            here.z,
+            target.x,
+            target.z
+        );
+        commands
+            .entity(entity)
+            .insert(Walk::to(target, way.level, mind.speed));
+    }
 }
 
 /// A number between `low` and `high`, at random.
@@ -416,7 +509,8 @@ fn behaviour(
 }
 
 /// The peaceful creatures' behaviours while they stand awake, at every frame (`0x4EF150`); a
-/// creature farther than 1,500 from the hero goes dormant again.
+/// creature farther than 1,500 from the hero goes dormant again. An idle creature that shares
+/// its cell with another parts from it by chance (`0x544890`); an animal awake strolls at once.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -425,6 +519,7 @@ fn behave(
     mut commands: Commands,
     time: Res<Time>,
     mut minds: ResMut<Minds>,
+    crowd: Res<Crowd>,
     hero: Query<&Transform, With<Body>>,
     mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
@@ -444,10 +539,26 @@ fn behave(
         .collect();
     let mut walks = Vec::new();
     for (entity, transform, way, mut mind, walking) in &mut creatures {
-        if !mind.active || walking {
+        if walking {
             continue;
         }
         let here = transform.translation;
+        let crowded = crowd.crowded(paths::cell_of(here.x, here.z), way.level, entity);
+        if !mind.active {
+            if crowded && mind.flags & STAYS == 0 && chance(&mut minds.rng, PARTS_A_SECOND, dt) {
+                let target = parting(mind.home, here, &mut minds.rng);
+                debug!(
+                    "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                    Why::Parts,
+                    here.x,
+                    here.z,
+                    target.x,
+                    target.z
+                );
+                walks.push((entity, Walk::to(target, way.level, mind.speed)));
+            }
+            continue;
+        }
         if (here - hero).xz().length() > BEHAVES_WITHIN {
             mind.active = false;
             continue;
@@ -461,7 +572,9 @@ fn behave(
                 let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
                 da.total_cmp(&db)
             });
-        let strolls = chance(&mut minds.rng, STROLLS_A_SECOND, dt);
+        // An animal strolls by chance, or at once where another shares its cell.
+        let animal = mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0;
+        let strolls = chance(&mut minds.rng, STROLLS_A_SECOND, dt) || (crowded && animal);
         let Some((target, why)) = behaviour(&mind, here, fear, strolls, &mut minds.rng) else {
             continue;
         };
@@ -488,8 +601,13 @@ pub struct AiPlugin;
 
 impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Minds>()
-            .add_systems(Update, (think, behave).chain().in_set(Step::Crowd));
+        app.init_resource::<Minds>().add_systems(
+            Update,
+            (think, aside, behave)
+                .chain()
+                .after(crate::crowd::gather)
+                .in_set(Step::Crowd),
+        );
     }
 }
 
@@ -603,6 +721,26 @@ mod tests {
                 "{d}"
             );
         }
+    }
+
+    #[test]
+    fn a_crowded_creature_parts_about_itself_but_near_the_worlds_diagonal() {
+        let mut rng = Rng::of(50, 39, 5);
+        let near = |to: Vec3, at: Vec3| (to - at).x.abs() <= 100.0 && (to - at).z.abs() <= 100.0;
+        // At the start of the Seraphim, far from the diagonal: about itself, wherever home is.
+        let here = Vec3::new(173_688.0, 0.0, 134_781.0);
+        let home = here + Vec3::new(250.0, 0.0, 0.0);
+        for _ in 0..50 {
+            assert!(near(parting(home, here, &mut rng), here));
+        }
+        // Near the diagonal, its measure 30 to 400: about home.
+        let here = Vec3::new(10_000.0, 0.0, 10_000.0);
+        let home = Vec3::new(10_100.0, 0.0, 10_000.0);
+        for _ in 0..50 {
+            assert!(near(parting(home, here, &mut rng), home));
+        }
+        // On the diagonal at home, its measure 0: about itself.
+        assert!(near(parting(here, here, &mut rng), here));
     }
 
     #[test]
