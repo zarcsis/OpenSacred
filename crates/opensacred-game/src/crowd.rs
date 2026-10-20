@@ -159,13 +159,72 @@ fn gather(
     }
 }
 
-/// The cells the creatures stand on, taken before the hero and the NPCs move.
+/// The distance in world units from the hero to its nearest hostile creature, as the client
+/// keeps it for the fight stance (`0xAD3CE4`, filled by `0x547070`, docs/re/motions.md, "The
+/// fight stance"): looked for every 0.3 s among the creatures of the 3 × 3 sectors about the hero
+/// within [`RANGE`], and kept as it was while none is found; 0 before any is, as the client's is
+/// when the process starts.
+#[derive(Resource, Default)]
+pub struct Nearest {
+    pub distance: f32,
+    /// The time since the last look.
+    since: f32,
+}
+
+/// How often the hero looks for its nearest hostile, in seconds (`+0x204` of a player's hero).
+const LOOK_EVERY: f32 = 0.3;
+/// How far it looks, in world units: the client's `(S + 45) · 25`, `S` a smoothed rate of its
+/// frames (**hypothesis**: about 1,900 to 2,600 units); taken at 30 frames a second.
+const RANGE: f32 = 1_875.0;
+
+/// Looks for the hero's nearest hostile creature: one whose flags word has bit 0 or 1, in the
+/// 3 × 3 sectors about the hero and within [`RANGE`] (**hypothesis**: those bits for the client's
+/// hostility to the hero, `0x548F30`).
+fn look(
+    time: Res<Time>,
+    mut nearest: ResMut<Nearest>,
+    hero: Query<&Transform, With<Body>>,
+    creatures: Query<(&Transform, &InTheWay), Without<Body>>,
+) {
+    nearest.since += time.delta_secs();
+    if nearest.since < LOOK_EVERY {
+        return;
+    }
+    nearest.since = 0.0;
+    let Some(hero) = hero.iter().next() else {
+        return;
+    };
+    let sector = |p: Vec3| {
+        let side = crate::iso::CELL * 64.0;
+        ((p.x / side).floor(), (p.z / side).floor())
+    };
+    let (sx, sy) = sector(hero.translation);
+    let found = creatures
+        .iter()
+        .filter(|(_, way)| way.hostile)
+        .filter(|(t, _)| {
+            let (x, y) = sector(t.translation);
+            (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0
+        })
+        .map(|(t, _)| (t.translation - hero.translation).xz().length())
+        .filter(|&d| d < RANGE)
+        .fold(None, |min: Option<f32>, d| {
+            Some(min.map_or(d, |m| m.min(d)))
+        });
+    if let Some(distance) = found {
+        nearest.distance = distance;
+    }
+}
+
+/// The cells the creatures stand on, taken before the hero and the NPCs move, and the hero's
+/// nearest hostile.
 pub struct CrowdPlugin;
 
 impl Plugin for CrowdPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Crowd>()
-            .add_systems(Update, gather.in_set(Step::Crowd));
+            .init_resource::<Nearest>()
+            .add_systems(Update, (gather, look).in_set(Step::Crowd));
     }
 }
 
