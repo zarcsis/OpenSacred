@@ -118,7 +118,7 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 | `sector X,Y`, `cell X,Y` | puts the hero at a sector's centre or at a cell; the sectors stream around it | `--sector` |
 | `go X,Y`, `go +DX,+DY` | sends the hero to a cell, or by an offset in cells, as a click does | `--target` |
 | `gait walk\|run` | as R | `--walking` |
-| `zoom Z` | the camera's zoom, 0.5 to 2 | `--zoom` |
+| `zoom Z` | the camera's zoom, 0.5 to 2 as in the original, 2 the widest view | `--zoom` |
 | `time HH:MM` | sets the clock | `--time` |
 | `music on\|off` | the music and the ambient loops | `--no-music` |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |

@@ -63,7 +63,7 @@ enum Command {
     },
     /// Walk or run, as R
     Gait { gait: GaitArg },
-    /// The camera's zoom, 0.5 to 2 as in the original
+    /// The camera's zoom, 0.5 to 2 as in the original: 2 shows twice the world
     Zoom { zoom: f32 },
     /// Set the clock, as HH:MM
     Time {
@@ -305,7 +305,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             let mut cameras = world.query_filtered::<&mut Projection, With<Camera3d>>();
             for mut projection in cameras.iter_mut(world) {
                 if let Projection::Orthographic(ortho) = &mut *projection {
-                    ortho.scale = 1.0 / zoom;
+                    ortho.scale = zoom;
                 }
             }
             Ok(Outcome::say(format!("zoom {zoom:.2}")))
@@ -759,7 +759,7 @@ mod tests {
     fn zoom(app: &mut App) -> f32 {
         let mut cameras = app.world_mut().query::<&Projection>();
         match cameras.iter(app.world()).next() {
-            Some(Projection::Orthographic(ortho)) => 1.0 / ortho.scale,
+            Some(Projection::Orthographic(ortho)) => ortho.scale,
             _ => 0.0,
         }
     }

@@ -1133,11 +1133,11 @@ fn behave(
         .is_some_and(|flags| flags & INSIDE != 0);
     // The children at play this frame, whom the others follow.
     let mut playing: Vec<(Entity, Vec3)> = Vec::new();
-    // The camera's zoom, the inverse of its scale.
+    // The camera's zoom, its scale.
     let zoom = cameras
         .iter()
         .find_map(|projection| match projection {
-            Projection::Orthographic(ortho) => Some(1.0 / ortho.scale),
+            Projection::Orthographic(ortho) => Some(ortho.scale),
             _ => None,
         })
         .unwrap_or(1.0);

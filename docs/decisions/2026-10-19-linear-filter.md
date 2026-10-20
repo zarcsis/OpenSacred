@@ -9,7 +9,7 @@ It draws its sprites with point filtering (`0x62FF60` turns the renderer's linea
 ## Ours
 
 The ground and every sprite are filtered linearly at any zoom and resolution: the shaders mix the four texels about a sample, each colour weighted by its alpha (`ground.wesl`, `sprites.wesl`).
-At 3,840 × 2,160 a texel covers 2.8 pixels at zoom 1 and 5.6 at zoom 2.
+At 3,840 × 2,160 a texel covers 2.8 pixels at zoom 1 and 5.6 at zoom 0.5, the closest view.
 
 ## Why
 

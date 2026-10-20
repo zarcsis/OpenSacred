@@ -98,9 +98,8 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
 * **Camera:** orthographic, yaw 45°, pitch 30° (sin 30° = 1/2 gives the 2:1 diamond), in the original's world units (a cell is 24·√5 = 53.67 units, the edge of its diamond in pixels; 1.26 pixels a unit), scaled so that a cell's diamond is 96 × 48 pixels at zoom 1 and the view is as tall as the original's 768-pixel screen at any resolution (607 world units).
   The "534 × 400" of §1 and §3.4 is in the units of the models, which the original projects at 1.92 pixels a unit while its ground is drawn in 2D: so a model unit is 1.52 world units (`iso::MODEL_SCALE`), and the hero stands about 120 pixels tall at zoom 1, matching the well and the bench beside the village's citizens; the creatures' speeds take the same factor.
   The original's depth formula names the angle `atan 0.5` (26.6°); the 30° pitch keeps the 3D ground on the 2D diamonds exactly.
-  The game's zoom number is the inverse of the original's (#330): the camera's scale is 1 over the zoom (`iso::zoom`, `game::place_camera`), so the game's zoom 2 magnifies and its 0.5 shows the widest view, which the original calls zoom 2 (its projection `ortho(±267·zoom, ±200·zoom, …)`, §1, docs/02 §5.3).
-  The range of views is the same; a zoom in this section is the game's.
-  The wheel steps the zoom by a tenth a notch.
+  The zoom is the original's number, the camera's scale (`iso::ZOOM`), as the original's zoom scales its projection `ortho(±267·zoom, ±200·zoom, …)` (§1, docs/02 §5.3): zoom 2 shows twice the world, the widest view, and 0.5 half of it (#330: the game's number was the inverse).
+  The wheel steps the zoom by a tenth a notch, turned forward bringing the world closer.
 * **Colour:** no display transform: the camera has `Tonemapping::None` and no debanding, so the art's texels reach the screen as they are, as in the original (Bevy's default TonyMcMapface turned 250 into 193 and 224 into 181, and took 6 % of the chroma; #28).
   The lit models looked the same either way, so the lights stay.
   The frame holds sRGB values, in a target of `Rgba8Unorm`, and the blending takes them as they are, as the original's Direct3D 7 device blends its frame's 8-bit values (`srgb`, #109): Bevy's own sRGB compositing, which Bevy grants to 2D cameras alone, granted to the 3D camera, since every material of the game encodes its colour last (`post.wesl`, `standard.wesl`) and the HUD gives Bevy's interface its colours and images in those values; Bevy's last pass decodes the frame onto the window.
@@ -113,7 +112,7 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
   The shader filters the four texels around a sample linearly, each colour weighted by its alpha, so that the transparent texels, black in the atlases, do not darken the edges.
   A sector's sprites are assembled from their pieces, one to one, when the sector is built, and packed into pages of 2,048 × 2,048 (the start's 3 × 3 sectors use 489 sprites), one mesh per page: filtering each piece in its own atlas left a step at every piece's edge, a line on roofs and walls once magnified, and the samples keep to the sprite's own texels (`sprites.wesl`).
   A sprite's image is its width and height from its pieces' smallest corner, past which its pieces are transparent (docs/02 §3.3): where the art is cut at its edge to go on in another sprite, the edge's texels reach the edge, rather than fading into the transparent texels past it, which let what lay behind the two sprites show as a line between them (#35).
-  The shader places a sprite's corners on screen from the original's pixels, whole numbers that an `f32` holds exactly across the world, rather than from their world positions, which each sprite works out from its own cell's anchor and which round apart by a sixteenth of a unit at the world's coordinates: where two floors met at one pixel of the original, a column of pixels at zoom 2 fell in neither and showed what lay under them (#113).
+  The shader places a sprite's corners on screen from the original's pixels, whole numbers that an `f32` holds exactly across the world, rather than from their world positions, which each sprite works out from its own cell's anchor and which round apart by a sixteenth of a unit at the world's coordinates: where two floors met at one pixel of the original, a column of pixels at zoom 0.5, the closest view, fell in neither and showed what lay under them (#113).
   Miniatures take their square of their type's atlas, one mesh per atlas.
   The trees, the walls of type 25 and the floors of type 29 drawn after the hero fade about it as the original's do, from 50 out of 255 at the middle of its figure to whole 190 pixels off (docs/re/drawing.md, "The trees about the heroes").
   The statics' shadows are quads of the cells of the original's shadow atlas (`SHADOW_TREE00`) at each static's foot, a rectangle or leaning right, drawn by the sprites' shader in its blended pass, list 1 between lists 0 and 2 and the furniture's with their sprites, fading out by night (docs/re/drawing.md, "The statics' shadows").
@@ -146,7 +145,7 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
 
 | Metric | Target |
 |---|---|
-| Frames per second at 3840×2160, at the widest view (the original's zoom 2, the game's 0.5; §3.6, #330) | ≥ 60 on a mid-range graphics card |
+| Frames per second at 3840×2160, at the widest view (zoom 2, §3.6) | ≥ 60 on a mid-range graphics card |
 | CPU time to prepare a frame | ≤ 4 ms |
 | Draw calls per frame | hundreds, not thousands (batching) |
 | VRAM for the base assets | ≤ 2 GB (only the hero's surroundings are loaded) |

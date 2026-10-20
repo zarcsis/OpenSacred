@@ -158,8 +158,8 @@ pub struct NewGame {
     /// hero's start in its start script
     #[arg(long, value_parser = parse_position)]
     pub sector: Option<(u32, u32)>,
-    /// The camera's zoom at the start, 0.5 to 2 as in the original (1 by default; the mouse
-    /// wheel changes it)
+    /// The camera's zoom at the start, 0.5 to 2 as in the original: 2 shows twice the world (1
+    /// by default; the mouse wheel changes it)
     #[arg(long)]
     pub zoom: Option<f32>,
     /// The hero model, relative to the asset directory
@@ -574,7 +574,7 @@ fn place_camera(
     let (mut transform, mut projection) = camera.into_inner();
     *transform = iso::view_of(hero.position);
     if let Projection::Orthographic(ortho) = &mut *projection {
-        ortho.scale = 1.0 / zoom.0.clamp(*iso::ZOOM.start(), *iso::ZOOM.end());
+        ortho.scale = zoom.0.clamp(*iso::ZOOM.start(), *iso::ZOOM.end());
     }
 }
 
