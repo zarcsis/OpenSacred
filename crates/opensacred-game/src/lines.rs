@@ -90,12 +90,17 @@ impl Says {
 }
 
 /// Shows each creature's line over it, following it on the screen, until its time is out.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
     time: Res<Time>,
     texts: Option<Res<Texts>>,
     assets: Res<AssetServer>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    ui_scale: Res<UiScale>,
     mut speakers: Query<(Entity, &GlobalTransform, &mut Says)>,
     mut nodes: Query<&mut Node>,
 ) {
@@ -115,6 +120,8 @@ fn show(
         let Ok(point) = camera.world_to_viewport(view, at.translation() + Vec3::Y * ABOVE) else {
             continue;
         };
+        // The window's pixels in the interface's, which `UiScale` scales (`hud::scale`).
+        let point = point / ui_scale.0;
         let (left, top) = (Val::Px(point.x - WIDTH / 2.0), Val::Px(point.y));
         match says.label.map(|label| nodes.get_mut(label)) {
             Some(Ok(mut node)) => {
