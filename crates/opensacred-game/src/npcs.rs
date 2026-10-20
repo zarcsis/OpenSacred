@@ -123,8 +123,10 @@ struct Placement {
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
     class: u8,
-    /// An NPC's `Creature.pak` base bytes, from which its health (`fight`).
-    base: [u8; 6],
+    /// An NPC's `Creature.pak` values of the fight, from which its health and its strikes
+    /// (`fight`), and the class of what it holds (`held_class`).
+    base: fight::Base,
+    held: u8,
     /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
     /// fill; its group, if it is in one; whether it has a dialogue, a `CreateNPC` with one
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
@@ -156,6 +158,9 @@ struct ClipNames {
     fun: [Option<String>; 4],
     /// Its attack's clips (`motions::Slots::attacks`).
     attacks: Vec<String>,
+    /// Its dying clips, the slots 173 and 174 (`*_DYING_A`, `*_DYING_B`; **hypothesis** for the
+    /// dying action 6's choice).
+    dying: Vec<String>,
 }
 
 /// The instruments a juggler takes (`0x4F29E2`): the flute, the bell, the harp and the horn, their
@@ -253,8 +258,8 @@ pub struct Npcs {
     /// Each creature type's `Creature.pak` class, which picks a fill's factor.
     classes: HashMap<u32, u8>,
     factors: spawning::Factors,
-    /// The balance's values of the creatures' health.
-    health: fight::HealthRules,
+    /// The balance's values of the creatures' fight.
+    fight: fight::Rules,
     /// The weapon pools, the sectors' `MakeGroup` rules, what each pool's item is in a hand, and
     /// the templates' models' clips by slot, which give the fills' creatures their items and the
     /// clips of what they hold ([`gear_of`]).
@@ -300,6 +305,8 @@ pub struct Npc {
     /// Whether both its hands are empty, and the instrument it took, of [`INSTRUMENTS`].
     hands_empty: bool,
     instrument: Option<usize>,
+    /// Its hits' share of a strike: 0.5 with two weapons, else 1 (`0x4EA3F0`).
+    share: f32,
 }
 
 /// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
@@ -314,6 +321,7 @@ struct Clips {
     fun: [Option<AnimationNodeIndex>; 4],
     /// The attack's clips, each with its clip and the fractions at which it hits.
     attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
+    dying: Vec<AnimationNodeIndex>,
 }
 
 impl Clips {
@@ -954,7 +962,10 @@ impl Npcs {
         // Each creature's walk and run speeds (`+0x26`, `+0x28`, the models' units a second).
         let speeds: HashMap<u32, [u16; 2]> = creatures.iter().map(|c| (c.id, c.speed)).collect();
         let classes: HashMap<u32, u8> = creatures.iter().map(|c| (c.id, c.class)).collect();
-        let bases: HashMap<u32, [u8; 6]> = creatures.iter().map(|c| (c.id, c.base)).collect();
+        let bases: HashMap<u32, fight::Base> = creatures
+            .iter()
+            .map(|c| (c.id, fight::Base::of(c)))
+            .collect();
         // The balance, from which the fills' factors and the health's (none where it is lacking).
         let balance =
             fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
@@ -1061,6 +1072,10 @@ impl Npcs {
                         .map(|(name, _)| name.to_owned()),
                     stance: slots.stance(class).map(str::to_owned),
                     attacks: slots.attacks(class),
+                    dying: [173, 174]
+                        .iter()
+                        .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
+                        .collect(),
                     talk: slots.talk().map(str::to_owned),
                     fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
                 };
@@ -1089,6 +1104,11 @@ impl Npcs {
                 speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                 class: classes.get(&creature).copied().unwrap_or_default(),
                 base: bases.get(&creature).copied().unwrap_or_default(),
+                held: if record.kind == CREATE_NPC {
+                    held_class(&categories)
+                } else {
+                    held_class(&[])
+                },
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
                 dialogue: record.kind == CREATE_NPC
                     && ops.iter().any(|o| {
@@ -1168,6 +1188,7 @@ impl Npcs {
                         .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                     class: classes.get(&creature).copied().unwrap_or_default(),
                     base: bases.get(&creature).copied().unwrap_or_default(),
+                    held: held_class(&[]),
                     made: (true, false),
                     dialogue: false,
                     trader: false,
@@ -1194,6 +1215,10 @@ impl Npcs {
                         run: clip(motions::Action::Run),
                         stance: slots.stance(held_class(&[])).map(str::to_owned),
                         attacks: slots.attacks(held_class(&[])),
+                        dying: [173, 174]
+                            .iter()
+                            .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
+                            .collect(),
                         talk: slots.talk().map(str::to_owned),
                         fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
                     },
@@ -1244,7 +1269,7 @@ impl Npcs {
             templates,
             classes,
             factors: factors(balance.as_ref()),
-            health: fight::HealthRules::of(balance.as_ref()),
+            fight: fight::Rules::of(balance.as_ref()),
             rules: rules(&tree),
             pools,
             gear,
@@ -1320,7 +1345,7 @@ pub fn place(
                 &heights,
                 &states,
                 &assets,
-                (level, &npcs.health),
+                (level, &npcs.fight),
             );
             streamer.adopt(at, entity);
         }
@@ -1379,8 +1404,9 @@ pub fn place(
                             })
                         })
                         .collect();
+                    placement.held = held_class(&categories);
                     if let Some(slots) = npcs.slots.get(&placement.model) {
-                        let class = held_class(&categories);
+                        let class = placement.held;
                         let clip =
                             |action| slots.clip(action, class).map(|(name, _)| name.to_owned());
                         placement.clips = ClipNames {
@@ -1389,6 +1415,10 @@ pub fn place(
                             run: clip(motions::Action::Run),
                             stance: slots.stance(class).map(str::to_owned),
                             attacks: slots.attacks(class),
+                            dying: [173, 174]
+                                .iter()
+                                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
+                                .collect(),
                             talk: slots.talk().map(str::to_owned),
                             fun: [180, 181, 182, 183]
                                 .map(|slot| slots.slot(slot).map(str::to_owned)),
@@ -1415,7 +1445,7 @@ pub fn place(
                     &heights,
                     &states,
                     &assets,
-                    (level, &npcs.health),
+                    (level, &npcs.fight),
                 );
                 streamer.adopt(at, entity);
             }
@@ -1434,8 +1464,8 @@ fn spawn(
     heights: &Heights,
     states: &buildings::Buildings,
     assets: &AssetServer,
-    // The creature's level, and the balance's values of its health.
-    (grade, rules): (u32, &fight::HealthRules),
+    // The creature's level, and the balance's values of its fight.
+    (grade, rules): (u32, &fight::Rules),
 ) -> Entity {
     let (x, y) = placement.cell;
     let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
@@ -1521,12 +1551,25 @@ fn spawn(
         mind.trader = placement.trader;
         mind.level = grade;
         // Its health, full, by its base and its level (`0x5658F0`).
-        let most = fight::most_health(placement.base, grade, rules);
+        let most = fight::most_health(placement.base.attributes, grade, rules);
         entity.insert(fight::Health {
             current: most,
             most,
             level: grade,
         });
+        // Its attack, defence, damage and resistances (`0x5796A0`): unarmed when what it holds
+        // is of class 0 and its right hand empty (`0x546F80`); its hits halved with two weapons,
+        // the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
+        let holds = |hand, shield: Option<bool>| {
+            placement
+                .equipment
+                .iter()
+                .any(|held| held.hand == hand && shield.is_none_or(|s| held.shield == s))
+        };
+        let right = holds(Hand::Right, None);
+        let armed = placement.held != 0 || right;
+        let two = placement.held == 8 || (right && holds(Hand::Left, Some(false)));
+        entity.insert(fight::combat(&placement.base, grade, armed, rules));
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),
@@ -1535,6 +1578,7 @@ fn spawn(
                 player: None,
                 hands_empty: placement.equipment.is_empty(),
                 instrument: None,
+                share: if two { 0.5 } else { 1.0 },
             },
             crowd::InTheWay::of(creature, record_flags, word, level),
             mind,
@@ -1790,6 +1834,15 @@ pub fn animate(
             );
             let names = npc.names.fun.clone();
             let fun = [0, 1, 2, 3].map(|i| add(&names[i]));
+            let dying = npc
+                .names
+                .dying
+                .iter()
+                .filter_map(|name| {
+                    let clip = gltf.named_animations.get(name.as_str())?;
+                    Some(graph.add_clip(clip.clone(), 1.0, root))
+                })
+                .collect();
             let attacks = npc
                 .names
                 .attacks
@@ -1813,6 +1866,7 @@ pub fn animate(
                 talk,
                 fun,
                 attacks,
+                dying,
             });
         }
         if let Some(clips) = npc.graph.clone() {
@@ -1966,7 +2020,10 @@ const STANCE_WITHIN: f32 = 550.0;
 pub fn stance(
     mut commands: Commands,
     nearest: Res<crowd::Nearest>,
-    npcs: Query<(Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>), Without<Strikes>>,
+    npcs: Query<
+        (Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>),
+        (Without<Strikes>, Without<Dies>),
+    >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
@@ -2159,6 +2216,56 @@ fn put(
     }
 }
 
+/// An NPC that dies (the AI's state 9, `0x53E7C0`): it plays one of its dying clips, chosen by
+/// `choice`, once, and lies there; it no longer thinks, walks or stands in the way.
+#[derive(Component)]
+pub struct Dies {
+    pub choice: u32,
+    played: bool,
+}
+
+impl Dies {
+    pub fn new(choice: u32) -> Self {
+        Self {
+            choice,
+            played: false,
+        }
+    }
+}
+
+/// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
+/// the way gone.
+fn die(
+    mut commands: Commands,
+    mut dying: Query<(Entity, &Npc, &mut Dies)>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    speed: Res<hero::GameSpeed>,
+) {
+    for (entity, npc, mut dies) in &mut dying {
+        if dies.played {
+            continue;
+        }
+        commands
+            .entity(entity)
+            .remove::<(Walk, Strikes, Talks, Plays, crowd::InTheWay, ai::Mind)>();
+        let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
+            continue;
+        };
+        let Ok((mut player, mut transitions)) = players.get_mut(player) else {
+            continue;
+        };
+        if let Some(&node) = graph
+            .dying
+            .get(usize::try_from(dies.choice).unwrap_or(0) % graph.dying.len().max(1))
+        {
+            transitions
+                .play(&mut player, node, BLEND)
+                .set_speed(speed.0);
+        }
+        dies.played = true;
+    }
+}
+
 /// An NPC that strikes at `target` (the attack action 3, `0x4E4CF0`): one of its attack's clips,
 /// chosen by `choice`, once, which hits at its fractions (`0x4EA1F0`).
 #[derive(Component)]
@@ -2188,11 +2295,15 @@ impl Strikes {
 const HITS_WITHIN: f32 = 3.0 * 130.0;
 
 /// Plays each striking NPC's attack once, and at the clip's fractions (0.5 for a first of 0; a
-/// second when it is above 0) sends a hit when the target is then within reach; a walk ends the
-/// strike (`0x4E4CF0`, `0x4EA1F0`).
+/// second when it is above 0) sends a hit of its share when the target is then within reach; a
+/// walk ends the strike (`0x4E4CF0`, `0x4EA1F0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
 fn strike(
     mut commands: Commands,
-    mut strikers: Query<(Entity, &Npc, &mut Strikes, Has<Walk>, &GlobalTransform)>,
+    mut strikers: Query<(Entity, &Npc, &mut Strikes, Has<Walk>, &GlobalTransform), Without<Dies>>,
     places: Query<&GlobalTransform>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     clips: Res<Assets<AnimationClip>>,
@@ -2244,11 +2355,10 @@ fn strike(
                     <= HITS_WITHIN
             });
             if reaches {
-                let share = if fractions[1] > 0.0 { 0.5 } else { 1.0 };
                 hits.write(fight::Hit {
                     attacker: entity,
                     target: strikes.target,
-                    share,
+                    share: npc.share,
                 });
             }
         }
@@ -2309,7 +2419,8 @@ impl Plugin for NpcsPlugin {
             .add_systems(
                 Update,
                 (
-                    place, animate, door_clips, walk, put, swing, instrument, strike, stance, equip,
+                    place, animate, door_clips, walk, put, swing, instrument, strike, die, stance,
+                    equip,
                 )
                     .chain()
                     .in_set(Step::Npcs),
@@ -2433,6 +2544,7 @@ mod tests {
             talk: None,
             fun: [None; 4],
             attacks: Vec::new(),
+            dying: Vec::new(),
         };
         let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
         // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.
