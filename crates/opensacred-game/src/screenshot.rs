@@ -4,12 +4,14 @@
 //! `--record` does, going on after it (`command`).
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 
 use crate::frame::Playing;
-use crate::hero::Ready;
+use crate::hero::{Body, Ready};
 use crate::sectors::Streamer;
 
 #[derive(Resource)]
@@ -37,8 +39,13 @@ pub fn take(
     mut request: ResMut<Request>,
     ready: Res<Ready>,
     streamer: Res<Streamer>,
+    bodies: Query<&Transform, With<Body>>,
 ) {
-    if request.taken || !ready.0 || !streamer.idle() {
+    let settled = bodies
+        .iter()
+        .next()
+        .is_some_and(|hero| streamer.settled(hero.translation));
+    if request.taken || !ready.0 || !settled {
         return;
     }
     request.frames += 1;
@@ -56,11 +63,29 @@ pub fn take(
         );
 }
 
-/// Saves the next frame of the window to `path`, as it is.
+/// The screenshots of [`save`] asked for and not written yet.
+#[derive(Resource, Default)]
+pub struct Saving(Arc<AtomicU32>);
+
+impl Saving {
+    /// Whether a screenshot asked for is still to be written.
+    pub fn pending(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
+    }
+}
+
+/// Saves the next frame of the window to `path`, as it is; [`Saving`] counts it until its file
+/// is written, a frame or two later, so that a script waits for it (#202).
 pub fn save(world: &mut World, path: PathBuf) {
+    let saving = Arc::clone(&world.get_resource_or_init::<Saving>().0);
+    saving.fetch_add(1, Ordering::AcqRel);
+    let mut write = save_to_disk(path);
     world
         .spawn(Screenshot::primary_window())
-        .observe(save_to_disk(path));
+        .observe(move |captured: On<ScreenshotCaptured>| {
+            write(captured);
+            saving.fetch_sub(1, Ordering::AcqRel);
+        });
 }
 
 /// `--record`: from the same moment as a screenshot, save every frame to a numbered PNG for a
@@ -109,6 +134,7 @@ pub fn record(
     mut recording: ResMut<Recording>,
     ready: Res<Ready>,
     streamer: Res<Streamer>,
+    bodies: Query<&Transform, With<Body>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if recording.saved.load(std::sync::atomic::Ordering::Acquire) >= recording.frames {
@@ -124,7 +150,11 @@ pub fn record(
         }
         return;
     }
-    if !ready.0 || (recording.rendered == 0 && !streamer.idle()) {
+    let settled = bodies
+        .iter()
+        .next()
+        .is_some_and(|hero| streamer.settled(hero.translation));
+    if !ready.0 || (recording.rendered == 0 && !settled) {
         return;
     }
     recording.rendered += 1;
@@ -148,7 +178,7 @@ pub struct ScreenshotPlugin;
 
 impl Plugin for ScreenshotPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<Saving>().add_systems(
             Update,
             (
                 take.run_if(resource_exists::<Request>),
