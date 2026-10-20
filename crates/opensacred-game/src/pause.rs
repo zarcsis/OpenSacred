@@ -87,7 +87,12 @@ impl Plugin for PausePlugin {
         app.add_sub_state::<Play>()
             .init_resource::<Still>()
             .configure_sets(Update, Unpaused.run_if(in_state(Play::Running)))
-            .add_systems(Update, toggle.run_if(in_state(AppState::InGame)))
+            .add_systems(
+                Update,
+                toggle
+                    .run_if(in_state(AppState::InGame))
+                    .in_set(crate::frame::Control),
+            )
             .add_systems(OnEnter(Play::Paused), pause)
             .add_systems(
                 OnExit(Play::Paused),
