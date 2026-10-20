@@ -1557,9 +1557,10 @@ fn spawn(
             most,
             level: grade,
         });
-        // Its attack, defence, damage and resistances (`0x5796A0`): unarmed when what it holds
-        // is of class 0 and its right hand empty (`0x546F80`); its hits halved with two weapons,
-        // the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
+        // Its attack, defence, damage and resistances (`0x5796A0`), with its skills: unarmed
+        // when what it holds is of class 0 and its right hand empty (`0x546F80`); its hits
+        // halved with two weapons, the class 8 or one in each hand, the left no shield
+        // (`0x4EA3F0`); and its regeneration.
         let holds = |hand, shield: Option<bool>| {
             placement
                 .equipment
@@ -1569,9 +1570,15 @@ fn spawn(
         let right = holds(Hand::Right, None);
         let armed = placement.held != 0 || right;
         let two = placement.held == 8 || (right && holds(Hand::Left, Some(false)));
+        let skills = fight::skills(&placement.base, grade, false);
+        let held = fight::Holds {
+            weapon: armed,
+            shield: holds(Hand::Left, Some(true)),
+        };
         entity.insert((
-            fight::combat(&placement.base, grade, armed, rules),
+            fight::combat(&placement.base, grade, held, &skills, rules),
             fight::Worth(placement.base.experience),
+            fight::Regenerates::new(fight::regeneration(&placement.base, grade, &skills, rules)),
         ));
         entity.insert((
             Npc {

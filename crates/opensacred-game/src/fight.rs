@@ -184,19 +184,25 @@ impl Regenerates {
 }
 
 /// The regeneration value of a creature of `base` at level `level` (`0x5796A0`): `2·a3`, its
-/// attribute 3 raised by its level.
-pub fn regeneration(base: &Base, level: u32) -> f32 {
+/// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`).
+pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules) -> f32 {
     let b3 = u32::from(base.attributes[3]);
-    to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10))
+    let value = to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10));
+    let skill: f32 = skills
+        .iter()
+        .filter(|&&(skill, _)| skill == 10)
+        .map(|&(_, at)| curve(rules.curves.regeneration, at) / 100.0)
+        .sum();
+    value * (1.0 + skill)
 }
 
 /// How near a hostile makes the hero regenerate at `RegEnemyNear` (`0x562730`).
 const ENEMY_NEAR: f32 = 1000.0;
 
-/// The hero's regeneration (`0x562730`): its value times its rate, `RegInFight` while it
-/// attacks, `RegEnemyNear` with a hostile within 1,000, else `RegNoEnemy`, times the frame's
-/// time in seconds (**hypothesis**), up to its most health; none while it dies. The creatures'
-/// comes with their skills (#293).
+/// The regeneration (`0x562730`): each creature's value times its rate, an NPC's `RegInFight`,
+/// the hero's `RegInFight` while it attacks, `RegEnemyNear` with a hostile within 1,000, else
+/// `RegNoEnemy`, times the frame's time in seconds (**hypothesis**), up to its most health; none
+/// while it dies.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -205,14 +211,19 @@ fn regenerate(
     time: Res<Time>,
     rules: Res<Rules>,
     nearest: Res<crate::crowd::Nearest>,
-    mut heroes: Query<
-        (&mut Health, &mut Regenerates, Has<crate::attack::Attack>),
-        (With<Body>, Without<Dies>),
+    mut living: Query<
+        (
+            &mut Health,
+            &mut Regenerates,
+            Has<Body>,
+            Has<crate::attack::Attack>,
+        ),
+        Without<Dies>,
     >,
 ) {
     let [fighting, near, alone] = rules.regeneration;
-    for (mut health, mut regenerates, attacks) in &mut heroes {
-        let rate = if attacks {
+    for (mut health, mut regenerates, hero, attacks) in &mut living {
+        let rate = if !hero || attacks {
             fighting
         } else if nearest.found && nearest.distance < ENEMY_NEAR {
             near
@@ -357,6 +368,7 @@ pub struct Rules {
     experience: [f32; 4],
     difficulty: [f32; 3],
     regeneration: [f32; 3],
+    curves: Curves,
 }
 
 impl Default for Rules {
@@ -373,6 +385,7 @@ impl Default for Rules {
             experience: [1.0, 0.85, 1.0, 1.1],
             difficulty: [0.65, 0.9, 1.0],
             regeneration: [36.0, 48.0, 128.0],
+            curves: Curves::default(),
         }
     }
 }
@@ -445,6 +458,7 @@ impl Rules {
                 }
                 rates
             },
+            curves: Curves::of(b),
         }
     }
 
@@ -505,6 +519,9 @@ pub struct Base {
     pub bonus_class: [u8; 6],
     pub damping: [[u8; 5]; KINDS],
     pub experience: [u16; 2],
+    /// Its eight skill slots (`0x586C00`): `+0x14`, `+0x15` and, for a type not of class 1, the
+    /// first six of `+0x16`; 0 for none.
+    pub skills: [u8; 8],
 }
 
 impl Base {
@@ -516,6 +533,130 @@ impl Base {
             bonus_class: creature.bonus_class,
             damping: creature.damping,
             experience: creature.experience,
+            skills: {
+                let mut skills = [0; 8];
+                skills[..2].copy_from_slice(&creature.skills);
+                if creature.class != 1 {
+                    skills[2..].copy_from_slice(&creature.skills_extra[..6]);
+                }
+                skills
+            },
+        }
+    }
+}
+
+/// What a creature holds, as its values take it: a weapon (`0x546F80`) and a shield
+/// (`0x54A660`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Holds {
+    pub weapon: bool,
+    pub shield: bool,
+}
+
+/// The skills a creature of `base` counts at level `level`, and their levels: an NPC the first
+/// of its slots, none below level 3, one up to 6, two up to 20, three up to 35, else all eight,
+/// each at a third of its level (`0x564D60`); a hero its two slots at level 1 (`0x586C00`;
+/// **hypothesis**: the template's own levels are not read).
+pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
+    let (count, at) = if hero {
+        (2, 1)
+    } else {
+        let count = match level {
+            0..3 => 0,
+            3..=6 => 1,
+            7..=20 => 2,
+            21..=35 => 3,
+            _ => 8,
+        };
+        (count, level / 3)
+    };
+    base.skills
+        .iter()
+        .take(count)
+        .filter(|&&skill| skill != 0)
+        .map(|&skill| (skill, at))
+        .collect()
+}
+
+/// A skill's per cent at level `level` (`0x566070`), of the balance's triple `[off, S, w]`:
+/// `off` at level 1, `w` at level `S + 1`, `off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`; none
+/// below level 1.
+fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
+    if level < 1 || steps <= 0.0 {
+        return 0.0;
+    }
+    off + 2.0 * (most - off) * (1.0 - 1.0 / (1.0 + to_f32(level - 1) / steps))
+}
+
+/// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
+/// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's (10, `HR…AW`), the
+/// defence's again (9, `P…`, with a shield `P…S`), and each resistance's (11, `R…Ph`, `R…Fe`,
+/// `R…Ma`, `R…Gi`).
+#[derive(Clone, Debug, PartialEq)]
+struct Curves {
+    damage: [f32; 3],
+    attack: [f32; 3],
+    defence: [f32; 3],
+    regeneration: [f32; 3],
+    parry: [f32; 3],
+    parry_shield: [f32; 3],
+    resistances: [[f32; 3]; KINDS],
+}
+
+impl Default for Curves {
+    /// The original's values.
+    fn default() -> Self {
+        Self {
+            damage: [12.0, 50.0, 200.0],
+            attack: [7.0, 50.0, 125.0],
+            defence: [13.0, 50.0, 225.0],
+            regeneration: [6.0, 50.0, 150.0],
+            parry: [15.0, 50.0, 250.0],
+            parry_shield: [25.0, 50.0, 375.0],
+            resistances: [
+                [12.0, 50.0, 250.0],
+                [12.0, 50.0, 200.0],
+                [12.0, 50.0, 200.0],
+                [12.0, 50.0, 200.0],
+            ],
+        }
+    }
+}
+
+impl Curves {
+    /// The triples of `balance`, the original's where it lacks them.
+    fn of(balance: &Balance) -> Self {
+        let default = Self::default();
+        let triple = |names: [&str; 3], or: [f32; 3]| {
+            let mut values = or;
+            for (value, name) in values.iter_mut().zip(names) {
+                *value = balance.f32(name).unwrap_or(*value);
+            }
+            values
+        };
+        let resistance = |kind: usize, suffix: &str| {
+            triple(
+                [
+                    &format!("Roff{suffix}"),
+                    &format!("R__s{suffix}"),
+                    &format!("R__w{suffix}"),
+                ],
+                default.resistances[kind],
+            )
+        };
+        Self {
+            damage: triple(["WKoff", "WK_s", "WK_w"], default.damage),
+            attack: triple(["WoffAW", "W__sAW", "W__wAW"], default.attack),
+            defence: triple(["WoffVW", "W__sVW", "W__wVW"], default.defence),
+            regeneration: triple(["HRoffAW", "HR__sAW", "HR__wAW"], default.regeneration),
+            parry: triple(["Poff", "P__s", "P__w"], default.parry),
+            parry_shield: triple(["PoffS", "P__sS", "P__wS"], default.parry_shield),
+            resistances: [
+                resistance(0, "Ph"),
+                resistance(1, "Fe"),
+                resistance(2, "Ma"),
+                resistance(3, "Gi"),
+            ],
         }
     }
 }
@@ -543,9 +684,20 @@ pub struct Combat {
 /// - each kind's damage times `1 +` its part of the base attributes times `F` over `BalChar*D`;
 /// - the resistances of the attributes over `BalanceRes*`, times `1 + F·b1/10` over `BalChar*R`.
 ///
-/// No skills (#293), items or bonuses of other kinds yet; an armed NPC's damage is the
-/// default's, its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md).
-pub fn combat(base: &Base, level: u32, armed: bool, rules: &Rules) -> Combat {
+/// - the skills `skills` (`0x566070`): 2 raises every damage multiplier, 8 the attack's and the
+///   defence's, 9 the defence's (more with a shield), 11 each resistance's, by its curve's per
+///   cent; an attack or a defence whose multiplier is not 1 is truncated.
+///
+/// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's,
+/// its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md).
+pub fn combat(
+    base: &Base,
+    level: u32,
+    holds: Holds,
+    skills: &[(u8, u32)],
+    rules: &Rules,
+) -> Combat {
+    let armed = holds.weapon;
     let level = level.max(1);
     let b = base.attributes.map(f32::from);
     let a = base
@@ -591,19 +743,58 @@ pub fn combat(base: &Base, level: u32, armed: bool, rules: &Rules) -> Combat {
         damage[0][1] += 0.15 * (2.0 * a[0] + a[2]) + l / 2.0;
         damage[0][0] += 0.175 * (a[0] + a[2]) + l / 2.0;
     }
+    // The skills' parts of the multipliers.
+    let curves = &rules.curves;
+    let (mut damage_skill, mut attack_skill, mut defence_skill) = (0.0, 1.0, 1.0);
+    let mut resistance_skill = [0.0; KINDS];
+    for &(skill, at) in skills {
+        match skill {
+            2 => damage_skill += curve(curves.damage, at) / 100.0,
+            8 => {
+                attack_skill += curve(curves.attack, at) / 100.0;
+                defence_skill += curve(curves.defence, at) / 100.0;
+            }
+            9 => {
+                let parry = if holds.shield {
+                    curves.parry_shield
+                } else {
+                    curves.parry
+                };
+                defence_skill += curve(parry, at) / 100.0;
+            }
+            11 => {
+                for (value, triple) in resistance_skill.iter_mut().zip(curves.resistances) {
+                    *value += curve(triple, at) / 100.0;
+                }
+            }
+            _ => {}
+        }
+    }
     let damage_parts = [b[0], b[0] + b[2], b[4], b[1] + b[5]];
     let [dmg, res] = rules.balance;
     for (kind, ends) in damage.iter_mut().enumerate() {
-        let factor = 1.0 + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind];
+        let factor =
+            1.0 + damage_skill + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind];
         *ends = ends.map(|end| end.max(0.0) * factor.max(0.0) * dmg);
     }
     for (kind, value) in resistance.iter_mut().enumerate() {
-        let factor = 1.0 + f * b[1] / 10.0 / rules.resistance_divisors[kind];
+        let factor =
+            1.0 + resistance_skill[kind] + f * b[1] / 10.0 / rules.resistance_divisors[kind];
         *value = value.max(0.0) * factor.max(0.0) * res;
     }
+    let multiplied = |value: f32, factor: f32| {
+        if factor == 1.0 {
+            value
+        } else {
+            to_f32(whole(value * factor))
+        }
+    };
     Combat {
-        attack: (a[0] * ATTACK[0] + a[2] * ATTACK[1]) / 100.0,
-        defence: (a[0] * DEFENCE[0] + a[2] * DEFENCE[1]) / 100.0,
+        attack: multiplied((a[0] * ATTACK[0] + a[2] * ATTACK[1]) / 100.0, attack_skill),
+        defence: multiplied(
+            (a[0] * DEFENCE[0] + a[2] * DEFENCE[1]) / 100.0,
+            defence_skill,
+        ),
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
@@ -803,6 +994,7 @@ mod tests {
             attributes: [8, 10, 18, 13, 0, 1],
             bonus: [[1, 1], [2, 5], [0, 0], [0, 0], [0, 0], [0, 0]],
             bonus_value: [50, 30, 0, 0, 0, 0],
+            skills: [2, 11, 0, 0, 0, 0, 0, 0],
             ..Base::default()
         }
     }
@@ -824,24 +1016,33 @@ mod tests {
     fn an_npcs_attack_defence_damage_and_resistance_follow_the_originals_examples() {
         let rules = Rules::default();
         // docs/re/fight.md, "An NPC's attack, defence and damage": level 1, unarmed.
-        let wolf = combat(&a_wolf(), 1, false, &rules);
+        let wolf = combat(&a_wolf(), 1, Holds::default(), &[], &rules);
         assert!(near(wolf.attack, 13.0) && near(wolf.defence, 16.0));
         assert!(near(wolf.damage[0][0], 3.33) && near(wolf.damage[0][1], 4.43));
         assert_eq!(wolf.damage[1..], [[0.0; 2]; 3]);
         assert!(near(wolf.resistance[0], 4.48));
-        let goblin = combat(&a_goblin(), 1, false, &rules);
+        let goblin = combat(&a_goblin(), 1, Holds::default(), &[], &rules);
         assert!(near(goblin.attack, 18.5) && near(goblin.defence, 20.6));
         assert!(near(goblin.damage[0][0], 12.04) && near(goblin.damage[0][1], 21.67));
         assert!(near(goblin.resistance[0], 6.62));
         // Armed, the damage bonus does not hold: the default's, `0.15(2a0 + a2) + L/2` to
         // `0.175(a0 + a2) + L/2`, times the same multiplier.
-        let armed = combat(&a_goblin(), 1, true, &rules);
+        let armed = combat(
+            &a_goblin(),
+            1,
+            Holds {
+                weapon: true,
+                shield: false,
+            },
+            &[],
+            &rules,
+        );
         let factor = goblin.damage[0][1] / 18.0;
         assert!(near(armed.damage[0][1], (0.15 * 52.0 + 0.5) * factor));
         assert!(near(armed.damage[0][0], (0.175 * 37.0 + 0.5) * factor));
         assert!(near(armed.resistance[0], goblin.resistance[0]));
         // The level raises the attributes by a tenth each: a level-10 wolf's are 15, 19, 34, 24.
-        let older = combat(&a_wolf(), 10, false, &rules);
+        let older = combat(&a_wolf(), 10, Holds::default(), &[], &rules);
         assert!(near(older.attack, 24.5) && near(older.defence, 30.2));
     }
 
@@ -849,8 +1050,8 @@ mod tests {
     fn a_strike_hits_by_the_chance_of_attack_against_defence() {
         let rules = Rules::default();
         let (wolf, goblin) = (
-            combat(&a_wolf(), 1, false, &rules),
-            combat(&a_goblin(), 1, false, &rules),
+            combat(&a_wolf(), 1, Holds::default(), &[], &rules),
+            combat(&a_goblin(), 1, Holds::default(), &[], &rules),
         );
         let mut rng = Rng::of(50, 39, 0);
         let hits = (0..10_000)
@@ -915,11 +1116,56 @@ mod tests {
     }
 
     #[test]
+    fn an_npc_counts_its_first_skills_by_its_level_at_a_third_of_it() {
+        let wolf = a_wolf();
+        assert!(skills(&wolf, 1, false).is_empty());
+        assert_eq!(skills(&wolf, 4, false), [(2, 1)]);
+        assert_eq!(skills(&wolf, 10, false), [(2, 3), (11, 3)]);
+        // A hero its two slots at level 1.
+        assert_eq!(skills(&wolf, 10, true), [(2, 1), (11, 1)]);
+    }
+
+    #[test]
+    fn a_skills_curve_runs_from_its_offset_to_its_value_at_s_plus_one() {
+        let triple = [12.0, 50.0, 200.0];
+        assert!((curve(triple, 1) - 12.0).abs() < 1e-4);
+        assert!((curve(triple, 51) - 200.0).abs() < 1e-3);
+        assert!((curve(triple, 3) - (12.0 + 376.0 * (1.0 - 1.0 / 1.04))).abs() < 1e-3);
+        assert!(curve(triple, 0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_skills_raise_a_level_ten_wolfs_damage_and_resistance_as_the_originals() {
+        let rules = Rules::default();
+        let wolf = a_wolf();
+        // docs/re/fight.md: the skills 2 and 11 at level 3.
+        let older = combat(
+            &wolf,
+            10,
+            Holds::default(),
+            &skills(&wolf, 10, false),
+            &rules,
+        );
+        assert!(near(older.damage[0][0], 6.66) && near(older.damage[0][1], 10.51));
+        assert!((older.resistance[0] - 11.0).abs() < 0.02);
+        assert!(near(older.attack, 24.5) && near(older.defence, 30.2));
+        // The skill 8 raises the attack and the defence, truncated: 24.5 · 1.07 and 30.2 · 1.13.
+        let trained = combat(&wolf, 10, Holds::default(), &[(8, 1)], &rules);
+        assert!(near(trained.attack, 26.0) && near(trained.defence, 34.0));
+        // The skill 10 the regeneration: 44 · 1.06.
+        let base = Base {
+            attributes: [0, 0, 0, 22, 0, 0],
+            ..Base::default()
+        };
+        assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.64).abs() < 1e-3);
+    }
+
+    #[test]
     fn the_hero_and_the_creatures_strike_each_other_by_bronzes_factors() {
         let rules = Rules::default();
         let (wolf, goblin) = (
-            combat(&a_wolf(), 1, false, &rules),
-            combat(&a_goblin(), 1, false, &rules),
+            combat(&a_wolf(), 1, Holds::default(), &[], &rules),
+            combat(&a_goblin(), 1, Holds::default(), &[], &rules),
         );
         // A creature striking the hero: its attack times 0.65, its damage times 0.9.
         let (a, d, k) = weighed(wolf, goblin, Some(Side::Defender), (1, 1), &rules);
@@ -977,8 +1223,8 @@ mod tests {
             attributes: [0, 0, 0, 22, 0, 0],
             ..Base::default()
         };
-        assert!((regeneration(&base, 1) - 44.0).abs() < 1e-6);
-        assert!((regeneration(&base, 11) - 88.0).abs() < 1e-6);
+        assert!((regeneration(&base, 1, &[], &Rules::default()) - 44.0).abs() < 1e-6);
+        assert!((regeneration(&base, 11, &[], &Rules::default()) - 88.0).abs() < 1e-6);
         let mut regenerates = Regenerates::new(44.0);
         // 44 · 128 a second: 5,632 after one, a health and 5,632 − 4,096 = 1,536 kept as its
         // low ten bits, 512.

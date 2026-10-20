@@ -367,7 +367,14 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     hero.stance = stance;
     hero.attacks = attacks;
     let base = fight::Base::of(&record);
-    hero.combat = Some(fight::combat(&base, fight::HERO_LEVEL, false, &rules));
+    let skills = fight::skills(&base, fight::HERO_LEVEL, true);
+    hero.combat = Some(fight::combat(
+        &base,
+        fight::HERO_LEVEL,
+        fight::Holds::default(),
+        &skills,
+        &rules,
+    ));
     let most = fight::hero_health(base.attributes, fight::HERO_LEVEL);
     hero.vitals = Some((
         fight::Health {
@@ -375,7 +382,12 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             most,
             level: fight::HERO_LEVEL,
         },
-        fight::Regenerates::new(fight::regeneration(&base, fight::HERO_LEVEL)),
+        fight::Regenerates::new(fight::regeneration(
+            &base,
+            fight::HERO_LEVEL,
+            &skills,
+            &rules,
+        )),
     ));
     hero.dying = dying;
     hero.speeds = record
