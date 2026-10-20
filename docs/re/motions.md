@@ -53,13 +53,29 @@ Before the table, `0x5467A0` decides some creatures' slots itself:
 - creature 71, the small spider, always plays slot 27;
 - a creature whose flag `+0x14` has bit 2 and whose owner (`+0x1EC`) is a creature that `0x4266F0` accepts (**hypothesis**: a rider on its horse) plays 169 where its model has it, else 166, the `*_HORSE_IDLE` and `*_HORSE_RIDE` clips, and 193 to 196 or 234 attacking, by its class;
 - a mounted creature (`+0x1F4` bit `0x200000`) other than creatures 190, 335 and 336 plays 179;
-- a standing creature whose flag `+0x200` has bit 6 clear takes the fight stance instead where its model has the stance's slot and the first value of a sorted list at `0xAD3CE4` is below 550 (#155: what the flag and the list are);
-- with that bit set, it takes the stance where its flag `+0x200` has bit `0x8000` or it is creature 2 holding class 2, and creatures 5, 6 and 9 have cases of their own (**hypothesis**: the heroes);
+- a standing creature whose flag `+0x200` has bit 6 clear takes the fight stance instead where its model has the stance's slot and the first value of a sorted list at `0xAD3CE4` is below 550 ("The fight stance" below);
+- with that bit set, it takes the stance where its flag `+0x200` has bit `0x8000` or it is creature 2 holding class 2, and creatures 5, 6 and 9 have cases of their own;
 - an attack has cases of its own: a random one of the five where the model fills more than one, and fixed slots for some creatures.
+
+## The fight stance
+
+Read 2026-10-20 (#155).
+The list at `0xAD3CE4` is the hero's, not the standing creature's: the distances from the local player's hero to its nearest hostile creatures, and its first value the nearest's.
+
+- `0x547070` fills it, called only by the creatures' update `0x5375C0` (at `0x53918C`), in its block that runs every period (`+0x204`: 0.3 s for the players' heroes, 5 s for the others, set by the constructor `0x52DE40`), and only for the creature whose id is the local player's, the hero.
+- It takes the creatures (types of category 2 or 3, alive) of the hero's sector and its eight neighbours (`0x634340`) that are hostile to the hero (`0x548F30`, the hero first, or `+0x1F4` bit `0x40000`), whose list at `+0x588` is empty and whose distance is below a range: 1,500 in a network game, `(S + 45) · 25` in the single player's (`S` the float at `+8` of the timer `0x6413E0`, a smoothed rate of the frames, **hypothesis**: about 1,900 to 2,600 world units); at most 55, nearest first, the distance `√(dx² + dy²)` in world units (550 is about 10 cells).
+- It keeps the count apart (`0xAD3BC8`, 0 while the hero is dead), which the AI and the scripts' getters read first; but it writes the values only when it finds a hostile, and nothing else writes or clears them, so the first value is 0 when the process starts and keeps the last distance found when none is near.
+- `0x5467A0` compares that first value with 550 without the count (at `0x546A7E`).
+- Bit 6 of `+0x200` is set by the constructor alone (with `0x80000`) for a creature of the heroes' class (`0x426650`, the class record's `+4` is 1) of id 1, or of id 16 or below in a network game: in the single player's game, the hero only, the NPCs of the heroes' classes not.
+- Bit `0x8000` of `+0x200` is the hero's, set and cleared by `0x547070`: set while the nearest hostile is within 350, or within 1,000 when the hero holds a weapon of the kinds 7, 12, 13 or 14 (`0x427A40`, `0x427ED0`; **hypothesis**: the bows and the crossbows); with it set and the list not empty, `0x5375C0` posts the engine's event `(0x10, 2, 1)`, else `(0x10, 2, 0)` (**hypothesis**: the fight's music).
+- A standing creature's action (`+0x150` 0, `0x544890`) asks `0x5467A0` again on every update (at `0x546579`) and changes its clip when the slot changes, at once where less than 0.15 s of a clip played once is left, else blending over 0.15 s (`0x593320`).
+
+So every standing NPC whose model has the stance's slot for what it holds takes its fight stance while a hostile creature is within about 10 cells of the hero, wherever the NPC stands, and the hero takes its own within 350 (or 1,000 with a bow).
+By the code, the NPCs also take it at the start of the process, before the hero has seen a hostile, and keep it after the hero kills the last hostile near it until another is found; not checked in the game.
 
 ## In `opensacred-game`
 
 `motions` picks a clip as `0x5467A0` does for standing, walking and running, by the table and the fallbacks above, from the slots that the model's file keeps, and the class of what the creature holds as `0x546F80` gives it.
 `npcs` gives each start script's NPC the clip it stands in and, for one that a script sends somewhere, the clip it walks with, by the class of the items in its hands (docs/re/equipment.md); one whose walk falls back to a run moves at its creature's run speed.
-The other cases are not followed: no NPC rides or is mounted yet, none of the start scripts places a small spider, and the fight stance waits for #155.
+The other cases are not followed: no NPC rides or is mounted yet, none of the start scripts places a small spider, and the fight stance waits for hostile creatures in the game (#219).
 The hero keeps its class's clips by name (`main.rs`).
