@@ -162,12 +162,34 @@ pub fn scale(window: Single<&Window>, mut ui_scale: ResMut<UiScale>) {
     }
 }
 
-/// The cursor and the interface's scale.
+/// Where the cursor is over the window, as the game's input saw it last: the moves of the
+/// system's cursor, and those the remote protocol sends (`remote`), which leave the system's
+/// cursor where it is.
+#[derive(Resource, Default)]
+pub struct Pointer(pub Option<Vec2>);
+
+fn point(
+    mut pointer: ResMut<Pointer>,
+    mut moved: MessageReader<CursorMoved>,
+    mut left: MessageReader<CursorLeft>,
+) {
+    if left.read().count() > 0 {
+        pointer.0 = None;
+    }
+    if let Some(moved) = moved.read().last() {
+        pointer.0 = Some(moved.position);
+    }
+}
+
+/// The cursor, where it points, and the interface's scale.
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, cursor).add_systems(Update, scale);
+        app.init_resource::<Pointer>()
+            .add_systems(Startup, cursor)
+            .add_systems(PreUpdate, point.after(bevy::input::InputSystems))
+            .add_systems(Update, scale);
     }
 }
 

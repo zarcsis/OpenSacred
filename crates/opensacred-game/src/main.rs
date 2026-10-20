@@ -24,6 +24,7 @@ mod npcs;
 mod overlay;
 mod paths;
 mod pause;
+mod remote;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
@@ -99,6 +100,10 @@ struct Cli {
     /// Run the commands of this file from the start, a line each, after those of --exec
     #[arg(long, value_name = "FILE")]
     script: Option<PathBuf>,
+    /// Listen for remote control on this port of 127.0.0.1 (Bevy's Remote Protocol, 15702 by
+    /// default); the window then opens without taking the focus
+    #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "15702")]
+    remote: Option<u16>,
 }
 
 /// Threads of Bevy's compute pool, which runs the systems in parallel. Bevy gives it every
@@ -177,6 +182,8 @@ fn run(cli: Cli) -> Result<AppExit> {
                     } else {
                         PresentMode::AutoVsync
                     },
+                    // Driven from afar, it leaves the focus to whoever works on the desktop.
+                    focused: cli.remote.is_none(),
                     ..default()
                 }),
                 ..default()
@@ -287,6 +294,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         script.push(command::script_lines(&text));
     }
     app.insert_resource(script);
+    if let Some(port) = cli.remote {
+        app.add_plugins(remote::RemoteControlPlugin { port });
+    }
     Ok(app.run())
 }
 

@@ -163,6 +163,18 @@ impl Journal {
         ring.records.iter().skip(skip).cloned().collect()
     }
 
+    /// The records numbered `after` and later that the ring still holds, the oldest first.
+    pub fn since(&self, after: u64) -> Vec<Record> {
+        let Ok(ring) = self.0.ring.lock() else {
+            return Vec::new();
+        };
+        ring.records
+            .iter()
+            .filter(|record| record.sequence >= after)
+            .cloned()
+            .collect()
+    }
+
     /// The `tracing` layer that feeds the log.
     pub fn layer(&self) -> BoxedLayer {
         Box::new(Capture(self.clone()))

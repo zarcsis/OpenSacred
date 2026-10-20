@@ -290,14 +290,14 @@ pub fn toggle(keys: Res<ButtonInput<KeyCode>>, mut hero: ResMut<Hero>) {
 /// the hero's height.
 pub fn steer(
     buttons: Res<ButtonInput<MouseButton>>,
-    window: Single<&Window>,
+    pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform)>,
     mut bodies: Query<(&Transform, &mut Body)>,
 ) {
     if !buttons.pressed(MouseButton::Left) {
         return;
     }
-    let Some(cursor) = window.cursor_position() else {
+    let Some(cursor) = pointer.0 else {
         return;
     };
     let (camera, view) = *camera;
