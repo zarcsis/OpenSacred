@@ -258,6 +258,11 @@ impl Dungeons {
     fn holds(&self, x: f32, z: f32) -> bool {
         self.0.contains(&crate::music::sector_of(x, z))
     }
+
+    /// Whether sector `at` is a dungeon's.
+    pub fn sector(&self, at: (u32, u32)) -> bool {
+        self.0.contains(&at)
+    }
 }
 
 /// The glows' texture, relative to the asset directory (`PARTICLE_GLOW01`).
