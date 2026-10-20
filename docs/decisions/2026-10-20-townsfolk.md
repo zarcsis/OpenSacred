@@ -8,7 +8,8 @@ A townsperson (docs/re/ai.md, "The townsfolk") rolls one of 26 by day: a partner
 
 ## Ours
 
-The rolls of the animal, of home, of the partners and of the traders walk as the original's (#247, #250, #251); the houses (#248), the instruments (#253) and the children's play (#252) stop the townsperson until their features come, and a visit to a trader ends at the trader rather than in a house.
+The rolls of the animal, of home, of the partners and of the traders, and the children's play, walk as the original's (#247, #250, #251, #252); the houses (#248) and the instruments (#253) stop the townsperson until their features come, and a visit to a trader ends at the trader rather than in a house.
+The children do not flee from the Daemon or the Vampiress, the hero cannot shoo them, and they say nothing: the hero's type, its keys and the texts over the creatures are not the AI's yet.
 At a meeting a woman never slaps her partner (the attack's clip in one case of 11, **hypothesis** for its sense): the NPCs' graphs hold no attack's clip yet.
 The evening's way (#249) and danger (#254) are not followed: by night and near a fight the townsfolk keep the day's way.
 

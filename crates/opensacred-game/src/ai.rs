@@ -70,6 +70,19 @@ const STEP_OFF_TRIES: usize = 10;
 /// near the trader it stops (`0x4EE660`, `+0x176`).
 const TRADER_WITHIN: f32 = 800.0;
 const AT_THE_TRADER: f32 = 150.0;
+/// The children's play (`0x4F2AD7`): within 800 of home about itself, farther than 1,000 800
+/// toward home, else about home, within 400 along each axis; the other idle children within 600
+/// follow the one that plays; one farther than 349 from the hero within a building follows it,
+/// one within 200 of it turns to it, and one now and then runs to 150 from it.
+const PLAYS_ABOUT: i32 = 400;
+const PLAYS_NEAR: f32 = 800.0;
+const PLAYS_FAR: f32 = 1_000.0;
+const PLAYMATES: f32 = 600.0;
+const GATHERS: f32 = 349.0;
+const LOOKS_UP: f32 = 200.0;
+const RUNS_UP: f32 = 150.0;
+/// The cells' flag of a building's inside (`+0x1E` bit 1, docs/02 §5.2).
+const INSIDE: u8 = 0x2;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -127,8 +140,9 @@ pub struct Mind {
     pub dialogue: bool,
     /// The creature it went to last, which it does not go to next (`+0x24D`).
     last: Option<Entity>,
-    /// The partner it follows (`+0x251`, the flag 4).
+    /// The partner it follows (`+0x251`, the flag 4), and whether it runs after it.
     partner: Option<Entity>,
+    runs_after: bool,
     /// Whether it is a trader: a smith, a merchant or a wizard (`+0x200` bits `0x1000`, `0x2000`,
     /// `0x4000`, `0x4000000`, `CreateNPC`'s tags `0x23`, `0x24`, `0x25`, `0x64`), which the
     /// townsfolk visit, which does not part and which a meeting does not stop.
@@ -176,6 +190,7 @@ impl Mind {
             dialogue: false,
             last: None,
             partner: None,
+            runs_after: false,
             trader: false,
             visiting: None,
             active: false,
@@ -420,6 +435,8 @@ enum Why {
     StepsOff,
     Meets,
     Trades,
+    Plays,
+    Gathers,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -447,7 +464,50 @@ enum Decision {
     Partner(Entity, Option<Vec3>),
     /// It walks to the trader at `1` and talks there.
     Trade(Entity, Vec3),
+    /// A child's play.
+    Child,
     Stop,
+}
+
+/// What a child does by its roll of 20 (`0x4F2AD7`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Child {
+    /// It runs to the point, and its playmates follow it.
+    Plays(Vec3),
+    /// It follows the hero at a run.
+    FollowsHero,
+    /// It turns to the hero and stands.
+    LooksUp,
+    /// It runs to the point by the hero.
+    RunsUp(Vec3),
+}
+
+/// What a child at `here` does by its roll, the hero at `hero`, `inside` a building (`0x4F2AD7`):
+/// in one case of 13, or with the hero outside, it plays: within 800 of home a point within 400
+/// of itself, farther than 1,000 a point 800 toward home, else one within 400 of home; else it
+/// follows the hero from farther than 349, and nearer turns to it, but in one case of 15 runs to
+/// a point 150 from it at random.
+fn child(mind: &Mind, here: Vec3, hero: Vec3, inside: bool, rng: &mut Rng) -> Child {
+    if rng.below(13) == 0 || !inside {
+        let from_home = (mind.home - here).xz().length();
+        let to = if from_home <= PLAYS_NEAR {
+            about(here, PLAYS_ABOUT, rng)
+        } else if from_home > PLAYS_FAR {
+            here + (mind.home - here).with_y(0.0).normalize_or_zero() * PLAYS_NEAR
+        } else {
+            about(mind.home, PLAYS_ABOUT, rng)
+        };
+        return Child::Plays(to);
+    }
+    let d = (hero - here).xz().length();
+    if d > GATHERS {
+        Child::FollowsHero
+    } else if (rng.below(9) == 0 && d < LOOKS_UP) || rng.below(15) != 0 {
+        Child::LooksUp
+    } else {
+        let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
+        Child::RunsUp(hero + Quat::from_rotation_y(degrees.to_radians()) * (Vec3::X * RUNS_UP))
+    }
 }
 
 /// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
@@ -468,6 +528,8 @@ fn townsperson(
         (2, Some(human), _) => Decision::Partner(human, Some(mind.home)),
         (1, _, Some((entity, at))) => Decision::Walk(at, Why::Visits, Some(entity)),
         (2 | 3, ..) => Decision::Walk(mind.home, Why::GoesHome, None),
+        // An adult's 20 stops (`0x4F231D`).
+        (20, ..) if CHILDREN.contains(&mind.creature) => Decision::Child,
         (5 | 8, ..) => {
             let eight = mind.flags & (TOWNSFOLK | TOWNSFOLK_TOO) != 0;
             match trader {
@@ -665,15 +727,21 @@ fn behave(
     mut minds: ResMut<Minds>,
     crowd: Res<Crowd>,
     heights: Res<Heights>,
-    hero: Query<&Transform, With<Body>>,
+    hero: Query<(Entity, &Transform), With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
-    let Some(hero) = hero.iter().next() else {
+    let Some((the_hero, hero)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
     let dt = time.delta_secs();
+    // Whether the hero stands within a building, where the children gather about it.
+    let inside = heights
+        .flags(paths::cell_of(hero.x, hero.z))
+        .is_some_and(|flags| flags & INSIDE != 0);
+    // The children at play this frame, whom the others follow.
+    let mut playing: Vec<(Entity, Vec3)> = Vec::new();
     // The camera's zoom, the inverse of its scale.
     let zoom = cameras
         .iter()
@@ -739,16 +807,32 @@ fn behave(
                 mind.active = false;
                 continue;
             }
-            let Some(&(at, partner_walks, partner_trades)) = followed.get(&partner) else {
+            // A child follows the hero only while it stands within a building.
+            let after_hero = partner == the_hero;
+            let found = if after_hero {
+                inside.then_some((hero, false, false))
+            } else {
+                followed.get(&partner).copied()
+            };
+            let Some((at, partner_walks, partner_trades)) = found else {
                 mind.partner = None;
                 continue;
             };
-            let why = follow(here, at);
+            // The hero, a player, is never left behind for its distance.
+            let why = match follow(here, at) {
+                Why::GoesBack if after_hero && (at - here).xz().length() > FOLLOWS_WITHIN => {
+                    Why::Follows
+                }
+                why => why,
+            };
             debug!(
                 "ai: {entity} {why:?} from {:.0},{:.0} about {partner} at {:.0},{:.0}",
                 here.x, here.z, at.x, at.z
             );
             match why {
+                Why::Follows if mind.runs_after => {
+                    walks.push((entity, Walk::run(at, way.level, mind.run)));
+                }
                 Why::Follows => walks.push((entity, Walk::to(at, way.level, mind.speed))),
                 Why::StepsOff => {
                     let target = (0..STEP_OFF_TRIES)
@@ -846,6 +930,7 @@ fn behave(
                 Decision::Partner(partner, home) => {
                     debug!("ai: {entity} {:?} {partner}", Why::TakesPartner);
                     mind.partner = Some(partner);
+                    mind.runs_after = false;
                     if let Some(home) = home {
                         walks.push((entity, Walk::to(home, way.level, mind.speed)));
                     }
@@ -864,6 +949,25 @@ fn behave(
                     mind.visiting = Some(trader);
                     let walk = Walk::to(at, way.level, mind.speed).within(AT_THE_TRADER);
                     walks.push((entity, walk));
+                    continue;
+                }
+                Decision::Child => {
+                    let does = child(&mind, here, hero, inside, &mut minds.rng);
+                    debug!("ai: {entity} {:?} {does:?}", Why::Plays);
+                    match does {
+                        Child::Plays(to) => {
+                            walks.push((entity, Walk::run(to, way.level, mind.run)));
+                            playing.push((entity, here));
+                        }
+                        Child::FollowsHero => {
+                            mind.partner = Some(the_hero);
+                            mind.runs_after = true;
+                        }
+                        Child::LooksUp => turns.push((entity, hero)),
+                        Child::RunsUp(to) => {
+                            walks.push((entity, Walk::run(to, way.level, mind.run)));
+                        }
+                    }
                     continue;
                 }
                 Decision::Stop => {}
@@ -917,11 +1021,34 @@ fn behave(
             },
         ));
     }
+    let sent: std::collections::HashSet<Entity> = walks.iter().map(|&(entity, _)| entity).collect();
     for (entity, walk) in walks {
         commands.entity(entity).insert(walk);
     }
     for entity in stops {
         commands.entity(entity).remove::<Walk>();
+    }
+    // The other idle children within 600 of one at play, without a dialogue, run after it
+    // (`0x4EE820`); not one sent off this frame (`sent`).
+    for (leader, at) in playing {
+        let (lx, ly) = sector(at);
+        for (entity, transform, _, mut mind, walking) in &mut creatures {
+            let (x, y) = sector(transform.translation);
+            if entity != leader
+                && !walking
+                && !sent.contains(&entity)
+                && CHILDREN.contains(&mind.creature)
+                && mind.partner.is_none()
+                && !mind.dialogue
+                && (x - lx).abs() <= 1.0
+                && (y - ly).abs() <= 1.0
+                && (transform.translation - at).xz().length() <= PLAYMATES
+            {
+                debug!("ai: {entity} {:?} {leader}", Why::Gathers);
+                mind.partner = Some(leader);
+                mind.runs_after = true;
+            }
+        }
     }
     for (entity, at) in turns {
         if let Ok((_, mut transform, ..)) = creatures.get_mut(entity) {
@@ -1162,6 +1289,37 @@ mod tests {
             "{}",
             count(TOWNSFOLK)
         );
+    }
+
+    #[test]
+    fn a_child_plays_outside_and_gathers_about_the_hero_in_a_building() {
+        let mut rng = Rng::of(50, 39, 9);
+        let home = Vec3::ZERO;
+        let kid = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));
+        let hero = Vec3::new(1000.0, 0.0, 0.0);
+        // Outside, it plays about itself near home, toward home from afar.
+        for _ in 0..50 {
+            let Child::Plays(to) = child(&kid, home, hero, false, &mut rng) else {
+                panic!("plays");
+            };
+            assert!(to.x.abs() <= 400.0 && to.z.abs() <= 400.0, "{to}");
+            let far = Vec3::new(2000.0, 0.0, 0.0);
+            let Child::Plays(to) = child(&kid, far, hero, false, &mut rng) else {
+                panic!("plays");
+            };
+            assert!((to - Vec3::new(1200.0, 0.0, 0.0)).length() < 0.01, "{to}");
+        }
+        // Inside, from afar it follows the hero (but in one case of 13 it plays).
+        let follows = (0..1300)
+            .filter(|_| child(&kid, home, hero, true, &mut rng) == Child::FollowsHero)
+            .count();
+        assert!((1_150..1_250).contains(&follows), "{follows}");
+        // Near, it mostly turns to the hero.
+        let near = Vec3::new(100.0, 0.0, 0.0);
+        let looks = (0..1300)
+            .filter(|_| child(&kid, home, near, true, &mut rng) == Child::LooksUp)
+            .count();
+        assert!((1_050..1_250).contains(&looks), "{looks}");
     }
 
     #[test]
