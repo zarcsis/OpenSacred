@@ -2313,14 +2313,24 @@ const HITS_WITHIN: f32 = 3.0 * 130.0;
 )]
 fn strike(
     mut commands: Commands,
-    mut strikers: Query<(Entity, &Npc, &mut Strikes, Has<Walk>, &GlobalTransform), Without<Dies>>,
+    mut strikers: Query<
+        (
+            Entity,
+            &Npc,
+            &mut Strikes,
+            Has<Walk>,
+            &GlobalTransform,
+            Option<&fight::Combat>,
+        ),
+        Without<Dies>,
+    >,
     places: Query<&GlobalTransform>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     clips: Res<Assets<AnimationClip>>,
     speed: Res<hero::GameSpeed>,
     mut hits: MessageWriter<fight::Hit>,
 ) {
-    for (entity, npc, mut strikes, walking, at) in &mut strikers {
+    for (entity, npc, mut strikes, walking, at, combat) in &mut strikers {
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
@@ -2335,9 +2345,11 @@ fn strike(
             let index = usize::try_from(strikes.choice).unwrap_or(0) % graph.attacks.len();
             let (node, clip, fractions) = &graph.attacks[index];
             let length = clips.get(clip).map_or(1.0, AnimationClip::duration);
+            // At its attack speed (`0x4E4CF0`).
+            let attack = combat.map_or(1.0, fight::Combat::clip_speed);
             transitions
                 .play(&mut player, *node, BLEND)
-                .set_speed(speed.0);
+                .set_speed(speed.0 * attack);
             strikes.playing = Some((*node, length.max(0.01), *fractions));
             continue;
         };
