@@ -83,6 +83,8 @@ pub struct HeroState {
     pub inside: Option<(u32, u32, u16)>,
     /// The cell it goes to, if any.
     pub target: Option<(i64, i64)>,
+    /// The level of the cell it goes to, when a click chose one: `ground`, or `inside X,Y:L`.
+    pub onto: Option<String>,
     /// `walk` or `run`.
     pub gait: &'static str,
     pub moving: bool,
@@ -114,6 +116,15 @@ pub struct Snapshot {
     pub ready: bool,
 }
 
+/// A level as the overlay names it: `ground`, or `inside X,Y:L` (the inside layer `L` of sector
+/// `X,Y`).
+fn place(level: Option<(u32, u32, u16)>) -> String {
+    match level {
+        Some((x, y, layer)) => format!("inside {x},{y}:{layer}"),
+        None => "ground".into(),
+    }
+}
+
 /// The global cell of world point `p`.
 #[expect(
     clippy::cast_possible_truncation,
@@ -143,10 +154,7 @@ impl Snapshot {
             self.fps, self.frame_ms, self.slowest_ms, self.state
         ));
         if let Some(hero) = &self.hero {
-            let place = match hero.inside {
-                Some((x, y, layer)) => format!("inside {x},{y}:{layer}"),
-                None => "ground".into(),
-            };
+            let place = place(hero.inside);
             let mut line = format!(
                 "hero cell {},{} sector {},{} {place}, {}, {}",
                 hero.cell.0,
@@ -158,6 +166,9 @@ impl Snapshot {
             );
             if let Some((x, y)) = hero.target {
                 line.push_str(&format!(" to {x},{y}"));
+                if let Some(onto) = &hero.onto {
+                    line.push_str(&format!(" {onto}"));
+                }
             }
             lines.push(line);
         }
@@ -243,6 +254,7 @@ impl Probe<'_, '_> {
                         sector: (cell.0.div_euclid(side), cell.1.div_euclid(side)),
                         inside: level,
                         target: body.target().map(cell_of),
+                        onto: body.onto().map(place),
                         gait: match hero.gait {
                             Gait::Walk => "walk",
                             Gait::Run => "run",
@@ -446,6 +458,7 @@ mod tests {
             sector: (50, 39),
             inside: None,
             target: Some((3240, 2512)),
+            onto: Some("inside 50,39:2".into()),
             gait: "run",
             moving: true,
         });
@@ -459,7 +472,7 @@ mod tests {
         assert_eq!(
             snapshot.lines()[2..],
             [
-                "hero cell 3236,2510 sector 50,39 ground, run, moving to 3240,2512",
+                "hero cell 3236,2510 sector 50,39 ground, run, moving to 3240,2512 inside 50,39:2",
                 "08:13 day  zoom 1.00  sectors 9 +0",
                 "NPCs 34  objects 120  entities 18234",
             ]

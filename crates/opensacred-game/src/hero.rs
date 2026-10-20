@@ -111,6 +111,9 @@ pub struct Ready(pub bool);
 #[derive(Component)]
 pub struct Body {
     target: Option<Vec3>,
+    /// The level the target lies on, when a click chose one (`0x617030`, docs/re/movement.md,
+    /// "The cursor's point"): the way ends on it.
+    onto: Option<Level>,
     /// Where it walks: the ground or a building's inside layer.
     level: Level,
     /// Whether it came onto the stairs it stands on by climbing: it climbs again only from a
@@ -136,9 +139,21 @@ impl Body {
         self.target
     }
 
-    /// Sends it to `target`.
+    /// The level of where it goes, when a click chose one.
+    pub fn onto(&self) -> Option<Level> {
+        self.onto
+    }
+
+    /// Sends it to `target`, on whatever level the way reaches it.
     pub fn send(&mut self, target: Vec3) {
         self.target = Some(target);
+        self.onto = None;
+    }
+
+    /// Sends it to `target` on `level`.
+    pub fn send_onto(&mut self, target: Vec3, level: Level) {
+        self.target = Some(target);
+        self.onto = Some(level);
     }
 
     /// Puts it at `position` on the ground, going nowhere; it stands on the ground there as soon
@@ -146,6 +161,7 @@ impl Body {
     pub fn teleport(&mut self, transform: &mut Transform, position: Vec3) {
         transform.translation = position;
         self.target = None;
+        self.onto = None;
         self.level = None;
         self.climbed = false;
         self.unplaced = true;
@@ -223,6 +239,7 @@ pub fn spawn(
             .with_scale(Vec3::splat(iso::MODEL_SCALE)),
         Body {
             target: hero.target,
+            onto: None,
             level: None,
             climbed: false,
             moving: None,
@@ -286,12 +303,15 @@ pub fn toggle(keys: Res<ButtonInput<KeyCode>>, mut hero: ResMut<Hero>) {
     }
 }
 
-/// Points the hero where the left mouse button is held: the ground under the cursor, taken at
-/// the hero's height.
+/// Points the hero where the left mouse button is held: the cell under the cursor, on its level,
+/// as the client picks it (`pick`); where it picks none, the point of the cursor's line of sight
+/// at the hero's height.
 pub fn steer(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform)>,
+    heights: Res<Heights>,
+    buildings: Res<crate::buildings::Buildings>,
     mut bodies: Query<(&Transform, &mut Body)>,
 ) {
     if !buttons.pressed(MouseButton::Left) {
@@ -306,8 +326,13 @@ pub fn steer(
     };
     for (transform, mut body) in &mut bodies {
         let height = transform.translation.y;
-        let along = (height - ray.origin.y) / ray.direction.y;
-        body.target = Some(ray.origin + ray.direction.as_vec3() * along);
+        match crate::pick::pick(ray, &heights, &buildings, (height, body.level)) {
+            Some(picked) => body.send_onto(picked.point, picked.level),
+            None => {
+                let along = (height - ray.origin.y) / ray.direction.y;
+                body.send(ray.origin + ray.direction.as_vec3() * along);
+            }
+        }
     }
 }
 
@@ -363,25 +388,29 @@ pub fn run(
             // cannot be reached, up to what blocks it.
             // From where it stands it climbs no more: the stair it stands on, if any, it has
             // climbed already or arrived on.
-            let toward = match paths::next(
+            let onto = body.onto;
+            let (toward, reachable) = match paths::next(
                 here,
                 (level, false),
                 target,
+                onto,
                 |cell, (at, _)| heights.walkable_on(cell, at),
                 |place| heights.neighbours(place),
                 |(at, _)| at,
             ) {
                 Some(paths::Step::Through((next, _))) => {
                     body.level = next;
-                    here
+                    (here, true)
                 }
-                Some(paths::Step::Toward(point)) => point,
-                None => target,
+                Some(paths::Step::Toward(point)) => (point, true),
+                None => (target, false),
             };
             let to = (toward - here).with_y(0.0);
             let distance = to.length();
             let left = (target - here).with_y(0.0).length();
-            if left <= ARRIVED {
+            // There on the target's level, or as near as it gets to one it cannot reach.
+            let on_level = !reachable || onto.is_none_or(|onto| onto == body.level);
+            if left <= ARRIVED && on_level {
                 body.target = None;
             } else if distance <= f32::EPSILON {
                 // Through a door: on, the next frame.
