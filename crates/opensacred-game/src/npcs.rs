@@ -59,7 +59,7 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{buildings, crowd, daynight, hero, iso, models, motions, paths, shadows, spawning};
+use crate::{ai, buildings, crowd, daynight, hero, iso, models, motions, paths, shadows, spawning};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -107,6 +107,12 @@ struct Placement {
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
+    /// An NPC's walk speed in world units a second, before the game's speed (`ai::Mind`).
+    speed: f32,
+    /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
+    /// fill; its group, if it is in one (`ai::Mind`).
+    made: (bool, bool),
+    group: Option<u32>,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
     /// is a run.
@@ -269,6 +275,19 @@ pub struct Walk {
     speed: f32,
     /// Whether it stands on a stair it has climbed already or arrived on.
     climbed: bool,
+}
+
+impl Walk {
+    /// A walk to `target` from `level` at `speed`, in world units a second before the game's
+    /// speed.
+    pub fn to(target: Vec3, level: Level, speed: f32) -> Self {
+        Self {
+            target,
+            level,
+            speed,
+            climbed: false,
+        }
+    }
 }
 
 fn value_i32(value: &Value) -> Option<i32> {
@@ -825,6 +844,14 @@ impl Npcs {
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
         let records = start_records(&tree);
+        // The records of the sectors' `Enter` functions, whose creatures step otherwise.
+        let enter: HashSet<*const Record> = tree
+            .functions
+            .iter()
+            .filter(|f| f.name.ends_with("Enter") && sector_function(&f.name).is_some())
+            .flat_map(|f| &f.records)
+            .map(std::ptr::from_ref)
+            .collect();
         let named = positions(records.iter().copied());
         let targets = goto_targets(&records);
         // The NPCs' models' clips by their slots, each model read once.
@@ -922,10 +949,14 @@ impl Npcs {
                     };
                     (to, f32::from(speed) * iso::MODEL_SCALE)
                 });
+            let [walking, _] = speeds.get(&creature).copied().unwrap_or_default();
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
                 walk,
+                speed: f32::from(walking) * iso::MODEL_SCALE,
+                made: (enter.contains(&std::ptr::from_ref(*record)), true),
+                group: None,
                 heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
                 object: record.kind == CREATE_OBJ,
                 casts: if record.kind == CREATE_OBJ {
@@ -987,6 +1018,10 @@ impl Npcs {
                     model: model.clone(),
                     cell: (0, 0),
                     walk: None,
+                    speed: f32::from(speeds.get(&creature).copied().unwrap_or_default()[0])
+                        * iso::MODEL_SCALE,
+                    made: (true, false),
+                    group: None,
                     heading: 0.0,
                     object: false,
                     casts: !shadowless.contains(&creature),
@@ -1189,6 +1224,11 @@ pub fn place(
                 if made.hostile {
                     placement.creature.2 |= crowd::HOSTILE;
                 }
+                // A pack's group, by its sector, its record and its leader.
+                placement.group = made.pack.and_then(|leader| {
+                    let run = u32::try_from(index * 100 + leader).ok()? % 1000;
+                    Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
+                });
                 let entity = spawn(&mut commands, &placement, &heights, &states, &assets);
                 streamer.adopt(at, entity);
             }
@@ -1280,6 +1320,13 @@ fn spawn(
                 player: None,
             },
             crowd::InTheWay::of(creature, record_flags, word, level),
+            ai::Mind::new(
+                position,
+                word,
+                placement.made,
+                placement.group,
+                placement.speed,
+            ),
         ));
         if let Some(((tx, ty), speed)) = placement.walk {
             entity.insert(Walk {
@@ -1650,23 +1697,25 @@ const BLEND: Duration = Duration::from_millis(150);
 /// world units (`0x546A7E`).
 const STANCE_WITHIN: f32 = 550.0;
 
-/// Puts each standing NPC whose model has a fight stance into it while the hero's nearest hostile
-/// is within 550 units, wherever the NPC stands, and back into its idle otherwise, blending over
-/// 0.15 s (`0x5467A0`, which a standing creature asks at every update, `0x544890`;
+/// Puts each walking NPC in its walk clip, and each standing NPC whose model has a fight stance
+/// into it while the hero's nearest hostile is within 550 units, wherever the NPC stands, and back
+/// into its idle otherwise, blending over 0.15 s (`0x5467A0`, which a standing creature asks at every update, `0x544890`;
 /// docs/re/motions.md, "The fight stance").
 pub fn stance(
     nearest: Res<crowd::Nearest>,
-    npcs: Query<&Npc, Without<Walk>>,
+    npcs: Query<(&Npc, Has<Walk>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
     let fight = nearest.distance < STANCE_WITHIN;
-    for npc in &npcs {
+    for (npc, walking) in &npcs {
         let (Some(clips), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
-        let wanted = match (fight, clips.stance) {
-            (true, Some(stance)) => stance,
+        // A walking NPC walks; a standing one stands, in its stance where it fights.
+        let wanted = match (walking, clips.walk, fight, clips.stance) {
+            (true, Some(walk), _, _) => walk,
+            (false, _, true, Some(stance)) => stance,
             _ => clips.idle,
         };
         let Ok((mut player, mut transitions)) = players.get_mut(player) else {

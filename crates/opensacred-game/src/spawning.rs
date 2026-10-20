@@ -161,6 +161,8 @@ pub struct Made {
     pub creature: u32,
     pub cell: Cell,
     pub hostile: bool,
+    /// Its pack, by the place of its leader among the run's creatures, if it is in one.
+    pub pack: Option<usize>,
 }
 
 /// What a creature of a fill is in its pack.
@@ -169,7 +171,8 @@ enum Role {
     Alone,
     /// A leader, with the slots left for its followers.
     Leader(u32),
-    Follower,
+    /// A follower, by its leader's place among the run's creatures.
+    Follower(usize),
 }
 
 /// The types that lead every few of their kind under the run's second counter (`0x47C610`):
@@ -314,7 +317,7 @@ where
             if let (_, _, Role::Leader(slots)) = &mut placed[leader] {
                 *slots -= 1;
             }
-            placed[index] = (entry, cell, Role::Follower);
+            placed[index] = (entry, cell, Role::Follower(leader));
         } else if let Some(cell) = (0..TRIES)
             .find_map(|_| anywhere(ground.origin, rng).filter(|&cell| (ground.walkable)(cell)))
         {
@@ -323,10 +326,16 @@ where
     }
     placed
         .into_iter()
-        .map(|(entry, cell, _)| Made {
+        .enumerate()
+        .map(|(index, (entry, cell, role))| Made {
             creature: variant(entry.creature, rng),
             cell,
             hostile: entry.hostile,
+            pack: match role {
+                Role::Leader(_) => Some(index),
+                Role::Follower(leader) => Some(leader),
+                Role::Alone => None,
+            },
         })
         .collect()
 }

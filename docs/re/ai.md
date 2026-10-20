@@ -64,5 +64,8 @@ The test of the levels in detail; the AI's states 1, 6 and 10 to 14; the townsfo
 
 ## In `opensacred-game`
 
-Every creature stands where it was made (`npcs`); the quests' NPCs that a script sends somewhere walk there (docs/decisions/2026-10-19-quest-npcs.md).
-The game's parts: #237 (the waking and the monsters' steps), #238 (the animals), #239 (the guards), #240 (the crowded cells and the hero's way), #241 (the townsfolk, to read first).
+`ai` gives each NPC a mind (`ai::Mind`, #237): its home where it was made, its flags word, whether an `Enter` function made it and whether `CreateNPC` did, its group, its walk speed.
+The hostile ones of `CreateNPC` wake as they are made and look every 2.5 s, the other hostile ones and the townsfolk every 5 s, jittered by ±1.5 s; the hero's look every 0.3 s wakes the creatures not hostile within 1,875 and the hostile ones within 800 (400 while it moves), and gives the idle action to the other hostile ones in range; an awake creature farther than 1,500 or 1,000 from the hero along the grid's axes goes dormant again.
+The idle action's step walks a creature (`npcs::Walk`, at its walk speed and with its walk clip) to a point within 150, home in one case of four, or, made by an `Enter` function, turned about the hero, its home and its group's members moving with it.
+The fight is not followed: an awake hostile creature, in one case of six, walks home from farther than 200, else in one case of three takes the idle action (docs/decisions/2026-10-20-idle.md); the fidgets are left out; the peaceful creatures' behaviours wait for #238 (the animals), #239 (the guards), #240 (the crowded cells and the hero's way) and #241 (the townsfolk).
+The quests' NPCs that a script sends somewhere walk there first (docs/decisions/2026-10-19-quest-npcs.md).
