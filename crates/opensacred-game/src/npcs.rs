@@ -147,7 +147,16 @@ struct ClipNames {
     run: Option<String>,
     stance: Option<String>,
     talk: Option<String>,
+    /// The jugglers' clips of the slots 180 to 183 (`*_FUN_IDLE_*`), by which they play their
+    /// instruments.
+    fun: [Option<String>; 4],
 }
+
+/// The instruments a juggler takes (`0x4F29E2`): the flute, the bell, the harp and the horn, their
+/// `items.pak` slots and the slots of the clips that play them.
+const INSTRUMENTS: [(u32, u16); 4] = [(5108, 183), (5109, 180), (5110, 182), (5111, 181)];
+/// The first of the jugglers' clips' slots; the bell's, which one without an instrument plays.
+const FUN: u16 = 180;
 
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
 const WEAPON: u8 = 5;
@@ -245,6 +254,8 @@ pub struct Npcs {
     rules: HashMap<(u32, u32), Vec<Rule>>,
     gear: HashMap<u32, Gear>,
     slots: HashMap<String, motions::Slots>,
+    /// The instruments' models and textures, of [`INSTRUMENTS`].
+    instruments: Vec<Option<(String, Option<String>)>>,
     spawned: HashSet<(u32, u32)>,
 }
 
@@ -275,6 +286,9 @@ pub struct Npc {
     graph: Option<Clips>,
     /// The entity of its model's animation player, once it has its clips.
     player: Option<Entity>,
+    /// Whether both its hands are empty, and the instrument it took, of [`INSTRUMENTS`].
+    hands_empty: bool,
+    instrument: Option<usize>,
 }
 
 /// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
@@ -286,6 +300,7 @@ struct Clips {
     run: Option<AnimationNodeIndex>,
     stance: Option<AnimationNodeIndex>,
     talk: Option<AnimationNodeIndex>,
+    fun: [Option<AnimationNodeIndex>; 4],
 }
 
 impl Clips {
@@ -1001,6 +1016,7 @@ impl Npcs {
                         .map(|(name, _)| name.to_owned()),
                     stance: slots.stance(class).map(str::to_owned),
                     talk: slots.talk().map(str::to_owned),
+                    fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
                 };
                 (clips, walk.map(|(_, gait)| gait))
             } else {
@@ -1130,6 +1146,7 @@ impl Npcs {
                         run: clip(motions::Action::Run),
                         stance: slots.stance(held_class(&[])).map(str::to_owned),
                         talk: slots.talk().map(str::to_owned),
+                        fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
                     },
                 },
             );
@@ -1182,6 +1199,18 @@ impl Npcs {
             pools,
             gear,
             slots: model_slots,
+            instruments: INSTRUMENTS
+                .iter()
+                .map(|&(slot, _)| {
+                    let item = items.get(&slot)?;
+                    let model = models.get(&item.name.to_ascii_uppercase())?.clone();
+                    let texture = match item.words_08[0] {
+                        0 => None,
+                        number => textures.get(&number).cloned(),
+                    };
+                    Some((model, texture))
+                })
+                .collect(),
             spawned: HashSet::new(),
         })
     }
@@ -1306,6 +1335,8 @@ pub fn place(
                             run: clip(motions::Action::Run),
                             stance: slots.stance(class).map(str::to_owned),
                             talk: slots.talk().map(str::to_owned),
+                            fun: [180, 181, 182, 183]
+                                .map(|slot| slots.slot(slot).map(str::to_owned)),
                         };
                     }
                 }
@@ -1424,6 +1455,8 @@ fn spawn(
                 names: placement.clips.clone(),
                 graph: None,
                 player: None,
+                hands_empty: placement.equipment.is_empty(),
+                instrument: None,
             },
             crowd::InTheWay::of(creature, record_flags, word, level),
             mind,
@@ -1511,7 +1544,14 @@ pub fn equip(
                 return true;
             };
             let (socket, own, holder) = bones(item.hand, item.shield);
-            let Some(pose) = pose(gltf, &nodes, socket) else {
+            // The instruments hold by a socket of their own spelling (**hypothesis**: the
+            // client's lookup of the hand's socket finds none in them, `0x44C670`).
+            let found = pose(gltf, &nodes, socket).or_else(|| {
+                ["Weapon_bone01", "Weapon_Bone01"]
+                    .iter()
+                    .find_map(|other| pose(gltf, &nodes, other))
+            });
+            let Some(pose) = found else {
                 return false;
             };
             let named = |wanted: &str| {
@@ -1665,6 +1705,8 @@ pub fn animate(
                 add(&npc.names.stance),
                 add(&npc.names.talk),
             );
+            let names = npc.names.fun.clone();
+            let fun = [0, 1, 2, 3].map(|i| add(&names[i]));
             npc.graph = Some(Clips {
                 graph: graphs.add(graph),
                 idle,
@@ -1672,6 +1714,7 @@ pub fn animate(
                 run,
                 stance,
                 talk,
+                fun,
             });
         }
         if let Some(clips) = npc.graph.clone() {
@@ -1818,15 +1861,19 @@ const STANCE_WITHIN: f32 = 550.0;
 /// stance into it while the hero's nearest hostile is within 550 units, wherever the NPC stands,
 /// and back into its idle otherwise, blending over 0.15 s (`0x5467A0`, which a standing creature
 /// asks at every update, `0x544890`; docs/re/motions.md, "The fight stance").
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 pub fn stance(
     mut commands: Commands,
     nearest: Res<crowd::Nearest>,
-    npcs: Query<(Entity, &Npc, Option<&Walk>, Has<Talks>)>,
+    npcs: Query<(Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
     let fight = nearest.distance < STANCE_WITHIN;
-    for (entity, npc, walk, talks) in &npcs {
+    for (entity, npc, walk, talks, plays) in &npcs {
         let (Some(clips), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
@@ -1847,6 +1894,29 @@ pub fn stance(
                 }
                 _ => {
                     commands.entity(entity).remove::<Talks>();
+                }
+            }
+        }
+        // A standing juggler plays its instrument's clip, once or on and on.
+        if let Some(plays) = plays {
+            let slot = npc.instrument.map_or(FUN, |i| INSTRUMENTS[i].1);
+            let node = usize::from(slot - FUN);
+            match (walk, clips.fun.get(node).copied().flatten()) {
+                (None, Some(fun)) if transitions.get_main_animation() != Some(fun) => {
+                    let active = transitions.play(&mut player, fun, BLEND);
+                    if plays.on {
+                        active.repeat();
+                    }
+                    active.set_speed(speed.0);
+                    continue;
+                }
+                (None, Some(fun))
+                    if plays.on || !player.animation(fun).is_some_and(|a| a.is_finished()) =>
+                {
+                    continue;
+                }
+                _ => {
+                    commands.entity(entity).remove::<Plays>();
                 }
             }
         }
@@ -1902,6 +1972,41 @@ fn put(
     }
 }
 
+/// A juggler that plays its instrument where it stands (`0x4F29E2`): `instrument` the one it
+/// takes into its right hand when both its hands are empty, of [`INSTRUMENTS`]; `on` whether it
+/// plays on, one of the flag `0x10000000`.
+#[derive(Component)]
+pub struct Plays {
+    pub instrument: usize,
+    pub on: bool,
+}
+
+/// Gives a juggler about to play its instrument, its hands empty, the instrument in its right hand.
+fn instrument(
+    mut commands: Commands,
+    npcs: Res<Npcs>,
+    assets: Res<AssetServer>,
+    mut jugglers: Query<(Entity, &mut Npc, &Plays), Without<Walk>>,
+) {
+    for (entity, mut npc, plays) in &mut jugglers {
+        if !npc.hands_empty || npc.instrument.is_some() || npc.player.is_none() {
+            continue;
+        }
+        let Some(Some((model, texture))) = npcs.instruments.get(plays.instrument) else {
+            continue;
+        };
+        npc.hands_empty = false;
+        npc.instrument = Some(plays.instrument);
+        commands.entity(entity).insert(Equipment(vec![Equip {
+            gltf: assets.load(model.clone()),
+            texture: texture.as_ref().map(|t| load_texture(&assets, t)),
+            hand: Hand::Right,
+            shield: false,
+            ready: true,
+        }]));
+    }
+}
+
 /// An NPC that plays its talk once where it stands (`*_TALK_A`, slot 177; `ai`'s meetings).
 #[derive(Component)]
 pub struct Talks;
@@ -1917,7 +2022,7 @@ impl Plugin for NpcsPlugin {
             .add_observer(equipment_ready)
             .add_systems(
                 Update,
-                (place, animate, walk, put, stance, equip)
+                (place, animate, walk, put, instrument, stance, equip)
                     .chain()
                     .in_set(Step::Npcs),
             );
@@ -2038,6 +2143,7 @@ mod tests {
             run: Some(node(2)),
             stance: None,
             talk: None,
+            fun: [None; 4],
         };
         let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
         // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.
