@@ -78,6 +78,8 @@ impl Display {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Panels {
+    /// The debug overlay at the upper left (F3).
+    pub overlay: bool,
     /// The log's last records at the lower left (F4).
     pub log: bool,
 }
@@ -373,7 +375,10 @@ mod tests {
                 width: 1280,
                 height: 720,
             },
-            debug: Panels { log: true },
+            debug: Panels {
+                overlay: true,
+                log: true,
+            },
         };
         file.save(
             &settings,
@@ -381,6 +386,7 @@ mod tests {
                 "display.mode",
                 "display.width",
                 "display.height",
+                "debug.overlay",
                 "debug.log",
             ],
         )
