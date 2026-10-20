@@ -64,7 +64,7 @@ The planning phase was carried out by multi-agent Claude Code runs, mostly on Cl
 | A later revision of the documents | 32 | 1,494 | ≈1.5 h | 6.6M |
 
 What exactly the orchestrator's counter includes (only output with reasoning, or all input) has not been verified.
-So these numbers indicate the order of magnitude, and the §1.3 model needs to be refined with `/cost` or ccusage on the project's real tasks (`docs/usage.md`).
+So these numbers indicate the order of magnitude, and the §1.3 model needs to be refined with the usage that `tools/usage/pr_usage.py` records in every pull request (`docs/usage.md`).
 
 ## 2. Milestones
 
@@ -97,7 +97,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 * Window, orthographic camera, sector streaming, terrain with an atlas, sprite objects, water; the hero with walk and run animations; footstep sounds and region music; a minimal HUD.
 * **Exit criterion:** the hero walks through the starting region at 3840×2160 at ≥ 60 fps; screenshot tests of the scene in CI.
-  On 2026-10-17: about 775 fps at 3840 × 2160 (docs/05 §3.6), and the screenshot test of a synthetic scene passes locally; its CI step (lavapipe) waits for its first run.
+  On 2026-10-17: about 775 fps at 3840 × 2160 (docs/05 §3.6), and the screenshot test of a synthetic scene runs in CI on lavapipe: both criteria are met.
 
 ### M3. Rules — 120–240 agent-hours, 40–80 maintainer hours
 
@@ -106,11 +106,15 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 * Study in Ghidra, the behavior described in prose in `docs/re/`, and an independent implementation in `opensacred-rules` (PLAN.md §4.2): attributes and levels, skills and combat arts, combat and damage, resistances, items and loot generation, sets, creature AI, spawning.
 * `opensacred-oracle`, run locally: emulation of the formula functions of the user's own `Sacred.exe`, vectors in JSON.
 * **Exit criterion:** combat with the starting region's creatures, loot, experience and levels work; the formulas are covered by vectors; deviations are recorded in `docs/decisions/`.
+* **Status 2026-10-20:** the Ghidra project with the classes from RTTI, the community names and the library marks was done on 2026-10-18 and 2026-10-19 (#87, #88).
+  On 2026-10-20 the spawning, the creatures' AI and the fight with experience and levels followed, in `opensacred-game` rather than `opensacred-rules` (PLAN.md §10, items 11–13; #328).
+  The hero's items, skills and combat arts, the loot, and the oracle's vectors remain.
 
 ### M4. Quests and world — 60–120 agent-hours, 25–50 maintainer hours
 
 * The NetScript interpreter in `opensacred-rules`, dialogues, triggers, NPCs, trading, the blacksmith, horses, day and night, weather.
 * **Exit criterion:** the first chapter of the Sacred campaign is completable from start to finish; the 68 most frequent record types (99% of the campaign) are implemented and covered by tests.
+* **Status 2026-10-20:** day and night came with M2 (#5); the townsfolk's day (#255) and the doors that open and close (#268) are done; the NetScript interpreter, dialogues, trading, the blacksmith and weather have not started.
 
 ### M5. UI and effects — 50–100 agent-hours, 20–40 maintainer hours
 
@@ -198,10 +202,11 @@ M7 and M8 come after M6
 ## 5. How to run the project with Claude Code
 
 * **Task queue:** the issues on GitHub (PLAN.md §10.1, docs/03 §3.6); each task has a definition of done and a link to the notes.
-* **Session = task:** Claude Code gets a task, does it, runs the checks and commits; the maintainer reviews the result.
-  Contributions come as pull requests on GitHub, and the maintainer reviews and merges them.
+* **Session = task:** Claude Code gets a task, does it, runs the checks and opens a pull request, which it merges with `--auto` once the checks are green, except those that wait for the maintainer (`needs-maintainer`); the `review-after-merge` ones the maintainer reviews after the merge (docs/03 §3.6).
+  Contributors' pull requests are merged by the maintainer.
 * **Definition of done:** formatting, clippy without warnings, tests, updated `docs/re/` notes when the original's behavior was studied, an entry in `docs/decisions/` when deviating from the original.
-* **Weekly:** dependency updates, a usage review, the plan for the week.
+* **Daily:** the dependency update (`CLAUDE.md`, "Work order").
+* **Weekly:** a usage review, the plan for the week.
 * **After each milestone:** a retrospective and re-estimation of the remaining milestones from the actual pace.
 
 ## 6. What affects the estimates most
