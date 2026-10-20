@@ -8,7 +8,8 @@ A townsperson (docs/re/ai.md, "The townsfolk") rolls one of 26 by day: a partner
 
 ## Ours
 
-The rolls of the animal and of home walk as the original's; the partners (#250), the houses (#248), the traders (#251), the instruments (#253) and the children's play (#252) stop the townsperson until their features come, and so does the roll of a partner and home but for the walk home.
+The rolls of the animal, of home and of the partners walk as the original's (#247, #250); the houses (#248), the traders (#251), the instruments (#253) and the children's play (#252) stop the townsperson until their features come.
+At a meeting a woman never slaps her partner (the attack's clip in one case of 11, **hypothesis** for its sense): the NPCs' graphs hold no attack's clip yet.
 The evening's way (#249) and danger (#254) are not followed: by night and near a fight the townsfolk keep the day's way.
 
 ## Why

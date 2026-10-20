@@ -46,7 +46,7 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::prelude::{
     AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
-    Component, DetectChangesMut, Entity, GltfAssetLabel, Handle, Image, IntoScheduleConfigs,
+    Component, DetectChangesMut, Entity, GltfAssetLabel, Handle, Has, Image, IntoScheduleConfigs,
     MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut, Resource, StandardMaterial, Time,
     Transform, Update, Vec3, Without, WorldAssetRoot,
 };
@@ -136,6 +136,7 @@ struct ClipNames {
     walk: Option<String>,
     run: Option<String>,
     stance: Option<String>,
+    talk: Option<String>,
 }
 
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
@@ -272,6 +273,7 @@ struct Clips {
     walk: Option<AnimationNodeIndex>,
     run: Option<AnimationNodeIndex>,
     stance: Option<AnimationNodeIndex>,
+    talk: Option<AnimationNodeIndex>,
 }
 
 impl Clips {
@@ -978,6 +980,7 @@ impl Npcs {
                         .clip(motions::Action::Run, class)
                         .map(|(name, _)| name.to_owned()),
                     stance: slots.stance(class).map(str::to_owned),
+                    talk: slots.talk().map(str::to_owned),
                 };
                 (clips, walk.map(|(_, gait)| gait))
             } else {
@@ -1096,6 +1099,7 @@ impl Npcs {
                         walk: clip(motions::Action::Walk),
                         run: clip(motions::Action::Run),
                         stance: slots.stance(held_class(&[])).map(str::to_owned),
+                        talk: slots.talk().map(str::to_owned),
                     },
                 },
             );
@@ -1271,6 +1275,7 @@ pub fn place(
                             walk: clip(motions::Action::Walk),
                             run: clip(motions::Action::Run),
                             stance: slots.stance(class).map(str::to_owned),
+                            talk: slots.talk().map(str::to_owned),
                         };
                     }
                 }
@@ -1620,10 +1625,11 @@ pub fn animate(
             let root = graph.root;
             let idle = graph.add_clip(idle, 1.0, root);
             let mut add = |name| clip(name).map(|clip| graph.add_clip(clip.clone(), 1.0, root));
-            let (walk, run, stance) = (
+            let (walk, run, stance, talk) = (
                 add(&npc.names.walk),
                 add(&npc.names.run),
                 add(&npc.names.stance),
+                add(&npc.names.talk),
             );
             npc.graph = Some(Clips {
                 graph: graphs.add(graph),
@@ -1631,6 +1637,7 @@ pub fn animate(
                 walk,
                 run,
                 stance,
+                talk,
             });
         }
         if let Some(clips) = npc.graph.clone() {
@@ -1778,24 +1785,42 @@ const STANCE_WITHIN: f32 = 550.0;
 /// and back into its idle otherwise, blending over 0.15 s (`0x5467A0`, which a standing creature
 /// asks at every update, `0x544890`; docs/re/motions.md, "The fight stance").
 pub fn stance(
+    mut commands: Commands,
     nearest: Res<crowd::Nearest>,
-    npcs: Query<(&Npc, Option<&Walk>)>,
+    npcs: Query<(Entity, &Npc, Option<&Walk>, Has<Talks>)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
     let fight = nearest.distance < STANCE_WITHIN;
-    for (npc, walk) in &npcs {
+    for (entity, npc, walk, talks) in &npcs {
         let (Some(clips), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
+        let Ok((mut player, mut transitions)) = players.get_mut(player) else {
+            continue;
+        };
+        // A standing NPC that talks plays its talk once, then stands as before.
+        if talks {
+            match (walk, clips.talk) {
+                (None, Some(talk)) if transitions.get_main_animation() != Some(talk) => {
+                    transitions
+                        .play(&mut player, talk, BLEND)
+                        .set_speed(speed.0);
+                    continue;
+                }
+                (None, Some(talk)) if !player.animation(talk).is_some_and(|a| a.is_finished()) => {
+                    continue;
+                }
+                _ => {
+                    commands.entity(entity).remove::<Talks>();
+                }
+            }
+        }
         // A walking NPC walks; a standing one stands, in its stance where it fights.
         let wanted = match (walk, fight, clips.stance) {
             (Some(walk), _, _) => clips.moving(walk).unwrap_or(clips.idle),
             (None, true, Some(stance)) => stance,
             _ => clips.idle,
-        };
-        let Ok((mut player, mut transitions)) = players.get_mut(player) else {
-            continue;
         };
         if transitions.get_main_animation() != Some(wanted) {
             transitions
@@ -1805,6 +1830,10 @@ pub fn stance(
         }
     }
 }
+
+/// An NPC that plays its talk once where it stands (`*_TALK_A`, slot 177; `ai`'s meetings).
+#[derive(Component)]
+pub struct Talks;
 
 /// The start script's NPCs and objects: placed as their sectors come in, animated, walked,
 /// retextured and equipped.
@@ -1937,6 +1966,7 @@ mod tests {
             walk: Some(node(1)),
             run: Some(node(2)),
             stance: None,
+            talk: None,
         };
         let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
         // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.

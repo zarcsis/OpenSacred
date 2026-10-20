@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use crate::crowd::{Crowd, InTheWay};
 use crate::frame::Step;
 use crate::hero::Body;
-use crate::npcs::Walk;
+use crate::npcs::{Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
@@ -58,6 +58,14 @@ const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD | TOWNSFOLKS
 const TOWNSFOLK_RANGE: f32 = 600.0;
 /// The children's types (`0x43F670`), which always roll 20.
 const CHILDREN: [u32; 7] = [229, 230, 231, 702, 703, 704, 705];
+/// How far a townsperson follows its partner, how near they meet, farther than which it walks
+/// up to it, and how near it steps off to 220 from it (`0x4EF150` with the flag 4,
+/// `0x4FC490`).
+const FOLLOWS_WITHIN: f32 = 900.0;
+const MEETS: (f32, f32) = (80.0, 200.0);
+const CATCHES_UP: f32 = 240.0;
+const STEPS_OFF: f32 = 220.0;
+const STEP_OFF_TRIES: usize = 10;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -115,6 +123,8 @@ pub struct Mind {
     pub dialogue: bool,
     /// The creature it went to last, which it does not go to next (`+0x24D`).
     last: Option<Entity>,
+    /// The partner it follows (`+0x251`, the flag 4).
+    partner: Option<Entity>,
     awake: bool,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     active: bool,
@@ -155,6 +165,7 @@ impl Mind {
             class,
             dialogue: false,
             last: None,
+            partner: None,
             active: false,
             awake: hostile && created,
             clock: 0.0,
@@ -392,6 +403,10 @@ enum Why {
     StepsAside,
     Visits,
     GoesHome,
+    TakesPartner,
+    Follows,
+    StepsOff,
+    Meets,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -410,20 +425,52 @@ fn roll(mind: &Mind, rng: &mut Rng) -> u32 {
     }
 }
 
-/// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 1 walks to
-/// the nearest animal, `animal`, 2 and 3 walk home; 0 and 2 take a partner, 4, 6 and 7 go into a
-/// house, 5 and 8 visit a trader, 9 plays an instrument and 20 a child's play, which wait for
-/// their features (#250, #248, #251, #253, #252); the rest stop. The walk's target, why it walks
-/// and whom it goes to.
+/// What a townsperson decides by day, by its roll (`0x4F22F0`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Decision {
+    /// It walks to `0` for `Why`, going to the creature `2` if any.
+    Walk(Vec3, Why, Option<Entity>),
+    /// It takes the creature for its partner, and walks home if it is given.
+    Partner(Entity, Option<Vec3>),
+    Stop,
+}
+
+/// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
+/// the nearest human, `human`, for its partner, 2 too and walks home, 1 walks to the nearest
+/// animal, `animal`, 3 walks home; 4, 6 and 7 go into a house, 5 and 8 visit a trader, 9 plays
+/// an instrument and 20 a child's play, which wait for their features (#248, #251, #253, #252);
+/// the rest stop.
 fn townsperson(
     mind: &Mind,
+    human: Option<Entity>,
     animal: Option<(Entity, Vec3)>,
     rng: &mut Rng,
-) -> Option<(Vec3, Why, Option<Entity>)> {
-    match roll(mind, rng) {
-        1 => animal.map(|(entity, at)| (at, Why::Visits, Some(entity))),
-        2 | 3 => Some((mind.home, Why::GoesHome, None)),
-        _ => None,
+) -> Decision {
+    match (roll(mind, rng), human, animal) {
+        (0, Some(human), _) => Decision::Partner(human, None),
+        (2, Some(human), _) => Decision::Partner(human, Some(mind.home)),
+        (1, _, Some((entity, at))) => Decision::Walk(at, Why::Visits, Some(entity)),
+        (2 | 3, ..) => Decision::Walk(mind.home, Why::GoesHome, None),
+        _ => Decision::Stop,
+    }
+}
+
+/// What a creature standing at `here` does about its partner at `partner` (`0x4EF150` with the
+/// flag 4, `0x4FC490`): farther than 900 it forgets it; between 80 and 200 it meets it and
+/// forgets it; farther than 240 it walks up to it; within 80 it steps off to 220 from it; else
+/// it forgets it.
+fn follow(here: Vec3, partner: Vec3) -> Why {
+    let d = (partner - here).xz().length();
+    if d > FOLLOWS_WITHIN {
+        Why::GoesBack
+    } else if d > MEETS.0 && d < MEETS.1 {
+        Why::Meets
+    } else if d > CATCHES_UP {
+        Why::Follows
+    } else if d <= MEETS.0 {
+        Why::StepsOff
+    } else {
+        Why::GoesBack
     }
 }
 
@@ -572,14 +619,19 @@ fn behaviour(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn behave(
     mut commands: Commands,
     time: Res<Time>,
     mut minds: ResMut<Minds>,
     crowd: Res<Crowd>,
+    heights: Res<Heights>,
     hero: Query<&Transform, With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
-    mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
+    mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
     let Some(hero) = hero.iter().next() else {
         return;
@@ -603,24 +655,99 @@ fn behave(
         .map(|(entity, transform, ..)| (entity, transform.translation))
         .chain(std::iter::once((Entity::PLACEHOLDER, hero)))
         .collect();
-    // What the townsfolk visit: the farm and wild animals, at the hero's looks.
-    let animals: Vec<(Entity, Vec3)> = if minds.looked {
-        creatures
-            .iter()
-            .filter(|(_, _, _, mind, _)| {
-                mind.class == 6 && mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0
-            })
-            .map(|(entity, transform, ..)| (entity, transform.translation))
-            .collect()
+    // What the townsfolk visit and take for partners: the farm and wild animals and the humans
+    // of class 3, at the hero's looks.
+    let (animals, humans): (Vec<(Entity, Vec3)>, Vec<(Entity, Vec3)>) = if minds.looked {
+        let of = |wanted: fn(&Mind) -> bool| -> Vec<(Entity, Vec3)> {
+            creatures
+                .iter()
+                .filter(|(_, _, _, mind, _)| wanted(mind))
+                .map(|(entity, transform, ..)| (entity, transform.translation))
+                .collect()
+        };
+        (
+            of(|mind| mind.class == 6 && mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0),
+            of(|mind| mind.class == 3),
+        )
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
+    // The partners' places, and whether they walk.
+    let followed: std::collections::HashMap<Entity, (Vec3, bool)> = creatures
+        .iter()
+        .filter_map(|(_, _, _, mind, _)| mind.partner)
+        .filter_map(|partner| {
+            let (_, transform, _, _, walking) = creatures.get(partner).ok()?;
+            Some((partner, (transform.translation, walking)))
+        })
+        .collect();
     let mut walks = Vec::new();
+    let mut turns: Vec<(Entity, Vec3)> = Vec::new();
+    let mut stops: Vec<Entity> = Vec::new();
     for (entity, transform, way, mut mind, walking) in &mut creatures {
         if walking {
             continue;
         }
         let here = transform.translation;
+        // A creature with a partner follows it, before its own behaviour, while the hero is
+        // within 1,500 of it.
+        if let Some(partner) = mind.partner {
+            if (here - hero).xz().length() > BEHAVES_WITHIN {
+                mind.active = false;
+                continue;
+            }
+            let Some(&(at, partner_walks)) = followed.get(&partner) else {
+                mind.partner = None;
+                continue;
+            };
+            let why = follow(here, at);
+            debug!(
+                "ai: {entity} {why:?} from {:.0},{:.0} about {partner} at {:.0},{:.0}",
+                here.x, here.z, at.x, at.z
+            );
+            match why {
+                Why::Follows => walks.push((entity, Walk::to(at, way.level, mind.speed))),
+                Why::StepsOff => {
+                    let target = (0..STEP_OFF_TRIES)
+                        .map(|_| {
+                            let degrees =
+                                f32::from(u16::try_from(minds.rng.below(360)).unwrap_or(0));
+                            let turn = Quat::from_rotation_y(degrees.to_radians());
+                            at + turn * Vec3::new(STEPS_OFF, 0.0, 0.0)
+                        })
+                        .find(|&to| {
+                            let cell = paths::cell_of(to.x, to.z);
+                            heights.walkable_on(cell, way.level)
+                                && !crowd.stops(cell, way.level, entity, false)
+                        });
+                    match target {
+                        Some(target) => {
+                            walks.push((entity, Walk::to(target, way.level, mind.speed)))
+                        }
+                        None => mind.partner = None,
+                    }
+                }
+                Why::Meets => {
+                    // They meet: an adult, in one case of two, turns to its partner, which stops
+                    // and turns back, and talks.
+                    mind.last = Some(partner);
+                    mind.partner = None;
+                    if !CHILDREN.contains(&mind.creature) && minds.rng.below(2) == 0 {
+                        turns.push((entity, at));
+                        turns.push((partner, here));
+                        if partner_walks {
+                            stops.push(partner);
+                        }
+                        commands.entity(entity).insert(Talks);
+                    }
+                }
+                _ => {
+                    mind.last = Some(partner);
+                    mind.partner = None;
+                }
+            }
+            continue;
+        }
         let crowded = crowd.crowded(paths::cell_of(here.x, here.z), way.level, entity);
         let folk = mind.flags & TOWNSFOLKS != 0;
         let range = if folk {
@@ -634,27 +761,43 @@ fn behave(
         // A townsperson awake decides at a look of the hero's, unless its dialogue holds it.
         if mind.active && folk && minds.looked && !mind.dialogue {
             let (x, y) = sector(here);
-            let animal = animals
-                .iter()
-                .filter(|&&(other, at)| {
-                    let (ax, ay) = sector(at);
-                    Some(other) != mind.last && (ax - x).abs() <= 1.0 && (ay - y).abs() <= 1.0
-                })
-                .min_by(|a, b| {
-                    let da = (a.1 - here).length_squared();
-                    da.total_cmp(&(b.1 - here).length_squared())
-                })
-                .copied();
-            if let Some((target, why, whom)) = townsperson(&mind, animal, &mut minds.rng) {
-                if whom.is_some() {
-                    mind.last = whom;
+            let nearest = |of: &[(Entity, Vec3)]| {
+                of.iter()
+                    .filter(|&&(other, at)| {
+                        let (ax, ay) = sector(at);
+                        other != entity
+                            && Some(other) != mind.last
+                            && (ax - x).abs() <= 1.0
+                            && (ay - y).abs() <= 1.0
+                    })
+                    .min_by(|a, b| {
+                        let da = (a.1 - here).length_squared();
+                        da.total_cmp(&(b.1 - here).length_squared())
+                    })
+                    .copied()
+            };
+            let (human, animal) = (nearest(&humans).map(|(e, _)| e), nearest(&animals));
+            match townsperson(&mind, human, animal, &mut minds.rng) {
+                Decision::Walk(target, why, whom) => {
+                    if whom.is_some() {
+                        mind.last = whom;
+                    }
+                    debug!(
+                        "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
+                        here.x, here.z, target.x, target.z
+                    );
+                    walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                    continue;
                 }
-                debug!(
-                    "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
-                    here.x, here.z, target.x, target.z
-                );
-                walks.push((entity, Walk::to(target, way.level, mind.speed)));
-                continue;
+                Decision::Partner(partner, home) => {
+                    debug!("ai: {entity} {:?} {partner}", Why::TakesPartner);
+                    mind.partner = Some(partner);
+                    if let Some(home) = home {
+                        walks.push((entity, Walk::to(home, way.level, mind.speed)));
+                    }
+                    continue;
+                }
+                Decision::Stop => {}
             }
         }
         if !mind.active || folk {
@@ -706,6 +849,14 @@ fn behave(
     }
     for (entity, walk) in walks {
         commands.entity(entity).insert(walk);
+    }
+    for entity in stops {
+        commands.entity(entity).remove::<Walk>();
+    }
+    for (entity, at) in turns {
+        if let Ok((_, mut transform, ..)) = creatures.get_mut(entity) {
+            transform.rotation = crate::hero::facing(at - transform.translation);
+        }
     }
 }
 
@@ -866,18 +1017,30 @@ mod tests {
             Vec3::new(1300.0, 0.0, 900.0),
         );
         let (mut homes, mut visits, mut stops) = (0, 0, 0);
+        let wife = Entity::from_raw_u32(8).unwrap();
+        let (mut partners, mut walking) = (0, 0);
         for _ in 0..26_000 {
-            match townsperson(&farmer, Some(pig), &mut rng) {
-                Some((to, Why::GoesHome, None)) if to == home => homes += 1,
-                Some((to, Why::Visits, Some(_))) if to == pig.1 => visits += 1,
-                None => stops += 1,
+            match townsperson(&farmer, Some(wife), Some(pig), &mut rng) {
+                Decision::Walk(to, Why::GoesHome, None) if to == home => homes += 1,
+                Decision::Walk(to, Why::Visits, Some(_)) if to == pig.1 => visits += 1,
+                Decision::Partner(partner, home) if partner == wife => {
+                    partners += 1;
+                    walking += usize::from(home.is_some());
+                }
+                Decision::Stop => stops += 1,
                 other => panic!("{other:?}"),
             }
         }
-        // Home in two rolls of 26, the animal in one, else none yet.
-        assert!((1_700..2_300).contains(&homes), "{homes}");
+        // Home in one roll of 26, the animal in one, a partner in two, one of them walking home.
+        assert!((800..1_200).contains(&homes), "{homes}");
         assert!((800..1_200).contains(&visits), "{visits}");
-        assert_eq!(homes + visits + stops, 26_000);
+        assert!((1_700..2_300).contains(&partners) && (800..1_200).contains(&walking));
+        assert_eq!(homes + visits + partners + stops, 26_000);
+        // Without a human or an animal those rolls walk home or stop.
+        assert!((0..100).all(|_| !matches!(
+            townsperson(&farmer, None, None, &mut rng),
+            Decision::Partner(..) | Decision::Walk(_, Why::Visits, _)
+        )));
         // Without an animal the roll of 1 stops; a child always rolls 20, a juggler 9.
         assert!((0..100).all(|_| roll(&farmer, &mut rng) != 9));
         let child = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));
@@ -885,6 +1048,18 @@ mod tests {
         let juggler = Mind::new(home, 0, (true, true), None, SPEEDS, (78, 3));
         assert_eq!(juggler.flags, JUGGLER);
         assert!((0..100).all(|_| roll(&juggler, &mut rng) == 9));
+    }
+
+    #[test]
+    fn a_townsperson_follows_its_partner_and_meets_it() {
+        let here = Vec3::ZERO;
+        let at = |d: f32| Vec3::new(d, 0.0, 0.0);
+        assert_eq!(follow(here, at(950.0)), Why::GoesBack);
+        assert_eq!(follow(here, at(500.0)), Why::Follows);
+        assert_eq!(follow(here, at(220.0)), Why::GoesBack);
+        assert_eq!(follow(here, at(150.0)), Why::Meets);
+        assert_eq!(follow(here, at(81.0)), Why::Meets);
+        assert_eq!(follow(here, at(60.0)), Why::StepsOff);
     }
 
     #[test]
