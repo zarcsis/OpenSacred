@@ -14,7 +14,7 @@ use crate::crowd::{Crowd, InTheWay};
 use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
-use crate::npcs::{Door, Plays, PutAt, Talks, Walk};
+use crate::npcs::{Door, Plays, PutAt, Swing, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
@@ -177,6 +177,8 @@ pub struct Mind {
     pub trader: bool,
     /// The trader it walks to, at which it talks.
     visiting: Option<Entity>,
+    /// The door it goes through, which it closes behind it (`+0x124`).
+    door: Option<Entity>,
     awake: bool,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     active: bool,
@@ -221,6 +223,7 @@ impl Mind {
             runs_after: false,
             trader: false,
             visiting: None,
+            door: None,
             active: false,
             awake: hostile && created,
             clock: 0.0,
@@ -851,7 +854,7 @@ fn behave(
     heights: Res<Heights>,
     hero: Query<(Entity, &Transform), With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
-    doors: Query<&Transform, (With<Door>, Without<Mind>)>,
+    doors: Query<(Entity, &Transform), (With<Door>, Without<Mind>)>,
     clock: Res<Clock>,
     daemon: Res<Daemon>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
@@ -924,14 +927,16 @@ fn behave(
         })
         .collect();
     // The doors, at the hero's looks.
-    let doors: Vec<Vec3> = if minds.looked {
+    let doors: Vec<(Entity, Vec3)> = if minds.looked {
         doors
             .iter()
-            .map(|transform| transform.translation)
+            .map(|(entity, transform)| (entity, transform.translation))
             .collect()
     } else {
         Vec::new()
     };
+    // The doors to open and to close this frame.
+    let mut swings: Vec<(Entity, bool)> = Vec::new();
     // At dusk and by night the townsfolk take the evening's way (`0x41BB50`, `0x41BAB0`).
     let evening = matches!(clock.phase(), Phase::Dusk | Phase::Night);
     let mut walks = Vec::new();
@@ -942,6 +947,10 @@ fn behave(
             continue;
         }
         let here = transform.translation;
+        // Through its door, in or out, it closes it behind it (the sub-states 2 and 3).
+        if let Some(door) = mind.door.take() {
+            swings.push((door, false));
+        }
         // At the trader it walked to, it talks once (the sub-states 12 and 13), and would then
         // go into a house (#248).
         if mind.visiting.take().is_some() {
@@ -1039,7 +1048,7 @@ fn behave(
             if folk && evening && way.level.is_none() {
                 let door = doors
                     .iter()
-                    .copied()
+                    .map(|&(_, at)| at)
                     .filter(|&at| (at - here).xz().length() <= DOOR_WITHIN)
                     .min_by(|a, b| {
                         (*a - here)
@@ -1082,20 +1091,28 @@ fn behave(
         if mind.active && folk && minds.looked && !mind.dialogue {
             let (x, y) = sector(here);
             // The nearest door within 1,500 of the 3 × 3 sectors (`0x4EE300`).
-            let door = doors
+            let nearest_door = doors
                 .iter()
                 .copied()
-                .filter(|&at| {
+                .filter(|&(_, at)| {
                     let (ax, ay) = sector(at);
                     (ax - x).abs() <= 1.0
                         && (ay - y).abs() <= 1.0
                         && (at - here).xz().length() <= DOOR_WITHIN
                 })
                 .min_by(|a, b| {
-                    (*a - here)
+                    (a.1 - here)
                         .length_squared()
-                        .total_cmp(&(*b - here).length_squared())
+                        .total_cmp(&(b.1 - here).length_squared())
                 });
+            let door = nearest_door.map(|(_, at)| at);
+            // Going through it, it opens its door (`0x4FC8D0`).
+            let mut through = |mind: &mut Mind| {
+                if let Some((door, _)) = nearest_door {
+                    mind.door = Some(door);
+                    swings.push((door, true));
+                }
+            };
             // At dusk and by night, or with the Daemon near, on a free cell, it takes the
             // evening's way (`0x4F0F5E`): indoors it walks among the building's cells; outdoors
             // it goes into the house of the nearest door, by stages from afar, and without a
@@ -1114,7 +1131,11 @@ fn behave(
                         );
                         Some((to, Why::GoesIn))
                     } else {
-                        indoors(door, &heights, &mut minds.rng).map(|(to, _)| (to, Why::GoesIn))
+                        let inside = indoors(door, &heights, &mut minds.rng);
+                        if inside.is_some() {
+                            through(&mut mind);
+                        }
+                        inside.map(|(to, _)| (to, Why::GoesIn))
                     }
                 } else {
                     Some((about(here, WANDERS, &mut minds.rng), Why::Wanders))
@@ -1141,6 +1162,7 @@ fn behave(
                     target.x,
                     target.z
                 );
+                through(&mut mind);
                 walks.push((entity, Walk::to(target, way.level, mind.speed)));
                 continue;
             }
@@ -1236,6 +1258,7 @@ fn behave(
                             target.x,
                             target.z
                         );
+                        through(&mut mind);
                         walks.push((entity, Walk::to(target, way.level, mind.speed)));
                         continue;
                     }
@@ -1305,6 +1328,9 @@ fn behave(
     }
     for entity in stops {
         commands.entity(entity).remove::<Walk>();
+    }
+    for (door, open) in swings {
+        commands.entity(door).insert(Swing(open));
     }
     // The other idle children within 600 of one at play, without a dialogue, run after it
     // (`0x4EE820`); not one sent off this frame (`sent`).

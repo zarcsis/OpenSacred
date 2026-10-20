@@ -48,7 +48,7 @@ use bevy::prelude::{
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
     Component, DetectChangesMut, Entity, GltfAssetLabel, Handle, Has, Image, IntoScheduleConfigs,
     MeshMaterial3d, Name, On, Plugin, Query, Res, ResMut, Resource, StandardMaterial, Time,
-    Transform, Update, Vec3, Without, WorldAssetRoot,
+    Transform, Update, Vec3, With, Without, WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
@@ -1435,7 +1435,12 @@ fn spawn(
             entity.insert(crowd::InTheWay::object(level));
         }
         if placement.door {
-            entity.insert(Door);
+            entity.insert(Door {
+                gltf: assets.load(placement.model.clone()),
+                clips: None,
+                player: None,
+                open: false,
+            });
         }
     } else {
         let (creature, record_flags, word) = placement.creature;
@@ -1935,9 +1940,98 @@ pub fn stance(
     }
 }
 
-/// A door, which the townsfolk go into the houses and out of them by (`ai`).
+/// A door, which the townsfolk go into the houses and out of them by (`ai`): its model, its
+/// clips of opening and closing (`*_ACTIVATE`, `*_DEACTIVATE`) and its animation player once
+/// it has them, and whether it is open (bit 0 of its trigger's word, `0x4FC8D0`).
 #[derive(Component)]
-pub struct Door;
+pub struct Door {
+    gltf: Handle<Gltf>,
+    clips: Option<(AnimationNodeIndex, AnimationNodeIndex)>,
+    player: Option<Entity>,
+    pub open: bool,
+}
+
+/// A door that `ai` opens (`true`) or closes, as the event `0x21` turns it (`0x4FC8D0`).
+#[derive(Component)]
+pub struct Swing(pub bool);
+
+/// Gives each door's animation player its clips of opening and closing.
+fn door_clips(
+    mut commands: Commands,
+    mut doors: Query<&mut Door>,
+    gltfs: Res<Assets<Gltf>>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    players: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>)>,
+    parents: Query<&ChildOf>,
+) {
+    for entity in &players {
+        // The door this player belongs to: the nearest ancestor with `Door`.
+        let mut ancestor = entity;
+        let door = loop {
+            if doors.contains(ancestor) {
+                break Some(ancestor);
+            }
+            match parents.get(ancestor) {
+                Ok(parent) => ancestor = parent.parent(),
+                Err(_) => break None,
+            }
+        };
+        let Some(Ok(mut door)) = door.map(|door| doors.get_mut(door)) else {
+            continue;
+        };
+        let Some(gltf) = gltfs.get(&door.gltf) else {
+            continue;
+        };
+        let named = |suffix: &str| {
+            gltf.named_animations
+                .iter()
+                .find(|(name, _)| name.ends_with(suffix))
+                .map(|(_, clip)| clip.clone())
+        };
+        let mut graph = AnimationGraph::new();
+        let root = graph.root;
+        if let (Some(open), Some(close)) = (named("_ACTIVATE"), named("_DEACTIVATE")) {
+            door.clips = Some((
+                graph.add_clip(open, 1.0, root),
+                graph.add_clip(close, 1.0, root),
+            ));
+        }
+        door.player = Some(entity);
+        commands.entity(entity).insert((
+            AnimationGraphHandle(graphs.add(graph)),
+            AnimationTransitions::new(),
+        ));
+    }
+}
+
+/// Opens or closes each door that `ai` swings, playing its clip once.
+fn swing(
+    mut commands: Commands,
+    mut doors: Query<(Entity, &mut Door, &Swing)>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    speed: Res<hero::GameSpeed>,
+) {
+    for (entity, mut door, swing) in &mut doors {
+        let (Some((open, close)), Some(player)) = (door.clips, door.player) else {
+            // Its clips not yet given, it waits, unless its model has none.
+            if door.player.is_some() {
+                door.open = swing.0;
+                commands.entity(entity).remove::<Swing>();
+            }
+            continue;
+        };
+        if door.open != swing.0
+            && let Ok((mut player, mut transitions)) = players.get_mut(player)
+        {
+            let clip = if swing.0 { open } else { close };
+            transitions
+                .play(&mut player, clip, Duration::ZERO)
+                .set_speed(speed.0);
+        }
+        door.open = swing.0;
+        commands.entity(entity).remove::<Swing>();
+    }
+}
 
 /// An NPC that `ai` puts at a place on a level at once, as the client puts the townsfolk far from
 /// the hero into a house at dusk (`0x54D9D0`).
@@ -2022,7 +2116,9 @@ impl Plugin for NpcsPlugin {
             .add_observer(equipment_ready)
             .add_systems(
                 Update,
-                (place, animate, walk, put, instrument, stance, equip)
+                (
+                    place, animate, door_clips, walk, put, swing, instrument, stance, equip,
+                )
                     .chain()
                     .in_set(Step::Npcs),
             );
