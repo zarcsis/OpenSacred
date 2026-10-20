@@ -71,6 +71,8 @@ const CREATE_TRIGGER: u16 = 48;
 const TRIGGER_PATCH: u16 = 50;
 const FILL_SECTOR: u16 = 51;
 const SPAWN_VALUES: u16 = 100;
+const WAFFENPOOL: u16 = 114;
+const MAKE_GROUP: u16 = 115;
 /// The hero's level, for the fills' counts: the game has no levels yet.
 const HERO_LEVEL: u32 = 1;
 /// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit
@@ -209,6 +211,13 @@ pub struct Npcs {
     /// Each creature type's `Creature.pak` class, which picks a fill's factor.
     classes: HashMap<u32, u8>,
     factors: spawning::Factors,
+    /// The weapon pools, the sectors' `MakeGroup` rules, what each pool's item is in a hand, and
+    /// the templates' models' clips by slot, which give the fills' creatures their items and the
+    /// clips of what they hold ([`gear_of`]).
+    pools: HashMap<i32, Vec<u32>>,
+    rules: HashMap<(u32, u32), Vec<Rule>>,
+    gear: HashMap<u32, Gear>,
+    slots: HashMap<String, motions::Slots>,
     spawned: HashSet<(u32, u32)>,
 }
 
@@ -418,6 +427,136 @@ fn fills(tree: &Tree) -> HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawnin
         }
     }
     out
+}
+
+/// An item of the weapon pools as an NPC holds it: its category, its weapon's kind, its model and
+/// its texture.
+#[derive(Clone, Debug)]
+struct Gear {
+    category: u8,
+    kind: Option<u8>,
+    model: Option<String>,
+    texture: Option<String>,
+}
+
+/// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, and its three items' pools and
+/// chances in percent (`87`, `88`, `89`; a pool of −1 or a chance of 0 gives nothing).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Rule {
+    types: Vec<u32>,
+    items: [(i32, u32); 3],
+}
+
+/// The start script's weapon pools (`Waffenpool`, type 114, `0x475F1A`): each record adds its last
+/// `02` item to its `0B` pool, kept in order, a repeated item weighing more.
+fn pools(records: &[&Record]) -> HashMap<i32, Vec<u32>> {
+    let mut pools: HashMap<i32, Vec<u32>> = HashMap::new();
+    for ops in records
+        .iter()
+        .filter(|r| r.kind == WAFFENPOOL)
+        .filter_map(|r| match &r.body {
+            Body::Operands(ops) => Some(ops),
+            _ => None,
+        })
+    {
+        let pool = ops.iter().find_map(|o| match (o.tag, &o.value) {
+            (0x0B, Value::I32(v)) => Some(*v),
+            _ => None,
+        });
+        let item = ops
+            .iter()
+            .filter_map(|o| match (o.tag, &o.value) {
+                (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
+                _ => None,
+            })
+            .next_back();
+        if let (Some(pool), Some(item)) = (pool, item)
+            && (0..255).contains(&pool)
+            && item > 0
+        {
+            pools.entry(pool).or_default().push(item);
+        }
+    }
+    pools
+}
+
+/// The `MakeGroup` rules of the sectors' `Enter` functions, by sector, in order.
+fn rules(tree: &Tree) -> HashMap<(u32, u32), Vec<Rule>> {
+    let mut out: HashMap<(u32, u32), Vec<Rule>> = HashMap::new();
+    for function in tree.functions.iter().filter(|f| f.name.ends_with("Enter")) {
+        let Some(sector) = sector_function(&function.name) else {
+            continue;
+        };
+        for ops in function
+            .records
+            .iter()
+            .filter(|r| r.kind == MAKE_GROUP)
+            .filter_map(|r| match &r.body {
+                Body::Operands(ops) => Some(ops),
+                _ => None,
+            })
+        {
+            let types = ops
+                .iter()
+                .filter_map(|o| match (o.tag, &o.value) {
+                    (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
+                    _ => None,
+                })
+                .take(20)
+                .collect();
+            let mut items = [(-1, 0), (0, 0), (-1, 0)];
+            for o in ops {
+                if let (0x87..=0x89, Value::I32x2([pool, chance])) = (o.tag, &o.value) {
+                    items[usize::from(o.tag - 0x87)] = (*pool, u32::try_from(*chance).unwrap_or(0));
+                }
+            }
+            out.entry(sector).or_default().push(Rule { types, items });
+        }
+    }
+    out
+}
+
+/// The items 1800 to 1804, which a rule's first item becomes 1723, 1720, 1759, 1729 and 1752 for
+/// most types (`0x47F8E0`).
+const SWAPPED: [u32; 5] = [1723, 1720, 1759, 1729, 1752];
+/// The weapon kinds after which a creature takes no second item: the two-handed, the staves, the
+/// bows and the crossbows (**hypothesis** for the names).
+const ONE_ITEM: [u8; 5] = [2, 3, 4, 7, 12];
+
+/// The items a creature of `creature` takes by the first of the sector's rules that names it
+/// (`0x47F8E0`): each of the first two by its chance from its pool, at random among the pool's
+/// items, the first swapped ([`SWAPPED`]), the second only after a weapon of a kind that leaves
+/// a hand free; the third, a worn piece, is left out, the game drawing no worn models.
+fn gear_of<'a>(
+    rules: &[Rule],
+    creature: u32,
+    pools: &HashMap<i32, Vec<u32>>,
+    gear: &'a HashMap<u32, Gear>,
+    rng: &mut spawning::Rng,
+) -> Vec<&'a Gear> {
+    let Some(rule) = rules.iter().find(|r| r.types.contains(&creature)) else {
+        return Vec::new();
+    };
+    let mut roll = |(pool, chance): (i32, u32)| {
+        let made = rng.below(100) < chance;
+        let list = pools.get(&pool).filter(|list| !list.is_empty())?;
+        let index = usize::try_from(rng.below(u32::try_from(list.len()).ok()?)).ok()?;
+        made.then(|| list[index])
+    };
+    let first = roll(rule.items[0]).map(|item| match item {
+        1800..=1804 => SWAPPED[usize::try_from(item - 1800).unwrap_or(0)],
+        other => other,
+    });
+    let second = roll(rule.items[1]);
+    let first = first.and_then(|item| gear.get(&item));
+    let second = second
+        .filter(|_| {
+            first.is_some_and(|g| {
+                g.category == WEAPON && !g.kind.is_some_and(|k| ONE_ITEM.contains(&k))
+            })
+        })
+        .and_then(|item| gear.get(&item));
+    first.into_iter().chain(second).collect()
 }
 
 /// A `FillSector` record's count (`35`) and entries (`19:(type, weight, hostile)`, or a bare `02`
@@ -872,6 +1011,24 @@ impl Npcs {
             );
         }
         let classes = creatures.iter().map(|c| (c.id, c.class)).collect();
+        let pools = pools(&records);
+        let gear = pools
+            .values()
+            .flatten()
+            .filter_map(|&slot| {
+                let item = items.get(&slot)?;
+                let gear = Gear {
+                    category: category(item),
+                    kind: kinds.get(&slot).copied(),
+                    model: models.get(&item.name.to_ascii_uppercase()).cloned(),
+                    texture: match item.words_08[0] {
+                        0 => None,
+                        number => textures.get(&number).cloned(),
+                    },
+                };
+                Some((slot, gear))
+            })
+            .collect();
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
         for (index, placement) in placements.iter().enumerate() {
@@ -898,6 +1055,10 @@ impl Npcs {
             templates,
             classes,
             factors: factors(assets),
+            rules: rules(&tree),
+            pools,
+            gear,
+            slots: model_slots,
             spawned: HashSet::new(),
         })
     }
@@ -994,6 +1155,35 @@ pub fn place(
                 };
                 let mut placement = template.clone();
                 placement.cell = (cx, cy);
+                // Its items by the sector's rules, in its hands, and its clips by what it holds.
+                let rules = npcs.rules.get(&at).map(Vec::as_slice).unwrap_or_default();
+                let gear = gear_of(rules, made.creature, &npcs.pools, &npcs.gear, &mut rng);
+                if !gear.is_empty() {
+                    let categories: Vec<(u8, Option<u8>)> =
+                        gear.iter().map(|g| (g.category, g.kind)).collect();
+                    placement.equipment = gear
+                        .iter()
+                        .zip(hands(&categories))
+                        .filter_map(|(g, hand)| {
+                            Some(Held {
+                                model: g.model.clone()?,
+                                texture: g.texture.clone(),
+                                hand: hand?,
+                                shield: g.category == SHIELD,
+                            })
+                        })
+                        .collect();
+                    if let Some(slots) = npcs.slots.get(&placement.model) {
+                        let class = held_class(&categories);
+                        let clip =
+                            |action| slots.clip(action, class).map(|(name, _)| name.to_owned());
+                        placement.clips = ClipNames {
+                            stand: clip(motions::Action::Stand),
+                            walk: clip(motions::Action::Walk),
+                            stance: slots.stance(class).map(str::to_owned),
+                        };
+                    }
+                }
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
                 if made.hostile {
@@ -1750,5 +1940,70 @@ mod tests {
         assert_eq!(sector_function("Sector28Enter"), None);
         assert_eq!(sector_function("Sector50039Exit"), None);
         assert_eq!(sector_function("QIS_OnEnter1"), None);
+    }
+
+    #[test]
+    fn the_spawned_creatures_take_their_items_by_the_first_rule_that_names_them() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        // Pool 125 of two bows, the second twice; pool 134 of one sword; a shield's pool 50.
+        let pool = |pool, item| {
+            record(
+                WAFFENPOOL,
+                vec![op(0x0B, Value::I32(pool)), op(0x02, Value::I32(item))],
+            )
+        };
+        let records = [
+            pool(125, 1811),
+            pool(125, 1812),
+            pool(125, 1812),
+            pool(134, 1729),
+            pool(50, 1203),
+        ];
+        let records: Vec<&Record> = records.iter().collect();
+        let pools = pools(&records);
+        assert_eq!(pools[&125], [1811, 1812, 1812]);
+        // Thieves: always a bow from 125, a shield never after a bow; a sword's wielder 304
+        // takes the shield by its chance.
+        let rule = |types: Vec<u32>, items| Rule { types, items };
+        let rules = [
+            rule(vec![306, 313], [(125, 100), (50, 100), (-1, 0)]),
+            rule(vec![304], [(134, 100), (50, 100), (-1, 0)]),
+            rule(vec![306], [(134, 100), (0, 0), (-1, 0)]),
+        ];
+        let gear = |category, kind| Gear {
+            category,
+            kind,
+            model: Some("m.glb".into()),
+            texture: None,
+        };
+        let gear: HashMap<u32, Gear> = [
+            (1811, gear(WEAPON, Some(BOW))),
+            (1812, gear(WEAPON, Some(BOW))),
+            (1729, gear(WEAPON, Some(1))),
+            (1203, gear(SHIELD, None)),
+        ]
+        .into();
+        let mut rng = spawning::Rng::of(48, 39, 0);
+        let kinds = |items: Vec<&Gear>| {
+            items
+                .iter()
+                .map(|g| (g.category, g.kind))
+                .collect::<Vec<_>>()
+        };
+        // The first rule that names 306 wins: a bow alone.
+        assert_eq!(
+            kinds(gear_of(&rules, 306, &pools, &gear, &mut rng)),
+            [(WEAPON, Some(BOW))]
+        );
+        assert_eq!(
+            kinds(gear_of(&rules, 304, &pools, &gear, &mut rng)),
+            [(WEAPON, Some(1)), (SHIELD, None)]
+        );
+        // A type no rule names takes nothing.
+        assert!(gear_of(&rules, 516, &pools, &gear, &mut rng).is_empty());
     }
 }
