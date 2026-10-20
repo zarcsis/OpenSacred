@@ -147,6 +147,16 @@ const CHILD_LINES: [&str; 35] = [
     "KID26",
 ];
 const CHILD_GREEN: Color = Color::srgb(0.19, 1.0, 0.19);
+/// How near the hero a hostile creature comes at it from, and how far it follows it before it
+/// gives up (`0x542B20`, `0x4E1B5F`).
+const ATTACKS_WITHIN: f32 = 800.0;
+const GIVES_UP: f32 = 2_000.0;
+/// The reach of two creatures of the size of most (`0x4DBC60`: 130 by default; **hypothesis**
+/// for every type, whose sizes are not read), the band about it a creature keeps (`0x4E0300`),
+/// and in how many cases of 11 it comes on at a run.
+const REACH: f32 = 130.0;
+const BAND: f32 = 15.0;
+const RUNS_IN: u32 = 7;
 const FEAR_RED: Color = Color::srgb(1.0, 0.19, 0.19);
 
 /// Whether the hero is the Daemon, its type 9, before whom the townsfolk are in danger and the
@@ -221,6 +231,10 @@ pub struct Mind {
     visiting: Option<Entity>,
     /// The door it goes through, which it closes behind it (`+0x124`).
     door: Option<Entity>,
+    /// Its level (`+0x3FE`, `fight::level`).
+    pub level: u32,
+    /// Whether it fights the hero (the AI's state 4, `0x4E0300`).
+    fighting: bool,
     awake: bool,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     active: bool,
@@ -266,6 +280,8 @@ impl Mind {
             trader: false,
             visiting: None,
             door: None,
+            level: 1,
+            fighting: false,
             active: false,
             awake: hostile && created,
             clock: 0.0,
@@ -361,6 +377,8 @@ fn think(
     mut commands: Commands,
     time: Res<Time>,
     mut minds: ResMut<Minds>,
+    heights: Res<Heights>,
+    balance: Res<FightRules>,
     hero: Query<(&Transform, &Body)>,
     mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
@@ -384,10 +402,12 @@ fn think(
     } else {
         WAKES
     };
-    // The steps taken this frame: a creature, its target, and its group's step to share.
+    // The steps taken this frame: a creature, its target, and its group's step to share; the
+    // groups whose alarm goes.
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
+    let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
-    for (entity, transform, _, mut mind, walking) in &mut creatures {
+    for (entity, transform, way, mut mind, walking) in &mut creatures {
         let here = transform.translation;
         // Its own timer.
         if mind.flags & TIMED != 0 {
@@ -414,14 +434,36 @@ fn think(
             let away = (here - hero).abs();
             if away.x > FAR_X || away.z > FAR_Y {
                 mind.clock = -JITTER;
-            } else if mind.hostile() {
+            } else if mind.hostile() && !mind.fighting {
                 let from_home = (here - mind.home).abs();
+                // The hero worth experience to it, or within its reach, within 800, a straight
+                // line of walkable cells to it: it comes at the hero (`0x542B20`).
+                let takes_on = crate::fight::takes_on(
+                    mind.level,
+                    crate::fight::HERO_LEVEL,
+                    balance.experience,
+                ) || distance <= REACH;
+                let line = paths::clear(here.xz(), hero.xz(), |cell| {
+                    heights.walkable_on(cell, way.level)
+                });
                 if minds.rng.below(6) == 0 && (from_home.x > AWAY || from_home.z > AWAY) {
                     if !walking {
                         steps.push((entity, mind.home));
                     }
+                } else if takes_on && distance < ATTACKS_WITHIN && line {
+                    debug!(
+                        "ai: {entity} {:?} the hero from {distance:.0}",
+                        Why::Attacks
+                    );
+                    mind.fighting = true;
+                    // In a group, in one case of two, it raises the alarm (`0x46AE70`).
+                    if let Some(group) = mind.group
+                        && minds.rng.below(2) == 0
+                    {
+                        alarms.push(group);
+                    }
                 } else if minds.rng.below(3) == 0 {
-                    // The fight is not followed: dormant again, by chance stepping about.
+                    // Dormant again, by chance stepping about.
                     idle = true;
                 }
             } else if mind.flags & BEHAVIOURS != 0 {
@@ -430,6 +472,7 @@ fn think(
         }
         if idle
             && !walking
+            && !mind.fighting
             && let Some(target) = idle_step(&mind, here, hero, &mut minds.rng)
         {
             if mind.enter {
@@ -467,6 +510,99 @@ fn think(
                 .insert(walk(target, mind.speed, way));
         }
     }
+    // The alarm sends a group's idle hostile members at the hero too.
+    for group in alarms {
+        for (_, _, _, mut mind, _) in &mut creatures {
+            if mind.group == Some(group) && mind.hostile() {
+                mind.fighting = true;
+            }
+        }
+    }
+}
+
+/// The balance's values of the fight that the AI takes: the threshold of the test of the levels
+/// and its full share (`UnterExpAnteil`, `UnterExpVoll`).
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct FightRules {
+    pub experience: (f32, f32),
+}
+
+impl Default for FightRules {
+    /// The original's values of bronze, where the balance lacks them (docs/re/fight.md).
+    fn default() -> Self {
+        Self {
+            experience: (0.85, 1.0),
+        }
+    }
+}
+
+/// Each creature that fights the hero keeps the band of its reach (`0x4E0300`): farther, it comes
+/// on, at a run in 7 cases of 11, after the hero as it moves; nearer, it steps back; in the band it
+/// stands, turned to the hero, where it will strike (#280); farther than 2,000 it gives up.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn pursue(
+    mut commands: Commands,
+    mut minds: ResMut<Minds>,
+    hero: Query<&Transform, With<Body>>,
+    mut creatures: Query<
+        (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
+        Without<Body>,
+    >,
+) {
+    let Some(hero) = hero.iter().next() else {
+        return;
+    };
+    let hero = hero.translation;
+    let (lo, hi) = (REACH - BAND, REACH + BAND);
+    for (entity, mut transform, way, mut mind, walk) in &mut creatures {
+        if !mind.fighting {
+            continue;
+        }
+        let here = transform.translation;
+        let d = (hero - here).xz().length();
+        if d > GIVES_UP {
+            debug!("ai: {entity} {:?} at {d:.0}", Why::GivesUp);
+            mind.fighting = false;
+            continue;
+        }
+        match walk {
+            // Coming on, it follows the hero as it moves.
+            Some(walk) if walk.within_of() > 0.0 && (walk.target() - hero).xz().length() > BAND => {
+                let runs = walk.runs();
+                commands
+                    .entity(entity)
+                    .insert(come_on(&mind, hero, way, runs, lo));
+            }
+            Some(_) => {}
+            None if d > hi => {
+                let runs = minds.rng.below(11) < RUNS_IN;
+                commands
+                    .entity(entity)
+                    .insert(come_on(&mind, hero, way, runs, lo));
+            }
+            None if d < lo => {
+                let away = (here - hero).with_y(0.0).normalize_or_zero();
+                let target = here + away * ((lo + hi) / 2.0);
+                commands
+                    .entity(entity)
+                    .insert(Walk::to(target, way.level, mind.speed));
+            }
+            None => transform.rotation = crate::hero::facing(hero - here),
+        }
+    }
+}
+
+/// A walk or a run at the hero at `hero`, stopping in the band.
+fn come_on(mind: &Mind, hero: Vec3, way: &InTheWay, runs: bool, lo: f32) -> Walk {
+    let walk = if runs {
+        Walk::run(hero, way.level, mind.run)
+    } else {
+        Walk::to(hero, way.level, mind.speed)
+    };
+    walk.within(lo + BAND)
 }
 
 /// Whether a chance of `rate` a second comes in a frame of `dt` seconds.
@@ -515,6 +651,8 @@ enum Why {
     Wanders,
     PutIn,
     Juggles,
+    Attacks,
+    GivesUp,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -1336,6 +1474,7 @@ fn behave(
                 && mind.flags & STAYS == 0
                 && !mind.dialogue
                 && !mind.trader
+                && !mind.fighting
                 && chance(&mut minds.rng, PARTS_A_SECOND, dt)
             {
                 let target = parting(mind.home, here, &mut minds.rng);
@@ -1425,9 +1564,10 @@ impl Plugin for AiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Minds>()
             .init_resource::<Daemon>()
+            .init_resource::<FightRules>()
             .add_systems(
                 Update,
-                (think, aside, behave)
+                (think, aside, behave, pursue)
                     .chain()
                     .after(crate::crowd::gather)
                     .in_set(Step::Crowd),
