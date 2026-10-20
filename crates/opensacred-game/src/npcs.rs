@@ -57,7 +57,7 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{buildings, hero, iso, models, motions, paths, shadows};
+use crate::{buildings, crowd, hero, iso, models, motions, paths, shadows};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -88,6 +88,9 @@ struct Placement {
     casts: bool,
     /// Whether it takes its cell, which no creature steps into (`terrain::Heights::occupy`).
     blocks: bool,
+    /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
+    /// make (`crowd::flags_word`): how it stands in the others' way.
+    creature: (u32, u8, u32),
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
     /// is a run.
@@ -476,6 +479,7 @@ impl Npcs {
             .filter(|c| c.flags & NO_SHADOW != 0)
             .map(|c| c.id)
             .collect();
+        let record_flags: HashMap<u32, u8> = creatures.iter().map(|c| (c.id, c.flags)).collect();
         // Each creature's walk and run speeds (`+0x26`, `+0x28`, the models' units a second).
         let speeds: HashMap<u32, [u16; 2]> = creatures.iter().map(|c| (c.id, c.speed)).collect();
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
@@ -596,6 +600,15 @@ impl Npcs {
                     !shadowless.contains(&creature)
                 },
                 blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
+                creature: (
+                    creature,
+                    record_flags.get(&creature).copied().unwrap_or_default(),
+                    crowd::flags_word(
+                        ops.iter()
+                            .filter(|o| matches!(o.value, Value::Marker))
+                            .map(|o| o.tag),
+                    ),
+                ),
                 texture,
                 layer,
                 equipment: if record.kind == CREATE_NPC {
@@ -718,12 +731,16 @@ pub fn place(
             if placement.object {
                 entity.insert(Object);
             } else {
-                entity.insert(Npc {
-                    gltf: assets.load(placement.model.clone()),
-                    names: placement.clips.clone(),
-                    graph: None,
-                    player: None,
-                });
+                let (creature, record_flags, word) = placement.creature;
+                entity.insert((
+                    Npc {
+                        gltf: assets.load(placement.model.clone()),
+                        names: placement.clips.clone(),
+                        graph: None,
+                        player: None,
+                    },
+                    crowd::InTheWay::of(creature, record_flags, word, level),
+                ));
                 if let Some(((tx, ty), speed)) = placement.walk {
                     entity.insert(Walk {
                         target: iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
@@ -990,17 +1007,19 @@ pub fn walk(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
+    crowd: Res<crowd::Crowd>,
     speed: Res<hero::GameSpeed>,
     mut walkers: Query<(
         Entity,
         &mut Transform,
         &mut Walk,
         &mut buildings::Layered,
+        &mut crowd::InTheWay,
         &Npc,
     )>,
     mut players: Query<&mut AnimationPlayer>,
 ) {
-    for (entity, mut transform, mut walk, mut layered, npc) in &mut walkers {
+    for (entity, mut transform, mut walk, mut layered, mut way, npc) in &mut walkers {
         let mut here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         if walk.level.is_none() && !heights.walkable(cell) {
@@ -1024,15 +1043,24 @@ pub fn walk(
         }
         // In the layer of its level, at the cell it stands on: it stays there once it stands.
         layered.set_if_neq(buildings::Layered::at(&heights, here.x, here.z, walk.level));
+        way.level = walk.level;
         let level = walk.level;
         let target = walk.target;
+        // A cell it may step into: walkable, no object and no other creature in it (`0x4F7E10`:
+        // an NPC, of an id above 16, is stopped by any).
+        let free =
+            |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
         let toward = match paths::next(
             here,
             (level, false),
             target,
             None,
-            |cell, (at, _)| heights.walkable_on(cell, at),
-            |place| heights.neighbours(place),
+            |cell, (at, _)| free(cell, at),
+            |place| {
+                let mut next = heights.neighbours(place);
+                next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, entity, false));
+                next
+            },
             |(at, _)| at,
         ) {
             Some(paths::Step::Through((next, _))) => {
@@ -1048,9 +1076,8 @@ pub fn walk(
         let step = (walk.speed * speed.0 * time.delta_secs()).min(distance);
         let mut position = here + to / distance.max(f32::EPSILON) * step;
         let (from, into) = (cell, paths::cell_of(position.x, position.z));
-        let blocked = into != from
-            && !heights.walkable_on(into, walk.level)
-            && heights.walkable_on(from, walk.level);
+        let blocked =
+            into != from && !free(into, walk.level) && heights.walkable_on(from, walk.level);
         if left <= hero::ARRIVED || blocked || distance <= f32::EPSILON {
             // There, or as near as it gets: it stands.
             commands.entity(entity).remove::<Walk>();

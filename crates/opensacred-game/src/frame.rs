@@ -14,6 +14,8 @@ pub enum Step {
     HeroSpawn,
     /// The camera's zoom (`iso`).
     Zoom,
+    /// The cells the creatures stand on (`crowd`).
+    Crowd,
     /// The hero's gait, its target and its run (`hero`).
     HeroMove,
     /// The building the hero is in (`buildings`).
@@ -58,6 +60,7 @@ impl Plugin for FramePlugin {
                 (
                     Step::HeroSpawn,
                     Step::Zoom,
+                    Step::Crowd,
                     Step::HeroMove,
                     Step::Buildings,
                     Step::Footsteps,

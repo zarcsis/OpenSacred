@@ -8,6 +8,7 @@ mod blended;
 mod buildings;
 mod command;
 mod console;
+mod crowd;
 mod daynight;
 mod frame;
 mod game;
@@ -209,6 +210,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         buildings::BuildingsPlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
+        crowd::CrowdPlugin,
         daynight::DayNightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
@@ -216,9 +218,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         hero::HeroPlugin,
         hud::HudPlugin,
         journal::JournalPlugin,
-        liquids::LiquidsPlugin,
     ))
     .add_plugins((
+        liquids::LiquidsPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
@@ -233,8 +235,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
-        terrain::GroundPlugin,
     ))
+    .add_plugins(terrain::GroundPlugin)
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
