@@ -15,7 +15,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
-use crate::{atmosphere, daynight, hero, iso, music, npcs, sectors, sound, terrain};
+use crate::{atmosphere, daynight, hero, iso, motions, music, npcs, sectors, sound, terrain};
 
 /// Where the process is.
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -307,7 +307,12 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     let walk = game.walk.clone().unwrap_or_else(|| walk.into());
     let run = game.run.clone().unwrap_or_else(|| run.into());
     let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
+    // Its fight stance for bare hands, by its model's slots (`0x5467A0`).
+    let stance = motions::Slots::read(&assets.join(&model))
+        .ok()
+        .and_then(|slots| slots.stance(0).map(str::to_owned));
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
+    hero.stance = stance;
     hero.speeds = speeds(assets, game.creature.unwrap_or(1))?.map(|s| s * speed);
     if game.walking {
         hero.gait = hero::Gait::Walk;

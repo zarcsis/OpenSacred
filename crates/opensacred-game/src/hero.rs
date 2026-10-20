@@ -18,6 +18,8 @@ use crate::{iso, models, paths, shadows};
 pub(crate) const ARRIVED: f32 = 4.0;
 /// The blend between the idle and the run clips.
 const BLEND: Duration = Duration::from_millis(150);
+/// How near its nearest hostile puts the hero in its fight stance, in world units (`0x547070`).
+const HERO_STANCE_WITHIN: f32 = 350.0;
 
 /// How the hero moves when it moves.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -71,6 +73,8 @@ pub struct Hero {
     pub idle: String,
     pub walk: String,
     pub run: String,
+    /// The model's fight stance for bare hands, if it has one (`motions::Slots::stance`).
+    pub stance: Option<String>,
     pub position: Vec3,
     /// Where to go first, if anywhere.
     pub target: Option<Vec3>,
@@ -87,6 +91,7 @@ impl Hero {
             idle,
             walk,
             run,
+            stance: None,
             position,
             target: None,
             gait: Gait::Run,
@@ -173,6 +178,8 @@ impl Body {
 pub struct Clips {
     graph: Handle<AnimationGraph>,
     idle: AnimationNodeIndex,
+    /// The fight stance, where the model has one.
+    stance: Option<AnimationNodeIndex>,
     /// The walk and the run clips and their nodes.
     moving: [(Handle<AnimationClip>, AnimationNodeIndex); 2],
     /// The entity of the model's animation player.
@@ -187,8 +194,14 @@ impl Clips {
         }
     }
 
-    fn node(&self, moving: Option<Gait>) -> AnimationNodeIndex {
-        moving.map_or(self.idle, |gait| self.of(gait).1)
+    /// The clip of the hero moving at a gait, or standing: in its stance while `fight`, where
+    /// its model has one, else idle.
+    fn node(&self, moving: Option<Gait>, fight: bool) -> AnimationNodeIndex {
+        match (moving, self.stance) {
+            (Some(gait), _) => self.of(gait).1,
+            (None, Some(stance)) if fight => stance,
+            (None, _) => self.idle,
+        }
     }
 }
 
@@ -224,10 +237,14 @@ pub fn spawn(
     if let (Some(idle), Some(walk), Some(run)) =
         (clip(&hero.idle), clip(&hero.walk), clip(&hero.run))
     {
-        let (graph, nodes) = AnimationGraph::from_clips([idle, walk.clone(), run.clone()]);
+        let stance = hero.stance.as_ref().and_then(|name| clip(name));
+        let mut clips = vec![idle, walk.clone(), run.clone()];
+        clips.extend(stance);
+        let (graph, nodes) = AnimationGraph::from_clips(clips);
         commands.insert_resource(Clips {
             graph: graphs.add(graph),
             idle: nodes[0],
+            stance: nodes.get(3).copied(),
             moving: [(walk, nodes[1]), (run, nodes[2])],
             player: None,
         });
@@ -350,6 +367,7 @@ pub fn run(
     heights: Res<Heights>,
     clips: Option<Res<Clips>>,
     crowd: Res<crate::crowd::Crowd>,
+    nearest: Res<crate::crowd::Nearest>,
     mut bodies: Query<(Entity, &mut Transform, &mut Body)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
@@ -449,21 +467,25 @@ pub fn run(
                 }
             }
         }
-        if moving == body.moving {
-            continue;
-        }
         // The state changes only with the clip: before the model's player exists, the next
         // frame tries again.
         let Some(clips) = clips.as_ref() else {
             continue;
         };
+        // Standing, in its stance while the last look found a hostile within 350 units (the
+        // client's bit `0x8000`, `0x547070`; 1,000 with a bow, which the hero does not hold yet).
+        let fight = nearest.found && nearest.distance < HERO_STANCE_WITHIN;
+        let node = clips.node(moving, fight);
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|e| players.get_mut(e).ok())
         else {
             continue;
         };
+        if moving == body.moving && transitions.get_main_animation() == Some(node) {
+            continue;
+        }
         transitions
-            .play(&mut player, clips.node(moving), BLEND)
+            .play(&mut player, node, BLEND)
             .repeat()
             .set_speed(speed.0);
         body.moving = moving;
@@ -539,5 +561,23 @@ mod tests {
         let speed = GameSpeed::read(&dir).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(speed.0, 1.25);
+    }
+
+    #[test]
+    fn the_hero_stands_in_its_stance_only_when_near_a_hostile() {
+        let node = AnimationNodeIndex::new;
+        let clips = |stance| Clips {
+            graph: Handle::default(),
+            idle: node(1),
+            stance,
+            moving: [(Handle::default(), node(2)), (Handle::default(), node(3))],
+            player: None,
+        };
+        let with = clips(Some(node(4)));
+        assert_eq!(with.node(None, true), node(4));
+        assert_eq!(with.node(None, false), node(1));
+        // Moving, its gait's clip; a model without a stance, its idle.
+        assert_eq!(with.node(Some(Gait::Run), true), node(3));
+        assert_eq!(clips(None).node(None, true), node(1));
     }
 }
