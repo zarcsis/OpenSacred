@@ -55,7 +55,7 @@ pub struct Heights {
     /// How high, in world units, each inside layer that is a building's floor lies above the
     /// ground ([`Self::lift`]).
     lifts: HashMap<LayerKey, f32>,
-    /// The cells that an object takes, at their levels, into which no creature steps
+    /// The cells closed to every creature, at their levels: the closed triggers'
     /// ([`Self::occupy`]).
     occupied: HashSet<((i32, i32), Level)>,
 }
@@ -325,7 +325,8 @@ impl Heights {
 
     /// Whether a creature may step into a cell at a level, as the client's test of a step does
     /// (`0x4F7E10`, docs/re/movement.md, "The objects in the way"): the cell may be walked on, on
-    /// the ground or in an inside layer's grid, and no object takes it.
+    /// the ground or in an inside layer's grid, and no closed trigger holds it (the creatures and
+    /// the chests that stop only some are `crowd`'s).
     pub fn walkable_on(&self, cell: (i32, i32), level: Level) -> bool {
         self.walkable_at(cell, level) && !self.occupied.contains(&(cell, level))
     }
@@ -348,10 +349,11 @@ impl Heights {
         self.floors.get(&building).map_or(0, Vec::len)
     }
 
-    /// Marks a cell at a level as taken by an object that stops the creatures: a chest, a
-    /// barrel, a vase, a coffin, a cabinet, a book stand or a shrine (`0x4F7E10`), which the ways
-    /// go round and the steps stop at. It stays taken while the game runs: the objects do not
-    /// move, and a sector that comes in again places them again on the same cells.
+    /// Marks a cell at a level as closed to every creature: a cell that a start script's
+    /// `TriggerPatch` puts under a closed trigger, the chests' and the barrels' among them
+    /// (`0x4EBCA0`, docs/re/movement.md, "The chests' cells"), which the ways go round and the
+    /// steps stop at. It stays closed while the game runs: no script of the start opens them,
+    /// and a sector that comes in again closes them again.
     pub fn occupy(&mut self, cell: (i32, i32), level: Level) {
         self.occupied.insert((cell, level));
     }

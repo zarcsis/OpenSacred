@@ -65,6 +65,12 @@ const CREATE_OBJ: u16 = 8;
 const TRIGGER_QUEST: u16 = 20;
 const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
+const CREATE_TRIGGER: u16 = 48;
+const TRIGGER_PATCH: u16 = 50;
+/// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit
+/// (`0x496520`).
+const OPEN: u8 = 0x26;
+const CLOSED: u8 = 0x27;
 const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
 
@@ -86,7 +92,8 @@ struct Placement {
     equipment: Vec<Held>,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
-    /// Whether it takes its cell, which no creature steps into (`terrain::Heights::occupy`).
+    /// Whether it stops the NPCs' steps into its cell, an object of category 4 (`0x4F7E10`
+    /// refuses its cell to a creature of id above 16, not to the hero; `crowd`).
     blocks: bool,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
@@ -184,8 +191,13 @@ fn held_class(items: &[(u8, Option<u8>)]) -> u8 {
 pub struct Npcs {
     placements: Vec<Placement>,
     by_sector: HashMap<(u32, u32), Vec<usize>>,
+    /// The cells of the closed triggers ([`closed_cells`]), by sector.
+    closed: HashMap<(u32, u32), Vec<Spot>>,
     spawned: HashSet<(u32, u32)>,
 }
+
+/// A global cell and a floor (or a layer), as the scripts give a position: `(x, y, floor)`.
+type Spot = (i32, i32, i32);
 
 /// An object of the start script.
 #[derive(Component)]
@@ -364,6 +376,45 @@ fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
                 _ => None,
             })?;
             Some((name_of(ops)?, target))
+        })
+        .collect()
+}
+
+/// The cells, global and their floors, that the records' `TriggerPatch`es (`0x496F20`) put under
+/// a trigger that a `CreateTrigger` (`0x496520`) made closed: its tag [`CLOSED`] clears its
+/// state's open bit, [`OPEN`] sets it, the last of them counting (a trigger of neither is open,
+/// **hypothesis**, as the sector files' are). The client's cell test (`0x4EBCA0`) refuses such a
+/// cell to every creature, the chests' and the barrels' among them (docs/re/movement.md, "The
+/// chests' cells"); no script of the start opens them.
+fn closed_cells(records: &[&Record]) -> Vec<Spot> {
+    let ops = |kind| {
+        records
+            .iter()
+            .filter(move |r| r.kind == kind)
+            .filter_map(|r| match &r.body {
+                Body::Operands(ops) => Some(ops),
+                _ => None,
+            })
+    };
+    let closed: HashSet<String> = ops(CREATE_TRIGGER)
+        .filter(|ops| {
+            ops.iter()
+                .filter_map(|o| match (o.tag, &o.value) {
+                    (OPEN | CLOSED, Value::Marker) => Some(o.tag == CLOSED),
+                    _ => None,
+                })
+                .next_back()
+                .unwrap_or(false)
+        })
+        .filter_map(|ops| name_of(ops))
+        .collect();
+    ops(TRIGGER_PATCH)
+        .filter(|ops| name_of(ops).is_some_and(|name| closed.contains(&name)))
+        .flat_map(|ops| {
+            ops.iter().filter_map(|o| match (o.tag, &o.value) {
+                (0x2A, Value::I32x3([x, y, floor])) => Some((*x, *y, *floor)),
+                _ => None,
+            })
         })
         .collect()
 }
@@ -628,17 +679,28 @@ impl Npcs {
                 .or_default()
                 .push(index);
         }
+        let mut closed: HashMap<(u32, u32), Vec<Spot>> = HashMap::new();
+        for (x, y, floor) in closed_cells(&records) {
+            if let (Ok(cx), Ok(cy)) = (u32::try_from(x), u32::try_from(y)) {
+                closed
+                    .entry((cx / side, cy / side))
+                    .or_default()
+                    .push((x, y, floor));
+            }
+        }
         Ok(Self {
             placements,
             by_sector,
+            closed,
             spawned: HashSet::new(),
         })
     }
 
-    /// The NPCs and the objects to place.
-    pub fn counts(&self) -> (usize, usize) {
+    /// The NPCs and the objects to place, and the cells of the closed triggers.
+    pub fn counts(&self) -> (usize, usize, usize) {
         let objects = self.placements.iter().filter(|p| p.object).count();
-        (self.placements.len() - objects, objects)
+        let closed = self.closed.values().map(Vec::len).sum();
+        (self.placements.len() - objects, objects, closed)
     }
 }
 
@@ -659,6 +721,20 @@ pub fn place(
             continue;
         }
         npcs.spawned.insert(at);
+        // The closed triggers' cells: of the ground for the floors 0 and 1, of the building's
+        // floor for 1 and above (`0x463F50`, which keys the floors 0 and 1 alike).
+        for &(x, y, floor) in npcs.closed.get(&at).map(Vec::as_slice).unwrap_or_default() {
+            if floor <= 1 {
+                heights.occupy((x, y), None);
+            }
+            if let Ok(floor) = usize::try_from(floor)
+                && floor >= 1
+                && let Some(building) = heights.building_on_floor((x, y), floor)
+                && let Some(level) = heights.floor_level(building, floor)
+            {
+                heights.occupy((x, y), Some(level));
+            }
+        }
         for &index in npcs
             .by_sector
             .get(&at)
@@ -682,11 +758,6 @@ pub fn place(
             position.y = heights
                 .standing(position.x, position.z, level)
                 .unwrap_or(0.0);
-            if placement.blocks
-                && let (Ok(cx), Ok(cy)) = (i32::try_from(x), i32::try_from(y))
-            {
-                heights.occupy((cx, cy), level);
-            }
             // In its layer of the building whose floor or cell it is on, if any.
             let layered = buildings::Layered::of(
                 &heights,
@@ -730,6 +801,9 @@ pub fn place(
             }
             if placement.object {
                 entity.insert(Object);
+                if placement.blocks {
+                    entity.insert(crowd::InTheWay::object(level));
+                }
             } else {
                 let (creature, record_flags, word) = placement.creature;
                 entity.insert((
@@ -1299,5 +1373,49 @@ mod tests {
         // She stands where the quest sends her, whatever the case of her name.
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
+    }
+
+    #[test]
+    fn the_cells_patched_under_a_closed_trigger_are_closed() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        let name = |name: &str| op(0x01, Value::Str(name.into()));
+        let create = |trigger: &str, tags: &[u8]| {
+            let mut ops = vec![name(trigger), op(0x28, Value::I32(0))];
+            ops.extend(tags.iter().map(|&tag| op(tag, Value::Marker)));
+            record(CREATE_TRIGGER, ops)
+        };
+        let patch = |trigger: &str, cells: &[[i32; 3]]| {
+            let mut ops = vec![name(trigger)];
+            ops.extend(cells.iter().map(|&cell| op(0x2A, Value::I32x3(cell))));
+            record(TRIGGER_PATCH, ops)
+        };
+        let records = [
+            // The chests' trigger, closed; a door's, closed then opened; one of neither.
+            create("chestTrigger", &[CLOSED]),
+            create("door", &[CLOSED, OPEN]),
+            create("plain", &[]),
+            // A wide chest's three cells on floor 1, and a patch of each other trigger.
+            patch(
+                "chestTrigger",
+                &[[3341, 2512, 1], [3342, 2512, 1], [3343, 2512, 1]],
+            ),
+            patch("door", &[[3300, 2500, 0]]),
+            patch("plain", &[[3301, 2500, 0]]),
+            patch("CHESTTRIGGER", &[[3200, 2490, 0]]),
+        ];
+        let records: Vec<&Record> = records.iter().collect();
+        assert_eq!(
+            closed_cells(&records),
+            [
+                (3341, 2512, 1),
+                (3342, 2512, 1),
+                (3343, 2512, 1),
+                (3200, 2490, 0)
+            ]
+        );
     }
 }

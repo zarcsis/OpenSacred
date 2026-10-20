@@ -433,9 +433,9 @@ fn finish(
             return;
         }
     };
-    let (npcs, objects) = loaded.npcs.counts();
+    let (npcs, objects, closed) = loaded.npcs.counts();
     info!(
-        "{}: {npcs} NPCs and {objects} objects at the start",
+        "{}: {npcs} NPCs and {objects} objects at the start, {closed} cells of closed triggers",
         loaded.tree
     );
     commands.insert_resource(sectors::Streamer::new(
