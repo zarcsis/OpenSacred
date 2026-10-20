@@ -41,6 +41,17 @@ pub struct InTheWay {
 }
 
 impl InTheWay {
+    /// An object of category 4 (a chest, a barrel, a vase, a coffin, a cabinet, a book stand, a
+    /// shrine) on `level`, which `0x4F7E10` has stop a creature of id above 16 as a creature
+    /// does, not the hero.
+    pub fn object(level: Level) -> Self {
+        Self {
+            stops: true,
+            hostile: false,
+            level,
+        }
+    }
+
     /// A creature of type `creature` (its `items.pak` slot), whose `Creature.pak` record has
     /// `record_flags`, and whose flags word is `word`, standing on `level`.
     pub fn of(creature: u32, record_flags: u8, word: u32, level: Level) -> Self {
