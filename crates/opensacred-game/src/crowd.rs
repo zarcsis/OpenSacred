@@ -38,6 +38,9 @@ pub struct InTheWay {
     pub stops: bool,
     /// Whether it stops the hero's too: its flags word has bit 0 or 1.
     pub hostile: bool,
+    /// Whether it is a creature, which crowds another in its cell (`0x54FCB0` counts the types
+    /// of the categories 2, 3 and `0x20`, `0x426610`); an object is not.
+    pub creature: bool,
     /// The level it stands on; the hero's is its `Body`'s.
     pub level: Level,
 }
@@ -50,6 +53,7 @@ impl InTheWay {
         Self {
             stops: true,
             hostile: false,
+            creature: false,
             level,
         }
     }
@@ -61,6 +65,7 @@ impl InTheWay {
         Self {
             stops: record_flags & BIG == 0 && !critter,
             hostile: word & STOPS_THE_HERO != 0,
+            creature: true,
             level,
         }
     }
@@ -135,6 +140,15 @@ impl Crowd {
         })
     }
 
+    /// Whether another creature than `entity` stands in `cell` at `level`, the hero among them
+    /// (`0x54FCB0`).
+    pub fn crowded(&self, cell: Cell, level: Level, entity: Entity) -> bool {
+        self.cells.get(&(cell, level)).is_some_and(|here| {
+            here.iter()
+                .any(|&(other, way)| other != entity && way.creature)
+        })
+    }
+
     fn add(&mut self, cell: Cell, entity: Entity, way: InTheWay) {
         self.cells
             .entry((cell, way.level))
@@ -144,7 +158,7 @@ impl Crowd {
 }
 
 /// Takes the cells the creatures stand on, the hero's at its level of now.
-fn gather(
+pub fn gather(
     mut crowd: ResMut<Crowd>,
     creatures: Query<(Entity, &Transform, &InTheWay, Option<&Body>)>,
 ) {
@@ -288,5 +302,11 @@ mod tests {
         // Nobody by the rabbit or the troll; nothing on another level.
         assert!(!crowd.stops((3, 3), None, guard, false) && !crowd.stops((4, 4), None, hero, true));
         assert!(!crowd.stops((1, 1), Some((0, 0, 1)), captain, false));
+        // The hero's cell is crowded for another, the rabbit's too, not a chest's.
+        assert!(crowd.crowded((5, 5), None, guard) && !crowd.crowded((5, 5), None, hero));
+        assert!(crowd.crowded((3, 3), None, troll));
+        let chest = world.spawn_empty().id();
+        crowd.add((6, 6), chest, InTheWay::object(None));
+        assert!(!crowd.crowded((6, 6), None, guard));
     }
 }
