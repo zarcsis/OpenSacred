@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use crate::crowd::{Crowd, InTheWay};
 use crate::frame::Step;
 use crate::hero::Body;
-use crate::npcs::{Talks, Walk};
+use crate::npcs::{Door, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
@@ -88,6 +88,12 @@ const INSIDE: u8 = 0x2;
 const DANGER: f32 = 800.0;
 const RUNS_FROM: f32 = 700.0;
 const RUNS_ASTRAY: i32 = 100;
+/// How far a townsperson seeks a door, and the cells about a door it goes in to and out to, in
+/// how many tries (`0x4EE300`, `0x4EEFA0`, `0x4F1AB9`).
+const DOOR_WITHIN: f32 = 1_500.0;
+const INDOORS: (i32, i32) = (2, 9);
+const OUTDOORS: (i32, i32) = (-4, 5);
+const DOOR_TRIES: usize = 15;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -442,6 +448,8 @@ enum Why {
     Trades,
     Plays,
     Gathers,
+    GoesIn,
+    GoesOut,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -471,7 +479,62 @@ enum Decision {
     Trade(Entity, Vec3),
     /// A child's play.
     Child,
+    /// It goes into the nearest house.
+    House,
     Stop,
+}
+
+/// The world point at the centre of global cell `cell`, on the ground plane.
+fn centre((x, y): (i32, i32)) -> Option<Vec3> {
+    let (x, y) = (
+        f32::from(i16::try_from(x).ok()?),
+        f32::from(i16::try_from(y).ok()?),
+    );
+    Some(crate::iso::ground(x + 0.5, y + 0.5))
+}
+
+/// A whole number at random from `low` to `high`, both included.
+fn among(low: i32, high: i32, rng: &mut Rng) -> i32 {
+    let span = u32::try_from(high - low + 1).unwrap_or(1);
+    low + i32::try_from(rng.below(span)).unwrap_or(0)
+}
+
+/// The cell a townsperson goes in to by the door at `door` (`0x4EEFA0`): of 15 cells 2 to 9
+/// cells from the door's along each axis, either way, that a building's ground floor holds and
+/// that one may stand on, the farthest from the door; and its level.
+fn indoors(door: Vec3, heights: &Heights, rng: &mut Rng) -> Option<(Vec3, crate::terrain::Level)> {
+    let (dx, dy) = paths::cell_of(door.x, door.z);
+    (0..DOOR_TRIES)
+        .filter_map(|_| {
+            let mut offset = || {
+                let d = among(INDOORS.0, INDOORS.1, rng);
+                if rng.below(2) == 0 { -d } else { d }
+            };
+            let cell = (dx + offset(), dy + offset());
+            let level = heights.level_of(cell)?;
+            heights
+                .walkable_on(cell, Some(level))
+                .then_some((centre(cell)?, Some(level)))
+        })
+        .max_by(|a, b| {
+            let (da, db) = ((a.0 - door).length_squared(), (b.0 - door).length_squared());
+            da.total_cmp(&db)
+        })
+}
+
+/// The cell a townsperson goes out to by the door at `door` (`0x4F1AB9`): the first of 15 cells
+/// -4 to 5 cells from the door's along each axis that no building covers and that one may walk
+/// on.
+fn outdoors(door: Vec3, heights: &Heights, rng: &mut Rng) -> Option<Vec3> {
+    let (dx, dy) = paths::cell_of(door.x, door.z);
+    (0..DOOR_TRIES).find_map(|_| {
+        let cell = (
+            dx + among(OUTDOORS.0, OUTDOORS.1, rng),
+            dy + among(OUTDOORS.0, OUTDOORS.1, rng),
+        );
+        let at = centre(cell)?;
+        (heights.building(at.x, at.z).is_none() && heights.walkable_on(cell, None)).then_some(at)
+    })
 }
 
 /// Where a townsperson at `here` in danger runs from its threat, the nearest of `hostiles` within
@@ -550,6 +613,7 @@ fn townsperson(
         (2, Some(human), _) => Decision::Partner(human, Some(mind.home)),
         (1, _, Some((entity, at))) => Decision::Walk(at, Why::Visits, Some(entity)),
         (2 | 3, ..) => Decision::Walk(mind.home, Why::GoesHome, None),
+        (4 | 6 | 7, ..) => Decision::House,
         // An adult's 20 stops (`0x4F231D`).
         (20, ..) if CHILDREN.contains(&mind.creature) => Decision::Child,
         (5 | 8, ..) => {
@@ -751,6 +815,7 @@ fn behave(
     heights: Res<Heights>,
     hero: Query<(Entity, &Transform), With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
+    doors: Query<&Transform, (With<Door>, Without<Mind>)>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
@@ -820,6 +885,15 @@ fn behave(
             (x - hx).abs() <= 1.0 && (y - hy).abs() <= 1.0 && (at - hero).xz().length() < RANGE
         })
         .collect();
+    // The doors, at the hero's looks.
+    let doors: Vec<Vec3> = if minds.looked {
+        doors
+            .iter()
+            .map(|transform| transform.translation)
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
@@ -941,6 +1015,37 @@ fn behave(
         // A townsperson awake decides at a look of the hero's, unless its dialogue holds it.
         if mind.active && folk && minds.looked && !mind.dialogue {
             let (x, y) = sector(here);
+            // The nearest door within 1,500 of the 3 × 3 sectors (`0x4EE300`).
+            let door = doors
+                .iter()
+                .copied()
+                .filter(|&at| {
+                    let (ax, ay) = sector(at);
+                    (ax - x).abs() <= 1.0
+                        && (ay - y).abs() <= 1.0
+                        && (at - here).xz().length() <= DOOR_WITHIN
+                })
+                .min_by(|a, b| {
+                    (*a - here)
+                        .length_squared()
+                        .total_cmp(&(*b - here).length_squared())
+                });
+            // Indoors on a free cell, it leaves by day (`0x4F1AB9`).
+            if way.level.is_some()
+                && !crowded
+                && let Some(target) = door.and_then(|door| outdoors(door, &heights, &mut minds.rng))
+            {
+                debug!(
+                    "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                    Why::GoesOut,
+                    here.x,
+                    here.z,
+                    target.x,
+                    target.z
+                );
+                walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                continue;
+            }
             let nearest = |of: &[(Entity, Vec3)]| {
                 of.iter()
                     .filter(|&&(other, at)| {
@@ -1020,6 +1125,22 @@ fn behave(
                         }
                     }
                     continue;
+                }
+                Decision::House => {
+                    if let Some((target, _)) =
+                        door.and_then(|door| indoors(door, &heights, &mut minds.rng))
+                    {
+                        debug!(
+                            "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                            Why::GoesIn,
+                            here.x,
+                            here.z,
+                            target.x,
+                            target.z
+                        );
+                        walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                        continue;
+                    }
                 }
                 Decision::Stop => {}
             }
@@ -1266,7 +1387,7 @@ mod tests {
         );
         let (mut homes, mut visits, mut stops) = (0, 0, 0);
         let wife = Entity::from_raw_u32(8).unwrap();
-        let (mut partners, mut walking) = (0, 0);
+        let (mut partners, mut walking, mut houses) = (0, 0, 0);
         for _ in 0..26_000 {
             match townsperson(&farmer, Some(wife), Some(pig), None, &mut rng) {
                 Decision::Walk(to, Why::GoesHome, None) if to == home => homes += 1,
@@ -1275,6 +1396,7 @@ mod tests {
                     partners += 1;
                     walking += usize::from(home.is_some());
                 }
+                Decision::House => houses += 1,
                 Decision::Stop => stops += 1,
                 other => panic!("{other:?}"),
             }
@@ -1283,7 +1405,9 @@ mod tests {
         assert!((800..1_200).contains(&homes), "{homes}");
         assert!((800..1_200).contains(&visits), "{visits}");
         assert!((1_700..2_300).contains(&partners) && (800..1_200).contains(&walking));
-        assert_eq!(homes + visits + partners + stops, 26_000);
+        // A house in three rolls of 26.
+        assert!((2_700..3_300).contains(&houses), "{houses}");
+        assert_eq!(homes + visits + partners + houses + stops, 26_000);
         // Without a human or an animal those rolls walk home or stop.
         assert!((0..100).all(|_| !matches!(
             townsperson(&farmer, None, None, None, &mut rng),
