@@ -167,6 +167,9 @@ fn gather(
 #[derive(Resource, Default)]
 pub struct Nearest {
     pub distance: f32,
+    /// Whether the last look found one: the hero's own stance asks it (`0x547070` sets the
+    /// hero's bit `0x8000` only then).
+    pub found: bool,
     /// The time since the last look.
     since: f32,
 }
@@ -211,6 +214,7 @@ fn look(
         .fold(None, |min: Option<f32>, d| {
             Some(min.map_or(d, |m| m.min(d)))
         });
+    nearest.found = found.is_some();
     if let Some(distance) = found {
         nearest.distance = distance;
     }
