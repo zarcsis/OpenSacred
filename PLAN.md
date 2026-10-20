@@ -393,6 +393,13 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     and the fight stance, which the NPCs take by the distance of the hero's nearest hostile and the hero by its own (#155, #219, #230).
     The rules read off the code and not yet seen in the original are gathered for the maintainer in #227.
     Next: the creatures' items and packs (#228, #229) and their life while no foe is near (#232), before their fight.
+12. **M3 into M4: the creatures' life.**
+    The same night went on in some twenty more pull requests (#235–#271), the research shared with subagents of the session:
+    the fills' creatures in their packs and with their `MakeGroup` items (#228, #229);
+    the creatures' life while no foe is near, read off the code (#232, docs/re/ai.md): they wake by their timers and the hero's look and step about (#237), the animals flee and stroll (#238), the guards keep their posts (#239), and the crowded ones part and step aside for the hero (#240), a walk that cannot start standing a second (#258);
+    and the townsfolk's day, read (#241) and followed in the sub-issues of #255 (#247–#254): they roll at the hero's looks within the zoom's range, walk home, to the animals, the traders and their partners, and meet them; the children play and gather about the hero; the jugglers play their instruments; they run from danger and from the Daemon (#269); and at dusk and by night the town goes into its houses.
+    Their departures are docs/decisions/2026-10-20-animals.md, -guards.md, -crowds.md and -townsfolk.md; the checks for the maintainer are added to #227.
+    Next: the doors that open and close (#268) and the lines over the creatures (#270), then the fight's rules (M3), which the creatures' attacks, the guards' torches (#61) and the danger of a fight wait for.
 
 ### 10.1 Priority queue
 
