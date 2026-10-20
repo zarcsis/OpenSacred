@@ -66,6 +66,10 @@ const MEETS: (f32, f32) = (80.0, 200.0);
 const CATCHES_UP: f32 = 240.0;
 const STEPS_OFF: f32 = 220.0;
 const STEP_OFF_TRIES: usize = 10;
+/// How near a townsperson the second nearest trader is taken rather than the nearest, and how
+/// near the trader it stops (`0x4EE660`, `+0x176`).
+const TRADER_WITHIN: f32 = 800.0;
+const AT_THE_TRADER: f32 = 150.0;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -125,6 +129,12 @@ pub struct Mind {
     last: Option<Entity>,
     /// The partner it follows (`+0x251`, the flag 4).
     partner: Option<Entity>,
+    /// Whether it is a trader: a smith, a merchant or a wizard (`+0x200` bits `0x1000`, `0x2000`,
+    /// `0x4000`, `0x4000000`, `CreateNPC`'s tags `0x23`, `0x24`, `0x25`, `0x64`), which the
+    /// townsfolk visit, which does not part and which a meeting does not stop.
+    pub trader: bool,
+    /// The trader it walks to, at which it talks.
+    visiting: Option<Entity>,
     awake: bool,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     active: bool,
@@ -166,6 +176,8 @@ impl Mind {
             dialogue: false,
             last: None,
             partner: None,
+            trader: false,
+            visiting: None,
             active: false,
             awake: hostile && created,
             clock: 0.0,
@@ -407,6 +419,7 @@ enum Why {
     Follows,
     StepsOff,
     Meets,
+    Trades,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -432,18 +445,22 @@ enum Decision {
     Walk(Vec3, Why, Option<Entity>),
     /// It takes the creature for its partner, and walks home if it is given.
     Partner(Entity, Option<Vec3>),
+    /// It walks to the trader at `1` and talks there.
+    Trade(Entity, Vec3),
     Stop,
 }
 
 /// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
 /// the nearest human, `human`, for its partner, 2 too and walks home, 1 walks to the nearest
-/// animal, `animal`, 3 walks home; 4, 6 and 7 go into a house, 5 and 8 visit a trader, 9 plays
-/// an instrument and 20 a child's play, which wait for their features (#248, #251, #253, #252);
-/// the rest stop.
+/// animal, `animal`, 3 walks home, 5 and 8 visit the trader `trader`, one of 8 in one case of
+/// three only (in the other two its field's branch finds no field, `0x4F2643`); 4, 6 and 7 go
+/// into a house, 9 plays an instrument and 20 a child's play, which wait for their features
+/// (#248, #253, #252); the rest stop.
 fn townsperson(
     mind: &Mind,
     human: Option<Entity>,
     animal: Option<(Entity, Vec3)>,
+    trader: Option<(Entity, Vec3)>,
     rng: &mut Rng,
 ) -> Decision {
     match (roll(mind, rng), human, animal) {
@@ -451,7 +468,26 @@ fn townsperson(
         (2, Some(human), _) => Decision::Partner(human, Some(mind.home)),
         (1, _, Some((entity, at))) => Decision::Walk(at, Why::Visits, Some(entity)),
         (2 | 3, ..) => Decision::Walk(mind.home, Why::GoesHome, None),
+        (5 | 8, ..) => {
+            let eight = mind.flags & (TOWNSFOLK | TOWNSFOLK_TOO) != 0;
+            match trader {
+                Some((entity, at)) if !eight || rng.below(3) == 0 => Decision::Trade(entity, at),
+                _ => Decision::Stop,
+            }
+        }
         _ => Decision::Stop,
+    }
+}
+
+/// The trader a townsperson at `here` visits among `traders` (`0x4EE660`): the second nearest
+/// when it is within 800, else the nearest.
+fn trader_for(here: Vec3, mut traders: Vec<(Entity, Vec3)>) -> Option<(Entity, Vec3)> {
+    let d = |at: Vec3| (at - here).xz().length();
+    traders.sort_by(|a, b| d(a.1).total_cmp(&d(b.1)));
+    match traders.as_slice() {
+        [_, second, ..] if d(second.1) <= TRADER_WITHIN => Some(*second),
+        [nearest, ..] => Some(*nearest),
+        [] => None,
     }
 }
 
@@ -657,7 +693,7 @@ fn behave(
         .collect();
     // What the townsfolk visit and take for partners: the farm and wild animals and the humans
     // of class 3, at the hero's looks.
-    let (animals, humans): (Vec<(Entity, Vec3)>, Vec<(Entity, Vec3)>) = if minds.looked {
+    let [animals, humans, traders]: [Vec<(Entity, Vec3)>; 3] = if minds.looked {
         let of = |wanted: fn(&Mind) -> bool| -> Vec<(Entity, Vec3)> {
             creatures
                 .iter()
@@ -665,20 +701,21 @@ fn behave(
                 .map(|(entity, transform, ..)| (entity, transform.translation))
                 .collect()
         };
-        (
+        [
             of(|mind| mind.class == 6 && mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0),
             of(|mind| mind.class == 3),
-        )
+            of(|mind| mind.trader),
+        ]
     } else {
-        (Vec::new(), Vec::new())
+        [Vec::new(), Vec::new(), Vec::new()]
     };
-    // The partners' places, and whether they walk.
-    let followed: std::collections::HashMap<Entity, (Vec3, bool)> = creatures
+    // The partners' places, whether they walk, and whether they are traders.
+    let followed: std::collections::HashMap<Entity, (Vec3, bool, bool)> = creatures
         .iter()
         .filter_map(|(_, _, _, mind, _)| mind.partner)
         .filter_map(|partner| {
-            let (_, transform, _, _, walking) = creatures.get(partner).ok()?;
-            Some((partner, (transform.translation, walking)))
+            let (_, transform, _, mind, walking) = creatures.get(partner).ok()?;
+            Some((partner, (transform.translation, walking, mind.trader)))
         })
         .collect();
     let mut walks = Vec::new();
@@ -689,6 +726,12 @@ fn behave(
             continue;
         }
         let here = transform.translation;
+        // At the trader it walked to, it talks once (the sub-states 12 and 13), and would then
+        // go into a house (#248).
+        if mind.visiting.take().is_some() {
+            commands.entity(entity).insert(Talks);
+            continue;
+        }
         // A creature with a partner follows it, before its own behaviour, while the hero is
         // within 1,500 of it.
         if let Some(partner) = mind.partner {
@@ -696,7 +739,7 @@ fn behave(
                 mind.active = false;
                 continue;
             }
-            let Some(&(at, partner_walks)) = followed.get(&partner) else {
+            let Some(&(at, partner_walks, partner_trades)) = followed.get(&partner) else {
                 mind.partner = None;
                 continue;
             };
@@ -734,9 +777,11 @@ fn behave(
                     mind.partner = None;
                     if !CHILDREN.contains(&mind.creature) && minds.rng.below(2) == 0 {
                         turns.push((entity, at));
-                        turns.push((partner, here));
-                        if partner_walks {
-                            stops.push(partner);
+                        if !partner_trades {
+                            turns.push((partner, here));
+                            if partner_walks {
+                                stops.push(partner);
+                            }
                         }
                         commands.entity(entity).insert(Talks);
                     }
@@ -777,7 +822,16 @@ fn behave(
                     .copied()
             };
             let (human, animal) = (nearest(&humans).map(|(e, _)| e), nearest(&animals));
-            match townsperson(&mind, human, animal, &mut minds.rng) {
+            let near_traders = traders
+                .iter()
+                .filter(|&&(other, at)| {
+                    let (ax, ay) = sector(at);
+                    other != entity && (ax - x).abs() <= 1.0 && (ay - y).abs() <= 1.0
+                })
+                .copied()
+                .collect();
+            let trader = trader_for(here, near_traders);
+            match townsperson(&mind, human, animal, trader, &mut minds.rng) {
                 Decision::Walk(target, why, whom) => {
                     if whom.is_some() {
                         mind.last = whom;
@@ -797,6 +851,21 @@ fn behave(
                     }
                     continue;
                 }
+                Decision::Trade(trader, at) => {
+                    debug!(
+                        "ai: {entity} {:?} from {:.0},{:.0} at {trader} at {:.0},{:.0}",
+                        Why::Trades,
+                        here.x,
+                        here.z,
+                        at.x,
+                        at.z
+                    );
+                    mind.last = Some(trader);
+                    mind.visiting = Some(trader);
+                    let walk = Walk::to(at, way.level, mind.speed).within(AT_THE_TRADER);
+                    walks.push((entity, walk));
+                    continue;
+                }
                 Decision::Stop => {}
             }
         }
@@ -804,6 +873,7 @@ fn behave(
             if crowded
                 && mind.flags & STAYS == 0
                 && !mind.dialogue
+                && !mind.trader
                 && chance(&mut minds.rng, PARTS_A_SECOND, dt)
             {
                 let target = parting(mind.home, here, &mut minds.rng);
@@ -1020,7 +1090,7 @@ mod tests {
         let wife = Entity::from_raw_u32(8).unwrap();
         let (mut partners, mut walking) = (0, 0);
         for _ in 0..26_000 {
-            match townsperson(&farmer, Some(wife), Some(pig), &mut rng) {
+            match townsperson(&farmer, Some(wife), Some(pig), None, &mut rng) {
                 Decision::Walk(to, Why::GoesHome, None) if to == home => homes += 1,
                 Decision::Walk(to, Why::Visits, Some(_)) if to == pig.1 => visits += 1,
                 Decision::Partner(partner, home) if partner == wife => {
@@ -1038,7 +1108,7 @@ mod tests {
         assert_eq!(homes + visits + partners + stops, 26_000);
         // Without a human or an animal those rolls walk home or stop.
         assert!((0..100).all(|_| !matches!(
-            townsperson(&farmer, None, None, &mut rng),
+            townsperson(&farmer, None, None, None, &mut rng),
             Decision::Partner(..) | Decision::Walk(_, Why::Visits, _)
         )));
         // Without an animal the roll of 1 stops; a child always rolls 20, a juggler 9.
@@ -1048,6 +1118,50 @@ mod tests {
         let juggler = Mind::new(home, 0, (true, true), None, SPEEDS, (78, 3));
         assert_eq!(juggler.flags, JUGGLER);
         assert!((0..100).all(|_| roll(&juggler, &mut rng) == 9));
+    }
+
+    #[test]
+    fn a_townsperson_visits_the_second_nearest_trader_within_800() {
+        let home = Vec3::ZERO;
+        let smith = (Entity::from_raw_u32(9).unwrap(), Vec3::new(300.0, 0.0, 0.0));
+        let wizard = (
+            Entity::from_raw_u32(10).unwrap(),
+            Vec3::new(700.0, 0.0, 0.0),
+        );
+        let merchant = (
+            Entity::from_raw_u32(11).unwrap(),
+            Vec3::new(900.0, 0.0, 0.0),
+        );
+        assert_eq!(
+            trader_for(home, vec![wizard, smith, merchant]),
+            Some(wizard)
+        );
+        assert_eq!(trader_for(home, vec![merchant, smith]), Some(smith));
+        assert_eq!(trader_for(home, vec![merchant]), Some(merchant));
+        assert_eq!(trader_for(home, Vec::new()), None);
+        // A citizen visits it in two rolls of 26, a farmer of the flag 8 in a third of those.
+        let count = |flags| {
+            let mind = Mind::new(home, flags, (true, true), None, SPEEDS, (652, 3));
+            let mut rng = Rng::of(50, 39, 8);
+            (0..26_000)
+                .filter(|_| {
+                    matches!(
+                        townsperson(&mind, None, None, Some(smith), &mut rng),
+                        Decision::Trade(..)
+                    )
+                })
+                .count()
+        };
+        assert!(
+            (1_700..2_300).contains(&count(CITIZEN)),
+            "{}",
+            count(CITIZEN)
+        );
+        assert!(
+            (500..850).contains(&count(TOWNSFOLK)),
+            "{}",
+            count(TOWNSFOLK)
+        );
     }
 
     #[test]

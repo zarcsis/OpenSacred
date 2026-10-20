@@ -66,6 +66,11 @@ const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
 /// The operand of a `CreateNPC` that names its dialogue.
 const DIALOGUE: u8 = 0x09;
+/// The tags of `CreateNPC` that make a trader (`+0x200`): the smiths, the merchants, the wizards
+/// and one with a dialogue stamped (`0x484326`…; docs/re/ai.md, "The roll").
+const TRADES: [u8; 4] = [0x23, 0x24, 0x25, 0x64];
+/// The tag of a trader whose dialogue `CreateNPC` stamps (`0x4843AF`).
+const STAMPED: u8 = 0x64;
 const TRIGGER_QUEST: u16 = 20;
 const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
@@ -118,6 +123,8 @@ struct Placement {
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
     made: (bool, bool),
     dialogue: bool,
+    /// Whether it is a trader, by its tags (`ai::Mind::trader`).
+    trader: bool,
     group: Option<u32>,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
@@ -306,6 +313,8 @@ pub struct Walk {
     /// How long it still stands where a walk that could not start left it, in seconds of the
     /// game: the walk ends then, so that no behaviour orders it again at every frame.
     balked: f32,
+    /// How near its target it stops, in world units.
+    within: f32,
 }
 
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
@@ -323,7 +332,13 @@ impl Walk {
             climbed: false,
             moved: false,
             balked: 0.0,
+            within: hero::ARRIVED,
         }
+    }
+
+    /// The walk, stopping within `within` of its target.
+    pub fn within(self, within: f32) -> Self {
+        Self { within, ..self }
     }
 
     /// A run to `target` from `level` at `speed`.
@@ -1007,7 +1022,14 @@ impl Npcs {
                 speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                 class: classes.get(&creature).copied().unwrap_or_default(),
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
-                dialogue: record.kind == CREATE_NPC && ops.iter().any(|o| o.tag == DIALOGUE),
+                dialogue: record.kind == CREATE_NPC
+                    && ops.iter().any(|o| {
+                        o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
+                    }),
+                trader: record.kind == CREATE_NPC
+                    && ops
+                        .iter()
+                        .any(|o| TRADES.contains(&o.tag) && matches!(o.value, Value::Marker)),
                 group: None,
                 heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
                 object: record.kind == CREATE_OBJ,
@@ -1078,6 +1100,7 @@ impl Npcs {
                     class: classes.get(&creature).copied().unwrap_or_default(),
                     made: (true, false),
                     dialogue: false,
+                    trader: false,
                     group: None,
                     heading: 0.0,
                     object: false,
@@ -1384,6 +1407,7 @@ fn spawn(
             (creature, placement.class),
         );
         mind.dialogue = placement.dialogue;
+        mind.trader = placement.trader;
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),
@@ -1746,9 +1770,9 @@ pub fn walk(
         let (from, into) = (cell, paths::cell_of(position.x, position.z));
         let blocked =
             into != from && !free(into, walk.level) && heights.walkable_on(from, walk.level);
-        if left <= hero::ARRIVED || blocked || distance <= f32::EPSILON {
+        if left <= walk.within || blocked || distance <= f32::EPSILON {
             // There, or as near as it gets: it stands; held from its first step, a while.
-            if walk.moved || left <= hero::ARRIVED {
+            if walk.moved || left <= walk.within {
                 commands.entity(entity).remove::<Walk>();
             } else {
                 walk.balked = BALKS;
