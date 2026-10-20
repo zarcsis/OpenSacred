@@ -130,6 +130,20 @@ impl Slots {
         let (slot, gait) = slot(action, class, |s| self.0.contains_key(&s));
         self.0.get(&slot).map(|name| (name.as_str(), gait))
     }
+
+    /// The fight stance's clip for `class`, only where the model has its slot: 14 to 26 for the
+    /// classes 0 to 12 (class 14 taking 12's), 236 for class 13 (`0x956E40`'s third row); a
+    /// standing creature takes it instead of its idle only then (`0x5467A0`,
+    /// docs/re/motions.md, "The fight stance").
+    pub fn stance(&self, class: u8) -> Option<&str> {
+        let slot = match class {
+            0..=12 => 14 + u16::from(class),
+            13 => 236,
+            14 => 26,
+            _ => return None,
+        };
+        self.0.get(&slot).map(String::as_str)
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +216,28 @@ mod tests {
             (235, Action::Stand)
         );
         assert_eq!(slot(Action::Stand, 200, has(&[1])), (1, Action::Stand));
+    }
+
+    #[test]
+    fn the_fight_stance_is_the_models_own_slot_or_none() {
+        // The thief's stance for bare hands is its idle (14); for a dagger (5) slot 19 it lacks;
+        // the stance takes no fallback.
+        let thief = thief();
+        assert_eq!(thief.stance(0), Some("THFM_IDLE_BH"));
+        assert_eq!(thief.stance(5), None);
+        assert_eq!(thief.stance(7), Some("THFM_IDLE_BH"));
+        let fighter = Slots::parse(
+            br#"{"animations": [
+                {"name": "F_IDLE", "extras": {"slots": [1]}},
+                {"name": "F_FIDLE_2H", "extras": {"slots": [26, 236]}}
+            ]}"#,
+        )
+        .unwrap();
+        // Class 12 and 14 share 26; class 13 has 236.
+        assert_eq!(fighter.stance(12), Some("F_FIDLE_2H"));
+        assert_eq!(fighter.stance(14), Some("F_FIDLE_2H"));
+        assert_eq!(fighter.stance(13), Some("F_FIDLE_2H"));
+        assert_eq!(fighter.stance(0), None);
     }
 
     #[test]

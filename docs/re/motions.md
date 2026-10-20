@@ -77,5 +77,8 @@ By the code, the NPCs also take it at the start of the process, before the hero 
 
 `motions` picks a clip as `0x5467A0` does for standing, walking and running, by the table and the fallbacks above, from the slots that the model's file keeps, and the class of what the creature holds as `0x546F80` gives it.
 `npcs` gives each start script's NPC the clip it stands in and, for one that a script sends somewhere, the clip it walks with, by the class of the items in its hands (docs/re/equipment.md); one whose walk falls back to a run moves at its creature's run speed.
-The other cases are not followed: no NPC rides or is mounted yet, none of the start scripts places a small spider, and the fight stance waits for hostile creatures in the game (#219).
+The other cases are not followed: no NPC rides or is mounted yet, and none of the start scripts places a small spider.
+The fight stance follows the code (#219): `crowd::Nearest` keeps the distance from the hero to its nearest hostile creature, looked for every 0.3 s in the 3 × 3 sectors about the hero within 1,875 world units (the client's range at 30 frames a second) and kept while none is found, 0 until one is; a creature is hostile there when its flags word has bit 0 or 1 (**hypothesis** for the client's test of hostility to the hero).
+While that distance is below 550, every standing NPC whose model has the stance's slot for what it holds plays its stance (`motions::Slots::stance`, `npcs::stance`), else its idle, the clips blending over 0.15 s; so the NPCs that have one stand in it from the start, as the client's 0 at the start of the process has them (not checked in the game).
+The hero's own stance (its bit `0x8000`) is not followed: the hero keeps its class's idle.
 The hero keeps its class's clips by name (`main.rs`).
