@@ -50,7 +50,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | # | Goal | Criterion |
 |---|---|---|
 | G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; tables and hero files keep the fields not yet understood as raw spans |
-| G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors (docs/05 §3.6) |
+| G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors, about 580 on 2026-10-19 (docs/05 §3.6, docs/10) |
 | G3 | Game rules | Combat, attributes, skills, items and loot work by the recovered formulas; deviations from the original are deliberate and recorded |
 | G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish |
 | G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings, gamepad; 4K and HiDPI; a playthrough without critical bugs |
