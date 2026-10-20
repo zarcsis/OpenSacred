@@ -111,6 +111,9 @@ struct Placement {
     /// Whether it stops the NPCs' steps into its cell, an object of category 4 (`0x4F7E10`
     /// refuses its cell to a creature of id above 16, not to the hero; `crowd`).
     blocks: bool,
+    /// Whether it is a door, an object of category 10, which the townsfolk go in and out by
+    /// (`0x428130`; `ai`).
+    door: bool,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -155,6 +158,8 @@ const SHIELD: u8 = 13;
 /// that holds one (`0x4F7E10`); the signposts are of 15, `cSpecial3D`, which casts none and
 /// takes no cell.
 const CHEST: u8 = 4;
+/// The category of the doors (`items.pak` 5650 to 5766, `0x428130`).
+const DOOR: u8 = 10;
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
 /// The weapon kinds of `Weapon.pak +0x1E` held in the left hand: bows and crossbows.
@@ -1039,6 +1044,7 @@ impl Npcs {
                     !shadowless.contains(&creature)
                 },
                 blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
+                door: record.kind == CREATE_OBJ && category(item) == DOOR,
                 creature: (
                     creature,
                     record_flags.get(&creature).copied().unwrap_or_default(),
@@ -1106,6 +1112,7 @@ impl Npcs {
                     object: false,
                     casts: !shadowless.contains(&creature),
                     blocks: false,
+                    door: false,
                     creature: (
                         creature,
                         record_flags.get(&creature).copied().unwrap_or_default(),
@@ -1395,6 +1402,9 @@ fn spawn(
         entity.insert(Object);
         if placement.blocks {
             entity.insert(crowd::InTheWay::object(level));
+        }
+        if placement.door {
+            entity.insert(Door);
         }
     } else {
         let (creature, record_flags, word) = placement.creature;
@@ -1854,6 +1864,10 @@ pub fn stance(
         }
     }
 }
+
+/// A door, which the townsfolk go into the houses and out of them by (`ai`).
+#[derive(Component)]
+pub struct Door;
 
 /// An NPC that plays its talk once where it stands (`*_TALK_A`, slot 177; `ai`'s meetings).
 #[derive(Component)]
