@@ -14,6 +14,7 @@ mod hud;
 mod iso;
 mod journal;
 mod liquids;
+mod menu;
 mod models;
 mod motions;
 mod music;
@@ -192,12 +193,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         hud::HudPlugin,
         journal::JournalPlugin,
         liquids::LiquidsPlugin,
+        menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
-        sectors::SectorsPlugin,
     ))
     .add_plugins((
+        sectors::SectorsPlugin,
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
@@ -219,15 +221,22 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(hud::Hud {
         cursor: hud::cursor_file(&assets),
     })
+    .insert_resource(menu::Images::find(&assets))
+    .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(Update, iso::zoom.in_set(frame::Step::Zoom));
     if let Some(shadows) = shadows {
         app.insert_resource(statics::ShadowAtlas(shadows));
     }
-    // Until the menu, the process goes straight into the game that the command line names, and
-    // ends when it does not load.
-    app.insert_resource(game::Request(cli.game))
-        .insert_resource(game::QuitOnFailure)
-        .insert_state(game::AppState::Loading);
+    // A game that the command line names starts at once, as if chosen in the menu; one whose run
+    // has nothing else to do (a screenshot, a benchmark) ends the process when it does not load.
+    let named = cli.game.named() || fixed;
+    app.insert_resource(game::Request(cli.game));
+    if named {
+        app.insert_state(game::AppState::Loading);
+    }
+    if fixed {
+        app.insert_resource(game::QuitOnFailure);
+    }
     if let Some(seconds) = cli.benchmark {
         app.insert_resource(benchmark::Benchmark::new(seconds))
             .add_systems(Update, benchmark::measure.in_set(frame::Playing));

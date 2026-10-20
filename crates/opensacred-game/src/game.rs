@@ -44,6 +44,32 @@ pub enum Class {
 }
 
 impl Class {
+    /// The class's name in the menus.
+    pub fn name(self) -> &'static str {
+        match self {
+            Class::Seraphim => "Seraphim",
+            Class::Gladiator => "Gladiator",
+            Class::Mage => "Mage",
+            Class::WoodElf => "Wood Elf",
+            Class::DarkElf => "Dark Elf",
+            Class::Daemon => "Daemon",
+            Class::Dwarf => "Dwarf",
+        }
+    }
+
+    /// The texture of the class's portrait: `gui_qbp_<class>` of `texture.pak`.
+    pub fn portrait(self) -> &'static str {
+        match self {
+            Class::Seraphim => "gui_qbp_sera",
+            Class::Gladiator => "gui_qbp_glad",
+            Class::Mage => "gui_qbp_mage",
+            Class::WoodElf => "gui_qbp_welf",
+            Class::DarkElf => "gui_qbp_delf",
+            Class::Daemon => "gui_qbp_dae",
+            Class::Dwarf => "gui_qbp_dwa",
+        }
+    }
+
     /// The hero's script tree (`netscript/<tree>.nsc`), whose start script places the hero, the
     /// NPCs and the objects.
     fn tree(self) -> &'static str {
@@ -152,6 +178,25 @@ pub struct NewGame {
     /// The time of day at the start, as HH:MM (08:00, as in the original)
     #[arg(long, value_parser = daynight::parse_time)]
     pub time: Option<daynight::Clock>,
+}
+
+impl NewGame {
+    /// Whether these options name a game rather than leave it to the menu: any but the zoom and
+    /// the music, which are about how it shows.
+    pub fn named(&self) -> bool {
+        self.class.is_some()
+            || self.sector.is_some()
+            || self.hero.is_some()
+            || self.idle.is_some()
+            || self.walk.is_some()
+            || self.run.is_some()
+            || self.walking
+            || self.creature.is_some()
+            || self.tree.is_some()
+            || self.footsteps.is_some()
+            || self.target.is_some()
+            || self.time.is_some()
+    }
 }
 
 /// `x,y` of an offset in cells.
@@ -302,18 +347,33 @@ pub const FONT: &str = "ui/fonts/antqs__.ttf";
 /// The interface's gold, in the frame's sRGB values (`hud`).
 pub const GOLD: Color = Color::linear_rgb(0.86, 0.74, 0.45);
 
-/// Starts loading the requested game, behind a loading screen.
+/// The original's loading screen (`opensacred-convert ui`), 1024 × 768, relative to the asset
+/// directory, if it was converted.
+#[derive(Resource)]
+pub struct LoadingScreen(pub Option<String>);
+
+impl LoadingScreen {
+    /// The first of the original's two loading screens of Ancaria (`loading0`, `loading1`).
+    pub fn find(assets: &Path) -> Self {
+        let file = "ui/screens/loading0.png";
+        Self(assets.join(file).is_file().then(|| file.into()))
+    }
+}
+
+/// Starts loading the requested game, behind the original's loading screen, or a word where
+/// there is none.
 fn begin(
     mut commands: Commands,
     request: Res<Request>,
     data: Res<Data>,
     speed: Res<hero::GameSpeed>,
+    screen: Res<LoadingScreen>,
     assets: Res<AssetServer>,
 ) {
     let (shared, game, speed) = (Arc::clone(&data.0), request.0.clone(), speed.0);
     let task = AsyncComputeTaskPool::get().spawn(async move { load(&shared, &game, speed) });
     commands.insert_resource(Pending(task));
-    commands.spawn((
+    let mut root = commands.spawn((
         DespawnOnExit(AppState::Loading),
         Node {
             width: Val::Percent(100.0),
@@ -322,7 +382,18 @@ fn begin(
             align_items: AlignItems::Center,
             ..default()
         },
-        children![(
+    ));
+    match &screen.0 {
+        // The original's screen, as high as the window (`hud`).
+        Some(file) => root.with_child((
+            ImageNode::new(crate::hud::image(&assets, file.clone())),
+            Node {
+                width: Val::Px(1024.0),
+                height: Val::Px(768.0),
+                ..default()
+            },
+        )),
+        None => root.with_child((
             Text::new("Loading"),
             TextFont {
                 font: assets.load(FONT).into(),
@@ -330,8 +401,8 @@ fn begin(
                 ..default()
             },
             TextColor(GOLD),
-        )],
-    ));
+        )),
+    };
 }
 
 /// Puts the loaded game in place and plays it, or logs why it did not load.
@@ -497,6 +568,17 @@ mod tests {
         assert_eq!(game.creature, Some(7));
         assert_eq!(game.target, Some((-3.0, 4.0)));
         assert_eq!(game.sector, Some((50, 39)));
+    }
+
+    #[test]
+    fn a_game_is_named_by_its_options_but_the_zoom_and_the_music() {
+        let parse = |args: &[&str]| Line::parse_from(["game"].iter().chain(args)).game;
+        assert!(!parse(&[]).named());
+        assert!(!parse(&["--zoom", "1.5", "--no-music"]).named());
+        assert!(parse(&["--class", "dwarf"]).named());
+        assert!(parse(&["--sector", "50,39"]).named());
+        assert!(parse(&["--time", "20:00"]).named());
+        assert!(parse(&["--walking"]).named());
     }
 
     #[test]
