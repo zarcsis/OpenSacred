@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 
 use crate::game::{AppState, FONT};
+use crate::hero::Body;
 use crate::npcs::Dies;
 use crate::spawning::{Rng, SpawnValues};
 
@@ -44,21 +45,34 @@ pub struct Experience(pub u64);
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Worth(pub [u16; 2]);
 
-/// Resolves each hit (`0x56B130`): a target that has no health yet (the hero, #292), or that is
-/// dying, ignores it; else the strike may miss, and its damage takes the target's health down,
+/// Resolves each hit (`0x56B130`), weighed by the difficulty between the hero and a creature
+/// ([`weighed`]): a target without a health, or dying, ignores it; else the strike may miss, and its damage takes the target's health down,
 /// shows over it, and at 0 the target dies (the AI's state 9, `0x53E7C0`), one of its two dying
 /// clips at random, and a hero that killed it earns its experience (the event 9, `0x57D860`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
 fn resolve(
     mut commands: Commands,
     mut hits: MessageReader<Hit>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
-    attackers: Query<(&Combat, Has<crate::hero::Body>)>,
-    mut targets: Query<(&mut Health, &Combat, &GlobalTransform, Option<&Worth>), Without<Dies>>,
+    attackers: Query<(&Combat, Has<Body>, Option<&crate::ai::Mind>)>,
+    mut targets: Query<
+        (
+            &mut Health,
+            &Combat,
+            &GlobalTransform,
+            Option<&Worth>,
+            Has<Body>,
+        ),
+        Without<Dies>,
+    >,
 ) {
     for hit in hits.read() {
-        let (Ok((attacker, hero)), Ok((mut health, defender, at, worth))) =
+        let (Ok((attacker, hero, mind)), Ok((mut health, defender, at, worth, hero_hit))) =
             (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -70,7 +84,15 @@ fn resolve(
         if health.current == 0 {
             continue;
         }
-        let Some(damage) = strike(attacker, defender, hit.share, &mut dice.0) else {
+        let side = match (hero, hero_hit) {
+            (true, false) => Some(Side::Attacker),
+            (false, true) => Some(Side::Defender),
+            _ => None,
+        };
+        let level = mind.map_or(HERO_LEVEL, |mind| mind.level);
+        let (attacker, defender, k) =
+            weighed(*attacker, *defender, side, (level, health.level), &rules);
+        let Some(damage) = strike(&attacker, &defender, (hit.share, k), &mut dice.0) else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
@@ -84,6 +106,7 @@ fn resolve(
                 at: at.translation() + Vec3::Y * NUMBER_ABOVE,
                 left: NUMBER_SHOWS,
                 text: damage.to_string(),
+                color: if hero_hit { HERO_HIT } else { NUMBER_COLOR },
                 label: None,
             },
             DespawnOnExit(AppState::InGame),
@@ -133,6 +156,76 @@ pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> 
     whole(base * share * factor.max(0.04))
 }
 
+/// A creature's regeneration (`0x562730`): its value (`+0x138`) and what it has gathered toward
+/// its next health.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Regenerates {
+    pub value: f32,
+    kept: f32,
+}
+
+impl Regenerates {
+    pub fn new(value: f32) -> Self {
+        Self { value, kept: 0.0 }
+    }
+
+    /// Gathers `value · rate · seconds` and gives the health it makes: each 4,096 one, the
+    /// remainder kept the low ten bits of what was gathered when it gives any (the original's
+    /// mask `0x3FF`, not `0xFFF`).
+    fn gather(&mut self, rate: f32, seconds: f32) -> u32 {
+        self.kept += self.value * rate * seconds;
+        let gathered = whole(self.kept);
+        if gathered < 4096 {
+            return 0;
+        }
+        self.kept = to_f32(gathered & 0x3FF);
+        gathered >> 12
+    }
+}
+
+/// The regeneration value of a creature of `base` at level `level` (`0x5796A0`): `2·a3`, its
+/// attribute 3 raised by its level.
+pub fn regeneration(base: &Base, level: u32) -> f32 {
+    let b3 = u32::from(base.attributes[3]);
+    to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10))
+}
+
+/// How near a hostile makes the hero regenerate at `RegEnemyNear` (`0x562730`).
+const ENEMY_NEAR: f32 = 1000.0;
+
+/// The hero's regeneration (`0x562730`): its value times its rate, `RegInFight` while it
+/// attacks, `RegEnemyNear` with a hostile within 1,000, else `RegNoEnemy`, times the frame's
+/// time in seconds (**hypothesis**), up to its most health; none while it dies. The creatures'
+/// comes with their skills (#293).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn regenerate(
+    time: Res<Time>,
+    rules: Res<Rules>,
+    nearest: Res<crate::crowd::Nearest>,
+    mut heroes: Query<
+        (&mut Health, &mut Regenerates, Has<crate::attack::Attack>),
+        (With<Body>, Without<Dies>),
+    >,
+) {
+    let [fighting, near, alone] = rules.regeneration;
+    for (mut health, mut regenerates, attacks) in &mut heroes {
+        let rate = if attacks {
+            fighting
+        } else if nearest.found && nearest.distance < ENEMY_NEAR {
+            near
+        } else {
+            alone
+        };
+        let gained = regenerates.gather(rate, time.delta_secs());
+        if gained > 0 && health.current < health.most {
+            health.current = (health.current + gained).min(health.most);
+        }
+    }
+}
+
 /// How long a damage's number shows, in seconds, how high over the target's feet it starts and
 /// how far it rises meanwhile, in world units, and its colour (**hypothesis**: the original's
 /// number is not read).
@@ -140,6 +233,7 @@ const NUMBER_SHOWS: f32 = 1.0;
 const NUMBER_ABOVE: f32 = 110.0;
 const NUMBER_RISES: f32 = 60.0;
 const NUMBER_COLOR: Color = Color::srgb(1.0, 0.85, 0.3);
+const HERO_HIT: Color = Color::srgb(1.0, 0.3, 0.25);
 const NUMBER_SIZE: f32 = 16.0;
 /// How wide a number's box is, in logical pixels, centred over the place.
 const NUMBER_WIDTH: f32 = 80.0;
@@ -150,6 +244,7 @@ struct Number {
     at: Vec3,
     left: f32,
     text: String,
+    color: Color,
     label: Option<Entity>,
 }
 
@@ -204,7 +299,7 @@ fn rise(
                             font_size: FontSize::Px(NUMBER_SIZE),
                             ..default()
                         },
-                        TextColor(NUMBER_COLOR),
+                        TextColor(number.color),
                         TextLayout::justify(Justify::Center),
                         DespawnOnExit(AppState::InGame),
                     ))
@@ -228,7 +323,8 @@ impl Plugin for FightPlugin {
                 OnEnter(AppState::InGame),
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
-            .add_systems(Update, (resolve, rise).chain());
+            .add_systems(Update, (resolve, rise).chain())
+            .add_systems(Update, regenerate.in_set(crate::frame::Unpaused));
     }
 }
 
@@ -246,7 +342,9 @@ pub struct Health {
 /// and resistance multipliers (`BalChar*D`, `BalChar*R`) and of the resistances
 /// (`BalanceRes*`), and the factors of all damages and resistances (`BalanceDmg`, `BalanceRes`);
 /// the experience's factor of bronze (`ProzExp`) and the levels' (`UnterExpAnteil`,
-/// `UnterExpVoll`, `ObereEXPVoll`).
+/// `UnterExpVoll`, `ObereEXPVoll`); bronze's factors of the strikes between the hero and the
+/// creatures (`ProzAW`, `ProzDmg`, `ProzRes`); and the hero's rates of regeneration fighting,
+/// with a hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`).
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
@@ -257,6 +355,8 @@ pub struct Rules {
     resistances: [f32; KINDS],
     balance: [f32; 2],
     experience: [f32; 4],
+    difficulty: [f32; 3],
+    regeneration: [f32; 3],
 }
 
 impl Default for Rules {
@@ -271,6 +371,8 @@ impl Default for Rules {
             resistances: [22.0, 17.0, 17.0, 25.0],
             balance: [1.0, 1.0],
             experience: [1.0, 0.85, 1.0, 1.1],
+            difficulty: [0.65, 0.9, 1.0],
+            regeneration: [36.0, 48.0, 128.0],
         }
     }
 }
@@ -325,6 +427,24 @@ impl Rules {
                 b.f32("UnterExpVoll").unwrap_or(1.0),
                 b.f32("ObereEXPVoll").unwrap_or(1.1),
             ],
+            difficulty: [
+                b.row_f32("ProzAW", BRONZE).unwrap_or(0.65),
+                b.row_f32("ProzDmg", BRONZE).unwrap_or(0.9),
+                b.row_f32("ProzRes", BRONZE).unwrap_or(1.0),
+            ],
+            regeneration: {
+                let mut rates = default.regeneration;
+                for (rate, name) in
+                    rates
+                        .iter_mut()
+                        .zip(["RegInFight", "RegEnemyNear", "RegNoEnemy"])
+                {
+                    if let Some(value) = b.i32(name).and_then(|v| i16::try_from(v).ok()) {
+                        *rate = f32::from(value);
+                    }
+                }
+                rates
+            },
         }
     }
 
@@ -490,6 +610,49 @@ pub fn combat(base: &Base, level: u32, armed: bool, rules: &Rules) -> Combat {
     }
 }
 
+/// The values of a strike between `attacker` and `defender` on bronze (`0x56B130`): a creature
+/// striking the hero has its attack times `ProzAW` and its damages times `ProzDmg`, and the
+/// exponent of the damage `k = −log₂(1 − p)`, `p` half of 1 plus a hundredth of each level it has
+/// above the hero's; the hero striking a creature meets its defence times `ProzAW` and its
+/// resistances times `ProzRes`; between creatures, as they are, `k` 1. `hero` tells which side
+/// is the hero's: the attacker's, the defender's or neither.
+pub fn weighed(
+    mut attacker: Combat,
+    mut defender: Combat,
+    hero: Option<Side>,
+    levels: (u32, u32),
+    rules: &Rules,
+) -> (Combat, Combat, f32) {
+    let [aw, dmg, res] = rules.difficulty;
+    let mut k = 1.0;
+    match hero {
+        Some(Side::Defender) => {
+            attacker.attack *= aw;
+            for ends in &mut attacker.damage {
+                *ends = ends.map(|end| end * dmg);
+            }
+            let above = to_f32(levels.0.saturating_sub(levels.1));
+            let p = (0.5 * (1.0 + above * 0.01)).min(0.99);
+            k = -(1.0 - p).log2();
+        }
+        Some(Side::Attacker) => {
+            defender.defence *= aw;
+            for value in &mut defender.resistance {
+                *value *= res;
+            }
+        }
+        None => {}
+    }
+    (attacker, defender, k)
+}
+
+/// A side of a strike.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Attacker,
+    Defender,
+}
+
 /// Each kind's damage of a strike (`0x568D70`): a whole number of steps between the kind's least
 /// and most, the steps hundredths while the physical most is below 100, tenths below 1,000, else
 /// units; 15 physical when every kind's is below 1.
@@ -512,9 +675,15 @@ fn roll_damage(damage: &[[f32; 2]; KINDS], rng: &mut Rng) -> [f32; KINDS] {
 
 /// The damage that a strike of `attacker` deals `defender`, its share `share` of a strike, or
 /// none when it misses (`0x56B130`): the chance `A/(A + D)` (`0x43EEE0`) against a roll of 0 to
-/// 1,000 over 1,000; each kind's damage rolled, then `d²/(d + r)` against the kind's
-/// resistance `r`, less the defender's damping of bronze; the sum times the share, whole.
-pub fn strike(attacker: &Combat, defender: &Combat, share: f32, rng: &mut Rng) -> Option<u32> {
+/// 1,000 over 1,000; each kind's damage `d` rolled, then `d·(1 − 1/(1 + d/r)^k)` against the
+/// kind's resistance `r`, `d²/(d + r)` for the exponent `k` of 1, less the defender's damping
+/// of bronze; the sum times the share, whole.
+pub fn strike(
+    attacker: &Combat,
+    defender: &Combat,
+    (share, k): (f32, f32),
+    rng: &mut Rng,
+) -> Option<u32> {
     let chance = if defender.defence > 0.0 {
         attacker.attack / (attacker.attack + defender.defence)
     } else {
@@ -528,7 +697,11 @@ pub fn strike(attacker: &Combat, defender: &Combat, share: f32, rng: &mut Rng) -
         .zip(defender.resistance)
         .zip(defender.damping)
         .map(|((&d, r), damping)| {
-            let dealt = if d + r > 0.0 { d * d / (d + r) } else { 0.0 };
+            let dealt = match (d > 0.0, r > 0.0) {
+                (false, _) => 0.0,
+                (true, false) => d,
+                (true, true) => d * (1.0 - 1.0 / (1.0 + d / r).powf(k)),
+            };
             dealt * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
@@ -559,14 +732,28 @@ pub fn level(values: &SpawnValues, jitter: Option<&mut Rng>) -> u32 {
 /// times the level's factor of a creature not a hero and the difficulty's (`rules`). No items,
 /// skills, bosses or champions yet (docs/decisions/2026-10-20-health.md).
 pub fn most_health(base: [u8; 6], level: u32, rules: &Rules) -> u32 {
+    let level_f32 = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
+    health_of(
+        base,
+        level,
+        f64::from(rules.level_factor(level_f32) * rules.factor),
+    )
+}
+
+/// The most health of a hero of `Creature.pak`'s base bytes `base` and level `level`
+/// (`0x5658F0`): as a creature's, without the factors of a creature not a hero.
+pub fn hero_health(base: [u8; 6], level: u32) -> u32 {
+    health_of(base, level, 1.0)
+}
+
+/// The most health of `base` at `level`, times `factor` (`0x5658F0`).
+fn health_of(base: [u8; 6], level: u32, factor: f64) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
     let l = f64::from(level.max(1) - 1);
     let s = a + b + (l * a / 10.0).floor() + (l * b / 10.0).floor();
     let g = 1.5 + 0.004 * (60.0 - a - b).max(0.0);
     let most = ((a + f64::from(base[2])) * s.powf(g - 1.0) * 10.0 / 31.0).floor();
     let most = if most <= 0.0 { 100.0 } else { most };
-    let level = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
-    let factor = f64::from(rules.level_factor(level) * rules.factor);
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -667,7 +854,7 @@ mod tests {
         );
         let mut rng = Rng::of(50, 39, 0);
         let hits = (0..10_000)
-            .filter(|_| strike(&goblin, &wolf, 1.0, &mut rng).is_some())
+            .filter(|_| strike(&goblin, &wolf, (1.0, 1.0), &mut rng).is_some())
             .count();
         // A/(A + D) = 18.5/34.5 = 0.536.
         assert!((5_100..5_650).contains(&hits), "{hits}");
@@ -676,7 +863,7 @@ mod tests {
             defence: 0.0,
             ..wolf
         };
-        assert!((0..100).all(|_| strike(&wolf, &open, 1.0, &mut rng).is_some()));
+        assert!((0..100).all(|_| strike(&wolf, &open, (1.0, 1.0), &mut rng).is_some()));
     }
 
     #[test]
@@ -694,19 +881,19 @@ mod tests {
             ..attacker
         };
         // 10²/(10 + 10) = 5; with a damping of 40 per cent, 3; half a strike, 2.
-        assert_eq!(strike(&attacker, &defender, 1.0, &mut rng), Some(5));
+        assert_eq!(strike(&attacker, &defender, (1.0, 1.0), &mut rng), Some(5));
         let damped = Combat {
             damping: [40, 0, 0, 0],
             ..defender
         };
-        assert_eq!(strike(&attacker, &damped, 1.0, &mut rng), Some(3));
-        assert_eq!(strike(&attacker, &defender, 0.5, &mut rng), Some(2));
+        assert_eq!(strike(&attacker, &damped, (1.0, 1.0), &mut rng), Some(3));
+        assert_eq!(strike(&attacker, &defender, (0.5, 1.0), &mut rng), Some(2));
         // Every kind below 1: 15 physical.
         let weak = Combat {
             damage: [[0.5, 0.9], [0.0; 2], [0.0; 2], [0.0; 2]],
             ..attacker
         };
-        assert_eq!(strike(&weak, &attacker, 1.0, &mut rng), Some(15));
+        assert_eq!(strike(&weak, &attacker, (1.0, 1.0), &mut rng), Some(15));
     }
 
     #[test]
@@ -725,6 +912,79 @@ mod tests {
             let d = roll_damage(&large, &mut rng)[0] * 10.0;
             (d - d.round()).abs() < 1e-3
         }));
+    }
+
+    #[test]
+    fn the_hero_and_the_creatures_strike_each_other_by_bronzes_factors() {
+        let rules = Rules::default();
+        let (wolf, goblin) = (
+            combat(&a_wolf(), 1, false, &rules),
+            combat(&a_goblin(), 1, false, &rules),
+        );
+        // A creature striking the hero: its attack times 0.65, its damage times 0.9.
+        let (a, d, k) = weighed(wolf, goblin, Some(Side::Defender), (1, 1), &rules);
+        assert!(near(a.attack, 13.0 * 0.65) && near(a.damage[0][1], 4.43 * 0.9));
+        assert_eq!(d, goblin);
+        assert!((k - 1.0).abs() < 1e-6);
+        // Ten levels above the hero's: `p` 0.55, `k = −log₂ 0.45`.
+        let (.., k) = weighed(wolf, goblin, Some(Side::Defender), (11, 1), &rules);
+        assert!((k - -(0.45_f32).log2()).abs() < 1e-5);
+        // The hero striking a creature: its defence times 0.65.
+        let (a, d, k) = weighed(goblin, wolf, Some(Side::Attacker), (1, 11), &rules);
+        assert_eq!(a, goblin);
+        assert!(near(d.defence, 16.0 * 0.65) && near(d.resistance[0], 4.48));
+        assert!((k - 1.0).abs() < 1e-6);
+        // Between creatures, as they are.
+        assert_eq!(
+            weighed(wolf, goblin, None, (9, 1), &rules),
+            (wolf, goblin, 1.0)
+        );
+    }
+
+    #[test]
+    fn a_larger_exponent_takes_more_of_the_damage_through_the_resistance() {
+        let mut rng = Rng::of(50, 39, 0);
+        let attacker = Combat {
+            attack: 10.0,
+            defence: 0.0,
+            damage: [[10.0, 10.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+        };
+        let defender = Combat {
+            resistance: [10.0, 0.0, 0.0, 0.0],
+            ..attacker
+        };
+        // `10·(1 − 1/2²)` = 7.5 for `k` 2.
+        assert_eq!(strike(&attacker, &defender, (1.0, 2.0), &mut rng), Some(7));
+    }
+
+    #[test]
+    fn the_heros_health_has_no_factor_of_a_creature() {
+        let rules = Rules {
+            factor: 2.0,
+            ..Rules::default()
+        };
+        let base = [22, 19, 25, 22, 22, 17];
+        assert_eq!(most_health(base, 1, &rules), 2 * hero_health(base, 1));
+        assert_eq!(hero_health(base, 1), health_of(base, 1, 1.0));
+    }
+
+    #[test]
+    fn regeneration_gives_one_health_for_each_4096_gathered() {
+        // `2·a3`: a base of 22 at level 1, 44; at level 11, 2·(22 + 22) = 88.
+        let base = Base {
+            attributes: [0, 0, 0, 22, 0, 0],
+            ..Base::default()
+        };
+        assert!((regeneration(&base, 1) - 44.0).abs() < 1e-6);
+        assert!((regeneration(&base, 11) - 88.0).abs() < 1e-6);
+        let mut regenerates = Regenerates::new(44.0);
+        // 44 · 128 a second: 5,632 after one, a health and 5,632 − 4,096 = 1,536 kept as its
+        // low ten bits, 512.
+        assert_eq!(regenerates.gather(128.0, 0.5), 0);
+        assert_eq!(regenerates.gather(128.0, 0.5), 1);
+        assert!((regenerates.kept - 512.0).abs() < 1e-3);
     }
 
     #[test]

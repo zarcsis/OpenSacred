@@ -11,6 +11,7 @@ use bevy::prelude::*;
 
 use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
+use crate::npcs::Dies;
 use crate::terrain::{Heights, Level};
 use crate::{iso, models, paths, shadows};
 
@@ -80,6 +81,10 @@ pub struct Hero {
     pub attacks: Vec<(String, [f32; 2])>,
     /// Its attack, defence, damage and resistances, by its type's record (`fight::combat`).
     pub combat: Option<crate::fight::Combat>,
+    /// Its health, full, and its regeneration, by its type's record (`fight::hero_health`).
+    pub vitals: Option<(crate::fight::Health, crate::fight::Regenerates)>,
+    /// The model's dying clips, the slots 173 and 174 (`npcs`).
+    pub dying: Vec<String>,
     pub position: Vec3,
     /// Where to go first, if anywhere.
     pub target: Option<Vec3>,
@@ -99,6 +104,8 @@ impl Hero {
             stance: None,
             attacks: Vec::new(),
             combat: None,
+            vitals: None,
+            dying: Vec::new(),
             position,
             target: None,
             gait: Gait::Run,
@@ -197,6 +204,8 @@ pub struct Clips {
     moving: [(Handle<AnimationClip>, AnimationNodeIndex); 2],
     /// The attack clips' nodes, the clips and the fractions at which they hit.
     pub attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
+    /// The dying clips' nodes.
+    dying: Vec<AnimationNodeIndex>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -258,10 +267,13 @@ pub fn spawn(
             .iter()
             .filter_map(|(name, fractions)| Some((clip(name)?, *fractions)))
             .collect();
+        let dying: Vec<_> = hero.dying.iter().filter_map(|name| clip(name)).collect();
         let mut clips = vec![idle, walk.clone(), run.clone()];
         let stances = usize::from(stance.is_some());
         clips.extend(stance);
         clips.extend(attacks.iter().map(|(clip, _)| clip.clone()));
+        let strikes = attacks.len();
+        clips.extend(dying);
         let (graph, nodes) = AnimationGraph::from_clips(clips);
         commands.insert_resource(Clips {
             graph: graphs.add(graph),
@@ -273,6 +285,7 @@ pub fn spawn(
                 .zip(&nodes[3 + stances..])
                 .map(|((clip, fractions), &node)| (node, clip, fractions))
                 .collect(),
+            dying: nodes[3 + stances + strikes..].to_vec(),
             player: None,
         });
     }
@@ -296,6 +309,9 @@ pub fn spawn(
     ));
     if let Some(combat) = hero.combat {
         body.insert(combat);
+    }
+    if let Some(vitals) = hero.vitals {
+        body.insert(vitals);
     }
 }
 
@@ -362,7 +378,7 @@ pub fn steer(
     heights: Res<Heights>,
     buildings: Res<crate::buildings::Buildings>,
     aim: Res<crate::attack::Aim>,
-    mut bodies: Query<(&Transform, &mut Body)>,
+    mut bodies: Query<(&Transform, &mut Body), Without<Dies>>,
 ) {
     // A press that went to an attack does not steer (`attack::aim`).
     if !buttons.pressed(MouseButton::Left) || aim.0 {
@@ -391,7 +407,8 @@ pub fn steer(
 /// the idle, the walk and the run clips.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources one by one"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources one by one, its queries with their filters"
 )]
 pub fn run(
     time: Res<Time>,
@@ -405,11 +422,12 @@ pub fn run(
         &mut Transform,
         &mut Body,
         Has<crate::attack::Striking>,
+        Has<Dies>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body, striking) in &mut bodies {
+    for (me, mut transform, mut body, striking, dying) in &mut bodies {
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
@@ -505,11 +523,11 @@ pub fn run(
             }
         }
         // The state changes only with the clip: before the model's player exists, the next
-        // frame tries again. A strike plays its own clip (`attack`).
+        // frame tries again. A strike plays its own clip (`attack`), and a fall its own ([`fall`]).
         let Some(clips) = clips.as_ref() else {
             continue;
         };
-        if striking {
+        if striking || dying {
             body.moving = None;
             continue;
         }
@@ -530,6 +548,79 @@ pub fn run(
             .repeat()
             .set_speed(speed.0);
         body.moving = moving;
+    }
+}
+
+/// How long the hero lies dead before it rises again, in seconds.
+const LIES: f32 = 5.0;
+
+/// How long the fallen hero has lain.
+#[derive(Component)]
+pub struct Fallen(f32);
+
+/// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
+/// its dying clips once and lies there; after five seconds it rises at the game's start with its
+/// health full (docs/decisions/2026-10-20-hero-health.md: the original's resurrection is not
+/// read).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+pub fn fall(
+    mut commands: Commands,
+    time: Res<Time>,
+    hero: Res<Hero>,
+    clips: Option<Res<Clips>>,
+    speed: Res<GameSpeed>,
+    mut bodies: Query<(
+        Entity,
+        &mut Transform,
+        &mut Body,
+        &Dies,
+        Option<&mut Fallen>,
+        Option<&mut crate::fight::Health>,
+    )>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+) {
+    let Some(clips) = clips else {
+        return;
+    };
+    for (entity, mut transform, mut body, dies, fallen, health) in &mut bodies {
+        let player = clips.player.and_then(|player| players.get_mut(player).ok());
+        let Some(mut fallen) = fallen else {
+            body.stop();
+            commands
+                .entity(entity)
+                .remove::<(crate::attack::Attack, crate::attack::Striking)>()
+                .insert(Fallen(0.0));
+            let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
+            if let (Some((mut player, mut transitions)), Some(&node)) =
+                (player, clips.dying.get(index))
+            {
+                transitions
+                    .play(&mut player, node, BLEND)
+                    .set_speed(speed.0);
+            }
+            info!("hero: the hero falls");
+            continue;
+        };
+        fallen.0 += time.delta_secs();
+        if fallen.0 < LIES {
+            continue;
+        }
+        body.teleport(&mut transform, hero.position);
+        if let Some(mut health) = health {
+            health.current = health.most;
+        }
+        commands.entity(entity).remove::<(Dies, Fallen)>();
+        if let Some((mut player, mut transitions)) = player {
+            transitions
+                .play(&mut player, clips.idle, BLEND)
+                .repeat()
+                .set_speed(speed.0);
+        }
+        body.moving = None;
+        info!("hero: the hero rises again");
     }
 }
 
@@ -567,7 +658,7 @@ impl Plugin for HeroPlugin {
             .add_systems(Update, (spawn, animate).chain().in_set(Step::HeroSpawn))
             .add_systems(
                 Update,
-                ((toggle, steer).in_set(Unpaused).in_set(Control), run)
+                ((toggle, steer).in_set(Unpaused).in_set(Control), run, fall)
                     .chain()
                     .in_set(Step::HeroMove),
             )
@@ -613,6 +704,7 @@ mod tests {
             stance,
             moving: [(Handle::default(), node(2)), (Handle::default(), node(3))],
             attacks: Vec::new(),
+            dying: Vec::new(),
             player: None,
         };
         let with = clips(Some(node(4)));

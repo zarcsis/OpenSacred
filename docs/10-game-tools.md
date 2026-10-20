@@ -95,7 +95,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the clock and its phase, the zoom;
   * the sectors spawned and being built, the NPCs and objects placed, the entities;
   * the health of the creature nearest the hero, its most and its level (#278);
-  * the hero's experience (#283);
+  * the hero's health and its most (#292) and its experience (#283);
   * the version, the GPU adapter and backend, the window's size and mode.
 
   Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
