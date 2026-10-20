@@ -157,6 +157,13 @@ const GIVES_UP: f32 = 2_000.0;
 const REACH: f32 = 130.0;
 const BAND: f32 = 15.0;
 const RUNS_IN: u32 = 7;
+/// How near the hero a wounded creature flees, how far, and in how many frames of one it does
+/// (`0x4E0300`); how far from home a creature at full health in the band goes back (the leash,
+/// 2,500 or 5,000; **hypothesis**: the nearer).
+const FLEES_WITHIN: f32 = 199.0;
+const FLEES_FOR: f32 = 700.0;
+const FLEES_ONE_IN: u32 = 8;
+const LEASH: f32 = 2_500.0;
 const FEAR_RED: Color = Color::srgb(1.0, 0.19, 0.19);
 
 /// Whether the hero is the Daemon, its type 9, before whom the townsfolk are in danger and the
@@ -233,8 +240,10 @@ pub struct Mind {
     door: Option<Entity>,
     /// Its level (`+0x3FE`, `fight::level`).
     pub level: u32,
-    /// Whether it fights the hero (the AI's state 4, `0x4E0300`).
+    /// Whether it fights the hero (the AI's state 4, `0x4E0300`), and whether it has fled in
+    /// this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
+    fled: bool,
     awake: bool,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     active: bool,
@@ -282,6 +291,7 @@ impl Mind {
             door: None,
             level: 1,
             fighting: false,
+            fled: false,
             active: false,
             awake: hostile && created,
             clock: 0.0,
@@ -537,9 +547,29 @@ impl Default for FightRules {
     }
 }
 
+/// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health` or less,
+/// within 199 of the hero, not of the classes 1 and 5, not fled yet in this fight, while the hero
+/// does not strike, in one case of eight a frame (`roll` of 0 to 7).
+fn flees(
+    health: &crate::fight::Health,
+    distance: f32,
+    mind: &Mind,
+    hero_strikes: bool,
+    roll: u32,
+) -> bool {
+    health.current * 3 <= health.most
+        && distance <= FLEES_WITHIN
+        && !matches!(mind.class, 1 | 5)
+        && !mind.fled
+        && !hero_strikes
+        && roll == 0
+}
+
 /// Each creature that fights the hero keeps the band of its reach (`0x4E0300`): farther, it comes
 /// on, at a run in 7 cases of 11, after the hero as it moves; nearer, it steps back; in the band it
 /// stands, turned to the hero, where it will strike (#280); farther than 2,000 it gives up.
+/// Wounded to a third, near the hero, it flees 700 from it at a run, once a fight ([`flees`]);
+/// in the band at full health, farther than 2,500 from home, it goes home and leaves the fight.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -547,7 +577,10 @@ impl Default for FightRules {
 fn pursue(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
-    hero: Query<(Entity, &Transform), (With<Body>, Without<crate::npcs::Dies>)>,
+    hero: Query<
+        (Entity, &Transform, Has<crate::attack::Striking>),
+        (With<Body>, Without<crate::npcs::Dies>),
+    >,
     mut creatures: Query<
         (
             Entity,
@@ -556,16 +589,17 @@ fn pursue(
             &mut Mind,
             Option<&Walk>,
             Has<Strikes>,
+            Option<&crate::fight::Health>,
         ),
         Without<Body>,
     >,
 ) {
-    let Some((the_hero, hero)) = hero.iter().next() else {
+    let Some((the_hero, hero, hero_strikes)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
     let (lo, hi) = (REACH - BAND, REACH + BAND);
-    for (entity, mut transform, way, mut mind, walk, striking) in &mut creatures {
+    for (entity, mut transform, way, mut mind, walk, striking, health) in &mut creatures {
         if !mind.fighting {
             continue;
         }
@@ -574,6 +608,20 @@ fn pursue(
         if d > GIVES_UP {
             debug!("ai: {entity} {:?} at {d:.0}", Why::GivesUp);
             mind.fighting = false;
+            mind.fled = false;
+            continue;
+        }
+        let roll = minds.rng.below(FLEES_ONE_IN);
+        if let Some(health) = health
+            && !striking
+            && flees(health, d, &mind, hero_strikes, roll)
+        {
+            let away = (here - hero).with_y(0.0).normalize_or_zero();
+            debug!("ai: {entity} {:?} the hero", Why::Flees);
+            mind.fled = true;
+            commands
+                .entity(entity)
+                .insert(Walk::run(here + away * FLEES_FOR, way.level, mind.run));
             continue;
         }
         match walk {
@@ -597,6 +645,18 @@ fn pursue(
                 commands
                     .entity(entity)
                     .insert(Walk::to(target, way.level, mind.speed));
+            }
+            // In the band at full health and far from home, it goes home (the leash).
+            None if health.is_some_and(|h| h.current >= h.most)
+                && (here - mind.home).xz().length() > LEASH =>
+            {
+                debug!("ai: {entity} {:?} from the fight", Why::GoesBack);
+                mind.fighting = false;
+                mind.fled = false;
+                let home = mind.home;
+                commands
+                    .entity(entity)
+                    .insert(Walk::to(home, way.level, mind.speed));
             }
             // In the band, turned to the hero, it strikes, and decides again when the strike
             // ends (`0x4E2147`).
@@ -1596,6 +1656,30 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_creature_wounded_to_a_third_flees_once_near_a_hero_that_does_not_strike() {
+        let goblin = Mind::new(Vec3::ZERO, 0x1, (true, false), None, SPEEDS, (76, 2));
+        let health = |current| crate::fight::Health {
+            current,
+            most: 72,
+            level: 1,
+        };
+        assert!(flees(&health(24), 150.0, &goblin, false, 0));
+        // More than a third left, too far, the hero striking, or not this frame: it stays.
+        assert!(!flees(&health(25), 150.0, &goblin, false, 0));
+        assert!(!flees(&health(24), 200.0, &goblin, false, 0));
+        assert!(!flees(&health(24), 150.0, &goblin, true, 0));
+        assert!(!flees(&health(24), 150.0, &goblin, false, 3));
+        // Once a fight, and never a creature of the classes 1 and 5.
+        let fled = Mind {
+            fled: true,
+            ..goblin.clone()
+        };
+        assert!(!flees(&health(10), 150.0, &fled, false, 0));
+        let hero_like = Mind::new(Vec3::ZERO, 0x1, (true, false), None, SPEEDS, (7, 1));
+        assert!(!flees(&health(10), 150.0, &hero_like, false, 0));
+    }
 
     #[test]
     fn a_hostile_creature_of_a_script_wakes_as_it_is_made_and_looks_every_2_5_s() {
