@@ -76,13 +76,33 @@ The object manager links an object into the chain of its cell as it places it (`
 
 - the cell's own test, `0x4EBCA0`;
 - then each object of the cell's chain: an object that is not a creature (the category of its type, `items.pak +0x2E`, other than 2, 3 and `0x20`) stops the step when its category is 4, a `cChest3D` (the chests, the barrels, the vases, the coffins, the cabinets, the book stands and the shrines), and the creature's id (`+0x0C`) is above 16;
-- another creature stops it under conditions of the two creatures' flags and states (`+0x1F4`, `+0x245`, `+0x2B7`, a list at `+0x39C`) that are not read yet;
-- with bit 2 of the global `0x182EE3C` set, a creature of id 16 or below may step anywhere (**hypothesis**: a debug switch).
+- another creature (a `cCreature`) stops it under the conditions below;
+- with bit 2 of the global `0x182EE3C` set, a creature of id 16 or below may step anywhere (**hypothesis**: a debug switch; nothing found sets it).
 
 `0x5941A0`, the creatures' update, tests the cells of a straight line to where the creature heads with the same test (`0x4F7DD0`, at `0x5961F5`), and the way's search tests every cell with it, so a creature goes round a chest, and stops at one that stands in its way.
 
-The maintainer checked in the game (2026-10-19): the hero does not pass through a chest or a barrel, and sent to a point beyond one, it goes round it.
-So the hero's id is above 16 (**hypothesis**: the ids up to 16 are the network game's players', and the single player's hero is not one of them; `0x54ACC0` holds a creature of id 16 or below to the equipment slots of its class, and the update of the hostile creatures about the hero, `0x547070`, treats such a creature apart).
+**The hero's id is 1** (read 2026-10-20, #157): a new single-player game (`0x70D6E0`) and a loaded one (`0x71CC90`) store 1 as the local player's id (`+0x14` of the context that `0x7D84A0` gives), and the object manager hands out no id below 17 to other objects (`0x600AA0` keeps the slots 0 to 16 apart); the ids 1 to 16 are the players'.
+So `0x4F7E10` does not stop the hero at a chest; yet the maintainer saw in the game (2026-10-19) that the hero does not pass through a chest or a barrel, and goes round one to a point beyond it.
+Something else keeps the hero off the chests' cells, not read (#211).
+
+**The creatures in the way** (read 2026-10-20, #157).
+A creature in the cell stops the step when all of these hold:
+
+- it is not the stepping creature, nor the one the stepper heads for (the stepper's `+0x259`, **hypothesis**: its goal, which the movement and the AI set), and the stepper's `+0x259` is not the stepper itself;
+- the cell is not the stepper's own;
+- the stepper does not pass through creatures (its `+0x1F4` bit `0x200000`, which the creature's constructor `0x52DE40` sets for the hornets and the movement sets and clears on the way) and is not mounted (**hypothesis** for its `+0x2B7` bit `0x10`, which the two dismounts, `0x551E40` and `0x552050`, clear on the horse and the rider);
+- the creature is alive (`0x549080`: its action `+0xFC` is not 9, its `+0x150` not 6, its health `+0x4D8` not 0; `+0x4D4` the maximum) and is not big (its `Creature.pak` record's flags byte, `+6`, lacks bit `0x02`, `0x426CB0`: the ogres, the minotaurs, the trolls, the dragons, the big demons, the giant spiders, about 60 types);
+- the creature is not one of the stepper's followers (the list at `+0x39C`, records of 9 bytes from the creature's id, which `sdk_HIRE`, `0x54CF70`, fills through `0x54B200` for the hired, the summoned and the saved party, and `sdk_PARTY_REMOVE`, `0x551300`, empties), unless that follower is hostile to it (`0x548F60`), of class 7 (the soldiers, `0x43ADC0`: the record's `+4`) or of the guards' mode (`+0x1F4` bit `0x4000`);
+- the creature never stops others unless its `+0x1F4` lacks bit `0x1000000`, which the constructor sets for the critters (small spiders, crows, bats, rabbits, chickens: some types by id, and every type whose record's flags have `0x20`);
+- and the stepper's id is above 16, or the creature's `+0x1F4` has bit 0 or 1, or the stepper's `+0x245` is above 0 (the index of the dialog it is in, which `sdk_STAMP_IDX`, `0x5498F0`, sets as a dialog starts and `CreateNPC` clears).
+
+So for the hero, of id 1, a creature in the way stops it only when its `+0x1F4` has bit 0 or 1.
+`CreateNPC` (`0x482510`) writes that word from the record's tags (at `0x4839F6`): one mode in its low 16 bits, the last of the tags `0x12` (1), `0x13` (2), `0x14` (0), `0x2B` (8), `0x2E` (`0x10`), `0x30` (`0x20`), `0x2F` and `0x31` (`0x40`), `0x32` (`0x80`), `0x42` (`0x400`), `0x43` (`0x800`), `0x44` (`0x1000`), `0x46` (`0x4000`), `0x4C` (`0x8000`), and bits above it from others; the tags `0x08` and `0x0E` set a creature hostile or not.
+In the Seraphim's start script, the monsters have bit 0 (2,411 records with `08 12`), the guards the mode `0x4000` (`0E 46`), the citizens 0, 8, `0x400` or `0x800`, and of the start's people only the captain `hauptmann3` has bit 1 (`0E 46 13`); the add-on's trees give bit 1 to dormant hostile groups (`08 14 13`).
+The creatures that the game makes otherwise (`0x480D40`, the spawners `0x4A02A0`, `0x4E4CF0`, `0x5B2600`, `0x53ECA0`) get bit 0 when hostile to the heroes, and `sdk_HIRE` clears bits 0 and 1 of a creature a hero hires.
+So the hero passes through the soldiers and the citizens of the start, as the maintainer saw (2026-10-19), and the monsters, the captain and the hostile spawns stop it (**confirmed** by code; not checked in the game).
+Every other creature, of an id above 16, is stopped by every live creature that passes the conditions above, the hero among them: the NPCs stop at the hero and at one another, and go round them (**confirmed** by code; not checked in the game).
+`0x54A6D0`, which skips the walk of the cell's objects altogether, holds for a creature in a visual state 1 to 3 (`+0x60`, **hypothesis**: fading or invisible) and for the Dark Elf in some states of its own, not in an ordinary walk.
 
 ## The height
 
@@ -131,8 +151,8 @@ A hero on a building's mass on the ground is put on its building's floor 1 where
 A hero that steps onto a stair from off the stairs goes to the stair's floor at the cell its offsets give (`terrain::Heights::climb`, `hero::run`), and the way's search knows the stairs as the client's flag `0x100` makes them: a place of the way carries whether the step onto it climbs (`terrain::Footing`).
 The buildings' states follow the hero's floor, `1 << n` (`buildings`); the teleports (3) are not followed, there being none in the files.
 The hero and the NPCs stand at the height that `0x636520` and `0x449950` give (`terrain::Heights::standing`, #141): on the second heights of their level's cell, a bridge's deck over the water, and on a building's floor at the floor's height above them.
-The start scripts' objects of category 4 take their cells at their levels (`terrain::Heights::occupy`, placed by `npcs::place`, #154), as `0x4F7E10` has a chest stop a creature of id above 16: the way of the hero and of a walking NPC goes round them, and a step into one stops, as into a cell that may not be walked on.
-The creatures do not stop one another yet: the conditions under which `0x4F7E10` has a creature stop a step are not read (#157).
+The start scripts' objects of category 4 take their cells at their levels (`terrain::Heights::occupy`, placed by `npcs::place`, #154): the way of the hero and of a walking NPC goes round them, and a step into one stops, as into a cell that may not be walked on; for a walking NPC as `0x4F7E10` has a chest stop a creature of id above 16, for the hero as the maintainer saw it in the game, by a test not read (#211).
+The creatures do not stop one another yet (#212).
 The deviations are in docs/decisions/2026-10-18-walking.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.
