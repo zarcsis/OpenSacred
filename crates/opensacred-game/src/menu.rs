@@ -390,7 +390,12 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(Screen::Main), main_screen)
             .add_systems(OnEnter(Screen::Heroes), heroes_screen)
             .add_systems(OnEnter(Play::Paused), pause_screen)
-            .add_systems(Update, (keys, light).chain().run_if(shown));
+            .add_systems(
+                Update,
+                (keys.in_set(crate::frame::Control), light)
+                    .chain()
+                    .run_if(shown),
+            );
     }
 }
 

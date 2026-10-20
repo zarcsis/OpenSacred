@@ -7,6 +7,7 @@ mod benchmark;
 mod blended;
 mod buildings;
 mod command;
+mod console;
 mod daynight;
 mod frame;
 mod game;
@@ -198,6 +199,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         blended::BlendedPlugin,
         buildings::BuildingsPlugin,
         command::CommandPlugin,
+        console::ConsolePlugin,
         daynight::DayNightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
@@ -206,9 +208,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         journal::JournalPlugin,
         liquids::LiquidsPlugin,
         menu::MenuPlugin,
-        models::ModelsPlugin,
     ))
     .add_plugins((
+        models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         overlay::OverlayPlugin,
@@ -223,6 +225,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         terrain::GroundPlugin,
     ))
+    .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
     .insert_resource(game::Data(Arc::new(shared)))
@@ -240,7 +243,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(
         Update,
-        iso::zoom.in_set(frame::Step::Zoom).in_set(frame::Unpaused),
+        iso::zoom
+            .in_set(frame::Step::Zoom)
+            .in_set(frame::Unpaused)
+            .in_set(frame::Control),
     );
     if let Some(shadows) = shadows {
         app.insert_resource(statics::ShadowAtlas(shadows));

@@ -136,7 +136,7 @@ pub struct NewGame {
     /// Seraphim by default)
     #[arg(long, value_enum)]
     pub class: Option<Class>,
-    /// The sector to start in, as X,Y on the 100 × 100 grid, at its centre; by default the
+    /// The sector to start in, as X,Y on the 100 x 100 grid, at its centre; by default the
     /// hero's start in its start script
     #[arg(long, value_parser = parse_position)]
     pub sector: Option<(u32, u32)>,

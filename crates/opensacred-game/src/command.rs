@@ -13,9 +13,10 @@ use std::time::Duration;
 
 use bevy::prelude::*;
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 use crate::benchmark::Benchmark;
+use crate::console::Console;
 use crate::daynight::{self, Clock};
 use crate::game::{AppState, Data, NewGame, Request};
 use crate::hero::{Body, Gait, Hero, Ready};
@@ -43,7 +44,7 @@ enum Command {
     Menu,
     /// End the process
     Quit,
-    /// Put the hero at the centre of sector X,Y of the 100 × 100 grid
+    /// Put the hero at the centre of sector X,Y of the 100 x 100 grid
     Sector {
         #[arg(value_parser = parse_position)]
         at: (u32, u32),
@@ -78,7 +79,7 @@ enum Command {
     Record { dir: PathBuf, frames: u32 },
     /// Measure the frame rate for SECONDS, print it and go on
     Benchmark { seconds: f32 },
-    /// Borderless full screen, or a window of WIDTH × HEIGHT; kept in the settings
+    /// Borderless full screen, or a window of WIDTH x HEIGHT; kept in the settings
     Window {
         mode: Mode,
         width: Option<u32>,
@@ -88,6 +89,8 @@ enum Command {
     Overlay { on: Option<Switch> },
     /// Show or hide the log's panel (F4); kept in the settings
     Log { on: Option<Switch> },
+    /// Open or close the console (the key under Esc)
+    Console { on: Option<Switch> },
     /// The state of the process, the game, the hero, the clock and the frames
     State,
     /// In a script: wait before the next command
@@ -387,6 +390,16 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         }
         Command::Overlay { on } => panel(world, on, "debug.overlay", false),
         Command::Log { on } => panel(world, on, "debug.log", true),
+        Command::Console { on } => {
+            let mut console = world.get_resource_mut::<Console>().ok_or("no console")?;
+            let open = match on {
+                Some(Switch::On) => true,
+                Some(Switch::Off) => false,
+                None => !console.is_open(),
+            };
+            console.set_open(open);
+            Ok(Outcome::say(if open { "open" } else { "closed" }))
+        }
         Command::State => {
             let snapshot = world
                 .run_system_cached(|probe: Probe| probe.snapshot())
@@ -415,6 +428,69 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             )))
         }
     }
+}
+
+/// What the last word of `input` may become: the commands' names for the first word, then the
+/// command's `--options`, or the values its arguments take (the classes, on and off, …).
+pub fn complete(input: &str) -> Vec<String> {
+    let line = Line::command();
+    let words: Vec<&str> = input.split_whitespace().collect();
+    let last = if input.ends_with(char::is_whitespace) {
+        ""
+    } else {
+        words.last().copied().unwrap_or_default()
+    };
+    let mut found: Vec<String> = if words.len() <= 1 && !input.ends_with(char::is_whitespace) {
+        line.get_subcommands()
+            .map(|command| command.get_name().to_owned())
+            .filter(|name| name.starts_with(last))
+            .collect()
+    } else {
+        let Some(command) = words.first().and_then(|name| line.find_subcommand(name)) else {
+            return Vec::new();
+        };
+        if last.starts_with('-') {
+            command
+                .get_arguments()
+                .filter_map(|arg| arg.get_long())
+                .map(|long| format!("--{long}"))
+                .filter(|long| long.starts_with(last))
+                .collect()
+        } else {
+            let wanted = words
+                .iter()
+                .rev()
+                .nth(usize::from(!last.is_empty()))
+                .copied()
+                .unwrap_or_default();
+            // The values of the option before the word, or of any argument of the command.
+            let values = |arg: &clap::Arg| -> Vec<String> {
+                arg.get_possible_values()
+                    .iter()
+                    .map(|value| value.get_name().to_owned())
+                    .collect()
+            };
+            let option = wanted.strip_prefix("--").and_then(|long| {
+                command
+                    .get_arguments()
+                    .find(|arg| arg.get_long() == Some(long))
+            });
+            match option {
+                Some(arg) => values(arg),
+                None => command
+                    .get_arguments()
+                    .filter(|arg| arg.is_positional())
+                    .flat_map(values)
+                    .collect(),
+            }
+            .into_iter()
+            .filter(|value| value.starts_with(last))
+            .collect()
+        }
+    };
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// The commands of a script's text: a line each, without comments and blank lines.
@@ -602,6 +678,19 @@ mod tests {
         ));
         assert!(parse("time 25:00").is_err());
         assert!(parse("teleport 1,2").is_err());
+    }
+
+    #[test]
+    fn tab_completes_the_commands_their_options_and_values() {
+        assert_eq!(complete("ze"), Vec::<String>::new());
+        assert_eq!(complete("zo"), ["zoom"]);
+        assert_eq!(complete("s"), ["screenshot", "sector", "state"]);
+        assert_eq!(complete("gait "), ["run", "walk"]);
+        assert_eq!(complete("music o"), ["off", "on"]);
+        assert_eq!(complete("new-game --cl"), ["--class"]);
+        assert_eq!(complete("new-game --class wo"), ["wood-elf"]);
+        assert_eq!(complete("window b"), ["borderless"]);
+        assert!(complete("nothing ").is_empty());
     }
 
     #[test]

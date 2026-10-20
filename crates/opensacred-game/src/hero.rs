@@ -9,7 +9,7 @@ use std::time::Duration;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 
-use crate::frame::{Step, Unpaused};
+use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
 use crate::terrain::{Heights, Level};
 use crate::{iso, models, paths, shadows};
@@ -462,7 +462,7 @@ impl Plugin for HeroPlugin {
             .add_systems(Update, (spawn, animate).chain().in_set(Step::HeroSpawn))
             .add_systems(
                 Update,
-                ((toggle, steer).in_set(Unpaused), run)
+                ((toggle, steer).in_set(Unpaused).in_set(Control), run)
                     .chain()
                     .in_set(Step::HeroMove),
             )

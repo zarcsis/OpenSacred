@@ -143,6 +143,11 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 * The top half of the screen: one scrolling view of the log and the commands' output, and a line of input (Bevy 0.20's `TextInput`, so no `bevy_egui`).
 * Enter runs the line; Up and Down walk the history, kept between runs; Tab completes the commands' names and the options' values; Ctrl+V pastes.
 * While it is open the game takes no keys or clicks (no walking, no R, the wheel scrolls the console); F3, F4 and F11 still work, and the game goes on under it.
+* Done 2026-10-19 (#174), in a module `console`, with a line of input of its own rather than Bevy's `TextInput`: a console needs a line, a cursor and the history, which take a few dozen lines.
+  The view is the log itself: the commands' lines and their output are logged under the target `console`, so F4 and the log file have them too.
+  A set `frame::Control` holds the player's keys and mouse on the world, the pause and the menus, which the open console holds back; the console reads the keys right after Bevy does and takes Esc and its own key from the game, so that Esc closes it without pausing the game.
+  The history lies beside the settings file (`history.txt`), so that a run with `--settings` keeps its own; the command `console on|off` opens and closes it from a script.
+  Ctrl+V does not paste: Bevy reads the system's clipboard through `clipboard-win`, under BSL-1.0, which `deny.toml` does not allow (#189).
 
 ## 8. Remote control (#175, #176)
 

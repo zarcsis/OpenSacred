@@ -192,6 +192,11 @@ impl SettingsFile {
         }
     }
 
+    /// The file, if there is a directory for it.
+    pub fn path(&self) -> Option<&std::path::Path> {
+        self.path.as_deref()
+    }
+
     /// Writes the keys `keys` (`section.key`) of `settings` into the file, leaving everything else
     /// in it as it is.
     pub fn save(&mut self, settings: &Settings, keys: &[&str]) -> Result<()> {

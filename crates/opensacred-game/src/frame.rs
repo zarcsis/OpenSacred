@@ -42,6 +42,11 @@ pub struct Playing;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Unpaused;
 
+/// The player's keys and mouse on the world, the pause and the menus, which the open console
+/// holds back (`console`).
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Control;
+
 /// The order of the steps.
 pub struct FramePlugin;
 
