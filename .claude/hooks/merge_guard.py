@@ -3,12 +3,13 @@
 CLAUDE.md, "Issues and pull requests"; docs/03-toolchain.md, §3.6).
 
 PreToolUse on Bash|PowerShell: a command that runs `gh pr merge` is refused when its pull request is labeled
-`needs-maintainer`, touches a path of MAINTAINER_PATHS, or was opened by someone other than the repository's owner;
-`--admin` is refused always. A decision that a pull request adds, changes or removes (a file in DECISIONS) does not
-wait unless Claude labeled the pull request `needs-maintainer` for it (one that departs far from the original or
-carries legal consequences): the pull request is merged and the maintainer reviews it afterwards, so it must be
-labeled `review-after-merge`. A pull request that cannot be looked up is refused too. Other commands pass untouched.
-Merges through other routes (`gh api`, the web interface) are not seen; they are left to the rules in CLAUDE.md.
+`needs-maintainer`, touches a path of MAINTAINER_PATHS (the guardrails: this hook among them), or was opened by someone
+other than the repository's owner; `--admin` is refused always. A path of REVIEWED_PATHS (a decision, CLAUDE.md, the
+rest of `.claude/`) does not wait unless Claude labeled the pull request `needs-maintainer` for it (a decision that
+departs far from the original or carries legal consequences, a change to the rules rather than a description): the
+pull request is merged and the maintainer reviews it afterwards, so it must be labeled `review-after-merge`. A pull
+request that cannot be looked up is refused too. Other commands pass untouched. Merges through other routes (`gh api`,
+the web interface) are not seen; they are left to the rules in CLAUDE.md.
 
 Example (the hook input is JSON on stdin)
   echo '{"tool_input": {"command": "gh pr merge 7 --squash --auto"}}' | python -I .claude/hooks/merge_guard.py
@@ -20,16 +21,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LABEL = 'needs-maintainer'
-# The label of a pull request that the maintainer reviews after it is merged: one that takes a decision.
+# The label of a pull request that the maintainer reviews after it is merged.
 REVIEW_LABEL = 'review-after-merge'
 # The decisions, a file each (docs/decisions/README.md); one is taken without the maintainer, unless it departs far
 # from the original or carries legal consequences, which Claude judges.
 DECISIONS = 'docs/decisions/'
-# What a pull request changes here needs the maintainer's review: the rules, the hooks, CI and the process (the
-# decision log's own rules among it), the allowed licenses, the screenshot references. A path ending in '/' is a
-# directory.
-MAINTAINER_PATHS = ('CLAUDE.md', '.claude/', '.github/', 'deny.toml', DECISIONS + 'README.md',
-                    'crates/opensacred-game/tests/screenshots/')
+# What a pull request changes here always waits for the maintainer: the guardrails (the hooks, this one among them,
+# and the settings that run them), CI and the repository's GitHub files, the allowed licenses, the decision log's own
+# rules, the screenshot references. A path ending in '/' is a directory.
+MAINTAINER_PATHS = ('.claude/hooks/', '.claude/settings.json', '.claude/settings.local.json', '.github/', 'deny.toml',
+                    DECISIONS + 'README.md', 'crates/opensacred-game/tests/screenshots/')
+# What the maintainer reviews after the merge, unless Claude labels the pull request `needs-maintainer` for it: a
+# decision, and CLAUDE.md and the rest of `.claude/` (the skills), whose change waits when it is to the rules rather
+# than a description; Claude judges which.
+REVIEWED_PATHS = ('CLAUDE.md', '.claude/', DECISIONS)
 # How many of those paths a refusal names.
 SHOWN_PATHS = 5
 # `gh pr merge` options that take a value; the first other word is the pull request (a number, URL or branch).
@@ -73,16 +78,22 @@ def target(args):
     return selector, repo, admin, disable
 
 
-def needs_maintainer(path):
-    return any(path.startswith(p) if p.endswith('/') else path == p for p in MAINTAINER_PATHS)
+def matches(path, patterns):
+    return any(path.startswith(p) if p.endswith('/') else path == p for p in patterns)
 
 
 def waiting(paths):
-    """Of a pull request's paths, those that wait for the maintainer, and whether it takes a decision (adds, changes
-    or removes one). The decisions' README waits; a decision does not."""
-    waits = [path for path in paths if needs_maintainer(path)]
-    decides = any(path.startswith(DECISIONS) and not needs_maintainer(path) for path in paths)
-    return waits, decides
+    """Of a pull request's paths, those that wait for the maintainer, and those that the maintainer reviews after the
+    merge. The decisions' README and the hooks wait; a decision, CLAUDE.md and a skill are reviewed."""
+    waits = [path for path in paths if matches(path, MAINTAINER_PATHS)]
+    reviews = [path for path in paths if matches(path, REVIEWED_PATHS) and path not in waits]
+    return waits, reviews
+
+
+def shown(paths):
+    """The paths, as a refusal names them."""
+    named = [f'`{path}`' for path in paths]
+    return ', '.join(named[:SHOWN_PATHS] + ([f'{len(named) - SHOWN_PATHS} more'] if len(named) > SHOWN_PATHS else []))
 
 
 def refusal(args):
@@ -105,22 +116,22 @@ def refusal(args):
         paths = [file['path'] for file in pr['files']]
     except (ValueError, KeyError, IndexError, TypeError) as error:
         return f'could not read `gh pr view` output: {error!r}'
-    waits, decides = waiting(paths)
+    waits, reviews = waiting(paths)
     reasons = []
     if LABEL in labels:
         reasons.append(f'it is labeled `{LABEL}`')
     if author.lower() != owner.lower():
         reasons.append(f'it was opened by {author}, not by the maintainer')
-    touched = [f'`{path}`' for path in waits]
-    if touched:
-        shown = touched[:SHOWN_PATHS] + ([f'{len(touched) - SHOWN_PATHS} more'] if len(touched) > SHOWN_PATHS else [])
-        reasons.append('it changes ' + ', '.join(shown))
+    if waits:
+        reasons.append('it changes ' + shown(waits))
     if not reasons:
-        if decides and REVIEW_LABEL not in labels:
-            return (f'pull request #{pr["number"]} takes a decision, which the maintainer reviews after the merge: '
-                    f'label it `{REVIEW_LABEL}` first (`gh pr edit {pr["number"]} --add-label {REVIEW_LABEL}`); '
-                    f'or, if the decision departs far from the original or carries legal consequences, `{LABEL}`, '
-                    f'and leave the merge to the maintainer (CLAUDE.md, "Issues and pull requests").')
+        if reviews and REVIEW_LABEL not in labels:
+            return (f'pull request #{pr["number"]} changes what the maintainer reviews after the merge '
+                    f'({shown(reviews)}): label it `{REVIEW_LABEL}` first '
+                    f'(`gh pr edit {pr["number"]} --add-label {REVIEW_LABEL}`); or, if it changes the rules or the '
+                    f'process rather than describes, or takes a decision that departs far from the original or carries '
+                    f'legal consequences, `{LABEL}`, and leave the merge to the maintainer (CLAUDE.md, "Issues and '
+                    f'pull requests").')
         return None
     label = '' if LABEL in labels else f'Label it `{LABEL}` (`gh pr edit {pr["number"]} --add-label {LABEL}`), '
     return (f'pull request #{pr["number"]} waits for the maintainer: {"; ".join(reasons)}. {label}'
