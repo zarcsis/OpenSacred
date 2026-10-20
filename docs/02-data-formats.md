@@ -486,7 +486,7 @@ right  (v3): u = (104j + S + 97.5)/256 + 0.002   v = (25i + 23.5)/256
 ```
 
 A diamond is 95.5 × 47.5 texels (96.4 × 48.4 on screen at zoom 1), the row step is **25** texels (not 24), the column step is 104, odd rows are shifted by 52; the diamonds nest in a "lattice" without overlaps, with margins of ≈ 8 texels in X and 2 in Y.
-LINEAR ground filtering is enabled only at zoom < 1.2 (flag 0x800).
+The ground is filtered linearly (the state `0x800`) only while the zoom (the world view's float `+0xB60`, 0.5 to 2, §5.3) is over 1.2, in the wider views, where a texel covers less than 5/6 of a pixel, and by point at 1.2 and closer (**confirmed** by code 2026-10-20, #343: `0x62AE90` sets the state at the head of each row, `0x62AF32`; docs/re/drawing.md, "Blending"); an earlier reading of "zoom < 1.2" had the comparison reversed.
 This closes an earlier hypothesis of "9 half-rows with a step of 24".
 
 ### 5.5 Static.PAK, Floor.PAK, Triggers.PAK
