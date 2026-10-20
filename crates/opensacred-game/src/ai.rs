@@ -83,6 +83,11 @@ const LOOKS_UP: f32 = 200.0;
 const RUNS_UP: f32 = 150.0;
 /// The cells' flag of a building's inside (`+0x1E` bit 1, docs/02 §5.2).
 const INSIDE: u8 = 0x2;
+/// How near a hostile of the hero's puts a townsperson in danger, and how far it runs from it
+/// without a door to go in by, within 100 more along each axis (`0x4F0BDA`, `0x4F0F5E`).
+const DANGER: f32 = 800.0;
+const RUNS_FROM: f32 = 700.0;
+const RUNS_ASTRAY: i32 = 100;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flags they take at their first update, which no behaviour reads
@@ -469,6 +474,23 @@ enum Decision {
     Stop,
 }
 
+/// Where a townsperson at `here` in danger runs from its threat, the nearest of `hostiles` within
+/// 800 (`0x4F0BDA`): without a door to go in by, 700 away from it along the line, within 100 more
+/// along each axis (`0x4F0F5E`); `None` out of danger.
+fn danger(here: Vec3, hostiles: &[Vec3], rng: &mut Rng) -> Option<Vec3> {
+    let threat = hostiles
+        .iter()
+        .copied()
+        .filter(|at| (*at - here).xz().length() < DANGER)
+        .min_by(|a, b| {
+            (*a - here)
+                .length_squared()
+                .total_cmp(&(*b - here).length_squared())
+        })?;
+    let away = (here - threat).with_y(0.0).normalize_or_zero();
+    Some(about(here + away * RUNS_FROM, RUNS_ASTRAY, rng))
+}
+
 /// What a child does by its roll of 20 (`0x4F2AD7`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Child {
@@ -786,6 +808,18 @@ fn behave(
             Some((partner, (transform.translation, walking, mind.trader)))
         })
         .collect();
+    // The hero's hostiles, which put the townsfolk near them in danger: the creatures of flag
+    // bit 0 that its look takes, in the 3 × 3 sectors about it within its range.
+    let (hx, hy) = sector(hero);
+    let hostiles: Vec<Vec3> = creatures
+        .iter()
+        .filter(|(_, _, _, mind, _)| mind.flags & crate::crowd::HOSTILE != 0)
+        .map(|(_, transform, ..)| transform.translation)
+        .filter(|&at| {
+            let (x, y) = sector(at);
+            (x - hx).abs() <= 1.0 && (y - hy).abs() <= 1.0 && (at - hero).xz().length() < RANGE
+        })
+        .collect();
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
@@ -886,6 +920,23 @@ fn behave(
         };
         if mind.active && (here - hero).xz().length() > range {
             mind.active = false;
+        }
+        // A townsperson awake in danger runs from its threat, at every frame it stands.
+        if mind.active
+            && folk
+            && !mind.dialogue
+            && let Some(target) = danger(here, &hostiles, &mut minds.rng)
+        {
+            debug!(
+                "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                Why::Flees,
+                here.x,
+                here.z,
+                target.x,
+                target.z
+            );
+            walks.push((entity, Walk::run(target, way.level, mind.run)));
+            continue;
         }
         // A townsperson awake decides at a look of the hero's, unless its dialogue holds it.
         if mind.active && folk && minds.looked && !mind.dialogue {
@@ -1320,6 +1371,19 @@ mod tests {
             .filter(|_| child(&kid, home, near, true, &mut rng) == Child::LooksUp)
             .count();
         assert!((1_050..1_250).contains(&looks), "{looks}");
+    }
+
+    #[test]
+    fn a_townsperson_runs_700_from_a_hostile_within_800() {
+        let mut rng = Rng::of(50, 39, 10);
+        let here = Vec3::ZERO;
+        let goblin = Vec3::new(500.0, 0.0, 0.0);
+        let far = Vec3::new(900.0, 0.0, 0.0);
+        assert_eq!(danger(here, &[far], &mut rng), None);
+        for _ in 0..50 {
+            let to = danger(here, &[far, goblin], &mut rng).unwrap();
+            assert!((to.x + 700.0).abs() <= 100.0 && to.z.abs() <= 100.0, "{to}");
+        }
     }
 
     #[test]
