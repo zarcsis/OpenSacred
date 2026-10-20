@@ -69,7 +69,8 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     settings: Option<PathBuf>,
     /// The log file, instead of logs\opensacred.log in the user's state directory
-    /// (%LOCALAPPDATA%\OpenSacred on Windows); the two before it are kept as FILE.1, FILE.2
+    /// (%LOCALAPPDATA%\OpenSacred on Windows); the two before it are kept with a number before the
+    /// extension (opensacred.1.log, opensacred.2.log)
     #[arg(long, value_name = "FILE")]
     log_file: Option<PathBuf>,
     /// A window for this run, whatever the settings say (F11 switches)
