@@ -232,6 +232,28 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   A second ruleset keeps the version tags `v*` from being deleted or moved; creating one stays open, for the Release workflow.
   The branch `badges` is outside both: the Usage workflow replaces its one commit, the README's badge, on every change.
 
+### 3.7 Driving the game
+
+* A game started with `--remote` listens for remote control on `127.0.0.1:15702`, Bevy's Remote Protocol with the game's own methods (docs/10 §8); `tools/game/remote.py` is its client.
+* Claude Code starts the game in the background so that it neither covers the maintainer's screen nor touches the maintainer's settings, history and log: windowed, muted, with files of its own, and the window opening without the focus.
+
+  ```bash
+  cargo run --release -p opensacred-game -- --remote --windowed --no-music \
+    --settings <scratch>/settings.toml --log-file <scratch>/game.log      # from a worktree also --assets ../../../assets
+  python -I tools/game/remote.py wait-state menu
+  python -I tools/game/remote.py exec "new-game --class mage"
+  python -I tools/game/remote.py wait-ready
+  python -I tools/game/remote.py exec "go +6,+2"          # or: click X Y, key R, key Escape, type "…"
+  python -I tools/game/remote.py screenshot <scratch>/shot.png
+  python -I tools/game/remote.py state
+  python -I tools/game/remote.py logs --after 0
+  python -I tools/game/remote.py exec quit
+  ```
+
+* The keys and clicks go to the game through the protocol: posted to the window from outside, a click loses its cursor at once (the system reports the cursor leaving the window it is not over), and moving the system's cursor would take the maintainer's.
+* A run with nothing to wait on needs no server: `--exec "new-game --class mage; wait ready; screenshot <scratch>/shot.png; quit"` or `--script FILE` (docs/10 §6).
+* Screenshots and logs taken this way show the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
+
 ## 4. Binary analysis
 
 ### 4.1 The Ghidra project

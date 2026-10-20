@@ -378,7 +378,8 @@ fn draw(
             .lines()
             .filter(|part| !part.trim().is_empty())
         {
-            lines.push((format!("{prefix}{part}"), colour));
+            // The default font has no tab.
+            lines.push((format!("{prefix}{}", part.replace('\t', "    ")), colour));
         }
     }
     let end = lines.len().saturating_sub(console.scroll);

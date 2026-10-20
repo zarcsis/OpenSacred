@@ -36,6 +36,7 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "bevy_pbr",
     "bevy_picking",
     "bevy_post_process",
+    "bevy_remote",
     "bevy_render",
     "bevy_state",
     "bevy_winit",

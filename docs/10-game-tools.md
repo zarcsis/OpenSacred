@@ -166,6 +166,10 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
 * The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-ready`, `key F11`, `click X Y`, `screenshot FILE`, `logs`.
 * Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window opening unfocused.
 * Screenshots and logs taken this way are pictures of the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
+* Done 2026-10-19 (#175), in a module `remote`, with the client `tools/game/remote.py` and the recipe in docs/03 §3.7.
+  The input waits in a queue that sends each message in its frame before Bevy reads the input: a key's release a frame after its press, a click's press a frame after the cursor's move and its release `hold` frames later (2 by default), so that the game's systems see the key and the button held.
+  The cursor the game steers by is now the one its input saw last (`hud::Pointer`), the system's moves and the protocol's alike, so that a click sent from afar moves the hero and the system's cursor stays where it is.
+  Bevy's own methods see no type of the game for reflection yet: `opensacred/state` and the commands cover what the plan named.
 * How Claude Code learns all this in a new session (#176): a project skill that describes the run and the client, needing nothing installed, or the MCP server `bevy_brp_mcp` (0.23 for Bevy 0.20), whose tools are discoverable but generic and which has to be installed and to follow Bevy's releases.
   The skill comes first, and MCP if it falls short.
 * `bevy_brp_extras` 0.23 has ready methods for screenshots and keys; the game's own methods are a few small systems that do not wait for its releases after Bevy's.
