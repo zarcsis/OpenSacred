@@ -64,11 +64,27 @@ def lines(snapshot):
             if hero.get('onto'):
                 line += f" {hero['onto']}"
         out.append(line)
+    world = []
     if snapshot.get('clock'):
-        out.append(f"{snapshot['clock'][0]} {snapshot['clock'][1]}  zoom {snapshot.get('zoom') or 0:.2f}  "
-                   f"sectors {snapshot['sectors'][0]} +{snapshot['sectors'][1]}")
+        world.append(f"{snapshot['clock'][0]} {snapshot['clock'][1]}")
+    if snapshot.get('zoom') is not None:
+        world.append(f"zoom {snapshot['zoom']:.2f}")
+    if snapshot.get('sectors'):
+        world.append(f"sectors {snapshot['sectors'][0]} +{snapshot['sectors'][1]}")
+    if world:
+        out.append('  '.join(world))
         out.append(f"NPCs {snapshot['npcs']}  objects {snapshot['objects']}  entities {snapshot['entities']}"
                    + ('' if snapshot['ready'] else '  not ready'))
+        if snapshot.get('nearest'):
+            current, most, level = snapshot['nearest']
+            out.append(f'nearest creature  health {current}/{most}  level {level}')
+        if snapshot.get('experience'):
+            level, experience = snapshot['experience']
+            if snapshot.get('health'):
+                current, most = snapshot['health']
+                out.append(f'hero level {level}  health {current}/{most}  experience {experience}')
+            else:
+                out.append(f'hero level {level}  experience {experience}')
     return out
 
 
