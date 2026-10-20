@@ -31,6 +31,8 @@ In the band (sub-state 2), a creature at full health away from home, farther tha
 The attack action plays one of the model's attack slots (`0x5467A0`, action 4: 79 + 5 · the class of what it holds, docs/re/motions.md) at its attack speed (`0x584FE0`, at most 220) times `+0x210`, 1.0, raised by 0.1 up to 1.7 for each strike that a hero or an archer chains while the last one runs.
 A strike hits (`0x4EA1F0`) at a fraction of its clip given by the clip's `MotionDesc +0xA0` (0.5 where that is 0), and a second time at `+0xA4` when that is above 0 or the creature holds two weapons: `floats_62[1]` and `[2]` of `tables/motions.ron` (docs/02 §4.1; 827 of the 989 attack clips carry a first fraction, 173 a second).
 It lands when the target is then within three times the reach (1.5 times for a player's; **hypothesis** that the base is `R`), sending it the event 5 with the attacker, the weapon in hand and a factor of 1, or 0.5 for each of two weapons.
+That is `0x4EA3F0`, a function of its own, which `0x4EA1F0` calls near its end, after the checks of the fraction and of the distance (`0x4EA3BF`): it reads both hands, sets the factor and posts the event (read 2026-10-20, #322, #333).
+It has 58 calls in 14 functions, 5 of them in the melee state's `0x4E0300`; the others are not followed.
 In one case of four an NPC whose target attacks plays another clip instead (**hypothesis**: a parry).
 
 ## At range: the AI's state 8

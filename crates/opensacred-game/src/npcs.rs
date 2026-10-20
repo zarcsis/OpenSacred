@@ -1,11 +1,13 @@
-//! The NPCs and objects of the start script: the `CreateNPC` and `CreateObj` records of the hero's
-//! tree's `StartCode.bin` (`netscript/<tree>.nsc`), of the `OnEnter` functions of the quests
-//! that the start script enters (the novice in the chapel, quest 1's), and of the sectors' `Init`
-//! and `Enter` functions (the villagers, the animals and the placed monsters, docs/re/spawning.md),
-//! each placed when its sector is in; an NPC plays the clip of its model that the client plays standing, by the class of what
-//! it holds (`motions`), an object (a barrel, a chest, a book stand, a signpost) stands, and a
-//! chest, a barrel or a book stand takes its cell, which the creatures go round
-//! (`terrain::Heights::occupy`, docs/re/movement.md, "The objects in the way"). An NPC
+//! The NPCs and objects that the scripts place: the `CreateNPC` and `CreateObj` records of the
+//! hero's tree's start script, `StartCode.bin` (`netscript/<tree>.nsc`), of the `OnEnter`
+//! functions of the quests that the start script enters (the novice in the chapel, quest 1's), and
+//! of the sectors' `Init` and `Enter` functions (the villagers, the animals and the placed
+//! monsters, docs/re/spawning.md), and the creatures that the `Enter` functions' `FillSector`
+//! records make at random (`spawning`), each placed when its sector is in; an NPC plays the clip
+//! of its model that the client plays standing, by the class of what it holds (`motions`), an
+//! object (a barrel, a chest, a book stand, a signpost) stands, and a chest, a barrel or a book
+//! stand takes its cell, which the creatures go round (`terrain::Heights::occupy`,
+//! docs/re/movement.md, "The objects in the way"). An NPC
 //! that a quest sends somewhere at the start (`NPC_Goto`) walks there from where it was made,
 //! along the hero's way, with its walk clip at its creature's walk speed, or its run's where its
 //! model has no walk, then stands (docs/decisions/2026-10-19-quest-npcs.md).
@@ -63,7 +65,7 @@ use crate::{
     ai, buildings, crowd, daynight, fight, hero, iso, models, motions, paths, shadows, spawning,
 };
 
-/// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
+/// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
 /// The operand of a `CreateNPC` that names its dialogue.
@@ -280,7 +282,7 @@ pub struct Npcs {
 /// A global cell and a floor (or a layer), as the scripts give a position: `(x, y, floor)`.
 type Spot = (i32, i32, i32);
 
-/// An object of the start script.
+/// An object that a script places (a `CreateObj` record).
 #[derive(Component)]
 pub struct Object;
 
@@ -584,7 +586,7 @@ struct Rule {
     items: [(i32, u32); 3],
 }
 
-/// The start script's weapon pools (`Waffenpool`, type 114, `0x475F1A`): each record adds its last
+/// The scripts' weapon pools (`Waffenpool`, type 114, `0x475F1A`): each record adds its last
 /// `02` item to its `0B` pool, kept in order, a repeated item weighing more.
 fn pools(records: &[&Record]) -> HashMap<i32, Vec<u32>> {
     let mut pools: HashMap<i32, Vec<u32>> = HashMap::new();
@@ -849,7 +851,7 @@ fn closed_cells(records: &[&Record]) -> Vec<Spot> {
         .collect()
 }
 
-/// The named positions of the start script: `DefPos` name, x, y.
+/// The named positions of `records`: `DefPos` name, x, y.
 fn positions<'a>(records: impl IntoIterator<Item = &'a Record>) -> HashMap<String, (i32, i32)> {
     records
         .into_iter()
@@ -937,7 +939,7 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
 }
 
 impl Npcs {
-    /// Reads the start script of `tree` and the item table.
+    /// Reads the scripts of `tree` and the tables.
     pub fn read(assets: &Path, tree: &str) -> Result<Self> {
         let path = assets.join("netscript").join(format!("{tree}.nsc"));
         let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -2504,8 +2506,8 @@ fn instrument(
 #[derive(Component)]
 pub struct Talks;
 
-/// The start script's NPCs and objects: placed as their sectors come in, animated, walked,
-/// retextured and equipped.
+/// The NPCs and objects that the scripts and the fills place: placed as their sectors come in,
+/// animated, walked, retextured and equipped.
 pub struct NpcsPlugin;
 
 impl Plugin for NpcsPlugin {

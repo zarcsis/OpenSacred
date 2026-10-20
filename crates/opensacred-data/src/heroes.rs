@@ -40,8 +40,9 @@ pub struct Hero {
 pub struct Section {
     /// The slot of the original table, 0–15.
     pub slot: u8,
-    /// 0xC7 the creature, 0xCA the skills, 0xCB the combat arts, 0xC8 the inventory, 0xC3 the
-    /// summary, 0xC4 a small block, 0xCD the world state, 0xCE zeros (docs/02 §9).
+    /// 0xC7 the creature, 0xCA the backpack, 0xCB a second inventory container, 0xC8 the
+    /// inventory, 0xC3 the summary, 0xC4 a small block, 0xCD the world state, 0xCE zeros (docs/02
+    /// §9).
     pub tag: u32,
     /// The size in the original table; the data of tag 0xC4 is 64 bytes for a size of 556.
     pub size: u32,

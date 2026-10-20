@@ -17,8 +17,9 @@ pub const HERO_LEVEL: u32 = 1;
 /// value (docs/re/fight.md).
 const BRONZE: usize = 5;
 
-/// A hit of a strike (`0x4EA3F0`, the event 5): its attacker, its target and its share of the
-/// strike, 0.5 for each hit of two (docs/re/fight.md, "A strike's resolution").
+/// A hit of a strike (`0x4EA3F0`, which the strike `0x4EA1F0` calls as it lands, the event 5):
+/// its attacker, its target and its share of the strike, 0.5 for each hit of two (docs/re/fight.md,
+/// "Melee: the AI's state 4", "A strike's resolution").
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Hit {
     pub attacker: Entity,

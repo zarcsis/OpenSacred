@@ -26,7 +26,7 @@ pub enum Step {
     Follow,
     /// The sectors streamed in and out around the hero (`sectors`).
     Sectors,
-    /// The start script's NPCs and objects placed, animated and equipped (`npcs`).
+    /// The scripts' and the fills' NPCs and objects placed, animated and equipped (`npcs`).
     Npcs,
     /// The models' materials and places among the sprites (`models`).
     Models,
