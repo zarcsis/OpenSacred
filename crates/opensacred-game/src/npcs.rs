@@ -59,7 +59,9 @@ use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
-use crate::{ai, buildings, crowd, daynight, hero, iso, models, motions, paths, shadows, spawning};
+use crate::{
+    ai, buildings, crowd, daynight, fight, hero, iso, models, motions, paths, shadows, spawning,
+};
 
 /// Record types of the start script (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
@@ -121,6 +123,8 @@ struct Placement {
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
     class: u8,
+    /// An NPC's `Creature.pak` base bytes, from which its health (`fight`).
+    base: [u8; 6],
     /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
     /// fill; its group, if it is in one; whether it has a dialogue, a `CreateNPC` with one
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
@@ -247,6 +251,8 @@ pub struct Npcs {
     /// Each creature type's `Creature.pak` class, which picks a fill's factor.
     classes: HashMap<u32, u8>,
     factors: spawning::Factors,
+    /// The balance's values of the creatures' health.
+    health: fight::HealthRules,
     /// The weapon pools, the sectors' `MakeGroup` rules, what each pool's item is in a hand, and
     /// the templates' models' clips by slot, which give the fills' creatures their items and the
     /// clips of what they hold ([`gear_of`]).
@@ -702,16 +708,8 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
 
 /// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
 /// where `tables/balance.ron` lacks them.
-fn factors(assets: &Path) -> spawning::Factors {
-    let balance = fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
-        .ok()
-        .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
-    let factor = |name, default| {
-        balance
-            .as_ref()
-            .and_then(|b| b.f32(name))
-            .unwrap_or(default)
-    };
+fn factors(balance: Option<&opensacred_data::tables::Balance>) -> spawning::Factors {
+    let factor = |name, default| balance.and_then(|b| b.f32(name)).unwrap_or(default);
     spawning::Factors {
         animals: factor("SpawnAnimalsSP", 0.8),
         enemies: factor("SpawnEnemysSP", 1.2),
@@ -915,6 +913,12 @@ impl Npcs {
         // Each creature's walk and run speeds (`+0x26`, `+0x28`, the models' units a second).
         let speeds: HashMap<u32, [u16; 2]> = creatures.iter().map(|c| (c.id, c.speed)).collect();
         let classes: HashMap<u32, u8> = creatures.iter().map(|c| (c.id, c.class)).collect();
+        let bases: HashMap<u32, [u8; 6]> = creatures.iter().map(|c| (c.id, c.base)).collect();
+        // The balance, from which the fills' factors and the health's (none where it is lacking).
+        let balance =
+            fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
+                .ok()
+                .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -1042,6 +1046,7 @@ impl Npcs {
                 walk,
                 speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                 class: classes.get(&creature).copied().unwrap_or_default(),
+                base: bases.get(&creature).copied().unwrap_or_default(),
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
                 dialogue: record.kind == CREATE_NPC
                     && ops.iter().any(|o| {
@@ -1120,6 +1125,7 @@ impl Npcs {
                         .unwrap_or_default()
                         .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                     class: classes.get(&creature).copied().unwrap_or_default(),
+                    base: bases.get(&creature).copied().unwrap_or_default(),
                     made: (true, false),
                     dialogue: false,
                     trader: false,
@@ -1194,7 +1200,8 @@ impl Npcs {
             fills,
             templates,
             classes,
-            factors: factors(assets),
+            factors: factors(balance.as_ref()),
+            health: fight::HealthRules::of(balance.as_ref()),
             rules: rules(&tree),
             pools,
             gear,
@@ -1261,12 +1268,15 @@ pub fn place(
             .map(Vec::as_slice)
             .unwrap_or_default()
         {
+            let values = npcs.fills.get(&at).map(|(values, _)| *values);
+            let level = fight::level(&values.unwrap_or_default(), None);
             let entity = spawn(
                 &mut commands,
                 &npcs.placements[index],
                 &heights,
                 &states,
                 &assets,
+                (level, &npcs.health),
             );
             streamer.adopt(at, entity);
         }
@@ -1353,7 +1363,15 @@ pub fn place(
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
                     Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
                 });
-                let entity = spawn(&mut commands, &placement, &heights, &states, &assets);
+                let level = fight::level(values, Some(&mut rng));
+                let entity = spawn(
+                    &mut commands,
+                    &placement,
+                    &heights,
+                    &states,
+                    &assets,
+                    (level, &npcs.health),
+                );
                 streamer.adopt(at, entity);
             }
         }
@@ -1371,6 +1389,8 @@ fn spawn(
     heights: &Heights,
     states: &buildings::Buildings,
     assets: &AssetServer,
+    // The creature's level, and the balance's values of its health.
+    (grade, rules): (u32, &fight::HealthRules),
 ) -> Entity {
     let (x, y) = placement.cell;
     let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
@@ -1454,6 +1474,13 @@ fn spawn(
         );
         mind.dialogue = placement.dialogue;
         mind.trader = placement.trader;
+        // Its health, full, by its base and its level (`0x5658F0`).
+        let most = fight::most_health(placement.base, grade, rules);
+        entity.insert(fight::Health {
+            current: most,
+            most,
+            level: grade,
+        });
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),

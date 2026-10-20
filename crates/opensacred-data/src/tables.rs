@@ -142,6 +142,14 @@ impl Balance {
         }
     }
 
+    /// The float `index` of the row that the key `name` heads, a row of values by the difficulty
+    /// (docs/re/fight.md): the image's word `index` after the key's variable.
+    pub fn row_f32(&self, name: &str, index: usize) -> Option<f32> {
+        let variable = self.variables.iter().find(|v| v.name == name)?;
+        let word = usize::from(variable.offset) / 4 + index;
+        self.image.get(word).copied().map(f32::from_bits)
+    }
+
     /// The value of the integer variable `name`.
     pub fn i32(&self, name: &str) -> Option<i32> {
         match self.variables.iter().find(|v| v.name == name)?.value {

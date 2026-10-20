@@ -71,4 +71,6 @@ An NPC's own attack, defence and damage (`0x568D70`, `0x5796A0`) and its regener
 
 ## In `opensacred-game`
 
-Nothing yet: the creatures do not fight (docs/decisions/2026-10-20-idle.md); the features follow in #285 and its sub-issues (#277–#284).
+The creatures do not fight yet (docs/decisions/2026-10-20-idle.md); the features follow in #285 and its sub-issues (#277–#284).
+The balance's rows of six by the difficulty are named in `tables/balance.ron` (#277; `Balance::row_f32`).
+Every NPC has a health (#278, `fight::Health`), full when it is made: its level the hero's, 1, held within its sector's (`fight::level`), jittered for a fill's creature; its most by `0x5658F0` from its base and its level, with the level's factor and bronze's `ProzHP` (`fight::most_health`; docs/decisions/2026-10-20-health.md); the overlay and the `state` command show the nearest creature's.

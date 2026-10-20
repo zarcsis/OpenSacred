@@ -15,6 +15,7 @@ use bevy::window::{PrimaryWindow, WindowMode};
 use serde::Serialize;
 
 use crate::daynight::{Clock, Phase};
+use crate::fight::Health;
 use crate::game::AppState;
 use crate::hero::{Body, Gait, Hero, Ready};
 use crate::npcs::{Npc, Object};
@@ -112,6 +113,8 @@ pub struct Snapshot {
     pub npcs: usize,
     pub objects: usize,
     pub entities: usize,
+    /// The health of the creature nearest the hero, its most and its level.
+    pub nearest: Option<(u32, u32, u32)>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -191,6 +194,11 @@ impl Snapshot {
                 self.entities,
                 if self.ready { "" } else { "  not ready" }
             ));
+            if let Some((current, most, level)) = self.nearest {
+                lines.push(format!(
+                    "nearest creature  health {current}/{most}  level {level}"
+                ));
+            }
         }
         lines
     }
@@ -211,6 +219,7 @@ pub struct Probe<'w, 's> {
     streamer: Option<Res<'w, Streamer>>,
     ready: Option<Res<'w, Ready>>,
     npcs: Query<'w, 's, (), With<Npc>>,
+    healths: Query<'w, 's, (&'static Transform, &'static Health), Without<Body>>,
     objects: Query<'w, 's, (), With<Object>>,
     entities: Query<'w, 's, ()>,
 }
@@ -304,6 +313,15 @@ impl Probe<'_, '_> {
             npcs: self.npcs.iter().count(),
             objects: self.objects.iter().count(),
             entities: self.entities.iter().count(),
+            nearest: self.bodies.iter().next().and_then(|(hero, _)| {
+                self.healths
+                    .iter()
+                    .min_by(|a, b| {
+                        let d = |t: &Transform| (t.translation - hero.translation).length_squared();
+                        d(a.0).total_cmp(&d(b.0))
+                    })
+                    .map(|(_, health)| (health.current, health.most, health.level))
+            }),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies
