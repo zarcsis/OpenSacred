@@ -29,7 +29,7 @@ Claim status.
 
 | Edition | Build / fingerprint | Languages | Protection | Knowledge status | Role in the project |
 |---|---|---|---|---|---|
-| GOG "Sacred Gold" 2.28 (English) — **the project build** | `Sacred.exe` 11,919,360 B, SHA-256 `db9b86a44c8c1cc8c5ed9e3f427121ab8b4ed62760861e58995f10af9d971e74`, version 2.0.2.28, PE 0x452F85C7 = 2006-10-13 12:25:43 UTC, four sections `.text`/`.rdata`/`.data`/`.rsrc`, entry point RVA 0x44D964, `.text` entropy 6.57; `GameServer.exe` 0x452F8580; in the store: product 1207658688, build 50854356829483339, published 2018-01-10 | English / French / Russian depots of ≈2.8 GB each; the project is verified on the English one | none (no DRM) | files: verified locally (docs/01, §2.1); the stamp 0x452F85C7 matches the value sacred-bild gives for GOG ENG (from the primary source); product number, build number and depot contents: from secondary sources (gogdb) | the only supported build: the converter checks an installation against its manifest; the local Ghidra project, the oracle and experiments run on the developer's own copy of this exe as is; all addresses in the plan documents refer to it; the exe itself is never published |
+| GOG "Sacred Gold" 2.28 (English) — **the project build** | `Sacred.exe` 11,919,360 B, SHA-256 `db9b86a44c8c1cc8c5ed9e3f427121ab8b4ed62760861e58995f10af9d971e74`, version 2.0.2.28, PE 0x452F85C7 = 2006-10-13 12:25:43 UTC, four sections `.text`/`.rdata`/`.data`/`.rsrc`, entry point RVA 0x44D964, `.text` entropy 6.57; `GameServer.exe` 0x452F8580; in the store: product 1207658688, build 50854356829483339, published 2018-01-10 | English / French / Russian depots of ≈2.8 GB each; the project is verified on the English one | none (no DRM) | files: verified locally (docs/01, §2); the stamp 0x452F85C7 matches the value sacred-bild gives for GOG ENG (from the primary source); product number, build number and depot contents: from secondary sources (gogdb) | the only supported build: the converter checks an installation against its manifest; the local Ghidra project, the future oracle and experiments run on the developer's own copy of this exe as is; all addresses in the plan documents refer to it; the exe itself is never published |
 | German retail Underworld/Gold 2.0 | PE 0x451BBE74 = 2006-09-28 12:22:12 UTC | German | ProtectDISC on the retail line (hypothesis, from a build path string in the 2.28 executable; the GOG file is not protected) | stamp: from the primary source (sacred-bild); build path: verified locally | not supported |
 | Russian retail "Knyaz Tmy: Zolotoe Izdanie" ("Prince of Darkness: Gold Edition", Akella) 2.28 | a different binary: the animation selection table sits at 0x956E40 in ENG and at 0x955E48 in RUS | Russian | not established | from the primary source (openheilig/research) | not supported; matters for Russian-speaking players with the disc version |
 | LGP Linux "Sacred Gold" (2009; patch 1.0.02, 2010) | stripped i386 ELF ≈9.16 MB, 615 dynamic imports; includes `sacredserver` | — | activation by an LGP key and account; LGP was liquidated on 2011-05-03 | from the primary source (openheilig) | not used (§1.3) |
@@ -136,7 +136,7 @@ What breaks as a result (from the primary source, sacred-bild RE_NOTES, unless s
 | Pathfinding | 64×64 tile grid: distant clicks on a large screen have to be "pulled in" (`click_walk` in sacred-bild, commits of 2026-10-08) |
 | Screenshots | only the top-left 1024×768 is written |
 
-That is why the new engine renders at native resolution with a configurable zoom, scales the UI separately and rasterizes text for the actual DPI (docs/05).
+That is why the new engine renders at native resolution with a configurable zoom, scales the UI separately, with the window's height, and rasterizes text at the window's resolution (docs/05 §3.5).
 
 ### 2.5 Multiplayer
 
@@ -191,7 +191,7 @@ The AMH container (0x100 + 16×12, 8 occupied slots, version 0x101B in all Gold 
 
 ### 3.3 License matrix for borrowing
 
-OpenSacred's code is MIT OR Apache-2.0 (docs/08 §5).
+OpenSacred's code is MIT OR Apache-2.0 (docs/08 §3).
 
 | Source | License | Into the converter and the game | Condition |
 |---|---|---|---|
@@ -210,7 +210,7 @@ OpenSacred's code is MIT OR Apache-2.0 (docs/08 §5).
 | Leaked or unlicensed code, builds or SDKs | — | **no** | never used |
 
 Class and method names from the original's RTTI and log strings, as well as GOG ENG addresses, are facts of the executable; the documents and code comments cite them.
-Names that a community project gave to functions (the sacred-bild export) stay in the local Ghidra project (PLAN.md, ADR-10; docs/08 §5).
+Names that a community project gave to functions (the sacred-bild export) stay in the local Ghidra project (PLAN.md §4.2; docs/08 §5).
 
 ## 4. Communities and channels
 
@@ -242,7 +242,7 @@ The rights holder: Ascaron went into insolvency on 2009-04-14; the rights to Sac
 | Zone of Games: no Sacred 1 thread; gameru.net: a Russian localization for Sacred 2 only; no VK/Discord groups for Sacred 1 were found | from secondary sources (three search queries) |
 
 Consequences.
-(1) Russian localization comes through the Russian GOG depot or Akella's disc version, for owners of the corresponding copies; the engine must read `global.res` in any language, and the new engine's fonts (cosmic-text + Noto) remove the GDI fonts' limitation on Cyrillic.
+(1) Russian localization comes through the Russian GOG depot or Akella's disc version, for owners of the corresponding copies; the engine must read `global.res` in any language, and the new engine's text, drawn by Bevy (parley) at native resolution with a free Unicode font planned for what the original TTFs lack, is to remove the GDI fonts' limitation on Cyrillic.
 (2) Potential contributors: the author of SacredNL, bssth (sacred-sdk), Russian-speaking players on the kryotek lobby.
 (3) Documentation language: everything in this repository is written in English, so the README and the format descriptions are accessible to the international community (§4.1).
 
@@ -291,12 +291,12 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 |---|---|---|
 | Window/input | SDL2 → SDL3 (isle-portable, dethrace 0.10, Arx 1.2, DevilutionX) | Bevy (winit), gamepad via gilrs |
 | 3D rendering | SDL3 GPU + D3D9 + GL + software (isle-portable); Tempest Vulkan/DX12/Metal (OpenGothic); OpenGL 3.3 (TR1X, OpenJKDF2, re3/librw); DX11/GL/Metal (SoH) | Bevy on wgpu: Vulkan, DX12, WebGPU |
-| 2D/UI in 4K | UI and text at native resolution, separately from 3D (OpenGothic); HUD/book/cursor scaling, letterbox (Arx 1.2); aspect/border/integer upscale (TR1X 4.13); Enlarged UI + DPI (OpenRCT2); virtual resolutions (DevilutionX 1.5) | Bevy UI with DPI-based scaling; the original's visible area by default |
-| Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | cosmic-text, the original TTFs + Noto |
+| 2D/UI in 4K | UI and text at native resolution, separately from 3D (OpenGothic); HUD/book/cursor scaling, letterbox (Arx 1.2); aspect/border/integer upscale (TR1X 4.13); Enlarged UI + DPI (OpenRCT2); virtual resolutions (DevilutionX 1.5) | Bevy UI on the original's 768-pixel-high screen, scaled with the window's height (docs/05 §3.5); the original's visible area by default |
+| Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | Bevy's text (parley), the original TTFs; a free Unicode font (Noto) planned |
 | Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira + Symphonia; sounds are converted to FLAC |
 | Video | Smacker libraries (isle); most skip cutscenes | AV1 via FFmpeg during conversion, rav1d during playback; skipping |
 | Networking | ZeroTier + TCP (DevilutionX 1.3); custom (OpenRCT2); absent (swars) | we do not do it: networking is out of scope |
-| Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | a fixed simulation step in `opensacred-rules`, rendering at the monitor refresh rate |
+| Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | a fixed simulation step in `opensacred-rules` (planned, not created yet, #328), rendering at the monitor refresh rate; today the rules run in `opensacred-game` on each frame's time, with no fixed step |
 | Saves | Julius: compatibility with the original in both directions | not needed for us: our own save format (docs/06, §6) |
 
 ## 6. What we take and what we avoid
@@ -305,7 +305,8 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 
 1. **The community's names and addresses**: the sacred-bild function export, sacred-sdk's addresses and keyword tables, into the local Ghidra project.
 2. **Format descriptions confirmed by two or three implementations** (PAK, keyx/wldx, TEX, GRN, FunkCode, global.res), as the basis for `opensacred-formats` and as a reference for cross-checking our converter.
-3. **MIT code as a reference:** `sacred_hash` and the NetScript disassembler (sacred-sdk), the core of the Granny parser (grn2glb), the layouts of the openheilig engine; our Rust code is our own, and anything borrowed carries the notice in `THIRD-PARTY-NOTICES.md`. open-grn is a reference on the format only; its code is not used.
+3. **MIT code as a reference:** `sacred_hash` and the NetScript disassembler (sacred-sdk), the core of the Granny parser (grn2glb), the layouts of the openheilig engine; our Rust code is our own, and anything borrowed carries the notice in `THIRD-PARTY-NOTICES.md`.
+   open-grn is a reference on the format only; its code is not used.
 4. **OpenGothic's experience:** UI and text at native resolution regardless of the scene's scale; a modern renderer on top of the original assets; a reimplementation by one person is feasible.
 5. **The experience of TR1X/TR2X and OpenRCT2:** UI scaling, widescreen and fonts in the first year, not later.
 6. **Player expectations** from PureHD, ReBorn, SacredNL: arbitrary resolution without balance changes, windowed mode, gamepad, widescreen cutscenes.
