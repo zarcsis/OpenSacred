@@ -23,7 +23,7 @@ Three things wake it:
 
 Awake (`0x542B20`), a creature farther from the hero than 1,500 along the grid's x or 1,000 along its y goes dormant again.
 A peaceful one whose flags match `0x1006DCF8` takes its behaviour (AI 2, below).
-A hostile one, in one case of six and where its home's cell lacks bit 2 of its flags, walks home when it is more than 200 from it along an axis, else stops; then it weighs its level against the hero's (by the balance's `BaseOffLevel`, `OffLevelProz` and `UnterExpAnteil`, 0.85; **hypothesis**: a monster far below the hero's level fights only when touched): when that test fails and the hero is out of its reach (the mean of two sizes of the types, 70 to 480, 130 by default, `0x4DBC60`), it goes dormant again and in one case of three takes the idle action; otherwise it attacks, the hero its target (`+0x104`), from up to 800.
+A hostile one, in one case of six and where its home's cell lacks bit 2 of its flags, walks home when it is more than 200 from it along an axis, else stops; then it weighs its level against the hero's (by the balance's `BaseOffLevel`, `OffLevelProz` and `UnterExpAnteil`, 0.85; a monster far below the hero's level fights only when the hero comes within its reach, docs/re/fight.md): when that test fails and the hero is out of its reach (the mean of two sizes of the types, 70 to 480, 130 by default, `0x4DBC60`), it goes dormant again and in one case of three takes the idle action; otherwise it attacks, the hero its target (`+0x104`), from up to 800.
 
 ## The idle action
 
