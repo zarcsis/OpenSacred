@@ -8,7 +8,7 @@ A townsperson (docs/re/ai.md, "The townsfolk") rolls one of 26 by day: a partner
 
 ## Ours
 
-The rolls of the animal, of home, of the partners, of the traders and of the houses, and the children's play, walk as the original's (#247, #248, #250, #251, #252); the instruments (#253) stop the townsperson until their feature comes, and a visit to a trader ends at the trader rather than in a house.
+The rolls of the animal, of home, of the partners, of the traders and of the houses, and the children's play, walk as the original's (#247, #248, #250, #251, #252); the jugglers play their instruments (#253), held by the instruments' own sockets; a visit to a trader ends at the trader rather than in a house.
 A townsperson goes in and out of a house by the way through its entrance, not by the door's outer and inner points (`0x43B290`, a table of 94 types not read into the game), and the door neither opens nor closes behind it: the hero passes the doors so too.
 The children do not flee from the Daemon or the Vampiress, the hero cannot shoo them, and they say nothing: the hero's type, its keys and the texts over the creatures are not the AI's yet.
 At a meeting a woman never slaps her partner (the attack's clip in one case of 11, **hypothesis** for its sense): the NPCs' graphs hold no attack's clip yet.

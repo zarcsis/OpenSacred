@@ -14,7 +14,7 @@ use crate::crowd::{Crowd, InTheWay};
 use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
-use crate::npcs::{Door, PutAt, Talks, Walk};
+use crate::npcs::{Door, Plays, PutAt, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
@@ -459,6 +459,7 @@ enum Why {
     GoesOut,
     Wanders,
     PutIn,
+    Juggles,
 }
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
@@ -490,6 +491,8 @@ enum Decision {
     Child,
     /// It goes into the nearest house.
     House,
+    /// A juggler plays its instrument.
+    Juggle,
     Stop,
 }
 
@@ -623,6 +626,7 @@ fn townsperson(
         (1, _, Some((entity, at))) => Decision::Walk(at, Why::Visits, Some(entity)),
         (2 | 3, ..) => Decision::Walk(mind.home, Why::GoesHome, None),
         (4 | 6 | 7, ..) => Decision::House,
+        (9, ..) => Decision::Juggle,
         // An adult's 20 stops (`0x4F231D`).
         (20, ..) if CHILDREN.contains(&mind.creature) => Decision::Child,
         (5 | 8, ..) => {
@@ -1210,6 +1214,14 @@ fn behave(
                         continue;
                     }
                 }
+                Decision::Juggle => {
+                    // Its instrument, if its hands are empty, at random (`0x4F29E2`).
+                    let instrument = usize::try_from(minds.rng.below(4)).unwrap_or(0);
+                    let on = mind.flags & JUGGLER != 0;
+                    debug!("ai: {entity} {:?} {instrument} on {on}", Why::Juggles);
+                    commands.entity(entity).insert(Plays { instrument, on });
+                    continue;
+                }
                 Decision::Stop => {}
             }
         }
@@ -1488,6 +1500,9 @@ mod tests {
         let juggler = Mind::new(home, 0, (true, true), None, SPEEDS, (78, 3));
         assert_eq!(juggler.flags, JUGGLER);
         assert!((0..100).all(|_| roll(&juggler, &mut rng) == 9));
+        assert!((0..100).all(|_| {
+            townsperson(&juggler, Some(wife), Some(pig), None, &mut rng) == Decision::Juggle
+        }));
     }
 
     #[test]
