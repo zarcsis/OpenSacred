@@ -1,7 +1,7 @@
 # Spawning: how the world is peopled
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-20 (#215).
-The record formats are in [docs/02 §7.3](../02-data-formats.md); the record walker in [docs/re/netscript.md](netscript.md).
+The record formats are in [docs/02 §7.3](../02-data-formats.md#73-the-opcode-space-141-and-113); the record walker in [docs/re/netscript.md](netscript.md).
 Status: **confirmed** on the code and on the trees' listings unless marked otherwise.
 
 ## The sectors' functions
@@ -85,9 +85,9 @@ The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; 
 
 ## In `opensacred-game`
 
-The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` records of the sectors' `Init` and `Enter` functions with the start script's (`npcs`, #221): each NPC or object is placed as the sector of its cell comes in and placed again when it comes back, which the original's `Init` creatures, made once, and its `Enter` creatures, made again at each coming, both look like while nothing changes them (no fight, no AI yet); the placed monsters stand idle and, hostile, stop the hero's steps (docs/re/movement.md).
+The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` records of the sectors' `Init` and `Enter` functions with the start script's (`npcs`, #221): each NPC or object is placed as the sector of its cell comes in and placed again when it comes back, which the original's `Init` creatures, made once, and its `Enter` creatures, made again at each coming, both looked like while nothing changed them; since the AI and the fight, a creature killed or moved comes back whole at its place (docs/decisions/2026-10-20-spawning.md, #329); the placed monsters, hostile, stop the hero's steps (docs/re/movement.md).
 In the Seraphim's tree that makes 3,137 NPCs and 3,122 objects over the world, against the start script's 320 and 1,990: the start sector's novices, chicken and rabbit, and the four goblins of 51,39 among them.
-The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for a hero of level 1 and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word; standing idle.
-They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the start script's NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
+The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for the hero's level and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word.
+They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the scripts' NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.
-The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the worn items, the levels, the champions, the groups' alarm and the black riders are not followed (docs/decisions/2026-10-20-spawning.md).
+The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the worn items and the black riders are not followed (docs/decisions/2026-10-20-spawning.md), and the creatures' levels, the fills' bosses and champions and the groups' alarm are in docs/re/fight.md, "In `opensacred-game`".

@@ -42,6 +42,6 @@ The dark elves' blades (`weapon_Dunkelelf_*.grn`) have sockets of scale 0.23 and
 
 ## In `opensacred-game`
 
-`npcs` gives each start script's NPC the items of its record in the client's hands: the item's model goes onto the NPC's bone with the item's socket at that bone, by the socket's position and orientation from the model's root, and wears its item's texture (`items.pak +0x08`).
+`npcs` gives each NPC of the scripts the items of its record, and each of the fills those of its `MakeGroup` rule (docs/re/spawning.md), in the client's hands: the item's model goes onto the NPC's bone with the item's socket at that bone, by the socket's position and orientation from the model's root, and wears its item's texture (`items.pak +0x08`).
 The weapons' kinds come from `Weapon.pak` by the item's slot, which is the weapon record's id (**hypothesis**, docs/02 §6.2).
 The heroes have no equipment yet.

@@ -75,10 +75,10 @@ By the code, the NPCs also take it at the start of the process, before the hero 
 
 ## In `opensacred-game`
 
-`motions` picks a clip as `0x5467A0` does for standing, walking and running, by the table and the fallbacks above, from the slots that the model's file keeps, and the class of what the creature holds as `0x546F80` gives it.
-`npcs` gives each start script's NPC the clip it stands in and, for one that a script sends somewhere, the clip it walks with, by the class of the items in its hands (docs/re/equipment.md); one whose walk falls back to a run moves at its creature's run speed.
-The other cases are not followed: no NPC rides or is mounted yet, and none of the start scripts places a small spider.
+`motions` picks a clip as `0x5467A0` does for standing, walking, running and the attacks (`motions::Slots::attacks`, docs/re/fight.md), by the table and the fallbacks above, from the slots that the model's file keeps, and the class of what the creature holds as `0x546F80` gives it.
+`npcs` gives each NPC of the scripts and the fills the clip it stands in and, for one that a script sends somewhere, the clip it walks with, by the class of the items in its hands (docs/re/equipment.md); one whose walk falls back to a run moves at its creature's run speed.
+The other cases are not followed: no NPC rides or is mounted yet, and the small spider walks by the table.
 The fight stance follows the code (#219): `crowd::Nearest` keeps the distance from the hero to its nearest hostile creature, looked for every 0.3 s in the 3 × 3 sectors about the hero within 1,875 world units (the client's range at 30 frames a second) and kept while none is found, 0 until one is; a creature is hostile there when its flags word has bit 0 or 1 (**hypothesis** for the client's test of hostility to the hero).
 While that distance is below 550, every standing NPC whose model has the stance's slot for what it holds plays its stance (`motions::Slots::stance`, `npcs::stance`), else its idle, the clips blending over 0.15 s; so the NPCs that have one stand in it from the start, as the client's 0 at the start of the process has them (not checked in the game).
 The hero stands in its own stance (its bit `0x8000`, #230) while the last look found a hostile within 350 units, its model's stance for bare hands (the hero holding nothing yet, the bows' 1,000 does not arise), else in its class's idle, blending as its other clips do.
-The hero keeps its class's clips by name (`main.rs`).
+The hero keeps its class's clips by name (`game::Class`).

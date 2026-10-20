@@ -1,6 +1,6 @@
 # The hero's attack, before its levels, skills and weapons
 
-Fight (`opensacred-game`), 2026-10-20 (#283).
+Fight (`opensacred-game`), 2026-10-20 (#283); changed 2026-10-20 (#300).
 
 ## The original
 
@@ -12,8 +12,8 @@ The hero's attack, defence and damage are its stats' recomputation's, with its a
 
 The hero strikes with its bare hands' clips at its attack speed (#306), its strikes on a target chained and growing faster as the original's (#312, **hypothesis**: as the player's held button chains them), without pushing its target; it strikes on until the target dies, which the original's player does by keeping the button held or clicking again (**hypothesis**: the hero's idle handler does not take it back into state 4 by itself).
 A creature is picked within 45 units of the cursor's line of sight, up to 110 over its feet, rather than by its model's shape.
-Its values are its type's record's at level 1, unarmed, with its two skills at level 1 (docs/decisions/2026-10-20-skills.md) and no attribute points or items (#294); its experience grows with its kills and gives it levels (#300, docs/decisions/2026-10-20-levels.md).
+Its values are its type's record's at its level, unarmed, with its two skills at level 1 (docs/decisions/2026-10-20-skills.md) and no attribute points or items (#294); its experience grows with its kills and gives it levels (#300, docs/decisions/2026-10-20-levels.md).
 
 ## Why
 
-The hero's levels, skills, combat arts and items are features of their own (#293, #294, #300); a hero that fights the creatures that come at it, with the original's reach and hits, is what the fight needs next, and the picking by a model's shape needs the models' bounds, which the game does not keep yet.
+The hero's combat arts and items are features of their own (#294); a hero that fights the creatures that come at it, with the original's reach and hits, is what the fight needs next, and the picking by a model's shape needs the models' bounds, which the game does not keep yet.
