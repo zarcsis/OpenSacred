@@ -547,7 +547,7 @@ impl Default for FightRules {
 fn pursue(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
-    hero: Query<(Entity, &Transform), With<Body>>,
+    hero: Query<(Entity, &Transform), (With<Body>, Without<crate::npcs::Dies>)>,
     mut creatures: Query<
         (
             Entity,

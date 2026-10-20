@@ -115,8 +115,9 @@ pub struct Snapshot {
     pub entities: usize,
     /// The health of the creature nearest the hero, its most and its level.
     pub nearest: Option<(u32, u32, u32)>,
-    /// The hero's experience (`fight::Experience`).
+    /// The hero's experience (`fight::Experience`), and its health and most.
     pub experience: Option<u64>,
+    pub health: Option<(u32, u32)>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -201,8 +202,14 @@ impl Snapshot {
                     "nearest creature  health {current}/{most}  level {level}"
                 ));
             }
-            if let Some(experience) = self.experience {
-                lines.push(format!("hero experience {experience}"));
+            match (self.health, self.experience) {
+                (Some((current, most)), Some(experience)) => lines.push(format!(
+                    "hero health {current}/{most}  experience {experience}"
+                )),
+                (None, Some(experience)) => {
+                    lines.push(format!("hero experience {experience}"));
+                }
+                _ => {}
             }
         }
         lines
@@ -226,6 +233,7 @@ pub struct Probe<'w, 's> {
     npcs: Query<'w, 's, (), With<Npc>>,
     healths: Query<'w, 's, (&'static Transform, &'static Health), Without<Body>>,
     experience: Option<Res<'w, Experience>>,
+    hero_health: Query<'w, 's, &'static Health, With<Body>>,
     objects: Query<'w, 's, (), With<Object>>,
     entities: Query<'w, 's, ()>,
 }
@@ -329,6 +337,11 @@ impl Probe<'_, '_> {
                     .map(|(_, health)| (health.current, health.most, health.level))
             }),
             experience: self.experience.as_deref().map(|experience| experience.0),
+            health: self
+                .hero_health
+                .iter()
+                .next()
+                .map(|health| (health.current, health.most)),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies

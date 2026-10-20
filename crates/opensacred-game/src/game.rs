@@ -335,6 +335,15 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         .as_ref()
         .and_then(|slots| slots.stance(0).map(str::to_owned));
     let hits = npcs::hit_fractions(assets);
+    let dying = slots
+        .as_ref()
+        .map(|slots| {
+            [173, 174]
+                .iter()
+                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
     let attacks = slots
         .map(|slots| slots.attacks(0))
         .unwrap_or_default()
@@ -357,12 +366,18 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.stance = stance;
     hero.attacks = attacks;
-    hero.combat = Some(fight::combat(
-        &fight::Base::of(&record),
-        fight::HERO_LEVEL,
-        false,
-        &rules,
+    let base = fight::Base::of(&record);
+    hero.combat = Some(fight::combat(&base, fight::HERO_LEVEL, false, &rules));
+    let most = fight::hero_health(base.attributes, fight::HERO_LEVEL);
+    hero.vitals = Some((
+        fight::Health {
+            current: most,
+            most,
+            level: fight::HERO_LEVEL,
+        },
+        fight::Regenerates::new(fight::regeneration(&base, fight::HERO_LEVEL)),
     ));
+    hero.dying = dying;
     hero.speeds = record
         .speed
         .map(|s| f32::from(s) * iso::MODEL_SCALE * speed);

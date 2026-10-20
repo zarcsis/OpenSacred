@@ -75,7 +75,8 @@ fn from_line(ray: Ray3d, point: Vec3) -> f32 {
 /// cursor; a press elsewhere ends the attack once its strike ends, and steers the hero.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn aim(
     mut commands: Commands,
@@ -85,7 +86,7 @@ fn aim(
     camera: Single<(&Camera, &GlobalTransform)>,
     mut aim: ResMut<Aim>,
     creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
-    mut heroes: Query<(Entity, &Transform, Option<&mut Attack>), With<Body>>,
+    mut heroes: Query<(Entity, &Transform, Option<&mut Attack>), (With<Body>, Without<Dies>)>,
 ) {
     if !buttons.pressed(MouseButton::Left) {
         aim.0 = false;
@@ -141,7 +142,8 @@ fn aim(
 /// at once or in the air is one.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn engage(
     mut commands: Commands,
@@ -149,13 +151,16 @@ fn engage(
     clips: Option<Res<Clips>>,
     speed: Res<GameSpeed>,
     animations: Res<Assets<AnimationClip>>,
-    mut heroes: Query<(
-        Entity,
-        &mut Transform,
-        &mut Body,
-        &mut Attack,
-        Option<&mut Striking>,
-    )>,
+    mut heroes: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Body,
+            &mut Attack,
+            Option<&mut Striking>,
+        ),
+        Without<Dies>,
+    >,
     targets: Query<(&GlobalTransform, &Health), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut hits: MessageWriter<fight::Hit>,
