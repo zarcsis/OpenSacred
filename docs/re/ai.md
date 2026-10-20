@@ -37,12 +37,13 @@ A hostile one, in one case of six and where its home's cell lacks bit 2 of its f
 
 ## The peaceful creatures' behaviours
 
-A peaceful creature awake takes the behaviour of its flags (AI 2, `0x4EF150`), run again at every frame while it stands, so that its chances below are a frame's (1 in 101, about every 3.4 s at 30 frames a second):
+A peaceful creature awake takes the behaviour of its flags (AI 2, `0x4EF150`), run again at every frame while it stands, so that its chances below are a frame's (1 in 101, about every 3.4 s at 30 frames a second).
+Its distances to the hero and to the others are straight lines (`0x5370B0`, which caps them at 32,000), not along the grid's axes as the idle creatures' (`0x542B20`):
 
 - wild animals (`0x40`, `0x80`): dormant again farther than 1,500 from the hero (the timer set by the distance); they flee at a run from the nearest creature of their sector of a class other than 4 and 6, the hero among them, within 300 (800 if it attacks), and the flyers take off; farther than 380 from home along an axis they walk back within 50 of it; and by chance, or when their cell is crowded, they walk to a point within 100 of home;
   the flight goes, along each axis of the grid, away from the one feared by a number at random between half and twice the distance from it along that axis, and across by one between minus and plus half the distance along the other (`0x443B20` gives a whole number at random between two, both included); a flyer on the ground within 200 of it takes off instead (`+0x1F4` bit `0x200000`, the run's gait 1), its target scaled by 400 (**hypothesis**: 400 away along the line from the one feared);
 - farm animals (`0x10`, `0x20`): dormant again farther than 1,500; they step away from a creature other than an animal within 200 (800 if it attacks), to the point beyond themselves; and by chance, or crowded, they walk to a point within 150 of home;
-- guards (`0x4000`): dormant again farther than 1,500; by night those of an odd id take a torch; they attack a foe within 500; farther than 90 from their post along an axis they go back, and by chance they stroll within 200 of it;
+- guards (`0x4000`): dormant again farther than 1,500; by night those of an odd id take a torch (type `0x1600`, in the slot 12; by day they put it away); they attack a foe within 500; else by chance one without a partner strolls to a point within 200 of its post along each axis, from wherever it stands, and otherwise it walks back to its post from farther than 90 along an axis, so that a stroll that ends beyond 90 brings it straight back;
 - the flags `0x800` and `0x1000`: the creature stands;
 - the townsfolk (`0x8`, `0x400`): while it stands, a roll of 26 sends it to follow or talk to a partner (`+0x251`), to an object near, home, to the sector's nearest waypoint of a road (`0xAAD2C8`), to juggle (the jugglers), to wait, or to stop; children play within 800 of home; at dusk and by night they carry torches and go into the houses through their doors (not read in detail; **hypothesis**: those far from the hero are put in a house).
 
@@ -72,5 +73,7 @@ The hostile ones of `CreateNPC` wake as they are made and look every 2.5 s, the 
 The idle action's step walks a creature (`npcs::Walk`, at its walk speed and with its walk clip) to a point within 150, home in one case of four, or, made by an `Enter` function, turned about the hero, its home and its group's members moving with it.
 The fight is not followed: an awake hostile creature, in one case of six, walks home from farther than 200, else in one case of three takes the idle action (docs/decisions/2026-10-20-idle.md); the fidgets are left out.
 The animals take their behaviours (#238): a fill's peaceful creature its type's flags (`ai::of_type`), an `Enter` function's creature without flags those of its first update; awake, a wild one runs (`npcs::Walk::run`, at its run speed and with its run clip) from the nearest creature of its sector neither of class 4 nor 6, the hero among them, within 300, walks back within 50 of home from farther than 380, and strolls within 100 of home; a farm one steps away to the point beyond itself from such a creature within 200 and strolls within 150 of home; the strolls come as a rate, 30 in 101 a second (docs/decisions/2026-10-20-animals.md).
-The guards' behaviour waits for #239, the crowded cells and the hero's way for #240, the townsfolk for #241.
+The guards keep their posts (#239): awake, a guard strolls within 200 of its post at the same rate, and otherwise walks back to it from farther than 90 along an axis; the torches wait for the lights in hand (#61), the attacks for the fight (docs/decisions/2026-10-20-guards.md).
+A creature of a behaviour goes dormant again farther than 1,500 from the hero in a straight line.
+The crowded cells and the hero's way wait for #240, the townsfolk for #241.
 The quests' NPCs that a script sends somewhere walk there first (docs/decisions/2026-10-19-quest-npcs.md).
