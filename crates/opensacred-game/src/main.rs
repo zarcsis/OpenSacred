@@ -2,6 +2,7 @@
 //! `assets/`. The start of M2 (PLAN.md §10, step 7): the original's isometric view of one
 //! sector's ground and the hero model with an animation, at any resolution.
 
+mod ai;
 mod atmosphere;
 mod benchmark;
 mod blended;
@@ -204,6 +205,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     // module, in alphabetical order.
     // Bevy takes 15 plugins at a time.
     .add_plugins((
+        ai::AiPlugin,
         atmosphere::AtmospherePlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
@@ -218,9 +220,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
-        journal::JournalPlugin,
     ))
     .add_plugins((
+        journal::JournalPlugin,
         liquids::LiquidsPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
@@ -235,9 +237,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
         srgb::SrgbPlugin,
-        statics::StaticsPlugin,
     ))
-    .add_plugins(terrain::GroundPlugin)
+    .add_plugins((statics::StaticsPlugin, terrain::GroundPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
