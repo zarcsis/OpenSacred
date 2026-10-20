@@ -104,8 +104,9 @@ struct Placement {
     texture: Option<String>,
     /// The position's third number, the layer.
     layer: i32,
-    /// The items an NPC holds.
+    /// The items an NPC holds, and their types, in the hands.
     equipment: Vec<Held>,
+    items: Vec<u32>,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
     /// Whether it stops the NPCs' steps into its cell, an object of category 4 (`0x4F7E10`
@@ -256,8 +257,9 @@ pub struct Npcs {
     /// Each creature type's `Creature.pak` class, which picks a fill's factor.
     classes: HashMap<u32, u8>,
     factors: spawning::Factors,
-    /// The balance's values of the creatures' fight.
+    /// The balance's values of the creatures' fight, and the templates of the items' values.
     fight: fight::Rules,
+    items: fight::Templates,
     /// The weapon pools, the sectors' `MakeGroup` rules, what each pool's item is in a hand, and
     /// the templates' models' clips by slot, which give the fills' creatures their items and the
     /// clips of what they hold ([`gear_of`]).
@@ -666,7 +668,7 @@ fn gear_of<'a>(
     pools: &HashMap<i32, Vec<u32>>,
     gear: &'a HashMap<u32, Gear>,
     rng: &mut spawning::Rng,
-) -> Vec<&'a Gear> {
+) -> Vec<(u32, &'a Gear)> {
     let Some(rule) = rules.iter().find(|r| r.types.contains(&creature)) else {
         return Vec::new();
     };
@@ -681,14 +683,14 @@ fn gear_of<'a>(
         other => other,
     });
     let second = roll(rule.items[1]);
-    let first = first.and_then(|item| gear.get(&item));
+    let first = first.and_then(|item| Some((item, gear.get(&item)?)));
     let second = second
         .filter(|_| {
-            first.is_some_and(|g| {
+            first.is_some_and(|(_, g)| {
                 g.category == WEAPON && !g.kind.is_some_and(|k| ONE_ITEM.contains(&k))
             })
         })
-        .and_then(|item| gear.get(&item));
+        .and_then(|item| Some((item, gear.get(&item)?)));
     first.into_iter().chain(second).collect()
 }
 
@@ -972,6 +974,15 @@ impl Npcs {
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        // The templates of the items' values (`wpmod.bin`), none where they cannot be read.
+        let modifiers: Vec<opensacred_data::tables::WeaponModifier> = fs::read_to_string(
+            assets
+                .join("tables")
+                .join(opensacred_data::tables::WEAPON_MODIFIERS),
+        )
+        .ok()
+        .and_then(|text| ron::from_str(&text).ok())
+        .unwrap_or_default();
         let weapons: Vec<Weapon> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         // A weapon's kind, by its type, which is its item's slot (docs/02 §6.2).
@@ -1027,6 +1038,13 @@ impl Npcs {
                         shield: category(item) == SHIELD,
                     })
                 })
+                .collect();
+            // The types of the items in its hands, whose values it fights with.
+            let held_items: Vec<u32> = equipped
+                .iter()
+                .zip(hands(&categories))
+                .filter(|(_, hand)| hand.is_some())
+                .map(|(item, _)| item.slot)
                 .collect();
             // An NPC sent somewhere at the start walks there from where it was made.
             let target = name_of(ops).and_then(|name| targets.get(&name).copied());
@@ -1142,6 +1160,11 @@ impl Npcs {
                 } else {
                     Vec::new()
                 },
+                items: if record.kind == CREATE_NPC {
+                    held_items
+                } else {
+                    Vec::new()
+                },
                 clips,
             });
         }
@@ -1207,6 +1230,7 @@ impl Npcs {
                     },
                     layer: 0,
                     equipment: Vec::new(),
+                    items: Vec::new(),
                     clips: ClipNames {
                         stand: clip(motions::Action::Stand),
                         walk: clip(motions::Action::Walk),
@@ -1268,6 +1292,7 @@ impl Npcs {
             classes,
             factors: factors(balance.as_ref()),
             fight: fight::Rules::of(balance.as_ref()),
+            items: fight::Templates::new(&modifiers, &weapons),
             rules: rules(&tree),
             pools,
             gear,
@@ -1349,7 +1374,7 @@ pub fn place(
                 &heights,
                 &states,
                 &assets,
-                (level, &npcs.fight),
+                (level, &npcs.fight, &npcs.items),
             );
             streamer.adopt(at, entity);
         }
@@ -1395,9 +1420,16 @@ pub fn place(
                 let gear = gear_of(rules, made.creature, &npcs.pools, &npcs.gear, &mut rng);
                 if !gear.is_empty() {
                     let categories: Vec<(u8, Option<u8>)> =
-                        gear.iter().map(|g| (g.category, g.kind)).collect();
+                        gear.iter().map(|(_, g)| (g.category, g.kind)).collect();
+                    placement.items = gear
+                        .iter()
+                        .zip(hands(&categories))
+                        .filter(|(_, hand)| hand.is_some())
+                        .map(|((item, _), _)| *item)
+                        .collect();
                     placement.equipment = gear
                         .iter()
+                        .map(|(_, g)| *g)
                         .zip(hands(&categories))
                         .filter_map(|(g, hand)| {
                             Some(Held {
@@ -1449,7 +1481,7 @@ pub fn place(
                     &heights,
                     &states,
                     &assets,
-                    (level, &npcs.fight),
+                    (level, &npcs.fight, &npcs.items),
                 );
                 streamer.adopt(at, entity);
             }
@@ -1468,8 +1500,9 @@ fn spawn(
     heights: &Heights,
     states: &buildings::Buildings,
     assets: &AssetServer,
-    // The creature's level, and the balance's values of its fight.
-    (grade, rules): (u32, &fight::Rules),
+    // The creature's level, the balance's values of its fight, and the templates of the items'
+    // values.
+    (grade, rules, templates): (u32, &fight::Rules, &fight::Templates),
 ) -> Entity {
     let (x, y) = placement.cell;
     let mut position = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
@@ -1575,10 +1608,21 @@ fn spawn(
         let armed = placement.held != 0 || right;
         let two = placement.held == 8 || (right && holds(Hand::Left, Some(false)));
         let skills = fight::skills(&placement.base, grade, false);
+        // The values of its items, made at its level (`0x5D5080`), the same each time it is
+        // made.
+        let mut dice = spawning::Rng::of(x, y, usize::try_from(creature).unwrap_or(0));
+        let mut made = placement
+            .items
+            .iter()
+            .map(|&item| templates.make(item, grade, &mut dice));
         let held = fight::Holds {
             weapon: armed,
             shield: holds(Hand::Left, Some(true)),
+            items: [made.next().flatten(), made.next().flatten()],
         };
+        for (item, values) in placement.items.iter().zip(held.items.iter().flatten()) {
+            bevy::log::debug!("npcs: {creature} holds {item}: {values:?}");
+        }
         entity.insert((
             fight::combat(&placement.base, grade, held, &skills, rules),
             fight::Worth(placement.base.experience),
@@ -2767,10 +2811,10 @@ mod tests {
         ]
         .into();
         let mut rng = spawning::Rng::of(48, 39, 0);
-        let kinds = |items: Vec<&Gear>| {
+        let kinds = |items: Vec<(u32, &Gear)>| {
             items
                 .iter()
-                .map(|g| (g.category, g.kind))
+                .map(|(_, g)| (g.category, g.kind))
                 .collect::<Vec<_>>()
         };
         // The first rule that names 306 wins: a bow alone.
