@@ -18,8 +18,10 @@ No networking: no server, multiplayer or lobby. Original save files are not load
 |---|---|
 | M0 Foundation: Cargo workspace, CI, the SHA-256 manifest of the reference installation | done |
 | M1 Converter: textures, Granny models and animations → glTF, world sectors, sound, texts, videos, interface, tables, hero templates, scripts | done |
-| M2 Vertical slice: streamed sectors with ground, water and objects, the hero walking and running, the start script's NPCs, footsteps, music and ambience, the original's cursor | in progress |
-| M3–M6: rules, quests, the full interface, version 1.0 for Windows 11 | planned |
+| M2 Vertical slice: streamed sectors with ground, water and objects, the hero walking and running, the start script's NPCs, footsteps, music and ambience, day and night, the buildings' insides, the original's cursor; menus, settings, a console and remote control | done |
+| M3 Rules: the Ghidra project; the world's creatures spawned and living as in the original; the fight of the creatures and the hero, health, death, experience and levels | in progress |
+| M4 Quests and world: the townsfolk's day, the doors | started |
+| M5–M6: the full interface, version 1.0 for Windows 11 | planned |
 
 It is not a game you can play through yet. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10.
 
@@ -43,10 +45,10 @@ cd OpenSacred
 # or pass --game-dir <path> to every converter command.
 cargo run --release -p opensacred-convert -- verify   # check the installation against the manifest
 cargo run --release -p opensacred-convert -- all      # convert everything into assets/ (ignored by Git)
-cargo run --release -p opensacred-game                # the game: the left mouse button moves, R walks/runs, the wheel zooms
+cargo run --release -p opensacred-game                # the game, from its menu: the left button moves and attacks, R walks/runs, the wheel zooms, Esc pauses, F1 lists the keys
 ```
 
-The converter's commands: `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes`, `netscript`, `all` (every conversion in order, skipping those whose output is up to date; `--force` runs them all) and `coverage` (what becomes of each file of the installation). `--help` describes each. The game takes `--class`, `--sector X,Y`, `--zoom`, `--width`/`--height` and `--no-music`.
+The converter's commands: `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes`, `netscript`, `all` (every conversion in order, skipping those whose output is up to date; `--force` runs them all) and `coverage` (what becomes of each file of the installation). `--help` describes each. The game takes `--class` (a game at once, skipping the menu), `--sector X,Y`, `--zoom`, `--time HH:MM`, `--windowed`/`--borderless`, `--width`/`--height`, `--no-music`, `--screenshot`, `--exec` and `--remote`; its `--help` lists the rest.
 
 The converted assets are made from your copy of the game. Keep them for yourself: do not publish or share them (see [docs/08-risks-legal.md](docs/08-risks-legal.md)).
 
@@ -59,7 +61,7 @@ The converted assets are made from your copy of the game. Keep them for yourself
 | `crates/opensacred-convert` | the converter CLI |
 | `crates/opensacred-game` | the game on Bevy |
 | `docs/` | design documents, format descriptions, recovered behavior |
-| `tools/` | Python research scripts: the reference prototypes for the Rust readers |
+| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, and the process scripts (usage, stacked pull requests) |
 
 ## Tests
 
@@ -87,7 +89,7 @@ The full index is in [PLAN.md](PLAN.md), §14.
 
 ## Contributing
 
-Work goes through [issues](https://github.com/zarcsis/OpenSacred/issues) and pull requests. Open an issue from the form of its type (bug, feature, research, dependency, infrastructure, documentation), branch from `main`, and open a pull request from the template; it is merged once the checks on Linux and Windows are green and the maintainer has looked at it. CI has no game files, so run the tests on your own installation (`cargo nextest run --workspace --run-ignored all`) before opening it. The process is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
+Work goes through [issues](https://github.com/zarcsis/OpenSacred/issues) and pull requests. Open an issue from the form of its type (bug, feature, research, dependency, infrastructure, documentation), branch from `main`, and open a pull request from the template; it is merged once the checks (Linux, Windows, cargo deny) are green and the maintainer has looked at it. CI has no game files, so run the tests on your own installation (`cargo nextest run --workspace --run-ignored all`) before opening it. The process is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
 
 ## License
 

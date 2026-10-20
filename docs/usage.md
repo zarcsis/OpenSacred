@@ -38,7 +38,7 @@ The description can be edited after the merge, so the figures include the CI, th
 
 ## Sessions before per-pull-request tracking
 
-One row per session, from 2026-10-16 to 2026-10-17, each recorded through a pull request of its own.
+One row per session, from 2026-10-16 to 2026-10-17, recorded before the pull requests carried their own usage (the last two through #10 and #15).
 
 | Date | Task | Model | Agent-hours | Tokens, M (input / output / cache) | Cost at API prices, $ |
 |---|---|---|---|---|---|

@@ -3,7 +3,7 @@
 The main plan document.
 The project's goal is to **play Sacred Gold 2.28 (GOG) comfortably on modern hardware**: Windows 11 x64 at 4K, later Linux, possibly Android and the Chrome browser (WebAssembly).
 The tools work on the user's own GOG installation; the repository holds no game files (§12).
-This document is self-contained; details are in `docs/01…09`, analysis scripts in `tools/` ([description](tools/README.md)).
+This document is self-contained; details are in `docs/01…10`, analysis scripts in `tools/` ([description](tools/README.md)).
 
 Claim status is marked with the words **confirmed** (verified on GOG release files with a script or a disassembler), **community-reported** (not verified on a file), **estimate** (model calculation) and **hypothesis**.
 
@@ -49,8 +49,8 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 
 | # | Goal | Criterion |
 |---|---|---|
-| G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives 305 files converted and 37 skipped with a reason, none left; tables and hero files keep the fields not yet understood as raw spans |
-| G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC |
+| G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; tables and hero files keep the fields not yet understood as raw spans |
+| G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors (docs/05 §3.6) |
 | G3 | Game rules | Combat, attributes, skills, items and loot work by the recovered formulas; deviations from the original are deliberate and recorded |
 | G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish |
 | G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings, gamepad; 4K and HiDPI; a playthrough without critical bugs |
@@ -85,7 +85,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-01 Goal | A playable modern reimplementation on the original's converted assets, inspired by the original, not an exact copy | Requirement (§1.1); removes the most expensive requirements (matching, determinism, save compatibility) |
 | ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.99.1) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
-| ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine | Pure Rust, everything in code and text, which suits Claude Code; Vulkan, WebGPU and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
+| ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (not created yet: on 2026-10-20 the rules followed so far live in `opensacred-game`, #328) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan, WebGPU and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
 | ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI): textures → PNG + KTX2, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound → FLAC/Ogg Vorbis (MP3 as is), video → AV1 via FFmpeg, scripts → intermediate representation (IR) | Requirement (§1.1); open formats can be checked with third-party tools (Blender, glTF-Validator) and suit HD packs |
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
 | ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder, the HTML video element in the browser | Everything is free and builds for Windows, Linux, Android and WebAssembly |
@@ -130,6 +130,7 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 5. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
+   Status 2026-10-20: neither `opensacred-rules` nor `opensacred-oracle` is created yet, and there are no vectors; the rules read so far (the fight, the creatures' AI, the spawning, the levels) are implemented as Bevy systems in `opensacred-game`, and the checks of them in the original are gathered in #227 (#328).
 6. **Nothing from the study is committed.**
    The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
@@ -212,10 +213,13 @@ OpenSacred/
 │  ├─ opensacred-formats/     reading the original formats (PAK, TEX, GRN, sectors, NetScript, global.res, AMH templates)
 │  ├─ opensacred-convert/     CLI: OriginalGame → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, all, coverage)
 │  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
-│  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, quests, script VM
+│  ├─ opensacred-rules/       (not created yet, #328) game rules without the engine: character, combat, items, AI, quests, script VM
 │  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves
-│  └─ opensacred-oracle/      (development only, run locally) runs functions of the user's own Sacred.exe in Unicorn, records vectors
+│  └─ opensacred-oracle/      (not created yet; development only, run locally) runs functions of the user's own Sacred.exe in Unicorn, records vectors
 ├─ tools/analysis/            Python research scripts (archive, gradually replaced by Rust)
+├─ tools/ghidra/              scripts of the local Ghidra project (classes, names, library marks)
+├─ tools/game/                the game's remote-control client
+├─ tools/usage/  tools/stack/ the process: Claude Code usage per pull request, stacked pull requests
 ├─ docs/                      plan, format specifications, prose notes on the original's behavior (docs/re/), decision log
 ├─ assets/  assets-hd/        generated locally, in .gitignore
 └─ OriginalGame/              the user's GOG installation (git-ignored)
@@ -236,6 +240,8 @@ OpenSacred/
 Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quest script interpreter.
 The layer is tested without graphics.
 The Bevy layer calls it through a thin ECS adapter.
+Status 2026-10-20: the crate is not created yet.
+The rules followed so far (the fight, the creatures' AI, the spawning, the levels) live in `opensacred-game` (`ai.rs`, `fight.rs`, `attack.rs`) as Bevy systems; whether and when their engine-free parts move here is #328.
 
 ## 7. Asset converter
 
@@ -243,18 +249,18 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 
 | Source | Target | How it is checked |
 |---|---|---|
-| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 (master) + KTX2 with BC7 for PC and ASTC/UASTC for Android and the web | pixel comparison with a reference decoder; viewing |
+| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 (master) + KTX2 with BC7 for PC and ASTC/UASTC for Android and the web; 2026-10-17: PNG only, KTX2 waits for the game to need it | pixel comparison with a reference decoder; viewing |
 | Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | rendering a test sector |
 | `models.pak` (Granny 1.2b) | glTF 2.0 (`.glb`): meshes, skeletons, weights, materials | glTF-Validator, Blender, an in-game screenshot test |
 | Granny animations | glTF clips; the Bip01 bone names are kept so that clips fit models with the same skeleton | visual check, comparing poses in key frames |
-| World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard, zstd compression) + RON descriptions | loading all 6,050 sectors, checksums |
+| World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard in a zlib stream) + RON descriptions | loading all 6,050 sectors, checksums |
 | `Items.pak`, `Creature.pak`, `Weapon.pak`, `bin/*.bin` | RON tables with a typed schema; done 2026-10-17 (`tables/`), the fields of unknown meaning as spans named by offset | reading back, comparing fields with the source |
 | `global.res` | Fluent (`.ftl`) + a map of hash identifiers | all 23,123 strings present |
 | NetScript (`bin/**`) | an intermediate representation + a readable listing; done 2026-10-17 as one postcard file per tree with a RON index (RON for 2.2 million records would take hundreds of MB), the listing on request | the disassembler gets through 20 directories with no unknown records: met 2026-10-17 |
 | `sound.pak`, `sndProfiles.pak` | WAV (PCM and IMA ADPCM) → FLAC; MP3 entries unchanged; profiles in RON | listening to a sample, durations |
 | `mp3/*.mp3` | unchanged (MP3 is patent-free and decoded by Symphonia) or Ogg Vorbis | playback |
 | `movie/*.wmv` | AV1 + Opus in WebM via FFmpeg | playback in the game and in the browser |
-| `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters | rendering all strings |
+| `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters (the fallback not added yet) | rendering all strings |
 | `Templates/*.ptx` | hero starter kits in RON; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, until their layout is recovered | character creation |
 
 Principles: the converter is deterministic and incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
@@ -293,6 +299,8 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 * **Calibration on this project:** the planning-phase research took 16 agents, 1,502 tool calls, ≈4 hours and 5.1M tokens by the orchestrator's counter.
   A later revision of the documents took 32 agents, ≈1.5 hours, 6.6M tokens.
   What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
+  By 2026-10-20 the README's badge summed 4.15B tokens, ≈$1.2k at API prices: ≈37 agent-hours in 152 pull requests and 12.7 in the sessions before, about $24 per agent-hour, above the model's $8–18 (the subagents' time is not counted).
+  The recomputation of §9 from these figures is due on 2026-11-15, 30 days after 2026-10-16.
 
 ### 9.2 Milestones
 
@@ -334,7 +342,8 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Since 2026-10-17 it lists 319 files: the files the game writes (`Gameserver.cfg`, the saves of `save/`, the `DefPos.bin` caches) were removed, like `Settings.cfg` before them (docs/02 §13).
 3. Moved to the start of M3 on 2026-10-16: install Ghidra 12.1.4, load the GOG `Sacred.exe` and `GameServer.exe`, import the community names, connect GhidraMCP or pyghidra-mcp to Claude Code.
    M1 and M2 work from the data and the community format descriptions; if a format question needs the original's code, Ghidra is installed earlier.
-   Done 2026-10-18, ahead of M3: Ghidra 12.1.4 on Temurin 25, pyghidra-mcp connected to Claude Code, `Sacred.exe` and `GameServer.exe` imported and analyzed (docs/03 §3.2); the community names, the classes from RTTI and the marking of the library code remain (docs/03 §4.1, #88).
+   Done 2026-10-18, ahead of M3: Ghidra 12.1.4 on Temurin 25, pyghidra-mcp connected to Claude Code, `Sacred.exe` and `GameServer.exe` imported and analyzed (docs/03 §3.2).
+   On 2026-10-19 the rest followed (#88, #137, docs/03 §4.1): 410 classes from RTTI by `RttiClassesScript`, 137 functions named and 37 addresses labeled from sacred-bild and sacred-sdk, the library code tagged by `MarkLibraryScript`, and 1,546 functions matched between `Sacred.exe` and `GameServer.exe` by `CarryNamesScript`; the scripts are in `tools/ghidra/`.
 4. **M1, textures.**
    Done 2026-10-16.
    The `opensacred-formats` crate got a shared PAK reader and a TEX decoder.
@@ -369,19 +378,19 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Later that night: soft shadows under the characters; walking at the creature's walk speed (`R` toggles it); the client's names of the sound ids and of the profiles' groups, which make the music profile's group 0 the peace music, and its choice of the ambient loop by the ground, both playing (docs/re/sound.md); the cells' natures named by the client (docs/02 §5.2); a minimal HUD (the portrait, a health bar, the gait) and the original's cursor; the start script's 1,990 objects (barrels, chests, book stands) placed like its NPCs, and the NPCs facing their headings the client's way; the draw lists 0, 2 and 4 by the type's flags and the object's mask (world format version 3); and the screenshot test of a synthetic scene, rendered without a window, which CI runs on lavapipe (docs/05 §7).
    Fixed: the hero's clips went to the NPCs' animation players too, so the hero stopped switching clips once their models loaded.
    On 2026-10-18 the NPCs took up their weapons and shields in the hands the client gives them (#4, docs/re/equipment.md).
-   Next: the issues of the M2 milestone (the frame time spikes #2, the roofs and walls in front of the hero #3, day and night #5, the regions' music #6).
+   Done 2026-10-18 and 2026-10-19 in some hundred pull requests (#19–#164): the frame time spikes (#2), the roofs and walls in front of the hero (#3), day and night with the night's lights (#5), the regions' music (#6), the buildings' insides and upper floors, the trees fading about the hero, and the NPCs walking where the scripts send them.
 8. Usage tracking: done 2026-10-16, per pull request since 2026-10-17 (#16).
    Every pull request's description carries its Claude Code usage (agent-hours, tokens and their hypothetical cost at API prices, §9), which `tools/usage/pr_usage.py` computes from the transcripts' messages on its branch; the README's badge sums them with the sessions recorded before in `docs/usage.md`.
    After 30 days, the §9 estimates are recomputed from the actual agent-hours.
 9. Issues and pull requests: done 2026-10-17 (#1).
-   Every change reaches `main` through a squash-merged pull request with green checks on Linux and Windows; Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the guardrails, the rules, the process, the licenses, the deviations from the original that can change the play seriously or carry legal consequences, the screenshot references, and contributors' work).
+   Every change reaches `main` through a squash-merged pull request with green checks (Linux, Windows, cargo deny); Claude Code merges, except the pull requests that wait for the maintainer (`needs-maintainer`: the guardrails, the rules, the process, the licenses, the deviations from the original that can change the play seriously or carry legal consequences, the screenshot references, and contributors' work).
    The dependencies are updated at most once a day, in an auto-merged pull request.
    The process is in docs/03 §3.6.
 10. **M2, tools to test and drive the game.**
-    Planned 2026-10-19 (#165): every option of the game is a command line flag read before Bevy starts, so the hero is fixed for the process and each change is a restart.
+    Planned 2026-10-19 (#165), when every option of the game was a command line flag read before Bevy started, so the hero was fixed for the process and each change was a restart.
     The plan, in [docs/10](docs/10-game-tools.md): settings in `%APPDATA%\OpenSacred\settings.toml` with borderless full screen by default and F11 for a window (#167); the HUD's portrait, health bar and gait removed (#168); the log on F4 and in a file (#169); a debug overlay on F3 (#170); the game's states, so that a game starts and ends inside the process (#171); a main menu with the choice of the hero (#172) and a pause menu on Esc (#178); one set of commands for the command line's scripts (#173), the console on `~` (#174) and remote control over Bevy's Remote Protocol (#175); and a project skill or an MCP server through which Claude Code drives the game (#176).
     ≈10–20 agent-hours (estimate).
-    Done the same night in ten pull requests of the game (#183–#193) and this skill's: the game opens on its menu, borderless, and a game starts and ends inside the process; the console and `--exec` scripts run the game's commands, and Claude Code drives a game started with `--remote` through `tools/game/remote.py` (docs/03 §3.7, the skill `game`).
+    Done the same night in ten pull requests of the game (#183–#193) and the skill's (#194): the game opens on its menu, borderless, and a game starts and ends inside the process; the console and `--exec` scripts run the game's commands, and Claude Code drives a game started with `--remote` through `tools/game/remote.py` (docs/03 §3.7, the skill `game`).
     Pasting into the console followed once the maintainer allowed BSL-1.0, the licence of the clipboard's Windows backend (#189).
 11. **M2 into M3: the walk and the start's world.**
     The night of 2026-10-20, with the queue of M2 run out but for what waits on later milestones, the research and the features went on in some twenty pull requests (#205–#231), the code's reading shared with subagents of the session:
@@ -391,30 +400,34 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     the chests' cells, closed by the scripts' trigger patches rather than by their objects (#211, #216);
     the world peopled as the original peoples it, by the sectors' `Init` and `Enter` script functions and their `FillSector` records (#215, #221, #222: the start's novices and animals, rabbits about it, goblins and thieves placed, bandits further out), standing idle, hostile ones in the hero's way;
     and the fight stance, which the NPCs take by the distance of the hero's nearest hostile and the hero by its own (#155, #219, #230).
+    Their departure is docs/decisions/2026-10-20-spawning.md.
     The rules read off the code and not yet seen in the original are gathered for the maintainer in #227.
-    Next: the creatures' items and packs (#228, #229) and their life while no foe is near (#232), before their fight.
+    Then (item 12): the creatures' items and packs (#228, #229) and their life while no foe is near (#232), before their fight.
 12. **M3 into M4: the creatures' life.**
     The same night went on in some twenty more pull requests (#235–#271), the research shared with subagents of the session:
     the fills' creatures in their packs and with their `MakeGroup` items (#228, #229);
     the creatures' life while no foe is near, read off the code (#232, docs/re/ai.md): they wake by their timers and the hero's look and step about (#237), the animals flee and stroll (#238), the guards keep their posts (#239), and the crowded ones part and step aside for the hero (#240), a walk that cannot start standing a second (#258);
     and the townsfolk's day, read (#241) and followed in the sub-issues of #255 (#247–#254): they roll at the hero's looks within the zoom's range, walk home, to the animals, the traders and their partners, and meet them; the children play and gather about the hero; the jugglers play their instruments; they run from danger and from the Daemon (#269); and at dusk and by night the town goes into its houses.
-    Their departures are docs/decisions/2026-10-20-animals.md, -guards.md, -crowds.md and -townsfolk.md; the checks for the maintainer are added to #227.
-    Next: the doors that open and close (#268) and the lines over the creatures (#270), then the fight's rules (M3), which the creatures' attacks, the guards' torches (#61) and the danger of a fight wait for.
+    Their departures are docs/decisions/2026-10-20-animals.md, -idle.md, -guards.md, -crowds.md and -townsfolk.md; the checks for the maintainer are added to #227.
+    Then the doors that open and close (#268) and the lines over the creatures (#270), done in #274 and #275, and the fight's rules (item 13), which the creatures' attacks, the guards' torches (#61) and the danger of a fight wait for.
 13. **M3: the fight.**
-    The rest of the night of 2026-10-20 read the fight off the code (#276, #281, #294, #300; docs/re/fight.md, docs/re/items.md) and followed it in some twenty pull requests (#286–#313), the sub-issues of #285, the research shared with subagents of the session:
+    The rest of the night of 2026-10-20 read the fight off the code (#276, #281, #294, #300, #316; docs/re/fight.md, docs/re/items.md) and followed it in some twenty pull requests (#286–#319), the sub-issues of #285, the research shared with subagents of the session:
     the balance's rows by the difficulty (#277) and the creatures' health by their levels (#278);
     the hostile creatures coming at the hero and keeping the band of their reach (#279), striking with their attack clips at their attack speed (#280, #306), their hits resolved by the chance of attack against defence, the damage against the resistances and the damping, the number over the target, and death (#282);
     an NPC's attack, defence, damage and resistances by its attributes, its level, its bonuses and its skills (#281, #293), and an armed one's by its weapon, made by its template (#294, #309);
     the hero attacking at a click, its strikes chained faster (#283, #312), taking the creatures' hits by bronze's factors, regenerating, falling and rising at the start (#292), and gaining levels by its kills' experience (#300);
-    the wounded creatures fleeing and the far ones going home (#304); each hero at its own speed (#298), and the creatures' lines over them in a tall window (#296).
-    Their departures are docs/decisions/2026-10-20-health.md, -pursuit.md, -hits.md, -hero-attack.md, -hero-health.md, -skills.md, -levels.md and -weapons.md; the checks for the maintainer are added to #227.
-    Next: the doors in the way, the places about the hero, the archers, the bosses and the champions (#284); the hero's items and its character sheet come with the interface.
+    the wounded creatures fleeing and the far ones going home (#304); the bosses and the champions (#316, #318); each hero at its own speed (#298), and the creatures' lines over them in a tall window (#296).
+    Their departures are docs/decisions/2026-10-20-health.md, -pursuit.md, -hits.md, -hero-attack.md, -hero-health.md, -skills.md, -levels.md, -weapons.md and -bosses.md; the checks for the maintainer are added to #227.
+    Next: the doors in the way, the places about the hero and the archers (#284), the last open sub-issue of #285; the hero's items and its character sheet come with the interface.
+14. **The documents against the code.**
+    On 2026-10-20 the documents were audited against the code, the issues and the pull requests (#321–#325), and the problems found were filed as issues of their own (#326–#333).
+    Among them: the rules live in `opensacred-game`, with no `opensacred-rules` or `opensacred-oracle` yet (#328); a creature killed or moved comes back whole with its sector (#329); and the game's zoom number is the inverse of the original's (#330).
 
 ### 10.1 Priority queue
 
 Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M8 of §9.2 are GitHub milestones.
 Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
-The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-17 there were none: all 15 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable.
+The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-20 there were none: all 17 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable.
 
 ## 11. Top risks
 
