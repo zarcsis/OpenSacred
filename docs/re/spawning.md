@@ -59,7 +59,21 @@ A black rider's horse (261) brings its rider (256), hostile, a boss, with a shor
 ## `MakeGroup`
 
 `MakeGroup` (type 115, `0x4AB940`) is not a group of creatures but a rule of their equipment: its record adds an entry of `0xA0` bytes, up to 20 creature types (`02`), three items each by a pool and a chance in percent (`87`, `88`, `89`), a byte for the item maker (`8B`), a name (`1D`, `1E` or `16`) and up to ten spells (`67`), of which a creature takes one at random (`+0x2B6`, `+0x261`).
-Its one reader is `0x47F8E0`, which `FillSector` calls for each creature it makes of those types; the items come from the start script's `Waffenpool` pools (type 114: a pool and an item; its handler not read).
+Its one reader is `0x47F8E0`, which `FillSector` calls for each creature it makes of those types; the items come from the start script's `Waffenpool` pools.
+
+Read 2026-10-20 (#228):
+
+- `Waffenpool` (type 114, inline in the record walker at `0x475F1A`) adds its record's last `02` item to its `0B` pool (0 to 254) of the interpreter (`+0x448 + pool · 0xC`), duplicates kept, so a repeated item weighs more; the Seraphim's start script makes 114 pools of 1 to 32 items (706 weapons, 158 pieces of armour, 38 shields, 2 helmets, 2 arm pieces) by 906 records, the same in every tree.
+- A rule's slots default to the pool −1 for the first and the third, 0 for the second, all of chance 0.
+- For a creature of the first rule in the sector's order that names its type (the rules of the `Enter` that runs; a later rule for the same type gives nothing), `0x47F8E0` rolls each of the three slots in order, `rand() % 100` below its chance, and takes an item of its pool at random among its entries; after a matching rule, the creature takes no item of the general maker even with all its chances 0.
+- The first item: a crossbow or a musket (kinds 12 and 14, `0x427E80`) whose wielder's model lacks the motion slot `0x8B` is replaced by a random weapon of kind 1, or 7 where the model has the slot `0x72` (`0x5C7FA0`); some types have lists of their own (`0xBB`, `0xCC` to `0xD0`, `0xFD` to `0xFF`, `0x14A` to `0x14C`, 39, 40, 49, 51, 202, 344, 359), and every other type's items 1800 to 1804 become 1723, 1720, 1759, 1729 and 1752.
+- The second is made only after a first item that is a weapon of a kind other than 2, 3, 4, 7 and 12.
+- The third, a worn piece, goes through the armour switch (`0x43CA20`, the lists of `Rust.bin`, `tables/armour_switches.ron`), by the creature's type folded (304 to 306 as 314, 307 and 308 as 313, and others): the type's piece where the item's list names it, nothing where the list lacks the type, the item itself where it has no list.
+- The creature maker equips them in order as `CreateNPC`'s items (`0x54B130`, the hand by `0x54ACC0`), and an item left without a place is destroyed; `8B`, passed to the items' maker (`0x5D5080`), is never read (**hypothesis**: it does nothing in 2.28).
+- `FillSector` gives each creature one spell at random of every rule that names its type, the last rule's counting, and the rule's name (`0x47EFE7` to `0x47F0E2`).
+- `CreateNPC` takes items by the rules too when its record has an operand `54` of 0 or more (23 records of the quest functions), by the rules the last `Enter` left.
+
+About the start, the thieves of 48,37, 48,38, 49,37 and 50,37 take a bow, half of them a shirt; those of 48,39 to 48,41 a sword or a bow, the swordsmen sometimes a round shield, and the black magicians a staff.
 
 ## The start of the Seraphim
 
@@ -73,6 +87,7 @@ The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; 
 
 The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` records of the sectors' `Init` and `Enter` functions with the start script's (`npcs`, #221): each NPC or object is placed as the sector of its cell comes in and placed again when it comes back, which the original's `Init` creatures, made once, and its `Enter` creatures, made again at each coming, both look like while nothing changes them (no fight, no AI yet); the placed monsters stand idle and, hostile, stop the hero's steps (docs/re/movement.md).
 In the Seraphim's tree that makes 3,137 NPCs and 3,122 objects over the world, against the start script's 320 and 1,990: the start sector's novices, chicken and rabbit, and the four goblins of 51,39 among them.
-The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for a hero of level 1 and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word; standing idle, empty-handed.
+The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for a hero of level 1 and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word; standing idle.
+They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the start script's NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.
-The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the `MakeGroup` items, the levels, the champions, the groups' alarm and the black riders are not followed (docs/decisions/2026-10-20-spawning.md).
+The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the worn items, the levels, the champions, the groups' alarm and the black riders are not followed (docs/decisions/2026-10-20-spawning.md).
