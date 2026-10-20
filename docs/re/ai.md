@@ -1,0 +1,68 @@
+# AI: the creatures while no foe is near
+
+Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-20 (#232).
+Distances are in world units, 53.66563 a cell.
+Status: **confirmed** on the code unless marked otherwise.
+
+## Two states
+
+A creature carries two states, each a short with a sub-state after it: its AI's (`+0xFC`, `+0xFE`) and its action's (`+0x150`, `+0x152`), which the creatures' update `0x5375C0` switches on at every frame.
+It runs the AI only for a creature whose simulating client (byte `+0x39`) is the local player or none; the creature maker sets it to the local player for every id above 16, so in the single player's game every creature thinks.
+
+- The AI's states: 0 idle (`0x542B20`), 1 (`0x53A170`), 2 a behaviour or a walk ordered (`0x4EE030`), 4 a melee fight (`0x4E0300`), 5 (in the update), 6 (`0x51CFD0`), 8 a fight at range (`0x4DBFC0`), 9 dead (`0x53E7C0`), 10 to 14 (`0x529C60`, `0x4FD0F0`, `0x4EC560`, `0x4EA890`, `0x4EAC80`).
+- The actions: 0 standing (`0x544890`), 1 moving (`0x4F4770`), 2 (`0x546690`), …, 8 (`0x4FF0B0`), 10 (`0x506770`), 14 (`0x514790`).
+
+## Dormant and awake
+
+An idle creature (AI 0) is dormant in its sub-state 0 and looks about in 1; there is no other sleep.
+Three things wake it:
+
+- its own timer: an accumulator (`+0x208`) against its period (`+0x204`: 5 s, 2.5 s for a hostile creature of `CreateNPC`), for a creature whose flags word (`+0x1F4`) has the bits `0x3` or `0x408`; each time it fires it is jittered by −1.5 to +1.5 s, so the next comes 3.5 to 6.5 s later;
+- `sdk_WAKE` (`0x59F580`), which `CreateNPC` calls for its hostile creatures, so that they look once as they are made (it skips a creature of `+0x200` bit `0x40000`), and which runs a creature's script on sight (`+0x1F4` bit `0x400000`, `CreateNPC`'s tag `0x60`) when the hero comes within 600 × 400 in the light and in a clear line;
+- the hero's look about (`0x547070`, every 0.3 s over the 3 × 3 sectors about it, within about 1,875, docs/re/motions.md, "The fight stance"): it wakes the creatures not hostile to the hero at any distance of that range, and those hostile with bit 0 of their flags within 800, or 400 while the hero moves; to every other hostile one in range it gives the idle action (below), at every look in the single player's game; a creature not hostile within 91 of a hero walking under an order steps aside to a point within 200 of itself it can reach (10 tries).
+
+Awake (`0x542B20`), a creature farther from the hero than 1,500 along the grid's x or 1,000 along its y goes dormant again.
+A peaceful one whose flags match `0x1006DCF8` takes its behaviour (AI 2, below).
+A hostile one, in one case of six and where its home's cell lacks bit 2 of its flags, walks home when it is more than 200 from it along an axis, else stops; then it weighs its level against the hero's (by the balance's `BaseOffLevel`, `OffLevelProz` and `UnterExpAnteil`, 0.85; **hypothesis**: a monster far below the hero's level fights only when touched): when that test fails and the hero is out of its reach (the mean of two sizes of the types, 70 to 480, 130 by default, `0x4DBC60`), it goes dormant again and in one case of three takes the idle action; otherwise it attacks, the hero its target (`+0x104`), from up to 800.
+
+## The idle action
+
+`0x54EA30` acts only on a creature that stands (AI 0, action 0, `+0x152` below 100), that no one owns and whose `REFKEY` is its type; when its group fights it alerts the group instead ("Groups" below).
+
+- In one case of ten it fidgets: half of those times with one of its model's `*_FUN_IDLE_*` clips (the slots 180 to 192, each tried with a chance of one half; 39 models have one), the other half with its attack's clip.
+- Otherwise, in one case of four (22.5 % in all), it takes a step: a creature that an `Init` function or the start script made walks to a point within 150 of itself along each axis, or home in one case of four; one that an `Enter` function made (`+0x14` bit `0x80000000`, `FillSector`'s among them) walks to its place turned about the hero by −30° to +30°, keeping its distance, and its home moves there.
+  The step is an order to walk somewhere (the event 4: AI 2, then the moving action), which sets no gait: the moving action walks a creature whose gait (`+0x1F8`) is 0 (**hypothesis**: one left running by a chase runs).
+- A hostile creature 800 to 1,875 from the hero so steps about once a second while it stands, and its own timer adds a roll every 5 s or so; farther than 1,500 it stands.
+- Its home is where it was made (`+0x2B9` its sector, `+0x2BD` and `+0x2C1` its place, `+0x2C5` its layer), set by the creature maker (`0x480D40`).
+
+## The peaceful creatures' behaviours
+
+A peaceful creature awake takes the behaviour of its flags (AI 2, `0x4EF150`), run again at every frame while it stands, so that its chances below are a frame's (1 in 101, about every 3.4 s at 30 frames a second):
+
+- wild animals (`0x40`, `0x80`): dormant again farther than 1,500 from the hero (the timer set by the distance); they flee at a run from the nearest creature of their sector of a class other than 4 and 6, the hero among them, within 300 (800 if it attacks), and the flyers take off; farther than 380 from home along an axis they walk back within 50 of it; and by chance, or when their cell is crowded, they walk to a point within 100 of home;
+- farm animals (`0x10`, `0x20`): dormant again farther than 1,500; they step away from a creature other than an animal within 200 (800 if it attacks), to the point beyond themselves; and by chance, or crowded, they walk to a point within 150 of home;
+- guards (`0x4000`): dormant again farther than 1,500; by night those of an odd id take a torch; they attack a foe within 500; farther than 90 from their post along an axis they go back, and by chance they stroll within 200 of it;
+- the flags `0x800` and `0x1000`: the creature stands;
+- the townsfolk (`0x8`, `0x400`): while it stands, a roll of 26 sends it to follow or talk to a partner (`+0x251`), to an object near, home, to the sector's nearest waypoint of a road (`0xAAD2C8`), to juggle (the jugglers), to wait, or to stop; children play within 800 of home; at dusk and by night they carry torches and go into the houses through their doors (not read in detail; **hypothesis**: those far from the hero are put in a house).
+
+Any creature that stands idle shares its cell with another, in one case of six a frame (`0x54FCB0`), walks to a point within 100 of its home or itself (**hypothesis** for which).
+
+The flags come from `CreateNPC`'s tags (`0x2B` 8, `0x2E` `0x10`, `0x30` `0x20`, `0x2F` and `0x31` `0x40`, `0x32` `0x80`, `0x42` `0x400`, `0x43` `0x800`, `0x44` `0x1000`, `0x46` `0x4000`, `0x4C` `0x8000`, handled as 8; docs/02 §7.3), from `FillSector`'s lists of types for its peaceful creatures (`0x40` the wolves, crows, rabbits, deer, bears and bats, `0x10` the pigs, cows, sheep, horses and chickens; a hostile one bit 0 alone), and, for a creature of an `Enter` function still without any at its first update, 1 if it is hostile to the hero, `0x20` for class 6, `0x10000000` for the jugglers (78, 79, 82, 104), else 8.
+A creature of an `Init` function or of the start script without a tag keeps none and stands.
+In the Seraphim's tree the `Enter` functions' `CreateNPC`s are mostly townsfolk (596 of `0x2B`, 570 of `0x42`), 166 guards, and animals (150 of `0x30`, 131 of `0x2E`, 26 of `0x32`, 5 of `0x2F`/`0x31`); the start's novices carry `0x42` or `0x2B`, its farmers `0x2B`, its pigs `0x2E`, its chicken and rabbit `0x30`.
+
+## Groups
+
+`+0x249` is a group's number (5,000 to 9,999 at random, kept in a map of the script manager's, `0x4A9EF0`), not a leader.
+A group's creatures do not follow one another: when one of a group of an `Enter` function takes a step, every member walks by the same step (within 50 more) from its own place, its home moving with it.
+When one of them fights, or decides to attack (in one case of two), the group's alarm (`0x46AE70`) sends the idle members against its target, or the hero when it is dead, or wakes them.
+`+0x255` (`FillSector`'s `36:n`) serves nothing: its one reader is a branch of the alarm that no caller takes.
+
+## Open
+
+The test of the levels in detail; the AI's states 1, 6 and 10 to 14; the townsfolk's times, waypoints and houses; a formation of groups (`+0x25F` `0xD160`); the original's frame rate, which scales every chance taken at a frame.
+
+## In `opensacred-game`
+
+Every creature stands where it was made (`npcs`); the quests' NPCs that a script sends somewhere walk there (docs/decisions/2026-10-19-quest-npcs.md).
+The game's parts: #237 (the waking and the monsters' steps), #238 (the animals), #239 (the guards), #240 (the crowded cells and the hero's way), #241 (the townsfolk, to read first).
