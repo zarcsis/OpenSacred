@@ -2,17 +2,18 @@
 //! `Ё` in a Russian one), drops it over the top half of the screen and raises it again; Esc
 //! raises it too. It shows the log, the commands' output with it, and a line of input whose
 //! Enter runs a command (`command`); Up and Down walk the history, kept beside the settings
-//! (`history.txt`, the last 100 lines), Tab completes, PageUp, PageDown and the wheel scroll.
-//! While it is open the player's keys and mouse do nothing else (`frame::Control`); F3, F4 and
-//! F11 still work, and the game goes on under it.
+//! (`history.txt`, the last 100 lines), Tab completes, Ctrl+V pastes from the system's clipboard
+//! and Ctrl+C copies the line to it, PageUp, PageDown and the wheel scroll. While it is open the
+//! player's keys and mouse do nothing else (`frame::Control`); F3, F4 and F11 still work, and the
+//! game goes on under it.
 //!
 //! The line of input is the console's own rather than Bevy's text input widget: a console needs
-//! a line, a cursor and the history, and pasting from the system's clipboard would need Bevy's
-//! `system_clipboard`, whose Windows backend is under a licence `deny.toml` does not allow.
+//! a line, a cursor and the history.
 
 use std::fs;
 use std::path::PathBuf;
 
+use bevy::clipboard::Clipboard;
 use bevy::input::ButtonState;
 use bevy::input::InputSystems;
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -161,6 +162,19 @@ impl Console {
         self.set(line);
     }
 
+    /// Puts `text` at the cursor, its lines and tabs as spaces: a command is a line.
+    fn paste(&mut self, text: &str) {
+        let text: String = text
+            .replace(['\r', '\n', '\t'], " ")
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect();
+        let text = text.trim();
+        let at = self.at();
+        self.input.insert_str(at, text);
+        self.cursor += text.chars().count();
+    }
+
     /// One key pressed while the console is open.
     fn key(&mut self, input: &KeyboardInput) {
         match &input.logical_key {
@@ -202,13 +216,15 @@ pub fn closed(console: Option<Res<Console>>) -> bool {
 }
 
 /// The key under Esc opens and closes the console, Esc closes it; while it is open, the keys
-/// edit its line. It runs right after Bevy reads the input, and takes the keys it uses from the
-/// game: Esc does not pause a game as it closes the console.
+/// edit its line, and Ctrl+V and Ctrl+C, by their places, paste and copy through the system's
+/// clipboard. It runs right after Bevy reads the input, and takes the keys it uses from the game:
+/// Esc does not pause a game as it closes the console.
 fn keys(
     mut console: ResMut<Console>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut input: MessageReader<KeyboardInput>,
     scroll: Res<AccumulatedMouseScroll>,
+    mut clipboard: Option<ResMut<Clipboard>>,
 ) {
     let toggled = keys.just_pressed(KeyCode::Backquote);
     let escaped = console.open && keys.just_pressed(KeyCode::Escape);
@@ -223,9 +239,26 @@ fn keys(
         input.clear();
         return;
     }
+    let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     for event in input.read() {
-        if event.state == ButtonState::Pressed && event.key_code != KeyCode::Backquote {
-            console.key(event);
+        if event.state != ButtonState::Pressed || event.key_code == KeyCode::Backquote {
+            continue;
+        }
+        match (control, event.key_code, clipboard.as_deref_mut()) {
+            (true, KeyCode::KeyV, Some(clipboard)) => {
+                match clipboard.fetch_text().poll_result() {
+                    Some(Ok(text)) => console.paste(&text),
+                    Some(Err(e)) => warn!(target: "console", "pasting: {e}"),
+                    // A read the system has not answered yet (the web's): nothing to paste.
+                    None => {}
+                }
+            }
+            (true, KeyCode::KeyC, Some(clipboard)) => {
+                if let Err(e) = clipboard.set_text(console.input.clone()) {
+                    warn!(target: "console", "copying: {e}");
+                }
+            }
+            _ => console.key(event),
         }
     }
     if scroll.delta.y > 0.0 {
@@ -473,6 +506,19 @@ mod tests {
         typed(&mut console, Key::ArrowDown, None);
         typed(&mut console, Key::ArrowDown, None);
         assert_eq!(console.input, "");
+    }
+
+    #[test]
+    fn a_paste_goes_in_at_the_cursor_as_one_line() {
+        let mut console = Console::default();
+        write(&mut console, "new-game  --time 20:00");
+        for _ in 0.." --time 20:00".chars().count() {
+            typed(&mut console, Key::ArrowLeft, None);
+        }
+        console.paste("--class\r\n\tdwarf\n");
+        assert_eq!(console.input, "new-game --class   dwarf --time 20:00");
+        write(&mut console, "!");
+        assert_eq!(console.input, "new-game --class   dwarf! --time 20:00");
     }
 
     #[test]

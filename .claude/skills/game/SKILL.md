@@ -37,7 +37,7 @@ Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in t
 | `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one |
 | `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, whether the scene is ready |
 | `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then, through the game's start too (`--timeout`, 120 s) |
-| `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, … |
+| `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
 | `type "TEXT"` | type text, as into the console |
 | `click X Y` (`--button`, `--hold`) | click a pixel of the window: a menu's item, or the ground for the hero to walk there |
 | `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |

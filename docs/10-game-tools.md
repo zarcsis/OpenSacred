@@ -147,7 +147,9 @@ They are parsed by clap, as a REPL (`multicall`, the line split as a shell does)
   The view is the log itself: the commands' lines and their output are logged under the target `console`, so F4 and the log file have them too.
   A set `frame::Control` holds the player's keys and mouse on the world, the pause and the menus, which the open console holds back; the console reads the keys right after Bevy does and takes Esc and its own key from the game, so that Esc closes it without pausing the game.
   The history lies beside the settings file (`history.txt`), so that a run with `--settings` keeps its own; the command `console on|off` opens and closes it from a script.
-  Ctrl+V does not paste: Bevy reads the system's clipboard through `clipboard-win`, under BSL-1.0, which `deny.toml` does not allow (#189).
+  Ctrl+V did not paste at first: Bevy reads the system's clipboard through `arboard`, whose Windows backend `clipboard-win` (and its `error-code`) is under BSL-1.0, which `deny.toml` did not allow.
+  On 2026-10-19 the maintainer allowed BSL-1.0 (#189): permissive like MIT, it asks nothing of compiled code, only that copies of the sources keep their notice, and the repository copies none.
+  Ctrl+V, by its place, pastes the clipboard's text at the cursor, its lines as one; Ctrl+C copies the line; the remote protocol sends them as `Control+V` and `Control+C`.
 
 ## 8. Remote control (#175, #176)
 
