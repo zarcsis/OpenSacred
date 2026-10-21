@@ -2,9 +2,9 @@
 //! VTex textures and encodes the samples, so no codec code enters the converter.
 
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 
 /// The program to run.
 fn program() -> String {
@@ -31,10 +31,7 @@ pub fn pipe(args: &[&str], input: &[u8], what: &str) -> Result<Vec<u8>> {
     });
     let output = output.context("waiting for FFmpeg")?;
     if !output.status.success() {
-        bail!(
-            "FFmpeg failed on {what}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
+        return Err(failure(what, &output));
     }
     match written {
         Ok(result) => result.context("feeding FFmpeg")?,
@@ -53,10 +50,37 @@ pub fn run(args: &[&std::ffi::OsStr], what: &str) -> Result<()> {
         .output()
         .with_context(|| format!("cannot run `{program}` for {what} (set FFMPEG)"))?;
     if !output.status.success() {
-        bail!(
-            "FFmpeg failed on {what}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
+        return Err(failure(what, &output));
     }
     Ok(())
+}
+
+/// The error of an FFmpeg run that did not succeed: its exit status, which alone tells a crash
+/// or a process that could not start (an NTSTATUS such as `0xc0000142` on Windows), and its
+/// message.
+fn failure(what: &str, output: &Output) -> anyhow::Error {
+    let status = output.status;
+    match String::from_utf8_lossy(&output.stderr).trim() {
+        "" => anyhow!("FFmpeg failed on {what} ({status}) without a message"),
+        message => anyhow!("FFmpeg failed on {what} ({status}): {message}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "needs FFmpeg"]
+    fn a_failure_names_the_input_the_exit_status_and_the_message() {
+        let args = ["-f", "bink", "-i", "pipe:0", "-f", "rawvideo", "pipe:1"];
+        let err = pipe(&args, b"not a Bink file", "a test input")
+            .unwrap_err()
+            .to_string();
+        let (status, message) = err
+            .strip_prefix("FFmpeg failed on a test input (exit ")
+            .and_then(|rest| rest.split_once("): "))
+            .unwrap_or_else(|| panic!("{err}"));
+        assert!(!status.is_empty() && !message.is_empty(), "{err}");
+    }
 }

@@ -124,15 +124,24 @@ mod game_tests {
         let mut decoded = std::collections::HashMap::new();
         let mut uniform = Vec::new();
         for path in ["PAK/models.pak", "PAK/models03.pak"] {
-            let data = read_game_file(&game.join(path)).unwrap();
-            let pak = MdlPak::parse(&data).unwrap();
+            let data = read_game_file(&game.join(path)).unwrap_or_else(|e| panic!("{e:#}"));
+            let pak = MdlPak::parse(&data).unwrap_or_else(|e| panic!("{path}: {e}"));
             for index in 0..pak.len() {
-                let record = pak.record(index).unwrap();
-                let Some(grn) = record.parse_grn().unwrap() else {
+                let record = pak
+                    .record(index)
+                    .unwrap_or_else(|e| panic!("{path} record {index}: {e}"));
+                let what = format!("{path} record {index} `{}`", record.name().escape_ascii());
+                let Some(grn) = record.parse_grn().unwrap_or_else(|e| panic!("{what}: {e}")) else {
                     continue;
                 };
-                for texture in grn.model().unwrap().textures {
-                    let Some(png) = to_png(&texture).unwrap() else {
+                let model = grn.model().unwrap_or_else(|e| panic!("{what}: {e}"));
+                for texture in model.textures {
+                    // The record, the texture and the error's whole chain, with FFmpeg's exit
+                    // status and message (#447).
+                    let png = to_png(&texture).unwrap_or_else(|e| {
+                        panic!("{what}, texture `{}`: {e:#}", texture.name.escape_ascii())
+                    });
+                    let Some(png) = png else {
                         continue;
                     };
                     let (width, height, pixels) = read_png_bytes(&png);
