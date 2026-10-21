@@ -59,6 +59,13 @@ pub fn forward() -> Vec3 {
     Vec3::new(-horizontal, -PITCH.sin(), -horizontal)
 }
 
+/// The point at height `height` that shows on screen where `point` does: along the line of
+/// sight, `√(3/2)` units along X and along Z for a unit of height.
+pub fn at_height(point: Vec3, height: f32) -> Vec3 {
+    let sight = forward();
+    point + sight * ((height - point.y) / sight.y)
+}
+
 /// The camera's orientation.
 fn view() -> Transform {
     Transform::IDENTITY.looking_to(forward(), Vec3::Y)
@@ -157,6 +164,14 @@ mod tests {
         assert!((PIXELS_PER_MODEL_HEIGHT - unit).abs() < 1e-5);
         // The ground pushed back stays where it was on screen.
         assert!(close(screen(forward() * GROUND_BEHIND), Vec2::ZERO));
+        // A point raised along the line of sight stays where it was on screen, √(3/2) units
+        // along X and Z for a unit of height.
+        let point = Vec3::new(1000.0, 30.0, 2000.0);
+        let raised = at_height(point, 130.0);
+        assert!(close(screen(raised), screen(point)));
+        assert!((raised.y - 130.0).abs() < 1e-3);
+        let along = 100.0 * 1.5_f32.sqrt();
+        assert!((raised.xz() - point.xz() - Vec2::splat(along)).length() < 1e-2);
     }
 
     #[test]
