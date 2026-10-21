@@ -164,6 +164,7 @@ pub fn stream(
     mut commands: Commands,
     mut streamer: ResMut<Streamer>,
     bodies: Query<&Transform, With<Body>>,
+    roaming: Query<&Transform, With<crate::npcs::Placed>>,
     mut heights: ResMut<Heights>,
     mut liquids: ResMut<Liquids>,
     assets: Res<AssetServer>,
@@ -279,6 +280,16 @@ pub fn stream(
         .collect();
     for at in far {
         for entity in streamer.loaded.remove(&at).unwrap_or_default() {
+            // A creature that walked into a sector that stays goes with that one (#329).
+            if let Ok(transform) = roaming.get(entity)
+                && let Some(to) = around(sector_of(transform.translation), 0).next()
+                && to != at
+                && near.contains(&to)
+                && streamer.loaded.contains_key(&to)
+            {
+                streamer.adopt(to, entity);
+                continue;
+            }
             commands.entity(entity).despawn();
         }
     }
