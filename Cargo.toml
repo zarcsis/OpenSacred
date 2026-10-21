@@ -83,9 +83,11 @@ thiserror = "2.0.21"
 # The game's settings file (docs/10 §3): read through serde, written key by key keeping the
 # user's comments and order, which the toml crate does not keep.
 toml_edit = { version = "0.25.17", features = ["serde"] }
+# The emulator of opensacred-oracle alone (GPL-2.0, docs/04 §2.3), the 32-bit x86 of Sacred.exe.
+unicorn-engine = { version = "2.1.5", default-features = false, features = ["arch_x86"] }
 
 [workspace.lints.rust]
-# unsafe is allowed only in the future opensacred-oracle (CLAUDE.md)
+# No unsafe in our code (CLAUDE.md): opensacred-oracle's Unicorn wrapper needs none either.
 unsafe_code = "deny"
 
 [workspace.lints.clippy]

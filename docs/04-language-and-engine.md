@@ -7,7 +7,7 @@
   One C library comes along: Bevy decodes its KTX2 tone-mapping tables with the C zstd (`zstd_c` in `Cargo.toml`), as the Rust decoder has an open advisory.
 * **No intermediate C++ layer.**
   The original is decompiled only to understand its formats and rules; the behavior is described in prose in `docs/re/`, implemented independently in Rust and checked by tests written from that description and by observations of the running original (#227).
-  Vectors recorded from the developer's own `Sacred.exe` are to check the rules once the oracle exists (§2.3; planned, not created yet, #363).
+  Vectors recorded from the developer's own `Sacred.exe` by the oracle check them as well (§2.3, #363): the fight's levels, hit chance, damage through a resistance and most health so far.
   Anything made locally while studying the original is never committed.
   VC6 is not needed.
 * **The engine is Bevy 0.20 on wgpu 30.**
@@ -15,7 +15,7 @@
 * **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies, created 2026-10-21 with the spawning's rolls, which the fight's formulas, the ways and the creatures' decisions joined from `opensacred-game` (#364).
   With it, a switch to Godot with godot-rust keeps the rules and the converter.
   The Bevy systems of `opensacred-game` call it: the fight's (`fight.rs`) the crate's formulas, the walks (`paths.rs`, `crowd.rs`) its ways, and the creatures' life and the hero's attack (`ai.rs`, `attack.rs`) its decisions, for which they read the world and which they carry out.
-* **Unsafe code is forbidden** in all product crates by the workspace lint `unsafe_code = "deny"` (`Cargo.toml`), which every crate takes through `[lints] workspace = true`; the only exception is the future development tool `opensacred-oracle`, which calls the Unicorn emulator and is a separate crate, never linked into the converter or the game.
+* **Unsafe code is forbidden** in all product crates by the workspace lint `unsafe_code = "deny"` (`Cargo.toml`), which every crate takes through `[lints] workspace = true`, the development tool `opensacred-oracle` included: it calls the Unicorn emulator through its safe wrapper, and is a separate crate, never linked into the converter or the game.
 
 ## 1. Why Rust
 
@@ -35,7 +35,7 @@
 |---|---|
 | Long Bevy compile times | dependencies optimized in debug builds (`Cargo.toml`), the `rust-lld` linker on Windows (`.cargo/config.toml`), CI restoring `main`'s build cache, separate crates |
 | Before 1.0, Bevy breaks its API in every release | scheduled migrations; rules outside the engine (`opensacred-rules`, filling up, #364) |
-| No mechanical path from a C++ binary to Rust (a transpiler such as cxgo handles only C) | none is wanted: each rule is described as behavior and implemented independently, with tests, and vector tests once the oracle exists; see §2 and §3 |
+| No mechanical path from a C++ binary to Rust (a transpiler such as cxgo handles only C) | none is wanted: each rule is described as behavior and implemented independently, with tests and the oracle's vector tests; see §2 and §3 |
 | Ecosystem crates catch up with a Bevy release with a delay (for example, `bevy_hanabi` 0.19.0 is still on the Bevy 0.19 line) | upgrade to a new Bevy once the needed crates are out; keep critical subsystems in our own code |
 
 ### 1.3 Pioneering
@@ -60,8 +60,8 @@ Every format and rule goes through four steps (the legal basis is in docs/08 §2
    The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
    `opensacred-rules` holds the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, which the systems of `opensacred-game` call (#364).
 4. **Verify.**
-   A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is to be compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg; docs/03 §1).
-   Until the oracle exists, a rule is checked by unit tests written from its description and by observations of the running original (#227).
+   A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg; docs/03 §1).
+   A rule without vectors yet is checked by unit tests written from its description and by observations of the running original (#227).
 
 Some functions are hard to understand from the decompilation alone:
 
@@ -83,14 +83,16 @@ For those the description is checked against more vectors and edge cases, not ag
 
 ### 2.3 The oracle: the original's functions in an emulator
 
-`opensacred-oracle` (not written yet) loads the image of the developer's own GOG `Sacred.exe` into the memory of the Unicorn emulator (the `unicorn-engine` 2.1.5 crate, GPL-2.0), substitutes stubs for CRT and Windows calls, and executes the chosen function on a set of inputs.
-The results are written to JSON and become the reference for the Rust tests.
+`opensacred-oracle` (#363) loads the image of the developer's own GOG `Sacred.exe` into the memory of the Unicorn emulator (the `unicorn-engine` 2.1.5 crate, GPL-2.0), substitutes stubs for the calls that would reach the engine and for the imports, and executes the chosen function on a set of inputs.
+The results are written to JSON outside the repository and become the reference for the Rust tests (`opensacred-rules`' `tests/oracle.rs`).
+How it lays out the image, what it stubs and how it is run are in docs/03 §3.4.
 
 It is a local development tool: it needs the developer's own copy of the game, so it runs on the developer's machine, never in CI.
 Because GPL-2.0 cannot be combined with the project's Apache-2.0 option, it is a separate development-only crate, never linked into the converter or the game (docs/08 §4).
 
 Advantages: it works on any OS, does not require running the game, and is deterministic.
-Limitation: it suits "pure" functions: formulas, generators, transformations.
+Limitation: it suits "pure" functions: formulas, generators, transformations, and a method whose `this` can be laid out from docs/re's offsets (the stats of `0x5658F0`).
+Its first sets (2026-10-21) covered the levels' ends and the levels of an experience, the hit chance and each kind's damage through its resistance, and the most health; five differences from `opensacred-rules` were found and filed, three of them fixed since (#406, #407, #408; #417, #418 open).
 Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`).
 
 ## 3. Implementing the logic in Rust without unsafe
@@ -109,7 +111,7 @@ Functions that touch D3D, files or threads cannot be checked this way; for those
 
 The `unsafe` policy: the workspace lint `unsafe_code = "deny"` (`Cargo.toml`, `[workspace.lints.rust]`), which `opensacred-formats`, `opensacred-data`, `opensacred-rules`, `opensacred-convert` and `opensacred-game` take through `[lints] workspace = true`.
 Unsafe operations exist inside dependencies (wgpu, Unicorn), but not in our code.
-The only exception is `opensacred-oracle`, and only if the Unicorn crate's wrapper requires it.
+`opensacred-oracle` takes the lint too: the `unicorn-engine` crate's safe wrapper is enough for it, and it would be the exception only if a wrapper required `unsafe`.
 
 ## 4. Engine comparison
 
@@ -254,7 +256,8 @@ Update policy: Rust stable at the latest version (currently 1.99.1), bumped toge
 ## Open questions
 
 1. Readiness of `bevy_hanabi` and other ecosystem crates for Bevy 0.20: check at the start of M2.
-2. Whether oracle vectors pin down the formulas of M3 where the order of floating-point operations matters, or whether observations of the running original are needed as well: this will become clear with the first formulas of M3.
+2. Whether oracle vectors pin down the formulas of M3 where the order of floating-point operations matters, or whether observations of the running original are needed as well.
+   The first vectors (#363) pin the whole-number results exactly and the floats of `0x43EEE0` within 10⁻⁵ of `f32` arithmetic, at the runtime's 53 bits of precision; whether the game runs its rules at 24 bits (Direct3D's default) is not known (docs/re/items.md).
 3. Whether Bevy's animation graph is enough for blending Sacred's clips (attacking while running, transitions): check in the vertical slice.
 4. The Fyrox 1.0 renderer: confirm from the source code if Fyrox is ever reconsidered.
 

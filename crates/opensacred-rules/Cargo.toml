@@ -10,5 +10,11 @@ publish.workspace = true
 [dependencies]
 opensacred-data.workspace = true
 
+[dev-dependencies]
+# The vectors of opensacred-oracle and the balance, which tests/oracle.rs reads.
+opensacred-formats.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true

@@ -8,8 +8,8 @@ all-features = true
 ignore = []
 
 [licenses]
-# Our crates are MIT OR Apache-2.0. GPL only in the future opensacred-oracle (Unicorn, GPL-2.0), a
-# development tool kept out of the converter and the game, via exceptions.
+# Our crates are MIT OR Apache-2.0. GPL only under opensacred-oracle (Unicorn, GPL-2.0), a
+# development tool kept out of the converter and the game, via the exceptions below.
 allow = [
     "Apache-2.0",
     "BSD-2-Clause",
@@ -31,10 +31,22 @@ allow = [
 # The list is a policy for the future; not every license occurs yet.
 unused-allowed-license = "allow"
 confidence-threshold = 0.8
-exceptions = []
+# Unicorn, the emulator of opensacred-oracle alone (docs/04 §2.3), is GPL-2.0, which the Apache-2.0
+# option cannot be combined with. The oracle has no library, so no crate of the converter or the
+# game can depend on it, and `bans.deny` below keeps Unicorn under it. Both crates name the
+# license by its deprecated identifier, which cargo deny warns of.
+exceptions = [
+    { crate = "unicorn-engine", allow = ["GPL-2.0"] },
+    { crate = "unicorn-engine-sys", allow = ["GPL-2.0"] },
+]
 
 [bans]
 multiple-versions = "warn"
+# Unicorn (GPL-2.0, the exceptions above) only as the dependency of opensacred-oracle.
+deny = [
+    { crate = "unicorn-engine", wrappers = ["opensacred-oracle"] },
+    { crate = "unicorn-engine-sys", wrappers = ["unicorn-engine"] },
+]
 # png 0.18.1, the latest release, uses miniz_oxide 0.8 directly and 0.9 through flate2 1.1.10, so
 # the duplicate comes from png alone. png's master no longer depends on miniz_oxide directly
 # (checked 2026-10-16): remove the entry after the next png release; cargo deny then reports the

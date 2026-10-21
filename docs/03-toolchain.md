@@ -8,7 +8,7 @@
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions) and **x64dbg**; optionally **dgVoodoo2** (capturing frames of the original in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
-* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02 and screenshot tests; converter golden data, oracle vectors and snapshots are planned.
+* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02, screenshot tests and the oracle's vectors of the fight's formulas; converter golden data and snapshots are planned.
   Maintainer review covers key decisions, not every line.
 * The game files are never in the repository: every developer points the tools at their own GOG installation in `OriginalGame/` (§1).
 
@@ -21,7 +21,7 @@
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
 | | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.0 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
-| Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 | GPL-2.0, development only | `opensacred-oracle` (planned, #363), a separate development-only crate run locally on your own `Sacred.exe`: the original's functions in the emulator → vectors for tests |
+| Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.x | freeware | optional: the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
@@ -52,7 +52,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender.
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin), not 21.**
   Ghidra 12.1.4 accepts any 64-bit JDK of version 21 or later (`application.java.min=21`, no upper bound), and Ghidra's main branch already requires 25.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -85,7 +85,7 @@ The repository root holds `CLAUDE.md` with the rules that Claude Code reads at t
 
 * the workspace structure and the purpose of each crate;
 * commands: build, tests, running the converter, running the game;
-* prohibitions: do not commit anything from `OriginalGame/`, `assets/`, `assets-hd/`; do not publish `Sacred.exe`; do not write `unsafe` outside `opensacred-oracle`;
+* prohibitions: do not commit anything from `OriginalGame/`, `assets/`, `assets-hd/`; do not publish `Sacred.exe`; do not write `unsafe` (`opensacred-oracle` needs none either);
 * mandatory checks before finishing a task: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo nextest run`;
 * where to write notes on recovered logic (`docs/re/<subsystem>.md`) and the decision log of deviations from the original (`docs/decisions/`);
 * naming conventions: the original class and function names (`cCreature::takeDamage`) are mentioned in comments next to the Rust code.
@@ -169,14 +169,26 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   Tests: `python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
 * **Converter golden data (planned):** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
   Today the readers are cross-checked against the Python prototypes of `tools/analysis/` and the counts of docs/02, in the tests that need the game files.
-* **Oracle vectors (planned, #363):** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
-  Neither the crate nor the vectors exist yet.
+* **Oracle vectors (#363):** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
+  `cargo run --release -p opensacred-oracle --features emulator` checks `OriginalGame/Sacred.exe` and `bin/Balance.bin` against the manifest and refuses other files, lays out the PE image at its base (the sections at their virtual addresses, `.data` and `.rdata` from the file, so that the compiled-in tables are there) and the balance's image at `0xAD4490` as the client loads it, points every import's slot at a thunk of its own, and calls each function from a trampoline of its own that resets the FPU (53 bits of precision by default, `--precision 24` or `64`) and keeps `EAX` and `ST0`.
+  A function the code calls that would reach the engine is a stub that returns a chosen value; a call into an import without a stub, an access to unmapped memory, an invalid instruction or an interrupt stops the call with an error naming it and the address.
+  The oracle sets only the inputs (the arguments, the fields of a synthetic `this`, docs/re/fight.md's offsets) and reads the outputs: the machine code is the original's (docs/08 §3).
+  Its sets (2026-10-21): `level_end` (`0x57F6E0`, the levels 1 to 216), `level_of` (`0x57F8D0`, the experiences about each level's end by six levels held), `hit_chance` and `dealt` (`0x43EEE0` as the strike's resolution calls it: 100 attacks against defences, 720 damages against resistances by eight levels above) and `most_health` (`0x5658F0` on synthetic stats and creature, 144 vectors of eight bases at nine levels, of a hero's type and not; with stubs for the client's object `0x7D84A0` and the hero's test `0x426650`).
+  It writes `<set>.json` to `--out`, else `OPENSACRED_VECTORS`, else `%LOCALAPPDATA%\OpenSacred\vectors` (`$XDG_DATA_HOME/OpenSacred/vectors` elsewhere), and refuses a directory inside the repository: the vectors are never committed.
+  A file holds the set's name, the function's address, the SHA-256 of the `Sacred.exe` that ran, the FPU's control word and the vectors, each its inputs and outputs by name.
+  `cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'` compares `opensacred_rules::fight` with them (`crates/opensacred-rules/tests/oracle.rs`, ignored without the game files): the levels' ends and the levels exactly, the chance within 10⁻⁶ and the damage within 10⁻⁵ of its value (x87 against `f32`); the differences found are bugs of their own: #406, #407 and #408 are fixed, and the test leaves out the most health's vectors of #417 and #418 until they are.
+  On 2026-10-21 a release run took 80 s; the functions called no import, so no Windows stub was needed.
+* **The oracle's build:** the emulator is the feature `emulator` of `opensacred-oracle`, so that the workspace builds without Unicorn's toolchain: `unicorn-engine-sys` builds Unicorn's C library with CMake, Ninja (on Windows the ones of Visual Studio when they are not in `PATH`) and the C compiler, and makes its bindings with bindgen, which needs libclang (without it the build stops: "Unable to find libclang").
+  On 2026-10-21 it built with CMake 4.4.3, Ninja 1.13.1, MSVC 19.51 and the libclang of LLVM 15.0.6 through `LIBCLANG_PATH`, in 20 s with 32 jobs.
+  CI builds the workspace without the feature: the oracle there checks its PE reader and its files (`cargo nextest run -p opensacred-oracle`); the emulator's own tests, on a synthetic image, run with `--features emulator` and need no game files.
+  Without the feature, the oracle checks the installation, the image and the directory, and stops.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
 * **Clippy:** the default rule set as errors, plus targeted rules for this project: numeric casts via `as`, `unwrap`/`expect` outside tests, suppressing rules only through `#[expect(…, reason = "…")]`, leftover `dbg!`/`todo!`.
   The pedantic and nursery groups are not enabled wholesale: on the project's code they produce mostly stylistic noise.
   Configuration: `[workspace.lints.clippy]` in `Cargo.toml` and `clippy.toml`.
 * **License checks:** our crates are MIT OR Apache-2.0; `cargo deny check licenses` allows MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0 (the Windows backend of Bevy's system clipboard, #189), ISC, Zlib, MPL-2.0 and Unicode-3.0 (Unicode data in `unicode-ident`).
-  The future `opensacred-oracle` (#363) links Unicorn (GPL-2.0), which cannot be combined with the Apache-2.0 option: it will be a separate development-only crate, never linked into the converter or the game.
+  `opensacred-oracle` (#363) links Unicorn (GPL-2.0), which cannot be combined with the Apache-2.0 option: it is a separate development-only crate, a binary without a library, so the converter and the game cannot depend on it; `deny.toml` allows GPL-2.0 for `unicorn-engine` and `unicorn-engine-sys` alone (`licenses.exceptions`) and denies them anywhere but under the oracle (`bans.deny` with `wrappers`).
+  Our code in it stays MIT OR Apache-2.0; the oracle built with the emulator is GPL-2.0 as a whole (by the MIT option) and is never distributed.
   Configuration: `deny.toml`.
 * **Tests that need the game files** are marked and run only locally: CI has no game files.
 
@@ -321,9 +333,9 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 
 ## Open questions
 
-1. Whether Unicorn stubs work for functions that access the game's global tables (`.data` from the image needs to be mapped).
+None at the moment.
 
-Closed: software Vulkan in CI is enough for the screenshot test, which runs on lavapipe in the Linux job (§5).
+Closed: software Vulkan in CI is enough for the screenshot test, which runs on lavapipe in the Linux job (§5); Unicorn runs functions that read the game's global tables, with `.data` and `.rdata` mapped from the image and the balance's image loaded as the client loads it (#363, §3.4).
 
 ## Sources
 
