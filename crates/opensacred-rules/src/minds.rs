@@ -3,7 +3,8 @@
 //! look wakes it (`0x5375C0`, `0x547070`), and dormant again farther than 1,500 from the hero
 //! (`0x542B20`); a hostile creature steps about by the idle action (`0x54EA30`), a group's members
 //! together, or comes at the hero and keeps the band of its reach, flees wounded and goes home
-//! from too far (`0x4E0300`); a peaceful animal flees, steps away and strolls about home, a guard
+//! from too far (`0x4E0300`), or with a ranged weapon keeps 300 to 800 from the hero and shoots
+//! (`0x4DBFC0`); a peaceful animal flees, steps away and strolls about home, a guard
 //! keeps its post, and a townsperson and a child roll what they do at each of the hero's looks,
 //! by their behaviours (`0x4EF150`); a creature that shares its cell with another parts from it
 //! (`0x544890`), and one that walks into the hero's way steps aside (`0x547070`). The hero's
@@ -213,6 +214,16 @@ const FLEES_WITHIN: f32 = 199.0;
 const FLEES_FOR: f32 = 700.0;
 const FLEES_ONE_IN: u32 = 8;
 const LEASH: f32 = 2_500.0;
+/// The archers' band (`0x4DBFC0`): nearer than 300 an archer backs off, up to ten times between
+/// its shots, and farther than 800 it comes on, stopping within 450; between, without a straight
+/// line to the hero, it goes round to its place turned about the hero by up to 30° either way,
+/// stopping within 25; deciding, it shoots from 250 to 650, and moving, anywhere in the band.
+const KEEPS: (f32, f32) = (300.0, 800.0);
+const BACKS_OFF: u8 = 10;
+const COMES_WITHIN: f32 = 450.0;
+const GOES_ROUND: u32 = 30;
+const GOES_ROUND_WITHIN: f32 = 25.0;
+const SHOOTS: (f32, f32) = (250.0, 650.0);
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 pub const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flag they take at their first update, with which a juggler is a
@@ -277,10 +288,20 @@ pub struct Mind {
     pub level: u32,
     /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
     pub active: bool,
-    /// Whether it fights the hero (the AI's state 4, `0x4E0300`), and whether it has fled in
-    /// this fight (`+0x1F4` bit `0x200`).
+    /// Whether it holds a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13 and 14,
+    /// `0x427ED0`), with which it fights at range (the AI's state 8, `0x4DBFC0`).
+    pub ranged: bool,
+    /// Whether it fights the hero (the AI's state 4, `0x4E0300`, or 8), and whether it has fled
+    /// in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
     fled: bool,
+    /// At range: whether it decides (the sub-state 0) rather than moves to its band (1), how many
+    /// times it has backed off since it last decided (`+0x12B`), whether it moves at a run
+    /// (`+0x1F8`), and the chain of its shots (`+0x210`).
+    deciding: bool,
+    backs: u8,
+    runs_at_range: bool,
+    shots: Chain,
     awake: bool,
     clock: f32,
     period: f32,
@@ -321,8 +342,13 @@ impl Mind {
             trader: false,
             level: 1,
             active: false,
+            ranged: false,
             fighting: false,
             fled: false,
+            deciding: true,
+            backs: 0,
+            runs_at_range: false,
+            shots: Chain::default(),
             awake: hostile && created,
             clock: 0.0,
             period: if hostile && created {
@@ -424,6 +450,7 @@ impl Mind {
                     }
                 } else if takes_on && distance < ATTACKS_WITHIN && clear() {
                     self.fighting = true;
+                    self.deciding = true;
                     thought.attacks = true;
                     // In a group, in one case of two, it raises the alarm (`0x46AE70`).
                     thought.alarm = self.group.is_some() && rng.below(2) == 0;
@@ -455,8 +482,9 @@ impl Mind {
     /// The alarm of the group `group` (`0x46AE70`): it sends the group's hostile members at the
     /// hero.
     pub fn hears_alarm(&mut self, group: u32) {
-        if self.group == Some(group) && self.hostile() {
+        if self.group == Some(group) && self.hostile() && !self.fighting {
             self.fighting = true;
+            self.deciding = true;
         }
     }
 
@@ -466,10 +494,20 @@ impl Mind {
     /// cases of 11, after the hero as it moves; nearer, it steps back; in the band at full
     /// health, farther than 2,500 from home, it goes home and leaves the fight; else it stands
     /// in the band, turned to the hero, where it strikes (#280), and decides again when the
-    /// strike ends (`0x4E2147`). `None` while it does not fight, or walks on.
-    pub fn pursue(&mut self, sight: &Pursuit, rng: &mut Rng) -> Option<Pursues> {
+    /// strike ends (`0x4E2147`). One with a ranged weapon fights at range instead
+    /// ([`Self::at_range`]), where a straight line of walkable cells to the hero (`clear`) counts.
+    /// `None` while it does not fight, or walks on.
+    pub fn pursue(
+        &mut self,
+        sight: &Pursuit,
+        clear: impl FnOnce() -> bool,
+        rng: &mut Rng,
+    ) -> Option<Pursues> {
         if !self.fighting {
             return None;
+        }
+        if self.ranged {
+            return self.at_range(sight, clear, rng);
         }
         let Pursuit {
             here,
@@ -520,6 +558,93 @@ impl Mind {
                 Some(Pursues::GoesBack)
             }
             None => Some(Pursues::Strikes((!striking).then(|| rng.below(5)))),
+        }
+    }
+
+    /// What a creature with a ranged weapon that fights the hero does next, by what it sees and
+    /// whether a straight line leads to the hero (`clear`), as `0x4DBFC0` keeps it 300 to 800
+    /// from the hero: while its shot plays it waits; deciding, it shoots from 250 to 650, else it
+    /// moves to its band; moving, it gives up farther than 2,000; nearer than 300, up to ten times
+    /// since it last decided and not fled, it backs off once it stands, as far again from the
+    /// hero, at a walk in one case of two, else at a run (a walk for one of class 5); farther than
+    /// 800 it comes on, after the hero as it moves, stopping within 450; between, without a
+    /// straight line, it goes round once it stands to its place turned about the hero by −30° to
+    /// +30°, stopping within 25; else it shoots, whether it walks or not. A shot is one of its
+    /// attack's clips (one of five), each 0.1 faster than the last up to 1.7 times (`+0x210`,
+    /// which no other action of the game's archers breaks), and it decides again after it.
+    fn at_range(
+        &mut self,
+        sight: &Pursuit,
+        clear: impl FnOnce() -> bool,
+        rng: &mut Rng,
+    ) -> Option<Pursues> {
+        let Pursuit {
+            here,
+            hero,
+            walk,
+            striking,
+            ..
+        } = *sight;
+        // The shot's action plays while its AI is idle (the AI's state 0, `0x4DC9A3`).
+        if striking {
+            return None;
+        }
+        let d = (hero - here).length();
+        if self.deciding {
+            self.backs = 0;
+            if (SHOOTS.0..=SHOOTS.1).contains(&d) {
+                return Some(self.shoot(rng));
+            }
+            self.deciding = false;
+        }
+        if d > GIVES_UP {
+            self.fighting = false;
+            self.fled = false;
+            return Some(Pursues::GivesUp);
+        }
+        if d < KEEPS.0 && !self.fled && self.backs < BACKS_OFF {
+            if walk.is_some() {
+                return None;
+            }
+            self.backs += 1;
+            self.runs_at_range = rng.below(2) == 0 && self.class != 5;
+            return Some(Pursues::BacksOff {
+                to: here + (here - hero),
+                runs: self.runs_at_range,
+            });
+        }
+        if d > KEEPS.1 {
+            return match walk {
+                Some(walk) if walk.comes_on && (walk.target - hero).length() <= BAND => None,
+                _ => Some(Pursues::ComesOn {
+                    runs: self.runs_at_range,
+                    within: COMES_WITHIN,
+                }),
+            };
+        }
+        if d >= KEEPS.0 && !clear() {
+            if walk.is_some() {
+                return None;
+            }
+            let turn = f32::from(u16::try_from(rng.below(2 * GOES_ROUND + 1)).ok()?)
+                - f32::from(u16::try_from(GOES_ROUND).ok()?);
+            return Some(Pursues::GoesRound {
+                to: hero + (here - hero).turned(turn),
+                runs: self.runs_at_range,
+                within: GOES_ROUND_WITHIN,
+            });
+        }
+        Some(self.shoot(rng))
+    }
+
+    /// A shot (the action 5, `0x4DCB80`): the choice of its attack's clip and the factor of its
+    /// speed by its chain; it decides again after it.
+    fn shoot(&mut self, rng: &mut Rng) -> Pursues {
+        self.deciding = true;
+        self.backs = 0;
+        Pursues::Shoots {
+            choice: rng.below(5),
+            chain: self.shots.strike(),
         }
     }
 
@@ -706,6 +831,14 @@ pub enum Pursues {
     /// In the band, turned to the hero, it strikes by the choice of its attack's clip (one of
     /// five), unless it strikes already.
     Strikes(Option<u32>),
+    /// At range, too near the hero, it backs off to the point, at a run or not.
+    BacksOff { to: Spot, runs: bool },
+    /// At range, without a straight line to the hero, it goes round to the point, at a run or
+    /// not, stopping within `within` of it.
+    GoesRound { to: Spot, runs: bool, within: f32 },
+    /// At range, it stops, turns to the hero and shoots by the choice of its attack's clip (one
+    /// of five), at its attack speed times `chain`.
+    Shoots { choice: u32, chain: f32 },
 }
 
 /// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health`'s most or
@@ -1106,6 +1239,14 @@ pub fn hit_due([first, second]: [f32; 2], struck: u8, done: f32) -> bool {
     }
 }
 
+/// Whether a shot's arrow leaves, `done` of its clip played, `a` the clip's first fraction
+/// (`MotionDesc +0xA0`, `0x4DD90E`): once what is left of the clip is at most `1 − a` of it, at
+/// once for an `a` of 0, at the half for one of 1 or more.
+pub fn looses(a: f32, done: f32) -> bool {
+    let at = if a >= 1.0 { 0.5 } else { a.max(0.0) };
+    done >= at
+}
+
 /// Whether the hero's hit lands on a target `distance` away on the ground: within 1.5 times the
 /// reach.
 pub fn hero_hits(distance: f32) -> bool {
@@ -1204,11 +1345,169 @@ mod tests {
             health: Some((72, 72)),
             hero_strikes: true,
         };
-        assert_eq!(goblin.pursue(&sight(false), &mut rng), None);
+        assert_eq!(goblin.pursue(&sight(false), || true, &mut rng), None);
         assert!(matches!(
-            goblin.pursue(&sight(true), &mut rng),
+            goblin.pursue(&sight(true), || true, &mut rng),
             Some(Pursues::ComesOn { runs: true, .. })
         ));
+    }
+
+    /// A bandit with a bow (the type 640, class 3) fighting the hero, deciding.
+    fn archer() -> Mind {
+        let mut bandit = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (640, 3));
+        bandit.ranged = true;
+        bandit.fighting = true;
+        bandit
+    }
+
+    /// What an archer at the origin sees of the hero at `d` along x, standing or walking.
+    fn at_range(d: f32, walk: Option<Walking>) -> Pursuit {
+        Pursuit {
+            here: Spot::default(),
+            hero: at(d, 0.0),
+            walk,
+            striking: false,
+            health: Some((72, 72)),
+            hero_strikes: false,
+        }
+    }
+
+    #[test]
+    fn an_archer_shoots_from_250_to_650_as_it_decides_and_in_its_band_as_it_moves() {
+        let mut rng = Rng::of(48, 38, 1);
+        for d in [250.0, 400.0, 650.0] {
+            let mut bandit = archer();
+            assert!(
+                matches!(
+                    bandit.pursue(&at_range(d, None), || true, &mut rng),
+                    Some(Pursues::Shoots { .. })
+                ),
+                "{d}"
+            );
+        }
+        // At 700 it moves to its band, where it shoots along a straight line, but not while its
+        // shot plays.
+        let mut bandit = archer();
+        let shot = bandit.pursue(&at_range(700.0, None), || true, &mut rng);
+        assert!(matches!(shot, Some(Pursues::Shoots { .. })), "{shot:?}");
+        let playing = Pursuit {
+            striking: true,
+            ..at_range(400.0, None)
+        };
+        assert_eq!(bandit.pursue(&playing, || true, &mut rng), None);
+        // Each shot is 0.1 faster than the last, up to 1.7 times.
+        let chains: Vec<f32> = (0..10)
+            .filter_map(
+                |_| match bandit.pursue(&at_range(400.0, None), || true, &mut rng) {
+                    Some(Pursues::Shoots { chain, .. }) => Some(chain),
+                    _ => None,
+                },
+            )
+            .collect();
+        assert_eq!(chains.len(), 10);
+        assert!((chains[0] - 1.1).abs() < 1e-5 && (chains[9] - 1.7).abs() < 1e-5);
+    }
+
+    #[test]
+    fn an_archer_backs_off_ten_times_then_shoots_near() {
+        let mut rng = Rng::of(48, 38, 2);
+        let mut bandit = archer();
+        let (mut runs, mut walks) = (0, 0);
+        for _ in 0..10 {
+            match bandit.pursue(&at_range(200.0, None), || true, &mut rng) {
+                // As far again from the hero, away from it.
+                Some(Pursues::BacksOff { to, runs: run }) => {
+                    assert!((to - at(-200.0, 0.0)).length() < 1e-3, "{to:?}");
+                    if run {
+                        runs += 1;
+                    } else {
+                        walks += 1;
+                    }
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        assert!(runs > 0 && walks > 0, "{runs} {walks}");
+        // While it walks, it walks on; the eleventh time it shoots where it stands.
+        let walking = Some(Walking {
+            target: at(-200.0, 0.0),
+            comes_on: false,
+            runs: false,
+        });
+        let mut fresh = archer();
+        fresh.deciding = false;
+        assert_eq!(
+            fresh.pursue(&at_range(200.0, walking), || true, &mut rng),
+            None
+        );
+        assert!(matches!(
+            bandit.pursue(&at_range(200.0, None), || true, &mut rng),
+            Some(Pursues::Shoots { .. })
+        ));
+        // A shot counts the backs anew.
+        assert!(matches!(
+            bandit.pursue(&at_range(200.0, None), || true, &mut rng),
+            Some(Pursues::BacksOff { .. })
+        ));
+    }
+
+    #[test]
+    fn an_archer_comes_on_from_afar_goes_round_without_a_line_and_gives_up_beyond_2000() {
+        let mut rng = Rng::of(48, 38, 3);
+        let mut bandit = archer();
+        assert_eq!(
+            bandit.pursue(&at_range(900.0, None), || true, &mut rng),
+            Some(Pursues::ComesOn {
+                runs: false,
+                within: 450.0
+            })
+        );
+        // Coming on after the hero, it walks on; the hero gone elsewhere, it turns after it.
+        let coming = |target| {
+            Some(Walking {
+                target,
+                comes_on: true,
+                runs: false,
+            })
+        };
+        assert_eq!(
+            bandit.pursue(&at_range(900.0, coming(at(900.0, 0.0))), || true, &mut rng),
+            None
+        );
+        assert!(matches!(
+            bandit.pursue(&at_range(900.0, coming(at(600.0, 0.0))), || true, &mut rng),
+            Some(Pursues::ComesOn { .. })
+        ));
+        // In the band without a straight line, it goes round the hero, keeping its distance.
+        for _ in 0..50 {
+            let Some(Pursues::GoesRound { to, within, .. }) =
+                bandit.pursue(&at_range(500.0, None), || false, &mut rng)
+            else {
+                panic!("goes round");
+            };
+            let hero = at(500.0, 0.0);
+            let turned = (to - hero).y.atan2(-(to - hero).x).to_degrees().abs();
+            assert!(
+                ((to - hero).length() - 500.0).abs() < 0.01 && turned <= 30.01,
+                "{to:?}"
+            );
+            assert_eq!(within, 25.0);
+        }
+        assert_eq!(
+            bandit.pursue(&at_range(2100.0, None), || true, &mut rng),
+            Some(Pursues::GivesUp)
+        );
+        assert_eq!(
+            bandit.pursue(&at_range(400.0, None), || true, &mut rng),
+            None
+        );
+    }
+
+    #[test]
+    fn a_shots_arrow_leaves_at_its_clips_fraction() {
+        assert!(looses(0.0, 0.0));
+        assert!(!looses(0.4, 0.39) && looses(0.4, 0.4));
+        assert!(!looses(1.2, 0.49) && looses(1.2, 0.5));
     }
 
     #[test]

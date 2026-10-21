@@ -387,8 +387,9 @@ impl Rules {
 /// (`BalanceRes*`), and the factors of all damages and resistances (`BalanceDmg`, `BalanceRes`);
 /// the experience's factor of bronze (`ProzExp`) and the levels' (`UnterExpAnteil`,
 /// `UnterExpVoll`, `ObereEXPVoll`); bronze's factors of the strikes between the hero and the
-/// creatures (`ProzAW`, `ProzDmg`, `ProzRes`); and the hero's rates of regeneration fighting,
-/// with a hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`).
+/// creatures (`ProzAW`, `ProzDmg`, `ProzRes`); the hero's rates of regeneration fighting, with a
+/// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); and the distances and
+/// the share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
@@ -406,6 +407,7 @@ pub struct Rules {
     start_levels: [f32; 2],
     skill_levels: [u32; 6],
     ranks: Ranks,
+    range: [f32; 3],
 }
 
 impl Default for Rules {
@@ -427,6 +429,7 @@ impl Default for Rules {
             start_levels: [60.0, 100.0],
             skill_levels: [3, 6, 12, 20, 30, 50],
             ranks: Ranks::default(),
+            range: [250.0, 1000.0, 0.25],
         }
     }
 }
@@ -523,6 +526,19 @@ impl Rules {
                 levels
             },
             ranks: Ranks::of(b),
+            range: {
+                let [least, most, share] = default.range;
+                let distance = |name, or| {
+                    b.i32(name)
+                        .and_then(|v| i16::try_from(v).ok())
+                        .map_or(or, f32::from)
+                };
+                [
+                    distance("FernAWMin", least),
+                    distance("FernAWMax", most),
+                    b.f32("FernAWProz").unwrap_or(share),
+                ]
+            },
         }
     }
 
@@ -1140,6 +1156,21 @@ pub fn weighed(
     (attacker, defender, k)
 }
 
+/// The factor of the attack of a strike with a ranged weapon (the kinds 7, 12, 13 and 14,
+/// `0x427ED0`) at `distance` between the attacker and its target (`0x56B449`): 1 up to
+/// `FernAWMin` (250), falling linearly toward `1 − FernAWProz` (0.75) at `FernAWMax` (1,000), and
+/// `FernAWProz` (0.25) from there, a jump.
+pub fn range_factor(distance: f32, rules: &Rules) -> f32 {
+    let [least, most, share] = rules.range;
+    if distance <= least {
+        1.0
+    } else if distance >= most {
+        share
+    } else {
+        1.0 - (distance - least) * share / (most - least)
+    }
+}
+
 /// A side of a strike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -1271,6 +1302,18 @@ mod tests {
         assert!(most_health(base, 10, &rules) > most_health(base, 1, &rules));
         // A base that gives nothing gives 100.
         assert_eq!(most_health([0; 6], 1, &rules), 100);
+    }
+
+    #[test]
+    fn an_attack_at_range_weakens_with_the_distance() {
+        let rules = Rules::default();
+        assert_eq!(range_factor(0.0, &rules), 1.0);
+        assert_eq!(range_factor(250.0, &rules), 1.0);
+        assert!((range_factor(625.0, &rules) - 0.875).abs() < 1e-6);
+        assert!((range_factor(999.0, &rules) - 0.750_333).abs() < 1e-5);
+        // From 1,000 a quarter, a jump from three quarters.
+        assert_eq!(range_factor(1000.0, &rules), 0.25);
+        assert_eq!(range_factor(1500.0, &rules), 0.25);
     }
 
     #[test]

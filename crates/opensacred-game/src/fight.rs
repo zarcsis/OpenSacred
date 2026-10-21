@@ -9,7 +9,7 @@ pub use opensacred_rules::fight::{
     HERO_LEVEL, Holds, Rank, Templates, combat, hero_health, level, most_health, regeneration,
     skills, takes_on,
 };
-use opensacred_rules::fight::{Side, experience_of, strike, weighed};
+use opensacred_rules::fight::{Side, experience_of, range_factor, strike, weighed};
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -18,12 +18,14 @@ use crate::spawning::Rng;
 
 /// A hit of a strike (`0x4EA3F0`, which the strike `0x4EA1F0` calls as it lands, the event 5):
 /// its attacker, its target and its share of the strike, 0.5 for each hit of two (docs/re/fight.md,
-/// "Melee: the AI's state 4", "A strike's resolution").
+/// "Melee: the AI's state 4", "A strike's resolution"), and whether it is a hit at range, an
+/// arrow's (`arrows`), with the bow in its attacker's hand (`0x5BB010`).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Hit {
     pub attacker: Entity,
     pub target: Entity,
     pub share: f32,
+    pub ranged: bool,
 }
 
 /// The dice of the strikes.
@@ -71,7 +73,9 @@ pub struct Ranked(pub Rank);
 pub struct Worth(pub [u16; 2]);
 
 /// Resolves each hit (`0x56B130`), weighed by the difficulty between the hero and a creature
-/// ([`weighed`]): a target without a health, or dying, ignores it; else the strike may miss, and its damage takes the target's health down,
+/// ([`weighed`]), a hit at range with its attack times the range's factor of the distance between
+/// the attacker and the target ([`range_factor`], `0x56B449`): a target without a health, or
+/// dying, ignores it; else the strike may miss, and its damage takes the target's health down,
 /// shows over it, and at 0 the target dies (the AI's state 9, `0x53E7C0`), one of its two dying
 /// clips at random, and a hero that killed it earns its experience (the event 9, `0x57D860`).
 #[expect(
@@ -84,7 +88,12 @@ fn resolve(
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
-    attackers: Query<(&Combat, Has<Body>, Option<&crate::ai::Mind>)>,
+    attackers: Query<(
+        &Combat,
+        Has<Body>,
+        Option<&crate::ai::Mind>,
+        &GlobalTransform,
+    )>,
     mut targets: Query<
         (
             &mut Health,
@@ -98,8 +107,10 @@ fn resolve(
     >,
 ) {
     for hit in hits.read() {
-        let (Ok((attacker, hero, mind)), Ok((mut health, defender, at, worth, hero_hit, rank))) =
-            (attackers.get(hit.attacker), targets.get_mut(hit.target))
+        let (
+            Ok((attacker, hero, mind, from)),
+            Ok((mut health, defender, at, worth, hero_hit, rank)),
+        ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
                 "fight: {} hits {} ({:.1}), which takes no damage yet",
@@ -116,8 +127,17 @@ fn resolve(
             _ => None,
         };
         let level = mind.map_or(experience.level, |mind| mind.level);
-        let (attacker, defender, k) =
+        let (mut attacker, defender, k) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);
+        if hit.ranged {
+            let distance = (from.translation() - at.translation()).xz().length();
+            let factor = range_factor(distance, &rules);
+            attacker.attack *= factor;
+            debug!(
+                "fight: {} at range {distance:.0} of {}, its attack times {factor:.2}",
+                hit.attacker, hit.target
+            );
+        }
         let Some(damage) = strike(&attacker, &defender, (hit.share, k), &mut dice.0) else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
