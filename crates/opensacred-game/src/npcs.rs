@@ -1753,14 +1753,7 @@ pub fn equip(
                 return true;
             };
             let (socket, own, holder) = bones(item.hand, item.shield);
-            // The instruments hold by a socket of their own spelling (**hypothesis**: the
-            // client's lookup of the hand's socket finds none in them, `0x44C670`).
-            let found = pose(gltf, &nodes, socket).or_else(|| {
-                ["Weapon_bone01", "Weapon_Bone01"]
-                    .iter()
-                    .find_map(|other| pose(gltf, &nodes, other))
-            });
-            let Some(pose) = found else {
+            let Some(pose) = pose(gltf, &nodes, socket) else {
                 return false;
             };
             let named = |wanted: &str| {
