@@ -41,6 +41,13 @@ pub struct Attack {
     chain: Chain,
 }
 
+impl Attack {
+    /// The creature it attacks, if any.
+    pub fn target(&self) -> Option<Entity> {
+        self.target
+    }
+}
+
 /// The strike the hero plays (the attack action 3, `0x4E4CF0`): its clip's node, its length,
 /// the fractions at which it hits, and how many hits it has sent.
 #[derive(Component)]

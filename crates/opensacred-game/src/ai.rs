@@ -10,8 +10,10 @@
 //! wounded it flees, and too far from home it goes back ([`pursue`],
 //! docs/decisions/2026-10-20-pursuit.md); the second to the fourth of the hero's hostiles beside
 //! the nearest take their places about the hero for a frame; one with a ranged weapon keeps 300
-//! to 800 from the hero and shoots (docs/decisions/2026-10-21-archers.md); one that the test holds
-//! back goes dormant again and steps about as one beyond it (docs/decisions/2026-10-20-idle.md).
+//! to 800 from the hero and shoots, goes to melee when the hero attacks it from near and takes a
+//! bow again beyond its reach (`npcs::Rearms`, docs/decisions/2026-10-21-archers.md); one that the
+//! test holds back goes dormant again and steps about as one beyond it
+//! (docs/decisions/2026-10-20-idle.md).
 //! Without a straight line or a way to the hero, a creature goes for the nearest closed door of
 //! its sector that a hero turned, and opens it ([`open`], docs/decisions/2026-10-21-doors.md).
 //! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
@@ -33,7 +35,7 @@ use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::lines::Says;
-use crate::npcs::{Door, Npcs, Plays, PutAt, Strikes, Swing, Talks, Walk};
+use crate::npcs::{Door, Npcs, Plays, PutAt, Rearms, Strikes, Swing, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::{Heights, Level};
@@ -460,7 +462,12 @@ fn pursue(
     nearest: Res<Nearest>,
     doors: Doors,
     hero: Query<
-        (Entity, &Transform, Has<crate::attack::Striking>),
+        (
+            Entity,
+            &Transform,
+            Has<crate::attack::Striking>,
+            Option<&crate::attack::Attack>,
+        ),
         (With<Body>, Without<crate::npcs::Dies>),
     >,
     mut creatures: Query<
@@ -477,10 +484,12 @@ fn pursue(
         Without<Body>,
     >,
 ) {
-    let Some((the_hero, hero, hero_strikes)) = hero.iter().next() else {
+    let Some((the_hero, hero, hero_strikes, attack)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
+    // The creature the hero attacks.
+    let attacked = attack.and_then(crate::attack::Attack::target);
     // Where the nearest of the hero's hostiles stands.
     let first = nearest
         .hostiles
@@ -506,6 +515,7 @@ fn pursue(
                 .iter()
                 .position(|&hostile| hostile == entity)
                 .zip(first),
+            targeted: attacked == Some(entity),
         };
         // A straight line of walkable cells to the hero, asked again below.
         let clear = || {
@@ -634,6 +644,27 @@ fn pursue(
                     .entity(entity)
                     .remove::<Walk>()
                     .insert(Strikes::shot(the_hero, choice, chain));
+            }
+            // It stops where it stands and changes its weapons (`npcs::rearm`).
+            Pursues::ToMelee(weapon) => {
+                let d = (hero - here).xz().length();
+                debug!(
+                    "ai: {entity} puts its bow away for melee, the hero at {d:.0}, taking \
+                     {weapon:?}, to take a bow again {}",
+                    mind.takes_bow()
+                );
+                commands
+                    .entity(entity)
+                    .remove::<Walk>()
+                    .insert(Rearms::to_melee(weapon));
+            }
+            Pursues::TakesBow(bow) => {
+                let d = (hero - here).xz().length();
+                debug!("ai: {entity} takes the bow {bow} again, the hero at {d:.0}");
+                commands
+                    .entity(entity)
+                    .remove::<Walk>()
+                    .insert(Rearms::bow(bow));
             }
         }
     }
