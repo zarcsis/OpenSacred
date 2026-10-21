@@ -2,7 +2,7 @@
 //! name, each as narrow as its defect (CLAUDE.md, "Code conventions"). A named record whose data
 //! is not what its repair expects is left as it is, with a warning.
 
-use opensacred_formats::grn::{Bone, Model, Skeleton};
+use opensacred_formats::grn::{Bone, Influence, Model, Skeleton};
 
 /// What [`apply`] did to a record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub enum Outcome {
 type Repair = fn(&mut Skeleton, &mut Model) -> Result<usize, String>;
 
 /// The repairs by the name of the record they repair.
-const REPAIRS: [(&[u8], Repair); 1] = [(EARTH_AMULET, earth_amulet)];
+const REPAIRS: [(&[u8], Repair); 2] = [(EARTH_AMULET, earth_amulet), (CANNON, cannon_strap)];
 
 /// Repairs `skeleton` and `model` of the model record `name` if a repair names it; the record
 /// name is compared without regard to case, as the command line's `--model` is.
@@ -79,15 +79,7 @@ fn earth_amulet(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
         return Err("`Bip01` does not hang under the root".to_owned());
     }
     let spine3 = only_bone(skeleton, SPINE3)?;
-    let mut meshes = model
-        .meshes
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| m.name == EARTH_AMULET_MESH)
-        .map(|(index, _)| index);
-    let (Some(index), None) = (meshes.next(), meshes.next()) else {
-        return Err("not one mesh `Amulett_erd`".to_owned());
-    };
+    let index = only_mesh(model, EARTH_AMULET_MESH)?;
     let mesh = &model.meshes[index];
     let pivot = match mesh.bones.as_slice() {
         [only] if mesh.weights.is_empty() => only.bone,
@@ -123,6 +115,111 @@ fn earth_amulet(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
     // The bounds of the entry, which the export does not read, stay those of the pivot.
     model.meshes[index].bones[0].bone = moved(spine3);
     Ok(EARTH_AMULET_POSITIONS)
+}
+
+/// `DWARF_LEATHER_CANNON.GRN` (model 1415), the cannon of item 3015: five of the 43 positions of
+/// its strap `shoulder_leather01`, at shoulder height, are wholly on `Bip01 Pelvis`, 17 to 23
+/// units below them, among positions on `Bip01 L Clavicle` and `Bip01 Neck`; worn on the dwarf,
+/// the strap's sides from them stretch up to 22 times in the dwarf's clips (#399, docs/02 §4.6).
+/// The repair weights them wholly on `Bip01 L Clavicle`, the bone of most of the strap's positions
+/// around them (docs/decisions/2026-10-21-cannon-strap.md).
+const CANNON: &[u8] = b"DWARF_LEATHER_CANNON.GRN";
+const STRAP: &[u8] = b"shoulder_leather01";
+const STRAP_POSITIONS: usize = 43;
+/// The strap's positions on the pelvis, by index, and where they lie in the file, to 0.001.
+const ON_PELVIS: [(usize, [f32; 3]); 5] = [
+    (3, [10.970, 8.466, 0.356]),
+    (17, [6.121, 9.165, 1.274]),
+    (26, [7.480, -7.085, 2.911]),
+    (27, [6.319, 8.329, 5.694]),
+    (32, [11.314, 8.811, 1.120]),
+];
+const PELVIS: &[u8] = b"Bip01 Pelvis";
+const CLAVICLE: &[u8] = b"Bip01 L Clavicle";
+
+/// The [`Repair`] of [`CANNON`].
+fn cannon_strap(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, String> {
+    let index = only_mesh(model, STRAP)?;
+    let mesh = &model.meshes[index];
+    if mesh.positions.len() != STRAP_POSITIONS || mesh.weights.len() != STRAP_POSITIONS {
+        return Err(format!(
+            "the strap has {} positions and {} weighted ones, not {STRAP_POSITIONS}",
+            mesh.positions.len(),
+            mesh.weights.len()
+        ));
+    }
+    // The strap's own index of a skeleton bone, its "local bone" (docs/02 §4.2).
+    let local = |name: &[u8]| {
+        let mut found = mesh
+            .bones
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| {
+                skeleton
+                    .bones
+                    .get(b.bone)
+                    .is_some_and(|bone| bone.name == name)
+            })
+            .map(|(local, _)| local);
+        match (found.next(), found.next()) {
+            (Some(local), None) => Ok(local),
+            _ => Err(format!(
+                "the strap is not bound once to `{}`",
+                name.escape_ascii()
+            )),
+        }
+    };
+    let pelvis = local(PELVIS)?;
+    let clavicle = local(CLAVICLE)?;
+    let on_pelvis: Vec<usize> = mesh
+        .weights
+        .iter()
+        .enumerate()
+        .filter(|(_, list)| list.iter().any(|i| i.bone == pelvis))
+        .map(|(position, _)| position)
+        .collect();
+    let expected = ON_PELVIS.map(|(position, _)| position);
+    if on_pelvis != expected {
+        return Err(format!(
+            "positions {on_pelvis:?} of the strap are on `Bip01 Pelvis`, not {expected:?}"
+        ));
+    }
+    let wholly = |bone| vec![Influence { bone, weight: 1.0 }];
+    for (position, at) in ON_PELVIS {
+        if mesh.weights[position] != wholly(pelvis) {
+            return Err(format!(
+                "position {position} of the strap is not wholly on `Bip01 Pelvis`"
+            ));
+        }
+        if mesh.positions[position]
+            .iter()
+            .zip(at)
+            .any(|(a, b)| (a - b).abs() > 1e-3)
+        {
+            return Err(format!(
+                "position {position} of the strap does not lie at {at:?}"
+            ));
+        }
+    }
+    for (position, _) in ON_PELVIS {
+        model.meshes[index].weights[position] = wholly(clavicle);
+    }
+    Ok(ON_PELVIS.len())
+}
+
+/// The index of the only mesh named `name`.
+fn only_mesh(model: &Model, name: &[u8]) -> Result<usize, String> {
+    let mut found = model
+        .meshes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.name == name)
+        .map(|(index, _)| index);
+    match (found.next(), found.next()) {
+        (Some(index), None) => Ok(index),
+        (None, _) => Err(format!("no mesh `{}`", name.escape_ascii())),
+        (Some(_), Some(_)) => Err(format!("two meshes `{}`", name.escape_ascii())),
+    }
 }
 
 /// The index of the only bone named `name`.
@@ -417,6 +514,177 @@ mod tests {
             assert!(positions.contains(&[x, -z, y]), "{vertex:?}");
         }
         assert!(amulet.ints(&attributes["JOINTS_0"]).iter().all(|&j| j == 0));
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The cannon's bones in short and its strap: 43 positions, the five of [`ON_PELVIS`] on
+    /// `Bip01 Pelvis`, the others on `Bip01 Neck` (the first ten) or `Bip01 L Clavicle`, one of
+    /// them shared with `Bip01 L UpperArm`.
+    fn cannon() -> (Skeleton<'static>, Model<'static>) {
+        let skeleton = Skeleton {
+            bones: vec![
+                bone(b"__Root", None, [0.0; 3]),
+                bone(b"Bip01", Some(0), [0.0, 0.0, -17.0]),
+                bone(b"Bip01 Pelvis", Some(1), [0.0; 3]),
+                bone(b"Bip01 Neck", Some(2), [0.0, -1.0, 23.5]),
+                bone(b"Bip01 L Clavicle", Some(3), [5.6, 1.4, -2.8]),
+                bone(b"Bip01 L UpperArm", Some(4), [6.0, 0.0, 0.0]),
+            ],
+        };
+        let mut strap = rigid(b"shoulder_leather01", STRAP_POSITIONS, 0);
+        strap.bones = [3, 4, 2, 5].map(entry).to_vec();
+        let one = |bone| vec![Influence { bone, weight: 1.0 }];
+        strap.weights = (0..STRAP_POSITIONS)
+            .map(|k| if k < 10 { one(0) } else { one(1) })
+            .collect();
+        strap.weights[12] = vec![
+            Influence {
+                bone: 1,
+                weight: 0.53,
+            },
+            Influence {
+                bone: 3,
+                weight: 0.47,
+            },
+        ];
+        for (position, at) in ON_PELVIS {
+            strap.positions[position] = at.map(|v| v + 0.000_2);
+            strap.weights[position] = one(2);
+        }
+        let mut model = amulet_model();
+        model.meshes = vec![rigid(b"Cannon", 3, 1), strap];
+        (skeleton, model)
+    }
+
+    #[test]
+    fn the_cannon_straps_positions_on_the_pelvis_go_to_the_clavicle() {
+        let (mut skeleton, mut model) = cannon();
+        let (old_skeleton, old_model) = (skeleton.clone(), model.clone());
+        let outcome = apply(b"Dwarf_leather_cannon.grn", &mut skeleton, &mut model);
+        assert_eq!(outcome, Outcome::Repaired(5));
+        assert_eq!(skeleton, old_skeleton);
+        assert_eq!(model.meshes[0], old_model.meshes[0]);
+        let (strap, old) = (&model.meshes[1], &old_model.meshes[1]);
+        assert_eq!(
+            (&strap.positions, &strap.bones),
+            (&old.positions, &old.bones)
+        );
+        for (position, (list, old_list)) in strap.weights.iter().zip(&old.weights).enumerate() {
+            if ON_PELVIS.iter().any(|&(p, _)| p == position) {
+                assert_eq!(
+                    list,
+                    &[Influence {
+                        bone: 1,
+                        weight: 1.0
+                    }]
+                );
+            } else {
+                assert_eq!(list, old_list);
+            }
+        }
+    }
+
+    #[test]
+    fn a_strap_unlike_the_expected_one_is_left_as_it_is() {
+        let mut cases: Vec<(Skeleton, Model, &str)> = Vec::new();
+        let (skeleton, mut model) = cannon();
+        model.meshes[1].weights[20] = vec![Influence {
+            bone: 2,
+            weight: 1.0,
+        }];
+        cases.push((skeleton, model, "positions [3, 17, 20, 26, 27, 32]"));
+        let (skeleton, mut model) = cannon();
+        model.meshes[1].weights[17][0].weight = 0.5;
+        model.meshes[1].weights[17].push(Influence {
+            bone: 1,
+            weight: 0.5,
+        });
+        cases.push((skeleton, model, "position 17 of the strap is not wholly"));
+        let (skeleton, mut model) = cannon();
+        model.meshes[1].positions[26][2] += 0.01;
+        cases.push((skeleton, model, "position 26 of the strap does not lie"));
+        let (mut skeleton, model) = cannon();
+        skeleton.bones[4].name = b"Bip01 R Clavicle";
+        cases.push((skeleton, model, "not bound once to `Bip01 L Clavicle`"));
+        let (skeleton, mut model) = cannon();
+        model.meshes[1].positions.push([0.0; 3]);
+        cases.push((skeleton, model, "44 positions"));
+        let (skeleton, mut model) = cannon();
+        model.meshes[1].name = b"shoulder_leather02";
+        cases.push((skeleton, model, "no mesh `shoulder_leather01`"));
+        for (mut skeleton, mut model, reason) in cases {
+            let (old_skeleton, old_model) = (skeleton.clone(), model.clone());
+            match apply(CANNON, &mut skeleton, &mut model) {
+                Outcome::Mismatch(found) => assert!(found.contains(reason), "{found}"),
+                other => panic!("{other:?}"),
+            }
+            assert_eq!((skeleton, model), (old_skeleton, old_model));
+        }
+    }
+
+    /// Model 1415 in the game files: the converted strap has no vertex on `Bip01 Pelvis`, and its
+    /// five positions that were follow `Bip01 L Clavicle` wholly.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_cannon_strap_leaves_the_pelvis() {
+        let game = repo_root().join("OriginalGame");
+        let (pak, dir_name) = models::PAKS[0];
+        let out = scratch_dir("cannon-strap");
+        let dst = models::output_dir(&out, dir_name);
+        let only = ["Dwarf_leather_cannon.grn".to_owned()];
+        let summary =
+            models::convert_pak(&game.join(pak), &dst, &TextureIndex::default(), &only).unwrap();
+        assert_eq!(
+            (summary.repaired_models, summary.repaired_positions),
+            (1, 5)
+        );
+        assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+        let glb = Glb::read(&fs::read(dst.join("1415-dwarf_leather_cannon.glb")).unwrap());
+        let meshes = glb.json["meshes"].as_array().unwrap();
+        let strap = meshes
+            .iter()
+            .position(|m| m["name"] == "shoulder_leather01")
+            .unwrap();
+        let node = glb.json["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["mesh"] == strap)
+            .unwrap();
+        let skin = &glb.json["skins"][glb.field(&node["skin"])];
+        let joint = |k: usize| {
+            let node = glb.field(&skin["joints"][k]);
+            glb.json["nodes"][node]["name"].as_str().unwrap().to_owned()
+        };
+        let attributes = &meshes[strap]["primitives"][0]["attributes"];
+        let positions = glb.floats(&attributes["POSITION"]);
+        let joints = glb.ints(&attributes["JOINTS_0"]);
+        let weights = glb.floats(&attributes["WEIGHTS_0"]);
+        let mut moved = 0;
+        for (vertex, position) in positions.chunks(3).enumerate() {
+            let influences: Vec<(String, f32)> = (0..4)
+                .filter(|&c| weights[4 * vertex + c] > 0.0)
+                .map(|c| {
+                    let k = usize::try_from(joints[4 * vertex + c]).unwrap();
+                    (joint(k), weights[4 * vertex + c])
+                })
+                .collect();
+            assert!(
+                influences.iter().all(|(name, _)| name != "Bip01 Pelvis"),
+                "{influences:?}"
+            );
+            // glTF's (x, y, z) is the file's (x, −z, y).
+            let at = [position[0], -position[2], position[1]];
+            if ON_PELVIS
+                .iter()
+                .any(|(_, p)| p.iter().zip(at).all(|(a, b)| (a - b).abs() < 1e-3))
+            {
+                assert_eq!(influences, [("Bip01 L Clavicle".to_owned(), 1.0)]);
+                moved += 1;
+            }
+        }
+        // A position is several vertices where its corners differ in normal or coordinates.
+        assert!(moved >= ON_PELVIS.len(), "{moved}");
         fs::remove_dir_all(out).unwrap();
     }
 }

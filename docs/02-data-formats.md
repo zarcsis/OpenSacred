@@ -409,8 +409,11 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   The inverse bind matrix of the amulet's joint is then its siblings' within 1.5e-6, and worn on the dwarf's bind pose by names, its centre lies 0.06 units from the fire amulet's (by the file's own bind pose it would lie 0.36 units away).
   `DWARF_AM_SERAPHIM.GRN` (798) follows `Dummy01`, a helper under `Bip01 Head` that the dwarf has at the same place, so it moves with the head rather than the chest (**hypothesis** whether that shows).
 - **The cannons shown wrongly**: **confirmed** on the data for `Dwarf_leather_cannon.grn` (1415, item 3015).
-  Five of the 43 positions of its strap `shoulder_leather01`, at shoulder height, are wholly on `Bip01 Pelvis`, 17 to 23 units below them, among neighbours on `Bip01 L Clavicle` and `Bip01 Neck` 1.2 to 2.3 units away; worn on the dwarf, 49 of the 204 sides of the strap's 68 triangles stretch more than twice in the dwarf's clips, up to 22 times in `DWAR_ATTACK_SPECIAL01`.
-  A repair would weight those five positions on their neighbours' bone, `Bip01 L Clavicle`.
+  Five of the 43 positions of its strap `shoulder_leather01` (3, 17, 26, 27 and 32), at shoulder height, are wholly on `Bip01 Pelvis`, 17 to 23 units below them, among positions on `Bip01 L Clavicle` and `Bip01 Neck`: the nearest position on another bone lies 1.1 to 4.2 units from each, on `Bip01 L Clavicle` for three and on `Bip01 Neck` for two, and 10 of the 13 sides from them to other bones' positions run to `Bip01 L Clavicle`.
+  Worn on the dwarf, 49 of the 204 sides of the strap's 68 triangles stretch more than twice in the dwarf's clips, up to 22 times in `DWAR_ATTACK_SPECIAL01`.
+  The converter repairs it (#399, docs/decisions/2026-10-21-cannon-strap.md): it weights those five positions wholly on `Bip01 L Clavicle`, the positions unchanged.
+  Measured with 16 samples a clip (which find the 49 sides and 23 times before), 32 sides then stretch more than twice, up to 13 times in `DWAR_SPECIAL_HHIT_2H_AXT` and 8.8 in `DWAR_ATTACK_1H_A`, all between the strap's positions on `Bip01 Neck` and on `Bip01 L Clavicle` (**confirmed** on the converted files).
+  That is the strap's own split between the two bones, like the seams of the dwarf's own mesh, whose sides stretch up to 7.2 times in `DWAR_RUN_2H_AXT` and `DWAR_ATTACK_1H_A`; smoothing it would be a new weighting, not a repair of the data.
   The other two cannons, `DWARF_CANNON.GRN` (723, items 1700 and 3016) and `dwarf_platearmor_cannon.grn` (725, item 3095), hang on the helpers `null_cannon_base`, `null_cannon_mover` and `null_rucksack`, whose bind pose under `Bip01 Spine3` is the dwarf's to 0.01 unit and 0.1°, and none of their edges stretches past 3.1 times (723's rucksack in `DWAR_DYING_A`); 725 spells the forearm `Forearm`, but none of its meshes uses it.
   What else the community saw wrong on the cannons is not in the data (**hypothesis**).
 - **A small hole in the blacksmith's model**: **not in the geometry**, **confirmed** on the data.
@@ -433,7 +436,7 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   A repair would blend the root's weights between `Bip01 Tail` and the thighs; which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
 
 `opensacred-convert models` repairs the named records as it writes them, each repair a `bug` of its own and recorded as a decision (CLAUDE.md, "Code conventions"), and counts them in its summary; a named record whose data is not what its repair expects is written as it is, with a warning.
-The earth amulet is repaired; the other repairs above are not made yet.
+The earth amulet and the cannon's strap are repaired; the other repairs above are not made yet.
 
 ## 5. World
 
