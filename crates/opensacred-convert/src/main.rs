@@ -9,6 +9,7 @@ mod ffmpeg;
 mod gltf;
 mod heroes;
 mod manifest;
+mod model_repairs;
 mod models;
 mod netscript;
 mod sound;
@@ -430,6 +431,15 @@ fn execute(command: Command) -> Result<ExitCode> {
                     s.rest_tracks,
                     s.rotation_jumps,
                 );
+                if summary.repaired_models > 0 {
+                    println!(
+                        "  repaired: {} positions in {} models (the dwarf's earth amulet)",
+                        summary.repaired_positions, summary.repaired_models,
+                    );
+                }
+                for warning in &summary.warnings {
+                    eprintln!("warning: {warning}");
+                }
             }
             println!("done in {:.1} s", start.elapsed().as_secs_f64());
             Ok(ExitCode::SUCCESS)
