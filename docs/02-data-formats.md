@@ -795,6 +795,7 @@ The original (`cMSS`) holds a single `FILE*` and reads samples on demand (accord
   Besides `fmt ` and `data`, the chunks `fact`, `PAD `, `LIST`/`INFO`, `smpl`, `inst` occur; the reader skips unknown ones.
 - **MP3**: MPEG-1 Layer III, mono, 44.1 kHz; 48 kbit/s (2,546), 64 (766), 128 (72), 96 (20).
   3,331 records start directly with the sync word; 73 have one frame's worth of zeros (208 or 417 B) before the first frame, so the decoder must search for the sync word.
+  `opensacred_formats::sound` gives an MP3 record as stored, with the count of those zeros; `opensacred-convert sound` drops them as it writes the sample, a repair of the data (#354, docs/decisions/2026-10-20-mp3-leading-zeros.md).
 - **Duration**: PCM ≈0.7 h, ADPCM ≈0.8 h, MP3 ≈4.4 h (estimated from the bitrate of the first frame).
 - **Link to the profiles** (§10.1): of the 2,355 profile ids, 2,253 are in the pak, all of them WAV; of the 102 missing, 88 are the music files of `mp3/` (§10.3) that the profiles `music`, `jingle_extension` and `atmospot_waterfall` name, and 14 of `soldier_snd` (`SOUND_FX_THIEF_FLEE*`, `…FOLLOW*`) have no sound at all (the original apparently skips them silently; hypothesis).
   The profiles reference none of the 3,404 MP3s (ids 16,300…21,616) and none of 941 WAVs.
@@ -805,7 +806,7 @@ The original (`cMSS`) holds a single `FILE*` and reads samples on demand (accord
   Confirmed 2026-10-17 by `sound_dump.py --names`.
 
 Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copied as is, like the music (§10.3).
-**Implemented 2026-10-17:** `opensacred_formats::sound` (`SoundPak`, `Profiles`) reads every sample and profile and matches `sound_dump.py` on every record; `opensacred-convert sound` writes the 3,194 WAVs as FLAC, encoded by FFmpeg as an external program with bit-exact flags (lossless: a test decodes a PCM and an IMA ADPCM sample through FFmpeg from the original and from the FLAC and compares the PCM; a rerun writes the same bytes), copies the 3,404 MP3 samples without the zero bytes before their first frame and the 173 music files, and writes `sound/sound.ron` with the samples, the 175 profiles (8 groups of variants each), the music and the 6,869 names of `Sacred.exe` (`opensacred_formats::sound::names`, matching `sound_dump.py --names`): 754 MB in 18 s.
+**Implemented 2026-10-17:** `opensacred_formats::sound` (`SoundPak`, `Profiles`) reads every sample and profile and matches `sound_dump.py` on every record; `opensacred-convert sound` writes the 3,194 WAVs as FLAC, encoded by FFmpeg as an external program with bit-exact flags (lossless: a test decodes a PCM and an IMA ADPCM sample through FFmpeg from the original and from the FLAC and compares the PCM; a rerun writes the same bytes), copies the 3,404 MP3 samples, without the zero bytes before their first frame (a repair since #354; until then the reader dropped them), and the 173 music files, and writes `sound/sound.ron` with the samples, the 175 profiles (8 groups of variants each), the music and the 6,869 names of `Sacred.exe` (`opensacred_formats::sound::names`, matching `sound_dump.py --names`): 754 MB in 18 s.
 
 ### 10.3 MP3 music and WMV video
 

@@ -32,8 +32,9 @@ pub struct SoundPak<'a> {
 pub enum Sample<'a> {
     /// A whole RIFF WAV file.
     Wav { data: &'a [u8], format: WavFormat },
-    /// MPEG-1 Layer III frames, the zero bytes before the first one left out.
-    Mp3 { data: &'a [u8] },
+    /// MPEG-1 Layer III frames as stored: `lead` zero bytes (0, 208 or 417 in the game) before the
+    /// first frame.
+    Mp3 { data: &'a [u8], lead: usize },
 }
 
 /// The `fmt ` chunk of a WAV.
@@ -107,9 +108,7 @@ impl<'a> SoundPak<'a> {
                         what: "MPEG-1 Layer III frame",
                     }));
                 }
-                Ok(Some(Sample::Mp3 {
-                    data: &data[lead..],
-                }))
+                Ok(Some(Sample::Mp3 { data, lead }))
             }
             other => Err(Reader::new(self.pak.data()).error_at(
                 self.pak.entry_offset(id),
@@ -353,9 +352,14 @@ mod tests {
         out
     }
 
-    fn sound() -> Vec<u8> {
+    fn mp3() -> Vec<u8> {
         let mut mp3 = vec![0; 208];
         mp3.extend_from_slice(&[0xFF, 0xFB, 0x50, 0xC4]);
+        mp3
+    }
+
+    fn sound() -> Vec<u8> {
+        let mp3 = mp3();
         build_pak(
             SOUND_MAGIC,
             1,
@@ -387,11 +391,12 @@ mod tests {
                 bits: 16
             }
         );
-        // The zeros before the first frame are left out.
+        // The record as stored, with the count of the zeros before the first frame.
         assert_eq!(
             pak.get(2).unwrap(),
             Some(Sample::Mp3 {
-                data: &[0xFF, 0xFB, 0x50, 0xC4]
+                data: &mp3(),
+                lead: 208
             })
         );
     }
