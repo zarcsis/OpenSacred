@@ -136,7 +136,7 @@ pub struct Cell {
     /// The offsets to the cell of the building's anchor, whose chain holds the building's object
     /// (docs/02 §5.2).
     pub offsets: [i8; 2],
-    /// Bit 0 structure, bit 1 room interior, bit 2 door, a cell walked by its trigger's state, bit
+    /// Bit 0 structure, bit 1 a settlement's ground, bit 2 door, a cell walked by its trigger's state, bit
     /// 3 unwalkable (docs/02 §5.2).
     pub flags: u8,
     /// High nibble the nature (4 `GRASS`, 9 `WATERA`, 10 `WATERB`, 11 `STONEROAD`, …), low nibble

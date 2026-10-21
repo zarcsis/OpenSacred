@@ -126,7 +126,7 @@ So an ordinary townsperson: in 26 rolls one partner, one animal, one partner and
 
 - The children are the types 229 to 231 and 702 to 705 (`0x43F670`); they always roll 20 (`0x4F2AD7`):
   - before a hero of type 7 (the Vampiress) or 9 (the Daemon) they flee;
-  - else in one case of 13, or when the hero's cell lacks bit 1 of its flags (**hypothesis**: a settlement's ground), they play: within 800 of home a point within 400 of themselves, farther than 1,000 800 toward home, else within 400 of home, at a run; every other idle child within 600 without a dialogue follows the one that plays, at a run (`0x4EE820`);
+  - else in one case of 13, or when the hero's cell lacks bit 1 of its flags (a settlement's ground: **confirmed** on the files as to the cells it covers, docs/02 §5.2), they play: within 800 of home a point within 400 of themselves, farther than 1,000 800 toward home, else within 400 of home, at a run; every other idle child within 600 without a dialogue follows the one that plays, at a run (`0x4EE820`);
   - else they gather about the hero: farther than 349 they follow it at a run; within 200, in one case of nine, one shows a child's line over itself and turns to it; else, in 14 cases of 15, they turn to it and stand, in one of 15 they run to a point 150 from it.
 - A juggler with both hands empty takes one of the flute, the bell, the harp and the horn (5108 to 5111, `Instrument_*`) into its right hand at random and plays it once, the slot of its instrument (the flute 183, the horn 181, the harp 182, the bell 180, the models' `*_FUN_IDLE_*`); one of `0x10000000` plays on.
 
