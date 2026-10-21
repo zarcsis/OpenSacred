@@ -159,6 +159,14 @@ It does so at once when the object has its model (`+0x14` bit 26), and the model
 
 The maintainer's screenshots of the original agree (2026-10-19): the black chest by the chapel's pews (no heading, `chest.grn`'s −30°) and the wooden chest of a house of sector 50,40 (heading 330) stand alike, their long sides up and to the right, and the chest by the chapel's outer corner (heading 20) almost level; `opensacred-game` drew them turned along the grid's axes before, a quarter turn off for the first two.
 
+## The models' scale
+
+Read off the client with Ghidra 2026-10-21 (#443), **confirmed** by code.
+
+A model is drawn at its own scale, `ModelDesc +0x470` (docs/02 §4.1), which Granny applies to the model's data as `cGrannyModelManager::getModel` (`0x411F50`) loads it, and to the motions of its slots as `getMotion` (`0x4118B0`) opens them; the gold piles are a third of their files' size, the Medusa 0.43 of hers.
+The world's draw adds no scale of its own: `cObject3D`'s draw (`0x44B230`) goes through `0x44A9D0` and its case `0x44A8C0` to `cGranny::render` (`0x405C90`), which hands Granny's rendering states to the device, and the model matrix of `cGranny` at `+0x0C` is set (`0x4021D0`) only by the interface's and the portraits' code, never for an object of the world.
+Granny skins from the bind pose, so a bone's own scale in the bind pose (the gold coins' 0.242 × 0.086 × 0.242, the potions' 0.063) does not change the size of a mesh at rest.
+
 ## The models' shadows
 
 Read off the client with Ghidra 2026-10-19 (#101), **confirmed** by code unless marked.

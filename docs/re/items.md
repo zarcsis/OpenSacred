@@ -195,6 +195,7 @@ The maker's fourth argument, rolled 0 in three cases of four, else 1, 2 or 3, is
 ### On the ground
 
 A drop is a `cObject3D` (a `cItemBase`), drawn as its model by its type (`items.pak +0x70`, with the texture of `+0x08`, docs/02 §6.1), not a sprite.
+The model has its own scale (docs/re/drawing.md, "The models' scale"): the gold piles are drawn at 0.33, a coin 4.9 units across against the Seraphim's 74 units of height, and the combat arts' `UPGRADE_*` runes at 0.5 (#443).
 It leaves the creature's position 60 units up (`0x44D7B0`, `0x44D520`): a height in the world, not over the ground, which lies within 15 of 0 almost everywhere (the creatures' heights, docs/re/movement.md) and 28 a floor higher in a building; the hero's own drop (`0x611620`) starts 60 over the ground.
 It flies (`0x44DED0`) with the velocity `(10·R(−75, 75), 10·R(−75, 75), 190)` and spins about each axis at `R(−6, 6)`.
 Each frame (`0x44DFE0`, from the objects' update `0x44B230`, `dt` the frame's time) its angles grow by the spin times `dt`, its `x` and `y` by a tenth of its velocity times `dt` and its height by its vertical velocity times `dt`; the velocity takes `−0.1·v` along `x` and `y` and −290.81 along the height, times `dt`.

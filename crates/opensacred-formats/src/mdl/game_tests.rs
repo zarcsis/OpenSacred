@@ -74,6 +74,46 @@ fn model_paks_match_docs() {
     assert_eq!(motions.len(), 5110);
     assert_eq!(motions.iter().max(), Some(&3420));
 
+    // The models' own scale: the same on the three axes, 1.0 but on 36 models, the placeholder
+    // among them.
+    let mut scales: HashMap<u32, usize> = HashMap::new();
+    for r in &records {
+        if let Some([x, y, z]) = r.scale {
+            assert!(x == y && y == z, "#{}: scale {x}, {y}, {z}", r.index);
+            *scales.entry(x.to_bits()).or_insert(0) += 1;
+        }
+    }
+    let mut scales: Vec<(f32, usize)> = scales
+        .into_iter()
+        .map(|(bits, n)| (f32::from_bits(bits), n))
+        .collect();
+    scales.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert_eq!(
+        scales,
+        [
+            (0.33, 4),
+            (0.43, 1),
+            (0.5, 6),
+            (1.0, 1536),
+            (1.1, 24),
+            (5.0, 1)
+        ]
+    );
+    let gold: Vec<_> = records
+        .iter()
+        .filter(|r| r.scale == Some([0.33; 3]))
+        .map(|r| (r.index, r.name()))
+        .collect();
+    assert_eq!(
+        gold,
+        [
+            (973, b"GOLDCOINS_01.GRN".as_slice()),
+            (974, b"GOLDCOINS_02.GRN"),
+            (975, b"GOLDCOINS_05.GRN"),
+            (976, b"GOLDCOINS_10.GRN"),
+        ]
+    );
+
     let data03 = game_file(MODELS03_PAK);
     let pak03 = MdlPak::parse(&data03).unwrap();
     assert_eq!(pak03.pak().header_fields()[5], 19_897);
@@ -96,7 +136,7 @@ fn model_paks_match_docs() {
 }
 
 /// Every record of both paks against the `--records` table of `grn_dump.py`: kind, name, bounds
-/// of the GRN file, flags and the motion slots of models.
+/// of the GRN file, flags, and the motion slots and the scale of models.
 #[test]
 #[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
 fn records_match_grn_dump_py() {
@@ -125,6 +165,7 @@ fn records_match_grn_dump_py() {
         "data_size",
         "flags",
         "motions",
+        "scale",
     ]
     .map(column);
 
@@ -155,6 +196,9 @@ fn records_match_grn_dump_py() {
                 record.grn().len().to_string(),
                 record.flags.to_string(),
                 motions.join(";"),
+                record.scale.map_or_else(String::new, |scale| {
+                    scale.map(|s| format!("{:08x}", s.to_bits())).join(",")
+                }),
             ];
             assert_eq!(python, ours.each_ref().map(String::as_str));
             compared += 1;
