@@ -9,9 +9,17 @@
 //! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
 //! wounded it flees, and too far from home it goes back ([`pursue`],
 //! docs/decisions/2026-10-20-pursuit.md); one that the test holds back goes dormant again and
-//! steps about as one beyond it (docs/decisions/2026-10-20-idle.md).
+//! steps about as one beyond it (docs/decisions/2026-10-20-idle.md). The decisions are the
+//! rules' (`opensacred_rules::minds`); this module keeps the minds as components, reads the world
+//! for them and carries them out: the walks, the strikes, the doors, the lines and the turns.
 
 use bevy::prelude::*;
+pub use opensacred_rules::minds::of_type;
+use opensacred_rules::minds::{
+    self, BEHAVES_WITHIN, Child, Decision, Evening, Pursues, Pursuit, RANGE, Senses, Spot, Walking,
+    Why, child, daemon_fear, daemon_near, evening_way, follow, runs_from, steps_off, townsperson,
+    trader_for,
+};
 
 use crate::crowd::{Crowd, InTheWay};
 use crate::daynight::{Clock, Phase};
@@ -23,325 +31,85 @@ use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::Heights;
 
-/// How often the hero looks about, in seconds (`0x547070`), and how far, in world units.
-const LOOK_EVERY: f32 = 0.3;
-const RANGE: f32 = 1_875.0;
-/// How near the hero wakes a hostile creature of bit 0, standing and while it moves.
-const WAKES: f32 = 800.0;
-const WAKES_MOVING: f32 = 400.0;
-/// How far from the hero, along the grid's x and y, an awake creature goes dormant again
-/// (`0x542B20`).
-const FAR_X: f32 = 1_500.0;
-const FAR_Y: f32 = 1_000.0;
-/// How far from home along an axis sends a hostile creature home, in one case of six.
-const AWAY: f32 = 200.0;
-/// A step of the idle action: within 150 along each axis (`rand() % 301 − 150`).
-const STEP: i32 = 150;
-/// How far a group's member's step strays from its fellow's (`±50`).
-const FELLOW: i32 = 50;
-/// The periods of the creatures' timers, and the jitter of each firing (`0x5375C0`).
-const PERIOD: f32 = 5.0;
-const PERIOD_HOSTILE: f32 = 2.5;
-const JITTER: f32 = 1.5;
-/// The flags whose creatures' own timers wake them: the hostile ones and the townsfolk.
-const TIMED: u32 = 0x3 | 0x408;
-/// The behaviours' flags: the wild animals, the farm animals, the guards, the townsfolk
-/// (`0x4EF150`); those that the game follows.
-const WILD: u32 = 0x40;
-const WILD_TOO: u32 = 0x80;
-const FARM: u32 = 0x10;
-const FARM_LOOSE: u32 = 0x20;
-const GUARD: u32 = 0x4000;
-const TOWNSFOLK: u32 = 0x8;
-const CITIZEN: u32 = 0x400;
-/// `CreateNPC`'s tag `0x4C`, which the behaviours take as 8 (`0x4EE030`).
-const TOWNSFOLK_TOO: u32 = 0x8000;
-const TOWNSFOLKS: u32 = TOWNSFOLK | CITIZEN | TOWNSFOLK_TOO | JUGGLER;
-const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD | TOWNSFOLKS;
-/// How far from the hero, times the camera's zoom, a townsperson goes dormant again
-/// (`0x4F0A87`, the float at `0x891028`; the zoom `0x611400`).
-const TOWNSFOLK_RANGE: f32 = 600.0;
-/// The children's types (`0x43F670`), which always roll 20.
-const CHILDREN: [u32; 7] = [229, 230, 231, 702, 703, 704, 705];
-/// How far a townsperson follows its partner, how near they meet, farther than which it walks
-/// up to it, and how near it steps off to 220 from it (`0x4EF150` with the flag 4,
-/// `0x4FC490`).
-const FOLLOWS_WITHIN: f32 = 900.0;
-const MEETS: (f32, f32) = (80.0, 200.0);
-const CATCHES_UP: f32 = 240.0;
-const STEPS_OFF: f32 = 220.0;
-const STEP_OFF_TRIES: usize = 10;
-/// How near a townsperson the second nearest trader is taken rather than the nearest, and how
-/// near the trader it stops (`0x4EE660`, `+0x176`).
-const TRADER_WITHIN: f32 = 800.0;
+/// How near a trader a townsperson that visits it stops (`0x4EE660`, `+0x176`).
 const AT_THE_TRADER: f32 = 150.0;
-/// The children's play (`0x4F2AD7`): within 800 of home about itself, farther than 1,000 800
-/// toward home, else about home, within 400 along each axis; the other idle children within 600
-/// follow the one that plays; one farther than 349 from the hero within a building follows it,
-/// one within 200 of it turns to it, and one now and then runs to 150 from it.
-const PLAYS_ABOUT: i32 = 400;
-const PLAYS_NEAR: f32 = 800.0;
-const PLAYS_FAR: f32 = 1_000.0;
+/// How near a child at play the other idle children follow it (`0x4F2AD7`, `0x4EE820`).
 const PLAYMATES: f32 = 600.0;
-const GATHERS: f32 = 349.0;
-const LOOKS_UP: f32 = 200.0;
-const RUNS_UP: f32 = 150.0;
 /// The cells' flag of a settlement's ground (`+0x1E` bit 1, docs/02 §5.2).
 const SETTLEMENT: u8 = 0x2;
-/// How near a hostile of the hero's puts a townsperson in danger, and how far it runs from it
-/// without a door to go in by, within 100 more along each axis (`0x4F0BDA`, `0x4F0F5E`).
+/// How near a hostile of the hero's puts a townsperson in danger (`0x4F0BDA`).
 const DANGER: f32 = 800.0;
-const RUNS_FROM: f32 = 700.0;
-const RUNS_ASTRAY: i32 = 100;
 /// How far a townsperson seeks a door, and the cells about a door it goes in to and out to, in
 /// how many tries (`0x4EE300`, `0x4EEFA0`, `0x4F1AB9`).
 const DOOR_WITHIN: f32 = 1_500.0;
 const INDOORS: (i32, i32) = (2, 9);
 const OUTDOORS: (i32, i32) = (-4, 5);
 const DOOR_TRIES: usize = 15;
-/// How far from a door a townsperson walks toward it by stages, how far a stage goes, within
-/// 150 more along each axis, and how far it wanders without a door at dusk (`0x4F0F5E`).
-const DOOR_FAR: f32 = 1_000.0;
-const DOOR_STAGE: f32 = 700.0;
-const DOOR_STAGE_ASTRAY: i32 = 150;
-const WANDERS: i32 = 400;
-/// How near the Daemon puts the townsfolk in danger, while the hero has solved fewer than 25
-/// quests (`0x4F0BDA`, the hero's `+0x2CF`; **hypothesis**: the quests solved, none yet).
-const DAEMON_NEAR: f32 = 500.0;
-/// How far a child runs from the Daemon (`0x539F60`).
-const FLEES_DAEMON: f32 = 700.0;
-/// The children's lines, of which one near the hero says one at random (`0x4F2AD7`), green
-/// (**hypothesis** for the shade), and the townsfolk's fear of the Daemon, red (`0xFFFF3030`).
-const CHILD_LINES: [&str; 35] = [
-    "KIND_0_0",
-    "KIND_1_2",
-    "KIND_2_0",
-    "KIND_2_3",
-    "KIND_3_1",
-    "KIND_3_6",
-    "KINDGENERVT_2",
-    "KINDGENERVT_4",
-    "KINDGENERVT_5",
-    "KID01",
-    "KID02",
-    "KID03",
-    "KID04",
-    "KID05",
-    "KID06",
-    "KID07",
-    "KID08",
-    "KID09",
-    "KID10",
-    "KID11",
-    "KID12",
-    "KID13",
-    "KID14",
-    "KID15",
-    "KID16",
-    "KID17",
-    "KID18",
-    "KID19",
-    "KID20",
-    "KID21",
-    "KID22",
-    "KID23",
-    "KID24",
-    "KID25",
-    "KID26",
-];
+/// The shade of the children's lines, green (**hypothesis**), and of the townsfolk's fear of the
+/// Daemon, red (`0xFFFF3030`).
 const CHILD_GREEN: Color = Color::srgb(0.19, 1.0, 0.19);
-/// How near the hero a hostile creature comes at it from, and how far it follows it before it
-/// gives up (`0x542B20`, `0x4E1B5F`).
-const ATTACKS_WITHIN: f32 = 800.0;
-const GIVES_UP: f32 = 2_000.0;
-/// The reach of two creatures of the size of most (`0x4DBC60`: 130 by default; **hypothesis**
-/// for every type, whose sizes are not read), the band about it a creature keeps (`0x4E0300`),
-/// and in how many cases of 11 it comes on at a run.
-const REACH: f32 = 130.0;
-const BAND: f32 = 15.0;
-const RUNS_IN: u32 = 7;
-/// How near the hero a wounded creature flees, how far, and in how many frames of one it does
-/// (`0x4E0300`); how far from home a creature at full health in the band goes back (the leash,
-/// 2,500 or 5,000; **hypothesis**: the nearer).
-const FLEES_WITHIN: f32 = 199.0;
-const FLEES_FOR: f32 = 700.0;
-const FLEES_ONE_IN: u32 = 8;
-const LEASH: f32 = 2_500.0;
 const FEAR_RED: Color = Color::srgb(1.0, 0.19, 0.19);
 
 /// Whether the hero is the Daemon, its type 9, before whom the townsfolk are in danger and the
 /// children flee (docs/re/ai.md, "Danger and the Daemon").
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct Daemon(pub bool);
-/// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
-const BEHAVES_WITHIN: f32 = 1_500.0;
-/// The jugglers' types, and the flag they take at their first update, with which a juggler is a
-/// townsperson that always rolls 9 and plays its instrument ([`roll`]).
-const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
-const JUGGLER: u32 = 0x1000_0000;
-/// How near a creature other than an animal makes a wild animal flee and a farm animal step
-/// away (800 when it attacks, which the game does not follow yet:
-/// docs/decisions/2026-10-20-animals.md).
-const FLEE: f32 = 300.0;
-const SHY: f32 = 200.0;
-/// How far from home along an axis brings a wild animal back, within 50 of it.
-const ROAMS: f32 = 380.0;
-const BACK: i32 = 50;
-/// How far about home the animals stroll: the wild within 100, the farm within 150.
-const STROLL_WILD: i32 = 100;
-const STROLL_FARM: i32 = 150;
-/// How far from its post along an axis sends a guard back to it, and how far about it a guard
-/// strolls.
-const POST: f32 = 90.0;
-const STROLL_GUARD: i32 = 200;
-/// The chance of a stroll, a frame's 1 in 101 at 30 frames a second, as a rate a second.
-const STROLLS_A_SECOND: f32 = 30.0 / 101.0;
-/// The chance that an idle creature sharing its cell parts, a frame's 1 in 6, as a rate a second
-/// (`0x544890`), and how far about home or itself it goes.
-const PARTS_A_SECOND: f32 = 30.0 / 6.0;
-const PART: i32 = 100;
-/// The flag that keeps a creature from parting (`CreateNPC`'s tag `0x74`).
-const STAYS: u32 = 0x800_0000;
-/// How near the hero a creature not hostile that walks steps aside, how far about itself it
-/// looks for a point it reaches, and in how many tries (`0x547070`).
-const ASIDE_WITHIN: f32 = 91.0;
-const ASIDE: i32 = 200;
-const ASIDE_TRIES: usize = 10;
 
-/// A creature's mind while no foe is near.
-#[derive(Component, Clone, Debug)]
+/// A creature's mind (`opensacred_rules::minds::Mind`), and the creatures it goes to.
+#[derive(Component, Clone, Debug, Deref, DerefMut)]
 pub struct Mind {
-    /// Where it was made, the point it goes home to.
-    pub home: Vec3,
-    /// Its flags word (`+0x1F4`, `crowd::flags_word`).
-    pub flags: u32,
-    /// Made by a sector's `Enter` function (`+0x14` bit `0x80000000`): its steps turn about the
-    /// hero and move its home.
-    pub enter: bool,
-    /// Its group, if it is in one (`+0x249`).
-    pub group: Option<u32>,
-    /// Its walk speed in world units a second, before the game's speed, and its run speed.
-    pub speed: f32,
-    pub run: f32,
-    /// Its type, and its `Creature.pak` class: the animals (4 and 6) flee from the others.
-    pub creature: u32,
-    pub class: u8,
-    /// Whether it has a dialogue (`+0x245`, `sdk_STAMP_IDX` `0x5498F0`), which holds it: a
-    /// townsperson keeps still, a guard does not stroll, a crowded creature does not part.
-    pub dialogue: bool,
+    /// Its home, its flags word, its kind and speeds, its level, and its thought and its fight.
+    #[deref]
+    pub thinks: minds::Mind,
     /// The creature it went to last, which it does not go to next (`+0x24D`).
     last: Option<Entity>,
     /// The partner it follows (`+0x251`, the flag 4), and whether it runs after it.
     partner: Option<Entity>,
     runs_after: bool,
-    /// Whether it is a trader: a smith, a merchant or a wizard (`+0x200` bits `0x1000`, `0x2000`,
-    /// `0x4000`, `0x4000000`, `CreateNPC`'s tags `0x23`, `0x24`, `0x25`, `0x64`), which the
-    /// townsfolk visit, which does not part and which a meeting does not stop.
-    pub trader: bool,
     /// The trader it walks to, at which it talks.
     visiting: Option<Entity>,
     /// The door it goes through, which it closes behind it (`+0x124`).
     door: Option<Entity>,
-    /// Its level (`+0x3FE`, `fight::level`).
-    pub level: u32,
-    /// Whether it fights the hero (the AI's state 4, `0x4E0300`), and whether it has fled in
-    /// this fight (`+0x1F4` bit `0x200`).
-    fighting: bool,
-    fled: bool,
-    awake: bool,
-    /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
-    active: bool,
-    clock: f32,
-    period: f32,
 }
 
 impl Mind {
     /// The mind of a creature made at `home` with the flags word `flags`, by an `Enter` function
-    /// or not, by `CreateNPC` (`created`) or a fill: `CreateNPC` wakes its hostile creatures as
-    /// it makes them (`sdk_WAKE`) and gives them a timer of 2.5 s.
+    /// or not, by `CreateNPC` or a fill (`opensacred_rules::minds::Mind::new`).
     pub fn new(
         home: Vec3,
         flags: u32,
-        (enter, created): (bool, bool),
+        made: (bool, bool),
         group: Option<u32>,
-        [speed, run]: [f32; 2],
-        (creature, class): (u32, u8),
+        speeds: [f32; 2],
+        kind: (u32, u8),
     ) -> Self {
-        let hostile = flags & 0x3 != 0;
-        // A creature of an `Enter` function still without flags takes them at its first update
-        // (`0x5375C0`): the animals of class 6 the loose farm animals', the jugglers theirs, the
-        // others the townsfolk's.
-        let flags = match (enter, flags, class) {
-            (true, 0, 6) => FARM_LOOSE,
-            (true, 0, _) if JUGGLERS.contains(&creature) => JUGGLER,
-            (true, 0, _) => TOWNSFOLK,
-            _ => flags,
-        };
         Self {
-            home,
-            flags,
-            enter,
-            group,
-            speed,
-            run,
-            creature,
-            class,
-            dialogue: false,
+            thinks: minds::Mind::new(spot(home), flags, made, group, speeds, kind),
             last: None,
             partner: None,
             runs_after: false,
-            trader: false,
             visiting: None,
             door: None,
-            level: 1,
-            fighting: false,
-            fled: false,
-            active: false,
-            awake: hostile && created,
-            clock: 0.0,
-            period: if hostile && created {
-                PERIOD_HOSTILE
-            } else {
-                PERIOD
-            },
         }
     }
-
-    /// Whether it is hostile to the hero.
-    pub fn hostile(&self) -> bool {
-        self.flags & 0x3 != 0
-    }
 }
 
-/// The flags the creature maker (`0x480D40`) gives a peaceful creature of type `creature` made
-/// without flags, as a sector's fill makes them: the wild animals' to the wolves, the crows, the
-/// bats, the first rabbit, the deer, the bears, the bulls and the wild boars; the farm animals'
-/// to the pigs, the cows, the sheep, the horses and the chickens; none to the others, the two
-/// other rabbits among them. `CreateNPC` writes its own flags over them (`0x4839F6`).
-pub fn of_type(creature: u32) -> u32 {
-    const WILD_TYPES: [u32; 25] = [
-        512, 513, 514, 515, 516, 530, 531, 532, 533, 536, 537, 538, 540, 541, 543, 545, 567, 568,
-        569, 570, 589, 590, 594, 595, 596,
-    ];
-    const FARM_TYPES: [u32; 25] = [
-        520, 521, 522, 523, 524, 525, 526, 527, 528, 544, 550, 551, 552, 553, 554, 555, 556, 557,
-        558, 560, 561, 562, 563, 565, 566,
-    ];
-    if WILD_TYPES.contains(&creature) {
-        WILD
-    } else if FARM_TYPES.contains(&creature) {
-        FARM
-    } else {
-        0
-    }
+/// The rules' point of the ground under world point `point`.
+fn spot(point: Vec3) -> Spot {
+    Spot::new(point.x, point.z)
 }
 
-/// The game's generator for the creatures' chances, the time since the hero last looked, and
-/// whether it looked this frame.
+/// The world point over the rules' point of the ground `spot`, at height `y`.
+fn point(spot: Spot, y: f32) -> Vec3 {
+    Vec3::new(spot.x, y, spot.y)
+}
+
+/// The game's generator for the creatures' chances, the hero's look, and whether it looked this
+/// frame.
 #[derive(Resource)]
 struct Minds {
     rng: Rng,
-    since: f32,
+    look: minds::Look,
     looked: bool,
 }
 
@@ -349,7 +117,7 @@ impl Default for Minds {
     fn default() -> Self {
         Self {
             rng: Rng::of(0, 0, 0),
-            since: 0.0,
+            look: minds::Look::default(),
             looked: false,
         }
     }
@@ -360,30 +128,8 @@ fn walk(target: Vec3, speed: f32, way: &InTheWay) -> Walk {
     Walk::to(target, way.level, speed)
 }
 
-/// What the idle action makes a creature at `here` do: in one case of ten nothing yet (the
-/// original fidgets), else in one case of four a step: within 150 along each axis, or home in one
-/// case of four, for a creature of an `Init` function or the start script; its place turned about
-/// the hero by −30° to +30°, for one of an `Enter` function; `None` otherwise.
-fn idle_step(mind: &Mind, here: Vec3, hero: Vec3, rng: &mut Rng) -> Option<Vec3> {
-    if rng.below(10) == 0 || rng.below(4) != 0 {
-        return None;
-    }
-    if mind.enter {
-        let degrees = f32::from(u16::try_from(rng.below(61)).ok()?) - 30.0;
-        let turn = Quat::from_rotation_y(degrees.to_radians());
-        return Some(hero + turn * (here - hero));
-    }
-    if rng.below(4) == 0 {
-        return Some(mind.home);
-    }
-    let offset = |rng: &mut Rng| {
-        let d = i32::try_from(rng.below(u32::try_from(2 * STEP + 1).ok()?)).ok()? - STEP;
-        Some(f32::from(i16::try_from(d).ok()?))
-    };
-    Some(here + Vec3::new(offset(rng)?, 0.0, offset(rng)?))
-}
-
-/// Runs the creatures' timers, the hero's look every 0.3 s, and the awake creatures' thought.
+/// Runs the creatures' timers, the hero's look every 0.3 s, and the awake creatures' thought
+/// (`opensacred_rules::minds::Mind::think`), and walks them where it sends them.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -405,20 +151,12 @@ fn think(
     let hero = hero.translation;
     let dt = time.delta_secs();
     let minds = &mut *minds;
-    minds.since += dt;
-    let look = minds.since >= LOOK_EVERY;
-    if look {
-        minds.since = 0.0;
-    }
+    let look = minds.look.looks(dt);
     minds.looked = look;
     let side = crate::iso::CELL * 64.0;
     let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
     let (sx, sy) = sector(hero);
-    let wakes = if body.moving().is_some() {
-        WAKES_MOVING
-    } else {
-        WAKES
-    };
+    let hero_moves = body.moving().is_some();
     // The steps taken this frame: a creature, its target, and its group's step to share; the
     // groups whose alarm goes.
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
@@ -426,73 +164,38 @@ fn think(
     let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
     for (entity, transform, way, mut mind, walking) in &mut creatures {
         let here = transform.translation;
-        // Its own timer.
-        if mind.flags & TIMED != 0 {
-            mind.clock += dt;
-            if mind.clock >= mind.period {
-                let jitter = f32::from(u16::try_from(minds.rng.below(31)).unwrap_or(15)) * 0.1;
-                mind.clock = jitter - JITTER;
-                mind.awake = true;
-            }
-        }
-        let distance = (here - hero).xz().length();
         let (x, y) = sector(here);
-        let near = (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0 && distance < RANGE;
-        let mut idle = false;
-        if look && near {
-            if !mind.hostile() || (mind.flags & 0x1 != 0 && distance < wakes) {
-                mind.awake = true;
-            } else {
-                idle = true;
+        let senses = Senses {
+            dt,
+            seen: look && (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0,
+            here: spot(here),
+            hero: spot(hero),
+            hero_moves,
+            takes_on: crate::fight::takes_on(mind.level, experience.level, balance.experience),
+            walking,
+        };
+        // A straight line of walkable cells to the hero.
+        let clear = || {
+            paths::clear(here.xz(), hero.xz(), |cell| {
+                heights.walkable_on(cell, way.level)
+            })
+        };
+        let thought = mind.think(&senses, clear, &mut minds.rng);
+        if let Some(home) = thought.home {
+            steps.push((entity, point(home, here.y)));
+        }
+        if thought.attacks {
+            let distance = (here - hero).xz().length();
+            debug!(
+                "ai: {entity} {:?} the hero from {distance:.0}",
+                Why::Attacks
+            );
+            if let (true, Some(group)) = (thought.alarm, mind.group) {
+                alarms.push(group);
             }
         }
-        if mind.awake {
-            mind.awake = false;
-            let away = (here - hero).abs();
-            if away.x > FAR_X || away.z > FAR_Y {
-                mind.clock = -JITTER;
-            } else if mind.hostile() && !mind.fighting {
-                let from_home = (here - mind.home).abs();
-                // The hero worth experience to it, or within its reach, within 800, a straight
-                // line of walkable cells to it: it comes at the hero (`0x542B20`).
-                let takes_on =
-                    crate::fight::takes_on(mind.level, experience.level, balance.experience)
-                        || distance <= REACH;
-                let line = paths::clear(here.xz(), hero.xz(), |cell| {
-                    heights.walkable_on(cell, way.level)
-                });
-                if minds.rng.below(6) == 0 && (from_home.x > AWAY || from_home.z > AWAY) {
-                    if !walking {
-                        steps.push((entity, mind.home));
-                    }
-                } else if takes_on && distance < ATTACKS_WITHIN && line {
-                    debug!(
-                        "ai: {entity} {:?} the hero from {distance:.0}",
-                        Why::Attacks
-                    );
-                    mind.fighting = true;
-                    // In a group, in one case of two, it raises the alarm (`0x46AE70`).
-                    if let Some(group) = mind.group
-                        && minds.rng.below(2) == 0
-                    {
-                        alarms.push(group);
-                    }
-                } else if minds.rng.below(3) == 0 {
-                    // Dormant again, by chance stepping about.
-                    idle = true;
-                }
-            } else if mind.flags & BEHAVIOURS != 0 {
-                mind.active = true;
-            }
-        }
-        if idle
-            && !walking
-            && !mind.fighting
-            && let Some(target) = idle_step(&mind, here, hero, &mut minds.rng)
-        {
-            if mind.enter {
-                mind.home = target;
-            }
+        if let Some(step) = thought.step {
+            let target = point(step, here.y);
             steps.push((entity, target));
             if let (Some(group), true) = (mind.group, mind.enter) {
                 grouped.push((group, target - here, entity));
@@ -505,17 +208,9 @@ fn think(
             if entity == leader || mind.group != Some(group) || walking {
                 continue;
             }
-            let stray = |rng: &mut Rng| {
-                let d = i32::try_from(rng.below(u32::try_from(2 * FELLOW + 1).unwrap_or(1)))
-                    .unwrap_or(FELLOW)
-                    - FELLOW;
-                f32::from(i16::try_from(d).unwrap_or(0))
-            };
-            let target = transform.translation
-                + step
-                + Vec3::new(stray(&mut minds.rng), 0.0, stray(&mut minds.rng));
-            mind.home = target;
-            steps.push((entity, target));
+            let here = transform.translation;
+            let target = mind.fellow_steps(spot(here), spot(step), &mut minds.rng);
+            steps.push((entity, point(target, here.y)));
         }
     }
     for (entity, target) in steps {
@@ -528,9 +223,7 @@ fn think(
     // The alarm sends a group's idle hostile members at the hero too.
     for group in alarms {
         for (_, _, _, mut mind, _) in &mut creatures {
-            if mind.group == Some(group) && mind.hostile() {
-                mind.fighting = true;
-            }
+            mind.hears_alarm(group);
         }
     }
 }
@@ -551,29 +244,10 @@ impl Default for FightRules {
     }
 }
 
-/// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health` or less,
-/// within 199 of the hero, not of the classes 1 and 5, not fled yet in this fight, while the hero
-/// does not strike, in one case of eight a frame (`roll` of 0 to 7).
-fn flees(
-    health: &crate::fight::Health,
-    distance: f32,
-    mind: &Mind,
-    hero_strikes: bool,
-    roll: u32,
-) -> bool {
-    health.current * 3 <= health.most
-        && distance <= FLEES_WITHIN
-        && !matches!(mind.class, 1 | 5)
-        && !mind.fled
-        && !hero_strikes
-        && roll == 0
-}
-
-/// Each creature that fights the hero keeps the band of its reach (`0x4E0300`): farther, it comes
-/// on, at a run in 7 cases of 11, after the hero as it moves; nearer, it steps back; in the band it
-/// stands, turned to the hero, where it will strike (#280); farther than 2,000 it gives up.
-/// Wounded to a third, near the hero, it flees 700 from it at a run, once a fight ([`flees`]);
-/// in the band at full health, farther than 2,500 from home, it goes home and leaves the fight.
+/// Each creature that fights the hero keeps the band of its reach, flees wounded and goes home
+/// from too far, as the rules decide (`opensacred_rules::minds::Mind::pursue`, `0x4E0300`): it
+/// comes on, after the hero as it moves, steps back, flees and goes home at its walk or run, and
+/// in the band stands turned to the hero, where it strikes (#280).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -602,72 +276,55 @@ fn pursue(
         return;
     };
     let hero = hero.translation;
-    let (lo, hi) = (REACH - BAND, REACH + BAND);
     for (entity, mut transform, way, mut mind, walk, striking, health) in &mut creatures {
-        if !mind.fighting {
-            continue;
-        }
         let here = transform.translation;
-        let d = (hero - here).xz().length();
-        if d > GIVES_UP {
-            debug!("ai: {entity} {:?} at {d:.0}", Why::GivesUp);
-            mind.fighting = false;
-            mind.fled = false;
+        let sight = Pursuit {
+            here: spot(here),
+            hero: spot(hero),
+            walk: walk.map(|walk| Walking {
+                target: spot(walk.target()),
+                within: walk.within_of(),
+                runs: walk.runs(),
+            }),
+            striking,
+            health: health.map(|health| (health.current, health.most)),
+            hero_strikes,
+        };
+        let Some(pursues) = mind.pursue(&sight, &mut minds.rng) else {
             continue;
-        }
-        let roll = minds.rng.below(FLEES_ONE_IN);
-        if let Some(health) = health
-            && !striking
-            && flees(health, d, &mind, hero_strikes, roll)
-        {
-            let away = (here - hero).with_y(0.0).normalize_or_zero();
-            debug!("ai: {entity} {:?} the hero", Why::Flees);
-            mind.fled = true;
-            commands
-                .entity(entity)
-                .insert(Walk::run(here + away * FLEES_FOR, way.level, mind.run));
-            continue;
-        }
-        match walk {
-            // Coming on, it follows the hero as it moves.
-            Some(walk) if walk.within_of() > 0.0 && (walk.target() - hero).xz().length() > BAND => {
-                let runs = walk.runs();
+        };
+        match pursues {
+            Pursues::GivesUp => {
+                let d = (hero - here).xz().length();
+                debug!("ai: {entity} {:?} at {d:.0}", Why::GivesUp);
+            }
+            Pursues::Flees(to) => {
+                debug!("ai: {entity} {:?} the hero", Why::Flees);
                 commands
                     .entity(entity)
-                    .insert(come_on(&mind, hero, way, runs, lo));
+                    .insert(Walk::run(point(to, here.y), way.level, mind.run));
             }
-            Some(_) => {}
-            None if d > hi => {
-                let runs = minds.rng.below(11) < RUNS_IN;
+            Pursues::ComesOn { runs, within } => {
                 commands
                     .entity(entity)
-                    .insert(come_on(&mind, hero, way, runs, lo));
+                    .insert(come_on(&mind, hero, way, runs, within));
             }
-            None if d < lo => {
-                let away = (here - hero).with_y(0.0).normalize_or_zero();
-                let target = here + away * ((lo + hi) / 2.0);
+            Pursues::StepsBack(to) => {
                 commands
                     .entity(entity)
-                    .insert(Walk::to(target, way.level, mind.speed));
+                    .insert(Walk::to(point(to, here.y), way.level, mind.speed));
             }
-            // In the band at full health and far from home, it goes home (the leash).
-            None if health.is_some_and(|h| h.current >= h.most)
-                && (here - mind.home).xz().length() > LEASH =>
-            {
+            Pursues::GoesBack => {
                 debug!("ai: {entity} {:?} from the fight", Why::GoesBack);
-                mind.fighting = false;
-                mind.fled = false;
-                let home = mind.home;
+                let home = point(mind.home, here.y);
                 commands
                     .entity(entity)
                     .insert(Walk::to(home, way.level, mind.speed));
             }
-            // In the band, turned to the hero, it strikes, and decides again when the strike
-            // ends (`0x4E2147`).
-            None => {
+            // In the band, turned to the hero, it strikes.
+            Pursues::Strikes(choice) => {
                 transform.rotation = crate::hero::facing(hero - here);
-                if !striking {
-                    let choice = minds.rng.below(5);
+                if let Some(choice) = choice {
                     commands
                         .entity(entity)
                         .insert(Strikes::at(the_hero, choice));
@@ -677,98 +334,14 @@ fn pursue(
     }
 }
 
-/// A walk or a run at the hero at `hero`, stopping in the band.
-fn come_on(mind: &Mind, hero: Vec3, way: &InTheWay, runs: bool, lo: f32) -> Walk {
+/// A walk or a run at the hero at `hero`, stopping within `within` of it, in the band.
+fn come_on(mind: &Mind, hero: Vec3, way: &InTheWay, runs: bool, within: f32) -> Walk {
     let walk = if runs {
         Walk::run(hero, way.level, mind.run)
     } else {
         Walk::to(hero, way.level, mind.speed)
     };
-    walk.within(lo + BAND)
-}
-
-/// Whether a chance of `rate` a second comes in a frame of `dt` seconds.
-fn chance(rng: &mut Rng, rate: f32, dt: f32) -> bool {
-    let p = 1.0 - (-rate * dt).exp();
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a probability between 0 and 1, in parts of 10,000"
-    )]
-    let parts = (p.clamp(0.0, 1.0) * 10_000.0) as u32;
-    rng.below(10_000) < parts
-}
-
-/// A point within `within` of `at` along each axis, at random.
-fn about(at: Vec3, within: i32, rng: &mut Rng) -> Vec3 {
-    let mut offset = || {
-        let span = u32::try_from(2 * within + 1).unwrap_or(1);
-        let d = i32::try_from(rng.below(span)).unwrap_or(within) - within;
-        f32::from(i16::try_from(d).unwrap_or(0))
-    };
-    at + Vec3::new(offset(), 0.0, offset())
-}
-
-/// Why a creature walks by itself: it flees at a run, steps away, goes back home or to its post,
-/// strolls, parts from another in its cell, or steps out of the hero's way.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Why {
-    Flees,
-    StepsAway,
-    GoesBack,
-    Strolls,
-    Parts,
-    StepsAside,
-    Visits,
-    GoesHome,
-    TakesPartner,
-    Follows,
-    StepsOff,
-    Meets,
-    Trades,
-    Plays,
-    Gathers,
-    GoesIn,
-    GoesOut,
-    Wanders,
-    PutIn,
-    Juggles,
-    Attacks,
-    GivesUp,
-}
-
-/// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
-/// always 9, one of the jugglers' types 9 in one case of six, and anyone else's 9 counts as 10.
-fn roll(mind: &Mind, rng: &mut Rng) -> u32 {
-    if CHILDREN.contains(&mind.creature) {
-        return 20;
-    }
-    let roll = rng.below(26);
-    if mind.flags & JUGGLER != 0 || (JUGGLERS.contains(&mind.creature) && rng.below(6) == 0) {
-        9
-    } else if roll == 9 {
-        10
-    } else {
-        roll
-    }
-}
-
-/// What a townsperson decides by day, by its roll (`0x4F22F0`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Decision {
-    /// It walks to `0` for `Why`, going to the creature `2` if any.
-    Walk(Vec3, Why, Option<Entity>),
-    /// It takes the creature for its partner, and walks home if it is given.
-    Partner(Entity, Option<Vec3>),
-    /// It walks to the trader at `1` and talks there.
-    Trade(Entity, Vec3),
-    /// A child's play.
-    Child,
-    /// It goes into the nearest house.
-    House,
-    /// A juggler plays its instrument.
-    Juggle,
-    Stop,
+    walk.within(within)
 }
 
 /// The world point at the centre of global cell `cell`, on the ground plane.
@@ -825,8 +398,8 @@ fn outdoors(door: Vec3, heights: &Heights, rng: &mut Rng) -> Option<Vec3> {
 }
 
 /// Where a townsperson at `here` in danger runs from its threat, the nearest of `hostiles` within
-/// 800 (`0x4F0BDA`): without a door to go in by, 700 away from it along the line, within 100 more
-/// along each axis (`0x4F0F5E`); `None` out of danger.
+/// 800 (`0x4F0BDA`), as the rules send it (`opensacred_rules::minds::runs_from`); `None` out of
+/// danger.
 fn danger(here: Vec3, hostiles: &[Vec3], rng: &mut Rng) -> Option<Vec3> {
     let threat = hostiles
         .iter()
@@ -837,151 +410,12 @@ fn danger(here: Vec3, hostiles: &[Vec3], rng: &mut Rng) -> Option<Vec3> {
                 .length_squared()
                 .total_cmp(&(*b - here).length_squared())
         })?;
-    let away = (here - threat).with_y(0.0).normalize_or_zero();
-    Some(about(here + away * RUNS_FROM, RUNS_ASTRAY, rng))
-}
-
-/// What a child does by its roll of 20 (`0x4F2AD7`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Child {
-    /// It runs to the point, and its playmates follow it.
-    Plays(Vec3),
-    /// It follows the hero at a run.
-    FollowsHero,
-    /// It turns to the hero and stands.
-    LooksUp,
-    /// It runs to the point by the hero.
-    RunsUp(Vec3),
-    /// It runs from the Daemon to the point.
-    Flees(Vec3),
-    /// It turns to the hero and says the line.
-    Speaks(&'static str),
-}
-
-/// What a child at `here` does by its roll, the hero at `hero`, `in_settlement` or not
-/// (`0x4F2AD7`): in one case of 13, or with the hero off a settlement's ground, it plays: within 800 of home a point within 400
-/// of itself, farther than 1,000 a point 800 toward home, else one within 400 of home; else it
-/// follows the hero from farther than 349, and nearer turns to it, but in one case of 15 runs to
-/// a point 150 from it at random.
-fn child(
-    mind: &Mind,
-    here: Vec3,
-    (hero, daemon): (Vec3, bool),
-    in_settlement: bool,
-    rng: &mut Rng,
-) -> Child {
-    // Before the Daemon it runs 700 away from it, within 400 more (`0x539F60`).
-    if daemon {
-        let away = (here - hero).with_y(0.0).normalize_or_zero();
-        return Child::Flees(about(here + away * FLEES_DAEMON, WANDERS, rng));
-    }
-    if rng.below(13) == 0 || !in_settlement {
-        let from_home = (mind.home - here).xz().length();
-        let to = if from_home <= PLAYS_NEAR {
-            about(here, PLAYS_ABOUT, rng)
-        } else if from_home > PLAYS_FAR {
-            here + (mind.home - here).with_y(0.0).normalize_or_zero() * PLAYS_NEAR
-        } else {
-            about(mind.home, PLAYS_ABOUT, rng)
-        };
-        return Child::Plays(to);
-    }
-    let d = (hero - here).xz().length();
-    if d > GATHERS {
-        Child::FollowsHero
-    } else if rng.below(9) == 0 && d < LOOKS_UP {
-        let index = usize::try_from(rng.below(35)).unwrap_or(0);
-        Child::Speaks(CHILD_LINES[index % CHILD_LINES.len()])
-    } else if rng.below(15) != 0 {
-        Child::LooksUp
-    } else {
-        let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
-        Child::RunsUp(hero + Quat::from_rotation_y(degrees.to_radians()) * (Vec3::X * RUNS_UP))
-    }
-}
-
-/// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
-/// the nearest human, `human`, for its partner, 2 too and walks home, 1 walks to the nearest
-/// animal, `animal`, 3 walks home, 5 and 8 visit the trader `trader`, one of 8 in one case of
-/// three only (in the other two its field's branch finds no field, `0x4F2643`); 4, 6 and 7 go
-/// into a house (#248), 9 plays an instrument (#253) and a child's 20 its play (#252); the rest
-/// stop.
-fn townsperson(
-    mind: &Mind,
-    human: Option<Entity>,
-    animal: Option<(Entity, Vec3)>,
-    trader: Option<(Entity, Vec3)>,
-    rng: &mut Rng,
-) -> Decision {
-    match (roll(mind, rng), human, animal) {
-        (0, Some(human), _) => Decision::Partner(human, None),
-        (2, Some(human), _) => Decision::Partner(human, Some(mind.home)),
-        (1, _, Some((entity, at))) => Decision::Walk(at, Why::Visits, Some(entity)),
-        (2 | 3, ..) => Decision::Walk(mind.home, Why::GoesHome, None),
-        (4 | 6 | 7, ..) => Decision::House,
-        (9, ..) => Decision::Juggle,
-        // An adult's 20 stops (`0x4F231D`).
-        (20, ..) if CHILDREN.contains(&mind.creature) => Decision::Child,
-        (5 | 8, ..) => {
-            let eight = mind.flags & (TOWNSFOLK | TOWNSFOLK_TOO) != 0;
-            match trader {
-                Some((entity, at)) if !eight || rng.below(3) == 0 => Decision::Trade(entity, at),
-                _ => Decision::Stop,
-            }
-        }
-        _ => Decision::Stop,
-    }
-}
-
-/// The trader a townsperson at `here` visits among `traders` (`0x4EE660`): the second nearest
-/// when it is within 800, else the nearest.
-fn trader_for(here: Vec3, mut traders: Vec<(Entity, Vec3)>) -> Option<(Entity, Vec3)> {
-    let d = |at: Vec3| (at - here).xz().length();
-    traders.sort_by(|a, b| d(a.1).total_cmp(&d(b.1)));
-    match traders.as_slice() {
-        [_, second, ..] if d(second.1) <= TRADER_WITHIN => Some(*second),
-        [nearest, ..] => Some(*nearest),
-        [] => None,
-    }
-}
-
-/// What a creature standing at `here` does about its partner at `partner` (`0x4EF150` with the
-/// flag 4, `0x4FC490`): farther than 900 it forgets it; between 80 and 200 it meets it and
-/// forgets it; farther than 240 it walks up to it; within 80 it steps off to 220 from it; else
-/// it forgets it.
-fn follow(here: Vec3, partner: Vec3) -> Why {
-    let d = (partner - here).xz().length();
-    if d > FOLLOWS_WITHIN {
-        Why::GoesBack
-    } else if d > MEETS.0 && d < MEETS.1 {
-        Why::Meets
-    } else if d > CATCHES_UP {
-        Why::Follows
-    } else if d <= MEETS.0 {
-        Why::StepsOff
-    } else {
-        Why::GoesBack
-    }
-}
-
-/// Where a creature at `here` that shares its cell parts to (`0x544890`): within 100 of its home
-/// when the original's measure of its distance from home lies between 30 and 400, else within
-/// 100 of itself. The measure takes, of each point, its y from its x (`0x545B30`), not the home
-/// from the creature, and gives up past ±32,000, so that a creature parts about itself but near
-/// the world's diagonal.
-fn parting(home: Vec3, here: Vec3, rng: &mut Rng) -> Vec3 {
-    let (a, b) = (here.x - here.z, home.x - home.z);
-    let measure = (a * a + b * b).sqrt();
-    let measured = a.abs() <= 32_000.0 && b.abs() <= 32_000.0;
-    if measured && measure > 30.0 && measure < 400.0 {
-        about(home, PART, rng)
-    } else {
-        about(here, PART, rng)
-    }
+    Some(point(runs_from(spot(here), spot(threat), rng), here.y))
 }
 
 /// Sends the creatures not hostile that walk within 91 of the hero, at its look, to a point
-/// within 200 of themselves that they reach, the first of 10 tries (`0x547070`).
+/// within 200 of themselves that they reach, the first of 10 tries
+/// (`opensacred_rules::minds::Mind::steps_aside`, `0x547070`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1000,14 +434,11 @@ fn aside(
     let hero = hero.translation;
     for (entity, transform, way, mind) in &creatures {
         let here = transform.translation;
-        if mind.hostile() || (here - hero).xz().length() >= ASIDE_WITHIN {
-            continue;
-        }
         let from = (paths::cell_of(here.x, here.z), (way.level, false));
-        let reaches = |to: Vec3| {
+        let reaches = |to: Spot| {
             paths::path_onto(
                 from,
-                paths::cell_of(to.x, to.z),
+                paths::cell_of(to.x, to.y),
                 |_| true,
                 |place| {
                     let mut next = heights.neighbours(place);
@@ -1017,12 +448,10 @@ fn aside(
             )
             .is_some()
         };
-        let Some(target) = (0..ASIDE_TRIES)
-            .map(|_| about(here, ASIDE, &mut minds.rng))
-            .find(|&to| reaches(to))
-        else {
+        let Some(target) = mind.steps_aside(spot(here), spot(hero), &mut minds.rng, reaches) else {
             continue;
         };
+        let target = point(target, here.y);
         debug!(
             "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
             Why::StepsAside,
@@ -1037,74 +466,14 @@ fn aside(
     }
 }
 
-/// A number between `low` and `high`, at random.
-fn between(low: f32, high: f32, rng: &mut Rng) -> f32 {
-    let part = f32::from(u16::try_from(rng.below(10_001)).unwrap_or(0)) / 10_000.0;
-    low + (high - low) * part
-}
-
-/// Where a wild animal at `here` runs from `fear` (`0x4EF150`): along each axis of the grid away
-/// from it by half to twice its distance along that axis, and across by up to half its distance
-/// along the other either way.
-fn flight(here: Vec3, fear: Vec3, rng: &mut Rng) -> Vec3 {
-    let d = (here - fear).xz();
-    let (x, y) = (d.x.abs(), d.y.abs());
-    let along = |offset: f32, rng: &mut Rng| {
-        let away = between(offset.abs() / 2.0, offset.abs() * 2.0, rng);
-        if offset < 0.0 { -away } else { away }
-    };
-    let dx = along(d.x, rng) + between(-y / 2.0, y / 2.0, rng);
-    let dz = along(d.y, rng) + between(-x / 2.0, x / 2.0, rng);
-    here + Vec3::new(dx, 0.0, dz)
-}
-
-/// What a peaceful creature awake does now by its behaviour, standing at `here` (`0x4EF150`): a
-/// wild animal (flags `0x40`, `0x80`) runs from the nearest creature other than an animal within
-/// 300 of it, `fear`, the hero among them ([`flight`]), walks back within 50 of home from farther
-/// than 380 along an axis, and strolls within 100 of home by chance; a farm animal (`0x10`,
-/// `0x20`) steps away from such a creature within 200, to the point beyond itself, and strolls
-/// within 150 of home; a guard (`0x4000`) strolls within 200 of its post by chance, else walks
-/// back to it from farther than 90 along an axis. The walk's target and why it walks.
-fn behaviour(
-    mind: &Mind,
-    here: Vec3,
-    fear: Option<Vec3>,
-    strolls: bool,
-    rng: &mut Rng,
-) -> Option<(Vec3, Why)> {
-    let near = |within: f32| fear.filter(|f| (*f - here).xz().length() < within);
-    if mind.flags & (WILD | WILD_TOO) != 0 {
-        if let Some(fear) = near(FLEE) {
-            return Some((flight(here, fear, rng), Why::Flees));
-        }
-        let from_home = (here - mind.home).abs();
-        if from_home.x > ROAMS || from_home.z > ROAMS {
-            return Some((about(mind.home, BACK, rng), Why::GoesBack));
-        }
-        return strolls.then(|| (about(mind.home, STROLL_WILD, rng), Why::Strolls));
-    }
-    if mind.flags & (FARM | FARM_LOOSE) != 0 {
-        if let Some(fear) = near(SHY) {
-            return Some((here + (here - fear).with_y(0.0), Why::StepsAway));
-        }
-        return strolls.then(|| (about(mind.home, STROLL_FARM, rng), Why::Strolls));
-    }
-    if mind.flags & GUARD != 0 {
-        if strolls && !mind.dialogue {
-            return Some((about(mind.home, STROLL_GUARD, rng), Why::Strolls));
-        }
-        let from_post = (here - mind.home).abs();
-        return (from_post.x > POST || from_post.z > POST).then_some((mind.home, Why::GoesBack));
-    }
-    None
-}
-
 /// The peaceful creatures' behaviours while they stand awake, at every frame (`0x4EF150`); a
 /// creature farther than 1,500 from the hero goes dormant again, a townsperson farther than 600
 /// times the camera's zoom. A townsperson decides at each of the hero's looks, which wake it, as
 /// the original's goes dormant after most of its rolls and decides again when woken. An idle
 /// creature, or a townsperson between its rolls, that shares its cell with another parts from it
-/// by chance (`0x544890`); an animal awake strolls at once.
+/// by chance (`0x544890`); an animal awake strolls at once. The decisions are the rules'
+/// (`opensacred_rules::minds`); this system finds the creatures, the doors and the cells they
+/// take, and walks, turns and stops them.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1165,7 +534,7 @@ fn behave(
                 .collect()
         };
         [
-            of(|mind| mind.class == 6 && mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0),
+            of(|mind| mind.class == 6 && mind.is_animal()),
             of(|mind| mind.class == 3),
             of(|mind| mind.trader),
         ]
@@ -1242,13 +611,7 @@ fn behave(
                 mind.partner = None;
                 continue;
             };
-            // The hero, a player, is never left behind for its distance.
-            let why = match follow(here, at) {
-                Why::GoesBack if after_hero && (at - here).xz().length() > FOLLOWS_WITHIN => {
-                    Why::Follows
-                }
-                why => why,
-            };
+            let why = follow(spot(here), spot(at), after_hero);
             debug!(
                 "ai: {entity} {why:?} from {:.0},{:.0} about {partner} at {:.0},{:.0}",
                 here.x, here.z, at.x, at.z
@@ -1259,22 +622,14 @@ fn behave(
                 }
                 Why::Follows => walks.push((entity, Walk::to(at, way.level, mind.speed))),
                 Why::StepsOff => {
-                    let target = (0..STEP_OFF_TRIES)
-                        .map(|_| {
-                            let degrees =
-                                f32::from(u16::try_from(minds.rng.below(360)).unwrap_or(0));
-                            let turn = Quat::from_rotation_y(degrees.to_radians());
-                            at + turn * Vec3::new(STEPS_OFF, 0.0, 0.0)
-                        })
-                        .find(|&to| {
-                            let cell = paths::cell_of(to.x, to.z);
-                            heights.walkable_on(cell, way.level)
-                                && !crowd.stops(cell, way.level, entity, false)
-                        });
-                    match target {
-                        Some(target) => {
-                            walks.push((entity, Walk::to(target, way.level, mind.speed)))
-                        }
+                    let free = |to: Spot| {
+                        let cell = paths::cell_of(to.x, to.y);
+                        heights.walkable_on(cell, way.level)
+                            && !crowd.stops(cell, way.level, entity, false)
+                    };
+                    match steps_off(spot(at), &mut minds.rng, free) {
+                        Some(target) => walks
+                            .push((entity, Walk::to(point(target, at.y), way.level, mind.speed))),
                         None => mind.partner = None,
                     }
                 }
@@ -1283,7 +638,7 @@ fn behave(
                     // and turns back, and talks.
                     mind.last = Some(partner);
                     mind.partner = None;
-                    if !CHILDREN.contains(&mind.creature) && minds.rng.below(2) == 0 {
+                    if mind.talks_at_meeting(&mut minds.rng) {
                         turns.push((entity, at));
                         if !partner_trades {
                             turns.push((partner, here));
@@ -1302,13 +657,8 @@ fn behave(
             continue;
         }
         let crowded = crowd.crowded(paths::cell_of(here.x, here.z), way.level, entity);
-        let folk = mind.flags & TOWNSFOLKS != 0;
-        let range = if folk {
-            TOWNSFOLK_RANGE * zoom
-        } else {
-            BEHAVES_WITHIN
-        };
-        if mind.active && (here - hero).xz().length() > range {
+        let folk = mind.is_townsperson();
+        if mind.active && (here - hero).xz().length() > mind.range(zoom) {
             mind.active = false;
             // At dusk and by night one on the ground goes dormant in a house: by the nearest door
             // within 1,500 of it, put there at once (`0x4F0ADC`, `0x4EEFA0`).
@@ -1384,34 +734,30 @@ fn behave(
             // evening's way (`0x4F0F5E`): indoors it walks among the building's cells; outdoors
             // it goes into the house of the nearest door, by stages from afar, and without a
             // door it wanders.
-            let daemon_near = daemon.0 && (hero - here).xz().length() < DAEMON_NEAR;
+            let before_daemon = daemon_near(daemon.0, spot(here), spot(hero));
             // Before the Daemon, in one case of three, it shows its fear over itself
-            // (`0x4F0DAC`, `DaeAh1` to `6`, red while the hero has solved fewer than 25 quests).
-            if daemon_near && !crowded && minds.rng.below(3) == 0 {
-                let line = format!("DaeAh{}", 1 + minds.rng.below(6));
+            // (`0x4F0DAC`, red while the hero has solved fewer than 25 quests).
+            if before_daemon
+                && !crowded
+                && let Some(line) = daemon_fear(&mut minds.rng)
+            {
                 commands.entity(entity).insert(Says::new(line, FEAR_RED));
             }
-            if (evening || daemon_near) && !crowded {
-                let stage = if way.level.is_some() {
-                    indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
-                } else if let Some(door) = door {
-                    if (door - here).xz().length() > DOOR_FAR {
-                        let toward = (door - here).with_y(0.0).normalize_or_zero();
-                        let to = about(
-                            here + toward * DOOR_STAGE,
-                            DOOR_STAGE_ASTRAY,
-                            &mut minds.rng,
-                        );
-                        Some((to, Why::GoesIn))
-                    } else {
-                        let inside = indoors(door, &heights, &mut minds.rng);
+            if (evening || before_daemon) && !crowded {
+                let inside = way.level.is_some();
+                let stage = match evening_way(spot(here), inside, door.map(spot), &mut minds.rng) {
+                    Evening::Indoors => {
+                        indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
+                    }
+                    Evening::Toward(to) => Some((point(to, here.y), Why::GoesIn)),
+                    Evening::GoesIn => {
+                        let inside = door.and_then(|door| indoors(door, &heights, &mut minds.rng));
                         if inside.is_some() {
                             through(&mut mind);
                         }
                         inside.map(|(to, _)| (to, Why::GoesIn))
                     }
-                } else {
-                    Some((about(here, WANDERS, &mut minds.rng), Why::Wanders))
+                    Evening::Wanders(to) => Some((point(to, here.y), Why::Wanders)),
                 };
                 if let Some((target, why)) = stage {
                     debug!(
@@ -1454,38 +800,54 @@ fn behave(
                     })
                     .copied()
             };
-            let (human, animal) = (nearest(&humans).map(|(e, _)| e), nearest(&animals));
+            let (human, animal) = (nearest(&humans), nearest(&animals));
             let near_traders = traders
                 .iter()
                 .filter(|&&(other, at)| {
                     let (ax, ay) = sector(at);
                     other != entity && (ax - x).abs() <= 1.0 && (ay - y).abs() <= 1.0
                 })
-                .copied()
+                .map(|&trader| (trader, spot(trader.1)))
                 .collect();
-            let trader = trader_for(here, near_traders);
+            let trader = trader_for(spot(here), near_traders);
             match townsperson(&mind, human, animal, trader, &mut minds.rng) {
-                Decision::Walk(target, why, whom) => {
-                    if whom.is_some() {
-                        mind.last = whom;
-                    }
+                Decision::Visits((animal, target)) => {
+                    mind.last = Some(animal);
                     debug!(
-                        "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
-                        here.x, here.z, target.x, target.z
+                        "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                        Why::Visits,
+                        here.x,
+                        here.z,
+                        target.x,
+                        target.z
                     );
                     walks.push((entity, Walk::to(target, way.level, mind.speed)));
                     continue;
                 }
-                Decision::Partner(partner, home) => {
+                Decision::GoesHome => {
+                    let target = point(mind.home, here.y);
+                    debug!(
+                        "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                        Why::GoesHome,
+                        here.x,
+                        here.z,
+                        target.x,
+                        target.z
+                    );
+                    walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                    continue;
+                }
+                Decision::Partner((partner, _), home) => {
                     debug!("ai: {entity} {:?} {partner}", Why::TakesPartner);
                     mind.partner = Some(partner);
                     mind.runs_after = false;
-                    if let Some(home) = home {
+                    if home {
+                        let home = point(mind.home, here.y);
                         walks.push((entity, Walk::to(home, way.level, mind.speed)));
                     }
                     continue;
                 }
-                Decision::Trade(trader, at) => {
+                Decision::Trade((trader, at)) => {
                     debug!(
                         "ai: {entity} {:?} from {:.0},{:.0} at {trader} at {:.0},{:.0}",
                         Why::Trades,
@@ -1501,10 +863,17 @@ fn behave(
                     continue;
                 }
                 Decision::Child => {
-                    let does = child(&mind, here, (hero, daemon.0), in_settlement, &mut minds.rng);
+                    let does = child(
+                        &mind,
+                        spot(here),
+                        (spot(hero), daemon.0),
+                        in_settlement,
+                        &mut minds.rng,
+                    );
                     debug!("ai: {entity} {:?} {does:?}", Why::Plays);
                     match does {
                         Child::Plays(to) => {
+                            let to = point(to, here.y);
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                             playing.push((entity, here));
                         }
@@ -1518,6 +887,7 @@ fn behave(
                             commands.entity(entity).insert(Says::new(line, CHILD_GREEN));
                         }
                         Child::RunsUp(to) | Child::Flees(to) => {
+                            let to = point(to, here.y);
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                         }
                     }
@@ -1541,9 +911,7 @@ fn behave(
                     }
                 }
                 Decision::Juggle => {
-                    // Its instrument, if its hands are empty, at random (`0x4F29E2`).
-                    let instrument = usize::try_from(minds.rng.below(4)).unwrap_or(0);
-                    let on = mind.flags & JUGGLER != 0;
+                    let (instrument, on) = mind.juggles(&mut minds.rng);
                     debug!("ai: {entity} {:?} {instrument} on {on}", Why::Juggles);
                     commands.entity(entity).insert(Plays { instrument, on });
                     continue;
@@ -1552,14 +920,8 @@ fn behave(
             }
         }
         if !mind.active || folk {
-            if crowded
-                && mind.flags & STAYS == 0
-                && !mind.dialogue
-                && !mind.trader
-                && !mind.fighting
-                && chance(&mut minds.rng, PARTS_A_SECOND, dt)
-            {
-                let target = parting(mind.home, here, &mut minds.rng);
+            if let Some(target) = mind.parts(spot(here), crowded, dt, &mut minds.rng) {
+                let target = point(target, here.y);
                 debug!(
                     "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
                     Why::Parts,
@@ -1581,12 +943,12 @@ fn behave(
                 let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
                 da.total_cmp(&db)
             });
-        // An animal strolls by chance, or at once where another shares its cell.
-        let animal = mind.flags & (WILD | WILD_TOO | FARM | FARM_LOOSE) != 0;
-        let strolls = chance(&mut minds.rng, STROLLS_A_SECOND, dt) || (crowded && animal);
-        let Some((target, why)) = behaviour(&mind, here, fear, strolls, &mut minds.rng) else {
+        let Some((target, why)) =
+            mind.behaves(spot(here), fear.map(spot), crowded, dt, &mut minds.rng)
+        else {
             continue;
         };
+        let target = point(target, here.y);
         debug!(
             "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
             here.x, here.z, target.x, target.z
@@ -1619,7 +981,7 @@ fn behave(
             if entity != leader
                 && !walking
                 && !sent.contains(&entity)
-                && CHILDREN.contains(&mind.creature)
+                && mind.is_child()
                 && mind.partner.is_none()
                 && !mind.dialogue
                 && (x - lx).abs() <= 1.0
@@ -1662,292 +1024,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_creature_wounded_to_a_third_flees_once_near_a_hero_that_does_not_strike() {
-        let goblin = Mind::new(Vec3::ZERO, 0x1, (true, false), None, SPEEDS, (76, 2));
-        let health = |current| crate::fight::Health {
-            current,
-            most: 72,
-            level: 1,
-        };
-        assert!(flees(&health(24), 150.0, &goblin, false, 0));
-        // More than a third left, too far, the hero striking, or not this frame: it stays.
-        assert!(!flees(&health(25), 150.0, &goblin, false, 0));
-        assert!(!flees(&health(24), 200.0, &goblin, false, 0));
-        assert!(!flees(&health(24), 150.0, &goblin, true, 0));
-        assert!(!flees(&health(24), 150.0, &goblin, false, 3));
-        // Once a fight, and never a creature of the classes 1 and 5.
-        let fled = Mind {
-            fled: true,
-            ..goblin.clone()
-        };
-        assert!(!flees(&health(10), 150.0, &fled, false, 0));
-        let hero_like = Mind::new(Vec3::ZERO, 0x1, (true, false), None, SPEEDS, (7, 1));
-        assert!(!flees(&health(10), 150.0, &hero_like, false, 0));
-    }
-
-    #[test]
-    fn a_hostile_creature_of_a_script_wakes_as_it_is_made_and_looks_every_2_5_s() {
-        let home = Vec3::ZERO;
-        let script = Mind::new(home, 0x1, (false, true), None, SPEEDS, (0, 0));
-        assert!(script.awake && script.period == PERIOD_HOSTILE);
-        // A fill's hostile creature and a peaceful one sleep until woken, on a timer of 5 s.
-        let fill = Mind::new(home, 0x1, (true, false), Some(7), SPEEDS, (0, 0));
-        assert!(!fill.awake && fill.period == PERIOD);
-        let villager = Mind::new(home, 0x400, (true, true), None, SPEEDS, (0, 0));
-        assert!(!villager.awake && !villager.hostile());
-    }
-
-    const SPEEDS: [f32; 2] = [70.0, 140.0];
-
-    #[test]
-    fn a_peaceful_creature_of_an_enter_function_takes_a_behaviour_by_its_class() {
-        let made = |flags, created, creature, class| {
-            let made = (true, created);
-            Mind::new(Vec3::ZERO, flags, made, None, SPEEDS, (creature, class)).flags
-        };
-        // A fill's animals by the creature maker's lists: the first rabbit wild, a pig farm, the
-        // other rabbits without, so of class 6 the loose farm animals' at the first update.
-        assert_eq!(made(of_type(516), false, 516, 6), WILD);
-        assert_eq!(made(of_type(520), false, 520, 6), FARM);
-        assert_eq!(made(of_type(592), false, 592, 6), FARM_LOOSE);
-        // `CreateNPC`'s without a tag: class 6 the loose farm animals', the jugglers theirs, the
-        // others the townsfolk's; a tag or hostility keeps its own.
-        assert_eq!(made(0, true, 560, 6), FARM_LOOSE);
-        assert_eq!(made(0, true, 78, 3), JUGGLER);
-        assert_eq!(made(0, true, 640, 3), TOWNSFOLK);
-        assert_eq!(made(0x4000, true, 640, 3), 0x4000);
-        assert_eq!(made(0x1, false, 512, 6), 0x1);
-        // An `Init` function's creature without a tag keeps none and stands.
-        let init = Mind::new(Vec3::ZERO, 0, (false, true), None, SPEEDS, (560, 6));
-        assert_eq!(init.flags, 0);
-    }
-
-    #[test]
-    fn a_wild_animal_flees_at_a_run_and_a_farm_animal_steps_away() {
-        let mut rng = Rng::of(48, 39, 2);
-        let home = Vec3::new(1000.0, 0.0, 1000.0);
-        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
-        let pig = Mind::new(home, of_type(520), (true, false), None, SPEEDS, (520, 6));
-        let hero = Vec3::new(1100.0, 0.0, 1000.0);
-        // Within 300 of the hero the rabbit runs from it, by half to twice its distance along x
-        // and across by up to half of none; beyond, it stands.
-        for _ in 0..100 {
-            let (to, why) = behaviour(&rabbit, home, Some(hero), false, &mut rng).unwrap();
-            assert_eq!(why, Why::Flees);
-            assert!(
-                (800.0..=950.0).contains(&to.x) && (950.0..=1050.0).contains(&to.z),
-                "{to}"
-            );
-        }
-        let far = Vec3::new(1400.0, 0.0, 1000.0);
-        assert_eq!(behaviour(&rabbit, home, Some(far), false, &mut rng), None);
-        // Within 200 the pig walks to the point beyond itself; at 300 it stands.
-        let (to, why) = behaviour(&pig, home, Some(hero), false, &mut rng).unwrap();
-        assert!(
-            why == Why::StepsAway && (to - Vec3::new(900.0, 0.0, 1000.0)).length() < 0.01,
-            "{to}"
-        );
-        let near = Vec3::new(1300.0, 0.0, 1000.0);
-        assert_eq!(behaviour(&pig, home, Some(near), false, &mut rng), None);
-        // Farther than 380 from home the rabbit walks back within 50 of it.
-        let strayed = home + Vec3::new(0.0, 0.0, 400.0);
-        let (to, why) = behaviour(&rabbit, strayed, None, false, &mut rng).unwrap();
-        let d = to - home;
-        assert!(
-            why == Why::GoesBack && d.x.abs() <= 50.0 && d.z.abs() <= 50.0,
-            "{d}"
-        );
-        // A stroll stays within 100 of home for the rabbit, 150 for the pig.
-        for _ in 0..200 {
-            let (to, _) = behaviour(&rabbit, home, None, true, &mut rng).unwrap();
-            let d = to - home;
-            assert!(d.x.abs() <= 100.0 && d.z.abs() <= 100.0, "{d}");
-            let (to, _) = behaviour(&pig, home, None, true, &mut rng).unwrap();
-            let d = to - home;
-            assert!(d.x.abs() <= 150.0 && d.z.abs() <= 150.0, "{d}");
-        }
-    }
-
-    #[test]
-    fn a_guard_strolls_about_its_post_and_goes_back_to_it() {
-        let mut rng = Rng::of(50, 39, 4);
-        let post = Vec3::new(1000.0, 0.0, 1000.0);
-        let guard = Mind::new(post, 0x4000, (false, true), None, SPEEDS, (0, 3));
-        // Within 90 of its post along each axis it stands; farther it walks back to it.
-        let near = post + Vec3::new(90.0, 0.0, -90.0);
-        assert_eq!(behaviour(&guard, near, None, false, &mut rng), None);
-        let far = post + Vec3::new(20.0, 0.0, 95.0);
-        assert_eq!(
-            behaviour(&guard, far, None, false, &mut rng),
-            Some((post, Why::GoesBack))
-        );
-        // By chance it strolls within 200 of its post, from wherever it stands; it fears no one.
-        let hero = Some(far + Vec3::X);
-        for _ in 0..100 {
-            let (to, why) = behaviour(&guard, far, hero, true, &mut rng).unwrap();
-            let d = to - post;
-            assert!(
-                why == Why::Strolls && d.x.abs() <= 200.0 && d.z.abs() <= 200.0,
-                "{d}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_crowded_creature_parts_about_itself_but_near_the_worlds_diagonal() {
-        let mut rng = Rng::of(50, 39, 5);
-        let near = |to: Vec3, at: Vec3| (to - at).x.abs() <= 100.0 && (to - at).z.abs() <= 100.0;
-        // At the start of the Seraphim, far from the diagonal: about itself, wherever home is.
-        let here = Vec3::new(173_688.0, 0.0, 134_781.0);
-        let home = here + Vec3::new(250.0, 0.0, 0.0);
-        for _ in 0..50 {
-            assert!(near(parting(home, here, &mut rng), here));
-        }
-        // Near the diagonal, its measure 30 to 400: about home.
-        let here = Vec3::new(10_000.0, 0.0, 10_000.0);
-        let home = Vec3::new(10_100.0, 0.0, 10_000.0);
-        for _ in 0..50 {
-            assert!(near(parting(home, here, &mut rng), home));
-        }
-        // On the diagonal at home, its measure 0: about itself.
-        assert!(near(parting(here, here, &mut rng), here));
-    }
-
-    #[test]
-    fn a_townsperson_rolls_home_an_animal_or_a_stop() {
-        let mut rng = Rng::of(50, 39, 6);
-        let home = Vec3::new(1000.0, 0.0, 1000.0);
-        let farmer = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (640, 3));
-        let pig = (
-            Entity::from_raw_u32(7).unwrap(),
-            Vec3::new(1300.0, 0.0, 900.0),
-        );
-        let (mut homes, mut visits, mut stops) = (0, 0, 0);
-        let wife = Entity::from_raw_u32(8).unwrap();
-        let (mut partners, mut walking, mut houses) = (0, 0, 0);
-        for _ in 0..26_000 {
-            match townsperson(&farmer, Some(wife), Some(pig), None, &mut rng) {
-                Decision::Walk(to, Why::GoesHome, None) if to == home => homes += 1,
-                Decision::Walk(to, Why::Visits, Some(_)) if to == pig.1 => visits += 1,
-                Decision::Partner(partner, home) if partner == wife => {
-                    partners += 1;
-                    walking += usize::from(home.is_some());
-                }
-                Decision::House => houses += 1,
-                Decision::Stop => stops += 1,
-                other => panic!("{other:?}"),
-            }
-        }
-        // Home in one roll of 26, the animal in one, a partner in two, one of them walking home.
-        assert!((800..1_200).contains(&homes), "{homes}");
-        assert!((800..1_200).contains(&visits), "{visits}");
-        assert!((1_700..2_300).contains(&partners) && (800..1_200).contains(&walking));
-        // A house in three rolls of 26.
-        assert!((2_700..3_300).contains(&houses), "{houses}");
-        assert_eq!(homes + visits + partners + houses + stops, 26_000);
-        // Without a human or an animal those rolls walk home or stop.
-        assert!((0..100).all(|_| !matches!(
-            townsperson(&farmer, None, None, None, &mut rng),
-            Decision::Partner(..) | Decision::Walk(_, Why::Visits, _)
-        )));
-        // Without an animal the roll of 1 stops; a child always rolls 20, a juggler 9.
-        assert!((0..100).all(|_| roll(&farmer, &mut rng) != 9));
-        let child = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));
-        assert!((0..100).all(|_| roll(&child, &mut rng) == 20));
-        let juggler = Mind::new(home, 0, (true, true), None, SPEEDS, (78, 3));
-        assert_eq!(juggler.flags, JUGGLER);
-        assert!((0..100).all(|_| roll(&juggler, &mut rng) == 9));
-        assert!((0..100).all(|_| {
-            townsperson(&juggler, Some(wife), Some(pig), None, &mut rng) == Decision::Juggle
-        }));
-    }
-
-    #[test]
-    fn a_townsperson_visits_the_second_nearest_trader_within_800() {
-        let home = Vec3::ZERO;
-        let smith = (Entity::from_raw_u32(9).unwrap(), Vec3::new(300.0, 0.0, 0.0));
-        let wizard = (
-            Entity::from_raw_u32(10).unwrap(),
-            Vec3::new(700.0, 0.0, 0.0),
-        );
-        let merchant = (
-            Entity::from_raw_u32(11).unwrap(),
-            Vec3::new(900.0, 0.0, 0.0),
-        );
-        assert_eq!(
-            trader_for(home, vec![wizard, smith, merchant]),
-            Some(wizard)
-        );
-        assert_eq!(trader_for(home, vec![merchant, smith]), Some(smith));
-        assert_eq!(trader_for(home, vec![merchant]), Some(merchant));
-        assert_eq!(trader_for(home, Vec::new()), None);
-        // A citizen visits it in two rolls of 26, a farmer of the flag 8 in a third of those.
-        let count = |flags| {
-            let mind = Mind::new(home, flags, (true, true), None, SPEEDS, (652, 3));
-            let mut rng = Rng::of(50, 39, 8);
-            (0..26_000)
-                .filter(|_| {
-                    matches!(
-                        townsperson(&mind, None, None, Some(smith), &mut rng),
-                        Decision::Trade(..)
-                    )
-                })
-                .count()
-        };
-        assert!(
-            (1_700..2_300).contains(&count(CITIZEN)),
-            "{}",
-            count(CITIZEN)
-        );
-        assert!(
-            (500..850).contains(&count(TOWNSFOLK)),
-            "{}",
-            count(TOWNSFOLK)
-        );
-    }
-
-    #[test]
-    fn a_child_plays_outside_and_gathers_about_the_hero_in_a_building() {
-        let mut rng = Rng::of(50, 39, 9);
-        let home = Vec3::ZERO;
-        let kid = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));
-        let hero = Vec3::new(1000.0, 0.0, 0.0);
-        // Outside, it plays about itself near home, toward home from afar.
-        for _ in 0..50 {
-            let Child::Plays(to) = child(&kid, home, (hero, false), false, &mut rng) else {
-                panic!("plays");
-            };
-            assert!(to.x.abs() <= 400.0 && to.z.abs() <= 400.0, "{to}");
-            let far = Vec3::new(2000.0, 0.0, 0.0);
-            let Child::Plays(to) = child(&kid, far, (hero, false), false, &mut rng) else {
-                panic!("plays");
-            };
-            assert!((to - Vec3::new(1200.0, 0.0, 0.0)).length() < 0.01, "{to}");
-        }
-        // Inside, from afar it follows the hero (but in one case of 13 it plays).
-        let follows = (0..1300)
-            .filter(|_| child(&kid, home, (hero, false), true, &mut rng) == Child::FollowsHero)
-            .count();
-        assert!((1_150..1_250).contains(&follows), "{follows}");
-        // Near, it mostly turns to the hero.
-        let near = Vec3::new(100.0, 0.0, 0.0);
-        let looks = (0..1300)
-            .filter(|_| {
-                matches!(
-                    child(&kid, home, (near, false), true, &mut rng),
-                    Child::LooksUp | Child::Speaks(_)
-                )
-            })
-            .count();
-        assert!((1_050..1_250).contains(&looks), "{looks}");
-        // Before the Daemon it runs 700 away, within 400 more.
-        let Child::Flees(to) = child(&kid, home, (near, true), true, &mut rng) else {
-            panic!("flees");
-        };
-        assert!((to.x + 700.0).abs() <= 400.0 && to.z.abs() <= 400.0, "{to}");
-    }
-
-    #[test]
     fn a_townsperson_runs_700_from_a_hostile_within_800() {
         let mut rng = Rng::of(50, 39, 10);
         let here = Vec3::ZERO;
@@ -1961,69 +1037,10 @@ mod tests {
     }
 
     #[test]
-    fn a_townsperson_follows_its_partner_and_meets_it() {
-        let here = Vec3::ZERO;
-        let at = |d: f32| Vec3::new(d, 0.0, 0.0);
-        assert_eq!(follow(here, at(950.0)), Why::GoesBack);
-        assert_eq!(follow(here, at(500.0)), Why::Follows);
-        assert_eq!(follow(here, at(220.0)), Why::GoesBack);
-        assert_eq!(follow(here, at(150.0)), Why::Meets);
-        assert_eq!(follow(here, at(81.0)), Why::Meets);
-        assert_eq!(follow(here, at(60.0)), Why::StepsOff);
-    }
-
-    #[test]
-    fn a_rate_a_second_comes_about_as_often_at_any_frame_rate() {
-        let mut rng = Rng::of(0, 0, 3);
-        for frames in [30.0_f32, 144.0] {
-            let dt = 1.0 / frames;
-            // 1,000 seconds' frames, about 297 strolls.
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "a whole count of frames"
-            )]
-            let count = (1_000.0 * frames) as u32;
-            let strolls = (0..count)
-                .filter(|_| chance(&mut rng, STROLLS_A_SECOND, dt))
-                .count();
-            assert!((240..360).contains(&strolls), "{frames}: {strolls}");
-        }
-    }
-
-    #[test]
-    fn the_idle_action_steps_about_home_or_turns_about_the_hero() {
-        let hero = Vec3::new(1000.0, 0.0, 1000.0);
-        let here = Vec3::new(1500.0, 0.0, 1000.0);
-        let mut rng = Rng::of(48, 39, 1);
-        let script = Mind::new(
-            Vec3::new(1480.0, 0.0, 990.0),
-            0x1,
-            (false, true),
-            None,
-            SPEEDS,
-            (0, 0),
-        );
-        let fill = Mind::new(here, 0x1, (true, false), None, SPEEDS, (0, 0));
-        let (mut steps, mut homes) = (0, 0);
-        for _ in 0..2000 {
-            if let Some(target) = idle_step(&script, here, hero, &mut rng) {
-                if target == script.home {
-                    homes += 1;
-                } else {
-                    let d = target - here;
-                    assert!(d.x.abs() <= 150.0 && d.z.abs() <= 150.0, "{d}");
-                    steps += 1;
-                }
-            }
-            // An `Enter` function's creature keeps its distance from the hero.
-            if let Some(target) = idle_step(&fill, here, hero, &mut rng) {
-                let (before, after) = ((here - hero).length(), (target - hero).length());
-                assert!((before - after).abs() < 0.01, "{before} {after}");
-            }
-        }
-        // A step in about 22 % of the actions, home in a quarter of them.
-        assert!((350..550).contains(&(steps + homes)), "{steps} {homes}");
-        assert!(homes > 50 && homes < steps, "{steps} {homes}");
+    fn a_mind_keeps_its_home_on_the_ground() {
+        let home = Vec3::new(1000.0, 50.0, -300.0);
+        let mind = Mind::new(home, 0x1, (true, false), None, [70.0, 140.0], (76, 2));
+        assert_eq!(mind.home, Spot::new(1000.0, -300.0));
+        assert_eq!(point(mind.home, home.y), home);
     }
 }

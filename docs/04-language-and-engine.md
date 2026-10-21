@@ -12,9 +12,9 @@
   VC6 is not needed.
 * **The engine is Bevy 0.20 on wgpu 30.**
   In the matrix it scores 410 out of 500, against 375 for Godot with godot-rust, 345 for Godot with C++ and 220 for Unreal Engine 5.8.
-* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies, created 2026-10-21 with the spawning's rolls, which the fight's formulas and the ways joined; the rest of the rules followed so far moves into it from `opensacred-game` (#364).
+* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies, created 2026-10-21 with the spawning's rolls, which the fight's formulas, the ways and the creatures' decisions joined from `opensacred-game` (#364).
   With it, a switch to Godot with godot-rust keeps the rules and the converter.
-  Until then, the rest of the rules followed so far (the creatures' life) lives in `opensacred-game`, most of it as Bevy systems (`ai.rs`); the fight's systems there (`fight.rs`) call the crate's formulas, and the walks (`paths.rs`, `crowd.rs`) its ways.
+  The Bevy systems of `opensacred-game` call it: the fight's (`fight.rs`) the crate's formulas, the walks (`paths.rs`, `crowd.rs`) its ways, and the creatures' life and the hero's attack (`ai.rs`, `attack.rs`) its decisions, for which they read the world and which they carry out.
 * **Unsafe code is forbidden** in all product crates by the workspace lint `unsafe_code = "deny"` (`Cargo.toml`), which every crate takes through `[lints] workspace = true`; the only exception is the future development tool `opensacred-oracle`, which calls the Unicorn emulator and is a separate crate, never linked into the converter or the game.
 
 ## 1. Why Rust
@@ -58,7 +58,7 @@ Every format and rule goes through four steps (the legal basis is in docs/08 §2
    Decompiler output is never pasted in.
 3. **Implement.**
    The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
-   `opensacred-rules` holds the spawning's rolls, the fight's formulas and the ways so far; the rest of the rules followed so far is written in `opensacred-game` and moves into it (#364).
+   `opensacred-rules` holds the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, which the systems of `opensacred-game` call (#364).
 4. **Verify.**
    A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is to be compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg; docs/03 §1).
    Until the oracle exists, a rule is checked by unit tests written from its description and by observations of the running original (#227).
@@ -195,7 +195,7 @@ That is why the architecture insures against a wrong choice:
 * `opensacred-rules` (rules) and `opensacred-convert` (converter) do not depend on the engine;
 * `opensacred-data` (asset types) consists of ordinary `serde` structures that any code can read;
 * the presentation layer `opensacred-game` is to be thin: it connects the rules to rendering, sound and input.
-  Until they move into `opensacred-rules` (#364), `opensacred-game` holds the rest of the rules followed so far as well.
+  `opensacred-game` still holds the parts of the rules followed so far that its systems weave into reading the world (#364).
 
 **Triggers for revisiting** (if one fires, the comparison is redone):
 
