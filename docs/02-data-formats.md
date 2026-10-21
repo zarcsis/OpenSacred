@@ -124,6 +124,10 @@ The pixels match `tex_decode.py` on a sample of 97 fmt 4 records (41 sizes, 22 a
 One menu tile's alpha is faint, **confirmed** on the converted PNG 2026-10-20 (#352): record 347, `GUI_UW_OPTION12.TGA` (format 6, 256 × 256), one of the twelve tiles of the Underworld main menu, has 39,076 texels of alpha 195 to 255 over its body (14 of them 255), where its neighbours' bodies are 255, besides 8,658 of alpha 0, 9,042 of 1 and an edge of 2 to 194; drawn over the menu's animated water, its rocks show the water through them (**community-reported**: DarkMatters file 770, "Main Menu Graphics FIX").
 `opensacred-convert textures` repairs that one record as it writes it: its alphas are scaled by 255/195, held at 255, so its body is opaque and its edge keeps its ramp (docs/decisions/2026-10-20-menu-tile-alpha.md); the lavas' frames are repaired too (§5.2).
 
+The texture fixes of "Sacred Gold: Miscellaneous Fixes" (**community-reported**: PCGamingWiki file 3994, packaged by Narzoul, the fixes credited to Alfchaval, Trecasim and Onion; checked for #358 on 2026-10-21) are described in public only as minor texture errors, mainly of the lava and the main menu.
+They are the three lavas' streaks of §5.2 (#347) and the faint tile above (#352): of the 24 tiles of the two main menus (`GUI_OPTION1`–`12`, `GUI_UW_OPTION1`–`12`, records 332 to 355), record 347 is the only one almost without an opaque texel (14 of 65,536 at alpha 255, the others 23 to 100 per cent; **confirmed** on the converted files).
+Its other texture fixes are not named in what is public, so none can be identified without its files; the armours' reduced resistance glow it bundles (credited to PhanD00M) is a change of taste, not a repair.
+
 ### 3.2 Texture.TMP
 
 `TXL` v1: a 0x118 B header + 25,538 × 80 B, the same record headers but with `packedOffset` filled in; 25,534 records with `pakIndex` 0 matched the `texture.pak` directory by (offset, size), two with `pakIndex` 4 come from `texture03.pak`.
@@ -385,6 +389,47 @@ In short: the format is solved, **the runtime has been solved by nobody**. open-
 * **The original's animation runtime** (ADSR envelopes, period, root-motion accumulation, `AddControlledPose` for the head and arms) is not part of the files and is carried over approximately: into a Bevy animation graph with blend durations from `MOTIONS.PAK`; exactness is not required.
 * **Verification:** glTF-Validator on all files and inspection in Blender (done, above); a screenshot test in the game.
 * **Estimate:** models 15–30 agent-hours, animations 10–20 (milestones M1 and M2).
+
+### 4.6 Defects the community reports
+
+Checked for #358 on the converted files and the GOG 2.28 paks on 2026-10-21.
+The reports are **community-reported** (Sacred ReBorn 4.2 and 4.4, "BUGFIXES (SACRED)"), and they name no files, so the records below are those the data points to.
+The measures: holes as boundary edges of a mesh whose corners are welded by position, sorted into its connected surfaces; degenerate and flipped triangles; each vertex's bone against the nearest bone in the bind pose; the edges' stretch over the model's own clips, sampled; and, for an item a hero wears, its vertices placed by the hero's bones of the same names times the item's inverse bind matrices, over the hero's clips (a wear by bone names, Granny's `WearSequence`, §4.3; **hypothesis** that the client wears these items so).
+
+- **The dwarf's combat gauntlets shown wrongly**: **confirmed** on the data that the gauntlets do not fit the dwarf's skeleton, in two ways.
+  The combat gauntlets are the weapons of items 4067 to 4072 (category 5), models 600 to 605 (`GLAD_GLOVES_*.GRN`), a mesh per hand skinned to `Bip01 L/R Forearm` and `Hand` (a few positions to `Finger0`), 14 or 15 positions of each on the forearm; no armour switch gives the dwarf a model of its own (`tables/armour_switches.ron`).
+  Their files, like the arm gauntlets 606 to 608 and the fighting gloves 587 and 1439, spell the forearms `Forearm`, and `DWARF.GRN` (722) is the only hero skeleton that spells them `ForeArm` (§4.2), so a wear by names finds no forearm on the dwarf.
+  The gauntlets' own rig has a forearm 11.06 units long, the gladiator 9.75 and the dwarf 8.53: worn in the bind pose, edges from the cuff to the hand shrink to 0.56 of their length on the gladiator and to 0.34 on the dwarf, and the dwarf's forearm, 9 to 10 units across against the gladiator's 6 to 7, is wider than the cuff (6 to 7).
+  The converter already writes both spellings as `Forearm` (#355), so the gauntlets bind on the dwarf in `opensacred-game`; the fit would need meshes reshaped for the dwarf, not a narrow repair (**hypothesis** that ReBorn did so).
+- **One amulet shown wrongly**: **confirmed** on the data for `DWARF_AM_ERDE.GRN` (792), the only one of the 150 amulet models (`*_AM_*`, 17 for the daemon and 19 for each other class) whose mesh follows a bone that its class's hero skeleton lacks.
+  Its mesh `Amulett_erd` (46 positions) is rigid on a bone `Amulett_erd` straight under `__Root`, a file without `Root`, where the other 18 dwarf amulets follow `Bip01 Spine3`; worn by names, it finds no bone on the dwarf.
+  The mesh lies where its siblings' lie, within half a unit of their offset from `Bip01 Neck`, so a repair would bind its 46 positions rigidly to `Bip01 Spine3` by the file's own bind pose, positions unchanged.
+  `DWARF_AM_SERAPHIM.GRN` (798) follows `Dummy01`, a helper under `Bip01 Head` that the dwarf has at the same place, so it moves with the head rather than the chest (**hypothesis** whether that shows).
+- **The cannons shown wrongly**: **confirmed** on the data for `Dwarf_leather_cannon.grn` (1415, item 3015).
+  Five of the 43 positions of its strap `shoulder_leather01`, at shoulder height, are wholly on `Bip01 Pelvis`, 17 to 23 units below them, among neighbours on `Bip01 L Clavicle` and `Bip01 Neck` 1.2 to 2.3 units away; worn on the dwarf, 49 of the 204 sides of the strap's 68 triangles stretch more than twice in the dwarf's clips, up to 22 times in `DWAR_ATTACK_SPECIAL01`.
+  A repair would weight those five positions on their neighbours' bone, `Bip01 L Clavicle`.
+  The other two cannons, `DWARF_CANNON.GRN` (723, items 1700 and 3016) and `dwarf_platearmor_cannon.grn` (725, item 3095), hang on the helpers `null_cannon_base`, `null_cannon_mover` and `null_rucksack`, whose bind pose under `Bip01 Spine3` is the dwarf's to 0.01 unit and 0.1°, and none of their edges stretches past 3.1 times (723's rucksack in `DWAR_DYING_A`); 725 spells the forearm `Forearm`, but none of its meshes uses it.
+  What else the community saw wrong on the cannons is not in the data (**hypothesis**).
+- **A small hole in the blacksmith's model**: **not in the geometry**, **confirmed** on the data.
+  The four meshes of `blacksmith.grn` (1305) equal those of `WARRIOR_BLONDE.GRN` (434) and `WARRIOR_BROWN.GRN` (435) in positions, triangles, texture coordinates and weights, and those of `VALOR.GRN` (1338) and `VALORGHOST.GRN` (432) in all but the positions, which face another way.
+  Their boundaries are openings of the design (the neck, the waist and the legs' ends that another mesh covers, two-triangle straps on the boots, the boots' cuffs) and two slits under 0.03 units wide (the right boot's rim against the trouser leg and a seam at the front of the waist) with the same weights on both sides, which no clip opens.
+  The blacksmith differs only by its textures (8201 to 8207), and the one with transparent texels is the apron's, record 8202 (`blacksmith_belt`): two areas of alpha 0 lie under 16 of the 154 triangles of `warrior_cloth` (406 of the 3,900 texels it covers), the flaps hanging below the belt, where the other warriors' record 6825 (`warrior_belt`) is opaque.
+  Valor's belt (8329) has transparent texels under 46 triangles too, its flaps' tips among them, a design of ragged flaps; on the blacksmith the areas cut through the flaps' middle, and a render of the converted model with the texture's alpha (Blender, 2026-10-21) shows the front flap mostly gone, a few slivers left.
+  **Hypothesis**: that is the hole; its repair would edit the texture's alpha, which the original's look decides.
+- **The Blooded Terror mount broken**: **not found in the data**.
+  The models are `Blutschrecke.grn` (1187, the untamed creature 200), `BlutschreckeSattel.grn` (1188, the saddled 201) and its riders `StachelalbaufBlutschrecke.grn` (1292, creature 199) and `…01.grn` (1293, 340); the saddled mesh is the untamed one's 1,244 triangles plus the saddle's 188, and the riders' add the rider's 1,785.
+  Their boundaries are the design's, and their clips' tracks find every bone but helpers such as the `…Nub` ends.
+  No vertex of the two mounts lies far from its bone; in the riders' models the saddle's grip, on the mount's root `Bone01`, lies by the rider's left hand, as a held grip would.
+  The saddled body's texture differs from the untamed one's by the saddle's straps painted on it.
+  What the community saw broken is a **hypothesis** to be checked in the original.
+- **A defect at the start of the large dragons' tails**: **confirmed** on the data as the weights of the tail's root.
+  The eight dragons (1193 to 1200, `dragon*.grn`) share one mesh `Dragon` (3,120 vertices, 3,064 triangles) with the same positions, triangles, texture coordinates and weights, mostly one bone per vertex.
+  At the tail's root, the vertices of its sides and underside are wholly on `Bip01 L Thigh` or `Bip01 R Thigh` next to vertices wholly on `Bip01 Tail`, such as the edge from (±21.5, 88.5, −88.2) to (±20.8, 92.2, −92.2), 5.5 units long.
+  In each of the three sets of clips (`DRGN_`, `DRGI_`, `DRGU_`) these are the most stretched edges of the whole mesh: 4.7 times in the walk, where the next elsewhere reach 2.6, and 10.5 times in the dying clip.
+  The surface is closed there: the body's only boundaries are slits along the four legs and the mouth's opening, and the mesh's 16 three-vertex loops are the open bases of spikes on the head and the tail's last segments.
+  A repair would blend the root's weights between `Bip01 Tail` and the thighs; which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
+
+None of these repairs is made yet: each would be a `bug` of its own, repaired by `opensacred-convert models` as it writes the named records and recorded as a decision (CLAUDE.md, "Code conventions").
 
 ## 5. World
 
@@ -750,6 +795,36 @@ For the engine: an in-memory index, UTF-16LE → UTF-8 at load time, byte compar
 Ready-made code: sacred-sdk (`sacred_hash.h`, a `global.res` generator), SacredUtils (Apache-2.0, decompiler/compiler).
 Estimate: < 1 day with the ready-made code.
 
+**Defects the community reports**, checked for #358 on `scripts/us/global.res`, the converted `text/en-US/global.ftl` and the tables on 2026-10-21; a string is named here by its id, the message `id-N` of `global.ftl`, never by its wording:
+
+- **The orc god's name left untranslated** (**community-reported**): **confirmed**.
+  Ten messages carry one German word, the name of a god that the goblins' and the orcs' lines invoke: alone in nine and in a compound in one.
+  They are ids 63580866, 63580868, 567832966, 588918616, 640731051, 724553692, 724553694, 990141306, 1478592224 and 1478592228.
+  No string of the file holds an English form of the name.
+- **Missing names and lines**, which ReBorn restored in every language after Sacred NL (**community-reported**): two kinds show in the data (**confirmed**), whether they are those ReBorn restored is a **hypothesis**.
+  Names: a creature type's name is the string whose id is the hash of its number in decimal, as a weapon's (§6.2; type 37 is id 5818), and 25 of the 474 types have none: the empty type 0, 146, 164 to 167, 182, 183 (`Anducar.grn`, `Anducar_Demon.grn`), 222 to 224, 328, 356, 357, 361 to 365, 367, 368, 599 (`WOLF.GRN`), 706 (`NOBLE_FEM.GRN`), 1879 and 6114; and 566 of the 4,883 `Weapon.pak` records have none (§6.2), 448 of them with an `items.pak` slot.
+  Lines: of the `res:` keys the scripts name whole, not built at run time with `+VAR(…)`, four quest-log keys of `QuestBook` records (type 53) resolve to no string, `HQ_6_2_1_Log_preQuest`, `NQ_7607_LOG_HEADER`, `NQ_LOG_QLOSE` and `R09NQ01_Log_Qsieg`, besides `res:174242` (type 22), the one numeric reference that does not resolve (above).
+  What the game shows for a missing name or line is not read.
+- **Generic names of the arcade's "gamebox" items** (**community-reported**): **confirmed**.
+  The eleven items 5150 to 5160 (models 953 to 963, `gamebox_*.grn`, a model each) are named by ids 77105259 to 77105268 and 77105372, which all hold the same single word, the records' `Weapon.pak` internal name as well.
+- The unused hero voice lines, some German (**community-reported**, DarkMatters topic 72808), are cut content, not a defect.
+
+**Proposal: repairing the texts without carrying them** (#358; a proposal that awaits the maintainer's decision, nothing of it is implemented).
+`opensacred-convert text` would apply a table of repairs as it writes `global.ftl`, each a decision of its own (`docs/decisions/`), since it changes what the player reads.
+Every entry names its string by id and carries the SHA-256 of the original string it was written for, so it applies only to that text and is skipped with a warning on another one; the table carries ids, offsets, lengths and hashes, never the game's wording.
+Its sources, in the order of preference:
+
+1. **The same file**: a string takes another id's string whole, or a span of it (id, offset and length in UTF-16 units) replaces a span of its own.
+   Nothing of the game is carried, but it repairs only what the right text already exists for elsewhere in the file; none of the reports above is such a case.
+2. **Another language the user has installed**: an id the English file lacks takes the same id of `scripts/<lang>/global.res` from the user's other installation (the GOG product has French and Russian depots, not checked locally).
+   It fills a gap in another language, and that file is outside the manifest, so its strings cannot be pinned by hash in advance.
+3. **Words of the project's own**: what no installed file holds (the god's English name, names for the eleven gameboxes, the missing names and log lines) would come as English text written for OpenSacred and kept in the table, never ReBorn's or another release's wording.
+   A span to replace is named by its id, offset, length and the hash of the original span, never by the original word; each such text is a choice of translation.
+4. **A text overlay the user supplies** (a patched `global.res` or a file of `id = text` lines from a mod they own), read after the original: the repository carries nothing, but the result depends on the user's copy and its terms.
+
+The limits: a repair holds only for the exact text of 2.28 that its hash names; a span replaced inside a sentence leaves the grammar around it as it is; and a text taken from another language or written by the project is no longer the original's.
+Speech is not text: the goblins' shouts (§10.2) would need other samples, not a table of strings.
+
 ## 9. Saves and AMH hero templates
 
 Confirmed on 10 files (8 `Templates/Hero*.ptx`, 2 `save/hero*.pax`; `tools/analysis/formats/amh_dump.py`).
@@ -818,6 +893,9 @@ The original (`cMSS`) holds a single `FILE*` and reads samples on demand (accord
 - **Names**: `Sacred.exe` names the sound ids in a table in `.data` at VA `0x964870` (file offset `0x564870` in GOG 2.28): 6,869 records of 68 B `{u32 id; char name[64]}`, ASCII and zeros after the name, from id 0 `SOUND_FX_INVALID` to the last whose name starts with `SOUND_FX_`; the ids are not sorted, every name is distinct, and two ids have two names each (13,024 and 13,402).
   Every sample of the pak and every profile id is named (`SOUND_FX_ANIMAL_BAT01`, `SOUND_FX_FOOTSTEP_…`, `SOUND_FX_MUSIC_WOOD01`).
   Confirmed 2026-10-17 by `sound_dump.py --names`.
+- **Goblins shout German phrases in the English version** (**community-reported**, TV Tropes; checked for #358 on 2026-10-21): the goblins' profile is slot 2031, `gobliins`, whose eight groups, `APPROACH` to `DEATH` ([docs/re/sound.md](re/sound.md)), name 49 samples, `SOUND_FX_ORC03_*` (ids 13350 to 13399 but 13386, which is `ORC02_RFLEE06`); five more, `ORC03_GROUP01` to `05` (13400 to 13402, 13419, 13420), are in no profile.
+  No name of the 6,869 carries a language, the pak holds one sample per id, and none of the 54 has its data equal to another sample's, so the data shows no English counterpart (**confirmed**); whether these samples are German cannot be told from their names (**hypothesis**: they are, as reported).
+  A repair would point the profile's groups at another set, such as the orcs' `ORC01`, `ORC04` or `ORC05`, which changes the goblins' voices: a decision for the maintainer.
 
 Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copied as is, like the music (§10.3).
 **Implemented 2026-10-17:** `opensacred_formats::sound` (`SoundPak`, `Profiles`) reads every sample and profile and matches `sound_dump.py` on every record; `opensacred-convert sound` writes the 3,194 WAVs as FLAC, encoded by FFmpeg as an external program with bit-exact flags (lossless: a test decodes a PCM and an IMA ADPCM sample through FFmpeg from the original and from the FLAC and compares the PCM; a rerun writes the same bytes), copies the 3,404 MP3 samples, without the zero bytes before their first frame (a repair since #354; until then the reader dropped them), and the 173 music files (from their first frame since #367, §10.3), and writes `sound/sound.ron` with the samples, the 175 profiles (8 groups of variants each), the music and the 6,869 names of `Sacred.exe` (`opensacred_formats::sound::names`, matching `sound_dump.py --names`): 754 MB in 18 s.
