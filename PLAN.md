@@ -431,6 +431,15 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The maintainer chose to move the rules out of the game (#328): `opensacred-rules` now holds the spawning (#359), the fight's formulas and the hero's levels (#360), the ways and the cells in the way (#361) and the creatures' decisions (#362), the game keeping its systems, components and resources (#364); the oracle is #363.
     The research read the table defects that the community reports (#357, none to repair in the data), the archers' arrows, the places about the hero and the doors in the way (#383), and measured the doors' leaves and headings from the models (#273, in part); the checks in the original are a page of 68 with the shortest way to each (#227), and the problems found on the way became issues of their own (#367, #368, #371–#374, #387).
     Next: the archers (#391), the places about the hero and the doors in the way (#392), the oracle (#363).
+16. **The morning of 2026-10-21: the archers, the oracle's vectors and the drops.**
+    The night went on in some thirty more pull requests (#395–#436), the work shared with subagents of the session:
+    the archers keeping their band and shooting (#391), putting their bows away for melee and taking them again (#396), the places about the hero and the doors in the way (#392), and a creature walking to a far target a leg at a time (#425);
+    the converter repairing the models' defects that the community reports and the research confirmed in the data (#358): the dwarf's earth amulet (#398), a cannon's strap (#399) and the large dragons' tail roots (#400), each recorded as a decision;
+    the oracle (#363), the original's fight's functions in Unicorn on the developer's own `Sacred.exe`, whose vectors found five departures of the rules, all fixed: the most health grows as `S^g` (#408), the weight of nearly nothing (#406), the exponent 99 levels above (#407), the level's factor above its last point (#418) and a most below 1 (#417); the crate waits for the maintainer (`deny.toml`, #422);
+    the drops read (#404) and followed: the tail of `Balance.bin` (#413), the rules of what a killed creature drops (#414) and the drops falling and lying where it dies (#415), without the runes, the uniques, the sets and the pick-up yet (#412);
+    and the doors' outer and inner points measured from the models and placements, with no table of the client's (#273).
+    The defects whose repair changes the look, the voices or the texts wait for the maintainer (#401–#403), the scripts' objects at their exact positions waits for a look at a door in the original (#429, a draft), and the checks in the original are 83 with the night's 15 (#227).
+    Next: the townsfolk and the monsters through the doors by their points (#431), which way a door's leaf turns (#430), and the rest of M3: the character, its skills and combat arts.
 
 ### 10.1 Priority queue
 
