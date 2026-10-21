@@ -211,17 +211,11 @@ fn balance() -> Balance {
 #[ignore = "needs the game files in OriginalGame/"]
 fn the_most_health_is_the_originals() {
     let vectors: Vec<MostHealth> = vectors("most_health");
-    let balance = balance();
-    let rules = Rules::of(Some(&balance));
-    let last = balance
-        .f32("HP_s5")
-        .unwrap_or_else(|| panic!("the balance has no HP_s5"));
+    let rules = Rules::of(Some(&balance()));
     let mut compared = 0;
     for v in &vectors {
-        // Above the level factor's last point the original goes on along its last segment
-        // (#418), and a most that the factor takes below 1 it keeps at 0 (#417).
-        let level = f32::from(u16::try_from(v.level).unwrap_or(u16::MAX));
-        if !v.hero && (level > last || v.most == 0) {
+        // A most that the level's factor takes below 1 the original keeps at 0 (#417).
+        if !v.hero && v.most == 0 {
             continue;
         }
         compared += 1;
