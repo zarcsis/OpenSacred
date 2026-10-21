@@ -278,7 +278,7 @@ fn engage(
         // At its attack speed times its chain's factor (`0x4E4CF0`).
         attack.chain = chained(attack.chain, attack.strikes);
         attack.strikes += 1;
-        let attack_speed = combat.map_or(1.0, fight::Combat::clip_speed) * attack.chain;
+        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed()) * attack.chain;
         transitions
             .play(&mut player, *node, BLEND)
             .set_speed(speed.0 * attack_speed);

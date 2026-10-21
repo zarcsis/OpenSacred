@@ -138,6 +138,7 @@ The weapon skills' predicates and the combat arts; the special behaviours of `+0
 ## In `opensacred-game`
 
 The fight follows in #285 and its sub-issues, of which #284 is still open; what the game follows of it is below.
+The formulas named below as `fight::…` live in `opensacred-rules` (`opensacred_rules::fight`, #360); `opensacred-game`'s `fight` keeps `fight::Hit`, the components and the resources that hold their values, and the systems that call them (`fight::resolve`, `fight::level_up`).
 The balance's rows of six by the difficulty are named in `tables/balance.ron` (#277; `Balance::row_f32`).
 Every NPC has a health (#278, `fight::Health`), full when it is made: its level the hero's when it is made, held within its sector's (`fight::level`), jittered for a fill's creature; its most by `0x5658F0` from its base and its level, with the level's factor and bronze's `ProzHP` (`fight::most_health`; docs/decisions/2026-10-20-health.md); the overlay and the `state` command show the nearest creature's.
 The hostile creatures come at the hero (#279, `ai::pursue`): awake, one that takes on the hero (`fight::takes_on`, by the hero's level) or has it within its reach comes at a hero within 800 to whom a straight line of walkable cells leads, its group's members with it in one case of two; it keeps the band of a reach of 130 about the hero, coming on at a run in 7 cases of 11 and after the hero as it moves, stepping back when nearer, turned to the hero in the band, and gives up farther than 2,000 (docs/decisions/2026-10-20-pursuit.md).

@@ -4517,6 +4517,9 @@ dependencies = [
 [[package]]
 name = "opensacred-rules"
 version = "0.0.0"
+dependencies = [
+ "opensacred-data",
+]
 
 [[package]]
 name = "orbclient"
