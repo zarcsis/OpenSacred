@@ -90,6 +90,18 @@ impl Item {
     pub fn angle(&self) -> f32 {
         f32::from_bits(u32::from(self.byte_57) | self.words_58[0] << 8)
     }
+
+    /// The flags, the record's first four bytes as a `u32` (docs/02 §6.1): `kind` in the low
+    /// byte, then `class`, `subclass` and `byte_03`.
+    pub fn flags(&self) -> u32 {
+        u32::from_le_bytes([self.kind, self.class, self.subclass, self.byte_03])
+    }
+
+    /// The category at `+0x2E` (docs/02 §6.1), byte 2 of `words_14[6]`: what an item is and where
+    /// it goes (5 weapons, 6 armour, 8 rings, 9 potions, 20 amulets, …).
+    pub fn category(&self) -> u8 {
+        self.words_14[6].to_le_bytes()[2]
+    }
 }
 
 /// The parameters of a motion of `MOTIONS.PAK`, in the global motion order: those of

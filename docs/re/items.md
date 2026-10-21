@@ -126,7 +126,8 @@ It takes a type `T`, 0 for any, the bonus `B`, the value `s` and the killer.
 2. Still 0, when the local hero has more than four at the entry 22 of its counts at `+0x4F8` (**hypothesis**: the worn pieces of a set, as the set bonuses read the same counts), `T` is a potion in one case of ten: 5137, 5138, 5144 or 5146 in a case of ten each, else 5140.
 3. A creature of class 1 (the heroes) with `T` 0 drops nothing.
 4. The chance `P`, per mille, truncated at each step: `WurfWarsch` (350); in a network game for a player's kill, times `1 + n·MPThrowfactor` (0.25), `n` the other members of the killer's group within 1,500 of it (`0x422820`, `0x4228F0`; **hypothesis**: its party), at most 4; times `WurfBoss` (2.0) for a boss or a champion (`+0x2B8` bit `0x40`); times `(100 + v(s))/100`, `v(s) = 10 + 180·(1 − 1/(1 + (s − 1)/100))` for `s` at least 1, else 0 (`0x565D70`).
-5. While `P` is above 0, a pass: with `T` 0 it makes nothing unless `rand() % 1000` is below `P`; a type whose template has the word 38 −1, or whose record is missing or of flag `0x40` (five times at most), is drawn again with the pass's roll, up to six tries in all; then `P` falls by 1,000.
+5. While `P` is above 0, a pass: with `T` 0 it makes nothing unless `rand() % 1000` is below `P`; a type whose template has the word 38 −1, or whose record is missing or of flag `0x40` (five times a call at most), is drawn again, up to six tries in all; then `P` falls by 1,000.
+   A try draws again from its start (read again 2026-10-21, #414): it rolls the chance again, takes the bonus on (below) and draws a key, a kind and a type anew; the potions, the gold piles and the types of the choice below have their records and no template of the word 38 −1 on file, so that only a forced `T` can be drawn again.
    So a call makes `⌊P/1000⌋` items and one more in `(P mod 1000)/1000` of the cases: an ordinary creature one item in 35 % of its deaths, a boss or champion one in 70 % at each of its calls, and with a forced `T` every pass makes it.
 
 The console's `droplog` (`0x614230`, bit `0x2000` of `0x182EE3C`) logs every drop to `LogDrop.txt`, and `0x4D1030` makes 50 drops of a creature into `DropTest.txt` (**hypothesis**: tools of the developers, which can check the rules in the original).
@@ -144,24 +145,29 @@ The console's `droplog` (`0x614230`, bit `0x2000` of `0x182EE3C`) logs every dro
 With `T` 0, in order, `C` the creature's class (`0x43ADC0`):
 
 1. In `DropSaft` (180) ‰ a potion (category 9) of `0x43B1A0`: of six rows of three potions (small, medium, large; `0x9499B4`), the row 5 (the healing potions 5171, 5145, 5140) in 601 cases of 1,000, else a row at random of 0 to 4 (the rows 0 and 1 are the same); the column by the difficulty: small on bronze, small or medium on silver, medium or large on gold, large above.
+   The rows 0 and 1 hold 5169, 5143 and 5138, the row 2 5168, 5142 and 5137, the row 3 5170, 5144 and 5139, the row 4 5172, 5146 and 5141 (read 2026-10-21, #414).
 2. Else, unless `C` is 6 (the animals) or the creature made the last rune, a rune (category 28) when `rand() % 1000` is below `UpgradeDrop·r` (50), `r` of `0x5598B0`: `x = H·RunenProLevel_*/(n/RuneInventoryFactor + a)`, the key by the local hero's class (1.2 to 2.2), `n` the runes it carries (the items of category 28 in two of its containers, `0x5DEBC0`; **hypothesis**: the inventory and the storage), `RuneInventoryFactor` 3.0, `a` a sum over its list of 22-byte entries at `+0x4AA` (**hypothesis**: the runes read into its combat arts); `r = x⁵` when `x` is above 1 or the creature a boss or champion, else the weighing times `x⁴`, held within 0.01 and `RuneChanceFactorMax` (2.0), times `RunesPerBoss` (1.5) for a boss or champion.
    The rune is one of 123 types at `0x9565A0` (from 5375, `upgrade_*.grn`), a potion instead for the types 516, 592 and 593 or a rune of `items.pak +0x6A` 0.
 3. Else gold in `DropGold` (300) ‰, always for `C` 6, and for `C` 11 (the ghosts) in 600 ‰ of the rest.
 4. Else, unless `C` is 11, a weapon (category 5) in `DropWaffe` (330) ‰.
 5. Else, unless `C` is 11, armour in `DropRuestung` (880) ‰: one of eleven categories (6, 13, 17, 18, 19, 21, 22, 23, 24, 25 and 29, the bridles drawn once again).
 6. Else, unless the same creature made the last jewel, a ring (in two cases of three) or an amulet (categories 8 and 20).
-7. Else, and wherever no type is found, the dagger 1712.
+7. Else, and wherever no type is found, the dagger 1712: so a creature makes one jewel at most, and a later pass that comes to the jewel makes the dagger.
 
 `DropSonst` (1000) is stored by the balance's parser and read by no code.
 For potions, runes and gold `k` becomes at least 16.
 The animals thus drop potions and gold only, the ghosts no weapon or armour.
 For an ordinary creature the kinds share out, without the runes, as 18 % potions, 25 % gold, 19 % weapons, 34 % armour and 5 % jewels.
 
-The type of a weapon, armour or jewel is `0x5C7FA0`'s (the client's `TypeManager::getRandomItem`), from the types of the category, at the level `L` with the quality `q`, any weapon kind, the local hero's class in one case of two (else any), and set pieces left out; partly read:
+The type of a weapon, armour or jewel is `0x5C7FA0`'s (the client's `TypeManager::getRandomItem`), from the types of the category, at the level `L` with the quality `q`, any weapon kind, the local hero's class in one case of two (else any), and set pieces left out; read in full 2026-10-21 (#414):
 
-- it takes a type of the category whose template's word 38 is not −1, word 39 at most `L` and word 40 at most `q`, not of `items.pak` flag `0x2000000`, not 5120–5131, 5632 or 5633, a rune only with `items.pak +0x6A`, no unique of word 38 29, and whose record's levels (`Weapon.pak +0x94` and `+0x99`) lie below the level plus a jitter (the level held at 28; the jitter 1, or above level 5 the product of two rolls of 1 to a third of the level, at most 3), that check left out in two cases of three;
-- of the types with class bits, only those of the class asked;
-- then one at random: with a class asked, in one case of two among those with its bit; else, in one case of two, the first of up to three draws that the local hero can wear (`0x54ABE0`).
+- the category's list, made once: the types below 8191 of the category that the items table lists, not of its flags `0x2000000` or `0x8000000` (`+0x00`), not 5120–5131, 5632 or 5633, a rune only with `items.pak +0x6A`, with a `Weapon.pak` record not of the flag `0x40` (its `+0x84`), and no template of the word 38 −1 (by the lookup `0x42CA70`, which takes a type's parent once for the types within 2001–2998 and 6501–7998 and fails for a parent within those ranges; on file it finds the same template as the maker's chain of parents for every listed type);
+- of the list, a type with a template whose word 39 is at most the level held at 28 plus a jitter (1, or above level 5 the product of two rolls of 1 to a third of the held level, at most 3, rolled for each type) and at most `L`, whose word 40 is at most `q`, and whose record's levels (`Weapon.pak +0x94` and `+0x99`) lie below the held level plus the jitter, that check left out for the categories 30 and 31 and, for a weapon or armour, in two cases of three, never for a jewel; the record's level `+0x99` must also be at least `⌊h/2 − 15⌋`, `h` the held level, at least 0, which is 0 at every held level, so there is no least level;
+- of the types with class bits (`+0x84` bits 0–5, 22 and 23), only those of the class asked: the bit 1 of the Seraphim (type 1), 2 of the Gladiator, 4 of the Battle Mage, 8 of the Dark Elf, `0x10` of the Wood Elf, `0x20` of the Vampiress (6 and 7), `0x400000` of the Dwarf and `0x800000` of the Daemon, and none of a record of the flag `0x40`;
+- not of the record's bit `0x100000`, no set piece (the record's `+0x23`, which the sets' loader writes), and no unique (the quality bits 16–19 of `+0x84` all set) of the word 38 29;
+- then one at random: with a class asked, in one case of two among those of its bit or of none, which the filter left all of (their indices kept as bytes, a quirk past 256 types, not followed); else, in one case of two, the first of up to three draws that the local hero can wear (`0x54ABE0`: the item's own test of the hero's type, not followed, then the record's least level `+0x94`, four attributes `+0x95`–`+0x98`, 0 in every record of the lists on file, and a skill `+0x9A` at the level `+0x9B`), the third where none is.
+
+On file the Seraphim's wings (category 25) are all uniques of the word 38 29, so that the armour of that category is always the dagger; the Seraphim has no belts, leg plates or gloves of its bit, nor the Dwarf arm or leg pieces, which give the dagger when its class is asked (the choice applied to the data, #414).
 
 ### A pass: making the item
 
@@ -169,12 +175,17 @@ The object of the type is made at the creature's position (`sdk_CREATE`).
 Gold takes its amount, `g = a + ⌊(L − 1)·(b − a)/100⌋`, `a` and `b` the two values of `GoldProLevel` (20 and 2,000, docs/02 §6.3), then `g − ⌊g/6⌋ + rand() % (⌊g/3⌋ + 1)`, at least 1, into its `+0x120` (its record's price, `0x5C7D10`), and the quests' manager hears of it (`0x4AEBD0`, not followed): 17 to 23 at level 1, 165 to 231 at level 10, with the creature's own level, which is higher on the higher difficulties.
 Its model is one of four piles, 5132 to 5135 (`GoldCoins_01`, `_02`, `_05`, `_10.grn`), chosen before the amount and whatever it is: 5132, but in a case of 13 above level 4 5133, of those in a case of 7 above level 9 5134, and of those in a case of 4 above level 19 5135.
 Gold, potions, runes and the categories 26 (the blacksmith's upgrades, slots 8000 on), 30 and 31 are not made further.
-Another item is switched to the local hero's class's variant of its type (`0x5C7370`, by `0x43CA20`; **hypothesis**: through the armour switch table `bin/Rust.bin`) and made at the levels `lo = ⌊(L − BaseOffLevel)/(1 + OffLevelProz/100)⌋`, the creature's level brought back to bronze (`L` itself on bronze), and `hi = ⌊1.05·lo + 0.5⌋`, by its key:
+Another item is switched to the local hero's class's variant of its type (`0x5C7370`, by `0x43CA20`; **hypothesis**: through the armour switch table `bin/Rust.bin`) and made at the levels `lo = ⌊(L − BaseOffLevel)/(1 + OffLevelProz/100)⌋`, the creature's level brought back to bronze (`L` itself on bronze), and `hi = ⌊1.05·lo + 0.5⌋`, by its key.
+The switch gives no variant for a creature type below 32 (`0x43CA20` returns none where it finds one for such a type), so the local hero's type, 1 to 9, keeps the drop's type (**confirmed** by code 2026-10-21, #414).
+The factor 1.05 is a single-precision float a little below it, so that `hi` is one less where `1.05·lo + 0.5` would be whole: 10 at `lo` 10, 31 at 30, 52 at 50.
+By the key:
 
 - 0, a unique: with `T` 0, the uniques of the item's family (its template's word 38; a map at `0xAD4428` built by `0x5D4AC0`) of quality 15, no set piece, of a least level (`Weapon.pak +0x94`) up to `H`, and not 7911–7930 (reserved for the scripts' drops); in 30 % of the cases, if there is one, one of them at random, raised to `lo` (below); else the item with the key 14 at `R(lo, hi)`.
 - 1, a set piece, chosen before the object is made: in 60 % of the cases a set whose first piece is for the local hero's class, has a template and a least level up to `H` and is no icon (5101–5106), else any set with a piece that has a template; of its pieces with a template one at random, the pieces the hero wears kept in one case of two; taken when its level (`Weapon.pak +0x99`) times `MinLevelFactor` is below `H`, and raised to `lo`; failing that, the key 2.
 - 2 to 15: the maker (`0x5D5080`) at `R(lo, hi)`, at least 1, with the key `16 − k`.
 - 16: the maker at `lo` with the key 0; 17: at `R(⌊lo/2⌋, lo)`, at least 1, with the key 0.
+
+"At least 1" rolls twice (read 2026-10-21, #414): 1 where a first roll is below 1, else a second roll, which is not held (**hypothesis**: a macro's maximum that evaluates its roll twice); so a least of 0 can still give 0, as the key 17's `R(0, 1)` at level 1 does in one case of four.
 
 A forced `T` that is a unique takes the key 0 and a set piece the key 1, both only raised; any other forced item keeps the key 16.
 A unique or set piece of level `ℓ` (its record's `+0x19`) is raised (`0x5C29A0`, `0x5C2210`, not followed further) to `ℓ + d·⌊(lo − ℓ)/d + 0.5⌋`, `d = max(ℓ/2, 15)`, when `lo` is above `ℓ`.
@@ -211,11 +222,14 @@ Picking up an item counts it for the quests that collect it (`0x4AAAE0`: a list 
 ## Open
 
 The words 43, 46 and 49; what the quality pass makes of its map's value, and `0x5D1750`'s bonuses; the price `0x5D3AB0`; the bonus's other branch; whether `0x5796A0` adds the unconditional effects; the object's creation and the copy of a fixed item; `CreateNPC`'s second making of a rule's items; the thread that runs the scripts.
-Of the drops: the boss switch's cases (`0x533E2E`) and the type 183's last item; the type choice's least level and preferences (`0x5C7FA0`); the raising of a fixed item (`0x5C2210`); the counts at `+0x4F8`, the effect 42 and the art 55, the list at `+0x39C`; the colour of an item's label; how long an item lies on the ground and whether it stays when its sector is left; what the network events of a drop carry; the receivers of the effects 856 and 868.
+Of the drops: the boss switch's cases (`0x533E2E`) and the type 183's last item; the item's own test of the hero's type in `0x54ABE0`; the raising of a fixed item (`0x5C2210`); the counts at `+0x4F8`, the effect 42 and the art 55, the list at `+0x39C`; the colour of an item's label; how long an item lies on the ground and whether it stays when its sector is left; what the network events of a drop carry; the receivers of the effects 856 and 868.
 
 ## In `opensacred-game`
 
 An NPC's items in its hands are made at its level by their templates (#309, `opensacred_rules::fight::Templates::make`): their damage, resistances, `A` and `D`, without the magic bonus, the triples, the quality pass, the difficulty's term (bronze's 0) or a fixed item's own values (docs/decisions/2026-10-20-weapons.md).
+
+The drops' rules are `opensacred_rules::drops` (#414), which the game does not call yet (#415): a death's calls and their bonus (`Rules::calls`), a call's chance and its passes with their tries, the bonus compounded by the creature's worth, the quality key by the weights of the tail of `Balance.bin` (`tables/balance.ron`, #413), the kind, the type by `0x5C7FA0`'s choice over the types of `tables/items.ron` and `weapons.ron` (`Catalogue`), the item's levels `lo` and `hi`, gold's pile and amount, and the item's values by the maker at its level, by its key; the result is a list of drops (`drops::drops`), each with its kind, its type, its level, its key, the maker's key, its amount and its values.
+The runes, the uniques, the set pieces, the bosses' drops by their type, `SetDrop`, the set's potions, the party's factor and the effects 856 and 868 are left out, the keys 0 and 1 falling back as the original's do where it finds no unique or set piece (docs/decisions/2026-10-21-drops.md).
 
 ## Defects the community reports
 
