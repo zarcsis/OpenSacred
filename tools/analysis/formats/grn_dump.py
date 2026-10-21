@@ -11,8 +11,9 @@ and prints how many records satisfy it.
            Record = descriptor + GRN file. Descriptor: name[32], u32 0xFF, u32 dataOffset = offset + descriptor size,
            u32 dataSize, u16 flags. One name is 33 characters long and its last character and NUL overwrite the 0xFF.
            Directory size = 1194 + 2 * dataSize for a model, 256 + dataSize for a motion. Records lie back to back in
-           directory order up to the end of the file. ModelDesc +0x70: 256 u32 motion ordinals (0 = none). Fields that
-           the Models.tmp cache fills in hold MSVC fill 0xCC in the pak.
+           directory order up to the end of the file. ModelDesc +0x70: 256 u32 motion ordinals (0 = none). ModelDesc
+           +0x470: three equal f32, the model's own scale, which the client applies to the model and its motions as it
+           loads them (0x411F50, 0x4118B0). Fields that the Models.tmp cache fills in hold MSVC fill 0xCC in the pak.
   Models.tmp (MDT v2)  0x118 + the descriptors of models.pak and models03.pak in order: all models, then all motions.
            It differs from the pak descriptors only in the global number (ModelDesc +0x4A8, MotionDesc +0x2E u16), in
            ModelDesc +0x47C (the pak index: 0 for models.pak, 4 for models03.pak, as in Texture.TMP), in the MotionDesc
@@ -95,7 +96,7 @@ SECTION_TAGS = (0xCA5E0102, 0xCA5E0103, 0xCA5E0101)
 # a NUL, the u32 LE parent and the 64 bytes of floats as stored, empty if the skeleton does not read; mesh_crc,
 # material_crc: the fingerprints of mesh_crc() and material_crc() over read_model(), empty if the model does not read;
 # animation_crc: the fingerprint of animation_crc() over read_animation(), empty if the animation does not read.
-RECORD_COLUMNS = ('pak', 'index', 'kind', 'name', 'data_offset', 'data_size', 'flags', 'motions', 'grn',
+RECORD_COLUMNS = ('pak', 'index', 'kind', 'name', 'data_offset', 'data_size', 'flags', 'motions', 'scale', 'grn',
                   'section_nodes', 'tree_crc', 'bones', 'meshes', 'tracks', 'skeleton_crc', 'mesh_crc', 'material_crc',
                   'animation_crc')
 # Tags counted per record for the table (names per openheilig formats/granny-grn.md): 0506 bone, 0601 mesh,
@@ -160,6 +161,7 @@ def check_mdl(path, header, records):
     c('count == nModels + nMotions', header['count'] == header['models'] + header['motions'])
     c('descriptor sizes 1194, 256', (header['model_desc'], header['motion_desc']) == (1194, 256))
     flags = collections.Counter()
+    scales = collections.Counter()
     empty = []
     long_names = []
     end = None
@@ -190,11 +192,15 @@ def check_mdl(path, header, records):
               refs[0] == 0 and max(refs) < header['motions'], where)
             c('ModelDesc +0x47C == 0xCCCCCCCC, +0x4A8 == 0xCCCC',
               desc[0x47C:0x480] == b'\xcc' * 4 and desc[0x4A8:0x4AA] == b'\xcc' * 2, where)
+            scale = struct.unpack_from('<3f', desc, 0x470)
+            c('ModelDesc +0x470: three equal positive floats', scale[0] == scale[1] == scale[2] > 0, where)
+            scales[scale[0]] += 1
         else:
             c('MotionDesc +0x2E == 0xCCCC', desc[0x2E:0x30] == b'\xcc' * 2, where)
     c('last record ends at the end of the file', end == header['size'])
     c.report()
     print(f'  flags by kind: {dict(sorted(flags.items()))}; empty records: {empty}; names without NUL: {long_names}')
+    print(f'  model scales: {", ".join(f"{s:.4g} x{n}" for s, n in sorted(scales.items()))}')
 
 
 def check_models_tmp(path, paks):
@@ -925,10 +931,12 @@ def main():
                               all(ch in set(channels) for ch, _, _ in tracks), f'{rel}#{i}')
                             census_animation(an, durations, KIND_NAME[kind], tracks, channels)
             motions = ''
+            scale = ''
             if kind == KIND_MODEL:
                 motions = ';'.join(f'{slot}:{m}' for slot, m in enumerate(u32s(desc, 0x70, 256)) if m)
+                scale = ','.join(f'{bits:08x}' for bits in u32s(desc, 0x470, 3))
             rows.append(dict(pak=rel, index=i, kind=KIND_NAME.get(kind, hex(kind)), name=name, data_offset=data_off,
-                             data_size=data_size, flags=flags, motions=motions, grn=status,
+                             data_size=data_size, flags=flags, motions=motions, scale=scale, grn=status,
                              section_nodes=','.join(map(str, nodes)), tree_crc=tree_crc, bones=counts[TAG_BONE],
                              meshes=counts[TAG_MESH], tracks=counts[TAG_TRACK], skeleton_crc=sk_crc,
                              mesh_crc=m_crc, material_crc=mat_crc, animation_crc=an_crc))

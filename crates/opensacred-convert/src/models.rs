@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use opensacred_formats::grn::{Animation, Skeleton};
+use opensacred_formats::grn::{Animation, Model, Skeleton};
 use opensacred_formats::mdl::{Kind, MdlPak, Record};
 use opensacred_formats::tex::TexPak;
 use rayon::prelude::*;
@@ -145,7 +145,10 @@ pub fn convert_pak(
                 Kind::Model => model_repairs::apply(name, &mut skeleton, &mut model),
                 Kind::Motion => Outcome::None,
             };
-            let animation = grn.animation().with_context(what)?;
+            let scale = own_scale(record.scale).with_context(what)?;
+            scale_model(scale, &mut skeleton, &mut model);
+            let mut animation = grn.animation().with_context(what)?;
+            scale_animation(scale, &mut animation);
             let own_name = clip_name(name);
             let mut clips = Vec::new();
             if !animation.tracks.is_empty() {
@@ -156,7 +159,10 @@ pub fn convert_pak(
                     animation: &animation,
                 });
             }
-            let motions = slot_motions(&pak, &record).with_context(what)?;
+            let mut motions = slot_motions(&pak, &record).with_context(what)?;
+            for motion in &mut motions {
+                scale_animation(scale, &mut motion.animation);
+            }
             clips.extend(motions.iter().map(|m| Clip {
                 name: &m.name,
                 slots: &m.slots,
@@ -209,6 +215,53 @@ pub fn convert_pak(
     Ok(summary)
 }
 
+/// The scale of a record ([`Record::scale`], `ModelDesc +0x470`), the same along a model's three
+/// axes; 1 for a motion record, which the client scales by the model that plays it.
+fn own_scale(scale: Option<[f32; 3]>) -> Result<f32> {
+    match scale {
+        None => Ok(1.0),
+        Some([x, y, z]) if x == y && y == z && x > 0.0 => Ok(x),
+        Some(scale) => anyhow::bail!("scale {scale:?}: not the same positive value on every axis"),
+    }
+}
+
+/// Scales a model about its origin by its own scale, as the client's `GrannyTransformModel` does
+/// as it loads the model (`cGrannyModelManager::getModel`, `0x411F50`; docs/02 §4.1): the meshes'
+/// positions and the bounds of their bones, and the bind pose's translations. The bones' turns
+/// and scale/shear stay, so the inverse bind matrices, computed from the bind pose, follow.
+fn scale_model(scale: f32, skeleton: &mut Skeleton, model: &mut Model) {
+    if scale == 1.0 {
+        return;
+    }
+    for bone in &mut skeleton.bones {
+        bone.translation = bone.translation.map(|v| v * scale);
+    }
+    for mesh in &mut model.meshes {
+        for position in &mut mesh.positions {
+            *position = position.map(|v| v * scale);
+        }
+        for bone in &mut mesh.bones {
+            bone.radius *= scale;
+            bone.min = bone.min.map(|v| v * scale);
+            bone.max = bone.max.map(|v| v * scale);
+        }
+    }
+}
+
+/// Scales a clip's translations by the scale of the model that plays it, as the client's
+/// `GrannyTransformAnimation` does as it opens a motion of the model's slots
+/// (`cGrannyModelManager::getMotion`, `0x4118B0`).
+fn scale_animation(scale: f32, animation: &mut Animation) {
+    if scale == 1.0 {
+        return;
+    }
+    for track in &mut animation.tracks {
+        for key in &mut track.translation.keys {
+            *key = key.map(|v| v * scale);
+        }
+    }
+}
+
 /// The motions that the slots of a model record name, each once with all its slots, in the
 /// order of their records; none for a motion record. Clip names stay unique within the file: a
 /// repeated one gets the record index.
@@ -253,6 +306,108 @@ mod tests {
 
     use super::*;
     use crate::testing::{Tex, repo_root, scratch_dir, tex_pak};
+
+    #[test]
+    fn a_models_scale_moves_its_positions_and_bones_but_turns_nothing() {
+        use opensacred_formats::grn::{
+            Bone, Curve, Interpolation, Layout, Mesh, MeshBone, Track, Triangle,
+        };
+
+        let shear = [1.0, 0.5, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0, 2.0];
+        let mut skeleton = Skeleton {
+            bones: vec![
+                Bone {
+                    name: b"__Root",
+                    parent: None,
+                    channel: 0,
+                    translation: [0.0; 3],
+                    rotation: [0.0, 0.0, 0.0, 1.0],
+                    scale_shear: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                },
+                Bone {
+                    name: b"Object03",
+                    parent: Some(0),
+                    channel: 1,
+                    translation: [-6.0, 3.0, 1.5],
+                    rotation: [0.0, 0.0, 0.6, 0.8],
+                    scale_shear: shear,
+                },
+            ],
+        };
+        let mut model = Model {
+            meshes: vec![Mesh {
+                name: b"Object03",
+                positions: vec![[-12.0, 3.0, 0.0], [0.0, 3.0, 0.0], [-6.0, 9.0, 0.0]],
+                normals: vec![[0.0, 0.0, 1.0]],
+                texcoord_sets: vec![],
+                triangles: vec![Triangle {
+                    positions: [0, 1, 2],
+                    normals: [0, 0, 0],
+                }],
+                weights: vec![],
+                bones: vec![MeshBone {
+                    bone: 1,
+                    radius: 30.0,
+                    min: [-24.0, -24.0, 0.0],
+                    max: [24.0, 24.0, 0.0],
+                }],
+            }],
+            textures: vec![],
+            materials: vec![],
+            passes: vec![],
+        };
+        let curve = |keys: Vec<[f32; 3]>| Curve {
+            interpolation: Interpolation::Linear,
+            times: vec![0.0, 1.0],
+            keys,
+        };
+        let mut animation = Animation {
+            tracks: vec![Track {
+                channel: 1,
+                layout: Layout::Split,
+                translation: curve(vec![[-6.0, 3.0, 1.5], [3.0, 0.0, 6.0]]),
+                rotation: Curve {
+                    interpolation: Interpolation::Linear,
+                    times: vec![0.0],
+                    keys: vec![[0.0, 0.0, 0.6, 0.8]],
+                },
+                scale_shear: Curve {
+                    interpolation: Interpolation::Linear,
+                    times: vec![0.0],
+                    keys: vec![shear],
+                },
+            }],
+        };
+        let (old_skeleton, old_animation) = (skeleton.clone(), animation.clone());
+
+        scale_model(0.5, &mut skeleton, &mut model);
+        scale_animation(0.5, &mut animation);
+        assert_eq!(skeleton.bones[1].translation, [-3.0, 1.5, 0.75]);
+        assert_eq!(skeleton.bones[1].rotation, old_skeleton.bones[1].rotation);
+        assert_eq!(skeleton.bones[1].scale_shear, shear);
+        let mesh = &model.meshes[0];
+        assert_eq!(
+            mesh.positions,
+            [[-6.0, 1.5, 0.0], [0.0, 1.5, 0.0], [-3.0, 4.5, 0.0]]
+        );
+        assert_eq!(mesh.normals, [[0.0, 0.0, 1.0]]);
+        assert_eq!(
+            (mesh.bones[0].radius, mesh.bones[0].min, mesh.bones[0].max),
+            (15.0, [-12.0, -12.0, 0.0], [12.0, 12.0, 0.0])
+        );
+        let track = &animation.tracks[0];
+        assert_eq!(track.translation.keys, [[-3.0, 1.5, 0.75], [1.5, 0.0, 3.0]]);
+        assert_eq!(track.rotation, old_animation.tracks[0].rotation);
+        assert_eq!(track.scale_shear, old_animation.tracks[0].scale_shear);
+    }
+
+    #[test]
+    fn a_models_scale_is_one_value_and_a_motions_is_one() {
+        assert_eq!(own_scale(Some([0.33; 3])).unwrap(), 0.33);
+        assert!(own_scale(Some([1.0, 2.0, 1.0])).is_err());
+        assert!(own_scale(Some([0.0; 3])).is_err());
+        assert_eq!(own_scale(None).unwrap(), 1.0);
+    }
 
     #[test]
     fn file_name_is_index_and_sanitized_lower_case_name() {
@@ -309,6 +464,46 @@ mod tests {
             let uri = index.uri(name).unwrap();
             assert_eq!(uri, format!("../../textures/texture/{file}"));
         }
+    }
+
+    /// `GOLDCOINS_01.GRN` at its own scale, 0.33 (docs/02 §4.1): its five coins, discs 14.76
+    /// units across in the file, lie within 9.70 × 9.69 units, not 29.39 × 29.36.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_smallest_gold_pile_is_a_third_of_its_file() {
+        let game = repo_root().join("OriginalGame");
+        let out = scratch_dir("models-scale");
+        let (pak, dir_name) = PAKS[0];
+        let dst = output_dir(&out, dir_name);
+        let textures = TextureIndex::read(&game).unwrap();
+        let only = ["goldcoins_01.grn".to_owned()];
+        let summary = convert_pak(&game.join(pak), &dst, &textures, &only).unwrap();
+        assert_eq!(summary.models, 1);
+
+        let glb = fs::read(dst.join("0973-goldcoins_01.glb")).unwrap();
+        let json_len =
+            usize::try_from(u32::from_le_bytes(glb[12..16].try_into().unwrap())).unwrap();
+        let json: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+        let mut meshes = 0;
+        for mesh in json["meshes"].as_array().unwrap() {
+            for primitive in mesh["primitives"].as_array().unwrap() {
+                let position =
+                    usize::try_from(primitive["attributes"]["POSITION"].as_u64().unwrap());
+                let accessor = &json["accessors"][position.unwrap()];
+                for axis in 0..3 {
+                    lo[axis] = lo[axis].min(accessor["min"][axis].as_f64().unwrap());
+                    hi[axis] = hi[axis].max(accessor["max"][axis].as_f64().unwrap());
+                }
+            }
+            meshes += 1;
+        }
+        assert_eq!(meshes, 5);
+        // glTF's x and z lie on the ground.
+        let (width, depth) = (hi[0] - lo[0], hi[2] - lo[2]);
+        assert!((width - 9.70).abs() < 0.01, "width {width}");
+        assert!((depth - 9.69).abs() < 0.01, "depth {depth}");
+        fs::remove_dir_all(out).unwrap();
     }
 
     /// `SERAPHIM.GRN` against the game's own draws: openheilig's trace of the game draws the hero

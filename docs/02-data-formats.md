@@ -173,7 +173,13 @@ Implemented the same day: `opensacred_formats::mdl`, cross-checked against the s
   A slot is the ordinal of a motion among the motions of the same pak (record `nModels + ordinal`); 0 is none, and slot 0 is always 0.
   `models.pak` fills 5,110 slots, the largest ordinal is 3,420.
   The slot number is the game's motion enum (openheilig; **confirmed** by code 2026-10-19, [docs/re/motions.md](re/motions.md)): the client plays a creature's action by slot, standing 1–13, the fight stance 14–26, walking 27–39, running 40–52, defending 53–65 and attacking from 79, by the class of what the creature holds, and a rider's idle 169.
-  `+0x470` holds three equal floats: 1.0 in 1,538 of 1,574 models, otherwise 1.1, 0.5, 0.33 and others (hypothesis: the model scale).
+  `+0x470` holds three equal floats, the model's own scale (**confirmed** by code 2026-10-21, #443): 1.0 in 1,538 of 1,574 models; 0.33 for the four gold piles `GOLDCOINS_01`, `_02`, `_05` and `_10`, 0.43 for `MEDUSA`, 0.5 for the six `UPGRADE_*` runes, 5.0 for `HQ_DEMONHORN_01`, and 1.1 for the placeholder `INVALID_MODEL` and 23 armours and helmets (`AMAZONE_*`, `ELVE_MAGICAN_*`, `ELVE_SORCESS_*`, `WARRIOR_ARMOUR_*`).
+    `cGrannyModelManager::getModel` (`0x411F50`) opens a model with `GrannyOpenModel` and gives it once to `GrannyTransformModel`, with no translation and the diagonal `+0x470`, minus `+0x474`, `+0x478`: Granny applies the scale to the model's data as it loads it, and a model named exactly `RING.GRN`, which the paks do not have, gets 0.1 more on each axis.
+    `cGrannyModelManager::getMotion` (`0x4118B0`) gives a motion it opens for a model's slot to `GrannyTransformAnimation` with the same diagonal from that model's descriptor, so a clip is scaled with the model that plays it (**hypothesis**: the motion cache is keyed by the motion's number, so a motion shared by models of different scales may keep the first one's).
+    The world's draw adds no scale of its own (docs/re/drawing.md, "The models' scale").
+    The minus on the middle axis is the same on every model; what it means for the handedness of our glTF, whose frame is a rotation (§4.5), is not checked (#445).
+    At 0.33 a gold coin, a disc 14.76 units across in its file, is 4.9 units across, and `GOLDCOINS_01`, 29.39 × 29.36 units on the ground in its file, is 9.70 × 9.69.
+    `opensacred_formats::mdl` reads it (`Record::scale`), cross-checked against `grn_dump.py`'s `scale` column, and `opensacred-convert models` applies it (§4.5).
   `+0x47C u32` and `+0x4A8 u16` hold the MSVC fill `0xCC` in the pak; the cache fills them in.
 - **MotionDesc** (256 B): `+0x2E u16` holds `0xCCCC` in the pak; the parameter block `+0x42…+0x100` is described with `MOTIONS.PAK` below.
 - **`Models.tmp`** (`MDT` v2) = 0x118 + the descriptors of `models.pak` and `models03.pak` in that order: 1,574 ModelDesc, then 3,423 MotionDesc (exactly the file size).
@@ -360,6 +366,8 @@ In short: the format is solved, **the runtime has been solved by nobody**. open-
     A rigid mesh is skinned to its only bone with weight 1.
     The skin of a mesh lists its form mesh's bones, so `JOINTS_0` holds the local bones of §4.2 unchanged.
   - Frame: the models are Z-up, as exported from 3ds Max, and every position, normal and transform turns by −90° about X, `(x, y, z) → (x, z, −y)`: a rotation, so the winding stays counter-clockwise, and Max's front (−Y) becomes glTF's front (+Z).
+  - Scale (2026-10-21, #443): a model's own scale (§4.1) multiplies, about its origin, the meshes' positions and the bounds of their bones, the bind pose's translations and the translations of the clips of its slots, as `GrannyTransformModel` and `GrannyTransformAnimation` do; the bones' turns and scale/shear stay, and the inverse bind matrices, computed from the bind pose, follow.
+    A motion's own file keeps the scale 1, the client scaling a motion by the model that plays it.
     Facing in the bind pose is not uniform: of the 875 models with a biped's feet (`Bip01 L/R Foot → Toe0`), 719 face −Y, 148 face +X (among them `SERAPHIM.GRN`, `GLADIATOR.GRN` and the armour sets), 4 face +Y and 4 −X; in the game the animations turn them (to be checked with the clips).
     Units are kept: a hero is about 74 units tall.
   - Textures: a texture refers to the PNG of `opensacred-convert textures` by URI, found as the game finds it (`"%s.TGA"` without regard to case, of several records with the name the last; community-reported), whether the file embeds an image or not.

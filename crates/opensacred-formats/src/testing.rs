@@ -79,7 +79,8 @@ pub fn tex_record(
 }
 
 /// MDL record: the descriptor and the GRN data, with the directory size of docs/02 §4.1.
-/// `motions` fills `ModelDesc` slots; [`build_mdl`] sets `dataOffset`.
+/// `motions` fills `ModelDesc` slots, and a model's scale at `+0x470` is 1.0, as on most models;
+/// [`build_mdl`] sets `dataOffset`.
 pub fn mdl_record(
     kind: mdl::Kind,
     name: &[u8],
@@ -96,6 +97,11 @@ pub fn mdl_record(
     bytes[0x2C..0x2E].copy_from_slice(&flags.to_le_bytes());
     for &(slot, motion) in motions {
         bytes[0x70 + 4 * slot..0x74 + 4 * slot].copy_from_slice(&motion.to_le_bytes());
+    }
+    if kind == mdl::Kind::Model {
+        for axis in 0..3 {
+            bytes[0x470 + 4 * axis..0x474 + 4 * axis].copy_from_slice(&1.0f32.to_le_bytes());
+        }
     }
     bytes.extend_from_slice(grn);
     let copies = if kind == mdl::Kind::Model { 2 } else { 1 };

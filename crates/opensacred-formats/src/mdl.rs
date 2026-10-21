@@ -187,7 +187,7 @@ impl<'a> MdlPak<'a> {
             ));
         }
 
-        let motions = match kind {
+        let (motions, scale) = match kind {
             Kind::Model => {
                 d.take(MOTIONS_AT - SHARED_FIELDS_END, "ModelDesc fields")?;
                 let mut motions = Vec::with_capacity(MOTION_SLOTS);
@@ -207,9 +207,10 @@ impl<'a> MdlPak<'a> {
                     }
                     motions.push(motion);
                 }
-                motions
+                let scale = d.f32s::<3>()?; // +0x470
+                (motions, Some(scale))
             }
-            Kind::Motion => Vec::new(),
+            Kind::Motion => (Vec::new(), None),
         };
 
         let grn = r.take(to_usize(data_size), "GRN file")?;
@@ -220,6 +221,7 @@ impl<'a> MdlPak<'a> {
             data_offset,
             flags,
             motions,
+            scale,
             grn,
         })
     }
@@ -239,6 +241,11 @@ pub struct Record<'a> {
     /// ordinal of a motion among the motions of the same container (record `models() + ordinal`),
     /// 0 for none; according to openheilig the slot number is the game's motion enum.
     pub motions: Vec<u32>,
+    /// Models only, `None` for a motion: the three floats at `ModelDesc +0x470`, the model's own
+    /// scale along its axes, which the client applies to the model's data and to the motions it
+    /// plays as it loads them (`cGrannyModelManager::getModel` `0x411F50`, `getMotion`
+    /// `0x4118B0`). The three are equal on every model: 1.0 but on 36 of them.
+    pub scale: Option<[f32; 3]>,
     grn: Reader<'a>,
 }
 
@@ -322,6 +329,7 @@ mod tests {
             .map(|slot| (slot, bat.motions[slot]))
             .collect();
         assert_eq!(used, [(1, 2), (255, 1)]);
+        assert_eq!(bat.scale, Some([1.0; 3]));
 
         let run = pak.record(4).unwrap();
         assert_eq!(run.kind, Kind::Motion);
@@ -330,6 +338,19 @@ mod tests {
             (&b"BAT_RUN.GRN"[..], 5, &b"run!"[..])
         );
         assert!(run.motions.is_empty());
+        assert_eq!(run.scale, None);
+    }
+
+    #[test]
+    fn a_model_has_its_scale_after_its_motion_slots() {
+        let mut record = model(b"GOLDCOINS_01.GRN", &[], b"x");
+        for axis in 0..3 {
+            record.bytes[0x470 + 4 * axis..0x474 + 4 * axis]
+                .copy_from_slice(&0.33f32.to_le_bytes());
+        }
+        let data = build_mdl(vec![record], vec![]);
+        let pak = MdlPak::parse(&data).unwrap();
+        assert_eq!(pak.record(0).unwrap().scale, Some([0.33; 3]));
     }
 
     #[test]
