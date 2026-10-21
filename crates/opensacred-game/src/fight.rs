@@ -6,8 +6,8 @@
 use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 pub use opensacred_rules::fight::{
-    HERO_LEVEL, Holds, Rank, Templates, combat, hero_health, level, most_health, regeneration,
-    skills, takes_on,
+    HERO_LEVEL, Holds, ItemValues, Rank, Templates, combat, hero_health, level, most_health,
+    regeneration, skills, takes_on,
 };
 use opensacred_rules::fight::{Side, experience_of, range_factor, strike, weighed};
 

@@ -30,7 +30,8 @@
 //!
 //! An NPC holds its weapons and its shield as the client equips them (docs/re/equipment.md): each
 //! item's model is attached by its socket bone, `Bone_weapon_02` in the left hand and
-//! `Bone_weapon_01` in the right, to the NPC's hand, or its forearm for a shield.
+//! `Bone_weapon_01` in the right, to the NPC's hand, or its forearm for a shield. An archer that
+//! goes to melee and back changes them (`rearm`, #396), with its values and its clips.
 //!
 //! The model takes the texture its `items.pak` record names at `+0x08`, a `texture.pak` record,
 //! in place of the GRN's own (docs/02 §6.1): the chests, vases and coffins of `chest.grn`,
@@ -110,9 +111,9 @@ struct Placement {
     texture: Option<String>,
     /// The position's third number, the layer.
     layer: i32,
-    /// The items an NPC holds, and their types, in the hands.
+    /// The items an NPC holds in its hands: their models, and the items themselves.
     equipment: Vec<Held>,
-    items: Vec<u32>,
+    holding: Vec<InHand>,
     /// A fill's boss or champion (`fight::Rank`).
     rank: fight::Rank,
     /// Whether it casts a shadow (`shadows::Casts`).
@@ -175,6 +176,26 @@ struct ClipNames {
     dying: Vec<String>,
 }
 
+impl ClipNames {
+    /// The clips of a model of `slots` that holds what is of `class` (`motions::class`).
+    fn of(slots: &motions::Slots, class: u8) -> Self {
+        let clip = |action| slots.clip(action, class).map(|(name, _)| name.to_owned());
+        Self {
+            stand: clip(motions::Action::Stand),
+            walk: clip(motions::Action::Walk),
+            run: clip(motions::Action::Run),
+            stance: slots.stance(class).map(str::to_owned),
+            attacks: slots.attacks(class),
+            dying: [173, 174]
+                .iter()
+                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
+                .collect(),
+            talk: slots.talk().map(str::to_owned),
+            fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
+        }
+    }
+}
+
 /// The instruments a juggler takes (`0x4F29E2`): the flute, the bell, the harp and the horn, their
 /// `items.pak` slots and the slots of the clips that play them.
 const INSTRUMENTS: [(u32, u16); 4] = [(5108, 183), (5109, 180), (5110, 182), (5111, 181)];
@@ -220,6 +241,52 @@ struct Held {
     hand: Hand,
     /// A shield, held on the forearm rather than in the hand.
     shield: bool,
+}
+
+/// An item in an NPC's hand, whose values it fights with: its type, its category, its weapon's
+/// kind, and the hand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InHand {
+    item: u32,
+    category: u8,
+    kind: Option<u8>,
+    hand: Hand,
+}
+
+impl InHand {
+    /// The items of `items`, each of its type, category and kind, that go in a hand (`hands`).
+    fn of(items: impl IntoIterator<Item = (u32, u8, Option<u8>)>) -> Vec<Self> {
+        let items: Vec<(u32, u8, Option<u8>)> = items.into_iter().collect();
+        let categories: Vec<(u8, Option<u8>)> = items.iter().map(|&(_, c, k)| (c, k)).collect();
+        items
+            .iter()
+            .zip(hands(&categories))
+            .filter_map(|(&(item, category, kind), hand)| {
+                Some(Self {
+                    item,
+                    category,
+                    kind,
+                    hand: hand?,
+                })
+            })
+            .collect()
+    }
+}
+
+/// The class of what an NPC holds, its items in their hands (`motions::class`; [`held_class`]).
+fn class_of(holding: &[InHand]) -> u8 {
+    let in_hand = |hand| holding.iter().find(|held| held.hand == hand);
+    motions::class(
+        in_hand(Hand::Left).map(|held| (held.category == SHIELD, held.kind.unwrap_or(0))),
+        in_hand(Hand::Right).map(|held| held.kind.unwrap_or(0)),
+    )
+}
+
+/// Whether an NPC holds a ranged weapon, its items in their hands ([`ranged`]).
+fn ranged_of(holding: &[InHand]) -> bool {
+    holding
+        .iter()
+        .any(|held| held.category == WEAPON && held.kind.is_some_and(|kind| RANGED.contains(&kind)))
 }
 
 /// The hand each of an NPC's items goes in, as the client equips them in order (`0x54ACC0`,
@@ -294,9 +361,9 @@ pub struct Npcs {
     /// The balance's values of the creatures' fight, and the templates of the items' values.
     fight: fight::Rules,
     items: fight::Templates,
-    /// The weapon pools, the sectors' `MakeGroup` rules, what each pool's item is in a hand, and
-    /// the templates' models' clips by slot, which give the fills' creatures their items and the
-    /// clips of what they hold ([`gear_of`]).
+    /// The weapon pools, the sectors' `MakeGroup` rules, what each pool's item and each weapon of
+    /// the archers' switch is in a hand, and the templates' models' clips by slot, which give the
+    /// fills' creatures their items and the clips of what they hold ([`gear_of`], [`rearm`]).
     pools: HashMap<i32, Vec<u32>>,
     rules: HashMap<(u32, u32), Vec<Rule>>,
     gear: HashMap<u32, Gear>,
@@ -1207,13 +1274,12 @@ impl Npcs {
                     })
                 })
                 .collect();
-            // The types of the items in its hands, whose values it fights with.
-            let held_items: Vec<u32> = equipped
-                .iter()
-                .zip(hands(&categories))
-                .filter(|(_, hand)| hand.is_some())
-                .map(|(item, _)| item.slot)
-                .collect();
+            // The items in its hands, whose values it fights with.
+            let holding = InHand::of(
+                equipped
+                    .iter()
+                    .map(|item| (item.slot, category(item), kinds.get(&item.slot).copied())),
+            );
             // An NPC sent somewhere at the start walks there from where it was made.
             let target = name_of(ops).and_then(|name| targets.get(&name).copied());
             let cell = position(ops, &named).or(target);
@@ -1246,24 +1312,8 @@ impl Npcs {
                 }
                 let slots = &model_slots[model];
                 let class = held_class(&categories);
-                let stand = slots.clip(motions::Action::Stand, class);
                 let walk = slots.clip(motions::Action::Walk, class);
-                let clips = ClipNames {
-                    stand: stand.map(|(name, _)| name.to_owned()),
-                    walk: walk.map(|(name, _)| name.to_owned()),
-                    run: slots
-                        .clip(motions::Action::Run, class)
-                        .map(|(name, _)| name.to_owned()),
-                    stance: slots.stance(class).map(str::to_owned),
-                    attacks: slots.attacks(class),
-                    dying: [173, 174]
-                        .iter()
-                        .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
-                        .collect(),
-                    talk: slots.talk().map(str::to_owned),
-                    fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
-                };
-                (clips, walk.map(|(_, gait)| gait))
+                (ClipNames::of(slots, class), walk.map(|(_, gait)| gait))
             } else {
                 (ClipNames::default(), None)
             };
@@ -1338,8 +1388,8 @@ impl Npcs {
                 } else {
                     Vec::new()
                 },
-                items: if record.kind == CREATE_NPC {
-                    held_items
+                holding: if record.kind == CREATE_NPC {
+                    holding
                 } else {
                     Vec::new()
                 },
@@ -1370,11 +1420,6 @@ impl Npcs {
                 model_slots.insert(model.clone(), slots);
             }
             let slots = &model_slots[model];
-            let clip = |action| {
-                slots
-                    .clip(action, held_class(&[]))
-                    .map(|(name, _)| name.to_owned())
-            };
             templates.insert(
                 creature,
                 Placement {
@@ -1412,28 +1457,18 @@ impl Npcs {
                     },
                     layer: 0,
                     equipment: Vec::new(),
-                    items: Vec::new(),
+                    holding: Vec::new(),
                     rank: fight::Rank::Common,
-                    clips: ClipNames {
-                        stand: clip(motions::Action::Stand),
-                        walk: clip(motions::Action::Walk),
-                        run: clip(motions::Action::Run),
-                        stance: slots.stance(held_class(&[])).map(str::to_owned),
-                        attacks: slots.attacks(held_class(&[])),
-                        dying: [173, 174]
-                            .iter()
-                            .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
-                            .collect(),
-                        talk: slots.talk().map(str::to_owned),
-                        fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
-                    },
+                    clips: ClipNames::of(slots, held_class(&[])),
                 },
             );
         }
         let pools = pools(&records);
+        // The pools' items, and the weapons that an archer takes to melee and back (#396).
         let gear = pools
             .values()
             .flatten()
+            .chain(&opensacred_rules::minds::SWITCHED)
             .filter_map(|&slot| {
                 let item = items.get(&slot)?;
                 let gear = Gear {
@@ -1674,12 +1709,8 @@ pub fn place(
                 if !gear.is_empty() {
                     let categories: Vec<(u8, Option<u8>)> =
                         gear.iter().map(|(_, g)| (g.category, g.kind)).collect();
-                    placement.items = gear
-                        .iter()
-                        .zip(hands(&categories))
-                        .filter(|(_, hand)| hand.is_some())
-                        .map(|((item, _), _)| *item)
-                        .collect();
+                    placement.holding =
+                        InHand::of(gear.iter().map(|&(item, g)| (item, g.category, g.kind)));
                     placement.equipment = gear
                         .iter()
                         .map(|(_, g)| *g)
@@ -1696,23 +1727,7 @@ pub fn place(
                     placement.held = held_class(&categories);
                     placement.ranged = ranged(&categories);
                     if let Some(slots) = npcs.slots.get(&placement.model) {
-                        let class = placement.held;
-                        let clip =
-                            |action| slots.clip(action, class).map(|(name, _)| name.to_owned());
-                        placement.clips = ClipNames {
-                            stand: clip(motions::Action::Stand),
-                            walk: clip(motions::Action::Walk),
-                            run: clip(motions::Action::Run),
-                            stance: slots.stance(class).map(str::to_owned),
-                            attacks: slots.attacks(class),
-                            dying: [173, 174]
-                                .iter()
-                                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
-                                .collect(),
-                            talk: slots.talk().map(str::to_owned),
-                            fun: [180, 181, 182, 183]
-                                .map(|slot| slots.slot(slot).map(str::to_owned)),
-                        };
+                        placement.clips = ClipNames::of(slots, placement.held);
                     }
                 }
                 // A random heading, as the creature maker gives one (`rand() % 361`).
@@ -1938,39 +1953,26 @@ fn spawn(
             most,
             level: grade,
         });
-        // Its attack, defence, damage and resistances (`0x5796A0`), with its skills: unarmed
-        // when what it holds is of class 0 and its right hand empty (`0x546F80`); its hits
-        // halved with two weapons, the class 8 or one in each hand, the left no shield
-        // (`0x4EA3F0`); and its regeneration.
-        let holds = |hand, shield: Option<bool>| {
-            placement
-                .equipment
-                .iter()
-                .any(|held| held.hand == hand && shield.is_none_or(|s| held.shield == s))
-        };
-        let right = holds(Hand::Right, None);
-        let armed = placement.held != 0 || right;
-        let two = placement.held == 8 || (right && holds(Hand::Left, Some(false)));
-        let skills = fight::skills(&placement.base, grade, false);
-        // The values of its items, made at its level (`0x5D5080`), the same each time it is
-        // made.
+        // Its attack, defence, damage and resistances with the values of its items, made at its
+        // level (`0x5D5080`), the same each time it is made, its hits' share, and its
+        // regeneration.
         let mut dice = spawning::Rng::of(x, y, usize::try_from(creature).unwrap_or(0));
-        let mut made = placement
-            .items
-            .iter()
-            .map(|&item| templates.make(item, grade, &mut dice));
-        let held = fight::Holds {
-            weapon: armed,
-            shield: holds(Hand::Left, Some(true)),
-            items: [made.next().flatten(), made.next().flatten()],
+        let arms = Arms {
+            base: placement.base,
+            model: placement.model.clone(),
+            holding: placement
+                .holding
+                .iter()
+                .map(|&held| (held, templates.make(held.item, grade, &mut dice)))
+                .collect(),
         };
-        for (item, values) in placement.items.iter().zip(held.items.iter().flatten()) {
-            bevy::log::debug!("npcs: {creature} holds {item}: {values:?}");
+        for (held, values) in &arms.holding {
+            if let Some(values) = values {
+                bevy::log::debug!("npcs: {creature} holds {}: {values:?}", held.item);
+            }
         }
-        let mut values = fight::combat(&placement.base, grade, held, &skills, rules);
-        let [attack, defence] = placement.rank.fight(rules);
-        values.attack *= attack;
-        values.defence *= defence;
+        let (values, share) = arms.fight(grade, placement.rank, rules);
+        let skills = fight::skills(&placement.base, grade, false);
         if placement.rank != fight::Rank::Common {
             bevy::log::debug!(
                 "npcs: {creature} is a {:?} of level {grade}",
@@ -1978,7 +1980,8 @@ fn spawn(
             );
         }
         entity.insert((
-            fight::Combat(values),
+            values,
+            arms,
             fight::Ranked(placement.rank),
             fight::Worth(placement.base.experience),
             fight::Regenerates::new(fight::regeneration(&placement.base, grade, &skills, rules)),
@@ -1991,7 +1994,7 @@ fn spawn(
                 player: None,
                 hands_empty: placement.equipment.is_empty(),
                 instrument: None,
-                share: if two { 0.5 } else { 1.0 },
+                share,
             },
             crowd::InTheWay::of(creature, record_flags, word, level),
             mind,
@@ -2025,6 +2028,11 @@ fn load_texture(assets: &AssetServer, texture: &str) -> Handle<Image> {
 fn category(item: &Item) -> u8 {
     item.words_14[6].to_le_bytes()[2]
 }
+
+/// The model of an item that an NPC holds, attached to its hand (`equip`): the hand, its holder
+/// being the NPC of its `models::OrderedWith`.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Wielded(Hand);
 
 /// An NPC's equipment still to attach: each item's model, its texture, its hand, and whether the
 /// NPC's own scene is ready.
@@ -2099,6 +2107,7 @@ pub fn equip(
                 Transform::from_matrix(pose.to_matrix().inverse()),
                 ChildOf(holder),
                 models::OrderedWith(npc),
+                Wielded(item.hand),
             ));
             if let Some(texture) = &item.texture {
                 weapon.insert(Retexture(texture.clone()));
@@ -2905,6 +2914,193 @@ fn strike(
     }
 }
 
+/// What an NPC fights with: its type's values and its model, by which its values and its clips
+/// are made anew when its weapons change ([`rearm`]), and the items in its hands with their
+/// values, made at its level (`0x5D5080`).
+#[derive(Component, Clone)]
+pub struct Arms {
+    base: fight::Base,
+    model: String,
+    holding: Vec<(InHand, Option<fight::ItemValues>)>,
+}
+
+impl Arms {
+    /// Its attack, defence, damage and resistances at level `grade` and of rank `rank`
+    /// (`0x5796A0`), with its skills and its items' values: unarmed when what it holds is of
+    /// class 0 and its right hand empty (`0x546F80`); and its hits' share of a strike, halved with
+    /// two weapons, the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
+    fn fight(&self, grade: u32, rank: fight::Rank, rules: &fight::Rules) -> (fight::Combat, f32) {
+        let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
+        let class = class_of(&in_hands);
+        let holds = |hand, shield: Option<bool>| {
+            in_hands.iter().any(|held| {
+                held.hand == hand && shield.is_none_or(|s| (held.category == SHIELD) == s)
+            })
+        };
+        let right = holds(Hand::Right, None);
+        let two = class == 8 || (right && holds(Hand::Left, Some(false)));
+        let mut items = self.holding.iter().map(|&(_, values)| values);
+        let held = fight::Holds {
+            weapon: class != 0 || right,
+            shield: holds(Hand::Left, Some(true)),
+            items: [items.next().flatten(), items.next().flatten()],
+        };
+        let skills = fight::skills(&self.base, grade, false);
+        let mut values = fight::combat(&self.base, grade, held, &skills, rules);
+        let [attack, defence] = rank.fight(rules);
+        values.attack *= attack;
+        values.defence *= defence;
+        (fight::Combat(values), if two { 0.5 } else { 1.0 })
+    }
+}
+
+/// An NPC that changes its weapons (#396; docs/re/fight.md, "The archers"): it puts away what
+/// its hand `away` holds, and takes the item `takes`, if any, in its other hand in place of what
+/// that holds.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rearms {
+    away: Hand,
+    takes: Option<u32>,
+}
+
+impl Rearms {
+    /// An archer's switch to melee (`0x4D4B70`): the bow of its left hand away (slot 12), and
+    /// `weapon`, if any, in its right (slot 13).
+    pub fn to_melee(weapon: Option<u32>) -> Self {
+        Self {
+            away: Hand::Left,
+            takes: weapon,
+        }
+    }
+
+    /// The bow-taking (`0x4D4A80`): its right hand emptied (slot 13), and `bow` in its left
+    /// (slot 12).
+    pub fn bow(bow: u32) -> Self {
+        Self {
+            away: Hand::Right,
+            takes: Some(bow),
+        }
+    }
+
+    /// The hand that takes the new item.
+    fn other(self) -> Hand {
+        match self.away {
+            Hand::Left => Hand::Right,
+            Hand::Right => Hand::Left,
+        }
+    }
+}
+
+/// Changes the weapons of each NPC that rearms ([`Rearms`]): the items it puts away leave its
+/// hands and their models go, the new item, made at its level (`0x5D5080`), goes into its hand
+/// with its model, and its attack, defence, damage and resistances, its hits' share, its clips by
+/// the class of what it holds (`motions::Slots::stance`, `attacks`) and whether it fights at range
+/// are made anew.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn rearm(
+    mut commands: Commands,
+    npcs: Res<Npcs>,
+    assets: Res<AssetServer>,
+    mut armed: Query<(
+        Entity,
+        &Rearms,
+        &mut Arms,
+        &mut Npc,
+        &mut ai::Mind,
+        &mut fight::Combat,
+        &fight::Ranked,
+        Option<&mut Equipment>,
+        &Transform,
+    )>,
+    wielded: Query<(Entity, &Wielded, &models::OrderedWith)>,
+) {
+    for (entity, rearms, mut arms, mut npc, mut mind, mut combat, rank, equipment, transform) in
+        &mut armed
+    {
+        commands.entity(entity).remove::<Rearms>();
+        let other = rearms.other();
+        let gone = |hand: Hand| hand == rearms.away || (rearms.takes.is_some() && hand == other);
+        let put_away: Vec<u32> = arms
+            .holding
+            .iter()
+            .filter(|(held, _)| gone(held.hand))
+            .map(|(held, _)| held.item)
+            .collect();
+        arms.holding.retain(|(held, _)| !gone(held.hand));
+        for (model, held, _) in wielded.iter().filter(|(_, _, by)| by.0 == entity) {
+            if gone(held.0) {
+                commands.entity(model).despawn();
+            }
+        }
+        let mut equipment = equipment;
+        if let Some(equipment) = equipment.as_mut() {
+            equipment.0.retain(|item| !gone(item.hand));
+        }
+        let grade = mind.level;
+        if let Some(item) = rearms.takes
+            && let Some(gear) = npcs.gear.get(&item)
+        {
+            let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
+            let mut dice = spawning::Rng::of(
+                u32::try_from(x).unwrap_or(0),
+                u32::try_from(y).unwrap_or(0),
+                usize::try_from(item).unwrap_or(0),
+            );
+            let values = npcs.items.make(item, grade, &mut dice);
+            let held = InHand {
+                item,
+                category: gear.category,
+                kind: gear.kind,
+                hand: other,
+            };
+            arms.holding.push((held, values));
+            if let Some(model) = &gear.model {
+                let equip = Equip {
+                    gltf: assets.load(model.clone()),
+                    texture: gear.texture.as_ref().map(|t| load_texture(&assets, t)),
+                    hand: other,
+                    shield: gear.category == SHIELD,
+                    ready: true,
+                };
+                match equipment {
+                    Some(mut equipment) => equipment.0.push(equip),
+                    None => {
+                        commands.entity(entity).insert(Equipment(vec![equip]));
+                    }
+                }
+            }
+        }
+        let (values, share) = arms.fight(grade, rank.0, &npcs.fight);
+        *combat = values;
+        npc.share = share;
+        let in_hands: Vec<InHand> = arms.holding.iter().map(|&(held, _)| held).collect();
+        npc.hands_empty = in_hands.is_empty();
+        mind.ranged = ranged_of(&in_hands);
+        // Its clips by what it holds now: its graph is made anew (`animate`).
+        if let Some(slots) = npcs.slots.get(&arms.model) {
+            npc.names = ClipNames::of(slots, class_of(&in_hands));
+            npc.graph = None;
+            if let Some(player) = npc.player.take() {
+                commands
+                    .entity(player)
+                    .remove::<(AnimationGraphHandle, AnimationTransitions)>();
+            }
+        }
+        bevy::log::debug!(
+            "npcs: {entity} of {} puts away {put_away:?} and holds {:?}, of class {}, at range \
+             {}, its attack {:.0}",
+            arms.base.id,
+            in_hands.iter().map(|held| held.item).collect::<Vec<_>>(),
+            class_of(&in_hands),
+            mind.ranged,
+            values.attack,
+        );
+    }
+}
+
 /// A juggler that plays its instrument where it stands (`0x4F29E2`): `instrument` the one it
 /// takes into its right hand when both its hands are empty, of [`INSTRUMENTS`]; `on` whether it
 /// plays on, one of the flag `0x10000000`.
@@ -2957,8 +3153,8 @@ impl Plugin for NpcsPlugin {
             .add_systems(
                 Update,
                 (
-                    place, animate, door_clips, walk, put, swing, instrument, strike, die, stance,
-                    equip,
+                    place, rearm, animate, door_clips, walk, put, swing, instrument, strike, die,
+                    stance, equip,
                 )
                     .chain()
                     .in_set(Step::Npcs),
@@ -3168,6 +3364,32 @@ mod tests {
         assert_eq!(held_class(&[(WEAPON, Some(9)), (WEAPON, Some(9))]), 8);
         assert_eq!(held_class(&[(WEAPON, None)]), 0);
         assert_eq!(held_class(&[(8, None)]), 0);
+    }
+
+    #[test]
+    fn an_archer_that_rearms_holds_its_new_weapon_in_the_other_hand() {
+        // A bow and a sword, a ring between: the bow in the left hand, the sword in the right.
+        let holding = InHand::of([
+            (1733, WEAPON, Some(BOW)),
+            (900, 8, None),
+            (1753, WEAPON, Some(1)),
+        ]);
+        let hands: Vec<(u32, Hand)> = holding.iter().map(|h| (h.item, h.hand)).collect();
+        assert_eq!(hands, [(1733, Hand::Left), (1753, Hand::Right)]);
+        assert_eq!(
+            class_of(&holding),
+            held_class(&[(WEAPON, Some(BOW)), (WEAPON, Some(1))])
+        );
+        assert!(ranged_of(&holding));
+        // The switch to melee puts away the left hand's bow for the right's new weapon; the
+        // bow-taking the right hand's weapon for the left's bow.
+        let to_melee = Rearms::to_melee(Some(1753));
+        assert_eq!((to_melee.away, to_melee.other()), (Hand::Left, Hand::Right));
+        let bow = Rearms::bow(1732);
+        assert_eq!((bow.away, bow.other()), (Hand::Right, Hand::Left));
+        let sword = InHand::of([(1753, WEAPON, Some(1))]);
+        assert_eq!(class_of(&sword), 1);
+        assert!(!ranged_of(&sword));
     }
 
     #[test]

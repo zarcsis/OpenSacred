@@ -4,12 +4,14 @@
 //! (`0x542B20`); a hostile creature steps about by the idle action (`0x54EA30`), a group's members
 //! together, or comes at the hero and keeps the band of its reach, takes its place about the hero
 //! beside the hero's nearest hostile, flees wounded and goes home from too far (`0x4E0300`), or
-//! with a ranged weapon keeps 300 to 800 from the hero and shoots (`0x4DBFC0`); without a straight
-//! line or a way to the hero it goes for a door that a hero turned and opens it (`0x4D4800`,
-//! `0x53A170`); a peaceful animal flees, steps away and strolls about home, a guard
-//! keeps its post, and a townsperson and a child roll what they do at each of the hero's looks,
-//! by their behaviours (`0x4EF150`); a creature that shares its cell with another parts from it
-//! (`0x544890`), and one that walks into the hero's way steps aside (`0x547070`). The hero's
+//! with a ranged weapon keeps 300 to 800 from the hero and shoots (`0x4DBFC0`), going to melee
+//! when the hero attacks it from near and taking a bow again beyond its reach (`0x4D4B70`,
+//! `0x4D4A80`); without a straight line or a way to the hero it goes for a door that a hero
+//! turned and opens it (`0x4D4800`, `0x53A170`); a peaceful animal flees, steps away and strolls
+//! about home, a guard keeps its post, and a townsperson and a child roll what they do at each of
+//! the hero's looks, by their behaviours (`0x4EF150`); a creature that shares its cell with
+//! another parts from it (`0x544890`), and one that walks into the hero's way steps aside
+//! (`0x547070`). The hero's
 //! attack chooses where it stands and when it strikes (`0x6172C0`).
 //! `opensacred-game` (`ai`, `attack`) keeps the creatures' minds as components, the systems that
 //! read the world and carry the decisions out, and the world's points; this module is the rules
@@ -241,6 +243,34 @@ const COMES_WITHIN: f32 = 450.0;
 const GOES_ROUND: u32 = 30;
 const GOES_ROUND_WITHIN: f32 = 25.0;
 const SHOOTS: (f32, f32) = (250.0, 650.0);
+/// The archers' switch to melee (`0x4D4B70`, docs/re/fight.md, "The archers"): an archer whose
+/// target attacks it from within 1.5 times the reach between them (`0x4DBC60`) goes to melee in
+/// one case of two; before its sub-states, one of class 5 within 150 of its target goes in one
+/// case of four, its bow put away (`0x4DBFC0`); and a creature that went to melee from its bow
+/// takes one again for a target beyond its reach + 100 (`0x4D4A80`).
+const SWITCHES_WITHIN: f32 = 1.5 * REACH;
+const DROPS_BOW_WITHIN: f32 = 150.0;
+const TAKES_BOW_BEYOND: f32 = REACH + 100.0;
+/// The weapons of the switch, `items.pak` types made at the creature's level (`0x5D5080`): the
+/// four of melee, held in the right hand, and the two bows, held in the left.
+pub const SWORD: u32 = 1753;
+pub const DAGGER: u32 = 1712;
+pub const SWORD_BASTARD: u32 = 1724;
+pub const STREITKOLBEN: u32 = 1719;
+pub const BOW_SHORT: u32 = 1732;
+pub const BOW_LONG: u32 = 1733;
+pub const SWITCHED: [u32; 6] = [
+    SWORD,
+    DAGGER,
+    SWORD_BASTARD,
+    STREITKOLBEN,
+    BOW_SHORT,
+    BOW_LONG,
+];
+/// The black rider, the creature of class 5 that takes the bow-taking's bit back, and the goblin
+/// warrior, which takes it back only in one case of three (`0x4D4B70`).
+const BLACK_RIDER: u32 = 256;
+const GOBLIN_WARRIOR: u32 = 76;
 /// How far from the hero a creature of a behaviour goes dormant again (`0x5370B0`, the distance).
 pub const BEHAVES_WITHIN: f32 = 1_500.0;
 /// The jugglers' types, and the flag they take at their first update, with which a juggler is a
@@ -325,6 +355,9 @@ pub struct Mind {
     backs: u8,
     runs_at_range: bool,
     shots: Chain,
+    /// Whether it went to melee from its bow and takes one again (`+0x2B8` bit `0x10`, which only
+    /// the switch to melee sets, `0x4D4D85`, and the bow-taking clears, `0x4D4A80`).
+    takes_bow: bool,
     awake: bool,
     clock: f32,
     period: f32,
@@ -374,6 +407,7 @@ impl Mind {
             backs: 0,
             runs_at_range: false,
             shots: Chain::default(),
+            takes_bow: false,
             awake: hostile && created,
             clock: 0.0,
             period: if hostile && created {
@@ -563,9 +597,11 @@ impl Mind {
     /// instead ([`place`], the sub-state 5): farther than the band from it, it walks there at a
     /// run in one case of two (never one of class 5), stopping within 40, for a frame, and is
     /// then steered by the hero alone, striking in the band, coming on beyond it and stepping
-    /// back nearer. One with a ranged weapon fights at range instead ([`Self::at_range`]), where
-    /// a straight line of walkable cells to the hero (`clear`) counts. `None` while it does not
-    /// fight, or walks on.
+    /// back nearer. One that went to melee from its bow ([`Self::at_range`]) takes a bow again,
+    /// deciding, coming on or in the band, for the hero beyond its reach + 100 (`0x4D4A80`, at
+    /// `0x4E0C63`, `0x4E1B78` and `0x4E43C5`). One with a ranged weapon fights at range instead
+    /// ([`Self::at_range`]), where a straight line of walkable cells to the hero (`clear`)
+    /// counts. `None` while it does not fight, or walks on.
     pub fn pursue(
         &mut self,
         sight: &Pursuit,
@@ -586,6 +622,7 @@ impl Mind {
             health,
             hero_strikes,
             listed,
+            ..
         } = *sight;
         let (lo, hi) = (REACH - BAND, REACH + BAND);
         let within = lo + BAND;
@@ -593,6 +630,9 @@ impl Mind {
         if d > GIVES_UP {
             self.leaves_fight();
             return Some(Pursues::GivesUp);
+        }
+        if self.takes_bow && !striking && d > TAKES_BOW_BEYOND {
+            return Some(self.takes_a_bow(rng));
         }
         let steps_back = || Pursues::StepsBack(here + (here - hero).unit() * ((lo + hi) / 2.0));
         // Its place held for a frame, it is steered by the hero alone, as the sub-state 2 steers
@@ -690,6 +730,14 @@ impl Mind {
     /// +30°, stopping within 25; else it shoots, whether it walks or not. A shot is one of its
     /// attack's clips (one of five), each 0.1 faster than the last up to 1.7 times (`+0x210`,
     /// which no other action of the game's archers breaks), and it decides again after it.
+    ///
+    /// It goes to melee (`0x4D4B70`, [`melee_switch`]) when the hero attacks it (`targeted`) from
+    /// within 1.5 times the reach, in one case of two, as it decides not to shoot and as it would
+    /// back off standing: its bow put away, a sword, a dagger, a bastard sword or a mace in its
+    /// right hand, and, by its type, the bit by which it takes a bow again
+    /// ([`Self::pursue`]). Before all that, one of class 5 within 150 of the hero goes to melee in
+    /// one case of four with its bow put away and no other weapon (its `+0x25F`, not kept, taken
+    /// as not 10).
     fn at_range(
         &mut self,
         sight: &Pursuit,
@@ -701,6 +749,7 @@ impl Mind {
             hero,
             walk,
             striking,
+            targeted,
             ..
         } = *sight;
         // The shot's action plays while its AI is idle (the AI's state 0, `0x4DC9A3`).
@@ -708,10 +757,16 @@ impl Mind {
             return None;
         }
         let d = (hero - here).length();
+        if d < DROPS_BOW_WITHIN && self.class == 5 && rng.below(4) == 0 {
+            return Some(self.goes_to_melee(None));
+        }
         if self.deciding {
             self.backs = 0;
             if (SHOOTS.0..=SHOOTS.1).contains(&d) {
                 return Some(self.shoot(rng));
+            }
+            if let Some(switch) = self.switches(d, targeted, rng) {
+                return Some(switch);
             }
             self.deciding = false;
         }
@@ -722,6 +777,9 @@ impl Mind {
         if d < KEEPS.0 && !self.fled && self.backs < BACKS_OFF {
             if walk.is_some() {
                 return None;
+            }
+            if let Some(switch) = self.switches(d, targeted, rng) {
+                return Some(switch);
             }
             self.backs += 1;
             self.runs_at_range = rng.below(2) == 0 && self.class != 5;
@@ -763,6 +821,46 @@ impl Mind {
             choice: rng.below(5),
             chain: self.shots.strike(),
         }
+    }
+
+    /// Whether an archer `d` from the hero goes to melee (`0x4D4B70`): the hero attacking it
+    /// (`targeted`) from within 1.5 times the reach, by [`melee_switch`]. The original's other
+    /// conditions hold for every creature of the game: its id above 16, no companion of a player
+    /// (`+0x251`), its `+0x1F0` not 12.
+    fn switches(&mut self, d: f32, targeted: bool, rng: &mut Rng) -> Option<Pursues> {
+        if !targeted || d > SWITCHES_WITHIN {
+            return None;
+        }
+        let (weapon, takes_bow) = melee_switch(self.creature, self.class, &mut |n| rng.below(n))?;
+        self.takes_bow = takes_bow;
+        Some(self.goes_to_melee(Some(weapon)))
+    }
+
+    /// It puts its bow away and fights in melee (the AI's state 4, deciding), with `weapon` in its
+    /// right hand if it takes one.
+    fn goes_to_melee(&mut self, weapon: Option<u32>) -> Pursues {
+        self.ranged = false;
+        self.deciding = true;
+        self.backs = 0;
+        self.placing = None;
+        Pursues::ToMelee(weapon)
+    }
+
+    /// It takes a bow again (`0x4D4A80`): `BOW_LONG` or `BOW_SHORT` by a coin ([`bow`]) in its
+    /// left hand, its right hand emptied, the bit cleared, and it fights at range (the AI's state
+    /// 8, deciding).
+    fn takes_a_bow(&mut self, rng: &mut Rng) -> Pursues {
+        self.takes_bow = false;
+        self.ranged = true;
+        self.deciding = true;
+        self.backs = 0;
+        self.placing = None;
+        Pursues::TakesBow(bow(&mut |n| rng.below(n)))
+    }
+
+    /// Whether it went to melee from its bow and takes one again ([`Self::pursue`]).
+    pub fn takes_bow(&self) -> bool {
+        self.takes_bow
     }
 
     /// Where it parts to, standing at `here`, `crowded` by another in its cell, in a frame of `dt`
@@ -915,7 +1013,9 @@ fn idle_step(mind: &Mind, here: Spot, hero: Spot, rng: &mut Rng) -> Option<Spot>
 /// walk if it walks, whether it strikes, its health and its most if it has one, whether the hero
 /// strikes, and where it stands in the hero's list of hostiles if it is in it (`0xAD3CE0`,
 /// nearest first, docs/re/motions.md, "The fight stance"): its index, 0 the nearest, and where
-/// the nearest stands.
+/// the nearest stands; and whether the hero attacks it, the creature the hero's attack's target
+/// (`0x4D4B70`: the target's AI's state 4 or 8 with it as its target, or the target's strike or
+/// shot at it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pursuit {
     pub here: Spot,
@@ -925,6 +1025,7 @@ pub struct Pursuit {
     pub health: Option<(u32, u32)>,
     pub hero_strikes: bool,
     pub listed: Option<(usize, Spot)>,
+    pub targeted: bool,
 }
 
 /// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
@@ -973,6 +1074,12 @@ pub enum Pursues {
     /// In melee, it walks to its place about the hero for a frame, at a run or not, stopping
     /// within `within` of it.
     TakesPlace { to: Spot, runs: bool, within: f32 },
+    /// At range, it puts away the bow of its left hand and fights in melee, with this weapon in
+    /// its right hand (`0x4D4B70`), or with none, one of class 5 near the hero (`0x4DBFC0`).
+    ToMelee(Option<u32>),
+    /// In melee, it puts away what its right hand holds, takes this bow in its left hand and
+    /// fights at range (`0x4D4A80`).
+    TakesBow(u32),
 }
 
 /// What a creature fighting in melee does that comes on at the hero without a straight line to
@@ -1029,6 +1136,42 @@ pub fn door_in_the_way<T>(
 /// either way.
 pub fn opens(here: Spot, layer: i32, door: Spot, door_layer: i32) -> bool {
     (door - here).length() <= OPENS_WITHIN && meets(layer, door_layer)
+}
+
+/// The switch to melee of an archer of type `creature` and class `class` whose target attacks it
+/// from near (`0x4D4B70`), by the rolls of `roll`, each a number below its argument as the
+/// original's `rand() % n`, in the original's order: in one case of two it goes, else `None`;
+/// its weapon `SWORD` in one case of four, else `DAGGER` in one of three, else `STREITKOLBEN` or
+/// `SWORD_BASTARD` by a coin; and whether it takes the bit back by which it takes a bow again, in
+/// three cases of four, never for one of class 5 but the black rider, and for the goblin warrior
+/// only in one case of three of those.
+fn melee_switch(
+    creature: u32,
+    class: u8,
+    roll: &mut impl FnMut(u32) -> u32,
+) -> Option<(u32, bool)> {
+    if roll(2) == 0 {
+        return None;
+    }
+    let weapon = if roll(4) == 0 {
+        SWORD
+    } else if roll(3) == 0 {
+        DAGGER
+    } else if roll(2) != 0 {
+        STREITKOLBEN
+    } else {
+        SWORD_BASTARD
+    };
+    let takes_bow = (class != 5 || creature == BLACK_RIDER)
+        && (creature != GOBLIN_WARRIOR || roll(3) == 1)
+        && roll(4) != 0;
+    Some((weapon, takes_bow))
+}
+
+/// The bow a creature takes again (`0x4D4A80`), by the roll of `roll` as [`melee_switch`]'s:
+/// `BOW_LONG` or `BOW_SHORT` by a coin.
+fn bow(roll: &mut impl FnMut(u32) -> u32) -> u32 {
+    if roll(2) != 0 { BOW_LONG } else { BOW_SHORT }
 }
 
 /// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health`'s most or
@@ -1488,6 +1631,8 @@ impl Chain {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
@@ -1535,6 +1680,7 @@ mod tests {
             health: Some((72, 72)),
             hero_strikes: true,
             listed: None,
+            targeted: false,
         };
         assert_eq!(goblin.pursue(&sight(false), || true, &mut rng), None);
         assert!(matches!(
@@ -1561,6 +1707,7 @@ mod tests {
             health: Some((72, 72)),
             hero_strikes: false,
             listed: None,
+            targeted: false,
         }
     }
 
@@ -1695,6 +1842,178 @@ mod tests {
         );
     }
 
+    /// The rolls of `rolls` in turn, each checked against the bound asked for: a scripted
+    /// `rand() % n`.
+    fn scripted(rolls: &[u32]) -> impl FnMut(u32) -> u32 + '_ {
+        let mut rolls = rolls.iter();
+        move |n| {
+            let roll = *rolls.next().expect("a roll scripted");
+            assert!(roll < n, "{roll} of {n}");
+            roll
+        }
+    }
+
+    #[test]
+    fn the_switch_to_melee_rolls_its_weapon_and_the_bit_in_the_originals_order() {
+        // A bandit (640, class 3): a coin to go, then the weapon, then the bit in three of four.
+        let bandit = |rolls: &[u32]| melee_switch(640, 3, &mut scripted(rolls));
+        assert_eq!(bandit(&[0]), None);
+        assert_eq!(bandit(&[1, 0, 1]), Some((SWORD, true)));
+        assert_eq!(bandit(&[1, 0, 0]), Some((SWORD, false)));
+        assert_eq!(bandit(&[1, 3, 0, 3]), Some((DAGGER, true)));
+        assert_eq!(bandit(&[1, 1, 1, 1, 2]), Some((STREITKOLBEN, true)));
+        assert_eq!(bandit(&[1, 2, 2, 0, 1]), Some((SWORD_BASTARD, true)));
+        // Of class 5, no bit and no roll for it, but the black rider (256) as the others.
+        assert_eq!(
+            melee_switch(300, 5, &mut scripted(&[1, 0])),
+            Some((SWORD, false))
+        );
+        assert_eq!(
+            melee_switch(BLACK_RIDER, 5, &mut scripted(&[1, 0, 1])),
+            Some((SWORD, true))
+        );
+        // The goblin warrior (76) only when a roll of three comes 1, then as the others.
+        let goblin = |rolls: &[u32]| melee_switch(GOBLIN_WARRIOR, 8, &mut scripted(rolls));
+        assert_eq!(goblin(&[1, 0, 0]), Some((SWORD, false)));
+        assert_eq!(goblin(&[1, 0, 2]), Some((SWORD, false)));
+        assert_eq!(goblin(&[1, 0, 1, 3]), Some((SWORD, true)));
+        assert_eq!(goblin(&[1, 0, 1, 0]), Some((SWORD, false)));
+        // The bow taken again, by a coin.
+        assert_eq!(bow(&mut scripted(&[0])), BOW_SHORT);
+        assert_eq!(bow(&mut scripted(&[1])), BOW_LONG);
+    }
+
+    /// What an archer at the origin sees of the hero at `d` along x attacking it, standing.
+    fn attacked(d: f32) -> Pursuit {
+        Pursuit {
+            targeted: true,
+            ..at_range(d, None)
+        }
+    }
+
+    #[test]
+    fn an_archer_attacked_from_near_goes_to_melee_in_one_case_of_two_as_it_decides_or_backs_off() {
+        let mut rng = Rng::of(48, 38, 4);
+        let (mut melee, mut weapons, mut bits) = (0, HashSet::new(), 0);
+        for _ in 0..400 {
+            let mut bandit = archer();
+            match bandit.pursue(&attacked(190.0), || true, &mut rng) {
+                Some(Pursues::ToMelee(Some(weapon))) => {
+                    melee += 1;
+                    weapons.insert(weapon);
+                    bits += u32::from(bandit.takes_bow);
+                    assert!(!bandit.ranged);
+                }
+                // Not this time: it backs off, as one not attacked.
+                Some(Pursues::BacksOff { .. }) => {}
+                other => panic!("{other:?}"),
+            }
+        }
+        // A coin as it decides, and another as it would back off: three cases of four.
+        assert!((250..350).contains(&melee), "{melee}");
+        assert_eq!(weapons.len(), 4);
+        assert!(bits * 4 > melee * 2 && bits < melee, "{bits} of {melee}");
+        // Not attacked, or attacked from beyond 1.5 times the reach, it never goes.
+        for sight in [at_range(190.0, None), attacked(200.0)] {
+            for _ in 0..50 {
+                let mut bandit = archer();
+                let next = bandit.pursue(&sight, || true, &mut rng);
+                assert!(matches!(next, Some(Pursues::BacksOff { .. })), "{next:?}");
+            }
+        }
+        // Backing off, it goes only once it stands.
+        let mut backing = archer();
+        backing.deciding = false;
+        let walking = Some(Walking {
+            target: at(-190.0, 0.0),
+            comes_on: false,
+            runs: false,
+        });
+        let sight = Pursuit {
+            targeted: true,
+            ..at_range(190.0, walking)
+        };
+        assert_eq!(backing.pursue(&sight, || true, &mut rng), None);
+        let gone = (0..100)
+            .filter(|_| {
+                let mut standing = archer();
+                standing.deciding = false;
+                matches!(
+                    standing.pursue(&attacked(190.0), || true, &mut rng),
+                    Some(Pursues::ToMelee(Some(_)))
+                )
+            })
+            .count();
+        assert!((25..75).contains(&gone), "{gone}");
+    }
+
+    #[test]
+    fn a_creature_that_went_to_melee_from_its_bow_takes_one_beyond_its_reach_and_100() {
+        let mut rng = Rng::of(48, 38, 5);
+        let mut bandit = archer();
+        while !matches!(
+            bandit.pursue(&attacked(190.0), || true, &mut rng),
+            Some(Pursues::ToMelee(Some(_)))
+        ) || !bandit.takes_bow
+        {
+            bandit = archer();
+        }
+        // In melee now: it comes on at the hero within its reach + 100.
+        assert!(matches!(
+            bandit.pursue(&attacked(230.0), || true, &mut rng),
+            Some(Pursues::ComesOn { .. })
+        ));
+        // Beyond, coming on or not, it takes a bow and fights at range again, the bit cleared.
+        let coming = Some(Walking {
+            target: at(231.0, 0.0),
+            comes_on: true,
+            runs: true,
+        });
+        let taken = bandit.pursue(&at_range(231.0, coming), || true, &mut rng);
+        assert!(
+            matches!(taken, Some(Pursues::TakesBow(BOW_SHORT | BOW_LONG))),
+            "{taken:?}"
+        );
+        assert!(bandit.ranged && !bandit.takes_bow);
+        assert!(matches!(
+            bandit.pursue(&at_range(400.0, None), || true, &mut rng),
+            Some(Pursues::Shoots { .. })
+        ));
+        // A creature that started in melee never takes a bow.
+        let mut goblin = goblin();
+        assert!(matches!(
+            goblin.pursue(&at_range(400.0, None), || true, &mut rng),
+            Some(Pursues::ComesOn { .. })
+        ));
+    }
+
+    #[test]
+    fn an_archer_of_class_5_within_150_goes_to_melee_in_one_case_of_four_with_its_bow_away() {
+        let mut rng = Rng::of(48, 38, 6);
+        let skeleton = || {
+            let mut skeleton = archer();
+            skeleton.class = 5;
+            skeleton
+        };
+        let gone = (0..400)
+            .filter(|_| {
+                let mut archer = skeleton();
+                match archer.pursue(&at_range(140.0, None), || true, &mut rng) {
+                    Some(Pursues::ToMelee(None)) => {
+                        assert!(!archer.ranged && !archer.takes_bow);
+                        true
+                    }
+                    _ => false,
+                }
+            })
+            .count();
+        assert!((60..140).contains(&gone), "{gone}");
+        for _ in 0..50 {
+            let next = skeleton().pursue(&at_range(160.0, None), || true, &mut rng);
+            assert!(matches!(next, Some(Pursues::BacksOff { .. })), "{next:?}");
+        }
+    }
+
     /// A goblin warrior (76, class 8) fighting the hero in melee.
     fn goblin() -> Mind {
         let mut goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 8));
@@ -1713,6 +2032,7 @@ mod tests {
             health: Some((72, 72)),
             hero_strikes: false,
             listed: Some((index, first)),
+            targeted: false,
         }
     }
 
