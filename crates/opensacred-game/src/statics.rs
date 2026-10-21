@@ -2373,8 +2373,7 @@ pub(crate) mod tests {
         };
         let balance = opensacred_data::tables::Balance {
             variables: vec![variable("TransSize", 190.0), variable("TransValu", 50.0)],
-            image: Vec::new(),
-            rest: Vec::new(),
+            ..Default::default()
         };
         fs::write(
             dir.join("tables").join(opensacred_data::tables::BALANCE),

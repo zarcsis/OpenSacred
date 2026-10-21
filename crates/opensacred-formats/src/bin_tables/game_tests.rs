@@ -21,8 +21,23 @@ fn lines(path: &str, data: &[u8]) -> Vec<String> {
     match path {
         "bin/Balance.bin" => {
             let b = balance(data).unwrap();
-            assert_eq!((b.image.len(), b.rest.len()), (1224, 4857));
-            vec![line(b.image), line(b.rest)]
+            let t = b.tail;
+            let mut lines = vec![line(b.image)];
+            lines.extend(t.lists.into_iter().map(|(key, records)| {
+                line([key].into_iter().chain(records.into_iter().flatten()))
+            }));
+            lines.push(line(t.weights.into_iter().flat_map(|(k, w)| [k, w])));
+            lines.push(line(t.qualities.into_iter().flat_map(|(k, v)| [k, v])));
+            lines.extend(
+                t.rows
+                    .into_iter()
+                    .map(|(key, words)| line([key].into_iter().chain(words))),
+            );
+            lines.extend(t.chances.into_iter().map(|(effect, floats)| {
+                line([effect].into_iter().chain(floats.map(f32::to_bits)))
+            }));
+            lines.push(line(t.rest));
+            lines
         }
         "bin/World.bin" => world_index(data).unwrap().into_iter().map(line).collect(),
         "bin/World2.bin" => vec![line(world_map(data).unwrap())],
@@ -149,4 +164,50 @@ fn the_balance_keys_match_balance_keys_py() {
         .find(|k| k.name == "skilllearn2")
         .unwrap();
     assert_eq!((skill.kind, b.word(skill)), (Kind::I32, Some(6)));
+}
+
+/// The tail of `Balance.bin` (docs/02 §6.3, #413): its five tables end at byte 22,048, and hold
+/// the drops' weights of the quality keys, the quality pass's values and the effects' chance
+/// parameters; `GoldProLevel`'s two values are named.
+#[test]
+#[ignore = "needs the game files in OriginalGame/"]
+fn the_tail_of_balance_bin_holds_the_drops_tables() {
+    let data = game_file("bin/Balance.bin");
+    let b = balance(&data).unwrap();
+    let t = &b.tail;
+    assert_eq!(
+        (
+            t.lists.len(),
+            t.weights.len(),
+            t.qualities.len(),
+            t.rows.len(),
+            t.chances.len()
+        ),
+        (33, 18, 16, 9, 5)
+    );
+    assert_eq!(data.len() - 4 * t.rest.len(), 22_048);
+    assert!(t.weights.iter().map(|&(key, _)| key).eq(0..18));
+    let weights: Vec<u32> = t.weights.iter().map(|&(_, weight)| weight).collect();
+    assert_eq!(
+        weights,
+        [
+            7, 9, 0, 3, 5, 6, 8, 10, 12, 13, 14, 15, 15, 15, 15, 15, 300, 544
+        ]
+    );
+    assert!(t.qualities.iter().map(|&(key, _)| key).eq(0..16));
+    let values: Vec<u32> = t.qualities.iter().map(|&(_, value)| value).collect();
+    assert_eq!(
+        values,
+        [0, 1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 15, 18, 21, 25, 25]
+    );
+    assert_eq!(t.rows[0], (1, [140, 5, 25, 5, 15, 55, 0]));
+    assert_eq!(
+        t.chances.iter().find(|&&(effect, _)| effect == 868),
+        Some(&(868, [500.0, 502.0, 25.0]))
+    );
+    let word = |name: &str| b.word(BALANCE_KEYS.iter().find(|k| k.name == name).unwrap());
+    assert_eq!(
+        (word("GoldProLevel"), word("GoldProLevel[1]")),
+        (Some(20), Some(2000))
+    );
 }

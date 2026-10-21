@@ -104,22 +104,79 @@ pub struct Motion {
     pub value_be: u16,
 }
 
-/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), the 354 that the keys of the
-/// balance text name by name, and the image of all of them as stored.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), the 355 that the keys of the
+/// balance text name by name, the image of all of them as stored, and the tables after the image
+/// ("The tail of `Balance.bin`"), the drops' by their meaning and the others as words.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Balance {
     /// The named variables, in the image's order.
     pub variables: Vec<BalanceVariable>,
     /// The image's 1,224 words as stored, the named and the unnamed: each an f32 or an i32.
     pub image: Vec<u32>,
-    /// The 4,857 words after the image, of another layout, not read.
+    /// The tail's first table: 33 lists of records of three words (−1 or effect numbers) by a
+    /// key, 0 to 32; not followed.
+    #[serde(default)]
+    pub tail_1: Vec<BalanceList>,
+    /// The tail's second table: the drops' weights of the quality keys 0 to 17, in their order.
+    #[serde(default)]
+    pub quality_weights: Vec<QualityWeight>,
+    /// The tail's third table: the item maker's quality keys 0 to 15 and the values of the
+    /// quality pass `0x5D2E40` they take.
+    #[serde(default)]
+    pub quality_passes: Vec<QualityPass>,
+    /// The tail's fourth table: nine rows of seven words by a key, 1 to 9; not followed.
+    #[serde(default)]
+    pub tail_4: Vec<BalanceRow>,
+    /// The tail's fifth table: the parameters of a chance by an effect's value.
+    #[serde(default)]
+    pub effect_chances: Vec<EffectChance>,
+    /// The 570 words after the tail's tables, of another layout, not read.
     pub rest: Vec<u32>,
+}
+
+/// An entry of the tail's first table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BalanceList {
+    pub key: u32,
+    pub records: Vec<[u32; 3]>,
+}
+
+/// The weight of a quality key in the drops (docs/re/items.md, "A pass: the quality key").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualityWeight {
+    pub key: u32,
+    pub weight: u32,
+}
+
+/// The value of the quality pass that a quality key of the item maker takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualityPass {
+    pub key: u32,
+    pub value: u32,
+}
+
+/// An entry of the tail's fourth table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BalanceRow {
+    pub key: u32,
+    pub words: [u32; 7],
+}
+
+/// The parameters of a chance by the value `v` of an effect (`0x5F23A0`):
+/// `(1 − a/(b + v))·100 + 0.5` per cent, at most `most`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct EffectChance {
+    pub effect: u32,
+    pub a: f32,
+    pub b: f32,
+    pub most: f32,
 }
 
 /// A balance variable that a key of the balance text names.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BalanceVariable {
-    /// The key, as the client's parser has it (a key that ends in `:` heads a row of values).
+    /// The key, as the client's parser has it (a key that ends in `:` heads a row of values;
+    /// `GoldProLevel[1]` names `GoldProLevel`'s second value).
     pub name: String,
     /// Its offset in the image, in bytes.
     pub offset: u16,
