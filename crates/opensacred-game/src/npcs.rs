@@ -63,7 +63,8 @@ use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
 use crate::{
-    ai, buildings, crowd, daynight, fight, hero, iso, models, motions, paths, shadows, spawning,
+    ai, arrows, buildings, crowd, daynight, fight, hero, iso, models, motions, paths, shadows,
+    spawning,
 };
 
 /// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
@@ -132,9 +133,12 @@ struct Placement {
     speed: [f32; 2],
     class: u8,
     /// An NPC's `Creature.pak` values of the fight, from which its health and its strikes
-    /// (`fight`), and the class of what it holds (`held_class`).
+    /// (`fight`), the class of what it holds (`held_class`), whether that is a ranged weapon
+    /// (`ranged`), and its type's size for the arrows' hits (`items.pak +0x14`, `arrows::Size`).
     base: fight::Base,
     held: u8,
+    ranged: bool,
+    size: f32,
     /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
     /// fill; its group, if it is in one; whether it has a dialogue, a `CreateNPC` with one
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
@@ -193,6 +197,11 @@ const NO_SHADOW: u8 = 0x10;
 /// The weapon kinds of `Weapon.pak +0x1E` held in the left hand: bows and crossbows.
 const BOW: u8 = 7;
 const CROSSBOW: u8 = 12;
+/// The weapon kinds of the ranged weapons, with which a creature fights at range (`0x427ED0`;
+/// docs/re/fight.md, "Who fights"): the bows, the crossbows, 13 and the muskets.
+const RANGED: [u8; 4] = [BOW, CROSSBOW, 13, 14];
+/// The arrows' type, `ARROW_LONG.GRN`, of the archers' shots (`0x4EB700`).
+const ARROW: u32 = 3070;
 
 /// A hand of an NPC's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -240,6 +249,17 @@ fn hands(items: &[(u8, Option<u8>)]) -> Vec<Option<Hand>> {
         .collect()
 }
 
+/// Whether an NPC holds a ranged weapon in a hand (`hands`): a weapon of one of the kinds
+/// [`RANGED`] (`0x54A2A0`).
+fn ranged(items: &[(u8, Option<u8>)]) -> bool {
+    items
+        .iter()
+        .zip(hands(items))
+        .any(|(&(category, kind), hand)| {
+            hand.is_some() && category == WEAPON && kind.is_some_and(|kind| RANGED.contains(&kind))
+        })
+}
+
 /// The class of what an NPC holds (`motions::class`): its items' categories and kinds in the
 /// hands they go in (`hands`), a weapon without a kind of class 0.
 fn held_class(items: &[(u8, Option<u8>)]) -> u8 {
@@ -283,6 +303,8 @@ pub struct Npcs {
     slots: HashMap<String, motions::Slots>,
     /// The instruments' models and textures, of [`INSTRUMENTS`].
     instruments: Vec<Option<(String, Option<String>)>>,
+    /// The arrows' model, texture and size ([`ARROW`]).
+    arrow: Option<(String, Option<String>, f32)>,
     /// The fractions of the attack's clips at which they hit, by the clips' names upper-cased
     /// (`MotionDesc +0xA0`, `+0xA4`: `floats_62[1]` and `[2]` of `tables/motions.ron`).
     hits: HashMap<String, [f32; 2]>,
@@ -407,6 +429,13 @@ pub struct Object;
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
 #[derive(Component)]
 pub struct Retexture(Handle<Image>);
+
+impl Retexture {
+    /// The texture `texture`, relative to the asset directory, repeated ([`load_texture`]).
+    pub fn load(assets: &AssetServer, texture: &str) -> Self {
+        Self(load_texture(assets, texture))
+    }
+}
 
 /// The glTF materials given an item's texture, by the material and the texture: shared by the
 /// models of one item.
@@ -1264,6 +1293,8 @@ impl Npcs {
                 } else {
                     held_class(&[])
                 },
+                ranged: record.kind == CREATE_NPC && ranged(&categories),
+                size: arrows::size(item.words_14[0]),
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
                 dialogue: record.kind == CREATE_NPC
                     && ops.iter().any(|o| {
@@ -1358,6 +1389,8 @@ impl Npcs {
                     class: classes.get(&creature).copied().unwrap_or_default(),
                     base: bases.get(&creature).copied().unwrap_or_default(),
                     held: held_class(&[]),
+                    ranged: false,
+                    size: arrows::size(item.words_14[0]),
                     made: (true, false),
                     dialogue: false,
                     trader: false,
@@ -1468,9 +1501,25 @@ impl Npcs {
                     Some((model, texture))
                 })
                 .collect(),
+            arrow: items.get(&ARROW).and_then(|item| {
+                let model = models.get(&item.name.to_ascii_uppercase())?.clone();
+                let texture = match item.words_08[0] {
+                    0 => None,
+                    number => textures.get(&number).cloned(),
+                };
+                Some((model, texture, arrows::size(item.words_14[0])))
+            }),
             spawned: HashSet::new(),
             kept: Kept::default(),
         })
+    }
+
+    /// The arrows' model and texture, relative to the asset directory, and their size, where
+    /// the arrows' model was converted.
+    pub fn arrow(&self) -> Option<(&str, Option<&str>, f32)> {
+        self.arrow
+            .as_ref()
+            .map(|(model, texture, size)| (model.as_str(), texture.as_deref(), *size))
     }
 
     /// The NPCs and the objects to place, and the cells of the closed triggers.
@@ -1645,6 +1694,7 @@ pub fn place(
                         })
                         .collect();
                     placement.held = held_class(&categories);
+                    placement.ranged = ranged(&categories);
                     if let Some(slots) = npcs.slots.get(&placement.model) {
                         let class = placement.held;
                         let clip =
@@ -1873,6 +1923,7 @@ fn spawn(
         mind.dialogue = placement.dialogue;
         mind.trader = placement.trader;
         mind.level = grade;
+        mind.ranged = placement.ranged;
         // Its health, full, by its base and its level and its rank (`0x5658F0`).
         let most = fight::most_health(placement.base.attributes, grade, rules);
         let factor = placement.rank.health(creature, placement.class, rules);
@@ -1944,6 +1995,7 @@ fn spawn(
             },
             crowd::InTheWay::of(creature, record_flags, word, level),
             mind,
+            arrows::Size(placement.size),
         ));
         if let Some(((tx, ty), speed)) = placement.walk {
             entity.insert(Walk::to(
@@ -2703,11 +2755,15 @@ fn die(
 }
 
 /// An NPC that strikes at `target` (the attack action 3, `0x4E4CF0`): one of its attack's clips,
-/// chosen by `choice`, once, which hits at its fractions (`0x4EA1F0`).
+/// chosen by `choice`, once, which hits at its fractions (`0x4EA1F0`); or that shoots at it (the
+/// action 5, `0x4DCB80`), the clip at its attack speed times its chain's factor (`+0x210`), whose
+/// arrow leaves at its first fraction (`0x4DD90E`).
 #[derive(Component)]
 pub struct Strikes {
     target: Entity,
     choice: u32,
+    /// A shot's factor of its chain, none for a strike.
+    shot: Option<f32>,
     /// The clip it plays, its length and the fractions at which it hits, once it plays.
     playing: Option<(AnimationNodeIndex, f32, [f32; 2])>,
     /// How many hits it has struck.
@@ -2720,8 +2776,18 @@ impl Strikes {
         Self {
             target,
             choice,
+            shot: None,
             playing: None,
             struck: 0,
+        }
+    }
+
+    /// A shot at `target`, with the clip `choice` of its attack's, at its attack speed times
+    /// `chain`.
+    pub fn shot(target: Entity, choice: u32, chain: f32) -> Self {
+        Self {
+            shot: Some(chain),
+            ..Self::at(target, choice)
         }
     }
 }
@@ -2732,10 +2798,13 @@ const HITS_WITHIN: f32 = 3.0 * 130.0;
 
 /// Plays each striking NPC's attack once, and at the clip's fractions (0.5 for a first of 0; a
 /// second when it is above 0) sends a hit of its share when the target is then within reach; a
-/// walk ends the strike (`0x4E4CF0`, `0x4EA1F0`).
+/// walk ends the strike (`0x4E4CF0`, `0x4EA1F0`). A shot plays its clip at its attack speed
+/// times its chain, and at the clip's first fraction looses its arrow (`arrows::Loose`,
+/// `0x4DD90E`).
 #[expect(
+    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn strike(
     mut commands: Commands,
@@ -2755,6 +2824,7 @@ fn strike(
     clips: Res<Assets<AnimationClip>>,
     speed: Res<hero::GameSpeed>,
     mut hits: MessageWriter<fight::Hit>,
+    mut shots: MessageWriter<arrows::Loose>,
 ) {
     for (entity, npc, mut strikes, walking, at, combat) in &mut strikers {
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
@@ -2771,11 +2841,12 @@ fn strike(
             let index = usize::try_from(strikes.choice).unwrap_or(0) % graph.attacks.len();
             let (node, clip, fractions) = &graph.attacks[index];
             let length = clips.get(clip).map_or(1.0, AnimationClip::duration);
-            // At its attack speed (`0x4E4CF0`).
+            // At its attack speed (`0x4E4CF0`), a shot's times its chain (`0x4DCB80`).
             let attack = combat.map_or(1.0, |combat| combat.clip_speed());
+            let chain = strikes.shot.unwrap_or(1.0);
             transitions
                 .play(&mut player, *node, BLEND)
-                .set_speed(speed.0 * attack);
+                .set_speed(speed.0 * attack * chain);
             strikes.playing = Some((*node, length.max(0.01), *fractions));
             continue;
         };
@@ -2789,12 +2860,19 @@ fn strike(
         } else {
             0.5
         };
-        let due = match strikes.struck {
-            0 => done >= first,
-            1 => fractions[1] > 0.0 && done >= fractions[1],
+        let due = match (strikes.shot, strikes.struck) {
+            (Some(_), 0) => opensacred_rules::minds::looses(fractions[0], done),
+            (None, 0) => done >= first,
+            (None, 1) => fractions[1] > 0.0 && done >= fractions[1],
             _ => false,
         };
-        if due {
+        if due && strikes.shot.is_some() {
+            strikes.struck += 1;
+            shots.write(arrows::Loose {
+                shooter: entity,
+                target: strikes.target,
+            });
+        } else if due {
             strikes.struck += 1;
             let reaches = places.get(strikes.target).is_ok_and(|target| {
                 (target.translation() - at.translation())
@@ -2807,6 +2885,7 @@ fn strike(
                     attacker: entity,
                     target: strikes.target,
                     share: npc.share,
+                    ranged: false,
                 });
             }
         }
@@ -2922,6 +3001,17 @@ mod tests {
             hands(&[(SHIELD, None), (SHIELD, None), (8, None)]),
             [Some(Left), None, None]
         );
+    }
+
+    #[test]
+    fn a_bow_a_crossbow_or_a_musket_in_a_hand_is_a_ranged_weapon() {
+        assert!(ranged(&[(WEAPON, Some(BOW))]));
+        assert!(ranged(&[(WEAPON, Some(1)), (WEAPON, Some(CROSSBOW))]));
+        assert!(ranged(&[(WEAPON, Some(14))]));
+        // A sword and a shield; a bow whose hand a first one took; arrows are no weapon.
+        assert!(!ranged(&[(WEAPON, Some(1)), (SHIELD, Some(0))]));
+        assert!(!ranged(&[(SHIELD, None), (WEAPON, Some(BOW))]));
+        assert!(!ranged(&[(27, Some(BOW))]));
     }
 
     #[test]

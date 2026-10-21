@@ -3,6 +3,7 @@
 //! sector's ground and the hero model with an animation, at any resolution.
 
 mod ai;
+mod arrows;
 mod atmosphere;
 mod attack;
 mod benchmark;
@@ -212,6 +213,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     // Bevy takes 15 plugins at a time.
     .add_plugins((
         ai::AiPlugin,
+        arrows::ArrowsPlugin,
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
         benchmark::BenchmarkPlugin,
@@ -225,9 +227,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         doors::DoorsPlugin,
         fight::FightPlugin,
         frame::FramePlugin,
-        game::GamePlugin,
     ))
     .add_plugins((
+        game::GamePlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
@@ -242,9 +244,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         pause::PausePlugin,
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
-        settings::SettingsPlugin,
     ))
     .add_plugins((
+        settings::SettingsPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,

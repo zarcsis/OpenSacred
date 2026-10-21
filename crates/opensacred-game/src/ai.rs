@@ -8,10 +8,12 @@
 //! the levels sends at the hero, or that has the hero within its reach, comes at it from up to
 //! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
 //! wounded it flees, and too far from home it goes back ([`pursue`],
-//! docs/decisions/2026-10-20-pursuit.md); one that the test holds back goes dormant again and
-//! steps about as one beyond it (docs/decisions/2026-10-20-idle.md). The decisions are the
-//! rules' (`opensacred_rules::minds`); this module keeps the minds as components, reads the world
-//! for them and carries them out: the walks, the strikes, the doors, the lines and the turns.
+//! docs/decisions/2026-10-20-pursuit.md); one with a ranged weapon keeps 300 to 800 from the hero
+//! and shoots (docs/decisions/2026-10-21-archers.md); one that the test holds back goes dormant
+//! again and steps about as one beyond it (docs/decisions/2026-10-20-idle.md). The decisions are
+//! the rules' (`opensacred_rules::minds`); this module keeps the minds as components, reads the
+//! world for them and carries them out: the walks, the strikes, the shots, the doors, the lines
+//! and the turns.
 
 use bevy::prelude::*;
 pub use opensacred_rules::minds::of_type;
@@ -247,7 +249,9 @@ impl Default for FightRules {
 /// Each creature that fights the hero keeps the band of its reach, flees wounded and goes home
 /// from too far, as the rules decide (`opensacred_rules::minds::Mind::pursue`, `0x4E0300`): it
 /// comes on, after the hero as it moves, steps back, flees and goes home at its walk or run, and
-/// in the band stands turned to the hero, where it strikes (#280).
+/// in the band stands turned to the hero, where it strikes (#280). One with a ranged weapon keeps
+/// 300 to 800 from the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no
+/// straight line of walkable cells leads to the hero, and shoots, standing turned to the hero.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -255,6 +259,7 @@ impl Default for FightRules {
 fn pursue(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
+    heights: Res<Heights>,
     hero: Query<
         (Entity, &Transform, Has<crate::attack::Striking>),
         (With<Body>, Without<crate::npcs::Dies>),
@@ -290,7 +295,13 @@ fn pursue(
             health: health.map(|health| (health.current, health.most)),
             hero_strikes,
         };
-        let Some(pursues) = mind.pursue(&sight, &mut minds.rng) else {
+        // A straight line of walkable cells to the hero.
+        let clear = || {
+            paths::clear(here.xz(), hero.xz(), |cell| {
+                heights.walkable_on(cell, way.level)
+            })
+        };
+        let Some(pursues) = mind.pursue(&sight, clear, &mut minds.rng) else {
             continue;
         };
         match pursues {
@@ -329,6 +340,36 @@ fn pursue(
                         .entity(entity)
                         .insert(Strikes::at(the_hero, choice));
                 }
+            }
+            Pursues::BacksOff { to, runs } => {
+                let d = (hero - here).xz().length();
+                debug!("ai: {entity} backs off from the hero at {d:.0}, running {runs}");
+                let to = point(to, here.y);
+                commands.entity(entity).insert(if runs {
+                    Walk::run(to, way.level, mind.run)
+                } else {
+                    Walk::to(to, way.level, mind.speed)
+                });
+            }
+            Pursues::GoesRound { to, runs, within } => {
+                debug!("ai: {entity} goes round the hero, no straight line to it");
+                let to = point(to, here.y);
+                let walk = if runs {
+                    Walk::run(to, way.level, mind.run)
+                } else {
+                    Walk::to(to, way.level, mind.speed)
+                };
+                commands.entity(entity).insert(walk.within(within));
+            }
+            // It stops where it stands, turns to the hero and shoots.
+            Pursues::Shoots { choice, chain } => {
+                let d = (hero - here).xz().length();
+                debug!("ai: {entity} shoots at the hero from {d:.0}, its chain {chain:.1}");
+                transform.rotation = crate::hero::facing(hero - here);
+                commands
+                    .entity(entity)
+                    .remove::<Walk>()
+                    .insert(Strikes::shot(the_hero, choice, chain));
             }
         }
     }

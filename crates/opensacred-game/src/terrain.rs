@@ -79,12 +79,13 @@ struct LoadedLayer {
     cells: Vec<Spot>,
 }
 
-/// A cell of an inside layer: whether the hero may walk on it, whether it is an exit, which
-/// takes the hero out onto the ground, whether it is a stair, and the heights a creature stands
-/// at on its corners ([`second_height`]).
+/// A cell of an inside layer: whether the hero may walk on it, whether an arrow flies over it
+/// (the low nibble 2), whether it is an exit, which takes the hero out onto the ground, whether it
+/// is a stair, and the heights a creature stands at on its corners ([`second_height`]).
 #[derive(Clone, Copy)]
 struct Spot {
     walkable: bool,
+    flown_over: bool,
     exit: bool,
     stair: Option<Stair>,
     standing: [f32; 4],
@@ -143,6 +144,9 @@ const DOOR: u8 = 0x4;
 /// inside layer, takes it out onto the ground.
 const ENTRANCE: u8 = 9;
 const EXIT: u8 = 10;
+/// The low nibble of the ground byte of the cells that may not be walked on but that an arrow
+/// flies over: the ponds, the fences and the walls (`0x5BAA60`, docs/re/fight.md, "The archers").
+const FLOWN_OVER: u8 = 2;
 /// The natures of the two liquids, `WATERA` and `WATERB`, and of a bridge (docs/02 §5.2).
 const LIQUIDS: [u8; 2] = [9, 10];
 const BRIDGE: u8 = 7;
@@ -192,8 +196,10 @@ struct LoadedCell {
     /// The cell's flags (docs/02 §5.2) and the building it belongs to.
     flags: u8,
     building: Option<buildings::Anchor>,
-    /// Whether the hero may walk on the cell ([`walkable`]).
+    /// Whether the hero may walk on the cell ([`walkable`]), and whether an arrow flies over it
+    /// (the low nibble 2).
     walkable: bool,
+    flown_over: bool,
     /// Whether the cell is an entrance of its building ([`ENTRANCE`]).
     entrance: bool,
 }
@@ -225,6 +231,7 @@ impl Heights {
                 .iter()
                 .map(|cell| Spot {
                     walkable: walkable(cell.flags, cell.ground),
+                    flown_over: cell.ground & 0xF == FLOWN_OVER,
                     exit: cell.ground & 0xF == EXIT,
                     stair: Stair::of(cell),
                     standing: cell.heights2.map(second_height),
@@ -285,6 +292,7 @@ impl Heights {
                     flags: cell.flags,
                     building: buildings::anchor(sector, index),
                     walkable: walkable(cell.flags, cell.ground),
+                    flown_over: cell.ground & 0xF == FLOWN_OVER,
                     entrance: cell.ground & 0xF == ENTRANCE
                         && cell.flags & buildings::BUILDING_CELL != 0,
                 },
@@ -341,6 +349,22 @@ impl Heights {
                 .get(&key)
                 .and_then(|layer| layer.get(cell))
                 .unwrap_or(false),
+        }
+    }
+
+    /// Whether an arrow flies over a cell at a level that may not be walked on: one of the low
+    /// nibble 2 of its ground byte, on the ground or in an inside layer's grid (`0x5BAA60`).
+    pub fn flown_over(&self, (cx, cy): (i32, i32), level: Level) -> bool {
+        match level {
+            None => match (u32::try_from(cx), u32::try_from(cy)) {
+                (Ok(x), Ok(y)) => self.cells.get(&(x, y)).is_some_and(|cell| cell.flown_over),
+                _ => false,
+            },
+            Some(key) => self
+                .layers
+                .get(&key)
+                .and_then(|layer| layer.spot((cx, cy)))
+                .is_some_and(|spot| spot.flown_over),
         }
     }
 

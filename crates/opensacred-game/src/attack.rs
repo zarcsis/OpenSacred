@@ -200,6 +200,7 @@ fn engage(
                         attacker: hero,
                         target: entity,
                         share: 1.0,
+                        ranged: false,
                     });
                 }
             }
