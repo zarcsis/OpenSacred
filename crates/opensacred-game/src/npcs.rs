@@ -49,8 +49,9 @@ use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
     Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image,
-    IntoScheduleConfigs, MeshMaterial3d, MessageWriter, Name, On, Plugin, Query, Res, ResMut,
-    Resource, StandardMaterial, Time, Transform, Update, Vec3, With, Without, WorldAssetRoot,
+    IntoScheduleConfigs, MeshMaterial3d, MessageWriter, Name, On, Plugin, Query, Remove, Res,
+    ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec3, With, Without,
+    WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
@@ -92,7 +93,7 @@ const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
 
 /// An NPC or an object to place.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct Placement {
     /// The model, relative to the asset directory.
     model: String,
@@ -277,6 +278,114 @@ pub struct Npcs {
     /// (`MotionDesc +0xA0`, `+0xA4`: `floats_62[1]` and `[2]` of `tables/motions.ron`).
     hits: HashMap<String, [f32; 2]>,
     spawned: HashSet<(u32, u32)>,
+    /// What became of the creatures that went with their sectors ([`Kept`]).
+    kept: Kept,
+}
+
+/// Where a creature came from, which decides what becomes of it when its sector goes, as the
+/// original's sectors' functions keep their creatures (#329, docs/re/spawning.md, "The sectors'
+/// functions"). A sector's `Enter` makes its villagers and animals again at every coming in, and
+/// they carry none.
+#[derive(Component, Clone)]
+pub struct Placed {
+    /// The sector that placed it.
+    at: (u32, u32),
+    source: Source,
+}
+
+#[derive(Clone)]
+enum Source {
+    /// A `CreateNPC` of the start script or of a sector's `Init`, the placement of that index:
+    /// placed once, it keeps where it stands and its health, and a killed one does not come back.
+    Kept(usize),
+    /// A creature that a sector's fill made: the sector keeps it while it lives, and puts it back
+    /// at its next coming in rather than filling anew (`0x4954C0`, `0x4939F0`).
+    Filled(Box<Placement>),
+}
+
+/// Where a creature that went with its sector stood, on which floor, and its health.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Stood {
+    cell: (u32, u32),
+    layer: i32,
+    health: fight::Health,
+}
+
+/// What became of the placed creatures ([`Placed`]) that went with their sectors.
+#[derive(Default)]
+struct Kept {
+    /// The kept placements that went, by index: where each stood, or `None` once killed.
+    went: HashMap<usize, Option<Stood>>,
+    /// The kept placements spawned, living somewhere: not placed again while they are.
+    out: HashSet<usize>,
+    /// The living creatures of each sector's fills that went with it.
+    filled: HashMap<(u32, u32), Vec<(Placement, Stood)>>,
+    /// How many creatures of each sector's fills are spawned, living somewhere.
+    filled_out: HashMap<(u32, u32), usize>,
+}
+
+/// What a sector that comes in does with a kept placement.
+#[derive(Debug, PartialEq)]
+enum Again {
+    /// Places it as its record has it, the first time.
+    Anew,
+    /// Places it where it stood, with its health.
+    AtStood(Stood),
+    /// Places nothing: it was killed, or it stands somewhere still.
+    Not,
+}
+
+impl Kept {
+    /// What becomes of kept placement `index` as its sector comes in.
+    fn again(&self, index: usize) -> Again {
+        if self.out.contains(&index) {
+            return Again::Not;
+        }
+        match self.went.get(&index) {
+            None => Again::Anew,
+            Some(Some(stood)) => Again::AtStood(*stood),
+            Some(None) => Again::Not,
+        }
+    }
+
+    /// The fills' living creatures that sector `at` puts back, and whether it fills anew: only
+    /// when none of them lives, neither kept nor somewhere still.
+    fn back(&mut self, at: (u32, u32)) -> (Vec<(Placement, Stood)>, bool) {
+        let back = self.filled.remove(&at).unwrap_or_default();
+        let anew = back.is_empty() && self.filled_out.get(&at).copied().unwrap_or(0) == 0;
+        (back, anew)
+    }
+
+    /// Notes that a placed creature is spawned.
+    fn spawned(&mut self, placed: &Placed) {
+        match placed.source {
+            Source::Kept(index) => {
+                self.out.insert(index);
+            }
+            Source::Filled(_) => *self.filled_out.entry(placed.at).or_default() += 1,
+        }
+    }
+
+    /// Notes that a placed creature goes, `stood` where it stood if it lives.
+    fn gone(&mut self, placed: &Placed, stood: Option<Stood>) {
+        match &placed.source {
+            Source::Kept(index) => {
+                self.out.remove(index);
+                self.went.insert(*index, stood);
+            }
+            Source::Filled(placement) => {
+                if let Some(count) = self.filled_out.get_mut(&placed.at) {
+                    *count = count.saturating_sub(1);
+                }
+                if let Some(stood) = stood {
+                    self.filled
+                        .entry(placed.at)
+                        .or_default()
+                        .push(((**placement).clone(), stood));
+                }
+            }
+        }
+    }
 }
 
 /// A global cell and a floor (or a layer), as the scripts give a position: `(x, y, floor)`.
@@ -1317,6 +1426,7 @@ impl Npcs {
                 })
                 .collect(),
             spawned: HashSet::new(),
+            kept: Kept::default(),
         })
     }
 
@@ -1372,17 +1482,67 @@ pub fn place(
             .map(Vec::as_slice)
             .unwrap_or_default()
         {
-            let values = npcs.fills.get(&at).map(|(values, _)| *values);
-            let level = fight::level(&values.unwrap_or_default(), hero, None);
-            let entity = spawn(
-                &mut commands,
-                &npcs.placements[index],
-                &heights,
-                &states,
-                &assets,
-                (level, &npcs.fight, &npcs.items),
-            );
+            let placement = &npcs.placements[index];
+            // The start's and the `Init`s' creatures persist; the `Enter`s' are made again.
+            let kept = !placement.object && !placement.made.0;
+            let again = if kept {
+                npcs.kept.again(index)
+            } else {
+                Again::Anew
+            };
+            let entity = match again {
+                Again::Not => continue,
+                Again::Anew => {
+                    let values = npcs.fills.get(&at).map(|(values, _)| *values);
+                    let level = fight::level(&values.unwrap_or_default(), hero, None);
+                    spawn(
+                        &mut commands,
+                        placement,
+                        &heights,
+                        &states,
+                        &assets,
+                        (level, &npcs.fight, &npcs.items),
+                    )
+                }
+                Again::AtStood(stood) => respawn(
+                    &mut commands,
+                    placement,
+                    stood,
+                    (&heights, &states, &assets),
+                    (&npcs.fight, &npcs.items),
+                ),
+            };
+            if kept {
+                let placed = Placed {
+                    at,
+                    source: Source::Kept(index),
+                };
+                npcs.kept.spawned(&placed);
+                commands.entity(entity).insert(placed);
+            }
             streamer.adopt(at, entity);
+        }
+        // The fills' creatures that live: those that went with the sector come back where they
+        // stood, and the sector fills anew only when none lives (`0x4939F0`).
+        let (back, anew) = npcs.kept.back(at);
+        for (placement, stood) in back {
+            let entity = respawn(
+                &mut commands,
+                &placement,
+                stood,
+                (&heights, &states, &assets),
+                (&npcs.fight, &npcs.items),
+            );
+            let placed = Placed {
+                at,
+                source: Source::Filled(Box::new(placement)),
+            };
+            npcs.kept.spawned(&placed);
+            commands.entity(entity).insert(placed);
+            streamer.adopt(at, entity);
+        }
+        if !anew {
+            continue;
         }
         // The creatures that the sector's fills make, on cells at random that they may stand
         // on, the same ones each time the sector comes in (`spawning`).
@@ -1494,12 +1654,88 @@ pub fn place(
                     &assets,
                     (level, &npcs.fight, &npcs.items),
                 );
+                let placed = Placed {
+                    at,
+                    source: Source::Filled(Box::new(placement)),
+                };
+                npcs.kept.spawned(&placed);
+                commands.entity(entity).insert(placed);
                 streamer.adopt(at, entity);
             }
         }
     }
-    // Sectors that went out place their NPCs again when they come back.
+    // Sectors that went out place their NPCs again when they come back, as [`Kept`] has it.
     npcs.spawned.retain(|at| loaded.contains(at));
+}
+
+/// Spawns `placement`'s creature where it stood when it went with its sector, on that floor,
+/// with the health and the level it had.
+fn respawn(
+    commands: &mut Commands,
+    placement: &Placement,
+    stood: Stood,
+    (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
+    (rules, templates): (&fight::Rules, &fight::Templates),
+) -> Entity {
+    let mut there = placement.clone();
+    there.cell = stood.cell;
+    there.layer = stood.layer;
+    bevy::log::debug!("npcs: {} back {stood:?}", placement.model);
+    let entity = spawn(
+        commands,
+        &there,
+        heights,
+        states,
+        assets,
+        (stood.health.level, rules, templates),
+    );
+    commands.entity(entity).insert(stood.health);
+    entity
+}
+
+/// Notes what a placed creature leaves as it goes with its sector, or with the game (#329): a
+/// kept one's place, floor and health, or that it was killed; a fill's living one, with its
+/// sector.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn keep(
+    removed: On<Remove<Placed>>,
+    creatures: Query<(
+        &Placed,
+        &Transform,
+        &crowd::InTheWay,
+        Option<&fight::Health>,
+        Has<Dies>,
+    )>,
+    heights: Option<Res<Heights>>,
+    npcs: Option<ResMut<Npcs>>,
+) {
+    let (Ok((placed, transform, way, health, dies)), Some(mut npcs)) =
+        (creatures.get(removed.entity), npcs)
+    else {
+        return;
+    };
+    let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
+    let layer = heights
+        .as_deref()
+        .and_then(|heights| heights.floor(way.level))
+        .map_or(0, |(_, floor)| i32::from(floor));
+    let stood = match (u32::try_from(x), u32::try_from(y), health) {
+        (Ok(x), Ok(y), Some(&health)) if !dies && health.current > 0 => Some(Stood {
+            cell: (x, y),
+            layer,
+            health,
+        }),
+        _ => None,
+    };
+    bevy::log::debug!(
+        "npcs: {} of {:?} goes, {stood:?}",
+        removed.entity,
+        placed.at
+    );
+    npcs.kept.gone(placed, stood);
 }
 
 /// Spawns the NPC or the object of `placement`: its model on its cell and level, turned to its
@@ -2508,6 +2744,7 @@ impl Plugin for NpcsPlugin {
         app.init_resource::<Retextured>()
             .add_observer(retexture)
             .add_observer(equipment_ready)
+            .add_observer(keep)
             .add_systems(
                 Update,
                 (
@@ -2622,6 +2859,59 @@ mod tests {
         assert_eq!(at(Value::Name("HAUPTMANN3".into())), Some((3349, 2534, 0)));
         assert_eq!(at(Value::I32x3([3259, 2569, 1])), Some((3259, 2569, 1)));
         assert_eq!(at(Value::Name("elsewhere".into())), None);
+    }
+
+    #[test]
+    fn the_creatures_that_went_with_their_sectors_come_back_as_they_were() {
+        let health = |current| fight::Health {
+            current,
+            most: 72,
+            level: 3,
+        };
+        let stood = |x, current| Stood {
+            cell: (x, 2518),
+            layer: 0,
+            health: health(current),
+        };
+        let mut kept = Kept::default();
+        // A kept placement: anew at first, not again while it lives somewhere, where it stood
+        // once it went living, never once killed.
+        let goblin = Placed {
+            at: (51, 39),
+            source: Source::Kept(7),
+        };
+        assert_eq!(kept.again(7), Again::Anew);
+        kept.spawned(&goblin);
+        assert_eq!(kept.again(7), Again::Not);
+        kept.gone(&goblin, Some(stood(3300, 40)));
+        assert_eq!(kept.again(7), Again::AtStood(stood(3300, 40)));
+        kept.spawned(&goblin);
+        kept.gone(&goblin, None);
+        assert_eq!(kept.again(7), Again::Not);
+        // A sector's fills: anew at first; back the living ones that went, and not anew while
+        // one lives somewhere still; anew once none lives.
+        let at = (49, 39);
+        let rabbit = || Placed {
+            at,
+            source: Source::Filled(Box::new(Placement {
+                model: "rabbit".to_owned(),
+                ..Placement::default()
+            })),
+        };
+        assert!(kept.back(at).1);
+        let (first, second) = (rabbit(), rabbit());
+        kept.spawned(&first);
+        kept.spawned(&second);
+        kept.gone(&first, Some(stood(3150, 72)));
+        let (back, anew) = kept.back(at);
+        assert_eq!((back.len(), anew), (1, false));
+        assert_eq!(back[0].0.model, "rabbit");
+        assert_eq!(back[0].1, stood(3150, 72));
+        // The other still lives somewhere: nothing back, and no fill anew.
+        let (back, anew) = kept.back(at);
+        assert!(back.is_empty() && !anew);
+        kept.gone(&second, None);
+        assert!(kept.back(at).1);
     }
 
     #[test]
