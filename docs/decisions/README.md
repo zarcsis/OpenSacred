@@ -5,4 +5,4 @@ Fidelity to the original is not a goal (PLAN.md, ADR-01), but deviations must be
 
 Each decision is a file of its own, `<date>-<subject>.md` with the date it was taken: its title, the subsystem, then what the original does, what the game does instead and why.
 A new decision is a new file, so that two pull requests that each take one do not touch the same lines; a decision that a later one replaces says so and links it.
-The maintainer reviews a decision after it is merged, unless it departs from the original far enough to change the play seriously or carries legal consequences: then before (docs/03 §3.6).
+A decision is merged without waiting for the maintainer, who opens an issue for what to change, unless it departs from the original far enough to change the play seriously or carries legal consequences: then it waits (docs/03 §3.6).

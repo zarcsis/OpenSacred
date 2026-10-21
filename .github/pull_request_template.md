@@ -19,4 +19,4 @@ CI runs fmt, clippy, the tests without the game files, the screenshot test on Me
 - [ ] No game files, converted assets, dumps or screenshots of them, and no game texts.
 - [ ] No decompiler output or code translated from it.
 
-<!-- A pull request that changes .claude/hooks/, .claude/settings.json, .claude/settings.local.json, .github/, deny.toml, the README of docs/decisions/, a screenshot reference, the rules or the process, or takes a decision that departs far from the original or carries legal consequences, waits for the maintainer (label needs-maintainer); one that takes any other decision, or changes CLAUDE.md or a skill only to describe, is merged and labeled review-after-merge. -->
+<!-- A pull request that changes .claude/hooks/, .claude/settings.json, .claude/settings.local.json, .github/, deny.toml, the README of docs/decisions/, a screenshot reference, the rules or the process, or takes a decision that departs far from the original or carries legal consequences, waits for the maintainer (label needs-maintainer); one that takes any other decision, or changes CLAUDE.md or a skill only to describe, is merged like any other. -->
