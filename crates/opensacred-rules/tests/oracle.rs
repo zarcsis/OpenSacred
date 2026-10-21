@@ -212,13 +212,7 @@ fn balance() -> Balance {
 fn the_most_health_is_the_originals() {
     let vectors: Vec<MostHealth> = vectors("most_health");
     let rules = Rules::of(Some(&balance()));
-    let mut compared = 0;
     for v in &vectors {
-        // A most that the level's factor takes below 1 the original keeps at 0 (#417).
-        if !v.hero && v.most == 0 {
-            continue;
-        }
-        compared += 1;
         let most = if v.hero {
             hero_health(v.base, v.level)
         } else {
@@ -230,5 +224,5 @@ fn the_most_health_is_the_originals() {
             v.base, v.level, v.hero
         );
     }
-    assert!(compared >= vectors.len() / 2, "only {compared} compared");
+    assert!(!vectors.is_empty(), "no vectors of the most health");
 }
