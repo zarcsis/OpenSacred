@@ -15,7 +15,7 @@ use crate::attack::{self, Aim};
 use crate::frame::{Control, Step, Unpaused};
 use crate::hero::{self, Body};
 use crate::hud::Pointer;
-use crate::npcs::{Door, Swing};
+use crate::npcs::{Door, Object, Swing};
 
 /// How near a door the hero turns it, standing, in world units (`0x53A170`).
 const TURNS_WITHIN: f32 = 300.0;
@@ -24,8 +24,9 @@ const TURNS_WITHIN: f32 = 300.0;
 #[derive(Component)]
 pub struct Opens(Entity);
 
-/// On a press of the left button that went to no attack, the door nearest the cursor's line of
-/// sight, if one is near it, becomes the hero's to turn; any press ends the last such order.
+/// On a press of the left button that went to no attack, the door whose model is nearest the
+/// cursor's line of sight, if one is near it, becomes the hero's to turn; any press ends the last
+/// such order.
 fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -63,11 +64,11 @@ fn pick(
     }
 }
 
-/// The hero that stands, once its way to a door it was sent to ends: within 300 of the door it
-/// turns it, as a hero, else it gives up.
+/// The hero that stands, once its way to a door it was sent to ends: within 300 of the door's
+/// logical position (`npcs::Object`) it turns it, as a hero, else it gives up.
 fn turn(
     mut commands: Commands,
-    mut doors: Query<(&GlobalTransform, &mut Door)>,
+    mut doors: Query<(&Object, &mut Door)>,
     heroes: Query<(Entity, &Transform, &Body, &Opens)>,
 ) {
     for (hero, transform, body, opens) in &heroes {
@@ -78,7 +79,7 @@ fn turn(
         let Ok((at, door)) = doors.get_mut(opens.0) else {
             continue;
         };
-        if turns(transform.translation, at.translation()) {
+        if turns(transform.translation, at.at) {
             debug!("doors: the hero turns {}", opens.0);
             commands.entity(opens.0).insert(Swing::by_hero(!door.open));
         }

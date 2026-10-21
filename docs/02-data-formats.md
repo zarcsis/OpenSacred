@@ -800,7 +800,9 @@ Confirmed by code 2026-10-17 (the handler `0x482510`, through the walker's jump 
   For an object with a model the handler then sets the floats at `+0xCC…+0xD4` from `0x20` and the object's flag `0x800000` (**hypothesis**: where the model is drawn, which the doors' leaves support, §5.7).
   5,730 of the 8,266 `CreateObj` records of the Seraphim's add-on tree carry it, all 1,130 doors among them; 1,026 of those with a cell lie farther than 38 units (half a cell's diagonal) from its centre, up to 810.
   Of the doors 188 do, the dwarves' (59) and the fences' (33) the most of them, the farthest a castle's door on a floor of layer 2 (748).
-  `opensacred-game` places the objects at their cells' centres.
+  The third number repeats the cell's layer in all 5,703 records that carry both, so it is no height.
+  `opensacred-game` draws an object's model at its `0x20`, on its level's heights there, and keeps the cell's centre as the object's position (#429): the cell that a chest takes in the creatures' way, the doors' distances and the doors that the creatures choose go by the cell, the model, its shadow and its place among the sprites by `0x20`.
+  The 2,817 `CreateNPC` records of the tree that carry a `0x20` with a cell all lie within 38 units of its centre; the game places the NPCs at their cells' centres.
 **The spawning records**, **confirmed** by code and on the trees 2026-10-20 (#215, docs/re/spawning.md), all in the sectors' functions `Sector<x><yyy>Init` and `…Enter`:
 `SpawnValues` (type 100) `0B:density 0B:lowest 0B:highest`, the sector's density in percent (50 in all 11,498 records) and its creatures' levels (1–45, 4–80);
 `FillSector` (type 51, 5,309 records, all in `Enter` functions) `36:n` (100 for animals, 310 for monsters), `34:(sx, sy)` the record's own sector, `35:(a, b, 4096)` `a` to `b` creatures per 4,096 cells (0–16), `33:(lowest, highest)` (overridden by `SpawnValues`), then up to 100 `19:(type, weight, hostile)` entries (14,000 in all, 251 types, weights 0–100); `08` and `0E` make every entry hostile or peaceful;
@@ -1061,6 +1063,8 @@ Closed and not in the list: where the screen resolution is stored (nowhere: it i
 6. The meaning of the X fields in the TEX (9,406/27,100), MDL (13,268 in `models.pak`, also in the `Models.tmp` and `MOTIONS.PAK` headers; 19,897 in `models03.pak`), CIF (0x3C3D5) and WPN (0x1A3717) headers; probably CRCs/timestamps.
 7. How the 719 of the 875 bipeds that face −Y in their bind pose come to face their way (§4.5): the client turns a model's `x` along its direction (docs/re/drawing.md, "The models' turn"), which suits the 148 that face +X, among them `SERAPHIM.GRN`.
 8. Which side of its direction the client turns a model's +z (glTF) to, and so whether the doors' leaves swing onto the floor or the ground (§5.7); what the ground's 636 cells of flag bit 2 that no door names are (§5.7).
+9. Whether the client draws a `CreateObj`'s model at the floats `+0xCC…+0xD4` that it sets from `0x20` (§7.3), as `opensacred-game` does, and in which cell's draw list it puts the object, its `0x04` cell's or the cell of `0x20`.
+   Against it: a castle's door of the Seraphim's trees, `Door_Stronghold01` of cell (2345, 2014), whose trigger closes the cell beside it, (2344, 2014), has its `0x20` 3.6 cells off along −x and −y; in the game its leaf stands in the doorway at the top of a stair at its cell's centre and behind the keep's wall at its `0x20`.
 
 ## Sources
 

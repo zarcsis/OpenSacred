@@ -35,7 +35,7 @@ use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::lines::Says;
-use crate::npcs::{Door, Npcs, Plays, PutAt, Rearms, Strikes, Swing, Talks, Walk};
+use crate::npcs::{Door, Npcs, Object, Plays, PutAt, Rearms, Strikes, Swing, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::{Heights, Level};
@@ -149,7 +149,8 @@ fn sector_of(p: Vec3) -> (f32, f32) {
 /// A door as a creature in its way sees it, with its entity and its world point.
 type Seen = DoorSeen<(Entity, Vec3)>;
 
-/// The doors that the creatures in their way look at (`0x4D4800`), and the hero's marks on them.
+/// The doors that the creatures in their way look at (`0x4D4800`), at their logical positions
+/// (`npcs::Object`), and the hero's marks on them.
 #[derive(SystemParam)]
 struct Doors<'w, 's> {
     #[expect(
@@ -161,7 +162,7 @@ struct Doors<'w, 's> {
         's,
         (
             Entity,
-            &'static Transform,
+            &'static Object,
             &'static Door,
             Option<&'static Swing>,
             &'static Layered,
@@ -178,9 +179,9 @@ impl Doors<'_, '_> {
     fn seen(&self) -> Vec<Seen> {
         self.doors
             .iter()
-            .map(|(entity, transform, door, swing, layered)| DoorSeen {
-                door: (entity, transform.translation),
-                at: spot(transform.translation),
+            .map(|(entity, object, door, swing, layered)| DoorSeen {
+                door: (entity, object.at),
+                at: spot(object.at),
                 layer: layered.layer,
                 open: swing.map_or(door.open, |swing| swing.open),
                 barred: false,
@@ -269,7 +270,7 @@ fn way_to(here: Vec3, level: Level, to: Spot, heights: &Heights) -> bool {
 /// anew (`0x53A170`).
 fn open(
     mut commands: Commands,
-    doors: Query<(&Transform, &Layered), With<Door>>,
+    doors: Query<(&Object, &Layered), With<Door>>,
     mut creatures: Query<(Entity, &Transform, &Layered, &mut Mind), Without<Walk>>,
 ) {
     for (entity, transform, layered, mut mind) in &mut creatures {
@@ -281,16 +282,11 @@ fn open(
             continue;
         };
         let here = transform.translation;
-        if opens(
-            spot(here),
-            layered.layer,
-            spot(at.translation),
-            door_layer.layer,
-        ) {
+        if opens(spot(here), layered.layer, spot(at.at), door_layer.layer) {
             debug!("ai: {entity} opens {door} in its way");
             commands.entity(door).insert(Swing::to(true));
         } else {
-            let d = (at.translation - here).xz().length();
+            let d = (at.at - here).xz().length();
             debug!("ai: {entity} stands {d:.0} from {door}, too far to open it");
         }
     }
@@ -826,7 +822,7 @@ fn behave(
     heights: Res<Heights>,
     hero: Query<(Entity, &Transform), With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
-    doors: Query<(Entity, &Transform), (With<Door>, Without<Mind>)>,
+    doors: Query<(Entity, &Object), (With<Door>, Without<Mind>)>,
     clock: Res<Clock>,
     daemon: Res<Daemon>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
@@ -898,11 +894,11 @@ fn behave(
             (x - hx).abs() <= 1.0 && (y - hy).abs() <= 1.0 && (at - hero).xz().length() < RANGE
         })
         .collect();
-    // The doors, at the hero's looks.
+    // The doors at their logical positions, at the hero's looks.
     let doors: Vec<(Entity, Vec3)> = if minds.looked {
         doors
             .iter()
-            .map(|(entity, transform)| (entity, transform.translation))
+            .map(|(entity, object)| (entity, object.at))
             .collect()
     } else {
         Vec::new()

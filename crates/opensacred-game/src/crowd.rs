@@ -11,6 +11,7 @@ pub use opensacred_rules::ways::{BIG, HOSTILE, flags_word};
 
 use crate::frame::Step;
 use crate::hero::Body;
+use crate::npcs::Object;
 use crate::paths::Cell;
 use crate::terrain::Level;
 
@@ -80,18 +81,29 @@ impl Crowd {
     }
 }
 
-/// Takes the cells the creatures stand on, the hero's at its level of now.
+/// Takes the cells the creatures stand on, the hero's at its level of now, and an object's its
+/// logical position's, its `0x04` cell, wherever its model is drawn (`npcs::Object`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 pub fn gather(
     mut crowd: ResMut<Crowd>,
-    creatures: Query<(Entity, &Transform, &InTheWay, Option<&Body>)>,
+    creatures: Query<(
+        Entity,
+        &Transform,
+        &InTheWay,
+        Option<&Body>,
+        Option<&Object>,
+    )>,
 ) {
     crowd.cells.clear();
-    for (entity, transform, way, body) in &creatures {
+    for (entity, transform, way, body, object) in &creatures {
         let mut way = *way;
         if let Some(body) = body {
             way.level = body.level();
         }
-        let p = transform.translation;
+        let p = object.map_or(transform.translation, |object| object.at);
         crowd.add(crate::paths::cell_of(p.x, p.z), entity, way);
     }
 }
@@ -229,5 +241,24 @@ mod tests {
         let chest = world.spawn_empty().id();
         crowd.add((6, 6), chest, InTheWay::object(None));
         assert!(!crowd.crowded((6, 6), None, guard));
+    }
+
+    #[test]
+    fn an_object_takes_its_cell_wherever_its_model_is_drawn() {
+        let mut app = App::new();
+        app.init_resource::<Crowd>().add_systems(Update, gather);
+        // A chest of cell (6, 6) whose model is drawn in cell (9, 6).
+        app.world_mut().spawn((
+            Transform::from_translation(crate::iso::ground(9.5, 6.5)),
+            InTheWay::object(None),
+            Object {
+                at: crate::iso::ground(6.5, 6.5),
+            },
+        ));
+        let walker = app.world_mut().spawn_empty().id();
+        app.update();
+        let crowd = app.world().resource::<Crowd>();
+        assert!(crowd.stops((6, 6), None, walker, false));
+        assert!(!crowd.stops((9, 6), None, walker, false));
     }
 }
