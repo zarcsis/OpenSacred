@@ -377,10 +377,10 @@ fn execute(command: Command) -> Result<ExitCode> {
                     summary.empty,
                     dst.display(),
                 );
-                if summary.repaired_frames > 0 {
+                if summary.repaired_textures > 0 {
                     println!(
-                        "  repaired: {} texels that are not opaque in {} frames of the lavas",
-                        summary.repaired_texels, summary.repaired_frames,
+                        "  repaired: {} texels in {} textures (the lavas' frames, a menu's tile)",
+                        summary.repaired_texels, summary.repaired_textures,
                     );
                 }
             }
@@ -467,7 +467,7 @@ fn execute(command: Command) -> Result<ExitCode> {
             let start = Instant::now();
             let summary = sound::convert(&game_dir, &out, &only)?;
             println!(
-                "sound: {} FLAC and {} MP3 samples, {} profiles, {} music files ({} from their                  first frame; {:.1} MB) -> {}",
+                "sound: {} FLAC and {} MP3 samples, {} profiles, {} music files ({} from their first frame; {:.1} MB) -> {}",
                 summary.flac,
                 summary.mp3,
                 summary.profiles,

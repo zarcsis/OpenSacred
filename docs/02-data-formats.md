@@ -121,6 +121,9 @@ The number is the five-digit record number, the name is lowercase without `.tga`
 This yields 25,536 PNGs (1.2 GB) in 16.5 s on 32 threads.
 The pixels match `tex_decode.py` on a sample of 97 fmt 4 records (41 sizes, 22 atlases, all names without a NUL, the last record) and `tex_fmt6.py` on 48 menu screen tiles; the share of alpha 255 and 0 in fmt 6 matches the script output (77.4% and 11.2%).
 
+One menu tile's alpha is faint, **confirmed** on the converted PNG 2026-10-20 (#352): record 347, `GUI_UW_OPTION12.TGA` (format 6, 256 × 256), one of the twelve tiles of the Underworld main menu, has 39,076 texels of alpha 195 to 255 over its body (14 of them 255), where its neighbours' bodies are 255, besides 8,658 of alpha 0, 9,042 of 1 and an edge of 2 to 194; drawn over the menu's animated water, its rocks show the water through them (**community-reported**: DarkMatters file 770, "Main Menu Graphics FIX").
+`opensacred-convert textures` repairs that one record as it writes it: its alphas are scaled by 255/195, held at 255, so its body is opaque and its edge keeps its ramp (docs/decisions/2026-10-20-menu-tile-alpha.md); the lavas' frames are repaired too (§5.2).
+
 ### 3.2 Texture.TMP
 
 `TXL` v1: a 0x118 B header + 25,538 × 80 B, the same record headers but with `packedOffset` filled in; 25,534 records with `pakIndex` 0 matched the `texture.pak` directory by (offset, size), two with `pakIndex` 4 come from `texture03.pak`.
