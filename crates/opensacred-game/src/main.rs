@@ -12,6 +12,7 @@ mod command;
 mod console;
 mod crowd;
 mod daynight;
+mod doors;
 mod fight;
 mod frame;
 mod game;
@@ -221,12 +222,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         console::ConsolePlugin,
         crowd::CrowdPlugin,
         daynight::DayNightPlugin,
+        doors::DoorsPlugin,
         fight::FightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
-        help::HelpPlugin,
     ))
     .add_plugins((
+        help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         journal::JournalPlugin,
@@ -241,9 +243,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
-        shaders::ShaderLibrary,
     ))
     .add_plugins((
+        shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
         srgb::SrgbPlugin,

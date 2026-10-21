@@ -19,7 +19,7 @@ use crate::spawning::Rng;
 
 /// How near the cursor's line of sight a creature is picked, and the height of the part of it
 /// that picks, in world units (**hypothesis**: the original picks by the model's shape).
-const PICKED_WITHIN: f32 = 45.0;
+pub(crate) const PICKED_WITHIN: f32 = 45.0;
 const PICKED_HEIGHT: f32 = 110.0;
 /// The blend into a strike's clip.
 const BLEND: Duration = Duration::from_millis(100);
@@ -57,7 +57,7 @@ struct Dice(Rng);
 
 /// The distance of `point`, or of the nearest of the points up to [`PICKED_HEIGHT`] over it, from
 /// the line of `ray`.
-fn from_line(ray: Ray3d, point: Vec3) -> f32 {
+pub(crate) fn from_line(ray: Ray3d, point: Vec3) -> f32 {
     let direction = ray.direction.as_vec3();
     (0..=4_u8)
         .map(|step| {
@@ -75,7 +75,7 @@ fn from_line(ray: Ray3d, point: Vec3) -> f32 {
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
-fn aim(
+pub(crate) fn aim(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,

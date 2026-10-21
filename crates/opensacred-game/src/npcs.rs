@@ -89,6 +89,8 @@ const MAKE_GROUP: u16 = 115;
 /// (`0x496520`).
 const OPEN: u8 = 0x26;
 const CLOSED: u8 = 0x27;
+/// `CreateObj`'s operand that names its trigger.
+const TRIGGER: u8 = 0x29;
 const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
 
@@ -118,8 +120,10 @@ struct Placement {
     /// refuses its cell to a creature of id above 16, not to the hero; `crowd`).
     blocks: bool,
     /// Whether it is a door, an object of category 10, which the townsfolk go in and out by
-    /// (`0x428130`; `ai`).
+    /// (`0x428130`; `ai`), and the trigger it names (`CreateObj`'s `0x29`), whose cells it opens
+    /// and closes (#372).
     door: bool,
+    trigger: Option<String>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -254,8 +258,13 @@ fn held_class(items: &[(u8, Option<u8>)]) -> u8 {
 pub struct Npcs {
     placements: Vec<Placement>,
     by_sector: HashMap<(u32, u32), Vec<usize>>,
-    /// The cells of the closed triggers ([`closed_cells`]), by sector.
-    closed: HashMap<(u32, u32), Vec<Spot>>,
+    /// The cells of the closed triggers ([`closed_cells`]), by sector, and by trigger; the
+    /// triggers that a door has opened since (#372), whose cells a sector that comes in leaves
+    /// free, and those that a hero has turned, whose doors no townsperson closes.
+    closed: HashMap<(u32, u32), Vec<(String, Spot)>>,
+    triggers: HashMap<String, Vec<Spot>>,
+    opened: HashSet<String>,
+    marked: HashSet<String>,
     /// The sectors' fills ([`fills`]), and what each type they make is placed as.
     fills: HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawning::Fill>)>,
     templates: HashMap<u32, Placement>,
@@ -926,8 +935,9 @@ fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
 /// state's open bit, [`OPEN`] sets it, the last of them counting (a trigger of neither is open,
 /// **hypothesis**, as the sector files' are). The client's cell test (`0x4EBCA0`) refuses such a
 /// cell to every creature, the chests' and the barrels' among them (docs/re/movement.md, "The
-/// chests' cells"); no script of the start opens them.
-fn closed_cells(records: &[&Record]) -> Vec<Spot> {
+/// chests' cells"); no script of the start opens them, but a door that names its trigger does
+/// as it opens (#372). Each with its trigger's name, lower case.
+fn closed_cells(records: &[&Record]) -> Vec<(String, Spot)> {
     let ops = |kind| {
         records
             .iter()
@@ -950,10 +960,14 @@ fn closed_cells(records: &[&Record]) -> Vec<Spot> {
         .filter_map(|ops| name_of(ops))
         .collect();
     ops(TRIGGER_PATCH)
-        .filter(|ops| name_of(ops).is_some_and(|name| closed.contains(&name)))
-        .flat_map(|ops| {
-            ops.iter().filter_map(|o| match (o.tag, &o.value) {
-                (0x2A, Value::I32x3([x, y, floor])) => Some((*x, *y, *floor)),
+        .filter_map(|ops| {
+            name_of(ops)
+                .filter(|name| closed.contains(name))
+                .map(|name| (name, ops))
+        })
+        .flat_map(|(name, ops)| {
+            ops.iter().filter_map(move |o| match (o.tag, &o.value) {
+                (0x2A, Value::I32x3([x, y, floor])) => Some((name.clone(), (*x, *y, *floor))),
                 _ => None,
             })
         })
@@ -1257,6 +1271,14 @@ impl Npcs {
                 },
                 blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
                 door: record.kind == CREATE_OBJ && category(item) == DOOR,
+                trigger: (record.kind == CREATE_OBJ && category(item) == DOOR)
+                    .then(|| {
+                        ops.iter().find_map(|o| match (o.tag, &o.value) {
+                            (TRIGGER, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+                            _ => None,
+                        })
+                    })
+                    .flatten(),
                 creature: (
                     creature,
                     record_flags.get(&creature).copied().unwrap_or_default(),
@@ -1333,6 +1355,7 @@ impl Npcs {
                     casts: !shadowless.contains(&creature),
                     blocks: false,
                     door: false,
+                    trigger: None,
                     creature: (
                         creature,
                         record_flags.get(&creature).copied().unwrap_or_default(),
@@ -1389,19 +1412,27 @@ impl Npcs {
                 .or_default()
                 .push(index);
         }
-        let mut closed: HashMap<(u32, u32), Vec<Spot>> = HashMap::new();
-        for (x, y, floor) in closed_cells(&records) {
+        let mut closed: HashMap<(u32, u32), Vec<(String, Spot)>> = HashMap::new();
+        let mut triggers: HashMap<String, Vec<Spot>> = HashMap::new();
+        for (name, (x, y, floor)) in closed_cells(&records) {
+            triggers
+                .entry(name.clone())
+                .or_default()
+                .push((x, y, floor));
             if let (Ok(cx), Ok(cy)) = (u32::try_from(x), u32::try_from(y)) {
                 closed
                     .entry((cx / side, cy / side))
                     .or_default()
-                    .push((x, y, floor));
+                    .push((name, (x, y, floor)));
             }
         }
         Ok(Self {
             placements,
             by_sector,
             closed,
+            triggers,
+            opened: HashSet::new(),
+            marked: HashSet::new(),
             fills,
             templates,
             classes,
@@ -1464,16 +1495,11 @@ pub fn place(
         npcs.spawned.insert(at);
         // The closed triggers' cells: of the ground for the floors 0 and 1, of the building's
         // floor for 1 and above (`0x463F50`, which keys the floors 0 and 1 alike).
-        for &(x, y, floor) in npcs.closed.get(&at).map(Vec::as_slice).unwrap_or_default() {
-            if floor <= 1 {
-                heights.occupy((x, y), None);
-            }
-            if let Ok(floor) = usize::try_from(floor)
-                && floor >= 1
-                && let Some(building) = heights.building_on_floor((x, y), floor)
-                && let Some(level) = heights.floor_level(building, floor)
-            {
-                heights.occupy((x, y), Some(level));
+        for (name, spot) in npcs.closed.get(&at).map(Vec::as_slice).unwrap_or_default() {
+            if !npcs.opened.contains(name) {
+                for (cell, level) in spot_levels(&heights, *spot) {
+                    heights.occupy(cell, level);
+                }
             }
         }
         for &index in npcs
@@ -1819,6 +1845,7 @@ fn spawn(
                 clips: None,
                 player: None,
                 open: false,
+                trigger: placement.trigger.clone(),
             });
         }
     } else {
@@ -2415,11 +2442,54 @@ pub struct Door {
     clips: Option<(AnimationNodeIndex, AnimationNodeIndex)>,
     player: Option<Entity>,
     pub open: bool,
+    /// The trigger it names, whose cells open and close with it (#372).
+    trigger: Option<String>,
 }
 
-/// A door that `ai` opens (`true`) or closes, as the event `0x21` turns it (`0x4FC8D0`).
+/// A door that `ai` or the hero (`doors`) opens or closes, as the event `0x21` turns it
+/// (`0x4FC8D0`, `0x44BCD0`): the event of a creature that is no hero leaves open a door that a
+/// hero turned before.
 #[derive(Component)]
-pub struct Swing(pub bool);
+pub struct Swing {
+    pub open: bool,
+    by_hero: bool,
+}
+
+impl Swing {
+    /// A townsperson's opening (`true`) or closing of a door.
+    pub fn to(open: bool) -> Self {
+        Self {
+            open,
+            by_hero: false,
+        }
+    }
+
+    /// The hero's.
+    pub fn by_hero(open: bool) -> Self {
+        Self {
+            open,
+            by_hero: true,
+        }
+    }
+}
+
+/// The cells and levels that a trigger's cell `(x, y, floor)` closes: the ground's for the
+/// floors 0 and 1, the building's floor's for 1 and above (`0x463F50`, which keys the floors 0
+/// and 1 alike).
+fn spot_levels(heights: &Heights, (x, y, floor): Spot) -> Vec<((i32, i32), Level)> {
+    let mut levels = Vec::new();
+    if floor <= 1 {
+        levels.push(((x, y), None));
+    }
+    if let Ok(floor) = usize::try_from(floor)
+        && floor >= 1
+        && let Some(building) = heights.building_on_floor((x, y), floor)
+        && let Some(level) = heights.floor_level(building, floor)
+    {
+        levels.push(((x, y), Some(level)));
+    }
+    levels
+}
 
 /// Gives each door's animation player its clips of opening and closing.
 fn door_clips(
@@ -2475,27 +2545,65 @@ fn swing(
     mut commands: Commands,
     mut doors: Query<(Entity, &mut Door, &Swing)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    mut npcs: ResMut<Npcs>,
+    mut heights: ResMut<Heights>,
     speed: Res<hero::GameSpeed>,
 ) {
     for (entity, mut door, swing) in &mut doors {
+        let marked = door
+            .trigger
+            .as_ref()
+            .is_some_and(|name| npcs.marked.contains(name));
+        if !swing.open && !swing.by_hero && marked {
+            commands.entity(entity).remove::<Swing>();
+            continue;
+        }
         let (Some((open, close)), Some(player)) = (door.clips, door.player) else {
             // Its clips not yet given, it waits, unless its model has none.
             if door.player.is_some() {
-                door.open = swing.0;
+                turn_trigger(&mut npcs, &mut heights, &door, swing);
+                door.open = swing.open;
                 commands.entity(entity).remove::<Swing>();
             }
             continue;
         };
-        if door.open != swing.0
+        if door.open != swing.open
             && let Ok((mut player, mut transitions)) = players.get_mut(player)
         {
-            let clip = if swing.0 { open } else { close };
+            let clip = if swing.open { open } else { close };
             transitions
                 .play(&mut player, clip, Duration::ZERO)
                 .set_speed(speed.0);
         }
-        door.open = swing.0;
+        turn_trigger(&mut npcs, &mut heights, &door, swing);
+        door.open = swing.open;
         commands.entity(entity).remove::<Swing>();
+    }
+}
+
+/// Opens or closes the cells of `door`'s trigger as `swing` turns it (bit 0 of the trigger's
+/// state, docs/re/movement.md), and keeps a hero's mark on it (#372).
+fn turn_trigger(npcs: &mut Npcs, heights: &mut Heights, door: &Door, swing: &Swing) {
+    let Some(name) = door.trigger.as_ref() else {
+        return;
+    };
+    if swing.by_hero {
+        npcs.marked.insert(name.clone());
+    }
+    let spots = npcs.triggers.get(name).cloned().unwrap_or_default();
+    if swing.open {
+        npcs.opened.insert(name.clone());
+    } else {
+        npcs.opened.remove(name);
+    }
+    for spot in spots {
+        for (cell, level) in spot_levels(heights, spot) {
+            if swing.open {
+                heights.free(cell, level);
+            } else {
+                heights.occupy(cell, level);
+            }
+        }
     }
 }
 
@@ -3054,13 +3162,14 @@ mod tests {
             patch("CHESTTRIGGER", &[[3200, 2490, 0]]),
         ];
         let records: Vec<&Record> = records.iter().collect();
+        let chest = |x, y, floor| ("chesttrigger".to_owned(), (x, y, floor));
         assert_eq!(
             closed_cells(&records),
             [
-                (3341, 2512, 1),
-                (3342, 2512, 1),
-                (3343, 2512, 1),
-                (3200, 2490, 0)
+                chest(3341, 2512, 1),
+                chest(3342, 2512, 1),
+                chest(3343, 2512, 1),
+                chest(3200, 2490, 0)
             ]
         );
     }

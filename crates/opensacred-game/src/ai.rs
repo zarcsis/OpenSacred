@@ -970,7 +970,7 @@ fn behave(
         commands.entity(entity).remove::<Walk>();
     }
     for (door, open) in swings {
-        commands.entity(door).insert(Swing(open));
+        commands.entity(door).insert(Swing::to(open));
     }
     // The other idle children within 600 of one at play, without a dialogue, run after it
     // (`0x4EE820`); not one sent off this frame (`sent`).
