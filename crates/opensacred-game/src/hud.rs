@@ -1,8 +1,8 @@
 //! The interface over the world: for now the original's cursor, `MOUSE_MAIN.TGA`, scaled in whole
-//! steps with the window's height, and the interface laid out on the original's 768-pixel-high
-//! screen scaled to the window's height, as the world is. The original lays its interface out in
-//! code from the `gui_main_*` atlases (docs/02 §11); it comes in M5, and until then the HUD shows
-//! nothing of the hero (docs/decisions/2026-10-17-hud.md).
+//! steps with the system's display scale, and the interface laid out on the original's
+//! 768-pixel-high screen scaled to the window's height, as the world is. The original lays its
+//! interface out in code from the `gui_main_*` atlases (docs/02 §11); it comes in M5, and until
+//! then the HUD shows nothing of the hero (docs/decisions/2026-10-17-hud.md).
 //!
 //! Bevy's interface writes its colours and texels into the frame as they are, and the frame holds
 //! sRGB values (`srgb`): an interface gives them in those values, its colours as linear ones and
@@ -123,25 +123,46 @@ fn cursor_image(path: &Path, scale: usize) -> Result<Image> {
     ))
 }
 
-/// Puts the original's cursor on the window, scaled in whole steps with the window's height.
-pub fn cursor(
+/// The cursor's scale: the system's display scale in whole steps, rounded down and at least 1, so
+/// that the cursor grows as the system's own does and keeps its texels square, whatever the
+/// window's size and mode (#442). The window's scale factor is held at 1 (`main`), so the system's
+/// is the backend's.
+fn cursor_scale(display_scale: f32) -> usize {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a display's scale is a small positive number"
+    )]
+    let scale = display_scale.floor().max(1.0) as usize;
+    scale
+}
+
+/// Puts the original's cursor on the window, scaled with the system's display scale, and makes it
+/// again when that changes: it is not known yet at the start, and a window moved to another
+/// monitor takes that monitor's.
+fn cursor(
     mut commands: Commands,
     hud: Res<Hud>,
     window: Single<(Entity, &Window)>,
     mut images: ResMut<Assets<Image>>,
+    mut shown: Local<usize>,
 ) {
     let Some(path) = &hud.cursor else {
         return;
     };
     let (entity, window) = *window;
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a window's height over 768 is a small positive number"
-    )]
-    let scale = (window.height() / SCREEN_HEIGHT).round().max(1.0) as usize;
+    let display_scale = window.resolution.base_scale_factor();
+    let scale = cursor_scale(display_scale);
+    if *shown == scale {
+        return;
+    }
+    *shown = scale;
     match cursor_image(path, scale) {
         Ok(image) => {
+            info!(
+                "cursor: {0} x {0} pixels at the display scale {display_scale}",
+                image.width()
+            );
             commands
                 .entity(entity)
                 .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
@@ -187,15 +208,24 @@ pub struct HudPlugin;
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Pointer>()
-            .add_systems(Startup, cursor)
             .add_systems(PreUpdate, point.after(bevy::input::InputSystems))
-            .add_systems(Update, scale);
+            .add_systems(Update, (cursor, scale));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cursor_grows_in_whole_steps_of_the_display_scale() {
+        assert_eq!(cursor_scale(1.0), 1);
+        assert_eq!(cursor_scale(1.5), 1);
+        assert_eq!(cursor_scale(1.75), 1);
+        assert_eq!(cursor_scale(2.0), 2);
+        assert_eq!(cursor_scale(3.5), 3);
+        assert_eq!(cursor_scale(0.5), 1);
+    }
 
     #[test]
     fn the_cursor_is_the_top_left_square_scaled_in_whole_steps() {
