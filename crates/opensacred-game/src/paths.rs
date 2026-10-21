@@ -29,6 +29,22 @@ fn centre(cell: Cell) -> Vec2 {
     Vec2::new(point.x, point.z)
 }
 
+/// Where a creature at `position` heads its way's search for `target` (`0x4FABE0`): the target
+/// itself within 25 cells along each axis, else the centre of the cell that
+/// `opensacred_rules::ways::nearer` brings it to along the line, at `position`'s height, so that
+/// a far target is reached a leg at a time; the target itself when no cell of the line within
+/// 25 may be stood on (`walkable`).
+pub fn leg(position: Vec3, target: Vec3, walkable: impl Fn(Cell) -> bool) -> Vec3 {
+    let (from, to) = (cell_of(position.x, position.z), cell_of(target.x, target.z));
+    match ways::nearer(from, to, walkable) {
+        Some(cell) if cell != to => {
+            let point = centre(cell);
+            Vec3::new(point.x, position.y, point.y)
+        }
+        _ => target,
+    }
+}
+
 /// Whether the straight line from world `a` to `b` on the ground crosses walkable cells only,
 /// but for the cell of `a` (`opensacred_rules::ways::clear`).
 pub fn clear(a: Vec2, b: Vec2, walkable: impl Fn(Cell) -> bool) -> bool {
@@ -107,6 +123,23 @@ mod tests {
 
     fn at(x: f32, y: f32) -> Vec3 {
         iso::ground(x, y)
+    }
+
+    #[test]
+    fn a_far_target_is_headed_for_a_leg_at_a_time() {
+        let open = |_: Cell| true;
+        // Within 25 cells, the target itself.
+        let near = at(20.5, 3.5);
+        assert_eq!(leg(at(0.5, 0.5), near, open), near);
+        // 40 cells along x: the cell 25 along the line, at its centre.
+        let leg_point = leg(at(0.5, 0.5), at(40.5, 0.5), open);
+        assert!((leg_point - at(25.5, 0.5)).length() < 1e-3, "{leg_point}");
+        // The line's far cells blocked: the farthest it may stand on.
+        let short = leg(at(0.5, 0.5), at(40.5, 0.5), |cell: Cell| cell.0 < 20);
+        assert!((short - at(19.5, 0.5)).length() < 1e-3, "{short}");
+        // No cell of the line within 25 to stand on: the target itself.
+        let far = at(40.5, 0.5);
+        assert_eq!(leg(at(0.5, 0.5), far, |cell: Cell| cell.0 == 0), far);
     }
 
     #[test]

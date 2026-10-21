@@ -2296,9 +2296,11 @@ pub fn animate(
 
 /// Walks each walking NPC toward its target as the hero walks (`hero::run`): round what blocks
 /// the way and through the doors, at its walk speed times the game's, facing its way; at the
-/// target it stands, its idle clip playing. A target it cannot reach it walks straight toward,
-/// up to what blocks it, and stands there; one whose first step is blocked stands a second in
-/// its idle before its walk ends (#258).
+/// target it stands, its idle clip playing. A target beyond 25 cells along an axis it heads for
+/// a leg at a time, its way searched to the cell brought nearer along the line (`paths::leg`,
+/// `0x4FABE0`, #425). A target it cannot reach it walks straight toward, up to what blocks it,
+/// and stands there; one whose first step is blocked stands a second in its idle before its walk
+/// ends (#258).
 pub fn walk(
     mut commands: Commands,
     time: Res<Time>,
@@ -2354,10 +2356,11 @@ pub fn walk(
         // an NPC, of an id above 16, is stopped by any).
         let free =
             |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
+        let leg = paths::leg(here, target, |cell| heights.walkable_on(cell, level));
         let toward = match paths::next(
             here,
             (level, false),
-            target,
+            leg,
             None,
             |cell, (at, _)| free(cell, at),
             |place| {
