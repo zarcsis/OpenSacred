@@ -85,7 +85,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-01 Goal | A playable modern reimplementation on the original's converted assets, inspired by the original, not an exact copy | Requirement (§1.1); removes the most expensive requirements (matching, determinism, save compatibility) |
 | ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.99.1) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
-| ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (not created yet: on 2026-10-20 the rules followed so far live in `opensacred-game`, #328) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan, WebGPU and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
+| ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls; the rest of the rules followed so far moves into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan, WebGPU and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
 | ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI): textures → PNG + KTX2, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound → FLAC/Ogg Vorbis (MP3 as is), video → AV1 via FFmpeg, scripts → intermediate representation (IR) | Requirement (§1.1); open formats can be checked with third-party tools (Blender, glTF-Validator) and suit HD packs |
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
 | ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder, the HTML video element in the browser | Everything is free and builds for Windows, Linux, Android and WebAssembly |
@@ -130,7 +130,7 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 5. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
-   Status 2026-10-20: neither `opensacred-rules` nor `opensacred-oracle` is created yet, and there are no vectors; the rules read so far (the fight, the creatures' AI, the spawning, the levels) are implemented as Bevy systems in `opensacred-game`, and the checks of them in the original are gathered in #227 (#328).
+   Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), and the fight, the ways and the creatures' AI move into it from `opensacred-game` (#360–#362); `opensacred-oracle` is not created yet (#363), and there are no vectors; the checks in the original are gathered in #227.
 6. **Nothing from the study is committed.**
    The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
@@ -213,9 +213,9 @@ OpenSacred/
 │  ├─ opensacred-formats/     reading the original formats (PAK, TEX, GRN, sectors, NetScript, global.res, AMH templates)
 │  ├─ opensacred-convert/     CLI: OriginalGame → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, all, coverage)
 │  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
-│  ├─ opensacred-rules/       (not created yet, #328) game rules without the engine: character, combat, items, AI, quests, script VM
+│  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, quests, script VM (the spawning's rolls so far, #364)
 │  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves
-│  └─ opensacred-oracle/      (not created yet; development only, run locally) runs functions of the user's own Sacred.exe in Unicorn, records vectors
+│  └─ opensacred-oracle/      (not created yet, #363; development only, run locally) runs functions of the user's own Sacred.exe in Unicorn, records vectors
 ├─ tools/analysis/            Python research scripts (archive, gradually replaced by Rust)
 ├─ tools/ghidra/              scripts of the local Ghidra project (classes, names, library marks)
 ├─ tools/game/                the game's remote-control client
@@ -240,8 +240,8 @@ OpenSacred/
 Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quest script interpreter.
 The layer is tested without graphics.
 The Bevy layer calls it through a thin ECS adapter.
-Status 2026-10-20: the crate is not created yet.
-The rules followed so far (the fight, the creatures' AI, the spawning, the levels) live in `opensacred-game` (`ai.rs`, `fight.rs`, `attack.rs`) as Bevy systems; whether and when their engine-free parts move here is #328.
+Status 2026-10-21: the crate holds the spawning's rolls of `FillSector` (`spawning`, #359).
+The rest of the rules followed so far (the fight, the creatures' AI, the ways, the levels) still live in `opensacred-game` (`ai.rs`, `fight.rs`, `attack.rs`, `paths.rs`) as Bevy systems, and their engine-free parts move here in #360–#362 (#364).
 
 ## 7. Asset converter
 

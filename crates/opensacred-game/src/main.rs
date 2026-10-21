@@ -40,7 +40,6 @@ mod settings;
 mod shaders;
 mod shadows;
 mod sound;
-mod spawning;
 mod srgb;
 mod statics;
 mod terrain;
@@ -54,6 +53,8 @@ use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PresentMode, WindowResolution};
 use clap::Parser;
+// The fills' rolls live in the rules' crate (#359); `crate::spawning` names them still.
+use opensacred_rules::spawning;
 
 #[derive(Parser)]
 #[command(

@@ -10,7 +10,7 @@
 * **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d, in the browser through the HTML video element; movies can be skipped.
   The conversion is done (`opensacred-convert video`); playback comes in M5.
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
-* **Scripts:** NetScript bytecode is converted into an intermediate representation (IR); the interpreter will live in `opensacred-rules` (planned, #328).
+* **Scripts:** NetScript bytecode is converted into an intermediate representation (IR); the interpreter will live in `opensacred-rules`.
   Until then `opensacred-game` places the NPCs and objects of the start script and of the sectors' `Init`, `Enter` and `FillSector` records.
 * **No networking:** no server, no multiplayer, no lobby; no Steam or GOG Galaxy integration is needed.
 
@@ -127,7 +127,7 @@ Estimate: 3–6 agent-hours (M1 and M5).
 1. **Converter:** done 2026-10-17: the disassembler in `opensacred-formats` → a faithful IR, one postcard file per tree (`netscript/<tree>.nsc`), with a readable listing on request (`--listing`).
    Grouping into quests, states, conditions and actions waits for the record semantics (docs/02 §7.6).
 2. **Record type semantics** are recovered by analyzing the interpreter in Ghidra and described in `docs/re/netscript.md`, starting with the most frequent ones; each type gets a test on real records.
-3. **The interpreter** in `opensacred-rules` (planned, #328): `match` on the record type over the IR; quest state is part of the save.
+3. **The interpreter** in `opensacred-rules`: `match` on the record type over the IR; quest state is part of the save.
    Until then `opensacred-game` reads the start script's and the sectors' `CreateNPC` and `CreateObj` records itself.
 4. **Modding** (optional, after 1.0): the ability to write new quests in Rhai on top of the same API.
 

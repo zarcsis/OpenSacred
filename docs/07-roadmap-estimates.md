@@ -107,7 +107,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 * `opensacred-oracle`, run locally: emulation of the formula functions of the user's own `Sacred.exe`, vectors in JSON.
 * **Exit criterion:** combat with the starting region's creatures, loot, experience and levels work; the formulas are covered by vectors; deviations are recorded in `docs/decisions/`.
 * **Status 2026-10-20:** the Ghidra project with the classes from RTTI, the community names and the library marks was done on 2026-10-18 and 2026-10-19 (#87, #88).
-  On 2026-10-20 the spawning, the creatures' AI and the fight with experience and levels followed, in `opensacred-game` rather than `opensacred-rules` (PLAN.md §10, items 11–13; #328).
+  On 2026-10-20 the spawning, the creatures' AI and the fight with experience and levels followed, in `opensacred-game` rather than `opensacred-rules`, and move into it from 2026-10-21 (#364; PLAN.md §10, items 11–13; #328).
   The hero's items, skills and combat arts, the loot, and the oracle's vectors remain.
 
 ### M4. Quests and world — 60–120 agent-hours, 25–50 maintainer hours

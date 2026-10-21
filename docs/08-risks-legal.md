@@ -43,7 +43,7 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 | Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
 | | Anything about removing or circumventing a protection |
 
-How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227), and against values recorded from the user's own executable once the oracle exists (PLAN.md §6.1; planned, not created yet, #328).
+How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227), and against values recorded from the user's own executable once the oracle exists (PLAN.md §6.1; planned, not created yet, #363).
 Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
 
 ## 4. Repository and CI
@@ -87,9 +87,9 @@ A constant table or formula taken from an MIT project carries the project's noti
 | # | Risk | Probability | Impact | Mitigation | Signal |
 |---|---|---|---|---|---|
 | 1 | Granny animations convert with errors | medium | high | three open readers as a reference; control poses; an early start in M1 | poses in Blender do not match the original's frames |
-| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors (planned, not created yet, #328); checks in the running original (#227); the deviation log | the balance "doesn't feel right" in play |
+| 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors (planned, not created yet, #363); checks in the running original (#227); the deviation log | the balance "doesn't feel right" in play |
 | 3 | NetScript semantics are harder than expected | medium | high | a disassembler early; coverage by type frequency | a quest cannot be completed |
-| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`: planned, not created yet; the rules followed so far live in `opensacred-game`, #328); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
+| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`, created 2026-10-21; most of the rules followed so far still live in `opensacred-game` and move into it, #364); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
 | 5 | Ecosystem crates lag behind Bevy | high | low | upgrade after the needed crates are out; keep critical parts in our own code | a crate does not build with the new Bevy |
 | 6 | Token use exceeds the estimate | medium | medium | tracking from day one (docs/usage.md); a cheaper model for mechanical work | agent-hour cost above the model |
 | 7 | Claude Code usage limits slow the work down | medium | medium | a task queue, scheduling heavy tasks, reviews in parallel | idle time due to limits |

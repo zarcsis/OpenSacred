@@ -4506,12 +4506,17 @@ dependencies = [
  "bevy_kira_audio",
  "clap",
  "opensacred-data",
+ "opensacred-rules",
  "png",
  "ron",
  "serde",
  "serde_json",
  "toml_edit",
 ]
+
+[[package]]
+name = "opensacred-rules"
+version = "0.0.0"
 
 [[package]]
 name = "orbclient"
