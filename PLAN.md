@@ -91,7 +91,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder, the HTML video element in the browser | Everything is free and builds for Windows, Linux, Android and WebAssembly |
 | ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
 | ADR-09 Network | Not done: no server, no multiplayer; `GameServer.exe` is used only as an auxiliary binary when analyzing shared functions | Requirement (§1.1) |
-| ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
+| ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), Frida (driving the running original for Claude Code, #448), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
 | ADR-11 Process | Claude Code as the main executor: `CLAUDE.md` with rules, MCP to Ghidra, tests as guardrails (converter golden data, oracle vectors, screenshot tests), small tasks, maintainer review | Solo development; quality rests on automated checks, not on manual review of every line |
 | ADR-12 Repository and legal | The repository is public and holds no game bytes: no game files, converted assets, HD packs or dumps, in the repository or in CI; users supply their own GOG copy and run the converter locally; converted output is never published (§12, docs/08) | The game belongs to the rights holder; every user needs their own copy |
 
@@ -112,6 +112,7 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
    Ghidra + MCP ──► the behavior described in prose (docs/re/) ──► Rust, written independently
                                                ▲
    opensacred-oracle (Unicorn, local): the user's own Sacred.exe → reference vectors for tests
+   tools/original (Frida, local, #448): the user's own Sacred.exe, running → observations
 ```
 
 ### 4.2 How the rules are recovered
@@ -127,11 +128,15 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 4. **Reference vectors.**
    For formula functions, `opensacred-oracle` runs the functions of the user's own `Sacred.exe` in the Unicorn emulator on sets of inputs and records the outputs as vectors.
    It runs locally on any OS and does not require running the game; CI has no `Sacred.exe`, so the tests on the vectors run locally, like the other tests on the game files.
-5. **Rust, written independently, then redesigned.**
+5. **Observations of the running original.**
+   Where the oracle cannot reach (a rule spread over threads and frames, the engine's timing, the creatures' choices, what the screen shows), the running original is observed.
+   Until 2026-10-21 that needed the maintainer at the game (#227); the driver of #448 (planned) lets Claude Code do it itself: `tools/original/` runs the user's own `Sacred.exe` under Frida in the background, reads its state, sends its keys and clicks, runs commands, traces its functions and takes its frames (docs/03 §3.8).
+   Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose.
+6. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
    Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), the fight's formulas with the hero's levels (#360), the ways (#361) and the creatures' decisions (#362), which `opensacred-game` calls; `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`) and the most health, which `opensacred-rules`' tests compare with: the levels agree, the others showed five bugs, of which #406, #407 and #408 are fixed and #417 and #418 open; the checks in the original are gathered in #227.
-6. **Nothing from the study is committed.**
+7. **Nothing from the study is committed.**
    The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
 ### 4.3 Rejected options
@@ -439,7 +444,8 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     the drops read (#404) and followed: the tail of `Balance.bin` (#413), the rules of what a killed creature drops (#414) and the drops falling and lying where it dies (#415), without the runes, the uniques, the sets and the pick-up yet (#412);
     and the doors' outer and inner points measured from the models and placements, with no table of the client's (#273).
     The defects whose repair changes the look, the voices or the texts wait for the maintainer (#401–#403), the scripts' objects at their exact positions waits for a look at a door in the original (#429, a draft), and the checks in the original are 83 with the night's 15 (#227).
-    Next: the townsfolk and the monsters through the doors by their points (#431), which way a door's leaf turns (#430), and the rest of M3: the character, its skills and combat arts.
+    The maintainer chose a driver of the running original for Claude Code (#448): Frida, not a Rust crate, and the original run in place in `OriginalGame/`, where it may write its own files; the plan is in the documents (#453) and in four steps (#449–#452), after which Claude Code works the checks of #227 itself.
+    Next: the townsfolk and the monsters through the doors by their points (#431), which way a door's leaf turns (#430), the driver of the original (#449–#452), and the rest of M3: the character, its skills and combat arts.
 
 ### 10.1 Priority queue
 
@@ -452,12 +458,12 @@ The daily dependency check opens a `deps` issue for every newer incompatible rel
 | Risk | Probability | Impact | What we do |
 |---|---|---|---|
 | Granny animations convert with errors (poses, weights) | medium | high | three open readers of the format as a reference; control poses; an early start in M1 |
-| Combat and loot rules are recovered incorrectly | medium | medium | the Unicorn oracle and vectors; fidelity is not a priority, but deviations are recorded |
+| Combat and loot rules are recovered incorrectly | medium | medium | the Unicorn oracle and vectors; observations of the running original (#227, #448); fidelity is not a priority, but deviations are recorded |
 | NetScript semantics are harder than expected | medium | high | a disassembler and listings early; opcodes are covered by frequency: 45 types account for 95% of records |
 | Bevy breaks its API more often than is worthwhile | high | medium | scheduled updates; rules outside the engine; the fallback is Godot + godot-rust |
 | Token use exceeds the estimate (usage limits slow the pace) | medium | medium | tracking from day one; Sonnet for mechanical work; small tasks |
 | Maintainer burnout | medium | high | the vertical slice gives a visible result early; milestones are short |
-| Claude Code misunderstands the original's behavior | medium | medium | vector tests, screenshot tests, the decision log; maintainer review of key formulas |
+| Claude Code misunderstands the original's behavior | medium | medium | vector tests, screenshot tests, the decision log; Claude Code's own observations of the running original (#448); maintainer review of key formulas |
 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests use synthetic data or the user's local installation; the same rules for issues and pull requests (§12) |
 
 ## 12. Legal and asset policy

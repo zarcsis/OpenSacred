@@ -43,8 +43,9 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 | Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
 | | Anything about removing or circumventing a protection |
 
-How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227), and against values recorded from the user's own executable by the oracle (PLAN.md §6.1, #363).
+How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227; from #448 on, made by Claude Code too), and against values recorded from the user's own executable by the oracle (PLAN.md §6.1, #363).
 The oracle runs the original's machine code in an emulator: our code in it only sets the inputs and reads the outputs, and its vectors are written outside the repository, never committed.
+The driver of the original (#448) runs the user's own copy and observes it (Art. 5(3)): its agent hooks functions in the running process alone, carries only addresses, offsets and the original's names, changes nothing of the original on disk, and its frames, logs and traces stay on the developer's machine.
 Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
 
 ## 4. Repository and CI
@@ -55,6 +56,9 @@ Anything made locally while studying the original (Ghidra projects, notes with d
   The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
 * The oracle (PLAN.md §6.1, #363) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI, and checks it against the manifest first.
   It links Unicorn (GPL-2.0), so it is a separate development-only crate, a binary without a library, never linked into the converter or the game; Unicorn is its feature `emulator`, `deny.toml` allows GPL-2.0 for Unicorn's two crates alone and denies them anywhere else in the graph (docs/03 §3.4).
+* The driver of the original (`tools/original/`, #448, planned) runs the user's own `Sacred.exe` under Frida (wxWindows Library Licence 3.1) on the developer's machine, never in CI, and checks it against the manifest first.
+  It is a Python tool of `tools/`, not a dependency of the converter or the game, and no release carries it.
+  It runs the original in place in `OriginalGame/`, where the game writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), never one of the manifest; what it observes reaches the repository and the issues only as prose (§3).
 * A dependency comes only under a license that `deny.toml` allows (`CLAUDE.md`, "Prohibitions"): Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0, ISC, MIT, MIT-0, MPL-2.0, Unicode-3.0 and Zlib.
   `cargo deny check` checks the licenses on every pull request (docs/03 §3.4, §5).
 * A binary release must ship with the executable the SIL Open Font License 1.1 of the Fira Mono font, which Bevy's `default_font` feature embeds, together with the licenses of the other dependencies (`cargo deny list` prints them; `THIRD-PARTY-NOTICES.md`, "Binary distributions").

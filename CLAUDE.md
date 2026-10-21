@@ -88,7 +88,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 
 ## Prohibitions
 
-- Never commit or publish anything from `OriginalGame/`, `assets/`, `assets-hd/`, converter output or dumps. Do not modify files in `OriginalGame/`.
+- Never commit or publish anything from `OriginalGame/`, `assets/`, `assets-hd/`, converter output or dumps. Do not modify files in `OriginalGame/`; the one exception is the original that the driver of #448 runs there, which writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), never one of the manifest (docs/03 §3.8).
 - Do not quote the game's texts, dialogues or license agreements in the repository; record only facts about formats and behavior.
 - Never commit decompiler output or code translated from it: describe the original's behavior in prose in `docs/re/` and implement it independently (docs/08 §3). Nothing about circumventing a protection.
 - The same rules hold for issues, pull requests and their attachments: no game files, converted assets or screenshots of them (docs/08 §3).
