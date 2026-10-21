@@ -4,6 +4,8 @@
 //! A file name starts with the record index: other containers (`tiles.pak`, `mixed.pak`) refer
 //! to textures by index, and names are not unique — 25 names occur twice in `texture.pak`,
 //! 6 of them with different pixels.
+//!
+//! The frames of three lavas are repaired as they are written ([`STREAKED`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,12 +22,21 @@ pub const PAKS: [(&str, &str); 2] = [
     ("PAK/texture03.pak", "texture03"),
 ];
 
+/// The liquids' series whose frames hold texels that are not opaque at the end of row 0 (and,
+/// in `E_LAVA`, of row 2), the junk of the tool that made them, which the surfaces' blending
+/// shows as grey and purple streaks (#347, docs/02 §5.2): `A_LAVA` (all 50 frames), `D_LAVA` (26)
+/// and `E_LAVA` (50). Every other texel of the liquids' frames is opaque.
+const STREAKED: [&str; 3] = ["a_lava", "d_lava", "e_lava"];
+
 /// Records of one container by format.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     pub argb4444: usize,
     pub bgra8888: usize,
     pub empty: usize,
+    /// Frames of [`STREAKED`] repaired, and their texels.
+    pub repaired_frames: usize,
+    pub repaired_texels: usize,
 }
 
 /// Directory of the PNGs converted from container `dir_name` (see [`PAKS`]).
@@ -47,29 +58,83 @@ pub fn convert_pak(src: &Path, dst_dir: &Path) -> Result<Summary> {
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
-    for format in formats {
+    for converted in formats {
+        let Some((format, repaired)) = converted else {
+            summary.empty += 1;
+            continue;
+        };
         match format {
-            None => summary.empty += 1,
-            Some(Format::Argb4444Zlib) => summary.argb4444 += 1,
-            Some(Format::Bgra8888) => summary.bgra8888 += 1,
+            Format::Argb4444Zlib => summary.argb4444 += 1,
+            Format::Bgra8888 => summary.bgra8888 += 1,
+        }
+        if repaired > 0 {
+            summary.repaired_frames += 1;
+            summary.repaired_texels += repaired;
         }
     }
     Ok(summary)
 }
 
-/// Converts record `index` of `pak` into a PNG in `dst_dir`; its format, or `None` for an empty
-/// directory entry.
-pub fn convert_record(pak: &TexPak, index: usize, dst_dir: &Path) -> Result<Option<Format>> {
+/// Converts record `index` of `pak` into a PNG in `dst_dir`; its format and the number of texels
+/// repaired, or `None` for an empty directory entry.
+pub fn convert_record(
+    pak: &TexPak,
+    index: usize,
+    dst_dir: &Path,
+) -> Result<Option<(Format, usize)>> {
     let Some(record) = pak.record(index)? else {
         return Ok(None);
     };
     let name = record.header.name();
-    let texture = record
+    let mut texture = record
         .decode()
         .with_context(|| format!("`{}`", name.escape_ascii()))?;
+    let repaired = if streaked(name) {
+        fill_from_columns(&mut texture)
+            .with_context(|| format!("repairing `{}`", name.escape_ascii()))?
+    } else {
+        0
+    };
     let path = dst_dir.join(file_name(index, name));
     write_png(&path, &texture).with_context(|| format!("writing {}", path.display()))?;
-    Ok(Some(record.header.format))
+    Ok(Some((record.header.format, repaired)))
+}
+
+/// Whether `name` is a frame of a [`STREAKED`] series: the series, two digits and `.tga`.
+fn streaked(name: &[u8]) -> bool {
+    let stem = stem(name, b".tga");
+    STREAKED.iter().any(|series| {
+        stem.strip_prefix(series)
+            .is_some_and(|n| n.len() == 2 && n.bytes().all(|b| b.is_ascii_digit()))
+    })
+}
+
+/// Gives every texel of `texture` that is not opaque the colour of the nearest opaque texel of
+/// its column, the one above on a tie, so that the frame is opaque; the number of texels
+/// replaced. A column with no opaque texel is an error.
+fn fill_from_columns(texture: &mut Texture) -> Result<usize> {
+    let width = usize::try_from(texture.width)?;
+    let height = usize::try_from(texture.height)?;
+    let rgba = &mut texture.rgba;
+    let opaque = |rgba: &[u8], x: usize, y: usize| rgba[(y * width + x) * 4 + 3] == 255;
+    let mut replaced = 0;
+    for x in 0..width {
+        let rows: Vec<usize> = (0..height).filter(|&y| opaque(rgba, x, y)).collect();
+        for y in 0..height {
+            if opaque(rgba, x, y) {
+                continue;
+            }
+            let source = rows
+                .iter()
+                .copied()
+                .min_by_key(|&r| (r.abs_diff(y), r))
+                .with_context(|| format!("column {x} has no opaque texel"))?;
+            let (to, from) = ((y * width + x) * 4, (source * width + x) * 4);
+            rgba.copy_within(from..from + 4, to);
+            replaced += 1;
+        }
+    }
+    Ok(replaced)
 }
 
 /// `06868-dryade_scout_arms.png`: the five-digit record index, then the [`stem`] of the name
@@ -121,7 +186,7 @@ mod tests {
     use miniz_oxide::deflate::compress_to_vec_zlib;
 
     use super::*;
-    use crate::testing::{Tex, scratch_dir, tex_pak};
+    use crate::testing::{Tex, repo_root, scratch_dir, tex_pak};
 
     fn read_png(path: &Path) -> (u32, u32, Vec<u8>) {
         let file = fs::File::open(path).unwrap();
@@ -192,7 +257,8 @@ mod tests {
             Summary {
                 argb4444: 1,
                 bgra8888: 1,
-                empty: 1
+                empty: 1,
+                ..Summary::default()
             }
         );
         let mut files: Vec<_> = fs::read_dir(&dst)
@@ -209,6 +275,71 @@ mod tests {
             read_png(&dst.join("00002-ui.png")),
             (1, 1, vec![3, 2, 1, 4])
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_streaked_lavas_take_their_columns_opaque_colours() {
+        let dir = scratch_dir("textures-lava");
+        // One column of four BGRA texels, top down: junk, red, junk, blue; the second junk texel
+        // is as near the red as the blue and takes the red, above it.
+        let column = vec![9, 9, 9, 0, 0, 0, 255, 255, 1, 1, 1, 17, 255, 0, 0, 255];
+        let tex = |name| {
+            Some(Tex {
+                name,
+                width: 1,
+                height: 4,
+                format: 6,
+                data: column.clone(),
+            })
+        };
+        let src = dir.join("texture.pak");
+        fs::write(&src, tex_pak(&[tex(b"E_LAVA07.TGA"), tex(b"B_LAVA07.TGA")])).unwrap();
+        let dst = output_dir(&dir.join("assets"), "texture");
+
+        let summary = convert_pak(&src, &dst).unwrap();
+
+        assert_eq!((summary.repaired_frames, summary.repaired_texels), (1, 2));
+        let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
+        assert_eq!(
+            read_png(&dst.join("00000-e_lava07.png")).2,
+            [red, red, red, blue].concat()
+        );
+        // Another series is written as it is.
+        assert_eq!(
+            read_png(&dst.join("00001-b_lava07.png")).2,
+            [[9, 9, 9, 0], red, [1, 1, 1, 17], blue].concat()
+        );
+        assert!(streaked(b"a_lava49.tga") && streaked(b"D_LAVA00.TGA"));
+        assert!(
+            !streaked(b"e_lava.tga") && !streaked(b"e_lava123.tga") && !streaked(b"c_lava00.tga")
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_lavas_frames_come_out_opaque() {
+        let game = repo_root().join("OriginalGame");
+        let dir = scratch_dir("textures-lavas");
+        let dst = output_dir(&dir, "texture");
+        let summary = convert_pak(&game.join(PAKS[0].0), &dst).unwrap();
+        // docs/02 §5.2: all 50 frames of A_LAVA, 26 of D_LAVA and all 50 of E_LAVA.
+        assert_eq!(
+            (summary.repaired_frames, summary.repaired_texels),
+            (126, 600 + 141 + 1394)
+        );
+        let mut frames = 0;
+        for entry in fs::read_dir(&dst).unwrap() {
+            let name = entry.unwrap().file_name().into_string().unwrap();
+            let stem = name.split_once('-').unwrap().1;
+            if STREAKED.iter().any(|s| stem.starts_with(s)) {
+                let (_, _, rgba) = read_png(&dst.join(&name));
+                assert!(rgba.chunks(4).all(|t| t[3] == 255), "{name}");
+                frames += 1;
+            }
+        }
+        assert_eq!(frames, 150);
         fs::remove_dir_all(dir).unwrap();
     }
 

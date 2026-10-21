@@ -442,7 +442,7 @@ The start's bridge to the pond's island is two rows of walkable cells, (3225…3
 Of the 187,787 walkable cells of the inside layers, 87.4% have second heights within 2.5 pixels of the ground's first heights there.
 
 **Liquid materials.**
-The client fills a table of 14 materials at `0x4189DF` (records of 0xD8 B from `this + 0x91E8`: the frames' texture handles, `+0xC8` the frame count, `+0xCC` a byte, `+0xD0` an int, `+0xD4` a byte), each from a series of `texture.pak` frames `<SERIES>%.2d.TGA` (128 × 128, opaque, tileable); a sector's two slots (§5.1) index it.
+The client fills a table of 14 materials at `0x4189DF` (records of 0xD8 B from `this + 0x91E8`: the frames' texture handles, `+0xC8` the frame count, `+0xCC` a byte, `+0xD0` an int, `+0xD4` a byte), each from a series of `texture.pak` frames `<SERIES>%.2d.TGA` (128 × 128, opaque but for three lavas, tileable); a sector's two slots (§5.1) index it.
 Confirmed by code 2026-10-17; the meaning of `+0xCC` and `+0xD0` by code 2026-10-19 (#103, docs/re/liquids.md):
 
 | Material | Series | Frames | `+0xCC` | `+0xD0` | `+0xD4` |
@@ -463,6 +463,10 @@ Confirmed by code 2026-10-17; the meaning of `+0xCC` and `+0xD0` by code 2026-10
 Hypothesis: `+0xD4` marks the glowing ones, the lavas and the sulphur; what the client does with it is not read.
 The `CAUST00`… frames (64 × 64, grey) are loaded by the world view's constructor and never bound; the second layer shows the water's own frames (**confirmed** by code 2026-10-19, docs/re/liquids.md).
 How the client picks a cell's material, the frame of the moment (every material cycles in 2,048 ms) and the mapping (a frame over 4 × 4 cells) is in [docs/re/liquids.md](re/liquids.md).
+
+Three lavas' frames hold texels that are not opaque, **confirmed** on every frame 2026-10-20 (#347): all 50 of `A_LAVA` (600 texels, row 0, columns 109–127), 26 of the 50 of `D_LAVA` (141, row 0, columns 114–127) and all 50 of `E_LAVA` (1,394: row 0, columns 64–127, and one in row 2 of each frame).
+Their values look like uninitialised memory of the tool that made them (ARGB4444 `0x0CCC`, `0xCC0C`, `0xC310`, …: grey with alpha 0, purple with alpha 204, others with alphas 17 to 204), and the surfaces' blending by the texture's alpha (docs/re/liquids.md) shows them as grey and purple streaks along one edge of every 4 × 4 cells; every other texel of the liquids' frames is opaque, and `opensacred_formats::tex` decodes them as they are (it matches `tex_decode.py`).
+`opensacred-convert textures` repairs these frames as it writes them: every texel that is not opaque takes the colour of the nearest opaque texel of its column, the one above on a tie (docs/decisions/2026-10-20-lava-streaks.md).
 
 ### 5.3 Heights and the render contract
 
