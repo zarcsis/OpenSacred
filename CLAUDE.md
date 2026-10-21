@@ -17,7 +17,7 @@ An open-source engine for Sacred Gold 2.28 (GOG), written in Rust: an offline co
 | `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`); the game's remote-control client `tools/game/remote.py`; the Ghidra project's scripts `tools/ghidra/`; the process scripts `tools/usage/` and `tools/stack/` |
 | `.claude/skills/game/` | the project skill `game`: how to run the game and drive it (scripts, remote control) |
 
-`opensacred-oracle` (PLAN.md §6.1) appears when its turn comes (#363); do not create it in advance.
+`opensacred-rules`, `opensacred-oracle` (PLAN.md §6.1) appear when their turn comes; do not create them in advance.
 
 ## Commands
 
