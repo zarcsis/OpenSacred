@@ -202,7 +202,7 @@ M7 and M8 come after M6
 ## 5. How to run the project with Claude Code
 
 * **Task queue:** the issues on GitHub (PLAN.md §10.1, docs/03 §3.6); each task has a definition of done and a link to the notes.
-* **Session = task:** Claude Code gets a task, does it, runs the checks and opens a pull request, which it merges with `--auto` once the checks are green, except those that wait for the maintainer (`needs-maintainer`); the `review-after-merge` ones the maintainer reviews after the merge (docs/03 §3.6).
+* **Session = task:** Claude Code gets a task, does it, runs the checks and opens a pull request, which it merges with `--auto` once the checks are green, except those that wait for the maintainer (`needs-maintainer`, docs/03 §3.6).
   Contributors' pull requests are merged by the maintainer.
 * **Definition of done:** formatting, clippy without warnings, tests, updated `docs/re/` notes when the original's behavior was studied, an entry in `docs/decisions/` when deviating from the original.
 * **Daily:** the dependency update (`CLAUDE.md`, "Work order").

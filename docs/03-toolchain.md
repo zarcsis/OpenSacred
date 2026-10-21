@@ -164,7 +164,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   A passing state is remembered in `target/`, so a turn without new changes does not rebuild anything.
   Tests on the game files and `cargo deny check` stay manual.
 * **Merge guard** (`.claude/hooks/merge_guard.py`, a `PreToolUse` hook on shell commands): `gh pr merge` is refused when the pull request is labeled `needs-maintainer`, touches the guardrails (`.claude/hooks/`, `.claude/settings.json`, `.claude/settings.local.json`), `.github/`, `deny.toml`, the README of `docs/decisions/` or a screenshot reference, or was opened by someone other than the repository's owner; `--admin` is refused always (§3.6).
-  A decision (another file of `docs/decisions/`, added, changed or removed), `CLAUDE.md` or the rest of `.claude/` (the skills) does not stop the merge, but the pull request must carry the label `review-after-merge`.
+  A decision (another file of `docs/decisions/`, added, changed or removed), `CLAUDE.md` or the rest of `.claude/` (the skills) does not stop the merge.
   Whether the change waits for the maintainer instead (§3.6) the guard cannot judge: Claude Code labels such a pull request `needs-maintainer`, and the guard refuses it by the label.
   Tests: `python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
 * **Converter golden data (planned):** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
@@ -206,7 +206,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   Squash merge only, the branch deleted on merge.
   Claude Code merges with `gh pr merge --squash --auto`, which waits for the checks.
   The maintainer merges what changes the guardrails (`.claude/hooks/`, `.claude/settings.json`, `.claude/settings.local.json`), `.github/`, the allowed licenses (`deny.toml`), the README of `docs/decisions/` or a screenshot reference, what changes the rules or the process (below; this section among them), a decision that waits (below), and every pull request from a contributor; such a pull request is labeled `needs-maintainer`, and the merge guard (§3.4) refuses to merge it.
-  A pull request that takes any other decision (adds, changes or removes a file of `docs/decisions/`), or changes `CLAUDE.md` or the rest of `.claude/` (the skills) only to describe, and nothing else of those does not wait: it is labeled `review-after-merge` and merged, and the maintainer reviews it afterwards and takes the label off, or opens an issue for what to change.
+  A pull request that takes any other decision (adds, changes or removes a file of `docs/decisions/`), or changes `CLAUDE.md` or the rest of `.claude/` (the skills) only to describe, and nothing else of those does not wait: it is merged like any other, and the maintainer opens an issue for what to change.
   A change to `CLAUDE.md` or a skill describes when it names the workspace, the commands, the keys, how a skill is used or a fact of the code; it changes the rules, and waits, when it touches the work order, the issues and pull requests, the prohibitions, the rules of the tests and of the code, what a hook or a permission does, or loosens any rule.
   Such a decision refines how the game follows the original, fixes or replaces an earlier decision, or departs where the play hardly changes (an engine limitation, a format's quirk).
   A decision waits when it departs from the original clearly and far, so that it can change the experience of the play seriously (the rules, formulas and balance, the controls or the camera, what the player can do, a quest's course, the game's look as a whole), or when it carries legal consequences (licenses, the use of the game's content or of others' code, what the repository or a release carries; docs/08).
@@ -214,6 +214,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   Until 2026-10-18 adding a decision waited too; more than half of the pull requests that waited that day waited for that alone, and the work went on in pull requests stacked on them (#77).
   Until 2026-10-19 changing or removing one waited; seven of the ten pull requests that waited since #77 waited for that alone, refining decisions as the work went on (#163).
   Until 2026-10-19 every change to `CLAUDE.md` or `.claude/` waited too; two of the three pull requests that waited since #164 waited for that alone, naming the game's commands, keys and the skill `game` (#200).
+  Until 2026-10-20 such a pull request was labeled `review-after-merge`, which the maintainer took off once it was reviewed, and the merge guard refused it without that label or `needs-maintainer`; the maintainer dropped the label after reviewing all 45 that carried it, finding it unneeded in practice (#350).
   The maintainer merges only a pull request based on `main`: one merged while its base was another pull request's branch lands in that branch (#41).
 * **Stacks.**
   A pull request is based on another only when it cannot be written from `main`, and at most two deep; otherwise Claude Code takes other work from `main`, or waits.
