@@ -1888,8 +1888,8 @@ fn spawn(
             );
         }
         entity.insert((
-            values,
-            placement.rank,
+            fight::Combat(values),
+            fight::Ranked(placement.rank),
             fight::Worth(placement.base.experience),
             fight::Regenerates::new(fight::regeneration(&placement.base, grade, &skills, rules)),
         ));
@@ -2652,7 +2652,7 @@ fn strike(
             let (node, clip, fractions) = &graph.attacks[index];
             let length = clips.get(clip).map_or(1.0, AnimationClip::duration);
             // At its attack speed (`0x4E4CF0`).
-            let attack = combat.map_or(1.0, fight::Combat::clip_speed);
+            let attack = combat.map_or(1.0, |combat| combat.clip_speed());
             transitions
                 .play(&mut player, *node, BLEND)
                 .set_speed(speed.0 * attack);

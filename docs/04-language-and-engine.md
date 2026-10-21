@@ -12,9 +12,9 @@
   VC6 is not needed.
 * **The engine is Bevy 0.20 on wgpu 30.**
   In the matrix it scores 410 out of 500, against 375 for Godot with godot-rust, 345 for Godot with C++ and 220 for Unreal Engine 5.8.
-* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies, created 2026-10-21 with the spawning's rolls; the rest of the rules followed so far moves into it from `opensacred-game` (#364).
+* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies, created 2026-10-21 with the spawning's rolls, which the fight's formulas joined; the rest of the rules followed so far moves into it from `opensacred-game` (#364).
   With it, a switch to Godot with godot-rust keeps the rules and the converter.
-  Until then, the rules followed so far (the fight, the creatures' life, the spawning, the movement) live in `opensacred-game`, most of them as Bevy systems (`fight.rs`, `ai.rs`, `spawning.rs`, `paths.rs`).
+  Until then, the rest of the rules followed so far (the creatures' life, the movement) live in `opensacred-game`, most of them as Bevy systems (`ai.rs`, `paths.rs`); the fight's systems there (`fight.rs`) call the crate's formulas.
 * **Unsafe code is forbidden** in all product crates by the workspace lint `unsafe_code = "deny"` (`Cargo.toml`), which every crate takes through `[lints] workspace = true`; the only exception is the future development tool `opensacred-oracle`, which calls the Unicorn emulator and is a separate crate, never linked into the converter or the game.
 
 ## 1. Why Rust
@@ -58,7 +58,7 @@ Every format and rule goes through four steps (the legal basis is in docs/08 §2
    Decompiler output is never pasted in.
 3. **Implement.**
    The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
-   `opensacred-rules` holds the spawning's rolls so far; the rest of the rules followed so far is written in `opensacred-game` and moves into it (#364).
+   `opensacred-rules` holds the spawning's rolls and the fight's formulas so far; the rest of the rules followed so far is written in `opensacred-game` and moves into it (#364).
 4. **Verify.**
    A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is to be compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg; docs/03 §1).
    Until the oracle exists, a rule is checked by unit tests written from its description and by observations of the running original (#227).
@@ -102,7 +102,7 @@ Functions that touch D3D, files or threads cannot be checked this way; for those
 | Raw pointers, intrusive lists | indices and Bevy entities |
 | Structures written to files from memory | parsing only in `opensacred-formats` by safe means: our own bounds-checked slice reader `Reader` (decision of 2026-10-16: errors name the record and the offset; data quirks are logic, not layout; zero-copy is not needed because the game does not read the original formats); after that, ordinary `serde` types |
 | Global variables | Bevy resources or an explicit context in `opensacred-rules` |
-| `rand()` from the CRT (LCG 214013/2531011) | a small generator of our own (SplitMix64, `opensacred-game`'s `spawning.rs`), seeded by the sector and the record, so that a sector that comes back has the same creatures; to keep the "feel" of the loot the LCG can be reproduced, exactness is not required |
+| `rand()` from the CRT (LCG 214013/2531011) | a small generator of our own (SplitMix64, `opensacred-rules`'s `spawning.rs`), seeded by the sector and the record, so that a sector that comes back has the same creatures; to keep the "feel" of the loot the LCG can be reproduced, exactness is not required |
 | x87 numbers with 80-bit intermediate values | `f32`/`f64`; bit-exact precision is not a goal |
 | The NetScript interpreter built on `switch` and `goto` | `match` on the record type over the parsed IR; no jumps by offset |
 | Engine threads and critical sections | the Bevy system schedule; in `opensacred-rules` (#364) the rules are to be single-threaded and deterministic within one machine; today they run as Bevy systems of `opensacred-game` on each frame's time |
@@ -195,7 +195,7 @@ That is why the architecture insures against a wrong choice:
 * `opensacred-rules` (rules) and `opensacred-convert` (converter) do not depend on the engine;
 * `opensacred-data` (asset types) consists of ordinary `serde` structures that any code can read;
 * the presentation layer `opensacred-game` is to be thin: it connects the rules to rendering, sound and input.
-  Until they move into `opensacred-rules` (#364), `opensacred-game` holds most of the rules followed so far as well.
+  Until they move into `opensacred-rules` (#364), `opensacred-game` holds the rest of the rules followed so far as well.
 
 **Triggers for revisiting** (if one fires, the comparison is redone):
 
