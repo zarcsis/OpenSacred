@@ -86,8 +86,8 @@ const PLAYMATES: f32 = 600.0;
 const GATHERS: f32 = 349.0;
 const LOOKS_UP: f32 = 200.0;
 const RUNS_UP: f32 = 150.0;
-/// The cells' flag of a building's inside (`+0x1E` bit 1, docs/02 §5.2).
-const INSIDE: u8 = 0x2;
+/// The cells' flag of a settlement's ground (`+0x1E` bit 1, docs/02 §5.2).
+const SETTLEMENT: u8 = 0x2;
 /// How near a hostile of the hero's puts a townsperson in danger, and how far it runs from it
 /// without a door to go in by, within 100 more along each axis (`0x4F0BDA`, `0x4F0F5E`).
 const DANGER: f32 = 800.0;
@@ -858,8 +858,8 @@ enum Child {
     Speaks(&'static str),
 }
 
-/// What a child at `here` does by its roll, the hero at `hero`, `inside` a building (`0x4F2AD7`):
-/// in one case of 13, or with the hero outside, it plays: within 800 of home a point within 400
+/// What a child at `here` does by its roll, the hero at `hero`, `in_settlement` or not
+/// (`0x4F2AD7`): in one case of 13, or with the hero off a settlement's ground, it plays: within 800 of home a point within 400
 /// of itself, farther than 1,000 a point 800 toward home, else one within 400 of home; else it
 /// follows the hero from farther than 349, and nearer turns to it, but in one case of 15 runs to
 /// a point 150 from it at random.
@@ -867,7 +867,7 @@ fn child(
     mind: &Mind,
     here: Vec3,
     (hero, daemon): (Vec3, bool),
-    inside: bool,
+    in_settlement: bool,
     rng: &mut Rng,
 ) -> Child {
     // Before the Daemon it runs 700 away from it, within 400 more (`0x539F60`).
@@ -875,7 +875,7 @@ fn child(
         let away = (here - hero).with_y(0.0).normalize_or_zero();
         return Child::Flees(about(here + away * FLEES_DAEMON, WANDERS, rng));
     }
-    if rng.below(13) == 0 || !inside {
+    if rng.below(13) == 0 || !in_settlement {
         let from_home = (mind.home - here).xz().length();
         let to = if from_home <= PLAYS_NEAR {
             about(here, PLAYS_ABOUT, rng)
@@ -1131,10 +1131,10 @@ fn behave(
     };
     let hero = hero.translation;
     let dt = time.delta_secs();
-    // Whether the hero stands within a building, where the children gather about it.
-    let inside = heights
+    // Whether the hero stands on a settlement's ground, where the children gather about it.
+    let in_settlement = heights
         .flags(paths::cell_of(hero.x, hero.z))
-        .is_some_and(|flags| flags & INSIDE != 0);
+        .is_some_and(|flags| flags & SETTLEMENT != 0);
     // The children at play this frame, whom the others follow.
     let mut playing: Vec<(Entity, Vec3)> = Vec::new();
     // The camera's zoom, its scale.
@@ -1231,10 +1231,10 @@ fn behave(
                 mind.active = false;
                 continue;
             }
-            // A child follows the hero only while it stands within a building.
+            // A child follows the hero only while it stands on a settlement's ground.
             let after_hero = partner == the_hero;
             let found = if after_hero {
-                inside.then_some((hero, false, false))
+                in_settlement.then_some((hero, false, false))
             } else {
                 followed.get(&partner).copied()
             };
@@ -1501,7 +1501,7 @@ fn behave(
                     continue;
                 }
                 Decision::Child => {
-                    let does = child(&mind, here, (hero, daemon.0), inside, &mut minds.rng);
+                    let does = child(&mind, here, (hero, daemon.0), in_settlement, &mut minds.rng);
                     debug!("ai: {entity} {:?} {does:?}", Why::Plays);
                     match does {
                         Child::Plays(to) => {

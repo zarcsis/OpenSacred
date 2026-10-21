@@ -14,7 +14,7 @@ const TRIES: u32 = 50;
 /// The walkable cells in a row along an axis that a creature's cell needs after its own
 /// (`0x45EF70`).
 const ROW: i32 = 3;
-/// The cell flag that refuses a creature (`+0x1E` bit 1, docs/02 §5.2).
+/// The cell flag that refuses a creature, a settlement's ground (`+0x1E` bit 1, docs/02 §5.2).
 const REFUSED: u8 = 0x2;
 /// The `Creature.pak` classes whose records' density takes `SpawnAnimalsSP` rather than
 /// `SpawnEnemysSP`.
