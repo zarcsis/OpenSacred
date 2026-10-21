@@ -172,9 +172,35 @@ impl Outcome {
     }
 }
 
+/// Splits `line` into its words: blanks part them, a pair of single or double quotes keeps
+/// blanks within a word, and a backslash is a plain character, so that a Windows path keeps its
+/// separators (#368); `None` when a quote is left open.
+fn words(line: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut quote = None;
+    for c in line.chars() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => word.get_or_insert_default().push(c),
+            None if c == '"' || c == '\'' => {
+                quote = Some(c);
+                word.get_or_insert_default();
+            }
+            None if c.is_whitespace() => words.extend(word.take()),
+            None => word.get_or_insert_default().push(c),
+        }
+    }
+    if quote.is_some() {
+        return None;
+    }
+    words.extend(word);
+    Some(words)
+}
+
 /// Runs `line`: a command and its options. `help` and `--help` are output, not errors.
 pub fn run(world: &mut World, line: &str) -> Result<Outcome, String> {
-    let words = shlex::split(line).ok_or("unbalanced quotes")?;
+    let words = words(line).ok_or("unbalanced quotes")?;
     if words.is_empty() {
         return Ok(Outcome::default());
     }
@@ -640,7 +666,7 @@ mod tests {
     use crate::game::Class;
 
     fn parse(line: &str) -> Result<Command, clap::Error> {
-        Line::try_parse_from(shlex::split(line).unwrap()).map(|line| line.command)
+        Line::try_parse_from(words(line).unwrap()).map(|line| line.command)
     }
 
     #[test]
@@ -705,6 +731,21 @@ mod tests {
         ));
         assert!(parse("time 25:00").is_err());
         assert!(parse("teleport 1,2").is_err());
+    }
+
+    #[test]
+    fn a_windows_path_keeps_its_backslashes() {
+        assert!(matches!(
+            parse(r"screenshot C:\Temp\shot.png"),
+            Ok(Command::Screenshot { file }) if file == std::path::Path::new(r"C:\Temp\shot.png")
+        ));
+        assert_eq!(
+            words(r#"record "C:\My shots" 10"#).unwrap(),
+            ["record", r"C:\My shots", "10"]
+        );
+        assert_eq!(words("a  '' \"b c\"").unwrap(), ["a", "", "b c"]);
+        assert_eq!(words("  ").unwrap(), Vec::<String>::new());
+        assert_eq!(words("say 'open"), None);
     }
 
     #[test]
