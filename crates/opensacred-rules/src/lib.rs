@@ -3,10 +3,11 @@
 //! `opensacred-game` call, so that a switch of the engine keeps them (#328).
 //!
 //! It holds the spawning's rolls ([`spawning`]), the fight's formulas with the hero's levels
-//! ([`fight`]) and the ways with the cells in the way ([`ways`]) so far; the creatures' decisions
-//! follow (#362).
+//! ([`fight`]), the ways with the cells in the way ([`ways`]) and the creatures' decisions with
+//! the hero's attack ([`minds`]).
 
 pub mod fight;
+pub mod minds;
 pub mod spawning;
 pub mod ways;
 

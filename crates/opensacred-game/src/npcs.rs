@@ -136,7 +136,7 @@ struct Placement {
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
     made: (bool, bool),
     dialogue: bool,
-    /// Whether it is a trader, by its tags (`ai::Mind::trader`).
+    /// Whether it is a trader, by its tags (`opensacred_rules::minds::Mind::trader`).
     trader: bool,
     group: Option<u32>,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world

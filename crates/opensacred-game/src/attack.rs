@@ -2,11 +2,13 @@
 //! creature sends the hero at it (`0x6172C0`, the AI's states 1 and 4): it comes into the band of
 //! its reach and strikes, again until the creature dies or the player sends it elsewhere; with
 //! Ctrl held it strikes once, at once, where it stands, and a click on the ground strikes the air
-//! there. Its hits resolve as the creatures' (`fight`).
+//! there. Its hits resolve as the creatures' (`fight`). Where it stands, when it strikes and when
+//! its hits land are the rules' (`opensacred_rules::minds`).
 
 use std::time::Duration;
 
 use bevy::prelude::*;
+use opensacred_rules::minds::{self, Chain};
 
 use crate::ai::Mind;
 use crate::fight::{self, Health};
@@ -15,12 +17,6 @@ use crate::hero::{self, Body, Clips, GameSpeed};
 use crate::npcs::Dies;
 use crate::spawning::Rng;
 
-/// The hero's reach, a creature's of the default size (130, as `ai`'s), the band in which it
-/// strikes, `R + 45` (`0x4E0300` for a hero), and how far a hit lands, 1.5 times the reach for
-/// a player's (`0x4EA1F0`; **hypothesis** that the base is `R`).
-const REACH: f32 = 130.0;
-const BAND: f32 = REACH + 45.0;
-const HITS_WITHIN: f32 = 1.5 * REACH;
 /// How near the cursor's line of sight a creature is picked, and the height of the part of it
 /// that picks, in world units (**hypothesis**: the original picks by the model's shape).
 const PICKED_WITHIN: f32 = 45.0;
@@ -35,29 +31,14 @@ pub struct Aim(pub bool);
 
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
 /// at once, where it stands, once; whether it ends with its strike, the player having sent the
-/// hero elsewhere; and the factor of its chained strikes (`+0x210`) with their count.
+/// hero elsewhere; and the chain of its strikes (`+0x210`, `opensacred_rules::minds::Chain`).
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
     point: Vec3,
     at_once: bool,
     ends: bool,
-    chain: f32,
-    strikes: u32,
-}
-
-/// How much each chained strike raises the speed of the next, and the most (`0x4E4CF0`).
-const CHAIN_STEP: f32 = 0.1;
-const CHAIN_MOST: f32 = 1.7;
-
-/// The factor of a strike that follows `strikes` strikes of a chain whose factor was `chain`:
-/// 1 for the first, else raised by 0.1, at most 1.7.
-fn chained(chain: f32, strikes: u32) -> f32 {
-    if strikes == 0 {
-        1.0
-    } else {
-        (chain + CHAIN_STEP).min(CHAIN_MOST)
-    }
+    chain: Chain,
 }
 
 /// The strike the hero plays (the attack action 3, `0x4E4CF0`): its clip's node, its length,
@@ -135,15 +116,13 @@ fn aim(
             point,
             at_once,
             ends: false,
-            chain: 1.0,
-            strikes: 0,
+            chain: Chain::default(),
         };
         match (aim.0, attack) {
             // A new order while the attack goes on keeps its chain.
             (true, Some(mut attack)) => {
                 *attack = Attack {
                     chain: attack.chain,
-                    strikes: attack.strikes,
                     ..next
                 };
             }
@@ -212,20 +191,10 @@ fn engage(
                 continue;
             };
             let done = active.seek_time() / striking.length;
-            let first = if striking.fractions[0] > 0.0 {
-                striking.fractions[0]
-            } else {
-                0.5
-            };
-            let due = match striking.struck {
-                0 => done >= first,
-                1 => striking.fractions[1] > 0.0 && done >= striking.fractions[1],
-                _ => false,
-            };
-            if due {
+            if minds::hit_due(striking.fractions, striking.struck, done) {
                 striking.struck += 1;
                 if let (Some(entity), Some(at)) = (attack.target, target)
-                    && (at - here).with_y(0.0).length() <= HITS_WITHIN
+                    && minds::hero_hits((at - here).with_y(0.0).length())
                 {
                     hits.write(fight::Hit {
                         attacker: hero,
@@ -236,7 +205,7 @@ fn engage(
             }
             if active.is_finished() {
                 commands.entity(hero).remove::<Striking>();
-                if attack.at_once || attack.ends || target.is_none() {
+                if minds::attack_ends(attack.at_once, attack.ends, target.is_some()) {
                     commands.entity(hero).remove::<Attack>();
                 }
             }
@@ -254,11 +223,10 @@ fn engage(
             commands.entity(hero).remove::<Attack>();
             continue;
         }
-        if !attack.at_once && (aimed - here).with_y(0.0).length() > BAND {
+        if minds::hero_comes_on(attack.at_once, (aimed - here).with_y(0.0).length()) {
             // Coming on, its chain breaks.
             body.send(aimed);
-            attack.strikes = 0;
-            attack.chain = 1.0;
+            attack.chain.breaks();
             continue;
         }
         body.stop();
@@ -276,9 +244,8 @@ fn engage(
             .map_or(1.0, AnimationClip::duration)
             .max(0.01);
         // At its attack speed times its chain's factor (`0x4E4CF0`).
-        attack.chain = chained(attack.chain, attack.strikes);
-        attack.strikes += 1;
-        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed()) * attack.chain;
+        let chain = attack.chain.strike();
+        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed()) * chain;
         transitions
             .play(&mut player, *node, BLEND)
             .set_speed(speed.0 * attack_speed);
@@ -313,19 +280,6 @@ impl Plugin for AttackPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_chain_of_strikes_grows_faster_by_a_tenth_up_to_1_7() {
-        let mut chain = 1.0;
-        let factors: Vec<f32> = (0..10)
-            .map(|strikes| {
-                chain = chained(chain, strikes);
-                chain
-            })
-            .collect();
-        assert!((factors[0] - 1.0).abs() < 1e-6 && (factors[1] - 1.1).abs() < 1e-6);
-        assert!((factors[7] - 1.7).abs() < 1e-5 && (factors[9] - 1.7).abs() < 1e-5);
-    }
 
     #[test]
     fn a_creature_is_picked_near_the_line_of_sight_up_to_its_height() {
