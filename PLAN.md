@@ -420,10 +420,17 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     the hero attacking at a click, its strikes chained faster (#283, #312), taking the creatures' hits by bronze's factors, regenerating, falling and rising at the start (#292), and gaining levels by its kills' experience (#300);
     the wounded creatures fleeing and the far ones going home (#304); the bosses and the champions (#316, #318); each hero at its own speed (#298), and the creatures' lines over them in a tall window (#296).
     Their departures are docs/decisions/2026-10-20-health.md, -pursuit.md, -hits.md, -hero-attack.md, -hero-health.md, -skills.md, -levels.md, -weapons.md and -bosses.md; the checks for the maintainer are added to #227.
-    Next: the doors in the way, the places about the hero and the archers (#284), the last open sub-issue of #285; the hero's items and its character sheet come with the interface.
+    Next: the doors in the way, the places about the hero and the archers (#284, the last open sub-issue of #285, split in #391 and #392 after #383 read them); the hero's items and its character sheet come with the interface.
 14. **The documents against the code.**
     On 2026-10-20 the documents were audited against the code, the issues and the pull requests (#321–#325), and the problems found were filed as issues of their own (#326–#333).
     Among them: the rules live in `opensacred-game`, with no `opensacred-rules` or `opensacred-oracle` yet (#328); a creature killed or moved comes back whole with its sector (#329); and the game's zoom number was the inverse of the original's (#330, since fixed).
+15. **The night of 2026-10-20 into 21: the data's repairs, the kept creatures and the rules' crate.**
+    The night opened with the maintainer's answers to #328, #273 and #227, and went on in some twenty pull requests (#365–#390), the work shared with subagents of the session:
+    the converter repairing the original's data as it writes `assets/`, by the rule of #348: the MP3 samples' and the music's bytes before their first frame (#354, #367), the forearms' two spellings (#355), the instruments' socket (#353), the lavas' streaks (#347) and the Underworld menu's faint tile (#352), each recorded as a decision;
+    the creatures that go with their sectors kept as the original keeps them, a killed monster never coming back and a fill's living ones put back where they stood (#329); the hero no longer going round at a stair it was sent to (#373); a fleeing creature fleeing to its point (#387); the hero opening and closing a door by a click, its trigger's cells with it (#372); and a command's Windows paths keeping their backslashes (#368).
+    The maintainer chose to move the rules out of the game (#328): `opensacred-rules` now holds the spawning (#359), the fight's formulas and the hero's levels (#360), the ways and the cells in the way (#361) and the creatures' decisions (#362), the game keeping its systems, components and resources (#364); the oracle is #363.
+    The research read the table defects that the community reports (#357, none to repair in the data), the archers' arrows, the places about the hero and the doors in the way (#383), and measured the doors' leaves and headings from the models (#273, in part); the checks in the original are a page of 68 with the shortest way to each (#227), and the problems found on the way became issues of their own (#367, #368, #371–#374, #387).
+    Next: the archers (#391), the places about the hero and the doors in the way (#392), the oracle (#363).
 
 ### 10.1 Priority queue
 
