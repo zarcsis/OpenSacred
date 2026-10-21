@@ -1287,7 +1287,9 @@ pub fn level(values: &SpawnValues, hero: u32, jitter: Option<&mut Rng>) -> u32 {
 /// and `g = 1.5 + G · max(0, 60 − a − b)`, `⌊S^g · (a0 + a3)/S · 10/31⌋`, 100 for 0, times the
 /// level's factor of a creature not a hero and the difficulty's (`rules`); the attributes `a0`
 /// and `a3` are `S`'s two terms, without extra points or items' bonuses, so that the most is
-/// `⌊S^g · 10/31⌋` (#408). No items, skills, bosses or champions yet
+/// `⌊S^g · 10/31⌋` (#408); the 100 for 0 comes before the factors, so a most that they take
+/// below 1 is 0 (#417), which no creature of `Creature.pak` reaches, the least of its attributes
+/// 0 and 3 together being 7 (type 135). No items, skills, bosses or champions yet
 /// (docs/decisions/2026-10-20-health.md).
 pub fn most_health(base: [u8; 6], level: u32, rules: &Rules) -> u32 {
     let level_f32 = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
@@ -1325,9 +1327,9 @@ fn health_of(base: [u8; 6], level: u32, factor: f64) -> u32 {
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        reason = "a health, whole and positive, far below the integers' range"
+        reason = "a health, whole and not negative, far below the integers' range"
     )]
-    let most = (most * factor).floor().max(1.0) as u32;
+    let most = (most * factor).floor() as u32;
     most
 }
 
@@ -1352,6 +1354,13 @@ mod tests {
         assert_eq!(hero_health(wolf, 100), 2588);
         // A base that gives nothing gives 100.
         assert_eq!(most_health([0; 6], 1, &rules), 100);
+        // A most of 1 that a level's factor of 0.75 takes below 1 is 0, as the original's (#417).
+        let weak = Rules {
+            points: vec![(1.0, 0.75), (4.0, 0.8)],
+            ..Rules::default()
+        };
+        assert_eq!(hero_health([1; 6], 1), 1);
+        assert_eq!(most_health([1; 6], 1, &weak), 0);
     }
 
     #[test]
