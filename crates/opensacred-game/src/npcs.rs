@@ -679,9 +679,10 @@ fn facing_degrees(object: bool, heading: Option<f32>, angle: f32) -> f32 {
 /// Where a `CreateObj`'s model is drawn: its world position `0x20`, `(x, y)` in world units on the
 /// ground, the game's x and z, if it has one. The client keeps the object's position at its
 /// `0x04` cell's centre (`0x487130`) and sets the floats `+0xCC…+0xD4` from `0x20` with the
-/// object's flag `0x800000` (`0x485C10`; **hypothesis**: where the model is drawn, which the
-/// doors' leaves standing in their doorways support, docs/02 §5.7 and §7.3). The third number is
-/// no height: it repeats the cell's layer in every record of the Seraphim's tree.
+/// object's flag `0x800000` (`0x485C10`): where the model is drawn, by which 1,114 of the 1,125
+/// doors' leaves stand in their doorways, every gate centred on its model's origin among them,
+/// against 997 at their cells' centres (docs/02, the open question 9). The third number is no
+/// height: it repeats the cell's layer in every record of the Seraphim's tree.
 fn drawn_at(ops: &[opensacred_data::netscript::Operand]) -> Option<Vec2> {
     ops.iter().find_map(|o| match (o.tag, &o.value) {
         (WORLD_POSITION, Value::I32x3([x, y, _])) => Some(Vec2::new(*x as f32, *y as f32)),
