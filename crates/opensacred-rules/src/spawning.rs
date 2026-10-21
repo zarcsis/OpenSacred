@@ -404,6 +404,19 @@ impl Rng {
     }
 }
 
+/// A source of the rolls, which the original takes from the C library's `rand()`: the game's
+/// [`Rng`], or a script of rolls in a test.
+pub trait Dice {
+    /// A number below `n`, 0 for `n` 0.
+    fn below(&mut self, n: u32) -> u32;
+}
+
+impl Dice for Rng {
+    fn below(&mut self, n: u32) -> u32 {
+        Rng::below(self, n)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

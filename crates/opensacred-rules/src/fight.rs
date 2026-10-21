@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
-use crate::spawning::{Rng, SpawnValues};
+use crate::spawning::{Dice, Rng, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
 pub const HERO_LEVEL: u32 = 1;
@@ -272,6 +272,26 @@ impl Ranks {
 pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
     let [share, anteil, voll, upper] = rules.experience;
     let (e, h) = (to_f32(level), to_f32(hero));
+    let mut x = (f32::from(a) + e * f32::from(b)) * share;
+    let cap = rules.level_cap;
+    if cap > 0.0 && h > cap {
+        x *= cap * cap / (h * h);
+    }
+    x *= weighing(level, hero, (anteil, voll, upper));
+    if x <= 0.0 {
+        x = 1.0;
+    }
+    x *= decay(hero) * fade(h, rules.start_levels);
+    whole(x.max(1.0))
+}
+
+/// The factor of the levels (`0x551530`, docs/re/fight.md, "The hero's levels"), which the kill's
+/// experience and the drops take, of a creature of level `level` on bronze's scale against a hero
+/// of level `hero`: with `r = (E + 9)/(H + 9)` against the threshold `t` (`(H + 6)/(H + 9)` up to
+/// level 10, `(H − 6)/(H + 9)` from 92, else `anteil`), 0.04 up to `t`, then
+/// `(r − t)/(voll − t)`, 1 from `voll` to `upper`, `upper/r` above; at least 0.04.
+pub fn weighing(level: u32, hero: u32, (anteil, voll, upper): (f32, f32, f32)) -> f32 {
+    let (e, h) = (to_f32(level), to_f32(hero));
     let r = (e + 9.0) / (h + 9.0);
     let t = match hero {
         0..=10 => (h + 6.0) / (h + 9.0),
@@ -287,17 +307,7 @@ pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> 
     } else {
         (r - t) / (voll - t)
     };
-    let mut x = (f32::from(a) + e * f32::from(b)) * share;
-    let cap = rules.level_cap;
-    if cap > 0.0 && h > cap {
-        x *= cap * cap / (h * h);
-    }
-    x *= factor.max(0.04);
-    if x <= 0.0 {
-        x = 1.0;
-    }
-    x *= decay(hero) * fade(h, rules.start_levels);
-    whole(x.max(1.0))
+    factor.max(0.04)
 }
 
 /// The decay of the experience of a hero of level `hero` (`0x57E050`): 1 up to level 99,
@@ -692,7 +702,7 @@ fn signed(word: u32) -> i64 {
 
 /// The game's roll of a whole number between `least` and `most` (`0x443B20`): a negative least
 /// counts as 0, a negative most as 1, the two swapped when reversed.
-fn roll_between(least: i64, most: i64, rng: &mut Rng) -> f64 {
+fn roll_between(least: i64, most: i64, rng: &mut impl Dice) -> f64 {
     let (a, b) = (least.max(0), if most < 0 { 1 } else { most });
     let (low, high) = (a.min(b), a.max(b));
     let span = u32::try_from(high - low + 1).unwrap_or(1);
@@ -721,6 +731,17 @@ impl Templates {
         Self { by_type, parents }
     }
 
+    /// The words 38 to 40 of the template of an item of type `item`, read as signed
+    /// (docs/re/items.md, "The template"): a byte of the item's flags, 29 for "make nothing" and
+    /// −1 for a type that the drops never make; the item's least level; and the least quality a
+    /// drop takes the type at. The template is the maker's, by the chain of parents, which on
+    /// file finds the same as the drops' own lookup `0x42CA70` (one parent) for every type they
+    /// choose from (#414).
+    pub fn limits(&self, item: u32) -> Option<[i64; 3]> {
+        self.of(item)
+            .map(|words| [38, 39, 40].map(|i| signed(words[i])))
+    }
+
     /// The template of an item of type `item`, its parent's while the type lies within 2000–2999
     /// or 6500–7999, at most six times (`0x5D5080`).
     fn of(&self, item: u32) -> Option<&TemplateWords> {
@@ -743,7 +764,7 @@ impl Templates {
     /// its kinds rolled by their chances, normalised to `p` and split by the spread `w` into a
     /// least and a most; the resistances likewise, unsplit; `A` and `D` by their chances times
     /// `f`. No magic bonus yet (docs/decisions/2026-10-20-weapons.md).
-    pub fn make(&self, item: u32, level: u32, rng: &mut Rng) -> Option<ItemValues> {
+    pub fn make<D: Dice>(&self, item: u32, level: u32, rng: &mut D) -> Option<ItemValues> {
         let words = self.of(item)?;
         if words[38] == 29 {
             return None;
@@ -752,9 +773,9 @@ impl Templates {
         let level = f64::from(level.min(270));
         let f = single(25.0 + 250.0 * level * HUNDREDTH);
         let p = single((f64::from(words[6]) * f * HUNDREDTH + 0.5).max(1.0));
-        let chance = |i: usize, rng: &mut Rng| i64::from(rng.below(100)) < w(i);
+        let chance = |i: usize, rng: &mut D| i64::from(rng.below(100)) < w(i);
         // A triple's least and most, the most above the least.
-        let rolled = |i: usize, rng: &mut Rng| {
+        let rolled = |i: usize, rng: &mut D| {
             let (least, most) = (w(i + 1), w(i + 2));
             roll_between(least, most.max(least + 1), rng)
         };
