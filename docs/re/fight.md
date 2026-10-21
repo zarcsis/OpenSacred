@@ -12,7 +12,7 @@ An awake hostile creature (`0x542B20`, docs/re/ai.md, "Dormant and awake") weigh
 Its level `L` is first brought back to the bronze scale, the inverse of the difficulty's scaling of the levels (`0x5522D0`; forward `0x552230`): 1 up to `BaseOffLevel`, else `(L − BaseOffLevel) / (1 + OffLevelProz/100)`, rounded, at least 1 (the image's `+0x11D0` and `+0x11B8`; 0 and 0 on bronze, where it keeps `L`).
 With `E` that level and `H` the target's, `r = (E + 9)/(H + 9)` and the threshold `t` is `(H + 6)/(H + 9)` up to level 10, `(H − 6)/(H + 9)` from 92, else `UnterExpAnteil` (0.85); the test passes when `r > t` and `(r − t)/(UnterExpVoll − t)` is above 0.04: exactly when the hero would earn more than the least experience from the creature (below).
 A failed test sends the creature dormant again, and in one case of three to its idle action, only when its target is also beyond its reach, and it is no boss (`+0x1F4` bit `0x80000`) nor champion (`+0x2B8` bit `0x40`) outside a group, nor a creature of a script on sight: a weak monster lets the hero pass and fights only when the hero comes within its reach, and a lone boss or champion always fights.
-Otherwise it attacks a target within 800, alive and hostile to it (`0x422820`), when a straight line of walkable cells leads to it (`0x4FCC80`); without one it goes for the nearest closed door of its sector (`0x4D4800`), and when no way leads to it at all (`0x4F7710`) it takes its idle action.
+Otherwise it attacks a target within 800, alive and hostile to it (`0x422820`), when a straight line of walkable cells leads to it (`0x4FCC80`); without one it goes for the nearest closed door of its sector (`0x4D4800`, "Doors in the way" below), staying idle when there is none, and when no way leads to it at all (`0x4F7710`) it takes its idle action.
 It takes the AI's state 8 with a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13, 14), else 4; in a group, in one case of two, it raises the group's alarm (`0x46AE70`, docs/re/ai.md, "Groups").
 The reach `0x4DBC60(a, b)` is the mean of two sizes by type: 130 by default, the heroes 70 to 130, the monsters 70 to 480.
 
@@ -23,10 +23,19 @@ Deciding (sub-state 0):
 
 - At a third of its health or less, within 199 of its target, not a boss nor of the classes 1 and 5, once a fight (`+0x1F4` bit `0x200`), in one case of eight a frame while its target does not attack, it flees 700 from the target along the line.
 - Within the band it strikes (sub-state 2); outside it, it comes on (sub-state 1), at a run in 7 cases of 11.
-- The hero's second to fourth nearest hostiles within the band take places beside the target (sub-state 5; partly read).
+- Then a creature that is the second, third or fourth of the hero's list of hostiles (`0xAD3CE0`, docs/re/motions.md, "The fight stance"; the list's count above 1) and stands nearer than `R − 15` to the first of that list takes sub-state 5 instead (`0x4E1404`).
 
 Coming on (sub-state 1), it gives up farther than 2,000 (the AI's state 0); a creature of `+0x2B8` bit `0x10` takes a bow (`BOW_SHORT` or `BOW_LONG`, `0x4D4A80`) for a target beyond its reach + 100 and shoots; nearer than the band it steps back; else it walks or runs to the target, stopping within the band.
 In the band (sub-state 2), a creature at full health away from home, farther than 2,500 or 5,000 from it, walks home (the leash; partly read); else it strikes: the attack action 3 (`0x4E4CF0`) with its target, and the AI back to state 0, from which the idle handler, once the action ends, takes it into state 4 again.
+A creature standing in sub-state 2 strikes even beyond the band when a straight line leads to the target; without one it looks for a way to the target (`0x4F7710`) and goes on (sub-state 0) when the way ends within `R + 80` of the target along each axis, else goes for a door ("Doors in the way"), and without a door gives up (the AI's state 0; `0x4E4931`).
+A creature still moving (the action 1) in sub-state 2 is steered by its target alone: within the band it strikes at once, beyond it it walks straight to the target, nearer it steps back.
+
+Places (sub-state 5, one frame, read 2026-10-21, #383; `0x4E224E` to `0x4E23A4`):
+
+- By default the creature's point is its target's position, its move to stop at `R` (`+0x174` 15, `+0x176` `R`, `+0x17E` the target), and it walks there (the action 1) when farther than `R + 15` from the target.
+- In place of that, the second of the list takes the point `R − 15` from its target along the world's `+x`, the third along `−y` and the fourth along `+y` (while the list's count is above 1, 2 or 3), its move to stop within 40 of the point (`+0x174` 1, `+0x176` 40: in the AI's state 4 the move `0x4F4770` ends within `+0x176` of its point when `+0x174` is 1), walking there when the point is farther than `R + 15` from it.
+- Then a creature not of class 5 runs in one case of two (`+0x1F8` 2), and it takes sub-state 2 with its target.
+- The AI runs at every frame, and at the next one sub-state 2 steers a moving creature by its target alone (above): a place holds for a frame, and the creature then strikes, comes on to the target or steps back as the others do (**hypothesis**: the spreading hardly shows in play).
 
 The attack action plays one of the model's attack slots (`0x5467A0`, action 4: 79 + 5 · the class of what it holds, docs/re/motions.md) at its attack speed (`0x584FE0`, at most 220) times `+0x210`, 1.0, raised by 0.1 up to 1.7 for each strike that a hero or an archer chains while the last one runs.
 A strike hits (`0x4EA1F0`) at a fraction of its clip given by the clip's `MotionDesc +0xA0` (0.5 where that is 0), and a second time at `+0xA4` when that is above 0 or the creature holds two weapons: `floats_62[1]` and `[2]` of `tables/motions.ron` (docs/02 §4.1; 827 of the 989 attack clips carry a first fraction, 173 a second).
@@ -37,8 +46,26 @@ In one case of four an NPC whose target attacks plays another clip instead (**hy
 
 ## At range: the AI's state 8
 
-`0x4DBFC0` keeps an archer 300 to 800 from its target: within 300, up to ten times a fight, it backs off; beyond 800 it comes on, stopping within 450; between, without a straight line, it moves to a point near the target, turned −30° to +30°; else it shoots (the action 5, the arrow not read), its `+0x210` ramping between 250 and 650.
+`0x4DBFC0` keeps an archer 300 to 800 from its target: within 300, up to ten times a fight, it backs off; beyond 800 it comes on, stopping within 450; between, without a straight line, it moves to a point near the target, turned −30° to +30°; else it shoots (the action 5, "The archers" below), its `+0x210` ramping between 250 and 650.
 It gives up farther than 2,000, and goes back to melee without a ranged weapon.
+
+## Doors in the way
+
+Status: **confirmed** by code (#383, read 2026-10-21) unless marked otherwise.
+`0x4D4800` serves a creature not of the classes 2, 5 (unless its `+0x25F` is set) and 6 (`Creature.pak +0x04`, `0x426AD0`, `0x426A80`, `0x426A30`; by their models the beasts, the undead and the animals).
+It takes the objects of the creature's sector that the script manager keeps (`0xAB4490`; a list of more than 1,000 is emptied instead, a guard) and of them the nearest door, straight from the creature: an object of category 10 with a trigger (`+0x34`) whose state (`+0x0A`) is neither barred (bit 15, which keeps a door from opening, `0x415F00`) nor open (bit 0) and whose flags word (`+0x04`) has bit `0x2000`, on the creature's layer or on the ground and the first floor either way.
+That bit is a hero's mark: the door's event handler (`0x44BCD0`) sets it when the event `0x21`, 1 or 2 comes from an id of 16 or below, so a creature goes only for a closed door that a hero has opened or closed before.
+With such a door it sends itself the event 7 with the door and its position, as the hero's click does (`0x6172C0`), and returns true; without, false.
+The event 7 takes the AI's state 1 (`0x53A170`) with the door as its target:
+
+- it walks to the door's outer point when it stands on the ground, its inner point when on a building's floor (`0x43B290`, docs/re/ai.md, "Houses and doors"), by a way (`0x4F7CE0`, `0x4F8AF0`), stopping within 20; with no way there, to a nearby cell of the ground nibble 9 or 10 (not read); already within 25 of the point along each axis, it stands;
+- a creature of `+0x200` bit 2 (not read) does so only for the 19 gates, palisades, fences and cages among the door types (5674, 5676 to 5679, 5740 to 5750, 5756 to 5758), and for another door takes its `+0x1EC` as its target instead;
+- standing (sub-state 2) within 300 of the door, on its layer or the ground and the first floor either way, it calls the quests' hook (`0x471790`, not followed) and, unless the door's object has flag `0x4000`, sends the door the event `0x21`; then the AI's state 0.
+
+The door turns (`0x44BCD0`): one not barred opens when closed (its clip `0xAA`, the trigger's bit 0 set) and closes when open (`0xAB`); a barred one only closes; and the event from a creature that is no hero leaves open a door that a hero marked.
+So the creature opens the door, and its idle state (`0x542B20`) finds its target again, the door's cells now walkable (docs/re/movement.md: a door's cell may be walked on while its trigger's bit 0 is set).
+`0x4D4800` is called in three places: the idle state's choice when no straight line leads to the target (`0x5442E8`; without a door the creature stays idle); the melee's sub-state 2 when the target is beyond the band, no straight line leads to it and the way ends farther than `R + 80` from it (`0x4E4931`; without a door the AI's state 0); and the move (`0x4F4770`, at `0x4F5652`) in the AI's state 4 when it finds no way to its point twice, the second time after a jitter of up to 50 along each axis, while the local hero is alive and hostile to it (`0x549000`).
+**Hypothesis**: the hero's left click on a door takes the same way, since `0x6172C0` sends the hero the event 7 with the object under the cursor (`0x626C50`) and the state 1 handles a door for any creature; that would answer #372, which found no door opening on the hero's side.
 
 ## Bosses and champions
 
@@ -56,9 +83,29 @@ Its most health is times `HPFakBoss` (2.5) or `HPFakChamp` (2.0), three times th
 A creature of `+0x2B8` bit `0x10` takes a bow once (`0x4D4A80`): the state 8, its slot 13 emptied, `BOW_SHORT` (1732) or `BOW_LONG` (1733) at random made at its level and held in slot 12, the bit cleared.
 In the state 8 a creature that another targets from within 1.5 times the reach goes back to melee in one case of two (`0x4D4B70`): its bow away, `SWORD` (1753) in one case of four, else `DAGGER` (1712) in one of three, else `SWORD_BASTARD` (1724) or `STREITKOLBEN` (1719), and most take the bit back, to switch to the bow again.
 It shoots when its target is between 250 and 650, else it moves to the band of 300 to 800 (above); a shot that has left raises `+0x210` by 0.1 up to 1.7 for the next, any other action resets it.
-The shot is the action 5 (`0x4DCB80`): the attack clip of what it holds at the attack speed times `+0x210`, turned to the target; the arrow leaves at a fraction of the clip read from its motion (0.5 for none; **hypothesis**: the strike's `+0xA0`), an object of type 3070 from the left hand toward the target at the speed 600 (**hypothesis**: a second), with a `cEventArrow` that carries the shooter, the weapon and the target; a multi-shot fans its arrows by 0.05 rad each, and the item's byte `+0x3A` picks special projectiles.
+The shot is the action 5 (`0x4DCB80`): the attack clip of what it holds at the attack speed times `+0x210`, turned to the target.
 A creature's target farther than 1,000 sends it back to the state 8.
-The arrow's flight and hit, its range and how it resolves are **not read**.
+
+The arrow, read 2026-10-21 (#383), **confirmed** by code unless marked otherwise:
+
+- It leaves once what is left of the clip is at most `1 − a` of it, `a` the `MotionDesc +0xA0` of the clip in play (`0x4135D0`, the slot `+0x64`): at the fraction `a`, at once for an `a` of 0, at the half for an `a` of 1 or more (`0x4DD90E`; **hypothesis** that Granny's parameters 0, 1 and 3 read there are the clip's start, end and loops).
+- It is an object of type 3070 (`ARROW_LONG.GRN`, a `cArrow3D`) made at the shooter's place and started by a `cEventArrow` (`0x4EB700`, the event 9, taken by `0x5BD2D0`) from the shooter's left hand (`Bip01 L Hand`, `0x44CA30`) toward its target's point (`0x44CBB0`: the target's bone of kind 3, else 0, with the `x` and `y` of the target's position), at the speed 600 a second; it carries the shooter, the target, the weapon's type and the hit's record (below), and leads no moving target.
+- It flies straight along that direction, fixed in three dimensions at the start, without gravity: each frame its point moves by the frame's time times 600 (`0x5BB010`; the game's clock `0xCD7A60` counts seconds, `0x641520`).
+- It lives 1.5 s (`+0x234`), so it reaches at most 900 from the hand, and is destroyed when that runs out or after a hit.
+- It also ends where its new point's cell may not be walked on (`0x636C10`), unless the cell's ground nibble is 2, which it flies over, or where its height falls to the ground's there (`0x636520`; `0x5BAA60`): statics do not stop it.
+- Each frame it takes the objects on its layer, in the sectors of its last and new points, whose position lies nearer the segment between those points, in the plane (`0x6226B0`), than the sum of the two types' sizes (`items.pak +0x14`, 50 for 0, `0x428CE0`, `0x5FFC70`; on file the arrow's 50, the wolf's 45, the goblin warrior's 25, the heroes' 50); the height is not tested.
+  Of them it takes its target when the target is one, else the first found.
+- That creature is hit when it is alive (not dying, its health above 0), hostile to the shooter and the shooter alive (`0x548F60`), not of `+0x251` 1 to 16 (**hypothesis**: a player's companion, which follows the player of that id), and does not turn the arrow aside (`0x561090`, below).
+  Anything else lets the arrow fly on, a friend or a corpse included; but the effects of type 847 (`FX_BUBBLETRAP`) stop it, and those of 776 and 778 (`FX_FIREBALL`, `FX_FIRESTRIKE`) with their `+0x68` 0 stop an arrow of the types 3069 to 3071.
+- A hit stops the arrow, but for a ghost (`Creature.pak` class 11, `0x426BC0`) or a shooter of `+0x4F0` bit `0x10000000`, which it passes through, hitting again at most every 0.5 s (`+0x240`); a stopped arrow sticks into the model of a creature of size above 20 for 5 s (`0x5BAB40`, a ray against the model; not into the local player's hero), and the hit's sound plays by the weapon's type.
+- The hit is the event 5 from the shooter, sent by the client that made the arrow (`+0x39`): the strike's resolution of `0x56B130` ("A strike's resolution" below), with the bow (the shooter's slot 12, or 13) as the weapon and a share of 0, which scales nothing, so the whole damage (`0x56D187`); its chance is `A·f/(A·f + D)`, `f` the range's factor of the distance between the shooter and the creature at the hit (1 to 250, down to 0.75 by 1,000, 0.25 from there).
+  A shooter of `+0x184` set gives the hit's record the kind 2 (0 otherwise), which the resolution's branch of the combat arts takes (not followed).
+  The bow's values are those of its item made by its template at the creature's level (docs/re/items.md).
+- A shot makes `+0x25D` arrows, 1 to 20: `+0x261` for the arts `0x3D` and `0x3F` (below), else 1, times the value of the effect `0x15` for a creature of `+0x2B7` bit 4 (the multi-shot); 2 for a creature of `+0x200` bit `0x400000`; the `i`-th after the first is turned in the plane by `⌈i/2⌉ · 0.05` rad, to either side in turn, and with the effect `0x15` of value `n` each arrow's damage is times `Multipfeil^n` (0.83, `0x56D173`).
+- The byte `+0x18E` (the action's block `+0x154` at `+0x3A`; **hypothesis**: the combat art in use, 0 for a creature's plain shot) picks special projectiles: 4, 6, 7, 8, `0x3D`, `0x3E` and `0x3F` make the types 3078, 3074, 3075, 3077, 3069, 3068 and 3079, fanned by 0.15 rad (4, 6, 7), round the circle (8; the type 3077 homes at two thirds of the speed) or by 0.01 rad (`0x3F`); 3068 is a ray of up to 25 steps of 40 against the cells, living 1 s; not followed further.
+- A creature with the effect `0x19` (the client's log calls it a ranged deflection; **hypothesis**: a hero's) turns an arrow aside by the chance `c/(L + 9 + c)`, `c = (5v + 9)·k`, `v` the effect's value, `k` 2 for one source of it and 1 for the others, `L` the shooter's level: by the effect's source it destroys the arrow, sends it back at the shooter, or sends it off in a random direction (`0x561090`; not followed further).
+
+`FernAll` (0.5) is used by no code found.
 
 ## The hero's attack
 
@@ -72,7 +119,7 @@ The event 5 (`0x531DC8`) goes to `0x56B130`; a target dead or dying, talking, or
 The attack record (`0x568D70`) gives, for each of the four kinds of damage (physical, fire, magic, poison), a damage rolled between a least and a most, the four resistances, the attack `A` and the defence `D`, from the weapons in hand, the items' bonuses and `Creature.pak`'s bonuses; the stats' recomputation (`0x5796A0`) scales them by the level and the attributes (the balance's `BalStatOff`, `BalChar*`).
 An NPC's own come from its `Creature.pak` record and its level (below).
 
-- At range, `A` keeps its value to `FernAWMin` and falls to `FernAWProz` of it at `FernAWMax`.
+- At range, with a weapon of the kinds 7, 12, 13 or 14 (`0x427ED0`), `A` keeps its value to `FernAWMin` (250) of the distance between the attacker and the target, falls linearly to `1 − FernAWProz` of it (0.75) toward `FernAWMax` (1,000) and is `FernAWProz` of it (0.25) from there, a jump (`0x56B449`, read 2026-10-21, #383); such an attacker of class 10 (the dragons and flyers) has its damage share scaled alike.
 - Bosses and champions: the attacker's `A` times `AWFakBoss` or `AWFakChamp`, the defender's `D` times `VWFakBoss` or `VWFakChamp`; a boss or champion of level 1 or 1000 takes, when first fighting, the attacker's level + `LevelUpBoss` or `LevelUpChamp`, within its sector's levels raised by `OffLevel` and `LevelKap` (`0x550E50`).
 - The difficulty: an NPC attacking a player has `A` times `ProzAW` and its damages times `ProzDmg`; a player attacking an NPC meets `D` times `ProzAW` and resistances times `ProzRes`.
 - The hit chance (`0x43EEE0`) is `p = 1 − 1/(1 + A/D)^k` with `k = −log₂(1 − 0.5) = 1`, that is `A/(A + D)` (`A` raised for a combat art); the strike misses when a roll of 0 to 1000, over 1000, exceeds `p`.
@@ -133,7 +180,7 @@ The value times the rate times the frame's time (**hypothesis**: in seconds) add
 
 ## Open
 
-The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 5 on; the arrow's flight and hit (the object 3070, `cEventArrow`), its range, `FernAll` and `Multipfeil`; the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5).
+The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 6 on; the special projectiles, the arrows' deflection (`0x561090`) and `FernAll`, which no code found uses; whether the hero's click opens a door (#372, "Doors in the way"); the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5).
 
 ## In `opensacred-game`
 
