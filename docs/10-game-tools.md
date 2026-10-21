@@ -127,7 +127,8 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `benchmark SECONDS` | measures and prints | `--benchmark` |
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
 | `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F3, F4, F1 and the key under Esc; without a switch, toggles | |
-| `state` | the app's state, the hero, the clock, the frames (the overlay's values) | |
+| `state` | the app's state, the hero, the clock, the frames, the drops nearest the hero (the overlay's values) | |
+| `drop [TIMES]` | makes the hostile creature nearest the hero drop as if the hero killed it, TIMES deaths' worth, and lists what fell (#415) | |
 | `wait ready\|arrived`, `wait frames N`, `wait seconds S` | in a script, the next command waits for that | |
 | `exec FILE` | runs a script: a command a line, `#` comments | |
 | `help [COMMAND]` | | |

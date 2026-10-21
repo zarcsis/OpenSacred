@@ -601,3 +601,59 @@ fn a_bosss_calls_each_drop_in_70_per_cent() {
     let mean = f64::from(u32::try_from(made).unwrap()) / f64::from(deaths);
     assert!((mean - 2.45).abs() < 0.05, "{mean}");
 }
+
+/// A drop thrown from the origin at 750 along x, 0 along y and no spin, flown at 60 frames a
+/// second until it rests or 5 s pass: where it rests, after how long.
+fn flown(walkable: impl Fn(f32, f32) -> bool, ground: impl Fn(f32, f32) -> f32) -> (Flight, f32) {
+    let mut flight = Flight::thrown(0.0, 0.0, &mut script(&[150, 75, 6, 6, 6]));
+    assert_eq!(flight.velocity, [750.0, 0.0, 190.0]);
+    let dt = 1.0 / 60.0;
+    let mut t = 0.0;
+    while !flight.resting && t < 5.0 {
+        flight.step(dt, &walkable, &ground);
+        t += dt;
+    }
+    (flight, t)
+}
+
+#[test]
+fn a_drop_lands_after_about_1_6_s_within_about_110() {
+    let (flight, t) = flown(|_, _| true, |_, _| 0.0);
+    assert!(flight.resting);
+    assert!((1.5..1.65).contains(&t), "{t}");
+    let [x, y, z] = flight.at;
+    assert!((100.0..115.0).contains(&x), "{x}");
+    assert_eq!((y, z), (0.0, 0.0));
+    assert_eq!(flight.angles, [0.0; 3]);
+    // The spin turns it as it flies.
+    let mut spun = Flight::thrown(0.0, 0.0, &mut script(&[75, 75, 12, 0, 6]));
+    spun.step(0.5, |_, _| true, |_, _| 0.0);
+    assert_eq!(spun.angles, [3.0, -3.0, 0.0]);
+}
+
+#[test]
+fn a_drop_bounces_off_a_cell_that_may_not_be_walked_on() {
+    let (flight, _) = flown(|x, _| x < 50.0, |_, _| 0.0);
+    let x = flight.at[0];
+    assert!(flight.resting);
+    assert!((-30.0..50.0).contains(&x), "{x}");
+}
+
+#[test]
+fn a_drop_lands_on_a_raised_cell_at_its_height() {
+    let (flight, t) = flown(|_, _| true, |x, _| if x > 30.0 { 40.0 } else { 0.0 });
+    assert!(flight.resting);
+    assert!((1.35..1.45).contains(&t), "{t}");
+    assert!((flight.at[2] - 40.0).abs() < f32::EPSILON);
+    // Above the throw's height, it lies on the ground at once.
+    let (flight, t) = flown(|_, _| true, |_, _| 80.0);
+    assert!(flight.resting && t < 0.02, "{t}");
+    assert!((flight.at[2] - 80.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn the_gold_and_the_runes_stay_upright_and_the_small_spiders_drop_nothing() {
+    assert!(upright(5132) && upright(5135) && upright(5375) && upright(5631));
+    assert!(!upright(5136) && !upright(DAGGER) && !upright(5171));
+    assert!(never_drops(71) && never_drops(75) && !never_drops(76));
+}

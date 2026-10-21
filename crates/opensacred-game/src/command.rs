@@ -96,6 +96,8 @@ enum Command {
     Keys { on: Option<Switch> },
     /// The state of the process, the game, the hero, the clock and the frames
     State,
+    /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
+    Drop { times: Option<u32> },
     /// In a script: wait before the next command
     Wait {
         #[command(subcommand)]
@@ -437,6 +439,11 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             };
             console.set_open(open);
             Ok(Outcome::say(if open { "open" } else { "closed" }))
+        }
+        Command::Drop { times } => {
+            in_game(world)?;
+            let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
+            Ok(Outcome::say(line))
         }
         Command::State => {
             let snapshot = world

@@ -118,6 +118,9 @@ pub struct Snapshot {
     /// The hero's level and experience (`fight::Experience`), and its health and most.
     pub experience: Option<(u32, u64)>,
     pub health: Option<(u32, u32)>,
+    /// The drops nearest the hero (`drops`): what each is, its item, its amount, how far it is
+    /// and whether it lies on the ground.
+    pub drops: Vec<(String, u32, u32, f32, bool)>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -211,10 +214,29 @@ impl Snapshot {
                 }
                 _ => {}
             }
+            if !self.drops.is_empty() {
+                let drops: Vec<String> = self
+                    .drops
+                    .iter()
+                    .map(|(kind, item, amount, distance, lies)| {
+                        let amount = if *amount > 1 {
+                            format!(" x{amount}")
+                        } else {
+                            String::new()
+                        };
+                        let how = if *lies { "lying" } else { "flying" };
+                        format!("{kind} {item}{amount} at {distance:.0} {how}")
+                    })
+                    .collect();
+                lines.push(format!("drops {}", drops.join(", ")));
+            }
         }
         lines
     }
 }
+
+/// How many of the drops nearest the hero the state lists.
+const NEAREST_DROPS: usize = 5;
 
 /// What a [`Snapshot`] is gathered from.
 #[derive(SystemParam)]
@@ -236,6 +258,7 @@ pub struct Probe<'w, 's> {
     hero_health: Query<'w, 's, &'static Health, With<Body>>,
     objects: Query<'w, 's, (), With<Object>>,
     entities: Query<'w, 's, ()>,
+    drops: Query<'w, 's, (&'static Transform, &'static crate::drops::Lying)>,
 }
 
 impl Probe<'_, '_> {
@@ -345,6 +368,20 @@ impl Probe<'_, '_> {
                 .iter()
                 .next()
                 .map(|health| (health.current, health.most)),
+            drops: self
+                .bodies
+                .iter()
+                .next()
+                .map(|(hero, _)| {
+                    crate::drops::nearest(
+                        hero.translation,
+                        self.drops
+                            .iter()
+                            .map(|(at, lying)| (at.translation, *lying)),
+                        NEAREST_DROPS,
+                    )
+                })
+                .unwrap_or_default(),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies

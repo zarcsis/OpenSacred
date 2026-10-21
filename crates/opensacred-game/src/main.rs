@@ -14,6 +14,7 @@ mod console;
 mod crowd;
 mod daynight;
 mod doors;
+mod drops;
 mod fight;
 mod frame;
 mod game;
@@ -225,10 +226,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         crowd::CrowdPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
+        drops::DropsPlugin,
         fight::FightPlugin,
-        frame::FramePlugin,
     ))
     .add_plugins((
+        frame::FramePlugin,
         game::GamePlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
@@ -243,9 +245,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         screenshot::ScreenshotPlugin,
-        sectors::SectorsPlugin,
     ))
     .add_plugins((
+        sectors::SectorsPlugin,
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
