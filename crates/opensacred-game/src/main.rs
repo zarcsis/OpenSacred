@@ -52,7 +52,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use anyhow::Result;
-use bevy::log::LogPlugin;
+use bevy::log::{DEFAULT_FILTER, LogPlugin};
 use bevy::prelude::*;
 use bevy::window::{MonitorSelection, PresentMode, WindowResolution};
 use clap::Parser;
@@ -177,6 +177,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     app.add_plugins(
         DefaultPlugins
             .set(LogPlugin {
+                // gilrs warns at every start about a device it has no mapping for, such as a
+                // keyboard's game-controller collection; the game reads no gamepad yet (#440).
+                // `RUST_LOG=gilrs::gamepad=warn` shows it again.
+                filter: format!("{DEFAULT_FILTER},gilrs::gamepad=error"),
                 custom_layer: journal::layer,
                 ..default()
             })
