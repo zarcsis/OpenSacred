@@ -300,7 +300,7 @@ impl<'s> Targets<'s> {
         let mut by_name: HashMap<_, Vec<_>> = HashMap::new();
         for (index, bone) in skeleton.bones.iter().enumerate() {
             by_path.entry(path(skeleton, index)).or_insert(index);
-            by_name.entry(bone.name).or_default().push(index);
+            by_name.entry(bone_name(bone.name)).or_default().push(index);
         }
         Self { by_path, by_name }
     }
@@ -335,7 +335,11 @@ impl<'s> Targets<'s> {
         if let Some(&found) = self.by_path.get(&path(skeleton, bone)) {
             return Some(found);
         }
-        match self.by_name.get(skeleton.bones[bone].name)?.as_slice() {
+        match self
+            .by_name
+            .get(bone_name(skeleton.bones[bone].name))?
+            .as_slice()
+        {
             [only] => Some(*only),
             _ => None,
         }
@@ -357,11 +361,23 @@ fn path<'s>(skeleton: &Skeleton<'s>, bone: usize) -> Vec<&'s [u8]> {
     let mut names = Vec::new();
     let mut next = Some(bone);
     while let Some(index) = next {
-        names.push(skeleton.bones[index].name);
+        names.push(bone_name(skeleton.bones[index].name));
         next = skeleton.bones[index].parent;
     }
     names.reverse();
     names
+}
+
+/// A bone's name as the converter writes it: the forearms of 176 files, spelled `Bip01 L ForeArm`
+/// and `Bip01 R ForeArm`, take the spelling of the rest, `Forearm`, which the client looks for
+/// first (`0x44C670` tries the other when it is missing; #355,
+/// docs/decisions/2026-10-20-forearm-spelling.md). No skeleton has both.
+fn bone_name(name: &[u8]) -> &[u8] {
+    match name {
+        b"Bip01 L ForeArm" => b"Bip01 L Forearm",
+        b"Bip01 R ForeArm" => b"Bip01 R Forearm",
+        other => other,
+    }
 }
 
 /// Corner attribute that comes from a pass source: an entry of a set, or a constant, kept as
@@ -430,7 +446,7 @@ impl<F: Fn(&[u8]) -> Option<String>> Builder<'_, F> {
         self.rest = vec![([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0; 3]); next];
         let mut world: Vec<Affine> = Vec::with_capacity(bones.len());
         for (index, bone) in bones.iter().enumerate() {
-            let name = latin1(bone.name);
+            let name = latin1(bone_name(bone.name));
             let translation = to_gltf(bone.translation);
             let rotation = normalized(to_gltf_rotation(bone.rotation))
                 .with_context(|| format!("bone {index}: zero rotation quaternion"))?;
@@ -1644,6 +1660,30 @@ mod tests {
             .map(|s| s["input"].as_u64().unwrap())
             .collect();
         assert!(inputs.len() < 5, "{inputs:?}");
+    }
+
+    #[test]
+    fn the_forearms_take_one_spelling() {
+        // The model spells its forearm `ForeArm`, its clip's skeleton `Forearm` (#355).
+        let mut spelled = skeleton();
+        spelled.bones[2].name = b"Bip01 L ForeArm";
+        let mut motion = skeleton();
+        motion.bones[2].name = b"Bip01 L Forearm";
+        let lift = Animation {
+            tracks: vec![track(2, [IDENTITY; 2])],
+        };
+        let clips = [Clip {
+            name: "LIFT",
+            slots: &[],
+            skeleton: &motion,
+            animation: &lift,
+        }];
+        let (data, stats) = export(&spelled, &model(), &clips, &[], uri).unwrap();
+        assert_eq!((stats.tracks, stats.unbound_tracks), (1, 0));
+        let glb = Glb::read(&data);
+        assert_eq!(glb.json["nodes"][2]["name"], "Bip01 L Forearm");
+        assert_eq!(bone_name(b"Bip01 R ForeArm"), b"Bip01 R Forearm");
+        assert_eq!(bone_name(b"Bip01 R Hand"), b"Bip01 R Hand");
     }
 
     #[test]
