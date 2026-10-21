@@ -4510,7 +4510,6 @@ dependencies = [
  "ron",
  "serde",
  "serde_json",
- "shlex",
  "toml_edit",
 ]
 

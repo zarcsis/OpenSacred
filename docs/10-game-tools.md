@@ -108,7 +108,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 ## 6. Commands and scripts (#173)
 
 Each command gives lines of output or an error.
-They are parsed by clap, as a REPL (`multicall`, the line split as a shell does), so that a command takes the same options as the command line and has `help`, and they run between frames with exclusive access to the world.
+They are parsed by clap, as a REPL (`multicall`), so that a command takes the same options as the command line and has `help`, and they run between frames with exclusive access to the world.
+The line is split at blanks, single or double quotes keeping blanks within a word; a backslash is a plain character, so a Windows path may be written with either separator (#368).
 
 | Command | What it does | Command line |
 |---|---|---|
