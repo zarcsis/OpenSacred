@@ -402,8 +402,11 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   The gauntlets' own rig has a forearm 11.06 units long, the gladiator 9.75 and the dwarf 8.53: worn in the bind pose, edges from the cuff to the hand shrink to 0.56 of their length on the gladiator and to 0.34 on the dwarf, and the dwarf's forearm, 9 to 10 units across against the gladiator's 6 to 7, is wider than the cuff (6 to 7).
   The converter already writes both spellings as `Forearm` (#355), so the gauntlets bind on the dwarf in `opensacred-game`; the fit would need meshes reshaped for the dwarf, not a narrow repair (**hypothesis** that ReBorn did so).
 - **One amulet shown wrongly**: **confirmed** on the data for `DWARF_AM_ERDE.GRN` (792), the only one of the 150 amulet models (`*_AM_*`, 17 for the daemon and 19 for each other class) whose mesh follows a bone that its class's hero skeleton lacks.
-  Its mesh `Amulett_erd` (46 positions) is rigid on a bone `Amulett_erd` straight under `__Root`, a file without `Root`, where the other 18 dwarf amulets follow `Bip01 Spine3`; worn by names, it finds no bone on the dwarf.
-  The mesh lies where its siblings' lie, within half a unit of their offset from `Bip01 Neck`, so a repair would bind its 46 positions rigidly to `Bip01 Spine3` by the file's own bind pose, positions unchanged.
+  Its mesh `Amulett_erd` (46 positions) is rigid on a bone `Amulett_erd` straight under `__Root`, where the other 18 dwarf amulets follow `Bip01 Spine3`; worn by names, it finds no bone on the dwarf.
+  Its skeleton is also the only one of the 19 without the `Root` that `DWARF.GRN` has, which the other 18 have to the bit (a translation of (−0.042, −0.335, 0) under `__Root`, a turn of 1.5e-5°); its other bones equal theirs, but `Bip01` hangs straight under `__Root` with the transform it has under `Root`, so the file's bind pose lies 0.34 units off theirs (**confirmed** on the files).
+  Its mesh lies where theirs lie, not where its bind pose moved: the map of the elf's fire amulet (812) or the gladiator's (831) onto the dwarf's (793), each in its file's `Bip01 Spine3` frame, takes that class's earth amulet (811, 830) to within 0.14 and 0.09 units of 792's mesh in the frame of the siblings' `Bip01 Spine3`, and to 0.46 and 0.42 in the frame of 792's own.
+  The converter repairs it (#398, docs/decisions/2026-10-21-earth-amulet.md): it gives the skeleton the siblings' `Root` as the parent of `Bip01` and binds the 46 positions rigidly to `Bip01 Spine3`, positions unchanged.
+  The inverse bind matrix of the amulet's joint is then its siblings' within 1.5e-6, and worn on the dwarf's bind pose by names, its centre lies 0.06 units from the fire amulet's (by the file's own bind pose it would lie 0.36 units away).
   `DWARF_AM_SERAPHIM.GRN` (798) follows `Dummy01`, a helper under `Bip01 Head` that the dwarf has at the same place, so it moves with the head rather than the chest (**hypothesis** whether that shows).
 - **The cannons shown wrongly**: **confirmed** on the data for `Dwarf_leather_cannon.grn` (1415, item 3015).
   Five of the 43 positions of its strap `shoulder_leather01`, at shoulder height, are wholly on `Bip01 Pelvis`, 17 to 23 units below them, among neighbours on `Bip01 L Clavicle` and `Bip01 Neck` 1.2 to 2.3 units away; worn on the dwarf, 49 of the 204 sides of the strap's 68 triangles stretch more than twice in the dwarf's clips, up to 22 times in `DWAR_ATTACK_SPECIAL01`.
@@ -429,7 +432,8 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   The surface is closed there: the body's only boundaries are slits along the four legs and the mouth's opening, and the mesh's 16 three-vertex loops are the open bases of spikes on the head and the tail's last segments.
   A repair would blend the root's weights between `Bip01 Tail` and the thighs; which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
 
-None of these repairs is made yet: each would be a `bug` of its own, repaired by `opensacred-convert models` as it writes the named records and recorded as a decision (CLAUDE.md, "Code conventions").
+`opensacred-convert models` repairs the named records as it writes them, each repair a `bug` of its own and recorded as a decision (CLAUDE.md, "Code conventions"), and counts them in its summary; a named record whose data is not what its repair expects is written as it is, with a warning.
+The earth amulet is repaired; the other repairs above are not made yet.
 
 ## 5. World
 

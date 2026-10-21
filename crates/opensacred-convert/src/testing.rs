@@ -3,6 +3,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde_json::Value;
+
+/// glTF `componentType` of `f32` accessors.
+const FLOAT: u64 = 5126;
+
 /// Repository root.
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -72,4 +77,67 @@ pub fn tex_pak(records: &[Option<Tex>]) -> Vec<u8> {
     }
     data.extend_from_slice(&body);
     data
+}
+
+/// A GLB file split into its JSON and its binary chunk.
+pub struct Glb {
+    pub json: Value,
+    pub bin: Vec<u8>,
+}
+
+impl Glb {
+    pub fn read(data: &[u8]) -> Self {
+        let word = |at: usize| {
+            usize::try_from(u32::from_le_bytes(data[at..at + 4].try_into().unwrap())).unwrap()
+        };
+        assert_eq!(&data[..4], b"glTF");
+        assert_eq!((word(4), word(8)), (2, data.len()));
+        let json_len = word(12);
+        assert_eq!(&data[16..20], b"JSON");
+        let json = serde_json::from_slice(&data[20..20 + json_len]).unwrap();
+        let bin_at = 20 + json_len;
+        assert_eq!(&data[bin_at + 4..bin_at + 8], b"BIN\0");
+        let bin = data[bin_at + 8..bin_at + 8 + word(bin_at)].to_vec();
+        assert_eq!(bin_at + 8 + bin.len(), data.len());
+        Self { json, bin }
+    }
+
+    pub fn field(&self, value: &Value) -> usize {
+        usize::try_from(value.as_u64().unwrap()).unwrap()
+    }
+
+    /// Bytes of accessor `index` and its component type.
+    pub fn bytes(&self, index: usize) -> (&[u8], u64) {
+        let accessor = &self.json["accessors"][index];
+        let view = &self.json["bufferViews"][self.field(&accessor["bufferView"])];
+        let start = self.field(&view["byteOffset"]);
+        let end = start + self.field(&view["byteLength"]);
+        (
+            &self.bin[start..end],
+            accessor["componentType"].as_u64().unwrap(),
+        )
+    }
+
+    pub fn floats(&self, index: &Value) -> Vec<f32> {
+        let (bytes, kind) = self.bytes(self.field(index));
+        assert_eq!(kind, FLOAT);
+        bytes
+            .chunks(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    pub fn ints(&self, index: &Value) -> Vec<u32> {
+        match self.bytes(self.field(index)) {
+            (bytes, 5123) => bytes
+                .chunks(2)
+                .map(|c| u32::from(u16::from_le_bytes(c.try_into().unwrap())))
+                .collect(),
+            (bytes, 5125) => bytes
+                .chunks(4)
+                .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+                .collect(),
+            (_, kind) => panic!("component type {kind}"),
+        }
+    }
 }

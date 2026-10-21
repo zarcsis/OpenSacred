@@ -1126,6 +1126,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::testing::Glb;
 
     const WHITE: [f32; 3] = [1.0; 3];
     const IDENTITY: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
@@ -1273,69 +1274,6 @@ mod tests {
 
     fn uri(name: &[u8]) -> Option<String> {
         (name == b"Body_skin").then(|| "../tex/body_skin.png".to_owned())
-    }
-
-    /// A GLB file split into its JSON and its binary chunk.
-    struct Glb {
-        json: Value,
-        bin: Vec<u8>,
-    }
-
-    impl Glb {
-        fn read(data: &[u8]) -> Self {
-            let word = |at: usize| {
-                usize::try_from(u32::from_le_bytes(data[at..at + 4].try_into().unwrap())).unwrap()
-            };
-            assert_eq!(&data[..4], b"glTF");
-            assert_eq!((word(4), word(8)), (2, data.len()));
-            let json_len = word(12);
-            assert_eq!(&data[16..20], b"JSON");
-            let json = serde_json::from_slice(&data[20..20 + json_len]).unwrap();
-            let bin_at = 20 + json_len;
-            assert_eq!(&data[bin_at + 4..bin_at + 8], b"BIN\0");
-            let bin = data[bin_at + 8..bin_at + 8 + word(bin_at)].to_vec();
-            assert_eq!(bin_at + 8 + bin.len(), data.len());
-            Self { json, bin }
-        }
-
-        fn field(&self, value: &Value) -> usize {
-            usize::try_from(value.as_u64().unwrap()).unwrap()
-        }
-
-        /// Bytes of accessor `index` and its component type.
-        fn bytes(&self, index: usize) -> (&[u8], u64) {
-            let accessor = &self.json["accessors"][index];
-            let view = &self.json["bufferViews"][self.field(&accessor["bufferView"])];
-            let start = self.field(&view["byteOffset"]);
-            let end = start + self.field(&view["byteLength"]);
-            (
-                &self.bin[start..end],
-                accessor["componentType"].as_u64().unwrap(),
-            )
-        }
-
-        fn floats(&self, index: &Value) -> Vec<f32> {
-            let (bytes, kind) = self.bytes(self.field(index));
-            assert_eq!(kind, u64::from(FLOAT));
-            bytes
-                .chunks(4)
-                .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-                .collect()
-        }
-
-        fn ints(&self, index: &Value) -> Vec<u32> {
-            match self.bytes(self.field(index)) {
-                (bytes, 5123) => bytes
-                    .chunks(2)
-                    .map(|c| u32::from(u16::from_le_bytes(c.try_into().unwrap())))
-                    .collect(),
-                (bytes, 5125) => bytes
-                    .chunks(4)
-                    .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
-                    .collect(),
-                (_, kind) => panic!("component type {kind}"),
-            }
-        }
     }
 
     fn export_sample() -> (Glb, Stats) {

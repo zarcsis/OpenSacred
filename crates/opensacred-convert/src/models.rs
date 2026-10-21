@@ -2,7 +2,8 @@
 //! `<out>/models/<pak>/<index>-<name>.glb` (docs/02 §4.5; the conversion is in [`gltf`]). A
 //! model's file holds its meshes and, as animations, the motions of its motion slots; a motion's
 //! file holds its skeleton and its own animation. A texture is referenced as the PNG that
-//! `opensacred-convert textures` writes to `<out>/textures/texture/`.
+//! `opensacred-convert textures` writes to `<out>/textures/texture/`. The records that
+//! [`model_repairs`] names are repaired as they are written.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -16,6 +17,7 @@ use rayon::prelude::*;
 
 use crate::embedded;
 use crate::gltf::{self, Clip, Stats};
+use crate::model_repairs::{self, Outcome};
 use crate::textures;
 use crate::verify::read_game_file;
 
@@ -87,7 +89,7 @@ pub fn clip_name(name: &[u8]) -> String {
     stem.iter().map(|&b| char::from(b)).collect()
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Summary {
     /// Files written for model records.
     pub models: usize,
@@ -95,6 +97,11 @@ pub struct Summary {
     pub motions: usize,
     /// Their statistics, added up.
     pub stats: Stats,
+    /// Models repaired ([`model_repairs`]), and the positions whose bones changed.
+    pub repaired_models: usize,
+    pub repaired_positions: usize,
+    /// Records that a repair names, left as they are because their data is not what it expects.
+    pub warnings: Vec<String>,
 }
 
 /// A motion of a model's slots, read for its clip.
@@ -132,8 +139,12 @@ pub fn convert_pak(
             let Some(grn) = record.parse_grn().with_context(what)? else {
                 return Ok(None);
             };
-            let skeleton = grn.skeleton().with_context(what)?;
-            let model = grn.model().with_context(what)?;
+            let mut skeleton = grn.skeleton().with_context(what)?;
+            let mut model = grn.model().with_context(what)?;
+            let repaired = match record.kind {
+                Kind::Model => model_repairs::apply(name, &mut skeleton, &mut model),
+                Kind::Motion => Outcome::None,
+            };
             let animation = grn.animation().with_context(what)?;
             let own_name = clip_name(name);
             let mut clips = Vec::new();
@@ -169,17 +180,31 @@ pub fn convert_pak(
             .with_context(what)?;
             let path = dst_dir.join(file_name(index, name));
             fs::write(&path, glb).with_context(|| format!("writing {}", path.display()))?;
-            Ok(Some((record.kind, stats)))
+            let repaired = match repaired {
+                Outcome::Mismatch(reason) => {
+                    Outcome::Mismatch(format!("{}: {reason}; written as it is", what()))
+                }
+                other => other,
+            };
+            Ok(Some((record.kind, stats, repaired)))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
-    for (kind, stats) in converted.iter().flatten() {
+    for (kind, stats, repaired) in converted.into_iter().flatten() {
         match kind {
             Kind::Model => summary.models += 1,
             Kind::Motion => summary.motions += 1,
         }
-        summary.stats.add(stats);
+        summary.stats.add(&stats);
+        match repaired {
+            Outcome::None => {}
+            Outcome::Repaired(positions) => {
+                summary.repaired_models += 1;
+                summary.repaired_positions += positions;
+            }
+            Outcome::Mismatch(warning) => summary.warnings.push(warning),
+        }
     }
     Ok(summary)
 }
