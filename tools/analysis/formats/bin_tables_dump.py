@@ -8,7 +8,12 @@ follow the client's loader (0x42F8CE: fread of 0xD4 bytes, a u32 count, count x 
 2026-10-17.
 
   Balance.bin     u32 4896, the size in bytes of an image of the client's balance variables: 1224 words (f32 or
-                  i32 by key, tools/analysis/pe/balance_keys.py); then 4857 words of another layout to the end
+                  i32 by key, tools/analysis/pe/balance_keys.py); then, in the order of the client's reader
+                  0x5E5C50 (#413), five tables, each a u32 count n and its entries: n x {u32 key; u32 m; m x u32[3]}
+                  (33), n x {u32 key; u32 weight} (18, the drops' weights of the quality keys), n x {u32 key;
+                  u32 value} (16, the quality key to the quality pass's value), n x {u32 key; u32[7]} (9),
+                  n x {u32 effect; f32 a, b, c} (5, the parameters of a chance by an effect's value), to byte
+                  22,048; then 570 words of another layout to the end
   World.bin       u32 n, n x {i32, i32, i32}
   World2.bin      u32 32768, 32768 bytes
   sets.bin        u32 66, 66 x 112 B: the first all 0xCC, the others {u32 items[10]; u32 hash; u8 bytes[4]; 64 zeros}
@@ -25,8 +30,12 @@ Example
   python3 -I tools/analysis/formats/bin_tables_dump.py --game-dir ./OriginalGame
   python3 -I tools/analysis/formats/bin_tables_dump.py --game-dir ./OriginalGame --rows /tmp/bin.tsv
 
-Expected output (2.28): every check passes. --rows writes a row per file: path, records, crc32 of the canonical
-listing (`canonical`: one line per record, numbers in decimal separated by spaces). Dependencies: standard library.
+Expected output (2.28): every check passes; the tail of Balance.bin prints its weights 7 9 0 3 5 6 8 10 12 13 14 15
+15 15 15 15 300 544, the quality pass's values 0 1 2 3 4 5 6 7 9 11 13 15 18 21 25 25 and the effects' chance
+parameters (861, 863, 859: 100 100 98; 862: 300 301 75; 868: 500 502 25). --rows writes a row per file: path, records,
+crc32 of the canonical listing (`canonical`: one line per record, numbers in decimal separated by spaces; for
+Balance.bin the image, each entry of the tail's first and fourth tables, the second and the third tables, each entry
+of the fifth, its floats as their bits, and the rest). Dependencies: standard library.
 """
 import argparse
 import collections
@@ -87,10 +96,28 @@ def balance(d, check):
     c = Cursor(d)
     n = c.u32()
     image = c.u32s(n // 4)
+    check('Balance.bin: an image of 4896 bytes', n == 4896, n)
+    lists = []
+    for _ in range(c.u32()):
+        key, m = c.u32s(2)
+        lists.append([key] + c.u32s(3 * m))
+    weights = c.u32s(2 * c.u32())
+    qualities = c.u32s(2 * c.u32())
+    rows = [c.u32s(8) for _ in range(c.u32())]
+    chances = [c.u32s(4) for _ in range(c.u32())]
+    end = c.p
     rest = c.u32s(c.left() // 4)
-    check('Balance.bin: an image of 4896 bytes, then 4857 words to the end',
-          n == 4896 and len(rest) == 4857 and c.left() == 0, n)
-    return [line(image), line(rest)]
+    check('Balance.bin: the tail parses to byte 22048 with 33, 18, 16, 9 and 5 entries, then 570 words to the end',
+          (len(lists), len(weights) // 2, len(qualities) // 2, len(rows), len(chances)) == (33, 18, 16, 9, 5)
+          and end == 22048 and len(rest) == 570 and c.left() == 0, end)
+    check('Balance.bin: the weights and the quality pass\'s values are of the keys 0 to 17 and 0 to 15 in order',
+          weights[::2] == list(range(18)) and qualities[::2] == list(range(16)))
+    print('  Balance.bin: weights', line(weights[1::2]))
+    print('  Balance.bin: the quality pass\'s values', line(qualities[1::2]))
+    floats = lambda words: ' '.join(f'{struct.unpack("<f", struct.pack("<I", w))[0]:g}' for w in words)  # noqa: E731
+    print('  Balance.bin: chances', ', '.join(f'{r[0]}: {floats(r[1:])}' for r in chances))
+    return ([line(image)] + [line(r) for r in lists] + [line(weights), line(qualities)] + [line(r) for r in rows]
+            + [line(r) for r in chances] + [line(rest)])
 
 
 def world(d, check):

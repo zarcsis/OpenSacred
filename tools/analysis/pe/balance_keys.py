@@ -13,16 +13,18 @@ and stores it at the key's variable, with `fstp dword ptr [A]` for a float (the 
            variable is the first store into the image after it, before the next key's test, or, for a row of values
            that it stores through a register, the word `mov esi, <the row>` sets (24 keys: ProzAW, ProzHP, OffLevel,
            LevelKap, OffLevelProz, BaseOffLevel, ...). 26 keys store elsewhere (other tables: SKILL_, MOVES,
-           HorseData:, ...) and are not listed.
-  Checks   354 keys with a variable in the image, each its own word; the first at +0x000 (BalanceDmg), the last at
-           +0x131C (DaemonDamageBonus); every float's value finite in Balance.bin.
+           HorseData:, ...) and are not listed. A key without the colon of a row that stores a second word before
+           the next key's test names it <key>[1]: GoldProLevel's second value, after a comma (0x5EE79B, #413).
+  Checks   354 keys with a variable in the image and one second value, each its own word; the first at +0x000
+           (BalanceDmg), the last at +0x131C (DaemonDamageBonus); every float's value finite in Balance.bin.
 
 Example
   python3 -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame
   python3 -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame --table /tmp/balance_keys.tsv
 
-Expected output (2.28): "354 keys, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 276 floats, 78 integers",
-every check passing, GameSpeed 1.25, TransSize 190, TransValu 50, skilllearn2 6. --table writes a row per key in the image's order (key, offset, kind).
+Expected output (2.28): "355 variables, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 276 floats, 79
+integers", every check passing, GameSpeed 1.25, TransSize 190, TransValu 50, skilllearn2 6, GoldProLevel 20 and
+GoldProLevel[1] 2000. --table writes a row per variable in the image's order (key, offset, kind).
 Dependencies: pefile, capstone.
 """
 import argparse
@@ -69,17 +71,23 @@ def main():
              and ins[i + 2].mnemonic == 'call' and ins[i + 2].op_str == hex(FIND)
              and string(int(ins[i].op_str, 16))]
     keys = []
+    seconds = []
     for n, i in enumerate(tests):
         name = string(int(ins[i].op_str, 16))
         stop = tests[n + 1] if n + 1 < len(tests) else i + 60
-        found = None
+        stores = []
         for x in ins[i + 3:stop]:
             if x.mnemonic in ('fstp', 'mov') and len(x.operands) == 2 or x.mnemonic == 'fstp':
                 op = x.operands[0]
                 if op.type == capstone.x86.X86_OP_MEM and op.mem.base == 0 and op.mem.index == 0 \
                         and IMAGE <= op.mem.disp < IMAGE_END:
-                    found = (op.mem.disp - IMAGE, 'f32' if x.mnemonic == 'fstp' else 'i32')
-                    break
+                    store = (op.mem.disp - IMAGE, 'f32' if x.mnemonic == 'fstp' else 'i32')
+                    if store[0] not in (s[0] for s in stores):
+                        stores.append(store)
+        found = stores[0] if stores else None
+        if not name.endswith(':'):
+            # A second value of a key that heads no row (GoldProLevel's, after a comma).
+            seconds.extend((f'{name}[{n}]', store) for n, store in enumerate(stores[1:], 1))
         if found is None:
             # A row of values stored through a register: `mov esi, <the row's first word>`, then the stores
             # through esi, a float's by fstp.
@@ -91,13 +99,15 @@ def main():
                     break
         keys.append((name, found))
 
-    found = sorted((f[0], k, f[1]) for k, f in keys if f is not None)
+    found = sorted((f[0], k, f[1]) for k, f in keys + seconds if f is not None)
     offsets = [o for o, _, _ in found]
     bal = open(os.path.join(args.game_dir, 'bin', 'Balance.bin'), 'rb').read()
     size = struct.unpack_from('<I', bal, 0)[0]
     value = lambda o, kind: struct.unpack_from('<f' if kind == 'f32' else '<i', bal, 4 + o)[0]
     checks = [
-        ('380 tests of a key, 354 of them with a variable in the image', len(keys) == 380 and len(found) == 354),
+        ('380 tests of a key, 354 of them with a variable in the image, and one second value',
+         len(keys) == 380 and sum(f is not None for _, f in keys) == 354
+         and [k for k, _ in seconds] == ['GoldProLevel[1]'] and len(found) == 355),
         ('each its own variable, word-aligned', len(set(offsets)) == len(offsets) and all(o % 4 == 0 for o in offsets)),
         ('the first BalanceDmg at +0x000, the last DaemonDamageBonus at +0x131C',
          found[0][:2] == (0, 'BalanceDmg') and found[-1][:2] == (0x131C, 'DaemonDamageBonus')),
@@ -105,12 +115,12 @@ def main():
         ('every float of Balance.bin finite',
          all(value(o, k) == value(o, k) and abs(value(o, k)) != float('inf') for o, _, k in found if k == 'f32')),
     ]
-    print(f'{len(found)} keys, from {found[0][1]} (+0x{found[0][0]:03X}) to {found[-1][1]} (+0x{found[-1][0]:03X}); '
+    print(f'{len(found)} variables, from {found[0][1]} (+0x{found[0][0]:03X}) to {found[-1][1]} (+0x{found[-1][0]:03X}); '
           f'{sum(k == "f32" for _, _, k in found)} floats, {sum(k == "i32" for _, _, k in found)} integers')
     for text_, ok in checks:
         print(f'  {text_}: {"ok" if ok else "FAILED"}')
     named = {k: (o, kind) for o, k, kind in found}
-    for k in ('GameSpeed', 'TransSize', 'TransValu', 'skilllearn2'):
+    for k in ('GameSpeed', 'TransSize', 'TransValu', 'skilllearn2', 'GoldProLevel', 'GoldProLevel[1]'):
         if k in named:
             o, kind = named[k]
             print(f'  {k} +0x{o:03X} {kind} {value(o, kind)}')

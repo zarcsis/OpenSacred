@@ -10,13 +10,34 @@ mod balance_keys;
 pub use balance_keys::BALANCE_KEYS;
 
 /// `Balance.bin`: `u32` the size in bytes of an image of the client's balance variables (at
-/// `0xAD4490`), the image, then words of another layout (docs/02 §6.3). The balance text's keys
-/// name 354 of the image's words ([`BALANCE_KEYS`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// `0xAD4490`), the image, then tables of their own (docs/02 §6.3). The balance text's keys and
+/// `GoldProLevel`'s second value name 355 of the image's words ([`BALANCE_KEYS`]).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Balance {
     /// The image's words, 1,224: each an f32 or an i32, by its key where it has one.
     pub image: Vec<u32>,
-    /// The words after the image, 4,857, 1,253 of them `0xFFFFFFFF`: not read.
+    /// The tables after the image.
+    pub tail: Tail,
+}
+
+/// The tables after the balance image, in the order of the client's reader `0x5E5C50`
+/// (docs/02 §6.3, "The tail of `Balance.bin`"), each a `u32` count and its entries.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Tail {
+    /// 1: lists of records of three words by a key, 0 to 32, into the map at `0xAD57B0`; not
+    /// followed.
+    pub lists: Vec<(u32, Vec<[u32; 3]>)>,
+    /// 2: the drops' weight of each quality key, 0 to 17, in the order of the keys.
+    pub weights: Vec<(u32, u32)>,
+    /// 3: the item maker's quality key and the value of the quality pass `0x5D2E40` it takes.
+    pub qualities: Vec<(u32, u32)>,
+    /// 4: rows of seven words by a key, 1 to 9, into `0xAD57D4`; not followed.
+    pub rows: Vec<(u32, [u32; 7])>,
+    /// 5: an effect and the parameters `a`, `b`, `c` of a chance by its value
+    /// (`(1 − a/(b + v))·100 + 0.5` per cent at most `c`, `0x5F23A0`).
+    pub chances: Vec<(u32, [f32; 3])>,
+    /// The words after the fifth table, to the end of the file: lists of another layout, not
+    /// read.
     pub rest: Vec<u32>,
 }
 
@@ -109,6 +130,36 @@ pub fn balance(data: &[u8]) -> Result<Balance> {
         return Err(r.error(field("balance image", size.into(), "whole words".into())));
     }
     let image = (0..size / 4).map(|_| r.u32()).collect::<Result<_>>()?;
+    let tail = tail(&mut r)?;
+    Ok(Balance { image, tail })
+}
+
+/// The tables after the image, in the order of the reader `0x5E5C50`.
+fn tail(r: &mut Reader<'_>) -> Result<Tail> {
+    // A list's least size: its key and its count.
+    let n = count(r, 8)?;
+    let lists = (0..n)
+        .map(|_| {
+            let key = r.u32()?;
+            let m = count(r, 12)?;
+            let records = (0..m).map(|_| words(r)).collect::<Result<_>>()?;
+            Ok((key, records))
+        })
+        .collect::<Result<_>>()?;
+    let mut pairs = || -> Result<Vec<(u32, u32)>> {
+        let n = count(r, 8)?;
+        (0..n).map(|_| Ok((r.u32()?, r.u32()?))).collect()
+    };
+    let weights = pairs()?;
+    let qualities = pairs()?;
+    let n = count(r, 32)?;
+    let rows = (0..n)
+        .map(|_| Ok((r.u32()?, words(r)?)))
+        .collect::<Result<_>>()?;
+    let n = count(r, 16)?;
+    let chances = (0..n)
+        .map(|_| Ok((r.u32()?, r.f32s()?)))
+        .collect::<Result<_>>()?;
     if !r.rest().len().is_multiple_of(4) {
         return Err(r.error(field(
             "balance rest",
@@ -119,7 +170,14 @@ pub fn balance(data: &[u8]) -> Result<Balance> {
     let rest = (0..r.rest().len() / 4)
         .map(|_| r.u32())
         .collect::<Result<_>>()?;
-    Ok(Balance { image, rest })
+    Ok(Tail {
+        lists,
+        weights,
+        qualities,
+        rows,
+        chances,
+        rest,
+    })
 }
 
 /// `World.bin`: `u32 n` and n rows of three i32.
@@ -272,20 +330,41 @@ mod tests {
                 entries: vec![[1, 2, 3, 4, 5, 6]]
             }]
         );
-        // An image of 8 bytes, two words, then a word of the rest.
-        let data = le(&[8, 0x3F80_0000, u32::MAX, 849]);
-        let b = balance(&data).unwrap();
+        // An image of 8 bytes, two words; then the five tables, one entry each, and two words.
+        let mut words = vec![8, 0x3F80_0000, u32::MAX];
+        words.extend([1, 0, 1, u32::MAX, u32::MAX, 3]);
+        words.extend([1, 16, 300]);
+        words.extend([1, 8, 9]);
+        words.extend([1, 1, 140, 5, 25, 5, 15, 55, 0]);
+        words.extend([1, 868]);
+        words.extend([500.0_f32, 502.0, 25.0].map(f32::to_bits));
+        words.extend([6, 3]);
+        let b = balance(&le(&words)).unwrap();
         assert_eq!(
             b,
             Balance {
                 image: vec![0x3F80_0000, u32::MAX],
-                rest: vec![849]
+                tail: Tail {
+                    lists: vec![(0, vec![[u32::MAX, u32::MAX, 3]])],
+                    weights: vec![(16, 300)],
+                    qualities: vec![(8, 9)],
+                    rows: vec![(1, [140, 5, 25, 5, 15, 55, 0])],
+                    chances: vec![(868, [500.0, 502.0, 25.0])],
+                    rest: vec![6, 3],
+                }
             }
         );
         // The first key, BalanceDmg, names the image's first word, 1.0.
         assert_eq!(BALANCE_KEYS[0].name, "BalanceDmg");
         assert_eq!(b.word(&BALANCE_KEYS[0]), Some(0x3F80_0000));
         assert_eq!(b.word(BALANCE_KEYS.last().unwrap()), None);
+        // A table that runs past the end is an error.
+        assert!(
+            balance(&le(&[0, 1, 0, 5]))
+                .unwrap_err()
+                .to_string()
+                .contains("`count` is 5")
+        );
         let data = le(&[2, 1, 3392, 0, 2, 3456, 0]);
         assert_eq!(world_index(&data).unwrap(), [[1, 3392, 0], [2, 3456, 0]]);
     }

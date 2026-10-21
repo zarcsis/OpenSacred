@@ -696,8 +696,7 @@ mod tests {
         };
         let balance = opensacred_data::tables::Balance {
             variables: vec![variable("GameSpeed", 1.25)],
-            image: Vec::new(),
-            rest: Vec::new(),
+            ..Default::default()
         };
         std::fs::write(
             dir.join("tables").join(opensacred_data::tables::BALANCE),

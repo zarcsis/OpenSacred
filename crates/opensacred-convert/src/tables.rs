@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
-    ARMOUR_SWITCHES, BALANCE, Balance, BalanceValue, BalanceVariable, CREATURES, Creature,
-    ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion,
-    STAIRS, START_POINTS, STATIC_REMAP, StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS,
-    WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponModifier,
+    ARMOUR_SWITCHES, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue, BalanceVariable,
+    CREATURES, Creature, EffectChance, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES,
+    MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass, QualityWeight, STAIRS,
+    START_POINTS, STATIC_REMAP, StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS, WEAPON_MODIFIERS,
+    WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponModifier,
 };
 use opensacred_formats::bin_tables;
 use opensacred_formats::items::{self, Items};
@@ -225,13 +226,39 @@ fn convert_bin_tables(game_dir: &Path, dir: &Path) -> Result<usize> {
             })
         })
         .collect::<Result<_>>()?;
+    let tail = b.tail;
     write(
         dir,
         BALANCE,
         &Balance {
             variables,
             image: b.image,
-            rest: b.rest,
+            tail_1: tail
+                .lists
+                .into_iter()
+                .map(|(key, records)| BalanceList { key, records })
+                .collect(),
+            quality_weights: tail
+                .weights
+                .into_iter()
+                .map(|(key, weight)| QualityWeight { key, weight })
+                .collect(),
+            quality_passes: tail
+                .qualities
+                .into_iter()
+                .map(|(key, value)| QualityPass { key, value })
+                .collect(),
+            tail_4: tail
+                .rows
+                .into_iter()
+                .map(|(key, words)| BalanceRow { key, words })
+                .collect(),
+            effect_chances: tail
+                .chances
+                .into_iter()
+                .map(|(effect, [a, b, most])| EffectChance { effect, a, b, most })
+                .collect(),
+            rest: tail.rest,
         },
     )?;
     let index = bin_tables::world_index(&file("bin/World.bin")?).context("bin/World.bin")?;
@@ -306,6 +333,27 @@ mod tests {
     use super::*;
     use crate::testing::{repo_root, scratch_dir};
 
+    /// A `balance.ron` of an earlier converter, without the tail's tables, still reads; the
+    /// tables come back as they were written.
+    #[test]
+    fn a_balance_reads_with_or_without_its_tail() {
+        let old: Balance = ron::from_str("(variables: [], image: [1], rest: [2])").unwrap();
+        assert_eq!((old.image, old.rest), (vec![1], vec![2]));
+        assert!(old.quality_weights.is_empty() && old.effect_chances.is_empty());
+        let balance = Balance {
+            quality_weights: vec![QualityWeight { key: 0, weight: 7 }],
+            effect_chances: vec![EffectChance {
+                effect: 868,
+                a: 500.0,
+                b: 502.0,
+                most: 25.0,
+            }],
+            ..Balance::default()
+        };
+        let text = ron::to_string(&balance).unwrap();
+        assert_eq!(ron::from_str::<Balance>(&text).unwrap(), balance);
+    }
+
     /// Every table converts and reads back.
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
@@ -347,5 +395,64 @@ mod tests {
 
     fn game_file_bytes(game: &Path, path: &str) -> Vec<u8> {
         read(game, path).unwrap()
+    }
+
+    /// The drops' tables of the tail of `Balance.bin` land in `balance.ron` by their meaning, the
+    /// others as words, and `GoldProLevel`'s second value by its name (docs/02 §6.3, #413); a
+    /// second run writes the same bytes.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_drops_tables_convert_reproducibly() {
+        let game = repo_root().join("OriginalGame");
+        let runs = ["a", "b"].map(|run| scratch_dir(&format!("tables-balance-{run}")));
+        let texts: Vec<String> = runs
+            .iter()
+            .map(|out| {
+                convert_bin_tables(&game, out).unwrap();
+                fs::read_to_string(out.join(BALANCE)).unwrap()
+            })
+            .collect();
+        assert_eq!(texts[0], texts[1]);
+        let b: Balance = ron::from_str(&texts[0]).unwrap();
+        let weights: Vec<u32> = b.quality_weights.iter().map(|w| w.weight).collect();
+        assert_eq!(
+            weights,
+            [
+                7, 9, 0, 3, 5, 6, 8, 10, 12, 13, 14, 15, 15, 15, 15, 15, 300, 544
+            ]
+        );
+        assert!(b.quality_weights.iter().map(|w| w.key).eq(0..18));
+        let passes: Vec<(u32, u32)> = b.quality_passes.iter().map(|p| (p.key, p.value)).collect();
+        assert_eq!(
+            passes[7..],
+            [
+                (7, 7),
+                (8, 9),
+                (9, 11),
+                (10, 13),
+                (11, 15),
+                (12, 18),
+                (13, 21),
+                (14, 25),
+                (15, 25)
+            ]
+        );
+        assert_eq!(
+            b.effect_chances.iter().find(|c| c.effect == 868),
+            Some(&EffectChance {
+                effect: 868,
+                a: 500.0,
+                b: 502.0,
+                most: 25.0
+            })
+        );
+        assert_eq!(
+            (b.i32("GoldProLevel"), b.i32("GoldProLevel[1]")),
+            (Some(20), Some(2000))
+        );
+        assert_eq!((b.tail_1.len(), b.tail_4.len(), b.rest.len()), (33, 9, 570));
+        for out in runs {
+            fs::remove_dir_all(out).unwrap();
+        }
     }
 }

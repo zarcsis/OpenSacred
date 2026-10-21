@@ -2,12 +2,15 @@
 //! (docs/02 §6.3, #71): read off the parser's code, each key's test (`push` of its name, `call
 //! 0x5E3700`) and its store into the image (`fstp` a float, `mov` an integer); the facts, as
 //! `tools/analysis/pe/balance_keys.py` lists them, which the game tests check this against. A key
-//! that ends in `:` heads a row of values, of which it names the first.
+//! that ends in `:` heads a row of values, of which it names the first. `GoldProLevel` stores two
+//! values, after its colon and after a comma (`0x5EE79B`, #413): the second is named
+//! `GoldProLevel[1]`, a name that no key of the text can have.
 
 use super::{BalanceKey, Kind};
 
-/// The 354 keys with a variable in the image, in the image's order.
-pub const BALANCE_KEYS: [BalanceKey; 354] = [
+/// The 354 keys with a variable in the image and `GoldProLevel`'s second value, in the image's
+/// order.
+pub const BALANCE_KEYS: [BalanceKey; 355] = [
     key("BalanceDmg", 0x000, Kind::F32),
     key("BalanceRes", 0x004, Kind::F32),
     key("BalanceMag", 0x008, Kind::F32),
@@ -204,6 +207,7 @@ pub const BALANCE_KEYS: [BalanceKey; 354] = [
     key("DropGold", 0x8A4, Kind::I32),
     key("DropSonst", 0x8A8, Kind::I32),
     key("GoldProLevel", 0x8AC, Kind::I32),
+    key("GoldProLevel[1]", 0x8B0, Kind::I32),
     key("DropSaft", 0x8B4, Kind::I32),
     key("LevelUpBoss", 0x8B8, Kind::I32),
     key("LevelUpChamp", 0x8BC, Kind::I32),

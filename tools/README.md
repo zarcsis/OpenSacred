@@ -75,7 +75,7 @@ python -I tools/game/remote.py screenshot <scratch>/shot.png
 | `analysis/pe/detail_scan.py` | PE | targeted code reports: threads, functions by string, ranges |
 | `analysis/pe/fpu_scan.py` | PE | FPU control instructions, RNG calls, `VirtualProtect` |
 | `analysis/pe/srand_scan.py`, `control87_callers.py` | PE | `srand` seeds and `_control87` calls with context |
-| `analysis/pe/balance_keys.py` | PE, `bin/Balance.bin` | the balance text's keys, the variables they name in the balance image and their kinds (docs/02 §6.3, #71) |
+| `analysis/pe/balance_keys.py` | PE, `bin/Balance.bin` | the balance text's keys, the variables they name in the balance image and their kinds, and `GoldProLevel`'s second value (docs/02 §6.3, #71, #413) |
 | `analysis/pe/granny_args.py` | PE | Granny call arguments by call site |
 | `analysis/pe/rsrc_dump.py` | PE | resource section: types, sizes, dialogs, large resources |
 | `analysis/pe/sacred_strings.py` | PE | symbol strings and configuration keys from the data sections |
@@ -95,7 +95,7 @@ python -I tools/game/remote.py screenshot <scratch>/shot.png
 | `analysis/formats/spf_names.py` | formats | `sndProfiles.pak` sound profiles |
 | `analysis/formats/sound_dump.py` | formats | `sound.pak` samples (WAV chunks and formats, MP3 frames), `sndProfiles.pak` profiles (10 zeros and 8 groups of 8 ids, variants repeated in turn) and the table of sound names in `Sacred.exe`: checks on every record, per-record tables for the Rust reader |
 | `analysis/formats/mixed_dump.py` | formats | `items.pak` (types, sprites, names) and `mixed.pak` (the sprites of the statics as pieces of atlases): layout checks on every record, per-record tables for the Rust readers; `--alpha` checks the sprites' texels against their size |
-| `analysis/formats/bin_tables_dump.py` | formats | the data tables of `bin/`: layouts checked to the last byte, a fingerprint per file for the Rust reader |
+| `analysis/formats/bin_tables_dump.py` | formats | the data tables of `bin/`, with the tables after the balance image (the drops' weights, the quality pass's values, the effects' chance parameters; #413): layouts checked to the last byte, a fingerprint per file for the Rust reader |
 | `analysis/formats/tables_dump.py` | formats | the fixed-record tables `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK` and the overlay `Items03.pak`: checks on every record, per-record rows for the Rust readers |
 | `analysis/scripts/netscript_census.py` | scripts | census of NetScript record types across all directories |
 | `analysis/scripts/kwtab.py` | scripts | keyword tables of the script compiler in the client's `.data` |
