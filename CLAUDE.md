@@ -11,13 +11,12 @@ An open-source engine for Sacred Gold 2.28 (GOG), written in Rust: an offline co
 | `crates/opensacred-data` | types of the open formats, shared by the converter and the game (`world`, `sound`, `tables`, `heroes`, `netscript`, `text`, `video`) |
 | `crates/opensacred-convert` | CLI: GOG installation → `assets/`; supports `verify` (cross-check against the manifest), `textures` (TEX → PNG), `models` (GRN models and motions → glTF binary with animations), `world` (sectors, statics and sprites → postcard files), `sound` (samples → FLAC/MP3, profiles → RON), `text` (global.res → Fluent), `video` (WMV → AV1/Opus WebM), `ui` (screens, fonts, credits), `netscript` (the script trees → postcard files, listings on request), `tables` (creatures, weapons, items, motions, triggers → RON), `heroes` (the starting templates), `all` and `coverage` |
 | `crates/opensacred-game` | the game on Bevy 0.20 (ADR-04), reading only `assets/`: the M2 vertical slice (streamed sectors with ground, liquids and static objects, the hero walking and running, the start script's NPCs, footsteps, music and ambient loops), day and night, the world's creatures spawned and living by the original's rules, the fight (the creatures' and the hero's strikes, health, death, levels), the creatures' drops thrown where they die, a main menu with the choice of the hero and a pause menu (Esc), settings in `%APPDATA%\OpenSacred\settings.toml` (borderless or windowed, F11), the keys' help (F1), a debug overlay (F3), the log (F4 and a file), a console of the game's commands (the key under Esc), scripts (`--exec`, `--script`) and remote control (`--remote`, docs/10); `--screenshot` saves a frame and exits, `--benchmark` measures |
+| `crates/opensacred-oracle` | development only, run locally (docs/04 §2.3): the developer's own `Sacred.exe` in the Unicorn emulator (GPL-2.0, the feature `emulator`; a binary that nothing depends on), the PE image at its addresses with the balance's image, stubs for the functions and imports the code calls, and the fight's functions run on sets of inputs (the level's end and the level of an experience, the hit chance and the damage through a resistance of `0x43EEE0`, the most health) → JSON vectors outside the repository, which `opensacred-rules`' `tests/oracle.rs` compares with |
 | `OriginalGame/` | the developer's own GOG installation, ignored by Git — the reference, read-only |
-| `docs/manifest-gog-2.28.txt` | SHA-256 of the reference installation (`sha256sum` format), embedded in `opensacred-convert` |
+| `docs/manifest-gog-2.28.txt` | SHA-256 of the reference installation (`sha256sum` format), embedded in `opensacred-convert` and `opensacred-oracle` |
 | `build.rs` | the build script of the converter and the game: their `--version` from `git describe` (`Cargo.toml` has no version) |
 | `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`); the game's remote-control client `tools/game/remote.py`; the Ghidra project's scripts `tools/ghidra/`; the process scripts `tools/usage/` and `tools/stack/` |
 | `.claude/skills/game/` | the project skill `game`: how to run the game and drive it (scripts, remote control) |
-
-`opensacred-rules`, `opensacred-oracle` (PLAN.md §6.1) appear when their turn comes; do not create them in advance.
 
 ## Commands
 
@@ -36,6 +35,7 @@ cargo run --release -p opensacred-convert -- heroes       # Templates/*.ptx → 
 cargo run --release -p opensacred-convert -- netscript    # bin/**/{Funk,Start,Quest}Code.bin + Vectoren.bin → assets/netscript/ (--listing: <tree>.txt)
 cargo run --release -p opensacred-convert -- all          # every conversion in order; skips those whose assets/manifest/<command>.ron still holds (--force runs all)
 cargo run -p opensacred-convert -- coverage               # what becomes of each file of the manifest
+cargo run --release -p opensacred-oracle --features emulator   # the fight's functions of OriginalGame/Sacred.exe in Unicorn → vectors in OPENSACRED_VECTORS, else %LOCALAPPDATA%\OpenSacred\vectors (--out, --precision 24|53|64); needs CMake, Ninja, a C compiler and libclang (LIBCLANG_PATH), docs/03 §3.4
 cargo run --release -p opensacred-game                    # the game on assets/, from its menu: left mouse moves, on a hostile creature attacks (Ctrl strikes at once), R walks/runs, the wheel zooms, Esc pauses, F1 the keys' help, F3 the overlay, F4 the log, F11 windowed, ~ the console (--class seraphim|gladiator|mage|wood-elf|dark-elf|daemon|dwarf starts a game at once; --sector X,Y, --zoom, --time HH:MM, --windowed, --borderless, --width/--height, --no-music, --settings, --log-file)
 cargo run --release -p opensacred-game -- --screenshot shot.png   # render one frame once the scene is ready, then exit
 cargo run --release -p opensacred-game -- --windowed --no-music --exec "new-game --class mage; wait ready; screenshot shot.png; quit"   # a script of the game's commands (help lists them)
@@ -43,7 +43,8 @@ cargo run --release -p opensacred-game -- --remote --windowed --no-music --setti
 python -I tools/game/remote.py exec "go +6,+2"          # drive a game started with --remote: exec, state, wait-ready, wait-state, key, type, move, click, wheel, screenshot, logs, call
 gltf_validator assets/models                         # writes a .report.json next to every .glb
 cargo nextest run --workspace                       # tests without the game files (as in CI)
-cargo nextest run --workspace --run-ignored all     # plus tests on the game files and the GPU
+cargo nextest run --workspace --run-ignored all     # plus tests on the game files and the GPU (the oracle's vectors recorded first)
+cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'   # the fight's formulas against the oracle's vectors
 cargo nextest run --workspace --run-ignored only -E 'test(scene)'   # the screenshot test (a GPU)
 UPDATE_SCREENSHOTS=1 cargo nextest run --workspace --run-ignored only -E 'test(scene)'   # new reference
 cargo deny check                                    # licenses, vulnerabilities, sources
@@ -91,7 +92,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Do not quote the game's texts, dialogues or license agreements in the repository; record only facts about formats and behavior.
 - Never commit decompiler output or code translated from it: describe the original's behavior in prose in `docs/re/` and implement it independently (docs/08 §3). Nothing about circumventing a protection.
 - The same rules hold for issues, pull requests and their attachments: no game files, converted assets or screenshots of them (docs/08 §3).
-- `unsafe` is forbidden by a workspace lint; the exception is the future `opensacred-oracle`.
+- `unsafe` is forbidden by a workspace lint, in `opensacred-oracle` too: its Unicorn wrapper needs none, and only a wrapper that did would make it the exception.
 - Do not use code from unlicensed projects (SacredEngineRemake); do not port GPL code (sacred-bild) — facts only. MIT borrowings carry attribution.
 - New dependencies only with licenses allowed in `deny.toml`.
 

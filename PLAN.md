@@ -130,7 +130,7 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 5. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
-   Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), the fight's formulas with the hero's levels (#360), the ways (#361) and the creatures' decisions (#362), which `opensacred-game` calls; `opensacred-oracle` is not created yet (#363), and there are no vectors; the checks in the original are gathered in #227.
+   Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), the fight's formulas with the hero's levels (#360), the ways (#361) and the creatures' decisions (#362), which `opensacred-game` calls; `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`) and the most health, which `opensacred-rules`' tests compare with: the levels agree, the others showed five bugs, of which #406, #407 and #408 are fixed and #417 and #418 open; the checks in the original are gathered in #227.
 6. **Nothing from the study is committed.**
    The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
@@ -215,7 +215,7 @@ OpenSacred/
 │  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
 │  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, quests, script VM (the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, #364)
 │  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves
-│  └─ opensacred-oracle/      (not created yet, #363; development only, run locally) runs functions of the user's own Sacred.exe in Unicorn, records vectors
+│  └─ opensacred-oracle/      (#363; development only, run locally, Unicorn its feature `emulator`) runs functions of the user's own Sacred.exe in Unicorn, records vectors
 ├─ tools/analysis/            Python research scripts (archive, gradually replaced by Rust)
 ├─ tools/ghidra/              scripts of the local Ghidra project (classes, names, library marks)
 ├─ tools/game/                the game's remote-control client

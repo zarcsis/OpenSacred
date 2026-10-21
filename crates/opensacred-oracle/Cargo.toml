@@ -1,0 +1,29 @@
+[package]
+name = "opensacred-oracle"
+description = "Development only: runs the fight's formulas of the developer's own Sacred.exe in the Unicorn emulator and records their vectors"
+edition.workspace = true
+rust-version.workspace = true
+# Our code is MIT OR Apache-2.0 as the workspace's. The emulator it links, Unicorn, is GPL-2.0,
+# which the Apache-2.0 option cannot be combined with: the oracle built with it is GPL-2.0 as a
+# whole (by the MIT option), stays on the developer's machine, and has no library that the
+# converter or the game could depend on (docs/08 §4).
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The emulator: Unicorn's C library, which unicorn-engine-sys builds with CMake, a C compiler and
+# Ninja, its bindings made by bindgen with libclang (docs/03 §3.4). Without it the oracle checks
+# its inputs and stops, so that the workspace builds without those tools.
+emulator = ["dep:unicorn-engine"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+unicorn-engine = { workspace = true, optional = true }
+
+[lints]
+workspace = true
