@@ -1156,9 +1156,11 @@ pub fn weighed(
 
 /// The exponent `k` of a strike's damage against the resistances (`0x56B130`) of an attacker
 /// `above` levels above its defender: `−log₂(1 − p)`, `p` half of 1 plus a hundredth of each
-/// level, at most 0.99; 1 for none above.
+/// level, which the weight `0x43EEE0` holds at 0.99 only from 1 up: 1 for none above, about 7.64
+/// for 99 above, where `p` stays 0.995, and 6.64 for 98 and for 100 and more.
 pub fn exponent(above: u32) -> f32 {
-    let p = (0.5 * (1.0 + to_f32(above) * 0.01)).min(0.99);
+    let p = 0.5 * (1.0 + to_f32(above) * 0.01);
+    let p = if p >= 1.0 { 0.99 } else { p.max(0.0) };
     -(1.0 - p).log2()
 }
 
@@ -1602,6 +1604,24 @@ mod tests {
             weighed(wolf, goblin, None, (9, 1), &rules),
             (wolf, goblin, 1.0)
         );
+    }
+
+    #[test]
+    fn the_share_of_the_exponent_is_held_at_099_only_from_1_up() {
+        let close = |a: f32, b: f64| (f64::from(a) - b).abs() <= 1e-5 * b.abs().max(1.0);
+        assert!(close(exponent(0), 1.0));
+        assert!(close(exponent(98), -(0.01_f64).log2()));
+        // 99 levels above, the share 0.995 stays (#407).
+        assert!(close(exponent(99), -(0.005_f64).log2()));
+        assert!(close(exponent(100), -(0.01_f64).log2()));
+        assert!(close(exponent(150), -(0.01_f64).log2()));
+        // The values of `0x43EEE0` that `opensacred-oracle` recorded 99 levels above (#363).
+        assert!(close(
+            dealt(1.0, 1000.0, exponent(99)),
+            0.007_610_927_548_607
+        ));
+        assert!(close(dealt(15.0, 30.0, exponent(99)), 14.323_800_614_878));
+        assert!(close(dealt(4.43, 4.48, exponent(99)), 4.406_881_828_101));
     }
 
     #[test]
