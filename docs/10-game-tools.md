@@ -171,6 +171,8 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   | `opensacred/logs {after}` | the log's records numbered `after` and later |
 
 * Bevy's own methods (`rpc.discover`, `world.query`, `world.get_resources`, `world.mutate_resources`, …) see what is registered for reflection, which is none of the game's types yet.
+* `world.mutate_components` of `bevy_remote` 0.20.0 panics on an entity that is gone (`World::entity_mut`), so that a call on an object of a sector that has unloaded ended the game (#456, 2026-10-21).
+  The game registers its own method under that name after Bevy's, which takes its place: it looks the entity up and answers `ENTITY_NOT_FOUND` (-23401) for one that is gone, as Bevy's other methods on an entity do, and hands the rest to Bevy's.
 * The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-state`, `wait-ready`, `key F11`, `type`, `click X Y`, `move`, `wheel`, `screenshot FILE`, `logs`, `call METHOD`, and `--port`.
 * Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window opening unfocused.
 * Screenshots and logs taken this way are pictures of the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
