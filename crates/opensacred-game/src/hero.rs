@@ -464,6 +464,9 @@ pub fn run(
             transform.translation = here;
             body.level = level;
             body.climbed = true;
+            if sent_to_stair(body.target, cell) {
+                body.target = None;
+            }
         }
         let level = body.level;
         if let Some(target) = body.target {
@@ -553,6 +556,13 @@ pub fn run(
             .set_speed(speed.0);
         body.moving = moving;
     }
+}
+
+/// Whether a stair the hero climbs at `cell` is where it was sent, `target`: it has arrived, and
+/// stands where the stair put it, rather than walking back onto the stair, which would take it
+/// away again, round and round (#373).
+fn sent_to_stair(target: Option<Vec3>, cell: (i32, i32)) -> bool {
+    target.is_some_and(|t| paths::cell_of(t.x, t.z) == cell)
 }
 
 /// How long the hero lies dead before it rises again, in seconds.
@@ -697,6 +707,19 @@ mod tests {
         let speed = GameSpeed::read(&dir).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(speed.0, 1.25);
+    }
+
+    #[test]
+    fn a_stair_it_was_sent_to_ends_its_way() {
+        let stair = (1105, 991);
+        let centre = |(x, y): (i32, i32)| {
+            let ground = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
+            Vec3::new(ground.x, 0.0, ground.z)
+        };
+        assert_eq!(paths::cell_of(centre(stair).x, centre(stair).z), stair);
+        assert!(sent_to_stair(Some(centre(stair)), stair));
+        assert!(!sent_to_stair(Some(centre((1110, 999))), stair));
+        assert!(!sent_to_stair(None, stair));
     }
 
     #[test]
