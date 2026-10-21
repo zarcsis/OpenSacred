@@ -90,6 +90,25 @@ pub fn path_onto<L: Copy + Eq + Hash>(
     None
 }
 
+/// How far along an axis a creature's way's search takes its target as it is (`0x4FABE0`).
+const NEARER_THAN: i32 = 25;
+
+/// The cell that a creature's way's search from `from` heads for, its target `to` (`0x4FABE0`):
+/// a target farther than 25 cells along an axis it first brings nearer along the line, to the
+/// farthest cell of the line within 25 along each axis that it may stand on (`walkable`, the
+/// test of `0x4EBCA0`); `None` when none of them is, the start's own cell aside.
+pub fn nearer(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> Option<Cell> {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let far = dx.abs().max(dy.abs());
+    if far <= NEARER_THAN {
+        return Some(to);
+    }
+    (1..=NEARER_THAN)
+        .rev()
+        .map(|k| (from.0 + dx * k / far, from.1 + dy * k / far))
+        .find(|&cell| walkable(cell))
+}
+
 /// The walkable neighbours of `cell` on one layer, by `walkable`: round a corner, not between two
 /// cells that touch at it.
 pub fn around(cell: Cell, walkable: impl Fn(Cell) -> bool) -> impl Iterator<Item = Cell> {
@@ -312,6 +331,19 @@ mod tests {
         // Out of the window, or walled in.
         assert_eq!(path(((0, 0), ()), (40, 0), flat), None);
         assert_eq!(path(((2, 4), ()), (8, 4), |_| Vec::new()), None);
+    }
+
+    #[test]
+    fn a_far_target_is_brought_nearer_along_the_line() {
+        let open = |_: Cell| true;
+        // Within 25 along each axis, as it is; farther, 25 along the longer axis.
+        assert_eq!(nearer((10, 10), (35, -15), open), Some((35, -15)));
+        assert_eq!(nearer((10, 10), (10, 50), open), Some((10, 35)));
+        assert_eq!(nearer((0, 0), (-60, 30), open), Some((-25, 12)));
+        // The farthest of the line that may be stood on; none, none.
+        let wall = |cell: Cell| cell.1 < 30;
+        assert_eq!(nearer((10, 10), (10, 50), wall), Some((10, 29)));
+        assert_eq!(nearer((10, 10), (10, 50), |_| false), None);
     }
 
     #[test]

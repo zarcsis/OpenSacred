@@ -8,30 +8,35 @@
 //! the levels sends at the hero, or that has the hero within its reach, comes at it from up to
 //! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
 //! wounded it flees, and too far from home it goes back ([`pursue`],
-//! docs/decisions/2026-10-20-pursuit.md); one with a ranged weapon keeps 300 to 800 from the hero
-//! and shoots (docs/decisions/2026-10-21-archers.md); one that the test holds back goes dormant
-//! again and steps about as one beyond it (docs/decisions/2026-10-20-idle.md). The decisions are
-//! the rules' (`opensacred_rules::minds`); this module keeps the minds as components, reads the
-//! world for them and carries them out: the walks, the strikes, the shots, the doors, the lines
-//! and the turns.
+//! docs/decisions/2026-10-20-pursuit.md); the second to the fourth of the hero's hostiles beside
+//! the nearest take their places about the hero for a frame; one with a ranged weapon keeps 300
+//! to 800 from the hero and shoots (docs/decisions/2026-10-21-archers.md); one that the test holds
+//! back goes dormant again and steps about as one beyond it (docs/decisions/2026-10-20-idle.md).
+//! Without a straight line or a way to the hero, a creature goes for the nearest closed door of
+//! its sector that a hero turned, and opens it ([`open`], docs/decisions/2026-10-21-doors.md).
+//! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
+//! components, reads the world for them and carries them out: the walks, the strikes, the shots,
+//! the doors, the lines and the turns.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 pub use opensacred_rules::minds::of_type;
 use opensacred_rules::minds::{
-    self, BEHAVES_WITHIN, Child, Decision, Evening, Pursues, Pursuit, RANGE, Senses, Spot, Walking,
-    Why, child, daemon_fear, daemon_near, evening_way, follow, runs_from, steps_off, townsperson,
-    trader_for,
+    self, AT_THE_DOOR, BEHAVES_WITHIN, Blocked, Child, Decision, DoorSeen, Evening, Pursues,
+    Pursuit, RANGE, Senses, Spot, Walking, Why, child, daemon_fear, daemon_near, door_in_the_way,
+    evening_way, follow, opens, runs_from, steps_off, townsperson, trader_for,
 };
 
-use crate::crowd::{Crowd, InTheWay};
+use crate::buildings::Layered;
+use crate::crowd::{Crowd, InTheWay, Nearest};
 use crate::daynight::{Clock, Phase};
 use crate::frame::Step;
 use crate::hero::Body;
 use crate::lines::Says;
-use crate::npcs::{Door, Plays, PutAt, Strikes, Swing, Talks, Walk};
+use crate::npcs::{Door, Npcs, Plays, PutAt, Strikes, Swing, Talks, Walk};
 use crate::paths;
 use crate::spawning::Rng;
-use crate::terrain::Heights;
+use crate::terrain::{Heights, Level};
 
 /// How near a trader a townsperson that visits it stops (`0x4EE660`, `+0x176`).
 const AT_THE_TRADER: f32 = 150.0;
@@ -72,6 +77,8 @@ pub struct Mind {
     visiting: Option<Entity>,
     /// The door it goes through, which it closes behind it (`+0x124`).
     door: Option<Entity>,
+    /// The door in its way that it goes to open (the AI's state 1, `0x53A170`).
+    opening: Option<Entity>,
 }
 
 impl Mind {
@@ -92,6 +99,7 @@ impl Mind {
             runs_after: false,
             visiting: None,
             door: None,
+            opening: None,
         }
     }
 }
@@ -130,8 +138,165 @@ fn walk(target: Vec3, speed: f32, way: &InTheWay) -> Walk {
     Walk::to(target, way.level, speed)
 }
 
+/// The sector of world point `p`.
+fn sector_of(p: Vec3) -> (f32, f32) {
+    let side = crate::iso::CELL * 64.0;
+    ((p.x / side).floor(), (p.z / side).floor())
+}
+
+/// A door as a creature in its way sees it, with its entity and its world point.
+type Seen = DoorSeen<(Entity, Vec3)>;
+
+/// The doors that the creatures in their way look at (`0x4D4800`), and the hero's marks on them.
+#[derive(SystemParam)]
+struct Doors<'w, 's> {
+    #[expect(
+        clippy::type_complexity,
+        reason = "a Bevy query's components and filters"
+    )]
+    doors: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Transform,
+            &'static Door,
+            Option<&'static Swing>,
+            &'static Layered,
+        ),
+        Without<Mind>,
+    >,
+    npcs: Option<Res<'w, Npcs>>,
+}
+
+impl Doors<'_, '_> {
+    /// Each door, where it stands and on which layer, whether it is open, a door turned this
+    /// frame as it will stand (`npcs::swing` turns it later in the frame), and whether a hero
+    /// marked it; the game reads no trigger's bit 15, and so bars no door.
+    fn seen(&self) -> Vec<Seen> {
+        self.doors
+            .iter()
+            .map(|(entity, transform, door, swing, layered)| DoorSeen {
+                door: (entity, transform.translation),
+                at: spot(transform.translation),
+                layer: layered.layer,
+                open: swing.map_or(door.open, |swing| swing.open),
+                barred: false,
+                marked: self.npcs.as_ref().is_some_and(|npcs| npcs.marked(door)),
+            })
+            .collect()
+    }
+}
+
+/// The door in the way of a creature at `here` on `layer`, of the doors of its sector, as the
+/// rules choose it (`opensacred_rules::minds::door_in_the_way`, `0x4D4800`).
+fn door_in_way(here: Vec3, layer: i32, doors: &[Seen]) -> Option<(Entity, Vec3)> {
+    let sector = sector_of(here);
+    let ours = doors
+        .iter()
+        .copied()
+        .filter(|door| sector_of(door.door.1) == sector);
+    door_in_the_way(spot(here), layer, ours)
+}
+
+/// Where a creature at `here` on `level` walks to open the door at `door` (`0x53A170`): the
+/// door's outer point on the ground and its inner on a floor (`0x43B290`), which the game has not
+/// read (#273); in their place the cell beside the door's that may be walked on at the creature's
+/// level, the nearest to it, or the door itself where there is none.
+fn beside(door: Vec3, here: Vec3, level: Level, heights: &Heights) -> Vec3 {
+    let (x, y) = paths::cell_of(door.x, door.z);
+    opensacred_rules::ways::STEPS
+        .iter()
+        .map(|&(dx, dy)| (x + dx, y + dy))
+        .filter(|&cell| heights.walkable_on(cell, level))
+        .filter_map(centre)
+        .min_by(|a, b| {
+            let (da, db) = ((*a - here).xz().length(), (*b - here).xz().length());
+            da.total_cmp(&db)
+        })
+        .unwrap_or(door)
+        .with_y(here.y)
+}
+
+/// Sends the creature `entity` at `here` to the door in its way, `door` at `at` (the event 7 with
+/// the door, the AI's state 1, `0x53A170`): it walks to its point beside the door, stopping
+/// within 20, and opens it standing ([`open`]).
+fn go_for_door(
+    commands: &mut Commands,
+    (entity, here, way): (Entity, Vec3, &InTheWay),
+    mind: &mut Mind,
+    (door, at): (Entity, Vec3),
+    heights: &Heights,
+) {
+    let target = beside(at, here, way.level, heights);
+    debug!(
+        "ai: {entity} goes for {door} in its way, from {:.0},{:.0} to {:.0},{:.0}",
+        here.x, here.z, target.x, target.z
+    );
+    mind.opening = Some(door);
+    commands
+        .entity(entity)
+        .insert(Walk::to(target, way.level, mind.speed).within(AT_THE_DOOR));
+}
+
+/// Whether a way leads from a creature at `here` on `level` to the cell of `to` on any level,
+/// round the cells that may not be walked on and through the doors, the creatures not counted
+/// (`opensacred_rules::ways::path_onto`, `0x4F7710`): to a cell brought nearer along the line
+/// where `to` lies farther than 25 cells along an axis (`opensacred_rules::ways::nearer`,
+/// `0x4FABE0`).
+fn way_to(here: Vec3, level: Level, to: Spot, heights: &Heights) -> bool {
+    let from = paths::cell_of(here.x, here.z);
+    let Some(to) = opensacred_rules::ways::nearer(from, paths::cell_of(to.x, to.y), |cell| {
+        heights.walkable_on(cell, level)
+    }) else {
+        return false;
+    };
+    paths::path_onto(
+        (from, (level, false)),
+        to,
+        |_| true,
+        |place| heights.neighbours(place),
+    )
+    .is_some()
+}
+
+/// Each creature that went for a door in its way, once it stands, opens it within 300 of it on
+/// its layer or the ground and the first floor either way (`opensacred_rules::minds::opens`):
+/// the event `0x21` of a creature that is no hero (`Swing::to`), which opens the closed door
+/// that a hero marked; then it takes the AI's state 0 again, whose choice looks for the hero
+/// anew (`0x53A170`).
+fn open(
+    mut commands: Commands,
+    doors: Query<(&Transform, &Layered), With<Door>>,
+    mut creatures: Query<(Entity, &Transform, &Layered, &mut Mind), Without<Walk>>,
+) {
+    for (entity, transform, layered, mut mind) in &mut creatures {
+        let Some(door) = mind.opening.take() else {
+            continue;
+        };
+        mind.left_door();
+        let Ok((at, door_layer)) = doors.get(door) else {
+            continue;
+        };
+        let here = transform.translation;
+        if opens(
+            spot(here),
+            layered.layer,
+            spot(at.translation),
+            door_layer.layer,
+        ) {
+            debug!("ai: {entity} opens {door} in its way");
+            commands.entity(door).insert(Swing::to(true));
+        } else {
+            let d = (at.translation - here).xz().length();
+            debug!("ai: {entity} stands {d:.0} from {door}, too far to open it");
+        }
+    }
+}
+
 /// Runs the creatures' timers, the hero's look every 0.3 s, and the awake creatures' thought
-/// (`opensacred_rules::minds::Mind::think`), and walks them where it sends them.
+/// (`opensacred_rules::minds::Mind::think`), and walks them where it sends them: a creature
+/// without a straight line to the hero to the door in its way, if it finds one.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -144,8 +309,19 @@ fn think(
     heights: Res<Heights>,
     balance: Res<FightRules>,
     experience: Res<crate::fight::Experience>,
+    doors: Doors,
     hero: Query<(&Transform, &Body)>,
-    mut creatures: Query<(Entity, &Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
+    mut creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &mut Mind,
+            Has<Walk>,
+            &Layered,
+        ),
+        Without<Body>,
+    >,
 ) {
     let Some((hero, body)) = hero.iter().next() else {
         return;
@@ -164,7 +340,8 @@ fn think(
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
     let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
-    for (entity, transform, way, mut mind, walking) in &mut creatures {
+    let seen = doors.seen();
+    for (entity, transform, way, mut mind, walking, layered) in &mut creatures {
         let here = transform.translation;
         let (x, y) = sector(here);
         let senses = Senses {
@@ -182,7 +359,22 @@ fn think(
                 heights.walkable_on(cell, way.level)
             })
         };
-        let thought = mind.think(&senses, clear, &mut minds.rng);
+        // The door in its way, if no straight line leads to the hero (`0x5442E8`).
+        let mut found = None;
+        let door = || {
+            found = door_in_way(here, layered.layer, &seen);
+            found.is_some()
+        };
+        let thought = mind.think(&senses, clear, door, &mut minds.rng);
+        if let (true, Some(found)) = (thought.door, found) {
+            go_for_door(
+                &mut commands,
+                (entity, here, way),
+                &mut mind,
+                found,
+                &heights,
+            );
+        }
         if let Some(home) = thought.home {
             steps.push((entity, point(home, here.y)));
         }
@@ -206,8 +398,9 @@ fn think(
     }
     // A group's other members step by the same step, each within 50 of it.
     for (group, step, leader) in grouped {
-        for (entity, transform, _, mut mind, walking) in &mut creatures {
-            if entity == leader || mind.group != Some(group) || walking {
+        for (entity, transform, _, mut mind, walking, _) in &mut creatures {
+            // Not one that goes for a door, sent there this frame or before.
+            if entity == leader || mind.group != Some(group) || walking || mind.to_door() {
                 continue;
             }
             let here = transform.translation;
@@ -216,7 +409,7 @@ fn think(
         }
     }
     for (entity, target) in steps {
-        if let Ok((_, _, way, mind, _)) = creatures.get(entity) {
+        if let Ok((_, _, way, mind, ..)) = creatures.get(entity) {
             commands
                 .entity(entity)
                 .insert(walk(target, mind.speed, way));
@@ -224,7 +417,7 @@ fn think(
     }
     // The alarm sends a group's idle hostile members at the hero too.
     for group in alarms {
-        for (_, _, _, mut mind, _) in &mut creatures {
+        for (_, _, _, mut mind, ..) in &mut creatures {
             mind.hears_alarm(group);
         }
     }
@@ -249,9 +442,13 @@ impl Default for FightRules {
 /// Each creature that fights the hero keeps the band of its reach, flees wounded and goes home
 /// from too far, as the rules decide (`opensacred_rules::minds::Mind::pursue`, `0x4E0300`): it
 /// comes on, after the hero as it moves, steps back, flees and goes home at its walk or run, and
-/// in the band stands turned to the hero, where it strikes (#280). One with a ranged weapon keeps
-/// 300 to 800 from the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no
-/// straight line of walkable cells leads to the hero, and shoots, standing turned to the hero.
+/// in the band stands turned to the hero, where it strikes (#280). The second to the fourth of the
+/// hero's list of hostiles (`crowd::Nearest`), deciding near the first, walk to their places
+/// about the hero for a frame (`0x4E224E`). One that comes on in melee without a straight line of
+/// walkable cells to the hero, and without a way to it, goes for the door in its way, or gives
+/// up (`opensacred_rules::minds::Mind::blocked`). One with a ranged weapon keeps 300 to 800 from
+/// the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no straight line leads to
+/// the hero, and shoots, standing turned to the hero.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -260,6 +457,8 @@ fn pursue(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
     heights: Res<Heights>,
+    nearest: Res<Nearest>,
+    doors: Doors,
     hero: Query<
         (Entity, &Transform, Has<crate::attack::Striking>),
         (With<Body>, Without<crate::npcs::Dies>),
@@ -273,6 +472,7 @@ fn pursue(
             Option<&Walk>,
             Has<Strikes>,
             Option<&crate::fight::Health>,
+            &Layered,
         ),
         Without<Body>,
     >,
@@ -281,7 +481,14 @@ fn pursue(
         return;
     };
     let hero = hero.translation;
-    for (entity, mut transform, way, mut mind, walk, striking, health) in &mut creatures {
+    // Where the nearest of the hero's hostiles stands.
+    let first = nearest
+        .hostiles
+        .first()
+        .and_then(|&first| creatures.get(first).ok())
+        .map(|(_, transform, ..)| spot(transform.translation));
+    let seen = doors.seen();
+    for (entity, mut transform, way, mut mind, walk, striking, health, layered) in &mut creatures {
         let here = transform.translation;
         let sight = Pursuit {
             here: spot(here),
@@ -294,8 +501,13 @@ fn pursue(
             striking,
             health: health.map(|health| (health.current, health.most)),
             hero_strikes,
+            listed: nearest
+                .hostiles
+                .iter()
+                .position(|&hostile| hostile == entity)
+                .zip(first),
         };
-        // A straight line of walkable cells to the hero.
+        // A straight line of walkable cells to the hero, asked again below.
         let clear = || {
             paths::clear(here.xz(), hero.xz(), |cell| {
                 heights.walkable_on(cell, way.level)
@@ -316,9 +528,60 @@ fn pursue(
                     .insert(Walk::run(point(to, here.y), way.level, mind.run));
             }
             Pursues::ComesOn { runs, within } => {
+                // In melee without a straight line: a way to the hero, or the door in its way, or
+                // it gives up (`0x4E4931`, `0x4F5652`).
+                if !mind.ranged && !clear() {
+                    let reaches = |to: Spot| way_to(here, way.level, to, &heights);
+                    let mut found = None;
+                    let door = || {
+                        found = door_in_way(here, layered.layer, &seen);
+                        found.is_some()
+                    };
+                    match mind.blocked(spot(hero), reaches, door, &mut minds.rng) {
+                        Blocked::ComesOn => {}
+                        Blocked::Door => {
+                            if let Some(found) = found {
+                                go_for_door(
+                                    &mut commands,
+                                    (entity, here, way),
+                                    &mut mind,
+                                    found,
+                                    &heights,
+                                );
+                            }
+                            continue;
+                        }
+                        Blocked::GivesUp => {
+                            let (from, to) = (
+                                paths::cell_of(here.x, here.z),
+                                paths::cell_of(hero.x, hero.z),
+                            );
+                            debug!(
+                                "ai: {entity} {:?}, no way from {from:?} on {:?} to the hero at \
+                                 {to:?}",
+                                Why::GivesUp,
+                                way.level
+                            );
+                            continue;
+                        }
+                    }
+                }
                 commands
                     .entity(entity)
                     .insert(come_on(&mind, hero, way, runs, within));
+            }
+            Pursues::TakesPlace { to, runs, within } => {
+                debug!(
+                    "ai: {entity} takes its place about the hero at {:.0},{:.0}, running {runs}",
+                    to.x, to.y
+                );
+                let to = point(to, here.y);
+                let walk = if runs {
+                    Walk::run(to, way.level, mind.run)
+                } else {
+                    Walk::to(to, way.level, mind.speed)
+                };
+                commands.entity(entity).insert(walk.within(within));
             }
             Pursues::StepsBack(to) => {
                 commands
@@ -332,12 +595,13 @@ fn pursue(
                     .entity(entity)
                     .insert(Walk::to(home, way.level, mind.speed));
             }
-            // In the band, turned to the hero, it strikes.
+            // In the band, turned to the hero, it strikes, its walk to its place ended.
             Pursues::Strikes(choice) => {
                 transform.rotation = crate::hero::facing(hero - here);
                 if let Some(choice) = choice {
                     commands
                         .entity(entity)
+                        .remove::<Walk>()
                         .insert(Strikes::at(the_hero, choice));
                 }
             }
@@ -1052,7 +1316,7 @@ impl Plugin for AiPlugin {
             .init_resource::<FightRules>()
             .add_systems(
                 Update,
-                (think, aside, behave, pursue)
+                (open, think, aside, behave, pursue)
                     .chain()
                     .after(crate::crowd::gather)
                     .in_set(Step::Crowd),
@@ -1075,6 +1339,115 @@ mod tests {
             let to = danger(here, &[far, goblin], &mut rng).unwrap();
             assert!((to.x + 700.0).abs() <= 100.0 && to.z.abs() <= 100.0, "{to}");
         }
+    }
+
+    /// Sector (0, 0) walkable but for a wall across it along the cells' row 10, with a door in it
+    /// at cell (10, 10), closed: its cell taken, as its trigger takes it.
+    fn walled() -> Heights {
+        use opensacred_data::world::{Cell, SIDE, Sector};
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let mut cells = vec![cell(0x40); SIDE * SIDE];
+        for x in 0..SIDE {
+            cells[10 * SIDE + x] = cell(0x41);
+        }
+        cells[10 * SIDE + 10] = cell(0x40);
+        let mut heights = Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        heights.occupy((10, 10), None);
+        heights
+    }
+
+    /// The centre of cell `(x, y)` on the ground.
+    fn at_cell(x: f32, y: f32) -> Vec3 {
+        crate::iso::ground(x + 0.5, y + 0.5)
+    }
+
+    #[test]
+    fn a_creature_walks_to_the_side_of_the_door_it_stands_on() {
+        let mut heights = walled();
+        let door = at_cell(10.0, 10.0);
+        // Before the door on either side, the cell beside it on that side, the nearest.
+        let cell = |p: Vec3| paths::cell_of(p.x, p.z);
+        let near = beside(door, at_cell(10.0, 4.0), None, &heights);
+        assert_eq!(cell(near), (10, 9));
+        assert_eq!(
+            cell(beside(door, at_cell(14.0, 17.0), None, &heights)),
+            (11, 11)
+        );
+        // On a level with no cell beside the door that may be walked on, the door itself.
+        let inside = Some((0, 0, 1));
+        assert_eq!(beside(door, at_cell(10.0, 4.0), inside, &heights), door);
+        // The closed door cuts the way through the wall; open, it leads through it.
+        let other_side = spot(at_cell(10.0, 15.0));
+        assert!(!way_to(at_cell(10.0, 4.0), None, other_side, &heights));
+        assert!(way_to(
+            at_cell(30.0, 4.0),
+            None,
+            spot(at_cell(2.0, 8.0)),
+            &heights
+        ));
+        // A target beyond the window is brought nearer along the line: on this side it is
+        // reached, beyond the wall not.
+        let far_side = spot(at_cell(10.0, 62.0));
+        let far_along = spot(at_cell(60.0, 4.0));
+        assert!(way_to(at_cell(1.0, 4.0), None, far_along, &heights));
+        assert!(!way_to(at_cell(10.0, 4.0), None, far_side, &heights));
+        heights.free((10, 10), None);
+        assert!(way_to(at_cell(10.0, 4.0), None, other_side, &heights));
+        assert!(way_to(at_cell(10.0, 4.0), None, far_side, &heights));
+    }
+
+    #[test]
+    fn a_creature_goes_for_a_marked_closed_door_of_its_own_sector() {
+        let mut world = World::new();
+        let (ours, theirs, open) = (
+            world.spawn_empty().id(),
+            world.spawn_empty().id(),
+            world.spawn_empty().id(),
+        );
+        let door = |door, at: Vec3, open| DoorSeen {
+            door: (door, at),
+            at: spot(at),
+            layer: 0,
+            open,
+            barred: false,
+            marked: true,
+        };
+        let here = at_cell(10.0, 20.0);
+        // A nearer door beyond the sector's edge, at 64 cells, is not its own; an open one it
+        // passes by.
+        let doors = [
+            door(ours, at_cell(30.0, 20.0), false),
+            door(theirs, at_cell(64.0, 20.0), false),
+            door(open, at_cell(12.0, 20.0), true),
+        ];
+        assert_eq!(
+            door_in_way(here, 0, &doors).map(|(door, _)| door),
+            Some(ours)
+        );
+        assert_eq!(
+            door_in_way(at_cell(70.0, 20.0), 0, &doors).map(|(door, _)| door),
+            Some(theirs)
+        );
+        assert_eq!(door_in_way(here, 0, &doors[1..]), None);
     }
 
     #[test]

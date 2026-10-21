@@ -96,17 +96,21 @@ pub fn gather(
     }
 }
 
-/// The distance in world units from the hero to its nearest hostile creature, as the client
-/// keeps it for the fight stance (`0xAD3CE4`, filled by `0x547070`, docs/re/motions.md, "The
-/// fight stance"): looked for every 0.3 s among the creatures of the 3 × 3 sectors about the hero
-/// within [`RANGE`], and kept as it was while none is found; 0 before any is, as the client's is
-/// when the process starts.
+/// The hero's list of its hostile creatures, as the client keeps it for the fight stance and the
+/// places about the hero (`0xAD3CE0`, filled by `0x547070`, docs/re/motions.md, "The fight
+/// stance"; docs/re/fight.md, "Melee: the AI's state 4"): looked for every 0.3 s among the
+/// creatures of the 3 × 3 sectors about the hero within [`RANGE`], at most 55, nearest first.
+/// The distance to the nearest is kept as it was while none is found, 0 before any is, as the
+/// client's is when the process starts.
 #[derive(Resource, Default)]
 pub struct Nearest {
     pub distance: f32,
     /// Whether the last look found one: the hero's own stance asks it (`0x547070` sets the
     /// hero's bit `0x8000` only then).
     pub found: bool,
+    /// The hostiles that the last look found, nearest first: none when it found none, as the
+    /// list's count (`0xAD3BC8`) is then 0.
+    pub hostiles: Vec<Entity>,
     /// The time since the last look.
     since: f32,
 }
@@ -116,15 +120,17 @@ const LOOK_EVERY: f32 = 0.3;
 /// How far it looks, in world units: the client's `(S + 45) · 25`, `S` a smoothed rate of its
 /// frames (**hypothesis**: about 1,900 to 2,600 units); taken at 30 frames a second.
 const RANGE: f32 = 1_875.0;
+/// How many hostiles the list keeps.
+const LISTED: usize = 55;
 
-/// Looks for the hero's nearest hostile creature: one whose flags word has bit 0 or 1, in the
-/// 3 × 3 sectors about the hero and within [`RANGE`] (**hypothesis**: those bits for the client's
+/// Looks for the hero's hostile creatures: those whose flags word has bit 0 or 1, in the 3 × 3
+/// sectors about the hero and within [`RANGE`] (**hypothesis**: those bits for the client's
 /// hostility to the hero, `0x548F30`).
 fn look(
     time: Res<Time>,
     mut nearest: ResMut<Nearest>,
     hero: Query<&Transform, With<Body>>,
-    creatures: Query<(&Transform, &InTheWay), Without<Body>>,
+    creatures: Query<(Entity, &Transform, &InTheWay), Without<Body>>,
 ) {
     nearest.since += time.delta_secs();
     if nearest.since < LOOK_EVERY {
@@ -139,26 +145,27 @@ fn look(
         ((p.x / side).floor(), (p.z / side).floor())
     };
     let (sx, sy) = sector(hero.translation);
-    let found = creatures
+    let mut found: Vec<(f32, Entity)> = creatures
         .iter()
-        .filter(|(_, way)| way.hostile)
-        .filter(|(t, _)| {
+        .filter(|(_, _, way)| way.hostile)
+        .filter(|(_, t, _)| {
             let (x, y) = sector(t.translation);
             (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0
         })
-        .map(|(t, _)| (t.translation - hero.translation).xz().length())
-        .filter(|&d| d < RANGE)
-        .fold(None, |min: Option<f32>, d| {
-            Some(min.map_or(d, |m| m.min(d)))
-        });
-    nearest.found = found.is_some();
-    if let Some(distance) = found {
+        .map(|(entity, t, _)| ((t.translation - hero.translation).xz().length(), entity))
+        .filter(|&(d, _)| d < RANGE)
+        .collect();
+    found.sort_by(|a, b| a.0.total_cmp(&b.0));
+    found.truncate(LISTED);
+    nearest.found = !found.is_empty();
+    if let Some(&(distance, _)) = found.first() {
         nearest.distance = distance;
     }
+    nearest.hostiles = found.into_iter().map(|(_, entity)| entity).collect();
 }
 
 /// The cells the creatures stand on, taken before the hero and the NPCs move, and the hero's
-/// nearest hostile.
+/// list of hostiles.
 pub struct CrowdPlugin;
 
 impl Plugin for CrowdPlugin {
