@@ -1253,9 +1253,11 @@ pub fn level(values: &SpawnValues, hero: u32, jitter: Option<&mut Rng>) -> u32 {
 
 /// The most health of a creature of `Creature.pak`'s base bytes `base` and level `level`
 /// (`0x5658F0`): with `a` and `b` the bytes 0 and 3, `S = a + b + ⌊(L − 1)a/10⌋ + ⌊(L − 1)b/10⌋`
-/// and `g = 1.5 + 0.004 · max(0, 60 − a − b)`, `⌊(b0 + b2) · S^(g − 1) · 10/31⌋`, 100 for 0,
-/// times the level's factor of a creature not a hero and the difficulty's (`rules`). No items,
-/// skills, bosses or champions yet (docs/decisions/2026-10-20-health.md).
+/// and `g = 1.5 + G · max(0, 60 − a − b)`, `⌊S^g · (a0 + a3)/S · 10/31⌋`, 100 for 0, times the
+/// level's factor of a creature not a hero and the difficulty's (`rules`); the attributes `a0`
+/// and `a3` are `S`'s two terms, without extra points or items' bonuses, so that the most is
+/// `⌊S^g · 10/31⌋` (#408). No items, skills, bosses or champions yet
+/// (docs/decisions/2026-10-20-health.md).
 pub fn most_health(base: [u8; 6], level: u32, rules: &Rules) -> u32 {
     let level_f32 = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
     health_of(
@@ -1271,13 +1273,23 @@ pub fn hero_health(base: [u8; 6], level: u32) -> u32 {
     health_of(base, level, 1.0)
 }
 
-/// The most health of `base` at `level`, times `factor` (`0x5658F0`).
+/// The factor of the health's exponent by the base (the float at `0x891298`, a little under 0.004).
+const HEALTH_EXPONENT: f32 = 0.003_996_323_3;
+
+/// The most health of `base` at `level`, times `factor` (`0x5658F0`), in double precision as the
+/// client's FPU computes it: the exponent's factor a float, the rest doubles.
 fn health_of(base: [u8; 6], level: u32, factor: f64) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
     let l = f64::from(level.max(1) - 1);
-    let s = a + b + (l * a / 10.0).floor() + (l * b / 10.0).floor();
-    let g = 1.5 + 0.004 * (60.0 - a - b).max(0.0);
-    let most = ((a + f64::from(base[2])) * s.powf(g - 1.0) * 10.0 / 31.0).floor();
+    let (a0, a3) = (a + (l * a / 10.0).floor(), b + (l * b / 10.0).floor());
+    let s = a0 + a3;
+    let g = 1.5 + f64::from(HEALTH_EXPONENT) * (60.0 - a - b).max(0.0);
+    // A base without the attributes 0 and 3 gives nothing, and so 100.
+    let most = if s > 0.0 {
+        (s.powf(g) * ((a0 + a3) / s) * (10.0 / 31.0)).trunc()
+    } else {
+        0.0
+    };
     let most = if most <= 0.0 { 100.0 } else { most };
     #[expect(
         clippy::cast_possible_truncation,
@@ -1295,11 +1307,18 @@ mod tests {
     #[test]
     fn the_most_health_grows_with_the_level_by_the_originals_formula() {
         let rules = Rules::default();
-        // b0 20, b2 10, b3 15: S = 35, g = 1.5 + 0.004 · 25 = 1.6; ⌊30 · 35^0.6 · 10/31⌋.
+        // b0 20, b3 15: S = 35, g = 1.5 + G · 25, about 1.6; ⌊35^g · 10/31⌋.
         let base = [20, 0, 10, 15, 0, 0];
-        let expected = (30.0_f64 * 35.0_f64.powf(0.6) * 10.0 / 31.0).floor();
+        let g = 1.5 + f64::from(HEALTH_EXPONENT) * 25.0;
+        let expected = (35.0_f64.powf(g) * 10.0 / 31.0).floor();
         assert_eq!(f64::from(most_health(base, 1, &rules)), expected);
         assert!(most_health(base, 10, &rules) > most_health(base, 1, &rules));
+        // The wolf's base, as a hero's type, at the levels 1, 10 and 100, as the original's
+        // `0x5658F0` gives them (the oracle's vectors, #363, #408).
+        let wolf = [8, 10, 18, 13, 0, 1];
+        assert_eq!(hero_health(wolf, 1), 49);
+        assert_eq!(hero_health(wolf, 10), 139);
+        assert_eq!(hero_health(wolf, 100), 2588);
         // A base that gives nothing gives 100.
         assert_eq!(most_health([0; 6], 1, &rules), 100);
     }
