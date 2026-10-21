@@ -958,6 +958,95 @@ impl Dropping<'_> {
     }
 }
 
+/// The types that never drop (`0x533BA8`): 71 and 75, `small_spider.grn` and `med_spider.grn`
+/// (**hypothesis**: the spiders that a giant spider brings).
+pub fn never_drops(creature: u32) -> bool {
+    matches!(creature, 71 | 75)
+}
+
+/// Whether a drop of type `item` is held upright in its flight (`0x44DFE0`): the types 5120 to
+/// 5135, the gold piles among them, and 5375 to 5631, the combat arts' runes.
+pub fn upright(item: u32) -> bool {
+    matches!(item, 5120..=5135 | 5375..=5631)
+}
+
+/// How high a drop leaves, in units of the models' height, wherever the ground lies there
+/// (`0x44D7B0`, `0x44D520`), and how fast it rises at first (`0x559BF0`).
+pub const THROWN_AT: f32 = 60.0;
+const RISES: f32 = 190.0;
+/// The height's fall in a second of a drop's flight, in units of the models' height a second,
+/// the share of its velocity along the ground that it loses in a second, and the share of that
+/// velocity that it moves by (`0x44DFE0` and its caller).
+const GRAVITY: f32 = 290.81;
+const DRAG: f32 = 0.1;
+const ALONG: f32 = 0.1;
+
+/// A drop's flight (`0x44DED0`, `0x44DFE0`): where it is, a point of the ground in world units
+/// and a height in units of the models' height; its velocity; its angles about the axes and
+/// their spin, in radians and radians a second; and whether it rests on the ground.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Flight {
+    pub at: [f32; 3],
+    pub velocity: [f32; 3],
+    pub angles: [f32; 3],
+    pub spin: [f32; 3],
+    pub resting: bool,
+}
+
+impl Flight {
+    /// A drop thrown from the point `(x, y)` (`0x559BF0`): at the height 60, with the velocity
+    /// `(10·R(−75, 75), 10·R(−75, 75), 190)` and the spin `R(−6, 6)` about each axis.
+    pub fn thrown(x: f32, y: f32, dice: &mut impl Dice) -> Self {
+        let mut roll = |half: u32| to_f32(dice.below(2 * half + 1)) - to_f32(half);
+        let velocity = [10.0 * roll(75), 10.0 * roll(75), RISES];
+        let spin = [roll(6), roll(6), roll(6)];
+        Self {
+            at: [x, y, THROWN_AT],
+            velocity,
+            angles: [0.0; 3],
+            spin,
+            resting: false,
+        }
+    }
+
+    /// The flight's frame of `dt` seconds (`0x44DFE0`): the angles grow by the spin, the point by
+    /// a tenth of the velocity along the ground and the height by the vertical velocity, each
+    /// times `dt`; the velocity loses a tenth of itself along the ground and 290.81 along the
+    /// height, times `dt`. Where its point may not be walked on (`walkable`, `0x636890`) its
+    /// velocity along the ground turns back; below the height its point stands at (`ground`,
+    /// `0x449950`) it lies there without a velocity; it rests once each velocity is below 1 and
+    /// it lies within 1 of the ground.
+    pub fn step(
+        &mut self,
+        dt: f32,
+        walkable: impl Fn(f32, f32) -> bool,
+        ground: impl Fn(f32, f32) -> f32,
+    ) {
+        if self.resting {
+            return;
+        }
+        let [x, y, z] = self.at;
+        let [vx, vy, vz] = self.velocity;
+        self.at = [x + ALONG * vx * dt, y + ALONG * vy * dt, z + vz * dt];
+        for (angle, spin) in self.angles.iter_mut().zip(self.spin) {
+            *angle += spin * dt;
+        }
+        self.velocity = [vx - DRAG * vx * dt, vy - DRAG * vy * dt, vz - GRAVITY * dt];
+        let [x, y, z] = self.at;
+        if !walkable(x, y) {
+            self.velocity[0] = -self.velocity[0];
+            self.velocity[1] = -self.velocity[1];
+        }
+        let floor = ground(x, y);
+        if z < floor {
+            self.at[2] = floor;
+            self.velocity = [0.0; 3];
+        }
+        self.resting =
+            self.velocity.iter().all(|v| v.abs() < 1.0) && (self.at[2] - floor).abs() < 1.0;
+    }
+}
+
 /// The level of an item between `least` and `most` (`0x559BF0`): a roll, 1 where it is below 1,
 /// else a roll again, which a least of 0 can still make 0 (a quirk).
 fn at_least_one(least: i64, most: i64, dice: &mut impl Dice) -> i64 {
