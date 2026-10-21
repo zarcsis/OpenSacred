@@ -20,8 +20,9 @@
 //! (`0x44DDC0`, docs/02 §7.3, `heading`). A `CreateObj` record has the same `0x02`, `0x04` and
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
 //! same reading); an object without a heading above 0 faces its item's own angle
-//! (`Item::angle`), and its model stands at its world position `0x20` where it has one, its cell
-//! staying its logical position (`Object`, `drawn_at`).
+//! (`Item::angle`), and its model shows where its world position `0x20` does on the ground's
+//! heights, where it has one, its cell staying its logical position (`Object`, `drawn_at`,
+//! `model_position`).
 //!
 //! A position's third number is the layer the object lies in (**hypothesis**, docs/re/drawing.md):
 //! the client draws every cell with the world's objects of layer 0, and a building's cells with
@@ -681,7 +682,8 @@ fn facing_degrees(object: bool, heading: Option<f32>, angle: f32) -> f32 {
 /// `0x04` cell's centre (`0x487130`) and sets the floats `+0xCC…+0xD4` from `0x20` with the
 /// object's flag `0x800000` (`0x485C10`): where the model is drawn, by which 1,114 of the 1,125
 /// doors' leaves stand in their doorways, every gate centred on its model's origin among them,
-/// against 997 at their cells' centres (docs/02, the open question 9). The third number is no
+/// against 997 at their cells' centres (docs/02, the open question 9), and the others on raised
+/// doorways too, seen on the ground's heights there (`model_position`). The third number is no
 /// height: it repeats the cell's layer in every record of the Seraphim's tree.
 fn drawn_at(ops: &[opensacred_data::netscript::Operand]) -> Option<Vec2> {
     ops.iter().find_map(|o| match (o.tag, &o.value) {
@@ -690,13 +692,21 @@ fn drawn_at(ops: &[opensacred_data::netscript::Operand]) -> Option<Vec2> {
     })
 }
 
-/// Where the model of a placement whose logical position is `at`, on `level`, stands: at its
-/// drawn position `drawn` if it has one, on the heights of `level` there, or at `at`'s height
-/// where they are not loaded; else at `at`.
-fn model_position(at: Vec3, drawn: Option<Vec2>, heights: &Heights, level: Level) -> Vec3 {
+/// Where the model of a placement whose logical position is `at` stands: at `at` without a drawn
+/// position; with one, where the screen shows its drawn position `drawn` on the ground's heights
+/// there, whatever the placement's level, as the client draws it (**hypothesis**, docs/02 §7.3:
+/// a raised doorway's `0x20` lies on the ground up the screen from it by its height, so that only
+/// so do the leaves of the upper storeys' doors and of a keep's landing show in their doorways),
+/// taken along the line of sight to `at`'s height, where its shadow, its depth and its place
+/// among the sprites are its level's. Where the heights at `drawn` are not loaded yet, another
+/// sector's, it takes the ground's height at `at`.
+fn model_position(at: Vec3, drawn: Option<Vec2>, heights: &Heights) -> Vec3 {
     drawn.map_or(at, |drawn| {
-        let height = heights.standing(drawn.x, drawn.y, level).unwrap_or(at.y);
-        Vec3::new(drawn.x, height, drawn.y)
+        let ground = heights
+            .standing(drawn.x, drawn.y, None)
+            .or_else(|| heights.standing(at.x, at.z, None))
+            .unwrap_or(at.y);
+        iso::at_height(Vec3::new(drawn.x, ground, drawn.y), at.y)
     })
 }
 
@@ -1922,8 +1932,8 @@ fn spawn(
         }),
         placement.layer,
     );
-    // Its model where its record draws it, an object's at its `0x20`.
-    let model = model_position(position, placement.drawn, heights, level);
+    // Its model where its record draws it, an object's where its `0x20` shows.
+    let model = model_position(position, placement.drawn, heights);
     let off = Vec2::new(model.x - position.x, model.z - position.z).length();
     if off > 0.0 {
         bevy::log::debug!(
@@ -3304,7 +3314,7 @@ mod tests {
     }
 
     #[test]
-    fn an_objects_model_stands_at_its_world_position() {
+    fn an_objects_model_shows_where_its_world_position_does() {
         use opensacred_data::world::{Cell, Sector};
         let op = |tag, value| Operand { tag, value };
         // A door of cell (10, 20) whose world position lies three cells along x off its centre.
@@ -3341,18 +3351,40 @@ mod tests {
         });
         let centre = iso::ground(10.5, 20.5);
         let at = centre.with_y(heights.standing(centre.x, centre.z, None).unwrap());
-        // On the heights where it is drawn, its cell's centre staying its logical position.
-        let model = model_position(at, drawn, &heights, None);
-        assert_eq!((model.x, model.z), (724.0, 1100.0));
-        assert_eq!(model.y, heights.standing(724.0, 1100.0, None).unwrap());
-        assert!(model.y > at.y, "{model} {at}");
-        // Without a world position at its cell's centre; outside the loaded heights at its
-        // cell's height.
-        assert_eq!(model_position(at, None, &heights, None), at);
-        assert_eq!(
-            model_position(at, Some(Vec2::new(-500.0, 1100.0)), &heights, None),
+        // Where the screen shows its world position on the ground's heights there, at its cell's
+        // height, its cell's centre staying its logical position.
+        let close = |a: Vec3, b: Vec3| (a - b).length() < 1e-2;
+        let ground = heights.standing(724.0, 1100.0, None).unwrap();
+        assert!(ground > at.y, "{ground} {at}");
+        let model = model_position(at, drawn, &heights);
+        assert!((model.y - at.y).abs() < 1e-3, "{model} {at}");
+        assert!(close(
+            iso::at_height(model, ground),
+            Vec3::new(724.0, ground, 1100.0)
+        ));
+        // A door on a building's upper storey, 263 units up, whose world position lies on the
+        // ground in front of the building, as the editor took it: its leaf stands on the floor,
+        // √(3/2) units along X and Z for a unit of the floor's height above the ground there.
+        let floor = at.with_y(263.0);
+        let on_floor = model_position(floor, Some(Vec2::new(300.0, 400.0)), &heights);
+        let along = (263.0 - heights.standing(300.0, 400.0, None).unwrap()) * 1.5_f32.sqrt();
+        assert!(close(
+            on_floor,
+            Vec3::new(300.0 + along, 263.0, 400.0 + along)
+        ));
+        // Without a world position at its cell's centre; with one outside the loaded heights, as
+        // though the ground there stood as high as at its cell.
+        assert_eq!(model_position(at, None, &heights), at);
+        let outside = Some(Vec2::new(-500.0, 1100.0));
+        assert!(close(
+            model_position(at, outside, &heights),
             Vec3::new(-500.0, at.y, 1100.0)
-        );
+        ));
+        let along = (263.0 - at.y) * 1.5_f32.sqrt();
+        assert!(close(
+            model_position(floor, outside, &heights),
+            Vec3::new(-500.0 + along, 263.0, 1100.0 + along)
+        ));
     }
 
     #[test]
