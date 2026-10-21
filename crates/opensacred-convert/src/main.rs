@@ -377,6 +377,12 @@ fn execute(command: Command) -> Result<ExitCode> {
                     summary.empty,
                     dst.display(),
                 );
+                if summary.repaired_frames > 0 {
+                    println!(
+                        "  repaired: {} texels that are not opaque in {} frames of the lavas",
+                        summary.repaired_texels, summary.repaired_frames,
+                    );
+                }
             }
             println!("done in {:.1} s", start.elapsed().as_secs_f64());
             Ok(ExitCode::SUCCESS)
