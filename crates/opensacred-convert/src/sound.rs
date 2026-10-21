@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::sound::{INDEX, Music, Profile, SampleEntry, Sound, SoundName};
-use opensacred_formats::sound::{Profiles, Sample, SoundPak};
+use opensacred_formats::sound::{Profiles, Sample, SoundPak, mp3_first_frame};
 use rayon::prelude::*;
 
 use crate::ffmpeg;
@@ -50,6 +50,8 @@ pub struct Summary {
     pub mp3: usize,
     pub profiles: usize,
     pub music: usize,
+    /// Music files written from their first frame, the bytes before it dropped.
+    pub music_trimmed: usize,
     pub bytes: u64,
 }
 
@@ -159,9 +161,17 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
             .get(format!("SOUND_FX_{}", stem.to_ascii_uppercase()).as_str())
             .copied();
         let data = read_game_file(&source.join(&name))?;
+        // The zeros or junk before the first frame of 154 files are dropped (#367,
+        // docs/decisions/2026-10-20-music-junk.md).
+        let start = mp3_first_frame(&data)
+            .with_context(|| format!("mp3/{name}: no MPEG-1 Layer III frame"))?;
+        if start > 0 {
+            summary.music_trimmed += 1;
+        }
+        let data = &data[start..];
         let file = format!("music/{name}");
         let path = dir.join(&file);
-        fs::write(&path, &data).with_context(|| format!("writing {}", path.display()))?;
+        fs::write(&path, data).with_context(|| format!("writing {}", path.display()))?;
         summary.bytes += u64::try_from(data.len()).unwrap_or(0);
         music.push(Music { id, file });
     }
@@ -243,6 +253,14 @@ mod tests {
         );
         let index: Sound = ron::from_str(&fs::read_to_string(dir.join(INDEX)).unwrap()).unwrap();
         assert_eq!(index.music.len(), 173);
+        // docs/02 §10.3: 154 music files hold bytes before their first frame.
+        assert_eq!(summary.music_trimmed, 154);
+        for music in &index.music {
+            let ours = fs::read(dir.join(&music.file)).unwrap();
+            let theirs = fs::read(game.join("mp3").join(&music.file["music/".len()..])).unwrap();
+            assert_eq!(mp3_first_frame(&ours), Some(0), "{}", music.file);
+            assert!(theirs.ends_with(&ours), "{}", music.file);
+        }
         assert_eq!(index.music.iter().filter(|m| m.id.is_some()).count(), 171);
         assert_eq!(index.names.len(), 6869);
         let wood = index.music.iter().find(|m| m.id == Some(6560)).unwrap();

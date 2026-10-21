@@ -467,11 +467,12 @@ fn execute(command: Command) -> Result<ExitCode> {
             let start = Instant::now();
             let summary = sound::convert(&game_dir, &out, &only)?;
             println!(
-                "sound: {} FLAC and {} MP3 samples, {} profiles, {} music files ({:.1} MB) -> {}",
+                "sound: {} FLAC and {} MP3 samples, {} profiles, {} music files ({} from their                  first frame; {:.1} MB) -> {}",
                 summary.flac,
                 summary.mp3,
                 summary.profiles,
                 summary.music,
+                summary.music_trimmed,
                 summary.bytes as f64 / 1e6,
                 sound::output_dir(&out).display(),
             );
