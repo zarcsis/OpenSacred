@@ -2,9 +2,11 @@
 //! state, its surroundings and the time step. Each is dormant until its own timer or the hero's
 //! look wakes it (`0x5375C0`, `0x547070`), and dormant again farther than 1,500 from the hero
 //! (`0x542B20`); a hostile creature steps about by the idle action (`0x54EA30`), a group's members
-//! together, or comes at the hero and keeps the band of its reach, flees wounded and goes home
-//! from too far (`0x4E0300`), or with a ranged weapon keeps 300 to 800 from the hero and shoots
-//! (`0x4DBFC0`); a peaceful animal flees, steps away and strolls about home, a guard
+//! together, or comes at the hero and keeps the band of its reach, takes its place about the hero
+//! beside the hero's nearest hostile, flees wounded and goes home from too far (`0x4E0300`), or
+//! with a ranged weapon keeps 300 to 800 from the hero and shoots (`0x4DBFC0`); without a straight
+//! line or a way to the hero it goes for a door that a hero turned and opens it (`0x4D4800`,
+//! `0x53A170`); a peaceful animal flees, steps away and strolls about home, a guard
 //! keeps its post, and a townsperson and a child roll what they do at each of the hero's looks,
 //! by their behaviours (`0x4EF150`); a creature that shares its cell with another parts from it
 //! (`0x544890`), and one that walks into the hero's way steps aside (`0x547070`). The hero's
@@ -214,6 +216,21 @@ const FLEES_WITHIN: f32 = 199.0;
 const FLEES_FOR: f32 = 700.0;
 const FLEES_ONE_IN: u32 = 8;
 const LEASH: f32 = 2_500.0;
+/// The places about the hero of the second, third and fourth of its list of hostiles
+/// (`0x4E224E`): the directions from the hero along the world's `+x`, `−y` and `+y`, at `R − 15`
+/// from it, and how near its place a creature's walk there stops (`+0x176` 40).
+const PLACES: [Spot; 3] = [
+    Spot::new(1.0, 0.0),
+    Spot::new(0.0, -1.0),
+    Spot::new(0.0, 1.0),
+];
+const PLACE_WITHIN: f32 = 40.0;
+/// How far along each axis the move's second search moves its point (`0x4F5652`).
+const SEARCHES_ASTRAY: i32 = 50;
+/// How near a door a creature that went for it opens it, standing (`0x53A170`), and how near the
+/// door's point its walk there stops (`+0x176` 20).
+const OPENS_WITHIN: f32 = 300.0;
+pub const AT_THE_DOOR: f32 = 20.0;
 /// The archers' band (`0x4DBFC0`): nearer than 300 an archer backs off, up to ten times between
 /// its shots, and farther than 800 it comes on, stopping within 450; between, without a straight
 /// line to the hero, it goes round to its place turned about the hero by up to 30° either way,
@@ -295,6 +312,12 @@ pub struct Mind {
     /// in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
     fled: bool,
+    /// In melee: whether it walks to its place about the hero for this frame (the sub-state 5),
+    /// and then at a run.
+    placing: Option<bool>,
+    /// Whether it goes for a door in its way (the AI's state 1 with the door its target,
+    /// `0x4D4800`).
+    to_door: bool,
     /// At range: whether it decides (the sub-state 0) rather than moves to its band (1), how many
     /// times it has backed off since it last decided (`+0x12B`), whether it moves at a run
     /// (`+0x1F8`), and the chain of its shots (`+0x210`).
@@ -345,6 +368,8 @@ impl Mind {
             ranged: false,
             fighting: false,
             fled: false,
+            placing: None,
+            to_door: false,
             deciding: true,
             backs: 0,
             runs_at_range: false,
@@ -398,14 +423,21 @@ impl Mind {
     /// axes; a hostile creature not fighting walks home in one case of six from farther than
     /// 200, else comes at the hero from within 800 when it takes it on or has it within its
     /// reach and a straight line of walkable cells leads to it (`clear`), raising its group's
-    /// alarm in one case of two (`0x46AE70`), and otherwise in one case of three takes the idle
-    /// action; a peaceful creature of a behaviour takes it while it stands.
+    /// alarm in one case of two (`0x46AE70`); without that line one that goes for doors
+    /// ([`Self::seeks_doors`]) goes for the door in its way that `door` finds (`0x5442E8`,
+    /// `0x4D4800`), and otherwise in one case of three it takes the idle action; a peaceful
+    /// creature of a behaviour takes it while it stands. While it goes for a door it thinks
+    /// nothing.
     pub fn think(
         &mut self,
         senses: &Senses,
         clear: impl FnOnce() -> bool,
+        door: impl FnOnce() -> bool,
         rng: &mut Rng,
     ) -> Thought {
+        if self.to_door {
+            return Thought::default();
+        }
         let Senses {
             dt,
             seen,
@@ -454,6 +486,10 @@ impl Mind {
                     thought.attacks = true;
                     // In a group, in one case of two, it raises the alarm (`0x46AE70`).
                     thought.alarm = self.group.is_some() && rng.below(2) == 0;
+                } else if takes_on && distance < ATTACKS_WITHIN && self.seeks_doors() && door() {
+                    // No straight line: the door in its way (`0x5442E8`).
+                    self.to_door = true;
+                    thought.door = true;
                 } else if rng.below(3) == 0 {
                     // Dormant again, by chance stepping about.
                     idle = true;
@@ -462,7 +498,7 @@ impl Mind {
                 self.active = true;
             }
         }
-        if idle && !walking && !self.fighting {
+        if idle && !walking && !self.fighting && !self.to_door {
             thought.step = idle_step(self, here, hero, rng);
             if let (Some(step), true) = (thought.step, self.enter) {
                 self.home = step;
@@ -482,10 +518,38 @@ impl Mind {
     /// The alarm of the group `group` (`0x46AE70`): it sends the group's hostile members at the
     /// hero.
     pub fn hears_alarm(&mut self, group: u32) {
-        if self.group == Some(group) && self.hostile() && !self.fighting {
+        if self.group == Some(group) && self.hostile() && !self.fighting && !self.to_door {
             self.fighting = true;
             self.deciding = true;
         }
+    }
+
+    /// Whether it goes for a door in its way (`0x4D4800`): not of the classes 2, 5 and 6
+    /// (`Creature.pak +0x04`; by their models the beasts, the undead and the animals). The
+    /// original lets one of class 5 whose `+0x25F` is set go too, a field that the game does not
+    /// keep.
+    pub fn seeks_doors(&self) -> bool {
+        !matches!(self.class, 2 | 5 | 6)
+    }
+
+    /// Whether it goes for a door in its way (the AI's state 1).
+    pub fn to_door(&self) -> bool {
+        self.to_door
+    }
+
+    /// Standing by the door it went for, which it opened or could not, it takes the AI's state 0
+    /// again (`0x53A170`), whose choice looks for the hero anew (`0x542B20`), at once
+    /// (**hypothesis**: the sub-state that the state 0 takes then is not read).
+    pub fn left_door(&mut self) {
+        self.to_door = false;
+        self.awake = true;
+    }
+
+    /// It leaves its fight with the hero.
+    fn leaves_fight(&mut self) {
+        self.fighting = false;
+        self.fled = false;
+        self.placing = None;
     }
 
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
@@ -494,9 +558,14 @@ impl Mind {
     /// cases of 11, after the hero as it moves; nearer, it steps back; in the band at full
     /// health, farther than 2,500 from home, it goes home and leaves the fight; else it stands
     /// in the band, turned to the hero, where it strikes (#280), and decides again when the
-    /// strike ends (`0x4E2147`). One with a ranged weapon fights at range instead
-    /// ([`Self::at_range`]), where a straight line of walkable cells to the hero (`clear`) counts.
-    /// `None` while it does not fight, or walks on.
+    /// strike ends (`0x4E2147`). Deciding, the second, third or fourth of the hero's list of
+    /// hostiles that stands nearer than `R − 15` to the first takes its place about the hero
+    /// instead ([`place`], the sub-state 5): farther than the band from it, it walks there at a
+    /// run in one case of two (never one of class 5), stopping within 40, for a frame, and is
+    /// then steered by the hero alone, striking in the band, coming on beyond it and stepping
+    /// back nearer. One with a ranged weapon fights at range instead ([`Self::at_range`]), where
+    /// a straight line of walkable cells to the hero (`clear`) counts. `None` while it does not
+    /// fight, or walks on.
     pub fn pursue(
         &mut self,
         sight: &Pursuit,
@@ -516,13 +585,26 @@ impl Mind {
             striking,
             health,
             hero_strikes,
+            listed,
         } = *sight;
         let (lo, hi) = (REACH - BAND, REACH + BAND);
+        let within = lo + BAND;
         let d = (hero - here).length();
         if d > GIVES_UP {
-            self.fighting = false;
-            self.fled = false;
+            self.leaves_fight();
             return Some(Pursues::GivesUp);
+        }
+        let steps_back = || Pursues::StepsBack(here + (here - hero).unit() * ((lo + hi) / 2.0));
+        // Its place held for a frame, it is steered by the hero alone, as the sub-state 2 steers
+        // a creature that moves (`0x4E23A4`).
+        if let Some(runs) = self.placing.take() {
+            return Some(if d > hi {
+                Pursues::ComesOn { runs, within }
+            } else if d < lo {
+                steps_back()
+            } else {
+                Pursues::Strikes((!striking).then(|| rng.below(5)))
+            });
         }
         let roll = rng.below(FLEES_ONE_IN);
         if let Some(health) = health
@@ -532,7 +614,21 @@ impl Mind {
             self.fled = true;
             return Some(Pursues::Flees(here + (here - hero).unit() * FLEES_FOR));
         }
-        let within = lo + BAND;
+        // Deciding, near the hero's nearest hostile, it takes its place (`0x4E1404`, `0x4E224E`).
+        if walk.is_none()
+            && !striking
+            && let Some(to) = listed.and_then(|listed| place(here, hero, listed))
+        {
+            let runs = self.class != 5 && rng.below(2) == 0;
+            if (to - here).length() > hi {
+                self.placing = Some(runs);
+                return Some(Pursues::TakesPlace {
+                    to,
+                    runs,
+                    within: PLACE_WITHIN,
+                });
+            }
+        }
         match walk {
             // Coming on, it follows the hero as it moves; any other walk it ends first (#387).
             Some(walk) if walk.comes_on && (walk.target - hero).length() > BAND => {
@@ -546,18 +642,40 @@ impl Mind {
                 runs: rng.below(11) < RUNS_IN,
                 within,
             }),
-            None if d < lo => Some(Pursues::StepsBack(
-                here + (here - hero).unit() * ((lo + hi) / 2.0),
-            )),
+            None if d < lo => Some(steps_back()),
             // In the band at full health and far from home, it goes home (the leash).
             None if health.is_some_and(|(current, most)| current >= most)
                 && (here - self.home).length() > LEASH =>
             {
-                self.fighting = false;
-                self.fled = false;
+                self.leaves_fight();
                 Some(Pursues::GoesBack)
             }
             None => Some(Pursues::Strikes((!striking).then(|| rng.below(5)))),
+        }
+    }
+
+    /// What a creature fighting in melee does that comes on at the hero at `hero` with no
+    /// straight line to it: as the band's sub-state finds no way to the hero (`0x4E4931`) and the
+    /// move finds none to its point twice, the second time to the point moved by up to 50 along
+    /// each axis (`0x4F4770` at `0x4F5652`), it comes on while a way leads to either (`reaches`);
+    /// else one that goes for doors ([`Self::seeks_doors`]) goes for the door in its way that
+    /// `door` finds (`0x4D4800`), leaving the fight; else it gives the fight up.
+    pub fn blocked(
+        &mut self,
+        hero: Spot,
+        mut reaches: impl FnMut(Spot) -> bool,
+        door: impl FnOnce() -> bool,
+        rng: &mut Rng,
+    ) -> Blocked {
+        if reaches(hero) || reaches(about(hero, SEARCHES_ASTRAY, rng)) {
+            return Blocked::ComesOn;
+        }
+        self.leaves_fight();
+        if self.seeks_doors() && door() {
+            self.to_door = true;
+            Blocked::Door
+        } else {
+            Blocked::GivesUp
         }
     }
 
@@ -598,8 +716,7 @@ impl Mind {
             self.deciding = false;
         }
         if d > GIVES_UP {
-            self.fighting = false;
-            self.fled = false;
+            self.leaves_fight();
             return Some(Pursues::GivesUp);
         }
         if d < KEEPS.0 && !self.fled && self.backs < BACKS_OFF {
@@ -772,6 +889,8 @@ pub struct Thought {
     pub alarm: bool,
     /// The idle action's step: the point it walks to, its home for one of an `Enter` function.
     pub step: Option<Spot>,
+    /// It goes for the door in its way that its thought found (the AI's state 1).
+    pub door: bool,
 }
 
 /// What the idle action makes a creature at `here` do: in one case of ten nothing yet (the
@@ -793,8 +912,10 @@ fn idle_step(mind: &Mind, here: Spot, hero: Spot, rng: &mut Rng) -> Option<Spot>
 }
 
 /// What a creature fighting the hero sees ([`Mind::pursue`]): where it and the hero stand, its
-/// walk if it walks, whether it strikes, its health and its most if it has one, and whether the
-/// hero strikes.
+/// walk if it walks, whether it strikes, its health and its most if it has one, whether the hero
+/// strikes, and where it stands in the hero's list of hostiles if it is in it (`0xAD3CE0`,
+/// nearest first, docs/re/motions.md, "The fight stance"): its index, 0 the nearest, and where
+/// the nearest stands.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pursuit {
     pub here: Spot,
@@ -803,6 +924,16 @@ pub struct Pursuit {
     pub striking: bool,
     pub health: Option<(u32, u32)>,
     pub hero_strikes: bool,
+    pub listed: Option<(usize, Spot)>,
+}
+
+/// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
+/// hero's list of hostiles, from 0, whose first stands at `first` (`0x4E1404`, `0x4E224E`): for
+/// the second, third and fourth, nearer than `R − 15` to the first, the point `R − 15` from the
+/// hero along the world's `+x`, `−y` and `+y`, the grid's axes; `None` for any other.
+pub fn place(here: Spot, hero: Spot, (index, first): (usize, Spot)) -> Option<Spot> {
+    let along = *PLACES.get(index.checked_sub(1)?)?;
+    ((here - first).length() < REACH - BAND).then(|| hero + along * (REACH - BAND))
 }
 
 /// A creature's walk: its target, whether it comes on at the hero (a walk of
@@ -839,6 +970,65 @@ pub enum Pursues {
     /// At range, it stops, turns to the hero and shoots by the choice of its attack's clip (one
     /// of five), at its attack speed times `chain`.
     Shoots { choice: u32, chain: f32 },
+    /// In melee, it walks to its place about the hero for a frame, at a run or not, stopping
+    /// within `within` of it.
+    TakesPlace { to: Spot, runs: bool, within: f32 },
+}
+
+/// What a creature fighting in melee does that comes on at the hero without a straight line to
+/// it ([`Mind::blocked`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Blocked {
+    /// A way leads to the hero: it comes on.
+    ComesOn,
+    /// It leaves the fight for the door in its way.
+    Door,
+    /// No way, no door: it leaves the fight.
+    GivesUp,
+}
+
+/// A door as a creature in its way sees it (`0x4D4800`): the door, where it stands, its layer (0
+/// the ground, else a building's floor), whether it is open (its trigger's bit 0), barred (bit
+/// 15, which keeps it from opening) and marked by a hero (its flags' bit `0x2000`, which the
+/// door's handler sets at a hero's turn, `0x44BCD0`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DoorSeen<T> {
+    pub door: T,
+    pub at: Spot,
+    pub layer: i32,
+    pub open: bool,
+    pub barred: bool,
+    pub marked: bool,
+}
+
+/// Whether a creature's layer and a door's meet (`0x4D4800`, `0x53A170`): the same, or the ground
+/// and the first floor either way.
+pub fn meets(creature: i32, door: i32) -> bool {
+    creature == door || matches!((creature, door), (0 | 1, 0 | 1))
+}
+
+/// The door in the way of a creature at `here` on `layer`, of its sector's `doors` (`0x4D4800`):
+/// the nearest, straight from it, that is closed, not barred and marked by a hero, on its layer
+/// or on the ground and the first floor either way; so a creature goes only for a closed door
+/// that a hero has opened or closed before.
+pub fn door_in_the_way<T>(
+    here: Spot,
+    layer: i32,
+    doors: impl IntoIterator<Item = DoorSeen<T>>,
+) -> Option<T> {
+    doors
+        .into_iter()
+        .filter(|door| !door.open && !door.barred && door.marked && meets(layer, door.layer))
+        .map(|door| ((door.at - here).length(), door.door))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, door)| door)
+}
+
+/// Whether a creature that went for a door, standing at `here` on `layer`, opens it, at `door`
+/// on `door_layer` (`0x53A170`): within 300 of it, on its layer or the ground and the first floor
+/// either way.
+pub fn opens(here: Spot, layer: i32, door: Spot, door_layer: i32) -> bool {
+    (door - here).length() <= OPENS_WITHIN && meets(layer, door_layer)
 }
 
 /// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health`'s most or
@@ -1344,6 +1534,7 @@ mod tests {
             striking: false,
             health: Some((72, 72)),
             hero_strikes: true,
+            listed: None,
         };
         assert_eq!(goblin.pursue(&sight(false), || true, &mut rng), None);
         assert!(matches!(
@@ -1369,6 +1560,7 @@ mod tests {
             striking: false,
             health: Some((72, 72)),
             hero_strikes: false,
+            listed: None,
         }
     }
 
@@ -1501,6 +1693,246 @@ mod tests {
             bandit.pursue(&at_range(400.0, None), || true, &mut rng),
             None
         );
+    }
+
+    /// A goblin warrior (76, class 8) fighting the hero in melee.
+    fn goblin() -> Mind {
+        let mut goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 8));
+        goblin.fighting = true;
+        goblin
+    }
+
+    /// What a goblin at `here` sees of the hero at the origin, standing, the `index`-th of the
+    /// hero's hostiles, whose first stands at `first`.
+    fn listed(here: Spot, index: usize, first: Spot) -> Pursuit {
+        Pursuit {
+            here,
+            hero: Spot::default(),
+            walk: None,
+            striking: false,
+            health: Some((72, 72)),
+            hero_strikes: false,
+            listed: Some((index, first)),
+        }
+    }
+
+    #[test]
+    fn the_second_to_fourth_of_the_heros_hostiles_take_their_places_about_it() {
+        let hero = at(1000.0, 1000.0);
+        let first = at(880.0, 1000.0);
+        let near = at(900.0, 1060.0);
+        // Along the world's +x, −y and +y, 115 from the hero; the first and the fifth have none,
+        // nor one 115 or more from the first.
+        assert_eq!(place(near, hero, (1, first)), Some(at(1115.0, 1000.0)));
+        assert_eq!(place(near, hero, (2, first)), Some(at(1000.0, 885.0)));
+        assert_eq!(place(near, hero, (3, first)), Some(at(1000.0, 1115.0)));
+        assert_eq!(place(near, hero, (0, first)), None);
+        assert_eq!(place(near, hero, (4, first)), None);
+        assert_eq!(place(at(880.0, 1115.0), hero, (1, first)), None);
+        // The second, in the band, its place farther than 145 from it: it walks there for a
+        // frame, stopping within 40, at a run in one case of two.
+        let mut rng = Rng::of(51, 39, 4);
+        let here = at(-100.0, 60.0);
+        let first = at(-120.0, 0.0);
+        let mut runs = 0;
+        for _ in 0..200 {
+            let mut second = goblin();
+            match second.pursue(&listed(here, 1, first), || true, &mut rng) {
+                Some(Pursues::TakesPlace {
+                    to,
+                    runs: run,
+                    within,
+                }) => {
+                    assert_eq!((to, within), (at(115.0, 0.0), 40.0));
+                    runs += usize::from(run);
+                }
+                other => panic!("{other:?}"),
+            }
+            // Then, walking there, it is steered by the hero alone: in the band it strikes.
+            let walking = Pursuit {
+                walk: Some(Walking {
+                    target: at(115.0, 0.0),
+                    comes_on: false,
+                    runs: false,
+                }),
+                ..listed(here, 1, first)
+            };
+            assert!(matches!(
+                second.pursue(&walking, || true, &mut rng),
+                Some(Pursues::Strikes(Some(_)))
+            ));
+        }
+        assert!((70..130).contains(&runs), "{runs}");
+        // Beyond the band it comes on at its place's gait, nearer it steps back.
+        let mut second = goblin();
+        let far = at(-140.0, 60.0);
+        let Some(Pursues::TakesPlace { runs, .. }) =
+            second.pursue(&listed(far, 1, first), || true, &mut rng)
+        else {
+            panic!("takes its place");
+        };
+        assert_eq!(
+            second.pursue(&listed(far, 1, first), || true, &mut rng),
+            Some(Pursues::ComesOn {
+                runs,
+                within: 130.0
+            })
+        );
+        let close = at(-60.0, 60.0);
+        assert!(matches!(
+            second.pursue(&listed(close, 1, first), || true, &mut rng),
+            Some(Pursues::TakesPlace { .. })
+        ));
+        assert!(matches!(
+            second.pursue(&listed(close, 1, first), || true, &mut rng),
+            Some(Pursues::StepsBack(_))
+        ));
+        // One of class 5 walks; one whose place lies within 145 of it fights as the others.
+        let mut undead = goblin();
+        undead.class = 5;
+        for _ in 0..50 {
+            assert!(matches!(
+                undead.pursue(&listed(here, 1, first), || true, &mut rng),
+                Some(Pursues::TakesPlace { runs: false, .. })
+            ));
+            undead.placing = None;
+        }
+        let by_its_place = at(100.0, 60.0);
+        let mut third = goblin();
+        assert!(matches!(
+            third.pursue(&listed(by_its_place, 1, at(30.0, 100.0)), || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
+        // The first itself fights as the others.
+        let mut nearest = goblin();
+        assert!(matches!(
+            nearest.pursue(&listed(first, 0, first), || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
+    }
+
+    #[test]
+    fn a_creature_goes_for_the_nearest_closed_door_that_a_hero_turned() {
+        let door = |door, x, layer, open, barred, marked| DoorSeen {
+            door,
+            at: at(x, 0.0),
+            layer,
+            open,
+            barred,
+            marked,
+        };
+        let doors = [
+            door("open", 50.0, 0, true, false, true),
+            door("unmarked", 60.0, 0, false, false, false),
+            door("barred", 70.0, 0, false, true, true),
+            door("upstairs", 80.0, 2, false, false, true),
+            door("far", 900.0, 1, false, false, true),
+            door("farther", -1000.0, 0, false, false, true),
+        ];
+        assert_eq!(door_in_the_way(Spot::default(), 0, doors), Some("far"));
+        assert_eq!(door_in_the_way(Spot::default(), 2, doors), Some("upstairs"));
+        assert_eq!(door_in_the_way(Spot::default(), 3, doors), None);
+        assert_eq!(door_in_the_way::<&str>(Spot::default(), 0, []), None);
+        // The ground and the first floor meet either way, no other two.
+        assert!(meets(0, 1) && meets(1, 0) && meets(2, 2) && !meets(0, 2) && !meets(2, 1));
+        // It opens a door within 300 on a layer that meets the door's.
+        assert!(opens(at(0.0, 0.0), 0, at(300.0, 0.0), 1));
+        assert!(!opens(at(0.0, 0.0), 0, at(250.0, 200.0), 0));
+        assert!(!opens(at(0.0, 0.0), 2, at(10.0, 0.0), 1));
+    }
+
+    #[test]
+    fn a_creature_without_a_line_to_the_hero_goes_for_a_door_or_gives_up() {
+        let mut rng = Rng::of(50, 40, 7);
+        let hero = at(500.0, 0.0);
+        // A way to the hero, or to its point moved by up to 50: it comes on.
+        let mut coming = goblin();
+        let blocked = coming.blocked(hero, |_| true, || panic!("no door asked"), &mut rng);
+        assert_eq!(blocked, Blocked::ComesOn);
+        assert!(coming.fighting);
+        let mut tries = Vec::new();
+        assert_eq!(
+            coming.blocked(
+                hero,
+                |to| {
+                    tries.push(to);
+                    tries.len() == 2
+                },
+                || false,
+                &mut rng
+            ),
+            Blocked::ComesOn
+        );
+        let astray = tries[1] - hero;
+        assert!(tries[0] == hero && astray.x.abs() <= 50.0 && astray.y.abs() <= 50.0);
+        // No way: the door, leaving the fight, or else it gives up.
+        let mut opener = goblin();
+        assert_eq!(
+            opener.blocked(hero, |_| false, || true, &mut rng),
+            Blocked::Door
+        );
+        assert!(!opener.fighting && opener.to_door());
+        let mut stuck = goblin();
+        assert_eq!(
+            stuck.blocked(hero, |_| false, || false, &mut rng),
+            Blocked::GivesUp
+        );
+        assert!(!stuck.fighting && !stuck.to_door());
+        // The beasts, the undead and the animals seek no door.
+        for class in [2, 5, 6] {
+            let mut beast = goblin();
+            beast.class = class;
+            let blocked = beast.blocked(hero, |_| false, || panic!("no door asked"), &mut rng);
+            assert_eq!(blocked, Blocked::GivesUp);
+        }
+        // Going for its door it thinks nothing and hears no alarm, and at the door it looks for
+        // the hero again at once.
+        opener.group = Some(9);
+        opener.hears_alarm(9);
+        assert!(!opener.fighting);
+        let senses = Senses {
+            dt: 0.01,
+            seen: true,
+            here: Spot::default(),
+            hero,
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+        };
+        let thought = opener.think(&senses, || true, || true, &mut rng);
+        assert_eq!(thought, Thought::default());
+        opener.left_door();
+        assert!(!opener.to_door() && opener.awake);
+    }
+
+    #[test]
+    fn an_idle_creature_without_a_straight_line_goes_for_the_door_in_its_way() {
+        let mut rng = Rng::of(50, 40, 8);
+        let senses = Senses {
+            dt: 0.01,
+            seen: false,
+            here: Spot::default(),
+            hero: at(500.0, 0.0),
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+        };
+        // A creature of a script, awake as it is made, by the hero: with a straight line it
+        // attacks; without, it goes for a door that is found, and is busy with it.
+        let made = || Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        let mut sees = made();
+        let thought = sees.think(&senses, || true, || panic!("no door asked"), &mut rng);
+        assert!(thought.attacks && !thought.door);
+        let mut blind = made();
+        let thought = blind.think(&senses, || false, || true, &mut rng);
+        assert!(thought.door && !thought.attacks && blind.to_door() && !blind.fighting);
+        // Without a door it stays as it was; a beast seeks none.
+        let mut doorless = made();
+        let thought = doorless.think(&senses, || false, || false, &mut rng);
+        assert!(!thought.door && !thought.attacks && !doorless.to_door());
+        let mut beast = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (75, 2));
+        let thought = beast.think(&senses, || false, || panic!("no door asked"), &mut rng);
+        assert!(!thought.door && !beast.to_door());
     }
 
     #[test]

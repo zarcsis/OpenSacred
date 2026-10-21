@@ -2510,6 +2510,17 @@ pub struct Door {
     trigger: Option<String>,
 }
 
+impl Npcs {
+    /// Whether a hero has turned `door` (#372): its trigger keeps the hero's mark, the flags'
+    /// bit `0x2000` of the original's door (`0x44BCD0`), which the creatures in its way look for
+    /// (`0x4D4800`).
+    pub fn marked(&self, door: &Door) -> bool {
+        door.trigger
+            .as_ref()
+            .is_some_and(|name| self.marked.contains(name))
+    }
+}
+
 /// A door that `ai` or the hero (`doors`) opens or closes, as the event `0x21` turns it
 /// (`0x4FC8D0`, `0x44BCD0`): the event of a creature that is no hero leaves open a door that a
 /// hero turned before.
@@ -2614,11 +2625,7 @@ fn swing(
     speed: Res<hero::GameSpeed>,
 ) {
     for (entity, mut door, swing) in &mut doors {
-        let marked = door
-            .trigger
-            .as_ref()
-            .is_some_and(|name| npcs.marked.contains(name));
-        if !swing.open && !swing.by_hero && marked {
+        if !swing.open && !swing.by_hero && npcs.marked(&door) {
             commands.entity(entity).remove::<Swing>();
             continue;
         }
