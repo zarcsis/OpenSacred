@@ -5,7 +5,8 @@
 //! to textures by index, and names are not unique — 25 names occur twice in `texture.pak`,
 //! 6 of them with different pixels.
 //!
-//! The frames of three lavas are repaired as they are written ([`STREAKED`]).
+//! The frames of three lavas and a tile of a menu are repaired as they are written
+//! ([`STREAKED`], [`FAINT`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,14 +29,19 @@ pub const PAKS: [(&str, &str); 2] = [
 /// and `E_LAVA` (50). Every other texel of the liquids' frames is opaque.
 const STREAKED: [&str; 3] = ["a_lava", "d_lava", "e_lava"];
 
+/// `GUI_UW_OPTION12.TGA`, a tile of the Underworld main menu, whose alpha over its body runs from
+/// 195 to 255 where the other tiles' is 255, so that the menu's water shows through its rocks
+/// (#352, docs/02 §3.1), and that lowest alpha of its body: its alpha is scaled to make it 255.
+const FAINT: (&str, u8) = ("gui_uw_option12", 195);
+
 /// Records of one container by format.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     pub argb4444: usize,
     pub bgra8888: usize,
     pub empty: usize,
-    /// Frames of [`STREAKED`] repaired, and their texels.
-    pub repaired_frames: usize,
+    /// Textures repaired ([`STREAKED`], [`FAINT`]), and their texels.
+    pub repaired_textures: usize,
     pub repaired_texels: usize,
 }
 
@@ -68,7 +74,7 @@ pub fn convert_pak(src: &Path, dst_dir: &Path) -> Result<Summary> {
             Format::Bgra8888 => summary.bgra8888 += 1,
         }
         if repaired > 0 {
-            summary.repaired_frames += 1;
+            summary.repaired_textures += 1;
             summary.repaired_texels += repaired;
         }
     }
@@ -92,6 +98,8 @@ pub fn convert_record(
     let repaired = if streaked(name) {
         fill_from_columns(&mut texture)
             .with_context(|| format!("repairing `{}`", name.escape_ascii()))?
+    } else if stem(name, b".tga") == FAINT.0 {
+        strengthen(&mut texture, FAINT.1)
     } else {
         0
     };
@@ -107,6 +115,21 @@ fn streaked(name: &[u8]) -> bool {
         stem.strip_prefix(series)
             .is_some_and(|n| n.len() == 2 && n.bytes().all(|b| b.is_ascii_digit()))
     })
+}
+
+/// Scales the alpha of every texel of `texture` by 255 / `lowest`, held at 255, so that alphas
+/// from `lowest` up become opaque and the ones below keep their ramp; the number changed.
+fn strengthen(texture: &mut Texture, lowest: u8) -> usize {
+    let mut changed = 0;
+    for alpha in texture.rgba.iter_mut().skip(3).step_by(4) {
+        let scaled = (u32::from(*alpha) * 255 + u32::from(lowest) / 2) / u32::from(lowest);
+        let scaled = u8::try_from(scaled.min(255)).unwrap_or(u8::MAX);
+        if scaled != *alpha {
+            *alpha = scaled;
+            changed += 1;
+        }
+    }
+    changed
 }
 
 /// Gives every texel of `texture` that is not opaque the colour of the nearest opaque texel of
@@ -299,7 +322,7 @@ mod tests {
 
         let summary = convert_pak(&src, &dst).unwrap();
 
-        assert_eq!((summary.repaired_frames, summary.repaired_texels), (1, 2));
+        assert_eq!((summary.repaired_textures, summary.repaired_texels), (1, 2));
         let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
         assert_eq!(
             read_png(&dst.join("00000-e_lava07.png")).2,
@@ -318,17 +341,34 @@ mod tests {
     }
 
     #[test]
+    fn the_faint_menu_tile_is_made_opaque() {
+        let mut texture = Texture {
+            width: 4,
+            height: 1,
+            rgba: [[9, 9, 9, 0], [9, 9, 9, 100], [9, 9, 9, 195], [9, 9, 9, 230]].concat(),
+        };
+        assert_eq!(strengthen(&mut texture, 195), 3);
+        let alphas: Vec<u8> = texture.rgba.chunks(4).map(|t| t[3]).collect();
+        assert_eq!(alphas, [0, 131, 255, 255]);
+        assert!(texture.rgba.chunks(4).all(|t| t[..3] == [9, 9, 9]));
+    }
+
+    #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_lavas_frames_come_out_opaque() {
         let game = repo_root().join("OriginalGame");
         let dir = scratch_dir("textures-lavas");
         let dst = output_dir(&dir, "texture");
         let summary = convert_pak(&game.join(PAKS[0].0), &dst).unwrap();
-        // docs/02 §5.2: all 50 frames of A_LAVA, 26 of D_LAVA and all 50 of E_LAVA.
-        assert_eq!(
-            (summary.repaired_frames, summary.repaired_texels),
-            (126, 600 + 141 + 1394)
-        );
+        // docs/02 §5.2: all 50 frames of A_LAVA, 26 of D_LAVA and all 50 of E_LAVA; and §3.1,
+        // the menu's tile, its body and its edge.
+        assert_eq!(summary.repaired_textures, 127);
+        let (_, _, tile) = read_png(&dst.join("00347-gui_uw_option12.png"));
+        let alphas: Vec<u8> = tile.chunks(4).map(|t| t[3]).collect();
+        // 39,076 texels of alphas from 195 opaque, 14 of them opaque already; 47,822 of alphas
+        // from 2 to 254 changed.
+        assert_eq!(alphas.iter().filter(|&&a| a == 255).count(), 39_076);
+        assert_eq!(summary.repaired_texels, 600 + 141 + 1394 + 47_822);
         let mut frames = 0;
         for entry in fs::read_dir(&dst).unwrap() {
             let name = entry.unwrap().file_name().into_string().unwrap();
