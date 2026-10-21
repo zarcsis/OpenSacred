@@ -174,7 +174,7 @@ struct MostHealth {
 }
 
 /// The balance of `OriginalGame/bin/Balance.bin`, its variables named as `opensacred-convert
-/// tables` names them.
+/// tables` names them; the tables of its tail, which the fight's formulas do not read, left out.
 fn balance() -> Balance {
     let file = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../OriginalGame/bin/Balance.bin")
@@ -201,7 +201,7 @@ fn balance() -> Balance {
     Balance {
         variables,
         image: read.image,
-        rest: read.rest,
+        ..Balance::default()
     }
 }
 
