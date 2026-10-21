@@ -147,6 +147,7 @@ An NPC's own come from its `Creature.pak` record and its level (below).
 - The health falls by the sum, not below 0, and the handler shows the number over the target.
 
 A creature at health 0 takes the AI's state 9 (`0x546060`, `0x53E7C0`): it plays its dying action 6, runs its death's scripts and leaves its group; the kill (the event 9) sends its killer the experience `0x57D860`: `Creature.pak`'s experience `a + E · b` (`+0x08`, `+0x0A`), times `ProzExp`, times `(LevelKap/H)²` when the killer's level `H` is above `LevelKap` on the first three difficulties, plus the killer's bonuses, times the factor `0x551530`: 0.04 up to `t`, `(r − t)/(1 − t)` up to `r = 1`, 1 up to `ObereEXPVoll`, then `ObereEXPVoll/r`, at least 0.04 (the details in "The hero's levels").
+Before the experience the same handler (`0x533BA8`) makes the creature's drops (docs/re/items.md, "Drops", read 2026-10-21, #404).
 
 ## An NPC's attack, defence and damage
 
