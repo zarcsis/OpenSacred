@@ -6,7 +6,7 @@
   Binary analysis uses **Ghidra 12.1.4** with the MCP server **pyghidra-mcp** for Claude Code (**GhidraMCP 2.0** is the alternative with the Ghidra GUI); IDA Pro and Binary Ninja are excluded.
 * The product is built with **Rust 1.99.1** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.50 and the Windows SDK are needed for Rust on Windows).
   VC6, Wine environments and byte-matching tools are not needed.
-* For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions) and **x64dbg**; optionally **dgVoodoo2** (capturing frames of the original in RenderDoc).
+* For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions), **Frida** (driving the running original, planned, #448) and **x64dbg**; optionally **dgVoodoo2** (capturing frames of the original in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
 * Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02, screenshot tests and the oracle's vectors of the fight's formulas; converter golden data and snapshots are planned.
   Maintainer review covers key decisions, not every line.
@@ -22,6 +22,7 @@
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
 | | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.0 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
+| | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | planned (#448): `tools/original/`, a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.x | freeware | optional: the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
@@ -44,6 +45,7 @@ Every developer uses their own GOG installation of Sacred Gold 2.28: copied into
 On Windows a link is `New-Item -ItemType SymbolicLink -Path OriginalGame -Target <installation>`, which needs Developer Mode or an elevated shell.
 `cargo run -p opensacred-convert -- verify` checks it against the embedded manifest (`docs/manifest-gog-2.28.txt`).
 The manifest lists only the files the game never writes (docs/02 §13), so the same installation can be played from without breaking the checks.
+The driver of the original (§3.8) runs it there in place, and the game then writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), as the maintainer allowed on 2026-10-21 (#448); nothing else in `OriginalGame/` is changed.
 Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, §4).
 
 ## 2. Workstation
@@ -271,6 +273,47 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * The keys and clicks go to the game through the protocol: posted to the window from outside, a click loses its cursor at once (the system reports the cursor leaving the window it is not over), and moving the system's cursor would take the maintainer's.
 * A run with nothing to wait on needs no server: `--exec "new-game --class mage; wait ready; screenshot <scratch>/shot.png; quit"` or `--script FILE` (docs/10 §6).
 * Screenshots and logs taken this way show the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
+
+### 3.8 Driving the original
+
+Planned (#448; the steps #449–#452): Claude Code drives the developer's own running `Sacred.exe` the way it drives the game (§3.7), to see for itself how the original behaves (the checks of #227).
+The maintainer's decisions of 2026-10-21:
+
+* **Frida, not a Rust crate.**
+  A Python host (`tools/original/host.py`) and a JavaScript agent (`tools/original/agent.js`) that Frida loads into the game's process: the agent hooks the original's functions and calls them by address, and reads its memory by offset, with no `unsafe`, no 32-bit Rust target and no build step.
+  `frida` joins `tools/requirements.txt`; the tool runs locally, never in CI or a release.
+* **In place, in `OriginalGame/`.**
+  The game may overwrite every file it writes itself (`Settings.cfg`, `save/`, `Capture/`, `DEBUG.LOG`, `ExpLog.LOG`, the `DefPos.bin` caches), never one of the manifest, so `verify` and the oracle's check stay green.
+  Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, `SHOWMOVIE : 0`, the three volumes 0) and nothing else.
+  Worktrees link `OriginalGame/` to one installation, so one original runs at a time.
+* **At any time, without disturbing the maintainer.**
+  The original runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.
+* **One client for both games.**
+  The host serves the game's own methods with the same parameters (`opensacred/exec`, `opensacred/state`, `opensacred/input`, `opensacred/screenshot`, `opensacred/logs`) on `127.0.0.1:15703`, so `tools/game/remote.py --port 15703` drives the original, and both can run side by side; a project skill `original` says how, as the skill `game` does.
+
+How it works:
+
+* **Start.**
+  The host checks `Sacred.exe` against the manifest, spawns it suspended with Frida, loads the agent and resumes the game only once every guard below is in place; if one fails, it kills the game.
+* **Guards of the maintainer's desktop**, before the game's first instruction.
+  The low-level keyboard and mouse hooks install nothing, so the original's "tabblocker" never swallows Win and Alt-Tab (docs/09 §2.1).
+  The calls that would take the focus, raise the window, put it on top, clip or move the cursor, or change the display mode do nothing, and DirectDraw's exclusive full-screen level ends the run.
+  The window opens without activation, outside the monitors if the frames still come there, else behind the other windows.
+  The maintainer's own input never reaches the game: the key and cursor queries answer from the agent's virtual keyboard and cursor, and the window procedure drops every mouse and keyboard message the agent did not send.
+* **The game never outlives its host**: a job object kills it when the host's handle closes, and the agent ends it when its script is unloaded or the host's heartbeat stops.
+* **Focus.**
+  The original stops drawing without the focus (docs/09 §2.1), so its window procedure sees itself active and the focus queries answer with its window.
+* **Input.**
+  Keys and clicks are the agent's own messages to the window, which the window procedure turns into the real ones; coordinates are the window's pixels, 1024 × 768, the original's fixed resolution.
+* **State and commands.**
+  The agent reads the hero, the creatures near it, the clock, the zoom, the sector and the program's screen by the addresses and offsets of `docs/re/` and the Ghidra project, on the simulation thread's tick; commands that change the world (the hero onto a cell, the clock and its speed, the zoom) call the original's own functions on that thread.
+* **Traces.**
+  Every call of a function of the original, given by its address or by a preset's name (the fight, the drops, the regeneration, the creatures' decisions, the doors, the sounds), becomes a log record with the game's time and the wall clock's and its arguments.
+* **Frames.**
+  The original's own screenshot (`Capture/shotNNNN.tga`), converted to PNG by the host; the back buffer read before the flip if that fails.
+* Frames, logs and traces of the original stay local, never in the repository, issues or pull requests (docs/08 §3); the results go into the issues and `docs/re/` as prose.
+
+Open until the first steps answer them: whether Frida may spawn and inject from Claude Code's sandbox; whether the D3D7 window draws outside the monitors and on a locked desktop (if not, dgVoodoo2 in `OriginalGame/` needs the maintainer's word); whether the simulation as well as the drawing stops without the focus; the addresses of the objects' table, the local hero and the program's screen.
 
 ## 4. Binary analysis
 

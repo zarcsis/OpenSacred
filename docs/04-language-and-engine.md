@@ -60,7 +60,7 @@ Every format and rule goes through four steps (the legal basis is in docs/08 §2
    The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
    `opensacred-rules` holds the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, which the systems of `opensacred-game` call (#364).
 4. **Verify.**
-   A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg; docs/03 §1).
+   A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg, and the driver through which Claude Code runs it itself, planned, #448; docs/03 §1, §3.8).
    A rule without vectors yet is checked by unit tests written from its description and by observations of the running original (#227).
 
 Some functions are hard to understand from the decompilation alone:
@@ -93,7 +93,7 @@ Because GPL-2.0 cannot be combined with the project's Apache-2.0 option, it is a
 Advantages: it works on any OS, does not require running the game, and is deterministic.
 Limitation: it suits "pure" functions: formulas, generators, transformations, and a method whose `this` can be laid out from docs/re's offsets (the stats of `0x5658F0`).
 Its first sets (2026-10-21) covered the levels' ends and the levels of an experience, the hit chance and each kind's damage through its resistance, and the most health; five differences from `opensacred-rules` were found and filed, three of them fixed since (#406, #407, #408; #417, #418 open).
-Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`).
+Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`) and the running original that Claude Code drives under Frida (#448, planned; docs/03 §3.8).
 
 ## 3. Implementing the logic in Rust without unsafe
 
