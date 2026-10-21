@@ -283,7 +283,7 @@ fn pursue(
             hero: spot(hero),
             walk: walk.map(|walk| Walking {
                 target: spot(walk.target()),
-                within: walk.within_of(),
+                comes_on: walk.comes_on(),
                 runs: walk.runs(),
             }),
             striking,
@@ -341,7 +341,7 @@ fn come_on(mind: &Mind, hero: Vec3, way: &InTheWay, runs: bool, within: f32) -> 
     } else {
         Walk::to(hero, way.level, mind.speed)
     };
-    walk.within(within)
+    walk.within(within).coming_on()
 }
 
 /// The world point at the centre of global cell `cell`, on the ground plane.

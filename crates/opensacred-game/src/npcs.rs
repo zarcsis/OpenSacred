@@ -469,6 +469,9 @@ pub struct Walk {
     balked: f32,
     /// How near its target it stops, in world units.
     within: f32,
+    /// Whether it comes on at the hero in a fight (`ai::pursue`), which follows the hero as it
+    /// moves, rather than a flight, a step back or a walk about (#387).
+    comes_on: bool,
 }
 
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
@@ -487,6 +490,7 @@ impl Walk {
             moved: false,
             balked: 0.0,
             within: hero::ARRIVED,
+            comes_on: false,
         }
     }
 
@@ -505,9 +509,17 @@ impl Walk {
         self.runs
     }
 
-    /// How near its target it stops.
-    pub fn within_of(&self) -> f32 {
-        self.within
+    /// The walk, one that comes on at the hero in a fight (#387, `ai::pursue`).
+    pub fn coming_on(self) -> Self {
+        Self {
+            comes_on: true,
+            ..self
+        }
+    }
+
+    /// Whether it comes on at the hero in a fight.
+    pub fn comes_on(&self) -> bool {
+        self.comes_on
     }
 
     /// A run to `target` from `level` at `speed`.

@@ -496,8 +496,8 @@ impl Mind {
         }
         let within = lo + BAND;
         match walk {
-            // Coming on, it follows the hero as it moves.
-            Some(walk) if walk.within > 0.0 && (walk.target - hero).length() > BAND => {
+            // Coming on, it follows the hero as it moves; any other walk it ends first (#387).
+            Some(walk) if walk.comes_on && (walk.target - hero).length() > BAND => {
                 Some(Pursues::ComesOn {
                     runs: walk.runs,
                     within,
@@ -680,11 +680,13 @@ pub struct Pursuit {
     pub hero_strikes: bool,
 }
 
-/// A creature's walk: its target, how near it it stops, and whether it runs.
+/// A creature's walk: its target, whether it comes on at the hero (a walk of
+/// [`Pursues::ComesOn`], which follows the hero as it moves) rather than fleeing, stepping back
+/// or going about, and whether it runs.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Walking {
     pub target: Spot,
-    pub within: f32,
+    pub comes_on: bool,
     pub runs: bool,
 }
 
@@ -1181,6 +1183,32 @@ mod tests {
         assert!(!flees(health(10), 150.0, &fled, false, 0));
         let hero_like = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (7, 1));
         assert!(!flees(health(10), 150.0, &hero_like, false, 0));
+    }
+
+    #[test]
+    fn a_fleeing_creature_runs_on_and_a_coming_one_follows_the_hero() {
+        let mut goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 2));
+        goblin.fighting = true;
+        let mut rng = Rng::of(51, 39, 0);
+        // 700 off, the hero far from where its walk heads: a flight runs on (#387), a walk that
+        // comes on turns after the hero.
+        let sight = |comes_on| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(150.0, 0.0),
+            walk: Some(Walking {
+                target: at(-700.0, 0.0),
+                comes_on,
+                runs: true,
+            }),
+            striking: false,
+            health: Some((72, 72)),
+            hero_strikes: true,
+        };
+        assert_eq!(goblin.pursue(&sight(false), &mut rng), None);
+        assert!(matches!(
+            goblin.pursue(&sight(true), &mut rng),
+            Some(Pursues::ComesOn { runs: true, .. })
+        ));
     }
 
     #[test]
