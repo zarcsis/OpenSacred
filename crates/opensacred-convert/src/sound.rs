@@ -90,7 +90,9 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
                 Some(Sample::Wav { data, .. }) => {
                     (sample_file(id, "flac"), ffmpeg::pipe(&FLAC, data, &what)?)
                 }
-                Some(Sample::Mp3 { data }) => (sample_file(id, "mp3"), data.to_vec()),
+                // The zeros some records carry before their first frame are dropped (#354,
+                // docs/decisions/2026-10-20-mp3-leading-zeros.md).
+                Some(Sample::Mp3 { data, lead }) => (sample_file(id, "mp3"), data[lead..].to_vec()),
                 None => unreachable!("ids() lists used slots"),
             };
             let path = dir.join(&file);
@@ -207,7 +209,7 @@ mod tests {
                         (format.tag == 1 && want == "pcm")
                             || (format.tag == 0x11 && want == "adpcm")
                     }
-                    Sample::Mp3 { .. } => want == "mp3" && pak.bytes(id).unwrap()[0] == 0,
+                    Sample::Mp3 { lead, .. } => want == "mp3" && lead > 0,
                 })
                 .unwrap();
             picked.push(id);
@@ -228,6 +230,10 @@ mod tests {
             assert_eq!(pcm(&flac, "flac"), pcm(data, "wav"), "sample {id}");
         }
         let mp3 = fs::read(dir.join(sample_file(picked[2], "mp3"))).unwrap();
+        let Some(Sample::Mp3 { data, lead }) = pak.get(picked[2]).unwrap() else {
+            panic!("{}", picked[2]);
+        };
+        assert_eq!(mp3, &data[lead..]);
         assert_eq!(&mp3[..2], &[0xFF, 0xFB]);
         let first = fs::read(dir.join(sample_file(picked[0], "flac"))).unwrap();
         convert(&game, &out, &picked[..1]).unwrap();

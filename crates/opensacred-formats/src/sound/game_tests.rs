@@ -32,11 +32,18 @@ fn samples_and_profiles_match_sound_dump_py() {
     let text = fs::read_to_string(&samples_table).unwrap();
     let mut lines = text.lines().skip(1);
     let mut count = 0;
+    let mut leads = Vec::new();
     for id in pak.ids() {
         let bytes = pak.bytes(id).unwrap();
         let (flags, kind) = match pak.get(id).unwrap().unwrap() {
             Sample::Wav { format, .. } => (32, if format.tag == 1 { "pcm" } else { "adpcm" }),
-            Sample::Mp3 { .. } => (33, "mp3"),
+            Sample::Mp3 { data, lead } => {
+                assert_eq!(data, bytes, "sample {id}");
+                if lead > 0 {
+                    leads.push(lead);
+                }
+                (33, "mp3")
+            }
         };
         let ours = format!(
             "{id}\t{flags}\t{}\t{kind}\t{}",
@@ -48,6 +55,9 @@ fn samples_and_profiles_match_sound_dump_py() {
     }
     assert!(lines.next().is_none());
     assert_eq!(count, 6598);
+    // docs/02 §10.2: 73 MP3 records start with one frame's worth of zeros.
+    assert_eq!(leads.len(), 73);
+    assert!(leads.iter().all(|&l| l == 208 || l == 417), "{leads:?}");
 
     let data = game_file("PAK/sndProfiles.pak");
     let profiles = Profiles::parse(&data).unwrap();
