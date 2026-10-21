@@ -589,6 +589,35 @@ This closes an earlier hypothesis of "9 half-rows with a step of 24".
 4. The surface type from `+0x1F` (water, lava) and the corner light are carried over as vertex and material attributes.
 5. The original's limits (0x6D5 blend layers, 0x252 batcher indices, the 3×3 sector window) are not carried over into the new code.
 
+### 5.7 The doors
+
+Measured 2026-10-21 (#273) on the files, the converted models and the Seraphim's add-on tree (`addon-type_npc_seraphim`; each of the four trees checked places 1,130 doors) by scratch scripts; the client's own outer and inner points (`0x43B290`) are compared with them in docs/re/ai.md, "Houses and doors", as a range only (docs/08 §3).
+
+- **Which objects are doors** (**confirmed** on the files).
+  Every door is a script's object, a `CreateObj` of a type of category 10 (`items.pak` 5650 to 5766, §6.1): no record of Static.PAK has such a type.
+  The tree places 1,130 doors, each with a world position in `0x20` (§7.3) and none with a heading, each naming a trigger; 1,125 of the triggers are patched (`TriggerPatch`) on one cell each, the door's cell, and 5 on none.
+  The merchant's door of sector 50,40 is one of them: type 5672 (`Door_Pub01.GRN`), its trigger on the cell (3256, 2578), an entrance of the ground (flags 5, nibble 9, §5.2).
+  The ground has 1,761 cells of flag bit 2, each holding one static `BLocker_Object` (type 1032, of kind 1, flags `0x200`): 1,125 are the doors' cells, and of the other 636, which no door of the tree names, 449 lie in dungeon sectors (**hypothesis**: doorways without a leaf, such as the second cell of the cemetery's gate of 50,40, (3222, 2590), beside its door's).
+  Of the inside layers' 491 cells of bit 2, 483 lie on a door's cell.
+- **The leaf** (**confirmed** on the converted models, the 29 of `Door_*.GRN` that the types name, in glTF's frame with y up).
+  The rest pose is the closed one (the clip `*_DEACTIVATE` ends within 4.4 model units of it), and the leaf lies in the model's x–y plane, 3 to 13 model units thick along z, 40 to 253 wide and 41 to 168 high (61 to 383 and 62 to 255 world units at the models' scale).
+  A single leaf hangs on x = 0 and spans to −x (`Door_Hof*`, `NeuHof*`, `Stadt01`, `NeuStadt01`, `DarkCity01`, `Villa*`, `Pub01`, `Prison01`, `Dungeon01`, `Stronghold01`, `Gate01`, `Gatter02`, `Pali01`, `Cage01`, `Zaun01`) or to +x (`Gatter01`, `Pali02`); the gates and double doors (`Desertgate01`, `Dwarf01`, `Dwarf02`, `Schmied01`, `Gitter01`, `Stronghold02`, `Waldburg01`) are centred on x = 0.
+  Opening (`*_ACTIVATE`), a single leaf and the desert gate's swing about their hinges to the model's +z, the dwarves' doors to −z; `Gitter01` rises, `Stronghold02` and `Waldburg01` slide along −x, and `Schmied01` keeps its bounds.
+- **The heading** (**confirmed** on the files).
+  A door's type carries it, the float at `+0x57` (§6.1): 28° or 333° for most of the 117 types, 17° or 347° for `Stadt01`, 17° or 346° for `DarkCity01`, 0° for `Gitter01`.
+  The client turns a model's x along its direction (docs/re/drawing.md, "The models' turn"), so the leaf runs along the heading's direction `u` on the grid (§7.3): 28° is within 2° of the grid's +x, 333° within 1° of −y, 17° 13.5° off +x toward −y, 347° and 346° 20° and 18.5° off −y toward +x, 0° the diagonal between +x and −y.
+  The door's normal on the ground lies across the heading, `(−u_y, u_x)` or its opposite.
+  The doorway's middle is the door's position plus the leaf's middle along `u` (half the leaf's width back from the hinge for most): from the `0x20` position it falls in the door's cell for 873 of the 1,125 doors, against 66 with the model's x across the heading, 63 with the leaf mirrored along it, and 772 from the `0x04` cell's centre.
+  The cell's centre lies −25 to +25 units from it along the leaf and −21 to +16 across it, from the 10th to the 90th percentile.
+- **The sides** (**confirmed** on the files).
+  One cell (53.67 units) from the door's cell's centre along the normal, 472 of the 1,125 doors have a building's floor on one side, a cell walkable on an inside layer (§5.2) and not on the ground, and on the other a cell walkable on the ground: the houses' doors (`Door_Hof*`, `NeuHof*`, `Stadt01`, `NeuStadt01`, `DarkCity01`, `Pub01`, `Villa*`, `Schmied01`, `Stronghold01`), whose cells are all entrances (nibble 9).
+  At all 472 the floor lies on the side `(u_y, −u_x)`, away from the viewer: up and to the right on the screen for 28° (the grid's −y), up and to the left for 333° (−x); the doors stand in the walls that face the viewer.
+  628 doors have the ground on both sides (the dungeons', prisons', gates', fences', palisades', the cage's and the castles' and the dwarves' gates), 7 more a cell walkable on both levels on one side, 4 a floor on both sides, and at 14 the cell one off on a side is a wall's.
+  7 of those are `Stadt01`'s of 17°, with the floor across the leaf on the side `(u_y, −u_x)` and the ground in the cell beside the door's on the heading's side: houses' doors too, 479 in all.
+- **The open leaf's side.**
+  `opensacred-game` turns a model's x along its heading and so its +z onto `(−u_y, u_x)` (`hero::facing`): the houses' doors there swing onto the ground, outward.
+  **Hypothesis**: the original's turn (`0x44DBF0`) puts the model's +z on the other side, onto the floor, so that its doors swing inward; the handedness of its models' frame is not settled, and a screenshot of an open door of the original decides it.
+
 ## 6. Items, creatures, weapons, balance
 
 ### 6.1 Items.pak (ITM v5): the object template database
@@ -766,6 +795,11 @@ The Seraphim tree's start script creates 319 NPCs.
 Confirmed by code 2026-10-17 (the handler `0x482510`, through the walker's jump table `0x4784C0`): a cell becomes a position at `(cell + 0.5) · 53.66563`; tag `0x03` is the heading, a random one of 0…360 (`rand() % 361`) without it, which `0x44DDC0` turns into a direction: `(cos, sin)` of `heading · π/180` on the screen, 0° to the right and 90° down, taken back into the grid's axes through the inverse of the cells' projection (`0x622660`, from the constants 53.66563, 48 and 24 at `0x892048`: the direction `(cos + 2 sin, 2 sin − cos)` on the grid; corrected 2026-10-19, #159 and #161: the grid's axes were read before, a quarter turn off for 45°), so the model shows at that angle on the screen (docs/re/drawing.md, "The models' turn").
 `CreateObj` (type 8; 1,990 records in the Seraphim's start script: 596 barrels, about 1,000 chests, book stands, vases, coffins, signposts) has the same `0x02` (the `items.pak` slot of its model), `0x04` (a cell `(x, y, 0 or 1)`) and `0x03` (a heading), and names a trigger in `0x29` (`chestR1_09`) and its contents in `0x41` (`fillchest_chestR1_09`, a `FillChest` record); hypothesis by the same reading, `opensacred-game` places the models with it.
   **Confirmed** by code 2026-10-19 (`0x485C10`, the walker's case 8): the handler turns the object by its heading only when it is above 0; without one the object faces the angle of its `items.pak +0x57`, which it takes as it is made (§6.1).
+  **Confirmed** by code 2026-10-21 (#273, `0x485C10`): `0x20` is a world position `(x, y, z)` in world units, which the handler keeps negated; with a cell in `0x04` the object's position is the cell's centre, `(cell + 0.5) · 53.66563` (`0x487130`), and `0x20` takes its place only for an effect (category 12, `0x4280B0`), or without a cell.
+  For an object with a model the handler then sets the floats at `+0xCC…+0xD4` from `0x20` and the object's flag `0x800000` (**hypothesis**: where the model is drawn, which the doors' leaves support, §5.7).
+  5,730 of the 8,266 `CreateObj` records of the Seraphim's add-on tree carry it, all 1,130 doors among them; 1,026 of those with a cell lie farther than 38 units (half a cell's diagonal) from its centre, up to 810.
+  Of the doors 188 do, the dwarves' (59) and the fences' (33) the most of them, the farthest a castle's door on a floor of layer 2 (748).
+  `opensacred-game` places the objects at their cells' centres.
 **The spawning records**, **confirmed** by code and on the trees 2026-10-20 (#215, docs/re/spawning.md), all in the sectors' functions `Sector<x><yyy>Init` and `…Enter`:
 `SpawnValues` (type 100) `0B:density 0B:lowest 0B:highest`, the sector's density in percent (50 in all 11,498 records) and its creatures' levels (1–45, 4–80);
 `FillSector` (type 51, 5,309 records, all in `Enter` functions) `36:n` (100 for animals, 310 for monsters), `34:(sx, sy)` the record's own sector, `35:(a, b, 4096)` `a` to `b` creatures per 4,096 cells (0–16), `33:(lowest, highest)` (overridden by `SpawnValues`), then up to 100 `19:(type, weight, hostile)` entries (14,000 in all, 251 types, weights 0–100); `08` and `0E` make every entry hostile or peaceful;
@@ -1025,6 +1059,7 @@ Closed and not in the list: where the screen resolution is stored (nowhere: it i
 5. Hero template fields (sections 0xC7, 0xC8) to the extent needed for the starting presets.
 6. The meaning of the X fields in the TEX (9,406/27,100), MDL (13,268 in `models.pak`, also in the `Models.tmp` and `MOTIONS.PAK` headers; 19,897 in `models03.pak`), CIF (0x3C3D5) and WPN (0x1A3717) headers; probably CRCs/timestamps.
 7. How the 719 of the 875 bipeds that face −Y in their bind pose come to face their way (§4.5): the client turns a model's `x` along its direction (docs/re/drawing.md, "The models' turn"), which suits the 148 that face +X, among them `SERAPHIM.GRN`.
+8. Which side of its direction the client turns a model's +z (glTF) to, and so whether the doors' leaves swing onto the floor or the ground (§5.7); what the ground's 636 cells of flag bit 2 that no door names are (§5.7).
 
 ## Sources
 
