@@ -433,10 +433,15 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   At the tail's root, the vertices of its sides and underside are wholly on `Bip01 L Thigh` or `Bip01 R Thigh` next to vertices wholly on `Bip01 Tail`, such as the edge from (±21.5, 88.5, −88.2) to (±20.8, 92.2, −92.2), 5.5 units long.
   In each of the three sets of clips (`DRGN_`, `DRGI_`, `DRGU_`) these are the most stretched edges of the whole mesh: 4.7 times in the walk, where the next elsewhere reach 2.6, and 10.5 times in the dying clip.
   The surface is closed there: the body's only boundaries are slits along the four legs and the mouth's opening, and the mesh's 16 three-vertex loops are the open bases of spikes on the head and the tail's last segments.
-  A repair would blend the root's weights between `Bip01 Tail` and the thighs; which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
+  The converter repairs it (#400, docs/decisions/2026-10-21-dragon-tails.md) by blending the tail into the thighs over two rings of the mesh's 1,634 positions.
+  The six positions wholly on a thigh that share a side with a position wholly on `Bip01 Tail` take 2/3 of `Bip01 Tail` and 1/3 of their thigh, and the six wholly on a thigh that share a side with those take 1/3 and 2/3.
+  The rings hold four positions of the left side and two of the right each, since the right's mirror image of the left's position 225, wholly on the tail, is half on its thigh already.
+  Measured with 48 samples a clip, the sides from the twelve positions then stretch at most 2.26 times in the walk and 3.94 in the dying clip (4.66 and 10.63 before), below the most stretched sides of the rest of the mesh in the same clips (2.57, and 4.54 at the belly's seam between `Bip01 Spine` and a thigh), and at most 3.94 over all the clips, where the rest reach 7.32 (the crest of the head in the first attack); the three sets of clips give the same numbers (**confirmed** on the converted files).
+  One ring alone leaves 4.3 to 6.5 times in the dying clip, with 2/3, 1/2 or all of the tail; taking the right side's mirror images of the left's positions as well gives the same peaks with more sides stretched past three times (9 against 5).
+  Which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
 
 `opensacred-convert models` repairs the named records as it writes them, each repair a `bug` of its own and recorded as a decision (CLAUDE.md, "Code conventions"), and counts them in its summary; a named record whose data is not what its repair expects is written as it is, with a warning.
-The earth amulet and the cannon's strap are repaired; the other repairs above are not made yet.
+The earth amulet, the cannon's strap and the dragons' tails are repaired; the other repairs above are not made yet.
 
 ## 5. World
 
