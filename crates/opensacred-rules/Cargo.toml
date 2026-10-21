@@ -1,0 +1,13 @@
+[package]
+name = "opensacred-rules"
+description = "The game's rules with no engine: what the original decides, as docs/re reads it"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

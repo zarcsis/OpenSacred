@@ -7,12 +7,12 @@
   One C library comes along: Bevy decodes its KTX2 tone-mapping tables with the C zstd (`zstd_c` in `Cargo.toml`), as the Rust decoder has an open advisory.
 * **No intermediate C++ layer.**
   The original is decompiled only to understand its formats and rules; the behavior is described in prose in `docs/re/`, implemented independently in Rust and checked by tests written from that description and by observations of the running original (#227).
-  Vectors recorded from the developer's own `Sacred.exe` are to check the rules once the oracle exists (§2.3; planned, not created yet, #328).
+  Vectors recorded from the developer's own `Sacred.exe` are to check the rules once the oracle exists (§2.3; planned, not created yet, #363).
   Anything made locally while studying the original is never committed.
   VC6 is not needed.
 * **The engine is Bevy 0.20 on wgpu 30.**
   In the matrix it scores 410 out of 500, against 375 for Godot with godot-rust, 345 for Godot with C++ and 220 for Unreal Engine 5.8.
-* **Insurance:** the game rules are to live in the `opensacred-rules` crate with no engine dependencies; the crate is planned, not created yet (#328).
+* **Insurance:** the game rules live in the `opensacred-rules` crate with no engine dependencies, created 2026-10-21 with the spawning's rolls; the rest of the rules followed so far moves into it from `opensacred-game` (#364).
   With it, a switch to Godot with godot-rust keeps the rules and the converter.
   Until then, the rules followed so far (the fight, the creatures' life, the spawning, the movement) live in `opensacred-game`, most of them as Bevy systems (`fight.rs`, `ai.rs`, `spawning.rs`, `paths.rs`).
 * **Unsafe code is forbidden** in all product crates by the workspace lint `unsafe_code = "deny"` (`Cargo.toml`), which every crate takes through `[lints] workspace = true`; the only exception is the future development tool `opensacred-oracle`, which calls the Unicorn emulator and is a separate crate, never linked into the converter or the game.
@@ -34,7 +34,7 @@
 | Cost | How we mitigate it |
 |---|---|
 | Long Bevy compile times | dependencies optimized in debug builds (`Cargo.toml`), the `rust-lld` linker on Windows (`.cargo/config.toml`), CI restoring `main`'s build cache, separate crates |
-| Before 1.0, Bevy breaks its API in every release | scheduled migrations; rules outside the engine (planned, not created yet, #328) |
+| Before 1.0, Bevy breaks its API in every release | scheduled migrations; rules outside the engine (`opensacred-rules`, filling up, #364) |
 | No mechanical path from a C++ binary to Rust (a transpiler such as cxgo handles only C) | none is wanted: each rule is described as behavior and implemented independently, with tests, and vector tests once the oracle exists; see §2 and §3 |
 | Ecosystem crates catch up with a Bevy release with a delay (for example, `bevy_hanabi` 0.19.0 is still on the Bevy 0.19 line) | upgrade to a new Bevy once the needed crates are out; keep critical subsystems in our own code |
 
@@ -58,7 +58,7 @@ Every format and rule goes through four steps (the legal basis is in docs/08 §2
    Decompiler output is never pasted in.
 3. **Implement.**
    The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
-   `opensacred-rules` is planned, not created yet (#328): the rules followed so far are written in `opensacred-game`.
+   `opensacred-rules` holds the spawning's rolls so far; the rest of the rules followed so far is written in `opensacred-game` and moves into it (#364).
 4. **Verify.**
    A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is to be compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg; docs/03 §1).
    Until the oracle exists, a rule is checked by unit tests written from its description and by observations of the running original (#227).
@@ -105,9 +105,9 @@ Functions that touch D3D, files or threads cannot be checked this way; for those
 | `rand()` from the CRT (LCG 214013/2531011) | a small generator of our own (SplitMix64, `opensacred-game`'s `spawning.rs`), seeded by the sector and the record, so that a sector that comes back has the same creatures; to keep the "feel" of the loot the LCG can be reproduced, exactness is not required |
 | x87 numbers with 80-bit intermediate values | `f32`/`f64`; bit-exact precision is not a goal |
 | The NetScript interpreter built on `switch` and `goto` | `match` on the record type over the parsed IR; no jumps by offset |
-| Engine threads and critical sections | the Bevy system schedule; in `opensacred-rules` (planned, not created yet, #328) the rules are to be single-threaded and deterministic within one machine; today they run as Bevy systems of `opensacred-game` on each frame's time |
+| Engine threads and critical sections | the Bevy system schedule; in `opensacred-rules` (#364) the rules are to be single-threaded and deterministic within one machine; today they run as Bevy systems of `opensacred-game` on each frame's time |
 
-The `unsafe` policy: the workspace lint `unsafe_code = "deny"` (`Cargo.toml`, `[workspace.lints.rust]`), which `opensacred-formats`, `opensacred-data`, `opensacred-convert` and `opensacred-game` take through `[lints] workspace = true`, and so will `opensacred-rules`.
+The `unsafe` policy: the workspace lint `unsafe_code = "deny"` (`Cargo.toml`, `[workspace.lints.rust]`), which `opensacred-formats`, `opensacred-data`, `opensacred-rules`, `opensacred-convert` and `opensacred-game` take through `[lints] workspace = true`.
 Unsafe operations exist inside dependencies (wgpu, Unicorn), but not in our code.
 The only exception is `opensacred-oracle`, and only if the Unicorn crate's wrapper requires it.
 
@@ -192,10 +192,10 @@ Of the two paths, "our own Rust version" or "an existing engine + C++", the proj
 If the weight of "work until playable" is doubled and the weight of Rust is halved, Godot + Rust scores the same as Bevy.
 That is why the architecture insures against a wrong choice:
 
-* `opensacred-rules` (rules; planned, not created yet, #328) and `opensacred-convert` (converter) do not depend on the engine;
+* `opensacred-rules` (rules) and `opensacred-convert` (converter) do not depend on the engine;
 * `opensacred-data` (asset types) consists of ordinary `serde` structures that any code can read;
 * the presentation layer `opensacred-game` is to be thin: it connects the rules to rendering, sound and input.
-  Until `opensacred-rules` exists, `opensacred-game` holds the rules followed so far as well (#328).
+  Until they move into `opensacred-rules` (#364), `opensacred-game` holds most of the rules followed so far as well.
 
 **Triggers for revisiting** (if one fires, the comparison is redone):
 

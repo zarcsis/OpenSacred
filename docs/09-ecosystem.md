@@ -296,7 +296,7 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 | Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira + Symphonia; sounds are converted to FLAC |
 | Video | Smacker libraries (isle); most skip cutscenes | AV1 via FFmpeg during conversion, rav1d during playback; skipping |
 | Networking | ZeroTier + TCP (DevilutionX 1.3); custom (OpenRCT2); absent (swars) | we do not do it: networking is out of scope |
-| Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | a fixed simulation step in `opensacred-rules` (planned, not created yet, #328), rendering at the monitor refresh rate; today the rules run in `opensacred-game` on each frame's time, with no fixed step |
+| Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | a fixed simulation step in `opensacred-rules` (#364; whether the game takes one is open), rendering at the monitor refresh rate; today the rules run in `opensacred-game` on each frame's time, with no fixed step |
 | Saves | Julius: compatibility with the original in both directions | not needed for us: our own save format (docs/06, §6) |
 
 ## 6. What we take and what we avoid

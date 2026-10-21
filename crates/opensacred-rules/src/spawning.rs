@@ -1,13 +1,13 @@
 //! The creatures that the sectors' `FillSector` records make at random as their sectors come
 //! near (`0x47C610`, docs/re/spawning.md, "`FillSector`"): how many a record makes, of which
-//! types by their weights, and on which cells. `npcs` reads the records and places what they
-//! make; this module is the rule alone.
+//! types by their weights, and on which cells. `opensacred-game` (`npcs`) reads the records and
+//! places what they make; this module is the rule alone.
 //!
 //! The original rolls with the C library's `rand()` at every `Enter` and keeps the living
 //! creatures while the region is the same; the game rolls with a generator seeded by the sector
 //! and the record, so that a sector that comes back has the same creatures where they were.
 
-use crate::paths::Cell;
+use crate::Cell;
 
 /// The tries at a cell for each creature (`0x47C610`).
 const TRIES: u32 = 50;

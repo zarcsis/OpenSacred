@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 opensacred-data = { path = "crates/opensacred-data" }
 opensacred-formats = { path = "crates/opensacred-formats" }
+opensacred-rules = { path = "crates/opensacred-rules" }
 
 anyhow = "1.0.104"
 # The engine of the game (ADR-04). The default collections ("2d", "3d", "ui", "audio") minus: the

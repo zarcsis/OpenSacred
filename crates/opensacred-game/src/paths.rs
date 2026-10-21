@@ -25,8 +25,8 @@ pub const STEPS: [(i32, i32); 8] = [
     (1, -1),
 ];
 
-/// A global cell.
-pub type Cell = (i32, i32);
+/// A global cell, the rules' (`opensacred_rules::Cell`).
+pub use opensacred_rules::Cell;
 
 /// The global cell of world `(x, z)`.
 #[expect(
