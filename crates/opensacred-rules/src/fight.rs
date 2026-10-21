@@ -1141,9 +1141,7 @@ pub fn weighed(
             for ends in &mut attacker.damage {
                 *ends = ends.map(|end| end * dmg);
             }
-            let above = to_f32(levels.0.saturating_sub(levels.1));
-            let p = (0.5 * (1.0 + above * 0.01)).min(0.99);
-            k = -(1.0 - p).log2();
+            k = exponent(levels.0.saturating_sub(levels.1));
         }
         Some(Side::Attacker) => {
             defender.defence *= aw;
@@ -1154,6 +1152,41 @@ pub fn weighed(
         None => {}
     }
     (attacker, defender, k)
+}
+
+/// The exponent `k` of a strike's damage against the resistances (`0x56B130`) of an attacker
+/// `above` levels above its defender: `−log₂(1 − p)`, `p` half of 1 plus a hundredth of each
+/// level, at most 0.99; 1 for none above.
+pub fn exponent(above: u32) -> f32 {
+    let p = (0.5 * (1.0 + to_f32(above) * 0.01)).min(0.99);
+    -(1.0 - p).log2()
+}
+
+/// The ratio `x/y` of the weight `0x43EEE0`, 10,000 for a divisor `y` within ±0.001, the bounds
+/// included: the double 0.001, so that the float 0.001, a little above it, divides.
+fn ratio(x: f32, y: f32) -> f32 {
+    if f64::from(y).abs() <= 0.001 {
+        10_000.0
+    } else {
+        x / y
+    }
+}
+
+/// A strike's hit chance, an attack `attack` against a defence `defence` (`0x43EEE0` with the
+/// exponent 1): `1 − 1/(1 + A/D)`, that is `A/(A + D)`; against a defence within ±0.001, 0.9999
+/// whatever the attack, so that the roll of 1,000 misses.
+pub fn hit_chance(attack: f32, defence: f32) -> f32 {
+    1.0 - 1.0 / (1.0 + ratio(attack, defence))
+}
+
+/// The part of a kind's damage `damage` that its resistance `resistance` lets through with the
+/// exponent `k` (`0x43EEE0`): `d·(1 − 1/(1 + d/r)^k)`, `d²/(d + r)` for the exponent 1; against a
+/// resistance within ±0.001, `d·(1 − 10,001^−k)`, 0.9999 of it for `k` 1; none of none.
+pub fn dealt(damage: f32, resistance: f32, k: f32) -> f32 {
+    if damage <= 0.0 {
+        return 0.0;
+    }
+    damage * (1.0 - 1.0 / (1.0 + ratio(damage, resistance)).powf(k))
 }
 
 /// The factor of the attack of a strike with a ranged weapon (the kinds 7, 12, 13 and 14,
@@ -1209,11 +1242,7 @@ pub fn strike(
     (share, k): (f32, f32),
     rng: &mut Rng,
 ) -> Option<u32> {
-    let chance = if defender.defence > 0.0 {
-        attacker.attack / (attacker.attack + defender.defence)
-    } else {
-        1.0
-    };
+    let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
@@ -1222,12 +1251,7 @@ pub fn strike(
         .zip(defender.resistance)
         .zip(defender.damping)
         .map(|((&d, r), damping)| {
-            let dealt = match (d > 0.0, r > 0.0) {
-                (false, _) => 0.0,
-                (true, false) => d,
-                (true, true) => d * (1.0 - 1.0 / (1.0 + d / r).powf(k)),
-            };
-            dealt * f32::from(100_u8.saturating_sub(damping)) / 100.0
+            dealt(d, r, k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
     Some(whole(total * share))
@@ -1426,12 +1450,36 @@ mod tests {
             .count();
         // A/(A + D) = 18.5/34.5 = 0.536.
         assert!((5_100..5_650).contains(&hits), "{hits}");
-        // Against no defence every strike hits.
+        // Against no defence the chance is 0.9999: the roll of 1,000 of the 1,001 misses.
         let open = Combat {
             defence: 0.0,
             ..wolf
         };
-        assert!((0..100).all(|_| strike(&wolf, &open, (1.0, 1.0), &mut rng).is_some()));
+        let misses = (0..10_010)
+            .filter(|_| strike(&wolf, &open, (1.0, 1.0), &mut rng).is_none())
+            .count();
+        assert!((1..40).contains(&misses), "{misses}");
+    }
+
+    #[test]
+    fn the_weight_takes_ten_thousand_for_a_divisor_of_nearly_nothing() {
+        // The values of `0x43EEE0` that `opensacred-oracle` recorded (#363, #406).
+        let close = |a: f32, b: f64| (f64::from(a) - b).abs() <= 1e-6 * b.abs().max(1.0);
+        assert!(close(hit_chance(0.0, 0.0), 0.9999));
+        assert!(close(hit_chance(0.0, 0.0005), 0.9999));
+        assert!(close(hit_chance(5000.0, 0.0005), 0.9999));
+        // The float 0.001 lies above the double bound: it divides.
+        assert!(close(hit_chance(0.5, 0.001), 0.998_004));
+        assert!(close(hit_chance(0.0, 0.001), 0.0));
+        assert!(close(hit_chance(13.0, 16.0), 13.0 / 29.0));
+        assert!(close(dealt(15.0, 0.0, 1.0), 14.998_500_149_985));
+        assert!(close(dealt(15.0, 0.0005, 1.0), 14.998_500_149_985));
+        assert!(close(dealt(15.0, 0.001, 1.0), 14.999_000_066_597));
+        assert!(close(dealt(15.0, 1.0, 1.0), 14.0625));
+        assert!(close(dealt(4.43, 0.0, 1.0), 4.429_556_872_651));
+        // A larger exponent takes the difference away: 15 at 50 levels above.
+        assert!(close(dealt(15.0, 0.0, exponent(50)), 15.0));
+        assert!(close(dealt(0.0, 0.0, 1.0), 0.0));
     }
 
     #[test]
@@ -1457,12 +1505,13 @@ mod tests {
         };
         assert_eq!(strike(&attacker, &damped, (1.0, 1.0), &mut rng), Some(3));
         assert_eq!(strike(&attacker, &defender, (0.5, 1.0), &mut rng), Some(2));
-        // Every kind below 1: 15 physical.
+        // Every kind below 1: 15 physical, of which a resistance of 0 lets 0.9999 through.
         let weak = Combat {
             damage: [[0.5, 0.9], [0.0; 2], [0.0; 2], [0.0; 2]],
             ..attacker
         };
-        assert_eq!(strike(&weak, &attacker, (1.0, 1.0), &mut rng), Some(15));
+        assert_eq!(strike(&weak, &attacker, (1.0, 1.0), &mut rng), Some(14));
+        assert_eq!(strike(&weak, &defender, (1.0, 1.0), &mut rng), Some(9));
     }
 
     #[test]
