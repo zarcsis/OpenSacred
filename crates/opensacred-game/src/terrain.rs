@@ -365,6 +365,11 @@ impl Heights {
         self.occupied.insert((cell, level));
     }
 
+    /// Frees a cell that [`Self::occupy`] closed: a door's, as its trigger opens (#372).
+    pub fn free(&mut self, cell: (i32, i32), level: Level) {
+        self.occupied.remove(&(cell, level));
+    }
+
     /// The places a hero at a place goes to next, as the client moves an object between levels
     /// as it steps onto a cell (`0x5FCCB0`, docs/re/movement.md): from a stair stepped onto from
     /// off the stairs, only the cell of the floor that the stair leads to; at an entrance or an
