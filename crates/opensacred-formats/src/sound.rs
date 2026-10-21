@@ -118,6 +118,38 @@ impl<'a> SoundPak<'a> {
     }
 }
 
+/// Where the first MPEG-1 Layer III frame of `data` starts: the first valid header whose frame
+/// ends the data or is followed by another frame's sync word; `None` if there is none. The music
+/// files of `mp3/` hold up to 1,859 bytes before it (docs/02 §10.3).
+pub fn mp3_first_frame(data: &[u8]) -> Option<usize> {
+    (0..data.len()).find(|&at| {
+        frame_len(&data[at..]).is_some_and(|len| {
+            let next = at + len;
+            next == data.len() || data.get(next..).is_some_and(is_sync)
+        })
+    })
+}
+
+/// Whether `data` starts with the sync word of an MPEG-1 Layer III frame.
+fn is_sync(data: &[u8]) -> bool {
+    matches!(data, [0xFF, b, ..] if b & 0xFE == 0xFA)
+}
+
+/// The length of the MPEG-1 Layer III frame whose header starts `data`, if it is a valid one.
+fn frame_len(data: &[u8]) -> Option<usize> {
+    const KBPS: [usize; 15] = [
+        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+    ];
+    const RATES: [usize; 3] = [44_100, 48_000, 32_000];
+    if !is_sync(data) {
+        return None;
+    }
+    let flags = *data.get(2)?;
+    let kbps = *KBPS.get(usize::from(flags >> 4)).filter(|&&k| k > 0)?;
+    let rate = *RATES.get(usize::from((flags >> 2) & 3))?;
+    Some(144_000 * kbps / rate + usize::from((flags >> 1) & 1))
+}
+
 /// The `fmt ` chunk of the RIFF WAV `r`, after checking that the chunks fill the file and that a
 /// `data` chunk is there.
 fn wav_format(r: &Reader) -> Result<WavFormat> {
@@ -399,6 +431,29 @@ mod tests {
                 lead: 208
             })
         );
+    }
+
+    #[test]
+    fn the_first_frame_follows_the_junk() {
+        // 64 kbit/s, 44.1 kHz, no padding: 208 bytes a frame.
+        let frame = |padded: bool| {
+            let mut f = vec![0; 208 + usize::from(padded)];
+            f[..3].copy_from_slice(&[0xFF, 0xFB, 0x50 | (u8::from(padded) << 1)]);
+            f
+        };
+        let mut data = b"NAME.mp3".to_vec();
+        data.extend([0; 40]);
+        // A false sync word in the junk, with no frame after it.
+        data.extend([0xFF, 0xFB, 0x50, 0]);
+        let start = data.len();
+        data.extend(frame(false));
+        data.extend(frame(true));
+        assert_eq!(mp3_first_frame(&data), Some(start));
+        assert_eq!(mp3_first_frame(&frame(false)), Some(0));
+        assert_eq!(mp3_first_frame(&[0; 300]), None);
+        // A bitrate of 0 (free) or 15 (bad) is no frame.
+        assert_eq!(frame_len(&[0xFF, 0xFB, 0x00, 0]), None);
+        assert_eq!(frame_len(&[0xFF, 0xFB, 0xF0, 0]), None);
     }
 
     #[test]
