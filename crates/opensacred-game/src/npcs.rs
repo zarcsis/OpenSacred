@@ -20,7 +20,8 @@
 //! (`0x44DDC0`, docs/02 §7.3, `heading`). A `CreateObj` record has the same `0x02`, `0x04` and
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
 //! same reading); an object without a heading above 0 faces its item's own angle
-//! (`Item::angle`).
+//! (`Item::angle`), and its model stands at its world position `0x20` where it has one, its cell
+//! staying its logical position (`Object`, `drawn_at`).
 //!
 //! A position's third number is the layer the object lies in (**hypothesis**, docs/re/drawing.md):
 //! the client draws every cell with the world's objects of layer 0, and a building's cells with
@@ -51,7 +52,7 @@ use bevy::prelude::{
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
     Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image,
     IntoScheduleConfigs, MeshMaterial3d, MessageWriter, Name, On, Plugin, Query, Remove, Res,
-    ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec3, With, Without,
+    ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec2, Vec3, With, Without,
     WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
@@ -93,6 +94,8 @@ const OPEN: u8 = 0x26;
 const CLOSED: u8 = 0x27;
 /// `CreateObj`'s operand that names its trigger.
 const TRIGGER: u8 = 0x29;
+/// `CreateObj`'s operand of the object's world position, `(x, y, layer)` (`0x485C10`).
+const WORLD_POSITION: u8 = 0x20;
 const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
 
@@ -101,8 +104,11 @@ const NPC_GOTO: u16 = 72;
 struct Placement {
     /// The model, relative to the asset directory.
     model: String,
-    /// The global cell.
+    /// The global cell, its logical position.
     cell: (u32, u32),
+    /// Where an object's model is drawn, if its record gives it ([`drawn_at`]): world units on
+    /// the ground, the game's x and z.
+    drawn: Option<Vec2>,
     /// Degrees.
     heading: f32,
     /// A `CreateObj`'s object rather than an NPC.
@@ -489,9 +495,15 @@ impl Kept {
 /// A global cell and a floor (or a layer), as the scripts give a position: `(x, y, floor)`.
 type Spot = (i32, i32, i32);
 
-/// An object that a script places (a `CreateObj` record).
+/// An object that a script places (a `CreateObj` record), and its logical position: the centre
+/// of its `0x04` cell on its level, which the client keeps as the object's position while it
+/// draws the model at its `0x20` (`drawn_at`, `0x485C10`, docs/02 §7.3). The cell that a chest
+/// takes in the creatures' way, a door's distances and the doors that the creatures choose go by
+/// it; the model, its shadow and its place among the sprites by the entity's `Transform`.
 #[derive(Component)]
-pub struct Object;
+pub struct Object {
+    pub at: Vec3,
+}
 
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
 #[derive(Component)]
@@ -662,6 +674,30 @@ fn facing_degrees(object: bool, heading: Option<f32>, angle: f32) -> f32 {
         (true, _) => angle,
         (false, heading) => heading.unwrap_or(0.0),
     }
+}
+
+/// Where a `CreateObj`'s model is drawn: its world position `0x20`, `(x, y)` in world units on the
+/// ground, the game's x and z, if it has one. The client keeps the object's position at its
+/// `0x04` cell's centre (`0x487130`) and sets the floats `+0xCC…+0xD4` from `0x20` with the
+/// object's flag `0x800000` (`0x485C10`): where the model is drawn, by which 1,114 of the 1,125
+/// doors' leaves stand in their doorways, every gate centred on its model's origin among them,
+/// against 997 at their cells' centres (docs/02, the open question 9). The third number is no
+/// height: it repeats the cell's layer in every record of the Seraphim's tree.
+fn drawn_at(ops: &[opensacred_data::netscript::Operand]) -> Option<Vec2> {
+    ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (WORLD_POSITION, Value::I32x3([x, y, _])) => Some(Vec2::new(*x as f32, *y as f32)),
+        _ => None,
+    })
+}
+
+/// Where the model of a placement whose logical position is `at`, on `level`, stands: at its
+/// drawn position `drawn` if it has one, on the heights of `level` there, or at `at`'s height
+/// where they are not loaded; else at `at`.
+fn model_position(at: Vec3, drawn: Option<Vec2>, heights: &Heights, level: Level) -> Vec3 {
+    drawn.map_or(at, |drawn| {
+        let height = heights.standing(drawn.x, drawn.y, level).unwrap_or(at.y);
+        Vec3::new(drawn.x, height, drawn.y)
+    })
 }
 
 /// The hero's start: the global cell of the `StartPosition` record of `tree`'s start script
@@ -1334,6 +1370,11 @@ impl Npcs {
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
+                drawn: if record.kind == CREATE_OBJ {
+                    drawn_at(ops)
+                } else {
+                    None
+                },
                 walk,
                 speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
                 class: classes.get(&creature).copied().unwrap_or_default(),
@@ -1425,6 +1466,7 @@ impl Npcs {
                 Placement {
                     model: model.clone(),
                     cell: (0, 0),
+                    drawn: None,
                     walk: None,
                     speed: speeds
                         .get(&creature)
@@ -1841,9 +1883,9 @@ fn keep(
     npcs.kept.gone(placed, stood);
 }
 
-/// Spawns the NPC or the object of `placement`: its model on its cell and level, turned to its
-/// heading, with its texture, its items, its shadow, its clips, its walk and its place in the
-/// others' way.
+/// Spawns the NPC or the object of `placement`: its model on its cell and level, an object's at
+/// its drawn position (`model_position`), turned to its heading, with its texture, its items, its
+/// shadow, its clips, its walk and its place in the others' way.
 fn spawn(
     commands: &mut Commands,
     placement: &Placement,
@@ -1880,10 +1922,21 @@ fn spawn(
         }),
         placement.layer,
     );
+    // Its model where its record draws it, an object's at its `0x20`.
+    let model = model_position(position, placement.drawn, heights, level);
+    let off = Vec2::new(model.x - position.x, model.z - position.z).length();
+    if off > 0.0 {
+        bevy::log::debug!(
+            "npcs: {} of cell {x},{y} drawn at {:.0},{:.0}, {off:.0} from its cell's centre",
+            placement.model,
+            model.x,
+            model.z,
+        );
+    }
     let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
     let mut entity = commands.spawn((
         WorldAssetRoot(scene),
-        Transform::from_translation(position)
+        Transform::from_translation(model)
             .with_rotation(hero::facing(heading(placement.heading)))
             .with_scale(Vec3::splat(iso::MODEL_SCALE)),
         models::Ordered::default(),
@@ -1912,7 +1965,7 @@ fn spawn(
         entity.insert(shadows::Casts);
     }
     if placement.object {
-        entity.insert(Object);
+        entity.insert(Object { at: position });
         if placement.blocks {
             entity.insert(crowd::InTheWay::object(level));
         }
@@ -3248,6 +3301,58 @@ mod tests {
         // An NPC takes its heading, 0 without one.
         assert_eq!(facing_degrees(false, Some(45.0), 90.0), 45.0);
         assert_eq!(facing_degrees(false, None, 90.0), 0.0);
+    }
+
+    #[test]
+    fn an_objects_model_stands_at_its_world_position() {
+        use opensacred_data::world::{Cell, Sector};
+        let op = |tag, value| Operand { tag, value };
+        // A door of cell (10, 20) whose world position lies three cells along x off its centre.
+        let ops = [
+            op(0x02, Value::I32(5650)),
+            op(0x04, Value::I32x3([10, 20, 0])),
+            op(WORLD_POSITION, Value::I32x3([724, 1100, 0])),
+            op(TRIGGER, Value::Str("door_1".into())),
+        ];
+        let drawn = drawn_at(&ops);
+        assert_eq!(drawn, Some(Vec2::new(724.0, 1100.0)));
+        assert_eq!(drawn_at(&ops[..2]), None);
+        // The ground a creature stands on rises from the cells' column 12 on.
+        let cell = |raised: bool| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [if raised { 8 } else { 0 }; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground: 0x40,
+        };
+        let mut heights = Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: (0..SIDE * SIDE).map(|i| cell(i % SIDE >= 12)).collect(),
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        let centre = iso::ground(10.5, 20.5);
+        let at = centre.with_y(heights.standing(centre.x, centre.z, None).unwrap());
+        // On the heights where it is drawn, its cell's centre staying its logical position.
+        let model = model_position(at, drawn, &heights, None);
+        assert_eq!((model.x, model.z), (724.0, 1100.0));
+        assert_eq!(model.y, heights.standing(724.0, 1100.0, None).unwrap());
+        assert!(model.y > at.y, "{model} {at}");
+        // Without a world position at its cell's centre; outside the loaded heights at its
+        // cell's height.
+        assert_eq!(model_position(at, None, &heights, None), at);
+        assert_eq!(
+            model_position(at, Some(Vec2::new(-500.0, 1100.0)), &heights, None),
+            Vec3::new(-500.0, at.y, 1100.0)
+        );
     }
 
     #[test]

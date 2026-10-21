@@ -398,4 +398,59 @@ mod tests {
         assert_eq!(tree.regions.len(), 22);
         fs::remove_dir_all(out).unwrap();
     }
+
+    /// The `CreateObj` records of the Seraphim's add-on tree whose world position (`0x20`), where
+    /// the game draws their models, lies off their cell's (`0x04`) centre (docs/02 §7.3, #429):
+    /// 1,026 farther than half a cell's diagonal, up to 810 units, 188 of them doors (`items.pak`
+    /// 5650 to 5766); the third number repeats the cell's layer.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_objects_world_positions_lie_off_their_cells() {
+        const CELL: f64 = 53.665_63;
+        let tree = tree(
+            &repo_root().join("OriginalGame"),
+            "bin/Addon/TYPE_NPC_SERAPHIM",
+        )
+        .unwrap();
+        let objects: Vec<&[Operand]> = tree
+            .start
+            .iter()
+            .chain(&tree.quest)
+            .chain(tree.functions.iter().flat_map(|f| &f.records))
+            .filter(|r| r.kind == 8)
+            .filter_map(|r| match &r.body {
+                Body::Operands(ops) => Some(ops.as_slice()),
+                _ => None,
+            })
+            .collect();
+        let triple = |ops: &[Operand], tag| {
+            ops.iter().find_map(|o| match (o.tag, &o.value) {
+                (t, Value::I32x3(v)) if t == tag => Some(*v),
+                _ => None,
+            })
+        };
+        let placed = objects.iter().filter(|ops| triple(ops, 0x20).is_some());
+        let (mut both, mut far, mut doors, mut farthest) = (0, 0, 0, 0.0_f64);
+        for ops in placed.clone() {
+            let (Some([cx, cy, layer]), Some([x, y, z])) = (triple(ops, 0x04), triple(ops, 0x20))
+            else {
+                continue;
+            };
+            both += 1;
+            assert_eq!(z, layer);
+            let off = (f64::from(x) - (f64::from(cx) + 0.5) * CELL)
+                .hypot(f64::from(y) - (f64::from(cy) + 0.5) * CELL);
+            if off > 38.0 {
+                far += 1;
+                farthest = farthest.max(off);
+                let door = ops.iter().any(|o| {
+                    o.tag == 0x02 && matches!(o.value, Value::I32(t) if (5650..=5766).contains(&t))
+                });
+                doors += usize::from(door);
+            }
+        }
+        assert_eq!((objects.len(), placed.count(), both), (8_266, 5_730, 5_703));
+        assert_eq!((far, doors), (1_026, 188));
+        assert_eq!(farthest.round(), 810.0);
+    }
 }
