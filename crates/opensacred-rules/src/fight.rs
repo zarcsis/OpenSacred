@@ -542,13 +542,18 @@ impl Rules {
         }
     }
 
-    /// The factor of a creature's level `level` (`0x5658F0`): between two of the points about
-    /// it, the first's weight plus the level times the slope, the level taken whole rather than
-    /// from the first point (the original's own); 1 outside the points.
+    /// The factor of a creature's level `level` (`0x5658F0`): the first pair of points whose
+    /// levels hold it, else the last pair, which the original takes without its test, so that
+    /// the factor goes on along the last segment's line above the last point (#418); the pair's
+    /// first weight plus the level times its slope, the level taken whole rather than from the
+    /// first point (the original's own). 1 without two points.
     fn level_factor(&self, level: f32) -> f32 {
-        self.points
-            .windows(2)
+        let pairs = self.points.windows(2);
+        let last = pairs.clone().last();
+        pairs
+            .take(self.points.len().saturating_sub(2))
             .find(|pair| pair[0].0 <= level && level <= pair[1].0)
+            .or(last)
             .map_or(1.0, |pair| {
                 let ((s0, w0), (s1, w1)) = (pair[0], pair[1]);
                 w0 + level * (w1 - w0) / (s1 - s0)
@@ -1374,7 +1379,13 @@ mod tests {
         // Between 1 and 4: 0.75 + L · 0.05/3, the level whole.
         assert!((rules.level_factor(1.0) - (0.75 + 0.05 / 3.0)).abs() < 1e-6);
         assert!((rules.level_factor(20.0) - (0.9 + 20.0 * 0.1 / 10.0)).abs() < 1e-6);
-        assert!((rules.level_factor(40.0) - 1.0).abs() < 1e-6);
+        // Above the last point, the last segment's line goes on: 1.0 + L · 0.1/15, as the
+        // original's (the oracle's vectors, #363, #418): 1.4 at level 60, 2.44 at 216.
+        assert!((rules.level_factor(40.0) - (1.0 + 40.0 * 0.1 / 15.0)).abs() < 1e-6);
+        assert!((rules.level_factor(60.0) - 1.4).abs() < 1e-6);
+        assert!((rules.level_factor(216.0) - 2.44).abs() < 1e-5);
+        // Without two points, 1.
+        assert_eq!(Rules::default().level_factor(60.0), 1.0);
     }
 
     /// A wolf (512) and a goblin warrior (76) of `Creature.pak`, as far as their fight goes.
