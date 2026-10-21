@@ -13,6 +13,9 @@
 //!   the menus' and the console's too, and the system's cursor stays where it is;
 //! - `opensacred/screenshot {"path": …}`: saves the next frame; the client waits for the file;
 //! - `opensacred/logs {"after": n}`: the log's records numbered `n` and later.
+//!
+//! Bevy's `world.mutate_components` goes through the game's `mutate_components`, which answers an
+//! error for an entity that is gone instead of ending the game (#456).
 
 use std::collections::VecDeque;
 
@@ -22,6 +25,10 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel};
 use bevy::input::touch::TouchPhase;
 use bevy::prelude::*;
+use bevy::remote::builtin_methods::{
+    BRP_MUTATE_COMPONENTS_METHOD, BrpMutateComponentsParams, parse_some,
+    process_remote_mutate_components_request,
+};
 use bevy::remote::http::RemoteHttpPlugin;
 use bevy::remote::{BrpError, BrpResult, RemotePlugin, error_codes};
 use bevy::window::PrimaryWindow;
@@ -122,6 +129,17 @@ fn logs(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
             })
             .collect(),
     ))
+}
+
+/// `world.mutate_components`, Bevy's own once its entity is found: `bevy_remote` 0.20.0 takes the
+/// entity with `World::entity_mut`, which panics on one despawned (a sector unloaded under the
+/// client), where its other methods answer `ENTITY_NOT_FOUND`, as this does.
+fn mutate_components(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
+    let BrpMutateComponentsParams { entity, .. } = parse_some(params.clone())?;
+    if world.get_entity(entity).is_err() {
+        return Err(BrpError::entity_not_found(entity));
+    }
+    process_remote_mutate_components_request(In(params), world)
 }
 
 /// The player's input of `opensacred/input`: one of these.
@@ -401,7 +419,9 @@ impl Plugin for RemoteControlPlugin {
                 .with_method_main("opensacred/state", state)
                 .with_method_main("opensacred/input", input)
                 .with_method_main("opensacred/screenshot", save)
-                .with_method_main("opensacred/logs", logs),
+                .with_method_main("opensacred/logs", logs)
+                // Added after Bevy's methods, it takes the name's place among them.
+                .with_method_main(BRP_MUTATE_COMPONENTS_METHOD, mutate_components),
             RemoteHttpPlugin::default().with_port(self.port),
         ))
         .init_resource::<Pending>()
@@ -504,12 +524,31 @@ mod tests {
             Camera3d::default(),
             Projection::Orthographic(OrthographicProjection::default_3d()),
         ));
+        app.register_type::<Transform>();
+        let here = app.world_mut().spawn(Transform::default()).id();
+        // As a sector's object after the sector has unloaded (#456).
+        let gone = app.world_mut().spawn(Transform::default()).id();
+        app.world_mut().despawn(gone);
+        let mutate = move |entity: Entity| {
+            call(
+                port,
+                "world.mutate_components",
+                json!({
+                    "entity": entity,
+                    "component": "bevy_transform::components::transform::Transform",
+                    "path": ".translation",
+                    "value": [1.0, 2.0, 3.0],
+                }),
+            )
+        };
         let client = std::thread::spawn(move || {
             (
                 call(port, "opensacred/exec", json!({ "line": "zoom 1.5" })),
                 call(port, "opensacred/state", Value::Null),
                 call(port, "opensacred/exec", json!({ "line": "wait ready" })),
                 call(port, "opensacred/logs", json!({ "after": 0 })),
+                mutate(here),
+                mutate(gone),
             )
         });
         let start = Instant::now();
@@ -518,7 +557,7 @@ mod tests {
             app.update();
             std::thread::sleep(Duration::from_millis(2));
         }
-        let (zoom, state, wait, logs) = client.join().unwrap();
+        let (zoom, state, wait, logs, moved, missed) = client.join().unwrap();
         assert_eq!(zoom["result"]["output"], json!(["zoom 1.50"]));
         assert_eq!(state["result"]["state"], "menu");
         assert!(state["result"]["version"].is_string());
@@ -536,5 +575,15 @@ mod tests {
             .collect();
         assert!(messages.contains(&"sector 50,39"), "{messages:?}");
         assert_eq!(logs["result"][0]["level"], "INFO");
+        assert_eq!(moved["result"], Value::Null, "{moved}");
+        assert_eq!(
+            app.world().get::<Transform>(here).map(|t| t.translation),
+            Some(Vec3::new(1.0, 2.0, 3.0))
+        );
+        assert_eq!(
+            missed["error"]["code"],
+            json!(error_codes::ENTITY_NOT_FOUND),
+            "{missed}"
+        );
     }
 }
