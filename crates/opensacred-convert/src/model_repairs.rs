@@ -2,7 +2,7 @@
 //! name, each as narrow as its defect (CLAUDE.md, "Code conventions"). A named record whose data
 //! is not what its repair expects is left as it is, with a warning.
 
-use opensacred_formats::grn::{Bone, Influence, Model, Skeleton};
+use opensacred_formats::grn::{Bone, Influence, Mesh, Model, Skeleton};
 
 /// What [`apply`] did to a record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,13 +19,20 @@ pub enum Outcome {
 /// why the data is not what it expects, before it changes anything.
 type Repair = fn(&mut Skeleton, &mut Model) -> Result<usize, String>;
 
-/// The repairs by the name of the record they repair.
-const REPAIRS: [(&[u8], Repair); 2] = [(EARTH_AMULET, earth_amulet), (CANNON, cannon_strap)];
+/// The repairs by the names of the records they repair.
+const REPAIRS: [(&[&[u8]], Repair); 3] = [
+    (&[EARTH_AMULET], earth_amulet),
+    (&[CANNON], cannon_strap),
+    (&DRAGONS, dragon_tail),
+];
 
 /// Repairs `skeleton` and `model` of the model record `name` if a repair names it; the record
 /// name is compared without regard to case, as the command line's `--model` is.
 pub fn apply(name: &[u8], skeleton: &mut Skeleton, model: &mut Model) -> Outcome {
-    let Some((_, repair)) = REPAIRS.iter().find(|(n, _)| name.eq_ignore_ascii_case(n)) else {
+    let Some((_, repair)) = REPAIRS
+        .iter()
+        .find(|(names, _)| names.iter().any(|n| name.eq_ignore_ascii_case(n)))
+    else {
         return Outcome::None;
     };
     match repair(skeleton, model) {
@@ -148,29 +155,8 @@ fn cannon_strap(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
             mesh.weights.len()
         ));
     }
-    // The strap's own index of a skeleton bone, its "local bone" (docs/02 §4.2).
-    let local = |name: &[u8]| {
-        let mut found = mesh
-            .bones
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| {
-                skeleton
-                    .bones
-                    .get(b.bone)
-                    .is_some_and(|bone| bone.name == name)
-            })
-            .map(|(local, _)| local);
-        match (found.next(), found.next()) {
-            (Some(local), None) => Ok(local),
-            _ => Err(format!(
-                "the strap is not bound once to `{}`",
-                name.escape_ascii()
-            )),
-        }
-    };
-    let pelvis = local(PELVIS)?;
-    let clavicle = local(CLAVICLE)?;
+    let pelvis = local_bone(skeleton, mesh, PELVIS)?;
+    let clavicle = local_bone(skeleton, mesh, CLAVICLE)?;
     let on_pelvis: Vec<usize> = mesh
         .weights
         .iter()
@@ -191,11 +177,7 @@ fn cannon_strap(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
                 "position {position} of the strap is not wholly on `Bip01 Pelvis`"
             ));
         }
-        if mesh.positions[position]
-            .iter()
-            .zip(at)
-            .any(|(a, b)| (a - b).abs() > 1e-3)
-        {
+        if !lies_at(mesh.positions[position], at) {
             return Err(format!(
                 "position {position} of the strap does not lie at {at:?}"
             ));
@@ -205,6 +187,157 @@ fn cannon_strap(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
         model.meshes[index].weights[position] = wholly(clavicle);
     }
     Ok(ON_PELVIS.len())
+}
+
+/// The eight large dragons, `DRAGON.GRN` to `DRAGON_UNDEAD.GRN` (models 1193 to 1200), share one
+/// mesh `Dragon` whose tail's root is weighted wholly to `Bip01 L Thigh` or `Bip01 R Thigh` on its
+/// sides and underside, next to positions wholly on `Bip01 Tail`: the most stretched sides of the
+/// mesh in each of their three sets of clips, 4.7 times in the walk and 10.6 in the dying clip
+/// (#400, docs/02 §4.6). The repair blends the tail into the thighs over two rings of positions
+/// wholly on a thigh: those that share a side with a position wholly on `Bip01 Tail` take 2/3 of
+/// the tail and 1/3 of their thigh, those that share a side with the first ring 1/3 of the tail
+/// (docs/decisions/2026-10-21-dragon-tails.md).
+const DRAGONS: [&[u8]; 8] = [
+    b"DRAGON.GRN",
+    b"DRAGON_ICE.GRN",
+    b"DRAGON_ICE01.GRN",
+    b"DRAGON_ICE03.GRN",
+    b"DRAGON_LOROMIR.GRN",
+    b"DRAGON_SIRITHCAM.GRN",
+    b"DRAGON_SWAMP02.GRN",
+    b"DRAGON_UNDEAD.GRN",
+];
+const DRAGON_MESH: &[u8] = b"Dragon";
+const DRAGON_POSITIONS: usize = 1634;
+/// Positions of a ring and where they lie in the file, to 0.001.
+type Ring = [(usize, [f32; 3]); 6];
+/// The rings that the rule finds in the mesh, each with the share of `Bip01 Tail` it takes: four
+/// positions of the left side and two of the right in each, since the right's position mirroring
+/// the left's 225, wholly on the tail, is half on its thigh already.
+const TAIL_RINGS: [(Ring, f32); 2] = [
+    (
+        [
+            (152, [13.976, 70.280, 79.967]),
+            (233, [21.518, 88.236, 88.518]),
+            (585, [40.994, 85.062, 84.519]),
+            (591, [31.651, 89.070, 78.442]),
+            (1034, [-13.979, 69.774, 80.246]),
+            (1084, [-21.519, 88.263, 88.534]),
+        ],
+        2.0 / 3.0,
+    ),
+    (
+        [
+            (149, [21.184, 67.807, 85.548]),
+            (576, [47.705, 72.554, 86.160]),
+            (586, [24.058, 74.183, 69.788]),
+            (1031, [-21.185, 67.837, 85.540]),
+            (1325, [-24.061, 74.231, 69.786]),
+            (1330, [-31.653, 89.109, 78.458]),
+        ],
+        1.0 / 3.0,
+    ),
+];
+const TAIL: &[u8] = b"Bip01 Tail";
+const THIGHS: [&[u8]; 2] = [b"Bip01 L Thigh", b"Bip01 R Thigh"];
+
+/// The [`Repair`] of [`DRAGONS`].
+fn dragon_tail(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, String> {
+    let index = only_mesh(model, DRAGON_MESH)?;
+    let mesh = &model.meshes[index];
+    if mesh.positions.len() != DRAGON_POSITIONS || mesh.weights.len() != DRAGON_POSITIONS {
+        return Err(format!(
+            "the mesh `Dragon` has {} positions and {} weighted ones, not {DRAGON_POSITIONS}",
+            mesh.positions.len(),
+            mesh.weights.len()
+        ));
+    }
+    let tail = local_bone(skeleton, mesh, TAIL)?;
+    let thighs = [
+        local_bone(skeleton, mesh, THIGHS[0])?,
+        local_bone(skeleton, mesh, THIGHS[1])?,
+    ];
+    let wholly_on = |position: usize, bones: &[usize]| match mesh.weights[position].as_slice() {
+        [only] => bones.contains(&only.bone),
+        _ => false,
+    };
+    let mut sides = vec![Vec::new(); mesh.positions.len()];
+    for triangle in &mesh.triangles {
+        let [a, b, c] = triangle.positions;
+        for (u, v) in [(a, b), (b, c), (c, a)] {
+            sides[u].push(v);
+            sides[v].push(u);
+        }
+    }
+    // The first ring borders on the tail, the second on the first.
+    let ring = |next_to: &dyn Fn(usize) -> bool, not_in: &[usize]| -> Vec<usize> {
+        (0..mesh.positions.len())
+            .filter(|&p| wholly_on(p, &thighs) && !not_in.contains(&p))
+            .filter(|&p| sides[p].iter().any(|&q| next_to(q)))
+            .collect()
+    };
+    let first = ring(&|q| wholly_on(q, &[tail]), &[]);
+    let second = ring(&|q| first.contains(&q), &first);
+    for (found, (expected, _)) in [&first, &second].into_iter().zip(&TAIL_RINGS) {
+        let positions = expected.map(|(position, _)| position);
+        if *found != positions {
+            return Err(format!(
+                "the tail's rings hold the positions {first:?} and {second:?}, not those expected"
+            ));
+        }
+        for (position, at) in expected {
+            if !lies_at(mesh.positions[*position], *at) {
+                return Err(format!(
+                    "position {position} of the mesh `Dragon` does not lie at {at:?}"
+                ));
+            }
+        }
+    }
+    let weights = &mut model.meshes[index].weights;
+    for (ring, share) in TAIL_RINGS {
+        for (position, _) in ring {
+            let thigh = weights[position][0].bone;
+            weights[position] = vec![
+                Influence {
+                    bone: tail,
+                    weight: share,
+                },
+                Influence {
+                    bone: thigh,
+                    weight: 1.0 - share,
+                },
+            ];
+        }
+    }
+    Ok(TAIL_RINGS.iter().map(|(ring, _)| ring.len()).sum())
+}
+
+/// The mesh's own index of the skeleton bone `name`, its local bone (docs/02 §4.2).
+fn local_bone(skeleton: &Skeleton, mesh: &Mesh, name: &[u8]) -> Result<usize, String> {
+    let mut found = mesh
+        .bones
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| {
+            skeleton
+                .bones
+                .get(b.bone)
+                .is_some_and(|bone| bone.name == name)
+        })
+        .map(|(local, _)| local);
+    match (found.next(), found.next()) {
+        (Some(local), None) => Ok(local),
+        _ => Err(format!(
+            "the mesh `{}` is not bound once to `{}`",
+            mesh.name.escape_ascii(),
+            name.escape_ascii()
+        )),
+    }
+}
+
+/// Whether `position` lies at `at` within 0.001 in each coordinate.
+fn lies_at(position: [f32; 3], at: [f32; 3]) -> bool {
+    position.iter().zip(at).all(|(a, b)| (a - b).abs() <= 1e-3)
 }
 
 /// The index of the only mesh named `name`.
@@ -279,7 +412,7 @@ mod tests {
         Mesh {
             name,
             positions: (0..positions)
-                .map(|k| [f32::from(u8::try_from(k).unwrap()), 0.0, 1.0])
+                .map(|k| [f32::from(u16::try_from(k).unwrap()), 0.0, 1.0])
                 .collect(),
             normals: vec![[0.0, -1.0, 0.0]],
             texcoord_sets: vec![],
@@ -640,51 +773,227 @@ mod tests {
         );
         assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
         let glb = Glb::read(&fs::read(dst.join("1415-dwarf_leather_cannon.glb")).unwrap());
-        let meshes = glb.json["meshes"].as_array().unwrap();
-        let strap = meshes
-            .iter()
-            .position(|m| m["name"] == "shoulder_leather01")
-            .unwrap();
-        let node = glb.json["nodes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|n| n["mesh"] == strap)
-            .unwrap();
-        let skin = &glb.json["skins"][glb.field(&node["skin"])];
-        let joint = |k: usize| {
-            let node = glb.field(&skin["joints"][k]);
-            glb.json["nodes"][node]["name"].as_str().unwrap().to_owned()
-        };
-        let attributes = &meshes[strap]["primitives"][0]["attributes"];
-        let positions = glb.floats(&attributes["POSITION"]);
-        let joints = glb.ints(&attributes["JOINTS_0"]);
-        let weights = glb.floats(&attributes["WEIGHTS_0"]);
         let mut moved = 0;
-        for (vertex, position) in positions.chunks(3).enumerate() {
-            let influences: Vec<(String, f32)> = (0..4)
-                .filter(|&c| weights[4 * vertex + c] > 0.0)
-                .map(|c| {
-                    let k = usize::try_from(joints[4 * vertex + c]).unwrap();
-                    (joint(k), weights[4 * vertex + c])
-                })
-                .collect();
+        for (at, influences) in vertices(&glb, "shoulder_leather01") {
             assert!(
                 influences.iter().all(|(name, _)| name != "Bip01 Pelvis"),
                 "{influences:?}"
             );
-            // glTF's (x, y, z) is the file's (x, −z, y).
-            let at = [position[0], -position[2], position[1]];
-            if ON_PELVIS
-                .iter()
-                .any(|(_, p)| p.iter().zip(at).all(|(a, b)| (a - b).abs() < 1e-3))
-            {
+            if ON_PELVIS.iter().any(|&(_, p)| lies_at(at, p)) {
                 assert_eq!(influences, [("Bip01 L Clavicle".to_owned(), 1.0)]);
                 moved += 1;
             }
         }
         // A position is several vertices where its corners differ in normal or coordinates.
         assert!(moved >= ON_PELVIS.len(), "{moved}");
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// A vertex of a converted file: where it lies in the file's frame, and its influences by the
+    /// name of their joint's node.
+    type Vertex = ([f32; 3], Vec<(String, f32)>);
+
+    /// The vertices of the mesh `name` of a converted file.
+    fn vertices(glb: &Glb, name: &str) -> Vec<Vertex> {
+        let meshes = glb.json["meshes"].as_array().unwrap();
+        let mesh = meshes.iter().position(|m| m["name"] == name).unwrap();
+        let node = glb.json["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["mesh"] == mesh)
+            .unwrap();
+        let skin = &glb.json["skins"][glb.field(&node["skin"])];
+        let joint = |k: u32| {
+            let node = glb.field(&skin["joints"][usize::try_from(k).unwrap()]);
+            glb.json["nodes"][node]["name"].as_str().unwrap().to_owned()
+        };
+        let attributes = &meshes[mesh]["primitives"][0]["attributes"];
+        let positions = glb.floats(&attributes["POSITION"]);
+        let joints = glb.ints(&attributes["JOINTS_0"]);
+        let weights = glb.floats(&attributes["WEIGHTS_0"]);
+        positions
+            .chunks(3)
+            .zip(joints.chunks(4).zip(weights.chunks(4)))
+            .map(|(p, (j, w))| {
+                let influences = j
+                    .iter()
+                    .zip(w)
+                    .filter(|&(_, &w)| w > 0.0)
+                    .map(|(&j, &w)| (joint(j), w))
+                    .collect();
+                // glTF's (x, y, z) is the file's (x, −z, y).
+                ([p[0], -p[2], p[1]], influences)
+            })
+            .collect()
+    }
+
+    /// The dragon's bones in short and a mesh `Dragon` of 1,634 positions on `Bip01 Spine`, but
+    /// for the positions of [`TAIL_RINGS`] on their thighs, three on `Bip01 Tail` that the first
+    /// ring borders on, and one more on the left thigh away from the tail. Every triangle has a
+    /// corner on `Bip01 Spine`.
+    fn dragon() -> (Skeleton<'static>, Model<'static>) {
+        let skeleton = Skeleton {
+            bones: vec![
+                bone(b"__Root", None, [0.0; 3]),
+                bone(b"Bip01 Spine", Some(0), [0.0, 65.7, 124.1]),
+                bone(b"Bip01 Tail", Some(1), [0.0, 18.3, -2.9]),
+                bone(b"Bip01 L Thigh", Some(1), [32.7, 4.7, -8.4]),
+                bone(b"Bip01 R Thigh", Some(1), [-32.7, 4.7, -8.4]),
+            ],
+        };
+        let mut mesh = rigid(b"Dragon", DRAGON_POSITIONS, 1);
+        mesh.bones = (1..5).map(entry).collect();
+        let one = |bone| vec![Influence { bone, weight: 1.0 }];
+        mesh.weights = vec![one(0); DRAGON_POSITIONS];
+        let side = |position: usize| if position < 1000 { 2 } else { 3 };
+        let [(first, _), (second, _)] = TAIL_RINGS;
+        for &(position, at) in first.iter().chain(&second) {
+            mesh.positions[position] = at.map(|v| v - 0.000_3);
+            mesh.weights[position] = one(side(position));
+        }
+        let (tails, away) = ([150, 237, 1088], 600);
+        for position in tails {
+            mesh.weights[position] = one(1);
+        }
+        mesh.weights[away] = one(2);
+        let triangle = |positions| Triangle {
+            positions,
+            normals: [0; 3],
+        };
+        mesh.triangles = vec![triangle([away, 1, 2])];
+        for (k, &(position, _)) in first.iter().enumerate() {
+            let tail = if position < 1000 {
+                tails[k % 2]
+            } else {
+                tails[2]
+            };
+            mesh.triangles.push(triangle([position, tail, 0]));
+        }
+        for (k, &(position, _)) in second.iter().enumerate() {
+            mesh.triangles.push(triangle([position, first[k].0, 3]));
+        }
+        let mut model = amulet_model();
+        model.meshes = vec![rigid(b"Wings", 3, 1), mesh];
+        (skeleton, model)
+    }
+
+    #[test]
+    fn the_dragons_tail_root_blends_into_the_thighs() {
+        for name in DRAGONS {
+            let (mut skeleton, mut model) = dragon();
+            let (old_skeleton, old_model) = (skeleton.clone(), model.clone());
+            let lower = name.to_ascii_lowercase();
+            assert_eq!(
+                apply(&lower, &mut skeleton, &mut model),
+                Outcome::Repaired(12)
+            );
+            assert_eq!(skeleton, old_skeleton);
+            assert_eq!(model.meshes[0], old_model.meshes[0]);
+            let (mesh, old) = (&model.meshes[1], &old_model.meshes[1]);
+            assert_eq!((&mesh.positions, &mesh.bones), (&old.positions, &old.bones));
+            let share = |position: usize| {
+                TAIL_RINGS
+                    .iter()
+                    .find(|(ring, _)| ring.iter().any(|&(p, _)| p == position))
+                    .map(|&(_, share)| share)
+            };
+            for (position, (list, old_list)) in mesh.weights.iter().zip(&old.weights).enumerate() {
+                match share(position) {
+                    Some(share) => {
+                        let thigh = old_list[0].bone;
+                        let expected = [(1, share), (thigh, 1.0 - share)]
+                            .map(|(bone, weight)| Influence { bone, weight });
+                        assert_eq!(list, &expected, "{position}");
+                    }
+                    None => assert_eq!(list, old_list, "{position}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_tail_unlike_the_expected_one_is_left_as_it_is() {
+        let mut cases: Vec<(Skeleton, Model, &str)> = Vec::new();
+        // One more position wholly on a thigh borders on the tail.
+        let (skeleton, mut model) = dragon();
+        model.meshes[1].weights[601] = vec![Influence {
+            bone: 2,
+            weight: 1.0,
+        }];
+        model.meshes[1].triangles.push(Triangle {
+            positions: [601, 150, 0],
+            normals: [0; 3],
+        });
+        cases.push((skeleton, model, "the tail's rings hold the positions"));
+        let (skeleton, mut model) = dragon();
+        model.meshes[1].positions[586][0] += 0.01;
+        cases.push((
+            skeleton,
+            model,
+            "position 586 of the mesh `Dragon` does not lie",
+        ));
+        let (mut skeleton, model) = dragon();
+        skeleton.bones[2].name = b"Bip01 Tail1";
+        cases.push((skeleton, model, "not bound once to `Bip01 Tail`"));
+        let (skeleton, mut model) = dragon();
+        model.meshes[1].positions.pop();
+        cases.push((skeleton, model, "1633 positions"));
+        for (mut skeleton, mut model, reason) in cases {
+            let (old_skeleton, old_model) = (skeleton.clone(), model.clone());
+            match apply(DRAGONS[0], &mut skeleton, &mut model) {
+                Outcome::Mismatch(found) => assert!(found.contains(reason), "{found}"),
+                other => panic!("{other:?}"),
+            }
+            assert_eq!((skeleton, model), (old_skeleton, old_model));
+        }
+    }
+
+    /// The eight dragons in the game files: each is repaired, and the converted mesh's vertices at
+    /// the rings' positions take their shares of `Bip01 Tail` and of their thigh.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_dragons_tail_roots_are_blended() {
+        let game = repo_root().join("OriginalGame");
+        let (pak, dir_name) = models::PAKS[0];
+        let out = scratch_dir("dragon-tails");
+        let dst = models::output_dir(&out, dir_name);
+        let only = DRAGONS.map(|n| String::from_utf8(n.to_vec()).unwrap());
+        let summary =
+            models::convert_pak(&game.join(pak), &dst, &TextureIndex::default(), &only).unwrap();
+        assert_eq!(
+            (summary.repaired_models, summary.repaired_positions),
+            (8, 96)
+        );
+        assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+        for file in ["1193-dragon.glb", "1200-dragon_undead.glb"] {
+            let glb = Glb::read(&fs::read(dst.join(file)).unwrap());
+            let mut blended = 0;
+            for (at, mut influences) in vertices(&glb, "Dragon") {
+                for (ring, share) in TAIL_RINGS {
+                    if let Some(&(position, _)) = ring.iter().find(|&&(_, p)| lies_at(at, p)) {
+                        let thigh = if position < 1000 { "L" } else { "R" };
+                        let expected = [
+                            (format!("Bip01 {thigh} Thigh"), 1.0 - share),
+                            ("Bip01 Tail".to_owned(), share),
+                        ];
+                        influences.sort_by(|a, b| a.0.cmp(&b.0));
+                        assert_eq!(influences.len(), 2, "{file}: {position}");
+                        for ((name, weight), (expected_name, expected_weight)) in
+                            influences.iter().zip(&expected)
+                        {
+                            assert_eq!(name, expected_name, "{file}: {position}");
+                            assert!(
+                                (weight - expected_weight).abs() < 1e-6,
+                                "{file}: {position}"
+                            );
+                        }
+                        blended += 1;
+                    }
+                }
+            }
+            assert!(blended >= 12, "{file}: {blended}");
+        }
         fs::remove_dir_all(out).unwrap();
     }
 }

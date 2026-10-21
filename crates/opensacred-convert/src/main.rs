@@ -433,7 +433,8 @@ fn execute(command: Command) -> Result<ExitCode> {
                 );
                 if summary.repaired_models > 0 {
                     println!(
-                        "  repaired: {} positions in {} models (the dwarf's earth amulet, a cannon's strap)",
+                        "  repaired: {} positions in {} models (the dwarf's earth amulet, a cannon's \
+                         strap, the dragons' tails)",
                         summary.repaired_positions, summary.repaired_models,
                     );
                 }
