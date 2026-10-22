@@ -6,7 +6,7 @@ Follows [2026-10-21-drops](2026-10-21-drops.md), the drops' rules.
 ## The original
 
 A creature drops as it dies, when the local hero lives and is hostile to it, it is no player's companion, not of the types 71 or 75 nor of the state `+0x1F0` 7, not of the class 5 with a most health other than 0 (**hypothesis**: an undead that rises again), and its killer is a player or in the hero's list at `+0x39C` (docs/re/items.md, "Who drops").
-Each drop is an object of its type, thrown from the creature's place, which flies, bounces and comes to rest on the ground ("On the ground"); holding Alt shows a label over each item in view; the hero picks an item up as it arrives at it (`cCreature::pickupItem`), gold into its purse, an item into its hands, a slot or its inventory; a network game sends the drops to the other players.
+Each drop is an object of its type, thrown from the creature's place, which flies and comes to rest on the ground ("On the ground"), within a unit of where it was thrown, its velocity along the ground turning back at every frame (seen, #478); holding Alt shows a label over each item in view; the hero picks an item up as it arrives at it (`cCreature::pickupItem`), gold into its purse, an item into its hands, a slot or its inventory; a network game sends the drops to the other players.
 How long an item lies, and whether it stays when its sector is left, is not read.
 
 ## Ours

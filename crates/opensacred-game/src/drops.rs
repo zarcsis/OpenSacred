@@ -28,7 +28,7 @@ use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::npcs::{Dies, Retexture};
 use crate::terrain::{Heights, Level};
-use crate::{ai, crowd, fight, iso, models, npcs, paths};
+use crate::{ai, crowd, fight, iso, models, npcs};
 
 /// What the drops read: the balance's values, the item types to choose from, the templates that
 /// make the items, and each item type's model and texture, relative to the asset directory.
@@ -296,9 +296,9 @@ fn dies(
     );
 }
 
-/// Flies each drop a frame on (`0x44DFE0`): it bounces off the cells of its level that may not
-/// be walked on and lies at the height a creature stands at there; the gold piles and the runes
-/// stay upright.
+/// Flies each drop a frame on (`0x44DFE0`): it rises and falls about where it was thrown, its
+/// velocity along the ground turning back at every frame as the original's (#478), and lies at
+/// the height a creature stands at there; the gold piles and the runes stay upright.
 fn fly(
     mut commands: Commands,
     time: Res<Time>,
@@ -311,13 +311,12 @@ fn fly(
     let dt = time.delta_secs();
     for (entity, mut flying, mut lying, mut transform) in &mut flying {
         let level = flying.level;
-        let walkable = |x: f32, y: f32| heights.walkable_at(paths::cell_of(x, y), level);
         let ground = |x: f32, y: f32| {
             heights
                 .standing(x, y, level)
                 .map_or(0.0, |height| height / up(1.0))
         };
-        flying.flight.step(dt, walkable, ground);
+        flying.flight.step(dt, ground);
         transform.translation = world(flying.flight.at);
         transform.rotation = if flying.upright {
             Quat::IDENTITY
