@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use opensacred_rules::ways;
-pub use opensacred_rules::ways::{BIG, HOSTILE, flags_word};
+pub use opensacred_rules::ways::{BIG, HOSTILE, constructed, flags_word};
 
 use crate::frame::Step;
 use crate::hero::Body;
@@ -38,11 +38,11 @@ impl InTheWay {
         }
     }
 
-    /// A creature of type `creature` (its `items.pak` slot), whose `Creature.pak` record has
-    /// `record_flags`, and whose flags word is `word`, standing on `level`.
-    pub fn of(creature: u32, record_flags: u8, word: u32, level: Level) -> Self {
+    /// A creature whose `Creature.pak` record has `record_flags` and whose flags word is `word`,
+    /// standing on `level`.
+    pub fn of(record_flags: u8, word: u32, level: Level) -> Self {
         Self {
-            stands: ways::InTheWay::of(creature, record_flags, word),
+            stands: ways::InTheWay::of(record_flags, word),
             level,
         }
     }
@@ -206,25 +206,17 @@ mod tests {
         crowd.add(
             (1, 1),
             guard,
-            InTheWay::of(295, 0, flags_word([0x0E, 0x46]), None),
+            InTheWay::of(0, flags_word([0x0E, 0x46]), None),
         );
         crowd.add(
             (2, 2),
             captain,
-            InTheWay::of(295, 0, flags_word([0x0E, 0x46, 0x13]), None),
+            InTheWay::of(0, flags_word([0x0E, 0x46, 0x13]), None),
         );
-        // A critter by its type, and a big creature, stop no one.
-        crowd.add(
-            (3, 3),
-            rabbit,
-            InTheWay::of(0x4B, 0, flags_word([0x12]), None),
-        );
-        crowd.add(
-            (4, 4),
-            troll,
-            InTheWay::of(300, BIG, flags_word([0x12]), None),
-        );
-        crowd.add((5, 5), hero, InTheWay::of(1, 0, 0, None));
+        // A fill's critter, by its constructor's bit, and a big creature, stop no one.
+        crowd.add((3, 3), rabbit, InTheWay::of(0, constructed(516, 0), None));
+        crowd.add((4, 4), troll, InTheWay::of(BIG, flags_word([0x12]), None));
+        crowd.add((5, 5), hero, InTheWay::of(0, 0, None));
         // The hero walks through the guard, not through the captain.
         assert!(!crowd.stops((1, 1), None, hero, true));
         assert!(crowd.stops((2, 2), None, hero, true));

@@ -1784,12 +1784,14 @@ pub fn place(
                 }
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
-                // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`).
-                placement.creature.2 |= if made.hostile {
-                    crowd::HOSTILE
-                } else {
-                    ai::of_type(made.creature)
-                };
+                // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`), and a
+                // critter its constructor's bit (`0x52DE40`), which no `CreateNPC` writes over.
+                placement.creature.2 |= crowd::constructed(made.creature, placement.creature.1)
+                    | if made.hostile {
+                        crowd::HOSTILE
+                    } else {
+                        ai::of_type(made.creature)
+                    };
                 // A pack's group, by its sector, its record and its leader.
                 placement.group = made.pack.and_then(|leader| {
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
@@ -1990,6 +1992,10 @@ fn spawn(
         }
     } else {
         let (creature, record_flags, word) = placement.creature;
+        bevy::log::debug!(
+            "npcs: {} is a {creature} of the flags {word:#x}",
+            entity.id()
+        );
         let mut mind = ai::Mind::new(
             position,
             word,
@@ -2059,7 +2065,7 @@ fn spawn(
                 instrument: None,
                 share,
             },
-            crowd::InTheWay::of(creature, record_flags, word, level),
+            crowd::InTheWay::of(record_flags, word, level),
             mind,
             arrows::Size(placement.size),
         ));

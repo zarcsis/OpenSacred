@@ -316,7 +316,7 @@ pub fn spawn(
             .with_rotation(facing(Vec3::new(1.0, 0.0, 1.0)))
             .with_scale(Vec3::splat(iso::MODEL_SCALE)),
         // The single player's hero, of id 1: it stops the others' steps (#157).
-        crate::crowd::InTheWay::of(1, 0, 0, None),
+        crate::crowd::InTheWay::of(0, 0, None),
         Body {
             target: hero.target,
             onto: None,
