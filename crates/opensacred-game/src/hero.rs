@@ -150,10 +150,26 @@ pub struct Body {
     climbed: bool,
     /// The clip playing: standing, walking or running.
     moving: Option<Gait>,
-    /// Put somewhere whose ground had not come in: it stands on the ground once it has.
+    /// Put somewhere whose ground had not come in: it stands on its level once it has.
     unplaced: bool,
-    /// The cell a command put it on, where it lands once the sectors about it are in ([`land`]).
-    landing: Option<(i32, i32)>,
+    /// The cell a command put it on, where it lands once the sectors about it are in, and how
+    /// ([`land`]).
+    landing: Option<((i32, i32), Arrival)>,
+    /// The cell a command stood it on at a floor it named: it keeps that level while it stays
+    /// on the cell, whatever the cell's mass, entrance or exit would make of it ([`run`]).
+    pinned: Option<(i32, i32)>,
+}
+
+/// How a hero that a command put on a cell lands there ([`land`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Arrival {
+    /// Where it can stand and walk on (`sector`, #458): on the cell, on the ground or in a room
+    /// of a building's floor, else on the cell of the ground nearest it.
+    Nearest,
+    /// On the cell itself (`cell`, #522): on the ground, where the original's rule for a hero
+    /// on a building's mass then takes it onto floor 1 (`Heights::level_of`), or on the floor
+    /// it names, 0 the ground even within a building's walls.
+    On(Option<u8>),
 }
 
 impl Body {
@@ -203,14 +219,14 @@ impl Body {
         self.climbed = false;
         self.unplaced = true;
         self.landing = None;
+        self.pinned = None;
     }
 
     /// Puts it at `position` by a command (`cell`, `sector`), going nowhere: it lands on the
-    /// cell there, or near it, where it can stand and walk once the sectors about it are in
-    /// ([`land`]).
-    pub fn put(&mut self, transform: &mut Transform, position: Vec3) {
+    /// cell there as `arrival` says once the sectors about it are in ([`land`]).
+    pub fn put(&mut self, transform: &mut Transform, position: Vec3, arrival: Arrival) {
         self.teleport(transform, position);
-        self.landing = Some(paths::cell_of(position.x, position.z));
+        self.landing = Some((paths::cell_of(position.x, position.z), arrival));
     }
 
     /// Whether a command put it somewhere where it has not landed yet.
@@ -333,6 +349,7 @@ pub fn spawn(
             moving: None,
             unplaced: false,
             landing: None,
+            pinned: None,
         },
         models::Ordered::default(),
         shadows::Casts,
@@ -436,16 +453,17 @@ pub fn steer(
     }
 }
 
-/// Lands a hero that a command put on a cell, once the sectors about it are in, where it can
-/// stand and walk (#458, [`Heights::landing`]): on the cell, on the ground or in a room of a
-/// building's floor, else on the cell of the ground nearest it, which the log tells.
+/// Lands a hero that a command put on a cell, once the sectors about it are in, as its
+/// [`Arrival`] says: on the cell itself, at the floor it names (#522), or where it can stand and
+/// walk (#458, [`Heights::landing`]): on the cell, on the ground or in a room of a building's
+/// floor, else on the cell of the ground nearest it, which the log tells.
 pub fn land(
     heights: Res<Heights>,
     streamer: Option<Res<Streamer>>,
     mut bodies: Query<(&mut Transform, &mut Body)>,
 ) {
     for (mut transform, mut body) in &mut bodies {
-        let Some(cell) = body.landing else {
+        let Some((cell, arrival)) = body.landing else {
             continue;
         };
         if streamer
@@ -455,6 +473,38 @@ pub fn land(
             continue;
         }
         body.landing = None;
+        let floor = match arrival {
+            Arrival::Nearest => None,
+            Arrival::On(floor) => Some(floor),
+        };
+        if let Some(floor) = floor {
+            let level = match floor {
+                None | Some(0) => None,
+                Some(floor) => {
+                    let level = heights
+                        .building_on_floor(cell, usize::from(floor))
+                        .and_then(|building| heights.floor_level(building, usize::from(floor)));
+                    if level.is_none() {
+                        warn!(
+                            "hero: no building's floor {floor} holds cell {},{}; the hero stands \
+                             on the ground",
+                            cell.0, cell.1
+                        );
+                    }
+                    level
+                }
+            };
+            body.level = level;
+            body.pinned = floor.is_some().then_some(cell);
+            // As though it had climbed onto a stair it stands on, so that it stays on its floor.
+            body.climbed = body.pinned.is_some();
+            let position = transform.translation;
+            if let Some(y) = heights.standing(position.x, position.z, level) {
+                transform.translation.y = y;
+                body.unplaced = false;
+            }
+            continue;
+        }
         let (mut position, level) = match heights.landing(cell) {
             Some(Landing::On(level)) => (transform.translation, level),
             Some(Landing::Near(near)) => {
@@ -521,21 +571,26 @@ pub fn run(
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
-                heights.standing(transform.translation.x, transform.translation.z, None)
+                heights.standing(transform.translation.x, transform.translation.z, body.level)
         {
             transform.translation.y = y;
             body.unplaced = false;
         }
         let here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
+        if body.pinned.is_some_and(|pinned| pinned != cell) {
+            body.pinned = None;
+        }
         // A hero on a building's mass is inside it, on its layer; one on an entrance goes in, one
         // on an exit out; one on a stair it stepped onto from off the stairs to the stair's
         // floor, at the cell the stair gives (`0x5FCCB0`). One that a command put there lands
-        // as [`land`] says.
-        if body.level.is_none() && !heights.walkable(cell) && body.landing.is_none() {
-            body.level = heights.level_of(cell);
+        // as [`land`] says, and one it stood on a floor it named stays there.
+        if body.pinned.is_none() {
+            if body.level.is_none() && !heights.walkable(cell) && body.landing.is_none() {
+                body.level = heights.level_of(cell);
+            }
+            body.level = heights.transition(cell, body.level);
         }
-        body.level = heights.transition(cell, body.level);
         if !heights.on_stairs(cell, body.level) {
             body.climbed = false;
         }
