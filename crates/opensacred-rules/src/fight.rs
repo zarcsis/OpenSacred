@@ -1435,13 +1435,14 @@ pub fn level(values: &SpawnValues, hero: u32, jitter: Option<&mut Rng>) -> u32 {
 /// and `a3` are `S`'s two terms, without extra points or items' bonuses, so that the most is
 /// `⌊S^g · 10/31⌋` (#408); the 100 for 0 comes before the factors, so a most that they take
 /// below 1 is 0 (#417), which no creature of `Creature.pak` reaches, the least of its attributes
-/// 0 and 3 together being 7 (type 135). No items, skills, bosses or champions yet
-/// (docs/decisions/2026-10-20-health.md).
-pub fn most_health(base: [u8; 6], level: u32, rules: &Rules) -> u32 {
+/// 0 and 3 together being 7 (type 135); raised by its skill 10 before the factors (`skills`,
+/// [`hero_health`], #498). No items, bosses or champions yet (docs/decisions/2026-10-20-health.md).
+pub fn most_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rules) -> u32 {
     let level_f32 = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
     health_of(
         base,
         level,
+        health_raise(skills, rules),
         f64::from(rules.level_factor(level_f32) * rules.factor),
     )
 }
@@ -1450,23 +1451,17 @@ pub fn most_health(base: [u8; 6], level: u32, rules: &Rules) -> u32 {
 /// (`0x5658F0`): as a creature's, without the factors of a creature not a hero, raised by its
 /// skill 10's per cent of the curve `HP…VW` (`skills`, `0x566070`) and taken whole (#492).
 pub fn hero_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rules) -> u32 {
-    let most = health_of(base, level, 1.0);
-    let skill: f32 = skills
+    health_of(base, level, health_raise(skills, rules), 1.0)
+}
+
+/// The skill 10's raise of a most health (`0x5658F0`): its per cent of the curve `HP…VW` at its
+/// level, over 100; 0 without it.
+fn health_raise(skills: &[(u8, u32)], rules: &Rules) -> f32 {
+    skills
         .iter()
         .filter(|&&(skill, _)| skill == 10)
         .map(|&(_, at)| curve(rules.curves.health, at) / 100.0)
-        .sum();
-    if skill == 0.0 {
-        return most;
-    }
-    let raised = f64::from(most) * f64::from(1.0 + skill);
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "the client's whole part of a health, positive and far below u32::MAX"
-    )]
-    let raised = raised.max(0.0) as u32;
-    raised
+        .sum()
 }
 
 /// The factor of the health's exponent by the base (the float at `0x891298`, a little under 0.004).
@@ -1474,7 +1469,7 @@ const HEALTH_EXPONENT: f32 = 0.003_996_323_3;
 
 /// The most health of `base` at `level`, times `factor` (`0x5658F0`), in double precision as the
 /// client's FPU computes it: the exponent's factor a float, the rest doubles.
-fn health_of(base: [u8; 6], level: u32, factor: f64) -> u32 {
+fn health_of(base: [u8; 6], level: u32, raise: f32, factor: f64) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
     let l = f64::from(level.max(1) - 1);
     let (a0, a3) = (a + (l * a / 10.0).floor(), b + (l * b / 10.0).floor());
@@ -1485,6 +1480,12 @@ fn health_of(base: [u8; 6], level: u32, factor: f64) -> u32 {
         (s.powf(g) * ((a0 + a3) / s) * (10.0 / 31.0)).trunc()
     } else {
         0.0
+    };
+    // The skill 10's raise, taken whole, before the 100 for 0 and the factors.
+    let most = if raise == 0.0 {
+        most
+    } else {
+        (most * f64::from(1.0 + raise)).trunc()
     };
     let most = if most <= 0.0 { 100.0 } else { most };
     #[expect(
@@ -1507,8 +1508,8 @@ mod tests {
         let base = [20, 0, 10, 15, 0, 0];
         let g = 1.5 + f64::from(HEALTH_EXPONENT) * 25.0;
         let expected = (35.0_f64.powf(g) * 10.0 / 31.0).floor();
-        assert_eq!(f64::from(most_health(base, 1, &rules)), expected);
-        assert!(most_health(base, 10, &rules) > most_health(base, 1, &rules));
+        assert_eq!(f64::from(most_health(base, 1, &[], &rules)), expected);
+        assert!(most_health(base, 10, &[], &rules) > most_health(base, 1, &[], &rules));
         // The wolf's base, as a hero's type, at the levels 1, 10 and 100, as the original's
         // `0x5658F0` gives them (the oracle's vectors, #363, #408).
         let wolf = [8, 10, 18, 13, 0, 1];
@@ -1516,7 +1517,7 @@ mod tests {
         assert_eq!(hero_health(wolf, 10, &[], &Rules::default()), 139);
         assert_eq!(hero_health(wolf, 100, &[], &Rules::default()), 2588);
         // A base that gives nothing gives 100.
-        assert_eq!(most_health([0; 6], 1, &rules), 100);
+        assert_eq!(most_health([0; 6], 1, &[], &rules), 100);
         // A most of 1 that a level's factor of 0.75 takes below 1 is 0, as the original's (#417).
         let weak = Rules {
             points: vec![(1.0, 0.75), (4.0, 0.8)],
@@ -1529,7 +1530,18 @@ mod tests {
         let rules = Rules::default();
         assert_eq!(hero_health(dwarf, 1, &[], &rules), 133);
         assert_eq!(hero_health(dwarf, 1, &[(10, 1), (3, 1)], &rules), 138);
-        assert_eq!(most_health([1; 6], 1, &weak), 0);
+        // An NPC's too, before the factors of a creature not a hero (#498): a horse's skill 10 of
+        // level 3 at level 9 raises its most by 13.7 %.
+        let horse = [30, 0, 20, 30, 0, 0];
+        let (with, without) = (
+            most_health(horse, 9, &[(10, 3)], &rules),
+            most_health(horse, 9, &[], &rules),
+        );
+        let raise = 1.0 + f64::from(curve(rules.curves.health, 3)) / 100.0;
+        assert!(near(curve(rules.curves.health, 3), 13.692));
+        assert!(f64::from(with) > f64::from(without) * (raise - 0.01));
+        assert!(f64::from(with) < f64::from(without) * (raise + 0.01));
+        assert_eq!(most_health([1; 6], 1, &[], &weak), 0);
     }
 
     #[test]
@@ -1840,12 +1852,12 @@ mod tests {
         };
         let base = [22, 19, 25, 22, 22, 17];
         assert_eq!(
-            most_health(base, 1, &rules),
+            most_health(base, 1, &[], &rules),
             2 * hero_health(base, 1, &[], &Rules::default())
         );
         assert_eq!(
             hero_health(base, 1, &[], &Rules::default()),
-            health_of(base, 1, 1.0)
+            health_of(base, 1, 0.0, 1.0)
         );
     }
 

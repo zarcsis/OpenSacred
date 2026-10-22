@@ -2076,8 +2076,9 @@ fn spawn(
         );
         mind.level = grade;
         mind.ranged = placement.ranged;
-        // Its health, full, by its base and its level and its rank (`0x5658F0`).
-        let most = fight::most_health(placement.base.attributes, grade, rules);
+        // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`).
+        let skills = fight::skills(&placement.base, grade, false);
+        let most = fight::most_health(placement.base.attributes, grade, &skills, rules);
         let factor = placement.rank.health(creature, placement.class, rules);
         #[expect(
             clippy::cast_possible_truncation,
