@@ -655,3 +655,41 @@ fn the_gold_and_the_runes_stay_upright_and_the_small_spiders_drop_nothing() {
     assert!(!upright(5136) && !upright(DAGGER) && !upright(5171));
     assert!(never_drops(71) && never_drops(75) && !never_drops(76));
 }
+
+#[test]
+fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
+    let templates = Templates::new(&[dagger_template()], &[]);
+    let bare = Record {
+        limits: None,
+        ..record(0, [1, 1], [0, 0, 0])
+    };
+    let catalogue = catalogue(&[
+        (DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])),
+        (GOLD[2], 15, bare),
+        (5171, 9, bare),
+        (5400, 28, bare),
+    ]);
+    let throw = |item, key, rolls: &[u32]| {
+        let mut dice = script(rolls);
+        let made = thrown(&catalogue, &templates, (item, 7, key, 250), &mut dice);
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        made
+    };
+    // The dagger at level 7, of the maker's key 6 for the pass's key 10, its damage's rolls.
+    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0]).unwrap();
+    assert_eq!(
+        (dagger.kind, dagger.level, dagger.key, dagger.quality),
+        (Kind::Weapon, 7, 10, 6)
+    );
+    assert!(dagger.values.is_some());
+    // Plain at the key 16; the key 1 taken as 2.
+    assert_eq!(throw(DAGGER, 16, &[0; 6]).unwrap().quality, 0);
+    assert_eq!(throw(DAGGER, 1, &[0; 6]).unwrap().quality, 14);
+    // Gold of the amount asked, a potion as it is, a rune of no drop's kind.
+    let gold = throw(GOLD[2], 16, &[]).unwrap();
+    assert_eq!((gold.kind, gold.amount, gold.level), (Kind::Gold, 250, 0));
+    let potion = throw(5171, 16, &[]).unwrap();
+    assert_eq!((potion.kind, potion.values), (Kind::Potion, None));
+    assert_eq!(throw(5400, 16, &[]), None);
+    assert_eq!(throw(9999, 16, &[]), None);
+}

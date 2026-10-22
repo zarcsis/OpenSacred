@@ -142,6 +142,24 @@ enum Command {
     /// Fell the hostile creatures within RADIUS cells of the hero (5 by default), as if it
     /// killed them: they drop and give it their experience
     Kill { radius: Option<u32> },
+    /// Throw an item of type ITEM (an `items.pak` slot) about a cell, the hero's by default, as
+    /// a death's drop is thrown
+    Item {
+        item: u32,
+        /// The cell, X,Y or +DX,+DY from the hero's
+        #[arg(long, value_parser = parse_at, allow_hyphen_values = true)]
+        at: Option<At>,
+        /// The level the item maker makes it at, the hero's by default
+        #[arg(long)]
+        level: Option<u32>,
+        /// The pass's quality key, 0 to 17 (docs/re/items.md): 16 a plain item, 2 to 15 one of
+        /// the maker's key 16 - KEY, 0 its 14
+        #[arg(long, default_value_t = 16)]
+        key: u8,
+        /// Gold's pieces, a pile's by the level by default
+        #[arg(long)]
+        amount: Option<u32>,
+    },
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
     /// In a script: wait before the next command
@@ -890,6 +908,40 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 .map_err(|e| e.to_string())??;
             Ok(Outcome { lines, wait: None })
         }
+        Command::Item {
+            item,
+            at,
+            level,
+            key,
+            amount,
+        } => {
+            in_game(world)?;
+            let (x, y) = cell_at(world, at)?;
+            // About the hero, on its floor; at a cell it names, on the ground.
+            let on = match at {
+                None | Some(At::By(..)) => world
+                    .query::<&Body>()
+                    .iter(world)
+                    .next()
+                    .and_then(Body::level),
+                Some(At::Cell(..)) => None,
+            };
+            let mut point = iso::ground(x as f32 + 0.5, y as f32 + 0.5);
+            if let Some(height) = heights(world)?.standing(point.x, point.z, on) {
+                point.y = height;
+            }
+            let throw = crate::drops::Throw {
+                item,
+                at: (point, on),
+                level,
+                key,
+                amount,
+            };
+            let line = world
+                .run_system_cached_with(crate::drops::throw_item, throw)
+                .map_err(|e| e.to_string())??;
+            Ok(Outcome::say(line))
+        }
         Command::Drop { times } => {
             in_game(world)?;
             let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
@@ -1377,6 +1429,7 @@ mod tests {
             "nearest",
             "spawn 76 --count 2",
             "kill",
+            "item 1712",
         ] {
             assert!(
                 run(world, line).unwrap_err().contains("not in the world"),

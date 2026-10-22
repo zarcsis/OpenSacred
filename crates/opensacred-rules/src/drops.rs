@@ -42,6 +42,8 @@ const JEWELS: [u8; 3] = [8, 20, 8];
 /// The categories whose items the drop does not make further: the potions, the blacksmith's
 /// upgrades, the combat arts' runes, 30 and 31.
 const UNMADE: [u8; 5] = [9, 26, 28, 30, 31];
+/// The potions' category.
+const POTIONS_CATEGORY: u8 = 9;
 /// The combat arts' runes' category, whose types are listed only of an items table's `+0x6A`.
 const RUNES: u8 = 28;
 /// The categories whose records' levels the type choice does not test.
@@ -594,6 +596,22 @@ impl Catalogue {
         }
     }
 
+    /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour or a
+    /// jewel; `None` for a type of any other category (the runes, the blacksmith's upgrades) or
+    /// none.
+    pub fn kind(&self, item: u32) -> Option<Kind> {
+        if GOLD.contains(&item) {
+            return Some(Kind::Gold);
+        }
+        match *self.categories.get(&item)? {
+            POTIONS_CATEGORY => Some(Kind::Potion),
+            WEAPONS => Some(Kind::Weapon),
+            category if ARMOUR.contains(&category) => Some(Kind::Armour),
+            category if JEWELS.contains(&category) => Some(Kind::Jewel),
+            _ => None,
+        }
+    }
+
     /// The types listed for `category`, in the order of their slots.
     pub fn list(&self, category: u8) -> &[u32] {
         self.lists.get(&category).map_or(&[], Vec::as_slice)
@@ -956,6 +974,42 @@ impl Dropping<'_> {
         drop.values = self.templates.make(item, drop.level, dice);
         drop
     }
+}
+
+/// An item of type `item` as a test throws it (the game's command `item`, #525): of its kind by
+/// its category, `amount` pieces of gold, a potion as it is, any other made by the item maker at
+/// `level` with the pass's quality key `key` as a drop's would be (the key 0 at the maker's key
+/// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); `None` for a type of no drop's kind.
+pub fn thrown(
+    catalogue: &Catalogue,
+    templates: &Templates,
+    (item, level, key, amount): (u32, u32, u8, u32),
+    dice: &mut impl Dice,
+) -> Option<Dropped> {
+    let kind = catalogue.kind(item)?;
+    let mut drop = Dropped {
+        kind,
+        item,
+        level: 0,
+        key: key.min(17),
+        quality: 0,
+        amount: 1,
+        values: None,
+    };
+    match kind {
+        Kind::Gold => drop.amount = amount.max(1),
+        Kind::Potion => {}
+        Kind::Weapon | Kind::Armour | Kind::Jewel => {
+            drop.quality = match drop.key {
+                0 => 14,
+                key @ 1..=15 => 16 - key.max(2),
+                _ => 0,
+            };
+            drop.level = level.max(1);
+            drop.values = templates.make(item, drop.level, dice);
+        }
+    }
+    Some(drop)
 }
 
 /// The types that never drop (`0x533BA8`): 71 and 75, `small_spider.grn` and `med_spider.grn`
