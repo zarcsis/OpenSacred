@@ -67,6 +67,9 @@ Read 2026-10-19 (#154): `cPathFloodfill`'s search has no caller in the code but 
 It tries the straight line first, cell by cell (`0x4FAA60`), and else searches the window (`0x4F8AF0`, or `0x4F9410` for some creatures by their type, **hypothesis**: those that fly); every cell either way passes the test of a step, `0x4F7E10` (below).
 Not read in detail: the search's order, its costs, and the points it keeps.
 
+Seen 2026-10-22 in the original with its driver (#476): at the merchant's house of 50,40, its door open, the hero clicked onto the floor 1 beside the door from (3258, 2584), below the wall, walks to the exit (3257, 2579) and stops there, while from (3255, 2584) or (3254, 2582), left of the door, it comes onto the entrance (3256, 2578) straight up the grid and goes in.
+From that exit the shortest way in is the diagonal onto the entrance past the corner of the wall's cell (3257, 2578) (**hypothesis**: `0x4FABE0` takes such a diagonal, which the walk does not step).
+
 ## The objects in the way
 
 Read 2026-10-19 (#154).
@@ -157,7 +160,7 @@ So a click sends the hero to the walkable cell whose ground or floor, at its own
 
 `terrain::Heights` keeps each loaded cell's walkability by the rule above, on the ground and on the sectors' inside layers; a door that names a trigger (`CreateObj`'s `0x29`) opens and closes its trigger's cells with it, so a door that a script closes keeps every creature out until it opens (#372).
 The hero opens or closes a door by a left click on it (`doors`, docs/re/fight.md, "Doors in the way"): the door nearest the cursor's line of sight, as a creature is picked, which the hero turns once it stands within 300 of it; the hero walks where the click sends it, beside the door's cells, rather than to the door's outer point (#273).
-`paths` searches the way as the client does (`opensacred_rules::ways`), over the eight neighbours in a 64 × 64 window but not between two cells that touch at a corner (the client's search is not read to do so), at the hero's level and, at an entrance on the ground or an exit on a layer, only onto the level it leads to (`terrain::Heights::neighbours`), and the hero heads for the farthest cell of the way on its level that it reaches in a straight line, or for the target itself when nothing stands between; at a change of level on its way it goes onto the way's next level.
+`paths` searches the way as the client does (`opensacred_rules::ways`), over the eight neighbours in a 64 × 64 window but not between two cells that touch at a corner (the client's search is not read to do so; the way so goes round into a house where the original's hero stops at the door, docs/decisions/2026-10-22-doorway-corner.md), at the hero's level and, at an entrance on the ground or an exit on a layer, only onto the level it leads to (`terrain::Heights::neighbours`), and the hero heads for the farthest cell of the way on its level that it reaches in a straight line, or for the target itself when nothing stands between; at a change of level on its way it goes onto the way's next level.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
 A click sends the hero to the cell under the cursor and onto its level as the original finds them (`pick`, #208), the way's search ending on that level (`opensacred_rules::ways::path_onto`); the test of nearness is a circle of √1200 · 1.52 world units, not the models' frame's slightly squeezed one, and where nothing is found the hero goes to the point of the cursor's line of sight at its own height.
 The overlay and the remote state show the target's level (`to X,Y inside X,Y:L` or `ground`).
@@ -172,7 +175,7 @@ No trigger changes its state in the game yet: a cell closed at the start stays c
 The creatures stop one another's steps by the conditions above (`opensacred_rules::ways::InTheWay`, which `crowd` keeps for each creature and object at its level, #212): each frame takes the cells the hero and the NPCs stand on at their levels, and the hero's way and steps go round a cell only where a creature of bit 0 or 1 of its flags word stands (the start's captain `hauptmann3`), a walking NPC's round any creature's but its own; a big creature (`Creature.pak` flags `0x02`) or a critter stops none, a fill's critter by its constructor's bit (`opensacred_rules::ways::constructed`, #468), `CreateNPC`'s, its word written from its tags, as the others.
 The flags word is made from each `CreateNPC` record's tags as the client makes it (`opensacred_rules::ways::flags_word`); the goals (`+0x259`) and the followers (`+0x39C`) are not followed.
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
-The deviations are in docs/decisions/2026-10-18-walking.md.
+The deviations are in docs/decisions/2026-10-18-walking.md and 2026-10-22-doorway-corner.md.
 
 The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.
 The motions' own factors (`MotionDesc +0x9C`, above) are not followed.
