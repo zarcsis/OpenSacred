@@ -20,7 +20,7 @@ use crate::console::Console;
 use crate::daynight::{self, Clock};
 use crate::game::{AppState, Data, NewGame, Request};
 use crate::help::Help;
-use crate::hero::{Arrival, Body, Gait, Hero, Ready};
+use crate::hero::{Arrival, Body, Flies, Gait, Hero, Ready};
 use crate::overlay::Probe;
 use crate::pause::{Play, Still};
 use crate::screenshot::{self, Recording};
@@ -160,6 +160,19 @@ enum Command {
         #[arg(long)]
         amount: Option<u32>,
     },
+    /// The hero's level, its experience at the level's start: its health, values and points
+    /// follow as at a level-up
+    Level { level: u32 },
+    /// Set the hero's experience to N, or add N to it with +N: its level follows as its kills
+    /// raise it
+    Experience { points: String },
+    /// The hero's health to its most
+    Heal,
+    /// The hero takes no damage, or takes it again; without a switch, toggles
+    God { on: Option<Switch> },
+    /// The hero goes straight where it is sent, through walls and over water, on the ground's
+    /// level, or walks again; without a switch, toggles
+    Fly { on: Option<Switch> },
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
     /// In a script: wait before the next command
@@ -343,6 +356,51 @@ fn teleport(world: &mut World, mut position: Vec3, arrival: Arrival) -> Result<(
         .ok_or("the hero is not in the world yet")?;
     body.put(&mut transform, position, arrival);
     Ok(())
+}
+
+/// Sets the hero's experience to `points`, or adds them to it where `add`, its level and points
+/// as its kills would give them (`Experience::add`); `fight::level_up` then rebuilds its health
+/// and values. A line of what it has.
+fn experience(world: &mut World, points: u64, add: bool) -> Result<String, String> {
+    let rules = world
+        .get_resource::<fight::Rules>()
+        .ok_or("no fight is played")?
+        .clone();
+    let mut experience = world
+        .get_resource_mut::<fight::Experience>()
+        .ok_or("no fight is played")?;
+    if !add {
+        *experience = fight::Experience::default();
+    }
+    experience.add(points, &rules);
+    Ok(format!(
+        "the hero is level {} with {} experience, {} attribute and {} skill points",
+        experience.level, experience.points, experience.attribute_points, experience.skill_points
+    ))
+}
+
+/// Gives the hero a marker `M` (`fight::Immortal`, `hero::Flies`) or takes it away, as `on`
+/// says or else the other way round; whether it has it now.
+fn hero_switch<M: Component + Default>(
+    world: &mut World,
+    on: Option<Switch>,
+) -> Result<bool, String> {
+    let mut heroes = world.query_filtered::<(Entity, Has<M>), With<Body>>();
+    let (hero, has) = heroes
+        .iter(world)
+        .next()
+        .ok_or("the hero is not in the world yet")?;
+    let on = match on {
+        Some(Switch::On) => true,
+        Some(Switch::Off) => false,
+        None => !has,
+    };
+    if on {
+        world.entity_mut(hero).insert(M::default());
+    } else {
+        world.entity_mut(hero).remove::<M>();
+    }
+    Ok(on)
 }
 
 /// The hero's global cell.
@@ -942,6 +1000,56 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 .map_err(|e| e.to_string())??;
             Ok(Outcome::say(line))
         }
+        Command::Level { level } => {
+            in_game(world)?;
+            let start = match level {
+                0 | 1 => 0,
+                level => opensacred_rules::fight::level_end(level - 1),
+            };
+            Ok(Outcome::say(experience(world, start, false)?))
+        }
+        Command::Experience { points } => {
+            in_game(world)?;
+            let (add, number) = match points.strip_prefix('+') {
+                Some(number) => (true, number),
+                None => (false, points.as_str()),
+            };
+            let number: u64 = number
+                .parse()
+                .map_err(|e| format!("{points}: {e} (N or +N)"))?;
+            Ok(Outcome::say(experience(world, number, add)?))
+        }
+        Command::Heal => {
+            in_game(world)?;
+            let mut heroes = world.query_filtered::<&mut fight::Health, With<Body>>();
+            let mut health = heroes
+                .iter_mut(world)
+                .next()
+                .ok_or("the hero is not in the world yet")?;
+            health.current = health.most;
+            Ok(Outcome::say(format!(
+                "health {}/{}",
+                health.current, health.most
+            )))
+        }
+        Command::God { on } => {
+            in_game(world)?;
+            let on = hero_switch::<fight::Immortal>(world, on)?;
+            Ok(Outcome::say(if on {
+                "the hero takes no damage"
+            } else {
+                "the hero takes damage"
+            }))
+        }
+        Command::Fly { on } => {
+            in_game(world)?;
+            let on = hero_switch::<Flies>(world, on)?;
+            Ok(Outcome::say(if on {
+                "the hero flies"
+            } else {
+                "the hero walks"
+            }))
+        }
         Command::Drop { times } => {
             in_game(world)?;
             let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
@@ -1430,6 +1538,9 @@ mod tests {
             "spawn 76 --count 2",
             "kill",
             "item 1712",
+            "heal",
+            "god",
+            "fly on",
         ] {
             assert!(
                 run(world, line).unwrap_err().contains("not in the world"),
@@ -1444,6 +1555,35 @@ mod tests {
         let error = run(world, "zoom twice").unwrap_err();
         assert!(error.contains("twice"), "{error}");
         assert_eq!(zoom(&mut app), 2.0);
+    }
+
+    #[test]
+    fn the_heros_level_and_experience_are_set_as_its_kills_would() {
+        use opensacred_rules::fight::level_end;
+        let mut app = app("experience");
+        let world = app.world_mut();
+        assert!(run(world, "level 5").unwrap_err().contains("no fight"));
+        world.insert_resource(fight::Rules::default());
+        world.insert_resource(fight::Experience::default());
+        run(world, "level 5").unwrap();
+        let experience = *world.resource::<fight::Experience>();
+        assert_eq!((experience.level, experience.points), (5, level_end(4)));
+        assert_eq!(experience.attribute_points, 4);
+        // Down again, from the start: the points that level 5 gave are gone.
+        run(world, "level 2").unwrap();
+        let experience = *world.resource::<fight::Experience>();
+        assert_eq!((experience.level, experience.attribute_points), (2, 1));
+        // Added to, a level's end crossed; set again.
+        run(
+            world,
+            &format!("experience +{}", level_end(2) - level_end(1)),
+        )
+        .unwrap();
+        assert_eq!(world.resource::<fight::Experience>().level, 3);
+        let line = run(world, "experience 0").unwrap();
+        assert_eq!(world.resource::<fight::Experience>().level, 1);
+        assert!(line.lines[0].starts_with("the hero is level 1 with 0 experience"));
+        assert!(run(world, "experience -5").is_err());
     }
 
     #[test]
