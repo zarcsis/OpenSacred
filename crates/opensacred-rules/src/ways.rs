@@ -171,6 +171,81 @@ pub fn clear(a: Point, b: Point, walkable: impl Fn(Cell) -> bool) -> bool {
     true
 }
 
+/// A door's outer and inner points as cells (docs/re/ai.md, "Houses and doors"; #273, #431),
+/// measured from the doors' models, placements and the floors' grids rather than taken from the
+/// client's table of its types (`0x43B290`): of the four cells that share a side with the door's
+/// own, the one that lies the most along the door's normal on each side of its leaf.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DoorPoints {
+    /// The door's cell, its trigger's, and its normal on the grid toward the floor's side:
+    /// `(u_y, −u_x)` of its leaf's direction `u`, away from the viewer.
+    door: Cell,
+    normal: Point,
+    /// The cell on the floor's side and the one on the other, each with whether it is walkable
+    /// on the building's floor (`true`) or on the ground; `None` where no cell of the side is.
+    pub inner: Option<(Cell, bool)>,
+    pub outer: Option<(Cell, bool)>,
+}
+
+/// The four cells that share a side with a cell.
+const SIDES: [(i32, i32); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
+
+impl DoorPoints {
+    /// The points of the door on cell `door` whose leaf runs along `along` on the grid (its
+    /// type's heading, `items.pak +0x57`), by `walkable(cell, floor)`, a cell's walkability on the
+    /// building's floor or on the ground: the inner point the cell of the floor's side walkable
+    /// on the floor, else on the ground, and the outer the cell of the other side walkable on the
+    /// ground, else on the floor; so that a house's door has its inner point on the floor and its
+    /// outer on the ground, and a door with the same on both sides a point on each.
+    pub fn of(door: Cell, along: Point, walkable: impl Fn(Cell, bool) -> bool) -> Self {
+        let normal = (along.1, -along.0);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a step of one cell along an axis"
+        )]
+        let best = |toward: f32, floor: bool| {
+            SIDES
+                .iter()
+                .map(|&(dx, dy)| {
+                    let lies = toward * (dx as f32 * normal.0 + dy as f32 * normal.1);
+                    ((door.0 + dx, door.1 + dy), lies)
+                })
+                .filter(|&(cell, lies)| lies > 0.0 && walkable(cell, floor))
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(cell, _)| (cell, floor))
+        };
+        Self {
+            door,
+            normal,
+            inner: best(1.0, true).or_else(|| best(1.0, false)),
+            outer: best(-1.0, false).or_else(|| best(-1.0, true)),
+        }
+    }
+
+    /// The point that a creature at `here` (in cells), on a building's floor or not (`on_floor`),
+    /// walks to for the door (`0x53A170`): the inner point on the floor and the outer on the
+    /// ground where one lies on the floor and the other on the ground, as the client's types of a
+    /// pair give them; otherwise the one on its own side of the leaf, as its types of two points
+    /// give the nearer; the other where its side has none.
+    pub fn near(&self, here: Point, on_floor: bool) -> Option<Cell> {
+        let cell = |point: Option<(Cell, bool)>| point.map(|(cell, _)| cell);
+        if let (Some((inner, true)), Some((outer, false))) = (self.inner, self.outer) {
+            return Some(if on_floor { inner } else { outer });
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a global cell, below 6,400, is exact in an f32"
+        )]
+        let centre = (self.door.0 as f32 + 0.5, self.door.1 as f32 + 0.5);
+        let side = (here.0 - centre.0) * self.normal.0 + (here.1 - centre.1) * self.normal.1;
+        if side > 0.0 {
+            cell(self.inner).or(cell(self.outer))
+        } else {
+            cell(self.outer).or(cell(self.inner))
+        }
+    }
+}
+
 /// -1, 0 or 1 by the sign of `v`.
 fn sign(v: f32) -> i32 {
     if v > 0.0 {
@@ -452,5 +527,55 @@ mod tests {
         // A pig and a soldier are not, unless the soldier's record says so.
         assert_eq!(constructed(520, 0) | constructed(295, 0), 0);
         assert_eq!(constructed(295, CRITTER_RECORD), CRITTER);
+    }
+
+    #[test]
+    fn a_houses_door_has_its_inner_point_on_the_floor_and_its_outer_on_the_ground() {
+        let door = (10, 10);
+        // A door of 28°, its leaf along the grid's +x: the floor up the grid's −y, the ground
+        // down it.
+        let floor = |cell: Cell| cell.1 < 10;
+        let walkable = |cell: Cell, on_floor: bool| on_floor == floor(cell) && cell.1 != 10;
+        let points = DoorPoints::of(door, (1.0, 0.0), walkable);
+        assert_eq!(points.inner, Some(((10, 9), true)));
+        assert_eq!(points.outer, Some(((10, 11), false)));
+        assert_eq!(points.near((10.5, 14.0), false), Some((10, 11)));
+        assert_eq!(points.near((10.5, 7.0), true), Some((10, 9)));
+        // A door of 333°, its leaf along −y: the floor along −x.
+        let floor = |cell: Cell| cell.0 < 10;
+        let walkable = |cell: Cell, on_floor: bool| on_floor == floor(cell) && cell.0 != 10;
+        let points = DoorPoints::of(door, (0.0, -1.0), walkable);
+        assert_eq!(points.inner, Some(((9, 10), true)));
+        assert_eq!(points.outer, Some(((11, 10), false)));
+    }
+
+    #[test]
+    fn a_door_of_17_degrees_whose_cell_across_is_a_walls_has_its_outer_point_beside() {
+        // Its leaf 13.5° off +x toward −y; the cell across on the ground's side a wall's.
+        let along = (13.5_f32.to_radians().cos(), -13.5_f32.to_radians().sin());
+        let walkable = |cell: Cell, on_floor: bool| match cell {
+            (10, 9) => on_floor,
+            (11, 10) | (9, 10) => !on_floor,
+            _ => false,
+        };
+        let points = DoorPoints::of((10, 10), along, walkable);
+        assert_eq!(points.inner, Some(((10, 9), true)));
+        // Of the ground's cells beside, the one on the heading's side, the ground's side of the
+        // leaf by a little.
+        assert_eq!(points.outer, Some(((11, 10), false)));
+    }
+
+    #[test]
+    fn at_a_door_with_ground_on_both_sides_a_creature_takes_the_point_on_its_own_side() {
+        let walkable = |cell: Cell, on_floor: bool| !on_floor && cell != (10, 10);
+        let points = DoorPoints::of((10, 10), (1.0, 0.0), walkable);
+        assert_eq!(points.inner, Some(((10, 9), false)));
+        assert_eq!(points.outer, Some(((10, 11), false)));
+        assert_eq!(points.near((10.5, 6.0), false), Some((10, 9)));
+        assert_eq!(points.near((12.0, 13.0), false), Some((10, 11)));
+        // A side without a cell to stand on gives the other's.
+        let one_side = |cell: Cell, on_floor: bool| !on_floor && cell == (10, 11);
+        let points = DoorPoints::of((10, 10), (1.0, 0.0), one_side);
+        assert_eq!(points.near((10.5, 6.0), false), Some((10, 11)));
     }
 }
