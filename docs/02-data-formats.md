@@ -912,7 +912,7 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 
 | Slot | Tag | Size (template / save) | Storage | Contents |
 |---|---|---|---|---|
-| 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | `cCreatureHero` dump (starts with 0xFEEDF00D; per sacred-sdk: class @0x3DD, experience @0x3E1, gold @0x41B, level @0x42B; not checked byte by byte) |
+| 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | `cCreatureHero` dump (starts with 0xFEEDF00D; per sacred-sdk: class @0x3DD, experience @0x3E1, gold @0x41B, level @0x42B; not checked byte by byte); the hero's combat arts from byte 1,227 (docs/re/arts.md, "The heroes' starting arts") |
 | 1 | 0xCA (202) | 4,444 | zlib | the hero's backpack: an inventory container (below), 20 × 8 cells |
 | 2 | 0xCB (203) | 4,444 | zlib | a second inventory container, 20 × 10 cells, of the reference `0x11`, empty in all 10 files |
 | 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: a block per item (below; 5 to 7 in a template, 52/58 in saves) |

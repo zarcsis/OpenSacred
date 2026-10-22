@@ -26,9 +26,33 @@ An art's FX objects (`0x4D2E10`) are as many as its pair 0 at its level, under i
 
 ## The second table
 
-An art that the first table does not hold is looked for in a second one (`0x4D1AF0`): records of `0x78` bytes from `0x94FDB0` to `0x952A38`, about 94, found by the `u16` at their start.
-Its value at a level `L` is `L·[+0x44] + [+0x40]`, both floats (`0x4D1C00`).
-**Hypothesis**: the skills' or the spells' table.
+An art that the first table does not hold is looked for in a second one (`0x4D1AF0`): records of `0x78` bytes from `0x94FDB0` to `0x952A38`, the record 0 empty and 94 searched, found by the `u16` at their start, the ids 1000 to 1103 (mostly in order).
+Its value at a level `L` is `L·[+0x44] + [+0x40]`, both floats (`0x4D1C00`), such as 3·L + 5 or 6·L + 10; its name a text's index at `+0x04` as the first table's (`0x4D1D00`).
+So the arts have two kinds by their ids, 1 to 72 in the first table and 1000 to 1103 in the second; by the runes (below), the melee classes' arts are mostly of the second (**hypothesis**: the weapon arts against the spells).
+
+## The runes
+
+The runes are the 140 items of `items.pak` of category 28 (docs/02 §6.1): each names its art by the high word of its `u32` at `+0x68` (`+0x6A`), and its model names the class it serves (`upgrade_` and the class: the Seraphim's 18 runes, the Gladiator's 11, the Mage's 24, the Wood Elf's 17, the Dark Elf's 16, the Vampiress's 17, the Daemon's 13, the Dwarf's 16; and 8 rune stones of another model), with a constant of its class at `+0x70` (1150 to 1159, 1357 for the stones).
+By them the Gladiator's, the Dark Elf's and the Vampiress's arts are all of the second table, the Mage's all of the first, the Seraphim's, the Wood Elf's, the Daemon's and the Dwarf's of both; some runes name the art 0 (**hypothesis**: none, or a rune of another use).
+Read off the files 2026-10-22 (a scratch script over `tables/items.ron`); how the client uses a rune is not read.
+
+## The heroes' starting arts
+
+Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (below): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229, the first `u32` of an entry 1 for an art of the first table and 2 for one of the second (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):
+
+| Template | Class | Arts (table, id, level 1) |
+|---|---|---|
+| `Hero00.ptx` | Gladiator | 2: 1059, 1057 |
+| `Hero01.ptx` | Seraphim | 2: 1071; 1: 18 |
+| `Hero02.ptx` | Daemon | 2: 1097, 1092; 1: 66 |
+| `Hero03.ptx` | Dwarf | 2: 1080; 1: 55 |
+| `Hero04.ptx` | Wood Elf | 2: 1062; 1: 42 |
+| `Hero05.ptx` | Mage | 1: 5, 32 |
+| `Hero06.ptx` | Dark Elf | 2: 1066, 1051 |
+| `Hero07.ptx` | Vampiress | 2: 1022, 1023, 1074, 1039 |
+
+Each entry carries its value at level 1 already, the art's record's at that level (the Seraphim's 1071 15.0, her 18 24.0).
+In the original's new game the Seraphim has the first alone, 1071 at level 1 of the value 15.0, its entry as the template's (seen 2026-10-22 with #448's driver); why the second is not there is not read.
 
 ## A creature's arts
 
@@ -44,4 +68,4 @@ Its description (`0x581550`) lists each art's name and level, and then `+0x1A` d
 
 ## Open
 
-The texts `0x453` and `0x47A`, and what `+0x1E` of a combo is; the records' other fields and their uses (`0x571710`, `0x5813D0`, `0x4E0300`, `0x582D50`, the interface's); how an art is learnt, levelled by its runes (category 28, docs/02 §6.1) and regenerated; which art belongs to which hero; the second table's ids.
+The texts `0x453` and `0x47A`, and what `+0x1E` of a combo is; the records' other fields and their uses (`0x571710`, `0x5813D0`, `0x4E0300`, `0x582D50`, the interface's); how an art is learnt from its rune, levelled and regenerated; the second table's other fields.
