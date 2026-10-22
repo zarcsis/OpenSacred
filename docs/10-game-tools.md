@@ -131,6 +131,8 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `window borderless\|windowed [W H]` | the display mode and the window's size, kept | F11 and the settings |
 | `overlay [on\|off]`, `log [on\|off]`, `keys [on\|off]`, `console [on\|off]` | as F3, F4, F1 and the key under Esc; without a switch, toggles | |
 | `state` | the app's state, the hero, the clock, the frames, the drops nearest the hero (the overlay's values) | |
+| `creatures [RADIUS]` | the creatures within RADIUS cells of the hero (20), the nearest first: an id, the type, the cell (and the floor inside), the health, the level, hostile or peaceful, awake, fighting, a champion or a boss, dying; as the original's driver lists them (#523) | |
+| `stats [ID]` | a creature's fight values, the hero's by default (`ID` as `creatures` prints it, or its index): the type, the level, the health, the hero's base attributes, A and D, each kind's least and most damage, the resistances, the attack speed, already multiplied where the original's driver prints them raw with their multipliers (#523) | |
 | `drop [TIMES]` | makes the hostile creature nearest the hero drop as if the hero killed it, TIMES deaths' worth, and lists what fell (#415) | |
 | `wait ready\|arrived`, `wait frames N`, `wait seconds S` | in a script, the next command waits for that | |
 | `exec FILE` | runs a script: a command a line, `#` comments | |

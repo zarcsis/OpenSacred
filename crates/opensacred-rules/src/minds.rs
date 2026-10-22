@@ -505,6 +505,16 @@ impl Mind {
         self.flags & 0x3 != 0
     }
 
+    /// Whether it is awake (`sdk_WAKE`): a dormant creature does not look for the hero.
+    pub fn awake(&self) -> bool {
+        self.awake
+    }
+
+    /// Whether it fights the hero (the AI's state 4 or 8).
+    pub fn fighting(&self) -> bool {
+        self.fighting
+    }
+
     /// As its strike in melee ends, whether the next one chains (`0x4E4CF0`, the attack action's
     /// sub-state 2, #466): one of class 1 never chains (`0x426650`), one of a marked type
     /// ([`marked`]) chains on a `roll` of 0 of `0..4`, any other always; one that does not chain

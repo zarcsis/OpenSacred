@@ -27,7 +27,7 @@ use crate::screenshot::{self, Recording};
 use crate::sectors::Streamer;
 use crate::settings::{Mode, Settings, SettingsFile};
 use crate::terrain::{About, Heights, LANDING_REACH, Landing, NATURES};
-use crate::{ai, atmosphere, crowd, fight, iso, music, npcs, paths};
+use crate::{ai, atmosphere, crowd, debug, fight, iso, music, npcs, paths};
 
 /// A line: one command.
 #[derive(Parser, Debug)]
@@ -112,6 +112,11 @@ enum Command {
     Keys { on: Option<Switch> },
     /// The state of the process, the game, the hero, the clock and the frames
     State,
+    /// The creatures within RADIUS cells of the hero (20 by default), the nearest first, as the
+    /// original's driver lists them
+    Creatures { radius: Option<u32> },
+    /// A creature's fight values, the hero's by default; ID as `creatures` prints it
+    Stats { id: Option<String> },
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
     /// In a script: wait before the next command
@@ -773,6 +778,21 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             console.set_open(open);
             Ok(Outcome::say(if open { "open" } else { "closed" }))
         }
+        Command::Creatures { radius } => {
+            in_game(world)?;
+            Ok(Outcome {
+                lines: debug::creatures(world, radius.unwrap_or(20))?,
+                wait: None,
+            })
+        }
+        Command::Stats { id } => {
+            in_game(world)?;
+            let id = id.map(|id| debug::creature(world, &id)).transpose()?;
+            Ok(Outcome {
+                lines: debug::stats(world, id)?,
+                wait: None,
+            })
+        }
         Command::Drop { times } => {
             in_game(world)?;
             let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
@@ -1094,7 +1114,7 @@ mod tests {
     fn tab_completes_the_commands_their_options_and_values() {
         assert_eq!(complete("ze"), Vec::<String>::new());
         assert_eq!(complete("zo"), ["zoom"]);
-        assert_eq!(complete("s"), ["screenshot", "sector", "state"]);
+        assert_eq!(complete("s"), ["screenshot", "sector", "state", "stats"]);
         assert_eq!(complete("gait "), ["run", "walk"]);
         assert_eq!(complete("music o"), ["off", "on"]);
         assert_eq!(complete("new-game --cl"), ["--class"]);
