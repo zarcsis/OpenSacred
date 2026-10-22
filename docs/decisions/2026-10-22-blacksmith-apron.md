@@ -16,4 +16,4 @@ The warriors who share the blacksmith's meshes wear an opaque apron (6825), and 
 
 The strokes cut through the flaps' middle over a colour painted whole beneath them, a mask of the alpha rather than a design; the repair is as narrow as the defect, one texture's alpha.
 The maintainer chose it (#401).
-The game draws the models opaque for now (#516), so the repair shows only once the models' alpha is drawn.
+The game tests the models' texels by their alpha as the original does since #516, so without the repair the flap would show cut as in the original.
