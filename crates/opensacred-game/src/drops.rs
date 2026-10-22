@@ -86,7 +86,7 @@ struct Reading(Task<Result<Tables>>);
 
 /// The rolls of the drops and their flights.
 #[derive(Resource)]
-struct Dice(Rng);
+pub(crate) struct Dice(Rng);
 
 /// The time the game has been played, in seconds, which raises a kill's bonus (**hypothesis**
 /// for the original's counter `+0x570C`).
@@ -396,6 +396,55 @@ pub fn nearest(
     found.sort_by(|a, b| a.3.total_cmp(&b.3));
     found.truncate(n);
     found
+}
+
+/// An item that the command `item` throws (#525).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Throw {
+    /// Its type, an `items.pak` slot.
+    pub item: u32,
+    /// The point it is thrown from, on a level.
+    pub at: (Vec3, Level),
+    /// The level the item maker makes it at, the hero's by default; the pass's quality key; the
+    /// pieces of gold, a pile's by its level by default.
+    pub level: Option<u32>,
+    pub key: u8,
+    pub amount: Option<u32>,
+}
+
+/// Throws the item of `throw` as a death's drop is thrown (the command `item`, #525); a line of
+/// what it threw.
+pub fn throw_item(
+    In(request): In<Throw>,
+    mut commands: Commands,
+    tables: Option<Res<Tables>>,
+    mut dice: ResMut<Dice>,
+    experience: Res<fight::Experience>,
+    assets: Res<AssetServer>,
+) -> Result<String, String> {
+    let tables = tables.ok_or("the drops' tables are not read yet")?;
+    let level = request.level.unwrap_or(experience.level);
+    let amount = match request.amount {
+        Some(amount) => amount,
+        None => tables.rules.gold(level, &mut dice.0),
+    };
+    let dropped = drops::thrown(
+        &tables.catalogue,
+        &tables.templates,
+        (request.item, level, request.key, amount),
+        &mut dice.0,
+    )
+    .ok_or_else(|| format!("item {} is of no drop's kind", request.item))?;
+    let line = format!("thrown: {}", listed(&[dropped]));
+    throw(
+        &mut commands,
+        &assets,
+        &tables,
+        &mut dice.0,
+        request.at,
+        vec![dropped],
+    );
+    Ok(line)
 }
 
 /// Makes the hostile creature nearest the hero drop `times` times as if the hero killed it,
