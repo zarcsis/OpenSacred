@@ -1574,7 +1574,11 @@ mod tests {
         let experience = *world.resource::<fight::Experience>();
         assert_eq!((experience.level, experience.attribute_points), (2, 1));
         // Added to, a level's end crossed; set again.
-        run(world, &format!("experience +{}", level_end(2) - level_end(1))).unwrap();
+        run(
+            world,
+            &format!("experience +{}", level_end(2) - level_end(1)),
+        )
+        .unwrap();
         assert_eq!(world.resource::<fight::Experience>().level, 3);
         let line = run(world, "experience 0").unwrap();
         assert_eq!(world.resource::<fight::Experience>().level, 1);
