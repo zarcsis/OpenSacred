@@ -76,14 +76,33 @@ jobs:
             last=$next
           }
 
+          # Prints the labels of the pull request merged as commit $1. The endpoint breaks off its
+          # answer now and then (#515), so a failed call is tried again, 5 times 5 s apart, before the
+          # run fails.
+          labels_of() {
+            local try answer
+            for try in 1 2 3 4 5; do
+              if answer=$(gh api "repos/$GITHUB_REPOSITORY/commits/$1/pulls" \
+                --jq ".[] | select(.merge_commit_sha == \"$1\") | .labels[].name"); then
+                printf '%s\n' "$answer"
+                return 0
+              fi
+              if ((try < 5)); then
+                echo "::warning::The pull request of $1 was not read (try $try of 5); trying again in 5 s" >&2
+                sleep 5
+              fi
+            done
+            echo "::error::The pull request of $1 was not read in 5 tries" >&2
+            return 1
+          }
+
           # A run that pushed a tag but failed to publish it leaves the release to the next run.
           if ! gh release view "$last" > /dev/null 2>&1; then
             publish "$last" "$(versions | sed -n 2p)"
           fi
 
           for commit in $(git rev-list --reverse --first-parent "$last..HEAD"); do
-            labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" \
-              --jq ".[] | select(.merge_commit_sha == \"$commit\") | .labels[].name")
+            labels=$(labels_of "$commit")
             if grep -qx feature <<< "$labels"; then
               release "$commit" minor "$(git log -1 --format=%s "$commit")"
             elif grep -qx bug <<< "$labels"; then
