@@ -57,6 +57,9 @@ A creature of `+0x1F4` bit `0x8000000` (`CreateNPC`'s tag `0x74`), of `+0x200` b
 A creature of a behaviour that stands crowded wakes (`0x544890`, at `0x54647A`); an animal awake strolls at once where another shares its cell, as by its chance (`0x4EF150`), and the townsfolk's machine reads the cell too (at `0x4F0D44`).
 
 The flags come from `CreateNPC`'s tags (`0x2B` 8, `0x2E` `0x10`, `0x30` `0x20`, `0x2F` and `0x31` `0x40`, `0x32` `0x80`, `0x42` `0x400`, `0x43` `0x800`, `0x44` `0x1000`, `0x46` `0x4000`, `0x4C` `0x8000`, handled as 8; docs/02 §7.3), from the creature maker's lists of types for a peaceful creature made without flags, as `FillSector` makes them (a hostile one bit 0 alone), and, for a creature of an `Enter` function still without any at its first update, 1 if it is hostile to the hero, `0x20` for class 6, `0x10000000` for the jugglers (78, 79, 82, 104), else 8.
+Read 2026-10-22 (#482, `0x542B20`): the first update gives them only to a creature of id above 16, made by an `Enter` function (`+0x14` bit `0x80000000`) or of `+0x2B8` bit `0x80` (not read), and passes over one with a dialogue (`+0x245`), one with any of the `+0x200` bits `0x40077C0`, one of the heroes' class (`0x4266F0`) and the type 1879.
+Those bits are the hero's `0x40` (docs/re/motions.md), `0x100` and `0x200` of `CreateNPC`'s tag `0x1A`, `0x200` of its tags `0x70`, `0x71` and `0x72` and of `sdk_JOIN` too (`0x482510`), the traders' `0x1000`, `0x2000`, `0x4000` and `0x4000000` (below), and `0x80` and `0x400` (not read).
+So the merchant of 50,40 and the novice with a dialogue keep no flags and stand on their floors all day (observed in the original under the driver of #448: the merchant's `+0x200` `0x8002000`, the novice's dialogue `0x3BF`).
 A fill's critter is never without: it keeps the bit `0x1000000` of its constructor (docs/re/movement.md, "The objects in the way"), so that the rabbits' variants 592 and 593, on neither list below, take no behaviour and stand, parting as the crowded do (read in the original 2026-10-22, #468: their word `0x1000000` alone; one stood 32 s and took one step of a cell, another took one-cell steps within 2 cells with the hero beside it).
 The creature maker (`0x480D40`) gives `0x40` to the types 512 and 567 to 570 (the wolves), 513, 589 and 590 (the crows), 514, 515 and 594 to 596 (the bats), 516 (the first rabbit; not its variants 592 and 593), 530 to 533 (the deer), 536 to 538 (the bears), 540 and 541 (the bulls), 543 and 545 (the wild boars), and `0x10` to 520 to 528 (the pigs and the cows), 544 (the sheep), 550 to 558 (the horses), 560 to 563, 565 and 566 (the chickens); `CreateNPC` writes the word of its tags over them (`0x4839F6`), so that its creatures without a tag keep none.
 `Creature.pak`'s class 6 holds all these animals, wild and tame, and class 4 the horses ridden.
@@ -65,7 +68,7 @@ In the Seraphim's tree the `Enter` functions' `CreateNPC`s are mostly townsfolk 
 
 ## The townsfolk
 
-The townsfolk are the creatures of the flags 8 and `0x400` (`CreateNPC`'s tags `0x2B` and `0x42`, `0x4C` as 8, and the `Enter` functions' creatures without flags) and the jugglers of `0x10000000`; their branch of `0x4EF150` starts at `0x4F0A6A`.
+The townsfolk are the creatures of the flags 8 and `0x400` (`CreateNPC`'s tags `0x2B` and `0x42`, `0x4C` as 8, and the `Enter` functions' creatures without flags that the first update does not pass over) and the jugglers of `0x10000000`; their branch of `0x4EF150` starts at `0x4F0A6A`.
 They have no timer of their own: most of what they do ends in the AI's state 0, and they decide again when the hero's look wakes them, every 0.3 s within its range.
 
 ### Range, dialogue and the far ones

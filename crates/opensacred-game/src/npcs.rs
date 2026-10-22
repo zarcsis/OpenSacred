@@ -80,6 +80,9 @@ const DIALOGUE: u8 = 0x09;
 const TRADES: [u8; 4] = [0x23, 0x24, 0x25, 0x64];
 /// The tag of a trader whose dialogue `CreateNPC` stamps (`0x4843AF`).
 const STAMPED: u8 = 0x64;
+/// The tags of `CreateNPC` that set `+0x200` bit `0x200` (`0x482510`), which keeps a creature
+/// out of its first update's flags (`opensacred_rules::minds::Mind::hold`).
+const KEEPS: [u8; 4] = [0x1A, 0x70, 0x71, 0x72];
 const TRIGGER_QUEST: u16 = 20;
 const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
@@ -152,8 +155,10 @@ struct Placement {
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
     made: (bool, bool),
     dialogue: bool,
-    /// Whether it is a trader, by its tags (`opensacred_rules::minds::Mind::trader`).
+    /// Whether it is a trader, by its tags (`opensacred_rules::minds::Mind::trader`), and whether
+    /// its tags keep it out of its first update's flags ([`KEEPS`]).
     trader: bool,
+    kept: bool,
     group: Option<u32>,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
@@ -1405,6 +1410,7 @@ impl Npcs {
                     && ops
                         .iter()
                         .any(|o| TRADES.contains(&o.tag) && matches!(o.value, Value::Marker)),
+                kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
                 group: None,
                 heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
                 object: record.kind == CREATE_OBJ,
@@ -1491,6 +1497,7 @@ impl Npcs {
                     made: (true, false),
                     dialogue: false,
                     trader: false,
+                    kept: false,
                     group: None,
                     heading: 0.0,
                     object: false,
@@ -1996,10 +2003,6 @@ fn spawn(
         }
     } else {
         let (creature, record_flags, word) = placement.creature;
-        bevy::log::debug!(
-            "npcs: {} is a {creature} of the flags {word:#x}",
-            entity.id()
-        );
         let mut mind = ai::Mind::new(
             position,
             word,
@@ -2008,8 +2011,12 @@ fn spawn(
             placement.speed,
             (creature, placement.class),
         );
-        mind.dialogue = placement.dialogue;
-        mind.trader = placement.trader;
+        mind.hold(placement.dialogue, placement.trader, placement.kept);
+        bevy::log::debug!(
+            "npcs: {} is a {creature} of the flags {word:#x}, {:#x} after its first update",
+            entity.id(),
+            mind.flags
+        );
         mind.level = grade;
         mind.ranged = placement.ranged;
         // Its health, full, by its base and its level and its rank (`0x5658F0`).
