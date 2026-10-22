@@ -1641,6 +1641,7 @@ impl Npcs {
             shield: holding
                 .iter()
                 .any(|held| held.hand == Hand::Left && held.category == SHIELD),
+            ranged: ranged_of(&holding),
             items: worn
                 .iter()
                 .filter(|worn| self.gear.get(&worn.item).is_none_or(|gear| gear.counts))
@@ -3132,6 +3133,7 @@ impl Arms {
         let held = fight::Holds {
             weapon: class != 0 || right,
             shield: holds(Hand::Left, Some(true)),
+            ranged: ranged_of(&in_hands),
             items: self
                 .holding
                 .iter()

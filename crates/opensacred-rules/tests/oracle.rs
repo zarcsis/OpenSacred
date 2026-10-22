@@ -214,7 +214,7 @@ fn the_most_health_is_the_originals() {
     let rules = Rules::of(Some(&balance()));
     for v in &vectors {
         let most = if v.hero {
-            hero_health(v.base, v.level)
+            hero_health(v.base, v.level, &[], &rules)
         } else {
             most_health(v.base, v.level, &rules)
         };

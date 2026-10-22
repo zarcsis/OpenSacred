@@ -425,7 +425,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         values.speed
     );
     hero.combat = Some(fight::Combat(values));
-    let most = fight::hero_health(base.attributes, fight::HERO_LEVEL);
+    let most = fight::hero_health(base.attributes, fight::HERO_LEVEL, &skills, &rules);
     hero.vitals = Some((
         fight::Health {
             current: most,
