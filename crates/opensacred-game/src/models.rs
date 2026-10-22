@@ -9,24 +9,31 @@
 //! that its meshes' tags name; a model that another holds, an NPC's weapon, [`OrderedWith`] its
 //! holder, whose slot its meshes take. A model standing on an upper storey's floor lies no
 //! further back than the floor's plane, as the sprites standing on it do ([`statics::Floor`]).
+//!
+//! A mesh whose texture has translucent texels is drawn twice, as the sprites are
+//! (docs/decisions/2026-10-22-model-alpha.md): its opaque texels through the depth buffer, then,
+//! by a copy of the mesh ([`Fringe`]), the others that the original's alpha test keeps, blended by
+//! their alpha in the objects' layer of the blended things ([`Pass`]).
 
 use std::collections::HashMap;
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
-use bevy::mesh::MeshTag;
-use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling};
+use bevy::mesh::skinning::SkinnedMesh;
+use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
     MaterialPlugin,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureFormat,
 };
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use bevy::world_serialization::WorldInstanceReady;
 
+use crate::blended::Layer;
 use crate::buildings::{self, Layered};
 use crate::frame::Step;
 use crate::hero::Body;
@@ -47,19 +54,55 @@ pub(crate) const PLACE: f32 = 24.0;
 /// `cGranny::render` (`0x405C90`) turns it on for every model, at the device's `ALPHAREF` 64 and
 /// `ALPHAFUNC` `GREATER` (`0x643190`), with the texture's alpha in the first stage (docs/re/
 /// drawing.md, "The models"). Bevy keeps a texel of alpha at the cutoff or above it, which lies
-/// between 64 and 65 of 255.
+/// between 64 and 65 of 255. The same as `CUTOFF` of `standard.wesl`, which tests the texels of
+/// [`Pass::Fringe`].
 const CUTOFF: f32 = 64.5 / 255.0;
+
+/// The alpha of the opaque texels, which [`Pass::Body`] draws: all of it. The same as `OPAQUE`
+/// of `standard.wesl`, which leaves them out of [`Pass::Fringe`].
+const OPAQUE: f32 = 254.5 / 255.0;
 
 /// A glTF material of a model, drawn at the model's place in the order.
 pub type ModelMaterial = ExtendedMaterial<StandardMaterial, InOrder>;
 
-/// The models' anchors and floors, which every [`ModelMaterial`] shares.
+/// The texels of its glTF material that a [`ModelMaterial`] draws.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pass {
+    /// Those that the original's alpha test keeps ([`CUTOFF`]), opaque through the depth buffer:
+    /// of a material without translucent texels.
+    Tested,
+    /// The opaque ones ([`OPAQUE`]), through the depth buffer: of a material with translucent
+    /// texels, which [`Pass::Fringe`] draws.
+    Body,
+    /// The translucent ones that the alpha test keeps, blended by their alpha over what lies
+    /// behind them, in the objects' layer of the blended things, as the original blends them;
+    /// their depth tested and written, as the original's (docs/re/drawing.md, "The models").
+    Fringe,
+}
+
+/// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[bind_group_data(InOrderKey)]
 pub struct InOrder {
     #[storage(100, read_only)]
     anchors: Handle<ShaderBuffer>,
     #[storage(101, read_only)]
     floors: Handle<ShaderBuffer>,
+    pass: Pass,
+}
+
+/// What the pipeline of a [`ModelMaterial`] depends on beyond Bevy's own material.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InOrderKey {
+    fringe: bool,
+}
+
+impl From<&InOrder> for InOrderKey {
+    fn from(extension: &InOrder) -> Self {
+        Self {
+            fringe: extension.pass == Pass::Fringe,
+        }
+    }
 }
 
 impl MaterialExtension for InOrder {
@@ -73,14 +116,22 @@ impl MaterialExtension for InOrder {
     }
 
     /// The depth as the vertex shader puts it: a blended material's `depth_bias` is its layer of
-    /// the blended things (the shadows').
+    /// the blended things. The fringe's fragments keep the texels it draws, and write their depth.
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         _layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialExtensionKey<Self>,
+        key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         blended::unbias(descriptor);
+        if key.bind_group_data.fringe {
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                fragment.shader_defs.push("FRINGE".into());
+            }
+            if let Some(depth) = descriptor.depth_stencil.as_mut() {
+                depth.depth_write_enabled = Some(true);
+            }
+        }
         Ok(())
     }
 }
@@ -139,20 +190,60 @@ impl Ordered {
     }
 }
 
-/// The model material of `base`: a mesh of it, tagged with a model's slot of the `anchors`, is
-/// drawn at that model's place in the order, its texels tested by their alpha as the original's
-/// (`CUTOFF`). The texels that the test keeps are drawn opaque, where the original blends them by
-/// their alpha (#519).
-pub fn in_order(base: StandardMaterial, anchors: &Anchors) -> ModelMaterial {
+/// The model material of `base` that draws its texels of `pass`: a mesh of it, tagged with a
+/// model's slot of the `anchors`, is drawn at that model's place in the order.
+pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelMaterial {
+    let (alpha_mode, depth_bias) = match pass {
+        Pass::Tested => (AlphaMode::Mask(CUTOFF), base.depth_bias),
+        Pass::Body => (AlphaMode::Mask(OPAQUE), base.depth_bias),
+        Pass::Fringe => (AlphaMode::Blend, Layer::Objects.bias()),
+    };
     ModelMaterial {
         base: StandardMaterial {
-            alpha_mode: AlphaMode::Mask(CUTOFF),
+            alpha_mode,
+            depth_bias,
             ..base
         },
         extension: InOrder {
             anchors: anchors.buffer.clone(),
             floors: anchors.floor_buffer.clone(),
+            pass,
         },
+    }
+}
+
+/// Whether some texels of `base` are translucent, of alpha under 1 and so drawn in two passes:
+/// those of its colour, or of its texture's image (`None` while the image loads; an image that
+/// failed to load has none).
+fn translucent(
+    base: &StandardMaterial,
+    images: &Assets<Image>,
+    server: &AssetServer,
+) -> Option<bool> {
+    if base.base_color.alpha() < 1.0 {
+        return Some(true);
+    }
+    let Some(texture) = &base.base_color_texture else {
+        return Some(false);
+    };
+    match images.get(texture) {
+        Some(image) => Some(translucent_texels(image)),
+        None if server.load_state(texture).is_loading() => None,
+        None => Some(false),
+    }
+}
+
+/// Whether some texels of `image` are of alpha under 255: of 8-bit RGBA, as the converter writes
+/// the models' textures (`opensacred-convert textures`, `models`), by their alpha; of another
+/// format or without its data, taken to be.
+fn translucent_texels(image: &Image) -> bool {
+    match (image.texture_descriptor.format, &image.data) {
+        (TextureFormat::Rgba8UnormSrgb | TextureFormat::Rgba8Unorm, Some(data)) => data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|&[.., alpha]| alpha < u8::MAX),
+        _ => true,
     }
 }
 
@@ -164,9 +255,22 @@ pub struct OrderedWith(pub Entity);
 #[derive(Component)]
 pub struct Unplaced;
 
+/// The copy of a model's mesh that draws the translucent texels of its material
+/// ([`Pass::Fringe`]), a child of the mesh.
+#[derive(Component)]
+pub struct Fringe;
+
+/// The model materials made of a glTF material: of its meshes, and of their [`Fringe`] copies if
+/// it has translucent texels.
+#[derive(Clone)]
+struct Made {
+    mesh: Handle<ModelMaterial>,
+    fringe: Option<Handle<ModelMaterial>>,
+}
+
 /// The model materials made of the glTF ones, by the glTF material.
 #[derive(Resource, Default)]
-pub struct Converted(HashMap<AssetId<StandardMaterial>, Handle<ModelMaterial>>);
+pub struct Converted(HashMap<AssetId<StandardMaterial>, Made>);
 
 /// The models' material, its shader and the buffer of the anchors, and the models' places.
 pub struct ModelsPlugin;
@@ -243,9 +347,21 @@ fn ready(ready: On<WorldInstanceReady>, mut commands: Commands, models: Query<()
     }
 }
 
+/// A mesh of a model as [`convert`] reads it: its glTF material, and what its [`Fringe`] copy
+/// takes of it.
+type ModelMesh = (
+    &'static MeshMaterial3d<StandardMaterial>,
+    &'static Mesh3d,
+    Option<&'static SkinnedMesh>,
+    Has<DynamicSkinnedMeshBounds>,
+    Has<NoFrustumCulling>,
+);
+
 /// Gives the meshes of each model that has just spawned the model materials of their glTF
 /// materials (after `npcs::retexture` has given them their item's texture) and their root's
-/// slot of the anchors for a tag.
+/// slot of the anchors for a tag; and each mesh whose material has translucent texels a
+/// [`Fringe`] copy, the same mesh skinned to the same joints, tagged with the same slot. A model
+/// waits for the images of its materials, whose alpha says which have them.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources as arguments"
@@ -255,34 +371,76 @@ pub fn convert(
     models: Query<(Entity, Option<&OrderedWith>), With<Unplaced>>,
     roots: Query<&Ordered>,
     children: Query<&Children>,
-    meshes: Query<&MeshMaterial3d<StandardMaterial>>,
+    meshes: Query<ModelMesh>,
     standard: Res<Assets<StandardMaterial>>,
+    images: Res<Assets<Image>>,
+    server: Res<AssetServer>,
     mut materials: ResMut<Assets<ModelMaterial>>,
     mut converted: ResMut<Converted>,
     anchors: Res<Anchors>,
 ) {
-    for (model, with) in &models {
-        commands.entity(model).remove::<Unplaced>();
+    'models: for (model, with) in &models {
         let root = with.map_or(model, |with| with.0);
         let Ok(Ordered(Some(slot))) = roots.get(root) else {
+            commands.entity(model).remove::<Unplaced>();
             continue;
         };
+        let mut made = Vec::new();
         for entity in children.iter_descendants(model) {
-            let Ok(material) = meshes.get(entity) else {
+            let Ok((material, ..)) = meshes.get(entity) else {
                 continue;
             };
             let Some(base) = standard.get(&material.0) else {
                 continue;
             };
-            let handle = converted
-                .0
-                .entry(material.0.id())
-                .or_insert_with(|| materials.add(in_order(base.clone(), &anchors)))
-                .clone();
+            if let Some(both) = converted.0.get(&material.0.id()) {
+                made.push((entity, both.clone()));
+                continue;
+            }
+            let Some(translucent) = translucent(base, &images, &server) else {
+                continue 'models;
+            };
+            let both = if translucent {
+                Made {
+                    mesh: materials.add(in_order(base.clone(), &anchors, Pass::Body)),
+                    fringe: Some(materials.add(in_order(base.clone(), &anchors, Pass::Fringe))),
+                }
+            } else {
+                Made {
+                    mesh: materials.add(in_order(base.clone(), &anchors, Pass::Tested)),
+                    fringe: None,
+                }
+            };
+            converted.0.insert(material.0.id(), both.clone());
+            made.push((entity, both));
+        }
+        commands.entity(model).remove::<Unplaced>();
+        for (entity, Made { mesh: own, fringe }) in made {
             commands
                 .entity(entity)
                 .remove::<MeshMaterial3d<StandardMaterial>>()
-                .insert((MeshMaterial3d(handle), MeshTag::new(*slot)));
+                .insert((MeshMaterial3d(own), MeshTag::new(*slot)));
+            let (Some(fringe), Ok((_, mesh, skinned, dynamic, unculled))) =
+                (fringe, meshes.get(entity))
+            else {
+                continue;
+            };
+            let mut copy = commands.spawn((
+                Mesh3d(mesh.0.clone()),
+                MeshMaterial3d(fringe),
+                MeshTag::new(*slot),
+                ChildOf(entity),
+                Fringe,
+            ));
+            if let Some(skinned) = skinned {
+                copy.insert(skinned.clone());
+            }
+            if dynamic {
+                copy.insert(DynamicSkinnedMeshBounds);
+            }
+            if unculled {
+                copy.insert(NoFrustumCulling);
+            }
         }
     }
 }
@@ -374,6 +532,7 @@ pub fn place(
 
 #[cfg(test)]
 mod tests {
+    use bevy::render::render_resource::{Extent3d, TextureDimension};
     use opensacred_data::world::{Building, Sector};
 
     use super::*;
@@ -400,20 +559,112 @@ mod tests {
         assert!(squeeze * 0.1 >= 0.001);
     }
 
-    #[test]
-    fn a_models_texels_are_tested_as_the_originals() {
+    /// The anchors of a world of their own.
+    fn anchors() -> Anchors {
         let mut world = World::new();
         world.init_resource::<Assets<ShaderBuffer>>();
-        let anchors = Anchors::from_world(&mut world);
-        // A glTF material without an alpha mode, OPAQUE, as the converter writes every one.
-        let material = in_order(StandardMaterial::default(), &anchors);
+        Anchors::from_world(&mut world)
+    }
+
+    /// The least alpha of 255 that a mask of `material` keeps: Bevy keeps a texel of alpha at its
+    /// cutoff or above.
+    fn mask(material: &ModelMaterial) -> u8 {
         let AlphaMode::Mask(cutoff) = material.base.alpha_mode else {
             panic!("{:?}", material.base.alpha_mode);
         };
-        // Bevy keeps a texel of alpha at the cutoff or above; the original, of alpha above 64.
-        let kept = |alpha: u8| f32::from(alpha) / 255.0 >= cutoff;
-        assert!(!kept(0) && !kept(64));
-        assert!(kept(65) && kept(255));
+        (0..=u8::MAX)
+            .find(|&alpha| f32::from(alpha) / 255.0 >= cutoff)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_models_texels_are_tested_as_the_originals() {
+        // A glTF material without an alpha mode, OPAQUE, as the converter writes every one; the
+        // original keeps the texels of alpha above 64.
+        let material = StandardMaterial::default();
+        let tested = in_order(material.clone(), &anchors(), Pass::Tested);
+        assert_eq!(mask(&tested), 65);
+        // In two passes, the opaque texels through the depth buffer, and the others that the test
+        // keeps blended in the objects' layer: the fringe's shader keeps those of alpha 65 to 254.
+        let body = in_order(material.clone(), &anchors(), Pass::Body);
+        assert_eq!(mask(&body), 255);
+        let fringe = in_order(material, &anchors(), Pass::Fringe);
+        assert_eq!(fringe.base.alpha_mode, AlphaMode::Blend);
+        assert_eq!(fringe.base.depth_bias, Layer::Objects.bias());
+        let shader = include_str!("standard.wesl");
+        let kept = |alpha: u8| {
+            let alpha = f32::from(alpha) / 255.0;
+            alpha >= shader_constant(shader, "CUTOFF") && alpha < shader_constant(shader, "OPAQUE")
+        };
+        assert!(!kept(64) && kept(65) && kept(254) && !kept(255));
+    }
+
+    #[test]
+    fn a_material_with_translucent_texels_takes_two_passes() {
+        let image = |alpha: u8, format| {
+            Image::new_fill(
+                Extent3d {
+                    width: 2,
+                    height: 2,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                &[10, 20, 30, alpha],
+                format,
+                RenderAssetUsages::default(),
+            )
+        };
+        assert!(!translucent_texels(&image(
+            255,
+            TextureFormat::Rgba8UnormSrgb
+        )));
+        assert!(translucent_texels(&image(
+            200,
+            TextureFormat::Rgba8UnormSrgb
+        )));
+        // Texels of alpha 0, which the alpha test drops, count too: the filtered alpha at their
+        // edges lies between.
+        assert!(translucent_texels(&image(0, TextureFormat::Rgba8Unorm)));
+        // A format the converter does not write.
+        assert!(translucent_texels(&image(
+            255,
+            TextureFormat::Bgra8UnormSrgb
+        )));
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>();
+        let mut images = app.world_mut().resource_mut::<Assets<Image>>();
+        let opaque = images.add(image(255, TextureFormat::Rgba8UnormSrgb));
+        let ghostly = images.add(image(128, TextureFormat::Rgba8UnormSrgb));
+        let (images, server) = (
+            app.world().resource::<Assets<Image>>(),
+            app.world().resource::<AssetServer>(),
+        );
+        let of = |texture: Option<Handle<Image>>, base_color| StandardMaterial {
+            base_color,
+            base_color_texture: texture,
+            ..default()
+        };
+        assert_eq!(
+            translucent(&of(None, Color::WHITE), images, server),
+            Some(false)
+        );
+        assert_eq!(
+            translucent(&of(Some(opaque.clone()), Color::WHITE), images, server),
+            Some(false)
+        );
+        assert_eq!(
+            translucent(&of(Some(ghostly), Color::WHITE), images, server),
+            Some(true)
+        );
+        assert_eq!(
+            translucent(
+                &of(Some(opaque), Color::srgba(1.0, 1.0, 1.0, 0.5)),
+                images,
+                server
+            ),
+            Some(true)
+        );
     }
 
     #[test]

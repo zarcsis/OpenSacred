@@ -23,7 +23,7 @@ use bevy::shader::ShaderRef;
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
-use crate::models::{Anchors, ModelMaterial, Ordered, OrderedWith};
+use crate::models::{Anchors, Fringe, ModelMaterial, Ordered, OrderedWith};
 
 /// The shader of [`ShadowMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/shadows.wesl";
@@ -149,7 +149,7 @@ type ModelMesh = (
 pub fn cast(
     mut commands: Commands,
     shared: Res<Shared>,
-    meshes: Query<ModelMesh, Added<MeshMaterial3d<ModelMaterial>>>,
+    meshes: Query<ModelMesh, (Added<MeshMaterial3d<ModelMaterial>>, Without<Fringe>)>,
     parents: Query<&ChildOf>,
     models: Query<(), Model>,
     casters: Query<(), (With<Casts>, With<Ordered>)>,

@@ -44,7 +44,8 @@ pub enum Layer {
     /// (`cGranny::renderShadow`), and the shadows that it draws right before their statics in
     /// their lists (entries of kind `0x11`).
     Shadows,
-    /// The sprites of lists 3 and 4.
+    /// The sprites of lists 3 and 4, and the models' translucent texels, which the original draws
+    /// with their models, in list 3 (`models::Pass::Fringe`).
     Objects,
     /// The lamps' glows, which the original draws over their lamps (`0x62FF60`).
     Glows,
