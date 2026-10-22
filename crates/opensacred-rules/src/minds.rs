@@ -439,7 +439,7 @@ impl Mind {
         let hostile = flags & 0x3 != 0;
         // A creature of an `Enter` function still without flags takes them at its first update
         // (`0x5375C0`): the animals of class 6 the loose farm animals', the jugglers theirs, the
-        // others the townsfolk's.
+        // others the townsfolk's. A fill's critter is never without: its constructor's bit.
         let flags = match (enter, flags, class) {
             (true, 0, 6) => FARM_LOOSE,
             (true, 0, _) if JUGGLERS.contains(&creature) => JUGGLER,
@@ -1006,7 +1006,9 @@ impl Mind {
 /// without flags, as a sector's fill makes them: the wild animals' to the wolves, the crows, the
 /// bats, the first rabbit, the deer, the bears, the bulls and the wild boars; the farm animals'
 /// to the pigs, the cows, the sheep, the horses and the chickens; none to the others, the two
-/// other rabbits among them. `CreateNPC` writes its own flags over them (`0x4839F6`).
+/// other rabbits among them, which keep their constructor's critter bit alone
+/// ([`crate::ways::constructed`]) and so take no behaviour. `CreateNPC` writes its own flags over
+/// them (`0x4839F6`).
 pub fn of_type(creature: u32) -> u32 {
     const WILD_TYPES: [u32; 25] = [
         512, 513, 514, 515, 516, 530, 531, 532, 533, 536, 537, 538, 540, 541, 543, 545, 567, 568,
@@ -1713,6 +1715,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];
 
@@ -2408,11 +2411,16 @@ mod tests {
             )
             .flags
         };
-        // A fill's animals by the creature maker's lists: the first rabbit wild, a pig farm, the
-        // other rabbits without, so of class 6 the loose farm animals' at the first update.
-        assert_eq!(made(of_type(516), false, 516, 6), WILD);
-        assert_eq!(made(of_type(520), false, 520, 6), FARM);
-        assert_eq!(made(of_type(592), false, 592, 6), FARM_LOOSE);
+        // A fill's animals by the creature maker's lists and their constructor's critter bit: the
+        // first rabbit wild, a pig farm, the other rabbits that bit alone, which no first update
+        // replaces, so that they take no behaviour (#468).
+        let fill = |creature| of_type(creature) | constructed(creature, 0);
+        assert_eq!(made(fill(516), false, 516, 6), WILD | CRITTER);
+        assert_eq!(made(fill(520), false, 520, 6), FARM);
+        assert_eq!(made(fill(592), false, 592, 6), CRITTER);
+        // A fill's type of class 6 on neither list and no critter: the loose farm animals' at the
+        // first update.
+        assert_eq!(made(fill(529), false, 529, 6), FARM_LOOSE);
         // `CreateNPC`'s without a tag: class 6 the loose farm animals', the jugglers theirs, the
         // others the townsfolk's; a tag or hostility keeps its own.
         assert_eq!(made(0, true, 560, 6), FARM_LOOSE);

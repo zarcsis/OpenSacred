@@ -187,8 +187,9 @@ fn sign(v: f32) -> i32 {
 const STOPS_THE_HERO: u32 = 0x3;
 /// The bit of the flags word that the creature maker sets on a hostile creature (`0x480D40`).
 pub const HOSTILE: u32 = 0x1;
-/// The bit of a creature's flags word that keeps it from stopping others: the critters.
-const CRITTER: u32 = 0x100_0000;
+/// The bit of a creature's flags word that keeps it from stopping others: the critters', which
+/// their constructor sets ([`constructed`]).
+pub const CRITTER: u32 = 0x100_0000;
 /// The bit of a `Creature.pak` record's flags of the big creatures, which stop no step by their
 /// cell (`0x426CB0`).
 pub const BIG: u8 = 0x02;
@@ -201,7 +202,8 @@ const CRITTER_RECORD: u8 = 0x20;
 /// way").
 ///
 /// A creature stops others only when it is alive, not big (its `Creature.pak` flags' bit
-/// `0x02`) and not a critter (its flags word's bit `0x1000000`); and it stops the hero, of id 1,
+/// `0x02`) and not a critter (its flags word's bit `0x1000000`, which only a fill's critters keep
+/// from their constructor, [`constructed`]); and it stops the hero, of id 1,
 /// only when its flags word has bit 0 or 1 (`CreateNPC`'s tags `0x12` and `0x13`: the monsters,
 /// the start's captain), every other creature, of an id above 16, whatever its flags.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,12 +229,10 @@ impl InTheWay {
         }
     }
 
-    /// A creature of type `creature` (its `items.pak` slot), whose `Creature.pak` record has
-    /// `record_flags`, and whose flags word is `word`.
-    pub fn of(creature: u32, record_flags: u8, word: u32) -> Self {
-        let critter = word & CRITTER != 0 || critter(creature, record_flags);
+    /// A creature whose `Creature.pak` record has `record_flags` and whose flags word is `word`.
+    pub fn of(record_flags: u8, word: u32) -> Self {
         Self {
-            stops: record_flags & BIG == 0 && !critter,
+            stops: record_flags & BIG == 0 && word & CRITTER == 0,
             hostile: word & STOPS_THE_HERO != 0,
             creature: true,
         }
@@ -245,10 +245,14 @@ impl InTheWay {
     }
 }
 
-/// Whether the constructor makes a creature of type `creature` a critter (`0x52DE40`): some
-/// types by their numbers, and the types whose record has [`CRITTER_RECORD`].
-fn critter(creature: u32, record_flags: u8) -> bool {
-    matches!(
+/// The bits that the constructor (`0x52DE40`) sets on the flags word of a creature of type
+/// `creature`, whose `Creature.pak` record has `record_flags`: [`CRITTER`] on the critters, some
+/// types by their numbers and the types whose record has [`CRITTER_RECORD`].
+/// `CreateNPC` writes the whole word from its tags (`0x4839F6`), so that only a fill's creatures
+/// keep them (read in the original 2026-10-22, #468: a fill's rabbit `0x1000040`, `CreateNPC`'s
+/// chickens `0x20` alone).
+pub fn constructed(creature: u32, record_flags: u8) -> u32 {
+    let critter = matches!(
         creature,
         0x47 | 0x4B
             | 0x201..=0x204
@@ -258,7 +262,8 @@ fn critter(creature: u32, record_flags: u8) -> bool {
             | 0x230..=0x233
             | 0x235
             | 0x236
-    ) || record_flags & CRITTER_RECORD != 0
+    ) || record_flags & CRITTER_RECORD != 0;
+    if critter { CRITTER } else { 0 }
 }
 
 /// The flags word (`+0x1F4`) that `CreateNPC` (`0x482510`) makes from a record's operand-less
@@ -408,9 +413,9 @@ mod tests {
 
     #[test]
     fn the_hero_is_stopped_by_the_hostile_alone_and_the_others_by_all() {
-        let guard = InTheWay::of(295, 0, flags_word([0x0E, 0x46]));
-        let captain = InTheWay::of(295, 0, flags_word([0x0E, 0x46, 0x13]));
-        let hero = InTheWay::of(1, 0, 0);
+        let guard = InTheWay::of(0, flags_word([0x0E, 0x46]));
+        let captain = InTheWay::of(0, flags_word([0x0E, 0x46, 0x13]));
+        let hero = InTheWay::of(0, 0);
         let chest = InTheWay::object();
         // The hero walks through the guard and past the chest, not through the captain.
         assert!(!guard.stops_step(true) && !chest.stops_step(true));
@@ -421,18 +426,31 @@ mod tests {
                 .iter()
                 .all(|way| way.stops_step(false))
         );
-        // A critter, by its type, its record or its flags word, and a big creature stop no one;
-        // they crowd another all the same, a chest does not.
+        // A fill's critter, by its type or its record, keeps its constructor's bit, and it and a
+        // big creature stop no one; they crowd another all the same, a chest does not.
         let critters = [
-            InTheWay::of(0x4B, 0, flags_word([0x12])),
-            InTheWay::of(295, CRITTER_RECORD, flags_word([0x12])),
-            InTheWay::of(295, 0, flags_word([0x12]) | CRITTER),
+            InTheWay::of(0, flags_word([0x12]) | constructed(0x4B, 0)),
+            InTheWay::of(CRITTER_RECORD, HOSTILE | constructed(295, CRITTER_RECORD)),
         ];
-        let troll = InTheWay::of(300, BIG, flags_word([0x12]));
+        let troll = InTheWay::of(BIG, flags_word([0x12]));
         for way in critters.iter().chain([&troll]) {
             assert!(!way.stops_step(false) && !way.stops_step(true), "{way:?}");
             assert!(way.creature);
         }
         assert!(!chest.creature);
+        // `CreateNPC`'s chicken, its word written from its tags, stops the others, not the hero.
+        let chicken = InTheWay::of(0, flags_word([0x30]));
+        assert!(chicken.stops_step(false) && !chicken.stops_step(true));
+    }
+
+    #[test]
+    fn the_constructor_marks_the_critters_by_their_types_and_records() {
+        // The rabbits, their variants among them, the chickens, the small spiders: critters.
+        for creature in [516, 592, 593, 560, 0x47] {
+            assert_eq!(constructed(creature, 0), CRITTER, "{creature}");
+        }
+        // A pig and a soldier are not, unless the soldier's record says so.
+        assert_eq!(constructed(520, 0) | constructed(295, 0), 0);
+        assert_eq!(constructed(295, CRITTER_RECORD), CRITTER);
     }
 }
