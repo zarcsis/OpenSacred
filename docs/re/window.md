@@ -90,6 +90,9 @@ Observed on 2026-10-21 (the window's pixels, 1024 × 768; the host's `new-game`,
 `dxDriver7::flip` (`0x645E40`, the driver in `ECX`; the one driver is also at `sdk_DXDISPLAY`, `0xCDCA1C`) ends every frame of the render thread.
 In a window it copies the back buffer (`+0xBC`) to the primary surface (`+0xB8`) within the window's rectangle (`Blt`), restoring the surfaces when they are lost; in full screen it flips them.
 A window outside every monitor still draws its back buffer (observed: the copy to the screen goes nowhere, and the flip reports no failure).
+A locked desktop stops the frames (observed 2026-10-22 through the system's D3D7, #546): the surfaces are lost at the lock, the flip is not reached and the frames counted stand until the lock ends.
+About 15 s after the unlock the scene's begin and end restore the surfaces (the log's `dxDriver7::BeginScene() surface restored`, then `EndScene()`'s complaint that the surface is gone), and the frames go on; the day's clock, which follows the wall clock, has moved on by the lock's length.
+Through dgVoodoo2 (D3D7 → D3D11) the surfaces are not lost and the frames go on through a lock (docs/03 §3.8).
 
 Before the copy, the flip takes screenshots: the driver's `+0xA8` counts the frames still to capture and `+0xAC` the frames captured.
 When `+0xA8` is set, the flip locks the back buffer and calls `captureScreenshot` (`0x6487D0`) with its pixels and pitch:
