@@ -116,7 +116,10 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `new-game [--class C] [--sector X,Y] […]` | ends the game, if any, and starts a new one | the same options |
 | `menu`, `quit` | back to the main menu; end the process | |
 | `pause on\|off` | pauses the game without the pause menu, for a still frame | |
-| `sector X,Y`, `cell X,Y` | puts the hero at a sector's centre or at a cell, on the ground or in a room of a building, else on the ground nearest it (#458); the sectors stream around it | `--sector` |
+| `sector X,Y` | puts the hero at a sector's centre, on the ground or in a room of a building, else on the ground nearest it (#458); the sectors stream around it | `--sector` |
+| `cell X,Y [FLOOR]`, `cell +DX,+DY [FLOOR]` | puts the hero on the cell itself, whatever it is (#522): on the ground, or on a building's floor `FLOOR` there, 0 the ground even within its walls | |
+| `cell-info [X,Y]` | what a cell of the loaded sectors is, the hero's by default: its ground, the inside layers over it, whether it is a pocket, what stands in it (#522) | |
+| `nearest [X,Y]` | where `sector` would land the hero for a cell: the cell itself, a room, or the nearest cell of the ground it walks on from (#522) | |
 | `go X,Y`, `go +DX,+DY` | sends the hero to a cell, or by an offset in cells, as a click does | `--target` |
 | `gait walk\|run` | as R | `--walking` |
 | `zoom Z` | the camera's zoom, 0.5 to 2 as in the original, 2 the widest view | `--zoom` |
@@ -137,8 +140,13 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   `--screenshot`, `--record`, `--benchmark` and `--target` stay as shortcuts.
 * `--assets` and `--settings` stay the command line's alone.
 * `sector` and `cell` jump: the streamer drops the sectors beyond two of the new place and builds the 3 × 3 around it, and the hero lands once they are in (`hero::land`, `terrain::Heights::landing`, #458), and `wait ready` waits for it.
-  It lands in the room of a building's floor 1 where the cell is one, a cell that a hero who comes in by the building's entrances reaches, whatever doors are closed; else on the cell of the ground nearest it, the cell itself first, within a sector's side, that a hero may step into and walk on from, reaching 1,024 places through the doors and the floors (an estimate: by the building of 4,37 at (268, 2378) the nearest walkable cell is a pocket of one cell amid the masses), and the log says where when it is not the cell.
+  After `sector` it lands in the room of a building's floor 1 where the cell is one, a cell that a hero who comes in by the building's entrances reaches, whatever doors are closed; else on the cell of the ground nearest it, the cell itself first, within a sector's side, that a hero may step into and walk on from, reaching 1,024 places through the doors and the floors (an estimate: by the building of 4,37 at (268, 2378) the nearest walkable cell is a pocket of one cell amid the masses), and the log says where when it is not the cell.
   The original has no such command: a hero that starts on a building's mass goes onto floor 1 wherever the floor's grid holds the cell walkable, and so do the empty cells of the grid about its rooms, behind its walls, where a hero put there by the command used to stand stranded.
+* `cell` puts the hero on the cell itself since #522: the commands are debugging tools, and a check must reach what the play cannot, a pocket of the ground or a building's mass (the blacksmith's plateau of (3253, 2867) is a pocket of 707 places in the game's data, where #458's landing put the hero 21 cells away).
+  Without a floor it stands on the ground, where the original's rule for a hero on a building's mass then takes it onto floor 1; with one it keeps that level while it stays on the cell, whatever the cell's mass, entrance or exit would make of it, and a stair it stands on takes it nowhere until it steps off.
+  A floor that no building has at a cell of the loaded sectors is an error; farther, the log says so once the sectors are in, and the hero stands on the ground.
+  `cell-info` and `nearest` answer what the landing decided: whether the hero can walk on from a cell (a pocket is fewer than 1,024 places reached through the doors and floors, whatever triggers are closed), and where `sector` would put it.
+  `cell`, `cell-info` and `nearest` take `+DX,+DY` from the hero's cell, as the original's driver does.
 * Done 2026-10-19 (#173), in a module `command`: `run` parses a line and does it with the whole world at hand, giving an `Outcome` of lines (and for `wait` what a script waits for) or an error; a script runs up to 256 lines a frame, logs each line and its output, and starts a wait with the next frame, so that `wait frames 3` lets three frames render.
   `screenshot FILE` saves the next frame; a script waits the frames it wants before it, instead of `--frames`.
   A jumping hero stands on the ground as soon as its sector's ground is in; the streamer needed nothing more.

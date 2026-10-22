@@ -127,7 +127,7 @@ pub struct Snapshot {
 
 /// A level as the overlay names it: `ground`, or `inside X,Y:L` (the inside layer `L` of sector
 /// `X,Y`).
-fn place(level: Option<(u32, u32, u16)>) -> String {
+pub(crate) fn place(level: Option<(u32, u32, u16)>) -> String {
     match level {
         Some((x, y, layer)) => format!("inside {x},{y}:{layer}"),
         None => "ground".into(),

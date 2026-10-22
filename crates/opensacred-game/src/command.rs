@@ -20,14 +20,14 @@ use crate::console::Console;
 use crate::daynight::{self, Clock};
 use crate::game::{AppState, Data, NewGame, Request};
 use crate::help::Help;
-use crate::hero::{Body, Gait, Hero, Ready};
+use crate::hero::{Arrival, Body, Gait, Hero, Ready};
 use crate::overlay::Probe;
 use crate::pause::{Play, Still};
 use crate::screenshot::{self, Recording};
 use crate::sectors::Streamer;
 use crate::settings::{Mode, Settings, SettingsFile};
-use crate::terrain::Heights;
-use crate::{atmosphere, iso, music};
+use crate::terrain::{About, Heights, LANDING_REACH, Landing, NATURES};
+use crate::{ai, atmosphere, crowd, fight, iso, music, npcs, paths};
 
 /// A line: one command.
 #[derive(Parser, Debug)]
@@ -51,11 +51,25 @@ enum Command {
         #[arg(value_parser = parse_position)]
         at: (u32, u32),
     },
-    /// Put the hero on global cell X,Y, on the ground or in a room of a building, or on the
-    /// ground nearest it where it cannot stand and walk there
+    /// Put the hero on global cell X,Y, or +DX,+DY cells from its own, whatever the cell: on the
+    /// ground, or on floor FLOOR of a building there, 0 the ground even within its walls
     Cell {
-        #[arg(value_parser = parse_position)]
-        at: (u32, u32),
+        #[arg(value_parser = parse_at, allow_hyphen_values = true)]
+        at: At,
+        floor: Option<u8>,
+    },
+    /// What a cell of the loaded sectors is, the hero's by default (X,Y or +DX,+DY): its
+    /// ground, the floors over it, what stands in it, and whether it is a pocket
+    CellInfo {
+        #[arg(value_parser = parse_at, allow_hyphen_values = true)]
+        at: Option<At>,
+    },
+    /// Where `sector` would land the hero for a cell, the hero's by default (X,Y or +DX,+DY):
+    /// the cell itself, a room of a building's floor, or the nearest cell of the ground that it
+    /// can walk on from
+    Nearest {
+        #[arg(value_parser = parse_at, allow_hyphen_values = true)]
+        at: Option<At>,
     },
     /// Send the hero to cell X,Y, or by +DX,+DY cells along X,Y (screen right-down, left-down),
     /// as a click does
@@ -153,6 +167,25 @@ fn parse_goal(text: &str) -> Result<Goal, String> {
     }
 }
 
+/// A cell that a command names: a global cell, or an offset in cells from the hero's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum At {
+    Cell(u32, u32),
+    By(i32, i32),
+}
+
+/// `X,Y` of a cell, or `+DX,+DY` of an offset from the hero's: a sign makes it an offset.
+fn parse_at(text: &str) -> Result<At, String> {
+    let (x, y) = text.split_once(',').ok_or("expected X,Y or +DX,+DY")?;
+    if text.contains(['+', '-']) {
+        let number = |s: &str| s.trim().parse::<i32>().map_err(|e| format!("{s}: {e}"));
+        Ok(At::By(number(x)?, number(y)?))
+    } else {
+        let number = |s: &str| s.trim().parse::<u32>().map_err(|e| format!("{s}: {e}"));
+        Ok(At::Cell(number(x)?, number(y)?))
+    }
+}
+
 /// `x,y` of a grid position.
 fn parse_position(text: &str) -> Result<(u32, u32), String> {
     let (x, y) = text.split_once(',').ok_or("expected X,Y")?;
@@ -238,9 +271,9 @@ fn set_state(world: &mut World, state: AppState) {
     world.resource_mut::<NextState<AppState>>().set(state);
 }
 
-/// Puts the hero at world point `position`: it lands on the cell there, or on the ground nearest
-/// it where it cannot stand and walk there, once the sectors about it are in (`hero::land`).
-fn teleport(world: &mut World, mut position: Vec3) -> Result<Outcome, String> {
+/// Puts the hero at world point `position`: it lands on the cell there as `arrival` says once
+/// the sectors about it are in (`hero::land`).
+fn teleport(world: &mut World, mut position: Vec3, arrival: Arrival) -> Result<(), String> {
     in_game(world)?;
     if let Some(y) = world
         .get_resource::<Heights>()
@@ -253,8 +286,234 @@ fn teleport(world: &mut World, mut position: Vec3) -> Result<Outcome, String> {
         .iter_mut(world)
         .next()
         .ok_or("the hero is not in the world yet")?;
-    body.put(&mut transform, position);
-    Ok(Outcome::say("the hero lands there once its sectors are in"))
+    body.put(&mut transform, position, arrival);
+    Ok(())
+}
+
+/// The hero's global cell.
+fn hero_cell(world: &mut World) -> Result<(i32, i32), String> {
+    let mut bodies = world.query_filtered::<&Transform, With<Body>>();
+    let transform = bodies
+        .iter(world)
+        .next()
+        .ok_or("the hero is not in the world yet")?;
+    Ok(paths::cell_of(
+        transform.translation.x,
+        transform.translation.z,
+    ))
+}
+
+/// The global cell that `at` names, the hero's when none.
+fn cell_at(world: &mut World, at: Option<At>) -> Result<(i32, i32), String> {
+    let cell = match at {
+        Some(At::Cell(x, y)) => (
+            i32::try_from(x).map_err(|e| e.to_string())?,
+            i32::try_from(y).map_err(|e| e.to_string())?,
+        ),
+        Some(At::By(dx, dy)) => {
+            let (x, y) = hero_cell(world)?;
+            (x + dx, y + dy)
+        }
+        None => hero_cell(world)?,
+    };
+    if cell.0 < 0 || cell.1 < 0 {
+        return Err(format!("{},{} lies off the world", cell.0, cell.1));
+    }
+    Ok(cell)
+}
+
+/// The loaded sectors' heights, or why there are none.
+fn heights(world: &World) -> Result<&Heights, String> {
+    world
+        .get_resource::<Heights>()
+        .ok_or_else(|| "no world is loaded".into())
+}
+
+/// Why a command cannot read cell `(x, y)`: it lies outside the loaded sectors.
+fn not_loaded((x, y): (i32, i32)) -> String {
+    format!("{x},{y} lies outside the loaded sectors, the 3 x 3 about the hero")
+}
+
+/// The building at its anchor, as the lines name it.
+fn building((x, y): crate::buildings::Anchor) -> String {
+    format!("the building at {x},{y}")
+}
+
+/// The lines of `cell-info` for `cell`, which is `about`, a pocket of `pocket` places or none,
+/// with `occupants` standing in it.
+fn describe(
+    (x, y): (i32, i32),
+    about: &About,
+    pocket: Option<usize>,
+    occupants: Vec<String>,
+) -> Vec<String> {
+    let side = i32::try_from(opensacred_data::world::SIDE).unwrap_or(64);
+    let mut lines = vec![format!(
+        "cell {x},{y}  sector {},{}  cell {},{} of it",
+        x / side,
+        y / side,
+        x % side,
+        y % side
+    )];
+    let corners = |values: [f32; 4]| {
+        values
+            .iter()
+            .map(|v| format!("{v:.0}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut ground = vec![
+        format!(
+            "ground {} (0x{:02X}, flags 0x{:02X})",
+            NATURES[usize::from(about.ground >> 4)],
+            about.ground,
+            about.flags
+        ),
+        if about.walkable {
+            "walkable"
+        } else {
+            "not walkable"
+        }
+        .to_owned(),
+    ];
+    for (holds, what) in [
+        (about.flown_over, "flown over"),
+        (about.entrance, "an entrance"),
+        (about.bridged, "a bridge"),
+        (about.closed, "closed by a trigger"),
+    ] {
+        if holds {
+            ground.push(what.to_owned());
+        }
+    }
+    lines.push(ground.join(", "));
+    lines.push(format!(
+        "heights {}  standing {}",
+        corners(about.heights),
+        corners(about.standing)
+    ));
+    lines.push(match about.building {
+        Some(anchor) => format!("of {}", building(anchor)),
+        None => "of no building".into(),
+    });
+    for inside in &about.inside {
+        let mut line = vec![format!(
+            "{}{}",
+            crate::overlay::place(Some(inside.level)),
+            match inside.floor {
+                Some((anchor, floor)) => format!(", floor {floor} of {}", building(anchor)),
+                None => String::new(),
+            }
+        )];
+        line.push(
+            if inside.walkable {
+                "walkable"
+            } else {
+                "not walkable"
+            }
+            .to_owned(),
+        );
+        if inside.room {
+            line.push("a room".into());
+        }
+        if inside.exit {
+            line.push("an exit".into());
+        }
+        if let Some((floors, [dx, dy])) = inside.stair {
+            let way = if floors > 0 { "up" } else { "down" };
+            line.push(format!("a stair {way} {} by {dx:+},{dy:+}", floors.abs()));
+        }
+        if inside.flown_over {
+            line.push("flown over".into());
+        }
+        if inside.closed {
+            line.push("closed by a trigger".into());
+        }
+        lines.push(line.join(", "));
+    }
+    lines.push(match pocket {
+        Some(places) => format!("a pocket: {places} places reached from it"),
+        None => "no pocket: the hero walks on from it".into(),
+    });
+    if occupants.is_empty() {
+        lines.push("nothing stands in it".into());
+    } else {
+        lines.extend(occupants.into_iter().map(|line| format!("in it: {line}")));
+    }
+    lines
+}
+
+/// What stands in `cell`: the hero, the creatures and the objects there, a line each.
+fn occupants(world: &mut World, cell: (i32, i32)) -> Vec<String> {
+    let server = world.get_resource::<AssetServer>().cloned();
+    let mut found = world.query::<(
+        Entity,
+        &Transform,
+        Has<Body>,
+        Option<&ai::Mind>,
+        Option<&fight::Health>,
+        Option<&npcs::Object>,
+        Option<&npcs::Door>,
+        Option<&crowd::InTheWay>,
+        Option<&WorldAssetRoot>,
+    )>();
+    let mut lines = Vec::new();
+    for (entity, transform, hero, mind, health, object, door, way, root) in found.iter(world) {
+        let at = object.map_or(transform.translation, |object| object.at);
+        if paths::cell_of(at.x, at.z) != cell || !(hero || mind.is_some() || object.is_some()) {
+            continue;
+        }
+        let mut line = vec![if hero {
+            "the hero".to_owned()
+        } else {
+            entity.to_string()
+        }];
+        if let Some(mind) = mind {
+            line.push(format!("type {} level {}", mind.creature, mind.level));
+            line.push(
+                if mind.hostile() {
+                    "hostile"
+                } else {
+                    "peaceful"
+                }
+                .to_owned(),
+            );
+        } else if object.is_some() {
+            line.push("an object".into());
+        }
+        if let Some(health) = health {
+            line.push(format!("health {}/{}", health.current, health.most));
+        }
+        if let Some(door) = door {
+            line.push(
+                if door.open {
+                    "an open door"
+                } else {
+                    "a closed door"
+                }
+                .to_owned(),
+            );
+        }
+        if let Some(way) = way
+            && way.level.is_some()
+        {
+            line.push(crate::overlay::place(way.level));
+        }
+        let model = root
+            .zip(server.as_ref())
+            .and_then(|(root, server)| server.get_path(root.0.id()))
+            .and_then(|path| {
+                path.path()
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+            });
+        if let Some(model) = model {
+            line.push(model);
+        }
+        lines.push(line.join("  "));
+    }
+    lines.sort();
+    lines
 }
 
 /// Saves `keys` of the settings, as they are now.
@@ -301,12 +560,83 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             world.write_message(AppExit::Success);
             Ok(Outcome::say("quitting"))
         }
-        Command::Sector { at: (x, y) } => teleport(
-            world,
-            iso::ground((x as f32 + 0.5) * side, (y as f32 + 0.5) * side),
-        ),
-        Command::Cell { at: (x, y) } => {
-            teleport(world, iso::ground(x as f32 + 0.5, y as f32 + 0.5))
+        Command::Sector { at: (x, y) } => {
+            teleport(
+                world,
+                iso::ground((x as f32 + 0.5) * side, (y as f32 + 0.5) * side),
+                Arrival::Nearest,
+            )?;
+            Ok(Outcome::say("the hero lands there once its sectors are in"))
+        }
+        Command::Cell { at, floor } => {
+            in_game(world)?;
+            let (x, y) = cell_at(world, Some(at))?;
+            // A floor that no building has at a cell of the loaded sectors; farther, `hero::land`
+            // tells it once the sectors are in.
+            if let (Some(floor @ 1..), Ok(heights)) = (floor, heights(world))
+                && heights.about((x, y)).is_some()
+                && heights
+                    .building_on_floor((x, y), usize::from(floor))
+                    .is_none()
+            {
+                return Err(format!("no building's floor {floor} holds {x},{y}"));
+            }
+            teleport(
+                world,
+                iso::ground(x as f32 + 0.5, y as f32 + 0.5),
+                Arrival::On(floor),
+            )?;
+            let on = match floor {
+                None => String::new(),
+                Some(0) => " on the ground".into(),
+                Some(floor) => format!(" on floor {floor}"),
+            };
+            Ok(Outcome::say(format!(
+                "the hero stands on {x},{y}{on} once its sectors are in"
+            )))
+        }
+        Command::CellInfo { at } => {
+            in_game(world)?;
+            let cell = cell_at(world, at)?;
+            let heights = heights(world)?;
+            let about = heights.about(cell).ok_or_else(|| not_loaded(cell))?;
+            let level = if about.walkable {
+                None
+            } else {
+                heights.level_of(cell)
+            };
+            let pocket = heights.pocket(cell, level);
+            let occupants = occupants(world, cell);
+            Ok(Outcome {
+                lines: describe(cell, &about, pocket, occupants),
+                wait: None,
+            })
+        }
+        Command::Nearest { at } => {
+            in_game(world)?;
+            let (x, y) = cell_at(world, at)?;
+            let heights = heights(world)?;
+            if heights.about((x, y)).is_none() {
+                return Err(not_loaded((x, y)));
+            }
+            Ok(Outcome::say(match heights.landing((x, y)) {
+                Some(Landing::On(None)) => format!("{x},{y} itself, on the ground"),
+                Some(Landing::On(level)) => match heights.floor(level) {
+                    Some((anchor, floor)) => {
+                        format!(
+                            "{x},{y} itself, in a room of floor {floor} of {}",
+                            building(anchor)
+                        )
+                    }
+                    None => format!("{x},{y} itself, {}", crate::overlay::place(level)),
+                },
+                Some(Landing::Near((nx, ny))) => format!(
+                    "{nx},{ny} on the ground, {:+},{:+} from {x},{y}",
+                    nx - x,
+                    ny - y
+                ),
+                None => format!("no cell within {LANDING_REACH} of {x},{y} can be walked on from"),
+            }))
         }
         Command::Go { to } => {
             in_game(world)?;
@@ -774,6 +1104,84 @@ mod tests {
     }
 
     #[test]
+    fn a_cell_is_named_or_an_offset_from_the_heros() {
+        assert_eq!(parse_at("3253,2868"), Ok(At::Cell(3253, 2868)));
+        assert_eq!(parse_at("+3,-2"), Ok(At::By(3, -2)));
+        assert_eq!(parse_at("-1,0"), Ok(At::By(-1, 0)));
+        assert!(parse_at("3253").is_err());
+        let Line {
+            command: Command::Cell { at, floor },
+        } = Line::try_parse_from(["cell", "-4,+1", "2"]).unwrap()
+        else {
+            panic!("not a cell");
+        };
+        assert_eq!((at, floor), (At::By(-4, 1), Some(2)));
+    }
+
+    #[test]
+    fn a_cell_tells_its_ground_floors_pocket_and_occupants() {
+        let about = About {
+            ground: 0x41,
+            flags: 0x03,
+            heights: [10.0, 12.4, 11.0, 9.0],
+            standing: [0.0; 4],
+            walkable: false,
+            flown_over: false,
+            entrance: false,
+            bridged: false,
+            building: Some((3250, 2860)),
+            closed: false,
+            inside: vec![crate::terrain::Inside {
+                level: (50, 44, 2),
+                floor: Some(((3250, 2860), 1)),
+                walkable: true,
+                flown_over: false,
+                exit: false,
+                stair: Some((1, [2, -1])),
+                closed: true,
+                room: true,
+            }],
+        };
+        let lines = describe(
+            (3253, 2867),
+            &about,
+            Some(37),
+            vec!["464v1  hostile".into()],
+        );
+        assert_eq!(
+            lines,
+            [
+                "cell 3253,2867  sector 50,44  cell 53,51 of it",
+                "ground GRASS (0x41, flags 0x03), not walkable",
+                "heights 10 12 11 9  standing 0 0 0 0",
+                "of the building at 3250,2860",
+                "inside 50,44:2, floor 1 of the building at 3250,2860, walkable, a room, a stair up \
+                 1 by +2,-1, closed by a trigger",
+                "a pocket: 37 places reached from it",
+                "in it: 464v1  hostile",
+            ]
+        );
+        let open = describe(
+            (1, 1),
+            &About {
+                inside: Vec::new(),
+                building: None,
+                ..about
+            },
+            None,
+            Vec::new(),
+        );
+        assert_eq!(open[3], "of no building");
+        assert_eq!(
+            open[4..],
+            [
+                "no pocket: the hero walks on from it",
+                "nothing stands in it"
+            ]
+        );
+    }
+
+    #[test]
     fn scripts_split_into_commands() {
         assert_eq!(
             exec_lines("zoom 2;  wait frames 3 ;; zoom 0.5"),
@@ -842,6 +1250,13 @@ mod tests {
                 .unwrap_err()
                 .contains("not in the world")
         );
+        for line in ["cell 1,2", "cell +1,+2 0", "cell-info", "nearest"] {
+            assert!(
+                run(world, line).unwrap_err().contains("not in the world"),
+                "{line}"
+            );
+        }
+        assert!(run(world, "nearest 5,5").unwrap_err().contains("no world"));
         let help = run(world, "help").unwrap();
         assert!(help.lines.iter().any(|line| line.contains("new-game")));
         let state = run(world, "state").unwrap();
