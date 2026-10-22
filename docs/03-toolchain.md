@@ -276,7 +276,18 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 
 ### 3.8 Driving the original
 
-Planned (#448; the steps #449–#452): Claude Code drives the developer's own running `Sacred.exe` the way it drives the game (§3.7), to see for itself how the original behaves (the checks of #227).
+Claude Code drives the developer's own running `Sacred.exe` the way it drives the game (§3.7), to see for itself how the original behaves (the checks of #227; #448, its steps #449–#452).
+The host, its guards, the frames and the process's state are in place (#449); the player's input (#450), the world's state and commands (#451) and the traces (#452) follow.
+The project skill `original` says how to run it.
+
+```bash
+python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
+python -I tools/game/remote.py --port 15703 state
+python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
+python -I tools/game/remote.py --port 15703 logs --after 0
+python -I tools/game/remote.py --port 15703 exec quit
+```
+
 The maintainer's decisions of 2026-10-21:
 
 * **Frida, not a Rust crate.**
@@ -313,7 +324,18 @@ How it works:
   The original's own screenshot (`Capture/shotNNNN.tga`), converted to PNG by the host; the back buffer read before the flip if that fails.
 * Frames, logs and traces of the original stay local, never in the repository, issues or pull requests (docs/08 §3); the results go into the issues and `docs/re/` as prose.
 
-Open until the first steps answer them: whether Frida may spawn and inject from Claude Code's sandbox; whether the D3D7 window draws outside the monitors and on a locked desktop (if not, dgVoodoo2 in `OriginalGame/` needs the maintainer's word); whether the simulation as well as the drawing stops without the focus; the addresses of the objects' table, the local hero and the program's screen.
+What the first step found (2026-10-21, Windows 11, #449):
+
+* Frida 17.24.3 spawns the 32-bit `Sacred.exe` suspended and injects into it from Claude Code's sandbox, with no command needing the sandbox disabled.
+* The window outside every monitor draws all the same: 47–48 frames a second on the main menu for a minute, while another program has the foreground, and the screenshots are whole, as they come from the back buffer (docs/re/window.md).
+  The game is never the foreground window and its window never topmost.
+* Without the focus the original stands still rather than spinning: its render thread skips the frame, the world's updates in it as well, and sleeps (docs/re/window.md); with the window never activated, the game keeps the focus as it believes.
+  At the start it waits for the foreground with no end, which the agent's answers to the focus queries end at once.
+* The "tabblocker" installs its low-level keyboard hook only with the word `tabblocker` on the command line, and removes it again at once; the guard refuses it all the same (`--arg tabblocker` shows the refusal in the log).
+* Stopping the host's background task ends the game within a second, the game's `quit` ends the host with its exit code, and a host that stops answering for 5 s ends the game.
+* Open: whether it draws on a locked desktop.
+  If it does not, the maintainer allowed dgVoodoo2 (2026-10-21): the official build, only its D3D7 and DirectDraw DLLs beside `Sacred.exe`, written here, removed when no longer needed.
+* Open until #450–#451: the addresses of the objects' table, the local hero and the program's screen.
 
 ## 4. Binary analysis
 

@@ -15,8 +15,9 @@ An open-source engine for Sacred Gold 2.28 (GOG), written in Rust: an offline co
 | `OriginalGame/` | the developer's own GOG installation, ignored by Git — the reference, read-only |
 | `docs/manifest-gog-2.28.txt` | SHA-256 of the reference installation (`sha256sum` format), embedded in `opensacred-convert` and `opensacred-oracle` |
 | `build.rs` | the build script of the converter and the game: their `--version` from `git describe` (`Cargo.toml` has no version) |
-| `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`); the game's remote-control client `tools/game/remote.py`; the Ghidra project's scripts `tools/ghidra/`; the process scripts `tools/usage/` and `tools/stack/` |
+| `tools/` | research Python scripts — an archive and the reference for cross-checking readers (`tools/README.md`); the game's remote-control client `tools/game/remote.py`; the original's driver `tools/original/` (Frida, docs/03 §3.8); the Ghidra project's scripts `tools/ghidra/`; the process scripts `tools/usage/` and `tools/stack/` |
 | `.claude/skills/game/` | the project skill `game`: how to run the game and drive it (scripts, remote control) |
+| `.claude/skills/original/` | the project skill `original`: how to run the original `Sacred.exe` in the background and drive it |
 
 ## Commands
 
@@ -41,6 +42,8 @@ cargo run --release -p opensacred-game -- --screenshot shot.png   # render one f
 cargo run --release -p opensacred-game -- --windowed --no-music --exec "new-game --class mage; wait ready; screenshot shot.png; quit"   # a script of the game's commands (help lists them)
 cargo run --release -p opensacred-game -- --remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log   # remote control on 127.0.0.1:15702 (the skill `game`, docs/03 §3.7)
 python -I tools/game/remote.py exec "go +6,+2"          # drive a game started with --remote: exec, state, wait-ready, wait-state, key, type, move, click, wheel, screenshot, logs, call
+python -I tools/original/host.py --log-file <scratch>/original.log   # the original Sacred.exe under Frida in the background, remote control on 127.0.0.1:15703 (the skill `original`, docs/03 §3.8)
+python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png   # drive the original: state, screenshot, logs, exec quit
 gltf_validator assets/models                         # writes a .report.json next to every .glb
 cargo nextest run --workspace                       # tests without the game files (as in CI)
 cargo nextest run --workspace --run-ignored all     # plus tests on the game files and the GPU (the oracle's vectors recorded first)

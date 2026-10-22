@@ -5,6 +5,8 @@ Purpose: Claude Code and scripts drive a game started with `--remote`: run its c
 send the player's keys, text and clicks, take screenshots. The game listens on 127.0.0.1 only (Bevy's Remote
 Protocol, JSON-RPC 2.0 over HTTP, port 15702 by default); this client calls the game's own methods
 (`opensacred/exec`, `opensacred/state`, `opensacred/input`, `opensacred/screenshot`, `opensacred/logs`) or any other.
+With `--port 15703` it drives the original Sacred.exe under `tools/original/host.py`, which serves the same methods
+(docs/03 §3.8).
 
 Example
   cargo run --release -p opensacred-game -- --remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log
@@ -46,7 +48,7 @@ def call(port, method, params=None):
 
 def lines(snapshot):
     """The overlay's lines of a snapshot, as the game's `state` command prints them."""
-    head = f"OpenSacred {snapshot['version']}"
+    head = f"{snapshot.get('name', 'OpenSacred')} {snapshot['version']}"
     if snapshot.get('gpu'):
         head += f" | {snapshot['gpu']}"
     if snapshot.get('window'):
@@ -54,6 +56,15 @@ def lines(snapshot):
         head += f' | {width}x{height} {mode}'
     out = [head, f"{snapshot['fps']:6.1f} fps {snapshot['frame_ms']:6.2f} ms  slowest {snapshot['slowest_ms']:6.2f} ms  "
                  f"{snapshot['state']}"]
+    process = snapshot.get('process')
+    if process:
+        line = (f"process {process['pid']} " + ('running' if process['running'] else f"ended ({process['exit_code']})")
+                + f", {snapshot['frames']} frames, {'focused' if snapshot.get('focused') else 'not focused'} as it believes")
+        if snapshot.get('rect'):
+            line += ', window at {},{}'.format(*snapshot['rect'][:2]) + f" ({snapshot['place']})"
+        if snapshot.get('refusals'):
+            line += f", {snapshot['refusals']} calls refused"
+        out.append(line)
     hero = snapshot.get('hero')
     if hero:
         place = 'ground' if not hero.get('inside') else 'inside {},{}:{}'.format(*hero['inside'])
