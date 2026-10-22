@@ -40,7 +40,7 @@ Stopping the host's background task ends the game within a second (a job object)
 
 | Call | What it does |
 |---|---|
-| `state` (`--json`) | the screen (`menu`, `loading`, `game`, `paused`: the game's time stands, under the menu over a game, the saves' list or a tutorial window), `ready` (a game, nothing scripted running), the process, the frames drawn and the rate, the window's rectangle, whether the game believes it has the focus, the agent's cursor, the guards' refusals |
+| `state` (`--json`) | the screen (`menu`, `loading`, `game`, `paused`: the game's time stands, under the menu over a game, the saves' list or a tutorial window), `ready` (a game, nothing scripted running); in a game the hero's cell, sector, floor, gait and whether it moves, its health, level and experience, the clock and its phase, the zoom, the creatures and objects counted, the nearest creature; the process, the frames drawn and the rate, the window's rectangle, whether the game believes it has the focus, the agent's cursor, the guards' refusals |
 | `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then |
 | `key NAME` | press and release a key, as opensacred-game names them: `Escape` (the menu over a game), `Enter`, `Space`, `L` (the log book), `F1`…`F12`, `NumpadAdd`, `Control+…`; a key with a character sends it too, as a keyboard does |
 | `type "TEXT"` | characters, as into a name's field |
@@ -51,9 +51,13 @@ Stopping the host's background task ends the game within a second (a job object)
 | `exec help` | the commands |
 | `exec "new-game [--class C] [--difficulty bronze] [--name N] [--skip-tutorial]"` | from the main menu, the Ancaria campaign with a class of `seraphim` (by default), `gladiator`, `mage`, `wood-elf`, `dark-elf`, `daemon`, `dwarf`, `vampiress`; OK and No more Tips close the first windows unless `--skip-tutorial`; then `wait-ready` |
 | `exec "save NAME"`, `exec "load NAME"`, `exec saves` | through the original's own menus: a save of that name is overwritten, else a new one is made in `save/`; a load from the main menu or a game; then `wait-ready` |
+| `exec "creatures [RADIUS]"` | the creatures within RADIUS cells of the hero (20), the nearest first: id, type, cell (and floor inside), health, level, the AI's and the action's states (docs/re/ai.md), the target's id |
+| `exec "cell X,Y [FLOOR]"`, `exec "sector X,Y"` | the hero onto the cell, or the nearest it may stand on, as the scripts' `Teleport` puts a player; floor 0 is the ground even within a building's walls, 1 a building's ground floor |
+| `exec "go X,Y"`, `exec "go +DX,+DY"`, `exec "point X,Y"` | a walk by a click on the cell's pixel (on the screen only), or the pixel alone for `click` (a creature's cell: an attack) |
+| `exec "time HH:MM"`, `exec "day-speed DAY [NIGHT]"`, `exec "zoom Z"` | the clock, its rates (0 stops it), the zoom (0.5 to 2; the game settles on 0.5, 1 or 2) |
 | `exec quit` | the game closes as its window is closed, and the host with it |
 
-The input goes to the game as the agent's own messages: the keys and cursor the game queries are the agent's, and the maintainer's keyboard and mouse never reach it, nor does input posted to the window from outside. The world's state and commands and the traces come with #451–#452.
+The input goes to the game as the agent's own messages: the keys and cursor the game queries are the agent's, and the maintainer's keyboard and mouse never reach it, nor does input posted to the window from outside. The traces come with #452. A level-1 hero teleported among monsters dies within seconds (it rises again at its start): place it at a distance and read `creatures` first.
 
 ## Rules
 

@@ -55,6 +55,12 @@ SAVES_PICTURE = lambda row: (135, 360 + 137 * row)  # a row's picture, which pic
 SAVE_NAME_OFFSET = 0x500        # the save's name in save/GAMEnn.PAK, a C string
 SAVE_NAME = re.compile(r'[A-Za-z0-9 _.-]{1,24}')
 
+# The world's commands (#451). A cell that the scripts' Teleport takes for the end of the game (sdk_ENGINE_TP) is
+# refused; the interface's bar covers the window's bottom, where a click would not reach the ground.
+FINAL_CELL = (0x189C, 0x591)
+GROUND_BOTTOM = 650
+CELL_LINE = re.compile(r'^\s*(\+|-)?(\d+)\s*,\s*(\+|-)?(\d+)\s*$')
+
 # The keys of Settings.cfg the host sets before each start, and nothing else (#448, decision 2).
 SETTINGS = {'FULLSCREEN': '0', 'SHOWMOVIE': '0'}
 VOLUMES = {'MUSICVOLUME': '0', 'SFXVOLUME': '0', 'VOICEVOLUME': '0'}
@@ -352,8 +358,43 @@ class Host:
             'refusals': agent.get('refusals', 0),
             'flip_error': agent.get('flip_error', 0),
             'cursor': agent.get('cursor'),
+            'npcs': 0, 'objects': 0, 'entities': 0,
         }
+        if running and agent.get('screen') in ('game', 'paused'):
+            try:
+                world = self.agent.world('snapshot', {})
+            except Exception as e:
+                world = None
+                snapshot['world_error'] = str(e)
+            if world:
+                snapshot.update(self.world_fields(world))
         return snapshot
+
+    @staticmethod
+    def world_fields(world):
+        """The world's snapshot of the agent in the fields of opensacred-game's state."""
+        fields = {'npcs': world['creatures'], 'objects': world['objects'], 'entities': world['objects'],
+                  'zoom': world['zoom']}
+        if world.get('clock'):
+            fields['clock'] = [world['clock']['time'], world['clock']['phase']]
+            fields['day_rates'] = world['clock']['rates']
+        hero = world.get('hero')
+        if hero:
+            x, y = hero['cell']
+            fields['hero'] = {
+                'cell': [x, y], 'sector': [x >> 6, y >> 6],
+                'inside': [x >> 6, y >> 6, hero['floor']] if hero['inside'] else None,
+                'target': None, 'onto': None,
+                'gait': 'run' if hero['gait'] == 2 else 'walk', 'moving': hero['action'][0] == 1,
+            }
+            fields['health'] = [hero['health'], hero['most']]
+            fields['experience'] = [hero['level'], hero['experience']]
+            fields['hero_state'] = {'id': hero['id'], 'type': hero['type'], 'ai': hero['ai'], 'action': hero['action']}
+        nearest = world.get('nearest')
+        if nearest:
+            fields['nearest'] = [nearest['health'], nearest['most'], nearest['level']]
+            fields['nearest_creature'] = nearest
+        return fields
 
     def screenshot(self, params):
         path = os.path.abspath(params['path'])
@@ -389,9 +430,19 @@ class Host:
                 "save NAME: in a game, saves through the original's menu into the save of that name, or a new one",
                 'load NAME: from the main menu or a game, loads the save of that name; then wait-ready',
                 'saves: the saves of save/, their files and names',
+                'creatures [RADIUS]: the creatures within RADIUS cells of the hero (20 by default), the nearest first',
+                'cell X,Y [FLOOR]: the hero onto that cell (on the ground, or a building\'s floor), or the nearest one '
+                'it may stand on, as the scripts teleport a player',
+                'sector X,Y: the hero into that sector, near its middle',
+                'time HH:MM: the clock; day-speed DAY [NIGHT]: its rates (1 by default, 0 stops it)',
+                'zoom Z: the view\'s zoom, 0.5 to 2 (the game settles on 0.5, 1 or 2)',
+                'point X,Y: the window\'s pixel of a cell, for click',
+                'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'quit: closes the game as its window is closed, ends it after 15 s if it is still running']}
         if word == 'new-game':
             return {'output': [self.start_script('new-game', self.new_game, self.new_game_options(rest))]}
+        if word in WORLD_COMMANDS:
+            return {'output': WORLD_COMMANDS[word](self, rest.strip())}
         if word == 'saves':
             return {'output': [f'{file} {name}' for file, name in self.saves()] or ['no saves']}
         if word in ('save', 'load'):
@@ -605,6 +656,91 @@ class Host:
         self.click(SAVES_CONFIRM, 1)
         self.wait_screen({'game'}, 180)
 
+    # --- The world ---------------------------------------------------------------------------------------------
+
+    def world(self, name, args):
+        if self.ended.is_set():
+            raise RuntimeError('the game has ended')
+        return self.agent.world(name, args)
+
+    def hero_cell(self):
+        hero = self.world('snapshot', {}).get('hero')
+        if not hero:
+            raise RuntimeError('no hero')
+        return hero['cell']
+
+    def target_cell(self, text, relative_to_hero):
+        match = CELL_LINE.match(text)
+        if not match:
+            raise ValueError(f'a cell: X,Y or +DX,+DY, not {text!r}')
+        sx, x, sy, y = match.groups()
+        x, y = int(x) * (-1 if sx == '-' else 1), int(y) * (-1 if sy == '-' else 1)
+        if relative_to_hero and (sx or sy):
+            hx, hy = self.hero_cell()
+            x, y = hx + x, hy + y
+        return x, y
+
+    def command_creatures(self, rest):
+        radius = int(rest) if rest else 20
+        found = self.world('creatures', {'radius': radius})
+        lines = [f'{len(found)} creatures within {radius} cells of the hero']
+        for c in found:
+            lines.append(f"{c['id']} type {c['type']} cell {c['cell'][0]},{c['cell'][1]}"
+                         + (f" floor {c['floor']}" if c['inside'] else '')
+                         + f" health {c['health']}/{c['most']} level {c['level']} ai {c['ai'][0]}.{c['ai'][1]}"
+                         f" action {c['action'][0]}.{c['action'][1]}"
+                         + (f" target {c['target']}" if c['target'] else ''))
+        return lines
+
+    def command_cell(self, rest, search=8):
+        where, _, floor = rest.partition(' ')
+        if floor.strip() and not floor.strip().isdigit():
+            raise ValueError('cell X,Y [FLOOR]')
+        x, y = self.target_cell(where, relative_to_hero=True)
+        if (x, y) == FINAL_CELL:
+            raise ValueError('that cell is the one the scripts take for the end of the game')
+        placed = self.world('cell', {'x': x, 'y': y, 'floor': int(floor or 0), 'search': search})
+        return [f"hero at {placed['cell'][0]},{placed['cell'][1]} (asked {x},{y})"]
+
+    def command_sector(self, rest):
+        x, y = self.target_cell(rest, relative_to_hero=False)
+        return self.command_cell(f'{x * 64 + 32},{y * 64 + 32}', search=24)
+
+    def command_time(self, rest):
+        match = re.fullmatch(r'(\d{1,2}):(\d{2})', rest)
+        if not match or int(match.group(1)) > 23 or int(match.group(2)) > 59:
+            raise ValueError('time HH:MM')
+        clock = self.world('time', {'hours': int(match.group(1)), 'minutes': int(match.group(2))})
+        return [f"{clock['time']} {clock['phase']}"]
+
+    def command_day_speed(self, rest):
+        words = rest.split()
+        if not 1 <= len(words) <= 2:
+            raise ValueError('day-speed DAY [NIGHT]')
+        day = float(words[0])
+        night = float(words[1]) if len(words) > 1 else day
+        clock = self.world('day-speed', {'day': day, 'night': night})
+        return [f"{clock['time']} {clock['phase']}, rates {clock['rates'][0]:g} by day, {clock['rates'][1]:g} by night"]
+
+    def command_zoom(self, rest):
+        zoom = float(rest)
+        if not 0.5 <= zoom <= 2:
+            raise ValueError('zoom: 0.5 to 2')
+        return [f"zoom {self.world('zoom', {'zoom': zoom}):.2f}"]
+
+    def command_point(self, rest):
+        x, y = self.target_cell(rest, relative_to_hero=True)
+        px, py = self.world('point', {'x': x, 'y': y})
+        return [f'{px} {py}']
+
+    def command_go(self, rest):
+        x, y = self.target_cell(rest, relative_to_hero=True)
+        px, py = self.world('point', {'x': x, 'y': y})
+        if not (0 <= px < WIDTH and 0 <= py < GROUND_BOTTOM):
+            raise RuntimeError(f'{x},{y} is off the screen ({px},{py}): go nearer first')
+        self.agent.input({'click': [px, py]})
+        return [f'to {x},{y} by a click at {px},{py}']
+
     def quit_later(self):
         if not self.ended.wait(15):
             self.journal.push('WARN', 'host', 'the game is still running 15 s after its window was closed: ended')
@@ -613,6 +749,13 @@ class Host:
     METHODS = {'opensacred/state': lambda self, params: self.state(),
                'opensacred/screenshot': screenshot, 'opensacred/logs': logs, 'opensacred/exec': exec,
                'opensacred/input': input}
+
+
+WORLD_COMMANDS = {
+    'creatures': Host.command_creatures, 'cell': Host.command_cell, 'sector': Host.command_sector,
+    'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
+    'point': Host.command_point, 'go': Host.command_go,
+}
 
 
 def serve(host, port):
@@ -633,7 +776,9 @@ def serve(host, port):
             except (KeyError, TypeError, ValueError) as e:
                 self.answer({'jsonrpc': '2.0', 'id': ident, 'error': {'code': -32602, 'message': repr(e)}})
             except Exception as e:
-                self.answer({'jsonrpc': '2.0', 'id': ident, 'error': {'code': -32603, 'message': str(e)}})
+                # An error of the agent carries its stack after its message.
+                message = str(e).splitlines()[0] if str(e) else repr(e)
+                self.answer({'jsonrpc': '2.0', 'id': ident, 'error': {'code': -32603, 'message': message}})
 
         def answer(self, body):
             data = json.dumps(body).encode()
