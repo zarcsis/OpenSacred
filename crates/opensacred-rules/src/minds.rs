@@ -416,6 +416,9 @@ pub struct Mind {
     /// Whether it went to melee from its bow and takes one again (`+0x2B8` bit `0x10`, which only
     /// the switch to melee sets, `0x4D4D85`, and the bow-taking clears, `0x4D4A80`).
     takes_bow: bool,
+    /// Whether its flags are its first update's ([`Self::new`]), which [`Self::hold`] takes
+    /// back.
+    first: bool,
     awake: bool,
     clock: f32,
     period: f32,
@@ -438,8 +441,10 @@ impl Mind {
     ) -> Self {
         let hostile = flags & 0x3 != 0;
         // A creature of an `Enter` function still without flags takes them at its first update
-        // (`0x5375C0`): the animals of class 6 the loose farm animals', the jugglers theirs, the
-        // others the townsfolk's. A fill's critter is never without: its constructor's bit.
+        // (`0x5375C0`, `0x542B20`): the animals of class 6 the loose farm animals', the jugglers
+        // theirs, the others the townsfolk's, unless `CreateNPC` holds it ([`Self::hold`]). A
+        // fill's critter is never without: its constructor's bit.
+        let first = enter && flags == 0;
         let flags = match (enter, flags, class) {
             (true, 0, 6) => FARM_LOOSE,
             (true, 0, _) if JUGGLERS.contains(&creature) => JUGGLER,
@@ -469,6 +474,7 @@ impl Mind {
             runs_at_range: false,
             shots: Chain::default(),
             takes_bow: false,
+            first,
             awake: hostile && created,
             clock: 0.0,
             period: if hostile && created {
@@ -477,6 +483,20 @@ impl Mind {
                 PERIOD
             },
             rests: 0.0,
+        }
+    }
+
+    /// Gives it its dialogue and whether it is a trader, and whether `CreateNPC`'s tags `0x1A`,
+    /// `0x70`, `0x71` or `0x72` keep it (`+0x200` bit `0x200`, `0x482510`): the first update
+    /// passes over a creature with a dialogue (`+0x245`) or with any of the `+0x200` bits
+    /// `0x40077C0`, the traders' and that bit among them (`0x542B20`), so that it keeps no flags
+    /// and stands (#482).
+    pub fn hold(&mut self, dialogue: bool, trader: bool, kept: bool) {
+        self.dialogue = dialogue;
+        self.trader = trader;
+        if self.first && (dialogue || trader || kept) {
+            self.flags = 0;
+            self.first = false;
         }
     }
 
@@ -2431,6 +2451,23 @@ mod tests {
         // An `Init` function's creature without a tag keeps none and stands.
         let init = Mind::new(Spot::default(), 0, (false, true), None, SPEEDS, (560, 6));
         assert_eq!(init.flags, 0);
+    }
+
+    #[test]
+    fn a_speaker_a_trader_or_a_kept_creature_takes_no_first_update() {
+        let held = |flags, (dialogue, trader, kept)| {
+            let mut mind = Mind::new(Spot::default(), flags, (true, true), None, SPEEDS, (692, 3));
+            mind.hold(dialogue, trader, kept);
+            mind.flags
+        };
+        // The merchant of 50,40 without a tag keeps none, as the novice with a dialogue does
+        // (#482); a townsperson without either takes the townsfolk's.
+        assert_eq!(held(0, (false, true, false)), 0);
+        assert_eq!(held(0, (true, false, false)), 0);
+        assert_eq!(held(0, (false, false, true)), 0);
+        assert_eq!(held(0, (false, false, false)), TOWNSFOLK);
+        // A tag's flags stay: the first update only gives a creature without any.
+        assert_eq!(held(TOWNSFOLK, (false, true, false)), TOWNSFOLK);
     }
 
     #[test]
