@@ -160,6 +160,12 @@ pub struct Body {
     pinned: Option<(i32, i32)>,
 }
 
+/// A hero that flies, for a test (the command `fly`, #526): it goes straight where it is sent,
+/// through walls and buildings and over water, on the ground's level, and goes nowhere else on its
+/// own, through no door and up no stair ([`run`]).
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Flies;
+
 /// How a hero that a command put on a cell lands there ([`land`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arrival {
@@ -563,11 +569,12 @@ pub fn run(
         &mut Body,
         Has<crate::attack::Striking>,
         Has<Dies>,
+        Has<Flies>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body, striking, dying) in &mut bodies {
+    for (me, mut transform, mut body, striking, dying, flies) in &mut bodies {
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
@@ -585,89 +592,113 @@ pub fn run(
         // on an exit out; one on a stair it stepped onto from off the stairs to the stair's
         // floor, at the cell the stair gives (`0x5FCCB0`). One that a command put there lands
         // as [`land`] says, and one it stood on a floor it named stays there.
-        if body.pinned.is_none() {
-            if body.level.is_none() && !heights.walkable(cell) && body.landing.is_none() {
-                body.level = heights.level_of(cell);
-            }
-            body.level = heights.transition(cell, body.level);
-        }
-        if !heights.on_stairs(cell, body.level) {
-            body.climbed = false;
-        }
-        let mut here = here;
-        if !body.climbed
-            && let Some((to, level)) = heights.climb(cell, body.level)
-        {
-            let shift = iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32);
-            here += shift.with_y(0.0);
-            if let Some(y) = heights.standing(here.x, here.z, level) {
-                here.y = y;
-            }
-            transform.translation = here;
-            body.level = level;
+        if flies {
+            // Straight on, on the ground's level, at the ground's height where it is in.
+            body.level = None;
+            body.pinned = None;
             body.climbed = true;
-            if sent_to_stair(body.target, cell) {
-                body.target = None;
-            }
-        }
-        let level = body.level;
-        if let Some(target) = body.target {
-            // A cell it may step into: walkable, no object and no hostile creature in it.
-            let free = |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, me, true);
-            let walkable = |cell| free(cell, level);
-            // Round what blocks the way and through the doors; straight on toward a target that
-            // cannot be reached, up to what blocks it.
-            // From where it stands it climbs no more: the stair it stands on, if any, it has
-            // climbed already or arrived on.
-            let onto = body.onto;
-            let (toward, reachable) = match paths::next(
-                here,
-                (level, false),
-                target,
-                onto,
-                |cell, (at, _)| free(cell, at),
-                |place| {
-                    let mut next = heights.neighbours(place);
-                    next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
-                    next
-                },
-                |(at, _)| at,
-            ) {
-                Some(paths::Step::Through((next, _))) => {
-                    body.level = next;
-                    (here, true)
-                }
-                Some(paths::Step::Toward(point)) => (point, true),
-                None => (target, false),
-            };
-            let to = (toward - here).with_y(0.0);
-            let distance = to.length();
-            let left = (target - here).with_y(0.0).length();
-            // There on the target's level, or as near as it gets to one it cannot reach.
-            let on_level = !reachable || onto.is_none_or(|onto| onto == body.level);
-            if left <= ARRIVED && on_level {
-                body.target = None;
-            } else if distance <= f32::EPSILON {
-                // Through a door: on, the next frame.
-                moving = body.moving;
-            } else {
-                let step = (hero.speed() * time.delta_secs()).min(distance);
-                let mut position = here + to / distance * step;
-                // A step into a cell it may not walk on, out of one it may, is not taken.
-                let (from, into) = (
-                    paths::cell_of(here.x, here.z),
-                    paths::cell_of(position.x, position.z),
-                );
-                if into != from && !walkable(into) && walkable(from) {
+            if let Some(target) = body.target {
+                let to = (target - here).with_y(0.0);
+                let left = to.length();
+                if left <= ARRIVED {
                     body.target = None;
                 } else {
-                    // On its level's heights: a bridge's deck, a building's floor.
-                    if let Some(y) = heights.standing(position.x, position.z, body.level) {
+                    let step = (hero.speed() * time.delta_secs()).min(left);
+                    let mut position = here + to / left * step;
+                    if let Some(y) = heights.standing(position.x, position.z, None) {
                         position.y = y;
                     }
                     transform.translation = position;
                     transform.rotation = facing(to);
                     moving = Some(hero.gait);
+                }
+            }
+        } else {
+            if body.pinned.is_none() {
+                if body.level.is_none() && !heights.walkable(cell) && body.landing.is_none() {
+                    body.level = heights.level_of(cell);
+                }
+                body.level = heights.transition(cell, body.level);
+            }
+            if !heights.on_stairs(cell, body.level) {
+                body.climbed = false;
+            }
+            let mut here = here;
+            if !body.climbed
+                && let Some((to, level)) = heights.climb(cell, body.level)
+            {
+                let shift = iso::ground((to.0 - cell.0) as f32, (to.1 - cell.1) as f32);
+                here += shift.with_y(0.0);
+                if let Some(y) = heights.standing(here.x, here.z, level) {
+                    here.y = y;
+                }
+                transform.translation = here;
+                body.level = level;
+                body.climbed = true;
+                if sent_to_stair(body.target, cell) {
+                    body.target = None;
+                }
+            }
+            let level = body.level;
+            if let Some(target) = body.target {
+                // A cell it may step into: walkable, no object and no hostile creature in it.
+                let free =
+                    |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, me, true);
+                let walkable = |cell| free(cell, level);
+                // Round what blocks the way and through the doors; straight on toward a target that
+                // cannot be reached, up to what blocks it.
+                // From where it stands it climbs no more: the stair it stands on, if any, it has
+                // climbed already or arrived on.
+                let onto = body.onto;
+                let (toward, reachable) = match paths::next(
+                    here,
+                    (level, false),
+                    target,
+                    onto,
+                    |cell, (at, _)| free(cell, at),
+                    |place| {
+                        let mut next = heights.neighbours(place);
+                        next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
+                        next
+                    },
+                    |(at, _)| at,
+                ) {
+                    Some(paths::Step::Through((next, _))) => {
+                        body.level = next;
+                        (here, true)
+                    }
+                    Some(paths::Step::Toward(point)) => (point, true),
+                    None => (target, false),
+                };
+                let to = (toward - here).with_y(0.0);
+                let distance = to.length();
+                let left = (target - here).with_y(0.0).length();
+                // There on the target's level, or as near as it gets to one it cannot reach.
+                let on_level = !reachable || onto.is_none_or(|onto| onto == body.level);
+                if left <= ARRIVED && on_level {
+                    body.target = None;
+                } else if distance <= f32::EPSILON {
+                    // Through a door: on, the next frame.
+                    moving = body.moving;
+                } else {
+                    let step = (hero.speed() * time.delta_secs()).min(distance);
+                    let mut position = here + to / distance * step;
+                    // A step into a cell it may not walk on, out of one it may, is not taken.
+                    let (from, into) = (
+                        paths::cell_of(here.x, here.z),
+                        paths::cell_of(position.x, position.z),
+                    );
+                    if into != from && !walkable(into) && walkable(from) {
+                        body.target = None;
+                    } else {
+                        // On its level's heights: a bridge's deck, a building's floor.
+                        if let Some(y) = heights.standing(position.x, position.z, body.level) {
+                            position.y = y;
+                        }
+                        transform.translation = position;
+                        transform.rotation = facing(to);
+                        moving = Some(hero.gait);
+                    }
                 }
             }
         }
