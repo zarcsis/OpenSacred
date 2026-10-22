@@ -223,7 +223,7 @@ Client: 389 imports from 16 DLLs (41 `jmp [IAT]` thunks); 31 imports are loaded 
 | DLL | Functions | Calls | Purpose | In the new engine |
 |---|---|---|---|---|
 | KERNEL32 | 123 | 657 | files, `CreateFileMappingA`/`MapViewOfFile` (mmap PAK), threads, mutexes (`ReleaseMutex` 64, `WaitForSingleObject` 55), `VirtualProtect` 72 (§7) | std, Bevy AssetServer |
-| USER32 | ≈60 | 190 | window, message loop, `GetAsyncKeyState` 39, `ChangeDisplaySettingsA` 2, dialogs of the built-in UI editor, the `tabblocker` hook | Bevy (winit) |
+| USER32 | ≈60 | 190 | window, message loop, `GetAsyncKeyState` 39, `ChangeDisplaySettingsA` 2, dialogs of the built-in UI editor, the `tabblocker` hook (docs/re/window.md) | Bevy (winit) |
 | GDI32 | 19 | 94 | rasterizing TTF into 256² pages (`CreateFontIndirectA`, `TextOutA` 11, `SetTextColor` 15, `BitBlt`) | cosmic-text via Bevy |
 | granny.dll | 54 | 424 | Granny 1.2b: 51 are called directly, the rest via pointers; per `granny_args.py`, the most frequent are `GrannyGetAnimationParameter` (175), `SetAnimationParameter` (72), `GetBoneState` (61), `LockSequenceForRendering` (25) | models and animations are converted to glTF; Bevy animation graph |
 | mss32.dll | 62 | 237 | 57 of 62 functions: streams (`AIL_set_stream_volume_pan` 27, `AIL_pause_stream` 24), 3D samples (`AIL_set_3D_position` 15) | Kira + Symphonia |

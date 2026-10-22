@@ -7,3 +7,5 @@ numpy==2.5.4
 pillow==12.3.0
 # The curated scripts do not import lief directly; it is kept as a tool for manual PE triage.
 lief==1.0.0
+# The original's driver (tools/original/, docs/03 §3.8): run locally, never in CI or a release.
+frida==17.24.3

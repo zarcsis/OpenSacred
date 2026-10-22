@@ -2,7 +2,7 @@
 
 ## Summary
 
-* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`) and the game's remote-control client (`game/`).
+* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`), the game's remote-control client (`game/`) and the original's driver (`original/`).
   The research scripts are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
 * The research scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
   The process tools work on Git and GitHub, as their rows say: `stack/stack.py` commits and pushes branches, `usage/pr_usage.py --update` edits a pull request's description.
@@ -59,6 +59,19 @@ python -I tools/game/remote.py exec "new-game --class dwarf"
 python -I tools/game/remote.py wait-ready
 python -I tools/game/remote.py click 900 520
 python -I tools/game/remote.py screenshot <scratch>/shot.png
+```
+
+## The original's driver
+
+`tools/original/host.py` starts the developer's own `Sacred.exe` in the background under Frida, with `tools/original/agent.js` loaded into it, and serves the same methods on `127.0.0.1:15703`, so that `tools/game/remote.py --port 15703` drives the original as it drives the game (docs/03 §3.8, #448; the skill `original`).
+The agent guards the maintainer's desktop (no low-level hooks, no focus, no topmost window, no display mode, no cursor), keeps the game drawing without the focus, counts its frames and takes its screenshots; the host keeps the game in a job object that ends with it.
+It needs `frida` and Pillow (`tools/requirements.txt`) and the installation in `OriginalGame/`, and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
+
+```bash
+python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
+python -I tools/game/remote.py --port 15703 state
+python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
+python -I tools/game/remote.py --port 15703 exec quit
 ```
 
 ## Scripts
