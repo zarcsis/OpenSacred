@@ -56,7 +56,7 @@ use bevy::prelude::{
     ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec2, Vec3, With, Without,
     WorldAssetRoot,
 };
-use bevy::world_serialization::WorldInstanceReady;
+use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item, Weapon};
@@ -244,9 +244,9 @@ enum Hand {
     Right,
 }
 
-/// An item an NPC holds.
-#[derive(Clone)]
-struct Held {
+/// An item an NPC or the hero holds.
+#[derive(Clone, Debug)]
+pub struct Held {
     /// The model, relative to the asset directory.
     model: String,
     /// The texture its item names (`+0x08`).
@@ -1525,6 +1525,17 @@ impl Npcs {
             );
         }
         let pools = pools(&records);
+        // A fixed item, a record of `Weapon.pak` without an `items.pak` slot of its own, as the
+        // heroes' templates' are, takes its parent's (`+0x24`), its model and its category, as the
+        // client copies the parent's definition into the child (docs/02 §6.2; #488).
+        let parents: HashMap<u32, u32> = weapons.iter().map(|w| (w.id, w.parent)).collect();
+        let record = |slot: u32| {
+            std::iter::successors(Some(slot), |slot| {
+                parents.get(slot).copied().filter(|&parent| parent != 0)
+            })
+            .take(8)
+            .find_map(|slot| items.get(&slot).copied())
+        };
         // The pools' items, the weapons that an archer takes to melee and back (#396), and the
         // hero's (#486).
         let gear = pools
@@ -1533,7 +1544,7 @@ impl Npcs {
             .chain(&opensacred_rules::minds::SWITCHED)
             .chain(worn)
             .filter_map(|&slot| {
-                let item = items.get(&slot)?;
+                let item = record(slot)?;
                 let gear = Gear {
                     category: category(item),
                     kind: kinds.get(&slot).copied(),
@@ -1617,10 +1628,7 @@ impl Npcs {
     /// `0x546F80`, `0x54A660`), and the values of every item's record, held or worn
     /// (`fight::ItemValues::of_record`; #486).
     pub fn hero_holds(&self, worn: &[Worn]) -> fight::Holds {
-        let holding = InHand::of(worn.iter().filter_map(|worn| {
-            let gear = self.gear.get(&worn.item)?;
-            Some((worn.item, gear.category, gear.kind))
-        }));
+        let holding = self.hero_holding(worn);
         let class = class_of(&holding);
         fight::Holds {
             weapon: class != 0 || holding.iter().any(|held| held.hand == Hand::Right),
@@ -1632,6 +1640,33 @@ impl Npcs {
                 .map(|worn| fight::ItemValues::of_record(&worn.words))
                 .collect(),
         }
+    }
+
+    /// The items of `worn`, the hero's template's, that go in its hands, as an NPC's go ([`hands`]).
+    fn hero_holding(&self, worn: &[Worn]) -> Vec<InHand> {
+        InHand::of(worn.iter().filter_map(|worn| {
+            let gear = self.gear.get(&worn.item)?;
+            Some((worn.item, gear.category, gear.kind))
+        }))
+    }
+
+    /// The class of what the hero holds of `worn`, its template's items ([`class_of`]), by which
+    /// it picks its clips, and the models of those in its hands (#488).
+    pub fn hero_gear(&self, worn: &[Worn]) -> (u8, Vec<Held>) {
+        let holding = self.hero_holding(worn);
+        let held = holding
+            .iter()
+            .filter_map(|held| {
+                let gear = self.gear.get(&held.item)?;
+                Some(Held {
+                    model: gear.model.clone()?,
+                    texture: gear.texture.clone(),
+                    hand: held.hand,
+                    shield: held.category == SHIELD,
+                })
+            })
+            .collect();
+        (class_of(&holding), held)
     }
 
     /// The arrows' model and texture, relative to the asset directory, and their size, where
@@ -1992,19 +2027,7 @@ fn spawn(
         entity.insert(Retexture(load_texture(assets, texture)));
     }
     if !placement.equipment.is_empty() {
-        entity.insert(Equipment(
-            placement
-                .equipment
-                .iter()
-                .map(|held| Equip {
-                    gltf: assets.load(held.model.clone()),
-                    texture: held.texture.as_ref().map(|t| load_texture(assets, t)),
-                    hand: held.hand,
-                    shield: held.shield,
-                    ready: false,
-                })
-                .collect(),
-        ));
+        entity.insert(equipment(assets, &placement.equipment));
     }
     if placement.casts {
         entity.insert(shadows::Casts);
@@ -2151,7 +2174,15 @@ pub struct Equip {
     hand: Hand,
     shield: bool,
     ready: bool,
+    /// The frames it waits once its holder's scene is ready ([`SETTLES`]).
+    waits: u8,
 }
+
+/// How many frames an item waits after its holder's scene is ready before it is attached
+/// ([`equip`]): Bevy's spawner may spawn a scene's instance anew within its first two frames
+/// (`WORLD_ASSET_AGE_THRESHOLD`), despawning the bones of the holder and the items on them, and a
+/// spawn of an item's scene still queued then panics on its despawned root (#488).
+const SETTLES: u8 = 4;
 
 /// The bones that join an item to its holder (`0x555300`, `0x401AE0`): the item's socket for its
 /// hand, the holder's own socket of that name if its skeleton has one (the heroes' do, under
@@ -2166,6 +2197,23 @@ fn bones(hand: Hand, shield: bool) -> (&'static str, Option<&'static str>, &'sta
 }
 
 /// Marks an NPC's equipment as ready to attach once its scene has spawned.
+/// The equipment of the items `held`, their models and textures loading, to attach once its
+/// holder's scene is ready ([`equip`]).
+pub fn equipment(assets: &AssetServer, held: &[Held]) -> Equipment {
+    Equipment(
+        held.iter()
+            .map(|held| Equip {
+                gltf: assets.load(held.model.clone()),
+                texture: held.texture.as_ref().map(|t| load_texture(assets, t)),
+                hand: held.hand,
+                shield: held.shield,
+                ready: false,
+                waits: SETTLES,
+            })
+            .collect(),
+    )
+}
+
 pub fn equipment_ready(ready: On<WorldInstanceReady>, mut npcs: Query<&mut Equipment>) {
     if let Ok(mut equipment) = npcs.get_mut(ready.entity) {
         for item in &mut equipment.0 {
@@ -2174,20 +2222,27 @@ pub fn equipment_ready(ready: On<WorldInstanceReady>, mut npcs: Query<&mut Equip
     }
 }
 
-/// Attaches each NPC's equipment, once its scene is ready and the item's glTF is loaded: the
-/// item's socket bone (see [`bones`]) goes onto the NPC's bone that holds it. An item whose model
-/// lacks its socket is not drawn.
+/// Attaches each NPC's equipment, once its scene is ready and the item's glTF and its scene are
+/// loaded: the item's socket bone (see [`bones`]) goes onto the NPC's bone that holds it. An item
+/// whose model lacks its socket is not drawn. The item's scene is spawned only once it is loaded,
+/// so that it spawns at once: a spawn put off to a later frame panics in Bevy's spawner when its
+/// holder is despawned meanwhile, as a hero's is by a new game started at once (#488).
 pub fn equip(
     mut commands: Commands,
     mut npcs: Query<(Entity, &mut Equipment)>,
     gltfs: Res<Assets<Gltf>>,
+    worlds: Res<Assets<WorldAsset>>,
     nodes: Res<Assets<GltfNode>>,
     children: Query<&Children>,
     names: Query<&Name>,
 ) {
     for (npc, mut equipment) in &mut npcs {
-        equipment.0.retain(|item| {
+        equipment.0.retain_mut(|item| {
             if !item.ready {
+                return true;
+            }
+            if item.waits > 0 {
+                item.waits -= 1;
                 return true;
             }
             let Some(gltf) = gltfs.get(&item.gltf) else {
@@ -2208,6 +2263,9 @@ pub fn equip(
             let Some(scene) = gltf.scenes.first().cloned() else {
                 return false;
             };
+            if !worlds.contains(&scene) {
+                return true;
+            }
             let mut weapon = commands.spawn((
                 WorldAssetRoot(scene),
                 Transform::from_matrix(pose.to_matrix().inverse()),
@@ -2218,6 +2276,7 @@ pub fn equip(
             if let Some(texture) = &item.texture {
                 weapon.insert(Retexture(texture.clone()));
             }
+            bevy::log::debug!("npcs: {npc} wields {} in {holder}", weapon.id());
             false
         });
         if equipment.0.is_empty() {
@@ -3191,6 +3250,7 @@ fn rearm(
                     hand: other,
                     shield: gear.category == SHIELD,
                     ready: true,
+                    waits: 0,
                 };
                 match equipment {
                     Some(mut equipment) => equipment.0.push(equip),
@@ -3259,6 +3319,7 @@ fn instrument(
             hand: Hand::Right,
             shield: false,
             ready: true,
+            waits: 0,
         }]));
     }
 }
