@@ -416,12 +416,13 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     let values = fight::combat(&base, fight::HERO_LEVEL, holding.0.clone(), &skills, &rules);
     bevy::log::debug!(
         "game: the hero holds and wears {} items: attack {:.2}, defence {:.2}, damage {:?}, \
-         resistances {:?}",
+         resistances {:?}, attack speed {}",
         worn.len(),
         values.attack,
         values.defence,
         values.damage,
-        values.resistance
+        values.resistance,
+        values.speed
     );
     hero.combat = Some(fight::Combat(values));
     let most = fight::hero_health(base.attributes, fight::HERO_LEVEL);
