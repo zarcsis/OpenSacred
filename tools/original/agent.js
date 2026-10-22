@@ -605,6 +605,13 @@ const CREATURE = {
   action: 0x150, actionSub: 0x152, gait: 0x1f8, experience: 0x3b4, level: 0x3fe, most: 0x4d4, health: 0x4d8,
 };
 const CLOCK = { dayRate: 0x10, nightRate: 0x14, hours: 0x20, minutes: 0x22, seconds: 0x24, fraction: 0x28 };
+// A creature's stats at +0x3A8 (docs/re/fight.md, docs/re/items.md, "The bonus slots in the values").
+const STATS = 0x3a8;
+const STAT = {
+  speeds: 0x3c, attributes: 0x10, base: 0x4a, level: 0x56, attack: 0x5a, defence: 0x5e, resistances: 0x66,
+  most: 0x76, least: 0x86, itemMultipliers: 0x96, multipliers: 0xa6, other: 0xb6, resistanceMultipliers: 0xd6,
+  attackMultiplier: 0xe6, defenceMultiplier: 0xea, mostHealth: 0x12c, health: 0x130,
+};
 const VIEW_ZOOM = 0xb60;
 const VIEW_SCREEN_TO_WORLD = 6;      // the view's virtual function: thiscall (view, x, y, position*)
 
@@ -781,8 +788,34 @@ function snapshot(engine) {
   return out;
 }
 
+// A creature's stats: the attributes (with the items' bonuses) and the base ones, the level, A and D before their
+// multipliers, each kind's resistance, most and least damage before theirs, the multipliers, the attack speed and the
+// words after it, and the health.
+function readStats(object) {
+  const s = object.add(STATS);
+  const words = (at, n) => Array.from({ length: n }, (_, i) => s.add(at + 2 * i).readU16());
+  const floats = (at, n) => Array.from({ length: n }, (_, i) => Math.round(s.add(at + 4 * i).readFloat() * 1000) / 1000);
+  return {
+    id: object.add(CREATURE.id).readU32(), type: object.add(CREATURE.type).readU16(),
+    attributes: words(STAT.attributes, 6), base: words(STAT.base, 6), level: s.add(STAT.level).readU16(),
+    attack: floats(STAT.attack, 1)[0], defence: floats(STAT.defence, 1)[0],
+    resistances: floats(STAT.resistances, 4), most: floats(STAT.most, 4), least: floats(STAT.least, 4),
+    itemMultipliers: floats(STAT.itemMultipliers, 4), multipliers: floats(STAT.multipliers, 4),
+    other: floats(STAT.other, 4), resistanceMultipliers: floats(STAT.resistanceMultipliers, 4),
+    attackMultiplier: floats(STAT.attackMultiplier, 1)[0], defenceMultiplier: floats(STAT.defenceMultiplier, 1)[0],
+    speeds: words(STAT.speeds, 3), health: [s.add(STAT.health).readS32(), s.add(STAT.mostHealth).readS32()],
+  };
+}
+
 const COMMANDS = {
   snapshot: (engine) => snapshot(engine),
+  stats: (engine, { id }) => {
+    const object = id ? objectById(id) : hero();
+    if (object === null || !isCreature(object)) {
+      throw new Error(id ? `no creature ${id}` : 'no hero');
+    }
+    return readStats(object);
+  },
   creatures: (engine, { radius }) => {
     const h = hero();
     if (h === null) {
