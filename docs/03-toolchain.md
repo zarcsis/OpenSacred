@@ -237,6 +237,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * **Versions.**
   Since 2026-10-17 the version follows the merged pull requests.
   On every push to `main`, the Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
+  The endpoint of a commit's pull requests breaks off its answer now and then (seen on 2026-10-22, #515), so the lookup tries a failed call again, 5 times 5 s apart, before the run fails.
   A version is an annotated tag `vX.Y.Z` on the squash commit and a GitHub Release whose notes list the pull requests since the previous version by label (`.github/release.yml`); before 1.0.0 the releases are pre-releases, as the versions are initial development (SemVer §4).
   The major version is raised only at the maintainer's request, by a manual run on the head of `main` (`gh workflow run release.yml -f bump=major`).
   The base is `v0.1.0`, `main` before the workflow (677863c).
