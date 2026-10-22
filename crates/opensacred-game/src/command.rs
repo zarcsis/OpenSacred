@@ -785,7 +785,10 @@ mod tests {
         );
     }
 
-    fn app() -> App {
+    /// An app of the commands, its settings in a directory of the test's `name` and the
+    /// process's id, emptied first: an earlier run whose process had the same id left its
+    /// settings there (#484).
+    fn app(name: &str) -> App {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -796,8 +799,11 @@ mod tests {
         .insert_state(AppState::InGame)
         .add_plugins(crate::pause::PausePlugin)
         .init_resource::<ButtonInput<KeyCode>>();
-        let dir =
-            std::env::temp_dir().join(format!("opensacred-game-command-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "opensacred-game-command-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
         let (file, settings) = SettingsFile::read(Some(dir.join("settings.toml")));
         app.insert_resource(file).insert_resource(settings);
         app.world_mut().spawn((
@@ -819,7 +825,7 @@ mod tests {
 
     #[test]
     fn commands_change_the_game_and_say_so() {
-        let mut app = app();
+        let mut app = app("say");
         let world = app.world_mut();
         assert_eq!(run(world, "zoom 1.5").unwrap(), Outcome::say("zoom 1.50"));
         assert_eq!(run(world, "zoom 9").unwrap(), Outcome::say("zoom 2.00"));
@@ -847,7 +853,7 @@ mod tests {
 
     #[test]
     fn a_script_waits_between_its_commands() {
-        let mut app = app();
+        let mut app = app("script");
         app.world_mut()
             .resource_mut::<Script>()
             .push(exec_lines("zoom 2; wait frames 3; zoom 0.5"));
