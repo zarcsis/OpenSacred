@@ -237,7 +237,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * **Versions.**
   Since 2026-10-17 the version follows the merged pull requests.
   On every push to `main`, the Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
-  The endpoint of a commit's pull requests breaks off its answer now and then (seen on 2026-10-22, #515), so the lookup tries a failed call again, 5 times 5 s apart, before the run fails.
+  A run that pushed a tag but failed before its release leaves the release to the next run.
   A version is an annotated tag `vX.Y.Z` on the squash commit and a GitHub Release whose notes list the pull requests since the previous version by label (`.github/release.yml`); before 1.0.0 the releases are pre-releases, as the versions are initial development (SemVer §4).
   The major version is raised only at the maintainer's request, by a manual run on the head of `main` (`gh workflow run release.yml -f bump=major`).
   The base is `v0.1.0`, `main` before the workflow (677863c).
@@ -401,7 +401,8 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
   Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
 * The Release workflow (`.github/workflows/release.yml`) runs on every push to `main` and versions the merged pull requests (§3.6).
 * The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.
-  The runner's mirror held the step that installs Mesa for minutes twice on 2026-10-22 (#534), so apt gives up on a stalled download after 30 s and tries again, and the step tries three times and fails after five minutes.
+* A run that fails on GitHub's side (a stalled download on the runner, a broken answer of the API) is run again by hand, `gh run rerun <id> --failed`; the workflows carry no timeouts or retries for it.
+  Until 2026-10-22 the Mesa install (#534) and the release's lookup of a pull request (#515) had them; they did not keep a run green (#543) and made the workflows harder to read (#544).
 
 ## 6. What is excluded
 
