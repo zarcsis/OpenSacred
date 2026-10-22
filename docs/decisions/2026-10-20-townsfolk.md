@@ -9,7 +9,8 @@ A townsperson (docs/re/ai.md, "The townsfolk") rolls one of 26 by day: a partner
 ## Ours
 
 The rolls of the animal, of home, of the partners, of the traders and of the houses, and the children's play, walk as the original's (#247, #248, #250, #251, #252); the jugglers play their instruments (#253), held by the instruments' own sockets; a visit to a trader ends at the trader rather than in a house.
-A townsperson goes in and out of a house by the way through its entrance, not by the door's outer and inner points (`0x43B290`, a table of 94 types not read into the game, #273); it opens the door as it sets off rather than within 350 of it, and closes it once it stands again (#268); the hero passes the doors closed.
+A townsperson goes into a house by the door's outer and inner points as the game measures them (#431, docs/re/ai.md, "Houses and doors"), not by the client's table of 94 types (`0x43B290`), opening the door within 350 of it; one that stops short gives up and decides again at its next look, where the original's tries another door farther than 150; it goes out by the way through the entrance, opening the door as it sets off, and closes a door once it stands again (#268); the hero passes the doors closed.
+Until #431 it went in by the way through the entrance too, to a cell 2 to 9 cells into the house, opening the door as it set off.
 The hero cannot shoo the children, its keys not the AI's yet; they say their lines (#270) and flee from the Daemon (#269), and the Vampiress is not a class of the game.
 At a meeting a woman never slaps her partner (the attack's clip in one case of 11, **hypothesis** for its sense): not followed yet, though the NPCs' graphs hold their attack clips now (#280).
 The evening's way (#249) is followed but for the torches, which wait for the lights in hand (#61); a townsperson takes it at the hero's looks rather than at every frame, as its day's decisions.
@@ -17,4 +18,4 @@ In danger (#254) a townsperson runs 700 from the threat, as the original's does 
 
 ## Why
 
-The left-out outcomes need what the game does not have yet: the doors' outer and inner points (#273), the lights in hand (#61) and the hero's keys in the AI; until they come the town looks as the original's, if quieter.
+The left-out outcomes need what the game does not have yet: the lights in hand (#61) and the hero's keys in the AI; until they come the town looks as the original's, if quieter.

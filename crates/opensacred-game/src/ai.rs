@@ -28,6 +28,7 @@ use opensacred_rules::minds::{
     Pursuit, RANGE, Senses, Spot, Walking, Why, child, daemon_fear, daemon_near, door_in_the_way,
     evening_way, follow, opens, runs_from, steps_off, townsperson, trader_for,
 };
+use opensacred_rules::ways::DoorPoints;
 
 use crate::buildings::Layered;
 use crate::crowd::{Crowd, InTheWay, Nearest};
@@ -40,6 +41,9 @@ use crate::paths;
 use crate::spawning::Rng;
 use crate::terrain::{Heights, Level};
 
+/// How near a door's point, along each axis, a creature going for the door stands where it is
+/// (`0x53A170`).
+const AT_THE_DOOR_POINT: f32 = 25.0;
 /// How near a trader a townsperson that visits it stops (`0x4EE660`, `+0x176`).
 const AT_THE_TRADER: f32 = 150.0;
 /// How near a child at play the other idle children follow it (`0x4F2AD7`, `0x4EE820`).
@@ -81,6 +85,9 @@ pub struct Mind {
     door: Option<Entity>,
     /// The door in its way that it goes to open (the AI's state 1, `0x53A170`).
     opening: Option<Entity>,
+    /// The door it goes into a house by, from its outer point, where the door stands, and the
+    /// inner point it walks to once it opens it (the sub-states 8, 9 and 7, #431).
+    entering: Option<(Entity, Vec3, Vec3)>,
 }
 
 impl Mind {
@@ -102,6 +109,7 @@ impl Mind {
             visiting: None,
             door: None,
             opening: None,
+            entering: None,
         }
     }
 }
@@ -146,8 +154,8 @@ fn sector_of(p: Vec3) -> (f32, f32) {
     ((p.x / side).floor(), (p.z / side).floor())
 }
 
-/// A door as a creature in its way sees it, with its entity and its world point.
-type Seen = DoorSeen<(Entity, Vec3)>;
+/// A door as a creature in its way sees it, with its entity, its world point and its points.
+type Seen = DoorSeen<(Entity, Vec3, Option<DoorPoints>)>;
 
 /// The doors that the creatures in their way look at (`0x4D4800`), at their logical positions
 /// (`npcs::Object`), and the hero's marks on them.
@@ -173,14 +181,21 @@ struct Doors<'w, 's> {
 }
 
 impl Doors<'_, '_> {
-    /// Each door, where it stands and on which layer, whether it is open, a door turned this
-    /// frame as it will stand (`npcs::swing` turns it later in the frame), and whether a hero
-    /// marked it; the game reads no trigger's bit 15, and so bars no door.
-    fn seen(&self) -> Vec<Seen> {
+    /// Each door, where it stands and on which layer, its points ([`door_points`]), whether it
+    /// is open, a door turned this frame as it will stand (`npcs::swing` turns it later in the
+    /// frame), and whether a hero marked it; the game reads no trigger's bit 15, and so bars no
+    /// door.
+    fn seen(&self, heights: &Heights) -> Vec<Seen> {
         self.doors
             .iter()
             .map(|(entity, object, door, swing, layered)| DoorSeen {
-                door: (entity, object.at),
+                door: (
+                    entity,
+                    object.at,
+                    self.npcs
+                        .as_ref()
+                        .and_then(|npcs| door_points(door, npcs.door_cell(door), heights)),
+                ),
                 at: spot(object.at),
                 layer: layered.layer,
                 open: swing.map_or(door.open, |swing| swing.open),
@@ -193,7 +208,11 @@ impl Doors<'_, '_> {
 
 /// The door in the way of a creature at `here` on `layer`, of the doors of its sector, as the
 /// rules choose it (`opensacred_rules::minds::door_in_the_way`, `0x4D4800`).
-fn door_in_way(here: Vec3, layer: i32, doors: &[Seen]) -> Option<(Entity, Vec3)> {
+fn door_in_way(
+    here: Vec3,
+    layer: i32,
+    doors: &[Seen],
+) -> Option<(Entity, Vec3, Option<DoorPoints>)> {
     let sector = sector_of(here);
     let ours = doors
         .iter()
@@ -202,10 +221,55 @@ fn door_in_way(here: Vec3, layer: i32, doors: &[Seen]) -> Option<(Entity, Vec3)>
     door_in_the_way(spot(here), layer, ours)
 }
 
-/// Where a creature at `here` on `level` walks to open the door at `door` (`0x53A170`): the
-/// door's outer point on the ground and its inner on a floor (`0x43B290`), which the game has not
-/// read (#273); in their place the cell beside the door's that may be walked on at the creature's
-/// level, the nearest to it, or the door itself where there is none.
+/// The points of `door` (`opensacred_rules::ways::DoorPoints`, docs/re/ai.md, "Houses and
+/// doors", #431), from its trigger's cell `spot` and its leaf's direction: the cells beside it
+/// walkable on its building's floor and on the ground; a door on a floor above the first has that
+/// floor on both sides.
+fn door_points(
+    door: &Door,
+    spot: Option<(i32, i32, i32)>,
+    heights: &Heights,
+) -> Option<DoorPoints> {
+    let (x, y, floor) = spot?;
+    let floor = usize::try_from(floor).unwrap_or(0).max(1);
+    let walkable = |cell: (i32, i32), on_floor: bool| {
+        if on_floor {
+            heights
+                .building_on_floor(cell, floor)
+                .map(|building| heights.floor_level(building, floor))
+                .is_some_and(|level| level.is_some() && heights.walkable_on(cell, level))
+        } else {
+            floor == 1 && heights.walkable_on(cell, None)
+        }
+    };
+    let along = (door.along.x, door.along.y);
+    Some(DoorPoints::of((x, y), along, walkable))
+}
+
+/// The point at which a creature at `here` on `level` stands to open a door (`0x53A170`,
+/// `0x43B290`): its outer point on the ground and its inner on a building's floor, or the one on
+/// its own side of a door with the same on both (`points`, #431); where the door has none, the
+/// cell beside the door's that may be walked on at the creature's level, the nearest to it, or
+/// the door itself where there is none.
+fn door_point(
+    points: Option<DoorPoints>,
+    door: Vec3,
+    here: Vec3,
+    level: Level,
+    heights: &Heights,
+) -> Vec3 {
+    let cell = crate::iso::CELL;
+    points
+        .and_then(|points| points.near((here.x / cell, here.z / cell), level.is_some()))
+        .and_then(centre)
+        .map_or_else(
+            || beside(door, here, level, heights),
+            |at| at.with_y(here.y),
+        )
+}
+
+/// The cell beside the door at `door` that may be walked on at `level`, the nearest to a creature
+/// at `here`, or the door itself where there is none: where a door has no points.
 fn beside(door: Vec3, here: Vec3, level: Level, heights: &Heights) -> Vec3 {
     let (x, y) = paths::cell_of(door.x, door.z);
     opensacred_rules::ways::STEPS
@@ -221,22 +285,28 @@ fn beside(door: Vec3, here: Vec3, level: Level, heights: &Heights) -> Vec3 {
         .with_y(here.y)
 }
 
-/// Sends the creature `entity` at `here` to the door in its way, `door` at `at` (the event 7 with
-/// the door, the AI's state 1, `0x53A170`): it walks to its point beside the door, stopping
-/// within 20, and opens it standing ([`open`]).
+/// Sends the creature `entity` at `here` to the door in its way, `door` at `at` with its
+/// `points` (the event 7 with the door, the AI's state 1, `0x53A170`): it walks to the door's
+/// point on its side ([`door_point`]), stopping within 20, or stands where it is within 25 of
+/// it along each axis, and opens it standing ([`open`]).
 fn go_for_door(
     commands: &mut Commands,
     (entity, here, way): (Entity, Vec3, &InTheWay),
     mind: &mut Mind,
-    (door, at): (Entity, Vec3),
+    (door, at, points): (Entity, Vec3, Option<DoorPoints>),
     heights: &Heights,
 ) {
-    let target = beside(at, here, way.level, heights);
+    let target = door_point(points, at, here, way.level, heights);
+    mind.opening = Some(door);
+    let off = (target - here).abs();
+    if off.x <= AT_THE_DOOR_POINT && off.z <= AT_THE_DOOR_POINT {
+        debug!("ai: {entity} stands at its point of {door} in its way");
+        return;
+    }
     debug!(
         "ai: {entity} goes for {door} in its way, from {:.0},{:.0} to {:.0},{:.0}",
         here.x, here.z, target.x, target.z
     );
-    mind.opening = Some(door);
     commands
         .entity(entity)
         .insert(Walk::to(target, way.level, mind.speed).within(AT_THE_DOOR));
@@ -338,7 +408,7 @@ fn think(
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
     let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
-    let seen = doors.seen();
+    let seen = doors.seen(&heights);
     for (entity, transform, way, mut mind, walking, layered) in &mut creatures {
         let here = transform.translation;
         let (x, y) = sector(here);
@@ -497,7 +567,7 @@ fn pursue(
         .first()
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
-    let seen = doors.seen();
+    let seen = doors.seen(&heights);
     for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended) in
         &mut creatures
     {
@@ -704,6 +774,44 @@ fn among(low: i32, high: i32, rng: &mut Rng) -> i32 {
     low + i32::try_from(rng.below(span)).unwrap_or(0)
 }
 
+/// How near its door a townsperson going in opens it and walks through (`0x4F0F5E`).
+const OPENS_WITHIN: f32 = 350.0;
+
+/// The way a townsperson at `here` on the ground goes into a house by the door `door` at `at`
+/// with its `points` (the sub-states 8, 9 and 7, docs/re/ai.md, "Houses and doors", #431):
+/// farther than 350 from the door, to its outer point, from which it goes on ([`Entering`]);
+/// within 350, through the door to its inner point on the building's floor, opening it. `None`
+/// where the door has no inner point on a floor or no outer one on the ground.
+fn entering(
+    (door, at, points): (Entity, Vec3, Option<DoorPoints>),
+    here: Vec3,
+    heights: &Heights,
+) -> Option<Entering> {
+    let points = points?;
+    let ((inner, true), (outer, false)) = (points.inner?, points.outer?) else {
+        return None;
+    };
+    let inner = centre(inner)?;
+    let level = heights.level_of(paths::cell_of(inner.x, inner.z));
+    let inner = inner.with_y(heights.standing(inner.x, inner.z, level).unwrap_or(here.y));
+    if (at - here).xz().length() > OPENS_WITHIN {
+        Some(Entering::ToDoor(
+            centre(outer)?.with_y(here.y),
+            (door, at, inner),
+        ))
+    } else {
+        Some(Entering::Through(door, inner))
+    }
+}
+
+/// A stage of a townsperson's going in ([`entering`]).
+enum Entering {
+    /// To the door's outer point, the door, where it stands and its inner point to go on to.
+    ToDoor(Vec3, (Entity, Vec3, Vec3)),
+    /// Through the door to its inner point.
+    Through(Entity, Vec3),
+}
+
 /// The cell a townsperson goes in to by the door at `door` (`0x4EEFA0`): of 15 cells 2 to 9
 /// cells from the door's along each axis, either way, that a building's ground floor holds and
 /// that one may stand on, the farthest from the door; and its level.
@@ -835,7 +943,8 @@ fn behave(
     heights: Res<Heights>,
     hero: Query<(Entity, &Transform), With<Body>>,
     cameras: Query<&Projection, With<Camera3d>>,
-    doors: Query<(Entity, &Object), (With<Door>, Without<Mind>)>,
+    doors: Query<(Entity, &Object, &Door), Without<Mind>>,
+    npcs: Option<Res<Npcs>>,
     clock: Res<Clock>,
     daemon: Res<Daemon>,
     mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
@@ -907,11 +1016,16 @@ fn behave(
             (x - hx).abs() <= 1.0 && (y - hy).abs() <= 1.0 && (at - hero).xz().length() < RANGE
         })
         .collect();
-    // The doors at their logical positions, at the hero's looks.
-    let doors: Vec<(Entity, Vec3)> = if minds.looked {
+    // The doors at their logical positions, with their points, at the hero's looks.
+    let doors: Vec<(Entity, Vec3, Option<DoorPoints>)> = if minds.looked {
         doors
             .iter()
-            .map(|(entity, object)| (entity, object.at))
+            .map(|(entity, object, door)| {
+                let points = npcs
+                    .as_ref()
+                    .and_then(|npcs| door_points(door, npcs.door_cell(door), &heights));
+                (entity, object.at, points)
+            })
             .collect()
     } else {
         Vec::new()
@@ -931,6 +1045,25 @@ fn behave(
         // Through its door, in or out, it closes it behind it (the sub-states 2 and 3).
         if let Some(door) = mind.door.take() {
             swings.push((door, false));
+        }
+        // At its door's outer point it opens the door and walks through to its inner point onto
+        // the building's floor (the sub-states 9 and 7); one that stopped farther than 350 from
+        // the door gives up, to decide again.
+        if let Some((door, at, inner)) = mind.entering.take()
+            && (at - here).xz().length() <= OPENS_WITHIN
+        {
+            debug!(
+                "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
+                Why::GoesIn,
+                here.x,
+                here.z,
+                inner.x,
+                inner.z
+            );
+            mind.door = Some(door);
+            swings.push((door, true));
+            walks.push((entity, Walk::to(inner, way.level, mind.speed)));
+            continue;
         }
         // At the trader it walked to, it talks once (the sub-states 12 and 13), and stays, where
         // the original's goes into a house (docs/decisions/2026-10-20-townsfolk.md).
@@ -1010,7 +1143,7 @@ fn behave(
             if folk && evening && way.level.is_none() {
                 let door = doors
                     .iter()
-                    .map(|&(_, at)| at)
+                    .map(|&(_, at, _)| at)
                     .filter(|&at| (at - here).xz().length() <= DOOR_WITHIN)
                     .min_by(|a, b| {
                         (*a - here)
@@ -1056,7 +1189,7 @@ fn behave(
             let nearest_door = doors
                 .iter()
                 .copied()
-                .filter(|&(_, at)| {
+                .filter(|&(_, at, _)| {
                     let (ax, ay) = sector(at);
                     (ax - x).abs() <= 1.0
                         && (ay - y).abs() <= 1.0
@@ -1067,12 +1200,36 @@ fn behave(
                         .length_squared()
                         .total_cmp(&(b.1 - here).length_squared())
                 });
-            let door = nearest_door.map(|(_, at)| at);
+            let door = nearest_door.map(|(_, at, _)| at);
             // Going through it, it opens its door (`0x4FC8D0`).
-            let mut through = |mind: &mut Mind| {
-                if let Some((door, _)) = nearest_door {
+            let through = |mind: &mut Mind, swings: &mut Vec<(Entity, bool)>| {
+                if let Some((door, ..)) = nearest_door {
                     mind.door = Some(door);
                     swings.push((door, true));
+                }
+            };
+            // Going in, it walks to the door's outer point from afar, and within 350 opens it and
+            // walks through to its inner point (#431); without the points, through the
+            // building's entrance to a cell inside.
+            let goes_in = |mind: &mut Mind,
+                           swings: &mut Vec<(Entity, bool)>,
+                           rng: &mut Rng|
+             -> Option<Vec3> {
+                match nearest_door.and_then(|door| entering(door, here, &heights)) {
+                    Some(Entering::ToDoor(outer, then)) => {
+                        mind.entering = Some(then);
+                        Some(outer)
+                    }
+                    Some(Entering::Through(door, inner)) => {
+                        mind.door = Some(door);
+                        swings.push((door, true));
+                        Some(inner)
+                    }
+                    None => {
+                        let (inside, _) = door.and_then(|door| indoors(door, &heights, rng))?;
+                        through(mind, swings);
+                        Some(inside)
+                    }
                 }
             };
             // At dusk and by night, or with the Daemon near, on a free cell, it takes the
@@ -1090,20 +1247,15 @@ fn behave(
             }
             if (evening || before_daemon) && !crowded {
                 let inside = way.level.is_some();
-                let stage = match evening_way(spot(here), inside, door.map(spot), &mut minds.rng) {
-                    Evening::Indoors => {
-                        indoors(here, &heights, &mut minds.rng).map(|(to, _)| (to, Why::Wanders))
-                    }
-                    Evening::Toward(to) => Some((point(to, here.y), Why::GoesIn)),
-                    Evening::GoesIn => {
-                        let inside = door.and_then(|door| indoors(door, &heights, &mut minds.rng));
-                        if inside.is_some() {
-                            through(&mut mind);
-                        }
-                        inside.map(|(to, _)| (to, Why::GoesIn))
-                    }
-                    Evening::Wanders(to) => Some((point(to, here.y), Why::Wanders)),
-                };
+                let stage =
+                    match evening_way(spot(here), inside, door.map(spot), &mut minds.rng) {
+                        Evening::Indoors => indoors(here, &heights, &mut minds.rng)
+                            .map(|(to, _)| (to, Why::Wanders)),
+                        Evening::Toward(to) => Some((point(to, here.y), Why::GoesIn)),
+                        Evening::GoesIn => goes_in(&mut mind, &mut swings, &mut minds.rng)
+                            .map(|to| (to, Why::GoesIn)),
+                        Evening::Wanders(to) => Some((point(to, here.y), Why::Wanders)),
+                    };
                 if let Some((target, why)) = stage {
                     debug!(
                         "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -1126,7 +1278,7 @@ fn behave(
                     target.x,
                     target.z
                 );
-                through(&mut mind);
+                through(&mut mind, &mut swings);
                 walks.push((entity, Walk::to(target, way.level, mind.speed)));
                 continue;
             }
@@ -1239,9 +1391,7 @@ fn behave(
                     continue;
                 }
                 Decision::House => {
-                    if let Some((target, _)) =
-                        door.and_then(|door| indoors(door, &heights, &mut minds.rng))
-                    {
+                    if let Some(target) = goes_in(&mut mind, &mut swings, &mut minds.rng) {
                         debug!(
                             "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
                             Why::GoesIn,
@@ -1250,7 +1400,6 @@ fn behave(
                             target.x,
                             target.z
                         );
-                        through(&mut mind);
                         walks.push((entity, Walk::to(target, way.level, mind.speed)));
                         continue;
                     }
@@ -1456,6 +1605,26 @@ mod tests {
     }
 
     #[test]
+    fn a_creature_goes_for_the_doors_point_on_its_side() {
+        let heights = walled();
+        let door = at_cell(10.0, 10.0);
+        let cell = |p: Vec3| paths::cell_of(p.x, p.z);
+        // The door of the wall along x at y = 10, its floor's side up the grid's −y (a door of
+        // 28°), a creature on the floor taking the inner point and one on the ground the outer.
+        let points = DoorPoints::of((10, 10), (1.0, 0.0), |cell, on_floor| {
+            on_floor == (cell.1 < 10) && cell.1 != 10
+        });
+        let inside = Some((0, 0, 1));
+        let on_floor = door_point(Some(points), door, at_cell(10.0, 4.0), inside, &heights);
+        assert_eq!(cell(on_floor), (10, 9));
+        let outside = door_point(Some(points), door, at_cell(14.0, 17.0), None, &heights);
+        assert_eq!(cell(outside), (10, 11));
+        // Without points, the cell beside the door on its side.
+        let beside = door_point(None, door, at_cell(14.0, 17.0), None, &heights);
+        assert_eq!(cell(beside), (11, 11));
+    }
+
+    #[test]
     fn a_creature_goes_for_a_marked_closed_door_of_its_own_sector() {
         let mut world = World::new();
         let (ours, theirs, open) = (
@@ -1464,7 +1633,7 @@ mod tests {
             world.spawn_empty().id(),
         );
         let door = |door, at: Vec3, open| DoorSeen {
-            door: (door, at),
+            door: (door, at, None),
             at: spot(at),
             layer: 0,
             open,
@@ -1480,11 +1649,11 @@ mod tests {
             door(open, at_cell(12.0, 20.0), true),
         ];
         assert_eq!(
-            door_in_way(here, 0, &doors).map(|(door, _)| door),
+            door_in_way(here, 0, &doors).map(|(door, ..)| door),
             Some(ours)
         );
         assert_eq!(
-            door_in_way(at_cell(70.0, 20.0), 0, &doors).map(|(door, _)| door),
+            door_in_way(at_cell(70.0, 20.0), 0, &doors).map(|(door, ..)| door),
             Some(theirs)
         );
         assert_eq!(door_in_way(here, 0, &doors[1..]), None);

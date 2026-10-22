@@ -1988,6 +1988,10 @@ fn spawn(
                 player: None,
                 open: false,
                 trigger: placement.trigger.clone(),
+                along: {
+                    let along = heading(placement.heading);
+                    Vec2::new(along.x, along.z)
+                },
             });
         }
     } else {
@@ -2589,9 +2593,18 @@ pub struct Door {
     pub open: bool,
     /// The trigger it names, whose cells open and close with it (#372).
     trigger: Option<String>,
+    /// The direction of its leaf on the ground, along its type's heading (docs/02 §5.7).
+    pub along: Vec2,
 }
 
 impl Npcs {
+    /// The cell of `door`, its trigger's (docs/02 §5.7: one cell each, with its floor), if its
+    /// trigger is patched on one.
+    pub fn door_cell(&self, door: &Door) -> Option<Spot> {
+        let name = door.trigger.as_ref()?;
+        self.triggers.get(name)?.first().copied()
+    }
+
     /// Whether a hero has turned `door` (#372): its trigger keeps the hero's mark, the flags'
     /// bit `0x2000` of the original's door (`0x44BCD0`), which the creatures in its way look for
     /// (`0x4D4800`).
