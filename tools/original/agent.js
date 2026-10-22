@@ -1162,6 +1162,12 @@ const PRESETS = {
         `${this.before === null ? 'none' : `0x${this.before.toString(16)}`} -> ${after === null ? 'none' : `0x${after.toString(16)}`}`);
     },
   }) },
+  // A trigger's state set or reset (cTrigger's 0x415F00 and 0x416280, thiscall: the bits, whether to send it on),
+  // which turns a door whatever turns it: the objects' events (0x44BCD0) and the engine's (cEngine_receiveEvent,
+  // the hero's click among them). The trigger's id (+0), the object it serves (+6), the bits, its word (+0x0A)
+  // before and after.
+  'trigger-set': { address: '0x415f00', make: (trace) => triggerState(trace, 'sets') },
+  'trigger-reset': { address: '0x416280', make: (trace) => triggerState(trace, 'resets') },
   // The sounds (docs/re/sound.md): a variant of a profile's group, its id returned; the sound manager's events; the
   // samples and streams mss32.dll opens and starts.
   'sound-pick': { address: '0x4261d0', abi: 'thiscall', args: ['ptr', 'int', 'int'], ret: 'uint' },
@@ -1172,11 +1178,30 @@ const PRESETS = {
   'sample-3d-start': { module: 'mss32.dll', export: '_AIL_start_3D_sample@4', abi: 'stdcall', args: ['ptr'] },
   stream: { module: 'mss32.dll', export: '_AIL_open_stream@12', abi: 'stdcall', args: ['ptr', 'cstr', 'int'], ret: 'ptr' },
 };
+// The listeners of a trigger's state set or reset (`verb`): the trigger, the object it serves, the bits and the
+// state's word before and after.
+function triggerState(trace, verb) {
+  return {
+    onEnter(args) {
+      this.trigger = ptr(this.context.ecx.toString());
+      this.bits = args[0].toUInt32() & 0xffff;
+      this.before = this.trigger.add(0x0a).readU16();
+    },
+    onLeave() {
+      const id = this.trigger.readU32();
+      const object = this.trigger.add(6).readU32();
+      const after = this.trigger.add(0x0a).readU16();
+      record(trace, `trigger ${id} of object ${object} ${verb} 0x${this.bits.toString(16)}: state ` +
+        `0x${this.before.toString(16)} -> 0x${after.toString(16)}`);
+    },
+  };
+}
+
 const GROUPS = {
   fight: ['strike', 'chance', 'death', 'experience'],
   drops: ['drop', 'item'],
   ai: ['wake', 'look', 'idle'],
-  doors: ['door-search', 'door'],
+  doors: ['door-search', 'door', 'trigger-set', 'trigger-reset'],
   sound: ['sound-pick', 'sample-file', 'sample-3d-file', 'sample-start', 'sample-3d-start', 'stream'],
 };
 
