@@ -45,12 +45,14 @@ enum Command {
     Menu,
     /// End the process
     Quit,
-    /// Put the hero at the centre of sector X,Y of the 100 x 100 grid
+    /// Put the hero at the centre of sector X,Y of the 100 x 100 grid, or on the ground nearest
+    /// it where it cannot stand and walk there
     Sector {
         #[arg(value_parser = parse_position)]
         at: (u32, u32),
     },
-    /// Put the hero on global cell X,Y
+    /// Put the hero on global cell X,Y, on the ground or in a room of a building, or on the
+    /// ground nearest it where it cannot stand and walk there
     Cell {
         #[arg(value_parser = parse_position)]
         at: (u32, u32),
@@ -236,7 +238,8 @@ fn set_state(world: &mut World, state: AppState) {
     world.resource_mut::<NextState<AppState>>().set(state);
 }
 
-/// Puts the hero at world point `position`, on the ground there once it is in.
+/// Puts the hero at world point `position`: it lands on the cell there, or on the ground nearest
+/// it where it cannot stand and walk there, once the sectors about it are in (`hero::land`).
 fn teleport(world: &mut World, mut position: Vec3) -> Result<Outcome, String> {
     in_game(world)?;
     if let Some(y) = world
@@ -250,8 +253,8 @@ fn teleport(world: &mut World, mut position: Vec3) -> Result<Outcome, String> {
         .iter_mut(world)
         .next()
         .ok_or("the hero is not in the world yet")?;
-    body.teleport(&mut transform, position);
-    Ok(Outcome::say("the hero is there"))
+    body.put(&mut transform, position);
+    Ok(Outcome::say("the hero lands there once its sectors are in"))
 }
 
 /// Saves `keys` of the settings, as they are now.
@@ -592,11 +595,13 @@ fn waited(world: &mut World) -> bool {
     let done = match &world.resource::<Script>().waiting {
         None => return true,
         Some(Waiting::Ready) => {
+            // A hero that a command put somewhere has landed there (`hero::land`).
             let hero = world
-                .query_filtered::<&Transform, With<Body>>()
+                .query::<(&Transform, &Body)>()
                 .iter(world)
                 .next()
-                .map(|transform| transform.translation);
+                .filter(|(_, body)| !body.landing())
+                .map(|(transform, _)| transform.translation);
             in_game(world).is_ok()
                 && world.get_resource::<Ready>().is_some_and(|ready| ready.0)
                 && hero
