@@ -88,10 +88,24 @@ struct Reading(Task<Result<Tables>>);
 #[derive(Resource)]
 pub(crate) struct Dice(Rng);
 
-/// The time the game has been played, in seconds, which raises a kill's bonus (**hypothesis**
-/// for the original's counter `+0x570C`).
+/// The time the game has been played, in seconds, which raises a kill's bonus and the level of a
+/// script's creature (**hypothesis** for the original's counter `+0x570C`).
 #[derive(Resource, Default)]
-struct Played(f32);
+pub(crate) struct Played(f32);
+
+impl Played {
+    /// The whole minutes played, as the original counts them for a script's creature's level
+    /// (`0x424650`, its seconds over 60, at `0x48463A`).
+    pub(crate) fn minutes(&self) -> u32 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "whole minutes, positive, far below the integers' range"
+        )]
+        let minutes = (self.0 / 60.0).floor().max(0.0) as u32;
+        minutes
+    }
+}
 
 /// A drop: what it is, and whether it rests on the ground.
 #[derive(Component, Clone, Copy, Debug)]

@@ -67,8 +67,8 @@ use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
 use crate::{
-    ai, arrows, buildings, crowd, daynight, fight, hero, iso, models, motions, paths, shadows,
-    spawning,
+    ai, arrows, buildings, crowd, daynight, drops, fight, hero, iso, models, motions, paths,
+    shadows, spawning,
 };
 
 /// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
@@ -155,6 +155,9 @@ struct Placement {
     /// fill; its group, if it is in one; whether it has a dialogue, a `CreateNPC` with one
     /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
     made: (bool, bool),
+    /// Whether the start made it, its script or a quest it entered rather than a sector's
+    /// function: its creature takes its level as the game starts ([`place`]).
+    started: bool,
     dialogue: bool,
     /// Whether it is a trader, by its tags (`opensacred_rules::minds::Mind::trader`), and whether
     /// its tags keep it out of its first update's flags ([`KEEPS`]).
@@ -385,6 +388,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         ranged: false,
         size: kind.size,
         made: (true, false),
+        started: false,
         dialogue: false,
         trader: false,
         kept: false,
@@ -416,8 +420,10 @@ pub struct Npcs {
     triggers: HashMap<String, Vec<Spot>>,
     opened: HashSet<String>,
     marked: HashSet<String>,
-    /// The sectors' fills ([`fills`]), and what each type they make is placed as.
-    fills: HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawning::Fill>)>,
+    /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
+    /// and what each type they make is placed as.
+    values: HashMap<(u32, u32), spawning::SpawnValues>,
+    fills: HashMap<(u32, u32), Vec<spawning::Fill>>,
     templates: HashMap<u32, Placement>,
     /// What each creature type with a model is made of, from which a template of a type that no
     /// fill makes is made when a command spawns one ([`Npcs::template`]).
@@ -855,15 +861,24 @@ fn start_records(tree: &Tree) -> Vec<&Record> {
     records
 }
 
-/// The `FillSector` records of the sectors' `Enter` functions, by sector, each sector's with the
-/// `SpawnValues` of its function (docs/re/spawning.md, "`FillSector`").
-fn fills(tree: &Tree) -> HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawning::Fill>)> {
-    let mut out = HashMap::new();
+/// What the sectors' `Enter` functions hold for their creatures ([`sectors`]).
+#[derive(Debug, Default)]
+struct Sectors {
+    /// Each sector's `SpawnValues`, which its `Init` repeats in every tree.
+    values: HashMap<(u32, u32), spawning::SpawnValues>,
+    /// The `FillSector` records of the sectors that have some.
+    fills: HashMap<(u32, u32), Vec<spawning::Fill>>,
+}
+
+/// The `SpawnValues` and the `FillSector` records of the sectors' `Enter` functions, by sector
+/// (docs/re/spawning.md, "The sector's level", "`FillSector`"): the values of every sector that
+/// has them, with fills or without, which the levels of the creatures of its cells take.
+fn sectors(tree: &Tree) -> Sectors {
+    let mut out = Sectors::default();
     for function in tree.functions.iter().filter(|f| f.name.ends_with("Enter")) {
         let Some(sector) = sector_function(&function.name) else {
             continue;
         };
-        let mut values = spawning::SpawnValues::default();
         let mut fills = Vec::new();
         for record in &function.records {
             let Body::Operands(ops) = &record.body else {
@@ -879,11 +894,12 @@ fn fills(tree: &Tree) -> HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawnin
                         })
                         .collect();
                     if let [density, lowest, highest, ..] = numbers[..] {
-                        values = spawning::SpawnValues {
+                        let values = spawning::SpawnValues {
                             density,
                             lowest,
                             highest,
                         };
+                        out.values.insert(sector, values);
                     }
                 }
                 FILL_SECTOR => fills.extend(fill_of(ops)),
@@ -891,7 +907,7 @@ fn fills(tree: &Tree) -> HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawnin
             }
         }
         if !fills.is_empty() {
-            out.insert(sector, (values, fills));
+            out.fills.insert(sector, fills);
         }
     }
     out
@@ -1333,7 +1349,15 @@ impl Npcs {
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
         let records = start_records(&tree);
-        // The records of the sectors' `Enter` functions, whose creatures step otherwise.
+        // The records of the sectors' functions, which the start does not run, and those of
+        // their `Enter` functions, whose creatures step otherwise.
+        let in_sectors: HashSet<*const Record> = tree
+            .functions
+            .iter()
+            .filter(|f| sector_function(&f.name).is_some())
+            .flat_map(|f| &f.records)
+            .map(std::ptr::from_ref)
+            .collect();
         let enter: HashSet<*const Record> = tree
             .functions
             .iter()
@@ -1459,6 +1483,7 @@ impl Npcs {
                 ranged: record.kind == CREATE_NPC && ranged(&categories),
                 size: arrows::size(item.words_14[0]),
                 made: (enter.contains(&std::ptr::from_ref(*record)), true),
+                started: !in_sectors.contains(&std::ptr::from_ref(*record)),
                 dialogue: record.kind == CREATE_NPC
                     && ops.iter().any(|o| {
                         o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
@@ -1540,13 +1565,9 @@ impl Npcs {
                 ))
             })
             .collect();
-        let fills = fills(&tree);
+        let Sectors { values, fills } = sectors(&tree);
         let mut templates: HashMap<u32, Placement> = HashMap::new();
-        for creature in fills
-            .values()
-            .flat_map(|(_, fills)| fills)
-            .flat_map(spawning::types)
-        {
+        for creature in fills.values().flatten().flat_map(spawning::types) {
             if templates.contains_key(&creature) {
                 continue;
             }
@@ -1626,6 +1647,7 @@ impl Npcs {
             triggers,
             opened: HashSet::new(),
             marked: HashSet::new(),
+            values,
             fills,
             templates,
             types,
@@ -1731,6 +1753,14 @@ impl Npcs {
 /// The townsfolk's `Creature.pak` class, whom the partners are chosen from (docs/re/ai.md).
 const TOWNSFOLK_CLASS: u8 = 3;
 
+/// The horses' `Creature.pak` class, whose level `CreateNPC` raises by the hero's riding
+/// (`0x4266F0`, `fight::Raise::Horse`).
+const HORSES_CLASS: u8 = 4;
+
+/// The record of the generator of a script's creature's roll of its level, of its cell
+/// ([`Npcs::scripted_level`]): the level's offset in the creature (`+0x3FE`).
+const LEVEL_ROLL: usize = 0x3FE;
+
 /// The creatures that the command `spawn` makes (#524).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn {
@@ -1739,7 +1769,8 @@ pub struct Spawn {
     /// The global cells they stand on, a creature each, and their floor, 0 the ground.
     pub cells: Vec<(u32, u32)>,
     pub floor: i32,
-    /// Their level, else the one their sector's values give for the hero's (`fight::level`).
+    /// Their level, else the one `CreateNPC` gives them, by their sector's values about the
+    /// hero's (`fight::scripted_level`).
     pub level: Option<u32>,
     pub rank: fight::Rank,
     /// Hostile or peaceful, else by their type: peaceful the townsfolk, the animals that take a
@@ -1770,6 +1801,24 @@ impl Npcs {
         self.templates.insert(creature, made.clone());
         Ok(made)
     }
+
+    /// The level that `CreateNPC` gives the creature of `placement` (`fight::scripted_level`):
+    /// the hero's, `hero`, by the levels of its cell's sector, then a horse's by the hero's
+    /// riding and any other's by the time played, `minutes`; its roll the same each time it is
+    /// made on its cell.
+    fn scripted_level(&self, placement: &Placement, hero: u32, minutes: u32) -> u32 {
+        let (x, y) = placement.cell;
+        let side = u32::try_from(SIDE).unwrap_or(64);
+        let raise = if placement.class == HORSES_CLASS {
+            // The hero's skills stay at level 1 (`fight::skills`), an eighth of which is none.
+            fight::Raise::Horse { riding: 0 }
+        } else {
+            fight::Raise::Played { minutes }
+        };
+        let values = self.values.get(&(x / side, y / side));
+        let mut dice = spawning::Rng::of(x, y, LEVEL_ROLL);
+        fight::scripted_level(values, hero, raise, &mut dice)
+    }
 }
 
 /// Spawns the creatures of `request`, as `CreateNPC` makes its own (awake when hostile), with
@@ -1788,6 +1837,7 @@ pub fn spawn_creatures(
     assets: Res<AssetServer>,
     data: Res<crate::game::Data>,
     experience: Res<fight::Experience>,
+    played: Res<drops::Played>,
 ) -> Result<Vec<Entity>, String> {
     let npcs = &mut *npcs;
     let creature = request.creature;
@@ -1811,13 +1861,9 @@ pub fn spawn_creatures(
     for &cell in &request.cells {
         placement.cell = cell;
         let at = (cell.0 / side, cell.1 / side);
-        let values = npcs
-            .fills
-            .get(&at)
-            .map(|(values, _)| *values)
-            .unwrap_or_default();
+        let values = npcs.values.get(&at).copied().unwrap_or_default();
         let level = request.level.unwrap_or_else(|| {
-            let level = fight::level(&values, hero, None);
+            let level = npcs.scripted_level(&placement, hero, played.minutes());
             let big = placement.creature.1 & crowd::BIG != 0;
             placement.rank.level(level, hero, &values, big, &npcs.fight)
         });
@@ -1859,9 +1905,11 @@ pub fn place(
     dungeons: Res<daynight::Dungeons>,
     assets: Res<AssetServer>,
     experience: Res<fight::Experience>,
+    played: Res<drops::Played>,
 ) {
     let npcs = &mut *npcs;
     let hero = experience.level;
+    let minutes = played.minutes();
     let loaded: Vec<(u32, u32)> = streamer.sectors().collect();
     for &at in &loaded {
         if npcs.spawned.contains(&at) {
@@ -1894,8 +1942,13 @@ pub fn place(
             let entity = match again {
                 Again::Not => continue,
                 Again::Anew => {
-                    let values = npcs.fills.get(&at).map(|(values, _)| *values);
-                    let level = fight::level(&values.unwrap_or_default(), hero, None);
+                    // The start's creature as the game starts, with the hero of its first level
+                    // and no time played; a sector's as its function runs.
+                    let level = if placement.started {
+                        npcs.scripted_level(placement, fight::HERO_LEVEL, 0)
+                    } else {
+                        npcs.scripted_level(placement, hero, minutes)
+                    };
                     spawn(
                         &mut commands,
                         placement,
@@ -1947,9 +2000,10 @@ pub fn place(
         }
         // The creatures that the sector's fills make, on cells at random that they may stand
         // on, the same ones each time the sector comes in (`spawning`).
-        let Some((values, fills)) = npcs.fills.get(&at) else {
+        let Some(fills) = npcs.fills.get(&at) else {
             continue;
         };
+        let values = npcs.values.get(&at).copied().unwrap_or_default();
         let (Ok(x0), Ok(y0)) = (i32::try_from(at.0 * 64), i32::try_from(at.1 * 64)) else {
             continue;
         };
@@ -1964,7 +2018,7 @@ pub fn place(
             } else {
                 npcs.factors.enemies
             };
-            let count = spawning::count(fill, *values, hero, factor, &mut rng);
+            let count = spawning::count(fill, values, hero, factor, &mut rng);
             let ground = spawning::Ground {
                 origin: (x0, y0),
                 dungeon: dungeons.sector(at),
@@ -2024,12 +2078,12 @@ pub fn place(
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
                     Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
                 });
-                let level = fight::level(values, hero, Some(&mut rng));
+                let level = fight::level(&values, hero, Some(&mut rng));
                 // A boss or a champion, at the hero's level and more (`0x47E6B7`, `0x550E50`).
                 placement.rank =
                     fight::Rank::of_fill(made.creature, made.hostile, &mut rng, &npcs.fight);
                 let big = placement.creature.1 & crowd::BIG != 0;
-                let level = placement.rank.level(level, hero, values, big, &npcs.fight);
+                let level = placement.rank.level(level, hero, &values, big, &npcs.fight);
                 let entity = spawn(
                     &mut commands,
                     &placement,
@@ -3930,6 +3984,56 @@ mod tests {
         assert_eq!(sector_function("Sector28Enter"), None);
         assert_eq!(sector_function("Sector50039Exit"), None);
         assert_eq!(sector_function("QIS_OnEnter1"), None);
+    }
+
+    #[test]
+    fn every_sector_keeps_its_values_with_fills_or_without() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        let spawn_values = |lowest| {
+            let numbers = [50, lowest, lowest + 3];
+            record(
+                SPAWN_VALUES,
+                numbers.map(|n| op(0x0B, Value::I32(n))).to_vec(),
+            )
+        };
+        let fill = record(
+            FILL_SECTOR,
+            vec![
+                op(0x35, Value::I32x3([4, 4, 4096])),
+                op(0x19, Value::I32x3([568, 25, 1])),
+            ],
+        );
+        let function = |name: &str, records| Function {
+            name: name.into(),
+            quest: -1,
+            region: 0,
+            records,
+        };
+        // The wolves' sector by the blacksmith's, whose plateau has no fill (#530).
+        let tree = Tree {
+            start: Vec::new(),
+            quest: Vec::new(),
+            functions: vec![
+                function("Sector49044Init", vec![spawn_values(4)]),
+                function("Sector49044Enter", vec![spawn_values(4), fill]),
+                function("Sector50044Init", vec![spawn_values(4)]),
+                function("Sector50044Enter", vec![spawn_values(4)]),
+                function("Sector52044Enter", vec![spawn_values(1)]),
+            ],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        let Sectors { values, fills } = sectors(&tree);
+        let levels = |at| values.get(&at).map(|v| (v.lowest, v.highest));
+        assert_eq!(levels((49, 44)), Some((4, 7)));
+        assert_eq!(levels((50, 44)), Some((4, 7)));
+        assert_eq!(levels((52, 44)), Some((1, 4)));
+        assert_eq!(levels((51, 44)), None);
+        assert_eq!(fills.keys().collect::<Vec<_>>(), [&(49, 44)]);
     }
 
     #[test]

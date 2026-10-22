@@ -1428,6 +1428,59 @@ pub fn level(values: &SpawnValues, hero: u32, jitter: Option<&mut Rng>) -> u32 {
     moved.saturating_sub(down).max(1)
 }
 
+/// What raises the level of a creature that `CreateNPC` makes once its sector's levels hold it
+/// (`0x482510`, at `0x484714`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Raise {
+    /// A horse (`Creature.pak` class 4, `0x4266F0`): by an eighth of the level of the hero's
+    /// skill 22 (`0x582450`; **hypothesis**: riding).
+    Horse { riding: u32 },
+    /// Any other creature: by the time played, in whole minutes, through the difficulty's
+    /// scaling of the levels (`0x552230`).
+    Played { minutes: u32 },
+}
+
+/// The level that `CreateNPC` gives a creature of a record without a level of its own
+/// (`0x482510`, from `0x48459F`; docs/re/spawning.md, "`CreateNPC`'s level"): the hero's,
+/// `hero`, held within the levels of the creature's sector, `values`, where it has both: their
+/// lowest below them, their highest above, else the hero's or one more by a roll (`rand() % 2`);
+/// then raised by `raise`.
+pub fn scripted_level(
+    values: Option<&SpawnValues>,
+    hero: u32,
+    raise: Raise,
+    dice: &mut impl Dice,
+) -> u32 {
+    let level = match values.filter(|values| values.lowest > 0 && values.highest > 0) {
+        Some(values) if hero < values.lowest => values.lowest,
+        Some(values) if hero > values.highest => values.highest,
+        Some(_) => hero + dice.below(2),
+        None => hero,
+    };
+    match raise {
+        Raise::Horse { riding } => level + riding / 8,
+        Raise::Played { minutes } => played_level(level, minutes),
+    }
+}
+
+/// A level `level` scaled by the difficulty and raised by the time played (`0x552230`), bronze's:
+/// `⌊L·(1 + x/100) + 0.5⌋`, at least 1, with `x` the tenth of the curve of the minutes `m`
+/// (`0x565D70`) `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated, 0 to 9: one more
+/// per cent of the level from 15 minutes on, five from 121 minutes. A hero wearing six
+/// or more of one count of `+0x4F8` (its byte `0x1C`; **hypothesis**: the pieces of a set) adds
+/// 1 to 2.34 to `x` by the difficulty; not followed. The difficulty's own per cent and offset
+/// (`OffLevelProz`, `BaseOffLevel`) are 0 on bronze.
+fn played_level(level: u32, minutes: u32) -> u32 {
+    let curve = if minutes >= 1 {
+        100.0 * (1.0 - 1.0 / (1.0 + f64::from(minutes - 1) / 120.0))
+    } else {
+        0.0
+    };
+    let x = (curve * f64::from(0.1_f32)).trunc();
+    let scaled = f64::from(level) * (1.0 + x * f64::from(0.01_f32)) + 0.5;
+    whole_f64(scaled.max(1.0))
+}
+
 /// The most health of a creature of `Creature.pak`'s base bytes `base` and level `level`
 /// (`0x5658F0`): with `a` and `b` the bytes 0 and 3, `S = a + b + ⌊(L − 1)a/10⌋ + ⌊(L − 1)b/10⌋`
 /// and `g = 1.5 + G · max(0, 60 − a − b)`, `⌊S^g · (a0 + a3)/S · 10/31⌋`, 100 for 0, times the
@@ -2261,5 +2314,80 @@ mod tests {
         let mut rng = Rng::of(50, 39, 0);
         assert!((0..200).all(|_| (1..=2).contains(&level(&start, HERO_LEVEL, Some(&mut rng)))));
         assert!((0..200).all(|_| (24..=27).contains(&level(&west, HERO_LEVEL, Some(&mut rng)))));
+    }
+
+    #[test]
+    fn a_scripts_creature_takes_the_heros_level_within_its_sectors_or_one_more() {
+        /// A roll below 2 that always gives the value it holds.
+        struct Roll(u32);
+        impl Dice for Roll {
+            fn below(&mut self, n: u32) -> u32 {
+                assert_eq!(n, 2);
+                self.0
+            }
+        }
+        let values = |lowest, highest| SpawnValues {
+            density: 50,
+            lowest,
+            highest,
+        };
+        let start = Raise::Played { minutes: 0 };
+        // The blacksmith's plateau of 50,44 (4 to 7) and the trader of 64,41 (29 to 45) for a hero
+        // of level 1, read in the original (#530); the start (1 to 4), within its levels.
+        let smith = values(4, 7);
+        assert_eq!(scripted_level(Some(&smith), 1, start, &mut Roll(1)), 4);
+        assert_eq!(
+            scripted_level(Some(&values(29, 45)), 1, start, &mut Roll(1)),
+            29
+        );
+        assert_eq!(
+            scripted_level(Some(&values(1, 4)), 1, start, &mut Roll(0)),
+            1
+        );
+        assert_eq!(
+            scripted_level(Some(&values(1, 4)), 1, start, &mut Roll(1)),
+            2
+        );
+        // Above its highest the highest; one more of the highest at it.
+        assert_eq!(scripted_level(Some(&smith), 9, start, &mut Roll(1)), 7);
+        assert_eq!(scripted_level(Some(&smith), 7, start, &mut Roll(1)), 8);
+        // A sector without its levels, or with a level of 0, holds none and rolls none.
+        assert_eq!(scripted_level(None, 3, start, &mut Roll(1)), 3);
+        assert_eq!(
+            scripted_level(Some(&values(0, 7)), 1, start, &mut Roll(1)),
+            1
+        );
+        // A horse by an eighth of the hero's riding, without the time played.
+        let horse = |riding| Raise::Horse { riding };
+        assert_eq!(scripted_level(Some(&smith), 1, horse(7), &mut Roll(1)), 4);
+        assert_eq!(scripted_level(Some(&smith), 1, horse(17), &mut Roll(1)), 6);
+        // The time played: no more below 15 minutes, a per cent from 15, five from 121 minutes.
+        let played = |minutes| Raise::Played { minutes };
+        let high = values(40, 250);
+        assert_eq!(
+            scripted_level(Some(&high), 100, played(14), &mut Roll(0)),
+            100
+        );
+        assert_eq!(
+            scripted_level(Some(&high), 100, played(15), &mut Roll(0)),
+            101
+        );
+        assert_eq!(
+            scripted_level(Some(&high), 50, played(120), &mut Roll(0)),
+            52
+        );
+        // 50 × 1.05 + 0.5 by the original's 0.01 of a float lies just below 53.
+        assert_eq!(
+            scripted_level(Some(&high), 50, played(121), &mut Roll(0)),
+            52
+        );
+        assert_eq!(
+            scripted_level(Some(&high), 60, played(121), &mut Roll(0)),
+            63
+        );
+        assert_eq!(
+            scripted_level(Some(&smith), 4, played(100_000), &mut Roll(0)),
+            4
+        );
     }
 }
