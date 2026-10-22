@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
+use bevy::world_serialization::WorldInstanceReady;
 
 use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
@@ -132,7 +133,8 @@ impl Hero {
     }
 }
 
-/// Whether the hero is in place and animating: the screenshot waits for it.
+/// Whether the hero is in place and animating, or in place where its model has no clips to play
+/// ([`still`]): the screenshot waits for it.
 #[derive(Resource, Default)]
 pub struct Ready(pub bool);
 
@@ -410,6 +412,29 @@ pub fn animate(
             .entity(entity)
             .insert((AnimationGraphHandle(clips.graph.clone()), transitions));
         clips.player = Some(entity);
+        ready.0 = true;
+    }
+}
+
+/// Makes the hero ready once its scene has spawned where [`animate`] has nothing to play: its
+/// model has no animation player, as a glTF without animations has none (`--hero`, #538), or not
+/// the hero's clips.
+fn still(
+    spawned: On<WorldInstanceReady>,
+    clips: Option<Res<Clips>>,
+    bodies: Query<(), With<Body>>,
+    children: Query<&Children>,
+    players: Query<(), With<AnimationPlayer>>,
+    mut ready: ResMut<Ready>,
+) {
+    if !bodies.contains(spawned.entity) {
+        return;
+    }
+    let animated = clips.is_some()
+        && children
+            .iter_descendants(spawned.entity)
+            .any(|entity| players.contains(entity));
+    if !animated {
         ready.0 = true;
     }
 }
@@ -825,7 +850,7 @@ pub fn follow(
 }
 
 /// Despawns the hero of the game left, with its model; its clips go, and the next hero is not
-/// ready until its model animates.
+/// ready until its model animates, or has spawned where it has nothing to play.
 pub fn leave(mut commands: Commands, bodies: Query<Entity, With<Body>>, mut ready: ResMut<Ready>) {
     for body in &bodies {
         commands.entity(body).despawn();
@@ -840,6 +865,7 @@ pub struct HeroPlugin;
 impl Plugin for HeroPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Ready>()
+            .add_observer(still)
             .add_systems(OnEnter(AppState::InGame), load)
             .add_systems(OnExit(AppState::InGame), leave)
             .add_systems(Update, (spawn, animate).chain().in_set(Step::HeroSpawn))
@@ -897,6 +923,72 @@ mod tests {
         assert!(sent_to_stair(Some(centre(stair)), stair));
         assert!(!sent_to_stair(Some(centre((1110, 999))), stair));
         assert!(!sent_to_stair(None, stair));
+    }
+
+    /// Whether a hero whose model's scene holds an animation player (`player`), where the hero has
+    /// its clips (`clips`), is ready once the scene has spawned, before [`animate`] plays a clip.
+    fn ready_once_spawned(player: bool, clips: bool) -> bool {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::world_serialization::WorldSerializationPlugin,
+        ))
+        .register_type::<ChildOf>()
+        .register_type::<Children>()
+        .register_type::<AnimationPlayer>()
+        .init_resource::<Ready>()
+        .add_observer(still);
+        if clips {
+            app.insert_resource(Clips {
+                graph: Handle::default(),
+                idle: AnimationNodeIndex::new(0),
+                stance: None,
+                moving: [
+                    (Handle::default(), AnimationNodeIndex::new(1)),
+                    (Handle::default(), AnimationNodeIndex::new(2)),
+                ],
+                attacks: Vec::new(),
+                dying: Vec::new(),
+                player: None,
+            });
+        }
+        app.update();
+        let mut scene = World::new();
+        let root = scene.spawn_empty().id();
+        let mut armature = scene.spawn(ChildOf(root));
+        if player {
+            armature.insert(AnimationPlayer::default());
+        }
+        let scene = app
+            .world_mut()
+            .resource_mut::<Assets<bevy::world_serialization::WorldAsset>>()
+            .add(bevy::world_serialization::WorldAsset::new(scene));
+        app.world_mut().spawn((
+            WorldAssetRoot(scene),
+            Body {
+                target: None,
+                onto: None,
+                level: None,
+                climbed: false,
+                moving: None,
+                unplaced: false,
+                landing: None,
+                pinned: None,
+            },
+        ));
+        app.update();
+        app.world().resource::<Ready>().0
+    }
+
+    #[test]
+    fn a_hero_with_nothing_to_play_is_ready_once_its_scene_spawns() {
+        // A model without animations (#538), or without the hero's clips.
+        assert!(ready_once_spawned(false, false));
+        assert!(ready_once_spawned(true, false));
+        assert!(ready_once_spawned(false, true));
+        // One that animates waits for its player to play the idle clip.
+        assert!(!ready_once_spawned(true, true));
     }
 
     #[test]

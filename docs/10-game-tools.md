@@ -161,6 +161,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   A jumping hero stands on the ground as soon as its sector's ground is in; the streamer needed nothing more.
   `--exec` splits at every semicolon, so a command in it cannot hold one.
 * Fixed 2026-10-20 (#202): a script goes on after a `screenshot` only once its file is written, a frame or two later, so that a `quit` or a jump right after it cannot come first (the last frame of a script was lost, and a frame asked for before a jump showed the new place before its sectors); and `wait ready` (and the state's `ready`) holds only once the sectors around the hero's place of now are in, not merely when the streamer has nothing to build, which it had right after a jump.
+* Fixed 2026-10-22 (#538): a hero whose model has nothing to play, a `--hero` model without animations or without the hero's clips, is ready once its scene has spawned (`hero::still`), where it waited for an animation player that Bevy's glTF loader gives no such scene, so that `wait ready`, `--screenshot` and `--benchmark` never ended.
 
 ## 7. The console (#174)
 
