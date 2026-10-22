@@ -190,30 +190,19 @@ impl Regenerates {
 }
 
 /// The regeneration (`0x562730`): each creature's value times its rate
-/// (`Rules::regeneration_rate`), an NPC's `RegInFight`, the hero's `RegInFight` while it attacks,
-/// `RegEnemyNear` with a hostile within 1,000, else `RegNoEnemy`, times the frame's time in
-/// seconds (**hypothesis**), up to its most health; none while it dies.
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
-)]
+/// (`Rules::regeneration_rate`), an NPC's `RegInFight`, the hero's `RegInFight` in the fight (a
+/// hostile within 350, its stance), `RegEnemyNear` with a hostile within 1,000, else
+/// `RegNoEnemy`, times the frame's time in seconds (**hypothesis**), up to its most health; none
+/// while it dies.
 fn regenerate(
     time: Res<Time>,
     rules: Res<Rules>,
     nearest: Res<crate::crowd::Nearest>,
-    mut living: Query<
-        (
-            &mut Health,
-            &mut Regenerates,
-            Has<Body>,
-            Has<crate::attack::Attack>,
-        ),
-        Without<Dies>,
-    >,
+    mut living: Query<(&mut Health, &mut Regenerates, Has<Body>), Without<Dies>>,
 ) {
     let hostile = nearest.found.then_some(nearest.distance);
-    for (mut health, mut regenerates, hero, attacks) in &mut living {
-        let rate = rules.regeneration_rate(hero, attacks, hostile);
+    for (mut health, mut regenerates, hero) in &mut living {
+        let rate = rules.regeneration_rate(hero, hostile);
         let gained = regenerates.gather(rate, time.delta_secs());
         if gained > 0 && health.current < health.most {
             health.current = (health.current + gained).min(health.most);

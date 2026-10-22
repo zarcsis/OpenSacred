@@ -20,8 +20,6 @@ use crate::{iso, models, paths, shadows};
 pub(crate) const ARRIVED: f32 = 4.0;
 /// The blend between the idle and the run clips.
 const BLEND: Duration = Duration::from_millis(150);
-/// How near its nearest hostile puts the hero in its fight stance, in world units (`0x547070`).
-const HERO_STANCE_WITHIN: f32 = 350.0;
 
 /// How the hero moves when it moves.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -616,7 +614,7 @@ pub fn run(
         }
         // Standing, in its stance while the last look found a hostile within 350 units (the
         // client's bit `0x8000`, `0x547070`; 1,000 with a bow, which the hero does not hold yet).
-        let fight = nearest.found && nearest.distance < HERO_STANCE_WITHIN;
+        let fight = nearest.found && nearest.distance < opensacred_rules::fight::IN_FIGHT_WITHIN;
         let node = clips.node(moving, fight);
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|e| players.get_mut(e).ok())

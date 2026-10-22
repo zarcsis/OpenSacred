@@ -371,21 +371,25 @@ pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules
     value * (1.0 + skill)
 }
 
+/// How near its nearest hostile puts the hero in the fight, in world units: the client's
+/// `+0x200` bit `0x8000`, which the hero's look sets and clears (`0x547070`), in which the hero
+/// stands in its fight stance and regenerates at `RegInFight` (1,000 with a bow, which the hero
+/// does not hold yet).
+pub const IN_FIGHT_WITHIN: f32 = 350.0;
 /// How near a hostile makes the hero regenerate at `RegEnemyNear` (`0x562730`).
 const ENEMY_NEAR: f32 = 1000.0;
 
 impl Rules {
-    /// The rate of a creature's regeneration (`0x562730`): an NPC's `RegInFight`, the hero's
-    /// `RegInFight` while it `attacks`, `RegEnemyNear` with a hostile within 1,000 (`hostile`, the
-    /// nearest's distance, if one is found), else `RegNoEnemy`.
-    pub fn regeneration_rate(&self, hero: bool, attacks: bool, hostile: Option<f32>) -> f32 {
+    /// The rate of a creature's regeneration (`0x562730`): an NPC's `RegInFight`; the hero's
+    /// `RegInFight` in the fight, the nearest hostile of its look (`hostile`, its distance, if one
+    /// is found) within [`IN_FIGHT_WITHIN`], `RegEnemyNear` within 1,000, else `RegNoEnemy`.
+    pub fn regeneration_rate(&self, hero: bool, hostile: Option<f32>) -> f32 {
         let [fighting, near, alone] = self.regeneration;
-        if !hero || attacks {
-            fighting
-        } else if hostile.is_some_and(|distance| distance < ENEMY_NEAR) {
-            near
-        } else {
-            alone
+        match hostile {
+            _ if !hero => fighting,
+            Some(distance) if distance < IN_FIGHT_WITHIN => fighting,
+            Some(distance) if distance <= ENEMY_NEAR => near,
+            _ => alone,
         }
     }
 }
@@ -1715,14 +1719,15 @@ mod tests {
     #[test]
     fn the_hero_regenerates_by_its_fight_and_the_hostiles_near() {
         let rules = Rules::default();
-        let rate = |hero, attacks, hostile| rules.regeneration_rate(hero, attacks, hostile);
-        // An NPC at `RegInFight` always, the hero while it attacks.
-        assert!((rate(false, false, None) - 36.0).abs() < f32::EPSILON);
-        assert!((rate(true, true, Some(2_000.0)) - 36.0).abs() < f32::EPSILON);
+        let rate = |hero, hostile| rules.regeneration_rate(hero, hostile);
+        // An NPC at `RegInFight` always, the hero in the fight, a hostile within 350 (#474).
+        assert!((rate(false, None) - 36.0).abs() < f32::EPSILON);
+        assert!((rate(true, Some(349.0)) - 36.0).abs() < f32::EPSILON);
         // Else `RegEnemyNear` with a hostile within 1,000, `RegNoEnemy` without.
-        assert!((rate(true, false, Some(999.0)) - 48.0).abs() < f32::EPSILON);
-        assert!((rate(true, false, Some(1_000.0)) - 128.0).abs() < f32::EPSILON);
-        assert!((rate(true, false, None) - 128.0).abs() < f32::EPSILON);
+        assert!((rate(true, Some(350.0)) - 48.0).abs() < f32::EPSILON);
+        assert!((rate(true, Some(1_000.0)) - 48.0).abs() < f32::EPSILON);
+        assert!((rate(true, Some(1_001.0)) - 128.0).abs() < f32::EPSILON);
+        assert!((rate(true, None) - 128.0).abs() < f32::EPSILON);
     }
 
     #[test]
