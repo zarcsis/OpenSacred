@@ -446,13 +446,16 @@ impl Default for FightRules {
 /// walkable cells to the hero, and without a way to it, goes for the door in its way, or gives
 /// up (`opensacred_rules::minds::Mind::blocked`). One with a ranged weapon keeps 300 to 800 from
 /// the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no straight line leads to
-/// the hero, and shoots, standing turned to the hero.
+/// the hero, and shoots, standing turned to the hero. As a strike in melee ends, its next chains
+/// or waits for the AI's two steps, as the rules decide (`Mind::ends_strike`, #466).
 #[expect(
+    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn pursue(
     mut commands: Commands,
+    time: Res<Time>,
     mut minds: ResMut<Minds>,
     heights: Res<Heights>,
     nearest: Res<Nearest>,
@@ -476,10 +479,12 @@ fn pursue(
             Has<Strikes>,
             Option<&crate::fight::Health>,
             &Layered,
+            Has<crate::npcs::StrikeEnded>,
         ),
         Without<Body>,
     >,
 ) {
+    let dt = time.delta_secs();
     let Some((the_hero, hero, hero_strikes, attack)) = hero.iter().next() else {
         return;
     };
@@ -493,7 +498,15 @@ fn pursue(
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
     let seen = doors.seen();
-    for (entity, mut transform, way, mut mind, walk, striking, health, layered) in &mut creatures {
+    for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended) in
+        &mut creatures
+    {
+        mind.rest(dt);
+        if ended {
+            let roll = minds.rng.below(4);
+            mind.ends_strike(roll);
+            commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
+        }
         let here = transform.translation;
         let sight = Pursuit {
             here: spot(here),

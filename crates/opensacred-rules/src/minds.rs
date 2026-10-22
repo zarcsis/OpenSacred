@@ -17,7 +17,7 @@
 //! read the world and carry the decisions out, and the world's points; this module is the rules
 //! alone, over points of the ground ([`Spot`]).
 
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Mul, RangeInclusive, Sub};
 
 use crate::spawning::Rng;
 
@@ -305,6 +305,64 @@ const STAYS: u32 = 0x800_0000;
 const ASIDE_WITHIN: f32 = 91.0;
 const ASIDE: i32 = 200;
 const ASIDE_TRIES: usize = 10;
+/// How long a creature in melee waits after a strike that does not chain before it strikes again:
+/// its AI decides again in its state 4, in two of its steps of about 0.1 s (the sub-states 6 and
+/// 2, read in the original frame by frame, #466).
+const RESTS: f32 = 0.2;
+/// The types whose mark (`+0x25F`, which the creature's maker gives by the type, `0x43C540`) lets
+/// their next strike chain in one case of four only (`0x4E4CF0`, #466): the goblins (76 and 118)
+/// among them.
+const MARKED: &[RangeInclusive<u32>] = &[
+    34..=35,
+    41..=48,
+    52..=53,
+    55..=68,
+    70..=76,
+    80..=81,
+    88..=88,
+    94..=94,
+    96..=98,
+    100..=103,
+    105..=105,
+    118..=118,
+    125..=127,
+    130..=130,
+    133..=133,
+    140..=141,
+    143..=146,
+    182..=187,
+    190..=192,
+    195..=195,
+    202..=208,
+    212..=212,
+    216..=216,
+    218..=219,
+    247..=256,
+    258..=258,
+    262..=271,
+    304..=306,
+    311..=312,
+    319..=321,
+    326..=326,
+    329..=333,
+    335..=336,
+    342..=344,
+    348..=348,
+    350..=354,
+    363..=363,
+    512..=512,
+    567..=571,
+    573..=583,
+    693..=693,
+    697..=697,
+    700..=701,
+];
+
+/// Whether a creature of type `creature` is marked ([`MARKED`]): its next strike chains in one
+/// case of four only.
+pub fn marked(creature: u32) -> bool {
+    MARKED.iter().any(|types| types.contains(&creature))
+}
 
 /// A creature's mind while no foe is near, and in its fight with the hero.
 #[derive(Clone, Debug, PartialEq)]
@@ -361,6 +419,9 @@ pub struct Mind {
     awake: bool,
     clock: f32,
     period: f32,
+    /// How long it waits still before it strikes again, in melee, its strike not chained
+    /// ([`Self::ends_strike`]).
+    rests: f32,
 }
 
 impl Mind {
@@ -415,12 +476,27 @@ impl Mind {
             } else {
                 PERIOD
             },
+            rests: 0.0,
         }
     }
 
     /// Whether it is hostile to the hero.
     pub fn hostile(&self) -> bool {
         self.flags & 0x3 != 0
+    }
+
+    /// As its strike in melee ends, whether the next one chains (`0x4E4CF0`, the attack action's
+    /// sub-state 2, #466): one of class 1 never chains (`0x426650`), one of a marked type
+    /// ([`marked`]) chains on a `roll` of 0 of `0..4`, any other always; one that does not chain
+    /// waits [`RESTS`] before it strikes again, while its AI decides again.
+    pub fn ends_strike(&mut self, roll: u32) {
+        let chains = self.class != 1 && (!marked(self.creature) || roll == 0);
+        self.rests = if chains { 0.0 } else { RESTS };
+    }
+
+    /// The time `dt` gone by of its wait before its next strike.
+    pub fn rest(&mut self, dt: f32) {
+        self.rests = (self.rests - dt).max(0.0);
     }
 
     /// Whether it is a farm or a wild animal by its behaviour.
@@ -592,7 +668,8 @@ impl Mind {
     /// cases of 11, after the hero as it moves; nearer, it steps back; in the band at full
     /// health, farther than 2,500 from home, it goes home and leaves the fight; else it stands
     /// in the band, turned to the hero, where it strikes (#280), and decides again when the
-    /// strike ends (`0x4E2147`). Deciding, the second, third or fourth of the hero's list of
+    /// strike ends (`0x4E2147`): at once when the strike chains, else once it has waited
+    /// ([`Self::ends_strike`]). Deciding, the second, third or fourth of the hero's list of
     /// hostiles that stands nearer than `R − 15` to the first takes its place about the hero
     /// instead ([`place`], the sub-state 5): farther than the band from it, it walks there at a
     /// run in one case of two (never one of class 5), stopping within 40, for a frame, and is
@@ -643,7 +720,7 @@ impl Mind {
             } else if d < lo {
                 steps_back()
             } else {
-                Pursues::Strikes((!striking).then(|| rng.below(5)))
+                Pursues::Strikes((!striking && self.rests <= 0.0).then(|| rng.below(5)))
             });
         }
         let roll = rng.below(FLEES_ONE_IN);
@@ -690,7 +767,9 @@ impl Mind {
                 self.leaves_fight();
                 Some(Pursues::GoesBack)
             }
-            None => Some(Pursues::Strikes((!striking).then(|| rng.below(5)))),
+            None => Some(Pursues::Strikes(
+                (!striking && self.rests <= 0.0).then(|| rng.below(5)),
+            )),
         }
     }
 
@@ -2129,6 +2208,47 @@ mod tests {
             nearest.pursue(&listed(first, 0, first), || true, &mut rng),
             Some(Pursues::Strikes(Some(_)))
         ));
+    }
+
+    #[test]
+    fn a_marked_creatures_strike_chains_in_one_case_of_four() {
+        assert!(marked(76) && marked(118) && marked(34) && marked(573) && marked(701));
+        assert!(!marked(77) && !marked(572) && !marked(1) && !marked(36));
+        // A goblin warrior chains on a roll of 0, else waits 0.2 s, standing turned to the hero
+        // in the band without a strike, and strikes again once it has waited.
+        let mut rng = Rng::of(51, 39, 7);
+        let mut warrior = goblin();
+        warrior.ends_strike(0);
+        assert!(warrior.rests.abs() < f32::EPSILON);
+        for roll in 1..4 {
+            warrior.ends_strike(roll);
+            assert!((warrior.rests - RESTS).abs() < f32::EPSILON);
+        }
+        let band = listed(at(-120.0, 0.0), 0, at(-120.0, 0.0));
+        assert_eq!(
+            warrior.pursue(&band, || true, &mut rng),
+            Some(Pursues::Strikes(None))
+        );
+        warrior.rest(0.1);
+        assert_eq!(
+            warrior.pursue(&band, || true, &mut rng),
+            Some(Pursues::Strikes(None))
+        );
+        warrior.rest(0.15);
+        assert!(matches!(
+            warrior.pursue(&band, || true, &mut rng),
+            Some(Pursues::Strikes(Some(_)))
+        ));
+        // One of a type not marked always chains; one of class 1 never does.
+        let mut unmarked = goblin();
+        unmarked.creature = 77;
+        unmarked.ends_strike(3);
+        assert!(unmarked.rests.abs() < f32::EPSILON);
+        let mut human = goblin();
+        human.creature = 77;
+        human.class = 1;
+        human.ends_strike(0);
+        assert!((human.rests - RESTS).abs() < f32::EPSILON);
     }
 
     #[test]

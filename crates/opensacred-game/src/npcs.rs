@@ -2874,6 +2874,11 @@ impl Strikes {
     }
 }
 
+/// An NPC whose strike, not a shot, has just played its clip whole: its mind decides whether the
+/// next one chains (`ai::pursue`, `opensacred_rules::minds::Mind::ends_strike`, `0x4E4CF0`).
+#[derive(Component)]
+pub struct StrikeEnded;
+
 /// How far a strike reaches when it hits, times the reach (`0x4EA1F0`; **hypothesis** that the base
 /// is the reach of the fight's band).
 const HITS_WITHIN: f32 = 3.0 * 130.0;
@@ -2972,7 +2977,11 @@ fn strike(
             }
         }
         if active.is_finished() {
-            commands.entity(entity).remove::<Strikes>();
+            let mut ended = commands.entity(entity);
+            ended.remove::<Strikes>();
+            if strikes.shot.is_none() {
+                ended.insert(StrikeEnded);
+            }
         }
     }
 }
