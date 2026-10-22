@@ -29,8 +29,9 @@ use bevy::remote::builtin_methods::{
     BRP_MUTATE_COMPONENTS_METHOD, BrpMutateComponentsParams, parse_some,
     process_remote_mutate_components_request,
 };
-use bevy::remote::http::RemoteHttpPlugin;
+use bevy::remote::http::{HostPort, RemoteHttpPlugin};
 use bevy::remote::{BrpError, BrpResult, RemotePlugin, error_codes};
+use bevy::render::RenderApp;
 use bevy::window::PrimaryWindow;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -426,6 +427,12 @@ impl Plugin for RemoteControlPlugin {
         ))
         .init_resource::<Pending>()
         .add_systems(PreUpdate, send.before(InputSystems));
+        // The plugin also serves the render sub-app, on 15703 unless told otherwise, which is the
+        // original's driver's port (docs/03 §3.8, #528): on a port the system picks instead, as
+        // nothing calls it.
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render.insert_resource(HostPort(0));
+        }
         info!("remote control on 127.0.0.1:{}", self.port);
     }
 }
@@ -493,6 +500,18 @@ mod tests {
             body.push_str(rest);
         }
         serde_json::from_str(body.trim()).unwrap_or_else(|e| panic!("{e}: {answer:?}"))
+    }
+
+    #[test]
+    fn the_render_sub_app_keeps_off_the_originals_port() {
+        let mut app = App::new();
+        let mut render = SubApp::new();
+        render.init_resource::<bevy::render::RenderScheduleOrder>();
+        app.insert_sub_app(RenderApp, render);
+        app.add_plugins(RemoteControlPlugin { port: 15702 });
+        let render = app.sub_app(RenderApp).world();
+        assert_eq!(render.resource::<HostPort>().0, 0);
+        assert_eq!(app.world().resource::<HostPort>().0, 15702);
     }
 
     #[test]
