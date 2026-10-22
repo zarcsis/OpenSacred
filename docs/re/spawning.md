@@ -34,6 +34,23 @@ A sector entered without such a list gets crabs and fish (the types 163 to 165) 
 `CreateNPC`, `CreateObj`, `0x564D60` and the message of an area's danger (`0x622D70`) read them.
 The difficulty adds to them from the balance table (its image's `+0x788` and `+0x98C`, indexed 0 to 3 for the difficulties 1 to 4, **hypothesis** for the order): 0, 35, 70 and 128 to the lowest, 50, 120, 190 and 250 to the highest.
 A creature's level is the hero's (`+0x3FE`) held within those bounds.
+`SpawnValues` writes the information of the sector whose function runs (the globals `0x94E08C`, `0x94E090`); a sector's `Init` and `Enter` give the same values, in all 5,666 sectors of the Seraphim's tree that have them, whether the `Enter` has a `FillSector` or not.
+
+### `CreateNPC`'s level
+
+`CreateNPC` (`0x482510`) gives a creature of a level tag `0x1F` above 0 that level (at `0x4843F1`; not followed, #540), and any other one its level so (`0x48440E` to `0x484761`, read 2026-10-22, #530):
+
+1. `L` is the local hero's level, in a network game the highest of the party's;
+2. where the sector of the creature's position (its `+0x18`, `0x63CFC0`) has its information with both `+0xD3` and `+0xD5` above 0, `L` is held within them, each raised by the difficulty's addition: their lowest below them, their highest above, and between them `L + rand() % 2`, the hero's level or one more (so a hero at the highest makes one of one more);
+3. a horse (`Creature.pak` class 4, `0x4266F0`) takes that plus an eighth of the level of the hero's skill 22 (`0x582450`; **hypothesis**: riding);
+4. any other creature takes it through the difficulty's scaling of the levels (`0x552230`): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the difficulty's `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze, docs/re/fight.md) and `x` the tenth of the curve `0x565D70` of the minutes played `m` (the statistics' counter `+0x570C` over 1,000 and over 60, a **hypothesis** as in docs/re/items.md), `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated: 0 below 15 minutes, 1 from 15, 5 from 121, never 10.
+   A hero whose count of `+0x4F8` at `0x1C` is 6 or more (**hypothesis**: the pieces of a set worn) adds 1 to 2.34 to `x` by the difficulty before it is truncated;
+5. the level's setter `0x564D60` takes it.
+
+The record's tag `0x90` (the stables' horses', 1 to 9) raises the creature's level to its value earlier in the handler and is kept in its byte `+0x400`; the rule above sets the level again after it.
+The start script's creatures take the bounds of their sectors however far from the hero's start, so their sectors' information holds the values by then (which code writes it first is not read).
+**Confirmed** in the original's fresh start of the Seraphim, the hero at level 1 (#530): the blacksmith 688 and the 692 of the start script in 50,44 (4 to 7), a sector without a `FillSector`, are at level 4, and the trader 656 of the start script in 64,41 (29 to 45) at 29; in the start's sector 50,39 (1 to 4), where a teleport away and back left two of each of an `Enter`'s novices 677 and chicken 560 on the same cells, one of each pair is at level 1 and the other at 2.
+The horses 554, 555 and 551 of the stable of 64,41 are at 22, 10 and 13, not by the rule (#541).
 
 ## `FillSector`
 
@@ -87,6 +104,8 @@ The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; 
 
 The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` records of the sectors' `Init` and `Enter` functions with the start script's (`npcs`, #221): each NPC or object is placed as the sector of its cell comes in; as its sector goes, a creature of the start script or of an `Init` is kept where it stands with its health and its level, and comes back so, a killed one never, while an `Enter`'s villagers, animals and objects are made again at each coming; a fill's living creatures are kept with their sector and put back at its next coming, which fills anew only when none of them lives (`npcs::Kept`, #329; the region's rule is not followed, docs/decisions/2026-10-20-spawning.md); the placed monsters, hostile, stop the hero's steps (docs/re/movement.md).
 In the Seraphim's tree that makes 3,137 NPCs and 3,122 objects over the world, against the start script's 320 and 1,990: the start sector's novices, chicken and rabbit, and the four goblins of 51,39 among them.
+Each `CreateNPC`'s creature takes its level by the rule above (#530, `opensacred_rules::fight::scripted_level`): the `SpawnValues` of its cell's sector, kept for every sector with a fill or without, its roll of one more by the game's generator seeded by its cell, so the same at each coming, a horse's eighth of the hero's riding none, as the hero's skills stay at level 1 (docs/decisions/2026-10-20-levels.md), and the time played that the drops count; a creature of the start script or of a quest it enters takes its level as the game starts, at the hero's first level and no time played, though the game makes it as its sector first comes in.
+Its level tag (#540) and the stables' horses' levels (#541) are not followed.
 The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for the hero's level and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word.
 They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the scripts' NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.
