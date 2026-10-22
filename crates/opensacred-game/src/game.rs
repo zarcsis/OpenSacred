@@ -283,6 +283,22 @@ fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
         .ok_or_else(|| anyhow!("no creature {id} in {}", path.display()))
 }
 
+/// The items that the hero of `class` wears and holds at the start, its template's (`heroes.ron`,
+/// docs/02 §9), none where the index or the class's template is lacking.
+fn worn(assets: &Path, class: Class) -> Vec<opensacred_data::heroes::Worn> {
+    std::fs::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
+        .ok()
+        .and_then(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text).ok())
+        .and_then(|index| {
+            index
+                .heroes
+                .into_iter()
+                .find(|hero| hero.class == class.creature())
+        })
+        .map(|hero| hero.worn)
+        .unwrap_or_default()
+}
+
 /// Loads the game `game` would start: the hero at its start, the first sector built, the start
 /// script's NPCs and objects, the footsteps, the music.
 fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> {
@@ -356,7 +372,15 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             (name, fractions)
         })
         .collect();
-    // The balance's values of the fight, and the hero's own by its type's record, unarmed.
+    // The balance's values of the fight, and the hero's own by its type's record and its
+    // template's items (#486).
+    let worn = worn(assets, class);
+    let npcs = npcs::Npcs::read(
+        assets,
+        &tree,
+        &worn.iter().map(|worn| worn.item).collect::<Vec<_>>(),
+    )?;
+    let holding = fight::Holding(npcs.hero_holds(&worn));
     let balance =
         std::fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
             .ok()
@@ -368,13 +392,17 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     hero.attacks = attacks;
     let base = fight::Base::of(&record);
     let skills = fight::skills(&base, fight::HERO_LEVEL, true);
-    hero.combat = Some(fight::Combat(fight::combat(
-        &base,
-        fight::HERO_LEVEL,
-        fight::Holds::default(),
-        &skills,
-        &rules,
-    )));
+    let values = fight::combat(&base, fight::HERO_LEVEL, holding.0.clone(), &skills, &rules);
+    bevy::log::debug!(
+        "game: the hero holds and wears {} items: attack {:.2}, defence {:.2}, damage {:?}, \
+         resistances {:?}",
+        worn.len(),
+        values.attack,
+        values.defence,
+        values.damage,
+        values.resistance
+    );
+    hero.combat = Some(fight::Combat(values));
     let most = fight::hero_health(base.attributes, fight::HERO_LEVEL);
     hero.vitals = Some((
         fight::Health {
@@ -389,6 +417,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             &rules,
         )),
         base,
+        holding,
     ));
     hero.dying = dying;
     hero.speeds = record
@@ -407,7 +436,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         ))
     };
     Ok(Loaded {
-        npcs: npcs::Npcs::read(assets, &tree)?,
+        npcs,
         tree,
         at,
         first,

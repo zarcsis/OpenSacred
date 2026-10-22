@@ -648,12 +648,13 @@ impl Base {
 }
 
 /// What a creature holds, as its values take it: a weapon (`0x546F80`), a shield (`0x54A660`),
-/// and the values of the items in its hands that have them.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// and the values of the items it holds and wears that have them: an NPC's in its hands, a
+/// hero's of its template too.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
     pub shield: bool,
-    pub items: [Option<ItemValues>; 2],
+    pub items: Vec<ItemValues>,
 }
 
 /// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
@@ -664,6 +665,22 @@ pub struct ItemValues {
     pub resistance: [f32; KINDS],
     pub attack: f32,
     pub defence: f32,
+}
+
+impl ItemValues {
+    /// The values of an item's record, given as its `u16` words from its `+4`, as `Weapon.pak
+    /// +0x84` holds a fixed item's and a hero template its items' (docs/re/items.md): each kind's
+    /// least damage at `+0x1C`, its most at `+0x24`, `A` at `+0x2C`, `D` at `+0x2E` and the
+    /// resistances at `+0x32`; a word past the end is 0. The bonus slots are left out.
+    pub fn of_record(words: &[u16]) -> Self {
+        let at = |offset: usize| f32::from(words.get((offset - 4) / 2).copied().unwrap_or(0));
+        Self {
+            damage: std::array::from_fn(|kind| [at(0x1C + 2 * kind), at(0x24 + 2 * kind)]),
+            resistance: std::array::from_fn(|kind| at(0x32 + 2 * kind)),
+            attack: at(0x2C),
+            defence: at(0x2E),
+        }
+    }
 }
 
 /// The words of a template of the items' values (`wpmod.bin`, docs/re/items.md).
@@ -1067,7 +1084,7 @@ pub fn combat(
     }
     // The items' own damage, resistances, `A` and `D` (`0x5796A0`).
     let (mut item_attack, mut item_defence) = (0.0, 0.0);
-    for item in holds.items.iter().flatten() {
+    for item in &holds.items {
         for (ends, item) in damage.iter_mut().zip(item.damage) {
             ends[0] += item[0];
             ends[1] += item[1];
@@ -1079,11 +1096,7 @@ pub fn combat(
         item_defence += item.defence;
     }
     // Unarmed, or with a weapon whose values are not made, the default.
-    let made = holds
-        .items
-        .iter()
-        .flatten()
-        .any(|item| item.damage[0][1] > 0.0);
+    let made = holds.items.iter().any(|item| item.damage[0][1] > 0.0);
     if damage[0][1] == 0.0 && (!armed || !made) {
         damage[0][1] += 0.15 * (2.0 * a[0] + a[2]) + l / 2.0;
         damage[0][0] += 0.175 * (a[0] + a[2]) + l / 2.0;
@@ -1870,6 +1883,26 @@ mod tests {
     }
 
     #[test]
+    fn a_records_words_give_the_items_values() {
+        // The words from `+4` of the Seraphim's weapon of her template, the record 7901 (docs/02
+        // §9): physical damage 21 to 23 (`+0x1C`, `+0x24`), `A` 5 and `D` 2 (`+0x2C`, `+0x2E`).
+        let mut words = vec![0; 63];
+        for (offset, value) in [(0x1C, 21), (0x24, 23), (0x2C, 5), (0x2E, 2), (0x38, 12)] {
+            words[(offset - 4) / 2] = value;
+        }
+        assert_eq!(
+            ItemValues::of_record(&words),
+            ItemValues {
+                damage: [[21.0, 23.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+                resistance: [0.0, 0.0, 0.0, 12.0],
+                attack: 5.0,
+                defence: 2.0,
+            }
+        );
+        assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
+    }
+
+    #[test]
     fn an_armed_creature_takes_its_weapons_damage_for_its_bonuses() {
         let rules = Rules::default();
         let dagger = ItemValues {
@@ -1880,7 +1913,7 @@ mod tests {
         let held = Holds {
             weapon: true,
             shield: false,
-            items: [Some(dagger), None],
+            items: vec![dagger],
         };
         let goblin = combat(&a_goblin(), 1, held, &[], &rules);
         // 12 to 15 times the goblin's multiplier, 1.204; its attack 18.5 + 10.

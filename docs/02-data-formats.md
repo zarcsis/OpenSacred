@@ -915,7 +915,7 @@ Table @0x100: 16 slots × `{u32 tag; u32 off; u32 size}`; data from 0x1C0 (= sac
 | 0 | 0xC7 (199) | 1,881 / 2,013–2,079 | zlib | `cCreatureHero` dump (starts with 0xFEEDF00D; per sacred-sdk: class @0x3DD, experience @0x3E1, gold @0x41B, level @0x42B; not checked byte by byte) |
 | 1 | 0xCA (202) | 4,444 | zlib | the hero's backpack: an inventory container (below), 20 × 8 cells |
 | 2 | 0xCB (203) | 4,444 | zlib | a second inventory container, 20 × 10 cells, of the reference `0x11`, empty in all 10 files |
-| 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: repeating blocks starting with 0xFEEDF00D (6 in a template, 52/58 in saves) |
+| 3 | 0xC8 (200) | 2,528 / 21,148–23,216 | zlib | inventory: a block per item (below; 5 to 7 in a template, 52/58 in saves) |
 | 4 | 0xC3 (195) | 556 | uncompressed | summary: `u32 level`, `u32 classId` (1..9, see §6.1), `wchar name[32]`, statistics (kills, gold, time) |
 | 5 | 0xC4 (196) | 64 on disk (556 in the table) | uncompressed | mini block |
 | 8 | 0xCD (205) | 822,824 | zlib | world/quest/chest state (98.6% zeros; markers 0xB00B/0xDEAD; templates differ in ~60 bytes, saves in ~240) |
@@ -927,9 +927,17 @@ The 8 templates are of 8 different classes (1–6, 8, 9), level 1, without a nam
 
 **The inventory containers** `0xCA` and `0xCB`, **confirmed** 2026-10-19 (#133) by the client's reader (`0x5DDA30`, which the hero's loader `0x6058A0` calls for both, `0xCB` for the reference `0x11`) and on every section of the 10 files, read back to their exact 4,444 bytes: six u16, the container's number (1 for the backpack, 17 = `0x11` for the second), flags (16 in every backpack, 0 or 4 in the second container; `+0x1162` of the object), two more (the second 392 in the saves' backpacks, 0 in the templates', 20 in every second container), the grid's width and height (20 × 8 and 20 × 10); `0x400` bytes (zeros in all 10); the grid, `0xC00` bytes of 256 cells of 12 bytes, row by row, width × height of them used, a cell's first u32 an item reference (0 none); `0x78` bytes, five records of 24 bytes of two references each; 200 bytes; two u32; then the quest items, a u32 count and 8 bytes each (the client logs it as `NumQuestItem`), and the scrolls, a u32 count and 4 bytes each (`NumScrolls`), both 0 in all 10 files.
 The backpack of a template holds 4 items, one cell each (the three healing potions and the large torch of `Hero01.ptx`'s inventory), the saves' 33 and 39; the second container is empty in all 10.
+A cell names its item by the item's object id, a `u32` at its start (19 to 22 in four templates, 18 to 21 in three, 20 to 23 in `Hero07.ptx`), followed by the item's type as a `u16` 8 bytes in (5171 the potions, 5633 the torch).
+
+**The inventory** `0xC8`, **confirmed** 2026-10-22 (#486) on the 8 templates (`amh_dump.py --items`) and by the original's driver (#448): after a `u32` (30 in every template), a block per item the hero carries, in its backpack or on it.
+A block holds the item's type as a `u32`, the marker `0xFEEDF00D`, the object's id as a `u16` 10 bytes after the marker, the type again as a `u32` 14 bytes after it, and the item's record, `0x82` bytes 252 bytes after the marker, which begins with the type too; the record's layout is that of `Weapon.pak +0x80…+0x101` (docs/re/items.md, "Defects the community reports"), and a block runs to the next block's type, 398 to 486 bytes.
+The templates hold 46 items: the backpack's four each, and 14 that the backpack does not name, which the hero wears and holds, one to three a template (one in `Hero02.ptx`, `Hero04.ptx` and `Hero06.ptx`, three in `Hero07.ptx`, two in the others).
+Every template's hero holds a weapon, the Vampiress's a shield too, and five wear an item more (a belt, a hood, or one without values); the records equal their types' `Weapon.pak +0x80…+0x101` but for the Gladiator's belt, 4054, of level 27 in the template (the words 8 and 10 from `+4`).
+In the original's new game the Seraphim wears the template's two by their ids, 17 in the equipment slot 0 and 18, the weapon, in slot 13, the right hand (docs/re/equipment.md), and the item maker makes neither.
+The Seraphim's weapon is the record 7901: physical damage 21 to 23, `A` 5 and `D` 2, and two bonus slots (the effects 811 and 812, of the values 14 and 2).
 The earlier names, the skill table and the combat arts, were wrong.
 The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): the converter reads only the templates, and `amh_dump.py --saves` checks the saves of a clean installation.
-Implemented: `opensacred_formats::amh`; `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level and class in `heroes.ron`.
+Implemented: `opensacred_formats::amh` (`Amh::items`, `Amh::backpack`); `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level, class and the items the hero wears, their records' words from `+4`, in `heroes.ron`.
 The sections stay whole until their layout is recovered.
 There is no encryption and there are no checksums (the "export" `.PAK` saves do have 48 bytes of checksums according to gonX, but the game does not check them).
 The 304×360 hero portrait is written as a JPEG via IJL (according to sacred-bild).
@@ -938,7 +946,7 @@ The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold:
 **The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
 
 For the new engine: original `.pax` saves are not supported (by design).
-The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level and class in `heroes.ron`; the starting presets (class, stats, starting items) wait for the layouts of 0xC7 and 0xC8.
+The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class and the items the hero wears in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 
 ## 10. Sound, music, video
@@ -1027,7 +1035,7 @@ Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copie
 | MP3 | unchanged | playback |
 | WMV | AV1 + Opus in WebM via FFmpeg | playback |
 | TTF, BMP | TTF unchanged; BMP → PNG | viewing |
-| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron`; starting presets later | reading back |
+| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn; the rest of the starting presets later | reading back |
 
 ### 12.2 Structure
 
@@ -1077,7 +1085,8 @@ Closed and not in the list: where the screen resolution is stored (nowhere: it i
 3. Granny animation blending parameters (ADSR envelopes, period, the events of the MotionDesc float table other than the attack's hit fractions, §4.1); needed only for the approximate transfer into the Bevy animation graph.
 4. Semantics of the NetScript record types without a keyword (39; the fields `a`, `b` of type 40; the five cases of type 41; 42), the single unresolvable reference `res:174242`.
    Closed on 2026-10-17: the operand tag widths of the Windows build and the names of 43, 44, 111, 122, 123 (§7.1, §7.3).
-5. Hero template fields (sections 0xC7, 0xC8) to the extent needed for the starting presets.
+5. Hero template fields (section 0xC7) to the extent needed for the starting presets.
+   Closed on 2026-10-22: the inventory's blocks of section 0xC8, the items the hero wears and holds (§9, #486).
 6. The meaning of the X fields in the TEX (9,406/27,100), MDL (13,268 in `models.pak`, also in the `Models.tmp` and `MOTIONS.PAK` headers; 19,897 in `models03.pak`), CIF (0x3C3D5) and WPN (0x1A3717) headers; probably CRCs/timestamps.
 7. How the 719 of the 875 bipeds that face −Y in their bind pose come to face their way (§4.5): the client turns a model's `x` along its direction (docs/re/drawing.md, "The models' turn"), which suits the 148 that face +X, among them `SERAPHIM.GRN`.
 8. What the ground's 636 cells of flag bit 2 that no door names are (§5.7).

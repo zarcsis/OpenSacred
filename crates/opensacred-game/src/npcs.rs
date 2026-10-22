@@ -57,6 +57,7 @@ use bevy::prelude::{
     WorldAssetRoot,
 };
 use bevy::world_serialization::WorldInstanceReady;
+use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item, Weapon};
 use opensacred_data::world::SIDE;
@@ -1221,8 +1222,9 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
 }
 
 impl Npcs {
-    /// Reads the scripts of `tree` and the tables.
-    pub fn read(assets: &Path, tree: &str) -> Result<Self> {
+    /// Reads the scripts of `tree` and the tables, and what of them the hero's template's items
+    /// `worn` are ([`Self::hero_holds`]).
+    pub fn read(assets: &Path, tree: &str, worn: &[u32]) -> Result<Self> {
         let path = assets.join("netscript").join(format!("{tree}.nsc"));
         let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
         let tree = Tree::decode(&data).with_context(|| format!("decoding {}", path.display()))?;
@@ -1523,11 +1525,13 @@ impl Npcs {
             );
         }
         let pools = pools(&records);
-        // The pools' items, and the weapons that an archer takes to melee and back (#396).
+        // The pools' items, the weapons that an archer takes to melee and back (#396), and the
+        // hero's (#486).
         let gear = pools
             .values()
             .flatten()
             .chain(&opensacred_rules::minds::SWITCHED)
+            .chain(worn)
             .filter_map(|&slot| {
                 let item = items.get(&slot)?;
                 let gear = Gear {
@@ -1606,6 +1610,28 @@ impl Npcs {
             spawned: HashSet::new(),
             kept: Kept::default(),
         })
+    }
+
+    /// What the hero holds and wears of `worn`, its template's items, as its values take them
+    /// (`0x5796A0`): a weapon and a shield by the hands its items go in, as an NPC's ([`hands`],
+    /// `0x546F80`, `0x54A660`), and the values of every item's record, held or worn
+    /// (`fight::ItemValues::of_record`; #486).
+    pub fn hero_holds(&self, worn: &[Worn]) -> fight::Holds {
+        let holding = InHand::of(worn.iter().filter_map(|worn| {
+            let gear = self.gear.get(&worn.item)?;
+            Some((worn.item, gear.category, gear.kind))
+        }));
+        let class = class_of(&holding);
+        fight::Holds {
+            weapon: class != 0 || holding.iter().any(|held| held.hand == Hand::Right),
+            shield: holding
+                .iter()
+                .any(|held| held.hand == Hand::Left && held.category == SHIELD),
+            items: worn
+                .iter()
+                .map(|worn| fight::ItemValues::of_record(&worn.words))
+                .collect(),
+        }
     }
 
     /// The arrows' model and texture, relative to the asset directory, and their size, where
@@ -3037,11 +3063,14 @@ impl Arms {
         };
         let right = holds(Hand::Right, None);
         let two = class == 8 || (right && holds(Hand::Left, Some(false)));
-        let mut items = self.holding.iter().map(|&(_, values)| values);
         let held = fight::Holds {
             weapon: class != 0 || right,
             shield: holds(Hand::Left, Some(true)),
-            items: [items.next().flatten(), items.next().flatten()],
+            items: self
+                .holding
+                .iter()
+                .filter_map(|&(_, values)| values)
+                .collect(),
         };
         let skills = fight::skills(&self.base, grade, false);
         let mut values = fight::combat(&self.base, grade, held, &skills, rules);

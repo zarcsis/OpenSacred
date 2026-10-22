@@ -85,6 +85,7 @@ pub struct Hero {
         crate::fight::Health,
         crate::fight::Regenerates,
         crate::fight::Base,
+        crate::fight::Holding,
     )>,
     /// The model's dying clips, the slots 173 and 174 (`npcs`).
     pub dying: Vec<String>,
@@ -330,7 +331,7 @@ pub fn spawn(
     if let Some(combat) = hero.combat {
         body.insert(combat);
     }
-    if let Some(vitals) = hero.vitals {
+    if let Some(vitals) = hero.vitals.clone() {
         body.insert(vitals);
     }
 }
