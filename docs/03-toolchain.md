@@ -24,7 +24,7 @@
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
 | | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
-| | dgVoodoo2 | 2.87.5 | freeware | its two DLLs beside `Sacred.exe` in `OriginalGame/`, so that the driven original draws on a locked desktop (§3.8); the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
+| | dgVoodoo2 | 2.87.5 | freeware | its two DLLs and its configuration beside `Sacred.exe` in `OriginalGame/`, so that the driven original draws on a locked desktop (§3.8); the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
 | | Visual Studio Build Tools 2026 | MSVC 14.50 + Windows SDK | free for individual development | the linker for Rust on Windows |
 | | cargo-nextest, cargo-deny | current | open source | fast tests, dependency license checks |
@@ -347,10 +347,11 @@ What the first step found (2026-10-21, Windows 11, #449):
   The guards refused nothing, and the maintainer's clicks and keys did not reach the game: the hero stood on its cell.
 * On a locked desktop the original draws nothing through the system's D3D7: its surfaces are lost at the lock, the frames and the agent's state stand, and a screenshot asked for waits for the unlock (docs/re/window.md).
   About 15 s after the unlock the game restores its surfaces itself and draws on.
-* So dgVoodoo2 lies beside `Sacred.exe` since 2026-10-22, as the maintainer allowed on 2026-10-21: the official build 2.87.5 from its GitHub releases (the archive's SHA-256 as GitHub gives it), only its `MS/x86/DDraw.dll` and `MS/x86/D3DImm.dll`, no `dgVoodoo.conf`.
+* So dgVoodoo2 lies beside `Sacred.exe` since 2026-10-22, as the maintainer allowed on 2026-10-21: the official build 2.87.5 from its GitHub releases (the archive's SHA-256 as GitHub gives it), only its `MS/x86/DDraw.dll` and `MS/x86/D3DImm.dll`, and the archive's `dgVoodoo.conf` with `dgVoodooWatermark = false` its one change (#548).
   Through it (D3D7 → D3D11) the original drew 55 to 60 frames a second through a lock of 72 s, each screenshot taken during the lock whole and of a new frame, no surface lost.
-  The game's log names the device `dgVoodoo TnL HAL`; dgVoodoo2's watermark, on by default, does not show in the screenshots, which come from the back buffer.
-  `verify` stays green, as the two DLLs are not in the manifest; removing them brings back the system's D3D7.
+  The game's log names the device `dgVoodoo TnL HAL`.
+  dgVoodoo2's watermark, on by default, never showed in the original's screenshots, which come from the back buffer, but it did in the window as the desktop composes it (`PrintWindow` with `PW_RENDERFULLCONTENT`), and so for a player who starts the original from GOG; with the configuration it is gone there too.
+  `verify` stays green, as the three files are not in the manifest; removing them brings back the system's D3D7.
 * The player's input reaches the game as the agent's own messages, which the window procedures (the menus' and the game's, docs/re/window.md) take as the system's; input posted to the window from outside changes nothing (#450).
   Escape needs its character (`WM_CHAR` 27) as a keyboard sends it.
 * The world's state and commands (#451, docs/re/objects.md): the objects' table and the hero, a creature's cell, health, level, experience, AI and action, the clock, the zoom; the hero onto a cell as the scripts' `Teleport` puts a player, the clock's time and rates, the zoom, the pixel of a cell, a walk by a click there.

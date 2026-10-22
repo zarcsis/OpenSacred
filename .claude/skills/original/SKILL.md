@@ -66,5 +66,5 @@ The input goes to the game as the agent's own messages: the keys and cursor the 
 ## Rules
 
 - Frames, logs and traces of the original stay in the scratchpad: never in the repository, an issue or a pull request (docs/08 §3). Write what they show in words, the results into #227 and `docs/re/`.
-- The game may overwrite the files it writes itself (`Settings.cfg`, `save/`, `Capture/`, its logs); never touch a file of the manifest, and add no DLL to `OriginalGame/` beyond dgVoodoo2's two (docs/03 §3.8).
+- The game may overwrite the files it writes itself (`Settings.cfg`, `save/`, `Capture/`, its logs); never touch a file of the manifest, and add nothing to `OriginalGame/` beyond dgVoodoo2's two DLLs and its `dgVoodoo.conf` (docs/03 §3.8).
 - The agent hooks the running process alone and carries only addresses, offsets and the original's names (docs/re/window.md): no decompiler output, no code translated from it.
