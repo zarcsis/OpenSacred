@@ -19,7 +19,7 @@ Example
 Expected output: the log's records, a line each, `sequence seconds LEVEL target: message`; the exit code is the
 game's. Dependencies: frida, Pillow (tools/requirements.txt); Windows.
 """
-import argparse, ctypes, hashlib, http.server, json, os, queue, signal, sys, threading, time
+import argparse, ctypes, hashlib, http.server, json, os, queue, re, signal, sys, tempfile, threading, time
 from ctypes import wintypes
 
 import frida
@@ -29,6 +29,31 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 MANIFEST = os.path.join(ROOT, 'docs', 'manifest-gog-2.28.txt')
 AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent.js')
 WIDTH, HEIGHT = 1024, 768
+
+# The original's menus, in the window's pixels (1024 x 768), recorded on 2026-10-21 (#450).
+MAIN_ANCARIA = (512, 287)       # the main menu's "Ancaria Campaign"
+HEROES = {                      # the figures of the hero's choice, left to right as they stand
+    'gladiator': (95, 480), 'seraphim': (215, 380), 'daemon': (365, 380), 'dwarf': (530, 430),
+    'wood-elf': (620, 330), 'mage': (735, 400), 'dark-elf': (805, 330), 'vampiress': (890, 480),
+}
+HERO_NAME = (510, 586)          # the name's field, under the figures
+DIFFICULTY_NEXT = (593, 621)    # the difficulty's right arrow; the original offers the levels unlocked alone
+DIFFICULTIES = ['bronze', 'silver', 'gold', 'platinum', 'niobium']
+START_GAME = (607, 714)
+# The first window of a new game, of a height that depends on its text: Enter is its OK, and its Skip Tutorial and the
+# tutorial's first tip's No more Tips are green words found on a frame, in these columns.
+DREAM_SKIP_TUTORIAL = (540, 680)
+TIP_NO_MORE = (560, 700)
+MAIN_LOAD = (512, 415)          # the main menu's "Load Game"
+MENU_SAVE = (512, 346)          # the menu over a game (Escape): "Save Game", which saves and loads
+SAVES_LOAD, SAVES_SAVE = (866, 302), (866, 367)
+SAVES_CONFIRM = (422, 440)      # OK of "Load game?" and of "Overwrite the old savegame?"
+SAVES_UP, SAVES_DOWN = (734, 347), (734, 655)   # the list's arrows, a row a click; it keeps where it was scrolled
+SAVES_ROWS = 3                  # rows shown: the saves by their number, then one empty
+SAVES_NAME = lambda row: (455, 324 + 137 * row)    # a row's name field
+SAVES_PICTURE = lambda row: (135, 360 + 137 * row)  # a row's picture, which picks it
+SAVE_NAME_OFFSET = 0x500        # the save's name in save/GAMEnn.PAK, a C string
+SAVE_NAME = re.compile(r'[A-Za-z0-9 _.-]{1,24}')
 
 # The keys of Settings.cfg the host sets before each start, and nothing else (#448, decision 2).
 SETTINGS = {'FULLSCREEN': '0', 'SHOWMOVIE': '0'}
@@ -158,6 +183,7 @@ class Host:
         self.ended = threading.Event()
         self.exit_code = None
         self.fatal = None
+        self.scripted = None  # what the host clicks through now, as `new-game`
 
     # --- Start ---------------------------------------------------------------------------------------------------
 
@@ -313,8 +339,9 @@ class Host:
         rect = agent.get('rect')
         snapshot = {
             'name': 'Sacred', 'version': '2.28 (GOG)',
-            'state': 'ended' if not running else 'running' if agent.get('frames') else 'starting',
-            'ready': False,
+            'state': 'ended' if not running else agent.get('screen', 'starting') if agent.get('frames') else 'starting',
+            'ready': running and agent.get('screen') == 'game' and self.scripted is None,
+            'scripted': self.scripted,
             'fps': agent.get('fps', 0), 'frame_ms': agent.get('frame_ms', 0), 'slowest_ms': agent.get('slowest_ms', 0),
             'window': [rect[2] - rect[0], rect[3] - rect[1], 'windowed'] if rect else None,
             'process': {'pid': self.pid, 'running': running, 'exit_code': self.exit_code},
@@ -324,6 +351,7 @@ class Host:
             'place': self.args.place,
             'refusals': agent.get('refusals', 0),
             'flip_error': agent.get('flip_error', 0),
+            'cursor': agent.get('cursor'),
         }
         return snapshot
 
@@ -335,6 +363,17 @@ class Host:
         self.agent.screenshot()
         return None
 
+    def input(self, params):
+        """The player's input, as opensacred-game's `opensacred/input` takes it (the window's pixels, 1024 x 768)."""
+        if self.ended.is_set():
+            raise RuntimeError('the game has ended')
+        allowed = {'key', 'text', 'move', 'click', 'button', 'hold', 'wheel'}
+        unknown = set(params or {}) - allowed
+        if unknown:
+            raise ValueError(f"unknown fields: {', '.join(sorted(unknown))}")
+        self.agent.input(params)
+        return None
+
     def logs(self, params):
         return self.journal.since(int((params or {}).get('after', 0)))
 
@@ -342,8 +381,33 @@ class Host:
         line = params['line'].strip()
         word, _, rest = line.partition(' ')
         if word == 'help':
-            return {'output': ['help: these lines', 'quit: closes the game as its window is closed, '
-                               'ends it after 15 s if it is still running']}
+            return {'output': [
+                'help: these lines',
+                'new-game [--class CLASS] [--difficulty LEVEL] [--name NAME] [--skip-tutorial]: from the main menu, '
+                'a new game of the Ancaria campaign (classes: ' + ', '.join(HEROES) + '; the Seraphim by default; '
+                'levels: ' + ', '.join(DIFFICULTIES) + ', as far as the hero has unlocked them); then wait-ready',
+                "save NAME: in a game, saves through the original's menu into the save of that name, or a new one",
+                'load NAME: from the main menu or a game, loads the save of that name; then wait-ready',
+                'saves: the saves of save/, their files and names',
+                'quit: closes the game as its window is closed, ends it after 15 s if it is still running']}
+        if word == 'new-game':
+            return {'output': [self.start_script('new-game', self.new_game, self.new_game_options(rest))]}
+        if word == 'saves':
+            return {'output': [f'{file} {name}' for file, name in self.saves()] or ['no saves']}
+        if word in ('save', 'load'):
+            name = rest.strip()
+            if not SAVE_NAME.fullmatch(name):
+                raise ValueError(f'{word} NAME: 1 to 24 letters, digits, spaces, _ . -')
+            screen = self.agent_state().get('screen')
+            if word == 'save' and screen != 'game':
+                raise RuntimeError('save works in a game, not on the screen ' + str(screen))
+            if word == 'load':
+                if name not in [n for _, n in self.saves()]:
+                    raise RuntimeError(f'no save {name} (exec saves lists them)')
+                if screen not in ('menu', 'game'):
+                    raise RuntimeError('load works from the main menu or a game, not on the screen ' + str(screen))
+            run = self.save if word == 'save' else self.load
+            return {'output': [self.start_script(f'{word} {name}', run, name)]}
         if word == 'quit':
             if self.ended.is_set():
                 return {'output': ['the game has ended']}
@@ -352,13 +416,203 @@ class Host:
             return {'output': ['closing the game' if closed else 'no window yet: ending the game']}
         raise RuntimeError(f'unknown command: {word} (help lists them)')
 
+    # --- The menus ---------------------------------------------------------------------------------------------
+
+    def new_game_options(self, rest):
+        parser = argparse.ArgumentParser(prog='new-game', add_help=False, exit_on_error=False)
+        parser.add_argument('--class', dest='hero', choices=list(HEROES), default='seraphim')
+        parser.add_argument('--difficulty', choices=DIFFICULTIES, default='bronze')
+        parser.add_argument('--name')
+        parser.add_argument('--skip-tutorial', action='store_true')
+        try:
+            options, unknown = parser.parse_known_args(rest.split())
+        except (argparse.ArgumentError, SystemExit) as e:
+            raise ValueError(f'new-game: {e}') from None
+        if unknown:
+            raise ValueError(f"new-game: unknown {' '.join(unknown)}")
+        if self.agent_state().get('screen') != 'menu':
+            raise RuntimeError('new-game starts from the main menu')
+        return options
+
+    def start_script(self, name, run, options):
+        if self.scripted is not None:
+            raise RuntimeError(f'{self.scripted} is running')
+        self.scripted = name
+
+        def body():
+            try:
+                run(options)
+                self.journal.push('INFO', 'host', f'{name}: done')
+            except Exception as e:
+                self.journal.push('ERROR', 'host', f'{name}: {e}')
+            finally:
+                self.scripted = None
+        threading.Thread(target=body, daemon=True).start()
+        return f'{name}: running (wait-ready)'
+
+    def agent_state(self):
+        try:
+            return self.agent.state()
+        except Exception:
+            return {}
+
+    def click(self, point, pause=1.0):
+        self.agent.input({'click': list(point)})
+        time.sleep(pause)
+
+    def wait_screen(self, screens, timeout):
+        deadline = time.monotonic() + timeout
+        while self.agent_state().get('screen') not in screens:
+            if self.ended.is_set() or time.monotonic() > deadline:
+                raise TimeoutError(f"no {' or '.join(screens)} in {timeout:g} s")
+            time.sleep(0.25)
+
+    def green_words(self, columns):
+        """The middle of the green words (a window's buttons) of the next frame within `columns`, above the bar of the
+        game's interface, or None."""
+        path = os.path.join(tempfile.gettempdir(), f'opensacred-original-{os.getpid()}.png')
+        if os.path.exists(path):
+            os.remove(path)
+        self.screenshot({'path': path})
+        deadline = time.monotonic() + 30
+        while not os.path.exists(path):
+            if time.monotonic() > deadline:
+                raise TimeoutError('no frame in 30 s')
+            time.sleep(0.2)
+        with Image.open(path) as image:
+            pixels = image.convert('RGB').load()
+        os.remove(path)
+        x0, x1 = columns
+        rows = [y for y in range(150, 690)
+                if sum(1 for x in range(x0, x1) if pixels[x, y][1] > 170 and pixels[x, y][0] < 90
+                       and pixels[x, y][2] < 90) >= 3]
+        if not rows:
+            return None
+        return ((x0 + x1) // 2, (rows[0] + rows[-1]) // 2)
+
+    def wait_main_menu(self):
+        """The main menu takes clicks a few seconds after it first appears."""
+        while self.agent_state().get('frames', 0) < 200:
+            time.sleep(0.25)
+        time.sleep(2)
+
+    def new_game(self, options):
+        """Clicks through the original's menus: the Ancaria campaign, the hero, the name, the difficulty, Start Game,
+        then the first window of the game and the tutorial's first tip."""
+        step = lambda message: self.journal.push('INFO', 'host', f'new-game: {message}')
+        self.wait_main_menu()
+        step('Ancaria Campaign')
+        self.click(MAIN_ANCARIA, 2.5)
+        step(options.hero)
+        self.click(HEROES[options.hero], 1.5)
+        if options.name:
+            self.click(HERO_NAME, 0.5)
+            for _ in range(24):
+                self.agent.input({'key': 'Backspace'})
+                time.sleep(0.05)
+            self.agent.input({'text': options.name})
+            time.sleep(0.5)
+        for _ in range(DIFFICULTIES.index(options.difficulty)):
+            self.click(DIFFICULTY_NEXT, 0.5)
+        step('Start Game')
+        self.click(START_GAME, 0.5)
+        self.wait_screen({'loading', 'game', 'paused'}, 120)
+        self.wait_screen({'game', 'paused'}, 300)
+        time.sleep(2)
+        if options.skip_tutorial:
+            step('Skip Tutorial')
+            button = self.green_words(DREAM_SKIP_TUTORIAL)
+            if button is None:
+                raise RuntimeError('no Skip Tutorial on the first window')
+            self.click(button, 2)
+        else:
+            step('OK, then No more Tips')
+            self.agent.input({'key': 'Enter'})
+            time.sleep(2)
+            button = self.green_words(TIP_NO_MORE)
+            if button is None:
+                raise RuntimeError("no tutorial's tip after the first window")
+            self.click(button, 1.5)
+        self.wait_screen({'game'}, 30)
+
+    def saves(self):
+        """The saves of save/, in the order of the original's list (by their number), with their names."""
+        folder = os.path.join(self.game_dir, 'save')
+        found = []
+        for file in os.listdir(folder) if os.path.isdir(folder) else []:
+            match = re.fullmatch(r'GAME(\d+)\.PAK', file, re.IGNORECASE)
+            if match:
+                with open(os.path.join(folder, file), 'rb') as f:
+                    f.seek(SAVE_NAME_OFFSET)
+                    name = f.read(64).split(b'\0')[0].decode('latin-1')
+                found.append((int(match.group(1)), file, name))
+        return [(file, name) for _, file, name in sorted(found)]
+
+    def open_saves(self):
+        """Opens the list of saves: from a game through its menu, from the main menu through Load Game."""
+        if self.agent_state().get('screen') == 'menu':
+            self.wait_main_menu()
+            self.click(MAIN_LOAD, 2.5)
+        else:
+            self.agent.input({'key': 'Escape'})
+            time.sleep(1)
+            self.click(MENU_SAVE, 1.5)
+
+    def show_row(self, row):
+        """Scrolls the list to its top, then until `row` shows, and gives its place among the rows shown."""
+        for _ in range(len(self.saves())):
+            self.click(SAVES_UP, 0.3)
+        for _ in range(max(0, row - (SAVES_ROWS - 1))):
+            self.click(SAVES_DOWN, 0.4)
+        return min(row, SAVES_ROWS - 1)
+
+    def save(self, name):
+        saves = self.saves()
+        names = [n for _, n in saves]
+        row = names.index(name) if name in names else len(saves)
+        before = {file: os.path.getmtime(os.path.join(self.game_dir, 'save', file)) for file, _ in saves}
+        self.open_saves()
+        shown = self.show_row(row)
+        self.click(SAVES_NAME(shown), 0.4)
+        self.agent.input({'key': 'End'})
+        for _ in range(32):
+            self.agent.input({'key': 'Backspace'})
+            time.sleep(0.03)
+        self.agent.input({'text': name})
+        time.sleep(0.4)
+        self.click(SAVES_SAVE, 1.5)
+        if row < len(saves):
+            self.click(SAVES_CONFIRM, 0.5)
+        deadline = time.monotonic() + 60
+        while True:
+            now = self.saves()
+            written = [file for file, n in now if n == name and before.get(file) != os.path.getmtime(
+                os.path.join(self.game_dir, 'save', file))]
+            if written:
+                break
+            if time.monotonic() > deadline:
+                raise TimeoutError('the save was not written in 60 s')
+            time.sleep(0.5)
+        self.wait_screen({'game'}, 30)
+        self.journal.push('INFO', 'host', f'save {name}: {written[0]}')
+
+    def load(self, name):
+        row = [n for _, n in self.saves()].index(name)
+        self.open_saves()
+        shown = self.show_row(row)
+        self.click(SAVES_PICTURE(shown), 0.5)
+        self.click(SAVES_LOAD, 1)
+        self.click(SAVES_CONFIRM, 1)
+        self.wait_screen({'game'}, 180)
+
     def quit_later(self):
         if not self.ended.wait(15):
             self.journal.push('WARN', 'host', 'the game is still running 15 s after its window was closed: ended')
             self.kill(1)
 
     METHODS = {'opensacred/state': lambda self, params: self.state(),
-               'opensacred/screenshot': screenshot, 'opensacred/logs': logs, 'opensacred/exec': exec}
+               'opensacred/screenshot': screenshot, 'opensacred/logs': logs, 'opensacred/exec': exec,
+               'opensacred/input': input}
 
 
 def serve(host, port):

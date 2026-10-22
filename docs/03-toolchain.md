@@ -277,12 +277,16 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 ### 3.8 Driving the original
 
 Claude Code drives the developer's own running `Sacred.exe` the way it drives the game (§3.7), to see for itself how the original behaves (the checks of #227; #448, its steps #449–#452).
-The host, its guards, the frames and the process's state are in place (#449); the player's input (#450), the world's state and commands (#451) and the traces (#452) follow.
+The host, its guards, the frames and the process's state are in place (#449), and the player's input, the program's screen, a new game and the saves (#450); the world's state and commands (#451) and the traces (#452) follow.
 The project skill `original` says how to run it.
 
 ```bash
 python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
-python -I tools/game/remote.py --port 15703 state
+python -I tools/game/remote.py --port 15703 wait-state menu
+python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"   # or: exec "load start-seraphim"
+python -I tools/game/remote.py --port 15703 wait-ready
+python -I tools/game/remote.py --port 15703 click 720 480            # or: key Escape, key L, type "…", wheel 1
+python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
 python -I tools/game/remote.py --port 15703 logs --after 0
 python -I tools/game/remote.py --port 15703 exec quit
@@ -335,7 +339,9 @@ What the first step found (2026-10-21, Windows 11, #449):
 * Stopping the host's background task ends the game within a second, the game's `quit` ends the host with its exit code, and a host that stops answering for 5 s ends the game.
 * Open: whether it draws on a locked desktop.
   If it does not, the maintainer allowed dgVoodoo2 (2026-10-21): the official build, only its D3D7 and DirectDraw DLLs beside `Sacred.exe`, written here, removed when no longer needed.
-* Open until #450–#451: the addresses of the objects' table, the local hero and the program's screen.
+* The player's input reaches the game as the agent's own messages, which the window procedures (the menus' and the game's, docs/re/window.md) take as the system's; input posted to the window from outside changes nothing (#450).
+  Escape needs its character (`WM_CHAR` 27) as a keyboard sends it.
+* Open until #451: the addresses of the objects' table and the local hero.
 
 ## 4. Binary analysis
 

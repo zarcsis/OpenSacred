@@ -1,6 +1,6 @@
 ---
 name: original
-description: Run the developer's own original Sacred.exe (GOG 2.28) in the background under Frida and drive it through tools/original/host.py and tools/game/remote.py --port 15703 - its state, frames, screenshots, the game's own log and the host's. Use to see how the original behaves (the checks of #227), to compare it with opensacred-game, or to take a screenshot of the original.
+description: Run the developer's own original Sacred.exe (GOG 2.28) in the background under Frida and play it through tools/original/host.py and tools/game/remote.py --port 15703 - a new game of a class, saves and loads, keys and clicks, its screen and frames, screenshots, the game's own log and the host's. Use to see how the original behaves (the checks of #227), to compare it with opensacred-game, or to take a screenshot of the original.
 ---
 
 # Running and driving the original
@@ -11,7 +11,11 @@ The original is the developer's own `Sacred.exe` in `OriginalGame/` (a link to t
 
 ```bash
 python -I tools/original/host.py --log-file <scratch>/original.log    # run_in_background; one original at a time
-python -I tools/game/remote.py --port 15703 state                     # starting, then running once frames come
+python -I tools/game/remote.py --port 15703 wait-state menu           # up, on its main menu
+python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"
+python -I tools/game/remote.py --port 15703 wait-ready                # in the world, the first windows closed
+python -I tools/game/remote.py --port 15703 exec "save start-seraphim"   # later: exec "load start-seraphim"
+python -I tools/game/remote.py --port 15703 click 720 480             # the hero walks there
 python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
 python -I tools/game/remote.py --port 15703 logs --after 0
 python -I tools/game/remote.py --port 15703 exec quit                 # the game closes as its window is closed
@@ -36,12 +40,20 @@ Stopping the host's background task ends the game within a second (a job object)
 
 | Call | What it does |
 |---|---|
-| `state` (`--json`) | the process, the frames drawn and the rate, the window's rectangle, whether the game believes it has the focus, the guards' refusals |
+| `state` (`--json`) | the screen (`menu`, `loading`, `game`, `paused`: the game's time stands, under the menu over a game, the saves' list or a tutorial window), `ready` (a game, nothing scripted running), the process, the frames drawn and the rate, the window's rectangle, whether the game believes it has the focus, the agent's cursor, the guards' refusals |
+| `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then |
+| `key NAME` | press and release a key, as opensacred-game names them: `Escape` (the menu over a game), `Enter`, `Space`, `L` (the log book), `F1`…`F12`, `NumpadAdd`, `Control+…`; a key with a character sends it too, as a keyboard does |
+| `type "TEXT"` | characters, as into a name's field |
+| `click X Y` (`--button left\|right\|middle`, `--hold`) | a click on a pixel of the window, 1024 × 768: a menu's item, the ground to walk there |
+| `move X Y`, `wheel N` | the cursor, the wheel |
 | `screenshot FILE` | the next frame, as the original's own screenshot (`captureScreenshot`) converted to PNG |
 | `logs --after N` | the host's records (`host`), the agent's (`agent`: each guard's refusal) and the game's own log (`game`) |
-| `exec help`, `exec quit` | the commands |
+| `exec help` | the commands |
+| `exec "new-game [--class C] [--difficulty bronze] [--name N] [--skip-tutorial]"` | from the main menu, the Ancaria campaign with a class of `seraphim` (by default), `gladiator`, `mage`, `wood-elf`, `dark-elf`, `daemon`, `dwarf`, `vampiress`; OK and No more Tips close the first windows unless `--skip-tutorial`; then `wait-ready` |
+| `exec "save NAME"`, `exec "load NAME"`, `exec saves` | through the original's own menus: a save of that name is overwritten, else a new one is made in `save/`; a load from the main menu or a game; then `wait-ready` |
+| `exec quit` | the game closes as its window is closed, and the host with it |
 
-The player's input, the program's screen (`wait-state`), the world's state and commands and the traces come with #450–#452.
+The input goes to the game as the agent's own messages: the keys and cursor the game queries are the agent's, and the maintainer's keyboard and mouse never reach it, nor does input posted to the window from outside. The world's state and commands and the traces come with #451–#452.
 
 ## Rules
 
