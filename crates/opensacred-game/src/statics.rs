@@ -1566,13 +1566,12 @@ pub(crate) mod tests {
             .lines()
             .find(|l| l.starts_with(&format!("const {name}: f32 = ")))
             .unwrap();
-        line.split('=')
-            .nth(1)
-            .unwrap()
-            .trim()
-            .trim_end_matches(';')
-            .parse()
-            .unwrap()
+        let value = line.split('=').nth(1).unwrap().trim().trim_end_matches(';');
+        // A number, or a quotient of two.
+        let number = |text: &str| text.trim().parse::<f32>().unwrap();
+        value
+            .split_once('/')
+            .map_or_else(|| number(value), |(a, b)| number(a) / number(b))
     }
 
     /// Writes an RGBA PNG of `width` × `height` pixels, all of `colour`.
