@@ -73,11 +73,15 @@ pub struct Hero {
     pub idle: String,
     pub walk: String,
     pub run: String,
-    /// The model's fight stance for bare hands, if it has one (`motions::Slots::stance`).
+    /// The model's fight stance for what it holds, if it has one (`motions::Slots::stance`).
     pub stance: Option<String>,
-    /// The model's attack clips for bare hands (`motions::Slots::attacks`) and the fractions of
-    /// each at which it hits (`attack`).
+    /// The model's attack clips for what it holds (`motions::Slots::attacks`) and the fractions
+    /// of each at which it hits (`attack`).
     pub attacks: Vec<(String, [f32; 2])>,
+    /// The items in its hands, its template's (`npcs::Npcs::hero_gear`, #488), and their
+    /// equipment once loading.
+    pub held: Vec<crate::npcs::Held>,
+    equipment: Option<crate::npcs::Equipment>,
     /// Its attack, defence, damage and resistances, by its type's record (`fight::combat`).
     pub combat: Option<crate::fight::Combat>,
     /// Its health, full, and its regeneration, by its type's record (`fight::hero_health`).
@@ -107,6 +111,8 @@ impl Hero {
             run,
             stance: None,
             attacks: Vec::new(),
+            held: Vec::new(),
+            equipment: None,
             combat: None,
             vitals: None,
             dying: Vec::new(),
@@ -251,6 +257,9 @@ impl Clips {
 
 pub fn load(mut hero: ResMut<Hero>, assets: Res<AssetServer>) {
     hero.gltf = Some(assets.load(hero.model.clone()));
+    if !hero.held.is_empty() {
+        hero.equipment = Some(crate::npcs::equipment(&assets, &hero.held));
+    }
 }
 
 /// Spawns the model once its glTF is loaded.
@@ -333,6 +342,9 @@ pub fn spawn(
     }
     if let Some(vitals) = hero.vitals.clone() {
         body.insert(vitals);
+    }
+    if let Some(equipment) = hero.equipment.take() {
+        body.insert(equipment);
     }
 }
 

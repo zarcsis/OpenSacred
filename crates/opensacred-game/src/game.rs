@@ -332,6 +332,17 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         }
         Err(_) => terrain::start(&first.sector),
     };
+    // The hero's template's items (#486): their values in its fight, the class of those in its
+    // hands, by which it picks its clips, and their models (#488).
+    let worn = worn(assets, class);
+    let npcs = npcs::Npcs::read(
+        assets,
+        &tree,
+        &worn.iter().map(|worn| worn.item).collect::<Vec<_>>(),
+    )?;
+    let holding = fight::Holding(npcs.hero_holds(&worn));
+    let (held_class, held) = npcs.hero_gear(&worn);
+    bevy::log::debug!("game: the hero holds {held:?}, of the class {held_class}");
     let (grn, [idle, walk, run], footsteps) = class.preset();
     let model = match &game.hero {
         Some(model) => model.clone(),
@@ -340,16 +351,32 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             .ok_or_else(|| anyhow!("no model {grn} in {}", assets.display()))?,
     };
     let profile = game.footsteps.clone().unwrap_or_else(|| footsteps.into());
-    let idle = game.idle.clone().unwrap_or_else(|| idle.into());
-    let walk = game.walk.clone().unwrap_or_else(|| walk.into());
-    let run = game.run.clone().unwrap_or_else(|| run.into());
-    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
-    // Its fight stance and its attacks for bare hands, by its model's slots (`0x5467A0`), and
-    // the fractions of its attacks at which they hit.
+    // Its idle, walk and run for what it holds by its model's slots (`0x5467A0`), the class's
+    // presets where the model's slots cannot be read; its fight stance and its attacks for what
+    // it holds, and the fractions of its attacks at which they hit.
     let slots = motions::Slots::read(&assets.join(&model)).ok();
+    let clip = |action, preset: &str| {
+        slots
+            .as_ref()
+            .and_then(|slots| slots.clip(action, held_class))
+            .map_or_else(|| preset.to_owned(), |(name, _)| name.to_owned())
+    };
+    let idle = game
+        .idle
+        .clone()
+        .unwrap_or_else(|| clip(motions::Action::Stand, idle));
+    let walk = game
+        .walk
+        .clone()
+        .unwrap_or_else(|| clip(motions::Action::Walk, walk));
+    let run = game
+        .run
+        .clone()
+        .unwrap_or_else(|| clip(motions::Action::Run, run));
+    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
     let stance = slots
         .as_ref()
-        .and_then(|slots| slots.stance(0).map(str::to_owned));
+        .and_then(|slots| slots.stance(held_class).map(str::to_owned));
     let hits = npcs::hit_fractions(assets);
     let dying = slots
         .as_ref()
@@ -361,7 +388,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         })
         .unwrap_or_default();
     let attacks = slots
-        .map(|slots| slots.attacks(0))
+        .map(|slots| slots.attacks(held_class))
         .unwrap_or_default()
         .into_iter()
         .map(|name| {
@@ -374,13 +401,6 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         .collect();
     // The balance's values of the fight, and the hero's own by its type's record and its
     // template's items (#486).
-    let worn = worn(assets, class);
-    let npcs = npcs::Npcs::read(
-        assets,
-        &tree,
-        &worn.iter().map(|worn| worn.item).collect::<Vec<_>>(),
-    )?;
-    let holding = fight::Holding(npcs.hero_holds(&worn));
     let balance =
         std::fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
             .ok()
@@ -390,6 +410,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.stance = stance;
     hero.attacks = attacks;
+    hero.held = held;
     let base = fight::Base::of(&record);
     let skills = fight::skills(&base, fight::HERO_LEVEL, true);
     let values = fight::combat(&base, fight::HERO_LEVEL, holding.0.clone(), &skills, &rules);
