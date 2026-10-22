@@ -3,8 +3,9 @@
 //! an ordinary sprite without the depth test, so a sprite drawn later covers a model whole and one
 //! drawn earlier lies under it whole. The game draws the sprites at the depths of their places
 //! (`order.wesl`); a model's meshes take [`ModelMaterial`], whose vertex shader puts the model at
-//! its anchor's place, the centre of the cell its root stands in, with a small part of its own
-//! depth (`models.wesl`). A model's root carries [`Ordered`], with its slot of the [`Anchors`]
+//! its anchor's place, the centre of the cell its root stands in (a script's object's own cell,
+//! wherever its model stands), with a small part of its own depth (`models.wesl`). A model's root
+//! carries [`Ordered`], with its slot of the [`Anchors`]
 //! that its meshes' tags name; a model that another holds, an NPC's weapon, [`OrderedWith`] its
 //! holder, whose slot its meshes take. A model standing on an upper storey's floor lies no
 //! further back than the floor's plane, as the sprites standing on it do ([`statics::Floor`]).
@@ -29,6 +30,7 @@ use bevy::world_serialization::WorldInstanceReady;
 use crate::buildings::{self, Layered};
 use crate::frame::Step;
 use crate::hero::Body;
+use crate::npcs::Object;
 use crate::terrain::Heights;
 use crate::{blended, iso, statics};
 
@@ -300,27 +302,41 @@ fn storey(
     Some((building, 1u8.checked_shl(u32::from(floor))?))
 }
 
+/// A model's root as [`place`] reads it: where it stands, its slot, its layer, the hero's body and
+/// a script's object.
+type Root = (
+    &'static Transform,
+    &'static Ordered,
+    Option<&'static Layered>,
+    Option<&'static Body>,
+    Option<&'static Object>,
+);
+
 /// Keeps each model's anchor at the cell its root stands in, and the floor it stands on, and the
-/// shader's buffers with them.
+/// shader's buffers with them. A script's object takes its own cell's place, its logical
+/// position's, wherever its model stands: the client chains the object into the list of the cell
+/// at its position on its layer (`0x5FCCB0`), which the row walk draws after the cell's statics
+/// (`0x62AE90`), while it draws the model at the floats `+0xCC…+0xD4` (docs/re/drawing.md, "The
+/// models"); so the leaf of an upper storey's door, whose model stands in the cell before its
+/// own, is drawn over the back wall's sprites of its cell (#459).
 pub fn place(
     heights: Res<Heights>,
-    roots: Query<(&Transform, &Ordered, Option<&Layered>, Option<&Body>)>,
+    roots: Query<Root>,
     floors: Query<&statics::Floor>,
     mut anchors: ResMut<Anchors>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
     let floors: HashMap<(buildings::Anchor, u8), &statics::Floor> =
         floors.iter().map(|floor| (floor.part, floor)).collect();
-    for (transform, ordered, layered, body) in &roots {
+    for (transform, ordered, layered, body, object) in &roots {
         let Some(slot) = ordered.0.and_then(|slot| usize::try_from(slot).ok()) else {
             continue;
         };
-        let at = anchor(&heights, transform.translation);
+        let root = object.map_or(transform.translation, |object| object.at);
+        let at = anchor(&heights, root);
         let on = storey(&heights, layered, body)
             .and_then(|part| floors.get(&part))
-            .map_or(Vec4::ZERO, |floor| {
-                floor.under(place_of(transform.translation))
-            });
+            .map_or(Vec4::ZERO, |floor| floor.under(place_of(root)));
         let anchors = &mut *anchors;
         if let (Some(anchor), Some(floor)) =
             (anchors.anchors.get_mut(slot), anchors.floors.get_mut(slot))
