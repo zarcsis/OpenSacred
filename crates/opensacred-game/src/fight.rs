@@ -252,19 +252,22 @@ fn level_up(
     }
 }
 
-/// How long a damage's number shows, in seconds, how high over the target's feet it starts and
-/// how far it rises meanwhile, in world units, and its colour (**hypothesis**: the original's
-/// number is not read).
-const NUMBER_SHOWS: f32 = 1.0;
+/// How long a damage's number shows, in seconds, and how long of it at full strength before it
+/// fades out; how high over the target's feet it starts, in world units, and how fast it rises,
+/// in screen pixels a second at zoom 1; its colour over another than the hero and over the hero.
+/// As seen in the original (#470): pure yellow and pure red, full for about 0.7 s and gone 1.5 to
+/// 2.2 s after the hit, rising about 30 pixels a second; its code is not read.
+const NUMBER_SHOWS: f32 = 2.0;
+const NUMBER_FULL: f32 = 0.7;
 const NUMBER_ABOVE: f32 = 110.0;
-const NUMBER_RISES: f32 = 60.0;
-const NUMBER_COLOR: Color = Color::srgb(1.0, 0.85, 0.3);
-const HERO_HIT: Color = Color::srgb(1.0, 0.3, 0.25);
+const NUMBER_RISES: f32 = 30.0;
+const NUMBER_COLOR: Color = Color::srgb(1.0, 1.0, 0.0);
+const HERO_HIT: Color = Color::srgb(1.0, 0.0, 0.0);
 const NUMBER_SIZE: f32 = 16.0;
 /// How wide a number's box is, in logical pixels, centred over the place.
 const NUMBER_WIDTH: f32 = 80.0;
 
-/// A damage's number over the place of its target, rising until its time is out.
+/// A damage's number over the place of its target, rising and fading until its time is out.
 #[derive(Component)]
 struct Number {
     at: Vec3,
@@ -274,7 +277,15 @@ struct Number {
     label: Option<Entity>,
 }
 
-/// Shows each damage's number over its place, rising, and takes it away when its time is out.
+/// How far a number has risen, in world units, and its strength, 1 to 0, with `left` seconds of
+/// its time left: full for its first moments, then fading out to its end.
+fn shown(left: f32) -> (f32, f32) {
+    let risen = crate::iso::height(NUMBER_RISES) * (NUMBER_SHOWS - left);
+    (risen, (left / (NUMBER_SHOWS - NUMBER_FULL)).min(1.0))
+}
+
+/// Shows each damage's number over its place, rising and, after its first moments, fading, and
+/// takes it away when its time is out.
 fn rise(
     mut commands: Commands,
     time: Res<Time>,
@@ -282,7 +293,7 @@ fn rise(
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     ui_scale: Res<UiScale>,
     mut numbers: Query<(Entity, &mut Number)>,
-    mut nodes: Query<&mut Node>,
+    mut labels: Query<(&mut Node, &mut TextColor)>,
 ) {
     let Some((camera, view)) = cameras.iter().next() else {
         return;
@@ -296,17 +307,19 @@ fn rise(
             commands.entity(entity).despawn();
             continue;
         }
-        let risen = NUMBER_RISES * (1.0 - number.left / NUMBER_SHOWS);
+        let (risen, strength) = shown(number.left);
         let Ok(point) = camera.world_to_viewport(view, number.at + Vec3::Y * risen) else {
             continue;
         };
         // The window's pixels in the interface's, which `UiScale` scales (`hud::scale`).
         let point = point / ui_scale.0;
         let (left, top) = (Val::Px(point.x - NUMBER_WIDTH / 2.0), Val::Px(point.y));
-        match number.label.map(|label| nodes.get_mut(label)) {
-            Some(Ok(mut node)) => {
+        let color = number.color.with_alpha(strength);
+        match number.label.map(|label| labels.get_mut(label)) {
+            Some(Ok((mut node, mut text))) => {
                 node.left = left;
                 node.top = top;
+                text.0 = color;
             }
             _ => {
                 let label = commands
@@ -325,7 +338,7 @@ fn rise(
                             font_size: FontSize::Px(NUMBER_SIZE),
                             ..default()
                         },
-                        TextColor(number.color),
+                        TextColor(color),
                         TextLayout::justify(Justify::Center),
                         DespawnOnExit(AppState::InGame),
                     ))
@@ -360,4 +373,21 @@ pub struct Health {
     pub current: u32,
     pub most: u32,
     pub level: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_number_rises_30_pixels_a_second_and_fades_after_its_first_moments() {
+        assert_eq!(shown(NUMBER_SHOWS), (0.0, 1.0));
+        // Full for 0.7 s, half at 1.35 s, gone at 2 s.
+        assert_eq!(shown(NUMBER_SHOWS - NUMBER_FULL).1, 1.0);
+        assert!((shown(0.65).1 - 0.5).abs() < 1e-6);
+        assert_eq!(shown(0.0).1, 0.0);
+        // A second risen: 30 pixels at zoom 1, a world unit's height showing as 1.1 pixels.
+        let (risen, _) = shown(NUMBER_SHOWS - 1.0);
+        assert!((risen - crate::iso::height(30.0)).abs() < 1e-3 && (27.0..28.0).contains(&risen));
+    }
 }
