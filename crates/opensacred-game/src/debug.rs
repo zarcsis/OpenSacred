@@ -239,6 +239,42 @@ pub fn stats(world: &mut World, id: Option<Entity>) -> Result<Vec<String>, Strin
     Ok(stats.lines())
 }
 
+/// How far about a cell, in cells along each axis, `spawn` looks for cells to stand creatures on.
+const SPAWN_REACH: i32 = 16;
+
+/// Up to `count` cells for creatures about `centre` on `level` (`spawn`): `centre` first where a
+/// creature may step into it, then the nearest others ring by ring within [`SPAWN_REACH`], never
+/// the hero's cell `hero`; `centre` alone where none may be stepped into.
+pub fn cells_about(
+    heights: &Heights,
+    centre: (i32, i32),
+    level: Level,
+    count: usize,
+    hero: (i32, i32),
+) -> Vec<(i32, i32)> {
+    let mut cells = Vec::new();
+    'rings: for ring in 0..=SPAWN_REACH {
+        for dy in -ring..=ring {
+            for dx in -ring..=ring {
+                if dx.abs().max(dy.abs()) != ring {
+                    continue;
+                }
+                let cell = (centre.0 + dx, centre.1 + dy);
+                if cell != hero && heights.walkable_on(cell, level) {
+                    cells.push(cell);
+                    if cells.len() == count {
+                        break 'rings;
+                    }
+                }
+            }
+        }
+    }
+    if cells.is_empty() && count > 0 {
+        cells.push(centre);
+    }
+    cells
+}
+
 /// The creature whose id the lines print as `text` (`5450v1`), or whose index it is (`5450`).
 pub fn creature(world: &mut World, text: &str) -> Result<Entity, String> {
     let mut minds = world.query_filtered::<Entity, With<ai::Mind>>();
@@ -334,6 +370,50 @@ mod tests {
                 "attack speed 140",
             ]
         );
+    }
+
+    #[test]
+    fn spawn_stands_creatures_about_a_cell_off_the_heros() {
+        use opensacred_data::world::{Cell, SIDE, Sector};
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let sector = |cells| Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        // Grass, water at (5, 5).
+        let mut cells = vec![cell(0x40); SIDE * SIDE];
+        cells[5 * SIDE + 5] = cell(0x92);
+        let mut heights = Heights::default();
+        heights.add(&sector(cells));
+        // A walkable centre first, then its ring, row by row.
+        assert_eq!(
+            cells_about(&heights, (10, 10), None, 3, (0, 0)),
+            [(10, 10), (9, 9), (10, 9)]
+        );
+        // About the water: its ring, but the hero's cell (4, 4).
+        assert_eq!(
+            cells_about(&heights, (5, 5), None, 3, (4, 4)),
+            [(5, 4), (6, 4), (4, 5)]
+        );
+        // Nothing to stand on: the centre alone.
+        let mut heights = Heights::default();
+        heights.add(&sector(vec![cell(0x92); SIDE * SIDE]));
+        assert_eq!(cells_about(&heights, (5, 5), None, 4, (0, 0)), [(5, 5)]);
     }
 
     #[test]

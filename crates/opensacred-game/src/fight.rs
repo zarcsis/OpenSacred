@@ -30,7 +30,7 @@ pub struct Hit {
 
 /// The dice of the strikes.
 #[derive(Resource)]
-struct Dice(Rng);
+pub(crate) struct Dice(Rng);
 
 /// The hero's experience, its level and the points its levels gave
 /// (`opensacred_rules::fight::Experience`).
@@ -77,6 +77,11 @@ pub struct Ranked(pub Rank);
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Worth(pub [u16; 2]);
 
+/// A creature that takes no damage, for a test (the commands `spawn --immortal` and `god`,
+/// #521): a hit lands and shows its damage, but the health stays.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Immortal;
+
 /// Resolves each hit (`0x56B130`), weighed by the difficulty between the hero and a creature
 /// ([`weighed`]), a hit at range with its attack times the range's factor of the distance between
 /// the attacker and the target ([`range_factor`], `0x56B449`): a target without a health, or
@@ -107,6 +112,7 @@ fn resolve(
             Option<&Worth>,
             Has<Body>,
             Option<&Ranked>,
+            Has<Immortal>,
         ),
         Without<Dies>,
     >,
@@ -114,7 +120,7 @@ fn resolve(
     for hit in hits.read() {
         let (
             Ok((attacker, hero, mind, from)),
-            Ok((mut health, defender, at, worth, hero_hit, rank)),
+            Ok((mut health, defender, at, worth, hero_hit, rank, immortal)),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -147,7 +153,9 @@ fn resolve(
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
-        health.current = health.current.saturating_sub(damage);
+        if !immortal {
+            health.current = health.current.saturating_sub(damage);
+        }
         debug!(
             "fight: {} hits {} for {damage}, health {}/{}",
             hit.attacker, hit.target, health.current, health.most
@@ -163,24 +171,110 @@ fn resolve(
             DespawnOnExit(AppState::InGame),
         ));
         if health.current == 0 {
-            commands
-                .entity(hit.target)
-                .insert(Dies::new(dice.0.below(2)));
-            if let (true, Some(worth)) = (hero, worth) {
-                let earned = experience_of(worth.0, health.level, experience.level, &rules);
-                // Twice for a boss, 1.5 times for a champion.
-                let earned = rank.copied().unwrap_or_default().0.earned(earned);
-                let grew = experience.add(u64::from(earned), &rules);
-                info!(
-                    "fight: the hero kills {} and earns {earned} experience, {} in all",
-                    hit.target, experience.points
-                );
-                if grew {
-                    info!("fight: the hero reaches level {}", experience.level);
-                }
-            }
+            let worth = worth.filter(|_| hero).map(|worth| (*worth, rank.copied()));
+            fell(
+                &mut commands,
+                (&mut dice, &mut experience, &rules),
+                hit.target,
+                &health,
+                worth,
+            );
         }
     }
+}
+
+/// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the
+/// hero killed it, of `worth` and its rank, the hero earns its experience (the event 9,
+/// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned.
+fn fell(
+    commands: &mut Commands,
+    (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
+    target: Entity,
+    health: &Health,
+    worth: Option<(Worth, Option<Ranked>)>,
+) -> u32 {
+    commands.entity(target).insert(Dies::new(dice.0.below(2)));
+    let Some((worth, rank)) = worth else {
+        return 0;
+    };
+    let earned = experience_of(worth.0, health.level, experience.level, rules);
+    let earned = rank.unwrap_or_default().0.earned(earned);
+    let grew = experience.add(u64::from(earned), rules);
+    info!(
+        "fight: the hero kills {target} and earns {earned} experience, {} in all",
+        experience.points
+    );
+    if grew {
+        info!("fight: the hero reaches level {}", experience.level);
+    }
+    earned
+}
+
+/// Fells the hostile creatures within `radius` cells of the hero along each axis as if the hero
+/// killed them (the command `kill`, #524): they die, drop and give the hero their experience; a
+/// line for each.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+pub fn kill(
+    In(radius): In<u32>,
+    mut commands: Commands,
+    mut dice: ResMut<Dice>,
+    mut experience: ResMut<Experience>,
+    rules: Res<Rules>,
+    hero: Query<&Transform, With<Body>>,
+    mut creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &mut Health,
+            &crate::ai::Mind,
+            Option<&Worth>,
+            Option<&Ranked>,
+        ),
+        (Without<Dies>, Without<Body>),
+    >,
+) -> Result<Vec<String>, String> {
+    let at = hero
+        .iter()
+        .next()
+        .ok_or("the hero is not in the world yet")?
+        .translation;
+    let home = crate::paths::cell_of(at.x, at.z);
+    let radius = i32::try_from(radius).unwrap_or(i32::MAX);
+    let mut lines = Vec::new();
+    for (entity, transform, mut health, mind, worth, rank) in &mut creatures {
+        let here = transform.translation;
+        let cell = crate::paths::cell_of(here.x, here.z);
+        if !mind.hostile() || (cell.0 - home.0).abs() > radius || (cell.1 - home.1).abs() > radius {
+            continue;
+        }
+        health.current = 0;
+        let worth = worth.map(|worth| (*worth, rank.copied()));
+        let earned = fell(
+            &mut commands,
+            (&mut dice, &mut experience, &rules),
+            entity,
+            &health,
+            worth,
+        );
+        lines.push(format!(
+            "{entity} type {} level {} falls, {earned} experience",
+            mind.creature, health.level
+        ));
+    }
+    lines.sort();
+    lines.insert(
+        0,
+        format!(
+            "{} hostile creatures fall; the hero has {} experience, level {}",
+            lines.len(),
+            experience.points,
+            experience.level
+        ),
+    );
+    Ok(lines)
 }
 
 /// A creature's regeneration (`opensacred_rules::fight::Regenerates`): its value and what it has
@@ -380,6 +474,52 @@ pub struct Health {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_immortal_takes_the_hits_but_keeps_its_health() {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[20.0, 30.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+        });
+        let health = Health {
+            current: 1_000_000,
+            most: 1_000_000,
+            level: 1,
+        };
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let hero = world.spawn((combat, GlobalTransform::default())).id();
+        let mortal = world
+            .spawn((combat, health, GlobalTransform::default()))
+            .id();
+        let immortal = world
+            .spawn((combat, health, GlobalTransform::default(), Immortal))
+            .id();
+        for target in [mortal, immortal] {
+            for _ in 0..50 {
+                world.write_message(Hit {
+                    attacker: hero,
+                    target,
+                    share: 1.0,
+                    ranged: false,
+                });
+            }
+        }
+        app.update();
+        let current = |entity| app.world().get::<Health>(entity).unwrap().current;
+        assert!(current(mortal) < health.current);
+        assert_eq!(current(immortal), health.current);
+    }
 
     #[test]
     fn a_number_rises_30_pixels_a_second_and_fades_after_its_first_moments() {

@@ -117,6 +117,31 @@ enum Command {
     Creatures { radius: Option<u32> },
     /// A creature's fight values, the hero's by default; ID as `creatures` prints it
     Stats { id: Option<String> },
+    /// Make COUNT creatures of type TYPE (as `creatures` prints it) about a cell, the hero's by
+    /// default, at their sector's level for the hero's or at LEVEL; hostile or peaceful by their
+    /// type unless told
+    Spawn {
+        creature: u32,
+        /// The cell, X,Y or +DX,+DY from the hero's
+        #[arg(long, value_parser = parse_at, allow_hyphen_values = true)]
+        at: Option<At>,
+        #[arg(long, default_value_t = 1)]
+        count: usize,
+        #[arg(long)]
+        level: Option<u32>,
+        #[arg(long, value_enum)]
+        rank: Option<RankArg>,
+        #[arg(long, conflicts_with = "peaceful")]
+        hostile: bool,
+        #[arg(long)]
+        peaceful: bool,
+        /// They take no damage: a target for measuring the hero's hits
+        #[arg(long)]
+        immortal: bool,
+    },
+    /// Fell the hostile creatures within RADIUS cells of the hero (5 by default), as if it
+    /// killed them: they drop and give it their experience
+    Kill { radius: Option<u32> },
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
     /// In a script: wait before the next command
@@ -145,6 +170,13 @@ pub enum Wait {
 enum Switch {
     On,
     Off,
+}
+
+/// A spawned creature's rank (`fight::Rank`).
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum RankArg {
+    Champion,
+    Boss,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -793,6 +825,71 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 wait: None,
             })
         }
+        Command::Spawn {
+            creature,
+            at,
+            count,
+            level,
+            rank,
+            hostile,
+            peaceful,
+            immortal,
+        } => {
+            in_game(world)?;
+            let centre = cell_at(world, at)?;
+            let hero = hero_cell(world)?;
+            // About the hero, on its floor; at a cell it names, on the ground.
+            let on = match at {
+                None | Some(At::By(..)) => world
+                    .query::<&Body>()
+                    .iter(world)
+                    .next()
+                    .and_then(Body::level),
+                Some(At::Cell(..)) => None,
+            };
+            let heights = heights(world)?;
+            let floor = heights.floor(on).map_or(0, |(_, floor)| i32::from(floor));
+            let cells: Vec<(u32, u32)> = debug::cells_about(heights, centre, on, count, hero)
+                .into_iter()
+                .filter_map(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
+                .collect();
+            let request = npcs::Spawn {
+                creature,
+                cells,
+                floor,
+                level,
+                rank: match rank {
+                    None => fight::Rank::Common,
+                    Some(RankArg::Champion) => fight::Rank::Champion,
+                    Some(RankArg::Boss) => fight::Rank::Boss,
+                },
+                hostile: match (hostile, peaceful) {
+                    (true, _) => Some(true),
+                    (_, true) => Some(false),
+                    _ => None,
+                },
+                immortal,
+            };
+            let made = world
+                .run_system_cached_with(npcs::spawn_creatures, request)
+                .map_err(|e| e.to_string())??;
+            let ids: Vec<String> = made.iter().map(ToString::to_string).collect();
+            Ok(Outcome::say(format!(
+                "{} creatures of type {creature} about {},{}: {}",
+                made.len(),
+                centre.0,
+                centre.1,
+                ids.join(" ")
+            )))
+        }
+        Command::Kill { radius } => {
+            in_game(world)?;
+            hero_cell(world)?;
+            let lines = world
+                .run_system_cached_with(fight::kill, radius.unwrap_or(5))
+                .map_err(|e| e.to_string())??;
+            Ok(Outcome { lines, wait: None })
+        }
         Command::Drop { times } => {
             in_game(world)?;
             let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
@@ -1114,7 +1211,10 @@ mod tests {
     fn tab_completes_the_commands_their_options_and_values() {
         assert_eq!(complete("ze"), Vec::<String>::new());
         assert_eq!(complete("zo"), ["zoom"]);
-        assert_eq!(complete("s"), ["screenshot", "sector", "state", "stats"]);
+        assert_eq!(
+            complete("s"),
+            ["screenshot", "sector", "spawn", "state", "stats"]
+        );
         assert_eq!(complete("gait "), ["run", "walk"]);
         assert_eq!(complete("music o"), ["off", "on"]);
         assert_eq!(complete("new-game --cl"), ["--class"]);
@@ -1270,7 +1370,14 @@ mod tests {
                 .unwrap_err()
                 .contains("not in the world")
         );
-        for line in ["cell 1,2", "cell +1,+2 0", "cell-info", "nearest"] {
+        for line in [
+            "cell 1,2",
+            "cell +1,+2 0",
+            "cell-info",
+            "nearest",
+            "spawn 76 --count 2",
+            "kill",
+        ] {
             assert!(
                 run(world, line).unwrap_err().contains("not in the world"),
                 "{line}"

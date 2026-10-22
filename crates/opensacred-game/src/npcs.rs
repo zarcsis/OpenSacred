@@ -51,7 +51,7 @@ use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamp
 use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
-    Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image,
+    Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image, In,
     IntoScheduleConfigs, MeshMaterial3d, MessageWriter, Name, On, Plugin, Query, Remove, Res,
     ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec2, Vec3, With, Without,
     WorldAssetRoot,
@@ -354,6 +354,57 @@ fn held_class(items: &[(u8, Option<u8>)]) -> u8 {
     motions::class(left, right)
 }
 
+/// What a creature type is made of for its template ([`template`]): its item's model, texture
+/// and size (`items.pak`, by the type's slot), and its `Creature.pak` speeds, class, fight values
+/// and flags, and whether it casts a shadow.
+#[derive(Clone)]
+struct Kind {
+    model: String,
+    texture: Option<String>,
+    size: f32,
+    speed: [f32; 2],
+    class: u8,
+    base: fight::Base,
+    flags: u8,
+    casts: bool,
+}
+
+/// What a fill's creature of type `creature`, of `kind`, whose model has the clips `slots`, is
+/// placed as: its model standing with its hands empty, its shadow, and its flags word, to which a
+/// hostile entry adds bit 0.
+fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
+    Placement {
+        model: kind.model.clone(),
+        cell: (0, 0),
+        drawn: None,
+        walk: None,
+        speed: kind.speed,
+        class: kind.class,
+        base: kind.base,
+        held: held_class(&[]),
+        ranged: false,
+        size: kind.size,
+        made: (true, false),
+        dialogue: false,
+        trader: false,
+        kept: false,
+        group: None,
+        heading: 0.0,
+        object: false,
+        casts: kind.casts,
+        blocks: false,
+        door: false,
+        trigger: None,
+        creature: (creature, kind.flags, 0),
+        texture: kind.texture.clone(),
+        layer: 0,
+        equipment: Vec::new(),
+        holding: Vec::new(),
+        rank: fight::Rank::Common,
+        clips: ClipNames::of(slots, held_class(&[])),
+    }
+}
+
 #[derive(Resource)]
 pub struct Npcs {
     placements: Vec<Placement>,
@@ -368,6 +419,9 @@ pub struct Npcs {
     /// The sectors' fills ([`fills`]), and what each type they make is placed as.
     fills: HashMap<(u32, u32), (spawning::SpawnValues, Vec<spawning::Fill>)>,
     templates: HashMap<u32, Placement>,
+    /// What each creature type with a model is made of, from which a template of a type that no
+    /// fill makes is made when a command spawns one ([`Npcs::template`]).
+    types: HashMap<u32, Kind>,
     /// Each creature type's `Creature.pak` class, which picks a fill's factor.
     classes: HashMap<u32, u8>,
     factors: spawning::Factors,
@@ -1457,8 +1511,35 @@ impl Npcs {
                 clips,
             });
         }
-        // What each type that the sectors' fills make is placed as: its model standing with its
-        // hands empty, its shadow, and its flags word, to which a hostile entry adds bit 0.
+        // What each creature type that has a model is made of, and what each type that the
+        // sectors' fills make is placed as ([`template`]).
+        let types: HashMap<u32, Kind> = creatures
+            .iter()
+            .filter_map(|creature| {
+                let item = items.get(&creature.id)?;
+                let model = models.get(&item.name.to_ascii_uppercase())?;
+                Some((
+                    creature.id,
+                    Kind {
+                        model: model.clone(),
+                        texture: match item.words_08[0] {
+                            0 => None,
+                            number => textures.get(&number).cloned(),
+                        },
+                        size: arrows::size(item.words_14[0]),
+                        speed: speeds
+                            .get(&creature.id)
+                            .copied()
+                            .unwrap_or_default()
+                            .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
+                        class: creature.class,
+                        base: bases.get(&creature.id).copied().unwrap_or_default(),
+                        flags: creature.flags,
+                        casts: !shadowless.contains(&creature.id),
+                    },
+                ))
+            })
+            .collect();
         let fills = fills(&tree);
         let mut templates: HashMap<u32, Placement> = HashMap::new();
         for creature in fills
@@ -1469,60 +1550,16 @@ impl Npcs {
             if templates.contains_key(&creature) {
                 continue;
             }
-            let Some(item) = items.get(&creature) else {
+            let Some(kind) = types.get(&creature) else {
                 continue;
             };
-            let Some(model) = models.get(&item.name.to_ascii_uppercase()) else {
-                continue;
-            };
-            if !model_slots.contains_key(model) {
-                let slots = motions::Slots::read(&assets.join(model))?;
-                model_slots.insert(model.clone(), slots);
+            if !model_slots.contains_key(&kind.model) {
+                let slots = motions::Slots::read(&assets.join(&kind.model))?;
+                model_slots.insert(kind.model.clone(), slots);
             }
-            let slots = &model_slots[model];
             templates.insert(
                 creature,
-                Placement {
-                    model: model.clone(),
-                    cell: (0, 0),
-                    drawn: None,
-                    walk: None,
-                    speed: speeds
-                        .get(&creature)
-                        .copied()
-                        .unwrap_or_default()
-                        .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
-                    class: classes.get(&creature).copied().unwrap_or_default(),
-                    base: bases.get(&creature).copied().unwrap_or_default(),
-                    held: held_class(&[]),
-                    ranged: false,
-                    size: arrows::size(item.words_14[0]),
-                    made: (true, false),
-                    dialogue: false,
-                    trader: false,
-                    kept: false,
-                    group: None,
-                    heading: 0.0,
-                    object: false,
-                    casts: !shadowless.contains(&creature),
-                    blocks: false,
-                    door: false,
-                    trigger: None,
-                    creature: (
-                        creature,
-                        record_flags.get(&creature).copied().unwrap_or_default(),
-                        0,
-                    ),
-                    texture: match item.words_08[0] {
-                        0 => None,
-                        number => textures.get(&number).cloned(),
-                    },
-                    layer: 0,
-                    equipment: Vec::new(),
-                    holding: Vec::new(),
-                    rank: fight::Rank::Common,
-                    clips: ClipNames::of(slots, held_class(&[])),
-                },
+                template(creature, kind, &model_slots[&kind.model]),
             );
         }
         let pools = pools(&records);
@@ -1591,6 +1628,7 @@ impl Npcs {
             marked: HashSet::new(),
             fills,
             templates,
+            types,
             classes,
             factors: factors(balance.as_ref()),
             fight: fight::Rules::of(balance.as_ref()),
@@ -1688,6 +1726,122 @@ impl Npcs {
         let closed = self.closed.values().map(Vec::len).sum();
         (self.placements.len() - objects, objects, closed)
     }
+}
+
+/// The townsfolk's `Creature.pak` class, whom the partners are chosen from (docs/re/ai.md).
+const TOWNSFOLK_CLASS: u8 = 3;
+
+/// The creatures that the command `spawn` makes (#524).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Spawn {
+    /// Their type, `creatures.ron`'s id.
+    pub creature: u32,
+    /// The global cells they stand on, a creature each, and their floor, 0 the ground.
+    pub cells: Vec<(u32, u32)>,
+    pub floor: i32,
+    /// Their level, else the one their sector's values give for the hero's (`fight::level`).
+    pub level: Option<u32>,
+    pub rank: fight::Rank,
+    /// Hostile or peaceful, else by their type: peaceful the townsfolk, the animals that take a
+    /// behaviour and the critters, hostile the others.
+    pub hostile: Option<bool>,
+    /// Whether they take no damage (`fight::Immortal`).
+    pub immortal: bool,
+}
+
+impl Npcs {
+    /// What a creature of type `creature` is placed as: the fills' template, else one made of
+    /// its kind, its model's clips read from `assets` once.
+    fn template(&mut self, creature: u32, assets: &Path) -> Result<Placement, String> {
+        if let Some(template) = self.templates.get(&creature) {
+            return Ok(template.clone());
+        }
+        let kind = self
+            .types
+            .get(&creature)
+            .ok_or_else(|| format!("type {creature} has no model"))?
+            .clone();
+        if !self.slots.contains_key(&kind.model) {
+            let slots =
+                motions::Slots::read(&assets.join(&kind.model)).map_err(|e| format!("{e:#}"))?;
+            self.slots.insert(kind.model.clone(), slots);
+        }
+        let made = template(creature, &kind, &self.slots[&kind.model]);
+        self.templates.insert(creature, made.clone());
+        Ok(made)
+    }
+}
+
+/// Spawns the creatures of `request`, as `CreateNPC` makes its own (awake when hostile), with
+/// their hands empty, kept by their sectors as a fill's are; the creatures.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+pub fn spawn_creatures(
+    In(request): In<Spawn>,
+    mut commands: Commands,
+    mut npcs: ResMut<Npcs>,
+    mut streamer: ResMut<Streamer>,
+    heights: Res<Heights>,
+    states: Res<buildings::Buildings>,
+    assets: Res<AssetServer>,
+    data: Res<crate::game::Data>,
+    experience: Res<fight::Experience>,
+) -> Result<Vec<Entity>, String> {
+    let npcs = &mut *npcs;
+    let creature = request.creature;
+    let mut placement = npcs.template(creature, &data.0.assets)?;
+    let critter = crowd::constructed(creature, placement.creature.1);
+    let hostile = request.hostile.unwrap_or(
+        placement.class != TOWNSFOLK_CLASS && ai::of_type(creature) == 0 && critter == 0,
+    );
+    placement.made = (false, true);
+    placement.layer = request.floor;
+    placement.rank = request.rank;
+    placement.creature.2 = critter
+        | if hostile {
+            crowd::HOSTILE
+        } else {
+            ai::of_type(creature)
+        };
+    let hero = experience.level;
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    let mut made = Vec::new();
+    for &cell in &request.cells {
+        placement.cell = cell;
+        let at = (cell.0 / side, cell.1 / side);
+        let values = npcs
+            .fills
+            .get(&at)
+            .map(|(values, _)| *values)
+            .unwrap_or_default();
+        let level = request.level.unwrap_or_else(|| {
+            let level = fight::level(&values, hero, None);
+            let big = placement.creature.1 & crowd::BIG != 0;
+            placement.rank.level(level, hero, &values, big, &npcs.fight)
+        });
+        let entity = spawn(
+            &mut commands,
+            &placement,
+            &heights,
+            &states,
+            &assets,
+            (level, &npcs.fight, &npcs.items),
+        );
+        if request.immortal {
+            commands.entity(entity).insert(fight::Immortal);
+        }
+        let placed = Placed {
+            at,
+            source: Source::Filled(Box::new(placement.clone())),
+        };
+        npcs.kept.spawned(&placed);
+        commands.entity(entity).insert(placed);
+        streamer.adopt(at, entity);
+        made.push(entity);
+    }
+    Ok(made)
 }
 
 /// Places the NPCs of every sector that came in, as entities of that sector, and marks the cells
