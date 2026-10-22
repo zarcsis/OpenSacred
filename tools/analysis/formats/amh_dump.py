@@ -15,16 +15,22 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
            64 bytes on disk stand for a size of 556
   summary  tag 0xC3, stored, 556 bytes: u32 level, u32 class (1..9), wchar name[32] (UTF-16LE, empty in the
            templates), statistics
+  items    tag 0xC8: a block per item, the item's type (u32), the marker 0xFEEDF00D, the object's id (u16) 10 bytes
+           after the marker, the type again 14 bytes after it, and the item's record of 0x82 bytes 252 bytes after it,
+           which begins with the type (the layout of Weapon.pak +0x80, docs/re/items.md); the backpack's grid (tag
+           0xCA: 0x40C bytes, then 256 cells of 12 bytes) names its items by their ids (u32), the others are worn
 
 Example
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --rows /tmp/amh.tsv
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves
+  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --items /tmp/amh-items.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
-installation: 10 files, 80 sections). --rows writes a row per section:
-file, slot, tag, size, compressed (0/1), bytes kept, crc32 of the kept bytes (inflated or stored). Section contents
-(hero names etc.) are not printed. Dependencies: standard library.
+installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn. --rows writes a row per section:
+file, slot, tag, size, compressed (0/1), bytes kept, crc32 of the kept bytes (inflated or stored); --items a row per
+item: file, id, type, in the backpack (0/1), crc32 of its record. Section contents (hero names etc.) are not printed.
+Dependencies: standard library.
 """
 import argparse
 import collections
@@ -40,6 +46,9 @@ from sacred_pe import DEFAULT_GAME_DIR
 HEADER, SLOTS = 0x100, 16
 COMPRESSED, PREFIX = 0xBAADC0DE, 32
 SUMMARY, MINI = 0xC3, 0xC4
+INVENTORY, BACKPACK = 0xC8, 0xCA
+ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14, 252, 0x82
+GRID, CELL, CELLS = 12 + 0x400, 12, 256
 EXPECTED_HEADER = {4: 0x10, 8: 0x22C, 0x1C: 1, 0x20: 9, 0x24: 2, 0x28: 20000}
 
 
@@ -88,7 +97,9 @@ def main():
     ap.add_argument('--game-dir', default=DEFAULT_GAME_DIR)
     ap.add_argument('--rows', help='write a TSV row per section')
     ap.add_argument('--saves', action='store_true', help='also check the saves of save/ (the game rewrites them)')
+    ap.add_argument('--items', help='write a TSV row per item of the inventory sections')
     args = ap.parse_args()
+    item_rows = []
     paths = sorted(glob.glob(os.path.join(args.game_dir, 'Templates', '*.ptx')))
     if args.saves:
         paths += sorted(glob.glob(os.path.join(args.game_dir, 'save', '*.pax')))
@@ -123,6 +134,23 @@ def main():
                 check('summary: the name is padded with zeros',
                       not any(kept[8 + 2 * len(name):72]), where)
             rows.append((rel, slot, tag, size, int(compressed), len(kept), f'{zlib.crc32(kept):08x}'))
+        inflated = {tag: data for _, tag, _, _, data, _, _, _ in secs}
+        if INVENTORY in inflated and BACKPACK in inflated:
+            inventory, grid = inflated[INVENTORY], inflated[BACKPACK][GRID:GRID + CELL * CELLS]
+            packed = {struct.unpack_from('<I', grid, CELL * i)[0] for i in range(CELLS)} - {0}
+            ids = []
+            for at in range(4, len(inventory) - 3):
+                if inventory[at:at + 4] != ITEM_MARK:
+                    continue
+                item = struct.unpack_from('<I', inventory, at - 4)[0]
+                record = inventory[at + ITEM_RECORD:at + ITEM_RECORD + RECORD]
+                check('items: the type before the marker, after it and at the record agree',
+                      len(record) == RECORD and struct.unpack_from('<I', inventory, at + ITEM_TYPE)[0] == item
+                      and struct.unpack_from('<I', record, 0)[0] == item, f'{rel} at {at}')
+                oid = struct.unpack_from('<H', inventory, at + ITEM_ID)[0]
+                ids.append(oid)
+                item_rows.append((rel, oid, item, int(oid in packed), f'{zlib.crc32(record):08x}'))
+            check('items: the backpack names items of the inventory', packed <= set(ids), rel)
     check.report()
     print(f'{len(paths)} files, {len(rows)} sections; tags {sorted(collections.Counter(r[2] for r in rows).items())}')
     if args.rows:
@@ -131,6 +159,13 @@ def main():
             for row in rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(rows)} rows -> {args.rows}')
+    print(f'{len(item_rows)} items, {sum(1 for r in item_rows if not r[3])} of them worn')
+    if args.items:
+        with open(args.items, 'w', encoding='ascii', newline='\n') as f:
+            f.write('file\tid\ttype\tpacked\tcrc\n')
+            for row in item_rows:
+                f.write('\t'.join(str(x) for x in row) + '\n')
+        print(f'{len(item_rows)} rows -> {args.items}')
 
 
 if __name__ == '__main__':

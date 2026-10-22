@@ -59,6 +59,11 @@ impl Base {
     }
 }
 
+/// What the hero holds and wears, its template's items (`npcs::Npcs::hero_holds`), a component of
+/// the hero's, which its level-up takes.
+#[derive(Component, Clone, Debug, Default, PartialEq, Deref)]
+pub struct Holding(pub Holds);
+
 /// A creature's attack, defence, damage and resistances and its attack speed
 /// (`opensacred_rules::fight::Combat`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Deref)]
@@ -211,7 +216,8 @@ fn regenerate(
 }
 
 /// The hero's level-up (`0x564D60` from `0x57E160`): its attack, defence, damage, resistances,
-/// most health and regeneration by its new level, its health refilled.
+/// most health and regeneration by its new level, with what it holds and wears, its health
+/// refilled.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -220,17 +226,24 @@ fn level_up(
     experience: Res<Experience>,
     rules: Res<Rules>,
     mut heroes: Query<
-        (&Base, &mut Combat, &mut Health, &mut Regenerates),
+        (
+            &Base,
+            Option<&Holding>,
+            &mut Combat,
+            &mut Health,
+            &mut Regenerates,
+        ),
         (With<Body>, Without<Dies>),
     >,
 ) {
-    for (base, mut values, mut health, mut regenerates) in &mut heroes {
+    for (base, holding, mut values, mut health, mut regenerates) in &mut heroes {
         let level = experience.level;
         if health.level == level {
             continue;
         }
         let skills = skills(base, level, true);
-        *values = Combat(combat(base, level, Holds::default(), &skills, &rules));
+        let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
+        *values = Combat(combat(base, level, holds, &skills, &rules));
         let most = hero_health(base.attributes, level);
         *health = Health {
             current: most,

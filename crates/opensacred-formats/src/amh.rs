@@ -15,8 +15,25 @@ const COMPRESSED: u32 = 0xBAAD_C0DE;
 const PREFIX: usize = 32;
 /// The summary section: level, class and name.
 pub const SUMMARY: u32 = 0xC3;
+/// The inventory section: a block for each item the hero carries.
+pub const INVENTORY: u32 = 0xC8;
+/// The backpack's section: an inventory container whose grid names its items by their ids.
+pub const BACKPACK: u32 = 0xCA;
 /// A stored section whose 64 bytes on disk stand for a table size of 556.
 const MINI: u32 = 0xC4;
+/// The marker of an item's block in the inventory section, after the item's type, and how far
+/// from it the block holds the object's id (`u16`), the type again and the item's record.
+const ITEM_MARK: [u8; 4] = 0xFEED_F00Du32.to_le_bytes();
+const ITEM_ID: usize = 10;
+const ITEM_TYPE: usize = 14;
+const ITEM_RECORD: usize = 252;
+/// The size of an item's record (docs/re/items.md), as `Weapon.pak +0x80…+0x101` holds one.
+pub const RECORD: usize = 0x82;
+/// The backpack's grid: after six `u16` and `0x400` bytes, 256 cells of 12 bytes, each an item's
+/// id as a `u32` or 0.
+const GRID: usize = 12 + 0x400;
+const CELL: usize = 12;
+const CELLS: usize = 256;
 const MINI_ON_DISK: usize = 64;
 /// The header words that are not zero (offset, value), the same in every file.
 const HEADER_WORDS: [(usize, u32); 6] = [
@@ -54,6 +71,17 @@ pub struct Summary {
     pub class: u32,
     /// Empty in the templates.
     pub name: String,
+}
+
+/// An item of the inventory section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Item {
+    /// The object's id, which the backpack's grid names it by.
+    pub id: u32,
+    /// Its type: its `items.pak` slot and `Weapon.pak` record.
+    pub item: u32,
+    /// Its record, [`RECORD`] bytes from its type.
+    pub record: Vec<u8>,
 }
 
 impl Amh {
@@ -154,13 +182,64 @@ impl Amh {
         Ok(Self { sections })
     }
 
+    fn section(&self, tag: u32, what: &'static str) -> Result<&Section> {
+        self.sections
+            .iter()
+            .find(|s| s.tag == tag)
+            .ok_or_else(|| Reader::new(&[]).error(field(what, 0, "one".into())))
+    }
+
+    /// The items of the inventory section, in its order: each block holds the item's type as a
+    /// `u32`, the marker `0xFEEDF00D`, the object's id 10 bytes after the marker and the type
+    /// again 14 bytes after it, and the item's record 252 bytes after it, which begins with the
+    /// type too.
+    pub fn items(&self) -> Result<Vec<Item>> {
+        let data = &self.section(INVENTORY, "AMH inventory section")?.data;
+        let file = Reader::new(data);
+        let mut items = Vec::new();
+        for at in (4..data.len().saturating_sub(3)).filter(|&at| data[at..].starts_with(&ITEM_MARK))
+        {
+            let item = Reader::at(data, at - 4).u32()?;
+            let id = Reader::at(data, at + ITEM_ID).u16()?;
+            let mut record = file.window(at + ITEM_RECORD, RECORD, "AMH item record")?;
+            for (offset, found) in [
+                (ITEM_TYPE, Reader::at(data, at + ITEM_TYPE).u32()?),
+                (ITEM_RECORD, record.clone().u32()?),
+            ] {
+                if found != item {
+                    return Err(file.error_at(
+                        at + offset,
+                        field("AMH item block's type", found.into(), item.to_string()),
+                    ));
+                }
+            }
+            items.push(Item {
+                id: id.into(),
+                item,
+                record: record.bytes(RECORD, "AMH item record")?.to_vec(),
+            });
+        }
+        Ok(items)
+    }
+
+    /// The ids of the items in the backpack's grid, cell by cell.
+    pub fn backpack(&self) -> Result<Vec<u32>> {
+        let data = &self.section(BACKPACK, "AMH backpack section")?.data;
+        let mut grid = Reader::new(data).window(GRID, CELL * CELLS, "AMH backpack grid")?;
+        let mut ids = Vec::new();
+        for _ in 0..CELLS {
+            let mut cell = grid.take(CELL, "AMH backpack cell")?;
+            match cell.u32()? {
+                0 => {}
+                id => ids.push(id),
+            }
+        }
+        Ok(ids)
+    }
+
     /// The decoded summary section.
     pub fn summary(&self) -> Result<Summary> {
-        let section = self
-            .sections
-            .iter()
-            .find(|s| s.tag == SUMMARY)
-            .ok_or_else(|| Reader::new(&[]).error(field("AMH summary section", 0, "one".into())))?;
+        let section = self.section(SUMMARY, "AMH summary section")?;
         let mut r = Reader::new(&section.data);
         let level = r.u32()?;
         let class = r.u32()?;
@@ -240,6 +319,56 @@ mod tests {
                 class: 8,
                 name: "Ilja".into()
             }
+        );
+    }
+
+    /// An inventory of two items' blocks, a backpack holding the second, as the templates have.
+    fn inventory() -> Amh {
+        let mut inventory = 30u32.to_le_bytes().to_vec();
+        for (id, item, least) in [(17u16, 7901u32, 21u16), (19, 5171, 0)] {
+            let at = inventory.len() + 4;
+            inventory.extend(item.to_le_bytes());
+            inventory.extend(ITEM_MARK);
+            inventory.resize(at + ITEM_RECORD + RECORD + 60, 0);
+            inventory[at + ITEM_ID..at + ITEM_ID + 2].copy_from_slice(&id.to_le_bytes());
+            inventory[at + ITEM_TYPE..at + ITEM_TYPE + 4].copy_from_slice(&item.to_le_bytes());
+            let record = at + ITEM_RECORD;
+            inventory[record..record + 4].copy_from_slice(&item.to_le_bytes());
+            inventory[record + 0x1C..record + 0x1E].copy_from_slice(&least.to_le_bytes());
+        }
+        let mut backpack = vec![0; 4444];
+        backpack[GRID + 3 * CELL] = 19;
+        let section = |tag, data: Vec<u8>| Section {
+            slot: 3,
+            tag,
+            size: u32::try_from(data.len()).unwrap(),
+            compressed: true,
+            data,
+        };
+        Amh {
+            sections: vec![section(INVENTORY, inventory), section(BACKPACK, backpack)],
+        }
+    }
+
+    #[test]
+    fn the_inventory_holds_the_items_and_the_backpack_names_them() {
+        let amh = inventory();
+        let items = amh.items().unwrap();
+        let found: Vec<_> = items
+            .iter()
+            .map(|i| (i.id, i.item, i.record.len(), i.record[0x1C]))
+            .collect();
+        assert_eq!(found, [(17, 7901, RECORD, 21), (19, 5171, RECORD, 0)]);
+        assert_eq!(amh.backpack().unwrap(), [19]);
+        // A block whose record is of another type is an error.
+        let mut broken = inventory();
+        broken.sections[0].data[4 + 4 + ITEM_RECORD] = 0;
+        assert!(
+            broken
+                .items()
+                .unwrap_err()
+                .to_string()
+                .contains("`AMH item block's type`")
         );
     }
 

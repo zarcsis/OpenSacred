@@ -28,6 +28,22 @@ pub struct HeroEntry {
     pub level: u32,
     /// 1–9.
     pub class: u32,
+    /// The items the hero wears and holds at the start: those of its inventory that its backpack
+    /// does not hold (docs/02 §9).
+    #[serde(default)]
+    pub worn: Vec<Worn>,
+}
+
+/// An item a hero wears or holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Worn {
+    /// The object's id in the template.
+    pub id: u32,
+    /// Its type: its `items.pak` slot and `Weapon.pak` record.
+    pub item: u32,
+    /// Its record's `u16` words from its `+4`, as `tables::Weapon::words_84` holds a fixed
+    /// item's from `Weapon.pak +0x84` (docs/re/items.md).
+    pub words: Vec<u16>,
 }
 
 /// A hero: the sections of the original file in slot order.

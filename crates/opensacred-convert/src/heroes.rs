@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use opensacred_data::heroes::{Hero, HeroEntry, Heroes, INDEX, Section};
+use opensacred_data::heroes::{Hero, HeroEntry, Heroes, INDEX, Section, Worn};
 use opensacred_formats::amh::Amh;
 
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
@@ -37,6 +37,30 @@ fn file_name(source: &str) -> String {
     format!("{stem}.hero")
 }
 
+/// The items of a template's inventory that its backpack does not hold, which the hero wears and
+/// holds: each record's words from its `+4`.
+fn worn(amh: &Amh) -> Result<Vec<Worn>> {
+    let packed = amh.backpack()?;
+    Ok(amh
+        .items()?
+        .into_iter()
+        .filter(|item| !packed.contains(&item.id))
+        .map(|item| Worn {
+            id: item.id,
+            item: item.item,
+            words: item
+                .record
+                .get(4..)
+                .unwrap_or_default()
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&w| u16::from_le_bytes(w))
+                .collect(),
+        })
+        .collect())
+}
+
 /// Converts the templates; returns how many.
 pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
     let dir = output_dir(out);
@@ -45,6 +69,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
         let data = read_game_file(&game_dir.join(&source))?;
         let amh = Amh::parse(&data).with_context(|| source.clone())?;
         let info = amh.summary().with_context(|| source.clone())?;
+        let worn = worn(&amh).with_context(|| source.clone())?;
         let hero = Hero {
             sections: amh
                 .sections
@@ -73,6 +98,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
             file,
             level: info.level,
             class: info.class,
+            worn,
         });
     }
     let count = heroes.len();
@@ -110,7 +136,23 @@ mod tests {
         for entry in &index.heroes {
             let hero = Hero::decode(&fs::read(dir.join(&entry.file)).unwrap()).unwrap();
             assert_eq!(hero.sections.len(), 8);
+            assert!((1..=3).contains(&entry.worn.len()), "{}", entry.source);
+            assert!(entry.worn.iter().all(|w| w.words.len() == 63));
         }
+        // The Seraphim's weapon, the record 7901 in her right hand (docs/02 §9): physical damage
+        // 21 to 23, `A` 5, `D` 2.
+        let seraphim = index.heroes.iter().find(|h| h.class == 1).unwrap();
+        let blade = seraphim.worn.iter().find(|w| w.item == 7901).unwrap();
+        assert_eq!(blade.id, 18);
+        assert_eq!(
+            [
+                blade.words[12],
+                blade.words[16],
+                blade.words[20],
+                blade.words[21]
+            ],
+            [21, 23, 5, 2]
+        );
         fs::remove_dir_all(out).unwrap();
     }
 }
