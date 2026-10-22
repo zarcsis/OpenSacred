@@ -26,7 +26,8 @@ A function that returns a float on the x87 stack gives no return to read.
 | `look` | `ai` | `0x547070`, the hero's look about (every 0.3 s) | the hero, its argument and return |
 | `idle` | `ai` | `0x54EA30`, the idle action's roll | the creature |
 | `door-search` | `doors` | `0x4D4800`, a creature's search for a door in its way (docs/re/fight.md, "Doors in the way") | the creature, whether it found one |
-| `door` | `doors` | `0x44BCD0`, an object's events, the doors' alone (types 5650 to 5766) | the door, the event's type (`+4`), its trigger's state (`+0x34`, the word `+0x0A`) before and after |
+| `door` | `doors` | `0x44BCD0`, an object's events, the doors' alone (types 5650 to 5766); the hero's click does not come this way (#480) | the door, the event's type (`+4`), its trigger's state (`+0x34`, the word `+0x0A`) before and after |
+| `trigger-set`, `trigger-reset` | `doors` | `0x415F00` and `0x416280`, a trigger's state set or reset (`thiscall`: the bits, whether to send it on), which turn a door however it is turned | the trigger's id (`+0`), the object it serves (`+6`), the bits, its word (`+0x0A`) before and after |
 | `sound-pick` | `sound` | `0x4261D0`, a variant of a profile's group (docs/re/sound.md) | the profile's and the group's indices, the sound id returned |
 | `sound-event` | | `0x67A7A0`, the sound manager's events | its first four arguments (about 1,500 a second, mostly of the types 6 and 4; held to 20) |
 | `sample-file`, `sample-3d-file` | `sound` | `mss32.dll`'s `AIL_set_named_sample_file` and `AIL_set_3D_sample_file` | the sample, the name and the data |
@@ -37,6 +38,7 @@ The per-frame functions (`death`, `regen`, `idle`) cost a call of the agent each
 
 ## What the traces showed (observed)
 
+- The hero's click on the merchant's door of 50,40 (the object 1163, type 5672) set its trigger 4220's bit 0 (`trigger-set`: the state 0 to 1) and reached no door's event of `0x44BCD0`: the click turns the door through the engine's event (`cEngine_receiveEvent` calls the trigger's set and reset, as `0x44BCD0` does), so `door` sees only the doors that an object's event turns (#480).
 - A goblin warrior of 51,39 (type 76, level 1) at the Seraphim of level 1: 77 strikes, 1.27 to 1.60 s apart (1.49 s on average); 22 of them landed (29 %), for 6 to 11 of her 119 health; its attack against her defence 12.02 against 26.4, a share of 0.313 at the hit's roll; her four resistances against its damage 2.24, 1.77, 1.52 and 1.75.
 - The Seraphim at the goblin: attack 28.5 against its defence 13.39, a share of 0.680; a hit took 26 of its 52 health.
 - Six kills of that goblin: each called the drop once (type 0, bonus 0, value 1) and gave 27 experience; two dropped an item (the types 2022 and 3639), four nothing.
