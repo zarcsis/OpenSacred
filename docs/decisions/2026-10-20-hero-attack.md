@@ -1,6 +1,6 @@
 # The hero's attack, before its levels, skills and weapons
 
-Fight (`opensacred-game`), 2026-10-20 (#283); changed 2026-10-20 (#300) and 2026-10-22 (#486, #488).
+Fight (`opensacred-game`), 2026-10-20 (#283); changed 2026-10-20 (#300) and 2026-10-22 (#486, #488, #490).
 
 ## The original
 
@@ -12,7 +12,7 @@ The hero's attack, defence and damage are its stats' recomputation's, with its a
 
 The hero strikes with its bare hands' clips at its attack speed (#306), its strikes on a target chained and growing faster as the original's (#312, **hypothesis**: as the player's held button chains them), without pushing its target; it strikes on until the target dies, which the original's player does by keeping the button held or clicking again (**hypothesis**: the hero's idle handler does not take it back into state 4 by itself).
 A creature is picked within 45 units of the cursor's line of sight, up to 110 over its feet, rather than by its model's shape.
-Its values are its type's record's at its level, with its two skills at level 1 (docs/decisions/2026-10-20-skills.md), no attribute points, and the items of its class's template that it wears and holds, each record's damage, resistances, `A` and `D` (#486; docs/02 §9), without their bonus slots; its experience grows with its kills and gives it levels (#300, docs/decisions/2026-10-20-levels.md).
+Its values are its type's record's at its level, with its two skills at level 1 (docs/decisions/2026-10-20-skills.md), no attribute points, and the items of its class's template that it wears and holds, each record's damage, resistances, `A` and `D` (#486; docs/02 §9) and the bonus slots that the client's recomputation counts (#490), the effects of the skills, the arts and the other multipliers left out; its experience grows with its kills and gives it levels (#300, docs/decisions/2026-10-20-levels.md).
 It holds its template's weapon in its hand and moves, stands and strikes with the clips of its class (#488).
 
 ## Why

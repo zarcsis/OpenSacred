@@ -62,6 +62,20 @@ Its value is `R(least, most)` times 1.0, 1.34, 1.67, 2.0 or 2.34 by the difficul
 At the fight (`0x568C40`) the effect's byte 2 scales the value by one of the six attributes over 100; the effects `0x321`…`0x324` add it to a kind's least and most, `0x325`…`0x328` to its multiplier, in the attack record for a bonus word with a condition, and **hypothesis**: in the recomputation `0x5796A0` for one without.
 The quality pass `0x5D2E40` keeps the slot 0 and clears the others when its map gives 0 (the fills' key 0), and rolls the sockets; it leaves the damage, `A` and `D` alone.
 
+## The bonus slots in the values (`0x5796A0`)
+
+Read 2026-10-22 (#490), the stats' recomputation (docs/re/fight.md, "An NPC's attack, defence and damage") over the equipment slots 0 to 18 (`0x556F50`), each item's own record and those of its sockets: it passes over an item whose `items.pak` record has bit 25 of its first word, bit 1 of its byte `+0x03` (`0x426550`): the seven of `items.pak` with it are cosmetic models, the heroes' hair, the Dwarf's goggles, the Mage's cowl and the Gladiator's belt among them, so that the belt's `D` 5, its resistances and its attributes count for nothing (seen in the original's new game: the Gladiator's `D` 22.6, his attributes his type's).
+After an item's damage, resistances, `A` and `D`, each of its bonus slots counts whose condition's low byte is 0 or 13 (not an opponent's class) and whose condition passes `0x568B30` (its bits 8 to 11 0 or 7, else the holder's type, 6 for the types 6 and 7), its value times, by the effect's byte 2, one of the attributes over 100 (`0x568C40`: 1 `a0`, 2 `a2`, 3 `a1`, 4 `a3`, 5 `a4`, 6 `a5`; the product whole, then times 0.01; the attributes before the items' bonuses), else its value:
+
+- 801 to 804: added to the kind's least and most damage, or with the condition's bit 15 to its resistance (the condition's bits 13 and 14 cleared for them);
+- 805 to 808: a hundredth of it to the kind's damage multiplier (the stats' `+0x96`…), or with the condition's bit 13, 14 or 15 to the multipliers at `+0xB6`, `+0xA6` or `+0xD6` (not read further);
+- 809 and 810: a hundredth to the multipliers of `A` and `D` (`+0xE6`, `+0xEA`); 813 and 814 to those at `+0xEE` and `+0xF2`;
+- 811 and 812: to the stats' `+0x3C`, the attack speed, and `+0x40` (130 for the heroes by their types; **hypothesis**: a speed of its own);
+- 815 to 820: to the attributes `a0`, `a2`, `a1`, `a3`, `a4` and `a5`, after every item, held at 0 and above, before the attributes' parts of `A`, `D` and the resistances;
+- the others are not followed here: the default case hands the effects below 200 and from 1000 to the effect list, and 600 to 798 to a skill slot, and 840 and more have cases of their own.
+
+Seen in the original's new games (#448's driver, the stats read): the Seraphim's attack speed 154, 140 and her weapon's 811 of 14, her `+0x40` 132; the Gladiator's physical ends 25.63 and 31.63, his sword's 22 and 28 and its 801 of 11 times his `a0` of 33 over 100.
+
 ## A creature's items
 
 A fill (`FillSector`, `0x47C610`) makes all its creatures' items at one level: the hero's within the sector's bounds and jittered, as the creatures' (docs/re/spawning.md), raised by a tenth of a curve of the minutes of a counter (**hypothesis**: the time played) through `0x552230`, which is the level itself on bronze, at most 300; every item of its `MakeGroup` rule is made at it with the quality key 0.

@@ -665,20 +665,74 @@ pub struct ItemValues {
     pub resistance: [f32; KINDS],
     pub attack: f32,
     pub defence: f32,
+    /// Its bonus slots, where its record gives them (a fixed item's, a hero template's).
+    pub bonuses: [Bonus; BONUSES],
+}
+
+/// How many bonus slots an item's record has.
+pub const BONUSES: usize = 8;
+
+/// A bonus slot of an item's record (docs/re/items.md): its condition word (`+0x3A`), its effect
+/// (`+0x4A`, the effect in the low 16 bits, the attribute that scales it in byte 2) and its value
+/// (`+0x6A`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bonus {
+    pub condition: u16,
+    pub effect: u32,
+    pub value: i16,
+}
+
+impl Bonus {
+    /// Whether it counts in the values of a creature of type `holder` (`0x5796A0`): its
+    /// condition's low byte 0 or 13, of no opponent's class, and its bits 8 to 11 0 or 7, or
+    /// the holder's type (6 the Vampiress's both, 6 and 7; `0x568B30`).
+    fn holds(self, holder: u32) -> bool {
+        let [class, kind] = self.condition.to_le_bytes();
+        let kind = u32::from(kind & 0xF);
+        (class == 0 || class == 13)
+            && (kind == 0 || kind == 7 || kind == holder || (kind == 6 && holder == 7))
+    }
+
+    /// Its value, times one of the attributes `a` over 100 by the effect's byte 2 (`0x568C40`:
+    /// 1 `a0`, 2 `a2`, 3 `a1`, 4 `a3`, 5 `a4`, 6 `a5`), the product whole before the hundredth.
+    fn value(self, a: [u32; 6]) -> f32 {
+        let scale = match (self.effect >> 16) & 0xFF {
+            1 => a[0],
+            2 => a[2],
+            3 => a[1],
+            4 => a[3],
+            5 => a[4],
+            6 => a[5],
+            _ => return f32::from(self.value),
+        };
+        let product = i64::from(self.value) * i64::from(scale);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "the client's product of a value and an attribute, a few thousand at most"
+        )]
+        let product = product as f32;
+        product * 0.01
+    }
 }
 
 impl ItemValues {
     /// The values of an item's record, given as its `u16` words from its `+4`, as `Weapon.pak
     /// +0x84` holds a fixed item's and a hero template its items' (docs/re/items.md): each kind's
     /// least damage at `+0x1C`, its most at `+0x24`, `A` at `+0x2C`, `D` at `+0x2E` and the
-    /// resistances at `+0x32`; a word past the end is 0. The bonus slots are left out.
+    /// resistances at `+0x32`, and its bonus slots ([`Bonus`]); a word past the end is 0.
     pub fn of_record(words: &[u16]) -> Self {
-        let at = |offset: usize| f32::from(words.get((offset - 4) / 2).copied().unwrap_or(0));
+        let word = |offset: usize| words.get((offset - 4) / 2).copied().unwrap_or(0);
+        let at = |offset: usize| f32::from(word(offset));
         Self {
             damage: std::array::from_fn(|kind| [at(0x1C + 2 * kind), at(0x24 + 2 * kind)]),
             resistance: std::array::from_fn(|kind| at(0x32 + 2 * kind)),
             attack: at(0x2C),
             defence: at(0x2E),
+            bonuses: std::array::from_fn(|slot| Bonus {
+                condition: word(0x3A + 2 * slot),
+                effect: u32::from(word(0x4A + 4 * slot)) | (u32::from(word(0x4C + 4 * slot)) << 16),
+                value: i16::from_le_bytes(word(0x6A + 2 * slot).to_le_bytes()),
+            }),
         }
     }
 }
@@ -1043,19 +1097,15 @@ pub fn combat(
     let armed = holds.weapon;
     let level = level.max(1);
     let b = base.attributes.map(f32::from);
-    let a = base
+    let grown = base
         .attributes
-        .map(|b| to_f32(u32::from(b) + u32::from(b) * (level - 1) / 10));
+        .map(|b| u32::from(b) + u32::from(b) * (level - 1) / 10);
+    let a = grown.map(to_f32);
     let l = to_f32(level);
     let off = rules.stat_offset;
     let f = (156.0 - off) * l / 156.0 + off + 9.0;
     let mut damage = [[0.0_f32; 2]; KINDS];
-    let mut resistance = [
-        (a[3] + a[1]) / rules.resistances[0],
-        a[2] / rules.resistances[1],
-        a[4] / rules.resistances[2],
-        (a[5] + a[1]) / rules.resistances[3],
-    ];
+    let mut resistance = [0.0_f32; KINDS];
     for i in 0..6 {
         let [kind, target] = base.bonus[i];
         // A bonus of a class holds only against an opponent of that class; none has one.
@@ -1082,8 +1132,14 @@ pub fn combat(
             _ => {}
         }
     }
-    // The items' own damage, resistances, `A` and `D` (`0x5796A0`).
+    // The items' own damage, resistances, `A` and `D`, and their bonus slots (`0x5796A0`, #490):
+    // 801 to 804 a kind's damage (with the condition's bit 15, its resistance), 805 to 808 a
+    // hundredth to its multiplier, 809 and 810 to those of `A` and `D`, 811 the attack speed, 815
+    // to 820 the attributes, by the attributes before them; the other effects are not followed.
     let (mut item_attack, mut item_defence) = (0.0, 0.0);
+    let mut item_multipliers = [0.0_f32; KINDS];
+    let (mut attack_bonus, mut defence_bonus, mut speed_bonus) = (0.0, 0.0, 0.0);
+    let mut attribute_bonuses = [0.0_f32; 6];
     for item in &holds.items {
         for (ends, item) in damage.iter_mut().zip(item.damage) {
             ends[0] += item[0];
@@ -1094,6 +1150,48 @@ pub fn combat(
         }
         item_attack += item.attack;
         item_defence += item.defence;
+        for bonus in item.bonuses.iter().filter(|bonus| bonus.holds(base.id)) {
+            let value = bonus.value(grown);
+            let kind = |first: u32| usize::try_from((bonus.effect & 0xFFFF) - first).ok();
+            match bonus.effect & 0xFFFF {
+                801..=804 if bonus.condition & 0x8000 != 0 => {
+                    if let Some(kind) = kind(801) {
+                        resistance[kind] += value;
+                    }
+                }
+                801..=804 => {
+                    if let Some(kind) = kind(801) {
+                        damage[kind][0] += value;
+                        damage[kind][1] += value;
+                    }
+                }
+                805..=808 if bonus.condition & 0xE000 == 0 => {
+                    if let Some(kind) = kind(805) {
+                        item_multipliers[kind] += value / 100.0;
+                    }
+                }
+                809 => attack_bonus += value / 100.0,
+                810 => defence_bonus += value / 100.0,
+                811 => speed_bonus += value,
+                815..=820 => {
+                    // `a0`, `a2`, `a1`, `a3`, `a4`, `a5` in the effects' order.
+                    let attribute = [0, 2, 1, 3, 4, 5]
+                        [usize::try_from(bonus.effect & 0xFFFF).unwrap_or(815) - 815];
+                    attribute_bonuses[attribute] += value.trunc();
+                }
+                _ => {}
+            }
+        }
+    }
+    // The items' attributes, held at 0 and above, and the attributes' resistances by them.
+    let a: [f32; 6] = std::array::from_fn(|i| (a[i] + attribute_bonuses[i]).max(0.0));
+    for (value, of) in resistance.iter_mut().zip([
+        (a[3] + a[1]) / rules.resistances[0],
+        a[2] / rules.resistances[1],
+        a[4] / rules.resistances[2],
+        (a[5] + a[1]) / rules.resistances[3],
+    ]) {
+        *value += of;
     }
     // Unarmed, or with a weapon whose values are not made, the default.
     let made = holds.items.iter().any(|item| item.damage[0][1] > 0.0);
@@ -1103,7 +1201,8 @@ pub fn combat(
     }
     // The skills' parts of the multipliers.
     let curves = &rules.curves;
-    let (mut damage_skill, mut attack_skill, mut defence_skill) = (0.0, 1.0, 1.0);
+    let (mut damage_skill, mut attack_skill, mut defence_skill) =
+        (0.0, 1.0 + attack_bonus, 1.0 + defence_bonus);
     let mut resistance_skill = [0.0; KINDS];
     for &(skill, at) in skills {
         match skill {
@@ -1131,8 +1230,10 @@ pub fn combat(
     let damage_parts = [b[0], b[0] + b[2], b[4], b[1] + b[5]];
     let [dmg, res] = rules.balance;
     for (kind, ends) in damage.iter_mut().enumerate() {
-        let factor =
-            1.0 + damage_skill + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind];
+        let factor = 1.0
+            + damage_skill
+            + item_multipliers[kind]
+            + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind];
         *ends = ends.map(|end| end.max(0.0) * factor.max(0.0) * dmg);
     }
     for (kind, value) in resistance.iter_mut().enumerate() {
@@ -1159,7 +1260,7 @@ pub fn combat(
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
-        speed: attack_speed(base.id),
+        speed: (attack_speed(base.id) + speed_bonus).clamp(100.0, 220.0),
     }
 }
 
@@ -1882,24 +1983,121 @@ mod tests {
         assert_eq!(templates.make(9999, 1, &mut rng), None);
     }
 
-    #[test]
-    fn a_records_words_give_the_items_values() {
-        // The words from `+4` of the Seraphim's weapon of her template, the record 7901 (docs/02
-        // §9): physical damage 21 to 23 (`+0x1C`, `+0x24`), `A` 5 and `D` 2 (`+0x2C`, `+0x2E`).
+    /// The words from `+4` of the Seraphim's weapon of her template, the record 7901 (docs/02 §9):
+    /// physical damage 21 to 23 (`+0x1C`, `+0x24`), `A` 5 and `D` 2 (`+0x2C`, `+0x2E`), the
+    /// effects 811 and 812 of the values 14 and 2 in its first two bonus slots (`+0x4A`, `+0x6A`);
+    /// a poison resistance of 12 too.
+    fn blade() -> Vec<u16> {
         let mut words = vec![0; 63];
-        for (offset, value) in [(0x1C, 21), (0x24, 23), (0x2C, 5), (0x2E, 2), (0x38, 12)] {
+        for (offset, value) in [
+            (0x1C, 21),
+            (0x24, 23),
+            (0x2C, 5),
+            (0x2E, 2),
+            (0x38, 12),
+            (0x4A, 811),
+            (0x4E, 812),
+            (0x6A, 14),
+            (0x6C, 2),
+        ] {
             words[(offset - 4) / 2] = value;
         }
+        words
+    }
+
+    #[test]
+    fn a_records_words_give_the_items_values() {
+        let mut bonuses = [Bonus::default(); BONUSES];
+        bonuses[0] = Bonus {
+            condition: 0,
+            effect: 811,
+            value: 14,
+        };
+        bonuses[1] = Bonus {
+            condition: 0,
+            effect: 812,
+            value: 2,
+        };
         assert_eq!(
-            ItemValues::of_record(&words),
+            ItemValues::of_record(&blade()),
             ItemValues {
                 damage: [[21.0, 23.0], [0.0; 2], [0.0; 2], [0.0; 2]],
                 resistance: [0.0, 0.0, 0.0, 12.0],
                 attack: 5.0,
                 defence: 2.0,
+                bonuses,
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
+    }
+
+    #[test]
+    fn the_items_bonus_slots_count_in_the_values() {
+        let rules = Rules::default();
+        let held = |items: Vec<ItemValues>| Holds {
+            weapon: true,
+            shield: false,
+            items,
+        };
+        let plain = ItemValues {
+            bonuses: [Bonus::default(); BONUSES],
+            ..ItemValues::of_record(&blade())
+        };
+        let (with, without) = (
+            combat(
+                &a_goblin(),
+                1,
+                held(vec![ItemValues::of_record(&blade())]),
+                &[],
+                &rules,
+            ),
+            combat(&a_goblin(), 1, held(vec![plain]), &[], &rules),
+        );
+        // 811 raises the attack speed by its value, as the Seraphim's 154 in the original (#490).
+        assert!(near(with.speed, without.speed + 14.0));
+        assert_eq!(with.attack, without.attack);
+        // 801 scaled by `a0` (byte 2 of 1) adds 11 times `a0` over 100 to the physical ends; 809
+        // and 810 a hundredth of theirs to the multipliers of `A` and `D`; 816 raises `a2`,
+        // and with it `A` by half and `D` by 0.8.
+        let mut slots = [Bonus::default(); BONUSES];
+        slots[0] = Bonus {
+            condition: 0,
+            effect: 0x1_0321,
+            value: 11,
+        };
+        slots[1] = Bonus {
+            condition: 0,
+            effect: 816,
+            value: 5,
+        };
+        let sword = ItemValues {
+            bonuses: slots,
+            ..plain
+        };
+        let goblin = combat(&a_goblin(), 1, held(vec![sword]), &[], &rules);
+        let a0 = f32::from(a_goblin().attributes[0]);
+        let factor = without.damage[0][0] / 21.0;
+        assert!(near(
+            goblin.damage[0][0],
+            (21.0 + (11.0 * a0).trunc() * 0.01) * factor
+        ));
+        assert!(near(goblin.attack, without.attack + 2.5));
+        assert!(near(goblin.defence, without.defence + 4.0));
+        // A bonus against an opponent's class or for another hero's type does not count.
+        let mut slots = [Bonus::default(); BONUSES];
+        slots[0] = Bonus {
+            condition: 0x0205,
+            effect: 811,
+            value: 14,
+        };
+        let other = ItemValues {
+            bonuses: slots,
+            ..plain
+        };
+        assert_eq!(
+            combat(&a_goblin(), 1, held(vec![other]), &[], &rules).speed,
+            without.speed
+        );
     }
 
     #[test]

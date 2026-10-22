@@ -854,6 +854,10 @@ struct Gear {
     kind: Option<u8>,
     model: Option<String>,
     texture: Option<String>,
+    /// Whether its values count in its holder's: not where its `items.pak +0x03` has bit 1
+    /// (`0x426550`, bit 25 of the record's first word), as the heroes' hair, the Gladiator's
+    /// belt and the Mage's cowl have, which the stats' recomputation `0x5796A0` passes over (#490).
+    counts: bool,
 }
 
 /// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, and its three items' pools and
@@ -1553,6 +1557,7 @@ impl Npcs {
                         0 => None,
                         number => textures.get(&number).cloned(),
                     },
+                    counts: item.byte_03 & 2 == 0,
                 };
                 Some((slot, gear))
             })
@@ -1626,7 +1631,8 @@ impl Npcs {
     /// What the hero holds and wears of `worn`, its template's items, as its values take them
     /// (`0x5796A0`): a weapon and a shield by the hands its items go in, as an NPC's ([`hands`],
     /// `0x546F80`, `0x54A660`), and the values of every item's record, held or worn
-    /// (`fight::ItemValues::of_record`; #486).
+    /// (`fight::ItemValues::of_record`; #486), but those whose values do not count
+    /// ([`Gear::counts`], #490).
     pub fn hero_holds(&self, worn: &[Worn]) -> fight::Holds {
         let holding = self.hero_holding(worn);
         let class = class_of(&holding);
@@ -1637,6 +1643,7 @@ impl Npcs {
                 .any(|held| held.hand == Hand::Left && held.category == SHIELD),
             items: worn
                 .iter()
+                .filter(|worn| self.gear.get(&worn.item).is_none_or(|gear| gear.counts))
                 .map(|worn| fight::ItemValues::of_record(&worn.words))
                 .collect(),
         }
@@ -3819,6 +3826,7 @@ mod tests {
             kind,
             model: Some("m.glb".into()),
             texture: None,
+            counts: true,
         };
         let gear: HashMap<u32, Gear> = [
             (1811, gear(WEAPON, Some(BOW))),
