@@ -59,12 +59,13 @@ python -I tools/game/remote.py exec "new-game --class dwarf"
 python -I tools/game/remote.py wait-ready
 python -I tools/game/remote.py click 900 520
 python -I tools/game/remote.py screenshot <scratch>/shot.png
+python -I tools/game/remote.py wait-log "sectors" --after 0
 ```
 
 ## The original's driver
 
 `tools/original/host.py` starts the developer's own `Sacred.exe` in the background under Frida, with `tools/original/agent.js` loaded into it, and serves the same methods on `127.0.0.1:15703`, so that `tools/game/remote.py --port 15703` drives the original as it drives the game (docs/03 §3.8, #448; the skill `original`).
-The agent guards the maintainer's desktop (no low-level hooks, no focus, no topmost window, no display mode, no cursor), keeps the game drawing without the focus, counts its frames and takes its screenshots; the host keeps the game in a job object that ends with it.
+The agent guards the maintainer's desktop (no low-level hooks, no focus, no topmost window, no display mode, no cursor), keeps the game drawing without the focus, counts its frames and takes its screenshots, takes the player's input as its own messages, reads the world and runs commands on the render thread, and traces the original's functions (docs/re/traces.md); the host keeps the game in a job object that ends with it and clicks through the original's menus (a new game, the saves).
 It needs `frida` and Pillow (`tools/requirements.txt`) and the installation in `OriginalGame/`, and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
 
 ```bash

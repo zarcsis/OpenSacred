@@ -33,6 +33,7 @@ Stopping the host's background task ends the game within a second (a job object)
 | `--log-file FILE` | append the records to a file in the scratchpad as well |
 | `--keep-captures` | keep the game's `Capture/shotNNNN.tga` and `.jpg` of each screenshot (removed by default once converted) |
 | `--no-game-log` | leave out the game's own log (`logPrintf`) |
+| `--muted` | the game's volumes 64, so that it plays its sounds (for the sound traces), while the agent sets every volume of mss32.dll to 0; never `--sound` while the maintainer may hear it |
 | `--arg WORD` | a word of `Sacred.exe`'s command line, as `--arg tabblocker` (docs/re/window.md) |
 | `--port N` | another port (15703 by default) |
 
@@ -55,9 +56,11 @@ Stopping the host's background task ends the game within a second (a job object)
 | `exec "cell X,Y [FLOOR]"`, `exec "sector X,Y"` | the hero onto the cell, or the nearest it may stand on, as the scripts' `Teleport` puts a player; floor 0 is the ground even within a building's walls, 1 a building's ground floor |
 | `exec "go X,Y"`, `exec "go +DX,+DY"`, `exec "point X,Y"` | a walk by a click on the cell's pixel (on the screen only), or the pixel alone for `click` (a creature's cell: an attack) |
 | `exec "time HH:MM"`, `exec "day-speed DAY [NIGHT]"`, `exec "zoom Z"` | the clock, its rates (0 stops it), the zoom (0.5 to 2; the game settles on 0.5, 1 or 2) |
+| `exec "trace PRESET\|GROUP\|ADDRESS …"`, `exec "untrace NAME\|GROUP\|all"`, `exec traces` | log every call of a function: the presets of docs/re/traces.md (`strike`, `chance`, `death`, `experience`, `drop`, `item`, `regen`, `wake`, `look`, `idle`, `door-search`, `door`, `sound-pick`, `sound-event`, the samples and streams), the groups `fight`, `drops`, `ai`, `doors`, `sound`, or an address with `--abi`, `--args` (kinds `int uint hex u16 i16 float ptr object id cstr out-float`), `--ret`, `--ids`, `--limit`; `call original/trace '{"target": …}'` does the same |
+| `wait-log PATTERN [--after N] [--timeout S]` | wait for a record whose `target: message` matches, as `wait-log "trace: drop: .*gold"` |
 | `exec quit` | the game closes as its window is closed, and the host with it |
 
-The input goes to the game as the agent's own messages: the keys and cursor the game queries are the agent's, and the maintainer's keyboard and mouse never reach it, nor does input posted to the window from outside. The traces come with #452. A level-1 hero teleported among monsters dies within seconds (it rises again at its start): place it at a distance and read `creatures` first.
+The input goes to the game as the agent's own messages: the keys and cursor the game queries are the agent's, and the maintainer's keyboard and mouse never reach it, nor does input posted to the window from outside. A level-1 hero teleported among monsters dies within seconds (it rises again at its start): place it at a distance and read `creatures` first. After one click the hero strikes once: click again for each strike, about every 1.3 s. A click at a creature's feet (`point` of its cell) hits the ground; click about 45 pixels higher, on its body.
 
 ## Rules
 

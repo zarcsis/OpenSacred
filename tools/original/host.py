@@ -64,6 +64,9 @@ CELL_LINE = re.compile(r'^\s*(\+|-)?(\d+)\s*,\s*(\+|-)?(\d+)\s*$')
 # The keys of Settings.cfg the host sets before each start, and nothing else (#448, decision 2).
 SETTINGS = {'FULLSCREEN': '0', 'SHOWMOVIE': '0'}
 VOLUMES = {'MUSICVOLUME': '0', 'SFXVOLUME': '0', 'VOICEVOLUME': '0'}
+# With --muted the game plays its sounds at the installation's volumes, for the sound traces, and the agent silences
+# mss32.dll's output.
+MUTED_VOLUMES = {'MUSICVOLUME': '64', 'SFXVOLUME': '64', 'VOICEVOLUME': '64'}
 
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -146,10 +149,11 @@ def check_executable(game_dir):
     return exe
 
 
-def set_settings(game_dir, sound, journal):
-    """Sets FULLSCREEN, SHOWMOVIE and, unless `sound`, the three volumes in Settings.cfg; keeps every other line."""
+def set_settings(game_dir, sound, muted, journal):
+    """Sets FULLSCREEN, SHOWMOVIE and the three volumes in Settings.cfg (0; the game's 64 when `muted`; kept with
+    `sound`); keeps every other line."""
     path = os.path.join(game_dir, 'Settings.cfg')
-    wanted = dict(SETTINGS, **({} if sound else VOLUMES))
+    wanted = dict(SETTINGS, **(MUTED_VOLUMES if muted else {} if sound else VOLUMES))
     with open(path, 'rb') as f:
         text = f.read().decode('latin-1')
     lines = text.split('\r\n')
@@ -200,7 +204,7 @@ class Host:
         running = [p.pid for p in device.enumerate_processes() if p.name.lower() == 'sacred.exe']
         if running:
             raise SystemExit(f'error: a Sacred.exe runs already (pid {running[0]}); one original runs at a time')
-        set_settings(self.game_dir, self.args.sound, self.journal)
+        set_settings(self.game_dir, self.args.sound, self.args.muted, self.journal)
         with open(self.args.agent, encoding='utf-8') as f:
             source = f.read()
         self.pid = frida.spawn([exe] + self.args.arg, cwd=self.game_dir)
@@ -214,7 +218,7 @@ class Host:
             self.script.load()
             self.agent = self.script.exports_sync
             report = self.agent.init({'place': self.args.place, 'heartbeatTimeout': 5000,
-                                      'gameLog': not self.args.no_game_log})
+                                      'gameLog': not self.args.no_game_log, 'muted': self.args.muted})
             missing = [name for name, ok in report['guards'].items() if not ok]
             if missing:
                 raise RuntimeError(f'guards not in place: {", ".join(missing)}')
@@ -284,6 +288,8 @@ class Host:
             self.journal.push(payload['level'], 'agent', payload['message'])
         elif kind == 'game':
             self.journal.push('INFO', 'game', payload['message'])
+        elif kind == 'trace':
+            self.journal.push('INFO', 'trace', f"{payload['name']}: {payload['message']}")
         elif kind == 'fatal':
             self.fatal = payload['message']
             self.journal.push('ERROR', 'agent', f"the game is ended: {payload['message']}")
@@ -357,6 +363,7 @@ class Host:
             'place': self.args.place,
             'refusals': agent.get('refusals', 0),
             'flip_error': agent.get('flip_error', 0),
+            'muted': agent.get('muted'),
             'cursor': agent.get('cursor'),
             'npcs': 0, 'objects': 0, 'entities': 0,
         }
@@ -438,9 +445,15 @@ class Host:
                 'zoom Z: the view\'s zoom, 0.5 to 2 (the game settles on 0.5, 1 or 2)',
                 'point X,Y: the window\'s pixel of a cell, for click',
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
+                'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
+                '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
+                'out-float; the first argument is ECX for thiscall and fastcall); traces lists those running and the '
+                'presets; untrace NAME|GROUP|all',
                 'quit: closes the game as its window is closed, ends it after 15 s if it is still running']}
         if word == 'new-game':
             return {'output': [self.start_script('new-game', self.new_game, self.new_game_options(rest))]}
+        if word in ('trace', 'untrace', 'traces'):
+            return {'output': self.command_trace(word, rest.strip())}
         if word in WORLD_COMMANDS:
             return {'output': WORLD_COMMANDS[word](self, rest.strip())}
         if word == 'saves':
@@ -656,6 +669,67 @@ class Host:
         self.click(SAVES_CONFIRM, 1)
         self.wait_screen({'game'}, 180)
 
+    # --- Traces ------------------------------------------------------------------------------------------------
+
+    def trace(self, params):
+        """`original/trace {target, name, abi, args, ret, ids, limit}`: a preset's or a group's name, or an address."""
+        if self.ended.is_set():
+            raise RuntimeError('the game has ended')
+        allowed = {'target', 'name', 'abi', 'args', 'ret', 'ids', 'limit'}
+        unknown = set(params or {}) - allowed
+        if unknown or 'target' not in (params or {}):
+            raise ValueError(f"original/trace takes {', '.join(sorted(allowed))}, target required")
+        started = self.agent.trace(params)
+        for t in started:
+            self.journal.push('INFO', 'host', f"trace {t['name']} at {t['target']}")
+        return started
+
+    def untrace(self, params):
+        stopped = self.agent.untrace((params or {}).get('name', 'all'))
+        for name in stopped:
+            self.journal.push('INFO', 'host', f'untrace {name}')
+        return stopped
+
+    def command_trace(self, word, rest):
+        if word == 'traces':
+            running = self.agent.traces()
+            presets = self.agent.presets()
+            lines = [f"{t['name']} at {t['target']}: {t['calls']} calls" for t in running] or ['no traces']
+            lines.append('presets: ' + ', '.join(presets['presets']))
+            lines.append('groups: ' + '; '.join(f'{g} ({", ".join(m)})' for g, m in presets['groups'].items()))
+            return lines
+        if word == 'untrace':
+            stopped = self.untrace({'name': rest or 'all'})
+            return [f'untraced {", ".join(stopped)}' if stopped else 'nothing to untrace']
+        parser = argparse.ArgumentParser(prog='trace', add_help=False, exit_on_error=False)
+        parser.add_argument('target')
+        parser.add_argument('--name')
+        parser.add_argument('--abi', choices=['cdecl', 'stdcall', 'thiscall', 'fastcall'])
+        parser.add_argument('--args')
+        parser.add_argument('--ret')
+        parser.add_argument('--ids')
+        parser.add_argument('--limit', type=int)
+        try:
+            options, unknown = parser.parse_known_args(rest.split())
+        except (argparse.ArgumentError, SystemExit) as e:
+            raise ValueError(f'trace: {e}') from None
+        if unknown:
+            raise ValueError(f"trace: unknown {' '.join(unknown)}")
+        params = {'target': options.target}
+        if options.name:
+            params['name'] = options.name
+        if options.abi:
+            params['abi'] = options.abi
+        if options.args:
+            params['args'] = options.args.split(',')
+        if options.ret:
+            params['ret'] = options.ret
+        if options.ids:
+            params['ids'] = [int(i) for i in options.ids.split(',')]
+        if options.limit:
+            params['limit'] = options.limit
+        return [f"tracing {t['name']} at {t['target']}" for t in self.trace(params)]
+
     # --- The world ---------------------------------------------------------------------------------------------
 
     def world(self, name, args):
@@ -748,7 +822,7 @@ class Host:
 
     METHODS = {'opensacred/state': lambda self, params: self.state(),
                'opensacred/screenshot': screenshot, 'opensacred/logs': logs, 'opensacred/exec': exec,
-               'opensacred/input': input}
+               'opensacred/input': input, 'original/trace': trace, 'original/untrace': untrace}
 
 
 WORLD_COMMANDS = {
@@ -803,7 +877,10 @@ def main():
     parser.add_argument('--port', type=int, default=15703, help='the port of the remote control (15703 by default)')
     parser.add_argument('--place', choices=['offscreen', 'behind'], default='offscreen',
                         help='the window to the right of every monitor (by default) or behind the other windows')
-    parser.add_argument('--sound', action='store_true', help="keep Settings.cfg's volumes")
+    parser.add_argument('--sound', action='store_true', help="keep Settings.cfg's volumes, audible")
+    parser.add_argument('--muted', action='store_true',
+                        help="the game's volumes 64, so that it plays its sounds for the sound traces, while the agent "
+                             "silences mss32.dll's output")
     parser.add_argument('--log-file', help='also append the records to this file')
     parser.add_argument('--keep-captures', action='store_true',
                         help="keep the game's Capture/shotNNNN.tga and .jpg of each screenshot")

@@ -19,13 +19,14 @@ Example
   python -I tools/game/remote.py screenshot <scratch>/shot.png
   python -I tools/game/remote.py state
   python -I tools/game/remote.py logs --after 120
+  python -I tools/game/remote.py wait-log "strike: .*hit" --after 120
   python -I tools/game/remote.py exec quit
 
 Expected output: `exec` prints the command's lines; `state` the overlay's lines (`--json` the snapshot); `logs` a
 record a line, `sequence seconds LEVEL target: message`; the waits print the state they waited for; an error goes
 to the standard error with the exit code 1. Dependencies: the standard library.
 """
-import argparse, json, os, sys, time, urllib.error, urllib.request
+import argparse, json, os, re, sys, time, urllib.error, urllib.request
 
 HOST = '127.0.0.1'
 
@@ -115,6 +116,23 @@ def wait(port, timeout, done, what):
         time.sleep(0.25)
 
 
+def wait_log(port, pattern, after, timeout):
+    """Polls the log from record `after` on until a record's `target: message` matches the regular expression."""
+    expression = re.compile(pattern)
+    start = time.monotonic()
+    while True:
+        try:
+            for record in call(port, 'opensacred/logs', {'after': after}):
+                after = record['sequence'] + 1
+                if expression.search(f"{record['target']}: {record['message']}"):
+                    return record
+        except ConnectionError:
+            pass
+        if time.monotonic() - start > timeout:
+            raise TimeoutError(f'no record matching {pattern!r} in {timeout:g} s')
+        time.sleep(0.25)
+
+
 def screenshot(port, path, timeout):
     """Asks for the next frame and waits until its file is written whole."""
     path = os.path.abspath(path)
@@ -165,6 +183,11 @@ def main():
     p.add_argument('--timeout', type=float, default=30)
     p = sub.add_parser('logs', help="the log's records")
     p.add_argument('--after', type=int, default=0, help='from this sequence number on')
+    p = sub.add_parser('wait-log', help="wait for a record of the log whose 'target: message' matches a regular "
+                                        "expression, and print it")
+    p.add_argument('pattern')
+    p.add_argument('--after', type=int, default=0, help='from this sequence number on')
+    p.add_argument('--timeout', type=float, default=60)
     p = sub.add_parser('call', help='any method of the protocol, with JSON parameters')
     p.add_argument('method')
     p.add_argument('params', nargs='?', default=None)
@@ -196,6 +219,10 @@ def main():
             for record in call(port, 'opensacred/logs', {'after': args.after}):
                 print(f"{record['sequence']} {record['seconds']:9.3f} {record['level']:<5} "
                       f"{record['target']}: {record['message']}")
+        elif args.what == 'wait-log':
+            record = wait_log(port, args.pattern, args.after, args.timeout)
+            print(f"{record['sequence']} {record['seconds']:9.3f} {record['level']:<5} "
+                  f"{record['target']}: {record['message']}")
         elif args.what == 'call':
             params = json.loads(args.params) if args.params else None
             print(json.dumps(call(port, args.method, params), indent=2))

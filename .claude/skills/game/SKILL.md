@@ -43,6 +43,7 @@ Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in t
 | `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |
 | `screenshot FILE` | the next frame, waiting until the PNG is written; look at it with Read |
 | `logs --after N` | the log's records from number N on |
+| `wait-log PATTERN` (`--after N`, `--timeout S`) | wait for a record whose `target: message` matches the regular expression, and print it |
 | `call METHOD [JSON]` | any method of the protocol, Bevy's too, with JSON parameters |
 
 `--port N` before the call talks to a game on another port (15702 by default).
