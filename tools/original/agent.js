@@ -882,6 +882,409 @@ function installWorld() {
   guards.worldTick = true;
 }
 
+// --- Traces --------------------------------------------------------------------------------------------------------
+
+// A trace logs every call of a function of the original (or of mss32.dll), with the wall clock's time, the frame, the
+// game's clock and the thread, its arguments read as their kinds say and its return value (docs/re/traces.md).
+const traces = new Map();   // name -> {listeners, count, dropped, second, limit}
+const scratch = Memory.alloc(8);
+
+function asFloat(value) {
+  scratch.writeS32(value.toInt32());
+  return scratch.readFloat();
+}
+
+function describeObject(object) {
+  if (object === null || object.isNull()) {
+    return 'none';
+  }
+  try {
+    const id = object.add(CREATURE.id).readU32();
+    const [x, y] = cellOf(object);
+    let text = `${id} type ${object.add(CREATURE.type).readU32()} cell ${x},${y}`;
+    if (isCreature(object)) {
+      text += ` health ${object.add(CREATURE.health).readS32()}/${object.add(CREATURE.most).readS32()}`;
+    }
+    return text;
+  } catch (e) {
+    return `${object}`;
+  }
+}
+
+function describeId(id) {
+  const object = id > 0 && id < objectCount() ? objectById(id) : null;
+  return object === null ? `${id}` : describeObject(object);
+}
+
+// An argument by its kind: int, uint, hex, u16, i16, float, ptr, object (a pointer to an object), id (an object's id),
+// cstr (a C string), out-float (a pointer whose float is read as the call returns).
+function readArgument(kind, value) {
+  switch (kind) {
+    case 'int': return String(value.toInt32());
+    case 'uint': return String(value.toUInt32());
+    case 'hex': return `0x${value.toUInt32().toString(16)}`;
+    case 'u16': return String(value.toUInt32() & 0xffff);
+    case 'i16': return String((value.toInt32() << 16) >> 16);
+    case 'float': return String(asFloat(value));
+    case 'object': return describeObject(value);
+    case 'id': return describeId(value.toUInt32());
+    case 'cstr': return value.isNull() ? 'null' : JSON.stringify(value.readCString());
+    default: return value.toString();
+  }
+}
+
+function clockText() {
+  try {
+    const clock = WORLD.clock.readPointer();
+    if (clock.isNull()) {
+      return '';
+    }
+    const two = (n) => String(n).padStart(2, '0');
+    return `${two(clock.add(CLOCK.hours).readU16())}:${two(clock.add(CLOCK.minutes).readU16())}:` +
+      `${two(clock.add(CLOCK.seconds).readU16())}`;
+  } catch (e) {
+    return '';
+  }
+}
+
+function record(trace, text) {
+  const second = Math.floor(Date.now() / 1000);
+  if (second !== trace.second) {
+    if (trace.dropped > 0) {
+      send({ type: 'trace', name: trace.name, message: `${trace.dropped} calls not logged (over ${trace.limit} a second)` });
+    }
+    trace.second = second;
+    trace.inSecond = 0;
+    trace.dropped = 0;
+  }
+  trace.inSecond += 1;
+  trace.count += 1;
+  if (trace.inSecond > trace.limit) {
+    trace.dropped += 1;
+    return;
+  }
+  send({
+    type: 'trace', name: trace.name,
+    message: `${text} | t ${now().toFixed(1)} ms, frame ${state.frames}, ${clockText()}, thread ${Process.getCurrentThreadId()}`,
+  });
+}
+
+// The `this` (ECX) and the stack's arguments of a call by its ABI.
+function callArguments(abi, context, args, count) {
+  const out = [];
+  if (abi === 'thiscall') {
+    out.push(context.ecx);
+    for (let i = 0; i < count - 1; i += 1) {
+      out.push(args[i]);
+    }
+  } else if (abi === 'fastcall') {
+    out.push(context.ecx, context.edx);
+    for (let i = 0; i < count - 2; i += 1) {
+      out.push(args[i]);
+    }
+    out.length = count;
+  } else {
+    for (let i = 0; i < count; i += 1) {
+      out.push(args[i]);
+    }
+  }
+  return out;
+}
+
+function objectOfFirst(abi, context, args) {
+  return abi === 'cdecl' || abi === 'stdcall' ? args[0] : context.ecx;
+}
+
+// A trace of a function by its address: the kinds of its arguments (the first is ECX for thiscall and fastcall), of
+// its return, and the ids of the objects whose calls are logged (the first argument's object), all if none.
+function genericTrace(spec) {
+  const kinds = spec.args ?? [];
+  const ids = spec.ids?.length ? new Set(spec.ids) : null;
+  return (trace) => ({
+    onEnter(args) {
+      this.skip = false;
+      if (ids !== null) {
+        try {
+          const object = objectOfFirst(spec.abi, this.context, args);
+          this.skip = !ids.has(object.add(CREATURE.id).readU32());
+        } catch (e) {
+          this.skip = true;
+        }
+      }
+      if (this.skip) {
+        return;
+      }
+      this.values = callArguments(spec.abi, this.context, args, kinds.length).map((v) => ptr(v.toString()));
+      this.text = kinds.map((kind, i) => (kind === 'out-float' ? null : readArgument(kind, this.values[i])));
+    },
+    onLeave(result) {
+      if (this.skip) {
+        return;
+      }
+      const shown = kinds.map((kind, i) => {
+        if (kind !== 'out-float') {
+          return this.text[i];
+        }
+        return this.values[i].isNull() ? 'null' : `->${this.values[i].readFloat()}`;
+      });
+      const ret = spec.ret && spec.ret !== 'void' ? ` = ${readArgument(spec.ret, result)}` : '';
+      record(trace, `(${shown.join(', ')})${ret}`);
+    },
+  });
+}
+
+// The health of a creature before and after a call whose ECX (or, through `via`, a pointer of it) is the creature.
+function healthAround(object) {
+  return object.add(CREATURE.health).readS32();
+}
+
+// The presets, by the functions of docs/re (docs/re/traces.md lists them with their docs).
+const PRESETS = {
+  // A strike's resolution (docs/re/fight.md): the defender is the creature of `this`'s +4, the attacker the id at the
+  // event's +8; the health before and after gives the damage, 0 a miss or a strike that did nothing.
+  strike: { address: '0x56b130', make: (trace) => ({
+    onEnter(args) {
+      this.defender = this.context.ecx.add(4).readPointer();
+      this.attacker = args[0].add(8).readU32();
+      this.before = healthAround(this.defender);
+    },
+    onLeave() {
+      const after = healthAround(this.defender);
+      record(trace, `attacker ${describeId(this.attacker)} -> defender ${describeObject(this.defender)}: health ` +
+        `${this.before} -> ${after}, ${this.before > after ? `hit ${this.before - after}` : 'no damage'}`);
+    },
+  }) },
+  // The hit chance and a kind's damage through a resistance (0x43EEE0, cdecl): x, y, the base c, p, the share w out.
+  chance: { address: '0x43eee0', abi: 'cdecl', args: ['float', 'float', 'float', 'float', 'out-float'] },
+  // The dead creature's state (the AI's 9, every frame while dead): its first call for each creature.
+  death: { address: '0x53e7c0', make: (trace) => {
+    const seen = new Set();
+    return {
+      onEnter() {
+        const creature = this.context.ecx;
+        const id = creature.add(CREATURE.id).readU32();
+        if (!seen.has(id)) {
+          seen.add(id);
+          record(trace, `dead ${describeObject(creature)} level ${creature.add(CREATURE.level).readU16()}`);
+        }
+      },
+    };
+  } },
+  // A kill's experience (0x57D860), its return the experience earned.
+  experience: { address: '0x57d860', abi: 'thiscall', args: ['ptr', 'u16', 'u16', 'int'], ret: 'int' },
+  // One call of a killed creature's drop (docs/re/items.md): the creature, the type asked (0 any), the bonus, the
+  // value; the objects it makes (sdk_CREATE) with their types and, for gold, its amount (+0x120).
+  drop: { address: '0x559bf0', make: (trace) => {
+    const making = new Map();   // thread -> ids made
+    const create = Interceptor.attach(ptr('0x5fba40'), {
+      onLeave(result) {
+        const made = making.get(Process.getCurrentThreadId());
+        if (made !== undefined && result.toInt32() > 0) {
+          made.push(result.toUInt32());
+        }
+      },
+    });
+    trace.listeners.push(create);
+    return {
+      onEnter(args) {
+        this.creature = ptr(this.context.ecx.toString());
+        this.text = `${describeObject(this.creature)}: type ${args[1].toUInt32()}, bonus ${args[2].toUInt32()}, ` +
+          `value ${args[3].toUInt32()}`;
+        making.set(Process.getCurrentThreadId(), []);
+      },
+      onLeave() {
+        const made = making.get(Process.getCurrentThreadId()) ?? [];
+        making.delete(Process.getCurrentThreadId());
+        const items = made.map((id) => {
+          const object = objectById(id);
+          if (object === null) {
+            return `${id}`;
+          }
+          const type = object.add(CREATURE.type).readU32();
+          return type >= 5132 && type <= 5135 ? `${id} gold ${object.add(0x120).readU32()} (type ${type})`
+            : `${id} type ${type}`;
+        });
+        record(trace, `${this.text} -> ${items.length ? items.join('; ') : 'nothing'}`);
+      },
+    };
+  } },
+  // The item maker (docs/re/items.md, 0x5D5080, cdecl): its type and level first.
+  item: { address: '0x5d5080', abi: 'cdecl', args: ['uint', 'uint', 'int', 'hex'] },
+  // The regeneration (docs/re/fight.md, "Health", every frame of every creature): a creature's health as it changes.
+  regen: { address: '0x562730', make: (trace, spec) => {
+    const ids = new Set(spec.ids?.length ? spec.ids : [1]);
+    return {
+      onEnter() {
+        const creature = this.context.ecx;
+        this.watch = ids.has(creature.add(CREATURE.id).readU32());
+        if (this.watch) {
+          this.creature = ptr(creature.toString());
+          this.before = healthAround(creature);
+        }
+      },
+      onLeave() {
+        if (this.watch) {
+          const after = healthAround(this.creature);
+          if (after !== this.before) {
+            record(trace, `${describeObject(this.creature)}: ${this.before} -> ${after}`);
+          }
+        }
+      },
+    };
+  } },
+  // The creatures' decisions (docs/re/ai.md): woken by sdk_WAKE, the hero's look about, the idle action's roll.
+  wake: { address: '0x59f580', abi: 'fastcall', args: ['object'] },
+  look: { address: '0x547070', abi: 'thiscall', args: ['object', 'hex'], ret: 'hex' },
+  idle: { address: '0x54ea30', abi: 'fastcall', args: ['object'] },
+  // A creature's search for a door in its way (docs/re/fight.md, "Doors in the way"), and a door's turn by an event:
+  // the event's type (+4) and the door's trigger's state (+0x34, its word +0x0A) before and after.
+  'door-search': { address: '0x4d4800', abi: 'fastcall', args: ['object'], ret: 'int' },
+  door: { address: '0x44bcd0', make: (trace) => ({
+    onEnter(args) {
+      // The objects' event handler: the doors alone, items.pak's 5650 to 5766 (docs/re/ai.md, "Houses and doors").
+      const type = this.context.ecx.add(CREATURE.type).readU32();
+      this.skip = type < 5650 || type > 5766;
+      if (this.skip) {
+        return;
+      }
+      this.door = ptr(this.context.ecx.toString());
+      this.event = args[0].add(4).readU32();
+      const trigger = this.door.add(0x34).readPointer();
+      this.trigger = trigger;
+      this.before = trigger.isNull() ? null : trigger.add(0x0a).readU16();
+    },
+    onLeave() {
+      if (this.skip) {
+        return;
+      }
+      const after = this.trigger.isNull() ? null : this.trigger.add(0x0a).readU16();
+      record(trace, `door ${describeObject(this.door)} event 0x${this.event.toString(16)}: state ` +
+        `${this.before === null ? 'none' : `0x${this.before.toString(16)}`} -> ${after === null ? 'none' : `0x${after.toString(16)}`}`);
+    },
+  }) },
+  // The sounds (docs/re/sound.md): a variant of a profile's group, its id returned; the sound manager's events; the
+  // samples and streams mss32.dll opens and starts.
+  'sound-pick': { address: '0x4261d0', abi: 'thiscall', args: ['ptr', 'int', 'int'], ret: 'uint' },
+  'sound-event': { address: '0x67a7a0', abi: 'thiscall', args: ['ptr', 'int', 'int', 'int', 'int'], limit: 20 },
+  'sample-file': { module: 'mss32.dll', export: '_AIL_set_named_sample_file@20', abi: 'stdcall', args: ['ptr', 'cstr', 'ptr', 'uint'] },
+  'sample-3d-file': { module: 'mss32.dll', export: '_AIL_set_3D_sample_file@8', abi: 'stdcall', args: ['ptr', 'ptr'] },
+  'sample-start': { module: 'mss32.dll', export: '_AIL_start_sample@4', abi: 'stdcall', args: ['ptr'] },
+  'sample-3d-start': { module: 'mss32.dll', export: '_AIL_start_3D_sample@4', abi: 'stdcall', args: ['ptr'] },
+  stream: { module: 'mss32.dll', export: '_AIL_open_stream@12', abi: 'stdcall', args: ['ptr', 'cstr', 'int'], ret: 'ptr' },
+};
+const GROUPS = {
+  fight: ['strike', 'chance', 'death', 'experience'],
+  drops: ['drop', 'item'],
+  ai: ['wake', 'look', 'idle'],
+  doors: ['door-search', 'door'],
+  sound: ['sound-pick', 'sample-file', 'sample-3d-file', 'sample-start', 'sample-3d-start', 'stream'],
+};
+
+function startTrace(spec) {
+  const preset = PRESETS[spec.target];
+  const name = spec.name ?? (preset ? spec.target : String(spec.target));
+  if (traces.has(name)) {
+    throw new Error(`a trace ${name} runs already`);
+  }
+  let target;
+  let make;
+  if (preset !== undefined) {
+    target = preset.module !== undefined ? Process.getModuleByName(preset.module).getExportByName(preset.export)
+      : ptr(preset.address);
+    make = preset.make ?? genericTrace({ ...preset, ids: spec.ids });
+  } else {
+    const address = ptr(String(spec.target));
+    if (Process.findModuleByAddress(address) === null) {
+      throw new Error(`${spec.target} is neither a preset nor an address of a module`);
+    }
+    target = address;
+    make = genericTrace({ abi: spec.abi ?? 'cdecl', args: spec.args ?? [], ret: spec.ret, ids: spec.ids });
+  }
+  const limit = spec.limit ?? preset?.limit ?? 200;
+  const trace = { name, target, listeners: [], count: 0, dropped: 0, second: 0, inSecond: 0, limit };
+  trace.listeners.push(Interceptor.attach(target, make(trace, spec)));
+  traces.set(name, trace);
+  return { name, target: target.toString() };
+}
+
+function stopTrace(name) {
+  const trace = traces.get(name);
+  if (trace === undefined) {
+    return false;
+  }
+  for (const listener of trace.listeners) {
+    listener.detach();
+  }
+  traces.delete(name);
+  return true;
+}
+
+// --- The mute ------------------------------------------------------------------------------------------------------
+
+// With the host's --muted, the game keeps its volumes and so plays its sounds, for their traces, while mss32.dll
+// outputs nothing: every volume the game sets on a sample, a 3D sample or a stream is 0, each is set to 0 again as it
+// starts, and so is the digital driver's master volume as it opens.
+const mute = { set: 0 };
+
+function installMute() {
+  const mss = Module.load('mss32.dll');
+  const exp = (name) => mss.getExportByName(name);
+  const zero = (indices) => ({
+    onEnter(args) {
+      for (const i of indices) {
+        args[i] = ptr(0);   // a float's 0.0
+      }
+      mute.set += 1;
+    },
+  });
+  const volumes = {
+    '_AIL_set_sample_volume_pan@12': [1], '_AIL_set_sample_volume_levels@12': [1, 2],
+    '_AIL_set_3D_sample_volume@8': [1], '_AIL_set_stream_volume_pan@12': [1],
+    '_AIL_set_stream_volume_levels@12': [1, 2], '_AIL_set_digital_master_volume_level@8': [1],
+    '_AIL_redbook_set_volume_level@8': [1], '_AIL_set_XMIDI_master_volume@8': [1],
+  };
+  for (const [name, indices] of Object.entries(volumes)) {
+    Interceptor.attach(exp(name), zero(indices));
+  }
+  const setSample = new NativeFunction(exp('_AIL_set_sample_volume_pan@12'), 'void', ['pointer', 'float', 'float'], 'stdcall');
+  const set3D = new NativeFunction(exp('_AIL_set_3D_sample_volume@8'), 'void', ['pointer', 'float'], 'stdcall');
+  const setStream = new NativeFunction(exp('_AIL_set_stream_volume_pan@12'), 'void', ['pointer', 'float', 'float'], 'stdcall');
+  const setMaster = new NativeFunction(exp('_AIL_set_digital_master_volume_level@8'), 'void', ['pointer', 'float'], 'stdcall');
+  const before = (name, set) => Interceptor.attach(exp(name), {
+    onEnter(args) {
+      if (!args[0].isNull()) {
+        set(args[0]);
+      }
+    },
+  });
+  before('_AIL_start_sample@4', (s) => setSample(s, 0, 0.5));
+  before('_AIL_resume_sample@4', (s) => setSample(s, 0, 0.5));
+  before('_AIL_start_3D_sample@4', (s) => set3D(s, 0));
+  before('_AIL_resume_3D_sample@4', (s) => set3D(s, 0));
+  before('_AIL_start_stream@4', (s) => setStream(s, 0, 0.5));
+  Interceptor.attach(exp('_AIL_open_digital_driver@16'), {
+    onLeave(driver) {
+      if (!driver.isNull()) {
+        setMaster(driver, 0);
+        log('INFO', 'mute: the digital driver opened, its master volume 0');
+      }
+    },
+  });
+  Interceptor.attach(exp('_AIL_waveOutOpen@16'), {
+    onEnter(args) {
+      this.out = args[0];
+    },
+    onLeave() {
+      const driver = this.out.isNull() ? ptr(0) : this.out.readPointer();
+      if (!driver.isNull()) {
+        setMaster(driver, 0);
+        log('INFO', 'mute: the wave-out driver opened, its master volume 0');
+      }
+    },
+  });
+  guards.mute = true;
+}
+
 // --- The game's own functions ---------------------------------------------------------------------------------------
 
 // The window procedure sees itself active and never loses the focus (the render thread skips its frames while
@@ -1137,6 +1540,9 @@ rpc.exports = {
     installDirectDrawGuards();
     installWindowProcedure();
     installFlip();
+    if (config.muted) {
+      installMute();
+    }
     installWorld();
     installExit();
     if (config.gameLog !== false) {
@@ -1164,6 +1570,7 @@ rpc.exports = {
       screen: screen(),
       cursor: [virtualInput.cursor.x, virtualInput.cursor.y],
       refusals,
+      muted: config.muted ? mute.set : null,
       ...frameStats(),
     };
   },
@@ -1175,6 +1582,31 @@ rpc.exports = {
   },
   world(name, args) {
     return worldCommand(name, args);
+  },
+  trace(spec) {
+    const group = GROUPS[spec.target];
+    if (group !== undefined && spec.name === undefined) {
+      return group.filter((name) => !traces.has(name)).map((name) => startTrace({ ...spec, target: name }));
+    }
+    return [startTrace(spec)];
+  },
+  untrace(name) {
+    if (name === 'all') {
+      const names = [...traces.keys()];
+      names.forEach(stopTrace);
+      return names;
+    }
+    const group = GROUPS[name];
+    if (group !== undefined) {
+      return group.filter(stopTrace);
+    }
+    return stopTrace(name) ? [name] : [];
+  },
+  traces() {
+    return [...traces.values()].map((t) => ({ name: t.name, target: t.target.toString(), calls: t.count }));
+  },
+  presets() {
+    return { presets: Object.keys(PRESETS), groups: GROUPS };
   },
   close() {
     if (state.window === null) {

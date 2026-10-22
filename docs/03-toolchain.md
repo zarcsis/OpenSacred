@@ -277,7 +277,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 ### 3.8 Driving the original
 
 Claude Code drives the developer's own running `Sacred.exe` the way it drives the game (§3.7), to see for itself how the original behaves (the checks of #227; #448, its steps #449–#452).
-The host, its guards, the frames and the process's state are in place (#449), the player's input, the program's screen, a new game and the saves (#450), and the world's state and commands (#451); the traces (#452) follow.
+The host, its guards, the frames and the process's state are in place (#449), the player's input, the program's screen, a new game and the saves (#450), the world's state and commands (#451) and the traces of the original's functions (#452).
 The project skill `original` says how to run it.
 
 ```bash
@@ -289,6 +289,8 @@ python -I tools/game/remote.py --port 15703 click 720 480            # or: key E
 python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
+python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
+python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
 python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
 python -I tools/game/remote.py --port 15703 logs --after 0
 python -I tools/game/remote.py --port 15703 exec quit
@@ -345,6 +347,8 @@ What the first step found (2026-10-21, Windows 11, #449):
   Escape needs its character (`WM_CHAR` 27) as a keyboard sends it.
 * The world's state and commands (#451, docs/re/objects.md): the objects' table and the hero, a creature's cell, health, level, experience, AI and action, the clock, the zoom; the hero onto a cell as the scripts' `Teleport` puts a player, the clock's time and rates, the zoom, the pixel of a cell, a walk by a click there.
   The agent reads and changes the world on the render thread's frame (`cEngine_handleZoomInput`), never on Frida's thread.
+* The traces (#452, docs/re/traces.md): presets for the fight's strikes, chances and damage, deaths and experience, the drops and the items made, the regeneration, the creatures' waking and idle rolls, the doors, the sounds; any address with the kinds of its arguments.
+  The sounds play only at volumes above 0, so their traces take `--muted`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
 
 ## 4. Binary analysis
 
