@@ -43,6 +43,13 @@ const SHADER: &str = "embedded://opensacred_game/models.wesl";
 /// diagonal, and far from the next diagonal's.
 pub(crate) const PLACE: f32 = 24.0;
 
+/// The original's alpha test of a model's texels, which drops those of alpha 64 or less:
+/// `cGranny::render` (`0x405C90`) turns it on for every model, at the device's `ALPHAREF` 64 and
+/// `ALPHAFUNC` `GREATER` (`0x643190`), with the texture's alpha in the first stage (docs/re/
+/// drawing.md, "The models"). Bevy keeps a texel of alpha at the cutoff or above it, which lies
+/// between 64 and 65 of 255.
+const CUTOFF: f32 = 64.5 / 255.0;
+
 /// A glTF material of a model, drawn at the model's place in the order.
 pub type ModelMaterial = ExtendedMaterial<StandardMaterial, InOrder>;
 
@@ -133,10 +140,15 @@ impl Ordered {
 }
 
 /// The model material of `base`: a mesh of it, tagged with a model's slot of the `anchors`, is
-/// drawn at that model's place in the order.
+/// drawn at that model's place in the order, its texels tested by their alpha as the original's
+/// (`CUTOFF`). The texels that the test keeps are drawn opaque, where the original blends them by
+/// their alpha (#519).
 pub fn in_order(base: StandardMaterial, anchors: &Anchors) -> ModelMaterial {
     ModelMaterial {
-        base,
+        base: StandardMaterial {
+            alpha_mode: AlphaMode::Mask(CUTOFF),
+            ..base
+        },
         extension: InOrder {
             anchors: anchors.buffer.clone(),
             floors: anchors.floor_buffer.clone(),
@@ -386,6 +398,22 @@ mod tests {
         // Its parts a tenth of a unit apart stay a step of the depth buffer (a thousandth of a
         // unit, docs/05 §3.6) apart.
         assert!(squeeze * 0.1 >= 0.001);
+    }
+
+    #[test]
+    fn a_models_texels_are_tested_as_the_originals() {
+        let mut world = World::new();
+        world.init_resource::<Assets<ShaderBuffer>>();
+        let anchors = Anchors::from_world(&mut world);
+        // A glTF material without an alpha mode, OPAQUE, as the converter writes every one.
+        let material = in_order(StandardMaterial::default(), &anchors);
+        let AlphaMode::Mask(cutoff) = material.base.alpha_mode else {
+            panic!("{:?}", material.base.alpha_mode);
+        };
+        // Bevy keeps a texel of alpha at the cutoff or above; the original, of alpha above 64.
+        let kept = |alpha: u8| f32::from(alpha) / 255.0 >= cutoff;
+        assert!(!kept(0) && !kept(64));
+        assert!(kept(65) && kept(255));
     }
 
     #[test]
