@@ -256,6 +256,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 ### 3.7 Driving the game
 
 * A game started with `--remote` listens for remote control on `127.0.0.1:15702`, Bevy's Remote Protocol with the game's own methods (docs/10 §8); `tools/game/remote.py` is its client.
+  Bevy 0.20's `RemoteHttpPlugin` also serves the render sub-app, on 15703 unless told otherwise, the original's driver's port (below): the game moves that server to a port the system picks, which nothing calls (#528).
 * Claude Code starts the game in the background so that it neither covers the maintainer's screen nor touches the maintainer's settings, history and log: windowed, muted, with files of its own, and the window opening without the focus.
 
   ```bash
