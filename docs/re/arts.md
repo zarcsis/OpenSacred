@@ -36,6 +36,24 @@ The runes are the 140 items of `items.pak` of category 28 (docs/02 §6.1): each 
 By them the Gladiator's, the Dark Elf's and the Vampiress's arts are all of the second table, the Mage's all of the first, the Seraphim's, the Wood Elf's, the Daemon's and the Dwarf's of both; some runes name the art 0 (**hypothesis**: none, or a rune of another use).
 Read off the files 2026-10-22 (a scratch script over `tables/items.ron`); how the client uses a rune is not read.
 
+## The heroes' starting arts
+
+Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (below): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229, the first `u32` of an entry 1 for an art of the first table and 2 for one of the second (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):
+
+| Template | Class | Arts (table, id, level 1) |
+|---|---|---|
+| `Hero00.ptx` | Gladiator | 2: 1059, 1057 |
+| `Hero01.ptx` | Seraphim | 2: 1071; 1: 18 |
+| `Hero02.ptx` | Daemon | 2: 1097, 1092; 1: 66 |
+| `Hero03.ptx` | Dwarf | 2: 1080; 1: 55 |
+| `Hero04.ptx` | Wood Elf | 2: 1062; 1: 42 |
+| `Hero05.ptx` | Mage | 1: 5, 32 |
+| `Hero06.ptx` | Dark Elf | 2: 1066, 1051 |
+| `Hero07.ptx` | Vampiress | 2: 1022, 1023, 1074, 1039 |
+
+Each entry carries its value at level 1 already, the art's record's at that level (the Seraphim's 1071 15.0, her 18 24.0).
+In the original's new game the Seraphim has the first alone, 1071 at level 1 of the value 15.0, its entry as the template's (seen 2026-10-22 with #448's driver); why the second is not there is not read.
+
 ## A creature's arts
 
 A creature's stats (docs/re/fight.md) hold its arts as a list of entries of 22 bytes, from `+0x102` to `+0x106` of the stats: the art's id at `+4`, its level at `+6`, a bonus to its level at `+7`, and the value it takes at `+0xA`, a float, with 1.0 at `+0xE`.
