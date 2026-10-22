@@ -933,6 +933,8 @@ There is no encryption and there are no checksums (the "export" `.PAK` saves do 
 The 304×360 hero portrait is written as a JPEG via IJL (according to sacred-bild).
 The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold: Gold 2.28 writes only the 0x101B layout.
 
+**The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
+
 For the new engine: original `.pax` saves are not supported (by design).
 The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level and class in `heroes.ron`; the starting presets (class, stats, starting items) wait for the layouts of 0xC7 and 0xC8.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.

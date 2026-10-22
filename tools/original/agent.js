@@ -12,7 +12,10 @@
 const SACRED_BASE = ptr('0x400000');
 const ADDRESSES = {
   WinMain: ptr('0x817b30'),
-  sacredWndProc: ptr('0x812bf0'),     // the window procedure of the class "Sacred"
+  sacredWndProc: ptr('0x812bf0'),     // the window procedure of the class "Sacred", the menus'
+  playWndProc: ptr('0x811a20'),       // the window procedure while a game is played, from the message 0x8002 on
+  engine: ptr('0xad6ef8'),            // cEngine, made when a game starts (0x60d6c0); +0x54 its state's flags
+  timer: ptr('0xcd7a4c'),             // the game's timer (0x6413e0); its first byte: the game's time stands
   dxDriver7_flip: ptr('0x645e40'),    // dxDriver7::flip, once a frame, ECX the driver
   logPrintf: ptr('0x66ef40'),         // the game's log, printf-like, cdecl
   engineFlags: ptr('0x182ee38'),      // a flags word; bit 0x20000: the application is inactive
@@ -21,6 +24,8 @@ const ADDRESSES = {
 const DRIVER_SHOTS = 0xa8;            // dxDriver7: screenshots asked for, taken at the next flip
 const DRIVER_FRAMES_CAPTURED = 0xac;  // dxDriver7: frames captured so far, 0 for a single shot
 const INACTIVE = 0x20000;
+const ENGINE_STATE = 0x54;
+const ENGINE_LOADING = 0x10000;         // the render thread draws the loading screen
 
 // Window messages.
 const WM = {
@@ -28,6 +33,8 @@ const WM = {
   SETCURSOR: 0x0020, MOUSEACTIVATE: 0x0021, NCACTIVATE: 0x0086,
 };
 const MA_NOACTIVATEANDEAT = 4;
+// The agent's own message: its wParam names the input the window procedure turns it into.
+const AGENT_MESSAGE = 0x83a5;
 const SW = { SHOWNORMAL: 1, SHOWMAXIMIZED: 3, SHOWNOACTIVATE: 4, SHOW: 5, SHOWNA: 8, RESTORE: 9, SHOWDEFAULT: 10 };
 const SWP = { NOZORDER: 0x4, NOACTIVATE: 0x10, NOMOVE: 0x2 };
 const HWND_TOPMOST = -1;
@@ -310,11 +317,15 @@ function installCursorAndDisplayGuards() {
 
 // The maintainer's own keys and cursor never reach the game: the queries answer from the agent's virtual keyboard and
 // cursor, all keys up and the cursor at the window's corner until the agent's input moves them (#450).
-const virtualInput = { cursor: { x: 0, y: 0 }, keys: new Uint8Array(256) };
+const virtualInput = { cursor: { x: 0, y: 0 }, keys: new Uint8Array(256), pressed: new Uint8Array(256) };
 
 function installInputGuards() {
-  replace('user32.dll', 'GetAsyncKeyState', 'int16', ['int'], (original, key) =>
-    (virtualInput.keys[key & 0xff] & 0x80) !== 0 ? -32768 : 0);
+  replace('user32.dll', 'GetAsyncKeyState', 'int16', ['int'], (original, key) => {
+    const down = (virtualInput.keys[key & 0xff] & 0x80) !== 0;
+    const pressed = virtualInput.pressed[key & 0xff];
+    virtualInput.pressed[key & 0xff] = 0;
+    return (down ? -32768 : 0) | pressed;
+  });
   replace('user32.dll', 'GetKeyState', 'int16', ['int'], (original, key) => {
     const value = virtualInput.keys[key & 0xff];
     return ((value & 0x80) !== 0 ? -32768 : 0) | (value & 1);
@@ -381,14 +392,224 @@ function installDirectDrawGuards() {
   }
 }
 
+// --- The agent's input ---------------------------------------------------------------------------------------------
+
+// Virtual-key codes by the names of opensacred-game's `opensacred/input` (its keys by their place), and the
+// character each types in an English layout.
+const KEYS = {
+  Escape: [0x1b, '\x1b'], Enter: [0x0d, '\r'], Tab: [0x09, '\t'], Space: [0x20, ' '], Backspace: [0x08, '\b'],
+  Delete: [0x2e], Home: [0x24], End: [0x23], PageUp: [0x21], PageDown: [0x22], Insert: [0x2d],
+  ArrowUp: [0x26], ArrowDown: [0x28], ArrowLeft: [0x25], ArrowRight: [0x27], Backquote: [0xc0, '`'],
+  Control: [0x11], Ctrl: [0x11], Shift: [0x10], Alt: [0x12], PrintScreen: [0x2c], Pause: [0x13],
+  NumpadAdd: [0x6b, '+'], NumpadSubtract: [0x6d, '-'], Minus: [0xbd, '-'], Equal: [0xbb, '='],
+};
+for (let n = 1; n <= 12; n += 1) {
+  KEYS[`F${n}`] = [0x6f + n];
+}
+for (let c = 0; c < 26; c += 1) {
+  const letter = String.fromCharCode(65 + c);
+  KEYS[letter] = [65 + c, letter.toLowerCase()];
+  KEYS[`Key${letter}`] = KEYS[letter];
+}
+for (let d = 0; d < 10; d += 1) {
+  KEYS[String(d)] = [48 + d, String(d)];
+  KEYS[`Digit${d}`] = KEYS[String(d)];
+  KEYS[`Numpad${d}`] = [0x60 + d, String(d)];
+}
+const MAPVK_VK_TO_VSC = 0;
+const mapVirtualKey = new NativeFunction(user32.getExportByName('MapVirtualKeyA'), 'uint', ['uint', 'uint'], 'stdcall');
+
+const BUTTONS = {
+  left: { down: 0x201, up: 0x202, key: 0x01, flag: 0x0001 },
+  right: { down: 0x204, up: 0x205, key: 0x02, flag: 0x0002 },
+  middle: { down: 0x207, up: 0x208, key: 0x04, flag: 0x0010 },
+};
+
+const input = {
+  pending: new Map(),  // the agent's messages posted, by their number
+  next: 1,
+  schedule: [],        // {frame, deadline, run}: an input waiting for its frame, or its time if no frame comes
+};
+
+// Posts one message of the agent's to the game's window; the window procedure turns it into `message`.
+function post(message, wParam, lParam) {
+  if (state.window === null) {
+    throw new Error('no window yet');
+  }
+  const id = input.next++;
+  input.pending.set(id, { message, wParam: wParam >>> 0, lParam: lParam >>> 0 });
+  native.postMessageA(state.window, AGENT_MESSAGE, ptr(id), ptr(0));
+}
+
+function later(frames, run) {
+  input.schedule.push({ frame: state.frames + frames, deadline: Date.now() + frames * 50 + 20, run });
+}
+
+function runSchedule() {
+  if (input.schedule.length === 0) {
+    return;
+  }
+  const time = Date.now();
+  const due = input.schedule.filter((a) => state.frames >= a.frame || time >= a.deadline);
+  input.schedule = input.schedule.filter((a) => !due.includes(a));
+  for (const action of due) {
+    action.run();
+  }
+}
+
+// The state that a message of the agent's sets as the window procedure takes it, as the system's would.
+function applyInput(entry) {
+  const { message, wParam, lParam } = entry;
+  if (message === 0x100) {        // WM_KEYDOWN
+    if ((virtualInput.keys[wParam & 0xff] & 0x80) === 0) {
+      virtualInput.keys[wParam & 0xff] ^= 1;  // the toggle, as the system keeps it
+    }
+    virtualInput.keys[wParam & 0xff] |= 0x80;
+    virtualInput.pressed[wParam & 0xff] = 1;
+  } else if (message === 0x101) { // WM_KEYUP
+    virtualInput.keys[wParam & 0xff] &= ~0x80;
+  } else if (message >= 0x200 && message <= 0x209) {
+    virtualInput.cursor = { x: lParam << 16 >> 16, y: lParam >> 16 };
+    for (const button of Object.values(BUTTONS)) {
+      if (message === button.down) {
+        virtualInput.keys[button.key] |= 0x80;
+        virtualInput.pressed[button.key] = 1;
+      } else if (message === button.up) {
+        virtualInput.keys[button.key] &= ~0x80;
+      }
+    }
+  }
+}
+
+function keyLParam(vk, up) {
+  const scan = mapVirtualKey(vk, MAPVK_VK_TO_VSC) & 0xff;
+  return (1 | (scan << 16) | (up ? 0xc0000000 : 0)) >>> 0;
+}
+
+function buttonsHeld() {
+  let flags = 0;
+  for (const button of Object.values(BUTTONS)) {
+    if ((virtualInput.keys[button.key] & 0x80) !== 0) {
+      flags |= button.flag;
+    }
+  }
+  if ((virtualInput.keys[0x10] & 0x80) !== 0) {
+    flags |= 0x4;  // MK_SHIFT
+  }
+  if ((virtualInput.keys[0x11] & 0x80) !== 0) {
+    flags |= 0x8;  // MK_CONTROL
+  }
+  return flags;
+}
+
+function point(x, y) {
+  const cx = Math.round(x);
+  const cy = Math.round(y);
+  if (cx < 0 || cy < 0 || cx >= 1024 || cy >= 768) {
+    throw new Error(`${x},${y} is outside the window's 1024 x 768`);
+  }
+  return [cx, cy, ((cy & 0xffff) << 16 | (cx & 0xffff)) >>> 0];
+}
+
+// The player's input of `opensacred/input`, as opensacred-game takes it: a key (or keys held together), text, a
+// move, a click held `hold` frames, the wheel by lines.
+function sendInput(params) {
+  if (params.key !== undefined) {
+    const chord = params.key.split('+').map((name) => {
+      const key = KEYS[name];
+      if (key === undefined) {
+        throw new Error(`no key ${name}`);
+      }
+      return key;
+    });
+    const typing = chord.slice(0, -1).every(([vk]) => vk === 0x10);
+    for (const [vk, character] of chord) {
+      post(0x100, vk, keyLParam(vk, false));
+      if (typing && character !== undefined) {
+        const shifted = chord.length > 1 && character.length === 1 ? character.toUpperCase() : character;
+        post(0x102, shifted.charCodeAt(0), keyLParam(vk, false));
+      }
+    }
+    later(Math.max(1, params.hold ?? 2), () => {
+      for (const [vk] of chord.slice().reverse()) {
+        post(0x101, vk, keyLParam(vk, true));
+      }
+    });
+  } else if (params.text !== undefined) {
+    for (const character of params.text) {
+      const code = character.charCodeAt(0);
+      if (code > 0xff) {
+        throw new Error(`the character ${character} is not in the game's code page`);
+      }
+      post(0x102, code, 1);
+    }
+  } else if (params.move !== undefined) {
+    const [, , lParam] = point(params.move[0], params.move[1]);
+    post(0x200, buttonsHeld(), lParam);
+  } else if (params.click !== undefined) {
+    const button = BUTTONS[params.button ?? 'left'];
+    if (button === undefined) {
+      throw new Error(`no button ${params.button}`);
+    }
+    const [, , lParam] = point(params.click[0], params.click[1]);
+    post(0x200, buttonsHeld(), lParam);
+    later(1, () => {
+      post(button.down, buttonsHeld() | button.flag, lParam);
+      later(Math.max(1, params.hold ?? 2), () => post(button.up, buttonsHeld() & ~button.flag, lParam));
+    });
+  } else if (params.wheel !== undefined) {
+    const delta = Math.round(params.wheel * 120);
+    const screen = Memory.alloc(8);
+    screen.writeS32(virtualInput.cursor.x);
+    screen.add(4).writeS32(virtualInput.cursor.y);
+    native.clientToScreen(state.window, screen);
+    post(0x20a, ((delta & 0xffff) << 16) | buttonsHeld(),
+      ((screen.add(4).readS32() & 0xffff) << 16) | (screen.readS32() & 0xffff));
+  } else {
+    throw new Error('no input: key, text, move, click or wheel');
+  }
+}
+
+// The program's screen: the menus before a game (no engine yet), the loading screen, the game, or the game's time
+// standing (the original's menu over a game).
+function screen() {
+  const engine = ADDRESSES.engine.readPointer();
+  if (engine.isNull()) {
+    return 'menu';
+  }
+  if ((engine.add(ENGINE_STATE).readU32() & ENGINE_LOADING) !== 0) {
+    return 'loading';
+  }
+  const timer = ADDRESSES.timer.readPointer();
+  if (!timer.isNull() && timer.readU8() !== 0) {
+    return 'paused';
+  }
+  return 'game';
+}
+
 // --- The game's own functions ---------------------------------------------------------------------------------------
 
 // The window procedure sees itself active and never loses the focus (the render thread skips its frames while
 // inactive, docs/re/window.md), and drops the input the agent did not send.
 function installWindowProcedure() {
-  Interceptor.attach(ADDRESSES.sacredWndProc, {
+  const procedure = {
     onEnter(args) {
-      const message = args[1].toUInt32();
+      let message = args[1].toUInt32();
+      if (message === AGENT_MESSAGE) {
+        const entry = input.pending.get(args[2].toUInt32());
+        input.pending.delete(args[2].toUInt32());
+        if (entry === undefined) {
+          args[1] = ptr(WM.NULL);
+          this.message = WM.NULL;
+          return;
+        }
+        applyInput(entry);
+        args[1] = ptr(entry.message);
+        args[2] = ptr(entry.wParam);
+        args[3] = ptr(entry.lParam);
+        this.message = entry.message;
+        return;
+      }
       this.message = message;
       if (FOCUS_MESSAGES[message] !== undefined && focusSeen < 50) {
         focusSeen += 1;
@@ -419,8 +640,11 @@ function installWindowProcedure() {
         result.replace(ptr(MA_NOACTIVATEANDEAT));
       }
     },
-  });
+  };
+  Interceptor.attach(ADDRESSES.sacredWndProc, procedure);
+  Interceptor.attach(ADDRESSES.playWndProc, procedure);
   guards.sacredWndProc = true;
+  guards.playWndProc = true;
 }
 
 const FOCUS_MESSAGES = { 0x6: 'WM_ACTIVATE', 0x7: 'WM_SETFOCUS', 0x8: 'WM_KILLFOCUS', 0x1c: 'WM_ACTIVATEAPP',
@@ -445,6 +669,7 @@ function installFlip() {
     },
     onLeave(result) {
       state.frames += 1;
+      runSchedule();
       state.flipError = result.toInt32();
       const time = now();
       state.flipTimes.push(time);
@@ -551,14 +776,14 @@ function installGameLog() {
       const time = Date.now();
       if (time - logWindowStart > 1000) {
         if (logSuppressed > 0) {
-          log('WARN', `game log: ${logSuppressed} records dropped (over 200 a second)`);
+          log('WARN', `game log: ${logSuppressed} records dropped (over 2,000 a second)`);
         }
         logWindowStart = time;
         logInWindow = 0;
         logSuppressed = 0;
       }
       logInWindow += 1;
-      if (logInWindow > 200) {
+      if (logInWindow > 2000) {
         logSuppressed += 1;
         return;
       }
@@ -621,6 +846,7 @@ rpc.exports = {
     if (config.gameLog !== false) {
       installGameLog();
     }
+    setInterval(runSchedule, 10);
     state.lastBeat = Date.now();
     setInterval(() => {
       if (Date.now() - state.lastBeat > config.heartbeatTimeout) {
@@ -639,12 +865,17 @@ rpc.exports = {
       frames: state.frames,
       flip_error: state.flipError,
       focused: (ADDRESSES.engineFlags.readU32() & INACTIVE) === 0,
+      screen: screen(),
+      cursor: [virtualInput.cursor.x, virtualInput.cursor.y],
       refusals,
       ...frameStats(),
     };
   },
   screenshot() {
     state.shotsWanted += 1;
+  },
+  input(params) {
+    sendInput(params);
   },
   close() {
     if (state.window === null) {
