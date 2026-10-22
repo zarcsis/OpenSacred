@@ -604,49 +604,47 @@ fn a_bosss_calls_each_drop_in_70_per_cent() {
 
 /// A drop thrown from the origin at 750 along x, 0 along y and no spin, flown at 60 frames a
 /// second until it rests or 5 s pass: where it rests, after how long.
-fn flown(walkable: impl Fn(f32, f32) -> bool, ground: impl Fn(f32, f32) -> f32) -> (Flight, f32) {
+fn flown(ground: impl Fn(f32, f32) -> f32) -> (Flight, f32) {
     let mut flight = Flight::thrown(0.0, 0.0, &mut script(&[150, 75, 6, 6, 6]));
     assert_eq!(flight.velocity, [750.0, 0.0, 190.0]);
     let dt = 1.0 / 60.0;
     let mut t = 0.0;
     while !flight.resting && t < 5.0 {
-        flight.step(dt, &walkable, &ground);
+        flight.step(dt, &ground);
         t += dt;
     }
     (flight, t)
 }
 
 #[test]
-fn a_drop_lands_after_about_1_6_s_within_about_110() {
-    let (flight, t) = flown(|_, _| true, |_, _| 0.0);
+fn a_drop_rises_and_falls_in_place_after_about_1_6_s() {
+    let (flight, t) = flown(|_, _| 0.0);
     assert!(flight.resting);
     assert!((1.5..1.65).contains(&t), "{t}");
+    // Its velocity along the ground turning back at every frame (#478), it lands within a unit
+    // of where it was thrown, as the original's do.
     let [x, y, z] = flight.at;
-    assert!((100.0..115.0).contains(&x), "{x}");
+    assert!((0.0..1.3).contains(&x), "{x}");
     assert_eq!((y, z), (0.0, 0.0));
     assert_eq!(flight.angles, [0.0; 3]);
+    // A frame takes it a tenth of the velocity on, and the next back.
+    let mut first = Flight::thrown(0.0, 0.0, &mut script(&[150, 75, 6, 6, 6]));
+    first.step(0.1, |_, _| 0.0);
+    assert!((first.at[0] - 7.5).abs() < 1e-4 && first.velocity[0] < 0.0);
     // The spin turns it as it flies.
     let mut spun = Flight::thrown(0.0, 0.0, &mut script(&[75, 75, 12, 0, 6]));
-    spun.step(0.5, |_, _| true, |_, _| 0.0);
+    spun.step(0.5, |_, _| 0.0);
     assert_eq!(spun.angles, [3.0, -3.0, 0.0]);
 }
 
 #[test]
-fn a_drop_bounces_off_a_cell_that_may_not_be_walked_on() {
-    let (flight, _) = flown(|x, _| x < 50.0, |_, _| 0.0);
-    let x = flight.at[0];
-    assert!(flight.resting);
-    assert!((-30.0..50.0).contains(&x), "{x}");
-}
-
-#[test]
 fn a_drop_lands_on_a_raised_cell_at_its_height() {
-    let (flight, t) = flown(|_, _| true, |x, _| if x > 30.0 { 40.0 } else { 0.0 });
+    let (flight, t) = flown(|_, _| 40.0);
     assert!(flight.resting);
     assert!((1.35..1.45).contains(&t), "{t}");
     assert!((flight.at[2] - 40.0).abs() < f32::EPSILON);
     // Above the throw's height, it lies on the ground at once.
-    let (flight, t) = flown(|_, _| true, |_, _| 80.0);
+    let (flight, t) = flown(|_, _| 80.0);
     assert!(flight.resting && t < 0.02, "{t}");
     assert!((flight.at[2] - 80.0).abs() < f32::EPSILON);
 }

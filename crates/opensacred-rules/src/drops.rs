@@ -1012,16 +1012,13 @@ impl Flight {
     /// The flight's frame of `dt` seconds (`0x44DFE0`): the angles grow by the spin, the point by
     /// a tenth of the velocity along the ground and the height by the vertical velocity, each
     /// times `dt`; the velocity loses a tenth of itself along the ground and 290.81 along the
-    /// height, times `dt`. Where its point may not be walked on (`walkable`, `0x636890`) its
-    /// velocity along the ground turns back; below the height its point stands at (`ground`,
-    /// `0x449950`) it lies there without a velocity; it rests once each velocity is below 1 and
-    /// it lies within 1 of the ground.
-    pub fn step(
-        &mut self,
-        dt: f32,
-        walkable: impl Fn(f32, f32) -> bool,
-        ground: impl Fn(f32, f32) -> f32,
-    ) {
+    /// height, times `dt`. Its velocity along the ground then turns back, as the client's test of
+    /// the cell it moves to (`0x636890`) has it at every frame of a drop's flight (seen in the
+    /// original, #478; **hypothesis**: the test takes the flight's offset for the place), so that
+    /// the drop rises and falls within a unit of where it was thrown; below the height its point
+    /// stands at (`ground`, `0x449950`) it lies there without a velocity; it rests once each
+    /// velocity is below 1 and it lies within 1 of the ground.
+    pub fn step(&mut self, dt: f32, ground: impl Fn(f32, f32) -> f32) {
         if self.resting {
             return;
         }
@@ -1031,12 +1028,12 @@ impl Flight {
         for (angle, spin) in self.angles.iter_mut().zip(self.spin) {
             *angle += spin * dt;
         }
-        self.velocity = [vx - DRAG * vx * dt, vy - DRAG * vy * dt, vz - GRAVITY * dt];
+        self.velocity = [
+            -(vx - DRAG * vx * dt),
+            -(vy - DRAG * vy * dt),
+            vz - GRAVITY * dt,
+        ];
         let [x, y, z] = self.at;
-        if !walkable(x, y) {
-            self.velocity[0] = -self.velocity[0];
-            self.velocity[1] = -self.velocity[1];
-        }
         let floor = ground(x, y);
         if z < floor {
             self.at[2] = floor;
