@@ -438,6 +438,8 @@ class Host:
                 'load NAME: from the main menu or a game, loads the save of that name; then wait-ready',
                 'saves: the saves of save/, their files and names',
                 'creatures [RADIUS]: the creatures within RADIUS cells of the hero (20 by default), the nearest first',
+                "stats [ID]: a creature's stats, the hero's by default: its attributes, A and D, each kind's damage "
+                'and resistance with their multipliers, its attack speed and its health',
                 'cell X,Y [FLOOR]: the hero onto that cell (on the ground, or a building\'s floor), or the nearest one '
                 'it may stand on, as the scripts teleport a player',
                 'sector X,Y: the hero into that sector, near its middle',
@@ -766,6 +768,21 @@ class Host:
                          + (f" target {c['target']}" if c['target'] else ''))
         return lines
 
+    def command_stats(self, rest):
+        oid = int(rest) if rest.strip() else None
+        s = self.world('stats', {'id': oid})
+        kinds = lambda values: ', '.join(f'{v:g}' for v in values)
+        return [
+            f"{s['id']} type {s['type']} level {s['level']} health {s['health'][0]}/{s['health'][1]}",
+            f"attributes {kinds(s['attributes'])} (base {kinds(s['base'])})",
+            f"A {s['attack']:g} times {s['attackMultiplier']:g}, D {s['defence']:g} times {s['defenceMultiplier']:g}",
+            f"damage least {kinds(s['least'])}, most {kinds(s['most'])}, times {kinds(s['itemMultipliers'])} "
+            f"plus {kinds(s['multipliers'])}",
+            f"resistances {kinds(s['resistances'])}, times {kinds(s['resistanceMultipliers'])}",
+            f"attack speed {s['speeds'][0]}, then {s['speeds'][1]} and {s['speeds'][2]}; other multipliers "
+            f"{kinds(s['other'])}",
+        ]
+
     def command_cell(self, rest, search=8):
         where, _, floor = rest.partition(' ')
         if floor.strip() and not floor.strip().isdigit():
@@ -826,7 +843,8 @@ class Host:
 
 
 WORLD_COMMANDS = {
-    'creatures': Host.command_creatures, 'cell': Host.command_cell, 'sector': Host.command_sector,
+    'creatures': Host.command_creatures, 'stats': Host.command_stats, 'cell': Host.command_cell,
+    'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
 }
