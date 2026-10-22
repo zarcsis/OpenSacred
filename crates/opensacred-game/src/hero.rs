@@ -12,7 +12,8 @@ use bevy::prelude::*;
 use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
 use crate::npcs::Dies;
-use crate::terrain::{Heights, Level};
+use crate::sectors::Streamer;
+use crate::terrain::{Heights, LANDING_REACH, Landing, Level};
 use crate::{iso, models, paths, shadows};
 
 /// How close to its target the hero stops.
@@ -146,6 +147,8 @@ pub struct Body {
     moving: Option<Gait>,
     /// Put somewhere whose ground had not come in: it stands on the ground once it has.
     unplaced: bool,
+    /// The cell a command put it on, where it lands once the sectors about it are in ([`land`]).
+    landing: Option<(i32, i32)>,
 }
 
 impl Body {
@@ -194,6 +197,20 @@ impl Body {
         self.level = None;
         self.climbed = false;
         self.unplaced = true;
+        self.landing = None;
+    }
+
+    /// Puts it at `position` by a command (`cell`, `sector`), going nowhere: it lands on the
+    /// cell there, or near it, where it can stand and walk once the sectors about it are in
+    /// ([`land`]).
+    pub fn put(&mut self, transform: &mut Transform, position: Vec3) {
+        self.teleport(transform, position);
+        self.landing = Some(paths::cell_of(position.x, position.z));
+    }
+
+    /// Whether a command put it somewhere where it has not landed yet.
+    pub fn landing(&self) -> bool {
+        self.landing.is_some()
     }
 }
 
@@ -307,6 +324,7 @@ pub fn spawn(
             climbed: false,
             moving: None,
             unplaced: false,
+            landing: None,
         },
         models::Ordered::default(),
         shadows::Casts,
@@ -407,6 +425,63 @@ pub fn steer(
     }
 }
 
+/// Lands a hero that a command put on a cell, once the sectors about it are in, where it can
+/// stand and walk (#458, [`Heights::landing`]): on the cell, on the ground or in a room of a
+/// building's floor, else on the cell of the ground nearest it, which the log tells.
+pub fn land(
+    heights: Res<Heights>,
+    streamer: Option<Res<Streamer>>,
+    mut bodies: Query<(&mut Transform, &mut Body)>,
+) {
+    for (mut transform, mut body) in &mut bodies {
+        let Some(cell) = body.landing else {
+            continue;
+        };
+        if streamer
+            .as_ref()
+            .is_some_and(|streamer| !streamer.settled(transform.translation))
+        {
+            continue;
+        }
+        body.landing = None;
+        let (mut position, level) = match heights.landing(cell) {
+            Some(Landing::On(level)) => (transform.translation, level),
+            Some(Landing::Near(near)) => {
+                let (x, y) = near;
+                match heights.building(transform.translation.x, transform.translation.z) {
+                    Some(((ax, ay), _)) => info!(
+                        "hero: cell {},{} lies in the building at {ax},{ay}, outside its rooms; \
+                         the hero stands at {x},{y} on the ground",
+                        cell.0, cell.1
+                    ),
+                    None => info!(
+                        "hero: the hero cannot walk on from cell {},{}; it stands at {x},{y} on \
+                         the ground",
+                        cell.0, cell.1
+                    ),
+                }
+                (iso::ground(x as f32 + 0.5, y as f32 + 0.5), None)
+            }
+            None => {
+                warn!(
+                    "hero: no cell within {LANDING_REACH} of {},{} may be walked on; the hero \
+                     stays there",
+                    cell.0, cell.1
+                );
+                continue;
+            }
+        };
+        if let Some(y) = heights.standing(position.x, position.z, level) {
+            position.y = y;
+            body.unplaced = false;
+        }
+        transform.translation = position;
+        body.level = level;
+        body.target = None;
+        body.onto = None;
+    }
+}
+
 /// Moves the hero toward its target over the ground, turning to face it, and switches between
 /// the idle, the walk and the run clips.
 #[expect(
@@ -444,8 +519,9 @@ pub fn run(
         let cell = paths::cell_of(here.x, here.z);
         // A hero on a building's mass is inside it, on its layer; one on an entrance goes in, one
         // on an exit out; one on a stair it stepped onto from off the stairs to the stair's
-        // floor, at the cell the stair gives (`0x5FCCB0`).
-        if body.level.is_none() && !heights.walkable(cell) {
+        // floor, at the cell the stair gives (`0x5FCCB0`). One that a command put there lands
+        // as [`land`] says.
+        if body.level.is_none() && !heights.walkable(cell) && body.landing.is_none() {
             body.level = heights.level_of(cell);
         }
         body.level = heights.transition(cell, body.level);
@@ -672,7 +748,12 @@ impl Plugin for HeroPlugin {
             .add_systems(Update, (spawn, animate).chain().in_set(Step::HeroSpawn))
             .add_systems(
                 Update,
-                ((toggle, steer).in_set(Unpaused).in_set(Control), run, fall)
+                (
+                    (toggle, steer).in_set(Unpaused).in_set(Control),
+                    land,
+                    run,
+                    fall,
+                )
                     .chain()
                     .in_set(Step::HeroMove),
             )

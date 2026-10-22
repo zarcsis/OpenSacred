@@ -116,7 +116,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `new-game [--class C] [--sector X,Y] […]` | ends the game, if any, and starts a new one | the same options |
 | `menu`, `quit` | back to the main menu; end the process | |
 | `pause on\|off` | pauses the game without the pause menu, for a still frame | |
-| `sector X,Y`, `cell X,Y` | puts the hero at a sector's centre or at a cell; the sectors stream around it | `--sector` |
+| `sector X,Y`, `cell X,Y` | puts the hero at a sector's centre or at a cell, on the ground or in a room of a building, else on the ground nearest it (#458); the sectors stream around it | `--sector` |
 | `go X,Y`, `go +DX,+DY` | sends the hero to a cell, or by an offset in cells, as a click does | `--target` |
 | `gait walk\|run` | as R | `--walking` |
 | `zoom Z` | the camera's zoom, 0.5 to 2 as in the original, 2 the widest view | `--zoom` |
@@ -136,7 +136,9 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 * `--exec "CMD; CMD"` and `--script FILE` run commands from the start, for example `--class mage --exec "wait ready; go +10,+4; wait arrived; screenshot a.png; quit"`.
   `--screenshot`, `--record`, `--benchmark` and `--target` stay as shortcuts.
 * `--assets` and `--settings` stay the command line's alone.
-* `sector` and `cell` jump: the streamer drops the sectors beyond two of the new place and builds the 3 × 3 around it, and the hero waits for its ground.
+* `sector` and `cell` jump: the streamer drops the sectors beyond two of the new place and builds the 3 × 3 around it, and the hero lands once they are in (`hero::land`, `terrain::Heights::landing`, #458), and `wait ready` waits for it.
+  It lands in the room of a building's floor 1 where the cell is one, a cell that a hero who comes in by the building's entrances reaches, whatever doors are closed; else on the cell of the ground nearest it, the cell itself first, within a sector's side, that a hero may step into and walk on from, reaching 1,024 places through the doors and the floors (an estimate: by the building of 4,37 at (268, 2378) the nearest walkable cell is a pocket of one cell amid the masses), and the log says where when it is not the cell.
+  The original has no such command: a hero that starts on a building's mass goes onto floor 1 wherever the floor's grid holds the cell walkable, and so do the empty cells of the grid about its rooms, behind its walls, where a hero put there by the command used to stand stranded.
 * Done 2026-10-19 (#173), in a module `command`: `run` parses a line and does it with the whole world at hand, giving an `Outcome` of lines (and for `wait` what a script waits for) or an error; a script runs up to 256 lines a frame, logs each line and its output, and starts a wait with the next frame, so that `wait frames 3` lets three frames render.
   `screenshot FILE` saves the next frame; a script waits the frames it wants before it, instead of `--frames`.
   A jumping hero stands on the ground as soon as its sector's ground is in; the streamer needed nothing more.

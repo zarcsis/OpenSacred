@@ -70,6 +70,24 @@ pub type Level = Option<LayerKey>;
 /// clears (`0x5FCCB0`, docs/re/movement.md).
 pub type Footing = (Level, bool);
 
+/// Where a hero put on a cell by a command stands ([`Heights::landing`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Landing {
+    /// On the cell, at a level.
+    On(Level),
+    /// On the ground, at the cell nearest that a hero may step into and walk on from.
+    Near((i32, i32)),
+}
+
+/// How far from a cell given by a command, in cells along each axis, a hero that cannot stand
+/// on it is put on the ground nearest it: a sector's side.
+pub const LANDING_REACH: i32 = 64;
+
+/// How many places a hero put on a cell by a command must reach from it not to be shut in
+/// there ([`Heights::shut_in`]): a quarter of a sector's cells, an estimate; the pocket that
+/// #458 met by the building of 4,37 anchored at (268, 2378) is a single cell.
+const OPEN: usize = 1024;
+
 /// An inside layer's grid: its first cell, its size, and its cells.
 struct LoadedLayer {
     x: i32,
@@ -399,19 +417,25 @@ impl Heights {
     /// off the stairs, only the cell of the floor that the stair leads to; at an entrance or an
     /// exit, only the same cell at the level that it leads to; else the walkable neighbours at
     /// its level.
-    pub fn neighbours(
+    pub fn neighbours(&self, place: ((i32, i32), Footing)) -> Vec<((i32, i32), Footing)> {
+        self.neighbours_by(place, |cell, level| self.walkable_on(cell, level))
+    }
+
+    /// [`Self::neighbours`], a cell at a level stepped into where `walkable` holds it.
+    fn neighbours_by(
         &self,
         (cell, (level, climbing)): ((i32, i32), Footing),
+        walkable: impl Fn((i32, i32), Level) -> bool,
     ) -> Vec<((i32, i32), Footing)> {
         if climbing && let Some((to, floor)) = self.climb(cell, level) {
             return vec![(to, (floor, false))];
         }
         let through = self.transition(cell, level);
-        if through != level && self.walkable_on(cell, through) {
+        if through != level && walkable(cell, through) {
             return vec![(cell, (through, false))];
         }
         let on_stairs = self.on_stairs(cell, level);
-        crate::paths::around(cell, |next| self.walkable_on(next, level))
+        crate::paths::around(cell, |next| walkable(next, level))
             .map(|next| (next, (level, !on_stairs && self.on_stairs(next, level))))
             .collect()
     }
@@ -544,6 +568,93 @@ impl Heights {
             .filter(|key| walkable_in(key))
             .copied()
             .min()
+    }
+
+    /// Where a hero put on global `cell` by a command (`cell`, `sector`) stands, so that it can
+    /// walk on (#458): where the ground may not be walked on there, on the inside layer that
+    /// [`Self::level_of`] gives where the cell is one of its rooms ([`Self::room`]); else on
+    /// the cell of the ground nearest it, the cell itself first, within [`LANDING_REACH`] along
+    /// each axis, that a hero may step into and that does not shut it in ([`Self::shut_in`]);
+    /// `None` where there is none. The client has no such command: its hero comes onto a
+    /// building's floor by an entrance or a stair, or starts on one where a script puts it,
+    /// onto floor 1 wherever the floor's grid holds the cell walkable, and so do the empty
+    /// cells of the grid about its rooms.
+    pub fn landing(&self, cell: (i32, i32)) -> Option<Landing> {
+        if !self.walkable(cell)
+            && let Some(level) = self.level_of(cell)
+            && self.room(cell, level)
+        {
+            return Some(Landing::On(Some(level)));
+        }
+        let (x, y) = cell;
+        let mut near: Vec<(i32, i32)> = (-LANDING_REACH..=LANDING_REACH)
+            .flat_map(|dy| (-LANDING_REACH..=LANDING_REACH).map(move |dx| (x + dx, y + dy)))
+            .filter(|&at| self.walkable_on(at, None))
+            .collect();
+        // Nearest first; of those as near, row by row.
+        near.sort_by_key(|&(ax, ay)| (ax - x).pow(2) + (ay - y).pow(2));
+        let mut shut = HashSet::new();
+        for at in near {
+            if shut.contains(&(at, (None, false))) {
+                continue;
+            }
+            match self.shut_in(at) {
+                None if at == cell => return Some(Landing::On(None)),
+                None => return Some(Landing::Near(at)),
+                Some(reached) => shut.extend(reached),
+            }
+        }
+        None
+    }
+
+    /// The places that a hero on global `cell` of the ground reaches, by the ways of
+    /// [`Self::neighbours`] through the buildings' doors and floors, whatever closed triggers
+    /// hold, when they are fewer than [`OPEN`]: a pocket of the ground that it cannot walk out
+    /// of, such as a building's cell of the ground amid its masses; `None` where it walks on.
+    fn shut_in(&self, cell: (i32, i32)) -> Option<HashSet<((i32, i32), Footing)>> {
+        let walkable = |at, on| self.walkable_at(at, on);
+        let start = (cell, (None, false));
+        let mut seen = HashSet::from([start]);
+        let mut queue = vec![start];
+        while let Some(place) = queue.pop() {
+            for next in self.neighbours_by(place, walkable) {
+                if seen.insert(next) {
+                    if seen.len() >= OPEN {
+                        return None;
+                    }
+                    queue.push(next);
+                }
+            }
+        }
+        Some(seen)
+    }
+
+    /// Whether a hero that comes onto inside layer `level` by the entrances of the ground that
+    /// lead onto it reaches its global `cell`, by the ways of [`Self::neighbours`] through the
+    /// building's floors, whatever closed triggers hold (a closed door, a chest).
+    fn room(&self, cell: (i32, i32), level: LayerKey) -> bool {
+        let walkable = |at, on| self.walkable_at(at, on);
+        let mut seen: HashSet<((i32, i32), Footing)> = self
+            .cells
+            .iter()
+            .filter(|(_, loaded)| loaded.entrance)
+            .filter_map(|(&(x, y), _)| Some((i32::try_from(x).ok()?, i32::try_from(y).ok()?)))
+            .filter(|&at| self.level_of(at) == Some(level) && walkable(at, Some(level)))
+            .map(|at| (at, (Some(level), false)))
+            .collect();
+        let mut queue: Vec<_> = seen.iter().copied().collect();
+        while let Some(place) = queue.pop() {
+            if place.0 == cell && place.1.0 == Some(level) {
+                return true;
+            }
+            for next in self.neighbours_by(place, walkable) {
+                // Out by an exit or down the stairs onto the ground, it has left the building.
+                if next.1.0.is_some() && seen.insert(next) {
+                    queue.push(next);
+                }
+            }
+        }
+        false
     }
 
     /// The nature of the cell at world `(x, z)`.
@@ -1364,6 +1475,129 @@ mod tests {
         // An object of floor 2 off the house's cells on the ground belongs to the house.
         assert_eq!(heights.building_on_floor((3, 3), 2), Some((4, 4)));
         assert_eq!(heights.building_on_floor((3, 3), 1), None);
+    }
+
+    #[test]
+    fn a_command_lands_the_hero_on_the_ground_or_in_a_room_else_on_the_ground_nearest() {
+        let cell = |ground, flags, offsets| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets,
+            flags,
+            ground,
+        };
+        // A house of cells 4..=10 on rows 4..=10, its cells pointing to its anchor (4, 4), its
+        // door an entrance at (7, 10) where `door`.
+        let house = |door: bool| {
+            let mut cells = vec![cell(0x40, 0, [0, 0]); SIDE * SIDE];
+            for x in 4..=10_i8 {
+                for y in 4..=10_i8 {
+                    let at = usize::try_from(y).unwrap() * SIDE + usize::try_from(x).unwrap();
+                    cells[at] = cell(0xD1, 0x1, [4 - x, 4 - y]);
+                }
+            }
+            if door {
+                cells[10 * SIDE + 7] = cell(0xD9, 0x5, [-3, -6]);
+            }
+            // Floor 1 over the whole mass and the row in front of it: its rooms (6..=8) within
+            // walls (rows and columns 5 and 9) opened at (7, 9) onto the door, which walls flank,
+            // and the exits in front of the door; about the walls, the empty cells of the grid,
+            // all zeros, walkable but reached from no room (#458).
+            let inside = |x: u32, y: u32| LayerCell {
+                heights2: [0; 4],
+                offsets: [0; 2],
+                flags: if (x, y) == (7, 10) { 4 } else { 0 },
+                ground: match (x, y) {
+                    (7, 10) => 0xD9,
+                    (6..=8, 11) => 0xDA,
+                    (7, 9) | (6..=8, 6..=8) => 0xD0,
+                    (6 | 8, 10) | (5 | 9, 5..=9) | (5..=9, 5 | 9) => 0xD1,
+                    _ => 0,
+                },
+            };
+            Sector {
+                x: 0,
+                y: 0,
+                id: 0,
+                liquids: [0; 2],
+                cells,
+                statics: Vec::new(),
+                layers: vec![Layer {
+                    x: 4,
+                    y: 4,
+                    width: 7,
+                    height: 8,
+                    cells: (4..=11)
+                        .flat_map(|y| (4..=10).map(move |x| inside(x, y)))
+                        .collect(),
+                }],
+                buildings: vec![opensacred_data::world::Building {
+                    cell: u16::try_from(4 * SIDE + 4).unwrap(),
+                    floors: vec![1],
+                    heights: vec![0],
+                    open: false,
+                }],
+            }
+        };
+        let mut heights = Heights::default();
+        heights.add(&house(true));
+        let first = Some((0, 0, 1));
+        // On the ground where it may be walked on, the door's cell among them.
+        assert_eq!(heights.landing((1, 1)), Some(Landing::On(None)));
+        assert_eq!(heights.landing((7, 10)), Some(Landing::On(None)));
+        // In the rooms, reached from the door.
+        assert_eq!(heights.landing((7, 7)), Some(Landing::On(first)));
+        assert_eq!(heights.landing((7, 9)), Some(Landing::On(first)));
+        // The empty cells behind the walls, which floor 1's grid holds walkable, as the client
+        // would put a hero that starts there: on the ground nearest them instead.
+        assert_eq!(heights.level_of((4, 6)), first);
+        assert_eq!(heights.landing((4, 6)), Some(Landing::Near((3, 6))));
+        assert_eq!(heights.landing((9, 10)), Some(Landing::Near((9, 11))));
+        // A wall's cell, which no floor holds walkable.
+        assert_eq!(heights.landing((5, 7)), Some(Landing::Near((3, 7))));
+        // A closed door bars no room; a closed trigger's cell of the ground is not stood on.
+        heights.occupy((7, 10), None);
+        heights.occupy((7, 10), first);
+        heights.occupy((3, 6), None);
+        assert_eq!(heights.landing((7, 7)), Some(Landing::On(first)));
+        assert_eq!(heights.landing((4, 6)), Some(Landing::Near((3, 5))));
+        // A house without an entrance has no room to land in.
+        let mut heights = Heights::default();
+        heights.add(&house(false));
+        assert_eq!(heights.level_of((7, 7)), first);
+        assert_eq!(heights.landing((7, 7)), Some(Landing::Near((7, 3))));
+        // Nor does a pocket of the ground within a wall, cells 21..=23 on rows 21..=23: the
+        // hero lands on the ground beyond it, out of which it walks.
+        let mut sector = house(true);
+        for x in 20..=24 {
+            for y in 20..=24 {
+                if [x, y].iter().any(|&v| v == 20 || v == 24) {
+                    sector.cells[y * SIDE + x] = cell(0x42, 0, [0, 0]);
+                }
+            }
+        }
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        assert!(heights.walkable((22, 22)));
+        assert_eq!(heights.landing((22, 22)), Some(Landing::Near((22, 19))));
+        assert_eq!(heights.landing((21, 21)), Some(Landing::Near((21, 19))));
+        assert_eq!(heights.landing((25, 22)), Some(Landing::On(None)));
+        // Nothing to stand on within reach.
+        let mut heights = Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells: vec![cell(0x92, 0, [0, 0]); SIDE * SIDE],
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        assert_eq!(heights.landing((5, 5)), None);
     }
 
     #[test]
