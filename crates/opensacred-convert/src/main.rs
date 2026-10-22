@@ -380,7 +380,7 @@ fn execute(command: Command) -> Result<ExitCode> {
                 );
                 if summary.repaired_textures > 0 {
                     println!(
-                        "  repaired: {} texels in {} textures (the lavas' frames, a menu's tile)",
+                        "  repaired: {} texels in {} textures (the lavas' frames, a menu's tile, the blacksmith's apron)",
                         summary.repaired_texels, summary.repaired_textures,
                     );
                 }
