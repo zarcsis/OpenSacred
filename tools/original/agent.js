@@ -587,6 +587,301 @@ function screen() {
   return 'game';
 }
 
+// --- The world -----------------------------------------------------------------------------------------------------
+
+// The world's objects, the hero, the clock and the view (docs/re/objects.md).
+const WORLD = {
+  objects: ptr('0xad5c40'),          // sdk_OM: the object manager; its +4 and +8 the vector of the objects by id
+  context: ptr('0x182ebe8'),         // sdk_CTX: the game's context; its +0x14 the local player's id
+  clock: ptr('0xaa4540'),            // the clock (0x417560)
+  creature: ptr('0x8eb660'),         // cCreature's RTTI type descriptor
+  teleport: ptr('0x54d9d0'),         // sdk_ENGINE_TP: thiscall (creature, cell x, cell y, floor, effect), 1 if placed
+  setZoom: ptr('0x628130'),          // cWorldView_setZoom: thiscall (view, zoom)
+  tick: ptr('0x60dd20'),             // cEngine_handleZoomInput: once a frame on the render thread, the engine in ECX
+};
+const CELL = 53.66563;               // a cell's side in world units
+const CREATURE = {
+  id: 0x0c, type: 0x10, x: 0x1c, y: 0x20, floor: 0x24, layer: 0x2c, ai: 0xfc, aiSub: 0xfe, target: 0x104,
+  action: 0x150, actionSub: 0x152, gait: 0x1f8, experience: 0x3b4, level: 0x3fe, most: 0x4d4, health: 0x4d8,
+};
+const CLOCK = { dayRate: 0x10, nightRate: 0x14, hours: 0x20, minutes: 0x22, seconds: 0x24, fraction: 0x28 };
+const VIEW_ZOOM = 0xb60;
+const VIEW_SCREEN_TO_WORLD = 6;      // the view's virtual function: thiscall (view, x, y, position*)
+
+const teleport = new NativeFunction(WORLD.teleport, 'uint32', ['pointer', 'int', 'int', 'int', 'int'], 'thiscall');
+const setZoom = new NativeFunction(WORLD.setZoom, 'uint32', ['pointer', 'float'], 'thiscall');
+
+const world = {
+  jobs: [],        // {run, resolve, reject, deadline}: run on the render thread's next frame
+  engine: null,    // the engine of the last tick
+  creatureVtables: new Map(),
+};
+
+function objectCount() {
+  const manager = WORLD.objects.readPointer();
+  if (manager.isNull()) {
+    return 0;
+  }
+  return manager.add(8).readPointer().sub(manager.add(4).readPointer()).toInt32() / 4;
+}
+
+function objectById(id) {
+  const manager = WORLD.objects.readPointer();
+  if (manager.isNull() || id <= 0 || id >= objectCount()) {
+    return null;
+  }
+  const object = manager.add(4).readPointer().add(id * 4).readPointer();
+  return object.isNull() ? null : object;
+}
+
+// A creature is an object whose class derives from cCreature, by the class hierarchy of its vtable's RTTI.
+function isCreature(object) {
+  const vtable = object.readPointer();
+  const key = vtable.toString();
+  let known = world.creatureVtables.get(key);
+  if (known === undefined) {
+    known = false;
+    try {
+      const locator = vtable.sub(4).readPointer();
+      const hierarchy = locator.add(0x10).readPointer();
+      const bases = hierarchy.add(8).readU32();
+      const array = hierarchy.add(0xc).readPointer();
+      for (let i = 0; i < bases && i < 32; i += 1) {
+        if (array.add(4 * i).readPointer().readPointer().equals(WORLD.creature)) {
+          known = true;
+          break;
+        }
+      }
+    } catch (e) {
+      known = false;
+    }
+    world.creatureVtables.set(key, known);
+  }
+  return known;
+}
+
+function hero() {
+  const context = WORLD.context.readPointer();
+  return context.isNull() ? null : objectById(context.add(0x14).readU32());
+}
+
+function cellOf(object) {
+  return [Math.floor(object.add(CREATURE.x).readS32() / CELL), Math.floor(object.add(CREATURE.y).readS32() / CELL)];
+}
+
+function readCreature(object) {
+  const target = object.add(CREATURE.target).readU32();
+  return {
+    id: object.add(CREATURE.id).readU32(),
+    type: object.add(CREATURE.type).readU32(),
+    cell: cellOf(object),
+    floor: object.add(CREATURE.floor).readU8(),
+    inside: object.add(CREATURE.layer).readU32() !== 0,
+    health: object.add(CREATURE.health).readS32(),
+    most: object.add(CREATURE.most).readS32(),
+    level: object.add(CREATURE.level).readU16(),
+    experience: object.add(CREATURE.experience).readU32(),
+    ai: [object.add(CREATURE.ai).readU16(), object.add(CREATURE.aiSub).readU16()],
+    action: [object.add(CREATURE.action).readU16(), object.add(CREATURE.actionSub).readU16()],
+    gait: object.add(CREATURE.gait).readU8(),
+    target: target > 0 && target < objectCount() && objectById(target) !== null ? target : null,
+  };
+}
+
+function creatures() {
+  const found = [];
+  const count = objectCount();
+  for (let id = 1; id < count; id += 1) {
+    const object = objectById(id);
+    if (object !== null && isCreature(object)) {
+      found.push(object);
+    }
+  }
+  return found;
+}
+
+function view(engine) {
+  return engine.add(8 + engine.add(0x48).readU16() * 4).readPointer();
+}
+
+function phase(minutes) {
+  // docs/re/daynight.md, "The phases"
+  if (minutes > 320 && minutes < 1220) {
+    return 'day';
+  }
+  if (minutes >= 1220 && minutes <= 1340) {
+    return 'dusk';
+  }
+  if (minutes >= 200 && minutes <= 320) {
+    return 'dawn';
+  }
+  return 'night';
+}
+
+function readClock() {
+  const clock = WORLD.clock.readPointer();
+  if (clock.isNull()) {
+    return null;
+  }
+  const hours = clock.add(CLOCK.hours).readU16();
+  const minutes = clock.add(CLOCK.minutes).readU16();
+  return {
+    time: `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`,
+    phase: phase(hours * 60 + minutes),
+    rates: [clock.add(CLOCK.dayRate).readFloat(), clock.add(CLOCK.nightRate).readFloat()],
+  };
+}
+
+// The window's pixel of a world point: the view's own screen-to-world function is affine on the ground's plane, so
+// three of its answers give its inverse. Heights are not taken into account; the game's pick of a click is.
+function pixelOf(engine, worldX, worldY) {
+  const v = view(engine);
+  const toWorld = new NativeFunction(v.readPointer().add(VIEW_SCREEN_TO_WORLD * 4).readPointer(), 'void',
+    ['pointer', 'int', 'int', 'pointer'], 'thiscall');
+  const position = Memory.alloc(16);
+  const at = (px, py) => {
+    position.writeByteArray(new Array(16).fill(0));
+    toWorld(v, px, py, position);
+    return [position.add(4).readS32(), position.add(8).readS32()];
+  };
+  const [x0, y0] = at(512, 384);
+  const [xa, ya] = at(612, 384);
+  const [xb, yb] = at(512, 484);
+  const a = (xa - x0) / 100, c = (ya - y0) / 100, b = (xb - x0) / 100, d = (yb - y0) / 100;
+  const det = a * d - b * c;
+  if (Math.abs(det) < 1e-9) {
+    throw new Error('the view gives no projection');
+  }
+  const dx = worldX - x0, dy = worldY - y0;
+  return [Math.round(512 + (d * dx - b * dy) / det), Math.round(384 + (-c * dx + a * dy) / det)];
+}
+
+function snapshot(engine) {
+  const h = hero();
+  const all = creatures();
+  const out = { objects: objectCount(), creatures: all.length, clock: readClock(), zoom: view(engine).add(VIEW_ZOOM).readFloat() };
+  if (h !== null) {
+    const me = readCreature(h);
+    out.hero = me;
+    let nearest = null;
+    let best = Infinity;
+    for (const object of all) {
+      if (object.equals(h)) {
+        continue;
+      }
+      const [x, y] = cellOf(object);
+      const distance = Math.max(Math.abs(x - me.cell[0]), Math.abs(y - me.cell[1]));
+      if (distance < best && object.add(CREATURE.health).readS32() > 0) {
+        best = distance;
+        nearest = object;
+      }
+    }
+    out.nearest = nearest === null ? null : { ...readCreature(nearest), distance: best };
+  }
+  return out;
+}
+
+const COMMANDS = {
+  snapshot: (engine) => snapshot(engine),
+  creatures: (engine, { radius }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const [hx, hy] = cellOf(h);
+    return creatures().filter((o) => !o.equals(h)).map(readCreature)
+      .filter((c) => Math.max(Math.abs(c.cell[0] - hx), Math.abs(c.cell[1] - hy)) <= radius)
+      .sort((p, q) => Math.hypot(p.cell[0] - hx, p.cell[1] - hy) - Math.hypot(q.cell[0] - hx, q.cell[1] - hy));
+  },
+  // The hero onto a cell as the scripts' Teleport puts a player (docs/re/objects.md), or onto the first cell it may
+  // stand on in rings about it.
+  cell: (engine, { x, y, floor, search }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    for (let r = 0; r <= search; r += 1) {
+      for (let dx = -r; dx <= r; dx += 1) {
+        for (let dy = -r; dy <= r; dy += 1) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) {
+            continue;
+          }
+          if ((teleport(h, x + dx, y + dy, floor, 0) & 0xff) !== 0) {
+            return { cell: cellOf(h), asked: [x, y] };
+          }
+        }
+      }
+    }
+    throw new Error(`no cell to stand on within ${search} of ${x},${y}`);
+  },
+  time: (engine, { hours, minutes }) => {
+    const clock = WORLD.clock.readPointer();
+    clock.add(CLOCK.hours).writeU16(hours);
+    clock.add(CLOCK.minutes).writeU16(minutes);
+    clock.add(CLOCK.seconds).writeU16(0);
+    clock.add(CLOCK.fraction).writeFloat(0);
+    return readClock();
+  },
+  'day-speed': (engine, { day, night }) => {
+    const clock = WORLD.clock.readPointer();
+    clock.add(CLOCK.dayRate).writeFloat(day);
+    clock.add(CLOCK.nightRate).writeFloat(night);
+    return readClock();
+  },
+  zoom: (engine, { zoom }) => {
+    setZoom(view(engine), zoom);
+    return view(engine).add(VIEW_ZOOM).readFloat();
+  },
+  point: (engine, { x, y }) => pixelOf(engine, (x + 0.5) * CELL, (y + 0.5) * CELL),
+};
+
+// Runs a command on the render thread's next frame, where the game updates its world, so that a read never sees an
+// object halfway through its update and a change is made where the game makes its own.
+function worldCommand(name, args) {
+  const command = COMMANDS[name];
+  if (command === undefined) {
+    return Promise.reject(new Error(`no world command ${name}`));
+  }
+  if (ADDRESSES.engine.readPointer().isNull()) {
+    return Promise.reject(new Error('no game: the engine is made when a game starts'));
+  }
+  return new Promise((resolve, reject) => {
+    world.jobs.push({ run: (engine) => command(engine, args ?? {}), resolve, reject, deadline: Date.now() + 2000 });
+  });
+}
+
+function runWorldJobs(engine) {
+  const jobs = world.jobs;
+  world.jobs = [];
+  for (const job of jobs) {
+    try {
+      job.resolve(job.run(engine));
+    } catch (e) {
+      job.reject(e);
+    }
+  }
+}
+
+function installWorld() {
+  Interceptor.attach(WORLD.tick, {
+    onEnter() {
+      world.engine = ptr(this.context.ecx.toString());
+      if (world.jobs.length > 0) {
+        runWorldJobs(world.engine);
+      }
+    },
+  });
+  setInterval(() => {
+    const now = Date.now();
+    const late = world.jobs.filter((job) => now > job.deadline);
+    world.jobs = world.jobs.filter((job) => now <= job.deadline);
+    for (const job of late) {
+      job.reject(new Error('the render thread ran no frame of the world in 2 s'));
+    }
+  }, 250);
+  guards.worldTick = true;
+}
+
 // --- The game's own functions ---------------------------------------------------------------------------------------
 
 // The window procedure sees itself active and never loses the focus (the render thread skips its frames while
@@ -842,6 +1137,7 @@ rpc.exports = {
     installDirectDrawGuards();
     installWindowProcedure();
     installFlip();
+    installWorld();
     installExit();
     if (config.gameLog !== false) {
       installGameLog();
@@ -876,6 +1172,9 @@ rpc.exports = {
   },
   input(params) {
     sendInput(params);
+  },
+  world(name, args) {
+    return worldCommand(name, args);
   },
   close() {
     if (state.window === null) {

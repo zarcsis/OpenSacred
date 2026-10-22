@@ -5,7 +5,7 @@ Status: **confirmed** on the code unless marked otherwise.
 
 ## The clock
 
-The game's clock is an object of its own (`0x417560` makes it once, at `0xAA4540`).
+The game's clock is an object of its own (`0x417560` makes it once, and keeps a pointer to it at `0xAA4540`, docs/re/objects.md).
 Its time of day is three words, hours, minutes and seconds (`+0x20`, `+0x22`, `+0x24`), with the fraction of a second in a float (`+0x28`); a date of three more (`+0x18` 1370, `+0x1C` 2, `+0x1E` 14; hypothesis: the year, the month and the day).
 A new clock reads **08:00**.
 
