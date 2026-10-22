@@ -13,6 +13,7 @@ mod command;
 mod console;
 mod crowd;
 mod daynight;
+mod debug;
 mod doors;
 mod drops;
 mod fight;
