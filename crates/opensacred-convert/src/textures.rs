@@ -5,8 +5,8 @@
 //! to textures by index, and names are not unique — 25 names occur twice in `texture.pak`,
 //! 6 of them with different pixels.
 //!
-//! The frames of three lavas and a tile of a menu are repaired as they are written
-//! ([`STREAKED`], [`FAINT`]).
+//! The frames of three lavas, a tile of a menu and the blacksmith's apron are repaired as they
+//! are written ([`STREAKED`], [`FAINT`], [`HOLED`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,13 +34,19 @@ const STREAKED: [&str; 3] = ["a_lava", "d_lava", "e_lava"];
 /// (#352, docs/02 §3.1), and that lowest alpha of its body: its alpha is scaled to make it 255.
 const FAINT: (&str, u8) = ("gui_uw_option12", 195);
 
+/// `BLACKSMITH_BELT.TGA` (record 8202), the blacksmith's apron, whose alpha is 0 over two strokes
+/// across it, 1,176 texels, 406 of them under 16 triangles of the flaps below the belt, while its
+/// colour runs on unbroken beneath them: the hole in the blacksmith's model that the community
+/// reports (#401, docs/02 §4.6). Every other texel is opaque; it is made opaque whole.
+const HOLED: &str = "blacksmith_belt";
+
 /// Records of one container by format.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     pub argb4444: usize,
     pub bgra8888: usize,
     pub empty: usize,
-    /// Textures repaired ([`STREAKED`], [`FAINT`]), and their texels.
+    /// Textures repaired ([`STREAKED`], [`FAINT`], [`HOLED`]), and their texels.
     pub repaired_textures: usize,
     pub repaired_texels: usize,
 }
@@ -100,6 +106,8 @@ pub fn convert_record(
             .with_context(|| format!("repairing `{}`", name.escape_ascii()))?
     } else if stem(name, b".tga") == FAINT.0 {
         strengthen(&mut texture, FAINT.1)
+    } else if stem(name, b".tga") == HOLED {
+        make_opaque(&mut texture)
     } else {
         0
     };
@@ -126,6 +134,18 @@ fn strengthen(texture: &mut Texture, lowest: u8) -> usize {
         let scaled = u8::try_from(scaled.min(255)).unwrap_or(u8::MAX);
         if scaled != *alpha {
             *alpha = scaled;
+            changed += 1;
+        }
+    }
+    changed
+}
+
+/// Makes every texel of `texture` opaque, its colour kept; the number changed.
+fn make_opaque(texture: &mut Texture) -> usize {
+    let mut changed = 0;
+    for alpha in texture.rgba.iter_mut().skip(3).step_by(4) {
+        if *alpha != 255 {
+            *alpha = 255;
             changed += 1;
         }
     }
@@ -354,21 +374,59 @@ mod tests {
     }
 
     #[test]
+    fn the_blacksmiths_apron_is_made_opaque() {
+        let dir = scratch_dir("textures-apron");
+        // Two BGRA texels, a transparent one over a colour and an opaque one.
+        let tex = |name| {
+            Some(Tex {
+                name,
+                width: 2,
+                height: 1,
+                format: 6,
+                data: vec![10, 20, 30, 0, 40, 50, 60, 255],
+            })
+        };
+        let src = dir.join("texture.pak");
+        fs::write(
+            &src,
+            tex_pak(&[tex(b"BLACKSMITH_BELT.TGA"), tex(b"WARRIOR_BELT.TGA")]),
+        )
+        .unwrap();
+        let dst = output_dir(&dir.join("assets"), "texture");
+
+        let summary = convert_pak(&src, &dst).unwrap();
+
+        assert_eq!((summary.repaired_textures, summary.repaired_texels), (1, 1));
+        assert_eq!(
+            read_png(&dst.join("00000-blacksmith_belt.png")).2,
+            [30, 20, 10, 255, 60, 50, 40, 255]
+        );
+        // Another texture keeps its alpha.
+        assert_eq!(
+            read_png(&dst.join("00001-warrior_belt.png")).2,
+            [30, 20, 10, 0, 60, 50, 40, 255]
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn the_lavas_frames_come_out_opaque() {
         let game = repo_root().join("OriginalGame");
         let dir = scratch_dir("textures-lavas");
         let dst = output_dir(&dir, "texture");
         let summary = convert_pak(&game.join(PAKS[0].0), &dst).unwrap();
-        // docs/02 §5.2: all 50 frames of A_LAVA, 26 of D_LAVA and all 50 of E_LAVA; and §3.1,
-        // the menu's tile, its body and its edge.
-        assert_eq!(summary.repaired_textures, 127);
+        // docs/02 §5.2: all 50 frames of A_LAVA, 26 of D_LAVA and all 50 of E_LAVA; §3.1, the
+        // menu's tile, its body and its edge; and §4.6, the blacksmith's apron.
+        assert_eq!(summary.repaired_textures, 128);
         let (_, _, tile) = read_png(&dst.join("00347-gui_uw_option12.png"));
         let alphas: Vec<u8> = tile.chunks(4).map(|t| t[3]).collect();
         // 39,076 texels of alphas from 195 opaque, 14 of them opaque already; 47,822 of alphas
         // from 2 to 254 changed.
         assert_eq!(alphas.iter().filter(|&&a| a == 255).count(), 39_076);
-        assert_eq!(summary.repaired_texels, 600 + 141 + 1394 + 47_822);
+        assert_eq!(summary.repaired_texels, 600 + 141 + 1394 + 47_822 + 1176);
+        let (_, _, apron) = read_png(&dst.join("08202-blacksmith_belt.png"));
+        assert!(apron.chunks(4).all(|t| t[3] == 255));
         let mut frames = 0;
         for entry in fs::read_dir(&dst).unwrap() {
             let name = entry.unwrap().file_name().into_string().unwrap();
