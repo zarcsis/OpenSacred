@@ -648,12 +648,13 @@ impl Base {
 }
 
 /// What a creature holds, as its values take it: a weapon (`0x546F80`), a shield (`0x54A660`),
-/// and the values of the items it holds and wears that have them: an NPC's in its hands, a
-/// hero's of its template too.
+/// a ranged weapon (the kinds 7, 12, 13 and 14, `0x54A2A0`), and the values of the items it holds
+/// and wears that have them: an NPC's in its hands, a hero's of its template too.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
     pub shield: bool,
+    pub ranged: bool,
     pub items: Vec<ItemValues>,
 }
 
@@ -970,7 +971,8 @@ fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
 }
 
 /// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
-/// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's (10, `HR…AW`), the
+/// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's and the most health's (10,
+/// `HR…AW`, `HP…VW`), the
 /// defence's again (9, `P…`, with a shield `P…S`), and each resistance's (11, `R…Ph`, `R…Fe`,
 /// `R…Ma`, `R…Gi`).
 #[derive(Clone, Debug, PartialEq)]
@@ -979,6 +981,7 @@ struct Curves {
     attack: [f32; 3],
     defence: [f32; 3],
     regeneration: [f32; 3],
+    health: [f32; 3],
     parry: [f32; 3],
     parry_shield: [f32; 3],
     resistances: [[f32; 3]; KINDS],
@@ -992,6 +995,7 @@ impl Default for Curves {
             attack: [7.0, 50.0, 125.0],
             defence: [13.0, 50.0, 225.0],
             regeneration: [6.0, 50.0, 150.0],
+            health: [4.0, 50.0, 130.0],
             parry: [15.0, 50.0, 250.0],
             parry_shield: [25.0, 50.0, 375.0],
             resistances: [
@@ -1030,6 +1034,7 @@ impl Curves {
             attack: triple(["WoffAW", "W__sAW", "W__wAW"], default.attack),
             defence: triple(["WoffVW", "W__sVW", "W__wVW"], default.defence),
             regeneration: triple(["HRoffAW", "HR__sAW", "HR__wAW"], default.regeneration),
+            health: triple(["HPoffVW", "HP__sVW", "HP__wVW"], default.health),
             parry: triple(["Poff", "P__s", "P__w"], default.parry),
             parry_shield: triple(["PoffS", "P__sS", "P__wS"], default.parry_shield),
             resistances: [
@@ -1227,7 +1232,9 @@ pub fn combat(
             _ => {}
         }
     }
-    let damage_parts = [b[0], b[0] + b[2], b[4], b[1] + b[5]];
+    // The physical part by `b2` rather than `b0` with a ranged weapon (#492).
+    let physical = if holds.ranged { b[2] } else { b[0] };
+    let damage_parts = [physical, b[0] + b[2], b[4], b[1] + b[5]];
     let [dmg, res] = rules.balance;
     for (kind, ends) in damage.iter_mut().enumerate() {
         let factor = 1.0
@@ -1440,9 +1447,26 @@ pub fn most_health(base: [u8; 6], level: u32, rules: &Rules) -> u32 {
 }
 
 /// The most health of a hero of `Creature.pak`'s base bytes `base` and level `level`
-/// (`0x5658F0`): as a creature's, without the factors of a creature not a hero.
-pub fn hero_health(base: [u8; 6], level: u32) -> u32 {
-    health_of(base, level, 1.0)
+/// (`0x5658F0`): as a creature's, without the factors of a creature not a hero, raised by its
+/// skill 10's per cent of the curve `HP…VW` (`skills`, `0x566070`) and taken whole (#492).
+pub fn hero_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rules) -> u32 {
+    let most = health_of(base, level, 1.0);
+    let skill: f32 = skills
+        .iter()
+        .filter(|&&(skill, _)| skill == 10)
+        .map(|&(_, at)| curve(rules.curves.health, at) / 100.0)
+        .sum();
+    if skill == 0.0 {
+        return most;
+    }
+    let raised = f64::from(most) * f64::from(1.0 + skill);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the client's whole part of a health, positive and far below u32::MAX"
+    )]
+    let raised = raised.max(0.0) as u32;
+    raised
 }
 
 /// The factor of the health's exponent by the base (the float at `0x891298`, a little under 0.004).
@@ -1488,9 +1512,9 @@ mod tests {
         // The wolf's base, as a hero's type, at the levels 1, 10 and 100, as the original's
         // `0x5658F0` gives them (the oracle's vectors, #363, #408).
         let wolf = [8, 10, 18, 13, 0, 1];
-        assert_eq!(hero_health(wolf, 1), 49);
-        assert_eq!(hero_health(wolf, 10), 139);
-        assert_eq!(hero_health(wolf, 100), 2588);
+        assert_eq!(hero_health(wolf, 1, &[], &Rules::default()), 49);
+        assert_eq!(hero_health(wolf, 10, &[], &Rules::default()), 139);
+        assert_eq!(hero_health(wolf, 100, &[], &Rules::default()), 2588);
         // A base that gives nothing gives 100.
         assert_eq!(most_health([0; 6], 1, &rules), 100);
         // A most of 1 that a level's factor of 0.75 takes below 1 is 0, as the original's (#417).
@@ -1498,7 +1522,13 @@ mod tests {
             points: vec![(1.0, 0.75), (4.0, 0.8)],
             ..Rules::default()
         };
-        assert_eq!(hero_health([1; 6], 1), 1);
+        assert_eq!(hero_health([1; 6], 1, &[], &Rules::default()), 1);
+        // The skill 10 at level 1 raises it by `HPoffVW`, 4 %, taken whole: the Dwarf's 133 to
+        // the original's 138 (#492).
+        let dwarf = [26, 18, 25, 24, 0, 8];
+        let rules = Rules::default();
+        assert_eq!(hero_health(dwarf, 1, &[], &rules), 133);
+        assert_eq!(hero_health(dwarf, 1, &[(10, 1), (3, 1)], &rules), 138);
         assert_eq!(most_health([1; 6], 1, &weak), 0);
     }
 
@@ -1809,8 +1839,14 @@ mod tests {
             ..Rules::default()
         };
         let base = [22, 19, 25, 22, 22, 17];
-        assert_eq!(most_health(base, 1, &rules), 2 * hero_health(base, 1));
-        assert_eq!(hero_health(base, 1), health_of(base, 1, 1.0));
+        assert_eq!(
+            most_health(base, 1, &rules),
+            2 * hero_health(base, 1, &[], &Rules::default())
+        );
+        assert_eq!(
+            hero_health(base, 1, &[], &Rules::default()),
+            health_of(base, 1, 1.0)
+        );
     }
 
     #[test]
@@ -2037,6 +2073,7 @@ mod tests {
         let held = |items: Vec<ItemValues>| Holds {
             weapon: true,
             shield: false,
+            ranged: false,
             items,
         };
         let plain = ItemValues {
@@ -2111,9 +2148,31 @@ mod tests {
         let held = Holds {
             weapon: true,
             shield: false,
+            ranged: false,
             items: vec![dagger],
         };
-        let goblin = combat(&a_goblin(), 1, held, &[], &rules);
+        let goblin = combat(&a_goblin(), 1, held.clone(), &[], &rules);
+        // With a ranged weapon the physical multiplier takes `b2` for `b0` (#492): the goblin's
+        // `b2` of 22 for its `b0` of 15.
+        let archer = combat(
+            &a_goblin(),
+            1,
+            Holds {
+                ranged: true,
+                ..held.clone()
+            },
+            &[],
+            &rules,
+        );
+        let part = |b: f32| {
+            let f = (156.0 - rules.stat_offset) / 156.0 + rules.stat_offset + 9.0;
+            f * b / 10.0 / rules.damage_divisors[0]
+        };
+        let [b0, _, b2, ..] = a_goblin().attributes.map(f32::from);
+        assert!(near(
+            archer.damage[0][1] / goblin.damage[0][1],
+            (1.0 + part(b2)) / (1.0 + part(b0))
+        ));
         // 12 to 15 times the goblin's multiplier, 1.204; its attack 18.5 + 10.
         assert!(
             near(goblin.damage[0][0], 12.0 * 1.2037) && near(goblin.damage[0][1], 15.0 * 1.2037)

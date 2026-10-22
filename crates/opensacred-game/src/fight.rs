@@ -244,7 +244,7 @@ fn level_up(
         let skills = skills(base, level, true);
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         *values = Combat(combat(base, level, holds, &skills, &rules));
-        let most = hero_health(base.attributes, level);
+        let most = hero_health(base.attributes, level, &skills, &rules);
         *health = Health {
             current: most,
             most,
