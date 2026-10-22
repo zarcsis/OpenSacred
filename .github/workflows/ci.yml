@@ -50,7 +50,21 @@ jobs:
       # The screenshot test of opensacred-game's scene renders a synthetic world without a window, on
       # Mesa's software Vulkan (lavapipe). It runs over the whole workspace, as the step above:
       # `-p opensacred-game` alone unifies the dependencies' features differently and rebuilds Bevy.
-      - run: sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
+      # The runner's mirror held this step for minutes twice on 2026-10-22 (#534): apt gives up on a
+      # stalled download after 30 s and tries it again, the step tries three times and fails after
+      # five minutes rather than hold the run.
+      - name: Install Mesa's lavapipe
+        timeout-minutes: 5
+        run: |
+          for try in 1 2 3; do
+            if sudo apt-get install -y --no-install-recommends \
+              -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+              libvulkan1 mesa-vulkan-drivers; then
+              exit 0
+            fi
+            echo "::warning::Mesa was not installed (try $try of 3)"
+          done
+          exit 1
       - run: cargo nextest run --workspace --run-ignored only -E 'test(the_scene_matches_its_screenshot)'
 
   # The target platform: the build (rust-lld, .cargo/config.toml) and the tests. No clippy: the

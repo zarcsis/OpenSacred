@@ -401,6 +401,7 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
   Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
 * The Release workflow (`.github/workflows/release.yml`) runs on every push to `main` and versions the merged pull requests (§3.6).
 * The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.
+  The runner's mirror held the step that installs Mesa for minutes twice on 2026-10-22 (#534), so apt gives up on a stalled download after 30 s and tries again, and the step tries three times and fails after five minutes.
 
 ## 6. What is excluded
 
