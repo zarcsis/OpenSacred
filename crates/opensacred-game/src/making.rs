@@ -127,12 +127,13 @@ pub fn may_make(arts: &HeroArts, art: u16) -> Result<(), String> {
 }
 
 /// On a press of the right button on a hostile creature alive, the hero makes the selected art
-/// on it (a launch on an enemy, the type 1), its attack ending; a press of the left button ends
-/// an order not yet under way.
+/// on it (a launch on an enemy, the type 1), its attack ending; with the art not ready it walks
+/// to the creature's place instead, as the original's handler of the order takes it (about
+/// `0x52FE40`, docs/re/arts.md, "The right button", #654; with Ctrl held the original's posts
+/// another event, not followed). A press of the left button ends an order not yet under way.
 #[expect(
     clippy::too_many_arguments,
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
+    reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn aim(
     mut commands: Commands,
@@ -142,10 +143,10 @@ fn aim(
     selected: Res<Selected>,
     arts: Option<Res<HeroArts>>,
     creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
-    heroes: Query<(Entity, Has<Playing>), (With<Body>, Without<Dies>)>,
+    mut heroes: Query<(Entity, &mut Body, Has<Playing>), Without<Dies>>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        for (hero, playing) in &heroes {
+        for (hero, _, playing) in &heroes {
             if !playing {
                 commands.entity(hero).remove::<Making>();
             }
@@ -161,17 +162,20 @@ fn aim(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
-    let Some(target) = creatures
+    let Some((target, place)) = creatures
         .iter()
         .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-        .map(|(entity, at, ..)| (entity, crate::attack::from_line(ray, at.translation())))
-        .filter(|&(_, distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(entity, _)| entity)
+        .map(|(entity, at, ..)| {
+            let at = at.translation();
+            (entity, at, crate::attack::from_line(ray, at))
+        })
+        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(entity, at, _)| (entity, at))
     else {
         return;
     };
-    for (hero, playing) in &heroes {
+    for (hero, mut body, playing) in &mut heroes {
         if playing {
             continue;
         }
@@ -182,6 +186,13 @@ fn aim(
                     .entity(hero)
                     .remove::<(crate::attack::Attack, crate::attack::Striking)>()
                     .insert(Making { art, target });
+            }
+            Err(_) if arts.arts.get(art).is_some() && !arts.arts.ready(art) => {
+                info!("making: {art} is not ready: the hero walks to {target}");
+                commands
+                    .entity(hero)
+                    .remove::<(crate::attack::Attack, crate::attack::Striking, Making)>();
+                body.send(place);
             }
             Err(why) => info!("making: {why}"),
         }
