@@ -12,7 +12,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow, bail};
 use bevy::prelude::*;
-use bevy::window::{MonitorSelection, PrimaryWindow, WindowMode, WindowPosition};
+use bevy::window::{Monitor, MonitorSelection, PrimaryWindow, WindowMode, WindowPosition};
 use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item, TableLike};
 
@@ -296,9 +296,64 @@ fn toggle(
     }
 }
 
+/// `--offscreen` (#554): the window, created hidden, opens to the right of every monitor, where
+/// it draws on and its screenshots are whole while it covers no one's screen, as the original's
+/// driver keeps its own (docs/03 §3.7–3.8); it draws on a locked desktop too.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Offscreen {
+    /// Where the window went, once the monitors were known.
+    pub at: Option<IVec2>,
+}
+
+/// The gap between the monitors' right edge and the window, in physical pixels.
+const OFFSCREEN_GAP: i32 = 64;
+
+/// The place past every monitor's right edge, level with the highest one's top, in physical
+/// pixels as `WindowPosition::At` takes them; none without a monitor.
+fn past_the_monitors(monitors: impl IntoIterator<Item = (IVec2, UVec2)>) -> Option<IVec2> {
+    monitors
+        .into_iter()
+        .map(|(position, size)| {
+            let width = i32::try_from(size.x).unwrap_or(i32::MAX);
+            (position.x.saturating_add(width), position.y)
+        })
+        .reduce(|(right, top), (r, t)| (right.max(r), top.min(t)))
+        .map(|(right, top)| IVec2::new(right.saturating_add(OFFSCREEN_GAP), top))
+}
+
+/// Moves the hidden window past the monitors and shows it, once the monitors are known.
+fn offscreen(
+    mut offscreen: ResMut<Offscreen>,
+    monitors: Query<&Monitor>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+) {
+    if offscreen.at.is_some() {
+        return;
+    }
+    let Some(at) = past_the_monitors(monitors.iter().map(|m| {
+        (
+            m.physical_position,
+            UVec2::new(m.physical_width, m.physical_height),
+        )
+    })) else {
+        return;
+    };
+    window.position = WindowPosition::At(at);
+    window.visible = true;
+    offscreen.at = Some(at);
+    info!(
+        "display: the window outside every monitor, at {}, {}",
+        at.x, at.y
+    );
+}
+
 /// Puts the display's settings on the window when they change: the mode, and for a window its
-/// size, centred on its monitor.
-fn display(settings: Res<Settings>, mut window: Single<&mut Window, With<PrimaryWindow>>) {
+/// size, centred on its monitor, or kept outside every monitor with `--offscreen`.
+fn display(
+    settings: Res<Settings>,
+    offscreen: Option<Res<Offscreen>>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+) {
     if !settings.is_changed() {
         return;
     }
@@ -319,19 +374,30 @@ fn display(settings: Res<Settings>, mut window: Single<&mut Window, With<Primary
         Mode::Borderless => info!("display: borderless full screen"),
         Mode::Windowed => {
             window.resolution.set_physical_resolution(size.0, size.1);
-            window.position = WindowPosition::Centered(MonitorSelection::Current);
+            window.position = match offscreen.and_then(|o| o.at) {
+                Some(at) => WindowPosition::At(at),
+                None => WindowPosition::Centered(MonitorSelection::Current),
+            };
             info!("display: a window of {} x {}", size.0, size.1);
         }
     }
 }
 
-/// F11 and the display's settings on the window; `Settings` and `SettingsFile` come from `main`.
+/// F11 and the display's settings on the window; `Settings`, `SettingsFile` and, with
+/// `--offscreen`, `Offscreen` come from `main`.
 pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, report)
-            .add_systems(Update, (toggle, display).chain());
+        app.add_systems(Startup, report).add_systems(
+            Update,
+            (
+                offscreen.run_if(resource_exists::<Offscreen>),
+                toggle,
+                display,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -490,6 +556,74 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "[display]\nmode = \"borderless\"\n"
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_window_goes_past_every_monitors_right_edge() {
+        let monitor = |x, y, width, height| (IVec2::new(x, y), UVec2::new(width, height));
+        assert_eq!(past_the_monitors([]), None);
+        // The primary at the origin, another to its left and lower down.
+        assert_eq!(
+            past_the_monitors([monitor(0, 0, 3840, 2160), monitor(-1920, 300, 1920, 1080)]),
+            Some(IVec2::new(3904, 0))
+        );
+        // One above, narrower: the window is level with its top.
+        assert_eq!(
+            past_the_monitors([monitor(0, 0, 2560, 1440), monitor(320, -1080, 1920, 1080)]),
+            Some(IVec2::new(2624, -1080))
+        );
+    }
+
+    #[test]
+    fn an_offscreen_window_shows_past_the_monitors_and_stays_there() {
+        let dir = scratch("offscreen");
+        let (file, mut settings) = SettingsFile::read(Some(dir.join(FILE)));
+        settings.display.mode = Mode::Windowed;
+        let mut app = App::new();
+        app.add_plugins(SettingsPlugin)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(file)
+            .init_resource::<Offscreen>();
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    mode: settings.display.window_mode(MonitorSelection::Primary),
+                    resolution: bevy::window::WindowResolution::new(1920, 1080)
+                        .with_scale_factor_override(1.0),
+                    visible: false,
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        app.insert_resource(settings);
+        // No monitor known yet: hidden, where the system put it.
+        app.update();
+        let shown = |app: &App| {
+            let window = app.world().get::<Window>(window).unwrap();
+            (window.visible, window.position)
+        };
+        assert_eq!(shown(&app), (false, WindowPosition::Automatic));
+        app.world_mut().spawn(Monitor {
+            name: None,
+            physical_height: 2160,
+            physical_width: 3840,
+            physical_position: IVec2::ZERO,
+            refresh_rate_millihertz: None,
+            scale_factor: 1.5,
+            video_modes: Vec::new(),
+        });
+        app.update();
+        let at = WindowPosition::At(IVec2::new(3904, 0));
+        assert_eq!(shown(&app), (true, at));
+        // A new size keeps it there rather than centring it on a monitor.
+        app.world_mut().resource_mut::<Settings>().display.width = 1280;
+        app.update();
+        assert_eq!(shown(&app), (true, at));
+        let resolution = &app.world().get::<Window>(window).unwrap().resolution;
+        assert_eq!(resolution.physical_width(), 1280);
         fs::remove_dir_all(&dir).unwrap();
     }
 
