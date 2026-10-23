@@ -437,6 +437,8 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         values.resistance,
         values.speed
     );
+    // Its walk and run, and their clips' rate, by its pace (`0x4F75F0`, #599).
+    hero.pace = values.pace_factor();
     hero.combat = Some(fight::Combat(values));
     let most = fight::hero_health(base.attributes, fight::HERO_LEVEL, &skills, &rules);
     hero.vitals = Some((
@@ -455,9 +457,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         holding,
     ));
     hero.dying = dying;
-    hero.speeds = record
-        .speed
-        .map(|s| f32::from(s) * iso::MODEL_SCALE * speed);
+    hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.gait = hero::Gait::Walk;
     }

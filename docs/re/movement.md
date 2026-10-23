@@ -131,12 +131,15 @@ The data agree (**confirmed** on the sector files, docs/02 §5.2): the second he
 ## The speed
 
 Read 2026-10-18 (#72).
-`0x4F75F0`, as a creature takes a gait, sets its speed (`+0x375`, an integer) to its `Creature.pak` record's walk speed (`+0x26`, for the gait 1 at `+0x1F8`) or run speed (`+0x28`), to a default of `0x4F73C0` where that is 0, or to 200 for a mounted creature (`+0x1F4` bit `0x200000`), times the balance variable `GameSpeed` (1.25 in `Balance.bin`, docs/02 §6.3) times `f`, truncated; `f` is a short of the creature's attributes (`0x585070`, `+0x40` of its block at `+0x3A8`, a mount's or an owner's for some) times the creature's float at `+0x2C9` times 0.01 (**hypothesis**: a percentage, 100 for a hero without bonuses, and 1.0).
-The same call sets the rate of the creature's clip (`0x413610`, Granny's animation parameter 2) to `GameSpeed · f`, times the motion's own factor where that lies in [0.8, 5) and is not 1: `MotionDesc +0x9C`, which is `MOTIONS.PAK +0x62`, `floats_62[0]` of `tables/motions.ron` (docs/02 §4.1).
+`0x4F75F0`, as a creature takes a gait, sets its speed (`+0x375`, an integer) to its `Creature.pak` record's walk speed (`+0x26`, for the gait 1 at `+0x1F8`) or run speed (`+0x28`), to a default of `0x4F73C0` where that is 0, or to 200 for a mounted creature (`+0x1F4` bit `0x200000`), times the balance variable `GameSpeed` (1.25 in `Balance.bin`, docs/02 §6.3) times `f`, truncated; `f` is the word `+0x40` of the creature's stats at `+0x3A8`, its pace (`0x585070`; a companion's owner's in some cases, and the Daemon's (type 9) otherwise under the effect `0x449`), times the creature's float at `+0x2C9`, 1.0, times 0.01.
+The pace is the same for both gaits (read 2026-10-23, #599): the stats' recomputation `0x5796A0` starts it at 130 for every creature but a horse and the type 5 (the Wood Elf), 120 for that type (at `0x579A61`, beside the attack speed `+0x3C`, 140 and 100, and the word `+0x3E`, 120 and 100); a horse's comes from a table by the item of its slot 13, its saddle (`0x4462B0`), and a creature hostile to the hero takes 160 on the difficulty 3 and 190 on 4.
+The items' effect 812 (`0x32C`) adds its value to it, truncated (`0x57A8C6`), as 811 does to the attack speed; the skill 11 adds a fifth curve beside its four resistances' (`0x5681E1`), of the balance's `RoffSP`, `R_s_SP` and `R_w_SP` (1, 50 and 10: 1 at the skill's level 1, 2 from level 4), truncated; an item above the creature's level lowers it later in the recomputation, not read further.
+So a townsperson walks at 130 and the Seraphim, her blade's 812 of 2 on her 130, at 132, as the original's driver reads it (docs/re/items.md).
+**Confirmed** in the original (2026-10-23, #599, the hero's position sampled every 20 ms): the Seraphim runs 294 units a second, by the formula `180 · 1.25 · 1.32`, 297; a townsperson of type 655 walks about 102, by `60 · 1.25 · 1.30`, 97.5; so the speed is in world units a second.
+The same call sets the rate of the creature's clip (`0x413610`, Granny's animation parameter 2) to `GameSpeed · f`, the pace's too, times the motion's own factor where that lies in [0.8, 5) and is not 1: `MotionDesc +0x9C`, which is `MOTIONS.PAK +0x62`, `floats_62[0]` of `tables/motions.ron` (docs/02 §4.1).
 29 records hold one and 13 of them lie in that range, all attacks: 12 with a bow or a crossbow, on foot or riding, and one special (counted on `MOTIONS.PAK` and `Models.tmp` 2026-10-20, #322); no walk or run has one.
 **Hypothesis**: the factor applies only if this call runs while one of those attacks plays, which is not read.
-So the creatures move and their clips play a quarter faster than the tables and the clips have it, together, and the steps match the ground as they were made to.
-In what unit of time the speed is, is not read.
+So the creatures move and their clips play `GameSpeed · f`, about 1.6 times, faster than the tables and the clips have it, together.
 
 ## The cursor's point
 
@@ -177,5 +180,5 @@ The flags word is made from each `CreateNPC` record's tags as the client makes i
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
 The deviations are in docs/decisions/2026-10-18-walking.md and 2026-10-22-doorway-corner.md.
 
-The hero's walk and run speeds are its `Creature.pak` pair times `GameSpeed`, in world units a second (**hypothesis** for the unit), and every clip, the hero's and the NPCs', plays at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.
+The hero's and the NPCs' walk and run speeds are their `Creature.pak` pairs times their pace's factor (#599, `opensacred_rules::fight::Combat::pace_factor`, the pace of `fight::pace` with the items' 812 and the skill 11's curve; a horse's 130, its table not read) times `GameSpeed`, in world units a second, rather than times the models' scale, 1.52, as until #599; a walk's and a run's clips play at `GameSpeed` times that factor, every other clip at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.
 The motions' own factors (`MotionDesc +0x9C`, above) are not followed.

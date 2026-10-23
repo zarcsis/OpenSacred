@@ -1019,8 +1019,9 @@ pub(crate) fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
 /// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
 /// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's and the most health's (10,
 /// `HR…AW`, `HP…VW`), the
-/// defence's again (9, `P…`, with a shield `P…S`), each resistance's (11, `R…Ph`, `R…Fe`,
-/// `R…Ma`, `R…Gi`), and the fist fight's attack and attack speed (24, `FK…AW`, `FK…SP`).
+/// defence's again (9, `P…`, with a shield `P…S`), each resistance's and the pace's (11, `R…Ph`,
+/// `R…Fe`, `R…Ma`, `R…Gi`, `R…SP`), and the fist fight's attack and attack speed (24, `FK…AW`,
+/// `FK…SP`).
 #[derive(Clone, Debug, PartialEq)]
 struct Curves {
     damage: [f32; 3],
@@ -1031,6 +1032,7 @@ struct Curves {
     parry: [f32; 3],
     parry_shield: [f32; 3],
     resistances: [[f32; 3]; KINDS],
+    pace: [f32; 3],
     fist: [f32; 3],
     fist_speed: [f32; 3],
 }
@@ -1052,6 +1054,7 @@ impl Default for Curves {
                 [12.0, 50.0, 200.0],
                 [12.0, 50.0, 200.0],
             ],
+            pace: [1.0, 50.0, 10.0],
             fist: [12.0, 50.0, 200.0],
             fist_speed: [6.0, 50.0, 100.0],
         }
@@ -1093,6 +1096,7 @@ impl Curves {
                 resistance(2, "Ma"),
                 resistance(3, "Gi"),
             ],
+            pace: triple(["RoffSP", "R_s_SP", "R_w_SP"], default.pace),
             fist: triple(["FKoffAW", "FK_s_AW", "FK_w_AW"], default.fist),
             fist_speed: triple(["FKoffSP", "FK_s_SP", "FK_w_SP"], default.fist_speed),
         }
@@ -1110,6 +1114,9 @@ pub struct Combat {
     pub resistance: [f32; KINDS],
     pub damping: [u8; KINDS],
     pub speed: f32,
+    /// Its pace, the stats' word `+0x40` ([`pace`]), whose hundredth scales its walk and run
+    /// speeds and the rate of their clips ([`Self::pace_factor`]).
+    pub pace: f32,
 }
 
 impl Combat {
@@ -1118,12 +1125,27 @@ impl Combat {
     pub fn clip_speed(&self) -> f32 {
         self.speed / 100.0
     }
+
+    /// The factor of its walk and run speeds and of their clips' rate (`0x585070` read by
+    /// `0x4F75F0`): its pace over 100 times its float `+0x2C9`, 1.0 (docs/re/movement.md, "The
+    /// speed"; #599).
+    pub fn pace_factor(&self) -> f32 {
+        self.pace / 100.0
+    }
 }
 
 /// The attack speed of a creature of type `id` (`0x5796A0`, `0x584FE0`): 140 for every type but
 /// the 5th's (the Wood Elf's), 100; no items, weapon skills or effects yet (#294).
 pub fn attack_speed(id: u32) -> f32 {
     if id == 5 { 100.0 } else { 140.0 }
+}
+
+/// The pace of a creature of type `id` before its items and skills, the word `+0x40` that the
+/// recomputation of its stats starts from (`0x5796A0`, at `0x579A61`): 130 for every type but the
+/// 5th's (the Wood Elf's), 120. A horse's comes from a table by its saddle (`0x4462B0`), which
+/// is not read, and the hostile creatures' on the difficulties 3 and 4 are 160 and 190.
+pub fn pace(id: u32) -> f32 {
+    if id == 5 { 120.0 } else { 130.0 }
 }
 
 /// The attack, defence, damage and resistances of an NPC of `base` and level `level`, `armed`
@@ -1206,6 +1228,7 @@ pub fn combat(
     let (mut attack_times, mut defence_times) = (1.0_f32, 1.0_f32);
     let mut item_multipliers = [0.0_f32; KINDS];
     let mut speed_bonus = 0.0;
+    let mut pace = pace(base.id);
     let mut attribute_bonuses = [0.0_f32; 6];
     for item in &holds.items {
         for (ends, item) in damage.iter_mut().zip(item.damage) {
@@ -1240,6 +1263,8 @@ pub fn combat(
                 809 => attack_times = raised(attack_times, value),
                 810 => defence_times = raised(defence_times, value),
                 811 => speed_bonus += value,
+                // The pace, added and truncated (`0x57A8C6`).
+                812 => pace = (pace + value).trunc(),
                 effect if let Some(attribute) = attribute_of(effect) => {
                     attribute_bonuses[attribute] += value.trunc();
                 }
@@ -1287,6 +1312,8 @@ pub fn combat(
                 for (value, triple) in resistance_skill.iter_mut().zip(curves.resistances) {
                     *value += curve(triple, at) / 100.0;
                 }
+                // And the pace by a fifth curve, truncated (`0x5681E1`).
+                pace = (pace + curve(curves.pace, at)).trunc();
             }
             // Holding nothing (`0x546F80` of class 0).
             24 if !armed => {
@@ -1335,6 +1362,7 @@ pub fn combat(
         speed: (attack_speed(base.id) + speed_bonus + fist_speed)
             .trunc()
             .clamp(100.0, 220.0),
+        pace,
     }
 }
 
@@ -1987,6 +2015,7 @@ mod tests {
             resistance: [0.0; 4],
             damping: [0; 4],
             speed: 140.0,
+            pace: 130.0,
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -2227,6 +2256,7 @@ mod tests {
             resistance: [0.0; 4],
             damping: [0; 4],
             speed: 140.0,
+            pace: 130.0,
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -2518,6 +2548,58 @@ mod tests {
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
+    }
+
+    #[test]
+    fn a_creatures_pace_is_130_raised_by_its_items_and_its_skill_11() {
+        let rules = Rules::default();
+        let held = |items| Holds {
+            weapon: true,
+            shield: false,
+            ranged: false,
+            items,
+        };
+        let nothing = Holds::default;
+        // A townsperson 655 at 130: its walk of 60 at `GameSpeed` 1.25 times 1.3, 97.5 units a
+        // second (the original's about 102, #599).
+        let townsperson = Base {
+            id: 655,
+            skills: [0; 8],
+            ..a_wolf()
+        };
+        let walker = combat(&townsperson, 1, nothing(), &[], &rules);
+        assert_eq!(walker.pace, 130.0);
+        assert!((60.0 * 1.25 * walker.pace_factor() - 97.5).abs() < 1e-3);
+        // The Seraphim's blade's +2 (and +14 to its attack speed): 132, her run of 180 at 297
+        // units a second (the original's 294, and the driver's 154 and 132).
+        let seraphim = Base {
+            id: 1,
+            ..a_goblin()
+        };
+        let runner = combat(
+            &seraphim,
+            1,
+            held(vec![ItemValues::of_record(&blade())]),
+            &[],
+            &rules,
+        );
+        assert_eq!((runner.pace, runner.speed), (132.0, 154.0));
+        assert!((180.0 * 1.25 * runner.pace_factor() - 297.0).abs() < 1e-3);
+        // The Wood Elf's 120.
+        let wood_elf = Base {
+            id: 5,
+            ..a_goblin()
+        };
+        assert_eq!(combat(&wood_elf, 1, nothing(), &[], &rules).pace, 120.0);
+        // The skill 11 by its curve `RoffSP`, `R_s_SP`, `R_w_SP`: 1 at level 1, 2 at level 4.
+        assert_eq!(
+            combat(&townsperson, 3, nothing(), &[(11, 1)], &rules).pace,
+            131.0
+        );
+        assert_eq!(
+            combat(&townsperson, 12, nothing(), &[(11, 4)], &rules).pace,
+            132.0
+        );
     }
 
     #[test]

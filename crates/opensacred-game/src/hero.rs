@@ -66,10 +66,12 @@ impl GameSpeed {
 #[derive(Resource)]
 pub struct Hero {
     /// World units a second when walking and when running: the creature's speed pair in
-    /// `Creature.pak` (70 and 180 for the heroes but two), in the units of the models
-    /// (`iso::MODEL_SCALE`), times [`GameSpeed`] (`0x4F75F0`, #72; **hypothesis**: the unit of a
-    /// second, and the hero's speed attribute 100).
+    /// `Creature.pak` (70 and 180 for the heroes but two) times its pace's factor ([`Self::pace`])
+    /// times [`GameSpeed`] (`0x4F75F0`, #72, #599; **hypothesis**: the unit of a second).
     pub speeds: [f32; 2],
+    /// The factor of its walk and run speeds and of their clips' rate, its pace's
+    /// (`opensacred_rules::fight::Combat::pace_factor`): 1.32 for the Seraphim with her blade.
+    pub pace: f32,
     pub model: String,
     pub idle: String,
     pub walk: String,
@@ -106,6 +108,7 @@ impl Hero {
     pub fn new(model: String, [idle, walk, run]: [String; 3], position: Vec3) -> Self {
         Self {
             speeds: [70.0, 180.0],
+            pace: 1.0,
             model,
             idle,
             walk,
@@ -748,10 +751,12 @@ pub fn run(
         if moving == body.moving && transitions.get_main_animation() == Some(node) {
             continue;
         }
+        // A walk's and a run's clip play at its pace too (`0x413610`, #599).
+        let rate = if moving.is_some() { hero.pace } else { 1.0 };
         transitions
             .play(&mut player, node, BLEND)
             .repeat()
-            .set_speed(speed.0);
+            .set_speed(speed.0 * rate);
         body.moving = moving;
     }
 }

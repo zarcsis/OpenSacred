@@ -485,6 +485,7 @@ mod tests {
             resistance: [0.0; 4],
             damping: [0; 4],
             speed: 140.0,
+            pace: 130.0,
         });
         let health = Health {
             current: 1_000_000,

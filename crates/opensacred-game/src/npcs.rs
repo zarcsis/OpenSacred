@@ -628,6 +628,9 @@ pub struct Npc {
     instrument: Option<usize>,
     /// Its hits' share of a strike: 0.5 with two weapons, else 1 (`0x4EA3F0`).
     share: f32,
+    /// The factor of its walk and run speeds and of their clips' rate, its pace's
+    /// (`opensacred_rules::fight::Combat::pace_factor`, #599).
+    pace: f32,
 }
 
 /// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
@@ -1542,7 +1545,7 @@ impl Npcs {
                     } else {
                         walking
                     };
-                    (to, f32::from(speed) * iso::MODEL_SCALE)
+                    (to, f32::from(speed))
                 });
             let [walking, running] = speeds.get(&creature).copied().unwrap_or_default();
             let tag = if record.kind == CREATE_NPC {
@@ -1570,7 +1573,7 @@ impl Npcs {
                     None
                 },
                 walk,
-                speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
+                speed: [walking, running].map(f32::from),
                 class,
                 base: bases.get(&creature).copied().unwrap_or_default(),
                 held: if record.kind == CREATE_NPC {
@@ -1655,7 +1658,7 @@ impl Npcs {
                             .get(&creature.id)
                             .copied()
                             .unwrap_or_default()
-                            .map(|speed| f32::from(speed) * iso::MODEL_SCALE),
+                            .map(f32::from),
                         class: creature.class,
                         base: bases.get(&creature.id).copied().unwrap_or_default(),
                         flags: creature.flags,
@@ -2544,6 +2547,10 @@ fn spawn(
             }
         }
         let (values, share) = arms.fight(grade, placement.rank, rules);
+        // Its walk and run by its pace (`0x4F75F0`, #599).
+        let pace = values.0.pace_factor();
+        mind.speed = placement.speed[0] * pace;
+        mind.run = placement.speed[1] * pace;
         if placement.rank != fight::Rank::Common {
             bevy::log::debug!(
                 "npcs: {creature} is a {:?} of level {grade}",
@@ -2566,6 +2573,7 @@ fn spawn(
                 hands_empty: placement.equipment.is_empty(),
                 instrument: None,
                 share,
+                pace,
             },
             crowd::InTheWay::of(record_flags, word, level),
             mind,
@@ -2575,7 +2583,7 @@ fn spawn(
             entity.insert(Walk::to(
                 iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
                 level,
-                speed,
+                speed * pace,
             ));
         }
     }
@@ -2893,15 +2901,16 @@ pub fn animate(
             });
         }
         if let Some(clips) = npc.graph.clone() {
-            let node = walk
-                .and_then(|walk| clips.moving(walk))
-                .unwrap_or(clips.idle);
-            // The clips change through transitions, which blend them (`stance`).
+            let moving = walk.and_then(|walk| clips.moving(walk));
+            let node = moving.unwrap_or(clips.idle);
+            // The clips change through transitions, which blend them (`stance`); a walk's and a
+            // run's play at its pace too (`0x413610`, #599).
+            let rate = if moving.is_some() { npc.pace } else { 1.0 };
             let mut transitions = AnimationTransitions::new();
             transitions
                 .play(&mut player, node, Duration::ZERO)
                 .repeat()
-                .set_speed(speed.0);
+                .set_speed(speed.0 * rate);
             commands
                 .entity(entity)
                 .insert((AnimationGraphHandle(clips.graph), transitions));
@@ -3102,16 +3111,18 @@ pub fn stance(
             }
         }
         // A walking NPC walks; a standing one stands, in its stance where it fights.
-        let wanted = match (walk, fight, clips.stance) {
-            (Some(walk), _, _) => clips.moving(walk).unwrap_or(clips.idle),
+        let moving = walk.and_then(|walk| clips.moving(walk));
+        let wanted = match (moving, fight, clips.stance) {
+            (Some(moving), _, _) => moving,
             (None, true, Some(stance)) => stance,
             _ => clips.idle,
         };
         if transitions.get_main_animation() != Some(wanted) {
+            let rate = if moving.is_some() { npc.pace } else { 1.0 };
             transitions
                 .play(&mut player, wanted, BLEND)
                 .repeat()
-                .set_speed(speed.0);
+                .set_speed(speed.0 * rate);
         }
     }
 }
@@ -3706,6 +3717,12 @@ fn rearm(
             }
         }
         let (values, share) = arms.fight(grade, rank.0, &npcs.fight);
+        // Its pace by what it holds now, and its walk and run by it.
+        let pace = values.0.pace_factor();
+        let ratio = pace / npc.pace.max(f32::EPSILON);
+        mind.speed *= ratio;
+        mind.run *= ratio;
+        npc.pace = pace;
         *combat = values;
         npc.share = share;
         let in_hands: Vec<InHand> = arms.holding.iter().map(|&(held, _)| held).collect();
