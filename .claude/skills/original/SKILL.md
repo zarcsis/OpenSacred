@@ -70,6 +70,7 @@ Stopping the host's background task ends the game within a second (a job object)
 | `wait-log PATTERN [--after N] [--timeout S]` | wait for a record whose `target: message` matches, as `wait-log "trace: drop: .*gold"` |
 | `exec quit` | the game closes as its window is closed, and the host with it |
 | `tools/game/compare.py X,Y …` | with the game (`--remote`) running beside it, both heroes onto each cell and their creatures compared: the pairs of a type whose level, most health, hostility or rank differ, and the creatures of one game alone (docs/03 §3.7, #574) |
+| `tools/game/compare.py stats --types T,… --levels L,…` | each type made at each level in both games and their fight values compared, the original's taken through its multipliers (#587) |
 | `shell` | the maintainer's, by hand in a terminal (#550): a line a command of the original (`cell 3296,2528`, `creatures 20`), `:CALL` one of these (`:state`, `:click X Y`, `:screenshot FILE`, `:logs`, `:follow on`, `:help`), `:quit` leaves the game running |
 
 The input goes to the game as the agent's own messages: the keys and cursor the game queries are the agent's, and the maintainer's keyboard and mouse never reach it, nor does input posted to the window from outside. A level-1 hero teleported among monsters dies within seconds (it rises again at its start): `god on` first, or place it at a distance and read `creatures` first.

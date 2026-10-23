@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Compares the creatures of opensacred-game and of the original about the same cells (#574, docs/03 §3.7, §3.8).
+"""Compares the creatures of opensacred-game and of the original about the same cells (#574, docs/03 §3.7, §3.8), or
+their fight values type by type (`stats`, #587).
 
 Purpose: a sweep of the levels, the health and the hostility of the creatures that both games make. For each cell
 given, the hero of each game goes onto it (`cell X,Y`), optionally at a level and an hour, and after the sectors have
@@ -15,9 +16,20 @@ Example
   python -I tools/game/compare.py --level 4 --time 12:00 3383,2520 3250,2604 3306,2519
   python -I tools/game/compare.py --radius 25 --settle 6 --cells-file <scratch>/cells.txt
 
+With `stats`, each type given is made at each level in both games beside their heroes (`spawn TYPE --level L
+--peaceful --immortal`) and their `stats` compared: the most health, `A`, `D`, each kind's least and most damage, the
+resistances and the attack speed. The original's driver prints its raw values with their multipliers, taken through
+them as its attack record does (docs/re/fight.md): `A` and `D` times theirs, truncated when not 1; each damage times
+the items' multiplier plus the attributes'; each resistance times its own. The creatures stay where they are made.
+
+  python -I tools/game/compare.py stats --types 76,307,516 --levels 1,10,40
+  python -I tools/game/compare.py stats --types-file <scratch>/types.txt --levels 5,25
+
 Expected output: a block per cell, `= 3383,2520: 11 in the game, 11 in the original, 9 paired`, then a line per
 difference (`level 4 / 1  type 297 at 3378,2517 / 3378,2517`, the game's value first) and per creature without a
-pair (`only in the original: type 288 level 1 at 3370,2524`). Dependencies: the standard library.
+pair (`only in the original: type 288 level 1 at 3370,2524`); with `stats`, a line per creature whose values differ
+by more than the game's one decimal or two thousandths (`type 76 level 5: D 31 / 32`, the game's first) and a count at the end.
+Dependencies: the standard library.
 """
 import argparse, json, re, sys, time, urllib.request
 
@@ -99,7 +111,99 @@ def compare(game, original, cell, args):
                   + (f" {c['side']}" if c['side'] else '') + (f" {c['rank']}" if c['rank'] else ''))
 
 
+NUMBER = re.compile(r'-?\d+(?:\.\d+)?')
+
+
+def numbers(text):
+    return [float(n) for n in NUMBER.findall(text)]
+
+
+def game_stats(lines):
+    """The game's `stats`: its values multiplied out already."""
+    values = {'most': float(re.search(r' health \d+/(\d+)', lines[0])[1])}
+    for line in lines[1:]:
+        if line.startswith('A '):
+            values['A'], values['D'] = numbers(line)
+        elif line.startswith('damage'):
+            least, most = line.split(' most ')
+            values['least'], values['most damage'] = numbers(least), numbers(most)
+        elif line.startswith('resistances'):
+            values['resistances'] = numbers(line)
+        elif line.startswith('attack speed'):
+            values['speed'] = numbers(line)[0]
+    return values
+
+
+def original_stats(lines):
+    """The original's `stats`: its raw values through their multipliers, as its attack record takes them."""
+    values = {'most': float(re.search(r' health \d+/(\d+)', lines[0])[1])}
+    for line in lines[1:]:
+        if line.startswith('A '):
+            a, a_times, d, d_times = numbers(line)
+            values['A'] = a if a_times == 1 else float(int(a * a_times))
+            values['D'] = d if d_times == 1 else float(int(d * d_times))
+        elif line.startswith('damage'):
+            n = numbers(line)
+            factors = [items + attributes for items, attributes in zip(n[8:12], n[12:16])]
+            values['least'] = [v * f for v, f in zip(n[0:4], factors)]
+            values['most damage'] = [v * f for v, f in zip(n[4:8], factors)]
+        elif line.startswith('resistances'):
+            n = numbers(line)
+            values['resistances'] = [v * f for v, f in zip(n[0:4], n[4:8])]
+        elif line.startswith('attack speed'):
+            values['speed'] = numbers(line)[0]
+    return values
+
+
+def differences(ours, theirs):
+    lines = []
+    for key in ('most', 'A', 'D', 'least', 'most damage', 'resistances', 'speed'):
+        a, b = ours.get(key), theirs.get(key)
+        if isinstance(a, list) and isinstance(b, list):
+            if any(abs(p - q) > max(0.1, abs(q) / 500) for p, q in zip(a, b)):
+                lines.append(f"{key} {', '.join(f'{v:.1f}' for v in a)} / {', '.join(f'{v:.2f}' for v in b)}")
+        elif a is not None and b is not None and abs(a - b) > max(0.1, abs(b) / 500):
+            lines.append(f'{key} {a:g} / {b:g}')
+    return lines
+
+
+def stats_sweep(game, original, args):
+    types = [int(t) for t in args.types.split(',')] if args.types else []
+    if args.types_file:
+        with open(args.types_file, encoding='utf-8') as f:
+            types += [int(line.split('#')[0]) for line in f if line.split('#')[0].strip()]
+    levels = [int(level) for level in args.levels.split(',')]
+    differing = 0
+    for creature in types:
+        for level in levels:
+            line = f'spawn {creature} --at {args.at} --level {level} --peaceful --immortal'
+            try:
+                ours = game.exec(line)[-1].rsplit(': ', 1)[-1].split(',')[0].strip()
+                theirs = re.match(r'made (\d+)', original.exec(line)[-1])[1]
+                found = differences(game_stats(game.exec(f'stats {ours}')),
+                                    original_stats(original.exec(f'stats {theirs}')))
+            except (RuntimeError, OSError, TypeError, ValueError, IndexError) as e:
+                print(f'type {creature} level {level}: {e}', flush=True)
+                continue
+            if found:
+                differing += 1
+                print(f'type {creature} level {level}: ' + '; '.join(found), flush=True)
+    print(f'{differing} of {len(types) * len(levels)} differ')
+
+
 def main():
+    if sys.argv[1:2] == ['stats']:
+        parser = argparse.ArgumentParser(prog='compare.py stats', description='the fight values, type by type')
+        parser.add_argument('stats')
+        parser.add_argument('--types', help='creature types, comma-separated')
+        parser.add_argument('--types-file', help='a file of types, one a line, # comments')
+        parser.add_argument('--levels', default='1', help='levels, comma-separated (1)')
+        parser.add_argument('--at', default='+3,+3', help="where to make them, from the hero's cell (+3,+3)")
+        parser.add_argument('--game-port', type=int, default=15702)
+        parser.add_argument('--original-port', type=int, default=15703)
+        args = parser.parse_args()
+        stats_sweep(Endpoint('the game', args.game_port), Endpoint('the original', args.original_port), args)
+        return
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('cells', nargs='*', help='X,Y global cells')
     parser.add_argument('--cells-file', help='a file of cells, X,Y a line, # comments')
