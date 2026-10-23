@@ -4580,6 +4580,7 @@ dependencies = [
  "bevy",
  "bevy_kira_audio",
  "clap",
+ "miniz_oxide 0.9.1",
  "opensacred-data",
  "opensacred-rules",
  "png",

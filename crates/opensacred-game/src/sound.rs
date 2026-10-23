@@ -9,7 +9,6 @@
 //! step gives it (`0x639080`, `terrain::Heights::step_nature`), as the client's switch at
 //! `0x68EDDA` maps them (docs/re/sound.md).
 
-use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -23,6 +22,7 @@ use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, 
 use opensacred_data::sound::Sound;
 use opensacred_data::tables::Motion;
 
+use crate::files;
 use crate::frame::Step;
 use crate::game::AppState;
 use crate::hero::{Body, Clips, Gait};
@@ -79,7 +79,7 @@ impl Footsteps {
     pub fn read(assets: &Path, [walk, run]: [&str; 2], profile: &str) -> Result<Self> {
         let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let motions: Vec<Motion> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let moments = [walk, run].map(|clip| {
@@ -92,7 +92,7 @@ impl Footsteps {
         });
         let path = assets.join("sound").join(opensacred_data::sound::INDEX);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let sound: Sound =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let groups = sound

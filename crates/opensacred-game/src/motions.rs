@@ -4,12 +4,13 @@
 //! holds, or the nearest slot the model has (`0x5467A0`).
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
+
+use crate::files;
 
 /// What a creature does, of the client's actions (`0x5467A0`'s 0, 1 and 2): the clip it plays,
 /// and the gait it moves at.
@@ -101,7 +102,7 @@ impl Slots {
     /// The slots of the clips of the `.glb` at `path`, from its JSON chunk.
     pub fn read(path: &Path) -> Result<Self> {
         let what = || format!("reading {}", path.display());
-        let mut file = File::open(path).with_context(what)?;
+        let mut file = files::open(path).with_context(what)?;
         let mut header = [0; 20];
         file.read_exact(&mut header).with_context(what)?;
         if &header[..4] != b"glTF" || &header[16..] != b"JSON" {

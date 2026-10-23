@@ -1096,6 +1096,9 @@ Since #696 the extraction commands write the targets below into `assets-src/` an
   Each full run of an extraction records `manifest/<command>.ron` under the masters' directory, and `build` its own under the game's (the SHA-256 of the converter, of the installation files it read and of the files it wrote), and `all` skips a command whose record still holds.
 * Outputs go to `assets-src/` (the masters) and `assets/` (the game's), neither committed.
   HD packs and mods go to `assets-hd/` in the masters' formats with the same relative paths.
+* `opensacred-game` reads `assets/` in layers (#699): a path takes the first that has it, the loose files of the directory itself, then the ZIP archives of its `overlays/` (HD packs, mods), then the base ZIP archives beside the loose files, each set in the order of the archives' names.
+  An archive's entries are stored or deflated, their paths the loose files' relative to `assets/` with `/` between the parts; both Bevy's asset server (its default asset source) and the game's own reads of the tables, sectors, scripts and atlases go through the layers.
+  Since the first part of #699 the game reads archives where it finds them; `build` still writes loose files until the second part packs them.
 
 ### 12.3 Order
 

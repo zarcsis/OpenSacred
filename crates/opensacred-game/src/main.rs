@@ -18,6 +18,7 @@ mod debug;
 mod doors;
 mod drops;
 mod fight;
+mod files;
 mod frame;
 mod game;
 mod help;
@@ -146,6 +147,8 @@ fn task_pools() -> TaskPoolOptions {
 fn run(cli: Cli) -> Result<AppExit> {
     let assets = std::path::absolute(&cli.assets)
         .map_err(|e| anyhow::anyhow!("resolving {}: {e}", cli.assets.display()))?;
+    // The assets' layers: the loose files, then the archives (#699).
+    files::init(&assets).map_err(|e| anyhow::anyhow!("opening {}: {e}", assets.display()))?;
     let world = terrain::read_world(&assets)?;
     let dungeons = daynight::Dungeons::of(&world);
     // A converted texture of `texture.pak`, relative to the asset directory.
@@ -183,6 +186,12 @@ fn run(cli: Cli) -> Result<AppExit> {
     let mut app = App::new();
     // Before Bevy's plugins, whose `LogPlugin` takes the log's layer from it.
     app.insert_resource(journal::Journal::new(log_file));
+    // The asset server reads the assets' layers (#699); before `AssetPlugin`.
+    let root = assets.clone();
+    app.register_asset_source(
+        bevy::asset::io::AssetSourceId::Default,
+        bevy::asset::io::AssetSourceBuilder::new(move || Box::new(files::AssetFiles::new(&root))),
+    );
     app.add_plugins(
         DefaultPlugins
             .set(LogPlugin {

@@ -4,12 +4,12 @@
 //! `text/en-US/global.ftl` by name (`opensacred_data::text`).
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use bevy::prelude::*;
 use opensacred_data::text;
 
+use crate::files;
 use crate::frame::Step;
 use crate::game::{AppState, FONT};
 
@@ -29,7 +29,7 @@ impl Texts {
     /// The texts of `assets`, none where they cannot be read.
     pub fn read(assets: &Path) -> Self {
         let path = assets.join(text::GLOBAL);
-        match fs::read_to_string(&path) {
+        match files::read_to_string(&path) {
             Ok(ftl) => Self(parse(&ftl)),
             Err(e) => {
                 warn!("no lines over the creatures: {}: {e}", path.display());

@@ -7,7 +7,6 @@
 //! the nearest drops, and the command `drop` makes the nearest hostile creature drop.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
@@ -28,7 +27,7 @@ use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::npcs::{Dies, Retexture};
 use crate::terrain::{Heights, Level};
-use crate::{ai, crowd, fight, iso, models, npcs};
+use crate::{ai, crowd, fight, files, iso, models, npcs};
 
 /// What the drops read: the balance's values, the item types to choose from, the templates that
 /// make the items, and each item type's model and texture, relative to the asset directory.
@@ -43,7 +42,8 @@ pub struct Tables {
 /// A table of `tables/`.
 fn table<T: serde::de::DeserializeOwned>(assets: &Path, file: &str) -> Result<T> {
     let path = assets.join("tables").join(file);
-    let text = fs::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
+    let text =
+        files::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
     ron::from_str(&text).map_err(|e| anyhow!("parsing {}: {e}", path.display()))
 }
 

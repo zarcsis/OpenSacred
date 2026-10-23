@@ -41,7 +41,6 @@
 //! and citizens wear their record's variant of their model's skin.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -63,6 +62,7 @@ use opensacred_data::tables::{Creature, Item, Weapon};
 use opensacred_data::world::SIDE;
 use opensacred_rules::{minds, ways};
 
+use crate::files;
 use crate::frame::Step;
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
@@ -818,7 +818,7 @@ fn model_position(at: Vec3, drawn: Option<Vec2>) -> Vec3 {
 /// (`StartPosition 0B:x 0B:y`), if it has one.
 pub fn start_position(assets: &Path, tree: &str) -> Result<Option<(u32, u32)>> {
     let path = assets.join("netscript").join(format!("{tree}.nsc"));
-    let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let data = files::read(&path).with_context(|| format!("reading {}", path.display()))?;
     let tree = Tree::decode(&data).with_context(|| format!("decoding {}", path.display()))?;
     Ok(tree
         .start
@@ -1152,7 +1152,7 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
 /// where `tables/motions.ron` cannot be read.
 pub fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
     let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
-    let motions: Vec<opensacred_data::tables::Motion> = fs::read_to_string(&path)
+    let motions: Vec<opensacred_data::tables::Motion> = files::read_to_string(&path)
         .ok()
         .and_then(|text| ron::from_str(&text).ok())
         .unwrap_or_default();
@@ -1173,7 +1173,7 @@ pub fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
 /// where the table cannot be read.
 pub fn hit_points(assets: &Path) -> HashMap<String, Vec<f32>> {
     let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
-    let motions: Vec<opensacred_data::tables::Motion> = fs::read_to_string(&path)
+    let motions: Vec<opensacred_data::tables::Motion> = files::read_to_string(&path)
         .ok()
         .and_then(|text| ron::from_str(&text).ok())
         .unwrap_or_default();
@@ -1491,15 +1491,14 @@ fn position(
 pub fn texture_files(assets: &Path) -> Result<HashMap<u32, String>> {
     let path = assets.join("textures").join("texture");
     let mut files = HashMap::new();
-    let Ok(entries) = fs::read_dir(&path) else {
+    let Ok(entries) = crate::files::read_dir(&path) else {
         return Ok(files);
     };
     for entry in entries {
         let name = entry
-            .with_context(|| format!("reading {}", path.display()))?
             .file_name()
-            .to_string_lossy()
-            .into_owned();
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         if let Some(number) = name
             .split_once('-')
             .and_then(|(number, _)| number.parse::<u32>().ok())
@@ -1516,15 +1515,14 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
     let mut files = HashMap::new();
     for dir in ["models", "models03"] {
         let path = assets.join("models").join(dir);
-        let Ok(entries) = fs::read_dir(&path) else {
+        let Ok(entries) = crate::files::read_dir(&path) else {
             continue;
         };
         for entry in entries {
             let name = entry
-                .with_context(|| format!("reading {}", path.display()))?
                 .file_name()
-                .to_string_lossy()
-                .into_owned();
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let Some(stem) = name.strip_suffix(".glb") else {
                 continue;
             };
@@ -1544,11 +1542,11 @@ impl Npcs {
     /// `worn` are ([`Self::hero_holds`]).
     pub fn read(assets: &Path, tree: &str, worn: &[u32]) -> Result<Self> {
         let path = assets.join("netscript").join(format!("{tree}.nsc"));
-        let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+        let data = files::read(&path).with_context(|| format!("reading {}", path.display()))?;
         let tree = Tree::decode(&data).with_context(|| format!("decoding {}", path.display()))?;
         let path = assets.join("tables").join(opensacred_data::tables::ITEMS);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let items: Vec<Item> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let items: HashMap<u32, &Item> = items.iter().map(|i| (i.slot, i)).collect();
@@ -1556,7 +1554,7 @@ impl Npcs {
             .join("tables")
             .join(opensacred_data::tables::CREATURES);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let mut creatures: Vec<Creature> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         // The waters' crab, which no record describes, made as the original makes a type without
@@ -1581,14 +1579,14 @@ impl Npcs {
             .collect();
         // The balance, from which the fills' factors and the health's (none where it is lacking).
         let balance =
-            fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
+            files::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
                 .ok()
                 .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
         let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         // The templates of the items' values (`wpmod.bin`), none where they cannot be read.
-        let modifiers: Vec<opensacred_data::tables::WeaponModifier> = fs::read_to_string(
+        let modifiers: Vec<opensacred_data::tables::WeaponModifier> = files::read_to_string(
             assets
                 .join("tables")
                 .join(opensacred_data::tables::WEAPON_MODIFIERS),
@@ -4314,6 +4312,8 @@ impl Plugin for NpcsPlugin {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use bevy::prelude::Vec2;
     use opensacred_data::netscript::Operand;
 

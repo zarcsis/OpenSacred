@@ -15,6 +15,7 @@ use opensacred_data::tables::{ARTS, Arts as Tables, Balance};
 use opensacred_rules::arts::{Arts, Context, Shortening, Table};
 
 use crate::fight::{Base, Experience, Holding};
+use crate::files;
 use crate::hero::Body;
 
 /// The hero's arts, and what teaching one more needs.
@@ -44,7 +45,7 @@ impl HeroArts {
         balance: Option<&Balance>,
     ) -> Self {
         let path = assets.join("tables").join(ARTS);
-        let tables = match std::fs::read_to_string(&path) {
+        let tables = match files::read_to_string(&path) {
             Ok(text) => ron::from_str::<Tables>(&text).unwrap_or_else(|e| {
                 warn!("arts: {}: {e}", path.display());
                 Tables::default()
