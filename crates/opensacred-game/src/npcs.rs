@@ -864,13 +864,27 @@ fn entered_quests(tree: &Tree) -> Vec<i32> {
     entered
 }
 
-/// The records that place the world's NPCs and objects: the start script's, then those of the
+/// The records that place the world's NPCs and objects: the start script's, with the `OnSetUp`
+/// function of each quest it sets up after its `SetUpQuest`, then those of the
 /// `OnEnter` function of each quest it enters, which the client runs as it enters the quest
 /// (`QIS_OnEnter<n>`, `0x46C160`), then the sectors' `Init` and `Enter` functions', which the
 /// engine runs as their sectors come near (docs/re/spawning.md); each record's NPC or object is
 /// placed as the sector of its cell comes in.
 fn start_records(tree: &Tree) -> Vec<&Record> {
-    let mut records: Vec<&Record> = tree.start.iter().collect();
+    // The start script, each quest's `OnSetUp` after the `SetUpQuest` that first sets it up, as
+    // the client runs it there (`0x48F7F0`, `0x46DB20`; #624): the quests' givers among them.
+    let mut records: Vec<&Record> = Vec::new();
+    let mut set_up = HashSet::new();
+    for record in &tree.start {
+        records.push(record);
+        if record.kind == SET_UP_QUEST
+            && let Some(quest) = quest_of(record)
+            && set_up.insert(quest)
+            && let Some(on_set_up) = function(tree, &format!("QIS_OnSetUp{quest}"))
+        {
+            records.extend(&on_set_up.records);
+        }
+    }
     for quest in entered_quests(tree) {
         if let Some(on_enter) = function(tree, &format!("QIS_OnEnter{quest}")) {
             records.extend(&on_enter.records);
@@ -4258,6 +4272,80 @@ mod tests {
         // She stands where the quest sends her, whatever the case of her name.
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
+    }
+
+    #[test]
+    fn the_quests_the_start_sets_up_place_their_givers_after_their_set_up() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        let quest = |kind, n| record(kind, vec![op(0x0B, Value::I32(n))]);
+        let function = |name: &str, records| Function {
+            name: name.into(),
+            quest: 15004,
+            region: 0,
+            records,
+        };
+        // The giver of quest 15004 by the garrison of 52,39 (#624): peaceful, staying, with its
+        // dialogue.
+        let giver = |n| {
+            record(
+                CREATE_NPC,
+                vec![
+                    op(0x01, Value::Str(format!("res:AUFTRAGGEBER_{n}"))),
+                    op(0x02, Value::I32(288)),
+                    op(0x04, Value::Name(format!("POS_AUFTRAG_{n}"))),
+                    op(0x0E, Value::Marker),
+                    op(0x74, Value::Marker),
+                    op(0x09, Value::Str(format!("DLG_{n}_START"))),
+                ],
+            )
+        };
+        let defpos = record(
+            DEF_POS,
+            vec![
+                op(0x01, Value::Str("POS_AUFTRAG_15004".into())),
+                op(0x0B, Value::I32(3370)),
+                op(0x0B, Value::I32(2524)),
+            ],
+        );
+        let tree = Tree {
+            // Quest 15004 set up twice, quest 7 set up without an `OnSetUp`; quest 15018's
+            // `OnSetUp` is never run, its quest not set up.
+            start: vec![
+                defpos,
+                quest(SET_UP_QUEST, 15004),
+                quest(SET_UP_QUEST, 7),
+                quest(SET_UP_QUEST, 15004),
+            ],
+            quest: Vec::new(),
+            functions: vec![
+                function("QIS_OnSetUp15004", vec![giver(15004)]),
+                function("QIS_OnSetUp15018", vec![giver(15018)]),
+            ],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        let records = start_records(&tree);
+        let kinds: Vec<u16> = records.iter().map(|r| r.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                DEF_POS,
+                SET_UP_QUEST,
+                CREATE_NPC,
+                SET_UP_QUEST,
+                SET_UP_QUEST
+            ]
+        );
+        let Body::Operands(ops) = &records[2].body else {
+            panic!("the giver has operands");
+        };
+        assert_eq!(name_of(ops).as_deref(), Some("res:auftraggeber_15004"));
+        let named = positions(records.iter().copied());
+        assert_eq!(position(ops, &named), Some((3370, 2524, 0)));
     }
 
     #[test]
