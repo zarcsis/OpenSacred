@@ -11,8 +11,8 @@
 //! one in three; and its death's line.
 //!
 //! The line plays at the original's volume, 0.45 + (`rand() % 10`) / 90, lowered with the
-//! distance from the hero and panned by its side on the screen (docs/decisions/2026-10-23-voices-place.md:
-//! the original's falloff, `0x678260`, is not read yet).
+//! distance from the hero and panned by its side as the original places it (`sfx::placed`,
+//! `0x678260`).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,9 +20,9 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    Added, App, AssetServer, Assets, Camera3d, Commands, Component, Entity, GlobalTransform,
-    Handle, Has, IntoScheduleConfigs, Message, MessageReader, MessageWriter, Plugin, Query, Res,
-    ResMut, Resource, Time, Update, Vec3, With,
+    Added, App, AssetServer, Assets, Commands, Component, Entity, GlobalTransform, Handle, Has,
+    IntoScheduleConfigs, Message, MessageReader, MessageWriter, Plugin, Query, Res, ResMut,
+    Resource, Time, Update, With,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
 use opensacred_data::tables::{VOICES, Voice};
@@ -263,7 +263,6 @@ fn speak(
         Option<&Speaking>,
     )>,
     heroes: Query<(Entity, &GlobalTransform), With<Body>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
     assets: Res<AssetServer>,
     audio: Res<Audio>,
     mut instances: ResMut<Assets<AudioInstance>>,
@@ -273,10 +272,6 @@ fn speak(
     let the_hero = heroes.iter().next();
     let listener = the_hero.map(|(_, at)| at.translation());
     let hero_type = hero.as_ref().map(|hero| hero.creature);
-    let right = camera
-        .iter()
-        .next()
-        .map_or(Vec3::X, |c| c.right().as_vec3());
     let playing = |speaking: Option<&Speaking>| {
         speaking.is_some_and(|s| {
             matches!(
@@ -372,7 +367,7 @@ fn speak(
             }
         }
         let loud = 0.45 + sfx.roll(10) / 90.0;
-        let (near, pan) = sfx::placed_at(at.translation(), listener, right);
+        let (near, pan) = sfx::placed_at(at.translation(), listener);
         let volume = loud * near;
         if volume <= 0.0 {
             continue;

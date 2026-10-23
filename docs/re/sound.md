@@ -75,11 +75,27 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 - `BATTLECRY_nn_<class>` (10 a class) at the sound event 5 with an argument from 1003 to 1104 (**hypothesis**: a combat art), one in three, always for the arts that play their own ids 2098 to 2104;
 - `ENEMYKILLME_nn_<class>` (6 a class) at the hero's `DEATH`, with `MUSIC_DEATH` (6505, `0x694FE0`).
 
-`opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume above, lowered and panned by a plain falloff for now (docs/decisions/2026-10-23-voices-place.md, #731).
+`opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume above, lowered and panned by its place as the original does (below, "A sound's place", #731).
 It plays the weapons' sounds (`sfx`, #712): a strike's swing by the class of what the striker holds at its hit moment within reach or in the air; at the target the striker's weapon's `HIT` when the hit did damage, else its `PARADE`, by the sound profile of the weapon's own type, so that a starting weapon without a slot of its own is silent there as the original's, and the fist's for bare hands; a shot's group 3 by the bow's profile (**hypothesis**: `SHOOT`); at the original's volumes, placed as the voices.
 It plays the heroes' lines by name (`voices`, #713): a taunt when a creature takes a hit's line, one in five and 10 s after the last; a battle cry at the start of a combat art, one in three; the death's line at the hero's fall; one of the class's at random, as the hero's line.
 It plays `MUSIC_DEATH` at the hero's fall (`music`, #734; below, "A music played once").
 Not yet: the vampiress's `realvamp` lines and the arts that play their own cries.
+
+### A sound's place
+
+Recovered 2026-10-23 (#731).
+On the 2D path `playSFX` takes a sample's volume and pan from `0x678260(id, factor, x, y)`, a method of the sound manager: the place `x`, `y`, else the creature's from its sound record (`+0xC`, `+0x10`, found by `0x6781D0`), against the listener's (`+0xAF2C`, `+0xAF30`).
+
+- **The units:** the world's screen pixels at the zoom of 1, `48 (cx − cy)` right and `24 (cx + cy)` down for the cell `cx`, `cy` (**confirmed** against the creatures' cells: the Seraphim at 3236,2511 was the listener at 34,799 and 137,944, the creature at 3238,2518 at 34,560 and 138,167).
+- **The distance:** the offsets as integers, then 1,007 of the longer side and 441 of the shorter per 1,024, less 40 of the longer while it is under 16 times the shorter, rounded (`+ 512 >> 10`); at most the hearing distance `H` = `+0xB790` × (1.5 − `+0x84`) × `factor`.
+- **The volume** falls along three lines: from `+0x84` at the listener to `V1` = ((0.5 − `+0xB7A4`) × (`+0x84` − 0.5) + `+0xB7A4`) × `factor` at `+0xB7A0` × `H`, to `+0xB7AC` × `factor` at `+0xB7A8` × `H`, to 0 at `H`.
+- **The pan,** from 0, left, to 1, right: with the sound right of the listener, 1 − `r` / 2, left of it `r` / 2, where `r` is the share of the (capped) distance that runs up or down the screen; straight above or below it, `r` with its sign, a quirk the next step mostly hides.
+  Then it is pulled back to the middle by 1 − `d` / `+0xB798`, wholly at the listener, not at all from `+0xB798` on; the creature id 1, the hero, is always in the middle.
+- **The values** (the driver of #448, the Seraphim's new game, a second-session probe of `0x678260` as creatures came at the hero, 40 calls): `+0x84` 0.75, `+0xB790` 1,200, `+0xB798` 260, `+0xB7A0` to `+0xB7AC` 0.5, 0.5, 0.9 and 0.1, the factor 1; so `H` = 900 pixels, and the volume runs from 0.75 to 0.5 at 450 pixels, to 0.1 at 810, to 0 at 900.
+  Every call's volume and pan came out as above to three decimals, as the creature at 813 pixels (0.097, 0.711), the one at 322 (0.571, 0.346) and the one beyond 900 (0, 0.515).
+  What sets the values is not read (**hypothesis**: `+0x84` the settings' volume of the effects, set by the driver's `--muted` to the game's 64).
+
+`opensacred-game` places the voices and the weapons' sounds so (`sfx::placed`, #731): the offset from the hero in those pixels, the distance as the integers give it, the three lines over the same values, divided by the 0.75 at the listener so that a sound there plays at its own volume, and the pan from −1 to 1.
 
 ## Footsteps by the ground
 
