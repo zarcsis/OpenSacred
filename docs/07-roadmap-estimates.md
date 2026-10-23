@@ -112,7 +112,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 ### M4. Quests and world — 60–120 agent-hours, 25–50 maintainer hours
 
-* The NetScript interpreter in `opensacred-rules`, dialogues, triggers, NPCs, trading, the blacksmith, horses, day and night, weather.
+* NetScript translated into Luau and run (#720), dialogues, triggers, NPCs, trading, the blacksmith, horses, day and night, weather.
 * **Exit criterion:** the first chapter of the Sacred campaign is completable from start to finish; the 68 most frequent record types (99% of the campaign) are implemented and covered by tests.
 * **Status 2026-10-20:** day and night came with M2 (#5); the townsfolk's day (#255) and the doors that open and close (#268) are done; the NetScript interpreter, dialogues, trading, the blacksmith and weather have not started.
 

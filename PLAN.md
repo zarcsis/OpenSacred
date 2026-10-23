@@ -87,7 +87,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.99.1) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
 | ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls, then the fight's formulas, the ways and the creatures' decisions moved into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
-| ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI): textures → PNG + KTX2, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound → FLAC/Ogg Vorbis (MP3 as is), video → AV1 via FFmpeg, scripts → intermediate representation (IR) | Requirement (§1.1); open formats can be checked with third-party tools (Blender, glTF-Validator) and suit HD packs |
+| ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI): textures → PNG + KTX2, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound → FLAC/Ogg Vorbis (MP3 as is), video → AV1 via FFmpeg, scripts → Luau (ADR-13) | Requirement (§1.1); open formats can be checked with third-party tools (Blender, glTF-Validator) and suit HD packs |
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
 | ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder | Everything is free and builds for Windows, Linux and Android |
 | ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
@@ -95,6 +95,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), Frida (driving the running original for Claude Code, #448), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
 | ADR-11 Process | Claude Code as the main executor: `CLAUDE.md` with rules, MCP to Ghidra, tests as guardrails (converter golden data, oracle vectors, screenshot tests), small tasks, maintainer review | Solo development; quality rests on automated checks, not on manual review of every line |
 | ADR-12 Repository and legal | The repository is public and holds no game bytes: no game files, converted assets, HD packs or dumps, in the repository or in CI; users supply their own GOG copy and run the converter locally; converted output is never published (§12, docs/08) | The game belongs to the rights holder; every user needs their own copy |
+| ADR-13 Scripts | The converter translates the NetScript bytecode into Luau, a source file per quest, sector, region and start script, with its bytecode; the game runs only Luau, through mlua and its vendored Luau in a crate of its own (`opensacred-scripts`), sandboxed and bounded; what each record type does is the scripts' API, recovered from the original and implemented in `opensacred-rules` and `opensacred-game`; the quests' state, the variables and the triggers live in the engine and the saves, not in Luau; mods after 1.0 are Luau on the same API; the translated scripts are converted assets, never published (#720) | Decided 2026-10-23: the operands of the 113 types are decoded once, in the translator, not in an interpreter and again in a translator; the reference is the running original (#448), not an interpreter of ours; Luau rather than Rhai or Lua 5.4 for its types, its sandbox and interrupts, its bytecode compiled ahead and its speed; its WebAssembly needs Emscripten, which the dropped browser version makes moot |
 
 ## 4. Strategy
 
@@ -219,7 +220,8 @@ OpenSacred/
 │  ├─ opensacred-formats/     reading the original formats (PAK, TEX, GRN, sectors, NetScript, global.res, AMH templates)
 │  ├─ opensacred-convert/     CLI: OriginalGame → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, all, coverage)
 │  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
-│  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, quests, script VM (the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, #364)
+│  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, the quests' state (the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, #364)
+│  ├─ opensacred-scripts/     (#725, planned) the Luau runtime of the translated scripts and of mods: mlua with Luau, the scripts' API
 │  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves
 │  └─ opensacred-oracle/      (#363; development only, run locally, Unicorn its feature `emulator`) runs functions of the user's own Sacred.exe in Unicorn, records vectors
 ├─ tools/analysis/            Python research scripts (archive, gradually replaced by Rust)
@@ -243,7 +245,7 @@ OpenSacred/
 
 ### 6.3 Rules layer (`opensacred-rules`)
 
-Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quest script interpreter.
+Pure Rust without Bevy: the character and attribute model, combat formulas, skills and combat arts, items and loot generation, trading and the blacksmith, creature AI, spawning, time of day and weather, the quests' state and the scripts' variables (the scripts themselves run in Luau, ADR-13).
 The layer is tested without graphics.
 The Bevy layer calls it through a thin ECS adapter.
 Status 2026-10-21: the crate holds the spawning's rolls of `FillSector` (`spawning`, #359), the fight's formulas: the creatures' levels, health, attack, defence, damage and resistances, a strike's hit, the items' values, the regeneration, and the hero's experience and levels (`fight`, #360), the ways: the search of the fewest steps over a 64 × 64 window, the straight line's test of the cells it crosses, and who stops whose step into a cell that another creature holds (`ways`, #361), and the creatures' decisions: waking and dormancy by their timers and the hero's look, the idle action's steps, the animals' flight and strolls, the guards' posts, the townsfolk's and the children's rolls and the evening's way, parting and stepping aside, coming at the hero, keeping the band of the reach, fleeing and going home, and the hero's attack's choice of where it stands and when it strikes (`minds`, #362).
@@ -262,7 +264,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard in a zlib stream) + RON descriptions | loading all 6,050 sectors, checksums |
 | `Items.pak`, `Creature.pak`, `Weapon.pak`, `bin/*.bin` | RON tables with a typed schema; done 2026-10-17 (`tables/`), the fields of unknown meaning as spans named by offset | reading back, comparing fields with the source |
 | `global.res` | Fluent (`.ftl`) + a map of hash identifiers | all 23,123 strings present |
-| NetScript (`bin/**`) | an intermediate representation + a readable listing; done 2026-10-17 as one postcard file per tree with a RON index (RON for 2.2 million records would take hundreds of MB), the listing on request | the disassembler gets through 20 directories with no unknown records: met 2026-10-17 |
+| NetScript (`bin/**`) | Luau sources and their bytecode, translated from an intermediate representation (#723, ADR-13); the IR and a readable listing done 2026-10-17 as one postcard file per tree with a RON index (RON for 2.2 million records would take hundreds of MB), the listing on request | the disassembler gets through 20 directories with no unknown records: met 2026-10-17 |
 | `sound.pak`, `sndProfiles.pak` | WAV (PCM and IMA ADPCM) → FLAC; MP3 entries unchanged; profiles in RON | listening to a sample, durations |
 | `mp3/*.mp3` | unchanged (MP3 is patent-free and decoded by Symphonia) or Ogg Vorbis | playback |
 | `movie/*.wmv` | AV1 + Opus in WebM via FFmpeg | playback in the game |
@@ -318,7 +320,7 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | M1 Converter | all formats from §7; tests and the manifest | 80–160 | 25–50 |
 | M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K | 30–60 | 15–30 |
 | M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle | 120–240 | 40–80 |
-| M4 Quests and world | NetScript VM, dialogues, triggers, NPCs, trading, blacksmith, day and night, weather | 60–120 | 25–50 |
+| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, trading, blacksmith, day and night, weather | 60–120 | 25–50 |
 | M5 UI and effects | full UI, 178 effects, profile-driven sound, movies | 50–100 | 20–40 |
 | M6 Version 1.0 for Windows 11 | saves, settings, gamepad, 4K and HiDPI, polish, campaign playthroughs | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
@@ -469,7 +471,7 @@ The daily dependency check opens a `deps` issue for every newer incompatible rel
 |---|---|---|---|
 | Granny animations convert with errors (poses, weights) | medium | high | three open readers of the format as a reference; control poses; an early start in M1 |
 | Combat and loot rules are recovered incorrectly | medium | medium | the Unicorn oracle and vectors; observations of the running original (#227, #448); fidelity is not a priority, but deviations are recorded |
-| NetScript semantics are harder than expected | medium | high | a disassembler and listings early; opcodes are covered by frequency: 45 types account for 95% of records |
+| NetScript semantics are harder than expected | medium | high | a disassembler and listings early; opcodes are covered by frequency: 45 types account for 95% of records; the translator refuses a control flow or a type it does not know (#723), and the running original is the reference (#448) |
 | Bevy breaks its API more often than is worthwhile | high | medium | scheduled updates; rules outside the engine; the fallback is Godot + godot-rust |
 | Token use exceeds the estimate (usage limits slow the pace) | medium | medium | tracking from day one; Sonnet for mechanical work; small tasks |
 | Maintainer burnout | medium | high | the vertical slice gives a visible result early; milestones are short |

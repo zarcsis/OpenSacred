@@ -4,13 +4,13 @@
 
 * **Platforms:** Windows 11 x64 is the main one; Linux is second, with the same functionality; Android comes after version 1.0 and by a separate decision; the browser version was dropped on 2026-10-23.
   Everything builds from one codebase on Bevy and wgpu.
-* **Sound:** Kira through `bevy_kira_audio` with Symphonia decoders (pure Rust, works on all four platforms).
+* **Sound:** Kira through `bevy_kira_audio` with Symphonia decoders (pure Rust, works on all three platforms).
   Sound events are taken from the original's 175 profiles, converted to RON.
 * **Input:** keyboard and mouse as in the original plus a gamepad; key remapping through `leafwing-input-manager`; touch controls only for Android.
 * **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d; movies can be skipped.
   The conversion is done (`opensacred-convert video`); playback comes in M5.
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
-* **Scripts:** NetScript bytecode is converted into an intermediate representation (IR); the interpreter will live in `opensacred-rules`.
+* **Scripts:** the converter translates the NetScript bytecode into Luau, which the game runs through mlua (PLAN.md ADR-13, #720).
   Until then `opensacred-game` places the NPCs and objects of the start script and of the sectors' `Init`, `Enter` and `FillSector` records.
 * **Multiplayer after version 1.0** (PLAN.md ADR-09): until then no networking, no server, no lobby; no Steam or GOG Galaxy integration is needed.
 
@@ -121,11 +121,12 @@ Estimate: 3–6 agent-hours (M1 and M5).
 ### 8.2 Implementation
 
 1. **Converter:** done 2026-10-17: the disassembler in `opensacred-formats` → a faithful IR, one postcard file per tree (`netscript/<tree>.nsc`), with a readable listing on request (`--listing`).
-   Grouping into quests, states, conditions and actions waits for the record semantics (docs/02 §7.6).
-2. **Record type semantics** are recovered by analyzing the interpreter in Ghidra and described in `docs/re/netscript.md`, starting with the most frequent ones; each type gets a test on real records.
-3. **The interpreter** in `opensacred-rules`: `match` on the record type over the IR; quest state is part of the save.
-   Until then `opensacred-game` reads the start script's and the sectors' `CreateNPC` and `CreateObj` records itself.
-4. **Modding** (optional, after 1.0): the ability to write new quests in Rhai on top of the same API.
+2. **Control flow and record type semantics** are recovered by analyzing the client in Ghidra (the control flow first, #722) and described in `docs/re/netscript.md`, starting with the most frequent types; each type gets a test on real records.
+3. **The translator** in `opensacred-convert` (#723): the IR → Luau sources, a file per quest, sector, region and start script, and their bytecode; a record becomes a call of the scripts' API.
+   With the converter's two stages (#694) the sources are the masters and the bytecode the built assets.
+4. **The runtime and the API:** `opensacred-scripts` (#725) runs the bytecode through mlua with Luau, sandboxed, a call bounded by an interrupt; the quests' state, the variables and the dialogues' table are `opensacred-rules`' (#724) and part of the save; `opensacred-game` implements the API (#726).
+   Until then `opensacred-game` reads the start script's and the sectors' records itself.
+5. **Modding** (after 1.0): new quests in Luau on the same API, checked against a definition file of it.
 
 Estimate: 40–80 agent-hours (M1 and M4); the main source of content uncertainty.
 
