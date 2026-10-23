@@ -58,7 +58,8 @@ The level's setter `0x564D60` (`0x565326` to `0x565523`, read 2026-10-22, #540) 
 3. its hold: at most the difficulty's addition to the highest (`+0x98C`, `LevelKap`, 0 in bronze's column) plus the highest of the sector's information at the creature's position (`+0xD5`, `0x63D0C0`) where that is above 0, else that addition alone; 300 for the type 701; for a boss or a champion that plus `LevelUpBoss` or `LevelUpChamp`, and no hold for one of a big type (`Creature.pak` flag `0x02`);
 4. a horse instead keeps the level it was given, at most 250.
 
-So on bronze a tag is its creature's level up to its sector's highest, and a creature of the rule above is at most at its sector's highest (#562); where the sector's information has no highest the hold is 0 on bronze, which no tagged record's sector of the scripts meets.
+The creature maker `0x480D40`, which `CreateNPC` and `FillSector` share, sets the level it is given through `0x549500` (at `0x4812F8`), the setter without its scaling; `FillSector` sets its bosses' and champions' marker level 1 likewise (`0x47E6FE`…`0x47EA52`).
+So on bronze a tag is its creature's level up to its sector's highest, and a creature of the rule above or of a fill is at most at its sector's highest (#562); where the sector's information has no highest the hold is 0 on bronze, which no tagged record's sector of the scripts meets.
 By the code (**hypothesis** until seen in the original), the start script's garrison of 52,39 (1 to 4), its guards 295 and 288 and their captain 297 with the tag 5, is at level 4, and the 692 of 60,75 (6 to 10) with the tag 6 at 6.
 
 The record's tag `0x90` (the stables' horses', 1 to 9) raises the creature's level to its value earlier in the handler and is kept in its byte `+0x400`; the rule above sets the level again after it.
@@ -85,6 +86,7 @@ The horses 554, 555 and 551 of the stable of 64,41 are at 22, 10 and 13, not by 
 
 A group's alarm (`0x46AE70`, called at `0x54EB19`, `0x5337CE`, `0x535DD3` and `0x5442DC`; **hypothesis**: as a member is hit or alerted) sends the group's other idle members to the alerter's target (the creature event `0x100`) or wakes them.
 The creature's level is the hero's held within the sector's bounds and jittered (by 0 to 1 below 6, −1 to 2 below 30, −2 to 3 below 90, −3 to 6 below 250), one or two more in a dungeon's cell; some types and about 2 % of the creatures hostile to a living hero are made champions (`HarteSau`, 20 in 1,001), the types 37, 48, 55 and 84 a boss or a champion by a coin, 127 and 49 so in one case of two; they are made at the level 1, which their first fight raises (docs/re/fight.md, "Bosses and champions").
+The creature maker sets that level through the level's setter, which holds it at the sector's highest ("`CreateNPC`'s level"; not followed, #562).
 A black rider's horse (261) brings its rider (256), hostile, a boss, with a short bow or a tribal axe.
 
 ## `MakeGroup`
