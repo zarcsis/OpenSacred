@@ -16,7 +16,7 @@ use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
 use crate::{
-    ai, atmosphere, daynight, fight, hero, iso, lines, motions, music, npcs, sectors, sound,
+    ai, arts, atmosphere, daynight, fight, hero, iso, lines, motions, music, npcs, sectors, sound,
     terrain,
 };
 
@@ -263,6 +263,7 @@ struct Loaded {
     daemon: ai::Daemon,
     texts: lines::Texts,
     rules: fight::Rules,
+    arts: arts::HeroArts,
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
 }
@@ -283,9 +284,9 @@ fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
         .ok_or_else(|| anyhow!("no creature {id} in {}", path.display()))
 }
 
-/// The items that the hero of `class` wears and holds at the start, its template's (`heroes.ron`,
-/// docs/02 §9), none where the index or the class's template is lacking.
-fn worn(assets: &Path, class: Class) -> Vec<opensacred_data::heroes::Worn> {
+/// The template of the hero of `class` (`heroes.ron`, docs/02 §9): the items it wears and holds
+/// at the start and its combat arts; none where the index or the class's template is lacking.
+fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
     std::fs::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
         .ok()
         .and_then(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text).ok())
@@ -295,8 +296,6 @@ fn worn(assets: &Path, class: Class) -> Vec<opensacred_data::heroes::Worn> {
                 .into_iter()
                 .find(|hero| hero.class == class.creature())
         })
-        .map(|hero| hero.worn)
-        .unwrap_or_default()
 }
 
 /// Loads the game `game` would start: the hero at its start, the first sector built, the start
@@ -334,7 +333,18 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     };
     // The hero's template's items (#486): their values in its fight, the class of those in its
     // hands, by which it picks its clips, and their models (#488).
-    let worn = worn(assets, class);
+    let template = template(assets, class);
+    let worn = template
+        .as_ref()
+        .map(|hero| hero.worn.clone())
+        .unwrap_or_default();
+    // Its template's combat arts that no rune taught, with their records' times (#506).
+    let arts = arts::HeroArts::new_game(
+        assets,
+        class.creature(),
+        template.as_ref().map_or(&[][..], |hero| &hero.arts),
+    );
+    bevy::log::debug!("game: the hero's arts {:?}", arts.lines());
     let npcs = npcs::Npcs::read(
         assets,
         &tree,
@@ -472,6 +482,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         daemon: ai::Daemon(class == Class::Daemon),
         texts: lines::Texts::read(assets),
         rules,
+        arts,
         zoom: game.zoom.unwrap_or(1.0),
         music,
     })
@@ -591,6 +602,7 @@ fn finish(
     commands.insert_resource(loaded.daemon);
     commands.insert_resource(loaded.texts);
     commands.insert_resource(loaded.rules);
+    commands.insert_resource(loaded.arts);
     commands.insert_resource(Zoom(loaded.zoom));
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);

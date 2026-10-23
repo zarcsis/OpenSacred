@@ -1,8 +1,8 @@
 //! The AMH container of the hero templates `Templates/Hero*.ptx` and the saves `save/hero*.pax`
 //! (docs/02 §9): a 0x100-byte header, a table of 16 slots `{u32 tag; u32 offset; u32 size}` at
 //! 0x100, and the sections of the used slots back to back to the end of the file, each stored or
-//! zlib-compressed behind a 32-byte prefix. Confirmed on every section by
-//! `tools/analysis/formats/amh_dump.py`.
+//! zlib-compressed behind a 32-byte prefix. Confirmed on every section, and on the combat arts
+//! of the creature section, by `tools/analysis/formats/amh_dump.py`.
 
 use crate::error::{ErrorKind, Result, field, to_usize};
 use crate::reader::Reader;
@@ -13,6 +13,8 @@ const HEADER: usize = 0x100;
 const SLOTS: usize = 16;
 const COMPRESSED: u32 = 0xBAAD_C0DE;
 const PREFIX: usize = 32;
+/// The creature section: the dump of the hero's creature, with its combat arts.
+pub const CREATURE: u32 = 0xC7;
 /// The summary section: level, class and name.
 pub const SUMMARY: u32 = 0xC3;
 /// The inventory section: a block for each item the hero carries.
@@ -35,6 +37,11 @@ const GRID: usize = 12 + 0x400;
 const CELL: usize = 12;
 const CELLS: usize = 256;
 const MINI_ON_DISK: usize = 64;
+/// Where the creature section holds the count of its combat arts (`u16`), the entries following
+/// it (docs/re/arts.md, "The heroes' starting arts").
+const ARTS: usize = 1227;
+/// A combat art's entry, as a creature's stats hold it (docs/re/arts.md, "A creature's arts").
+pub const ART: usize = 22;
 /// The header words that are not zero (offset, value), the same in every file.
 const HEADER_WORDS: [(usize, u32); 6] = [
     (4, 0x10),
@@ -71,6 +78,29 @@ pub struct Summary {
     pub class: u32,
     /// Empty in the templates.
     pub name: String,
+}
+
+/// A combat art of the creature section: an entry of the stats' list (docs/re/arts.md, "A
+/// creature's arts").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Art {
+    /// `+0x00`: 1 the first table, the spells; 2 the second, the weapon arts.
+    pub table: u32,
+    /// `+0x04`: the art's id.
+    pub id: u16,
+    /// `+0x06`.
+    pub level: u8,
+    /// `+0x07`: a bonus to the level, of the items and the sets.
+    pub bonus: u8,
+    /// `+0x08`: bit 0 set on an art a rune taught (`0x580750`, `0x581F80`), the high byte the
+    /// shortcut's slot.
+    pub flags: u16,
+    /// `+0x0A`: its regeneration time, in seconds.
+    pub time: f32,
+    /// `+0x0E`: its regeneration's factor.
+    pub factor: f32,
+    /// `+0x12`: the regeneration still to run, in seconds.
+    pub remaining: f32,
 }
 
 /// An item of the inventory section.
@@ -222,6 +252,37 @@ impl Amh {
         Ok(items)
     }
 
+    /// The combat arts of the creature section: a `u16` count at its byte 1,227, then the
+    /// entries of 22 bytes; the table of each is 1 or 2.
+    pub fn arts(&self) -> Result<Vec<Art>> {
+        let data = &self.section(CREATURE, "AMH creature section")?.data;
+        let mut r = Reader::at(data, ARTS);
+        let count = r.u16()?;
+        (0..count)
+            .map(|k| {
+                let mut entry = r.take(ART, "AMH combat art")?.with_record(usize::from(k));
+                let at = entry.offset();
+                let table = entry.u32()?;
+                if !(1..=2).contains(&table) {
+                    return Err(entry.error_at(
+                        at,
+                        field("AMH combat art's table", table.into(), "1 or 2".into()),
+                    ));
+                }
+                Ok(Art {
+                    table,
+                    id: entry.u16()?,
+                    level: entry.u8()?,
+                    bonus: entry.u8()?,
+                    flags: entry.u16()?,
+                    time: entry.f32()?,
+                    factor: entry.f32()?,
+                    remaining: entry.f32()?,
+                })
+            })
+            .collect()
+    }
+
     /// The ids of the items in the backpack's grid, cell by cell.
     pub fn backpack(&self) -> Result<Vec<u32>> {
         let data = &self.section(BACKPACK, "AMH backpack section")?.data;
@@ -370,6 +431,54 @@ mod tests {
                 .to_string()
                 .contains("`AMH item block's type`")
         );
+    }
+
+    /// A creature section of the Seraphim's template's size, with her two arts.
+    fn creature(arts: &[(u32, u16, u16, f32)]) -> Amh {
+        let mut data = vec![0; ARTS];
+        data.extend(u16::try_from(arts.len()).unwrap().to_le_bytes());
+        for &(table, id, flags, time) in arts {
+            data.extend(table.to_le_bytes());
+            data.extend(id.to_le_bytes());
+            data.extend([1, 0]);
+            data.extend(flags.to_le_bytes());
+            for value in [time, 1.0, 0.0] {
+                data.extend(value.to_le_bytes());
+            }
+        }
+        data.resize(1881, 0);
+        Amh {
+            sections: vec![Section {
+                slot: 0,
+                tag: CREATURE,
+                size: 1881,
+                compressed: true,
+                data,
+            }],
+        }
+    }
+
+    #[test]
+    fn the_creature_section_holds_the_combat_arts() {
+        let amh = creature(&[(2, 1071, 0, 15.0), (1, 18, 1, 24.0)]);
+        let arts = amh.arts().unwrap();
+        assert_eq!(
+            arts[1],
+            Art {
+                table: 1,
+                id: 18,
+                level: 1,
+                bonus: 0,
+                flags: 1,
+                time: 24.0,
+                factor: 1.0,
+                remaining: 0.0,
+            }
+        );
+        assert_eq!((arts.len(), arts[0].id, arts[0].table), (2, 1071, 2));
+        let error = creature(&[(3, 1071, 0, 15.0)]).arts().unwrap_err();
+        assert_eq!(error.place.record, Some(0));
+        assert!(error.to_string().contains("table"), "{error}");
     }
 
     #[test]

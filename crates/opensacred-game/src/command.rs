@@ -175,6 +175,12 @@ enum Command {
     Fly { on: Option<Switch> },
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
+    /// The hero's combat arts, as the original's driver lists them: each one's table, id, level
+    /// and bonus, whether a rune taught it, its time, its factor and what is still to run
+    Arts {
+        #[command(subcommand)]
+        action: Option<ArtsAction>,
+    },
     /// In a script: wait before the next command
     Wait {
         #[command(subcommand)]
@@ -182,6 +188,20 @@ enum Command {
     },
     /// Run a script: a command a line, # before a comment
     Exec { file: PathBuf },
+}
+
+/// What `arts` does before it lists the hero's arts.
+#[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
+enum ArtsAction {
+    /// The hero learns ART, below 1000 a spell, or rises in it by LEVELS (1), as that many runes
+    /// teach it, whatever its class
+    Learn {
+        art: u16,
+        #[arg(value_parser = clap::value_parser!(u8).range(1..))]
+        levels: Option<u8>,
+    },
+    /// Every art of the hero ready at once
+    Ready,
 }
 
 /// What a script waits for.
@@ -1054,6 +1074,21 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             in_game(world)?;
             let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
             Ok(Outcome::say(line))
+        }
+        Command::Arts { action } => {
+            in_game(world)?;
+            let mut arts = world
+                .get_resource_mut::<crate::arts::HeroArts>()
+                .ok_or("no game is played")?;
+            match action {
+                Some(ArtsAction::Learn { art, levels }) => arts.learn(art, levels.unwrap_or(1))?,
+                Some(ArtsAction::Ready) => arts.ready(),
+                None => {}
+            }
+            Ok(Outcome {
+                lines: arts.lines(),
+                wait: None,
+            })
         }
         Command::State => {
             let snapshot = world

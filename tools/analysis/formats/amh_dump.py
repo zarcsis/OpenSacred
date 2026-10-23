@@ -19,17 +19,23 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
            after the marker, the type again 14 bytes after it, and the item's record of 0x82 bytes 252 bytes after it,
            which begins with the type (the layout of Weapon.pak +0x80, docs/re/items.md); the backpack's grid (tag
            0xCA: 0x40C bytes, then 256 cells of 12 bytes) names its items by their ids (u32), the others are worn
+  arts     tag 0xC7 (the creature): a u16 count of the hero's combat arts at its byte 1227, then entries of 22 bytes
+           {u32 table (1 or 2); u16 id; u8 level; u8 bonus; u16 flags; f32 time; f32 factor; f32 remaining}
+           (docs/re/arts.md); in a template the section is 1881 bytes for two arts and 22 more for each further one
 
 Example
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --rows /tmp/amh.tsv
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --items /tmp/amh-items.tsv
+  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --arts /tmp/amh-arts.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
-installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn. --rows writes a row per section:
-file, slot, tag, size, compressed (0/1), bytes kept, crc32 of the kept bytes (inflated or stored); --items a row per
-item: file, id, type, in the backpack (0/1), crc32 of its record. Section contents (hero names etc.) are not printed.
+installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn; 19 combat arts in the templates.
+--rows writes a row per section: file, slot, tag, size, compressed (0/1), bytes kept, crc32 of the kept bytes (inflated
+or stored); --items a row per item: file, id, type, in the backpack (0/1), crc32 of its record; --arts a row per combat
+art: file, its index, table, id, level, bonus, flags, and the time, the factor and the remaining as the hexadecimal of
+their bits. Section contents (hero names etc.) are not printed.
 Dependencies: standard library.
 """
 import argparse
@@ -47,6 +53,7 @@ HEADER, SLOTS = 0x100, 16
 COMPRESSED, PREFIX = 0xBAADC0DE, 32
 SUMMARY, MINI = 0xC3, 0xC4
 INVENTORY, BACKPACK = 0xC8, 0xCA
+CREATURE, ARTS, ART, CREATURE_SIZE = 0xC7, 1227, 22, 1881
 ITEM_MARK, ITEM_ID, ITEM_TYPE, ITEM_RECORD, RECORD = b'\x0d\xf0\xed\xfe', 10, 14, 252, 0x82
 GRID, CELL, CELLS = 12 + 0x400, 12, 256
 EXPECTED_HEADER = {4: 0x10, 8: 0x22C, 0x1C: 1, 0x20: 9, 0x24: 2, 0x28: 20000}
@@ -98,8 +105,10 @@ def main():
     ap.add_argument('--rows', help='write a TSV row per section')
     ap.add_argument('--saves', action='store_true', help='also check the saves of save/ (the game rewrites them)')
     ap.add_argument('--items', help='write a TSV row per item of the inventory sections')
+    ap.add_argument('--arts', help='write a TSV row per combat art of the creature sections')
     args = ap.parse_args()
     item_rows = []
+    art_rows = []
     paths = sorted(glob.glob(os.path.join(args.game_dir, 'Templates', '*.ptx')))
     if args.saves:
         paths += sorted(glob.glob(os.path.join(args.game_dir, 'save', '*.pax')))
@@ -135,6 +144,20 @@ def main():
                       not any(kept[8 + 2 * len(name):72]), where)
             rows.append((rel, slot, tag, size, int(compressed), len(kept), f'{zlib.crc32(kept):08x}'))
         inflated = {tag: data for _, tag, _, _, data, _, _, _ in secs}
+        if CREATURE in inflated:
+            creature = inflated[CREATURE]
+            count = struct.unpack_from('<H', creature, ARTS)[0]
+            check('arts: the entries fit the creature section, each of the table 1 or 2',
+                  ARTS + 2 + ART * count <= len(creature)
+                  and all(struct.unpack_from('<I', creature, ARTS + 2 + ART * k)[0] in (1, 2) for k in range(count)),
+                  rel)
+            if rel.startswith('Templates/'):
+                check('arts: a template\'s creature section is 1881 bytes for two arts, 22 more for each further one',
+                      len(creature) == CREATURE_SIZE + ART * (count - 2), rel)
+            for k in range(count):
+                table, art, level, bonus, flags = struct.unpack_from('<IHBBH', creature, ARTS + 2 + ART * k)
+                floats = struct.unpack_from('<3I', creature, ARTS + 2 + ART * k + 10)
+                art_rows.append((rel, k, table, art, level, bonus, flags) + tuple(f'{w:08x}' for w in floats))
         if INVENTORY in inflated and BACKPACK in inflated:
             inventory, grid = inflated[INVENTORY], inflated[BACKPACK][GRID:GRID + CELL * CELLS]
             packed = {struct.unpack_from('<I', grid, CELL * i)[0] for i in range(CELLS)} - {0}
@@ -166,6 +189,13 @@ def main():
             for row in item_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(item_rows)} rows -> {args.items}')
+    print(f'{len(art_rows)} combat arts')
+    if args.arts:
+        with open(args.arts, 'w', encoding='ascii', newline='\n') as f:
+            f.write('file\tindex\ttable\tid\tlevel\tbonus\tflags\ttime\tfactor\tremaining\n')
+            for row in art_rows:
+                f.write('\t'.join(str(x) for x in row) + '\n')
+        print(f'{len(art_rows)} rows -> {args.arts}')
 
 
 if __name__ == '__main__':

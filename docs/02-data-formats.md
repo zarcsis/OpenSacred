@@ -960,7 +960,7 @@ In the original's new game the Seraphim wears the template's two by their ids, 1
 The Seraphim's weapon is the record 7901: physical damage 21 to 23, `A` 5 and `D` 2, and two bonus slots (the effects 811 and 812, of the values 14 and 2).
 The earlier names, the skill table and the combat arts, were wrong.
 The saves ship with the GOG installation, but the game rewrites `save/` and deletes them on request, so they are not in the manifest (§13): the converter reads only the templates, and `amh_dump.py --saves` checks the saves of a clean installation.
-Implemented: `opensacred_formats::amh` (`Amh::items`, `Amh::backpack`); `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level, class and the items the hero wears, their records' words from `+4`, in `heroes.ron`.
+Implemented: `opensacred_formats::amh` (`Amh::items`, `Amh::backpack`, `Amh::arts`); `opensacred-convert heroes` writes each template with its sections inflated to `heroes/` and indexes level, class, the items the hero wears, their records' words from `+4`, and the combat arts of its creature section (#506) in `heroes.ron`.
 The sections stay whole until their layout is recovered.
 There is no encryption and there are no checksums (the "export" `.PAK` saves do have 48 bytes of checksums according to gonX, but the game does not check them).
 The 304×360 hero portrait is written as a JPEG via IJL (according to sacred-bild).
@@ -969,7 +969,7 @@ The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold:
 **The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
 
 For the new engine: original `.pax` saves are not supported (by design).
-The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class and the items the hero wears in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
+The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears and its combat arts in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 
 ## 10. Sound, music, video
@@ -1060,7 +1060,7 @@ Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copie
 | MP3 | unchanged | playback |
 | WMV | AV1 + Opus in WebM via FFmpeg | playback |
 | TTF, BMP | TTF unchanged; BMP → PNG | viewing |
-| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn; the rest of the starting presets later | reading back |
+| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn and the combat arts; the rest of the starting presets later | reading back |
 
 ### 12.2 Structure
 

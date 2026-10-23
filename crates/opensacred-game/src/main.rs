@@ -4,6 +4,7 @@
 
 mod ai;
 mod arrows;
+mod arts;
 mod atmosphere;
 mod attack;
 mod benchmark;
