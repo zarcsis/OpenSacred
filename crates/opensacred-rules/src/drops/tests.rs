@@ -184,6 +184,8 @@ fn a_calls_chance_is_350_and_700_for_a_boss_or_a_champion() {
     assert_eq!(rules.chance(Rank::Common, 0), 350);
     assert_eq!(rules.chance(Rank::Boss, 0), 700);
     assert_eq!(rules.chance(Rank::Champion, 0), 700);
+    // A champion's levelling alone has no mark, which the factor takes (#621).
+    assert_eq!(rules.chance(Rank::Levelled, 0), 350);
     // A treasure of 101 adds v = 10 + 180·(1 − 1/2) = 100 per cent.
     assert_eq!(rules.chance(Rank::Common, 101), 700);
 }
@@ -217,6 +219,15 @@ fn a_champion_and_a_boss_make_more_calls_with_a_bonus() {
         Calls {
             count: 2,
             bonus: 50
+        }
+    );
+    // A champion's levelling alone takes the champions' bonus and calls (#621): R(1, 3) of 2.
+    let mut levelled_dice = script(&[1]);
+    assert_eq!(
+        calls(&of(Rank::Levelled, 5, 5), &mut levelled_dice),
+        Calls {
+            count: 3,
+            bonus: 35
         }
     );
     // Too weak, of level 1 to a hero of 30: no more calls, the bonus kept.

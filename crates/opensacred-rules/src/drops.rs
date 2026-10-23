@@ -366,7 +366,8 @@ impl Rules {
         };
         match death.dead.rank {
             Rank::Common => {}
-            Rank::Champion => {
+            // A champion's levelling (`+0xB0` bit `0x400`), a champion's or alone (#621).
+            Rank::Champion | Rank::Levelled => {
                 bonus = self.champion[0];
                 count += more(self.champion[1], dice);
             }
@@ -394,7 +395,8 @@ impl Rules {
     /// `v(s) = 10 + 180·(1 − 1/(1 + (s − 1)/100))` from 1 on (`0x565D70`), truncated at each step.
     pub fn chance(&self, rank: Rank, treasure: u32) -> u32 {
         let mut p = whole(self.chance);
-        if rank != Rank::Common {
+        // Of the champion's mark (`+0x2B8` bit `0x40`), not a champion's levelling alone (#621).
+        if matches!(rank, Rank::Boss | Rank::Champion) {
             p = whole(to_f32(p) * self.boss_chance);
         }
         let v = if treasure >= 1 {

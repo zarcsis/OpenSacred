@@ -114,7 +114,7 @@ A killer of type 71 with `+0x1F0` 7, or of `+0x1F4` bit `0x40000`, counts as the
 The death calls the drop `0x559BF0` `N` times, each with a bonus `B` and a value `s`:
 
 - `N` is `WurfAnzahl` (1) and `B` 0.
-- A creature with a champion's levelling (`+0xB0` bit `0x400`, docs/re/fight.md, "Bosses and champions") has `B` = `ITBonusChamp` (35) and, unless too weak, `N` + `R(1, ITThrowCountBonusChamp)` (3).
+- A creature with a champion's levelling (`+0xB0` bit `0x400`, docs/re/fight.md, "Bosses and champions"; a champion, and a fill's 343 or 212 without the mark, #621) has `B` = `ITBonusChamp` (35) and, unless too weak, `N` + `R(1, ITThrowCountBonusChamp)` (3).
 - A boss (`+0x1F4` bit `0x80000`) adds `ITBonusBoss` (50) to `B` and, unless too weak, `R(1, ITThrowCountBonusBoss)` (4) to `N`; then a switch over its type (`0x533E2E`, its jump tables at `0x536EBC` and `0x536F48`) gives some twenty types more drops or particular items (below).
 - For a player's kill, `B` becomes `⌊B + LongivityFactor·v(t)⌋` (`LongivityFactor` 0.5), `v(t) = 100·(1 − 1/(1 + (t − 1)/120))` for `t` at least 1, else 0, `t` the statistics' counter `+0x570C` over 1,000 and over 60 (`0x425290`, `0x424650`; **hypothesis**: the minutes played), and then `⌊B + √(100·(ℓ − 100))⌋`, `ℓ` the hero's luck of `0x564A60`: 100 plus the value of its effect 840, raised when some of its counts at `+0x4F8` are high (**hypothesis**: the worn pieces of sets, below).
   So the time played adds up to 50 to the bonus and a luck of 25 adds 50.
