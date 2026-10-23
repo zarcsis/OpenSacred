@@ -82,6 +82,7 @@ A hero reads a rune through `cItemUpgrade` (`0x5CD100`):
 1. it must meet the item's requirements (`0x54ABE0`: its level `+0x14`, strength `+0x15`, dexterity `+0x16`, charisma `+0x17`, endurance `+0x18`, and the skill `+0x1A` of at least `+0x1B`; whether a rune's are computed is not read);
 2. its art is of the second table when that holds it with the hero's class in `+0x70`, else of the first when that holds it with the class in `+0x8C`, else the rune is refused (an engine's event 7, 2 and a line of the log) and kept;
 3. `0x580750` adds the art to the hero's list at level 0 if it lacks it, with the Vampiress's or the Daemon's linked art, and `0x581F80` raises its level by 1 for good, the linked ones too, and recomputes the stats, so that the first rune teaches the art at level 1;
+   `0x580750` takes the stats and the entry of 22 bytes on the stack (the table, the id, the rest 0), `0x581D40` gives the entry's index of an id, and `0x581F80` takes the index, the levels (1), for good (1) and whether to leave the linked arts (0) (read 2026-10-23, #569).
 4. the rune takes the flag `0x8000000`, used.
 
 A debugging path (`0x557D60`, under flag `0x1000` of `0x182EE3C`) destroys the rune even when refused.
@@ -102,6 +103,7 @@ A creature's stats (docs/re/fight.md) hold its arts as a list of entries of 22 b
 | `+0x12` | `f32`, the regeneration still to run, in seconds |
 
 The level in play is the level and the bonus (`0x580A10`); a rune raises the level by 1, to 255 at most, and the items' and sets' bonuses the bonus (`0x571710` through `0x581F80`, not for good).
+Seen in the original (2026-10-23, #569, the driver's `arts`): the new Seraphim's 1071 at level 1 has bit 0 of `+0x08` clear, as the template's entry has it, and the rune's functions set it; raised to level 3 its time went from 15 to 25 s, `10 + 5·L`, and its regeneration still to run rose by the same 10 s; the spell 18 learnt at level 1 took 24 s, `15 + 9·L`.
 A creature that is no player's and lacks an art uses it at the level `⌊creature's level / 5⌋ + 1` (`0x580A10`).
 `0x571080` makes every entry's time: the record's value at the level, from the first table or the second, and with the bonus half of what the bonus adds to it when that is more, `v(L) + (v(L + b) − v(L))/2`; a time that grows adds as much to the regeneration still to run.
 `0x582A20(art, level, bonus)` gives the same for one art.
@@ -138,6 +140,7 @@ The classes' executors: the Gladiator's `0x4FF0B0`, the Seraphim's `0x5038F0`, t
 
 - `Attacke` (1059 in `0x4FF0B0`, 1071 in `0x5038F0`): at every hit point of the clip (`0x4115D0`, `0x4135D0`, as the plain strike), it strikes the target within its reach + 45, and when the target is gone, the next hostile creature within it; it ends when the clip has no more hit points.
   Each strike is the creature's strike event (`0x4EA3F0`) of the hit's kind 1 and the factor `0.75 + 0.05·L`, and the first starts the regeneration; the strikes are as many as the clip's hit points, not by the level (**hypothesis**).
+  Seen in the original (2026-10-23, #569, an immortal goblin warrior of level 1 beside the Seraphim): one use of her 1071 made 7 strikes in about 2.8 s at level 1 and at level 3 alike, each with the attack `28.5 · (1.3 + 0.125·L)` in its chance (40.61 and 47.74) and its damage times 0.8 and 0.9.
 - `Rundum` (1057): before 70 % of its clip, it strikes the creature nearest each bone of a weapon or a hand (`0x44CA30`) within `160 + 20·L` percent of the two creatures' reach, each creature once (`+0x190`), with the factor `0.8 + 0.1·L`.
 - With a bow the Seraphim's 1069, 1070 and 1071 are shots: the action 5, `+0x184` 1, the special projectiles `0x3D`, `0x3E` and `0x3F`, and `min(L + 1, 5)` arrows for 1069 and 1071.
 

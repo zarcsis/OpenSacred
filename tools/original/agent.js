@@ -794,6 +794,9 @@ const WORLD = {
   lowestRaise: ptr('0xad4c18'),      // by the difficulty's column: what CreateNPC adds to a sector's lowest level
   highestRaise: ptr('0xad4e1c'),     // and to its highest
   strikeEvent: ptr('0x89095c'),      // the vtable of the event that 0x4EA3F0 sends a creature it hits
+  addArt: ptr('0x580750'),           // the stats: thiscall (stats, an art's entry of 22 bytes on the stack), adds it
+  artIndex: ptr('0x581d40'),         // the stats: thiscall (stats, art), the index of its entry
+  raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -818,6 +821,15 @@ const statsLevel = new NativeFunction(WORLD.statsLevel, 'void', ['pointer', 'int
 const addExperience = new NativeFunction(WORLD.addExperience, 'void', ['pointer', 'int'], 'thiscall');
 const makeCreature = new NativeFunction(WORLD.makeCreature, 'pointer',
   ['pointer', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'uint32', 'int'], 'thiscall');
+const addArt = new NativeFunction(WORLD.addArt, 'void',
+  ['pointer', 'uint32', 'uint32', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
+const artIndex = new NativeFunction(WORLD.artIndex, 'uint32', ['pointer', 'uint32'], 'thiscall');
+const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'],
+  'thiscall');
+// A creature's combat arts (docs/re/arts.md, "A creature's arts"): entries of 22 bytes between the pointers at
+// +0x102 and +0x106 of its stats.
+const ART = { list: 0x102, end: 0x106, size: 22, table: 0, id: 4, level: 6, bonus: 7, flags: 8, time: 10, factor: 14,
+  remaining: 18 };
 const isHostile = new NativeFunction(WORLD.hostile, 'uint8', ['pointer', 'uint32'], 'thiscall');
 const dropOf = new NativeFunction(WORLD.drop, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const sectorExists = new NativeFunction(WORLD.sectorExists, 'uint32', ['pointer', 'uint32'], 'thiscall');
@@ -1107,6 +1119,36 @@ const COMMANDS = {
     timer.writeU8(want ? 1 : 0);
     return { paused: want };
   },
+  // A creature's combat arts, the hero's by default (#569); `learn` raises the hero's art by levels as runes do,
+  // through the original's own functions, and `ready` ends every art's regeneration.
+  arts: (engine, { id, learn, levels, ready }) => {
+    const object = id ? objectById(id) : hero();
+    if (object === null || !isCreature(object)) {
+      throw new Error(id ? `no creature ${id}` : 'no hero');
+    }
+    const stats = object.add(STATS);
+    if (learn) {
+      // The rune's way (0x5CD100): the entry of the table at level 0 if the list lacks it, then a level for good
+      // a rune at a time; an id below 1000 is of the first table, the spells, from 1000 of the second.
+      addArt(stats, learn < 1000 ? 1 : 2, learn, 0, 0, 0, 0);
+      for (let i = 0; i < levels; i += 1) {
+        if ((raiseArt(stats, artIndex(stats, learn), 1, 1, 0) & 0xff) === 0) {
+          throw new Error(`the art ${learn} rises no further`);
+        }
+      }
+    }
+    if (ready) {
+      for (const entry of artEntries(stats)) {
+        entry.add(ART.remaining).writeFloat(0);
+      }
+    }
+    return artEntries(stats).map((e) => ({
+      table: e.add(ART.table).readU32(), id: e.add(ART.id).readU16(), level: e.add(ART.level).readU8(),
+      bonus: e.add(ART.bonus).readU8(), flags: e.add(ART.flags).readU16(),
+      time: e.add(ART.time).readFloat(), factor: e.add(ART.factor).readFloat(),
+      remaining: e.add(ART.remaining).readFloat(),
+    }));
+  },
   // A creature's health to its most, the hero's by default.
   heal: (engine, { id }) => {
     const object = id ? objectById(id) : hero();
@@ -1247,6 +1289,17 @@ const COMMANDS = {
     return { made: describeMade(made) };
   },
 };
+
+// The entries of a creature's arts.
+function artEntries(stats) {
+  const begin = stats.add(ART.list).readPointer();
+  const end = stats.add(ART.end).readPointer();
+  if (begin.isNull() || end.compare(begin) <= 0) {
+    return [];
+  }
+  const count = Math.floor(end.sub(begin).toInt32() / ART.size);
+  return Array.from({ length: Math.min(count, 256) }, (_, i) => begin.add(ART.size * i));
+}
 
 // The cells of `count` creatures about a cell: the cell, then the rings about it.
 function cellsAbout(x, y, count) {

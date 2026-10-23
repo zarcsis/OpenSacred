@@ -490,6 +490,9 @@ class Host:
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
                 "heal [ID]: a creature's health to its most, the hero's by default",
+                "arts [ID]: a creature's combat arts, the hero's by default; arts learn ART [LEVELS]: the hero learns "
+                'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
+                'ready at once',
                 "pause [on|off]: the world's time stands without the menu, the frames going on, or goes on; "
                 'without a switch, toggles',
                 'level N: the hero rises to level N, its experience the level\'s start, as kills raise it',
@@ -906,6 +909,32 @@ class Host:
         paused = self.world('pause', {'on': None if not rest else rest == 'on'})['paused']
         return ['paused: the world stands, the frames go on' if paused else 'going on']
 
+    def command_arts(self, rest):
+        words = rest.split()
+        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False}
+        if words and words[0] == 'learn':
+            if not 2 <= len(words) <= 3 or not all(w.isdigit() for w in words[1:]):
+                raise ValueError('arts learn ART [LEVELS]')
+            params['learn'] = int(words[1])
+            params['levels'] = int(words[2]) if len(words) > 2 else 1
+            if not 1 <= params['levels'] <= 255:
+                raise ValueError('arts learn: LEVELS 1 to 255')
+        elif words == ['ready']:
+            params['ready'] = True
+        elif len(words) == 1 and words[0].isdigit():
+            params['id'] = int(words[0])
+        elif words:
+            raise ValueError('arts [ID], arts learn ART [LEVELS] or arts ready')
+        arts = self.world('arts', params)
+        if not arts:
+            return ['no combat arts']
+        return [f"{'spell' if a['table'] == 1 else 'art'} {a['id']} level {a['level']}"
+                + (f"+{a['bonus']}" if a['bonus'] else '')
+                + (' learnt' if a['flags'] & 1 else '')
+                + (f" slot {a['flags'] >> 8}" if a['flags'] >> 8 else '')
+                + f" time {a['time']:.1f} s, factor {a['factor']:g}, to run {a['remaining']:.1f} s"
+                for a in arts]
+
     def command_heal(self, rest):
         oid = int(rest) if rest else None
         c = self.world('heal', {'id': oid})
@@ -1000,7 +1029,7 @@ WORLD_COMMANDS = {
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
-    'god': Host.command_god, 'heal': Host.command_heal, 'pause': Host.command_pause, 'level': Host.command_level,
+    'god': Host.command_god, 'heal': Host.command_heal, 'pause': Host.command_pause, 'arts': Host.command_arts, 'level': Host.command_level,
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
 }

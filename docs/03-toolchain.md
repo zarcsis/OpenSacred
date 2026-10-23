@@ -297,6 +297,7 @@ python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
 python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500, pause
+python -I tools/game/remote.py --port 15703 exec "arts learn 1071 2"  # or: arts, arts ready
 python -I tools/game/remote.py --port 15703 exec "spawn 76 --count 3"   # or: kill 10, drop 20, item 5171
 python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
 python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
