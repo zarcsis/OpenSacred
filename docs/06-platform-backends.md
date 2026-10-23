@@ -2,12 +2,12 @@
 
 ## Summary
 
-* **Platforms:** Windows 11 x64 is the main one; Linux is second, with the same functionality; Android and Chrome (WebAssembly) come after version 1.0 and by a separate decision.
+* **Platforms:** Windows 11 x64 is the main one; Linux is second, with the same functionality; Android comes after version 1.0 and by a separate decision; the browser version was dropped on 2026-10-23.
   Everything builds from one codebase on Bevy and wgpu.
 * **Sound:** Kira through `bevy_kira_audio` with Symphonia decoders (pure Rust, works on all four platforms).
   Sound events are taken from the original's 175 profiles, converted to RON.
 * **Input:** keyboard and mouse as in the original plus a gamepad; key remapping through `leafwing-input-manager`; touch controls only for Android.
-* **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d, in the browser through the HTML video element; movies can be skipped.
+* **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d; movies can be skipped.
   The conversion is done (`opensacred-convert video`); playback comes in M5.
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
 * **Scripts:** NetScript bytecode is converted into an intermediate representation (IR); the interpreter will live in `opensacred-rules`.
@@ -21,9 +21,6 @@
 | Windows 11 x64 | `x86_64-pc-windows-msvc`, Build Tools 2026 | the main one; Vulkan, DX12 as fallback; the game directory with `assets/` next to the exe | M2–M6 | included in the milestones |
 | Linux x86-64 | `x86_64-unknown-linux-gnu` | Vulkan; XDG directories; builds in WSL2 or on Linux | after M6 | 5–10 |
 | Android | `aarch64-linux-android` through cargo-ndk and Gradle | touch controls, a smaller streaming radius, ASTC textures, assets in app storage | by decision | 25–50 |
-| Chrome (WebAssembly) | `wasm32-unknown-unknown`, wasm-bindgen, trunk | WebGPU (WebGL2 as fallback); assets over HTTP from a local server; multithreading requires COOP/COEP headers | by decision | 25–50 |
-
-The game assets must not be made publicly available, so the web version is meant for personal use: a local server serves the player's own `assets/` to a browser on the same computer or on the home network.
 
 ## 2. Sound
 
@@ -68,7 +65,6 @@ Estimate: 6–12 agent-hours.
 |---|---|
 | Conversion | FFmpeg as an external program: WMV → AV1 (video) + Opus (audio) in WebM; the original resolution and frame rate (640×480, 25 fps); the source audio is WMAv2 or WMA Pro, both decoded by FFmpeg |
 | Playback | a WebM demuxer (`matroska-demuxer`) + the rav1d AV1 decoder → a Bevy texture; audio through Kira |
-| Browser | the HTML video element over the canvas |
 | Controls | skip with a key; a "do not show movies" setting |
 
 Estimate: 6–12 agent-hours (M5).
@@ -89,7 +85,7 @@ Movies are not needed to complete the game, so this is a low priority.
 * **Saves:** our own format: a `serde` structure with a version number and migrations.
   RON in debug (human-readable), postcard with zstd compression in release.
   Autosave on a timer, like `AUTOSAVEDELAY` in the original.
-* **Directories:** `%APPDATA%\OpenSacred` on Windows, `$XDG_CONFIG_HOME/OpenSacred` (`~/.config/OpenSacred`) on Linux, app storage on Android, IndexedDB in the browser.
+* **Directories:** `%APPDATA%\OpenSacred` on Windows, `$XDG_CONFIG_HOME/OpenSacred` (`~/.config/OpenSacred`) on Linux, app storage on Android.
   Since 2026-10-19 the game takes them from the environment (`APPDATA`, `XDG_CONFIG_HOME`, `HOME`), which needs no crate; `directories` stays the option when Android needs its app storage.
   The log goes to the state directory: `%LOCALAPPDATA%\OpenSacred\logs\` on Windows, `$XDG_STATE_HOME/OpenSacred` (`~/.local/state/OpenSacred`) on Linux (docs/10 §5).
 * **Settings:** TOML: graphics (resolution, window mode, backend, zoom, UI scale, HD packs), sound (volumes), controls (layouts), gameplay.
@@ -146,7 +142,7 @@ Estimate: 40–80 agent-hours (M1 and M4); the main source of content uncertaint
 
 ## Open questions
 
-1. Whether Android and the browser are needed: a decision after version 1.0.
+1. Whether Android is needed: a decision after version 1.0.
 
 Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the codecs of the WMV movies (docs/02, §10.3).
 

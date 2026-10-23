@@ -2,7 +2,7 @@
 
 ## Summary
 
-* The renderer is written from scratch on **Bevy 0.20 / wgpu 30**: Vulkan by default on Windows and Linux, DX12 as the fallback on Windows, WebGPU in Chrome, Vulkan or GLES on Android.
+* The renderer is written from scratch on **Bevy 0.20 / wgpu 30**: Vulkan by default on Windows and Linux, DX12 as the fallback on Windows, Vulkan or GLES on Android.
   The code of the original renderer (D3D7) is not ported; only facts are taken from it: the projection, the diamond geometry, the order of passes.
 * The scene stays isometric under an orthographic camera with the original's angle, but becomes a real 3D scene: **the ground is a mesh from the heightmap**, objects are sprites in world space with depth, characters are skeletal glTF models with lighting and shadows.
 * **4K:** rendering at native resolution; by default the same area of the world is visible as in the original at zoom 1.0; an extended view is an option.
@@ -71,7 +71,7 @@ Where the game draws as the original does instead, a file of docs/decisions/ say
 ### 3.3 Effects
 
 * The original's 178 effects are described in data (RON): emitter, textures, color and size curves, lifetime.
-* The executor is GPU particles (`bevy_hanabi`) on Vulkan and WebGPU; CPU particles on WebGL2.
+* The executor is GPU particles (`bevy_hanabi`).
   If `bevy_hanabi` lags behind the Bevy version, we start with the CPU executor.
 
 ### 3.4 Camera and visible area
@@ -159,7 +159,7 @@ In BC7, which comes with KTX2 in M7, all 25,535 base textures at 256² would tak
 2. **Upscaling:** free models: Real-ESRGAN through ncnn-vulkan (BSD-3) or waifu2x-ncnn-vulkan (MIT); the Rust option is ONNX models through the `ort` crate.
 3. **Alpha channel:** ARGB4444 gives 16 transparency levels; the alpha is upscaled separately and smoothed, otherwise the edges become jagged.
 4. **Ground tiles:** upscaling the whole 256² sheet, followed by a check of the diamond seams; if needed, upscaling with overlap.
-5. **Packing:** KTX2, BC7 for PC, ASTC or UASTC for Android and the web, a full set of mipmaps.
+5. **Packing:** KTX2, BC7 for PC, ASTC or UASTC for Android, a full set of mipmaps.
 6. **Hooking up:** the `assets-hd/` directory with the same relative paths; the game takes the HD version if it exists.
 7. **Size:** upscaling all textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are selective and separate.
 
@@ -172,7 +172,6 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 | Windows 11 x64 | Vulkan; DX12 as fallback | the main target; backend choice in the settings (planned: the settings hold the display and the debug panels so far, docs/10 §3) |
 | Linux | Vulkan | the same functionality |
 | Android | Vulkan; GLES as fallback | a smaller streaming radius; ASTC; touch controls |
-| Chrome (WebAssembly) | WebGPU; WebGL2 as fallback | no GPU particles on WebGL2; sectors streamed over HTTP from a local server |
 
 ## 7. Testing
 

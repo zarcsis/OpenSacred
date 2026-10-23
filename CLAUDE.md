@@ -67,7 +67,7 @@ python -I tools/analysis/formats/<script>.py --game-dir ./OriginalGame   # Pytho
 
 `main` takes changes only through squash-merged pull requests with green checks (Linux, Windows, cargo deny); the process is in docs/03 §3.6.
 
-- A task is an issue, opened from the form of its type, which sets one of the labels `bug`, `deps`, `feature`, `research`, `infra`, `docs`; a milestone's work also carries its milestone (M2–M8). A large feature is an issue with sub-issues, one pull request each.
+- A task is an issue, opened from the form of its type, which sets one of the labels `bug`, `deps`, `feature`, `research`, `infra`, `docs`; a milestone's work also carries its milestone (M2–M9). A large feature is an issue with sub-issues, one pull request each.
 - Branch `<type>/<issue>-<slug>` from a fresh `origin/main` (`git fetch && git switch -c feature/3-roofs origin/main`). Commits and the pull request's title keep the history's `Scope: what` style; the body follows `.github/pull_request_template.md` and starts with `Closes #N`; the pull request takes its issue's label.
 - After the checks of "Before finishing a task": `git push -u origin <branch>`, `gh pr create`, then `gh pr merge --squash --auto`: GitHub merges once the checks are green and deletes the branch. Watch them (`gh pr checks --watch`); a red check is fixed on the branch. Then `git switch main && git pull`.
 - Every pull request carries its Claude Code usage: `python -I tools/usage/pr_usage.py <N> --update` writes it into the description from the transcripts of its branch and refreshes the README's badge (docs/usage.md). Run it after `gh pr create`, and again when the work on the pull request is over: after the merge, or once the checks are green for one that waits for the maintainer.

@@ -26,7 +26,7 @@
 | One language for everything | The converter and the game share data types (`opensacred-data`); no second toolchain is needed |
 | Memory safety without a garbage collector | No class of bugs that code from 2006 is full of (dangling pointers, buffer overflows) |
 | Cargo and crates.io | Builds and dependencies with one command; daily updates (`cargo update` in a pull request of its own, docs/03 §3.3) |
-| wgpu | One graphics codebase for Vulkan, DX12, WebGPU and GLES, i.e. for Windows, Linux, Android and Chrome |
+| wgpu | One graphics codebase for Vulkan, DX12 and GLES, i.e. for Windows, Linux and Android |
 | Strong types and tests | Claude Code gets fast feedback from the compiler and tests; misunderstandings surface early |
 
 ### 1.2 What it costs
@@ -203,7 +203,7 @@ That is why the architecture insures against a wrong choice:
 
 1. a migration to a new Bevy regularly takes more than 10 agent-hours;
 2. Bevy's animation or UI system blocks the vertical slice for more than two weeks;
-3. Android or the web needs a capability that wgpu or Bevy lacks.
+3. Android needs a capability that wgpu or Bevy lacks.
 
 **What to do when switching to Godot:** connect `opensacred-rules` through godot-rust as a GDExtension, rewrite the presentation in Godot scenes, keep the converter.
 The switch is estimated at 40–80 agent-hours, depending on the milestone at which it happens.

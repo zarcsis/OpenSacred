@@ -290,7 +290,7 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 | Subsystem | What the comparable projects did (verified from the primary source) | Our choice (PLAN.md) |
 |---|---|---|
 | Window/input | SDL2 → SDL3 (isle-portable, dethrace 0.10, Arx 1.2, DevilutionX) | Bevy (winit), gamepad via gilrs |
-| 3D rendering | SDL3 GPU + D3D9 + GL + software (isle-portable); Tempest Vulkan/DX12/Metal (OpenGothic); OpenGL 3.3 (TR1X, OpenJKDF2, re3/librw); DX11/GL/Metal (SoH) | Bevy on wgpu: Vulkan, DX12, WebGPU |
+| 3D rendering | SDL3 GPU + D3D9 + GL + software (isle-portable); Tempest Vulkan/DX12/Metal (OpenGothic); OpenGL 3.3 (TR1X, OpenJKDF2, re3/librw); DX11/GL/Metal (SoH) | Bevy on wgpu: Vulkan, DX12 |
 | 2D/UI in 4K | UI and text at native resolution, separately from 3D (OpenGothic); HUD/book/cursor scaling, letterbox (Arx 1.2); aspect/border/integer upscale (TR1X 4.13); Enlarged UI + DPI (OpenRCT2); virtual resolutions (DevilutionX 1.5) | Bevy UI on the original's 768-pixel-high screen, scaled with the window's height (docs/05 §3.5); the original's visible area by default |
 | Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | Bevy's text (parley), the original TTFs; a free Unicode font (Noto) planned |
 | Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira + Symphonia; sounds are converted to FLAC |
