@@ -4,7 +4,7 @@
 
 * **Platforms:** Windows 11 x64 is the main one; Linux is second, with the same functionality; Android comes after version 1.0 and by a separate decision; the browser version was dropped on 2026-10-23.
   Everything builds from one codebase on Bevy and wgpu.
-* **Sound:** Kira through `bevy_kira_audio` with Symphonia decoders (pure Rust, works on all three platforms).
+* **Sound:** Kira through `bevy_kira_audio`; the sound and the music as Opus in Ogg, decoded through libopus (#701).
   Sound events are taken from the original's 175 profiles, converted to RON.
 * **Input:** keyboard and mouse as in the original plus a gamepad; key remapping through `leafwing-input-manager`; touch controls only for Android.
 * **Video:** the 10 WMV movies are converted to AV1 + Opus; playback through rav1d; movies can be skipped.
@@ -38,9 +38,9 @@
 | Part | Decision |
 |---|---|
 | Sound engine | Kira 0.12 through `bevy_kira_audio` 0.27 |
-| Decoders | Symphonia 0.6, FLAC and MP3 (the converter's outputs), pure Rust |
-| Sound effects and speech | `sound.pak`: WAV → FLAC (lossless from PCM and IMA ADPCM), MP3 entries unchanged |
-| Music | MP3 unchanged; `bevy_kira_audio` does not stream, so only the track playing is loaded (≈85 MB decoded for four minutes) |
+| Decoders | Symphonia 0.6 for FLAC and MP3 today; libopus for the Opus of stage B (#701), the one C library of the sound |
+| Sound effects and speech | `sound.pak`: WAV → FLAC masters (lossless from PCM and IMA ADPCM), the MP3 entries decoded into FLAC masters (#697); the game's Opus in Ogg built from them |
+| Music | FLAC masters decoded from the MP3s, the game's Opus in Ogg; `bevy_kira_audio` does not stream, so only the track playing is loaded (≈85 MB decoded for four minutes) |
 | Events | profiles → `sound/sound.ron`, beside the samples, the music and the original's sound names: event → sample group → random selection rules |
 | Spatial sound | panning and distance attenuation from the hero; no HRTF at the start |
 | Music system | region zones, switching to combat music, event stingers; smooth transitions |
@@ -63,7 +63,7 @@ Estimate: 6–12 agent-hours.
 
 | Step | Decision |
 |---|---|
-| Conversion | FFmpeg as an external program: WMV → AV1 (video) + Opus (audio) in WebM; the original resolution and frame rate (640×480, 25 fps); the source audio is WMAv2 or WMA Pro, both decoded by FFmpeg |
+| Conversion | FFmpeg as an external program: WMV → FFV1 (video) + FLAC (audio) in Matroska as the master (#698), built into AV1 (video) + Opus (audio) in WebM for the game; the original resolution and frame rate (640×480, 25 fps); the source audio is WMAv2 or WMA Pro, both decoded by FFmpeg |
 | Playback | a WebM demuxer (`matroska-demuxer`) + the rav1d AV1 decoder → a Bevy texture; audio through Kira |
 | Controls | skip with a key; a "do not show movies" setting |
 
@@ -72,13 +72,12 @@ Movies are not needed to complete the game, so this is a low priority.
 
 ## 5. Files and assets
 
-* **Layout:** `assets/` holds the base assets from the converter; `assets-hd/` holds HD packs with the same relative paths.
-  The game will look for a file in the HD directory first (M7); nothing reads `assets-hd/` yet.
+* **Layout:** `assets-src/` holds the converter's masters and `assets/` the game's assets built from them, in ZIP archives by kind with a loose overlay (#694, #699); `assets-hd/` holds HD packs and mods in the masters' formats with the same relative paths, which stage B builds into archives that override the base ones by path (M7).
 * **Loading:** the sectors are read and built on Bevy's async compute pool, the models and images through its AssetServer; the sectors and their creatures come in as the hero approaches.
 * **Names:** the converter normalizes paths to lowercase and forward slashes, so file system case does not matter.
 * **Installation check:** the command `opensacred-convert verify` cross-checks `OriginalGame/` against the SHA-256 manifest of the GOG installation (`docs/manifest-gog-2.28.txt`, 319 files, excluding the files the game writes: `Settings.cfg`, `Gameserver.cfg`, `save/`, the `DefPos.bin` caches); the conversions do not check it themselves.
 * **Empty quest files:** 29 `QuestCode.bin` and `QuestPoolCode.bin` files (9 and 20) in the GOG release are zero-sized and are not in the manifest; the converter treats an empty file and a missing file alike as "no script".
-* **Packaging a build for personal use:** the exe + `assets/` (+ `assets-hd/`) in one directory; later, an optional asset archive.
+* **Packaging a build for personal use:** the exe + `assets/`, its archives, in one directory.
 
 ## 6. Saves and settings
 

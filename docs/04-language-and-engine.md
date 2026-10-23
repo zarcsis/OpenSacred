@@ -245,7 +245,9 @@ Versions as of 2026-10-16.
 | AV1 video | rav1d | 1.1.0 | BSD-2-Clause |
 | WebM container | matroska-demuxer or webm-iterable | 0.8.1 / 0.7.1 | Zlib, MIT or Apache-2.0 / MIT |
 | Localization at run time | fluent | 0.17.0 | MIT or Apache-2.0 |
-| Images and textures (M7) | ktx2, intel_tex_2 (BC7) | 0.5.0, 0.5.0 | Apache-2.0; MIT or Apache-2.0 |
+| Images and textures (M3, #700): a KTX2 writer and a BC7 encoder | ktx2, intel_tex_2 (BC7) | 0.5.0, 0.5.0 | Apache-2.0; MIT or Apache-2.0 |
+| The sound's Opus (M3, #701): a decoder | libopus through a binding (chosen with #701) | — | BSD-3-Clause |
+| The game's archives (M3, #699) | zip | — | MIT |
 | Tests | insta, proptest | 1.49.0, 1.12.0 | Apache-2.0; MIT or Apache-2.0 |
 | Scripts: the translated NetScript, and mods after 1.0 (#725) | mlua with its `luau` feature (Luau vendored) | 0.12.2 | MIT |
 | Upscaling through ONNX (M7, optional) | ort | 2.0.0-rc.14 | MIT or Apache-2.0 |
