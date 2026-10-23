@@ -133,6 +133,8 @@ The growth is added in `0x581F80`, not here.
 The skills' function `0x566070`, which the stats' recomputation runs after it, then shortens the times of some arts by some skills (#507).
 `0x582A20(art, level, bonus)` gives the same for one art.
 The drops' `a` is the sum of the levels of a hero's arts without their bonuses (`0x5598B0`, docs/re/items.md).
+`0x588990` (its log calls it `FixSpellVector`), for a hero of a player (an id of 16 or below) whose list holds more entries than it is given, marks each entry's table by its id (1 below 1,000, else 2), takes out an entry of the id 0 or 1,104 and above, of the level 0, of neither table, or of an art not of the hero's class (`0x4D1B20`, `0x4D24C0`), then every later entry of an id already held, and logs the old and the new counts (read 2026-10-23, #510).
+No code calls it (no call, no address of it in the program); among the code that writes the list's end itself it is the only one that shortens it, and a vector's own functions, reached with the list's address, were not searched, so what leaves a template's rune-taught arts out of a new game is still open.
 
 ## The regeneration
 
@@ -292,8 +294,14 @@ Measured in the original (2026-10-23, by the coordinator with #448's driver: imm
 
 Read 2026-10-23 (#510) in the Gladiator's 1060 (`0x5019D6`; the other classes' kicks not read, #650): once what is left of the clip is less than 0.4 of it (0.45 with a weapon of class 2 or 3), the target takes a strike with the factor and, by a roll of 0 to 99 below `0x4FC9D0(L, target)`, is knocked down.
 The chance is `100 · 5L/M` per cent, `M` the target's level (`+0x3FE`, through `0x552230` for a player's), 0 for the types 52, 53, 55, 74, 88, 100 to 103, 136, 137, 141, 144, 182, 183, 185, 237, 250 to 252, 336, 348, 360, 363, 365, 367, 701 and 1249, times 0.769 for a boss (`+0x1F4` bit `0x80000`) and 0.833 for the types of `0x426CB0`.
-A knocked target's `+0x24D` takes `[+0x60] · min(1, 5L/M)`, 1,000 times for every kick (**hypothesis**: milliseconds down), and above 10 it plays its slot 175 (`0x593770`, at 3.0).
+A knocked target's `+0x24D` takes `[+0x60] · min(1, 5L/M)`, 1,000 times for every kick, and above 10 it plays its slot 175 (`0x593770`, at 3.0).
 The kicks' `+0x58` and `+0x5C` (40 to 55 and 5 to 7 by the level) are not read on this path.
+
+Measured in the original (2026-10-23, by the coordinator with #448's driver, two runs: the Gladiator of level 1 in a new game, 1060 learnt and set as the right button's art, an immortal goblin warrior of level 1, a probe at about 1 ms):
+
+- the clip 148 ran about 1.07 and 1.10 s, and the kick struck once, +633 and +665 ms after its start, the factor 1.0 (the clip's 1.22 s at the rate 1.0 and `GameSpeed` 1.25 make 0.98 s, whose 0.6 is 0.59 s, then the next tick);
+- at the strike's frame the goblin's `+0x24D` became 1,000 and its action went from 3 to 0;
+- `+0x24D` then fell at every frame, by 6 or 7 at 60 frames a second, about 400 a second, to 0 about 2.49 s after the strike and to −1 a frame later, and the goblin took the action 1 (it stood and walked) about 0.7 s after that: so a knockdown of 1,000 keeps its target down about 2.5 s and up again some 3.2 s after the kick (**hypothesis**: the fall is the frame's time times 400; not read).
 
 ### The right button
 
@@ -398,10 +406,10 @@ Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts
 Each entry carries its time at level 1 as the stats' recomputation left it: the record's, shortened by the class's skill where one shortens it (#507; the Seraphim's 1071 15.0 and her 18 24.0, the records'; the Gladiator's 1059 13.39 and 1057 7.14, the records' 15 and 8 over 1.12).
 `opensacred_formats::amh` reads them (`Amh::arts`, matching `amh_dump.py --arts`), and `opensacred-convert heroes` writes them into `heroes.ron` (#506).
 
-In the original's new game the Seraphim has the first alone, 1071 at level 1 of the time 15.0, its entry as the template's (seen 2026-10-22 with #448's driver), and the Gladiator 1059 alone (seen 2026-10-23, #507); the hero's loader `0x585C60` reads every entry, and what drops the others is not read.
+In the original's new game the Seraphim has the first alone, 1071 at level 1 of the time 15.0, its entry as the template's (seen 2026-10-22 with #448's driver), and the Gladiator 1059 alone (seen 2026-10-23, #507); the hero's loader `0x585C60` reads every entry, and what drops the others is not read (not `0x588990`, "A creature's arts" above).
 The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new game keeps the arts of the template that no rune taught: the Daemon's 1097 and 1092 and the Vampiress's 1022 and 1023, pairs of their forms, and the first of the others (**confirmed** in the original 2026-10-23 with the driver's `arts`: the Daemon's 1097 of 32.0 s and 1092 of 12.0 s, the Vampiress's 1022 of 30.0 s and 1023 of 2.7 s, each at level 1).
 `opensacred_rules::arts::Arts::new_game` keeps them, their times by their records shortened by the hero's skills (#507), and the game gives them to the hero (#506).
 
 ## Open
 
-What the spells' objects give their targets (`FX_…`, above; #652); the special weapon arts' executors (#653: the jumps 1003, 1017 and 1032 in part, 1004 to 1008, 1010 to 1016, 1018 to 1021, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what drops a template's arts that a rune taught from a new game; the effects 59's fields and 7 to 10's (above).
+What the spells' objects give their targets (`FX_…`, above; #652); the special weapon arts' executors (#653: the jumps 1003, 1017 and 1032 in part, 1004 to 1008, 1010 to 1016, 1018 to 1021, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
