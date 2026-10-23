@@ -45,6 +45,7 @@ Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in t
 | `logs --after N` | the log's records from number N on |
 | `wait-log PATTERN` (`--after N`, `--timeout S`) | wait for a record whose `target: message` matches the regular expression, and print it |
 | `call METHOD [JSON]` | any method of the protocol, Bevy's too, with JSON parameters |
+| `shell` | the maintainer's, by hand in a terminal (#550): a line a command of the game, `:CALL` one of these (`:state`, `:screenshot FILE`, `:logs` from the last shown, `:follow on`, `:help`), `:quit`; lines piped in run as a script, each echoed as `> line` |
 
 `--port N` before the call talks to a game on another port (15702 by default).
 

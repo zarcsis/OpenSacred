@@ -274,6 +274,8 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 
 * The keys and clicks go to the game through the protocol: posted to the window from outside, a click loses its cursor at once (the system reports the cursor leaving the window it is not over), and moving the system's cursor would take the maintainer's.
 * A run with nothing to wait on needs no server: `--exec "new-game --class mage; wait ready; screenshot <scratch>/shot.png; quit"` or `--script FILE` (docs/10 §6).
+* By hand, `python -I tools/game/remote.py shell` reads lines in a terminal (#550): a line is a command of the game, one starting with `:` a call of the client (`:state`, `:click X Y`, `:screenshot FILE`, `:logs`, `:follow on`, `:help`), and `:quit` ends the shell and leaves the game running.
+  An error ends the line rather than the shell, and lines piped in run as a script; with `--port 15703` it drives the original (§3.8).
 * Screenshots and logs taken this way show the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
 
 ### 3.8 Driving the original
@@ -293,6 +295,7 @@ python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
 python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
 python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
+python -I tools/game/remote.py --port 15703 shell                    # by hand: a command a line, ":help" the client's own
 python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
 python -I tools/game/remote.py --port 15703 logs --after 0
 python -I tools/game/remote.py --port 15703 exec quit
