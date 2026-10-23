@@ -166,7 +166,10 @@ With `T` 0, in order, `C` the creature's class (`0x43ADC0`):
 4. Else, unless `C` is 11, a weapon (category 5) in `DropWaffe` (330) ‰.
 5. Else, unless `C` is 11, armour in `DropRuestung` (880) ‰: one of eleven categories (6, 13, 17, 18, 19, 21, 22, 23, 24, 25 and 29, the bridles drawn once again).
 6. Else, unless the same creature made the last jewel, a ring (in two cases of three) or an amulet (categories 8 and 20).
-7. Else, and wherever no type is found, the dagger 1712: so a creature makes one jewel at most, and a later pass that comes to the jewel makes the dagger.
+   The last is a global, the id (`+0x0C`) of the creature that made the last jewel (`0xAD4000`, read again 2026-10-23, #610), which a jewel made sets and nothing clears.
+7. Else, and wherever no type is found, the dagger 1712: so a creature makes one jewel at most until another creature makes one, and a later pass that comes to the jewel makes the dagger.
+   The same holds over its deaths: the driver's `drop --id`, which makes one creature drop again and again, made one jewel in 1,000 drops of a goblin warrior of level 10 and the dagger 24 times (2026-10-23, #610), where the game, which kept the last jewel within a death alone, made 14 jewels and the dagger 16 times.
+   The runes have their own such global (`0xAD3FFC`).
 
 `DropSonst` (1000) is stored by the balance's parser and read by no code.
 For potions, runes and gold `k` becomes at least 16.
@@ -257,6 +260,7 @@ Of the drops: the boss switch's cases (`0x533E2E`) and the type 183's last item;
 An NPC's items in its hands are made at its level by their templates (#309, `opensacred_rules::fight::Templates::make`): their damage, resistances, `A` and `D`, without the magic bonus, the triples, the quality pass, the difficulty's term (bronze's 0) or a fixed item's own values (docs/decisions/2026-10-20-weapons.md).
 
 The drops' rules are `opensacred_rules::drops` (#414), which the game calls as a creature dies (#415, below): a death's calls and their bonus (`Rules::calls`), a call's chance and its passes with their tries, the bonus compounded by the creature's worth, the quality key by the weights of the tail of `Balance.bin` (`tables/balance.ron`, #413), the kind, the type by `0x5C7FA0`'s choice over the types of the items table, `tables/items.ron`'s slots and the types that `weapons.ron` derives from them with their roots' entries and the category of 4053 (`Catalogue`, #596), the item's levels `lo` and `hi`, gold's pile and amount, and the item's values by the maker at its level, by its key; the result is a list of drops (`drops::drops`), each with its kind, its type, its level, its key, the maker's key, its amount and its values.
+The game keeps the creature that made the last jewel over the deaths (#610), so that a creature's drops made again by `drop` make one jewel, as the original's do.
 The runes, the uniques, the set pieces, the bosses' drops by their type, `SetDrop`, the set's potions, the party's factor and the effects 856 and 868 are left out, the keys 0 and 1 falling back as the original's do where it finds no unique or set piece (docs/decisions/2026-10-21-drops.md).
 
 The game makes them (#415, `drops`): as an NPC dies (the component `npcs::Dies` added), a creature hostile to the living hero, not of the types 71 or 75, drops on bronze, the hero's type, level and skills taken for its class and what it can wear, the time played that of the game since it started, the luck 100; each drop is its item's model with its texture (`items.pak +0x70`, `+0x08`), a derived type's its root's, thrown from the creature's place at the height 60 and flown by `opensacred_rules::drops::Flight` (`0x44DFE0`) over the heights a creature stands at (`terrain::Heights::standing`), its velocity along the ground turning back at every frame as the original's (#478), so that it rises and falls within a unit of the creature's place, the gold piles and the runes upright, until it rests, where it lies.
