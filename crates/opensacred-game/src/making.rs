@@ -75,7 +75,7 @@ pub fn clips(
     slots: Option<&Slots>,
     points: &HashMap<String, Vec<f32>>,
 ) -> Vec<ArtClipName> {
-    [Style::Attacke, Style::Rundum, Style::Hardhit]
+    [Style::Attacke, Style::Rundum, Style::Hardhit, Style::Kick]
         .into_iter()
         .filter_map(|style| {
             let action = arts::action(kind, style, class)?;
@@ -88,11 +88,18 @@ pub fn clips(
                 .and_then(|name| points.get(&name.to_ascii_uppercase()))
                 .cloned()
                 .unwrap_or_default();
+            // A kick strikes at its class's point of its clip, not at the clip's hit points.
+            let points = if style == Style::Kick {
+                vec![arts::kick_point(kind, class)]
+            } else {
+                arts::hit_points(&floats)
+            };
             Some(ArtClipName {
                 style,
                 clip,
-                points: arts::hit_points(&floats),
+                points,
                 rate: action.rate,
+                fixed: action.fixed,
                 halved: class == 8,
             })
         })
@@ -358,7 +365,11 @@ fn make(
             let clip_speed = combat.map_or(1.0, |combat| combat.clip_speed());
             transitions
                 .play(&mut player, node, BLEND)
-                .set_speed(speed.0 * clip_speed * action.rate);
+                .set_speed(if action.fixed {
+                    speed.0 * action.rate
+                } else {
+                    speed.0 * clip_speed * action.rate
+                });
             let factor = held_factor(arts::factor(record, level), action.halved);
             if style == Style::Rundum {
                 arts.start(making.art);
@@ -441,6 +452,45 @@ fn make(
                     end(&mut commands);
                 }
             }
+            Style::Kick => {
+                // One strike at its point, which may knock its target back; its clip plays on
+                // to its end (#650).
+                if playing.struck == 0 && due(playing.points.first().copied().unwrap_or(0.6), done)
+                {
+                    playing.struck = 1;
+                    if let Ok((_, _, mind, health)) = creatures.get(playing.target)
+                        && health.current > 0
+                    {
+                        hits.write(hit(playing.target, &playing));
+                        let chance = arts::knockback_chance(
+                            playing.level,
+                            (mind.creature, mind.level),
+                            mind.flags & BOSS != 0,
+                            mind.big,
+                        );
+                        let roll = to_f32(dice.0.below(100));
+                        let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                        if roll < chance
+                            && let Some(left) = record.and_then(|record| {
+                                arts::knockback(record, playing.level, mind.level)
+                            })
+                        {
+                            commands
+                                .entity(playing.target)
+                                .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                                .insert(Knocked {
+                                    by: hero,
+                                    from: here,
+                                    left: to_f32(left),
+                                });
+                        }
+                    }
+                    arts.start(making.art);
+                }
+                if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Hardhit => {
                 if due(hardhit_point(&playing.points), done) {
                     if creatures.get(playing.target).is_ok() {
@@ -504,6 +554,59 @@ fn make(
     }
 }
 
+/// A creature that a kick knocks back (`0x594D12`, the flag `0x20000` of `+0x200`): it slides
+/// away from its kicker `by`, from its place `from` where it is gone, at
+/// `arts::KNOCKBACK_SPEED` until it has gone `left` (`+0x24D`), doing nothing else; its walk
+/// and strike are ended as it is knocked.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Knocked {
+    pub by: Entity,
+    pub from: Vec3,
+    pub left: f32,
+}
+
+/// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
+const BOSS: u32 = 0x80000;
+
+/// Slides each knocked-back creature away from its kicker at every frame (`0x594D12`): a step of
+/// `arts::KNOCKBACK_SPEED` times the frame's time, at most `arts::KNOCKBACK_STEP` of it, taken
+/// from what is left; the step moves it where it may stand on its level, else it stays; with
+/// nothing left it is free again.
+fn knock(
+    mut commands: Commands,
+    time: Res<Time>,
+    heights: Res<crate::terrain::Heights>,
+    places: Query<&GlobalTransform>,
+    mut knocked: Query<(
+        Entity,
+        &mut Transform,
+        &mut Knocked,
+        &crate::crowd::InTheWay,
+    )>,
+) {
+    let dt = time.delta_secs().min(arts::KNOCKBACK_STEP);
+    for (entity, mut transform, mut knock, way) in &mut knocked {
+        if knock.left <= 0.0 {
+            commands.entity(entity).remove::<Knocked>();
+            continue;
+        }
+        let from = places
+            .get(knock.by)
+            .map_or(knock.from, GlobalTransform::translation);
+        let away = (transform.translation - from)
+            .with_y(0.0)
+            .normalize_or_zero();
+        let step = arts::KNOCKBACK_SPEED * dt;
+        knock.left -= step;
+        let to = transform.translation + away * step;
+        let cell = crate::paths::cell_of(to.x, to.z);
+        if heights.walkable_on((cell.0, cell.1), way.level) {
+            transform.translation.x = to.x;
+            transform.translation.z = to.z;
+        }
+    }
+}
+
 /// A whole number of world units as a float.
 fn to_f32(value: u32) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
@@ -525,7 +628,8 @@ impl Plugin for MakingPlugin {
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
-            );
+            )
+            .add_systems(Update, knock.in_set(Unpaused).in_set(Step::HeroMove));
     }
 }
 

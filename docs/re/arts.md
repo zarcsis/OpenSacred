@@ -292,16 +292,21 @@ Measured in the original (2026-10-23, by the coordinator with #448's driver: imm
 
 ### The kicks
 
-Read 2026-10-23 (#510) in the Gladiator's 1060 (`0x5019D6`; the other classes' kicks not read, #650): once what is left of the clip is less than 0.4 of it (0.45 with a weapon of class 2 or 3), the target takes a strike with the factor and, by a roll of 0 to 99 below `0x4FC9D0(L, target)`, is knocked down.
-The chance is `100 · 5L/M` per cent, `M` the target's level (`+0x3FE`, through `0x552230` for a player's), 0 for the types 52, 53, 55, 74, 88, 100 to 103, 136, 137, 141, 144, 182, 183, 185, 237, 250 to 252, 336, 348, 360, 363, 365, 367, 701 and 1249, times 0.769 for a boss (`+0x1F4` bit `0x80000`) and 0.833 for the types of `0x426CB0`.
-A knocked target's `+0x24D` takes `[+0x60] · min(1, 5L/M)`, 1,000 times for every kick, and above 10 it plays its slot 175 (`0x593770`, at 3.0).
+Read 2026-10-23 (#510) in the Gladiator's 1060 (`0x5019D6`; the other classes' kicks not read, #650): once what is left of the clip is less than 0.4 of it (0.45 with a weapon of class 2 or 3), the target takes a strike with the factor and, by a roll of 0 to 99 below `0x4FC9D0(L, target)`, is knocked back.
+The Seraphim's 1072 (`0x5038F0` at `0x50408E`) strikes once what is left is less than 0.6 of its clip, by the same rule (read 2026-10-23, #650).
+The chance is `100 · 5L/M` per cent, `M` the target's level (`+0x3FE`, through `0x552230` for a player's), 0 for the types 52, 53, 55, 74, 88, 100 to 103, 136, 137, 141, 144, 182, 183, 185, 237, 250 to 252, 336, 348, 360, 363, 365, 367, 701 and 1249, times 0.769 for a boss (`+0x1F4` bit `0x80000`) and 0.833 for the big types of `0x426CB0` (`Creature.pak` flags bit `0x02`).
+A knocked target's `+0x24D` takes `[+0x60] · min(1, 5L/M)`, 1,000 times for every kick; above 10 (and unless the target's `+0x200` has bit `0x40` and the kicker's not, not read) it plays its slot 175, its first hit clip (`HIT_A`), at 3.0 with the blend 0.25 (`0x593770`), and takes an event of kind 3 with the kicker and the distance; the kicker makes an object of type 842 at its place (not followed).
+The target then slides away from its kicker (`0x594D12`, under `+0x200` bit `0x20000`, the kicker at `+0x259`, read 2026-10-23, #650): at every frame a step of 400 units a second times the frame's time, at most 0.3 s of it, with a carry in 16.16 at `+0x379`, along the line from the kicker's place to its own, moved where it may go (`0x4EBC40`), the step taken from `+0x24D` whether it moved or not; at 0 or below `+0x24D` is −1 and the bit cleared.
 The kicks' `+0x58` and `+0x5C` (40 to 55 and 5 to 7 by the level) are not read on this path.
 
 Measured in the original (2026-10-23, by the coordinator with #448's driver, two runs: the Gladiator of level 1 in a new game, 1060 learnt and set as the right button's art, an immortal goblin warrior of level 1, a probe at about 1 ms):
 
 - the clip 148 ran about 1.07 and 1.10 s, and the kick struck once, +633 and +665 ms after its start, the factor 1.0 (the clip's 1.22 s at the rate 1.0 and `GameSpeed` 1.25 make 0.98 s, whose 0.6 is 0.59 s, then the next tick);
 - at the strike's frame the goblin's `+0x24D` became 1,000 and its action went from 3 to 0;
-- `+0x24D` then fell at every frame, by 6 or 7 at 60 frames a second, about 400 a second, to 0 about 2.49 s after the strike and to −1 a frame later, and the goblin took the action 1 (it stood and walked) about 0.7 s after that: so a knockdown of 1,000 keeps its target down about 2.5 s and up again some 3.2 s after the kick (**hypothesis**: the fall is the frame's time times 400; not read).
+- `+0x24D` then fell at every frame, by 6 or 7 at 60 frames a second, about 400 a second, to 0 about 2.49 s after the strike and to −1 a frame later, and the goblin took the action 1 (it stood and walked) about 0.7 s after that: the slide of 1,000 at 400 a second (above; where the goblin went was not measured).
+
+In `opensacred-game` (#650, `making`): the Gladiator's 1060 and the Seraphim's 1072 play 148 and 81 at the rate 1.0 times `GameSpeed`, strike once at their point (`opensacred_rules::arts::kick_point`), roll the knockback (`knockback_chance`, `knockback`) and leave the target `making::Knocked`, which slides it away from the hero at 400 a second, at most 0.3 s a frame, onto the cells it may stand on, its mind, walk and strikes held until the slide ends; the target's clip 175, the event and the object 842 are left out, and the other classes' kicks wait for their executors (#649).
+In the game the Gladiator's 1060 on a goblin warrior struck 616 ms after its start; the goblin slid one cell, the walls of the start's room in its way, and struck again about 3.5 s after the kick.
 
 ### The right button
 

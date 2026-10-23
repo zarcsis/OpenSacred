@@ -663,6 +663,40 @@ fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
 }
 
 #[test]
+fn a_kick_strikes_at_its_classs_point_and_may_knock_its_target_back() {
+    assert_eq!(style(1060), Some(Style::Kick));
+    assert_eq!(style(1072), Some(Style::Kick));
+    assert_eq!(style(1068), Some(Style::Kick));
+    // The Gladiator's 148 and the Seraphim's 81, at the rate 1.0 whatever the attack speed.
+    let fixed = |kind| match action(kind, Style::Kick, 1) {
+        Some(ArtAction {
+            clip: ArtClip::Slot(slot),
+            rate,
+            fixed: true,
+        }) => Some((slot, rate)),
+        _ => None,
+    };
+    assert_eq!(fixed(2), Some((148, 1.0)));
+    assert_eq!(fixed(1), Some((81, 1.0)));
+    assert_eq!(kick_point(2, 1), 0.6);
+    assert_eq!(kick_point(2, 3), 0.55);
+    assert_eq!(kick_point(1, 2), 0.4);
+    // The Gladiator's 1060 at level 1 on a goblin warrior of level 1: 500 %, always; on one of
+    // level 10, 50 %; a boss and a big one less; a dragon (52) never.
+    assert_eq!(knockback_chance(1, (76, 1), false, false), 500.0);
+    assert_eq!(knockback_chance(1, (76, 10), false, false), 50.0);
+    assert!((knockback_chance(1, (76, 10), true, false) - 38.461_54).abs() < 1e-3);
+    assert!((knockback_chance(1, (76, 10), false, true) - 41.666_67).abs() < 1e-3);
+    assert_eq!(knockback_chance(1, (52, 1), false, false), 0.0);
+    // 1,000 back, as the original's goblin took (#650), or less against a stronger target.
+    let mut kick = weapon_art(1060, [5.0, 3.0], 2);
+    kick.value_60 = [1000, 0];
+    assert_eq!(knockback(&kick, 1, 1), Some(1000));
+    assert_eq!(knockback(&kick, 1, 10), Some(500));
+    assert_eq!(knockback(&kick, 1, 600), None);
+}
+
+#[test]
 fn a_rundum_looks_from_its_classs_part_of_its_clip() {
     // The Gladiator's from 0.3 of its clip to its end: the original's 1057 struck first at
     // +766 ms of about 1.85 s (#644).
@@ -684,6 +718,7 @@ fn an_arts_action_plays_its_classs_clip_for_what_it_holds() {
         Some(ArtAction {
             clip: ArtClip::Slot(slot),
             rate,
+            fixed: false,
         }) => Some((slot, rate)),
         _ => None,
     };
