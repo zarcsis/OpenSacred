@@ -23,7 +23,7 @@ Example
 Expected output: the log's records, a line each, `sequence seconds LEVEL target: message`; the exit code is the
 game's. Dependencies: frida, Pillow (tools/requirements.txt); Windows.
 """
-import argparse, ctypes, hashlib, http.server, json, os, queue, re, signal, sys, tempfile, threading, time
+import argparse, ctypes, hashlib, http.server, json, os, queue, re, signal, struct, sys, tempfile, threading, time
 from ctypes import wintypes
 
 import frida
@@ -58,6 +58,19 @@ SAVES_NAME = lambda row: (455, 324 + 137 * row)    # a row's name field
 SAVES_PICTURE = lambda row: (135, 360 + 137 * row)  # a row's picture, which picks it
 SAVE_NAME_OFFSET = 0x500        # the save's name in save/GAMEnn.PAK, a C string
 SAVE_NAME = re.compile(r'[A-Za-z0-9 _.-]{1,24}')
+FPU_PRECISION = {0: '24 bits', 1: 'reserved', 2: '53 bits', 3: '64 bits'}   # the x87 control word's bits 8 and 9
+
+
+def single(value):
+    """A float of the original as the shortest decimal that reads back as the same float (#589): 1.4300001, not 1.43."""
+    if float(value).is_integer() and abs(value) < 1e15:
+        return str(int(value))
+    exact = struct.pack('<f', value)
+    for digits in range(6, 10):
+        text = f'{value:.{digits}g}'
+        if struct.pack('<f', float(text)) == exact:
+            return text
+    return repr(value)
 
 # The world's commands (#451). A cell that the scripts' Teleport takes for the end of the game (sdk_ENGINE_TP) is
 # refused; the interface's bar covers the window's bottom, where a click would not reach the ground.
@@ -480,7 +493,9 @@ class Host:
                 'saves: the saves of save/, their files and names',
                 'creatures [RADIUS]: the creatures within RADIUS cells of the hero (20 by default), the nearest first',
                 "stats [ID]: a creature's stats, the hero's by default: its attributes, A and D, each kind's damage "
-                'and resistance with their multipliers, its attack speed and its health',
+                'and resistance with their multipliers (each float exact), its attack speed and its health',
+                "fpu: the x87 control word and its precision on the render thread's frame, where the commands run, "
+                "and in the latest stats' recomputation and strike, with their threads",
                 'cell X,Y [FLOOR]: the hero onto that cell (on the ground, or a building\'s floor), or the nearest one '
                 'it may stand on, as the scripts teleport a player',
                 'sector X,Y: the hero into that sector, near its middle',
@@ -833,17 +848,34 @@ class Host:
     def command_stats(self, rest):
         oid = int(rest) if rest.strip() else None
         s = self.world('stats', {'id': oid})
-        kinds = lambda values: ', '.join(f'{v:g}' for v in values)
+        kinds = lambda values: ', '.join(single(v) for v in values)
         return [
             f"{s['id']} type {s['type']} level {s['level']} health {s['health'][0]}/{s['health'][1]}",
             f"attributes {kinds(s['attributes'])} (base {kinds(s['base'])})",
-            f"A {s['attack']:g} times {s['attackMultiplier']:g}, D {s['defence']:g} times {s['defenceMultiplier']:g}",
+            f"A {single(s['attack'])} times {single(s['attackMultiplier'])}, D {single(s['defence'])} times "
+            f"{single(s['defenceMultiplier'])}",
             f"damage least {kinds(s['least'])}, most {kinds(s['most'])}, times {kinds(s['itemMultipliers'])} "
             f"plus {kinds(s['multipliers'])}",
             f"resistances {kinds(s['resistances'])}, times {kinds(s['resistanceMultipliers'])}",
             f"attack speed {s['speeds'][0]}, then {s['speeds'][1]} and {s['speeds'][2]}; other multipliers "
             f"{kinds(s['other'])}",
         ]
+
+    def command_fpu(self, rest):
+        if rest:
+            raise ValueError('fpu')
+        seen = self.world('fpu', {})
+        lines = []
+        for where in ('frame', 'recompute', 'strike'):
+            if where in seen and 'error' in seen[where]:
+                lines.append(f"{where}: thread {seen[where]['thread']}, {seen[where]['error']}")
+            elif where in seen:
+                word = seen[where]['word']
+                lines.append(f"{where}: thread {seen[where]['thread']}, control word 0x{word:04X}, "
+                             f'{FPU_PRECISION[(word >> 8) & 3]}')
+            else:
+                lines.append(f'{where}: none seen yet')
+        return lines
 
     def command_cell(self, rest, search=8):
         where, _, floor = rest.partition(' ')
@@ -1027,7 +1059,8 @@ class Host:
 
 
 WORLD_COMMANDS = {
-    'creatures': Host.command_creatures, 'stats': Host.command_stats, 'cell': Host.command_cell,
+    'creatures': Host.command_creatures, 'stats': Host.command_stats, 'fpu': Host.command_fpu,
+    'cell': Host.command_cell,
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
