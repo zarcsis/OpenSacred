@@ -176,7 +176,8 @@ enum Command {
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
     /// The hero's combat arts, as the original's driver lists them: each one's table, id, level
-    /// and bonus, whether a rune taught it, its time, its factor and what is still to run
+    /// and bonus, whether a rune taught it, its time, its factor and what is still to run, which
+    /// runs down as they regenerate
     Arts {
         #[command(subcommand)]
         action: Option<ArtsAction>,
@@ -202,6 +203,9 @@ enum ArtsAction {
     },
     /// Every art of the hero ready at once
     Ready,
+    /// A use of ART, as the hero's making it starts the regeneration: every art of its kind
+    /// takes its time to run
+    Use { art: u16 },
 }
 
 /// What a script waits for.
@@ -1083,6 +1087,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             match action {
                 Some(ArtsAction::Learn { art, levels }) => arts.learn(art, levels.unwrap_or(1))?,
                 Some(ArtsAction::Ready) => arts.ready(),
+                Some(ArtsAction::Use { art }) => arts.start(art),
                 None => {}
             }
             Ok(Outcome {

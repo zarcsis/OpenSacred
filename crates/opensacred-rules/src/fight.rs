@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
+use crate::arts;
 use crate::spawning::{Dice, Rng, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
@@ -988,7 +989,7 @@ pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
 /// `off` at level 1, `w` at level `S + 1`, `off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`; none
 /// below level 1. The world's x87 unit computes it at 53 bits and stores it as a float (#589,
 /// #593): the float nearest the doubles' result, which single precision can miss by a bit.
-fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
+pub(crate) fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
     if level < 1 || steps <= 0.0 {
         return 0.0;
     }
@@ -1221,10 +1222,7 @@ pub fn combat(
                 809 => attack_times = raised(attack_times, value),
                 810 => defence_times = raised(defence_times, value),
                 811 => speed_bonus += value,
-                815..=820 => {
-                    // `a0`, `a2`, `a1`, `a3`, `a4`, `a5` in the effects' order.
-                    let attribute = [0, 2, 1, 3, 4, 5]
-                        [usize::try_from(bonus.effect & 0xFFFF).unwrap_or(815) - 815];
+                effect if let Some(attribute) = attribute_of(effect) => {
                     attribute_bonuses[attribute] += value.trunc();
                 }
                 _ => {}
@@ -1320,6 +1318,41 @@ pub fn combat(
             .trunc()
             .clamp(100.0, 220.0),
     }
+}
+
+/// The attribute that an item's bonus of `effect` (the low 16 bits of its effect) raises
+/// (`0x5796A0`): 815 to 820 the attributes `a0`, `a2`, `a1`, `a3`, `a4`, `a5` in turn.
+fn attribute_of(effect: u32) -> Option<usize> {
+    let at = usize::try_from((effect & 0xFFFF).checked_sub(815)?).ok()?;
+    [0, 2, 1, 3, 4, 5].get(at).copied()
+}
+
+/// The speeds that the arts of a creature of `base` at level `level` regenerate at, holding
+/// `holds` (`0x5796A0`, [`arts::Speeds::of`]): its items' bonuses 813 and 814 (`0x32D`,
+/// `0x32E`) and its attributes `MagicRegen` (4) and `PhysicalRegen` (3), grown by its level and
+/// raised by its items' (as [`combat`]'s, held at 0 and above); no effect `0xB` yet.
+pub fn arts_speeds(base: &Base, level: u32, holds: &Holds) -> arts::Speeds {
+    let level = level.max(1);
+    let grown = base
+        .attributes
+        .map(|b| u32::from(b) + u32::from(b) * (level - 1) / 10);
+    let mut bonuses = [0.0_f32; 2];
+    let mut attribute_bonuses = [0.0_f32; 6];
+    for item in &holds.items {
+        for bonus in item.bonuses.iter().filter(|bonus| bonus.holds(base.id)) {
+            let value = bonus.value(grown);
+            match bonus.effect & 0xFFFF {
+                813 => bonuses[0] += value * 0.01,
+                814 => bonuses[1] += value * 0.01,
+                effect if let Some(attribute) = attribute_of(effect) => {
+                    attribute_bonuses[attribute] += value.trunc();
+                }
+                _ => {}
+            }
+        }
+    }
+    let a: [f32; 6] = std::array::from_fn(|i| (to_f32(grown[i]) + attribute_bonuses[i]).max(0.0));
+    arts::Speeds::of(bonuses, 0.0, a[4], a[3], base.id)
 }
 
 /// The values of a strike between `attacker` and `defender` on bronze (`0x56B130`): a creature
@@ -2392,6 +2425,55 @@ mod tests {
             words[(offset - 4) / 2] = value;
         }
         words
+    }
+
+    /// The arts' speeds by the attributes `MagicRegen` (4) and `PhysicalRegen` (3), grown by the
+    /// level and raised by the items, and the items' bonuses 813 and 814.
+    #[test]
+    fn the_arts_speeds_follow_the_regeneration_attributes_and_the_items() {
+        let base = Base {
+            id: 1,
+            attributes: [10, 10, 10, 50, 20, 10],
+            ..Base::default()
+        };
+        assert_eq!(
+            arts_speeds(&base, 1, &Holds::default()),
+            arts::Speeds {
+                spells: 1.2,
+                weapon_arts: 1.5
+            }
+        );
+        // At level 11 the attributes grow by their tenth each level: 40 and 100.
+        assert_eq!(
+            arts_speeds(&base, 11, &Holds::default()),
+            arts::Speeds {
+                spells: 1.4,
+                weapon_arts: 2.0
+            }
+        );
+        let mut bonuses = [Bonus::default(); BONUSES];
+        for (slot, effect, value) in [(0, 813, 10), (1, 818, 10)] {
+            bonuses[slot] = Bonus {
+                condition: 0,
+                effect,
+                value,
+            };
+        }
+        let holds = Holds {
+            items: vec![ItemValues {
+                bonuses,
+                ..ItemValues::default()
+            }],
+            ..Holds::default()
+        };
+        // The spells' 1.1 · 1.2, the weapon arts' by `PhysicalRegen` 50 + 10.
+        assert_eq!(
+            arts_speeds(&base, 1, &holds),
+            arts::Speeds {
+                spells: 1.32,
+                weapon_arts: 1.6
+            }
+        );
     }
 
     #[test]

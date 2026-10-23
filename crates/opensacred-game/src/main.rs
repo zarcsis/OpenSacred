@@ -228,6 +228,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         ai::AiPlugin,
         arrows::ArrowsPlugin,
+        arts::ArtsPlugin,
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
         benchmark::BenchmarkPlugin,
@@ -240,9 +241,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
         drops::DropsPlugin,
-        fight::FightPlugin,
     ))
     .add_plugins((
+        fight::FightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
         help::HelpPlugin,
@@ -257,9 +258,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         npcs::NpcsPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
-        screenshot::ScreenshotPlugin,
     ))
     .add_plugins((
+        screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         shaders::ShaderLibrary,
