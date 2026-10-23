@@ -2005,6 +2005,23 @@ pub fn hit_due([first, second]: [f32; 2], struck: u8, done: f32) -> bool {
     }
 }
 
+/// The turn from a strike to the next that the held button asks for, in seconds at an attack
+/// speed's factor of 1: the hit's tick queues the next strike's clip with 0.2 (`0x5491F0`, called
+/// by the attack action 3's sub-state 1, `0x4E4CF0`), which it keeps over the attack speed's factor
+/// and the creature's `+0x2C9`, 1.0 (`+0x221`), and the next clip starts as the strike's has that
+/// much left (observed, #707).
+pub const STRIKE_TURN: f32 = 0.2;
+
+/// Whether the hero's strike gives way to the next that the held button asks for, `struck` hits
+/// sent of the clip's `fractions` and `left` seconds left of its clip at the attack speed's factor
+/// `speed`: once its hits are struck, the first and a second where there is one, and what is left
+/// is at most [`STRIKE_TURN`] over `speed`, so that the Seraphim's one-handed strikes, 1.9 s at
+/// 1.54 times the game's speed of 1.25, come 0.86 s apart rather than 0.99 (#707).
+pub fn strike_gives_way([_, second]: [f32; 2], struck: u8, left: f32, speed: f32) -> bool {
+    let hits = if second > 0.0 { 2 } else { 1 };
+    struck >= hits && left <= STRIKE_TURN / speed
+}
+
 /// Whether a shot's arrow leaves, `done` of its clip played, `a` the clip's first fraction
 /// (`MotionDesc +0xA0`, `0x4DD90E`): once what is left of the clip is at most `1 − a` of it, at
 /// once for an `a` of 0, at the half for one of 1 or more.
@@ -2023,7 +2040,8 @@ pub fn hero_hits(distance: f32, reach: u32) -> bool {
 /// one, a click elsewhere ends it, and so does its target's death (not `alive`); else it strikes
 /// again while the player asks for it (`asked`: the button that sent it still held, or a click
 /// since the strike began), as the original's attack action keeps its first half while the button
-/// is held and starts it anew at a click during its second (#705).
+/// is held, starting the next strike at the hit ([`strike_gives_way`]), and starts it anew at a
+/// click during its second (#705).
 pub fn attack_ends(at_once: bool, ends: bool, alive: bool, asked: bool) -> bool {
     at_once || ends || !alive || !asked
 }
@@ -2506,6 +2524,22 @@ mod tests {
         assert!(attack_ends(true, false, true, true));
         assert!(attack_ends(false, true, true, true));
         assert!(attack_ends(false, false, false, true));
+    }
+
+    #[test]
+    fn a_held_strike_gives_way_to_the_next_before_its_clip_ends() {
+        // The Seraphim's one-handed clip: one hit, 0.987 s at 1.54 times 1.25; the next starts with
+        // 0.13 s left, 0.857 s after the strike's start.
+        let speed = 1.54;
+        assert!(!strike_gives_way([0.39, 0.0], 0, 0.1, speed));
+        assert!(!strike_gives_way([0.39, 0.0], 1, 0.14, speed));
+        assert!(strike_gives_way([0.39, 0.0], 1, 0.129, speed));
+        assert!((0.987 - STRIKE_TURN / speed - 0.857).abs() < 0.001);
+        // A clip of two hits waits for its second.
+        assert!(!strike_gives_way([0.3, 0.95], 1, 0.05, speed));
+        assert!(strike_gives_way([0.3, 0.95], 2, 0.05, speed));
+        // A faster strike turns sooner.
+        assert!(!strike_gives_way([0.39, 0.0], 1, 0.1, 2.2));
     }
 
     #[test]

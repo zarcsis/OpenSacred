@@ -158,7 +158,9 @@ pub(crate) fn aim(
 /// target is then within 1.5 times the reach, its strikes at an even pace. It strikes again while
 /// the button that sent it is held or a click asks for another (the original's attack action keeps
 /// its first half while the button is held, #705), until the target dies; a strike at once or in
-/// the air is one.
+/// the air is one. With the button held, the next strike starts as soon as this one's hits are
+/// struck and its clip has the turn to the next left (`minds::strike_gives_way`, #707); a click
+/// waits for the clip's end.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -208,6 +210,9 @@ fn engage(
         else {
             continue;
         };
+        // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
+        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed());
+        let mut blend = BLEND;
         if let Some(mut striking) = striking {
             let Some(active) = player.animation(striking.node) else {
                 commands.entity(hero).remove::<Striking>();
@@ -228,18 +233,31 @@ fn engage(
                     });
                 }
             }
-            if active.is_finished() {
+            // With the button held, the next strike starts before this one's clip ends, the one
+            // fading into the other over what is left (`0x5491F0`, #707).
+            let left = (striking.length - active.seek_time()).max(0.0) / (speed.0 * attack_speed);
+            if attack.held
+                && !attack.at_once
+                && !attack.ends
+                && target.is_some()
+                && minds::strike_gives_way(striking.fractions, striking.struck, left, attack_speed)
+            {
                 commands.entity(hero).remove::<Striking>();
-                if minds::attack_ends(
-                    attack.at_once,
-                    attack.ends,
-                    target.is_some(),
-                    attack.held || attack.asked,
-                ) {
-                    commands.entity(hero).remove::<Attack>();
+                blend = Duration::from_secs_f32(left.max(0.001));
+            } else {
+                if active.is_finished() {
+                    commands.entity(hero).remove::<Striking>();
+                    if minds::attack_ends(
+                        attack.at_once,
+                        attack.ends,
+                        target.is_some(),
+                        attack.held || attack.asked,
+                    ) {
+                        commands.entity(hero).remove::<Attack>();
+                    }
                 }
+                continue;
             }
-            continue;
         }
         let aimed = match (attack.target, target) {
             (Some(_), Some(at)) => at,
@@ -271,10 +289,8 @@ fn engage(
             .get(clip)
             .map_or(1.0, AnimationClip::duration)
             .max(0.01);
-        // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
-        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed());
         transitions
-            .play(&mut player, *node, BLEND)
+            .play(&mut player, *node, blend)
             .set_speed(speed.0 * attack_speed);
         attack.asked = false;
         commands.entity(hero).insert(Striking {
