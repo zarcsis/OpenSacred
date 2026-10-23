@@ -119,8 +119,9 @@ const OWN: [(u16, &[u16]); 4] = [
 
 /// How far beyond the two creatures' reach an `Attacke` strikes (`0x4FF0B0`, `0x5038F0`).
 pub const ATTACKE_BEYOND: u32 = 45;
-/// The measure of its clip before which a `Rundum` strikes (`0x4FF0B0`).
-pub const RUNDUM_UNTIL: f32 = 0.7;
+/// What is left of its clip, as a part of it, below which the Gladiator's `Rundum` looks for
+/// its creatures (`0x4FF0B0` at `0x500CCC`): from 0.3 of the clip to its end.
+const RUNDUM_LEFT: f32 = 0.7;
 /// How near a bone a `Rundum`'s creature must be, whatever its radius (`0x4FF0B0`).
 const RUNDUM_MOST: u32 = 1000;
 
@@ -130,8 +131,8 @@ pub enum Style {
     /// A strike at each hit point of its clip on its target, or on the next hostile creature,
     /// within the reach and [`ATTACKE_BEYOND`].
     Attacke,
-    /// Strikes before [`RUNDUM_UNTIL`] of its clip on the creatures nearest its weapons' and
-    /// hands' bones within its radius ([`rundum_radius`]).
+    /// Strikes, while it looks ([`rundum_looks`]), the creatures nearest its weapons' and hands'
+    /// bones within its radius ([`rundum_radius`]).
     Rundum,
     /// One strike on its target at its clip's hit point.
     Hardhit,
@@ -191,6 +192,14 @@ pub fn attacke_target(target: Option<Candidate>, others: &[Candidate]) -> Option
         .iter()
         .find(|c| Some(c.id) != current && within(c))
         .map(|c| c.id)
+}
+
+/// Whether the `Rundum` of a creature of type `kind`, `done` of its clip played, looks for the
+/// creatures about its bones: the Gladiator's (2) while what is left of its clip is less than
+/// [`RUNDUM_LEFT`] of it (`0x4FF0B0` at `0x500CCC`), the Seraphim's (`0x5038F0` at `0x504F37`),
+/// the Dark Elf's and the Wood Elf's throughout (docs/re/arts.md, "A `Rundum`'s run", #644).
+pub fn rundum_looks(kind: u32, done: f32) -> bool {
+    kind != 2 || 1.0 - done < RUNDUM_LEFT
 }
 
 /// The radius about a bone within which a `Rundum` of `record` at its level in play `level`

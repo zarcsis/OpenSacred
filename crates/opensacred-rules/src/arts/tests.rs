@@ -656,6 +656,22 @@ fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
 }
 
 #[test]
+fn a_rundum_looks_from_its_classs_part_of_its_clip() {
+    // The Gladiator's from 0.3 of its clip to its end: the original's 1057 struck first at
+    // +766 ms of about 1.85 s (#644).
+    assert!(!rundum_looks(2, 0.0));
+    assert!(!rundum_looks(2, 0.29));
+    assert!(rundum_looks(2, 0.31));
+    assert!(rundum_looks(2, 0.99));
+    // The Seraphim's throughout: her 1069 struck at +215 and +1249 ms of about 1.45 s.
+    assert!(rundum_looks(SERAPHIM, 0.0));
+    assert!(rundum_looks(SERAPHIM, 0.86));
+    // The Dark Elf's and the Wood Elf's alike.
+    assert!(rundum_looks(4, 0.1));
+    assert!(rundum_looks(5, 0.95));
+}
+
+#[test]
 fn an_arts_action_plays_its_classs_clip_for_what_it_holds() {
     let slot = |kind, style, class| match action(kind, style, class) {
         Some(ArtAction {

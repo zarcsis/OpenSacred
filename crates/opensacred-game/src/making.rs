@@ -445,8 +445,8 @@ fn make(
                     continue;
                 }
                 // It looks for the creatures about its bones as its executor runs, on the
-                // world's tick (**hypothesis**, #617).
-                if done >= arts::RUNDUM_UNTIL || tick.seconds.is_none() {
+                // world's tick (**hypothesis**, #617), the Gladiator's from 0.3 of its clip.
+                if !arts::rundum_looks(arts.kind, done) || tick.seconds.is_none() {
                     continue;
                 }
                 let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art)
