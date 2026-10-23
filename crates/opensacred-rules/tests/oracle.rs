@@ -216,7 +216,7 @@ fn the_most_health_is_the_originals() {
         let most = if v.hero {
             hero_health(v.base, v.level, &[], &rules)
         } else {
-            most_health(v.base, v.level, &[], &rules)
+            most_health(v.base, v.level, &[], 1.0, &rules)
         };
         assert_eq!(
             most, v.most,

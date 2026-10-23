@@ -1576,13 +1576,22 @@ fn played_level(level: u32, minutes: u32) -> u32 {
 /// `⌊S^g · 10/31⌋` (#408); the 100 for 0 comes before the factors, so a most that they take
 /// below 1 is 0 (#417), which no creature of `Creature.pak` reaches, the least of its attributes
 /// 0 and 3 together being 7 (type 135); raised by its skill 10 before the factors (`skills`,
-/// [`hero_health`], #498). No items, bosses or champions yet (docs/decisions/2026-10-20-health.md).
-pub fn most_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rules) -> u32 {
+/// [`hero_health`], #498); a boss's or a champion's by its rank's factor `rank` ([`Rank::health`])
+/// after the skill and before the 100 for 0 and the level's factor, each taken whole (#579). No
+/// items yet (docs/decisions/2026-10-20-health.md).
+pub fn most_health(
+    base: [u8; 6],
+    level: u32,
+    skills: &[(u8, u32)],
+    rank: f32,
+    rules: &Rules,
+) -> u32 {
     let level_f32 = f32::from(u16::try_from(level).unwrap_or(u16::MAX));
     health_of(
         base,
         level,
         health_raise(skills, rules),
+        rank,
         f64::from(rules.level_factor(level_f32) * rules.factor),
     )
 }
@@ -1591,7 +1600,7 @@ pub fn most_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rule
 /// (`0x5658F0`): as a creature's, without the factors of a creature not a hero, raised by its
 /// skill 10's per cent of the curve `HP…VW` (`skills`, `0x566070`) and taken whole (#492).
 pub fn hero_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rules) -> u32 {
-    health_of(base, level, health_raise(skills, rules), 1.0)
+    health_of(base, level, health_raise(skills, rules), 1.0, 1.0)
 }
 
 /// The skill 10's raise of a most health (`0x5658F0`): its per cent of the curve `HP…VW` at its
@@ -1607,9 +1616,9 @@ fn health_raise(skills: &[(u8, u32)], rules: &Rules) -> f32 {
 /// The factor of the health's exponent by the base (the float at `0x891298`, a little under 0.004).
 const HEALTH_EXPONENT: f32 = 0.003_996_323_3;
 
-/// The most health of `base` at `level`, times `factor` (`0x5658F0`), in double precision as the
-/// client's FPU computes it: the exponent's factor a float, the rest doubles.
-fn health_of(base: [u8; 6], level: u32, raise: f32, factor: f64) -> u32 {
+/// The most health of `base` at `level`, times `rank` and then `factor` (`0x5658F0`), in double
+/// precision as the client's FPU computes it: the exponent's factor a float, the rest doubles.
+fn health_of(base: [u8; 6], level: u32, raise: f32, rank: f32, factor: f64) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
     let l = f64::from(level.max(1) - 1);
     let (a0, a3) = (a + (l * a / 10.0).floor(), b + (l * b / 10.0).floor());
@@ -1626,6 +1635,12 @@ fn health_of(base: [u8; 6], level: u32, raise: f32, factor: f64) -> u32 {
         most
     } else {
         (most * f64::from(1.0 + raise)).trunc()
+    };
+    // A boss's or a champion's factor, taken whole, before the 100 for 0 and the level's factor.
+    let most = if rank == 1.0 {
+        most
+    } else {
+        (most * f64::from(rank)).trunc()
     };
     let most = if most <= 0.0 { 100.0 } else { most };
     #[expect(
@@ -1648,8 +1663,8 @@ mod tests {
         let base = [20, 0, 10, 15, 0, 0];
         let g = 1.5 + f64::from(HEALTH_EXPONENT) * 25.0;
         let expected = (35.0_f64.powf(g) * 10.0 / 31.0).floor();
-        assert_eq!(f64::from(most_health(base, 1, &[], &rules)), expected);
-        assert!(most_health(base, 10, &[], &rules) > most_health(base, 1, &[], &rules));
+        assert_eq!(f64::from(most_health(base, 1, &[], 1.0, &rules)), expected);
+        assert!(most_health(base, 10, &[], 1.0, &rules) > most_health(base, 1, &[], 1.0, &rules));
         // The wolf's base, as a hero's type, at the levels 1, 10 and 100, as the original's
         // `0x5658F0` gives them (the oracle's vectors, #363, #408).
         let wolf = [8, 10, 18, 13, 0, 1];
@@ -1657,7 +1672,7 @@ mod tests {
         assert_eq!(hero_health(wolf, 10, &[], &Rules::default()), 139);
         assert_eq!(hero_health(wolf, 100, &[], &Rules::default()), 2588);
         // A base that gives nothing gives 100.
-        assert_eq!(most_health([0; 6], 1, &[], &rules), 100);
+        assert_eq!(most_health([0; 6], 1, &[], 1.0, &rules), 100);
         // A most of 1 that a level's factor of 0.75 takes below 1 is 0, as the original's (#417).
         let weak = Rules {
             points: vec![(1.0, 0.75), (4.0, 0.8)],
@@ -1674,14 +1689,36 @@ mod tests {
         // level 3 at level 9 raises its most by 13.7 %.
         let horse = [30, 0, 20, 30, 0, 0];
         let (with, without) = (
-            most_health(horse, 9, &[(10, 3)], &rules),
-            most_health(horse, 9, &[], &rules),
+            most_health(horse, 9, &[(10, 3)], 1.0, &rules),
+            most_health(horse, 9, &[], 1.0, &rules),
         );
         let raise = 1.0 + f64::from(curve(rules.curves.health, 3)) / 100.0;
         assert!(near(curve(rules.curves.health, 3), 13.692));
         assert!(f64::from(with) > f64::from(without) * (raise - 0.01));
         assert!(f64::from(with) < f64::from(without) * (raise + 0.01));
-        assert_eq!(most_health([1; 6], 1, &[], &weak), 0);
+        assert_eq!(most_health([1; 6], 1, &[], 1.0, &weak), 0);
+    }
+
+    #[test]
+    fn a_bosss_factor_comes_before_the_levels_each_taken_whole() {
+        // The boss 577 of 55,39 at level 3 (base 19 and 10): the curve gives 98, the boss's 2.5
+        // makes 245 and the level's 0.8 on bronze 196, the original's; the level's factor first
+        // would give 78 and then 195 (#579).
+        let rules = Rules {
+            points: vec![
+                (1.0, 0.75),
+                (4.0, 0.8),
+                (10.0, 0.9),
+                (20.0, 1.0),
+                (35.0, 1.1),
+            ],
+            ..Rules::default()
+        };
+        let boss = [19, 20, 20, 10, 0, 15];
+        assert_eq!(most_health(boss, 3, &[], 1.0, &rules), 78);
+        assert_eq!(most_health(boss, 3, &[], 2.5, &rules), 196);
+        // A factor that takes the most to 0 gives 100 before the level's factor, as 0 does.
+        assert_eq!(most_health([0; 6], 3, &[], 2.5, &rules), 80);
     }
 
     #[test]
@@ -1992,12 +2029,12 @@ mod tests {
         };
         let base = [22, 19, 25, 22, 22, 17];
         assert_eq!(
-            most_health(base, 1, &[], &rules),
+            most_health(base, 1, &[], 1.0, &rules),
             2 * hero_health(base, 1, &[], &Rules::default())
         );
         assert_eq!(
             hero_health(base, 1, &[], &Rules::default()),
-            health_of(base, 1, 0.0, 1.0)
+            health_of(base, 1, 0.0, 1.0, 1.0)
         );
     }
 
