@@ -27,7 +27,7 @@ cargo run -p opensacred-convert -- verify                 # OriginalGame/ agains
 cargo run --release -p opensacred-convert -- textures     # PAK/texture*.pak → assets-src/textures/<pak>/<number>-<name>.png
 cargo run --release -p opensacred-convert -- models       # PAK/models*.pak → assets-src/models/<pak>/<number>-<name>.glb (after textures; VTex textures need FFmpeg)
 cargo run --release -p opensacred-convert -- world        # World/ + tiles.pak, items.pak, mixed.pak → assets-src/world/ (world.ron, sectors/, sprites.bin)
-cargo run --release -p opensacred-convert -- sound        # sound.pak, sndProfiles.pak, mp3/ → assets-src/sound/ (FLAC via FFmpeg, MP3, sound.ron)
+cargo run --release -p opensacred-convert -- sound        # sound.pak, sndProfiles.pak, mp3/ → assets-src/sound/ (FLAC via FFmpeg, the MP3s decoded, sound.ron)
 cargo run --release -p opensacred-convert -- text         # scripts/us/global.res → assets-src/text/en-US/global.ftl
 cargo run --release -p opensacred-convert -- video        # movie/*.wmv → assets-src/video/*.webm (AV1 + Opus via FFmpeg)
 cargo run --release -p opensacred-convert -- ui           # PAK/*.bmp → PNG, fonts, credits → assets-src/ui/
