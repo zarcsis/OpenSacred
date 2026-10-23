@@ -4556,6 +4556,7 @@ dependencies = [
 name = "opensacred-data"
 version = "0.0.0"
 dependencies = [
+ "crc32fast",
  "miniz_oxide 0.9.1",
  "postcard",
  "serde",
@@ -4580,7 +4581,6 @@ dependencies = [
  "bevy",
  "bevy_kira_audio",
  "clap",
- "miniz_oxide 0.9.1",
  "opensacred-data",
  "opensacred-rules",
  "png",

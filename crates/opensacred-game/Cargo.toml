@@ -14,7 +14,6 @@ anyhow.workspace = true
 bevy.workspace = true
 bevy_kira_audio.workspace = true
 clap.workspace = true
-miniz_oxide.workspace = true
 opensacred-data.workspace = true
 opensacred-rules.workspace = true
 png.workspace = true
