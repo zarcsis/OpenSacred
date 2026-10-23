@@ -388,8 +388,13 @@ const STROLL_FARM: i32 = 150;
 /// strolls.
 const POST: f32 = 90.0;
 const STROLL_GUARD: i32 = 200;
-/// The chance of a stroll, a frame's 1 in 101 at 30 frames a second, as a rate a second.
-const STROLLS_A_SECOND: f32 = 30.0 / 101.0;
+/// The world's tick, on which the original updates its creatures (`0x5375C0`): the render loop
+/// (`0x60E350`) gathers the frames' time and ticks once it is above 0.1 s, every 6 or 7 frames
+/// at 60 frames a second, 108 ms on average (#616).
+const TICK: f32 = 0.108;
+/// The chance of a stroll, a tick's 1 in 101 (`0x4EF150`), as a rate a second, about one in
+/// 11 s (#608).
+const STROLLS_A_SECOND: f32 = 1.0 / (101.0 * TICK);
 /// The chance that an idle creature sharing its cell parts, a frame's 1 in 6, as a rate a second
 /// (`0x544890`), and how far about home or itself it goes.
 const PARTS_A_SECOND: f32 = 30.0 / 6.0;
@@ -632,6 +637,11 @@ impl Mind {
     /// The time `dt` gone by of its wait before its next strike.
     pub fn rest(&mut self, dt: f32) {
         self.rests = (self.rests - dt).max(0.0);
+    }
+
+    /// Whether it is a guard by its behaviour (`0x4000`).
+    pub fn is_guard(&self) -> bool {
+        self.flags & GUARD != 0
     }
 
     /// Whether it is a farm or a wild animal by its behaviour.
@@ -1090,20 +1100,20 @@ impl Mind {
         .then(|| parting(self.home, here, rng))
     }
 
-    /// What it does now by its behaviour, awake and standing at `here`, `crowded` or not, in a
-    /// frame of `dt` seconds, the nearest it fears at `fear` (`behaviour`): an animal strolls
-    /// at a rate of 30 in 101 a second, or at once where another shares its cell, and a guard at
-    /// the same rate.
+    /// What it does now by its behaviour, awake at `here`, `crowded` or not, walking to
+    /// `walking` or standing, in a frame of `dt` seconds, the nearest it fears at `fear`
+    /// (`behaviour`): an animal strolls at a tick's 1 in 101 ([`STROLLS_A_SECOND`]), or at once
+    /// where another shares its cell, and a guard at the same rate.
     pub fn behaves(
         &self,
         here: Spot,
         fear: Option<Spot>,
-        crowded: bool,
+        (crowded, walking): (bool, Option<Spot>),
         dt: f32,
         rng: &mut Rng,
     ) -> Option<(Spot, Why)> {
         let strolls = chance(rng, STROLLS_A_SECOND, dt) || (crowded && self.is_animal());
-        behaviour(self, here, fear, strolls, rng)
+        behaviour(self, here, fear, (strolls, walking), rng)
     }
 
     /// Where it steps aside to, walking at `here`, at the hero's look from `hero` (`0x547070`):
@@ -1725,15 +1735,21 @@ fn flight(here: Spot, fear: Spot, rng: &mut Rng) -> Spot {
 /// than 380 along an axis, and strolls within 100 of home by chance; a farm animal (`0x10`,
 /// `0x20`) steps away from such a creature within 200, to the point beyond itself, and strolls
 /// within 150 of home; a guard (`0x4000`) strolls within 200 of its post by chance, else walks
-/// back to it from farther than 90 along an axis. The walk's target and why it walks.
+/// back to it from farther than 90 along an axis. The animals decide only standing, a guard
+/// walking to `walking` too, at every tick whatever its action (`0x4EE030` tests the action
+/// `+0x150` for the animals alone; #608): so a guard on a stroll farther than 90 turns back to
+/// its post and strays hardly a tick's walk beyond it. The walk's target and why it walks.
 fn behaviour(
     mind: &Mind,
     here: Spot,
     fear: Option<Spot>,
-    strolls: bool,
+    (strolls, walking): (bool, Option<Spot>),
     rng: &mut Rng,
 ) -> Option<(Spot, Why)> {
     let near = |within: f32| fear.filter(|f| (*f - here).length() < within);
+    if walking.is_some() && mind.flags & GUARD == 0 {
+        return None;
+    }
     if mind.flags & (WILD | WILD_TOO) != 0 {
         if let Some(fear) = near(FLEE) {
             return Some((flight(here, fear, rng), Why::Flees));
@@ -1755,7 +1771,8 @@ fn behaviour(
             return Some((about(mind.home, STROLL_GUARD, rng), Why::Strolls));
         }
         let from_post = (here - mind.home).abs();
-        return (from_post.x > POST || from_post.y > POST).then_some((mind.home, Why::GoesBack));
+        let back = from_post.x > POST || from_post.y > POST;
+        return (back && walking != Some(mind.home)).then_some((mind.home, Why::GoesBack));
     }
     None
 }
@@ -2667,7 +2684,7 @@ mod tests {
         // Within 300 of the hero the rabbit runs from it, by half to twice its distance along x
         // and across by up to half of none; beyond, it stands.
         for _ in 0..100 {
-            let (to, why) = behaviour(&rabbit, home, Some(hero), false, &mut rng).unwrap();
+            let (to, why) = behaviour(&rabbit, home, Some(hero), (false, None), &mut rng).unwrap();
             assert_eq!(why, Why::Flees);
             assert!(
                 (800.0..=950.0).contains(&to.x) && (950.0..=1050.0).contains(&to.y),
@@ -2675,18 +2692,24 @@ mod tests {
             );
         }
         let far = at(1400.0, 1000.0);
-        assert_eq!(behaviour(&rabbit, home, Some(far), false, &mut rng), None);
+        assert_eq!(
+            behaviour(&rabbit, home, Some(far), (false, None), &mut rng),
+            None
+        );
         // Within 200 the pig walks to the point beyond itself; at 300 it stands.
-        let (to, why) = behaviour(&pig, home, Some(hero), false, &mut rng).unwrap();
+        let (to, why) = behaviour(&pig, home, Some(hero), (false, None), &mut rng).unwrap();
         assert!(
             why == Why::StepsAway && (to - at(900.0, 1000.0)).length() < 0.01,
             "{to:?}"
         );
         let near = at(1300.0, 1000.0);
-        assert_eq!(behaviour(&pig, home, Some(near), false, &mut rng), None);
+        assert_eq!(
+            behaviour(&pig, home, Some(near), (false, None), &mut rng),
+            None
+        );
         // Farther than 380 from home the rabbit walks back within 50 of it.
         let strayed = home + at(0.0, 400.0);
-        let (to, why) = behaviour(&rabbit, strayed, None, false, &mut rng).unwrap();
+        let (to, why) = behaviour(&rabbit, strayed, None, (false, None), &mut rng).unwrap();
         let d = to - home;
         assert!(
             why == Why::GoesBack && d.x.abs() <= 50.0 && d.y.abs() <= 50.0,
@@ -2694,10 +2717,10 @@ mod tests {
         );
         // A stroll stays within 100 of home for the rabbit, 150 for the pig.
         for _ in 0..200 {
-            let (to, _) = behaviour(&rabbit, home, None, true, &mut rng).unwrap();
+            let (to, _) = behaviour(&rabbit, home, None, (true, None), &mut rng).unwrap();
             let d = to - home;
             assert!(d.x.abs() <= 100.0 && d.y.abs() <= 100.0, "{d:?}");
-            let (to, _) = behaviour(&pig, home, None, true, &mut rng).unwrap();
+            let (to, _) = behaviour(&pig, home, None, (true, None), &mut rng).unwrap();
             let d = to - home;
             assert!(d.x.abs() <= 150.0 && d.y.abs() <= 150.0, "{d:?}");
         }
@@ -2710,22 +2733,46 @@ mod tests {
         let guard = Mind::new(post, 0x4000, (false, true), None, SPEEDS, (0, 3));
         // Within 90 of its post along each axis it stands; farther it walks back to it.
         let near = post + at(90.0, -90.0);
-        assert_eq!(behaviour(&guard, near, None, false, &mut rng), None);
+        assert_eq!(behaviour(&guard, near, None, (false, None), &mut rng), None);
         let far = post + at(20.0, 95.0);
         assert_eq!(
-            behaviour(&guard, far, None, false, &mut rng),
+            behaviour(&guard, far, None, (false, None), &mut rng),
             Some((post, Why::GoesBack))
         );
         // By chance it strolls within 200 of its post, from wherever it stands; it fears no one.
         let hero = Some(far + at(1.0, 0.0));
         for _ in 0..100 {
-            let (to, why) = behaviour(&guard, far, hero, true, &mut rng).unwrap();
+            let (to, why) = behaviour(&guard, far, hero, (true, None), &mut rng).unwrap();
             let d = to - post;
             assert!(
                 why == Why::Strolls && d.x.abs() <= 200.0 && d.y.abs() <= 200.0,
                 "{d:?}"
             );
         }
+        // Walking, it decides too: on a stroll farther than 90 it turns back to its post, within
+        // 90 it walks on, going back already it goes on, and it may stroll again (#608).
+        let stroll = Some(post + at(180.0, -150.0));
+        assert_eq!(
+            behaviour(&guard, far, None, (false, stroll), &mut rng),
+            Some((post, Why::GoesBack))
+        );
+        assert_eq!(
+            behaviour(&guard, near, None, (false, stroll), &mut rng),
+            None
+        );
+        assert_eq!(
+            behaviour(&guard, far, None, (false, Some(post)), &mut rng),
+            None
+        );
+        let (_, why) = behaviour(&guard, far, None, (true, stroll), &mut rng).unwrap();
+        assert_eq!(why, Why::Strolls);
+        // An animal decides only standing.
+        let rabbit = Mind::new(post, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        let strayed = post + at(500.0, 0.0);
+        assert_eq!(
+            behaviour(&rabbit, strayed, None, (true, stroll), &mut rng),
+            None
+        );
     }
 
     #[test]
@@ -2908,7 +2955,7 @@ mod tests {
         let mut rng = Rng::of(0, 0, 3);
         for frames in [30.0_f32, 144.0] {
             let dt = 1.0 / frames;
-            // 1,000 seconds' frames, about 297 strolls.
+            // 1,000 seconds' frames, about 92 strolls, a tick's 1 in 101.
             #[expect(
                 clippy::cast_possible_truncation,
                 clippy::cast_sign_loss,
@@ -2918,7 +2965,7 @@ mod tests {
             let strolls = (0..count)
                 .filter(|_| chance(&mut rng, STROLLS_A_SECOND, dt))
                 .count();
-            assert!((240..360).contains(&strolls), "{frames}: {strolls}");
+            assert!((65..125).contains(&strolls), "{frames}: {strolls}");
         }
     }
 

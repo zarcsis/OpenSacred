@@ -947,7 +947,10 @@ fn behave(
     npcs: Option<Res<Npcs>>,
     clock: Res<Clock>,
     daemon: Res<Daemon>,
-    mut creatures: Query<(Entity, &mut Transform, &InTheWay, &mut Mind, Has<Walk>), Without<Body>>,
+    mut creatures: Query<
+        (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
+        Without<Body>,
+    >,
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
         return;
@@ -1000,8 +1003,11 @@ fn behave(
         .iter()
         .filter_map(|(_, _, _, mind, _)| mind.partner)
         .filter_map(|partner| {
-            let (_, transform, _, mind, walking) = creatures.get(partner).ok()?;
-            Some((partner, (transform.translation, walking, mind.trader)))
+            let (_, transform, _, mind, walk) = creatures.get(partner).ok()?;
+            Some((
+                partner,
+                (transform.translation, walk.is_some(), mind.trader),
+            ))
         })
         .collect();
     // The hero's hostiles, which put the townsfolk near them in danger: the creatures of flag
@@ -1037,11 +1043,27 @@ fn behave(
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
-    for (entity, transform, way, mut mind, walking) in &mut creatures {
-        if walking {
+    for (entity, transform, way, mut mind, walk) in &mut creatures {
+        let here = transform.translation;
+        if let Some(walk) = walk {
+            // A guard decides as it walks too, the others only standing (`0x4EE030`, #608): on a
+            // stroll it turns back to its post from farther than 90.
+            let walking = (false, Some(spot(walk.target())));
+            if mind.active
+                && mind.is_guard()
+                && !walk.comes_on()
+                && let Some((target, why)) =
+                    mind.behaves(spot(here), None, walking, dt, &mut minds.rng)
+            {
+                let target = point(target, here.y);
+                debug!(
+                    "ai: {entity} {why:?} on its way from {:.0},{:.0} to {:.0},{:.0}",
+                    here.x, here.z, target.x, target.z
+                );
+                walks.push((entity, Walk::to(target, way.level, mind.speed)));
+            }
             continue;
         }
-        let here = transform.translation;
         // Through its door, in or out, it closes it behind it (the sub-states 2 and 3).
         if let Some(door) = mind.door.take() {
             swings.push((door, false));
@@ -1437,9 +1459,13 @@ fn behave(
                 let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
                 da.total_cmp(&db)
             });
-        let Some((target, why)) =
-            mind.behaves(spot(here), fear.map(spot), crowded, dt, &mut minds.rng)
-        else {
+        let Some((target, why)) = mind.behaves(
+            spot(here),
+            fear.map(spot),
+            (crowded, None),
+            dt,
+            &mut minds.rng,
+        ) else {
             continue;
         };
         let target = point(target, here.y);
@@ -1470,10 +1496,10 @@ fn behave(
     // (`0x4EE820`); not one sent off this frame (`sent`).
     for (leader, at) in playing {
         let (lx, ly) = sector(at);
-        for (entity, transform, _, mut mind, walking) in &mut creatures {
+        for (entity, transform, _, mut mind, walk) in &mut creatures {
             let (x, y) = sector(transform.translation);
             if entity != leader
-                && !walking
+                && walk.is_none()
                 && !sent.contains(&entity)
                 && mind.is_child()
                 && mind.partner.is_none()
