@@ -272,6 +272,64 @@ impl Ranks {
     }
 }
 
+/// How many values a row of the bands of the levels holds (`0x56A890`).
+const BANDS: usize = 5;
+
+/// The balance's rows of the factor of a creature's strike at the hero by its level
+/// (`0x56A890`): the factors (`WaffenAll`, five floats) and the levels that start the bands
+/// (`AllOverLv`, five integers).
+#[derive(Clone, Debug, PartialEq)]
+struct Bands {
+    factors: [f32; BANDS],
+    levels: [i32; BANDS],
+}
+
+impl Default for Bands {
+    /// The original's values.
+    fn default() -> Self {
+        Self {
+            factors: [0.6, 0.65, 0.75, 0.85, 0.95],
+            levels: [0, 4, 10, 20, 35],
+        }
+    }
+}
+
+impl Bands {
+    /// The rows of `b`, each value the original's where the balance lacks it.
+    fn of(b: &Balance) -> Self {
+        let default = Self::default();
+        Self {
+            factors: std::array::from_fn(|i| {
+                b.row_f32("WaffenAll", i).unwrap_or(default.factors[i])
+            }),
+            levels: std::array::from_fn(|i| b.row_i32("AllOverLv", i).unwrap_or(default.levels[i])),
+        }
+    }
+
+    /// The factor at the level `level` (`0x56A890`): the band `i` is the first of the first three
+    /// whose levels hold it, `levels[i] ≤ L ≤ levels[i + 1]`, else the fourth whatever the level
+    /// (the loop ends on its last band without its test); the factor
+    /// `factors[i] + (factors[i + 1] − factors[i])/(L − levels[i])` on the x87 unit at the
+    /// world's 53 bits, the step divided by the level's distance from the band's start rather
+    /// than interpolated (a quirk): 0.65 at level 1, 0.6125 at 4, 0.75 at 5, 0.667 at 10, 0.85
+    /// at 11, 0.76 at 20, 0.95 at 21 and toward 0.85 above. A factor of 0 or below is 1, and so
+    /// is the one of a level at its band's start, which the original divides by zero (the level 0
+    /// alone, on file).
+    fn factor(&self, level: u32) -> f64 {
+        let l = i32::from(u16::try_from(level).unwrap_or(u16::MAX));
+        let i = (0..BANDS - 2)
+            .find(|&i| self.levels[i] <= l && l <= self.levels[i + 1])
+            .unwrap_or(BANDS - 2);
+        let over = l.wrapping_sub(self.levels[i]);
+        if over == 0 {
+            return 1.0;
+        }
+        let (from, to) = (f64::from(self.factors[i]), f64::from(self.factors[i + 1]));
+        let factor = (to - from) / f64::from(over) + from;
+        if factor <= 0.0 { 1.0 } else { factor }
+    }
+}
+
 /// The experience that a hero of level `hero` earns for a creature of level `level` worth
 /// `[a, b]` (`0x57D860`): `a + E·b`, `E` the level on bronze's scale, the game's, times bronze's
 /// `ProzExp`, times the factor of the levels (`0x551530`): with `r = (E + 9)/(H + 9)` against
@@ -424,8 +482,10 @@ impl Rules {
 /// the experience's factor of bronze (`ProzExp`) and the levels' (`UnterExpAnteil`,
 /// `UnterExpVoll`, `ObereEXPVoll`); bronze's factors of the strikes between the hero and the
 /// creatures (`ProzAW`, `ProzDmg`, `ProzRes`); the hero's rates of regeneration fighting, with a
-/// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); and the distances and
-/// the share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`).
+/// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); the distances and the
+/// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); and the
+/// bands of the factor of a creature's strike at the hero by its level (`WaffenAll`,
+/// `AllOverLv`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
@@ -444,6 +504,7 @@ pub struct Rules {
     skill_levels: [u32; 6],
     ranks: Ranks,
     range: [f32; 3],
+    bands: Bands,
 }
 
 impl Default for Rules {
@@ -466,6 +527,7 @@ impl Default for Rules {
             skill_levels: [3, 6, 12, 20, 30, 50],
             ranks: Ranks::default(),
             range: [250.0, 1000.0, 0.25],
+            bands: Bands::default(),
         }
     }
 }
@@ -575,6 +637,7 @@ impl Rules {
                     b.f32("FernAWProz").unwrap_or(share),
                 ]
             },
+            bands: Bands::of(b),
         }
     }
 
@@ -1497,6 +1560,21 @@ pub fn range_factor(distance: f32, rules: &Rules) -> f32 {
     }
 }
 
+/// The factor of the sum of a strike's damage by its attacker's level, `level`
+/// (`0x56A890(attacker, defender)`, which the strike's resolution `0x56B130` calls at
+/// `0x56D05C`; docs/re/fight.md, "A strike's resolution"): for a creature striking the hero
+/// (`hero` the defender's side; in the original an attacker of an id above 16 and a defender of
+/// 16 or below) that is neither a boss (`+0x1F4` bit `0x80000`) nor a champion (`+0xB0` bit
+/// `0x400`, a champion's levelling), `WaffenAll`'s factor of its band of `AllOverLv`'s levels
+/// ([`Bands::factor`]); else 1. Its twin `0x56A800` takes `MagieAll` for two spells
+/// (`0x5ABD80`, `0x5B2600`), which the creatures do not cast yet.
+pub fn weapons_factor(hero: Option<Side>, level: u32, rank: Rank, rules: &Rules) -> f64 {
+    match (hero, rank) {
+        (Some(Side::Defender), Rank::Common) => rules.bands.factor(level),
+        _ => 1.0,
+    }
+}
+
 /// A side of a strike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
@@ -1528,28 +1606,30 @@ fn roll_damage(damage: &[[f32; 2]; KINDS], rng: &mut Rng) -> [f32; KINDS] {
 /// none when it misses (`0x56B130`): the chance `A/(A + D)` (`0x43EEE0`) against a roll of 0 to
 /// 1,000 over 1,000; each kind's damage `d` rolled, then `d·(1 − 1/(1 + d/r)^k)` against the
 /// kind's resistance `r`, `d²/(d + r)` for the exponent `k` of 1, less the defender's damping
-/// of bronze; the sum times the factor ([`scaled`]), at least 1, whole.
+/// of bronze; the sum, a float, times the factor of the attacker's level `weapons`
+/// ([`weapons_factor`]) and the strike's factor ([`taken`]), at least 1, whole.
 pub fn strike(
     attacker: &Combat,
     defender: &Combat,
-    (share, k): (f32, f32),
+    (share, k, weapons): (f32, f32, f64),
     rng: &mut Rng,
 ) -> Option<u32> {
     let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
-    Some(damage(attacker, defender, (share, k), rng))
+    Some(damage(attacker, defender, (share, k, weapons), rng))
 }
 
 /// A strike of a combat art of the second table at its level in play `level` (`0x56B130`: a
 /// hit's kind other than 0 by a creature in its action of the arts, or its action 5), its factor
 /// `factor` (`arts::factor`): its chance by the art's attack ([`art_attack`]) against a roll of
-/// 0 to 1,000 over 1,000, its damage as a plain strike's ([`strike`]) by the factor.
+/// 0 to 1,000 over 1,000, its damage as a plain strike's ([`strike`]) by the factor and by the
+/// factor of the attacker's level `weapons` ([`weapons_factor`]).
 pub fn art_strike(
     attacker: &Combat,
     defender: &Combat,
-    (factor, k): (f32, f32),
+    (factor, k, weapons): (f32, f32, f64),
     level: u32,
     rng: &mut Rng,
 ) -> Option<u32> {
@@ -1557,7 +1637,7 @@ pub fn art_strike(
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
-    Some(damage(attacker, defender, (factor, k), rng))
+    Some(damage(attacker, defender, (factor, k, weapons), rng))
 }
 
 /// The attack that a strike of a combat art of the second table takes into its hit's chance
@@ -1568,8 +1648,13 @@ pub fn art_attack(attack: f32, level: u32) -> f32 {
 }
 
 /// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
-/// the damping, summed and scaled by the strike's factor ([`scaled`]), at least 1, whole.
-fn damage(attacker: &Combat, defender: &Combat, (factor, k): (f32, f32), rng: &mut Rng) -> u32 {
+/// the damping, summed, and what the sum takes off the health ([`taken`]).
+fn damage(
+    attacker: &Combat,
+    defender: &Combat,
+    (factor, k, weapons): (f32, f32, f64),
+    rng: &mut Rng,
+) -> u32 {
     let total: f32 = roll_damage(&attacker.damage, rng)
         .iter()
         .zip(defender.resistance)
@@ -1578,7 +1663,16 @@ fn damage(attacker: &Combat, defender: &Combat, (factor, k): (f32, f32), rng: &m
             dealt(d, r, k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
-    whole(scaled(total, factor).max(1.0))
+    taken(total, factor, weapons)
+}
+
+/// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
+/// times the factor of the attacker's level `weapons` ([`weapons_factor`], at `0x56D05C`), the
+/// product on the x87 unit stored as a float, times the strike's factor `factor` ([`scaled`]),
+/// at least 1, whole (the skills' specials and the effects that follow are not read).
+fn taken(sum: f32, factor: f32, weapons: f64) -> u32 {
+    let sum = stored(weapons * f64::from(sum));
+    whole(scaled(sum, factor).max(1.0))
 }
 
 /// A strike's damage `total` times its factor `factor` (the event's `+0x1C`, `0x56B130`) where the
@@ -1848,6 +1942,8 @@ fn health_of(base: [u8; 6], level: u32, raise: f32, rank: f32, factor: f64) -> u
 
 #[cfg(test)]
 mod tests {
+    use opensacred_data::tables::{BalanceValue, BalanceVariable};
+
     use super::*;
 
     #[test]
@@ -2020,7 +2116,7 @@ mod tests {
         );
         let mut rng = Rng::of(50, 39, 0);
         let hits = (0..10_000)
-            .filter(|_| strike(&goblin, &wolf, (1.0, 1.0), &mut rng).is_some())
+            .filter(|_| strike(&goblin, &wolf, (1.0, 1.0, 1.0), &mut rng).is_some())
             .count();
         // A/(A + D) = 18.5/34.5 = 0.536.
         assert!((5_100..5_650).contains(&hits), "{hits}");
@@ -2030,7 +2126,7 @@ mod tests {
             ..wolf
         };
         let misses = (0..10_010)
-            .filter(|_| strike(&wolf, &open, (1.0, 1.0), &mut rng).is_none())
+            .filter(|_| strike(&wolf, &open, (1.0, 1.0, 1.0), &mut rng).is_none())
             .count();
         assert!((1..40).contains(&misses), "{misses}");
     }
@@ -2073,20 +2169,32 @@ mod tests {
             ..attacker
         };
         // 10²/(10 + 10) = 5; with a damping of 40 per cent, 3; half a strike, 2.
-        assert_eq!(strike(&attacker, &defender, (1.0, 1.0), &mut rng), Some(5));
+        assert_eq!(
+            strike(&attacker, &defender, (1.0, 1.0, 1.0), &mut rng),
+            Some(5)
+        );
         let damped = Combat {
             damping: [40, 0, 0, 0],
             ..defender
         };
-        assert_eq!(strike(&attacker, &damped, (1.0, 1.0), &mut rng), Some(3));
-        assert_eq!(strike(&attacker, &defender, (0.5, 1.0), &mut rng), Some(2));
+        assert_eq!(
+            strike(&attacker, &damped, (1.0, 1.0, 1.0), &mut rng),
+            Some(3)
+        );
+        assert_eq!(
+            strike(&attacker, &defender, (0.5, 1.0, 1.0), &mut rng),
+            Some(2)
+        );
         // Every kind below 1: 15 physical, of which a resistance of 0 lets 0.9999 through.
         let weak = Combat {
             damage: [[0.5, 0.9], [0.0; 2], [0.0; 2], [0.0; 2]],
             ..attacker
         };
-        assert_eq!(strike(&weak, &attacker, (1.0, 1.0), &mut rng), Some(14));
-        assert_eq!(strike(&weak, &defender, (1.0, 1.0), &mut rng), Some(9));
+        assert_eq!(
+            strike(&weak, &attacker, (1.0, 1.0, 1.0), &mut rng),
+            Some(14)
+        );
+        assert_eq!(strike(&weak, &defender, (1.0, 1.0, 1.0), &mut rng), Some(9));
     }
 
     /// A combat art's strike (#508): the attack `A · (1.3 + 0.125·L)` in its chance, as the
@@ -2121,9 +2229,9 @@ mod tests {
             (0..1000)
                 .filter_map(|_| {
                     if art {
-                        art_strike(&attacker, &defender, (0.8, 1.0), 1, rng)
+                        art_strike(&attacker, &defender, (0.8, 1.0, 1.0), 1, rng)
                     } else {
-                        strike(&attacker, &defender, (1.0, 1.0), rng)
+                        strike(&attacker, &defender, (1.0, 1.0, 1.0), rng)
                     }
                 })
                 .collect::<Vec<_>>()
@@ -2141,7 +2249,10 @@ mod tests {
             defence: 0.0,
             ..defender
         };
-        assert_eq!(strike(&attacker, &armoured, (1.0, 1.0), &mut rng), Some(1));
+        assert_eq!(
+            strike(&attacker, &armoured, (1.0, 1.0, 1.0), &mut rng),
+            Some(1)
+        );
     }
 
     #[test]
@@ -2335,6 +2446,98 @@ mod tests {
     }
 
     #[test]
+    fn a_creatures_strike_at_the_hero_is_times_the_factor_of_its_band_of_levels() {
+        let rules = Rules::default();
+        let at = |level| weapons_factor(Some(Side::Defender), level, Rank::Common, &rules);
+        // The step over the level's distance from its band's start, not interpolated.
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        for (level, factor) in [
+            (1, 0.65),
+            (2, 0.625),
+            (4, 0.6125),
+            (5, 0.75),
+            (6, 0.7),
+            (10, 0.65 + 0.1 / 6.0),
+            (11, 0.85),
+            (20, 0.76),
+            (21, 0.95),
+            (35, 0.85 + 0.1 / 15.0),
+            (40, 0.855),
+            (216, 0.85 + 0.1 / 196.0),
+        ] {
+            assert!(close(at(level), factor), "level {level}: {}", at(level));
+        }
+        // On the x87 unit at 53 bits: at level 1 the float 0.65 exactly.
+        assert_eq!(at(1), f64::from(0.65_f32));
+        // The level 0 would divide by zero.
+        assert_eq!(at(0), 1.0);
+        // Not a boss's nor a champion's, not the hero's, not between creatures.
+        for rank in [Rank::Boss, Rank::Champion] {
+            assert_eq!(weapons_factor(Some(Side::Defender), 1, rank, &rules), 1.0);
+        }
+        assert_eq!(
+            weapons_factor(Some(Side::Attacker), 1, Rank::Common, &rules),
+            1.0
+        );
+        assert_eq!(weapons_factor(None, 1, Rank::Common, &rules), 1.0);
+    }
+
+    #[test]
+    fn the_bands_of_the_levels_are_the_balances_rows() {
+        let row = |name: &str, offset: u16| BalanceVariable {
+            name: name.to_owned(),
+            offset,
+            value: BalanceValue::F32(0.0),
+        };
+        let mut image = vec![0_u32; 40];
+        for (i, value) in [0.5_f32, 0.7, 0.8, 0.9, 1.0].into_iter().enumerate() {
+            image[i] = value.to_bits();
+        }
+        for (i, value) in [0_i32, 2, 10, 20, 35].into_iter().enumerate() {
+            image[20 + i] = u32::from_ne_bytes(value.to_ne_bytes());
+        }
+        let balance = Balance {
+            variables: vec![row("WaffenAll", 0), row("AllOverLv", 80)],
+            image,
+            ..Balance::default()
+        };
+        let rules = Rules::of(Some(&balance));
+        let at = |level| weapons_factor(Some(Side::Defender), level, Rank::Common, &rules);
+        assert!((at(1) - f64::from(0.7_f32)).abs() < 1e-9);
+        // The second band, from the level 2: a step of 0.1 over one level.
+        assert!((at(3) - 0.8).abs() < 1e-6);
+        // A factor of 0 or below is 1.
+        let mut negative = rules.clone();
+        negative.bands.factors = [-1.0, -0.5, 0.75, 0.85, 0.95];
+        assert_eq!(negative.bands.factor(1), 1.0);
+    }
+
+    #[test]
+    fn a_goblins_strikes_at_the_seraphim_take_what_the_originals_took() {
+        // The original's strikes of a goblin warrior (76) of level 1 at the Seraphim of level 1
+        // (#615): its rolled physical damages after `ProzDmg` and her physical resistance, as
+        // `0x43EEE0` took them, and the health she lost, 11, 10 and 10.
+        let rules = Rules::default();
+        let factor = weapons_factor(Some(Side::Defender), 1, Rank::Common, &rules);
+        let resistance = 2.241_398;
+        let lost = [
+            (19.467, 17.457_025, 11),
+            (17.369_999, 15.384_771, 10),
+            (17.657_999, 15.669_065, 10),
+        ];
+        for (rolled, through, health) in lost {
+            let sum = dealt(rolled, resistance, 1.0);
+            assert!((sum - through).abs() < 1e-4, "{rolled}: {sum}");
+            assert_eq!(taken(sum, 1.0, factor), health, "{rolled}");
+            // Without the factor, the 17, 15 and 15 the game took before.
+            assert!(taken(sum, 1.0, 1.0) >= 15);
+        }
+        // Half a strike, and at least 1.
+        assert_eq!(taken(15.384_771, 0.5, factor), 5);
+        assert_eq!(taken(0.4, 1.0, factor), 1);
+    }
+
+    #[test]
     fn the_share_of_the_exponent_is_held_at_099_only_from_1_up() {
         let close = |a: f32, b: f64| (f64::from(a) - b).abs() <= 1e-5 * b.abs().max(1.0);
         assert!(close(exponent(0), 1.0));
@@ -2369,7 +2572,10 @@ mod tests {
             ..attacker
         };
         // `10·(1 − 1/2²)` = 7.5 for `k` 2.
-        assert_eq!(strike(&attacker, &defender, (1.0, 2.0), &mut rng), Some(7));
+        assert_eq!(
+            strike(&attacker, &defender, (1.0, 2.0, 1.0), &mut rng),
+            Some(7)
+        );
     }
 
     #[test]

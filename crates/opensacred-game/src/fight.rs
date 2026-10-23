@@ -10,7 +10,7 @@ pub use opensacred_rules::fight::{
     filled_level, hero_health, most_health, regeneration, scripted_level, skills, tagged_level,
     takes_on,
 };
-use opensacred_rules::fight::{Side, experience_of, range_factor, strike, weighed};
+use opensacred_rules::fight::{Side, experience_of, range_factor, strike, weapons_factor, weighed};
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -85,10 +85,12 @@ pub struct Immortal;
 
 /// Resolves each hit (`0x56B130`), weighed by the difficulty between the hero and a creature
 /// ([`weighed`]), a hit at range with its attack times the range's factor of the distance between
-/// the attacker and the target ([`range_factor`], `0x56B449`): a target without a health, or
-/// dying, ignores it; else the strike may miss, and its damage takes the target's health down,
-/// shows over it, and at 0 the target dies (the AI's state 9, `0x53E7C0`), one of its two dying
-/// clips at random, and a hero that killed it earns its experience (the event 9, `0x57D860`).
+/// the attacker and the target ([`range_factor`], `0x56B449`), and a creature's at the hero, but a
+/// boss's or a champion's, with its damage times the factor of its level ([`weapons_factor`],
+/// `0x56A890`): a target without a health, or dying, ignores it; else the strike may miss, and
+/// its damage takes the target's health down, shows over it, and at 0 the target dies (the AI's
+/// state 9, `0x53E7C0`), one of its two dying clips at random, and a hero that killed it earns
+/// its experience (the event 9, `0x57D860`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -104,6 +106,7 @@ fn resolve(
         Has<Body>,
         Option<&crate::ai::Mind>,
         &GlobalTransform,
+        Option<&Ranked>,
     )>,
     mut targets: Query<
         (
@@ -120,7 +123,7 @@ fn resolve(
 ) {
     for hit in hits.read() {
         let (
-            Ok((attacker, hero, mind, from)),
+            Ok((attacker, hero, mind, from, ranked)),
             Ok((mut health, defender, at, worth, hero_hit, rank, immortal)),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -150,7 +153,15 @@ fn resolve(
                 hit.attacker, hit.target
             );
         }
-        let Some(damage) = strike(&attacker, &defender, (hit.share, k), &mut dice.0) else {
+        let ranked = ranked.map_or(Rank::Common, |ranked| ranked.0);
+        let factor = weapons_factor(side, level, ranked, &rules);
+        if side == Some(Side::Defender) {
+            debug!(
+                "fight: {} of level {level} strikes {}, its damage times {factor:.4}",
+                hit.attacker, hit.target
+            );
+        }
+        let Some(damage) = strike(&attacker, &defender, (hit.share, k, factor), &mut dice.0) else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
