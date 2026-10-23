@@ -74,6 +74,7 @@ use crate::{
 /// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
+const SET_NPC_STATE: u16 = 3;
 /// The operand of a `CreateNPC` that names its dialogue.
 const DIALOGUE: u8 = 0x09;
 /// The tags of `CreateNPC` that make a trader (`+0x200`): the smiths, the merchants, the wizards
@@ -130,8 +131,9 @@ struct Placement {
     holding: Vec<InHand>,
     /// A fill's boss or champion, or a script's boss (`fight::Rank`).
     rank: fight::Rank,
-    /// An NPC's `CreateNPC` level tag ([`LEVEL`]), its last, 0 for none, by which it takes its
-    /// level and may be a boss (`fight::tagged_level`, `fight::Rank::of_tag`).
+    /// An NPC's `CreateNPC` level tag ([`LEVEL`]), its last, or the last `SetNPCState`'s that
+    /// names it ([`set_levels`]), 0 for none, by which it takes its level and may be a boss
+    /// (`fight::tagged_level`, `fight::Rank::of_tag`).
     tag: u32,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
@@ -1163,6 +1165,50 @@ fn level_tag(ops: &[opensacred_data::netscript::Operand]) -> u32 {
         .unwrap_or(0)
 }
 
+/// Gives the creatures that `records`' `SetNPCState`s name the levels of their level tags
+/// (`0x48BB40`, through `0x461540`, which calls the level's setter at `0x46213D` as `CreateNPC`'s
+/// tag does; #541): each placement of a `CreateNPC` before the `SetNPCState` that names it,
+/// `made` the placement of each record, takes its last level tag in place of its own
+/// (`fight::tagged_level`), and 1000 makes it a boss (`+0x1F4` bit `0x80000`, `0x549500`): the
+/// stables' horses their levels, after their `CreateNPC`s' rule.
+fn set_levels(
+    records: &[&Record],
+    made: &HashMap<*const Record, usize>,
+    placements: &mut [Placement],
+) {
+    let mut named: HashMap<String, Vec<usize>> = HashMap::new();
+    for record in records {
+        let Body::Operands(ops) = &record.body else {
+            continue;
+        };
+        match record.kind {
+            CREATE_NPC => {
+                let index = made.get(&std::ptr::from_ref(*record));
+                if let (Some(name), Some(&index)) = (name_of(ops), index) {
+                    named.entry(name).or_default().push(index);
+                }
+            }
+            SET_NPC_STATE => {
+                let tag = level_tag(ops);
+                let indices = name_of(ops).and_then(|name| named.get(&name));
+                let (true, Some(indices)) = (tag > 0, indices) else {
+                    continue;
+                };
+                for &index in indices {
+                    let Some(placement) = placements.get_mut(index) else {
+                        continue;
+                    };
+                    placement.tag = tag;
+                    if tag == fight::BOSS_TAG {
+                        placement.rank = fight::Rank::Boss;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Where the records' `NPC_Goto`s send the NPCs they name, by name: the global cell and the
 /// layer of the last that names each (`0x49E210`, which orders the creature to walk there).
 fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
@@ -1391,6 +1437,8 @@ impl Npcs {
         // The NPCs' models' clips by their slots, each model read once.
         let mut model_slots: HashMap<String, motions::Slots> = HashMap::new();
         let mut placements = Vec::new();
+        // The placement that each record made, by the record.
+        let mut made: HashMap<*const Record, usize> = HashMap::new();
         for record in records
             .iter()
             .filter(|r| r.kind == CREATE_NPC || r.kind == CREATE_OBJ)
@@ -1562,7 +1610,9 @@ impl Npcs {
                 tag,
                 clips,
             });
+            made.insert(std::ptr::from_ref(*record), placements.len() - 1);
         }
+        set_levels(&records, &made, &mut placements);
         // What each creature type that has a model is made of, and what each type that the
         // sectors' fills make is placed as ([`template`]).
         let types: HashMap<u32, Kind> = creatures
@@ -3757,6 +3807,64 @@ mod tests {
         // Without a world position at its cell's centre.
         assert_eq!(model_position(at, None), at);
         assert_eq!(model_position(floor, None), floor);
+    }
+
+    #[test]
+    fn a_set_npc_state_gives_the_creature_it_names_its_level_or_makes_it_a_boss() {
+        let op = |tag, value| Operand { tag, value };
+        let named = |kind, name: &str, rest: &[Operand]| {
+            let mut ops = vec![op(0x01, Value::Str(name.into()))];
+            ops.extend_from_slice(rest);
+            Record {
+                kind,
+                body: Body::Operands(ops),
+            }
+        };
+        let level = |n| op(LEVEL, Value::I32(n));
+        let trader = op(0x63, Value::Str("res:17321".into()));
+        // The stable of 64,41: the trader, a horse whose `SetNPCState` gives it 13 in place of
+        // the level its `CreateNPC` gave it (a `SetNPCState` before it names none yet), and one
+        // whose `SetNPCState` gives none.
+        let records = [
+            named(CREATE_NPC, "res:17321", &[op(0x02, Value::I32(656))]),
+            named(SET_NPC_STATE, "res:17421", &[level(7), trader.clone()]),
+            named(
+                CREATE_NPC,
+                "Res:17421",
+                &[op(0x02, Value::I32(551)), op(0x90, Value::I32(4))],
+            ),
+            named(SET_NPC_STATE, "res:17421", &[level(13), trader.clone()]),
+            named(CREATE_NPC, "res:17424", &[op(0x02, Value::I32(551))]),
+            named(SET_NPC_STATE, "res:17424", &[trader]),
+            // A boss of a quest's, and a creature that made no placement.
+            named(CREATE_NPC, "res:17190", &[op(0x02, Value::I32(76))]),
+            named(
+                SET_NPC_STATE,
+                "res:17190",
+                &[op(0x08, Value::Marker), level(1000)],
+            ),
+            named(CREATE_NPC, "res:17999", &[op(0x02, Value::I32(76))]),
+            named(SET_NPC_STATE, "res:17999", &[level(9)]),
+        ];
+        let records: Vec<&Record> = records.iter().collect();
+        let made: HashMap<*const Record, usize> = [0, 2, 4, 6]
+            .iter()
+            .enumerate()
+            .map(|(index, &r)| (std::ptr::from_ref(records[r]), index))
+            .collect();
+        let mut placements = vec![Placement::default(); 4];
+        placements[1].tag = 4;
+        set_levels(&records, &made, &mut placements);
+        let levels: Vec<(u32, fight::Rank)> = placements.iter().map(|p| (p.tag, p.rank)).collect();
+        assert_eq!(
+            levels,
+            [
+                (0, fight::Rank::Common),
+                (13, fight::Rank::Common),
+                (0, fight::Rank::Common),
+                (1000, fight::Rank::Boss),
+            ]
+        );
     }
 
     #[test]
