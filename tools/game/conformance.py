@@ -117,6 +117,10 @@ def wait_fresh(endpoint, timeout=180):
 
 def fresh(game, original, save):
     game.exec('new-game --class seraphim')
+    # The original's menu opens its saves only away from hostiles, which the suites leave about the start (#634).
+    if state(original).get('state') == 'game':
+        original.exec(f'cell {STABLE[0]},{STABLE[1]}')
+        time.sleep(3)
     original.exec(f'load {save}')
     for endpoint in (game, original):
         wait_fresh(endpoint)
