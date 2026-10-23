@@ -775,6 +775,11 @@ A value by the level `L` is a pair `(a, b)`, `a + L·b`.
 
 `opensacred_formats::arts` reads both tables, the addresses mapped through the section table (`opensacred_formats::pe`), and matches the prototype on every field of every record; `opensacred-convert tables` writes them into `tables/arts.ron` (`opensacred_data::tables::Arts`) with their fields named and the text indices as `global.res` ids, after it checks `Sacred.exe` against the manifest.
 
+### 6.6 The voices' byte table in Sacred.exe
+
+**Confirmed** by code and in the running original 2026-10-23 (#710): 714 bytes at VA `0x68BBD0` give the creature types 1 to 714, in order, the case of the voice function `0x6852B0` (docs/re/sound.md, "The fight's sounds"), below 118, `0x75` none; 328 types have another case.
+What each case does lies in its code, not in data: `opensacred-convert tables` holds the 118 cases' values as a table and writes the types' voices into `tables/voices.ron` (`opensacred_data::tables::Voices`).
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding

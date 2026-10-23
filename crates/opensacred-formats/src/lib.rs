@@ -23,6 +23,7 @@ pub mod sound;
 pub mod tables;
 pub mod tex;
 pub mod text;
+pub mod voices;
 pub mod world;
 mod zlib;
 

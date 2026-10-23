@@ -20,6 +20,7 @@ mod textures;
 mod ui;
 mod verify;
 mod video;
+mod voices;
 mod world;
 
 #[cfg(test)]

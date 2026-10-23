@@ -32,11 +32,13 @@ Read in Ghidra 2026-10-23 (#708, #709), **confirmed** by code unless marked, and
 **The voices.**
 A creature speaks through `0x6852B0` (`this` the sound manager `0x6770E0()`; the creature's type `+0x3B0`, its id `+0xC`, the group, a special: 0 a line of the profile, 1 a cast's line, 2 an "unconscious" line, both of fixed ids).
 
-- The type picks a case by a byte table at `0x68BBD0` (the types 1 to 714, the index type − 1) and the jump table at `0x68B9F8`: 118 cases, `0x75` no voice; 328 types have a voice, which `Creature.pak` has no part in.
+- The type picks a case by a byte table at `0x68BBD0` (the types 1 to 714, the index type − 1) and the jump table at `0x68B9F8`: 118 cases, `0x75` no voice; 328 types have another case, of which the cases `0x49`, `0x4A`, `0x67` and `0x6A` (six types) name the profile 0, so that 322 types speak; `Creature.pak` has no part in it.
 - Each case names the profile, a roll `rand() % N` (the line on 0; the `DEATH`, group 7, forced for most) and a wait, 1 s by default, 10 s for the cases that end the switch, else 2 to 5 s.
   The wait is kept per sound id, not per creature: a table of 128 entries at `+0xAF88` (`0x679170` tests it, `0x679120` records it).
 - The heroes take one of two profiles at random at each call: the Seraphim 1008 or 1009, the Gladiator 1002/1003, the Mage 1006/1007, the Dark Elf 1000/1001, the Wood Elf 1004/1005, the Vampiress 1010/1011 (her case names 1012 too; **hypothesis**: by her form), the Dwarf 1013/1014, the Daemon 1015/1016; one in four, 10 s.
   Their profiles fill the groups 1 to 3 alone.
+- **Checked** 2026-10-23 for every type (#710): `0x6852B0` called in the running original from a second Frida session for each type, the groups 1, 2, 3 and 7 and the specials 1 and 2, with `rand()` controlled and the play and the waits' test stubbed, gives each of the 118 cases the same values for all its types: the profiles, the rolls one in 1 to 7 (the thief's case one in seven for `ATTACK`, five for the hits; the death forced in every case that speaks), the waits of 1, 1.5, 2, 3, 4, 5, 10 or 20 s, and the special lines' fixed ids of 23 types.
+  `opensacred-convert tables` writes them into `tables/voices.ron` by the byte table (`opensacred_formats::voices`, the cases in the converter's `voices.rs`).
 - The start's creatures: the goblin warrior 76 2031 (one in four, the death always, 5 s), the thief 313 2023 (`ATTACK` one in seven, the others one in five, 10 s), the black magician 271 2033 (one in four, 10 s, cast lines), the novice 677 2055 (one in four, 10 s), the boss 689 2026 (one in four, 10 s), the bears 536–538, 591 and 600 2009 (one in two, 1 s), the wolves 512 and 567–588 2014 (one in two, 1 s), the boars 543 and 545 2004 (always, 1 s); the rabbits 516, 592 and 593, the pigs, chickens, cows and horses have none.
 
 The groups are passed by eight calls:
@@ -54,8 +56,8 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 `playSFX` (`0x693510`) plays a voice at the volume 0.45 + (`rand() % 10`) / 90 with the distances of `AIL_set_3D_sample_distances` (100 and 10.1, or by the creature's size: size × 100 and size × 0.3 + 10; the units' scale not read); 28 channels.
 
 - **Seen:** a strike that the held button chains (docs/re/fight.md, "The hero's attack") starts in sub-state 1, not 0, and calls no `ATTACK`: the hero's voice took group 1 three times in the 45 s of strikes, the goblin's, whose own strikes chain too, 32 times.
-  Of those 32 the goblin's line (2031, group 1) was picked and started 15 times, of its 42 `NORMALHIT`s 11, of the hero's 21 `NORMALHIT`s 4 (1008 or 1009, group 2): the hits about as the roll of one in four gives, the goblin's `ATTACK` about twice as often (**hypothesis**: another gate than the roll for it; not read).
-- **Seen:** every sample of the fight started through `AIL_start_sample`, none through `AIL_start_3D_sample` (**hypothesis**: `playSFX` takes the 2D path for a sound near the hero, or for every sound; not read).
+  Of those 32 the goblin's line (2031, group 1) was picked and started 15 times, of its 42 `NORMALHIT`s 11, of the hero's 21 `NORMALHIT`s 4 (1008 or 1009, group 2): the hits about as the roll of one in four gives, the goblin's `ATTACK` about twice as often, though `0x6852B0` picks a line only once its roll gives 0 (**hypothesis**: another caller picks the profile's group 1 too; not read).
+- **Seen:** every sample of the fight started through `AIL_start_sample`, none through `AIL_start_3D_sample`: `playSFX` takes the 2D path when the sound manager's `+0x80` is 0 or the channel has no 3D sample (**hypothesis**: the driver's settings leave the 3D provider off).
 
 **The weapons.**
 

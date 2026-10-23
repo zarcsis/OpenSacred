@@ -1,7 +1,7 @@
 //! `tables` subcommand: `Creature.pak`, `Weapon.pak`, `Items.pak` with the overlay
-//! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK`, the data tables of `bin/` and the combat arts'
-//! tables of `Sacred.exe` → one RON file each under `<out>/tables/` (docs/02 §6; the format is
-//! [`opensacred_data::tables`]).
+//! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK`, the data tables of `bin/`, and the combat arts'
+//! tables and the creatures' voices of `Sacred.exe` → one RON file each under `<out>/tables/`
+//! (docs/02 §6; the format is [`opensacred_data::tables`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +11,7 @@ use opensacred_data::tables::{
     ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
     BalanceVariable, CREATURES, Creature, EffectChance, ITEM_SETS, ITEMS, Item, ItemSet,
     MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass, QualityWeight, STAIRS,
-    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS,
+    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS,
     WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
@@ -42,6 +42,8 @@ pub struct Summary {
     pub bin_tables: usize,
     pub spells: usize,
     pub weapon_arts: usize,
+    /// The creature types that speak.
+    pub voices: usize,
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -203,6 +205,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     let bin_tables = convert_bin_tables(game_dir, &dir)?;
     let arts = arts(game_dir)?;
     write(&dir, ARTS, &arts)?;
+    let voices = crate::voices::voices(&read_reference_file(game_dir, "Sacred.exe")?)?;
+    write(&dir, VOICES, &voices)?;
 
     Ok(Summary {
         creatures: creatures.len(),
@@ -213,6 +217,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         bin_tables,
         spells: arts.spells.len(),
         weapon_arts: arts.weapon_arts.len(),
+        voices: voices.voices.len(),
     })
 }
 
@@ -456,6 +461,7 @@ mod tests {
                 bin_tables: 12,
                 spells: 70,
                 weapon_arts: 94,
+                voices: 322,
             }
         );
         let dir = output_dir(&out);
@@ -463,6 +469,9 @@ mod tests {
         let items: Vec<Item> = ron::from_str(&read(ITEMS)).unwrap();
         let overlay = items.iter().find(|i| i.slot == 3999).unwrap();
         assert_eq!(overlay.name, "Krombacher.grn");
+        // The sound profiles of a sword's and a bow's types (#710).
+        let sound = |slot| items.iter().find(|i| i.slot == slot).unwrap().sound();
+        assert_eq!((sound(1729), sound(1732)), (500, 501));
         let weapons: Vec<Weapon> = ron::from_str(&read(WEAPONS)).unwrap();
         let original = tables::weapons(&game_file_bytes(&game, "PAK/Weapon.pak")).unwrap();
         // Floats survive the text form exactly.
@@ -480,6 +489,36 @@ mod tests {
         let arts: Arts = ron::from_str(&read(ARTS)).unwrap();
         assert_eq!(arts, super::arts(&game).unwrap());
         fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The voices by the byte table of `Sacred.exe`: 328 types have a case, six of them one that
+    /// names the profile 0, and the start's creatures speak as docs/re/sound.md reads (#710).
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_creatures_speak_by_their_cases() {
+        let game = repo_root().join("OriginalGame");
+        let exe = read_reference_file(&game, "Sacred.exe").unwrap();
+        let cases = opensacred_formats::voices::cases(&exe).unwrap();
+        let spoken = cases
+            .iter()
+            .filter(|&&case| case != opensacred_formats::voices::NO_VOICE)
+            .count();
+        assert_eq!(spoken, 328);
+        let voices = crate::voices::voices(&exe).unwrap().voices;
+        assert_eq!(voices.len(), 322);
+        let voice = |creature| {
+            voices
+                .iter()
+                .find(|v| v.creature == creature)
+                .map(|v| (v.profiles.clone(), v.rolls, v.wait))
+        };
+        // The goblin warrior, a bear, the Seraphim and the thief.
+        assert_eq!(voice(76), Some((vec![2031], [4, 4, 4, 1], 5.0)));
+        assert_eq!(voice(536), Some((vec![2009], [2, 2, 2, 1], 1.0)));
+        assert_eq!(voice(1), Some((vec![1008, 1009], [4, 4, 4, 1], 10.0)));
+        assert_eq!(voice(313), Some((vec![2023], [7, 5, 5, 1], 10.0)));
+        // A rabbit has none.
+        assert_eq!(voice(516), None);
     }
 
     /// The arts' texts are `global.res` ids: every name and short description is a string of
