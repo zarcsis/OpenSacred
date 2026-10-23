@@ -9,7 +9,7 @@
 //! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
 //! wounded it flees, and too far from home it goes back ([`pursue`],
 //! docs/decisions/2026-10-20-pursuit.md); the second to the fourth of the hero's hostiles beside
-//! the nearest take their places about the hero for a frame; one with a ranged weapon keeps 300
+//! the nearest take their places about the hero for a tick; one with a ranged weapon keeps 300
 //! to 800 from the hero and shoots, goes to melee when the hero attacks it from near and takes a
 //! bow again beyond its reach (`npcs::Rearms`, docs/decisions/2026-10-21-archers.md); one that the
 //! test holds back goes dormant again and steps about as one beyond it
@@ -18,7 +18,9 @@
 //! its sector that a hero turned, and opens it ([`open`], docs/decisions/2026-10-21-doors.md).
 //! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
 //! components, reads the world for them and carries them out: the walks, the strikes, the shots,
-//! the doors, the lines and the turns.
+//! the doors, the lines and the turns. They decide at each of the world's ticks alone
+//! (`frame::WorldTick`, `0x5375C0`, #617), as the original's creatures' updates run, while their
+//! walks and clips go on at every frame.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -124,8 +126,8 @@ fn point(spot: Spot, y: f32) -> Vec3 {
     Vec3::new(spot.x, y, spot.y)
 }
 
-/// The game's generator for the creatures' chances, the hero's look, and whether it looked this
-/// frame.
+/// The game's generator for the creatures' chances, the hero's look, and whether it looked at
+/// this tick.
 #[derive(Resource)]
 struct Minds {
     rng: Rng,
@@ -182,7 +184,7 @@ struct Doors<'w, 's> {
 
 impl Doors<'_, '_> {
     /// Each door, where it stands and on which layer, its points ([`door_points`]), whether it
-    /// is open, a door turned this frame as it will stand (`npcs::swing` turns it later in the
+    /// is open, a door turned this tick as it will stand (`npcs::swing` turns it later in the
     /// frame), and whether a hero marked it; the game reads no trigger's bit 15, and so bars no
     /// door.
     fn seen(&self, heights: &Heights) -> Vec<Seen> {
@@ -372,7 +374,7 @@ fn open(
 )]
 fn think(
     mut commands: Commands,
-    time: Res<Time>,
+    tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
     heights: Res<Heights>,
     balance: Res<FightRules>,
@@ -395,7 +397,7 @@ fn think(
         return;
     };
     let hero = hero.translation;
-    let dt = time.delta_secs();
+    let dt = tick.seconds.unwrap_or_default();
     let minds = &mut *minds;
     let look = minds.look.looks(dt);
     minds.looked = look;
@@ -403,7 +405,7 @@ fn think(
     let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
     let (sx, sy) = sector(hero);
     let hero_moves = body.moving().is_some();
-    // The steps taken this frame: a creature, its target, and its group's step to share; the
+    // The steps taken this tick: a creature, its target, and its group's step to share; the
     // groups whose alarm goes.
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
     let mut alarms: Vec<u32> = Vec::new();
@@ -467,7 +469,7 @@ fn think(
     // A group's other members step by the same step, each within 50 of it.
     for (group, step, leader) in grouped {
         for (entity, transform, _, mut mind, walking, _) in &mut creatures {
-            // Not one that goes for a door, sent there this frame or before.
+            // Not one that goes for a door, sent there this tick or before.
             if entity == leader || mind.group != Some(group) || walking || mind.to_door() {
                 continue;
             }
@@ -512,7 +514,7 @@ impl Default for FightRules {
 /// comes on, after the hero as it moves, steps back, flees and goes home at its walk or run, and
 /// in the band stands turned to the hero, where it strikes (#280). The second to the fourth of the
 /// hero's list of hostiles (`crowd::Nearest`), deciding near the first, walk to their places
-/// about the hero for a frame (`0x4E224E`). One that comes on in melee without a straight line of
+/// about the hero for a tick (`0x4E224E`). One that comes on in melee without a straight line of
 /// walkable cells to the hero, and without a way to it, goes for the door in its way, or gives
 /// up (`opensacred_rules::minds::Mind::blocked`). One with a ranged weapon keeps 300 to 800 from
 /// the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no straight line leads to
@@ -525,7 +527,7 @@ impl Default for FightRules {
 )]
 fn pursue(
     mut commands: Commands,
-    time: Res<Time>,
+    tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
     heights: Res<Heights>,
     nearest: Res<Nearest>,
@@ -554,7 +556,7 @@ fn pursue(
         Without<Body>,
     >,
 ) {
-    let dt = time.delta_secs();
+    let dt = tick.seconds.unwrap_or_default();
     let Some((the_hero, hero, hero_strikes, attack)) = hero.iter().next() else {
         return;
     };
@@ -919,7 +921,7 @@ fn aside(
     }
 }
 
-/// The peaceful creatures' behaviours while they stand awake, at every frame (`0x4EF150`); a
+/// The peaceful creatures' behaviours while they stand awake, at every tick (`0x4EF150`); a
 /// creature farther than 1,500 from the hero goes dormant again, a townsperson farther than 600
 /// times the camera's zoom. A townsperson decides at each of the hero's looks, which wake it, as
 /// the original's goes dormant after most of its rolls and decides again when woken. An idle
@@ -937,7 +939,6 @@ fn aside(
 )]
 fn behave(
     mut commands: Commands,
-    time: Res<Time>,
     mut minds: ResMut<Minds>,
     crowd: Res<Crowd>,
     heights: Res<Heights>,
@@ -956,12 +957,11 @@ fn behave(
         return;
     };
     let hero = hero.translation;
-    let dt = time.delta_secs();
     // Whether the hero stands on a settlement's ground, where the children gather about it.
     let in_settlement = heights
         .flags(paths::cell_of(hero.x, hero.z))
         .is_some_and(|flags| flags & SETTLEMENT != 0);
-    // The children at play this frame, whom the others follow.
+    // The children at play this tick, whom the others follow.
     let mut playing: Vec<(Entity, Vec3)> = Vec::new();
     // The camera's zoom, its scale.
     let zoom = cameras
@@ -1036,7 +1036,7 @@ fn behave(
     } else {
         Vec::new()
     };
-    // The doors to open and to close this frame.
+    // The doors to open and to close this tick.
     let mut swings: Vec<(Entity, bool)> = Vec::new();
     // At dusk and by night the townsfolk take the evening's way (`0x41BB50`, `0x41BAB0`).
     let evening = matches!(clock.phase(), Phase::Dusk | Phase::Night);
@@ -1052,8 +1052,7 @@ fn behave(
             if mind.active
                 && mind.is_guard()
                 && !walk.comes_on()
-                && let Some((target, why)) =
-                    mind.behaves(spot(here), None, walking, dt, &mut minds.rng)
+                && let Some((target, why)) = mind.behaves(spot(here), None, walking, &mut minds.rng)
             {
                 let target = point(target, here.y);
                 debug!(
@@ -1187,7 +1186,7 @@ fn behave(
                 }
             }
         }
-        // A townsperson awake in danger runs from its threat, at every frame it stands.
+        // A townsperson awake in danger runs from its threat, at every tick it stands.
         if mind.active
             && folk
             && !mind.dialogue
@@ -1436,7 +1435,7 @@ fn behave(
             }
         }
         if !mind.active || folk {
-            if let Some(target) = mind.parts(spot(here), crowded, dt, &mut minds.rng) {
+            if let Some(target) = mind.parts(spot(here), crowded, &mut minds.rng) {
                 let target = point(target, here.y);
                 debug!(
                     "ai: {entity} {:?} from {:.0},{:.0} to {:.0},{:.0}",
@@ -1459,13 +1458,9 @@ fn behave(
                 let (da, db) = ((*a - here).length_squared(), (*b - here).length_squared());
                 da.total_cmp(&db)
             });
-        let Some((target, why)) = mind.behaves(
-            spot(here),
-            fear.map(spot),
-            (crowded, None),
-            dt,
-            &mut minds.rng,
-        ) else {
+        let Some((target, why)) =
+            mind.behaves(spot(here), fear.map(spot), (crowded, None), &mut minds.rng)
+        else {
             continue;
         };
         let target = point(target, here.y);
@@ -1493,7 +1488,7 @@ fn behave(
         commands.entity(door).insert(Swing::to(open));
     }
     // The other idle children within 600 of one at play, without a dialogue, run after it
-    // (`0x4EE820`); not one sent off this frame (`sent`).
+    // (`0x4EE820`); not one sent off this tick (`sent`).
     for (leader, at) in playing {
         let (lx, ly) = sector(at);
         for (entity, transform, _, mut mind, walk) in &mut creatures {
@@ -1534,7 +1529,8 @@ impl Plugin for AiPlugin {
                 (open, think, aside, behave, pursue)
                     .chain()
                     .after(crate::crowd::gather)
-                    .in_set(Step::Crowd),
+                    .in_set(Step::Crowd)
+                    .run_if(crate::frame::ticked),
             );
     }
 }
