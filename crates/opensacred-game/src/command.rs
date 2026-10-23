@@ -1311,10 +1311,9 @@ fn waited(world: &mut World) -> bool {
         }
         Some(Waiting::Arrived) => {
             let mut bodies = world.query::<&Body>();
-            bodies
-                .iter(world)
-                .next()
-                .is_some_and(|body| body.target().is_none() && body.moving().is_none())
+            bodies.iter(world).next().is_some_and(|body| {
+                body.target().is_none() && !body.ordered() && body.moving().is_none()
+            })
         }
         Some(Waiting::Frames(n)) => *n == 0,
         Some(Waiting::Until(at)) => world.resource::<Time<Real>>().elapsed() >= *at,

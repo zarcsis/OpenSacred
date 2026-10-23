@@ -160,6 +160,15 @@ The same call sets the rate of the creature's clip (`0x413610`, Granny's animati
 **Hypothesis**: the factor applies only if this call runs while one of those attacks plays, which is not read.
 So the creatures move and their clips play `GameSpeed · f`, about 1.6 times, faster than the tables and the clips have it, together.
 
+## The hero's orders and its stop
+
+Read 2026-10-23 (#640).
+The render loop's tick (docs/re/ai.md, "The world's tick") calls `0x60F130`, which takes the mouse's order on the world: while the left button is held (the engine's `+0x54` bit `0x10`, its press past), once more than 0.4 s have gone by since the press, it posts the hero an order to walk to the cursor's point (the event 4, through `0x617030`, above) at every tick; otherwise it keeps the press's time.
+The orders reach the hero in its update, on the tick: **confirmed** for an order of the driver's `go` below; where the press's own order is posted is not read (**hypothesis**: the same).
+**Confirmed** by a probe of the hero's run of 9 cells (2026-10-23, its position sampled about every millisecond, the ticks marked by the drops of `0xAD6EFC`): the action `+0x150` went from 0 to 1 exactly at the first tick after the order, and the first step came in that frame; the position then changed at every frame, about 5 units each at 300 a second, at every offset within the ticks.
+The hero reached its target 51 ms into a tick, its last change of position, but its action stayed 1 until the second tick after (183 ms later), went to 2 there and to 0 at the next tick.
+A capture of the screen around an arrival (a frame every 33 ms) showed the run clip playing in place on the frames between the last step and the action leaving 1, then the blend into the stand: so the hero runs in place for one or two ticks after it arrives.
+
 ## The cursor's point
 
 Read 2026-10-20 (#149, #204).
@@ -197,6 +206,7 @@ No trigger changes its state in the game yet: a cell closed at the start stays c
 The creatures stop one another's steps by the conditions above (`opensacred_rules::ways::InTheWay`, which `crowd` keeps for each creature and object at its level, #212): each frame takes the cells the hero and the NPCs stand on at their levels, and the hero's way and steps go round a cell only where a creature of bit 0 or 1 of its flags word stands (the start's captain `hauptmann3`), a walking NPC's round any creature's but its own; a big creature (`Creature.pak` flags `0x02`) or a critter stops none, a fill's critter by its constructor's bit (`opensacred_rules::ways::constructed`, #468), `CreateNPC`'s, its word written from its tags, as the others.
 The flags word is made from each `CreateNPC` record's tags as the client makes it (`opensacred_rules::ways::flags_word`); the goals (`+0x259`) and the followers (`+0x39C`) are not followed.
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
+The hero takes its orders at the world's next tick (`hero::take_orders`, #640): a press of the left button orders it once, and held longer than 0.4 s at every tick after (`hero::steer`), as do the commands (`go`) and its attack's and art's approaches; it moves at every frame, and arrived, or stopped by a cell it may not step into, it runs in place until the second tick after, when its clip blends into the stand.
 The deviations are in docs/decisions/2026-10-18-walking.md and 2026-10-22-doorway-corner.md.
 
 The hero's and the NPCs' walk and run speeds are their `Creature.pak` pairs times their pace's factor (#599, `opensacred_rules::fight::Combat::pace_factor`, the pace of `fight::pace` with the items' 812 and the skill 11's curve; a horse's 130, its table not read) times `GameSpeed`, in world units a second, rather than times the models' scale, 1.52, as until #599; a walk's and a run's clips play at `GameSpeed` times that factor, every other clip at `GameSpeed`'s rate (`hero::GameSpeed`, read from `tables/balance.ron`); the footsteps, taken at fractions of the clip (docs/re/sound.md), follow it.

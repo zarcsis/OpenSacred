@@ -171,6 +171,9 @@ pub struct Ready(pub bool);
 /// The root of the hero's model and where it goes.
 #[derive(Component)]
 pub struct Body {
+    /// The order it takes at the next tick of the world, where to go and on what level
+    /// (`0x60F130`, #640).
+    order: Option<(Vec3, Option<Level>)>,
     target: Option<Vec3>,
     /// The level the target lies on, when a click chose one (`0x617030`, docs/re/movement.md,
     /// "The cursor's point"): the way ends on it.
@@ -182,6 +185,9 @@ pub struct Body {
     climbed: bool,
     /// The clip playing: standing, walking or running.
     moving: Option<Gait>,
+    /// Arrived where it went, the ticks of the world it still runs in place, its moving action
+    /// left only at the second tick after (#640).
+    stopping: Option<u8>,
     /// Put somewhere whose ground had not come in: it stands on its level once it has.
     unplaced: bool,
     /// The cell a command put it on, where it lands once the sectors about it are in, and how
@@ -224,35 +230,51 @@ impl Body {
         self.target
     }
 
+    /// Whether it has an order still to take at the next tick of the world.
+    pub fn ordered(&self) -> bool {
+        self.order.is_some()
+    }
+
     /// The level of where it goes, when a click chose one.
     pub fn onto(&self) -> Option<Level> {
         self.onto
     }
 
-    /// Sends it to `target`, on whatever level the way reaches it.
+    /// Orders it to `target`, on whatever level the way reaches it, from the next tick of the
+    /// world on ([`take_orders`]).
     pub fn send(&mut self, target: Vec3) {
-        self.target = Some(target);
-        self.onto = None;
+        self.order = Some((target, None));
     }
 
-    /// Sends it to `target` on `level`.
+    /// Orders it to `target` on `level`, from the next tick of the world on.
     pub fn send_onto(&mut self, target: Vec3, level: Level) {
-        self.target = Some(target);
-        self.onto = Some(level);
+        self.order = Some((target, Some(level)));
     }
 
-    /// Stops it where it stands.
+    /// Stops it where it stands, with any order it has yet to take.
     pub fn stop(&mut self) {
+        self.order = None;
         self.target = None;
         self.onto = None;
+        self.stopping = None;
+    }
+
+    /// It has arrived, or can go no farther: its clip goes on to the second tick after (#640).
+    fn arrives(&mut self) {
+        self.target = None;
+        if self.moving.is_some() {
+            self.stopping = Some(STOPS);
+        }
     }
 
     /// Puts it at `position` on the ground, going nowhere; it stands on the ground there as soon
     /// as the ground's sector is in ([`run`]).
     pub fn teleport(&mut self, transform: &mut Transform, position: Vec3) {
         transform.translation = position;
+        self.order = None;
         self.target = None;
         self.onto = None;
+        self.stopping = None;
         self.level = None;
         self.climbed = false;
         self.unplaced = true;
@@ -408,11 +430,13 @@ pub fn spawn(
         // The single player's hero, of id 1: it stops the others' steps (#157).
         crate::crowd::InTheWay::of(0, 0, None),
         Body {
+            order: None,
             target: hero.target,
             onto: None,
             level: None,
             climbed: false,
             moving: None,
+            stopping: None,
             unplaced: false,
             landing: None,
             pinned: None,
@@ -507,10 +531,17 @@ pub fn toggle(keys: Res<ButtonInput<KeyCode>>, mut hero: ResMut<Hero>) {
     }
 }
 
-/// Points the hero where the left mouse button is held: the cell under the cursor, on its level,
-/// as the client picks it (`pick`); where it picks none, the point of the cursor's line of sight
-/// at the hero's height.
+/// Points the hero where the left mouse button is pressed: the cell under the cursor, on its
+/// level, as the client picks it (`pick`); where it picks none, the point of the cursor's line of
+/// sight at the hero's height. A press orders it once; held, it orders it again at every tick
+/// once it has been held longer than 0.4 s (`0x60F130`, #640).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 pub fn steer(
+    time: Res<Time>,
+    mut held: Local<f32>,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform)>,
@@ -521,6 +552,16 @@ pub fn steer(
 ) {
     // A press that went to an attack does not steer (`attack::aim`).
     if !buttons.pressed(MouseButton::Left) || aim.0 {
+        *held = 0.0;
+        return;
+    }
+    let pressed = buttons.just_pressed(MouseButton::Left);
+    *held = if pressed {
+        0.0
+    } else {
+        *held + time.delta_secs()
+    };
+    if !pressed && *held <= HELD {
         return;
     }
     let Some(cursor) = pointer.0 else {
@@ -538,6 +579,31 @@ pub fn steer(
                 let along = (height - ray.origin.y) / ray.direction.y;
                 body.send(ray.origin + ray.direction.as_vec3() * along);
             }
+        }
+    }
+}
+
+/// How long the left mouse button is held before the hero follows the cursor at every tick
+/// (`0x60F130`).
+const HELD: f32 = 0.4;
+
+/// How many ticks of the world the hero's moving action outlasts its arrival: the original's
+/// left it at the second tick after the last step, its run clip playing in place until then
+/// (#640).
+const STOPS: u8 = 2;
+
+/// Gives the hero the order it has yet to take, at a tick of the world (`0x60F130`, which takes
+/// the mouse's orders, and the creatures' update, which takes the events of walking somewhere,
+/// on the tick alone; #640): a click's, a held button's, a command's, an attack's approach; and
+/// ends its moving action at the second tick after it arrived.
+pub fn take_orders(mut bodies: Query<&mut Body>) {
+    for mut body in &mut bodies {
+        if let Some((target, onto)) = body.order.take() {
+            body.target = Some(target);
+            body.onto = onto;
+            body.stopping = None;
+        } else if let Some(left) = body.stopping {
+            body.stopping = left.checked_sub(1).filter(|&left| left > 0);
         }
     }
 }
@@ -685,7 +751,7 @@ pub fn run(
                 let to = (target - here).with_y(0.0);
                 let left = to.length();
                 if left <= ARRIVED {
-                    body.target = None;
+                    body.arrives();
                 } else {
                     let step = (hero.speed() * time.delta_secs()).min(left);
                     let mut position = here + to / left * step;
@@ -760,7 +826,7 @@ pub fn run(
                 // There on the target's level, or as near as it gets to one it cannot reach.
                 let on_level = !reachable || onto.is_none_or(|onto| onto == body.level);
                 if left <= ARRIVED && on_level {
-                    body.target = None;
+                    body.arrives();
                 } else if distance <= f32::EPSILON {
                     // Through a door: on, the next frame.
                     moving = body.moving;
@@ -773,7 +839,7 @@ pub fn run(
                         paths::cell_of(position.x, position.z),
                     );
                     if into != from && !walkable(into) && walkable(from) {
-                        body.target = None;
+                        body.arrives();
                     } else {
                         // On its level's heights: a bridge's deck, a building's floor.
                         if let Some(y) = heights.standing(position.x, position.z, body.level) {
@@ -794,7 +860,12 @@ pub fn run(
         };
         if striking || making || dying {
             body.moving = None;
+            body.stopping = None;
             continue;
+        }
+        // Arrived, it runs in place until its moving action ends (#640).
+        if moving.is_none() && body.stopping.is_some() {
+            moving = body.moving;
         }
         // Standing, in its stance while the last look found a hostile within 350 units (the
         // client's bit `0x8000`, `0x547070`; 1,000 with a bow, which the hero does not hold yet).
@@ -940,6 +1011,7 @@ impl Plugin for HeroPlugin {
                 Update,
                 (
                     (toggle, steer).in_set(Unpaused).in_set(Control),
+                    take_orders.run_if(crate::frame::ticked),
                     land,
                     run,
                     fall,
@@ -1035,11 +1107,13 @@ mod tests {
         app.world_mut().spawn((
             WorldAssetRoot(scene),
             Body {
+                order: None,
                 target: None,
                 onto: None,
                 level: None,
                 climbed: false,
                 moving: None,
+                stopping: None,
                 unplaced: false,
                 landing: None,
                 pinned: None,
