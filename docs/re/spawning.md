@@ -24,7 +24,7 @@ What they hold:
 
 The creature maker `0x480D40`, which `CreateNPC` and `FillSector` share, marks a creature made during an `Enter` with `+0x2B8` bit `0x80` and `+0x14` bit `0x80000000`.
 The exit handler destroys them, keeping the living ones first as records of `0x30` bytes in a list at the sector record's `+0x5A0` (the time at `+0x59C`); at the next `Enter`, `0x4939F0` puts them back and `FillSector` returns at once, while the region last filled (`0x94E080`) is the same; a change of region drops the other regions' lists (**hypothesis**: so that they are filled anew).
-A sector entered without such a list gets crabs and fish (the types 163 to 165) on fitting cells.
+A sector entered without such a list gets crabs and fish (the types 163 to 165) in its waters (below, "The waters' crabs and fish").
 
 `FillSector` has a gate for its respawn (at `0x47CC1E`): the balance variable `Respawn` (300) or `DungeonRespawn` (1,000) against the clock in seconds, keeping the clock in milliseconds at `+0x9A` of the sector's information; it compares the clock with the constant alone, not with the time kept (**hypothesis**: a slip in the original's expression), so it passes and `FillSector` fills at every `Enter`.
 
@@ -117,6 +117,39 @@ Read 2026-10-20 (#228):
 
 About the start, the thieves of 48,37, 48,38, 49,37 and 50,37 take a bow, half of them a shirt; those of 48,39 to 48,41 a sword or a bow, the swordsmen sometimes a round shield, and the black magicians a staff.
 
+## The waters' crabs and fish
+
+Status: **confirmed** by code (`0x4939F0`, read 2026-10-23, #575) unless marked otherwise.
+After the sector's `Enter` function, the runner looks at the sector's list of kept creatures: with none, or more than 4,999, or a flag at `0x182EBEC` set (not read), it puts crabs and fish in the sector's waters; else it puts the kept ones back.
+A sector with no `Enter` function does the same.
+
+- None in a sector one of whose two liquid materials (keyx `+0x2E0`, `+0x2E1`, docs/02 §5.1) is 4, 5 or 6, `A_LAVA`, `B_LAVA` or `C_LAVA`.
+- It walks every other row of the sector's 64, from the row 0, 1 or 2 at random (`rand() % 3`), and in each row every other cell, from the cell 0, 1 or 2 drawn anew.
+- A cell fits when its nature is a liquid's (`0x90` or `0xA0`) and its four first corner heights (`+0x10`, its bed) all lie between −14 and −2, exclusive: −5 or −10, the heights being multiples of 5 (`0x47C5B0`, which takes the two bounds).
+- A fitting cell takes a creature in 11 (`rand() % 11`) when its eight neighbours are liquid cells whose beds lie between −25 and −2 and fewer than 14 of the 16 cells two away are: a shallow cell near a shore, none in open water.
+  The cells about it may lie in the next sectors: the position names the global cell, and the world loads their sectors if it must (`0x634340`).
+- The area of the sector (keyx `+0x2C0`, through the sector information's `+0xD7`) and the dungeon test of the cell's sector (`0x63D260`, `0x622E20`) decide the type.
+  In a dungeon out of the areas 13, 16, 17 and 55 it makes none.
+  Otherwise it makes a 164 in three (`rand() % 3`), else a 165, after one more `rand()` whose number is not used.
+  In those four areas it makes a crab, the type 163, in their dungeons always and elsewhere in three.
+- The object maker `0x5FBA40` makes it on the ground at the cell's centre, `(cell + 0.5) · 53.66563` truncated, with the bits `0x90000000` of `+0x14`, bit 31 the mark of a creature made during an `Enter`, which the exit handler keeps.
+  It faces `((s − 50) · 0.02, (r − 50) · 0.02)` on the grid, `r` and `s` two rolls of 0 to 100 (`0x44DD90`).
+- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603).
+  The fish 164 and 165 are `fisc_01.grn` and `fisc_02.grn`, of class 6, the base 5, 10, 20, 10, 0, 3 and the skills 8 and 9; the 166 of `fisc_03.grn` is never made.
+
+Seen in the original on 2026-10-23, at the Seraphim's start with its world paused, five fish:
+
+- the 165s at 3182,2526 and 3170,2550 (49,39), at 3298,2465 (51,38) and at 3321,2526 (51,39);
+- the 164 at 3325,2469 (51,38).
+
+Each is at level 1 with 100/100 health, peaceful, its AI's state and action 0, and its attributes are its base.
+Its `A` is 12.5 times 1.07 and its `D` 17 times 1.28: its two skill slots at level 1, as `0x586C00` makes the stats with no level's setter after it.
+Its most health is the stats' own 100 (**hypothesis**: `0x5658F0` never runs for it).
+The rule above fits their cells on the sector files, and also the 165 at 3398,2515 in 53,39 and the 164 and 165 at 3214,2827 and 3234,2843 in 50,44 seen earlier (#575).
+Over the world, 27,618 cells of 700 sectors fit it (counted on the sector files 2026-10-23).
+A quarter of the cells is visited, and one in 11 of those takes a creature, so the original makes about 630 crabs and fish when every sector comes in once with an empty list.
+Whether they move is not read: the world stood paused when they were seen.
+
 ## The start of the Seraphim
 
 The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; their neighbours to the west and the north (48,37 to 48,41, 49 to 51,37) of 25 to 38.
@@ -133,6 +166,10 @@ Each `CreateNPC`'s creature takes its level by the rule above (#530, `opensacred
 A creature of a level tag takes it by the setter (#540, `fight::tagged_level`): held at its sector's highest, a horse's at 250; one of the tag 1000 is a boss, levelled as it is made at the hero's level then, as a fill's boss (docs/decisions/2026-10-20-bosses.md).
 A creature that a `SetNPCState` of the start script or of a quest it enters names after its `CreateNPC` takes that `SetNPCState`'s level tag in place of its own (#541, `npcs::set_levels`), by the same rule, and is a boss for 1000; `SetNPCState`'s other tags are not followed (#578).
 The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for the hero's level and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word, the run's one level as above (#582, `fight::fill_level`, rolled after the count and before the creatures are made), each common creature's one or two more on a dungeon's sector by a roll after its rank's (#570) and held at the sector's highest (#562, `fight::filled_level`), and their bosses' and champions' by their ranks (docs/re/fight.md, "Bosses and champions").
+The waters' crabs and fish (#575, `spawning::swimmers`) come in a sector that comes in anew, as its fills do, by the rule above with the game's generator seeded by the sector.
+They are made once no sector is building, on the cells of the sectors loaded then; a cell whose ring reaches a sector not loaded takes none (docs/decisions/2026-10-23-waters-edges.md).
+Each fish is made at level 1 with its two skill slots at level 1, 100 health, peaceful and with no behaviour, facing its way, and its sector keeps it as it keeps a fill's creatures.
+The crabs are not made: the game has no template for their type (#603).
 They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the scripts' NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.
 The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the worn items and the black riders are not followed (docs/decisions/2026-10-20-spawning.md), and the creatures' levels, the fills' bosses and champions and the groups' alarm are in docs/re/fight.md, "In `opensacred-game`".

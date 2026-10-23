@@ -6,6 +6,9 @@
 //! The original rolls with the C library's `rand()` at every `Enter` and keeps the living
 //! creatures while the region is the same; the game rolls with a generator seeded by the sector
 //! and the record, so that a sector that comes back has the same creatures where they were.
+//!
+//! Also the crabs and fish that a sector entered with no creatures kept puts in its waters
+//! (`0x4939F0`, docs/re/spawning.md, "The waters' crabs and fish"): [`swimmers`].
 
 use crate::Cell;
 
@@ -367,6 +370,106 @@ pub fn variant(creature: u32, rng: &mut Rng) -> u32 {
     made.unwrap_or(creature)
 }
 
+/// The crab, of `krabbe.grn`, which no `Creature.pak` record describes, and the two fish that
+/// the waters take (`0x4939F0`); `fisc_03.grn`'s 166 they never make.
+pub const CRAB: u32 = 163;
+pub const FISH: [u32; 2] = [164, 165];
+/// The areas (the sector's keyx `+0x2C0`) whose waters take crabs, in a dungeon only crabs.
+const COASTS: [u8; 4] = [13, 16, 17, 55];
+/// The liquid materials of a sector that keep its waters empty: `A_LAVA`, `B_LAVA` and `C_LAVA`
+/// (docs/02 §5.2), in either of its slots.
+const LAVAS: std::ops::RangeInclusive<u8> = 4..=6;
+/// A cell's bed corners between which a crab or a fish swims, exclusive: its own between −14 and
+/// −2 (−5 or −10, the heights being multiples of 5), its eight neighbours' between −25 and −2.
+const SHALLOW: (i8, i8) = (-14, -2);
+const WATER: (i8, i8) = (-25, -2);
+/// Of the 16 cells two away about it, at most 13 water: a cell near a shore.
+const SHORE: usize = 14;
+
+/// What a sector's waters are made of for [`swimmers`]: its first cell, its two liquid materials
+/// (docs/02 §5.1), its area, whether it is a dungeon (`0x622E20`), and the four first corner
+/// heights (`+0x10`) of a cell whose nature is a liquid's (`0x90`, `0xA0`), `None` for any other.
+pub struct Waters<B> {
+    pub origin: Cell,
+    pub liquids: [u8; 2],
+    pub area: u8,
+    pub dungeon: bool,
+    pub bed: B,
+}
+
+/// A crab or a fish: its cell, its type, and the direction it faces on the grid, `(x, y)` with
+/// each between −1 and 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Swimmer {
+    pub cell: Cell,
+    pub creature: u32,
+    pub facing: (f32, f32),
+}
+
+/// The crabs and fish of a sector entered with no creatures kept (`0x4939F0`), none in a sector
+/// of a lava: every other row from 0, 1 or 2 at random, in each every other cell from 0, 1 or 2
+/// anew, a cell of shallow water ([`SHALLOW`]) takes one in 11 when its eight neighbours are water
+/// ([`WATER`]) and fewer than 14 of the 16 cells about them are, near a shore. In a coast's area
+/// one in three is a crab, in its dungeon every one; out of the coasts a dungeon takes none, and
+/// a fish is a 164 in three, else a 165. Each faces `((r − 50)/50, (s − 50)/50)` of two rolls of
+/// 0 to 100. The cells may lie in the next sectors, as the original's position names them.
+pub fn swimmers<B, D>(waters: &Waters<B>, rng: &mut D) -> Vec<Swimmer>
+where
+    B: Fn(Cell) -> Option<[i8; 4]>,
+    D: Dice,
+{
+    let mut made = Vec::new();
+    if waters.liquids.iter().any(|liquid| LAVAS.contains(liquid)) {
+        return made;
+    }
+    let between = |cell: Cell, (low, high): (i8, i8)| {
+        (waters.bed)(cell).is_some_and(|bed| bed.iter().all(|&h| low < h && h < high))
+    };
+    let coast = COASTS.contains(&waters.area);
+    let (x0, y0) = waters.origin;
+    let mut row = rng.below(3);
+    while row < 64 {
+        let first = rng.below(3);
+        for column in (first..64).step_by(2) {
+            let (Ok(dx), Ok(dy)) = (i32::try_from(column), i32::try_from(row)) else {
+                continue;
+            };
+            let (x, y) = (x0 + dx, y0 + dy);
+            if !between((x, y), SHALLOW) || rng.below(11) != 0 {
+                continue;
+            }
+            let about = |ring: i32| {
+                (-ring..=ring)
+                    .flat_map(move |dy| (-ring..=ring).map(move |dx| (dx, dy)))
+                    .filter(move |&(dx, dy)| dx.abs().max(dy.abs()) == ring)
+                    .filter(|&(dx, dy)| between((x + dx, y + dy), WATER))
+                    .count()
+            };
+            if about(1) != 8 || about(2) >= SHORE {
+                continue;
+            }
+            if waters.dungeon && !coast {
+                continue;
+            }
+            let mut creature = if rng.below(3) == 0 { FISH[0] } else { FISH[1] };
+            if coast && (waters.dungeon || rng.below(3) == 0) {
+                creature = CRAB;
+            }
+            // The direction's rolls, the second of them its `x`.
+            let first = rng.below(101);
+            let second = rng.below(101);
+            let unit = |roll: u32| (f32::from(u8::try_from(roll).unwrap_or(50)) - 50.0) * 0.02;
+            made.push(Swimmer {
+                cell: (x, y),
+                creature,
+                facing: (unit(second), unit(first)),
+            });
+        }
+        row += 2;
+    }
+    made
+}
+
 /// The types a fill may make, its entries' and their variants.
 pub fn types(fill: &Fill) -> impl Iterator<Item = u32> + '_ {
     fill.entries.iter().flat_map(|entry| match entry.creature {
@@ -459,6 +562,105 @@ mod tests {
         };
         assert_eq!(count(&few, values, 1, 0.8, &mut rng), 1);
         assert!(animals(Some(4)) && !animals(Some(14)) && !animals(None));
+    }
+
+    /// Every roll the same, held below its bound.
+    struct Fixed(u32);
+
+    impl Dice for Fixed {
+        fn below(&mut self, n: u32) -> u32 {
+            self.0.min(n.saturating_sub(1))
+        }
+    }
+
+    /// A river three cells wide across the sector of origin `(0, 0)`, the rows 21 to 23, its bed
+    /// at `deep` in the middle row and −10 in the others.
+    fn river(deep: i8) -> impl Fn(Cell) -> Option<[i8; 4]> {
+        move |(_, y)| match y {
+            22 => Some([deep; 4]),
+            21 | 23 => Some([-10; 4]),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_waters_take_fish_in_shallow_water_near_a_shore() {
+        let waters = |liquids, area, dungeon| Waters {
+            origin: (0, 0),
+            liquids,
+            area,
+            dungeon,
+            bed: river(-10),
+        };
+        // Every roll 0: the even rows and columns, every cell that fits; out of the coasts a
+        // 164, facing `(−1, −1)`; the middle row alone, whose neighbours are all water and the
+        // cells two away mostly land.
+        let made = swimmers(&waters([0, 11], 1, false), &mut Fixed(0));
+        assert_eq!(made.len(), 32);
+        assert!(made.iter().enumerate().all(|(i, swimmer)| {
+            swimmer.cell == (i32::try_from(2 * i).unwrap(), 22)
+                && swimmer.creature == FISH[0]
+                && swimmer.facing == (-1.0, -1.0)
+        }));
+        // A roll of 1 starts on the odd rows, which the river's middle is not: none.
+        assert!(swimmers(&waters([0, 0], 1, false), &mut Fixed(1)).is_empty());
+        // In a sector of a lava, or a dungeon out of the coasts, none.
+        assert!(swimmers(&waters([5, 0], 1, false), &mut Fixed(0)).is_empty());
+        assert!(swimmers(&waters([0, 4], 1, false), &mut Fixed(0)).is_empty());
+        assert!(swimmers(&waters([0, 0], 1, true), &mut Fixed(0)).is_empty());
+        // On a coast a crab in three (the roll 0), in its dungeon every one.
+        for (area, dungeon) in [(13, false), (55, true)] {
+            let made = swimmers(&waters([0, 0], area, dungeon), &mut Fixed(0));
+            assert!(made.len() == 32 && made.iter().all(|s| s.creature == CRAB));
+        }
+    }
+
+    #[test]
+    fn a_fish_needs_shallow_water_and_water_about_it_and_a_shore_near() {
+        let made = |bed| {
+            let waters = Waters {
+                origin: (64, 0),
+                liquids: [0, 0],
+                area: 1,
+                dungeon: false,
+                bed,
+            };
+            swimmers(&waters, &mut Fixed(0)).len()
+        };
+        // A bed of −5 fits as −10 does; −15 or −2 is out, and −20 only about it.
+        assert_eq!(
+            made(Box::new(river(-5)) as Box<dyn Fn(Cell) -> Option<[i8; 4]>>),
+            32
+        );
+        assert_eq!(made(Box::new(river(-15))), 0);
+        assert_eq!(made(Box::new(river(-2))), 0);
+        // Its neighbours down to −20: a middle row of −10 between rows of −20 fits.
+        assert_eq!(
+            made(Box::new(|(_, y): Cell| match y {
+                22 => Some([-10; 4]),
+                21 | 23 => Some([-20; 4]),
+                _ => None,
+            })),
+            32
+        );
+        // Open water: a lake whose every cell is −10 has no shore near, and takes none; a river
+        // four wide, 21 to 24, has 11 of the 16 cells two away from its row 22 in water.
+        assert_eq!(made(Box::new(|_: Cell| Some([-10; 4]))), 0);
+        assert_eq!(
+            made(Box::new(|(_, y): Cell| (21..=24)
+                .contains(&y)
+                .then_some([-10; 4]))),
+            32
+        );
+        // One corner too deep is enough to refuse a cell.
+        assert_eq!(
+            made(Box::new(|(_, y): Cell| match y {
+                22 => Some([-10, -10, -15, -10]),
+                21 | 23 => Some([-10; 4]),
+                _ => None,
+            })),
+            0
+        );
     }
 
     #[test]

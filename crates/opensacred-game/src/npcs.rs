@@ -180,6 +180,10 @@ struct Placement {
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
     /// is a run.
     walk: Option<((u32, u32), f32)>,
+    /// Whether the object maker alone made it (`0x5FBA40`), a crab or a fish of the waters, which
+    /// no level's setter raises: its skills its two slots' at level 1, as its stats are made
+    /// (`0x586C00`), and its most health the stats' 100 (seen in the original, #575).
+    plain: bool,
     /// The clips an NPC plays.
     clips: ClipNames,
 }
@@ -420,6 +424,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         rank: fight::Rank::Common,
         tag: 0,
         clips: ClipNames::of(slots, held_class(&[])),
+        plain: false,
     }
 }
 
@@ -465,6 +470,9 @@ pub struct Npcs {
     spawned: HashSet<(u32, u32)>,
     /// What became of the creatures that went with their sectors ([`Kept`]).
     kept: Kept,
+    /// The sectors come in anew whose waters' crabs and fish wait for the sectors about them
+    /// ([`swimmers`]).
+    waters: Vec<(u32, u32)>,
 }
 
 /// Where a creature came from, which decides what becomes of it when its sector goes, as the
@@ -1622,6 +1630,7 @@ impl Npcs {
                 rank: fight::Rank::of_tag(tag),
                 tag,
                 clips,
+                plain: false,
             });
             made.insert(std::ptr::from_ref(*record), placements.len() - 1);
         }
@@ -1657,7 +1666,14 @@ impl Npcs {
             .collect();
         let Sectors { values, fills } = sectors(&tree);
         let mut templates: HashMap<u32, Placement> = HashMap::new();
-        for creature in fills.values().flatten().flat_map(spawning::types) {
+        // The fills' types, and the waters' crabs and fish (`spawning::swimmers`).
+        let swimmers = std::iter::once(spawning::CRAB).chain(spawning::FISH);
+        for creature in fills
+            .values()
+            .flatten()
+            .flat_map(spawning::types)
+            .chain(swimmers)
+        {
             if templates.contains_key(&creature) {
                 continue;
             }
@@ -1772,6 +1788,7 @@ impl Npcs {
             }),
             spawned: HashSet::new(),
             kept: Kept::default(),
+            waters: Vec::new(),
         })
     }
 
@@ -2102,6 +2119,10 @@ pub fn place(
         if !anew {
             continue;
         }
+        // The crabs and fish of its waters (`0x4939F0`), once the sectors about it are in.
+        if !npcs.waters.contains(&at) {
+            npcs.waters.push(at);
+        }
         // The creatures that the sector's fills make, on cells at random that they may stand
         // on, the same ones each time the sector comes in (`spawning`).
         let Some(fills) = npcs.fills.get(&at) else {
@@ -2219,8 +2240,98 @@ pub fn place(
             }
         }
     }
+    // The waters' crabs and fish of the sectors come in anew, the same ones each time, once no
+    // sector is building: their cells' rings may reach into the next sectors.
+    if streamer.building() == 0 {
+        for at in std::mem::take(&mut npcs.waters) {
+            if loaded.contains(&at) {
+                swimmers(
+                    &mut commands,
+                    npcs,
+                    &mut streamer,
+                    at,
+                    (&heights, &states, &assets),
+                    &dungeons,
+                );
+            }
+        }
+    }
     // Sectors that went out place their NPCs again when they come back, as [`Kept`] has it.
     npcs.spawned.retain(|at| loaded.contains(at));
+}
+
+/// The level of the crabs and fish, which no level's setter raises (`Placement::plain`).
+const PLAIN_LEVEL: u32 = 1;
+/// Their most health, the stats' own (seen in the original, #575).
+const PLAIN_HEALTH: u32 = 100;
+
+/// Spawns the crabs and fish of the waters of sector `at`, come in anew (`0x4939F0`,
+/// `spawning::swimmers`): of its liquid materials, its area and whether it is a dungeon, the
+/// cells of the loaded sectors alone, each at level 1, peaceful, facing its way. A crab, which
+/// no `Creature.pak` record describes, the game has no template of, and makes none.
+fn swimmers(
+    commands: &mut Commands,
+    npcs: &mut Npcs,
+    streamer: &mut Streamer,
+    at: (u32, u32),
+    (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
+    dungeons: &daynight::Dungeons,
+) {
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    let (Some(liquids), Ok(x0), Ok(y0)) = (
+        heights.liquids(at),
+        i32::try_from(at.0 * side),
+        i32::try_from(at.1 * side),
+    ) else {
+        return;
+    };
+    let waters = spawning::Waters {
+        origin: (x0, y0),
+        liquids,
+        area: streamer.area(at).unwrap_or(0),
+        dungeon: dungeons.sector(at),
+        bed: |cell| heights.liquid_bed(cell),
+    };
+    // A generator of its own, apart from the fills' records'.
+    let mut rng = spawning::Rng::of(at.0, at.1, usize::MAX);
+    for swimmer in spawning::swimmers(&waters, &mut rng) {
+        let (Some(template), Ok(cx), Ok(cy)) = (
+            npcs.templates.get(&swimmer.creature),
+            u32::try_from(swimmer.cell.0),
+            u32::try_from(swimmer.cell.1),
+        ) else {
+            bevy::log::debug!(
+                "npcs: no {} in the water of {},{}",
+                swimmer.creature,
+                swimmer.cell.0,
+                swimmer.cell.1
+            );
+            continue;
+        };
+        let mut placement = template.clone();
+        placement.cell = (cx, cy);
+        placement.plain = true;
+        // Its direction on the grid (`0x44DD90`) as the screen's angle that turns to it.
+        let (gx, gy) = swimmer.facing;
+        placement.heading = (gx + gy).atan2(2.0 * (gx - gy)).to_degrees();
+        // Its constructor's bits alone, no behaviour: the creature maker does not make it.
+        placement.creature.2 = crowd::constructed(swimmer.creature, placement.creature.1);
+        let entity = spawn(
+            commands,
+            &placement,
+            heights,
+            states,
+            assets,
+            (PLAIN_LEVEL, &npcs.fight, &npcs.items),
+        );
+        let placed = Placed {
+            at,
+            source: Source::Filled(Box::new(placement)),
+        };
+        npcs.kept.spawned(&placed);
+        commands.entity(entity).insert(placed);
+        streamer.adopt(at, entity);
+    }
 }
 
 /// Spawns `placement`'s creature where it stood when it went with its sector, on that floor,
@@ -2399,10 +2510,15 @@ fn spawn(
         );
         mind.level = grade;
         mind.ranged = placement.ranged;
-        // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`).
-        let skills = fight::skills(&placement.base, grade, false);
+        // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`); a
+        // crab's or a fish's the stats' own.
+        let skills = fight::skills(&placement.base, grade, placement.plain);
         let rank = placement.rank.health(creature, placement.class, rules);
-        let most = fight::most_health(placement.base.attributes, grade, &skills, rank, rules);
+        let most = if placement.plain {
+            PLAIN_HEALTH
+        } else {
+            fight::most_health(placement.base.attributes, grade, &skills, rank, rules)
+        };
         entity.insert(fight::Health {
             current: most,
             most,
@@ -2414,6 +2530,7 @@ fn spawn(
         let mut dice = spawning::Rng::of(x, y, usize::try_from(creature).unwrap_or(0));
         let arms = Arms {
             base: placement.base,
+            plain: placement.plain,
             model: placement.model.clone(),
             holding: placement
                 .holding
@@ -2427,7 +2544,6 @@ fn spawn(
             }
         }
         let (values, share) = arms.fight(grade, placement.rank, rules);
-        let skills = fight::skills(&placement.base, grade, false);
         if placement.rank != fight::Rank::Common {
             bevy::log::debug!(
                 "npcs: {creature} is a {:?} of level {grade}",
@@ -3429,6 +3545,8 @@ fn strike(
 #[derive(Component, Clone)]
 pub struct Arms {
     base: fight::Base,
+    /// Whether the object maker alone made it (`Placement::plain`).
+    plain: bool,
     model: String,
     holding: Vec<(InHand, Option<fight::ItemValues>)>,
 }
@@ -3458,7 +3576,7 @@ impl Arms {
                 .filter_map(|&(_, values)| values)
                 .collect(),
         };
-        let skills = fight::skills(&self.base, grade, false);
+        let skills = fight::skills(&self.base, grade, self.plain);
         let mut values = fight::combat(&self.base, grade, held, &skills, rules);
         let [attack, defence] = rank.fight(rules);
         values.attack *= attack;
