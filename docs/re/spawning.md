@@ -134,7 +134,7 @@ A sector with no `Enter` function does the same.
   In those four areas it makes a crab, the type 163, in their dungeons always and elsewhere in three.
 - The object maker `0x5FBA40` makes it on the ground at the cell's centre, `(cell + 0.5) · 53.66563` truncated, with the bits `0x90000000` of `+0x14`, bit 31 the mark of a creature made during an `Enter`, which the exit handler keeps.
   It faces `((s − 50) · 0.02, (r − 50) · 0.02)` on the grid, `r` and `s` two rolls of 0 to 100 (`0x44DD90`).
-- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603).
+- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603, "A type without a record" below; the game's crabs are #664).
   The fish 164 and 165 are `fisc_01.grn` and `fisc_02.grn`, of class 6, the base 5, 10, 20, 10, 0, 3 and the skills 8 and 9; the 166 of `fisc_03.grn` is never made.
 
 Seen in the original on 2026-10-23, at the Seraphim's start with its world paused, five fish:
@@ -149,6 +149,27 @@ The rule above fits their cells on the sector files, and also the 165 at 3398,25
 Over the world, 27,618 cells of 700 sectors fit it (counted on the sector files 2026-10-23).
 A quarter of the cells is visited, and one in 11 of those takes a creature, so the original makes about 630 crabs and fish when every sector comes in once with an empty list.
 Whether they move is not read: the world stood paused when they were seen.
+
+### A type without a record
+
+Read 2026-10-23 (#603); **confirmed** by code and in the original unless marked otherwise.
+The client finds a type's `Creature.pak` record through its items table: the word `+0x1A` of the type's 128-byte entry is the record's place in the table of `Creature.pak`'s records, as the file holds them (`+0x563008` of the items table, 86 bytes each), which the loader `0x4371C0` writes for the id of every record; `0x43AD80` gives the record, or none where the word is 0.
+`items.pak` holds 0 there for every type (its 17,409 entries), so the type 163, which no record names, keeps 0 and the crab has none:
+
+- its class is 0 (`0x43ADC0`), the side its constructor `0x52DE40` gives it, a friend of every side but 13 (docs/re/fight.md, "Sides"), so it is peaceful;
+- the stats' maker `0x586C00` gives it the level 1, the base attributes 25, 15, 20, 20, 10 and 5 and no skill slot (its defaults for a type without a record, as a record gives a fish its base and its two skills);
+- its speed is `0x4F73C0`'s, the default of `0x4F75F0` for a type whose record gives none: 100 walking and 200 running for the type 163, as for any type out of that function's list;
+- the functions that take the record's place without `0x43AD80`'s test, as the shadow's `0x426D30` does, read the table's first record, of the id 0, whose flags are 0: the crab casts its shadow;
+- its model `krabbe.grn` has no motion slot (its `ModelDesc`, docs/02 §4.5), so it plays no motion (**hypothesis** by the data: it stands as its model is made); the `KRAB_*`, `KRA1_*` and `KRA2_*` motions are the killer crabs' (`Killerkrabbe*.grn`, the types 209, 347 and 348, 20 of which stood about the hero in 50,9).
+  Like a fish it takes its flags at its first update (docs/re/ai.md, by code): 8, the townsfolk's, being made by the waters' runner as by an `Enter` function, of class 0 and not hostile.
+
+Seen in the original on 2026-10-23 under the driver of #448, the Seraphim at level 1 on bronze:
+
+- in 50,9 (area 55, a dungeon by its keyx, docs/02 §5.1), 21 crabs and no fish, all crabs as in a coast's dungeon; in 44,67 (area 13, no dungeon) 5 crabs and 5 fish;
+- each crab of the type 163, peaceful, at level 1 with 100/100 health, its attributes its base 25, 15, 20, 20, 10 and 5, `A` 22.5 and `D` 21, each times 1 (no skill), its attack speed 140, then 120 and 130, its least and most physical damage 8.375 and 11, its resistances 1.59, 1.18, 0.59 and 0.8 before their multipliers;
+- with the world running, none of the five crabs within 40 cells of the hero in 44,67 left its cell over 40 s of play, the cells about them water that no creature may walk on.
+
+Of the 163 sectors of the four areas whose waters fit the rule, 31 are dungeons, whose waters take crabs alone (counted on the sector files 2026-10-23).
 
 ## The start of the Seraphim
 
