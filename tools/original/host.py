@@ -488,6 +488,11 @@ class Host:
                 'zoom Z: the view\'s zoom, 0.5 to 2 (the game settles on 0.5, 1 or 2)',
                 'point X,Y: the window\'s pixel of a cell, for click',
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
+                'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
+                "heal [ID]: a creature's health to its most, the hero's by default",
+                'level N: the hero rises to level N, its experience the level\'s start, as kills raise it',
+                'experience N or experience +N: the hero\'s experience set to N (upward only) or raised by N, its level '
+                'following',
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
                 '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
                 'out-float; the first argument is ECX for thiscall and fastcall); traces lists those running and the '
@@ -873,6 +878,34 @@ class Host:
         self.agent.input({'click': [px, py]})
         return [f'to {x},{y} by a click at {px},{py}']
 
+    @staticmethod
+    def describe_hero(hero):
+        return (f"hero level {hero['level']} experience {hero['experience']} "
+                f"health {hero['health']}/{hero['most']}")
+
+    def command_god(self, rest):
+        if rest not in ('', 'on', 'off'):
+            raise ValueError('god [on|off]')
+        result = self.world('god', {'on': None if not rest else rest == 'on'})
+        return [f"god {'on' if result['god'] else 'off'}: {self.describe_hero(result['hero'])}"]
+
+    def command_heal(self, rest):
+        oid = int(rest) if rest else None
+        c = self.world('heal', {'id': oid})
+        return [f"{c['id']} health {c['health']}/{c['most']}"]
+
+    def command_level(self, rest):
+        if not rest.isdigit():
+            raise ValueError('level N')
+        return [self.describe_hero(self.world('level', {'level': int(rest)}))]
+
+    def command_experience(self, rest):
+        match = re.fullmatch(r'(\+)?(\d+)', rest)
+        if not match:
+            raise ValueError('experience N or experience +N')
+        hero = self.world('experience', {'points': int(match.group(2)), 'add': bool(match.group(1))})
+        return [self.describe_hero(hero)]
+
     def quit_later(self):
         if not self.ended.wait(15):
             self.journal.push('WARN', 'host', 'the game is still running 15 s after its window was closed: ended')
@@ -888,6 +921,8 @@ WORLD_COMMANDS = {
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
+    'god': Host.command_god, 'heal': Host.command_heal, 'level': Host.command_level,
+    'experience': Host.command_experience,
 }
 
 

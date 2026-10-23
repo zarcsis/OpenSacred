@@ -47,6 +47,29 @@ One cell, `(0x189C, 0x591)`, starts the end of the game's script instead.
 Observed: `(3296, 2528)` refused, `(3295, 2529)` taken; the hero stood there at once, the sectors about it came in, the creatures counted rose from 661 to 709.
 The floor is the position's: 0 puts the creature on the ground's grid even within a building's walls, under its roof (observed at `(3226, 2500)`, in the chapel's walls, where the hero lay outside the chapel's floor and an outlaw reached it); a building's ground floor is floor 1.
 
+## The hero's level, experience and health
+
+Status: **confirmed** by code and in the running original (2026-10-22, #558).
+
+- A creature's method `0x549500` (`thiscall`: a level and a flag) calls its stats' level setter `0x564D60` (`+0x3A8`) with the level, 1 and the flag (docs/re/fight.md, "The hero's levels").
+- Its method `0x549520` (a number of points) calls its stats' `addExperience` (`0x57E160`), which a kill's experience goes through: it adds the points to the experience (`+0x3B4`), held below `X(216)`, takes the level of the new experience (`0x57F8D0`) and raises the level one at a time to it, as play does.
+  Observed: 49,500 points took a new Seraphim to level 10, her health from 119 to 317; 50,500 more to level 12.
+- The health is `+0x4D8` and its most `+0x4D4` (above); writing the most into the health heals a creature at once, as the stats' own refills do.
+
+## The console's cheats
+
+The client's console (`UI_WND_CONSOLE`) passes a line to two handlers.
+`0x614230` takes the weather's `setrain`, `setsnow` and `setquake`, `setdungeon`, `loadplayer`, the logs' `droplog`, `logref` and `logslot` (docs/re/items.md), the caches' `flush`, `flushcache` and `flushtex`, and `cheat` with a code of the developers, which sets bit `0x2000000` of `0x182EE38`.
+`0x615550` takes the others, each in lower or upper case, and answers that the cheats are disabled without that bit (read 2026-10-22, #558):
+
+- `lord` toggles bit 1 of `0x182EE3C` and says so; the strike's resolution (`0x56B130`) reads the bit for a player's hero (an id up to 16), which with it is no longer knocked down or stunned by an attacker four or more levels above it, and no other reader of the bit was found.
+  Observed with the bit set: the goblins of 51,39 took 5 to 10 of a level-12 Seraphim's health a hit as before, so it is no god mode for the damage; the driver's `god` keeps the health itself (docs/03 §3.8).
+- `full` runs the hero's regeneration (`0x562730`) 30 times for 50 s each.
+- `killme` and `suicide` set the hero's health to 0, its AI's state 9 and its action 6.
+- `upgrade` teaches the hero each combat art of the runes 5375 to 5782 that its type may learn (`0x611510`).
+- `nq` and `hq` resolve a marker of the map (`sdk_MARKER_RESOLVE`; not followed).
+- `win` with `all`, `bronze`, `silver`, `gold`, `platin` or `niob` passes the difficulty to `0x425290` and `0x424CF0` (**hypothesis**: marks it won, which unlocks the next).
+
 ## The clock
 
 The clock of docs/re/daynight.md is reached through a pointer at `0xAA4540` (observed: the object's vtable `0x8908E8`, its `+0x0C` 24.0, the rates at `+0x10` and `+0x14` 1.0, the date at `+0x18` 1370, `+0x1C` 2 and `+0x1E` 14, the time `08:31:06` at `+0x20`, `+0x22`, `+0x24` a minute and a half into a new game).

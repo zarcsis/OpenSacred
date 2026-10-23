@@ -296,6 +296,7 @@ python -I tools/game/remote.py --port 15703 click 720 480            # or: key E
 python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
+python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500
 python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
 python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
 python -I tools/game/remote.py --port 15703 shell                    # by hand: a command a line, ":help" the client's own
@@ -365,6 +366,7 @@ What the first step found (2026-10-21, Windows 11, #449):
   Escape needs its character (`WM_CHAR` 27) as a keyboard sends it.
 * The world's state and commands (#451, docs/re/objects.md): the objects' table and the hero, a creature's cell, health, level, experience, AI and action, the clock, the zoom; the hero onto a cell as the scripts' `Teleport` puts a player, the clock's time and rates, the zoom, the pixel of a cell, a walk by a click there.
   The agent reads and changes the world on the render thread's frame (`cEngine_handleZoomInput`), never on Frida's thread.
+* The hero's state (#558, docs/re/objects.md): `god` keeps the hero's health through a strike's resolution and gives back any other loss at the next frame, beside the original's own `lord` flag, which spares only the knock-downs; `heal` refills a creature; `level` and `experience` add experience through the original's `addExperience`, so that each level-up is play's own.
 * The traces (#452, docs/re/traces.md): presets for the fight's strikes, chances and damage, deaths and experience, the drops and the items made, the regeneration, the creatures' waking and idle rolls, the doors, the sounds; any address with the kinds of its arguments.
   The sounds play only at volumes above 0, so their traces take `--muted`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
 
