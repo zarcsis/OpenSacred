@@ -279,6 +279,8 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * A run with nothing to wait on needs no server: `--exec "new-game --class mage; wait ready; screenshot <scratch>/shot.png; quit"` or `--script FILE` (docs/10 §6).
 * By hand, `python -I tools/game/remote.py shell` reads lines in a terminal (#550): a line is a command of the game, one starting with `:` a call of the client (`:state`, `:click X Y`, `:screenshot FILE`, `:logs`, `:follow on`, `:help`), and `:quit` ends the shell and leaves the game running.
   An error ends the line rather than the shell, and lines piped in run as a script; with `--port 15703` it drives the original (§3.8).
+* With both games running in a game, `python -I tools/game/compare.py X,Y …` (#574) puts each hero onto each cell and compares their creatures within a radius (`--radius`, 15): it pairs them by type and nearest cell (`--pair`, 3) and prints the pairs whose level, most health, hostility or rank differ, then each game's creatures without a pair; `--level` and `--time` set both heroes and clocks first, `--cells-file` reads the cells from a file.
+  The original makes a sector's `Enter` creatures again when the sector comes back into the view after a teleport, beside the ones kept (#227's item 10), so after a jump away and back its list holds such pairs on one cell; a fresh load before a cell avoids them.
 * Screenshots and logs taken this way show the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
 
 ### 3.8 Driving the original

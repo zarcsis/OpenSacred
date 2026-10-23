@@ -823,7 +823,9 @@ class Host:
         for c in found:
             lines.append(f"{c['id']} type {c['type']} cell {c['cell'][0]},{c['cell'][1]}"
                          + (f" floor {c['floor']}" if c['inside'] else '')
-                         + f" health {c['health']}/{c['most']} level {c['level']} ai {c['ai'][0]}.{c['ai'][1]}"
+                         + f" health {c['health']}/{c['most']} level {c['level']}"
+                         + (' hostile' if c['hostile'] else ' peaceful') + (f" {c['rank']}" if c['rank'] else '')
+                         + f" ai {c['ai'][0]}.{c['ai'][1]}"
                          f" action {c['action'][0]}.{c['action'][1]}"
                          + (f" target {c['target']}" if c['target'] else ''))
         return lines
