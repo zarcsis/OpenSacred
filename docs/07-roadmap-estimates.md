@@ -130,9 +130,9 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 * The upscale pipeline, alpha processing, KTX2 with mipmaps, path-based substitution; HD packs for the ground, characters and UI.
 
-### M8. Platforms — 55–110 agent-hours, 20–40 maintainer hours
+### M8. Platforms — 30–60 agent-hours, 10–20 maintainer hours
 
-* Linux 5–10; Android 25–50; Chrome (WebAssembly) 25–50, by a separate decision.
+* Linux 5–10; Android 25–50, by a separate decision; the browser version was dropped on 2026-10-23.
 
 ### M9. Multiplayer — not estimated yet
 
@@ -152,9 +152,9 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 | M6 | 40–80 | 100–200 |
 | **To version 1.0** | **≈390–770** | **≈230–460** |
 | M7 | 15–30 | 10–30 |
-| M8 | 55–110 | 20–40 |
+| M8 | 30–60 | 10–20 |
 | M9 | not estimated | not estimated |
-| **Everything but M9** | **≈460–910** | **≈260–530** |
+| **Everything but M9** | **≈435–860** | **≈250–510** |
 
 ### 3.1 Money at API prices (estimate)
 
@@ -162,10 +162,10 @@ The hypothetical cost of the same tokens at API prices, not money spent (see the
 
 | Mode | To version 1.0 | Everything but M9 |
 |---|---|---|
-| Claude Opus 5.5 only ($8–18/h) | ≈$3.1k–13.9k, center ≈$6k | ≈$3.7k–16.4k |
-| Claude Sonnet 5.5 only ($4–10/h) | ≈$1.6k–7.7k | ≈$1.8k–9.1k |
-| 60% Opus 5.5 + 40% Sonnet 5.5 ($6.4–14.8/h) | ≈$2.5k–11.4k | ≈$2.9k–13.5k |
-| Claude Fable 5.1 only ($18–40/h) | ≈$7k–31k | ≈$8.3k–36.4k |
+| Claude Opus 5.5 only ($8–18/h) | ≈$3.1k–13.9k, center ≈$6k | ≈$3.5k–15.5k |
+| Claude Sonnet 5.5 only ($4–10/h) | ≈$1.6k–7.7k | ≈$1.7k–8.6k |
+| 60% Opus 5.5 + 40% Sonnet 5.5 ($6.4–14.8/h) | ≈$2.5k–11.4k | ≈$2.8k–12.7k |
+| Claude Fable 5.1 only ($18–40/h) | ≈$7k–31k | ≈$7.8k–34.4k |
 
 Which model fits where is up to the maintainer.
 A sensible split: the strongest model for binary analysis, architecture and hard debugging; a cheaper one for mechanical work (converter tables, UI layout, migrations).
@@ -229,7 +229,7 @@ M7, M8 and M9 come after M6
 
 1. The actual cost of an agent-hour on the project's tasks (in tokens and at API prices): after 30 days of tracking.
 2. The actual pace of function analysis: after the first 50 functions of M3.
-3. The decision on Android and the browser: after version 1.0.
+3. The decision on Android: after version 1.0.
 4. How multiplayer is made, and its estimate: when M9 starts (PLAN.md §13).
 
 ## Sources

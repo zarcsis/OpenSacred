@@ -1,7 +1,7 @@
 # Plan: OpenSacred
 
 The main plan document.
-The project's goal is to **play Sacred Gold 2.28 (GOG) comfortably on modern hardware**: Windows 11 x64 at 4K, later Linux, possibly Android and the Chrome browser (WebAssembly).
+The project's goal is to **play Sacred Gold 2.28 (GOG) comfortably on modern hardware**: Windows 11 x64 at 4K, later Linux, possibly Android.
 The tools work on the user's own GOG installation; the repository holds no game files (§12).
 This document is self-contained; details are in `docs/01…10`, analysis scripts in `tools/` ([description](tools/README.md)).
 
@@ -15,7 +15,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
   Where the game's rules are not evident from the data, `Sacred.exe` is studied only to understand them; the behavior is described in prose and implemented independently in Rust with a redesign; an exact copy of the behavior is not required.
 * **Language: Rust for the entire product**: the game, the converter, the tools.
   VC6 and old toolchains are not needed: byte-for-byte matching is not a goal.
-* **Engine: Bevy 0.20 on wgpu** (Vulkan on Windows, Linux and Android; WebGPU in Chrome).
+* **Engine: Bevy 0.20 on wgpu** (Vulkan on Windows, Linux and Android).
   The game rules live in a separate crate with no engine dependency, so if needed we can switch to Godot with godot-rust without losing the logic.
   Unreal Engine and Godot with C++ were considered and rejected (§5).
 * **Multiplayer after version 1.0:** until then nothing networked, no server and no lobby, but nothing that rules multiplayer out (ADR-09).
@@ -42,7 +42,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | Modern toolchains: Visual Studio Build Tools 2026, latest Vulkan, newest dependencies | Latest stable Rust, scheduled dependency updates |
 | One language for the whole project, preferably Rust | Rust everywhere |
 | Only free tools and dependencies | Ghidra instead of IDA/Binary Ninja; all software and libraries are open source or free of charge |
-| Platforms: Windows 11 x64; then Linux; possibly Android and WebAssembly in Chrome | wgpu covers all four targets with one codebase |
+| Platforms: Windows 11 x64; then Linux; possibly Android (changed 2026-10-23: the browser version dropped) | wgpu covers all three targets with one codebase |
 | Consider an existing engine (UE, Godot) | Comparison in §5 and `docs/04-language-and-engine.md` |
 
 ### 1.2 Goals and measurable criteria
@@ -55,10 +55,10 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish |
 | G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings, gamepad; 4K and HiDPI; a playthrough without critical bugs |
 | G6 | HD assets | The upscale pipeline produces HD packs that the game picks up on top of the base assets |
-| G7 | Other platforms | Linux: the same functionality; Android and Chrome: by a separate decision after G5 |
+| G7 | Other platforms | Linux: the same functionality; Android: by a separate decision after G5 |
 | G8 | Multiplayer | After G5: the Sacred and Underworld campaigns played together over the network; how is decided when the work starts (§13) |
 
-**Out of scope:** networking before version 1.0 (multiplayer comes after it, G8); loading the original saves; byte-for-byte compatibility; the Steam version; macOS and iOS; publishing the game assets in any form.
+**Out of scope:** networking before version 1.0 (multiplayer comes after it, G8); loading the original saves; byte-for-byte compatibility; the Steam version; macOS and iOS; the browser version (dropped 2026-10-23); publishing the game assets in any form.
 
 ## 2. What is already known
 
@@ -86,10 +86,10 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-01 Goal | A playable modern reimplementation on the original's converted assets, inspired by the original, not an exact copy | Requirement (§1.1); removes the most expensive requirements (matching, determinism, save compatibility) |
 | ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.99.1) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
-| ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls, then the fight's formulas, the ways and the creatures' decisions moved into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan, WebGPU and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
+| ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls, then the fight's formulas, the ways and the creatures' decisions moved into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
 | ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI): textures → PNG + KTX2, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound → FLAC/Ogg Vorbis (MP3 as is), video → AV1 via FFmpeg, scripts → intermediate representation (IR) | Requirement (§1.1); open formats can be checked with third-party tools (Blender, glTF-Validator) and suit HD packs |
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
-| ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder, the HTML video element in the browser | Everything is free and builds for Windows, Linux, Android and WebAssembly |
+| ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder | Everything is free and builds for Windows, Linux and Android |
 | ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
 | ADR-09 Network | Multiplayer after version 1.0 (M9), no network code, server or lobby before it; until then the game does not rule it out: the rules stay apart from the engine (ADR-04), the world's state lives in the rules and the ECS rather than in presentation or input, and the scripts run on the host, as in the original (docs/02 §7.5); `GameServer.exe` is an auxiliary binary when analyzing shared functions, and a reference for the server's part once M9 starts | Requirement (§1.1), changed 2026-10-23 |
 | ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), Frida (driving the running original for Claude Code, #448), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
@@ -204,7 +204,7 @@ Sensitivity: if the weight of "work until playable" is doubled and the weight of
 That is why the game rules live in a separate crate with no engine dependencies.
 A switch to Godot with godot-rust keeps `opensacred-rules` and `opensacred-convert`; only the presentation layer would have to be rewritten.
 
-Triggers for revisiting: Bevy migrations regularly take more than 10 agent-hours; Bevy's animation or UI systems block the vertical slice for more than two weeks; Android or the web needs capabilities that wgpu lacks.
+Triggers for revisiting: Bevy migrations regularly take more than 10 agent-hours; Bevy's animation or UI systems block the vertical slice for more than two weeks; Android needs capabilities that wgpu lacks.
 
 ## 6. Architecture
 
@@ -255,7 +255,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 
 | Source | Target | How it is checked |
 |---|---|---|
-| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 (master) + KTX2 with BC7 for PC and ASTC/UASTC for Android and the web; 2026-10-17: PNG only, KTX2 waits for the game to need it | pixel comparison with a reference decoder; viewing |
+| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 (master) + KTX2 with BC7 for PC and ASTC/UASTC for Android; 2026-10-17: PNG only, KTX2 waits for the game to need it | pixel comparison with a reference decoder; viewing |
 | Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | rendering a test sector |
 | `models.pak` (Granny 1.2b) | glTF 2.0 (`.glb`): meshes, skeletons, weights, materials | glTF-Validator, Blender, an in-game screenshot test |
 | Granny animations | glTF clips; the Bip01 bone names are kept so that clips fit models with the same skeleton | visual check, comparing poses in key frames |
@@ -265,7 +265,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | NetScript (`bin/**`) | an intermediate representation + a readable listing; done 2026-10-17 as one postcard file per tree with a RON index (RON for 2.2 million records would take hundreds of MB), the listing on request | the disassembler gets through 20 directories with no unknown records: met 2026-10-17 |
 | `sound.pak`, `sndProfiles.pak` | WAV (PCM and IMA ADPCM) → FLAC; MP3 entries unchanged; profiles in RON | listening to a sample, durations |
 | `mp3/*.mp3` | unchanged (MP3 is patent-free and decoded by Symphonia) or Ogg Vorbis | playback |
-| `movie/*.wmv` | AV1 + Opus in WebM via FFmpeg | playback in the game and in the browser |
+| `movie/*.wmv` | AV1 + Opus in WebM via FFmpeg | playback in the game |
 | `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters (the fallback not added yet) | rendering all strings |
 | `Templates/*.ptx` | hero starter kits in RON; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, until their layout is recovered | character creation |
 
@@ -281,7 +281,7 @@ MIT-licensed community work (open-grn, grn2glb, sacred-sdk) is used as a referen
 Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
 
 * Rendering at the screen's native resolution; 3840×2160 is the main target mode.
-* Vulkan through wgpu by default on Windows and Linux; DX12 as the fallback on Windows; WebGPU in Chrome; Vulkan or GLES on Android.
+* Vulkan through wgpu by default on Windows and Linux; DX12 as the fallback on Windows; Vulkan or GLES on Android.
 * The original's bottleneck is thousands of draw calls on the CPU.
   Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
 * Visible area: by default as in the original at zoom 1.0, but with 4K pixel density; an extended view is an option.
@@ -323,7 +323,7 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | M6 Version 1.0 for Windows 11 | saves, settings, gamepad, 4K and HiDPI, polish, campaign playthroughs | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
 | M7 HD assets | upscaling, HD packs, mipmaps | 15–30 | 10–30 |
-| M8 Platforms | Linux 5–10; Android 25–50; Chrome (WebAssembly) 25–50 | 55–110 | 20–40 |
+| M8 Platforms | Linux 5–10; Android 25–50 | 30–60 | 10–20 |
 | M9 Multiplayer | the campaigns played together over the network: the protocol, a host or a server, joining a game, the multiplayer script trees (docs/02 §7.2) | not estimated (§13) | not estimated |
 
 ### 9.3 Money and calendar (estimate)
@@ -332,9 +332,9 @@ Hypothetical cost at API prices (not money spent, see above):
 
 | Model for the main work | To version 1.0 | With M7 and M8 |
 |---|---|---|
-| Claude Opus 5.5 | ≈$3.1k–13.9k (center ≈$6k) | ≈$3.7k–16.4k |
-| Claude Sonnet 5.5 | ≈$1.6k–7.7k | ≈$1.8k–9.1k |
-| Claude Fable 5.1 | ≈$7k–31k | ≈$8.3k–36.4k |
+| Claude Opus 5.5 | ≈$3.1k–13.9k (center ≈$6k) | ≈$3.5k–15.5k |
+| Claude Sonnet 5.5 | ≈$1.6k–7.7k | ≈$1.7k–8.6k |
+| Claude Fable 5.1 | ≈$7k–31k | ≈$7.8k–34.4k |
 
 A sensible mode is Opus 5.5 for binary analysis and architecture, and Sonnet 5.5 for mechanical work (converter tables, UI layout).
 The choice of model is up to the maintainer.
@@ -459,7 +459,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
 
 ### 10.1 Priority queue
 
-Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M8 of §9.2 are GitHub milestones.
+Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M9 of §9.2 are GitHub milestones.
 Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
 The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-20 there were none: all 17 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable.
 
@@ -495,7 +495,7 @@ This is not legal advice.
 ## 13. Open questions
 
 1. The actual cost of an agent-hour on the project's tasks (in tokens and at API prices): to be refined after 30 days.
-2. Whether Android and the web are needed: a decision after version 1.0.
+2. Whether Android is needed: a decision after version 1.0; the browser version was dropped on 2026-10-23.
 3. How multiplayer is made after version 1.0 (M9): our own protocol between OpenSacred games or the original's (TinCat 2, docs/09 §3.2), so that the original clients could join; a host's game or a dedicated server; which network crate; its estimate.
 
 Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the channel order of format 6 textures (docs/02, §3.1), how completely the Granny animation curves carry over to glTF (all of them do, docs/02 §4.5); on 2026-10-17, where the image of the extensionless static templates of `Items.pak` lives (the `mixed.pak` sprite named at `+0x10`, docs/02 §3.3, §6.1).

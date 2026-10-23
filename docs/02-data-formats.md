@@ -112,7 +112,7 @@ Confirmed on file 2026-10-16 by the `tools/analysis/formats/tex_fmt6.py` script:
 
 The directory is sorted by offset; records are packed back to back with no gaps (confirmed on file 2026-10-16).
 
-Conversion: each record is decompressed (zlib) and converted to RGBA8 → PNG as the master copy; KTX2 with mipmaps (BC7 for PC, ASTC or UASTC for Android and the web) comes with the HD packs (M7, docs/05 §5).
+Conversion: each record is decompressed (zlib) and converted to RGBA8 → PNG as the master copy; KTX2 with mipmaps (BC7 for PC, ASTC or UASTC for Android) comes with the HD packs (M7, docs/05 §5).
 In total ≈1.6 Gpix, i.e. ≈3.2 GB of uncompressed 16-bit data; ≈1.6 GB in BC7 (estimate).
 Format 6 is converted to RGBA8 by swapping bytes B and R.
 

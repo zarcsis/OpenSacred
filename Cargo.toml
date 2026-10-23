@@ -18,9 +18,9 @@ anyhow = "1.0.104"
 # The engine of the game (ADR-04). The default collections ("2d", "3d", "ui", "audio") minus: the
 # Wayland backend, whose client-side decorations pull the unmaintained ttf-parser (Linux runs
 # through X11 and XWayland); zstd_rust, whose ruzstd 0.8 has RUSTSEC-2026-0344 (zstd_c decodes
-# the KTX2 tone-mapping tables instead); webgl2 until the web build; Bevy's audio (sound goes
-# through Kira, ADR-07); 2D rendering, and the picking of meshes and sprites, until they are
-# needed. Plus png, for the converted interface textures that the HUD loads; the picking of the
+# the KTX2 tone-mapping tables instead); webgl2, the browser version being dropped (PLAN.md
+# §1.1); Bevy's audio (sound goes through Kira, ADR-07); 2D rendering, and the picking of meshes
+# and sprites, until they are needed. Plus png, for the converted interface textures that the HUD loads; the picking of the
 # interface's nodes, which the menus' items take their pointing and clicks from; the Remote
 # Protocol of `--remote` (docs/10 §8); and the system's clipboard, which the console pastes from.
 bevy = { version = "0.20.0", default-features = false, features = [

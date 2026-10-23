@@ -209,7 +209,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * **Issues.**
   One task, one issue, opened from the form of its type in `.github/ISSUE_TEMPLATE/` (blank issues are off).
   The form sets the type's label; a repository of a personal account has no native issue types, so the types are labels, one per issue: `bug`, `deps`, `feature`, `research`, `infra`, `docs`.
-  A milestone's work carries its milestone (M2–M8, PLAN.md §9.2); a large feature is an issue with sub-issues, one pull request per sub-issue.
+  A milestone's work carries its milestone (M2–M9, PLAN.md §9.2); a large feature is an issue with sub-issues, one pull request per sub-issue.
   GitHub's default labels are removed: "duplicate" and "not planned" are close reasons.
 * **Branches.**
   `<type>/<issue>-<slug>` from a fresh `main` (`feature/3-roofs`); without an issue, `<type>/<slug>`.
