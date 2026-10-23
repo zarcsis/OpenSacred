@@ -38,14 +38,28 @@ A creature's level is the hero's (`+0x3FE`) held within those bounds.
 
 ### `CreateNPC`'s level
 
-`CreateNPC` (`0x482510`) gives a creature of a level tag `0x1F` above 0 that level (at `0x4843F1`; not followed, #540), and any other one its level so (`0x48440E` to `0x484761`, read 2026-10-22, #530):
+`CreateNPC` (`0x482510`) gives its creature a level by the record's level tag `0x1F`, the last of its tags, `T` (`0x4843C2` to `0x484761`, read 2026-10-22, #530, #540):
+
+- `T` of 1000 (`0x4843C9`) makes the creature a boss (`+0x1F4` bit `0x80000`, docs/re/fight.md, "Bosses and champions") of the marker level 1, set by the level's setter without its scaling (`0x549500`), which its first fight levels (`0x550E50`);
+- any other `T` above 0 (`0x4843F1`, compared without its sign; 1 to 165 in the scripts) is given to the level's setter with its scaling (below), without the hero's level, the sector's lowest or the time played;
+- `T` of 0, or no tag, gives it its level so:
 
 1. `L` is the local hero's level, in a network game the highest of the party's;
-2. where the sector of the creature's position (its `+0x18`, `0x63CFC0`) has its information with both `+0xD3` and `+0xD5` above 0, `L` is held within them, each raised by the difficulty's addition: their lowest below them, their highest above, and between them `L + rand() % 2`, the hero's level or one more (so a hero at the highest makes one of one more);
+2. where the sector of the creature's position (its `+0x18`, `0x63CFC0`) has its information with both `+0xD3` and `+0xD5` above 0, `L` is held within them, each raised by the difficulty's addition: their lowest below them, their highest above, and between them `L + rand() % 2`, the hero's level or one more (so a hero at the highest makes one of one more, which the setter holds at the highest);
 3. a horse (`Creature.pak` class 4, `0x4266F0`) takes that plus an eighth of the level of the hero's skill 22 (`0x582450`; **hypothesis**: riding);
 4. any other creature takes it through the difficulty's scaling of the levels (`0x552230`): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the difficulty's `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze, docs/re/fight.md) and `x` the tenth of the curve `0x565D70` of the minutes played `m` (the statistics' counter `+0x570C` over 1,000 and over 60, a **hypothesis** as in docs/re/items.md), `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated: 0 below 15 minutes, 1 from 15, 5 from 121, never 10.
    A hero whose count of `+0x4F8` at `0x1C` is 6 or more (**hypothesis**: the pieces of a set worn) adds 1 to 2.34 to `x` by the difficulty before it is truncated;
-5. the level's setter `0x564D60` takes it.
+5. the level's setter `0x564D60` takes it without its scaling.
+
+The level's setter `0x564D60` (`0x565326` to `0x565523`, read 2026-10-22, #540) takes a level, and two flags that turn off its scaling and its hold; for an NPC (an id above 16):
+
+1. a level of 0 becomes 1 unless the creature is a boss or a champion;
+2. its scaling, unless the creature is a boss or a champion set to 1 or 1000: the level plus the difficulty's `OffLevel` (the balance image's `+0x788`, 0 in bronze's column) through the difficulty's scaling `0x552230` with no time played, plus the global `0xAB4680`, which nothing writes, for one neither a boss nor a champion; on bronze the level itself;
+3. its hold: at most the difficulty's addition to the highest (`+0x98C`, `LevelKap`, 0 in bronze's column) plus the highest of the sector's information at the creature's position (`+0xD5`, `0x63D0C0`) where that is above 0, else that addition alone; 300 for the type 701; for a boss or a champion that plus `LevelUpBoss` or `LevelUpChamp`, and no hold for one of a big type (`Creature.pak` flag `0x02`);
+4. a horse instead keeps the level it was given, at most 250.
+
+So on bronze a tag is its creature's level up to its sector's highest, and a creature of the rule above is at most at its sector's highest (#562); where the sector's information has no highest the hold is 0 on bronze, which no tagged record's sector of the scripts meets.
+By the code (**hypothesis** until seen in the original), the start script's garrison of 52,39 (1 to 4), its guards 295 and 288 and their captain 297 with the tag 5, is at level 4, and the 692 of 60,75 (6 to 10) with the tag 6 at 6.
 
 The record's tag `0x90` (the stables' horses', 1 to 9) raises the creature's level to its value earlier in the handler and is kept in its byte `+0x400`; the rule above sets the level again after it.
 The start script's creatures take the bounds of their sectors however far from the hero's start, so their sectors' information holds the values by then (which code writes it first is not read).
@@ -104,8 +118,9 @@ The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; 
 
 The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` records of the sectors' `Init` and `Enter` functions with the start script's (`npcs`, #221): each NPC or object is placed as the sector of its cell comes in; as its sector goes, a creature of the start script or of an `Init` is kept where it stands with its health and its level, and comes back so, a killed one never, while an `Enter`'s villagers, animals and objects are made again at each coming; a fill's living creatures are kept with their sector and put back at its next coming, which fills anew only when none of them lives (`npcs::Kept`, #329; the region's rule is not followed, docs/decisions/2026-10-20-spawning.md); the placed monsters, hostile, stop the hero's steps (docs/re/movement.md).
 In the Seraphim's tree that makes 3,137 NPCs and 3,122 objects over the world, against the start script's 320 and 1,990: the start sector's novices, chicken and rabbit, and the four goblins of 51,39 among them.
-Each `CreateNPC`'s creature takes its level by the rule above (#530, `opensacred_rules::fight::scripted_level`): the `SpawnValues` of its cell's sector, kept for every sector with a fill or without, its roll of one more by the game's generator seeded by its cell, so the same at each coming, a horse's eighth of the hero's riding none, as the hero's skills stay at level 1 (docs/decisions/2026-10-20-levels.md), and the time played that the drops count; a creature of the start script or of a quest it enters takes its level as the game starts, at the hero's first level and no time played, though the game makes it as its sector first comes in.
-Its level tag (#540) and the stables' horses' levels (#541) are not followed.
+Each `CreateNPC`'s creature takes its level by the rule above (#530, `opensacred_rules::fight::scripted_level`): the `SpawnValues` of its cell's sector, kept for every sector with a fill or without, its roll of one more by the game's generator seeded by its cell, so the same at each coming, a horse's eighth of the hero's riding none, as the hero's skills stay at level 1 (docs/decisions/2026-10-20-levels.md), and the time played that the drops count; a creature of the start script or of a quest it enters takes its level as the game starts, at the hero's first level and no time played, though the game makes it as its sector first comes in; the setter's hold of that level at the sector's highest is not followed (#562).
+A creature of a level tag takes it by the setter (#540, `fight::tagged_level`): held at its sector's highest, a horse's at 250; one of the tag 1000 is a boss, levelled as it is made at the hero's level then, as a fill's boss (docs/decisions/2026-10-20-bosses.md).
+The stables' horses' levels (#541) are not followed.
 The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for the hero's level and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word.
 They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the scripts' NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.

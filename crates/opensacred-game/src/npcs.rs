@@ -84,6 +84,9 @@ const STAMPED: u8 = 0x64;
 /// The tags of `CreateNPC` that set `+0x200` bit `0x200` (`0x482510`), which keeps a creature
 /// out of its first update's flags (`opensacred_rules::minds::Mind::hold`).
 const KEEPS: [u8; 4] = [0x1A, 0x70, 0x71, 0x72];
+/// The operand of a `CreateNPC` that gives its creature's level, or makes it a boss
+/// (`0x482510`, `fight::tagged_level`).
+const LEVEL: u8 = 0x1F;
 const TRIGGER_QUEST: u16 = 20;
 const SET_UP_QUEST: u16 = 21;
 const DEF_POS: u16 = 23;
@@ -125,8 +128,11 @@ struct Placement {
     /// The items an NPC holds in its hands: their models, and the items themselves.
     equipment: Vec<Held>,
     holding: Vec<InHand>,
-    /// A fill's boss or champion (`fight::Rank`).
+    /// A fill's boss or champion, or a script's boss (`fight::Rank`).
     rank: fight::Rank,
+    /// An NPC's `CreateNPC` level tag ([`LEVEL`]), its last, 0 for none, by which it takes its
+    /// level and may be a boss (`fight::tagged_level`, `fight::Rank::of_tag`).
+    tag: u32,
     /// Whether it casts a shadow (`shadows::Casts`).
     casts: bool,
     /// Whether it stops the NPCs' steps into its cell, an object of category 4 (`0x4F7E10`
@@ -405,6 +411,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         equipment: Vec::new(),
         holding: Vec::new(),
         rank: fight::Rank::Common,
+        tag: 0,
         clips: ClipNames::of(slots, held_class(&[])),
     }
 }
@@ -1142,6 +1149,20 @@ fn name_of(ops: &[opensacred_data::netscript::Operand]) -> Option<String> {
     })
 }
 
+/// A `CreateNPC`'s level tag ([`LEVEL`]), the last of its operands', as `CreateNPC` keeps the
+/// last (`0x482510`); 0 for none, or for a variable or a number below 0 in its place, which no
+/// `CreateNPC` of the scripts carries.
+fn level_tag(ops: &[opensacred_data::netscript::Operand]) -> u32 {
+    ops.iter()
+        .rev()
+        .find_map(|o| match (o.tag, &o.value) {
+            (LEVEL, Value::I32(v)) => Some(u32::try_from(*v).unwrap_or(0)),
+            (LEVEL, _) => Some(0),
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
 /// Where the records' `NPC_Goto`s send the NPCs they name, by name: the global cell and the
 /// layer of the last that names each (`0x49E210`, which orders the creature to walk there).
 fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
@@ -1463,6 +1484,11 @@ impl Npcs {
                     (to, f32::from(speed) * iso::MODEL_SCALE)
                 });
             let [walking, running] = speeds.get(&creature).copied().unwrap_or_default();
+            let tag = if record.kind == CREATE_NPC {
+                level_tag(ops)
+            } else {
+                0
+            };
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
@@ -1532,7 +1558,8 @@ impl Npcs {
                 } else {
                     Vec::new()
                 },
-                rank: fight::Rank::Common,
+                rank: fight::Rank::of_tag(tag),
+                tag,
                 clips,
             });
         }
@@ -1802,20 +1829,28 @@ impl Npcs {
         Ok(made)
     }
 
-    /// The level that `CreateNPC` gives the creature of `placement` (`fight::scripted_level`):
-    /// the hero's, `hero`, by the levels of its cell's sector, then a horse's by the hero's
-    /// riding and any other's by the time played, `minutes`; its roll the same each time it is
-    /// made on its cell.
+    /// The level that `CreateNPC` gives the creature of `placement`: its level tag's, held by
+    /// its cell's sector's highest, or a boss's marker level (`fight::tagged_level`, #540); else
+    /// (`fight::scripted_level`) the hero's, `hero`, by the levels of its cell's sector, then a
+    /// horse's by the hero's riding and any other's by the time played, `minutes`; its roll the
+    /// same each time it is made on its cell.
     fn scripted_level(&self, placement: &Placement, hero: u32, minutes: u32) -> u32 {
         let (x, y) = placement.cell;
         let side = u32::try_from(SIDE).unwrap_or(64);
-        let raise = if placement.class == HORSES_CLASS {
+        let values = self.values.get(&(x / side, y / side));
+        let horse = placement.class == HORSES_CLASS;
+        let creature = placement.creature.0;
+        if let Some(level) =
+            fight::tagged_level(placement.tag, values, creature, horse, &self.fight)
+        {
+            return level;
+        }
+        let raise = if horse {
             // The hero's skills stay at level 1 (`fight::skills`), an eighth of which is none.
             fight::Raise::Horse { riding: 0 }
         } else {
             fight::Raise::Played { minutes }
         };
-        let values = self.values.get(&(x / side, y / side));
         let mut dice = spawning::Rng::of(x, y, LEVEL_ROLL);
         fight::scripted_level(values, hero, raise, &mut dice)
     }
@@ -1943,12 +1978,16 @@ pub fn place(
                 Again::Not => continue,
                 Again::Anew => {
                     // The start's creature as the game starts, with the hero of its first level
-                    // and no time played; a sector's as its function runs.
+                    // and no time played; a sector's as its function runs; a script's boss then
+                    // at the hero's level now and more, as a fill's (`0x550E50`).
                     let level = if placement.started {
                         npcs.scripted_level(placement, fight::HERO_LEVEL, 0)
                     } else {
                         npcs.scripted_level(placement, hero, minutes)
                     };
+                    let values = npcs.values.get(&at).copied().unwrap_or_default();
+                    let big = placement.creature.1 & crowd::BIG != 0;
+                    let level = placement.rank.level(level, hero, &values, big, &npcs.fight);
                     spawn(
                         &mut commands,
                         placement,
@@ -3714,6 +3753,32 @@ mod tests {
         // Without a world position at its cell's centre.
         assert_eq!(model_position(at, None), at);
         assert_eq!(model_position(floor, None), floor);
+    }
+
+    #[test]
+    fn a_create_npc_takes_the_last_of_its_level_tags() {
+        let op = |tag, value| Operand { tag, value };
+        let creature = op(0x02, Value::I32(32));
+        let tagged = |tags: &[Value]| {
+            let mut ops = vec![creature.clone()];
+            ops.extend(tags.iter().map(|value| op(LEVEL, value.clone())));
+            ops.push(op(0x08, Value::Marker));
+            level_tag(&ops)
+        };
+        assert_eq!(tagged(&[]), 0);
+        assert_eq!(tagged(&[Value::I32(5)]), 5);
+        // The bosses of a fight that names their level twice (`bosskampf1_9011`).
+        assert_eq!(tagged(&[Value::I32(1000), Value::I32(1000)]), 1000);
+        assert_eq!(tagged(&[Value::I32(1000), Value::I32(6)]), 6);
+        assert_eq!(tagged(&[Value::I32(-3)]), 0);
+        assert_eq!(
+            tagged(&[Value::I32(5), Value::Variable("dq_num".into())]),
+            0
+        );
+        assert_eq!(
+            fight::Rank::of_tag(tagged(&[Value::I32(1000)])),
+            fight::Rank::Boss
+        );
     }
 
     #[test]
