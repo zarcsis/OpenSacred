@@ -386,7 +386,32 @@ By the spell, its object types, and whether the executor itself gives the target
 | 69 to 72 | 1163 `FX_ANDUCAR_DEMON`, 1164 `FX_ANDUCAR_GARDE`, 1166 `FX_DAEMONENFUERST`, 1167 `FX_TERRORSPRINTER` | |
 
 The spells 44 to 48, 51, 54 and 68 fall to the switch's default, and 9, 10 and 14 to another case, and make no object there.
-The spells that give the effect `0x22`, each of the launch type 2 or 5, are those that last on their target (**hypothesis**: the effect marks a running spell for its duration); what each object gives its target, and for how long, is the objects' code.
+The spells that give the effect `0x22`, each of the launch type 2 or 5, are those that last on their target (**hypothesis**: the effect marks a running spell for its duration); what each object gives its target, and for how long, is the objects' code (below).
+
+### The spells' objects
+
+Read 2026-10-23 (#652), in part; **confirmed** by code unless marked otherwise.
+Every `TYPE_FX_…` type is of the `items.pak` category 12, which the object manager's maker (`0x451300`, by the category) makes a `cObjectFX` (`0x5A0A10`; its virtual table at `0x89199C`): one class for all, which switches on its type (`+0x10`) where they differ.
+
+- `0x5A0C50`, called by the constructor, sets an object up by its type (a switch of some 220 cases).
+- The update `0x5A6680` runs the object at each frame and hands its targets to `0x5ABD80`, which switches on the type again: of the spells' objects, `FX_FIRESTRIKE` (778) sends each creature of its list an event through the creature's handler (`+0x18`), as a strike sends one (docs/re/fight.md), and `FX_BUBBLETRAP` (847), `FX_RAILGUN` (801), `FX_ICEBULLETS` (839), `FX_BFG` (875), `FX_HELLFIRE` (820), `FX_PENTAGRAMMKILLER` (782), `FX_HOLYLIGHT` (804), `FX_CIRCLEOFICE` (840), `FX_FIRE_CIRCLE` (790), `FX_HOLYWALL` (814), `FX_METEOR` (823), `FX_TWISTER` (826), `FX_WINDSTRIKE` (831), `FX_FIRESKIN` (821), `FX_FLASH` (838), `FX_CONFUSION` (871), `FX_MAGLITE` (817), `FX_KILLERPLANTS` (848), `FX_GROUND_POISON` (792), `FX_EXPLOSION` (794), `FX_LOSTSOULS` (850) and `FX_BALL` (867) have cases of their own there (not read further); the other types fall to its default.
+  `0x5B2600`, which the update calls too, gives effects in fifteen places (not read).
+- An object gives its targets their effects through the stats' `0x582D50` (the effect's id, a whole value, a value as a float, a duration in seconds at the entry's `+0x18`, the art that keys it, then a flag for the network, a word and a flag), as the executor does with the effect `0x22` ("The effects" above).
+  `FX_CONFUSION` gives the effects 14 and 13, each with a whole value and a duration.
+- The effect 13 sets the creature's flags word's bit `0x20000` (`+0x1F4`) and the effect 14 its bit `0x40000`, as the adder takes them, beside their entries.
+  The bit `0x40000` turns the creature's sides' answer over (docs/re/fight.md, "Sides"), so that it takes its friends for foes and its foes for friends.
+  The fight at range (`0x4DBFC0`) takes a branch only without the bit `0x20000`, and with `0x40000` only against a target of an id above 16 (not read further); what else reads the bit `0x20000` is not read.
+- The objects' scripts: the game's log names a `cObjectFX::dopSystemAction` that makes one object out of another (`FX_BLEED` making `FX_BLOODPUDDLE`), so the objects run actions of their own, the effects' spawning among them (**hypothesis**: from the types' data, not read).
+
+Seen in the original on 2026-10-23 under the driver of #448, the Seraphim at level 1 with the spells learnt by `arts learn` and an immortal goblin of type 76 at level 5 beside her:
+
+- The right button makes the art at `+0x5A` of the engine (`0xAD6EF8`) on its target, by the event `0x105` (`0x6172C0`) with `+0x58` beside it: 1 for the weapon arts (the Seraphim's 1071 at the start), 0 for a spell; a spell put there with 1 does nothing.
+- `IRRITATION` (18, its object `FX_BURNINGLIGHT`) gave the goblin it was made on the effect 13, of the whole value 1 and the duration 3 s, keyed by the art 18, once in the 4 s watched; its regeneration ran its 24 s.
+- `BANNKREIS` (16) and `HIMMELSLEUCHTEN` (15) on the goblins gave no effect within 5 s, their regenerations running (**hypothesis**: they act on the undead and the demons alone, as their names say).
+- `GLAUBENSSTAERKE` (21) did not run by a right click on the hero herself (its launch type, `+0x3C`, not followed).
+
+So the first table's values (above) are not each object's own: `IRRITATION`'s value 0 is 14 + L seconds, at most 30, where its effect lasted 3 s (**hypothesis**: the object gives it anew while it lasts).
+What each object gives, for how long and to whom, beyond these, is not read: `0x5ABD80`'s and `0x5B2600`'s cases, and the objects' actions (#672).
 
 ## The heroes' starting arts
 
@@ -412,4 +437,4 @@ The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new gam
 
 ## Open
 
-What the spells' objects give their targets (`FX_…`, above; #652); the special weapon arts' executors (#653: the jumps 1003, 1017 and 1032 in part, 1004 to 1008, 1010 to 1016, 1018 to 1021, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
+What the spells' objects give their targets beyond what "The spells' objects" reads (`0x5ABD80`'s and `0x5B2600`'s cases, the objects' actions; #672); the special weapon arts' executors (#653: the jumps 1003, 1017 and 1032 in part, 1004 to 1008, 1010 to 1016, 1018 to 1021, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
