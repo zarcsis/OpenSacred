@@ -21,14 +21,18 @@ Example
   python -I tools/game/remote.py logs --after 120
   python -I tools/game/remote.py wait-log "strike: .*hit" --after 120
   python -I tools/game/remote.py exec quit
+  python -I tools/game/remote.py --port 15703 shell         # a line a command: "cell 3296,2528", ":state", ":quit"
 
 Expected output: `exec` prints the command's lines; `state` the overlay's lines (`--json` the snapshot); `logs` a
 record a line, `sequence seconds LEVEL target: message`; the waits print the state they waited for; an error goes
-to the standard error with the exit code 1. Dependencies: the standard library.
+to the standard error with the exit code 1. `shell` reads lines until `:quit` or the input's end: a line is a command
+of the game, a line starting with `:` one of this client's own (`:help` lists them), and an error ends the line
+rather than the shell. Dependencies: the standard library.
 """
-import argparse, json, os, re, sys, time, urllib.error, urllib.request
+import argparse, json, os, re, shlex, sys, time, urllib.error, urllib.request
 
 HOST = '127.0.0.1'
+PORT = 15702
 
 
 def call(port, method, params=None):
@@ -150,10 +154,8 @@ def screenshot(port, path, timeout):
     raise TimeoutError(f'{path} not written in {timeout:g} s')
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--port', type=int, default=15702, help="the game's port (15702 by default)")
-    sub = parser.add_subparsers(dest='what', required=True)
+def add_commands(sub):
+    """The client's commands, for the command line and for the shell's lines that start with `:`."""
     p = sub.add_parser('exec', help='run a command of the game (help lists them)')
     p.add_argument('line')
     p = sub.add_parser('state', help="the game's state: the overlay's values")
@@ -182,50 +184,181 @@ def main():
     p.add_argument('path')
     p.add_argument('--timeout', type=float, default=30)
     p = sub.add_parser('logs', help="the log's records")
-    p.add_argument('--after', type=int, default=0, help='from this sequence number on')
+    p.add_argument('--after', type=int, help='from this sequence number on (0; in the shell, from the last shown)')
     p = sub.add_parser('wait-log', help="wait for a record of the log whose 'target: message' matches a regular "
                                         "expression, and print it")
     p.add_argument('pattern')
-    p.add_argument('--after', type=int, default=0, help='from this sequence number on')
+    p.add_argument('--after', type=int, help='from this sequence number on (0; in the shell, from the last shown)')
     p.add_argument('--timeout', type=float, default=60)
     p = sub.add_parser('call', help='any method of the protocol, with JSON parameters')
     p.add_argument('method')
     p.add_argument('params', nargs='?', default=None)
-    args = parser.parse_args()
-    port = args.port
+
+
+def record_line(record):
+    return f"{record['sequence']} {record['seconds']:9.3f} {record['level']:<5} {record['target']}: {record['message']}"
+
+
+def run(port, args, after=0):
+    """Does one of the client's commands; `after` is where `logs` and `wait-log` start without `--after`. Gives the
+    sequence number after the last record printed, or `after`."""
+    if args.what == 'exec':
+        print('\n'.join(call(port, 'opensacred/exec', {'line': args.line})['output']))
+    elif args.what == 'state':
+        snapshot = call(port, 'opensacred/state')
+        print(json.dumps(snapshot, indent=2) if args.json else '\n'.join(lines(snapshot)))
+    elif args.what == 'wait-ready':
+        print('\n'.join(lines(wait(port, args.timeout, lambda s: s['ready'], 'a ready game'))))
+    elif args.what == 'wait-state':
+        print('\n'.join(lines(wait(port, args.timeout, lambda s: s['state'] == args.state, args.state))))
+    elif args.what == 'key':
+        call(port, 'opensacred/input', {'key': args.name})
+    elif args.what == 'type':
+        call(port, 'opensacred/input', {'text': args.text})
+    elif args.what == 'move':
+        call(port, 'opensacred/input', {'move': [args.x, args.y]})
+    elif args.what == 'click':
+        call(port, 'opensacred/input', {'click': [args.x, args.y], 'button': args.button, 'hold': args.hold})
+    elif args.what == 'wheel':
+        call(port, 'opensacred/input', {'wheel': args.lines})
+    elif args.what == 'screenshot':
+        print(screenshot(port, args.path, args.timeout))
+    elif args.what == 'logs':
+        for record in call(port, 'opensacred/logs', {'after': after if args.after is None else args.after}):
+            print(record_line(record))
+            after = record['sequence'] + 1
+    elif args.what == 'wait-log':
+        record = wait_log(port, args.pattern, after if args.after is None else args.after, args.timeout)
+        print(record_line(record))
+        after = record['sequence'] + 1
+    elif args.what == 'call':
+        params = json.loads(args.params) if args.params else None
+        print(json.dumps(call(port, args.method, params), indent=2))
+    return after
+
+
+class LineError(Exception):
+    """A shell's line that cannot run: its message, or None once argparse has printed what it had to say."""
+
+
+class LineParser(argparse.ArgumentParser):
+    """Parses the shell's own commands: an error or `--help` ends the line, never the shell."""
+
+    def error(self, message):
+        raise LineError(f'{self.prog}: {message}')
+
+    def exit(self, status=0, message=None):
+        if message:
+            print(message, file=sys.stderr, end='')
+        raise LineError(None)
+
+
+def shell_parser():
+    parser = LineParser(prog=':', add_help=False, description="The shell's own commands, each after a ':'.")
+    sub = parser.add_subparsers(dest='what', required=True, parser_class=LineParser, metavar='COMMAND')
+    add_commands(sub)
+    p = sub.add_parser('follow', help="print the log's records after each line, from now on: on or off (off at the "
+                                      "start)")
+    p.add_argument('switch', choices=['on', 'off'])
+    sub.add_parser('help', help="these commands; a line without ':' is a command of the game, whose own help lists "
+                                "them")
+    sub.add_parser('quit', aliases=['exit'], help='end the shell, leaving the game running (also Ctrl+Z or Ctrl+D)')
+    return parser
+
+
+def words(line):
+    """A line's words as the game's commands split them (#368): blanks part them, quotes keep blanks within one, and a
+    backslash is a plain character, so that a Windows path takes either separator."""
+    lexer = shlex.shlex(line, posix=True)
+    lexer.whitespace_split = True
+    lexer.escape = ''
+    return list(lexer)
+
+
+def complain(message):
+    """Prints to the standard error after what the standard output holds, so that a piped script keeps its order."""
+    sys.stdout.flush()
+    print(message, file=sys.stderr, flush=True)
+
+
+def last_record(port):
+    """The sequence number after the log's last record, or 0 when nothing answers."""
     try:
-        if args.what == 'exec':
-            print('\n'.join(call(port, 'opensacred/exec', {'line': args.line})['output']))
-        elif args.what == 'state':
-            snapshot = call(port, 'opensacred/state')
-            print(json.dumps(snapshot, indent=2) if args.json else '\n'.join(lines(snapshot)))
-        elif args.what == 'wait-ready':
-            print('\n'.join(lines(wait(port, args.timeout, lambda s: s['ready'], 'a ready game'))))
-        elif args.what == 'wait-state':
-            print('\n'.join(lines(wait(port, args.timeout, lambda s: s['state'] == args.state, args.state))))
-        elif args.what == 'key':
-            call(port, 'opensacred/input', {'key': args.name})
-        elif args.what == 'type':
-            call(port, 'opensacred/input', {'text': args.text})
-        elif args.what == 'move':
-            call(port, 'opensacred/input', {'move': [args.x, args.y]})
-        elif args.what == 'click':
-            call(port, 'opensacred/input', {'click': [args.x, args.y], 'button': args.button, 'hold': args.hold})
-        elif args.what == 'wheel':
-            call(port, 'opensacred/input', {'wheel': args.lines})
-        elif args.what == 'screenshot':
-            print(screenshot(port, args.path, args.timeout))
-        elif args.what == 'logs':
-            for record in call(port, 'opensacred/logs', {'after': args.after}):
-                print(f"{record['sequence']} {record['seconds']:9.3f} {record['level']:<5} "
-                      f"{record['target']}: {record['message']}")
-        elif args.what == 'wait-log':
-            record = wait_log(port, args.pattern, args.after, args.timeout)
-            print(f"{record['sequence']} {record['seconds']:9.3f} {record['level']:<5} "
-                  f"{record['target']}: {record['message']}")
-        elif args.what == 'call':
-            params = json.loads(args.params) if args.params else None
-            print(json.dumps(call(port, args.method, params), indent=2))
+        records = call(port, 'opensacred/logs', {'after': 0})
+    except (ConnectionError, RuntimeError):
+        return 0
+    return records[-1]['sequence'] + 1 if records else 0
+
+
+def shell(port):
+    """Reads lines until `:quit` or the input's end: a line is a command of the game, one starting with `:` a command
+    of this client; an error, a lost connection or Ctrl+C ends the line, not the shell."""
+    parser = shell_parser()
+    interactive = sys.stdin.isatty()
+    try:
+        name = call(port, 'opensacred/state').get('name', 'OpenSacred')
+    except (ConnectionError, RuntimeError) as e:
+        complain(f'error: {e}; the next line tries again')
+        name = str(port)
+    if interactive:
+        print(f"{name} on {HOST}:{port}: a line runs a command of the game (help lists them), "
+              f"':help' the shell's own, ':quit' ends the shell")
+    after, follow = last_record(port), False
+    while True:
+        try:
+            line = input(f'{name}> ' if interactive else '').strip()
+        except EOFError:
+            break
+        except KeyboardInterrupt:
+            print()
+            continue
+        if not line or line.startswith('#'):
+            continue
+        if not interactive:
+            print(f'> {line}', flush=True)
+        try:
+            if not line.startswith(':'):
+                print('\n'.join(call(port, 'opensacred/exec', {'line': line})['output']))
+            else:
+                args = parser.parse_args(words(line[1:]))
+                if args.what in ('quit', 'exit'):
+                    break
+                if args.what == 'help':
+                    parser.print_help()
+                elif args.what == 'follow':
+                    follow = args.switch == 'on'
+                    if follow:
+                        after = last_record(port)
+                else:
+                    after = run(port, args, after)
+            if follow:
+                # opensacred-game logs each command it runs and its output under `remote`, printed above already.
+                for record in call(port, 'opensacred/logs', {'after': after}):
+                    if record['target'] != 'remote':
+                        print(record_line(record))
+                    after = record['sequence'] + 1
+        except LineError as e:
+            if e.args[0]:
+                complain(f'error: {e.args[0]}')
+        except (ConnectionError, RuntimeError, TimeoutError, ValueError) as e:
+            complain(f'error: {e}')
+        except KeyboardInterrupt:
+            complain('interrupted')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser.add_argument('--port', type=int, default=PORT, help=f"the game's port ({PORT} by default)")
+    sub = parser.add_subparsers(dest='what', required=True)
+    add_commands(sub)
+    sub.add_parser('shell', help="read lines until ':quit': a command of the game each, or with ':' one of this "
+                                 "client's own (:help)")
+    args = parser.parse_args()
+    if args.what == 'shell':
+        shell(args.port)
+        return
+    try:
+        run(args.port, args)
     except (ConnectionError, RuntimeError, TimeoutError) as e:
         print(f'error: {e}', file=sys.stderr)
         sys.exit(1)
