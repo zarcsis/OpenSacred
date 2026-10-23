@@ -2332,14 +2332,8 @@ fn spawn(
         mind.ranged = placement.ranged;
         // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`).
         let skills = fight::skills(&placement.base, grade, false);
-        let most = fight::most_health(placement.base.attributes, grade, &skills, rules);
-        let factor = placement.rank.health(creature, placement.class, rules);
-        #[expect(
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss,
-            reason = "a health, whole and positive, far below the integers' range"
-        )]
-        let most = (f64::from(most) * f64::from(factor)).floor() as u32;
+        let rank = placement.rank.health(creature, placement.class, rules);
+        let most = fight::most_health(placement.base.attributes, grade, &skills, rank, rules);
         entity.insert(fight::Health {
             current: most,
             most,
