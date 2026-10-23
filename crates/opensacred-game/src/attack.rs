@@ -281,7 +281,7 @@ impl Plugin for AttackPlugin {
                 Update,
                 (
                     aim.in_set(Control).before(hero::steer),
-                    engage.after(hero::steer).before(hero::run),
+                    engage.after(hero::steer).before(hero::take_orders),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),

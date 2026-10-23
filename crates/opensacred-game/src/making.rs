@@ -508,7 +508,7 @@ impl Plugin for MakingPlugin {
                 Update,
                 (
                     aim.in_set(Control).before(hero::steer),
-                    make.after(hero::steer).before(hero::run),
+                    make.after(hero::steer).before(hero::take_orders),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
