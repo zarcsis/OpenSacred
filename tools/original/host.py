@@ -493,6 +493,15 @@ class Host:
                 'level N: the hero rises to level N, its experience the level\'s start, as kills raise it',
                 'experience N or experience +N: the hero\'s experience set to N (upward only) or raised by N, its level '
                 'following',
+                'spawn TYPE [--at X,Y|+DX,+DY] [--count N] [--level L] [--rank champion|boss] [--hostile|--peaceful] '
+                '[--immortal]: creatures as the sectors\' fills make them, about a cell (the hero\'s by default), at L '
+                'or by the scripts\' rule (a rank at the marker level 1, levelled at its first fight), hostile or '
+                'peaceful by their type unless told; an immortal one takes no damage and the log tells each hit',
+                'kill [RADIUS]: the hostile creatures within RADIUS cells (5) die as the hero\'s kills: their drops, '
+                'the hero\'s experience (within about 27 cells, the reach of a strike\'s event)',
+                'drop [TIMES] [--id ID]: the nearest hostile creature (or ID) drops as its death makes it drop, '
+                'the hero its killer, TIMES times',
+                'item TYPE: an item of that type, as a drop forced to it makes it at the hero\'s place and level',
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
                 '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
                 'out-float; the first argument is ECX for thiscall and fastcall); traces lists those running and the '
@@ -906,6 +915,68 @@ class Host:
         hero = self.world('experience', {'points': int(match.group(2)), 'add': bool(match.group(1))})
         return [self.describe_hero(hero)]
 
+    @staticmethod
+    def describe_creature(c):
+        return (f"{c['id']} type {c['type']} cell {c['cell'][0]},{c['cell'][1]} health {c['health']}/{c['most']} "
+                f"level {c['level']} ai {c['ai'][0]}.{c['ai'][1]} action {c['action'][0]}.{c['action'][1]}")
+
+    def command_spawn(self, rest):
+        parser = argparse.ArgumentParser(prog='spawn', add_help=False, exit_on_error=False)
+        parser.add_argument('type', type=int)
+        parser.add_argument('--at', default='+0,+0')
+        parser.add_argument('--count', type=int, default=1)
+        parser.add_argument('--level', type=int)
+        parser.add_argument('--rank', choices=['champion', 'boss'])
+        side = parser.add_mutually_exclusive_group()
+        side.add_argument('--hostile', action='store_true')
+        side.add_argument('--peaceful', action='store_true')
+        parser.add_argument('--immortal', action='store_true')
+        options = parser.parse_args(rest.split())
+        if not 1 <= options.count <= 50:
+            raise ValueError('spawn: --count 1 to 50')
+        if options.level is not None and not 1 <= options.level <= 250:
+            raise ValueError('spawn: --level 1 to 250')
+        x, y = self.target_cell(options.at, relative_to_hero=True)
+        made = self.world('spawn', {
+            'type': options.type, 'x': x, 'y': y, 'count': options.count, 'level': options.level,
+            'rank': options.rank, 'hostility': 1 if options.hostile else 0 if options.peaceful else -1,
+            'immortal': options.immortal})
+        return [f"made {self.describe_creature(c)}{' hostile' if c['hostile'] else ' peaceful'}"
+                + (f' {options.rank}' if options.rank else '') + (' immortal' if options.immortal else '')
+                for c in made]
+
+    def command_kill(self, rest):
+        radius = int(rest) if rest else 5
+        killed = self.world('kill', {'radius': radius})
+        if not killed:
+            return [f'no hostile creature alive within {radius} cells of the hero']
+        return [('killed ' if c['ai'][0] == 9 or c['action'][0] == 6 or c['health'] <= 0 else 'not killed ')
+                + self.describe_creature(c) + f" by {c['strikes']} strike{'s' if c['strikes'] != 1 else ''}"
+                for c in killed]
+
+    def describe_made(self, made):
+        if made is None:
+            return 'nothing'
+        return (f"{made['id']} type {made['type']} cell {made['cell'][0]},{made['cell'][1]}"
+                + (f" gold {made['gold']}" if made['gold'] is not None else ''))
+
+    def command_drop(self, rest):
+        parser = argparse.ArgumentParser(prog='drop', add_help=False, exit_on_error=False)
+        parser.add_argument('times', type=int, nargs='?', default=1)
+        parser.add_argument('--id', type=int)
+        options = parser.parse_args(rest.split())
+        if not 1 <= options.times <= 200:
+            raise ValueError('drop: TIMES 1 to 200')
+        result = self.world('drop', {'id': options.id, 'times': options.times})
+        lines = [f"drops of {self.describe_creature(result['creature'])}"]
+        lines += [f'{i + 1}: {self.describe_made(made)}' for i, made in enumerate(result['made'])]
+        return lines
+
+    def command_item(self, rest):
+        if not rest.isdigit():
+            raise ValueError('item TYPE')
+        return [f"made {self.describe_made(self.world('item', {'type': int(rest)})['made'])}"]
+
     def quit_later(self):
         if not self.ended.wait(15):
             self.journal.push('WARN', 'host', 'the game is still running 15 s after its window was closed: ended')
@@ -923,6 +994,7 @@ WORLD_COMMANDS = {
     'point': Host.command_point, 'go': Host.command_go,
     'god': Host.command_god, 'heal': Host.command_heal, 'level': Host.command_level,
     'experience': Host.command_experience,
+    'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
 }
 
 

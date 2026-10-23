@@ -778,9 +778,22 @@ const WORLD = {
   setZoom: ptr('0x628130'),          // cWorldView_setZoom: thiscall (view, zoom)
   tick: ptr('0x60dd20'),             // cEngine_handleZoomInput: once a frame on the render thread, the engine in ECX
   setLevel: ptr('0x549500'),         // cCreature: thiscall (creature, level, flag), its stats' level setter 0x564D60
+  statsLevel: ptr('0x564d60'),       // the stats' level setter: thiscall (stats, level, a, b); a 0 scales the level by
+                                     // the difficulty, b 0 holds an NPC's at its sector's highest, b 1 takes it as
+                                     // asked, at most 250 (docs/re/objects.md)
   addExperience: ptr('0x549520'),    // cCreature: thiscall (creature, points), its stats' addExperience 0x57E160
   strike: ptr('0x56b130'),           // a strike's resolution: thiscall (the defender's stats, the event 5, ...)
   cheats: ptr('0x182ee3c'),          // the console's cheat flags (0x615550): bit 1 its god mode, which `lord` toggles
+  makeCreature: ptr('0x480d40'),     // FillSector's creature maker: thiscall (interpreter, cell x, cell y, 0, 0, type,
+                                     // level, three items, 0, flags into +0x1F4, hostility), the creature made
+  hostile: ptr('0x549000'),          // cCreature: thiscall (creature, id), whether it is hostile to that living one
+  drop: ptr('0x559bf0'),             // cCreature: thiscall (creature, type, bonus, value, killer's id), one drop
+  sectorExists: ptr('0x634840'),     // the world: thiscall (world, sector), whether the world has it
+  sectorInfo: ptr('0x63cfc0'),       // the world: thiscall (world, sector), its information (SpawnValues')
+  difficulty: ptr('0x182ee44'),      // the difficulty, 0 bronze to 4 niobium
+  lowestRaise: ptr('0xad4c18'),      // by the difficulty's column: what CreateNPC adds to a sector's lowest level
+  highestRaise: ptr('0xad4e1c'),     // and to its highest
+  strikeEvent: ptr('0x89095c'),      // the vtable of the event that 0x4EA3F0 sends a creature it hits
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -801,9 +814,23 @@ const VIEW_SCREEN_TO_WORLD = 6;      // the view's virtual function: thiscall (v
 const teleport = new NativeFunction(WORLD.teleport, 'uint32', ['pointer', 'int', 'int', 'int', 'int'], 'thiscall');
 const setZoom = new NativeFunction(WORLD.setZoom, 'uint32', ['pointer', 'float'], 'thiscall');
 const setLevel = new NativeFunction(WORLD.setLevel, 'void', ['pointer', 'int', 'int'], 'thiscall');
+const statsLevel = new NativeFunction(WORLD.statsLevel, 'void', ['pointer', 'int', 'int', 'int'], 'thiscall');
 const addExperience = new NativeFunction(WORLD.addExperience, 'void', ['pointer', 'int'], 'thiscall');
+const makeCreature = new NativeFunction(WORLD.makeCreature, 'pointer',
+  ['pointer', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'uint32', 'int'], 'thiscall');
+const isHostile = new NativeFunction(WORLD.hostile, 'uint8', ['pointer', 'uint32'], 'thiscall');
+const dropOf = new NativeFunction(WORLD.drop, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
+const sectorExists = new NativeFunction(WORLD.sectorExists, 'uint32', ['pointer', 'uint32'], 'thiscall');
+const sectorInfo = new NativeFunction(WORLD.sectorInfo, 'pointer', ['pointer', 'uint32'], 'thiscall');
+// The creature maker's `this`, the script interpreter: of it, the maker reads only the byte +0x12, set while a sector's
+// `Enter` runs (docs/re/spawning.md), so a creature made with it clear stays when its sector leaves the view.
+const interpreter = Memory.alloc(0x100);
 const GOD = 1;                       // the bit of the god mode in the console's cheat flags
 const SPARED_HEALTH = 0x3fffffff;    // the health a spared defender shows its strike's resolution
+const BOSS = 0x80000;                // a boss: +0x1F4 (docs/re/fight.md, "Bosses and champions")
+const CHAMPION = 0x40;               // a champion: +0x2B8, with +0xB0 bit 0x400, a champion's levelling
+const CHAMPION_LEVELLING = 0x400;
+const KILL_TRIES = 30;               // the strikes `kill` sends a creature before it gives up
 const MOST_LEVEL = 216;              // the highest level of an experience (0x57F8D0, docs/re/fight.md)
 
 const world = {
@@ -811,6 +838,7 @@ const world = {
   engine: null,    // the engine of the last tick
   creatureVtables: new Map(),
   god: null,       // with `god on`: {id, health}, the hero and the health it keeps
+  immortal: new Set(),   // the ids of the creatures `spawn --immortal` made, whose health strikes leave as it was
 };
 
 function objectCount() {
@@ -1114,7 +1142,199 @@ const COMMANDS = {
     }
     return readCreature(h);
   },
+  // Creatures made as FillSector makes them (#559): its creature maker on cells about a cell, from it outward, then
+  // the level setter: at the level asked as it is (as a horse's), or by CreateNPC's rule held at the sector's highest,
+  // or with a boss's or a champion's mark at the marker level 1 as FillSector gives them (docs/re/fight.md, "Bosses
+  // and champions").
+  spawn: (engine, { type, x, y, count, level, rank, hostility, immortal }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const made = [];
+    for (const [cx, cy] of cellsAbout(x, y, count)) {
+      const creature = makeCreature(interpreter, cx, cy, 0, 0, type, 0, 0, 0, 0, 0,
+        rank === 'boss' ? BOSS : 0xffffffff, hostility);
+      if (creature.isNull()) {
+        throw new Error(`the creature maker made no creature of type ${type}`);
+      }
+      if (level !== null && level !== undefined) {
+        statsLevel(creature.add(STATS), level, 1, 1);
+      } else {
+        setLevel(creature, rank ? 1 : scriptedLevel(creature, h), 0);
+      }
+      if (rank === 'champion') {
+        creature.add(0x2b8).writeU8(creature.add(0x2b8).readU8() | CHAMPION);
+        creature.add(0xb0).writeU32((creature.add(0xb0).readU32() | CHAMPION_LEVELLING) >>> 0);
+      }
+      const id = creature.add(CREATURE.id).readU32();
+      if (immortal) {
+        world.immortal.add(id);
+      }
+      made.push({ ...readCreature(creature), hostile: isHostile(creature, h.add(CREATURE.id).readU32()) !== 0 });
+    }
+    return made;
+  },
+  // The hostile creatures within a radius die as the hero's kills (#559): the hero's strike's event sent to each
+  // (0x4EA3F0's) at a health of 1, again while the strikes miss, so that the creature's own handler makes its death,
+  // its drops and the hero's experience; one still alive after KILL_TRIES strikes gets its health back.
+  // (A function called from the agent's own hook of the frame runs past the agent's other hooks, so the strike's
+  // resolution cannot be changed from inside it for these strikes.)
+  kill: (engine, { radius }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const heroId = h.add(CREATURE.id).readU32();
+    const [hx, hy] = cellOf(h);
+    const victims = creatures().filter((o) => {
+      if (o.equals(h) || isHostile(o, heroId) === 0 || o.add(CREATURE.health).readS32() <= 0) {
+        return false;
+      }
+      const [x, y] = cellOf(o);
+      return Math.max(Math.abs(x - hx), Math.abs(y - hy)) <= radius;
+    });
+    return victims.map((victim) => {
+      const health = victim.add(CREATURE.health).readS32();
+      let strikes = 0;
+      while (strikes < KILL_TRIES && !isDying(victim)) {
+        victim.add(CREATURE.health).writeS32(1);
+        strike(h, victim);
+        strikes += 1;
+      }
+      if (!isDying(victim)) {
+        victim.add(CREATURE.health).writeS32(health);
+      }
+      return { ...readCreature(victim), strikes };
+    });
+  },
+  // The drop of a creature as its death makes it, the hero its killer (#559): the nearest hostile creature, or ID.
+  drop: (engine, { id, times }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const heroId = h.add(CREATURE.id).readU32();
+    const creature = id ? objectById(id) : nearestHostile(h);
+    if (creature === null || !isCreature(creature)) {
+      throw new Error(id ? `no creature ${id}` : 'no hostile creature alive near the hero');
+    }
+    const made = [];
+    for (let i = 0; i < times; i += 1) {
+      made.push(dropOf(creature, 0, 0, 0, heroId));
+    }
+    return { creature: readCreature(creature), made: made.map(describeMade) };
+  },
+  // An item of a type, as a drop forced to it makes it (#559): the hero's drop of the type, at the hero's place and
+  // level, thrown as a death's drop is.
+  item: (engine, { type }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const made = dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32());
+    return { made: describeMade(made) };
+  },
 };
+
+// The cells of `count` creatures about a cell: the cell, then the rings about it.
+function cellsAbout(x, y, count) {
+  const cells = [];
+  for (let r = 0; cells.length < count; r += 1) {
+    for (let dy = -r; dy <= r && cells.length < count; dy += 1) {
+      for (let dx = -r; dx <= r && cells.length < count; dx += 1) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r) {
+          cells.push([x + dx, y + dy]);
+        }
+      }
+    }
+  }
+  return cells;
+}
+
+// The level CreateNPC gives a creature without a level of its own (docs/re/spawning.md, "`CreateNPC`'s level"): the
+// hero's, held within its sector's lowest and highest raised by the difficulty's additions, or one more between them;
+// the difficulty's scaling of the levels (0x552230) and a horse's riding are left out, which bronze's first quarter
+// hour of play does too.
+function scriptedLevel(creature, h) {
+  let level = h.add(CREATURE.level).readU16();
+  const world_ = WORLD.objects.readPointer().readPointer();
+  const sector = creature.add(0x18).readU16();
+  if (world_.isNull() || sectorExists(world_, sector) === 0) {
+    return level;
+  }
+  const info = sectorInfo(world_, sector);
+  if (info.isNull() || info.add(0xd3).readU16() === 0 || info.add(0xd5).readU16() === 0) {
+    return level;
+  }
+  // The column of the additions by the difficulty (CreateNPC at 0x48440E): 3, 2, 1 and 0 for 4 down to 1, else 5.
+  const difficulty = WORLD.difficulty.readS32();
+  const column = { 4: 3, 3: 2, 2: 1, 1: 0 }[difficulty] ?? 5;
+  const lowest = info.add(0xd3).readU16() + WORLD.lowestRaise.add(4 * column).readS32();
+  const highest = info.add(0xd5).readU16() + WORLD.highestRaise.add(4 * column).readS32();
+  if (level < lowest) {
+    level = lowest;
+  } else if (level > highest) {
+    level = highest;
+  } else {
+    level += Math.floor(Math.random() * 2);
+  }
+  return Math.max(1, level);
+}
+
+// Whether a creature is dead or dying: its AI's state 9, its action 6 or its health 0 (0x549080's test).
+function isDying(creature) {
+  return creature.add(CREATURE.ai).readU16() === 9 || creature.add(CREATURE.action).readU16() === 6 ||
+    creature.add(CREATURE.health).readS32() <= 0;
+}
+
+// The hostile creature alive nearest the hero.
+function nearestHostile(h) {
+  const heroId = h.add(CREATURE.id).readU32();
+  const [hx, hy] = cellOf(h);
+  let nearest = null;
+  let best = Infinity;
+  for (const o of creatures()) {
+    if (o.equals(h) || o.add(CREATURE.health).readS32() <= 0 || isHostile(o, heroId) === 0) {
+      continue;
+    }
+    const [x, y] = cellOf(o);
+    const distance = Math.hypot(x - hx, y - hy);
+    if (distance < best) {
+      best = distance;
+      nearest = o;
+    }
+  }
+  return nearest;
+}
+
+// The hero's strike at a creature as 0x4EA3F0 sends it, unarmed: the event 5 from the attacker to the target, the
+// strike's record of no weapon and a factor of 1, through the target's handler (+0x18 of its vtable).
+function strike(attacker, target) {
+  const event = Memory.alloc(0x40);
+  const attackerId = attacker.add(CREATURE.id).readU32();
+  const targetId = target.add(CREATURE.id).readU32();
+  event.writePointer(WORLD.strikeEvent);
+  event.add(0x04).writeU32(5);
+  event.add(0x08).writeU32(attackerId);
+  event.add(0x0c).writeU32(targetId);
+  event.add(0x10).writeU32(targetId);
+  event.add(0x1c).writeU32(attackerId);   // the record: the weapon's type and id (none), the attacker, ...
+  event.add(0x30).writeFloat(1.0);        // ... and the factor
+  const handler = new NativeFunction(target.readPointer().add(0x18).readPointer(), 'uint32', ['pointer', 'pointer'],
+    'thiscall');
+  handler(target, event);
+}
+
+// An object a drop made: its id, type and, for gold, its amount.
+function describeMade(id) {
+  const object = id > 0 ? objectById(id) : null;
+  if (object === null) {
+    return null;
+  }
+  const type = object.add(CREATURE.type).readU32();
+  return { id, type, cell: cellOf(object), gold: type >= 5132 && type <= 5135 ? object.add(0x120).readU32() : null };
+}
 
 // The experience a level starts at: the end of the level before, `X(L) = ⌊(L⁴ + 40L³ + 150L² + 200L − 90)/100⌋·100`
 // (0x57F6E0, docs/re/fight.md, "The hero's levels").
@@ -1126,27 +1346,41 @@ function levelStart(level) {
   return l === 0 ? 0 : Math.floor((l ** 4 + 40 * l ** 3 + 150 * l ** 2 + 200 * l - 90) / 100) * 100;
 }
 
-// The god mode's health: a strike at the hero leaves it as it was (the resolution sees a health no damage reaches,
-// so that it takes no death's branch), and any other loss is given back at the next frame; the regeneration's rise is
-// kept.
-function installGod() {
+// The strikes' resolution as the commands want it:
+// - the god mode's hero: a strike leaves its health as it was (the resolution sees a health no damage reaches, so that
+//   it takes no death's branch), and any other loss is given back at the next frame, the regeneration's rise kept;
+// - an immortal creature (`spawn --immortal`): the strike takes its damage, which the log tells, and its health is
+//   put back as the resolution returns, before anything sees it fall.
+function installStrikes() {
   Interceptor.attach(WORLD.strike, {
     onEnter() {
-      const god = world.god;
-      if (god === null) {
+      if (world.god === null && world.immortal.size === 0) {
         return;
       }
       const defender = this.context.ecx.add(4).readPointer();
-      if (defender.isNull() || defender.add(CREATURE.id).readU32() !== god.id) {
+      if (defender.isNull()) {
         return;
       }
-      this.spared = defender;
-      this.health = defender.add(CREATURE.health).readS32();
-      defender.add(CREATURE.health).writeS32(SPARED_HEALTH);
+      const id = defender.add(CREATURE.id).readU32();
+      if (world.god !== null && id === world.god.id) {
+        this.kept = defender;
+        this.health = defender.add(CREATURE.health).readS32();
+        defender.add(CREATURE.health).writeS32(SPARED_HEALTH);
+      } else if (world.immortal.has(id)) {
+        this.immortal = defender;
+        this.health = defender.add(CREATURE.health).readS32();
+      }
     },
     onLeave() {
-      if (this.spared !== undefined) {
-        this.spared.add(CREATURE.health).writeS32(this.health);
+      if (this.kept !== undefined) {
+        this.kept.add(CREATURE.health).writeS32(this.health);
+      } else if (this.immortal !== undefined) {
+        const after = this.immortal.add(CREATURE.health).readS32();
+        if (after < this.health) {
+          log('INFO', `immortal ${describeObject(this.immortal)}: hit ${this.health - after}` +
+            (after === 0 ? ' or more (its health reached 0)' : ''));
+        }
+        this.immortal.add(CREATURE.health).writeS32(this.health);
       }
     },
   });
@@ -1193,19 +1427,27 @@ function runWorldJobs(engine) {
   }
 }
 
+// The frame's function is replaced rather than hooked, the original called at the end: a function the jobs call from
+// within a hook's callback would run past every hook of the agent (Frida's guard against recursion), the traces' and
+// the strikes' too, while from a replacement it runs through them (`kill`'s drops and experience in the traces).
 function installWorld() {
-  Interceptor.attach(WORLD.tick, {
-    onEnter() {
-      world.engine = ptr(this.context.ecx.toString());
+  const tick = new NativeFunction(WORLD.tick, 'uint32', ['pointer', 'uint32'], 'thiscall');
+  world.tick = new NativeCallback((engine, argument) => {
+    world.engine = engine;
+    try {
       if (world.jobs.length > 0) {
-        runWorldJobs(world.engine);
+        runWorldJobs(engine);
       }
       if (world.god !== null) {
         keepGodHealth();
       }
-    },
-  });
-  installGod();
+    } catch (e) {
+      log('ERROR', `the frame's jobs: ${e.stack ?? e}`);
+    }
+    return tick(engine, argument);
+  }, 'uint32', ['pointer', 'uint32'], 'thiscall');
+  Interceptor.replace(WORLD.tick, world.tick);
+  installStrikes();
   setInterval(() => {
     const now = Date.now();
     const late = world.jobs.filter((job) => now > job.deadline);
@@ -1413,8 +1655,9 @@ const PRESETS = {
   } },
   // A kill's experience (0x57D860), its return the experience earned.
   experience: { address: '0x57d860', abi: 'thiscall', args: ['ptr', 'u16', 'u16', 'int'], ret: 'int' },
-  // One call of a killed creature's drop (docs/re/items.md): the creature, the type asked (0 any), the bonus, the
-  // value; the objects it makes (sdk_CREATE) with their types and, for gold, its amount (+0x120).
+  // One call of a killed creature's drop (docs/re/items.md): the creature (ECX), then on the stack the type asked (0
+  // any), the bonus, the value and the killer's id; the objects it makes (sdk_CREATE) with their types and, for gold,
+  // its amount (+0x120).
   drop: { address: '0x559bf0', make: (trace) => {
     const making = new Map();   // thread -> ids made
     const create = Interceptor.attach(ptr('0x5fba40'), {
@@ -1429,8 +1672,8 @@ const PRESETS = {
     return {
       onEnter(args) {
         this.creature = ptr(this.context.ecx.toString());
-        this.text = `${describeObject(this.creature)}: type ${args[1].toUInt32()}, bonus ${args[2].toUInt32()}, ` +
-          `value ${args[3].toUInt32()}`;
+        this.text = `${describeObject(this.creature)}: type ${args[0].toUInt32()}, bonus ${args[1].toUInt32()}, ` +
+          `value ${args[2].toUInt32()}, killer ${args[3].toUInt32()}`;
         making.set(Process.getCurrentThreadId(), []);
       },
       onLeave() {

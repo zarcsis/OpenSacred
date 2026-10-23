@@ -56,6 +56,21 @@ Status: **confirmed** by code and in the running original (2026-10-22, #558).
   Observed: 49,500 points took a new Seraphim to level 10, her health from 119 to 317; 50,500 more to level 12.
 - The health is `+0x4D8` and its most `+0x4D4` (above); writing the most into the health heals a creature at once, as the stats' own refills do.
 
+## Making creatures, kills and drops
+
+Status: **confirmed** by code and in the running original (2026-10-22, #559), which the driver's `spawn`, `kill`, `drop` and `item` use.
+
+- `FillSector`'s creature maker `0x480D40` (`thiscall` of the script interpreter, 12 arguments, docs/re/spawning.md) takes a cell's `x` and `y`, two zeroes, the type, a level that only an object of type 1162 uses, the ids of three items to equip, a zero, flags or'ed into `+0x1F4` (−1 none) and the hostility: 1 hostile (`+0x1F4` bit 1 and the fight stance), 0 peaceful (for some animals bits `0x10` or `0x40` too), −1 by the type (`0x549000`).
+  It places the creature on the cell's middle on the ground (floor 0), turns a fifth of the type 344 into 359, and reads of the interpreter only the byte `+0x12` (an `Enter` running), which marks the creature as one its sector's exit takes away.
+  It sets no level: `FillSector` then calls the level setter, a boss or champion at the marker level 1 with its mark (docs/re/fight.md, "Bosses and champions").
+- The stats' level setter `0x564D60` (`thiscall`: the level `L`, flags `a` and `b`): with `a` 0, an NPC's `L` (not a boss's or champion's marker 1 or 1000) is raised by the difficulty's addition to the lowest (`0xAD4C18` by its column), scaled by the difficulty (`0x552230` with no time played) and raised by `0xAB4680`; with `b` 0, an NPC's (an id above 16) is held at its sector's highest (`+0xD5` of the information of its position, `0x63D0C0`) plus the difficulty's addition to the highest (`0xAD4E1C`), or that addition alone without the information, 300 for the type 701, and a boss's or champion's at 2 more (`0xAD4D48`, `0xAD4D4C`) unless its type is big; with `b` 1, or for a horse (`0x4266F0`), it is the level asked, at most 250.
+  The column of the additions is 3, 2, 1 and 0 for the difficulties 4 down to 1 and 5 for bronze; seen in the original on bronze: the lowest's additions 0, 35, 70, 128, 0 and 0, the highest's 50, 120, 190, 250, 250 and 0, `0xAB4680` 0, the boss's and champion's 2 and 2.
+  `FillSector` and `0x549500` pass `a` 1 and `b` 0, so a fill's creature is held at its sector's highest; `CreateNPC` passes 1 and 0 for its rule's level and 0 and 0 for a level tag (#540).
+  Seen: a goblin warrior made in 51,39 at the level 20 through `0x549500` took the level 4, and with `b` 1 the level 20.
+- A strike lands as the event 5 that `0x4EA3F0` sends its target: an event of the vtable `0x89095C`, its type 5 at `+4`, the attacker's id at `+8`, the target's at `+0x0C` and `+0x10`, then the strike's record (the weapon's type and id, the attacker's id, four words of fixed damages, a kind, a word and the factor, a float), handled at once by the target's `+0x18` of its vtable (`0x52E590` for a creature): a target farther than 1,500 from its attacker ignores it.
+  The death that gives drops and experience is made there, with the attacker as the killer: an unarmed strike of the hero at a creature whose health is 1 kills it as the hero's kill (seen: the goblins of 51,39 died, each called the drop once with the killer 1, and the hero took 27 and 45 experience), while a health set to 0 alone makes the creature die with no drop and no experience.
+- The drop `0x559BF0` (`thiscall` of the creature; the type asked, the bonus, the value and the killer's id) returns the id of the last object it made, 0 for none; with a type forced it makes that item even for a hero (docs/re/items.md, "One call of the drop"), at the creature's place and level.
+
 ## The console's cheats
 
 The client's console (`UI_WND_CONSOLE`) passes a line to two handlers.
