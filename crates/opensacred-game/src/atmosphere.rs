@@ -8,7 +8,6 @@
 //! (docs/re/sound.md); the regions' exceptions are not followed.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -22,6 +21,7 @@ use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTwe
 use opensacred_data::sound::Sound;
 
 use crate::daynight::{Clock, Phase};
+use crate::files;
 use crate::frame::{Playing, Unpaused};
 use crate::game::AppState;
 use crate::hero::Body;
@@ -96,7 +96,7 @@ impl Atmosphere {
     pub fn read(assets: &Path) -> Result<Self> {
         let path = assets.join("sound").join(opensacred_data::sound::INDEX);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let sound: Sound =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let file = |name: &str| {

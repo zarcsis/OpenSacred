@@ -31,7 +31,6 @@
 //! hero when they are drawn after it, as the original's do ([`Fade`], `sprites.wesl`).
 
 use std::collections::{BTreeMap, HashMap};
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -57,7 +56,7 @@ use opensacred_data::world::{SIDE, Sector, Shadow, Sprite, Sprites, StaticObject
 use crate::blended::{self, Layer};
 use crate::frame::Step;
 use crate::terrain::{Rgba, read_png};
-use crate::{buildings, iso, liquids};
+use crate::{buildings, files, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
 /// sprites, or the shadow atlas, whose materials [`StaticShadows`] holds.
@@ -336,8 +335,8 @@ fn asset_path(root: &Path, dir: &Path, relative: &str) -> Result<String> {
 
 /// Width and height of a PNG, from its header.
 fn png_size(path: &Path) -> Result<(f32, f32)> {
-    let file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let reader = png::Decoder::new(std::io::BufReader::new(file))
+    let file = files::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let reader = png::Decoder::new(file)
         .read_info()
         .with_context(|| format!("reading {}", path.display()))?;
     let info = reader.info();
@@ -357,7 +356,7 @@ pub fn read_sprites(assets: &Path) -> Result<Sprites> {
     let table = assets
         .join("world")
         .join(opensacred_data::world::SPRITES_FILE);
-    let data = fs::read(&table).with_context(|| format!("reading {}", table.display()))?;
+    let data = files::read(&table).with_context(|| format!("reading {}", table.display()))?;
     Sprites::decode(&data).with_context(|| format!("decoding {}", table.display()))
 }
 
@@ -1320,7 +1319,7 @@ impl TreeFade {
     pub fn read(assets: &Path) -> Result<Self> {
         let path = assets.join("tables").join(opensacred_data::tables::BALANCE);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let balance: opensacred_data::tables::Balance =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let variable = |name: &str| -> Result<f32> {
@@ -1552,6 +1551,8 @@ fn sprite_passes(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::fs;
+
     use opensacred_data::world::{Cell, Piece, Sprite};
 
     use super::*;

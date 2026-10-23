@@ -15,6 +15,7 @@ use bevy::tasks::{AsyncComputeTaskPool, Task};
 use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
+use crate::files;
 use crate::{
     ai, arts, atmosphere, daynight, fight, hero, iso, lines, making, motions, music, npcs, sectors,
     sound, terrain,
@@ -275,7 +276,7 @@ fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
         .join("tables")
         .join(opensacred_data::tables::CREATURES);
     let text =
-        std::fs::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
+        files::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
     let creatures: Vec<opensacred_data::tables::Creature> =
         ron::from_str(&text).map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
     creatures
@@ -287,7 +288,7 @@ fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
 /// The template of the hero of `class` (`heroes.ron`, docs/02 §9): the items it wears and holds
 /// at the start and its combat arts; none where the index or the class's template is lacking.
 fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
-    std::fs::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
+    files::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
         .ok()
         .and_then(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text).ok())
         .and_then(|index| {
@@ -408,7 +409,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     // The balance's values of the fight, and the hero's own by its type's record and its
     // template's items (#486).
     let balance =
-        std::fs::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
+        files::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
             .ok()
             .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
     let rules = fight::Rules::of(balance.as_ref());
@@ -516,7 +517,7 @@ impl LoadingScreen {
     /// The first of the original's two loading screens of Ancaria (`loading0`, `loading1`).
     pub fn find(assets: &Path) -> Self {
         let file = "ui/screens/loading0.png";
-        Self(assets.join(file).is_file().then(|| file.into()))
+        Self(files::exists(assets.join(file)).then(|| file.into()))
     }
 }
 

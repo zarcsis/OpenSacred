@@ -8,7 +8,6 @@
 //! that composes the layers would shrink it further.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -26,7 +25,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 
-use crate::{buildings, iso, liquids};
+use crate::{buildings, files, iso, liquids};
 
 /// A diamond's box in a tile sheet and on screen.
 const DIAMOND_W: usize = 96;
@@ -862,8 +861,8 @@ pub struct Rgba {
 }
 
 pub fn read_png(path: &Path) -> Result<Rgba> {
-    let file = fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let file = files::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut decoder = png::Decoder::new(file);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
     let mut reader = decoder
         .read_info()
@@ -1086,7 +1085,7 @@ fn mesh(sector: &Sector) -> Mesh {
 pub fn read_world(assets: &Path) -> Result<World> {
     let index = assets.join("world").join(opensacred_data::world::INDEX);
     let text =
-        fs::read_to_string(&index).with_context(|| format!("reading {}", index.display()))?;
+        files::read_to_string(&index).with_context(|| format!("reading {}", index.display()))?;
     ron::from_str(&text).with_context(|| format!("parsing {}", index.display()))
 }
 
@@ -1096,7 +1095,7 @@ pub fn read_sector(assets: &Path, world: &World, (x, y): (u32, u32)) -> Result<O
         return Ok(None);
     };
     let path = assets.join("world").join(&entry.file);
-    let data = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+    let data = files::read(&path).with_context(|| format!("reading {}", path.display()))?;
     let sector = Sector::decode(&data).with_context(|| format!("decoding {}", path.display()))?;
     Ok(Some(sector))
 }

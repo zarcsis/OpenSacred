@@ -15,7 +15,7 @@ use crate::game::AppState;
 use crate::npcs::Dies;
 use crate::sectors::Streamer;
 use crate::terrain::{Heights, LANDING_REACH, Landing, Level};
-use crate::{iso, models, paths, shadows};
+use crate::{files, iso, models, paths, shadows};
 
 /// How close to its target the hero stops.
 pub(crate) const ARRIVED: f32 = 4.0;
@@ -46,7 +46,7 @@ impl GameSpeed {
     /// Reads `GameSpeed` from `tables/balance.ron`.
     pub fn read(assets: &std::path::Path) -> anyhow::Result<Self> {
         let path = assets.join("tables").join(opensacred_data::tables::BALANCE);
-        let text = std::fs::read_to_string(&path)
+        let text = files::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
         let balance: opensacred_data::tables::Balance =
             ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;

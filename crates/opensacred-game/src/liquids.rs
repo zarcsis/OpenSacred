@@ -13,7 +13,6 @@
 //! docs/decisions/2026-10-17-liquids.md).
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -30,6 +29,7 @@ use opensacred_data::world::{Cell, SIDE, Sector};
 
 use crate::blended::{self, Layer, Sorted};
 use crate::daynight::{self, Clock};
+use crate::files;
 use crate::iso;
 
 /// A liquid material of the original's table.
@@ -278,13 +278,13 @@ impl Liquids {
     pub fn read(assets: &Path) -> Result<Self> {
         let dir = assets.join("textures").join("texture");
         let mut found: HashMap<&'static str, Vec<(usize, String)>> = HashMap::new();
-        let entries = fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?;
-        for entry in entries {
-            let name = entry
-                .with_context(|| format!("reading {}", dir.display()))?
+        let entries =
+            files::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))?;
+        for path in entries {
+            let name = path
                 .file_name()
-                .to_string_lossy()
-                .into_owned();
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             // `01073-b_water00.png`.
             let Some((_, rest)) = name.split_once('-') else {
                 continue;

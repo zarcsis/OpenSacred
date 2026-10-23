@@ -9,7 +9,6 @@
 //! its images read as stored, so that they show as given and blend as the original's interface
 //! does.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
@@ -18,6 +17,8 @@ use bevy::image::ImageLoaderSettings;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage};
+
+use crate::files;
 
 /// The height of the original's screen, which the interface is laid out on.
 const SCREEN_HEIGHT: f32 = 768.0;
@@ -38,15 +39,11 @@ pub struct Hud {
 pub fn find_texture(assets: &Path, name: &str) -> Option<PathBuf> {
     let dir = assets.join("textures").join("texture");
     let suffix = format!("-{name}.png");
-    fs::read_dir(&dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .find(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with(&suffix))
-        })
+    files::read_dir(&dir).ok()?.into_iter().find(|path| {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with(&suffix))
+    })
 }
 
 /// The converted textures named `names`, relative to the asset directory with `/` between the
@@ -55,9 +52,8 @@ pub fn find_textures(assets: &Path, names: &[&str]) -> Vec<Option<String>> {
     let suffixes: Vec<String> = names.iter().map(|name| format!("-{name}.png")).collect();
     let mut found = vec![None; names.len()];
     let dir = assets.join("textures").join("texture");
-    for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
-        let file = entry.file_name();
-        let Some(file) = file.to_str() else {
+    for path in files::read_dir(&dir).into_iter().flatten() {
+        let Some(file) = path.file_name().and_then(|f| f.to_str()) else {
             continue;
         };
         if let Some(i) = suffixes.iter().position(|suffix| file.ends_with(suffix)) {
@@ -81,8 +77,8 @@ pub fn image(assets: &AssetServer, path: impl Into<String>) -> Handle<Image> {
 
 /// The top left `CURSOR_SIDE` square of an RGBA PNG, each pixel `scale` times wider and taller.
 fn cursor_image(path: &Path, scale: usize) -> Result<Image> {
-    let file = fs::File::open(path).map_err(|e| anyhow!("opening {}: {e}", path.display()))?;
-    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let file = files::open(path).map_err(|e| anyhow!("opening {}: {e}", path.display()))?;
+    let mut decoder = png::Decoder::new(file);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
     let mut reader = decoder
         .read_info()
@@ -215,6 +211,8 @@ impl Plugin for HudPlugin {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     #[test]

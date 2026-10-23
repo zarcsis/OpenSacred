@@ -14,7 +14,6 @@
 //! phase of the day at `+0xA34` being 2, docs/re/daynight.md); the one playing plays to its end.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,7 +31,7 @@ use opensacred_data::world::{SIDE, World};
 
 use crate::daynight::{Clock, Phase};
 use crate::game::AppState;
-use crate::{frame, hero, iso};
+use crate::{files, frame, hero, iso};
 use bevy_kira_audio::AudioApp;
 
 const PROFILE: &str = "music";
@@ -80,7 +79,7 @@ impl Music {
     pub fn read(assets: &Path) -> Result<Self> {
         let path = assets.join("sound").join(opensacred_data::sound::INDEX);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let sound: Sound =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let ids = sound
@@ -100,7 +99,7 @@ impl Music {
         let files = ids.iter().filter_map(|&id| track(id)).collect();
         let path = assets.join("world").join(opensacred_data::world::INDEX);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let world: World =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let sectors = world

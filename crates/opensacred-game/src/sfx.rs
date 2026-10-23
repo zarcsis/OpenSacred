@@ -10,7 +10,6 @@
 //! (docs/decisions/2026-10-23-voices-place.md, #731).
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -22,6 +21,7 @@ use bevy::prelude::{
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
 
+use crate::files;
 use crate::frame::Unpaused;
 use crate::hero::{self, Body};
 use crate::spawning::Rng;
@@ -57,7 +57,7 @@ impl Sfx {
     pub fn read(assets: &Path) -> Result<Self> {
         let path = assets.join("sound").join(opensacred_data::sound::INDEX);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let sound: Sound =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let files: HashMap<u32, &str> = sound

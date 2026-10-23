@@ -15,7 +15,6 @@
 //! the original's falloff, `0x678260`, is not read yet).
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -28,6 +27,7 @@ use bevy::prelude::{
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
 use opensacred_data::tables::{VOICES, Voice};
 
+use crate::files;
 use crate::frame::Unpaused;
 use crate::hero::{self, Body};
 use crate::npcs::Dies;
@@ -140,9 +140,9 @@ impl Voices {
     /// Reads `tables/voices.ron`; without it (assets converted before it), no creature speaks.
     pub fn read(assets: &Path) -> Result<Self> {
         let path = assets.join("tables").join(VOICES);
-        let voices = if path.exists() {
-            let text =
-                fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let voices = if files::exists(&path) {
+            let text = files::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
             let table: opensacred_data::tables::Voices =
                 ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
             table

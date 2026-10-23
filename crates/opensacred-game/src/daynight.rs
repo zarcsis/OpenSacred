@@ -26,7 +26,6 @@
 //! the spells' lights, and the torches.
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -46,6 +45,7 @@ use opensacred_data::tables::Item;
 use opensacred_data::world::{Sector, StaticObject, World};
 
 use crate::blended::{self, Layer};
+use crate::files;
 
 /// The shader of [`Night`], embedded in the binary.
 pub const SHADER: &str = "embedded://opensacred_game/night.wesl";
@@ -214,7 +214,7 @@ impl LightTypes {
     pub fn read(assets: &Path) -> Result<Self> {
         let path = assets.join("tables").join(opensacred_data::tables::ITEMS);
         let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
         let items: Vec<Item> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         Ok(Self(
