@@ -183,6 +183,7 @@ In the order of `0x461540`:
 - `0x23`, `0x24` and `0x25` make it a trader (`+0x200` bits `0x1000`, `0x2000` and `0x4000`), each in the script manager's list of traders, and `0x64` too (`0x4000000`) with a dialogue stamped (`0x2BF20`).
 - `0x63` names a trader whose stock of horses the creature joins (the list at `+0x79E8`, up to six horses each, at their levels), its dialogue taken away.
 - `0x11` puts it in a group (`+0x249`, `0x4A9EF0`), and `0xA1` sets `+0x14` bit `0x200000`.
+  `CreateNPC`'s `0x11` does too, its number the group's (`0x483A46`, #669), and `opensacred-game` reads it there.
 - `0x37`, `0x4B` and `0x71` hire it (`sdk_HIRE`, docs/re/movement.md), the hero's follower for the number 0; `0x37` and `0x71` also clear its `+0x1F4` bit `0x100` and set `0x4`, and `0x71` marks it in its quest's list (`+0x31C`); `0x39` and `0x65` call the quests' hook `0x471790` instead and tell the hero's client (an event `0x10B`).
 - Last its stats are computed again (`0x5796A0`).
 

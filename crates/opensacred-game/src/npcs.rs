@@ -91,6 +91,11 @@ const STAMPED: u8 = 0x64;
 /// The tags of `CreateNPC` that set `+0x200` bit `0x200` (`0x482510`), which keeps a creature
 /// out of its first update's flags (`opensacred_rules::minds::Mind::hold`).
 const KEEPS: [u8; 4] = [0x1A, 0x70, 0x71, 0x72];
+/// The tag of a `CreateNPC` whose number puts its creature in that group (`+0x249`, through
+/// `0x4A9EF0`, at `0x483A46`), and the bit that keeps the scripts' groups apart from the fills'
+/// packs' numbers ([`script_group`]).
+const GROUP: u8 = 0x11;
+const SCRIPT_GROUP: u32 = 0x8000_0000;
 /// The operand of a `CreateNPC` that gives its creature's level, or makes it a boss
 /// (`0x482510`, `fight::tagged_level`).
 const LEVEL: u8 = 0x1F;
@@ -1215,6 +1220,19 @@ fn name_of(ops: &[opensacred_data::netscript::Operand]) -> Option<String> {
 /// A `CreateNPC`'s level tag ([`LEVEL`]), the last of its operands', as `CreateNPC` keeps the
 /// last (`0x482510`); 0 for none, or for a variable or a number below 0 in its place, which no
 /// `CreateNPC` of the scripts carries.
+/// The group of a `CreateNPC` of the operands `ops` (#669): its last tag [`GROUP`]'s number, if
+/// it is not 0, kept apart from the fills' packs, whose numbers stay below [`SCRIPT_GROUP`].
+fn script_group(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
+    ops.iter()
+        .rev()
+        .find_map(|o| match (o.tag, &o.value) {
+            (GROUP, Value::I32(v)) => Some(u32::try_from(*v).unwrap_or(0)),
+            _ => None,
+        })
+        .filter(|&n| n != 0)
+        .map(|n| SCRIPT_GROUP | (n & !SCRIPT_GROUP))
+}
+
 fn level_tag(ops: &[opensacred_data::netscript::Operand]) -> u32 {
     ops.iter()
         .rev()
@@ -1744,7 +1762,11 @@ impl Npcs {
                         .iter()
                         .any(|o| TRADES.contains(&o.tag) && matches!(o.value, Value::Marker)),
                 kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
-                group: None,
+                group: if record.kind == CREATE_NPC {
+                    script_group(ops)
+                } else {
+                    None
+                },
                 heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
                 object: record.kind == CREATE_OBJ,
                 casts: if record.kind == CREATE_OBJ {
@@ -4119,6 +4141,24 @@ mod tests {
     use opensacred_data::netscript::Operand;
 
     use super::*;
+
+    #[test]
+    fn a_createnpc_of_the_tag_0x11_joins_its_group_apart_from_the_fills_packs() {
+        let op = |tag, value| Operand { tag, value };
+        // The start's bears by the boss 689, of one group (#669).
+        let bear = [
+            op(0x08, Value::Marker),
+            op(GROUP, Value::I32(815)),
+            op(0x46, Value::Marker),
+        ];
+        assert_eq!(script_group(&bear), Some(SCRIPT_GROUP | 815));
+        assert_eq!(script_group(&[op(GROUP, Value::I32(0))]), None);
+        assert_eq!(script_group(&[op(0x08, Value::Marker)]), None);
+        // The last counts; a pack's number, below 10,000,000, never meets a script's.
+        let twice = [op(GROUP, Value::I32(3)), op(GROUP, Value::I32(4))];
+        assert_eq!(script_group(&twice), Some(SCRIPT_GROUP | 4));
+        assert!(SCRIPT_GROUP > 99 * 100_000 + 99 * 1000 + 999);
+    }
 
     #[test]
     fn textures_are_found_by_their_record_number() {
