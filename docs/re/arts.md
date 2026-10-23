@@ -219,6 +219,37 @@ Other kinds other than 0 skip the hit's test, so that they always land (read aga
 The damage, summed after the resistances, is multiplied by the hit's factor when it lies between 0 and 500 and is not 1, at least 1; `0x4EA3F0` halves the factor with two weapons or a weapon of kind 8.
 So at level 1 the Seraphim's 1071 and the Gladiator's 1059 strike with 1.425 times the attack for 80 % of the damage.
 
+## The arts' clips
+
+Read 2026-10-23 (#509) in the Gladiator's and the Seraphim's executors, on foot.
+An art's first run plays its clip with `0x593320(slot, 0.5, 1.0, rate)`: a slot of the model's motions (docs/re/motions.md), the blend 0.5 over the rate at most 0.2 s, and the rate the creature's attack speed over 100 (`0x584FE0`, the stats' `+0x3C` at most 220, times the float 0.01), the speed its plain attack plays at.
+The slot is the class's by the art and the class of what the creature holds (`0x546F80`); with a bow or a crossbow (7, 12) the arts are shots instead (above):
+
+| Art | Class 0 | 1 and the others | 2 | 3 | 4 | 8 |
+|---|---|---|---|---|---|---|
+| the Gladiator's `Attacke` 1059 | 210 | 211 | 212 | 213 | 211 | 216 |
+| the Gladiator's `Rundum` 1057 | 220 | 220 | 221 | 222 | 220 | 220 |
+| the Gladiator's `Hardhit` 1058 | 201 | 202 | 203 | 204 | 202 | 207 |
+| the Seraphim's `Attacke` 1071 | 211 at 0.73 | 211 at 0.73 | 212 | 211 at 0.73 | 214 | 216 |
+| the Seraphim's `Rundum` 1069 | 153 | 153 | 153 | 153 | 153 | 153 |
+| the Seraphim's `Hardhit` 1070 | an attack's | an attack's | an attack's | an attack's | an attack's | an attack's |
+
+- The Seraphim's `Attacke` of the slot 211 plays at 0.73 of the rate (the float at `0x891080`), and her `Hardhit` plays the slot of the action 4, an attack's clip (`0x5467A0`, one of five at random).
+- The Gladiator's `Attacke` plays other slots, some at random, for six types of NPCs (`+0x10` 192, 204, 329, 342, 343 and 350; not followed); with a flag of its order set a `Hardhit` plays 194 (**hypothesis**: on horseback).
+- The models' clips in those slots are named for them: `GLAD_SPECIAL_MULTI_*` (210 to 216), `GLAD_SPECIAL_MGEG_*` (220 to 222), `GLAD_SPECIAL_HHIT_*` (201 to 207), `SERA_SPECIAL_MULTI_*` (211 to 216) and `SERA_ATTACK_SPECIAL10` (153).
+
+An art's hit points are its clip's floats from `MotionDesc +0xA0`: an `Attacke` reads its `n`-th as `0x4135D0(model, slot, 8 + n)`, `+0x80` and `4·(8 + n)`, which is `floats_62[1 + n]` of `tables/motions.ron` (docs/02 §4.1), and ends at the first that is not above 0; a `Hardhit` reads the first, 0.5 where it is not within (0, 1].
+So the Seraphim's 1071 with her blade, `SERA_SPECIAL_MULTI_1H`, has seven, from 0.137 to 0.747 of its 6.38 s, and the Gladiator's 1059, `GLAD_SPECIAL_MULTI_1H`, four, from 0.152 to 0.702 of its 5.18 s: at the game's speed 1.25 times her attack speed 1.54 times 0.73 the first and the last are 2.77 s apart, and at 1.25 times his 1.40 1.63 s apart, as the original's 7 strikes in about 2.8 s and 4 in about 1.65 s (#508's comments).
+A strike is due once what is left of the clip is less than `1 − point` of it.
+
+The order (`0x4FD0F0`) makes the art, taking the class's action of the arts (`0x95583C`), once the creature stands within 10 of the distance the art is made from (120 for a rider), the target where it was: for a record's distance of 100 to 250 the reach of the two creatures (`0x4DBC60`), for 0 where it stands; the jumps of a distance below 0 and the arts 1003, 1017 and 1032 test the way first (`0x4FCC80`).
+
+A `Rundum`'s bones (`0x44CA30`, `0x623AD0`): first `weapon_fx01` or `Weapon_fx01` of the item in its right hand, else its own `Bip01 R Hand`, within a radius of the reach times the per cent truncated to a whole number; then `weapon_fx01` or `Weapon_fx01` of its other item, within the radius as a float.
+
+In `opensacred-game` (#509, `making`): a right click on a hostile creature, or the console's `arts make`, makes the selected art (at a new game the first whose action is read; `arts select`) if the hero holds it and it is ready; the hero comes on to within 10 of the reach (130, **hypothesis** for every type), stops, turns to the target and plays the art's clip at `GameSpeed` times its attack's clip speed times the art's rate (`opensacred_rules::arts::action`, `hit_points`, `made_from`), and sends its strikes as `fight::Hit`s of the art's level and factor (`fight::art_strike`).
+Its `Rundum` looks for the creatures about its bones on the world's tick of about 0.1 s (`frame::WorldTick`; **hypothesis**, #617), about the first weapon's effects' bone of the hero's scene, else its right hand; the second bone is left out.
+Only the Gladiator's and the Seraphim's arts have actions; the spells, the shots with a bow, the jumps and the other classes' executors wait for their reading.
+
 ## The heroes' starting arts
 
 Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (above): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229 (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):

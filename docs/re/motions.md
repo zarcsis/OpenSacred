@@ -46,6 +46,10 @@ A creature that walks on a run's clip so moves at its run speed, which `0x4F75F0
 A creature whose flag `+0x14` has bit `0x2000` takes class 0 whatever it holds.
 A soldier with a sword and a kite shield is of class 1, one with a crossbow 12, a thief with a dagger 5, a dark elf with two blades 8.
 
+## The arts' slots
+
+A combat art's executor plays its own slot of the model for the art and the class of what the creature holds, not through `0x5467A0`'s table: the Gladiator's 201 to 222, the Seraphim's 153 and 211 to 216 (docs/re/arts.md, "The arts' clips", #509).
+
 ## The other cases
 
 Before the table, `0x5467A0` decides some creatures' slots itself:

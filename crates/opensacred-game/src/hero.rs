@@ -62,6 +62,30 @@ impl GameSpeed {
     }
 }
 
+/// The clip of an art's action by its name (`making`, #509): its style, the model's clip of the
+/// slot that the class's executor plays for what the hero holds, none for one of its attacks'
+/// clips; the hit points of the clip and its rate as a factor of the attack's clip speed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtClipName {
+    pub style: opensacred_rules::arts::Style,
+    pub clip: Option<String>,
+    pub points: Vec<f32>,
+    pub rate: f32,
+    /// Whether its strikes' factors are halved, the hero holding two weapons (`0x4EA3F0`).
+    pub halved: bool,
+}
+
+/// An art's action's clip in the hero's graph: its node and clip, none for one of its attacks'.
+#[derive(Clone, Debug)]
+pub struct ArtNode {
+    pub style: opensacred_rules::arts::Style,
+    pub node: Option<AnimationNodeIndex>,
+    pub clip: Option<Handle<AnimationClip>>,
+    pub points: Vec<f32>,
+    pub rate: f32,
+    pub halved: bool,
+}
+
 /// Which model and clips to show, relative to the asset directory.
 #[derive(Resource)]
 pub struct Hero {
@@ -81,6 +105,8 @@ pub struct Hero {
     /// The model's attack clips for what it holds (`motions::Slots::attacks`) and the fractions
     /// of each at which it hits (`attack`).
     pub attacks: Vec<(String, [f32; 2])>,
+    /// The clips of its arts' actions for what it holds (`making`, #509).
+    pub arts: Vec<ArtClipName>,
     /// The items in its hands, its template's (`npcs::Npcs::hero_gear`, #488), and their
     /// equipment once loading.
     pub held: Vec<crate::npcs::Held>,
@@ -115,6 +141,7 @@ impl Hero {
             run,
             stance: None,
             attacks: Vec::new(),
+            arts: Vec::new(),
             held: Vec::new(),
             equipment: None,
             combat: None,
@@ -257,6 +284,8 @@ pub struct Clips {
     moving: [(Handle<AnimationClip>, AnimationNodeIndex); 2],
     /// The attack clips' nodes, the clips and the fractions at which they hit.
     pub attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
+    /// The arts' actions' clips (`making`, #509).
+    pub arts: Vec<ArtNode>,
     /// The dying clips' nodes.
     dying: Vec<AnimationNodeIndex>,
     /// The entity of the model's animation player.
@@ -324,13 +353,38 @@ pub fn spawn(
             .filter_map(|(name, fractions)| Some((clip(name)?, *fractions)))
             .collect();
         let dying: Vec<_> = hero.dying.iter().filter_map(|name| clip(name)).collect();
+        let arts: Vec<_> = hero
+            .arts
+            .iter()
+            .filter_map(|art| {
+                let clip = match &art.clip {
+                    Some(name) => Some(clip(name)?),
+                    None => None,
+                };
+                Some((art, clip))
+            })
+            .collect();
         let mut clips = vec![idle, walk.clone(), run.clone()];
         let stances = usize::from(stance.is_some());
         clips.extend(stance);
         clips.extend(attacks.iter().map(|(clip, _)| clip.clone()));
         let strikes = attacks.len();
         clips.extend(dying);
+        let dyings = clips.len() - 3 - stances - strikes;
+        clips.extend(arts.iter().filter_map(|(_, clip)| clip.clone()));
         let (graph, nodes) = AnimationGraph::from_clips(clips);
+        let mut art_nodes = nodes[3 + stances + strikes + dyings..].iter();
+        let art_nodes = arts
+            .into_iter()
+            .map(|(art, clip)| ArtNode {
+                style: art.style,
+                node: clip.as_ref().and_then(|_| art_nodes.next().copied()),
+                clip,
+                points: art.points.clone(),
+                rate: art.rate,
+                halved: art.halved,
+            })
+            .collect();
         commands.insert_resource(Clips {
             graph: graphs.add(graph),
             idle: nodes[0],
@@ -341,7 +395,8 @@ pub fn spawn(
                 .zip(&nodes[3 + stances..])
                 .map(|((clip, fractions), &node)| (node, clip, fractions))
                 .collect(),
-            dying: nodes[3 + stances + strikes..].to_vec(),
+            dying: nodes[3 + stances + strikes..3 + stances + strikes + dyings].to_vec(),
+            arts: art_nodes,
             player: None,
         });
     }
@@ -596,13 +651,14 @@ pub fn run(
         &mut Transform,
         &mut Body,
         Has<crate::attack::Striking>,
+        Has<crate::making::Playing>,
         Has<Dies>,
         Has<Flies>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body, striking, dying, flies) in &mut bodies {
+    for (me, mut transform, mut body, striking, making, dying, flies) in &mut bodies {
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
@@ -731,11 +787,12 @@ pub fn run(
             }
         }
         // The state changes only with the clip: before the model's player exists, the next
-        // frame tries again. A strike plays its own clip (`attack`), and a fall its own ([`fall`]).
+        // frame tries again. A strike plays its own clip (`attack`), an art its own (`making`), and
+        // a fall its own ([`fall`]).
         let Some(clips) = clips.as_ref() else {
             continue;
         };
-        if striking || dying {
+        if striking || making || dying {
             body.moving = None;
             continue;
         }
@@ -808,7 +865,12 @@ pub fn fall(
             body.stop();
             commands
                 .entity(entity)
-                .remove::<(crate::attack::Attack, crate::attack::Striking)>()
+                .remove::<(
+                    crate::attack::Attack,
+                    crate::attack::Striking,
+                    crate::making::Making,
+                    crate::making::Playing,
+                )>()
                 .insert(Fallen(0.0));
             let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
             if let (Some((mut player, mut transitions)), Some(&node)) =
@@ -954,6 +1016,7 @@ mod tests {
                     (Handle::default(), AnimationNodeIndex::new(2)),
                 ],
                 attacks: Vec::new(),
+                arts: Vec::new(),
                 dying: Vec::new(),
                 player: None,
             });
@@ -1005,6 +1068,7 @@ mod tests {
             stance,
             moving: [(Handle::default(), node(2)), (Handle::default(), node(3))],
             attacks: Vec::new(),
+            arts: Vec::new(),
             dying: Vec::new(),
             player: None,
         };

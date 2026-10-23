@@ -654,3 +654,56 @@ fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
     assert_eq!(rundum_target(&candidates[..2], radius, Some(5)), None);
     assert!(tables.weapon_arts.iter().any(|a| a.id == 1057));
 }
+
+#[test]
+fn an_arts_action_plays_its_classs_clip_for_what_it_holds() {
+    let slot = |kind, style, class| match action(kind, style, class) {
+        Some(ArtAction {
+            clip: ArtClip::Slot(slot),
+            rate,
+        }) => Some((slot, rate)),
+        _ => None,
+    };
+    // The Seraphim's `Attacke` with her blade (class 1): the slot 211 at 0.73 of her speed.
+    assert_eq!(slot(1, Style::Attacke, 1), Some((211, 0.73)));
+    assert_eq!(slot(1, Style::Attacke, 2), Some((212, 1.0)));
+    assert_eq!(slot(1, Style::Rundum, 1), Some((153, 1.0)));
+    assert_eq!(
+        action(1, Style::Hardhit, 1).map(|a| a.clip),
+        Some(ArtClip::Attack)
+    );
+    // The Gladiator's by the class of what he holds.
+    assert_eq!(slot(2, Style::Attacke, 1), Some((211, 1.0)));
+    assert_eq!(slot(2, Style::Attacke, 0), Some((210, 1.0)));
+    assert_eq!(slot(2, Style::Rundum, 1), Some((220, 1.0)));
+    assert_eq!(slot(2, Style::Rundum, 3), Some((222, 1.0)));
+    assert_eq!(slot(2, Style::Hardhit, 1), Some((202, 1.0)));
+    assert_eq!(slot(2, Style::Hardhit, 8), Some((207, 1.0)));
+    // With a bow the arts are shots; another class's executor is not read.
+    assert_eq!(action(1, Style::Attacke, 7), None);
+    assert_eq!(action(4, Style::Attacke, 1), None);
+}
+
+#[test]
+fn an_arts_clip_strikes_at_its_hit_points() {
+    // `SERA_SPECIAL_MULTI_1H`'s seven, and `GLAD_SPECIAL_MULTI_1H`'s four.
+    let seraphim = [
+        0.136_963, 0.228_119, 0.315_969, 0.453_803, 0.577_059, 0.725_921, 0.746_75, 0.0,
+    ];
+    assert_eq!(hit_points(&seraphim).len(), 7);
+    let gladiator = [
+        0.151_934, 0.363_931, 0.550_761, 0.702_088, 0.0, 0.0, 0.0, 0.0,
+    ];
+    assert_eq!(
+        hit_points(&gladiator),
+        [0.151_934, 0.363_931, 0.550_761, 0.702_088]
+    );
+    assert_eq!(hardhit_point(&gladiator), 0.151_934);
+    assert_eq!(hardhit_point(&[]), 0.5);
+    assert_eq!(hardhit_point(&[1.5]), 0.5);
+    assert!(!due(0.5, 0.5) && due(0.5, 0.51));
+    // 101 to 250 the reach, within 10; 0 where it stands; the jumps not here.
+    assert_eq!(made_from(130, 130.0), Some((130.0, 10.0)));
+    assert_eq!(made_from(0, 130.0).map(|(at, _)| at), Some(0.0));
+    assert_eq!(made_from(-290, 130.0), None);
+}
