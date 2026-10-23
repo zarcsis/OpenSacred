@@ -88,6 +88,17 @@ impl Streamer {
         self.loaded.keys().copied()
     }
 
+    /// The area of the sector at `at` in the world's index, which the client turns into a region
+    /// (docs/re/sound.md); `None` where the world has no sector.
+    pub fn area(&self, at: (u32, u32)) -> Option<u8> {
+        self.shared
+            .world
+            .sectors
+            .iter()
+            .find(|entry| (entry.x, entry.y) == at)
+            .map(|entry| entry.area)
+    }
+
     /// Makes `entity` part of sector `at`: it goes when the sector goes.
     pub fn adopt(&mut self, at: (u32, u32), entity: Entity) {
         self.loaded.entry(at).or_default().push(entity);
