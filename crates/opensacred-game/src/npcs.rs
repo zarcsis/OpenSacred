@@ -3626,9 +3626,16 @@ impl Strikes {
 #[derive(Component)]
 pub struct StrikeEnded;
 
-/// How far a strike reaches when it hits, times the reach (`0x4EA1F0`; **hypothesis** that the base
-/// is the reach of the fight's band).
-const HITS_WITHIN: f32 = 3.0 * 130.0;
+/// How far a strike reaches when it hits, times the reach of the striker and its target, the mean
+/// of their sizes (`0x4EA1F0`, `0x4DBC60`, #677; **hypothesis** that the base is the reach of the
+/// fight's band).
+const HITS_WITHIN: f32 = 3.0;
+
+/// How far a strike of a creature of the size `size` reaches a target of the size `other` when
+/// it hits ([`HITS_WITHIN`] times their reach, `opensacred_rules::minds::reach`).
+fn hits_within(size: u32, other: u32) -> f32 {
+    HITS_WITHIN * f32::from(u16::try_from(minds::reach(size, other)).unwrap_or(u16::MAX))
+}
 
 /// Plays each striking NPC's attack once, and at the clip's fractions (0.5 for a first of 0; a
 /// second when it is above 0) sends a hit of its share when the target is then within reach; a
@@ -3650,17 +3657,22 @@ fn strike(
             Has<Walk>,
             &GlobalTransform,
             Option<&fight::Combat>,
+            Option<&crate::ai::Mind>,
         ),
         (Without<Dies>, Without<crate::making::Knocked>),
     >,
-    places: Query<&GlobalTransform>,
+    places: Query<(
+        &GlobalTransform,
+        Option<&hero::Size>,
+        Option<&crate::ai::Mind>,
+    )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     clips: Res<Assets<AnimationClip>>,
     speed: Res<hero::GameSpeed>,
     mut hits: MessageWriter<fight::Hit>,
     mut shots: MessageWriter<arrows::Loose>,
 ) {
-    for (entity, npc, mut strikes, walking, at, combat) in &mut strikers {
+    for (entity, npc, mut strikes, walking, at, combat, mind) in &mut strikers {
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
@@ -3708,12 +3720,19 @@ fn strike(
             });
         } else if due {
             strikes.struck += 1;
-            let reaches = places.get(strikes.target).is_ok_and(|target| {
-                (target.translation() - at.translation())
-                    .with_y(0.0)
-                    .length()
-                    <= HITS_WITHIN
-            });
+            let size = mind.map_or(minds::SIZE, |mind| mind.size());
+            let reaches = places
+                .get(strikes.target)
+                .is_ok_and(|(target, hero, other)| {
+                    let other = hero
+                        .map(|hero| hero.0)
+                        .or_else(|| other.map(|mind| mind.size()))
+                        .unwrap_or(minds::SIZE);
+                    (target.translation() - at.translation())
+                        .with_y(0.0)
+                        .length()
+                        <= hits_within(size, other)
+                });
             if reaches {
                 hits.write(fight::Hit {
                     attacker: entity,
@@ -4552,6 +4571,20 @@ mod tests {
         let mut run = Walk::run(Vec3::ZERO, None, 140.0);
         run.moved = true;
         assert_eq!(clips.moving(&run), Some(node(2)));
+    }
+
+    #[test]
+    fn a_creatures_strike_reaches_three_times_its_reach_with_its_target() {
+        // A goblin warrior (76) against the Seraphim (100) and the Gladiator (120), and a great
+        // beast (52, 480) against the Seraphim (#677).
+        let goblin = minds::size(76, false);
+        assert_eq!(hits_within(goblin, minds::size(1, true)), 345.0);
+        assert_eq!(hits_within(goblin, minds::size(2, true)), 375.0);
+        assert_eq!(
+            hits_within(minds::size(52, false), minds::size(1, true)),
+            870.0
+        );
+        assert_eq!(hits_within(goblin, goblin), 390.0);
     }
 
     #[test]
