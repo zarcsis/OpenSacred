@@ -121,6 +121,9 @@ pub struct Snapshot {
     /// The drops nearest the hero (`drops`): what each is, its item, its amount, how far it is
     /// and whether it lies on the ground.
     pub drops: Vec<(String, u32, u32, f32, bool)>,
+    /// The hero's combat arts and what is still to run of each, in seconds (`arts::HeroArts`,
+    /// #509).
+    pub arts: Vec<(u16, f32)>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -230,6 +233,20 @@ impl Snapshot {
                     .collect();
                 lines.push(format!("drops {}", drops.join(", ")));
             }
+            if !self.arts.is_empty() {
+                let arts: Vec<String> = self
+                    .arts
+                    .iter()
+                    .map(|(art, remaining)| {
+                        if *remaining <= 0.01 {
+                            format!("{art} ready")
+                        } else {
+                            format!("{art} {remaining:.1} s")
+                        }
+                    })
+                    .collect();
+                lines.push(format!("arts {}", arts.join(", ")));
+            }
         }
         lines
     }
@@ -259,6 +276,7 @@ pub struct Probe<'w, 's> {
     objects: Query<'w, 's, (), With<Object>>,
     entities: Query<'w, 's, ()>,
     drops: Query<'w, 's, (&'static Transform, &'static crate::drops::Lying)>,
+    arts: Option<Res<'w, crate::arts::HeroArts>>,
 }
 
 impl Probe<'_, '_> {
@@ -380,6 +398,17 @@ impl Probe<'_, '_> {
                             .map(|(at, lying)| (at.translation, *lying)),
                         NEAREST_DROPS,
                     )
+                })
+                .unwrap_or_default(),
+            arts: self
+                .arts
+                .as_deref()
+                .map(|arts| {
+                    arts.arts
+                        .entries
+                        .iter()
+                        .map(|e| (e.art, e.remaining))
+                        .collect()
                 })
                 .unwrap_or_default(),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)

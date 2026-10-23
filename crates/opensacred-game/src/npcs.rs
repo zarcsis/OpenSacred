@@ -1147,6 +1147,26 @@ pub fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
         .collect()
 }
 
+/// The floats of each motion from `MotionDesc +0xA0` (`floats_62[1..]` of `tables/motions.ron`),
+/// whose leading ones above 0 are the hit points of an art's clip (#509,
+/// `opensacred_rules::arts::hit_points`), by the motion's name as [`hit_fractions`] has it; none
+/// where the table cannot be read.
+pub fn hit_points(assets: &Path) -> HashMap<String, Vec<f32>> {
+    let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
+    let motions: Vec<opensacred_data::tables::Motion> = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| ron::from_str(&text).ok())
+        .unwrap_or_default();
+    motions
+        .iter()
+        .map(|m| {
+            let name = m.name.to_ascii_uppercase();
+            let name = name.strip_suffix(".GRN").unwrap_or(&name).to_owned();
+            (name, m.floats_62[1..].to_vec())
+        })
+        .collect()
+}
+
 /// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
 /// where `tables/balance.ron` lacks them.
 fn factors(balance: Option<&opensacred_data::tables::Balance>) -> spawning::Factors {
@@ -3551,6 +3571,7 @@ fn strike(
                     target: strikes.target,
                     share: npc.share,
                     ranged: false,
+                    art: None,
                 });
             }
         }

@@ -211,6 +211,11 @@ enum ArtsAction {
     /// A use of ART, as the hero's making it starts the regeneration: every art of its kind
     /// takes its time to run
     Use { art: u16 },
+    /// The art that the right button makes
+    Select { art: u16 },
+    /// The hero makes ART, the selected by default, on the hostile creature nearest it, as a
+    /// right click on it does
+    Make { art: Option<u16> },
 }
 
 /// What a script waits for.
@@ -406,6 +411,33 @@ fn experience(world: &mut World, points: u64, add: bool) -> Result<String, Strin
         "the hero is level {} with {} experience, {} attribute and {} skill points",
         experience.level, experience.points, experience.attribute_points, experience.skill_points
     ))
+}
+
+/// The hero makes `art` on the hostile creature nearest it (`making::Making`), its attack
+/// ending; which creature, as a line.
+fn make_art(world: &mut World, art: u16) -> Result<String, String> {
+    let mut heroes =
+        world.query_filtered::<(Entity, &Transform), (With<Body>, Without<npcs::Dies>)>();
+    let (hero, at) = heroes
+        .iter(world)
+        .next()
+        .map(|(hero, transform)| (hero, transform.translation))
+        .ok_or("the hero is not in the world yet")?;
+    let mut creatures = world.query_filtered::<
+        (Entity, &GlobalTransform, &ai::Mind, &fight::Health),
+        Without<npcs::Dies>,
+    >();
+    let (target, distance) = creatures
+        .iter(world)
+        .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
+        .map(|(entity, place, ..)| (entity, (place.translation() - at).xz().length()))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .ok_or("no hostile creature is about")?;
+    world
+        .entity_mut(hero)
+        .remove::<(crate::attack::Attack, crate::attack::Striking)>()
+        .insert(crate::making::Making { art, target });
+    Ok(format!("the hero makes {art} on {target} at {distance:.0}"))
 }
 
 /// Gives the hero a marker `M` (`fight::Immortal`, `hero::Flies`) or takes it away, as `on`
@@ -1078,19 +1110,44 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         }
         Command::Arts { action } => {
             in_game(world)?;
-            let mut arts = world
-                .get_resource_mut::<crate::arts::HeroArts>()
-                .ok_or("no game is played")?;
-            match action {
-                Some(ArtsAction::Learn { art, levels }) => arts.learn(art, levels.unwrap_or(1))?,
-                Some(ArtsAction::Ready) => arts.ready(),
-                Some(ArtsAction::Use { art }) => arts.start(art),
-                None => {}
+            let mut first = Vec::new();
+            {
+                let mut arts = world
+                    .get_resource_mut::<crate::arts::HeroArts>()
+                    .ok_or("no game is played")?;
+                match action {
+                    Some(ArtsAction::Learn { art, levels }) => {
+                        arts.learn(art, levels.unwrap_or(1))?;
+                    }
+                    Some(ArtsAction::Ready) => arts.ready(),
+                    Some(ArtsAction::Use { art }) => arts.start(art),
+                    Some(ArtsAction::Select { .. } | ArtsAction::Make { .. }) | None => {}
+                }
             }
-            Ok(Outcome {
-                lines: arts.lines(),
-                wait: None,
-            })
+            match action {
+                Some(ArtsAction::Select { art }) => {
+                    let arts = world.resource::<crate::arts::HeroArts>();
+                    if arts.arts.get(art).is_none() || opensacred_rules::arts::style(art).is_none()
+                    {
+                        return Err(format!("the hero holds no art {art} whose action is read"));
+                    }
+                    world.resource_mut::<crate::making::Selected>().0 = Some(art);
+                }
+                Some(ArtsAction::Make { art }) => {
+                    let art = art
+                        .or(world.resource::<crate::making::Selected>().0)
+                        .ok_or("no art is selected")?;
+                    crate::making::may_make(world.resource::<crate::arts::HeroArts>(), art)?;
+                    first.push(make_art(world, art)?);
+                }
+                _ => {}
+            }
+            let mut lines = first;
+            lines.extend(world.resource::<crate::arts::HeroArts>().lines());
+            if let Some(art) = world.resource::<crate::making::Selected>().0 {
+                lines.push(format!("selected {art}"));
+            }
+            Ok(Outcome { lines, wait: None })
         }
         Command::State => {
             let snapshot = world

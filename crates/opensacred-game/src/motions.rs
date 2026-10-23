@@ -87,6 +87,17 @@ pub fn slot(action: Action, class: u8, has: impl Fn(u16) -> bool) -> (u16, Actio
 pub struct Slots(HashMap<u16, String>);
 
 impl Slots {
+    /// Slots of the given clips, for the tests.
+    #[cfg(test)]
+    pub(crate) fn of<'a>(slots: impl IntoIterator<Item = (u16, &'a str)>) -> Self {
+        Self(
+            slots
+                .into_iter()
+                .map(|(slot, name)| (slot, name.to_owned()))
+                .collect(),
+        )
+    }
+
     /// The slots of the clips of the `.glb` at `path`, from its JSON chunk.
     pub fn read(path: &Path) -> Result<Self> {
         let what = || format!("reading {}", path.display());

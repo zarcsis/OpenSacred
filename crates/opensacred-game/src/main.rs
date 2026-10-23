@@ -27,6 +27,7 @@ mod iso;
 mod journal;
 mod lines;
 mod liquids;
+mod making;
 mod menu;
 mod models;
 mod motions;
@@ -252,14 +253,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
+        making::MakingPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         overlay::OverlayPlugin,
-        pause::PausePlugin,
     ))
     .add_plugins((
+        pause::PausePlugin,
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
