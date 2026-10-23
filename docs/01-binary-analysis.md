@@ -356,7 +356,7 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | Topic | Fact | What it means for the new engine |
 |---|---|---|
 | Threads | simulation in `cEngine::simThread` (0x60f060), rendering in `cEngine::renderThread` (0x60e350), UI and input on the main thread | our own Bevy system schedule; the rules are single-threaded |
-| x87 precision | the main thread runs at 24-bit precision (`_controlfp(_PC_24)`), the simulation and render threads at 53-bit; in the original the same function computes differently | bit-exact results are not needed; `f32`/`f64` |
+| x87 precision | the main thread runs at 24-bit precision (`_controlfp(_PC_24)` in `WinMain`), the simulation and render threads at 53-bit (the render thread's frame, where the world's stats and strikes are computed, measured at 53 bits, #589); in the original the same function computes differently | bit-exact results are not needed; `f32`/`f64` |
 | Rounding | `_ftol` truncates toward zero, 2,816 calls in the game code | when porting formulas, use `trunc`, not rounding |
 | Random numbers | MSVC CRT `rand()` is the LCG `seed·214013 + 2531011` with the result `(seed >> 16) & 0x7FFF`; 1,828 calls in 228 functions; deterministic seeding in the name generator and for creatures | a modern generator can be used; the LCG can be reproduced if the same "character" of the distributions is needed |
 | Positions | `u16 map, i32 x, i32 y, u8 z` in the object | an integer world grid is convenient for the new engine too |

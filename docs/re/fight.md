@@ -194,12 +194,17 @@ The recomputation `0x5796A0` (also from `CreateNPC` and some forty other places:
 - All are held at 0 and above.
 
 The attack record (`0x568D70`) multiplies each kind's least and most by its multiplier, the resistances by theirs, and `A` and `D` by theirs, truncated when not 1.
+Its product of `A` or `D` and its multiplier stays on the x87 unit up to its truncation (`__ftol`), never stored as a float.
 It rolls each kind's damage as a whole number between its ends in hundredths when the physical most is below 100, in tenths below 1,000, in units below 10,000; a negative most counts as 1 and a negative least as 0.
 If every kind's damage is below 1, the physical one becomes 15.
 Only the local player's hero then has a factor of its own.
 
 The skills (`0x566070`) give, for a slot of level `s`, `v(s) = off + 2·(w − off)·(1 − 1/(1 + (s − 1)/S))` per cent from a triple of balance keys: the skill 2 raises every damage multiplier (`WKoff`…), 8 `A`'s and `D`'s, 9 `D`'s, more with a shield, 10 the regeneration and the health, 11 each resistance's; the weapon skills raise `A`'s and the attack speed while the creature holds the matching weapon.
 The skill 24, the fist fight (case `0x18`), adds to a creature that holds a thing of class 0 (`0x546F80`, unarmed) `v/100` to `A`'s multiplier by the curve `FKoffAW`, `FK_s_AW`, `FK_w_AW` (12, 50, 200) and `v` to the attack speed by `FKoffSP`, `FK_s_SP`, `FK_w_SP` (6, 50, 100), taken whole (read 2026-10-23, #588; **confirmed** in the original: the skeleton warrior 32 at level 10, its skills 2 and 24 at 3, has `A` 47 for 37.5 and the speed 153, at level 40 180 and 182).
+Each `v(s)` is computed on the x87 unit and stored as a float; times the float 0.01 (`0x890CB0`, a little below 0.01) it is added to its multiplier, which is stored as a float again.
+The recomputation adds the items' bonuses to `+0xE6` and `+0xEA` first, each stored in turn, then the effects', then calls `0x566070` for the skills in their slots' order.
+The world's frame, where the recomputation and the strikes run, holds the x87 control word 0x027F, 53 bits (**confirmed** by the driver's `fpu`, #589), so a multiplier is the float nearest a sum of doubles and the product of `A` and its multiplier is exact before its truncation.
+For example, the type 200 at level 31 (its skills 2, 11 and 8 at level 10) has `A` 100 times 1.43 (the float 1.4299999475), so 142, where single precision gives 1.4300001 and 143; the type 51 at level 78 has `D` 200 times 4.2599998, so 851 (the original's values read exactly, #589; `fight::combat` sums in single precision, #593).
 
 The regeneration value (`+0x138`, the creature's `+0x4E0`) is `2·a3`, without the items, times the skill 10's; on the difficulties 3 and 4 a creature hostile to the player has `b3` and `a3` raised by half or doubled, and its speeds 170 and 160 or 200 and 190.
 The attack speed (`+0x3C`) is 140 for every creature but the type 5's 100, raised by items, the weapon skills and effects, held within 100 and 220.

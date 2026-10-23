@@ -18,9 +18,10 @@ Example
 
 With `stats`, each type given is made at each level in both games beside their heroes (`spawn TYPE --level L
 --peaceful --immortal`) and their `stats` compared: the most health, `A`, `D`, each kind's least and most damage, the
-resistances and the attack speed. The original's driver prints its raw values with their multipliers, taken through
-them as its attack record does (docs/re/fight.md): `A` and `D` times theirs, truncated when not 1; each damage times
-the items' multiplier plus the attributes'; each resistance times its own. The creatures stay where they are made.
+resistances and the attack speed. The original's driver prints its raw values with their multipliers, each float
+exactly, taken through them as its attack record does (docs/re/fight.md): `A` and `D` times theirs, the product of
+the two floats exact as the x87 unit's 53 bits give it, truncated when not 1; each damage times the items' multiplier
+plus the attributes'; each resistance times its own. The creatures stay where they are made.
 
   python -I tools/game/compare.py stats --types 76,307,516 --levels 1,10,40
   python -I tools/game/compare.py stats --types-file <scratch>/types.txt --levels 5,25
@@ -28,10 +29,11 @@ the items' multiplier plus the attributes'; each resistance times its own. The c
 Expected output: a block per cell, `= 3383,2520: 11 in the game, 11 in the original, 9 paired`, then a line per
 difference (`level 4 / 1  type 297 at 3378,2517 / 3378,2517`, the game's value first) and per creature without a
 pair (`only in the original: type 288 level 1 at 3370,2524`); with `stats`, a line per creature whose values differ
-by more than the game's one decimal or two thousandths (`type 76 level 5: D 31 / 32`, the game's first) and a count at the end.
+by more than the game's one decimal (the most health, `A`, `D` and the attack speed) or, the damages and the
+resistances, than two thousandths (`type 76 level 5: D 31 / 32`, the game's first), and a count at the end.
 Dependencies: the standard library.
 """
-import argparse, json, re, sys, time, urllib.request
+import argparse, json, re, struct, sys, time, urllib.request
 
 LINE = re.compile(r'^(\S+) type (\d+) cell (-?\d+),(-?\d+)(?: floor (\d+))?.*? health (\d+)/(\d+) level (\d+)'
                   r'(?: (hostile|peaceful))?(?: (champion|boss))?')
@@ -111,11 +113,17 @@ def compare(game, original, cell, args):
                   + (f" {c['side']}" if c['side'] else '') + (f" {c['rank']}" if c['rank'] else ''))
 
 
-NUMBER = re.compile(r'-?\d+(?:\.\d+)?')
+NUMBER = re.compile(r'-?\d+(?:\.\d+)?(?:e[-+]?\d+)?')
 
 
 def numbers(text):
     return [float(n) for n in NUMBER.findall(text)]
+
+
+def single(value):
+    """A number of the original's driver as the float it prints (1.43 is 1.42999994754…), so that a product of two
+    is the x87 unit's (#589)."""
+    return struct.unpack('<f', struct.pack('<f', value))[0]
 
 
 def game_stats(lines):
@@ -139,7 +147,7 @@ def original_stats(lines):
     values = {'most': float(re.search(r' health \d+/(\d+)', lines[0])[1])}
     for line in lines[1:]:
         if line.startswith('A '):
-            a, a_times, d, d_times = numbers(line)
+            a, a_times, d, d_times = map(single, numbers(line))
             values['A'] = a if a_times == 1 else float(int(a * a_times))
             values['D'] = d if d_times == 1 else float(int(d * d_times))
         elif line.startswith('damage'):
@@ -162,7 +170,8 @@ def differences(ours, theirs):
         if isinstance(a, list) and isinstance(b, list):
             if any(abs(p - q) > max(0.1, abs(q) / 500) for p, q in zip(a, b)):
                 lines.append(f"{key} {', '.join(f'{v:.1f}' for v in a)} / {', '.join(f'{v:.2f}' for v in b)}")
-        elif a is not None and b is not None and abs(a - b) > max(0.1, abs(b) / 500):
+        # The single values are whole, or `A` and `D` with a multiplier of 1, which the game prints to a decimal.
+        elif a is not None and b is not None and abs(a - b) > 0.1:
             lines.append(f'{key} {a:g} / {b:g}')
     return lines
 

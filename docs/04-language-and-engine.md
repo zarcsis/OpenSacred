@@ -257,8 +257,10 @@ Update policy: Rust stable at the latest version (currently 1.99.1), bumped toge
 
 1. Readiness of `bevy_hanabi` and other ecosystem crates for Bevy 0.20: check at the start of M2.
 2. Whether oracle vectors pin down the formulas of M3 where the order of floating-point operations matters, or whether observations of the running original are needed as well.
-   The first vectors (#363) pin the whole-number results exactly and the floats of `0x43EEE0` within 10⁻⁵ of `f32` arithmetic, at the runtime's 53 bits of precision; whether the game runs its rules at 24 bits (Direct3D's default) is not known (docs/re/items.md).
-   Full screen, the game takes DirectDraw's cooperative level with `DDSCL_FPUSETUP` among its flags (docs/re/window.md, #551), which tells Direct3D that the FPU is kept at single precision: a hint for 24 bits (**hypothesis**), not a measurement; the driver could read the FPU's control word in the running original.
+   The first vectors (#363) pin the whole-number results exactly and the floats of `0x43EEE0` within 10⁻⁵ of `f32` arithmetic, at the runtime's 53 bits of precision.
+   The running original computes its world at 53 bits too: the driver's `fpu` (#589) reads the x87 control word 0x027F on the render thread's frame, in the stats' recomputation `0x5796A0` and in the strike `0x56B130`, all on that thread (through dgVoodoo2); only the main thread runs at 24 bits, which `WinMain` sets.
+   Both of the game's cooperative levels with DirectDraw carry `DDSCL_FPUSETUP` (`0xC11` full screen, `0xC08` in a window; docs/re/window.md, #551), by which Direct3D leaves the FPU as it finds it, so the system's Direct3D does not lower it either (**hypothesis** by the flags; measured through dgVoodoo2 alone).
+   So a whole number the original truncates can differ from one of `f32` arithmetic by one (#593).
 3. Whether Bevy's animation graph is enough for blending Sacred's clips (attacking while running, transitions): check in the vertical slice.
 4. The Fyrox 1.0 renderer: confirm from the source code if Fyrox is ever reconsidered.
 

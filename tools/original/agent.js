@@ -797,6 +797,7 @@ const WORLD = {
   addArt: ptr('0x580750'),           // the stats: thiscall (stats, an art's entry of 22 bytes on the stack), adds it
   artIndex: ptr('0x581d40'),         // the stats: thiscall (stats, art), the index of its entry
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
+  recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -851,7 +852,26 @@ const world = {
   creatureVtables: new Map(),
   god: null,       // with `god on`: {id, health}, the hero and the health it keeps
   immortal: new Set(),   // the ids of the creatures `spawn --immortal` made, whose health strikes leave as it was
+  fpu: {},         // by where it was read (frame, recompute, strike): {thread, word}, the x87 control word there
 };
+
+// The calling thread's x87 control word (fnstcw), whose bits 8 and 9 give the precision of its arithmetic: 0 for 24
+// bits, 2 for 53, 3 for 64 (#589). WinMain sets 24 bits on the main thread (_controlfp at 0x817E49 and 0x817F48).
+// The code's memory is held here: Memory.alloc's block is freed once nothing in JavaScript holds it.
+const fpuCode = Memory.alloc(Process.pageSize);
+// sub esp, 4; fnstcw [esp]; movzx eax, word [esp]; add esp, 4; ret
+fpuCode.writeByteArray([0x83, 0xec, 0x04, 0xd9, 0x3c, 0x24, 0x0f, 0xb7, 0x04, 0x24, 0x83, 0xc4, 0x04, 0xc3]);
+Memory.protect(fpuCode, Process.pageSize, 'r-x');
+const fpuControlWord = new NativeFunction(fpuCode, 'uint32', [], 'default');
+
+// Never throws, so that the strikes' hook goes on.
+function noteFpu(where) {
+  try {
+    world.fpu[where] = { thread: Process.getCurrentThreadId(), word: fpuControlWord() & 0xffff };
+  } catch (e) {
+    world.fpu[where] = { thread: Process.getCurrentThreadId(), error: String(e) };
+  }
+}
 
 function objectCount() {
   const manager = WORLD.objects.readPointer();
@@ -1023,7 +1043,8 @@ function snapshot(engine) {
 function readStats(object) {
   const s = object.add(STATS);
   const words = (at, n) => Array.from({ length: n }, (_, i) => s.add(at + 2 * i).readU16());
-  const floats = (at, n) => Array.from({ length: n }, (_, i) => Math.round(s.add(at + 4 * i).readFloat() * 1000) / 1000);
+  // Exact, as the attack record multiplies them (a float read is a double that holds it whole; #589).
+  const floats = (at, n) => Array.from({ length: n }, (_, i) => s.add(at + 4 * i).readFloat());
   return {
     id: object.add(CREATURE.id).readU32(), type: object.add(CREATURE.type).readU16(),
     attributes: words(STAT.attributes, 6), base: words(STAT.base, 6), level: s.add(STAT.level).readU16(),
@@ -1044,6 +1065,12 @@ const COMMANDS = {
       throw new Error(id ? `no creature ${id}` : 'no hero');
     }
     return readStats(object);
+  },
+  // The x87 control word of the render thread's frame, where the commands run, and of the latest stats'
+  // recomputation and strike since the agent was loaded, with their threads (#589).
+  fpu: () => {
+    noteFpu('frame');
+    return world.fpu;
   },
   creatures: (engine, { radius }) => {
     const h = hero();
@@ -1426,9 +1453,16 @@ function levelStart(level) {
 //   it takes no death's branch), and any other loss is given back at the next frame, the regeneration's rise kept;
 // - an immortal creature (`spawn --immortal`): the strike takes its damage, which the log tells, and its health is
 //   put back as the resolution returns, before anything sees it fall.
+// Each strike and each stats' recomputation also notes its thread's x87 control word for `fpu` (#589).
 function installStrikes() {
+  Interceptor.attach(WORLD.recompute, {
+    onEnter() {
+      noteFpu('recompute');
+    },
+  });
   Interceptor.attach(WORLD.strike, {
     onEnter() {
+      noteFpu('strike');
       if (world.god === null && world.immortal.size === 0) {
         return;
       }
