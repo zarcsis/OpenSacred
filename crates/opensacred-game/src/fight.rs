@@ -131,6 +131,7 @@ pub(crate) fn resolve(
     mut hits: MessageReader<Hit>,
     mut kills: MessageWriter<Kill>,
     mut lines: MessageWriter<crate::voices::Speak>,
+    mut blows: MessageWriter<crate::sfx::Blow>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
@@ -200,6 +201,12 @@ pub(crate) fn resolve(
             Some(art) => art_strike(&attacker, &defender, blow, art, &mut dice.0),
             None => strike(&attacker, &defender, blow, &mut dice.0),
         };
+        // At the target, the striker's weapon's hit or parry (`0x5320B2`, #712).
+        blows.write(crate::sfx::Blow::Target {
+            striker: hit.attacker,
+            target: hit.target,
+            landed: landed.is_some_and(|damage| damage > 0),
+        });
         let Some(damage) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
@@ -582,6 +589,7 @@ mod tests {
             .add_message::<Hit>()
             .add_message::<Kill>()
             .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()

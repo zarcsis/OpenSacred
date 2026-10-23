@@ -43,6 +43,7 @@ mod scene_tests;
 mod screenshot;
 mod sectors;
 mod settings;
+mod sfx;
 mod shaders;
 mod shadows;
 mod sound;
@@ -266,6 +267,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
+        sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
@@ -286,6 +288,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(liquids::Liquids::read(&assets)?)
     .insert_resource(voices::Voices::read(&assets)?)
+    .insert_resource(sfx::Sfx::read(&assets)?)
     .insert_resource(hud::Hud {
         cursor: hud::cursor_file(&assets),
     })

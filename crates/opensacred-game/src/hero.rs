@@ -134,6 +134,8 @@ pub struct Hero {
     pub size: u32,
     /// Its type, the class's (`game::Class::creature`): whose voice it speaks with (`voices`).
     pub creature: u32,
+    /// What it holds, for its weapons' sounds (`sfx`).
+    pub armed: crate::sfx::Armed,
     gltf: Option<Handle<Gltf>>,
     spawned: bool,
 }
@@ -160,6 +162,7 @@ impl Hero {
             gait: Gait::Run,
             size: opensacred_rules::minds::SIZE,
             creature: 1,
+            armed: crate::sfx::Armed::default(),
             gltf: None,
             spawned: false,
         }

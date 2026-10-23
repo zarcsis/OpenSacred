@@ -21,15 +21,13 @@ use bevy::prelude::{
     Handle, Has, IntoScheduleConfigs, Message, MessageReader, MessageWriter, Plugin, Query, Res,
     ResMut, Resource, Time, Update, Vec3, With,
 };
-use bevy_kira_audio::prelude::{
-    Audio, AudioControl, AudioInstance, AudioSource, AudioTween, Decibels, PlaybackState,
-};
-use opensacred_data::sound::Sound;
+use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
 use opensacred_data::tables::{VOICES, Voice};
 
 use crate::frame::Unpaused;
 use crate::hero::{self, Body};
 use crate::npcs::Dies;
+use crate::sfx::{self, Sfx};
 use crate::spawning::Rng;
 
 /// The groups of a creature's profile that the fight passes (docs/re/sound.md, "Profile groups").
@@ -41,12 +39,6 @@ pub const DEATH: u8 = 7;
 /// The share of its most health under which a hit's line is `CRITICALHIT` (`0x532161`: the
 /// record's `+0x2C` below 26, **hypothesis**: its health in per cent).
 const CRITICAL: u32 = 26;
-/// The slots of a profile's group, over which its variants repeat in turn (docs/02 §10.1).
-const SLOTS: u32 = 8;
-/// The distance from the hero, in world units, at which a line falls silent, and the screen's
-/// half width in world units at which it pans to one side (the decision above).
-const HEARD_WITHIN: f32 = 1_600.0;
-const PANS_AT: f32 = 600.0;
 
 /// A creature speaks: the group of its profile that the fight passes.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,83 +62,43 @@ impl Speak {
 #[derive(Component)]
 struct Speaking(Handle<AudioInstance>);
 
-/// The voices of the types, the sample files of the profiles' groups, the waits of the sound ids
-/// that played, and the dice.
+/// The voices of the types, the waits of the sound ids that played, and the dice.
 #[derive(Resource)]
 pub struct Voices {
     voices: HashMap<u32, Voice>,
-    /// Each profile's groups: the variants' sample files, relative to the asset directory.
-    profiles: HashMap<u16, Vec<Vec<(u32, String)>>>,
-    samples: HashMap<u32, Handle<AudioSource>>,
     /// Until when, in the game's seconds, a sound id waits.
     waits: HashMap<u32, f64>,
     dice: Rng,
 }
 
 impl Voices {
-    /// Reads `tables/voices.ron` and the profiles of `sound/sound.ron`; without `voices.ron`
-    /// (assets converted before it), no creature speaks.
+    /// Reads `tables/voices.ron`; without it (assets converted before it), no creature speaks.
     pub fn read(assets: &Path) -> Result<Self> {
-        let mut voices = Self {
-            voices: HashMap::new(),
-            profiles: HashMap::new(),
-            samples: HashMap::new(),
+        let path = assets.join("tables").join(VOICES);
+        let voices = if path.exists() {
+            let text =
+                fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+            let table: opensacred_data::tables::Voices =
+                ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+            table
+                .voices
+                .into_iter()
+                .map(|v| (u32::from(v.creature), v))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        Ok(Self {
+            voices,
             waits: HashMap::new(),
             dice: Rng::of(0, 0, 3),
-        };
-        let path = assets.join("tables").join(VOICES);
-        if !path.exists() {
-            return Ok(voices);
-        }
-        let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let table: opensacred_data::tables::Voices =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let path = assets.join("sound").join(opensacred_data::sound::INDEX);
-        let text =
-            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let sound: Sound =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let files: HashMap<u32, &str> = sound
-            .samples
-            .iter()
-            .map(|s| (s.id, s.file.as_str()))
-            .collect();
-        let wanted: Vec<u16> = table
-            .voices
-            .iter()
-            .flat_map(|v| v.profiles.iter().copied())
-            .collect();
-        for profile in &sound.profiles {
-            let Ok(slot) = u16::try_from(profile.slot) else {
-                continue;
-            };
-            if !wanted.contains(&slot) {
-                continue;
-            }
-            let groups = profile
-                .groups
-                .iter()
-                .map(|ids| {
-                    ids.iter()
-                        .filter_map(|id| files.get(id).map(|f| (*id, format!("sound/{f}"))))
-                        .collect()
-                })
-                .collect();
-            voices.profiles.insert(slot, groups);
-        }
-        voices.voices = table
-            .voices
-            .into_iter()
-            .map(|v| (u32::from(v.creature), v))
-            .collect();
-        Ok(voices)
+        })
     }
 
     /// The line of `creature`'s voice for `group`, if its roll gives one: the profile (one of
-    /// the heroes' two at random), the variant (a slot of 8 at random, the variants repeating
-    /// over them), the sound id and its file, and the voice's wait.
-    fn line(&mut self, creature: u32, group: u8) -> Option<(u32, String, f32)> {
+    /// the heroes' two at random), a variant of its group (`Sfx::pick`), the sound id and its
+    /// file, and the voice's wait.
+    fn line(&mut self, sfx: &mut Sfx, creature: u32, group: u8) -> Option<(u32, String, f32)> {
         let voice = self.voices.get(&creature)?;
         if !rolls(voice.roll(group), &mut self.dice) {
             return None;
@@ -154,9 +106,7 @@ impl Voices {
         let count = u32::try_from(voice.profiles.len()).ok()?;
         let profile = voice.profiles[usize::try_from(self.dice.below(count)).ok()?];
         let wait = voice.wait;
-        let variants = self.profiles.get(&profile)?.get(usize::from(group))?;
-        let slot = usize::try_from(self.dice.below(SLOTS)).ok()?;
-        let (id, file) = variants.get(slot % variants.len().max(1))?.clone();
+        let (id, file) = sfx.pick(u32::from(profile), group)?;
         Some((id, file, wait))
     }
 }
@@ -194,13 +144,6 @@ fn play(group: u8, speaking: bool, waiting: bool) -> Play {
     }
 }
 
-/// The volume's factor and the panning of a line `offset` world units from the hero on the
-/// ground, `side` of them along the screen's width.
-fn placed(offset: f32, side: f32) -> (f32, f32) {
-    let near = (1.0 - offset / HEARD_WITHIN).clamp(0.0, 1.0);
-    (near, (side / PANS_AT).clamp(-1.0, 1.0))
-}
-
 /// Plays the lines that the fight asks for.
 #[expect(
     clippy::too_many_arguments,
@@ -211,6 +154,7 @@ fn speak(
     mut commands: Commands,
     mut lines: MessageReader<Speak>,
     mut voices: ResMut<Voices>,
+    mut sfx: ResMut<Sfx>,
     hero: Option<Res<hero::Hero>>,
     speakers: Query<(
         &GlobalTransform,
@@ -245,7 +189,7 @@ fn speak(
         } else {
             continue;
         };
-        let Some((id, file, wait)) = voices.line(creature, line.group) else {
+        let Some((id, file, wait)) = voices.line(&mut sfx, creature, line.group) else {
             continue;
         };
         let still = speaking.is_some_and(|s| {
@@ -266,24 +210,16 @@ fn speak(
             }
             Play::Plays => {}
         }
-        let sample = voices
-            .samples
-            .entry(id)
-            .or_insert_with(|| assets.load(file))
-            .clone();
-        let loud = 0.45 + f32::from(u16::try_from(voices.dice.below(10)).unwrap_or(0)) / 90.0;
-        let offset = listener.map_or(Vec3::ZERO, |hero| (at.translation() - hero).with_y(0.0));
-        let (near, pan) = placed(
-            offset.length(),
-            offset.dot(right.with_y(0.0).normalize_or_zero()),
-        );
+        let loud = 0.45 + sfx.roll(10) / 90.0;
+        let (near, pan) = sfx::placed_at(at.translation(), listener, right);
         let volume = loud * near;
         if volume <= 0.0 {
             continue;
         }
+        let sample = sfx.sample(id, file, &assets);
         let instance = audio
             .play(sample)
-            .with_volume(Decibels(20.0 * volume.log10()))
+            .with_volume(sfx::decibels(volume))
             .with_panning(pan)
             .handle();
         voices.waits.insert(id, now + f64::from(wait));
@@ -352,12 +288,5 @@ mod tests {
         assert_eq!(Speak::hit(target, 26, 100).group, NORMAL_HIT);
         assert_eq!(Speak::hit(target, 25, 100).group, CRITICAL_HIT);
         assert_eq!(Speak::hit(target, 10, 52).group, CRITICAL_HIT);
-    }
-
-    #[test]
-    fn a_line_falls_with_the_distance_and_pans_by_its_side() {
-        assert_eq!(placed(0.0, 0.0), (1.0, 0.0));
-        assert_eq!(placed(800.0, 600.0), (0.5, 1.0));
-        assert_eq!(placed(2_000.0, -900.0), (0.0, -1.0));
     }
 }

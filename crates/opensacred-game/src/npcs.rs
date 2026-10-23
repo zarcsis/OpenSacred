@@ -980,6 +980,10 @@ struct Gear {
     /// (`0x426550`, bit 25 of the record's first word), as the heroes' hair, the Gladiator's
     /// belt and the Mage's cowl have, which the stats' recomputation `0x5796A0` passes over (#490).
     counts: bool,
+    /// The sound profile of its own type (`items.pak +0x24`), not its parent's: 0 for a fixed
+    /// item without a slot of its own, as the heroes' starting weapons, whose hits the original
+    /// sounds by their swing alone (#709, #712).
+    sound: u32,
 }
 
 /// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, and its three items' pools and
@@ -1894,6 +1898,7 @@ impl Npcs {
                         number => textures.get(&number).cloned(),
                     },
                     counts: item.byte_03 & 2 == 0,
+                    sound: items.get(&slot).map_or(0, |own| own.sound()),
                 };
                 Some((slot, gear))
             })
@@ -1995,6 +2000,31 @@ impl Npcs {
             let gear = self.gear.get(&worn.item)?;
             Some((worn.item, gear.category, gear.kind))
         }))
+    }
+
+    /// What the hero holds of `worn`, its template's items, for its weapons' sounds
+    /// ([`Self::armed`]).
+    pub fn hero_armed(&self, worn: &[Worn]) -> crate::sfx::Armed {
+        self.armed(&self.hero_holding(worn))
+    }
+
+    /// What the items `holding` give for a striker's weapons' sounds: the class of what it holds
+    /// and the sound profile of the weapon in its right hand, else of the one in its left that is
+    /// no shield, none for bare hands.
+    fn armed(&self, holding: &[InHand]) -> crate::sfx::Armed {
+        let weapon = holding
+            .iter()
+            .find(|held| held.hand == Hand::Right)
+            .or_else(|| {
+                holding
+                    .iter()
+                    .find(|held| held.hand == Hand::Left && held.category != SHIELD)
+            })
+            .map(|held| self.gear.get(&held.item).map_or(0, |gear| gear.sound));
+        crate::sfx::Armed {
+            class: class_of(holding),
+            weapon,
+        }
     }
 
     /// The class of what the hero holds of `worn`, its template's items ([`class_of`]), by which
@@ -3693,6 +3723,7 @@ fn strike(
     speed: Res<hero::GameSpeed>,
     mut hits: MessageWriter<fight::Hit>,
     mut shots: MessageWriter<arrows::Loose>,
+    mut blows: MessageWriter<crate::sfx::Blow>,
 ) {
     for (entity, npc, mut strikes, walking, at, combat, mind) in &mut strikers {
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
@@ -3736,6 +3767,7 @@ fn strike(
         };
         if due && strikes.shot.is_some() {
             strikes.struck += 1;
+            blows.write(crate::sfx::Blow::Shot { shooter: entity });
             shots.write(arrows::Loose {
                 shooter: entity,
                 target: strikes.target,
@@ -3756,6 +3788,8 @@ fn strike(
                         <= hits_within(size, other)
                 });
             if reaches {
+                // The swing within reach (`0x4EA6FD`, #712).
+                blows.write(crate::sfx::Blow::Swing { striker: entity });
                 hits.write(fight::Hit {
                     attacker: entity,
                     target: strikes.target,
@@ -4020,6 +4054,13 @@ pub struct Arms {
 }
 
 impl Arms {
+    /// What it holds, for its weapons' sounds ([`Npcs::armed`]); bare hands without the NPCs'
+    /// tables.
+    pub fn armed(&self, npcs: Option<&Npcs>) -> crate::sfx::Armed {
+        let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
+        npcs.map_or_else(crate::sfx::Armed::default, |npcs| npcs.armed(&in_hands))
+    }
+
     /// Its attack, defence, damage and resistances at level `grade` and of rank `rank`
     /// (`0x5796A0`), with its skills and its items' values: unarmed when what it holds is of
     /// class 0 and its right hand empty (`0x546F80`); and its hits' share of a strike, halved with
@@ -5072,6 +5113,7 @@ mod tests {
             model: Some("m.glb".into()),
             texture: None,
             counts: true,
+            sound: 0,
         };
         let gear: HashMap<u32, Gear> = [
             (1811, gear(WEAPON, Some(BOW))),
