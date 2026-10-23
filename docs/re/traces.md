@@ -15,7 +15,7 @@ A function that returns a float on the x87 stack gives no return to read.
 
 | Preset | Group | Function | What it logs |
 |---|---|---|---|
-| `strike` | `fight` | `0x56B130`, a strike's resolution (docs/re/fight.md) | the attacker (the id at the event's `+8`), the defender (the creature at `this +4`), its health before and after, the damage or none |
+| `strike` | `fight` | `0x56B130`, a strike's resolution (docs/re/fight.md) | the attacker (the id at the event's `+8`), the defender (the creature at `this +4`), its health before and after, the damage or none; "spared" for the hero under the driver's `god` |
 | `chance` | `fight` | `0x43EEE0`, the hit chance and the damage through a resistance (cdecl) | `x`, `y`, `c`, `p` and the share `w` it writes |
 | `death` | `fight` | `0x53E7C0`, the dead creature's state (every frame while dead) | the creature, once |
 | `experience` | `fight` | `0x57D860`, a kill's experience (docs/re/fight.md, "The hero's levels") | its levels and the experience it returns |

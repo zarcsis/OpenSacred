@@ -777,6 +777,10 @@ const WORLD = {
   teleport: ptr('0x54d9d0'),         // sdk_ENGINE_TP: thiscall (creature, cell x, cell y, floor, effect), 1 if placed
   setZoom: ptr('0x628130'),          // cWorldView_setZoom: thiscall (view, zoom)
   tick: ptr('0x60dd20'),             // cEngine_handleZoomInput: once a frame on the render thread, the engine in ECX
+  setLevel: ptr('0x549500'),         // cCreature: thiscall (creature, level, flag), its stats' level setter 0x564D60
+  addExperience: ptr('0x549520'),    // cCreature: thiscall (creature, points), its stats' addExperience 0x57E160
+  strike: ptr('0x56b130'),           // a strike's resolution: thiscall (the defender's stats, the event 5, ...)
+  cheats: ptr('0x182ee3c'),          // the console's cheat flags (0x615550): bit 1 its god mode, which `lord` toggles
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -796,11 +800,17 @@ const VIEW_SCREEN_TO_WORLD = 6;      // the view's virtual function: thiscall (v
 
 const teleport = new NativeFunction(WORLD.teleport, 'uint32', ['pointer', 'int', 'int', 'int', 'int'], 'thiscall');
 const setZoom = new NativeFunction(WORLD.setZoom, 'uint32', ['pointer', 'float'], 'thiscall');
+const setLevel = new NativeFunction(WORLD.setLevel, 'void', ['pointer', 'int', 'int'], 'thiscall');
+const addExperience = new NativeFunction(WORLD.addExperience, 'void', ['pointer', 'int'], 'thiscall');
+const GOD = 1;                       // the bit of the god mode in the console's cheat flags
+const SPARED_HEALTH = 0x3fffffff;    // the health a spared defender shows its strike's resolution
+const MOST_LEVEL = 216;              // the highest level of an experience (0x57F8D0, docs/re/fight.md)
 
 const world = {
   jobs: [],        // {run, resolve, reject, deadline}: run on the render thread's next frame
   engine: null,    // the engine of the last tick
   creatureVtables: new Map(),
+  god: null,       // with `god on`: {id, health}, the hero and the health it keeps
 };
 
 function objectCount() {
@@ -1045,7 +1055,116 @@ const COMMANDS = {
     return view(engine).add(VIEW_ZOOM).readFloat();
   },
   point: (engine, { x, y }) => pixelOf(engine, (x + 0.5) * CELL, (y + 0.5) * CELL),
+  // The hero takes no damage (#558): the console's own god mode, which spares a player a strike's knock-down, and its
+  // health kept, by the strike's resolution and at each frame (installWorld).
+  god: (engine, { on }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const want = on ?? world.god === null;
+    const flags = WORLD.cheats.readU32();
+    WORLD.cheats.writeU32(want ? (flags | GOD) >>> 0 : (flags & ~GOD) >>> 0);
+    world.god = want ? { id: h.add(CREATURE.id).readU32(), health: h.add(CREATURE.health).readS32() } : null;
+    return { god: want, hero: readCreature(h) };
+  },
+  // A creature's health to its most, the hero's by default.
+  heal: (engine, { id }) => {
+    const object = id ? objectById(id) : hero();
+    if (object === null || !isCreature(object)) {
+      throw new Error(id ? `no creature ${id}` : 'no hero');
+    }
+    const most = object.add(CREATURE.most).readS32();
+    object.add(CREATURE.health).writeS32(most);
+    if (world.god !== null && world.god.id === object.add(CREATURE.id).readU32()) {
+      world.god.health = most;
+    }
+    return readCreature(object);
+  },
+  // The hero's level: the experience the level starts at added as the kills add it, so that each level between
+  // gives what a level-up gives. The original's levels only rise.
+  level: (engine, { level }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const current = h.add(CREATURE.level).readU16();
+    if (level < current) {
+      throw new Error(`the hero is at level ${current}: the original's levels only rise (a new game starts at 1)`);
+    }
+    const points = levelStart(level) - h.add(CREATURE.experience).readU32();
+    if (points > 0) {
+      addExperience(h, points);
+    }
+    return readCreature(h);
+  },
+  // The hero's experience set (upward only) or added, as a kill adds it (0x57E160): its level follows.
+  experience: (engine, { points, add }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const current = h.add(CREATURE.experience).readU32();
+    const more = add ? points : points - current;
+    if (more < 0) {
+      throw new Error(`the hero has ${current} experience: the original's experience only rises`);
+    }
+    if (more > 0) {
+      addExperience(h, more);
+    }
+    return readCreature(h);
+  },
 };
+
+// The experience a level starts at: the end of the level before, `X(L) = ⌊(L⁴ + 40L³ + 150L² + 200L − 90)/100⌋·100`
+// (0x57F6E0, docs/re/fight.md, "The hero's levels").
+function levelStart(level) {
+  if (level < 1 || level > MOST_LEVEL) {
+    throw new Error(`a level from 1 to ${MOST_LEVEL}`);
+  }
+  const l = level - 1;
+  return l === 0 ? 0 : Math.floor((l ** 4 + 40 * l ** 3 + 150 * l ** 2 + 200 * l - 90) / 100) * 100;
+}
+
+// The god mode's health: a strike at the hero leaves it as it was (the resolution sees a health no damage reaches,
+// so that it takes no death's branch), and any other loss is given back at the next frame; the regeneration's rise is
+// kept.
+function installGod() {
+  Interceptor.attach(WORLD.strike, {
+    onEnter() {
+      const god = world.god;
+      if (god === null) {
+        return;
+      }
+      const defender = this.context.ecx.add(4).readPointer();
+      if (defender.isNull() || defender.add(CREATURE.id).readU32() !== god.id) {
+        return;
+      }
+      this.spared = defender;
+      this.health = defender.add(CREATURE.health).readS32();
+      defender.add(CREATURE.health).writeS32(SPARED_HEALTH);
+    },
+    onLeave() {
+      if (this.spared !== undefined) {
+        this.spared.add(CREATURE.health).writeS32(this.health);
+      }
+    },
+  });
+}
+
+function keepGodHealth() {
+  const god = world.god;
+  const h = hero();
+  if (god === null || h === null || h.add(CREATURE.id).readU32() !== god.id) {
+    return;
+  }
+  const health = h.add(CREATURE.health).readS32();
+  if (health < god.health) {
+    h.add(CREATURE.health).writeS32(god.health);
+  } else {
+    god.health = health;
+  }
+}
 
 // Runs a command on the render thread's next frame, where the game updates its world, so that a read never sees an
 // object halfway through its update and a change is made where the game makes its own.
@@ -1081,8 +1200,12 @@ function installWorld() {
       if (world.jobs.length > 0) {
         runWorldJobs(world.engine);
       }
+      if (world.god !== null) {
+        keepGodHealth();
+      }
     },
   });
+  installGod();
   setInterval(() => {
     const now = Date.now();
     const late = world.jobs.filter((job) => now > job.deadline);
@@ -1259,8 +1382,14 @@ const PRESETS = {
       this.defender = this.context.ecx.add(4).readPointer();
       this.attacker = args[0].add(8).readU32();
       this.before = healthAround(this.defender);
+      this.spared = this.before === SPARED_HEALTH;
     },
     onLeave() {
+      if (this.spared) {
+        record(trace, `attacker ${describeId(this.attacker)} -> defender ${describeObject(this.defender)}: ` +
+          'spared by the god mode');
+        return;
+      }
       const after = healthAround(this.defender);
       record(trace, `attacker ${describeId(this.attacker)} -> defender ${describeObject(this.defender)}: health ` +
         `${this.before} -> ${after}, ${this.before > after ? `hit ${this.before - after}` : 'no damage'}`);

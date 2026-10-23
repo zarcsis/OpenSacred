@@ -43,7 +43,7 @@ cargo run --release -p opensacred-game -- --windowed --no-music --exec "new-game
 cargo run --release -p opensacred-game -- --remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log   # remote control on 127.0.0.1:15702, the window hidden (the skill `game`, docs/03 §3.7)
 python -I tools/game/remote.py exec "go +6,+2"          # drive a game started with --remote: exec, state, wait-ready, wait-state, key, type, move, click, wheel, screenshot, logs, wait-log, call
 python -I tools/original/host.py --log-file <scratch>/original.log   # the original Sacred.exe under Frida in the background, remote control on 127.0.0.1:15703 (the skill `original`, docs/03 §3.8)
-python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"   # drive the original: the same calls; exec new-game, save, load, cell, creatures, trace, quit
+python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"   # drive the original: the same calls; exec new-game, save, load, cell, creatures, stats, god, heal, level, trace, quit
 gltf_validator assets/models                         # writes a .report.json next to every .glb
 cargo nextest run --workspace                       # tests without the game files (as in CI)
 cargo nextest run --workspace --run-ignored all     # plus tests on the game files and the GPU (the oracle's vectors recorded first)
