@@ -146,7 +146,7 @@ fn resolve(
             _ => None,
         };
         let level = mind.map_or(experience.level, |mind| mind.level);
-        let (mut attacker, defender, k) =
+        let (mut attacker, defender, mut blow) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);
         if hit.ranged {
             let distance = (from.translation() - at.translation()).xz().length();
@@ -159,6 +159,8 @@ fn resolve(
         }
         let ranked = ranked.map_or(Rank::Common, |ranked| ranked.0);
         let factor = weapons_factor(side, level, ranked, &rules);
+        blow.share = hit.share;
+        blow.weapons = factor;
         if side == Some(Side::Defender) {
             debug!(
                 "fight: {} of level {level} strikes {}, its damage times {factor:.4}",
@@ -166,14 +168,8 @@ fn resolve(
             );
         }
         let landed = match hit.art {
-            Some(art) => art_strike(
-                &attacker,
-                &defender,
-                (hit.share, k, factor),
-                art,
-                &mut dice.0,
-            ),
-            None => strike(&attacker, &defender, (hit.share, k, factor), &mut dice.0),
+            Some(art) => art_strike(&attacker, &defender, blow, art, &mut dice.0),
+            None => strike(&attacker, &defender, blow, &mut dice.0),
         };
         let Some(damage) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
