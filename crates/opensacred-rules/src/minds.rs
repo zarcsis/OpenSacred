@@ -2021,9 +2021,11 @@ pub fn hero_hits(distance: f32, reach: u32) -> bool {
 
 /// Whether the hero's attack ends with the strike that ends: a strike at once or in the air is
 /// one, a click elsewhere ends it, and so does its target's death (not `alive`); else it strikes
-/// again.
-pub fn attack_ends(at_once: bool, ends: bool, alive: bool) -> bool {
-    at_once || ends || !alive
+/// again while the player asks for it (`asked`: the button that sent it still held, or a click
+/// since the strike began), as the original's attack action keeps its first half while the button
+/// is held and starts it anew at a click during its second (#705).
+pub fn attack_ends(at_once: bool, ends: bool, alive: bool, asked: bool) -> bool {
+    at_once || ends || !alive || !asked
 }
 
 /// The chain of an archer's shots (`+0x210`, `0x4DBFC0`): the factor of the speed of its last
@@ -2492,6 +2494,18 @@ mod tests {
         assert!(hero_comes_on(false, 161.0, 115));
         assert!(hero_hits(172.0, 115));
         assert!(!hero_hits(173.0, 115));
+    }
+
+    #[test]
+    fn the_heros_attack_strikes_on_while_the_player_asks() {
+        // Held or clicked again, it strikes on at its living target.
+        assert!(!attack_ends(false, false, true, true));
+        // Released with no click owed, it ends with its strike.
+        assert!(attack_ends(false, false, true, false));
+        // A strike at once, a click elsewhere or the target's death end it, held or not.
+        assert!(attack_ends(true, false, true, true));
+        assert!(attack_ends(false, true, true, true));
+        assert!(attack_ends(false, false, false, true));
     }
 
     #[test]

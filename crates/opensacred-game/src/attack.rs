@@ -1,8 +1,8 @@
 //! The hero's attack (#283; docs/re/fight.md, "The hero's attack"): a left click on a hostile
 //! creature sends the hero at it (`0x6172C0`, the AI's states 1 and 4): it comes into the band of
-//! its reach and strikes, again until the creature dies or the player sends it elsewhere; with
-//! Ctrl held it strikes once, at once, where it stands, and a click on the ground strikes the air
-//! there. Its hits resolve as the creatures' (`fight`). Where it stands, when it strikes and when
+//! its reach and strikes once, again while the button stays held or for each click during a
+//! strike (#705), until the creature dies or the player sends it elsewhere; with Ctrl held it
+//! strikes once, at once, where it stands, and a click on the ground strikes the air there. Its hits resolve as the creatures' (`fight`). Where it stands, when it strikes and when
 //! its hits land are the rules' (`opensacred_rules::minds`).
 
 use std::time::Duration;
@@ -30,14 +30,17 @@ const BLEND: Duration = Duration::from_millis(100);
 pub struct Aim(pub bool);
 
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
-/// at once, where it stands, once; and whether it ends with its strike, the player having sent
-/// the hero elsewhere.
+/// at once, where it stands, once; whether it ends with its strike, the player having sent the
+/// hero elsewhere; whether the button that sent it is still held; and whether a click still asks
+/// for a strike that has not begun.
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
     point: Vec3,
     at_once: bool,
     ends: bool,
+    held: bool,
+    asked: bool,
 }
 
 impl Attack {
@@ -75,7 +78,8 @@ pub(crate) fn from_line(ray: Ray3d, point: Vec3) -> f32 {
 
 /// On a press of the left button, the hero's attack: a hostile creature alive under the cursor
 /// becomes its target; with Ctrl held it strikes at once, at the creature or in the air at the
-/// cursor; a press elsewhere ends the attack once its strike ends, and steers the hero.
+/// cursor; a press elsewhere ends the attack once its strike ends, and steers the hero. On the
+/// button's release the attack ends with its strike, unless a click still asks for one.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -93,6 +97,11 @@ pub(crate) fn aim(
 ) {
     if !buttons.pressed(MouseButton::Left) {
         aim.0 = false;
+        for (.., attack) in &mut heroes {
+            if let Some(mut attack) = attack.filter(|attack| attack.held) {
+                attack.held = false;
+            }
+        }
     }
     if !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -122,6 +131,8 @@ pub(crate) fn aim(
             point,
             at_once,
             ends: false,
+            held: true,
+            asked: true,
         };
         match (aim.0, attack) {
             (true, Some(mut attack)) => *attack = next,
@@ -144,8 +155,10 @@ pub(crate) fn aim(
 /// its target it runs to it, after it as it moves; in the band, or at once, it stops, turns to
 /// the target and strikes: one of its attack clips at random, once, at the game's speed, which
 /// hits at the clip's fractions (0.5 for a first of 0; a second where there is one) when the
-/// target is then within 1.5 times the reach, its strikes at an even pace. It strikes again until
-/// the target dies; a strike at once or in the air is one.
+/// target is then within 1.5 times the reach, its strikes at an even pace. It strikes again while
+/// the button that sent it is held or a click asks for another (the original's attack action keeps
+/// its first half while the button is held, #705), until the target dies; a strike at once or in
+/// the air is one.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -162,7 +175,7 @@ fn engage(
             Entity,
             &mut Transform,
             &mut Body,
-            &Attack,
+            &mut Attack,
             Option<&mut Striking>,
             Option<&fight::Combat>,
             Option<&crate::hero::Size>,
@@ -176,7 +189,7 @@ fn engage(
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, attack, striking, combat, size) in &mut heroes {
+    for (hero, mut transform, mut body, mut attack, striking, combat, size) in &mut heroes {
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
@@ -217,7 +230,12 @@ fn engage(
             }
             if active.is_finished() {
                 commands.entity(hero).remove::<Striking>();
-                if minds::attack_ends(attack.at_once, attack.ends, target.is_some()) {
+                if minds::attack_ends(
+                    attack.at_once,
+                    attack.ends,
+                    target.is_some(),
+                    attack.held || attack.asked,
+                ) {
                     commands.entity(hero).remove::<Attack>();
                 }
             }
@@ -258,6 +276,7 @@ fn engage(
         transitions
             .play(&mut player, *node, BLEND)
             .set_speed(speed.0 * attack_speed);
+        attack.asked = false;
         commands.entity(hero).insert(Striking {
             node: *node,
             length,
