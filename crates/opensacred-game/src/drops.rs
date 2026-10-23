@@ -88,6 +88,10 @@ struct Reading(Task<Result<Tables>>);
 #[derive(Resource)]
 pub(crate) struct Dice(Rng);
 
+/// The creature that made the last jewel, which makes no other until another makes one (#610).
+#[derive(Resource, Default)]
+struct LastJewel(drops::LastJewel);
+
 /// The time the game has been played, in seconds, which raises a kill's bonus and the level of a
 /// script's creature (**hypothesis** for the original's counter `+0x570C`).
 #[derive(Resource, Default)]
@@ -164,6 +168,7 @@ fn kept(mind: &ai::Mind, hero: Option<&Hero>) -> Option<&'static str> {
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
 /// the time played, on bronze.
 fn death(
+    entity: Entity,
     mind: &ai::Mind,
     health: &fight::Health,
     rank: fight::Rank,
@@ -173,6 +178,7 @@ fn death(
 ) -> Death {
     Death {
         dead: Dead {
+            id: entity.to_bits(),
             creature: mind.creature,
             class: mind.class,
             level: health.level,
@@ -250,6 +256,7 @@ fn dies(
     mut commands: Commands,
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
+    mut last: ResMut<LastJewel>,
     played: Res<Played>,
     experience: Res<fight::Experience>,
     assets: Res<AssetServer>,
@@ -280,12 +287,13 @@ fn dies(
     let Some(hero) = hero else {
         return;
     };
-    let death = death(mind, health, rank.0, worth, hero, played.0);
+    let death = death(died.entity, mind, health, rank.0, worth, hero, played.0);
     let made = drops::drops(
         &death,
         &tables.rules,
         &tables.catalogue,
         &tables.templates,
+        &mut last.0,
         &mut dice.0,
     );
     if made.is_empty() {
@@ -482,11 +490,13 @@ fn make_nearest(
     mut commands: Commands,
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
+    mut last: ResMut<LastJewel>,
     played: Res<Played>,
     experience: Res<fight::Experience>,
     assets: Res<AssetServer>,
     creatures: Query<
         (
+            Entity,
             &ai::Mind,
             &fight::Health,
             &fight::Ranked,
@@ -501,19 +511,19 @@ fn make_nearest(
     let tables = tables.ok_or("the drops' tables are not read")?;
     let (base, hero_health, at) = heroes.iter().next().ok_or("no hero")?;
     let hero = hero_of(base, hero_health, experience.level);
-    let (mind, health, rank, worth, transform, way) = creatures
+    let (entity, mind, health, rank, worth, transform, way) = creatures
         .iter()
-        .filter(|(mind, ..)| mind.hostile())
+        .filter(|(_, mind, ..)| mind.hostile())
         .min_by(|a, b| {
             let d = |t: &Transform| (t.translation - at.translation).length_squared();
-            d(a.4).total_cmp(&d(b.4))
+            d(a.5).total_cmp(&d(b.5))
         })
         .ok_or("no hostile creature")?;
     if let Some(why) = kept(mind, hero.as_ref()) {
         return Ok(format!("creature {} drops nothing: {why}", mind.creature));
     }
     let hero = hero.ok_or("the hero is dead")?;
-    let death = death(mind, health, rank.0, worth, hero, played.0);
+    let death = death(entity, mind, health, rank.0, worth, hero, played.0);
     let mut made = Vec::new();
     for _ in 0..times.0 {
         made.extend(drops::drops(
@@ -521,6 +531,7 @@ fn make_nearest(
             &tables.rules,
             &tables.catalogue,
             &tables.templates,
+            &mut last.0,
             &mut dice.0,
         ));
     }
@@ -551,6 +562,7 @@ pub struct DropsPlugin;
 impl Plugin for DropsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Dice(Rng::of(0, 0, 415)))
+            .init_resource::<LastJewel>()
             .init_resource::<Played>()
             .add_observer(dies)
             .add_systems(Startup, begin)

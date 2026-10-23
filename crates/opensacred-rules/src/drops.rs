@@ -135,6 +135,8 @@ impl Difficulty {
 /// The dead creature, as its drops take it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Dead {
+    /// The creature itself, as the object's id (`+0x0C`) tells it from the others ([`LastJewel`]).
+    pub id: u64,
     /// Its type, its `Creature.pak` record's id.
     pub creature: u32,
     /// Its `Creature.pak` class (`0x43ADC0`).
@@ -802,13 +804,21 @@ fn class_bit(creature: u32) -> Option<u32> {
     }
 }
 
+/// The creature that made the last jewel (`0xAD4000`, the object's id): a creature makes no jewel
+/// while it is the last that made one, over its deaths as over a death's passes, so that one
+/// creature's drops make one jewel at most until another makes one (#610).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LastJewel(Option<u64>);
+
 /// What a death drops (`0x533BA8`, `0x559BF0`): [`Rules::calls`] calls, each of the chance
 /// [`Rules::chance`] in passes of 1,000 per mille; nothing for a creature of the heroes' class.
+/// `last` is the creature that made the last jewel, which a jewel made here becomes.
 pub fn drops<D: Dice>(
     death: &Death,
     rules: &Rules,
     catalogue: &Catalogue,
     templates: &Templates,
+    last: &mut LastJewel,
     dice: &mut D,
 ) -> Vec<Dropped> {
     if death.dead.class == HEROES {
@@ -820,7 +830,7 @@ pub fn drops<D: Dice>(
         rules,
         catalogue,
         templates,
-        jewel: false,
+        last,
     };
     let chance = i64::from(rules.chance(death.dead.rank, death.kill.treasure));
     let mut out = Vec::new();
@@ -834,14 +844,13 @@ pub fn drops<D: Dice>(
     out
 }
 
-/// A death's drops in the making: what they read, and whether the creature made a jewel (the
-/// original keeps the last creature that made one, `0xAD4000`).
+/// A death's drops in the making: what they read, and the creature that made the last jewel.
 struct Dropping<'a> {
     death: &'a Death,
     rules: &'a Rules,
     catalogue: &'a Catalogue,
     templates: &'a Templates,
-    jewel: bool,
+    last: &'a mut LastJewel,
 }
 
 /// Whether a pass makes its type or draws again (`0x559BF0`).
@@ -892,7 +901,7 @@ impl Dropping<'_> {
     /// What a pass makes, in order (`0x559BF0`): a potion in `DropSaft` ‰; gold in `DropGold` ‰,
     /// always for the animals, and for the ghosts in 600 ‰ of the rest; but for the ghosts a weapon
     /// in `DropWaffe` ‰ and armour in `DropRuestung` ‰ of the rest; else a jewel, unless the
-    /// creature made one; the type none where none is found. The runes, which come before the gold,
+    /// creature made the last one ([`LastJewel`]); the type none where none is found. The runes, which come before the gold,
     /// are left out.
     fn kind(&mut self, quality: i64, dice: &mut impl Dice) -> (Kind, Option<u32>) {
         let dead = self.death.dead;
@@ -926,10 +935,10 @@ impl Dropping<'_> {
                 self.choose(category, class, loose, quality, dice),
             );
         }
-        if self.jewel {
+        if self.last.0 == Some(dead.id) {
             return (Kind::Jewel, None);
         }
-        self.jewel = true;
+        self.last.0 = Some(dead.id);
         let category = JEWELS[index(dice.below(3))];
         let class = self.asked(dice);
         (
