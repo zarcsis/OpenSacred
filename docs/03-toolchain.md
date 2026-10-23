@@ -300,6 +300,7 @@ python -I tools/game/remote.py --port 15703 wait-ready
 python -I tools/game/remote.py --port 15703 click 720 480            # or: key Escape, key L, type "…", wheel 1
 python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
+python -I tools/game/remote.py --port 15703 exec "cell-info +1,0"     # a cell's ground and floors, the hero's by default
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
 python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500, pause
 python -I tools/game/remote.py --port 15703 exec "arts learn 1071 2"  # or: arts, arts ready, arts use 1071
@@ -377,6 +378,7 @@ What the first step found (2026-10-21, Windows 11, #449):
 * The world's creatures and items (#559, docs/re/objects.md): `spawn` makes creatures with `FillSector`'s maker and the level setter, `kill` sends each hostile creature about the hero the hero's strike at a health of 1, so that the creature's own handler makes the death, the drops and the experience, `drop` and `item` call the drop.
   A function the agent calls from inside a hook's callback runs past every hook of the agent, the traces too (Frida's guard against recursion), so the agent replaces the frame's function, calling the original at its end, rather than hooking it, and the traces see what the commands make the game do.
 * The traces (#452, docs/re/traces.md): presets for the fight's strikes, chances and damage, deaths and experience, the drops and the items made, the regeneration, the creatures' waking and idle rolls, the doors, the sounds; any address with the kinds of its arguments.
+* A cell (#568, docs/re/movement.md, "Positions and layers"): `cell-info` builds a cell's position as the scripts' teleport does and asks the original's own functions of the world, on the ground and on each floor of the building there: the cell's bytes, whether it may be walked on (`0x636C10`), whether the hero may stand there (its own test, `0x4EBCA0`, the teleport's), the height it stands at (`0x636520`), a door's trigger and its state, and the objects of the cell's chain, to set beside opensacred-game's `cell-info`.
   The sounds play only at volumes above 0, so their traces take `--muted`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
 
 The maintainer's play (#551, asked for on 2026-10-22): the original on the screen, its 1024 × 768 scaled to the whole monitor with its proportions kept, played with the maintainer's own mouse and keyboard while the driver's commands stay at hand.

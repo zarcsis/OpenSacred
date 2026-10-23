@@ -28,6 +28,25 @@ The data agree (**confirmed** on the sector files): in the start sector, the mon
 In sector 50,40 each house is a mass of 1 with one cell of flag bit 2 on its side, its door, and its inside layer has a door at the same cell; the cemetery is a railing of 2 with a gate of two such cells and no layer.
 The monastery's layer has no door: its corridors open onto cells that are walkable on the ground too, its courtyard and the road round it; it is entered at its entrances (below).
 
+**Positions and layers** (read 2026-10-23, #568).
+A position is 16 bytes: the sector's number (`u16` at `+0`, 0 for none or not looked up yet), x and y (`i32` at `+4` and `+8`) and the floor (`u8` at `+0x0C`, 0 the ground, 1 a building's ground floor).
+A cell position gives the global cell; a world position, as an object's at `+0x18` (docs/re/objects.md), the world units.
+`sdk_BUILD_POS` (`0x6224B0`) fills one from its four values, and `0x6224E0` makes the cell position of a world position, its x and y divided by a cell's side (the float 53.66563 at `0x892044`) and truncated.
+The world (`+0` of the object manager, `sdk_OM`; kept at `0xAD3560`) numbers its sectors in a table of 128 × 128 `u16` at `+0x284`, by the sector's coordinates (the cell's divided by 64), row by row; `0x6342C0` looks a position's number up there, and `0x635D10` and `sdk_SECTOR_RESOLVE` (`0x635C40`) keep a number whose sector holds the position and look it up otherwise, returning whether there is one.
+`0x634C50` and the functions below do the same, so a position built with the number 0, as the teleport builds one, serves them all.
+A sector (`0x634840`: the world's vector at `+0x240`, by the number) has its first cell at `+0x44` and `+0x48`, its cells at `+0x6C`, and bit `0x10000` of its flags at `+0x30` while its cells are in memory; `0x634340`, which `0x634C50` takes a sector's cells from, reads them from the sector file where they are not, into a cache of up to 96 sectors.
+A layer is 0 for the ground, or the index of a building's floor's `Static.PAK` record; `0x635E50` reads a record of 64 bytes by its index (through the file's table of 12-byte entries at `0x100`, into a cache of up to 8,192 records), its sector's number at `+0x0C`, the index of its inside layer at `+0x2D` and the floor's height at `+0x33`.
+`0x6354D0` (the world, a cell position, `n`) gives the record of a position's building for `n` 0 and of its floor `n` above, or 0; `0x635400` (the world, a building's record) counts its floors.
+The scripts' teleport (`sdk_ENGINE_TP`, `0x54D9D0`) builds the position of its cell and floor with the number 0, takes the floor's record as the layer (0 for the ground), and places the creature only where the creature's own test of a cell, `0x4EBCA0` (the creature, the position, the layer and 1, as the test of a step `0x4F7E10` calls it), lets it stand.
+`0x636310` (the world, a world position) gives the height a position stands at on its floor: `0x636520`'s on the ground, else `0x636520`'s on the floor's layer plus the floor's `+0x33` times 28; `0x636520` (the world, a world position, a layer) returns it on the x87 stack.
+The scripts' tree of trigger cells (`0xAB44C8`, below) is a binary search tree from that root: a node's key at `+4`, its trigger's index at `+8`, and the nodes of the lower and higher keys at `+0x0C` and `+0x10` (`0x4C48E0` searches it); the index names a 16-byte record of the world's table from `+0x268` to `+0x26C` (`0x634150`).
+
+The original's driver asks these functions of a cell with `cell-info` (#568, docs/03 §3.8): for the ground, each floor of the building there and the hero's own layer, the cell's bytes, `0x636C10`, `0x4EBCA0` for the hero, the height at the cell's middle and the objects of the cell's chain.
+Seen with it 2026-10-23 in the Seraphim's start: the chain of a cell is its level's own, the hero on a floor in the chain of the floor's cell and not of the ground's, and a chest on floor 3 of the building at (3342, 2507) in its floor 3's.
+The height at a cell's middle is the mean of its four second heights times 2.5 (a cell of 1, 2, 1, 0 stands at 2.5), plus the floor's `+0x33` times 28 (224 and 448 on that building's floors 2 and 3, of `+0x33` 8 and 16).
+The house's door of 50,40 (3256, 2578) is trigger 4220's cell on the ground and on floor 1, closed at the start, so neither walkable nor a cell the hero may stand on.
+At the cells checked (the monastery's floor 1, the chapel's entrance and exits, that house's door and exits, the buildings of 52,39 at (3333, 2531) and (3342, 2507) with their stairs), the cells' bytes, the floors, the stairs' offsets, the buildings' anchors and the walkability agree with opensacred-game's `cell-info`.
+
 ## Changing layers
 
 Read 2026-10-18 (#99).
