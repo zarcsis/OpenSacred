@@ -1181,16 +1181,17 @@ const COMMANDS = {
       remaining: e.add(ART.remaining).readFloat(),
     }));
   },
-  // A creature's health to its most, the hero's by default.
-  heal: (engine, { id }) => {
+  // A creature's health to its most, or to `to` (at most its most), the hero's by default.
+  heal: (engine, { id, to }) => {
     const object = id ? objectById(id) : hero();
     if (object === null || !isCreature(object)) {
       throw new Error(id ? `no creature ${id}` : 'no hero');
     }
     const most = object.add(CREATURE.most).readS32();
-    object.add(CREATURE.health).writeS32(most);
+    const health = to ? Math.min(to, most) : most;
+    object.add(CREATURE.health).writeS32(health);
     if (world.god !== null && world.god.id === object.add(CREATURE.id).readU32()) {
-      world.god.health = most;
+      world.god.health = health;
     }
     return readCreature(object);
   },

@@ -239,6 +239,35 @@ pub fn stats(world: &mut World, id: Option<Entity>) -> Result<Vec<String>, Strin
     Ok(stats.lines())
 }
 
+/// Creature `id`'s health, the hero's by default, to its most or to `to` (`heal`), at most its
+/// most.
+pub fn heal(world: &mut World, id: Option<Entity>, to: Option<u32>) -> Result<String, String> {
+    if to == Some(0) {
+        return Err("--to takes 1 to the most health".into());
+    }
+    let mut health = match id {
+        None => {
+            let mut heroes = world.query_filtered::<&mut Health, With<Body>>();
+            heroes
+                .iter_mut(world)
+                .next()
+                .ok_or("the hero is not in the world yet")?
+        }
+        Some(id) => {
+            let mut creatures = world.query_filtered::<&mut Health, Without<Dies>>();
+            creatures
+                .get_mut(world, id)
+                .map_err(|_| format!("{id} is no living creature"))?
+        }
+    };
+    health.current = to.map_or(health.most, |to| to.min(health.most));
+    let line = format!("health {}/{}", health.current, health.most);
+    Ok(match id {
+        Some(id) => format!("{id} {line}"),
+        None => line,
+    })
+}
+
 /// How far about a cell, in cells along each axis, `spawn` looks for cells to stand creatures on.
 const SPAWN_REACH: i32 = 16;
 

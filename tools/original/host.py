@@ -504,7 +504,7 @@ class Host:
                 'point X,Y: the window\'s pixel of a cell, for click',
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
-                "heal [ID]: a creature's health to its most, the hero's by default",
+                "heal [ID] [--to N]: a creature's health to its most, or to N (at most its most), the hero's by default",
                 "arts [ID]: a creature's combat arts, the hero's by default; arts learn ART [LEVELS]: the hero learns "
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
                 'ready at once',
@@ -970,8 +970,13 @@ class Host:
                 for a in arts]
 
     def command_heal(self, rest):
-        oid = int(rest) if rest else None
-        c = self.world('heal', {'id': oid})
+        parser = argparse.ArgumentParser(prog='heal', add_help=False, exit_on_error=False)
+        parser.add_argument('id', type=int, nargs='?')
+        parser.add_argument('--to', type=int)
+        options = parser.parse_args(rest.split())
+        if options.to is not None and options.to < 1:
+            raise ValueError('heal: --to takes 1 to the most health')
+        c = self.world('heal', {'id': options.id, 'to': options.to})
         return [f"{c['id']} health {c['health']}/{c['most']}"]
 
     def command_level(self, rest):
