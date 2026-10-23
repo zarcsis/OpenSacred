@@ -752,6 +752,26 @@ NetScript (CreateNPC/CreateObj/FillChest …) ──▶ Items.pak, DefPos/Vector
 AMH save ──▶ Items.pak (inventory), classes 1..9, QuestDB (section 0xCD)
 ```
 
+### 6.5 The combat arts' tables in Sacred.exe
+
+**Confirmed on every record 2026-10-23** by `tools/analysis/formats/arts_dump.py` (#505); what each field means and the code that reads it are in [docs/re/arts.md](re/arts.md) (#500).
+The combat arts are in no data file: two tables compiled into `Sacred.exe` hold them, the defaults of a balancing spreadsheet (`xls_magictypes.h`, `xls_smovetypes.h`), as the table of the sound ids' names is compiled into it (§10.2).
+Both lie in `.data`, which the GOG 2.28 file stores at its virtual addresses less the image base `0x400000`; another build would hold them elsewhere, so the converter reads them only from the manifest's `Sacred.exe` (§13).
+Each table opens with an empty record 0, the id 0 with the icon `INVALID.TGA`, which the code does not search; the second table ends where the first starts.
+A value by the level `L` is a pair `(a, b)`, `a + L·b`.
+
+- **The spells**, the first table, at VA `0x952A38` (file offset `0x552A38`): the record 0 and 70 records of `0x94` B, to `0x955344`.
+  `{u16 id; u16 0; u32 name; u32 description; char icon[32]; u32 0; u32 sprites[3]; u16 launch; u16 regeneration[2]; u16 effects[13][2]; u16 values[3][2]; u16 caps[3]; u16 element; u16 0; u32 classes; u8 flags; u8 0[3]}`.
+  The ids are 1 to 72 but 54 and 68, mostly in order: 13 and 14, and 47 and 48, are swapped, and from 54 on the ids run one or two ahead of the records.
+  The icon is a texture's name, ASCII with zeros after it, and the `u32` after it its texture's handle at run time, 0 in the file; `flags` holds bits 0 to 2 alone.
+- **The weapon arts**, the second table, at VA `0x94FDB0` (file offset `0x54FDB0`): the record 0 and 94 records of `0x78` B, to `0x952A38`.
+  `{u16 id; u16 0; u32 name; u32 description; char icon[32]; u32 0; u32 sprites[3]; u32 +0x3C; f32 regeneration[2]; i32 distance; u8 launch; u8 0[3]; f32 factor[2]; f32 +0x58[2]; i32 +0x60[2]; i32 +0x68[2]; u32 classes; u8 flags; u8 0[3]}`, the first `0x3C` B as a spell's.
+  The ids are 1000 to 1103 but 1011, 1055, 1056, 1077, 1081, 1088, 1090, 1093, 1095 and 1096, mostly in order; `+0x3C` is 5 to 120, read by no code found.
+- **The texts**: `name` and `description` are text indices, and the short description's index is the long one's plus 600; an index names the `global.res` string whose id is the hash of the index in decimal, as a numeric `res:N` (§8).
+  Every name and short description is a string of `global.res`, and every long description but those of the eleven spells 43 to 53, whose index is 0 (**confirmed** on the data 2026-10-23).
+
+`opensacred_formats::arts` reads both tables, the addresses mapped through the section table (`opensacred_formats::pe`), and matches the prototype on every field of every record; `opensacred-convert tables` writes them into `tables/arts.ron` (`opensacred_data::tables::Arts`) with their fields named and the text indices as `global.res` ids, after it checks `Sacred.exe` against the manifest.
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding
@@ -1033,7 +1053,7 @@ Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copie
 | Tiles and MIX atlases | PNG atlases + the UV table of the 18 diamonds | rendering a test sector |
 | MDL + GRN (`models*.pak`) | `.glb`: meshes, skeletons, weights, materials, clips; `Models.tmp` is a cache and is skipped | glTF-Validator, Blender, reference poses |
 | Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 8) and `sprites.bin` | loading all 6,050 sectors |
-| `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
+| `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts of `Sacred.exe` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
 | `global.res` | Fluent (`.ftl`) | 23,123 strings in place |
 | NetScript | one postcard file per tree with a `netscript.ron` index; listings on request | disassembler without remainder on the 20 trees |
 | `sndProfiles.pak`, `sound.pak` | profiles in RON (`sound.ron`); WAV (PCM, IMA ADPCM) → FLAC; MP3 records unchanged | durations and spot listening |
@@ -1106,6 +1126,7 @@ Scripts ([tools/README.md](../tools/README.md); run with `python3 -I` on the use
 - `formats/mixed_dump.py` — `items.pak` and `mixed.pak` (§3.3, §6.1).
 - `world/world_dump.py`, `world/sector_stats.py`, `world/static_stats.py`, `world/uv_table.py` — keyx, wldx, tiles, Static.PAK, Floor.PAK, the UV table (§5).
 - `formats/tables_dump.py`, `formats/bin_tables_dump.py` — Creature, Weapon, MOTIONS, Triggers, Items03 and the `bin/` tables (§5.5, §6).
+- `formats/arts_dump.py` — the combat arts' tables in `Sacred.exe` (§6.5).
 - `scripts/netscript_census.py`, `scripts/netscript_dump.py`, `scripts/kwtab.py` — NetScript (§7).
 - `formats/global_res_dump.py`, `formats/global_res_hash.py` — `global.res` and the hash (§8).
 - `formats/amh_dump.py` — AMH templates, and saves with `--saves` (§9).

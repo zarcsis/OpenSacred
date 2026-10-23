@@ -24,6 +24,7 @@ pub const STATIC_REMAP: &str = "static_remap.ron";
 pub const MERCENARIES: &str = "mercenaries.ron";
 pub const MERCENARIES_ADDON: &str = "mercenaries_addon.ron";
 pub const START_POINTS: &str = "start_points.ron";
+pub const ARTS: &str = "arts.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,6 +269,90 @@ pub struct Mercenary {
 pub struct StartPoint {
     pub x: u32,
     pub y: u32,
+}
+
+/// The combat arts of the two tables compiled into `Sacred.exe` (docs/02 §6.5,
+/// docs/re/arts.md), each in its table's order. A value by the level `L` is a pair `[a, b]`,
+/// `a + L × b`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Arts {
+    /// The first table's: the ids 1 to 72 but 54 and 68.
+    pub spells: Vec<Spell>,
+    /// The second table's: 94 of the ids 1000 to 1103.
+    pub weapon_arts: Vec<WeaponArt>,
+}
+
+/// A spell, an art of the first table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Spell {
+    pub id: u16,
+    /// The `global.res` id of its name: the hash of the record's text index in decimal (docs/02
+    /// §8).
+    pub name: u32,
+    /// That of its long description; eleven spells have the index 0, which names no string.
+    pub description: u32,
+    /// That of its short description, 600 indices after the long one.
+    pub short_description: u32,
+    /// The icon's texture name, `GUI_SPELL_IRRITATION.TGA`.
+    pub icon: String,
+    /// Three sprites of the interface's table for the icon, the last the one drawn.
+    pub sprites: [u32; 3],
+    /// The launch type: 1 on an enemy, 2 on a friend, 3 on the ground, 4 on the dead, 5 on
+    /// itself, 0 none.
+    pub launch: u16,
+    /// The regeneration time in seconds at the speed 1.
+    pub regeneration: [u16; 2],
+    /// Thirteen effects: the physical, fire, magic and poison damage, the attack, the defence in
+    /// percent, the physical, fire, magic and poison resistances, the speed, the mental and the
+    /// physical regeneration.
+    pub effects: [[u16; 2]; 13],
+    /// Three values; the value 0 is the duration in seconds for most.
+    pub values: [[u16; 2]; 3],
+    /// Each value's cap, 0 for none.
+    pub caps: [u16; 3],
+    /// 1 water, 2 air, 3 earth, 4 fire, 5 lost, 0 none.
+    pub element: u16,
+    /// The classes that learn and use it, a mask: 1 the Seraphim, 2 the Gladiator, 4 the Mage, 8
+    /// the Dark Elf, 0x10 the Wood Elf, 0x20 the Vampiress, 0x400000 the Dwarf, 0x800000 the
+    /// Daemon.
+    pub classes: u32,
+    /// Bit 0 not on horseback, bit 1 on horseback only with a bow, bit 2 with a two-handed weapon
+    /// only.
+    pub flags: u8,
+}
+
+/// A weapon art, an art of the second table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeaponArt {
+    pub id: u16,
+    /// The `global.res` ids of its name and its descriptions, as a spell's.
+    pub name: u32,
+    pub description: u32,
+    pub short_description: u32,
+    /// The icon's texture name, `GUI_MOVE_ATTACKE.TGA`.
+    pub icon: String,
+    pub sprites: [u32; 3],
+    /// A column of the balancing sheet, which no code is known to read.
+    pub value_3c: u32,
+    /// The regeneration time in seconds at the speed 1.
+    pub regeneration: [f32; 2],
+    /// The distance it is made from: 101 to 250 the reach of the two creatures, 0 where the
+    /// creature stands, below 0 for the jumps.
+    pub distance: i32,
+    /// The launch type, as a spell's.
+    pub launch: u8,
+    /// For most arts the damage's factor of each strike.
+    pub factor: [f32; 2],
+    /// A second value by the level, of each art its own.
+    pub value_58: [f32; 2],
+    /// A whole value by the level: for the `Rundum` arts the radius in percent of the reach.
+    pub value_60: [i32; 2],
+    /// Another, of each art its own.
+    pub value_68: [i32; 2],
+    /// The classes, a mask as a spell's.
+    pub classes: u32,
+    /// The flags, as a spell's.
+    pub flags: u8,
 }
 
 /// A used slot of `Triggers.PAK`.

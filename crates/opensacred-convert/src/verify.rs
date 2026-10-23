@@ -22,6 +22,32 @@ pub fn read_game_file(path: &Path) -> Result<Vec<u8>> {
     fs::read(path).with_context(|| format!("reading {}", path.display()))
 }
 
+/// Contents of a file of the installation that must be the reference's own, its SHA-256 the
+/// manifest's: for a reader that takes its data from fixed places of the GOG 2.28 build (the
+/// combat arts' tables of `Sacred.exe`, docs/02 §6.5).
+pub fn read_reference_file(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
+    read_checked(game_dir, path, &parse_manifest(GOG_MANIFEST)?)
+}
+
+fn read_checked(game_dir: &Path, path: &str, manifest: &[Entry<'_>]) -> Result<Vec<u8>> {
+    let expected = manifest
+        .iter()
+        .find(|e| e.path == path)
+        .with_context(|| format!("{path} is not in the manifest"))?
+        .sha256;
+    let file = game_dir.join(path);
+    let bytes = read_game_file(&file)?;
+    let found = hex(&Sha256::digest(&bytes));
+    if found != expected {
+        bail!(
+            "{} is not the GOG Sacred Gold 2.28 file: its SHA-256 is {found}, the manifest's \
+             {expected}; its data is read from that build's addresses",
+            file.display()
+        );
+    }
+    Ok(bytes)
+}
+
 /// Manifest entry: lower-case SHA-256 and a path relative to the installation root.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Entry<'a> {
@@ -112,12 +138,12 @@ pub(crate) fn sha256_file(path: &Path) -> io::Result<(String, u64)> {
         hasher.update(&buf[..n]);
         len += n as u64;
     }
-    let hex = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    Ok((hex, len))
+    Ok((hex(&hasher.finalize()), len))
+}
+
+/// Lower-case hexadecimal of a digest.
+fn hex(digest: &[u8]) -> String {
+    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[cfg(test)]
@@ -168,6 +194,28 @@ mod tests {
                 ("absent.bin", Problem::Missing),
             ]
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_reference_file_reads_only_as_the_manifest_has_it() {
+        let dir = scratch_dir("verify-reference");
+        fs::write(dir.join("ok.bin"), "hello").unwrap();
+        fs::write(dir.join("changed.bin"), "hello!").unwrap();
+        let text = format!("{HELLO}  ok.bin\n{HELLO}  changed.bin\n");
+        let manifest = parse_manifest(&text).unwrap();
+        assert_eq!(read_checked(&dir, "ok.bin", &manifest).unwrap(), b"hello");
+        let error = read_checked(&dir, "changed.bin", &manifest)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("not the GOG Sacred Gold 2.28 file"),
+            "{error}"
+        );
+        let error = read_checked(&dir, "other.bin", &manifest)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not in the manifest"), "{error}");
         fs::remove_dir_all(dir).unwrap();
     }
 
