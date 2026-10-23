@@ -87,9 +87,9 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.99.1) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
 | ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls, then the fight's formulas, the ways and the creatures' decisions moved into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
-| ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI): textures → PNG + KTX2, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound → FLAC/Ogg Vorbis (MP3 as is), video → AV1 via FFmpeg, scripts → Luau (ADR-13) | Requirement (§1.1); open formats can be checked with third-party tools (Blender, glTF-Validator) and suit HD packs |
+| ADR-05 Assets | Offline converter `opensacred-convert` (Rust CLI) in two stages (#694, the maintainer's choice of 2026-10-23): **extract**, the installation → lossless masters in open formats that tools edit, with the repairs of the data, in `assets-src/` (textures → PNG, models and animations → glTF 2.0, world → binary sectors + RON, tables → RON, texts → Fluent, sound and music → FLAC, video → FFV1 and FLAC in Matroska, scripts → Luau, ADR-13); **build**, the masters → the game's packed assets in `assets/` (textures → KTX2 with BC7 and mipmaps, sound → Opus in Ogg, video → AV1 and Opus in WebM, scripts → Luau bytecode, all in ZIP archives); `all` does both; the game reads only the built assets; HD packs and mods are made in the masters' formats and built by the same stage B (§7) | Requirement (§1.1); the masters can be checked and edited with third-party tools (Blender, glTF-Validator) and lose nothing, so a build from them gives what a direct conversion would; the game's formats load fast and fit the GPU |
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
-| ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder | Everything is free and builds for Windows, Linux and Android |
+| ADR-07 Sound, input, video | Kira via `bevy_kira_audio`, the sound and the music as Opus decoded through libopus (#701), the one C library of the sound; Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder | Everything is free and builds for Windows, Linux and Android |
 | ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
 | ADR-09 Network | Multiplayer after version 1.0 (M9), no network code, server or lobby before it; until then the game does not rule it out: the rules stay apart from the engine (ADR-04), the world's state lives in the rules and the ECS rather than in presentation or input, and the scripts run on the host, as in the original (docs/02 §7.5); `GameServer.exe` is an auxiliary binary when analyzing shared functions, and a reference for the server's part once M9 starts | Requirement (§1.1), changed 2026-10-23 |
 | ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), Frida (driving the running original for Claude Code, #448), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
@@ -103,11 +103,14 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 
 ```text
 OriginalGame/      ← the user's own GOG installation (git-ignored)
-   │  opensacred-convert (Rust CLI, once, and again after improvements)
+   │  opensacred-convert extract (stage A: lossless, with the data's repairs)
    ▼
-assets/            ← open formats, generated locally, never committed to git
-assets-hd/         ← HD and upscale packs, override assets/ at matching paths
-   │
+assets-src/        ← masters in open formats that tools edit (PNG, glTF, FLAC, FFV1, RON, Luau)
+assets-hd/         ← HD packs and mods in the masters' formats, over assets-src/ at matching paths
+   │  opensacred-convert build (stage B: packed and encoded)
+   ▼
+assets/            ← the game's assets: KTX2, Opus, AV1, Luau bytecode, in ZIP archives
+   │                 (all three generated locally, never committed to git)
    ▼
 opensacred-game (Bevy) ───── uses ───── opensacred-rules (rules, no engine)
                                                ▲
@@ -229,7 +232,7 @@ OpenSacred/
 ├─ tools/game/                the game's remote-control client
 ├─ tools/usage/  tools/stack/ the process: Claude Code usage per pull request, stacked pull requests
 ├─ docs/                      plan, format specifications, prose notes on the original's behavior (docs/re/), decision log
-├─ assets/  assets-hd/        generated locally, in .gitignore
+├─ assets-src/  assets/  assets-hd/   generated locally, in .gitignore
 └─ OriginalGame/              the user's GOG installation (git-ignored)
 ```
 
@@ -255,24 +258,26 @@ The fight's components, resources and systems stay in `opensacred-game` (`fight.
 
 Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the section on conversion.
 
-| Source | Target | How it is checked |
-|---|---|---|
-| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 (master) + KTX2 with BC7 for PC and ASTC/UASTC for Android; 2026-10-17: PNG only, KTX2 waits for the game to need it | pixel comparison with a reference decoder; viewing |
-| Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | rendering a test sector |
-| `models.pak` (Granny 1.2b) | glTF 2.0 (`.glb`): meshes, skeletons, weights, materials | glTF-Validator, Blender, an in-game screenshot test |
-| Granny animations | glTF clips; the Bip01 bone names are kept so that clips fit models with the same skeleton | visual check, comparing poses in key frames |
-| World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard in a zlib stream) + RON descriptions | loading all 6,050 sectors, checksums |
-| `Items.pak`, `Creature.pak`, `Weapon.pak`, `bin/*.bin` | RON tables with a typed schema; done 2026-10-17 (`tables/`), the fields of unknown meaning as spans named by offset | reading back, comparing fields with the source |
-| `global.res` | Fluent (`.ftl`) + a map of hash identifiers | all 23,123 strings present |
-| NetScript (`bin/**`) | Luau sources and their bytecode, translated from an intermediate representation (#723, ADR-13); the IR and a readable listing done 2026-10-17 as one postcard file per tree with a RON index (RON for 2.2 million records would take hundreds of MB), the listing on request | the disassembler gets through 20 directories with no unknown records: met 2026-10-17 |
-| `sound.pak`, `sndProfiles.pak` | WAV (PCM and IMA ADPCM) → FLAC; MP3 entries unchanged; profiles in RON | listening to a sample, durations |
-| `mp3/*.mp3` | unchanged (MP3 is patent-free and decoded by Symphonia) or Ogg Vorbis | playback |
-| `movie/*.wmv` | AV1 + Opus in WebM via FFmpeg | playback in the game |
-| `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters (the fallback not added yet) | rendering all strings |
-| `Templates/*.ptx` | hero starter kits in RON; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, until their layout is recovered | character creation |
+| Source | Master (stage A, `assets-src/`) | Game (stage B, `assets/`) | How it is checked |
+|---|---|---|---|
+| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 | KTX2 with BC7, a full mip chain and zstd supercompression; ASTC for Android later (M8, #702) | pixel comparison with a reference decoder; viewing |
+| Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | KTX2 as the textures | rendering a test sector |
+| `models.pak` (Granny 1.2b) | glTF 2.0 (`.glb`): meshes, skeletons, weights, materials, its textures by reference to the PNGs | the same `.glb`, referring to the KTX2 textures by path | glTF-Validator, Blender, an in-game screenshot test |
+| Granny animations | glTF clips; the Bip01 bone names are kept so that clips fit models with the same skeleton | in the models' `.glb` | visual check, comparing poses in key frames |
+| World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard in a zlib stream) + RON descriptions | the same files | loading all 6,050 sectors |
+| `Items.pak`, `Creature.pak`, `Weapon.pak`, `bin/*.bin` | RON tables with a typed schema; done 2026-10-17 (`tables/`), the fields of unknown meaning as spans named by offset | the same files | reading back, comparing fields with the source |
+| `global.res` | Fluent (`.ftl`) + a map of hash identifiers | the same files | all 23,123 strings present |
+| NetScript (`bin/**`) | Luau sources, translated from an intermediate representation (#723, ADR-13); the IR and a readable listing done 2026-10-17 as one postcard file per tree with a RON index, the listing on request | the Luau bytecode | the disassembler gets through 20 directories with no unknown records: met 2026-10-17 |
+| `sound.pak`, `sndProfiles.pak` | WAV (PCM and IMA ADPCM) → FLAC; the MP3 entries decoded into FLAC (#697); profiles in RON | Opus in Ogg (#701) | listening to a sample, durations |
+| `mp3/*.mp3` | FLAC, decoded from the MP3 (#697) | Opus in Ogg | playback |
+| `movie/*.wmv` | FFV1 video and FLAC audio in Matroska, the frames and samples the WMV decoder gives (#698) | AV1 + Opus in WebM | playback in the game |
+| `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters (the fallback not added yet) | the same files | rendering all strings |
+| `Templates/*.ptx` | hero starter kits; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, until their layout is recovered | the same files | character creation |
+| Packing | loose files, which tools edit | ZIP archives by kind (stored entries for compressed data, deflate for text), read through an asset reader with a loose overlay (#699) | the game starts from the archives alone |
 
-Principles: the converter is deterministic and incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
-Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten), and two full runs into empty directories write identical files (83 s, then 160 s with the deterministic video encoding).
+Principles: the converter runs in two stages (ADR-05), is incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
+Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten).
+Identical reruns are no longer a goal (2026-10-23, #694): stage A stays reproducible by nature and keeps its tests, so that its manifests show what a change of the converter changed; stage B's lossy encoders (AV1, Opus, BC7, later ASTC) need not be, and no test asserts their reruns.
 Outputs are never committed.
 The converter repairs the defects of the original's data as it writes them (#348): `assets/` holds sound data, the game reads it as it is, and the HD packs made from it (M7) start clean, while `opensacred-formats` reads the original's files as they are.
 Each repair is as narrow as its defect, described in docs/02 and recorded as a decision in `docs/decisions/`.
@@ -288,7 +293,8 @@ Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
   Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
 * Visible area: by default as in the original at zoom 1.0, but with 4K pixel density; an extended view is an option.
 * The UI scales independently of the scene resolution; fonts are rasterized for the actual DPI.
-* HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate), separate alpha channel processing, packing into KTX2 with mipmaps.
+* The base textures go to the game as KTX2 with BC7 and a full mip chain from M3 (#700), built by stage B from the PNG masters.
+* HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate) and separate alpha channel processing, into PNG masters in `assets-hd/`, which stage B packs as it packs the base ones.
   Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
 
 ## 9. Estimates: Claude Code time and token cost
@@ -319,12 +325,12 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | M0 Foundation | Cargo workspace, `CLAUDE.md`, CI, GOG installation manifest | 6–12 | 4–8 |
 | M1 Converter | all formats from §7; tests and the manifest | 80–160 | 25–50 |
 | M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K | 30–60 | 15–30 |
-| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle | 120–240 | 40–80 |
+| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23; the estimates stand until M3's re-estimation) | 120–240 | 40–80 |
 | M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, trading, blacksmith, day and night, weather | 60–120 | 25–50 |
 | M5 UI and effects | full UI, 178 effects, profile-driven sound, movies | 50–100 | 20–40 |
 | M6 Version 1.0 for Windows 11 | saves, settings, gamepad, 4K and HiDPI, polish, campaign playthroughs | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
-| M7 HD assets | upscaling, HD packs, mipmaps | 15–30 | 10–30 |
+| M7 HD assets | upscaling, HD packs, built by stage B | 15–30 | 10–30 |
 | M8 Platforms | Linux 5–10; Android 25–50 | 30–60 | 10–20 |
 | M9 Multiplayer | the campaigns played together over the network: the protocol, a host or a server, joining a game, the multiplayer script trees (docs/02 §7.2) | not estimated (§13) | not estimated |
 

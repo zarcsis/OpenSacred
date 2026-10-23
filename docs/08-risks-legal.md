@@ -52,7 +52,7 @@ Anything made locally while studying the original (Ghidra projects, notes with d
 ## 4. Repository and CI
 
 * The tools read the user's own GOG Sacred Gold 2.28 installation from `OriginalGame/` (ignored by Git) or from `--game-dir`; `opensacred-convert verify` checks it against the manifest.
-* The converter writes to `assets/`, which is ignored by Git as well.
+* The converter writes to `assets-src/` and `assets/`, which are ignored by Git as well.
 * CI has no game files.
   The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
 * The oracle (PLAN.md §6.1, #363) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI, and checks it against the manifest first.

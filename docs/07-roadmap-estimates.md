@@ -105,6 +105,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
   Moved here from M0: M1 and M2 do not need the original's code; Ghidra is installed earlier if a format question does.
 * Study in Ghidra, the behavior described in prose in `docs/re/`, and an independent implementation in `opensacred-rules` (PLAN.md §4.2): attributes and levels, skills and combat arts, combat and damage, resistances, items and loot generation, sets, creature AI, spawning.
 * `opensacred-oracle`, run locally: emulation of the formula functions of the user's own `Sacred.exe`, vectors in JSON.
+* The converter's two stages and the game's packed assets (#694, moved here from M7 on 2026-10-23): lossless masters in `assets-src/`, the game's KTX2 with BC7 and mipmaps, Opus and ZIP archives in `assets/`; the estimate stands until M3's re-estimation.
 * **Exit criterion:** combat with the starting region's creatures, loot, experience and levels work; the formulas are covered by vectors; deviations are recorded in `docs/decisions/`.
 * **Status 2026-10-20:** the Ghidra project with the classes from RTTI, the community names and the library marks was done on 2026-10-18 and 2026-10-19 (#87, #88).
   On 2026-10-20 the spawning, the creatures' AI and the fight with experience and levels followed, in `opensacred-game` rather than `opensacred-rules`, and move into it from 2026-10-21 (#364; PLAN.md §10, items 11–13; #328).
@@ -128,7 +129,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 ### M7. HD assets — 15–30 agent-hours, 10–30 maintainer hours
 
-* The upscale pipeline, alpha processing, KTX2 with mipmaps, path-based substitution; HD packs for the ground, characters and UI.
+* The upscale pipeline and alpha processing into masters that stage B builds (#694), path-based substitution; HD packs for the ground, characters and UI.
 
 ### M8. Platforms — 30–60 agent-hours, 10–20 maintainer hours
 

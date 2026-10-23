@@ -1065,18 +1065,21 @@ Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copie
 
 ### 12.1 Targets per format
 
+The converter writes in two stages (PLAN.md ADR-05 and §7, #694): stage A extracts lossless masters into `assets-src/`, the targets below, and stage B builds the game's assets into `assets/` from them: the textures as KTX2 with BC7 and mipmaps (#700), the sound and the music as Opus in Ogg (#701), the cutscenes as AV1 and Opus in WebM (#698), the scripts as Luau bytecode, all in ZIP archives by kind (#699); the rest as the masters are.
+Until #696 the converter writes the targets below straight into `assets/`.
+
 | Source | Target | Check |
 |---|---|---|
-| TEX (`texture*.pak`) | PNG RGBA8 (`textures/<pak>/`); KTX2 with mipmaps with the HD packs (M7); `Texture.TMP` is a cache and is skipped | pixel cross-check against the `tools/analysis/formats/tex_decode.py` prototype |
+| TEX (`texture*.pak`) | PNG RGBA8 (`textures/<pak>/`); `Texture.TMP` is a cache and is skipped | pixel cross-check against the `tools/analysis/formats/tex_decode.py` prototype |
 | Tiles and MIX atlases | PNG atlases + the UV table of the 18 diamonds | rendering a test sector |
 | MDL + GRN (`models*.pak`) | `.glb`: meshes, skeletons, weights, materials, clips; `Models.tmp` is a cache and is skipped | glTF-Validator, Blender, reference poses |
 | Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 8) and `sprites.bin` | loading all 6,050 sectors |
 | `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts of `Sacred.exe` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
 | `global.res` | Fluent (`.ftl`) | 23,123 strings in place |
 | NetScript | one postcard file per tree with a `netscript.ron` index; listings on request | disassembler without remainder on the 20 trees |
-| `sndProfiles.pak`, `sound.pak` | profiles in RON (`sound.ron`); WAV (PCM, IMA ADPCM) → FLAC; MP3 records unchanged | durations and spot listening |
-| MP3 | unchanged | playback |
-| WMV | AV1 + Opus in WebM via FFmpeg | playback |
+| `sndProfiles.pak`, `sound.pak` | profiles in RON (`sound.ron`); WAV (PCM, IMA ADPCM) → FLAC; MP3 records unchanged, decoded into FLAC with #697 | durations and spot listening |
+| MP3 | unchanged, decoded into FLAC with #697 | playback |
+| WMV | AV1 + Opus in WebM via FFmpeg; FFV1 and FLAC in Matroska as the master with #698 | playback |
 | TTF, BMP | TTF unchanged; BMP → PNG | viewing |
 | `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn and the combat arts; the rest of the starting presets later | reading back |
 
@@ -1084,10 +1087,11 @@ Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copie
 
 * `opensacred-formats`: reading the original formats (safe slice parsing, no `unsafe`).
 * `opensacred-data`: open format types shared by the converter and the game.
-* `opensacred-convert`: a CLI with the subcommands `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, `all` and `coverage`; parallel (rayon), deterministic.
+* `opensacred-convert`: a CLI with the subcommands `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, `all` and `coverage`; parallel (rayon); the two stages, extract and build, come with #696.
+  Stage A is reproducible by nature; stage B's lossy encoders need not be, and identical reruns are no longer a goal (#694).
   Each full run of a command records `manifest/<command>.ron` under the output directory (the SHA-256 of the converter, of the installation files it read and of the files it wrote), and `all` skips a command whose record still holds.
-* Outputs go to `assets/` (not committed).
-  HD packs go to `assets-hd/` with the same relative paths.
+* Outputs go to `assets-src/` (the masters) and `assets/` (the game's), neither committed.
+  HD packs and mods go to `assets-hd/` in the masters' formats with the same relative paths.
 
 ### 12.3 Order
 
@@ -1097,7 +1101,7 @@ The order follows the vertical slice (PLAN.md, §9): textures and tiles → mode
 
 * Synthetic mini files in the repository, for CI.
 * Tests on the real installation are marked and run only locally.
-* The run manifests (§12.2) hold the SHA-256 of every output, so a changed output shows up in them.
+* The run manifests (§12.2) hold the SHA-256 of every output, so a changed output of stage A shows up in them; stage B's lossy outputs may differ from run to run.
 * The Python prototypes in `tools/analysis/` serve as the reference when porting the parsing logic to Rust.
 
 ### 12.5 Estimate
