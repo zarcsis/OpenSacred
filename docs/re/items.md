@@ -70,7 +70,7 @@ After an item's damage, resistances, `A` and `D`, each of its bonus slots counts
 - 801 to 804: added to the kind's least and most damage, or with the condition's bit 15 to its resistance (the condition's bits 13 and 14 cleared for them);
 - 805 to 808: a hundredth of it to the kind's damage multiplier (the stats' `+0x96`…), or with the condition's bit 13, 14 or 15 to the multipliers at `+0xB6`, `+0xA6` or `+0xD6` (not read further);
 - 809 and 810: a hundredth to the multipliers of `A` and `D` (`+0xE6`, `+0xEA`); 813 and 814 to those at `+0xEE` and `+0xF2`;
-- 811 and 812: to the stats' `+0x3C`, the attack speed, and `+0x40` (130 for the heroes by their types; **hypothesis**: a speed of its own);
+- 811 and 812: to the stats' `+0x3C`, the attack speed, and `+0x40`, the pace, which scales the walk and the run and their clips (docs/re/movement.md, "The speed"; #599), each added and truncated;
 - 815 to 820: to the attributes `a0`, `a2`, `a1`, `a3`, `a4` and `a5`, after every item, held at 0 and above, before the attributes' parts of `A`, `D` and the resistances;
 - the others are not followed here: the default case hands the effects below 200 and from 1000 to the effect list, and 600 to 798 to a skill slot, and 840 and more have cases of their own.
 

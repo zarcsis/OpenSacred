@@ -302,6 +302,7 @@ mod tests {
             resistance: [3.0, 0.0, 0.0, 10.0],
             damping: [0; 4],
             speed: 140.0,
+            pace: 130.0,
         })
     }
 
