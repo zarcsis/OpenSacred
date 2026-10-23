@@ -1051,7 +1051,10 @@ const COMMANDS = {
       throw new Error('no hero');
     }
     const [hx, hy] = cellOf(h);
-    return creatures().filter((o) => !o.equals(h)).map(readCreature)
+    const heroId = h.add(CREATURE.id).readU32();
+    // With the hostility against the hero (0x549000) and the rank, as opensacred-game's lines carry them (#574).
+    return creatures().filter((o) => !o.equals(h))
+      .map((o) => ({ ...readCreature(o), hostile: isHostile(o, heroId) !== 0, rank: rankOf(o) }))
       .filter((c) => Math.max(Math.abs(c.cell[0] - hx), Math.abs(c.cell[1] - hy)) <= radius)
       .sort((p, q) => Math.hypot(p.cell[0] - hx, p.cell[1] - hy) - Math.hypot(q.cell[0] - hx, q.cell[1] - hy));
   },
@@ -1344,6 +1347,14 @@ function scriptedLevel(creature, h) {
     level += Math.floor(Math.random() * 2);
   }
   return Math.max(1, level);
+}
+
+// A creature's rank: a boss (+0x1F4 bit 0x80000), a champion (+0x2B8 bit 0x40) or none (docs/re/fight.md).
+function rankOf(creature) {
+  if ((creature.add(0x1f4).readU32() & BOSS) !== 0) {
+    return 'boss';
+  }
+  return (creature.add(0x2b8).readU8() & CHAMPION) !== 0 ? 'champion' : null;
 }
 
 // Whether a creature is dead or dying: its AI's state 9, its action 6 or its health 0 (0x549080's test).
