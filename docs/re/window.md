@@ -43,6 +43,8 @@ The render thread (`cEngine::renderThread::run`, `0x60E350`) tests the flag `0x2
 The simulation thread (`cEngine::simThread::run`, `0x60F060`), which only measures its own time between sleeps, does not read it.
 So the game stands still without the focus rather than spinning, and it draws and moves again when `WM_ACTIVATEAPP` comes back active.
 A window that is never activated never receives the inactive message, and the flag stays clear (observed: the driver's window, opened without activation and to the right of every monitor, drew 47 frames a second for a minute while another program had the foreground).
+Full screen, each `WM_ACTIVATEAPP`, active or not, costs more (observed 2026-10-22 through dgVoodoo2, #551): the log's `- restoreSurfaces`, the display mode set again (`SetDisplayMode` 1024 × 768), `- flushTextures` with `cResourceMgr::disposeAll()` and `- flushModels` with `cGrannyModelManager::flushCache()`; a run that turned each deactivation into an activation ended by itself after the second such round.
+Full screen, the process holds the cursor in the game's screen, `ClipCursor(0,0,1024,768)` as the game is activated (and `ClipCursor(NULL)` now and then while it is not, by whom is not read), and the game moves it with `SetCursorPos` in its own pixels (observed, #551).
 
 ## Two window procedures
 
@@ -89,6 +91,8 @@ Observed on 2026-10-21 (the window's pixels, 1024 × 768; the host's `new-game`,
 
 `dxDriver7::flip` (`0x645E40`, the driver in `ECX`; the one driver is also at `sdk_DXDISPLAY`, `0xCDCA1C`) ends every frame of the render thread.
 In a window it copies the back buffer (`+0xBC`) to the primary surface (`+0xB8`) within the window's rectangle (`Blt`), restoring the surfaces when they are lost; in full screen it flips them.
+The copy takes the window's client rectangle in the screen's pixels for its source as well as its destination, so it holds only for a window of 1024 × 768, the back buffer's size (observed 2026-10-22, #551: a window that dgVoodoo2 made 3840 × 2160 gave both rectangles `0,0,3840,2160`, and every copy failed with `DDERR_INVALIDRECT`, the window black).
+Full screen, the game takes DirectDraw's cooperative level with the flags `0xC11` (`DDSCL_FULLSCREEN`, `DDSCL_EXCLUSIVE`, `DDSCL_MULTITHREADED`, `DDSCL_FPUSETUP`) and sets the display mode to 1024 × 768 (observed, #551).
 A window outside every monitor still draws its back buffer (observed: the copy to the screen goes nowhere, and the flip reports no failure).
 A locked desktop stops the frames (observed 2026-10-22 through the system's D3D7, #546): the surfaces are lost at the lock, the flip is not reached and the frames counted stand until the lock ends.
 About 15 s after the unlock the scene's begin and end restore the surfaces (the log's `dxDriver7::BeginScene() surface restored`, then `EndScene()`'s complaint that the surface is gone), and the frames go on; the day's clock, which follows the wall clock, has moved on by the lock's length.
