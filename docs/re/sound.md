@@ -78,7 +78,8 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 `opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume above, lowered and panned by a plain falloff for now (docs/decisions/2026-10-23-voices-place.md, #731).
 It plays the weapons' sounds (`sfx`, #712): a strike's swing by the class of what the striker holds at its hit moment within reach or in the air; at the target the striker's weapon's `HIT` when the hit did damage, else its `PARADE`, by the sound profile of the weapon's own type, so that a starting weapon without a slot of its own is silent there as the original's, and the fist's for bare hands; a shot's group 3 by the bow's profile (**hypothesis**: `SHOOT`); at the original's volumes, placed as the voices.
 It plays the heroes' lines by name (`voices`, #713): a taunt when a creature takes a hit's line, one in five and 10 s after the last; a battle cry at the start of a combat art, one in three; the death's line at the hero's fall; one of the class's at random, as the hero's line.
-Not yet: `MUSIC_DEATH` with the death's line (#734), the vampiress's `realvamp` lines and the arts that play their own cries.
+It plays `MUSIC_DEATH` at the hero's fall (`music`, #734; below, "A music played once").
+Not yet: the vampiress's `realvamp` lines and the arts that play their own cries.
 
 ## Footsteps by the ground
 
@@ -142,6 +143,27 @@ M4 recovers the link.
 The sound profile `music` (slot 1 of `sndProfiles.pak`) names music by sound id in its groups, which the table above names: 0 `PEACE` and 1 `NEARBY` `MUSIC_WOOD01`–`03`, 2 `FIGHT` `MUSIC_FIGHT01`–`04`, 3 `JINGLE_DANGER01`–`08`, 4 `JINGLE_FIGHT_NORMAL01`–`08`, 5 `…HARD01`–`08`, 6 `JINGLE_FIGHT_OVER01`–`08`, 7 `JINGLE_FIGHT_EASY01`–`08` (docs/02 §10.3).
 A function around `0x697730` plays `PEACE`: `0x4261D0(1, 0)` picks a variant of the `music` profile's group 0 and returns its sound id, which goes to `cMSS::playMusic`; the same function plays the `JINGLE_FIGHT_OVER` group (6) through `0x694FE0`.
 Its conditions are read below, with the region's music.
+
+### A music played once
+
+Recovered 2026-10-23 (#734).
+`0x694FE0(id, force, p4)`, a method of the sound manager, plays a music once on the music's stream, `+0x60C`: `MUSIC_DEATH` at the hero's death (`0x6852B0`, `0x694FE0(0x1969, 1, 0)`), the jingles of the `music` profile's groups.
+
+- **When it plays nothing:** with the sound or the music off (the globals `0x17E9FA0` and `0xA1CD68`, the manager's `+0x11` and `+0x89`), with `+0x69C` 1, with `+0x6B1` set unless `p4` (which then forces it), while the music is `ATMOSPOT_ARENA_INDOOR` (`0x196C`), and at a music volume (`+0x7C`) of 0.001 or less or with bit 0 of `+0x64` clear; while the music is `0x196D` and one of the records that the manager follows (`+0xAF34` of them from `+0xDA4`, `0x88` bytes each) holds 689 (`0x2B1`) at its `+8` (**hypothesis**: a creature's type), it plays `0x198A` through `0x695E70` instead.
+  None of `+0x69C`, `+0x6B1`, `+0x89` is read.
+- **The track playing:** unless a track holds the stream (`0x679260`: Miles' `AIL_stream_status` 4, playing) and `force` is 0, the stream is paused (`AIL_pause_stream`), waited for up to 250 polls of a millisecond to report it stopped or done (`0x692790`: statuses 8 and 2), closed and forgotten (`0x678100`): the track stops at once, with no fade.
+- **In peace or with `+0xAF4A` set** it plays only when forced; then, with `force` 1 and a music other than `0x198D`–`0x198F`, it calls `0x697710` first when `+0xAF4A` is 1, and in peace (`+0x698` 3) sets the double at `+0xB7B8` to 200.
+  `+0xB7B8` is a time in seconds that `0x678F80`, the test of the fight's end, lowers to 120 once it passes 180 while `+0xAF4A` is set (**hypothesis**: the fight's music and its time; the fights' music is not in the game).
+- **The music:** its file by the sound id (`0x6761C0`), its id at `+0x68E` and `+0x610`, opened as a stream (`AIL_open_stream`) and started at once at the music's volume times a factor of the id (`0x697820`: a table of 64 pairs of an id and a float at `+0x6B4`, 1 for an id not in it; how it is filled is not read), played once (`AIL_set_stream_loop_count` 1).
+  As a track holds the stream until it ends, a sector entered meanwhile does not switch the music (`0x67A7A0`).
+
+**Seen** (2026-10-23, the driver of #448, the Seraphim's new game, `trace stream` and `0x694FE0`): each of the hero's deaths at the start called `0x694FE0(6505, 1, 0)` and opened `MUSIC_DEATH.mp3` (17.8 s), the first while the `ATMO_WOOD` loop played on the stream; the hero rose at the start some 5 s later and the death's music went on.
+After it ended, in the start's building (sector 50,39, whose music is 6560), nothing was opened on the stream for over 7 minutes, neither the loop nor a music; moved to sector 52,39 (music 6550), the game logged `cMSS::playMusic (SOUND_FX_ATMO_WOOD)` at once.
+So the stream also carries the ambient loops there, and what restarts the music after a death is the sector's change, not the end of the track (**hypothesis**; `0x697710`'s part in it not read).
+
+`opensacred-game` plays it at the hero's fall (`music`, #734): the track playing stops at once, `MUSIC_DEATH` plays once at the music's volume without fading in, by day or by night, and plays to its end in whatever sector the hero rises; then the music is silent until the hero enters a sector that another track would switch to, as above.
+Its ambient loops play apart (`atmosphere`, above) and go on.
+The factor of `0x697820` is taken as 1, and the jingles of the fights wait for the fights' music.
 
 ## The region's music
 
