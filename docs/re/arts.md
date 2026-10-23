@@ -58,18 +58,26 @@ The records are compiled from `0x94FDB0`: records of `0x78` bytes, the record 0 
 | `+0x0C`, `+0x2C`, `+0x30`…`+0x38` | | the icon, its texture's handle and three sprites, as the first table's | `0x4D1C20`, `0x4D1D40` | `GUI_MOVE_ATTACKE`, 618–620 | `GUI_MOVE_ATTACKE`, 618–620 | `GUI_MOVE_RUNDUM`, 624–626 |
 | `+0x3C` | `u32` | a column of the sheet, no reader found | | 7 | 7 | 5 |
 | `+0x40`, `+0x44` | `f32` | the regeneration time, `L·[+0x44] + [+0x40]` (`0x4D1C00`) | `0x571080` | 10 + 5·L | 10 + 5·L | 5 + 3·L |
-| `+0x48` | `i32` | the distance the art is made from: 101 to 250 is the reach of the two creatures (`0x4DBC60`), within which the creature walks to ±10 (±120 in one case); 0 where it stands; below 0 for the jumps (1003: −258) | `0x4FD0F0` | 130 | 130 | 130 |
+| `+0x48` | `i32` | the distance the art is made from: 101 to 250 is the reach of the two creatures (`0x4DBC60`), within which the creature walks to ±10 (±120 in one case); 0 where it stands; below 0 for the jumps (1003: −290, 1017: −330) | `0x4FD0F0` | 130 | 130 | 130 |
 | `+0x4C` | byte | the launch type | `0x4FD0F0`, `0x51D840` | 1 | 1 | 1 |
-| `+0x50`, `+0x54` | `f32` | the damage's factor of each strike, `L·[+0x54] + [+0x50]`, shown as `100 · factor − 100` percent | the executors, `0x4D1EB0`, `0x6A6550` | 0.75 + 0.05·L | 0.75 + 0.05·L | 0.8 + 0.1·L |
-| `+0x58`, `+0x5C` | `f32` | a second value by the level, of each art its own (the kicks' 55 + 7·L and 40 + 5·L, the jumps' 190 + 10·L; the Seraphim's 1003 and 1032 read it in `0x4D1EB0`; **hypothesis** for its sense) | | 0 | 0 | 0 |
+| `+0x50`, `+0x54` | `f32` | for most arts the damage's factor of each strike, `L·[+0x54] + [+0x50]`, shown as `100 · factor − 100` percent; for the jumps 1003 and 1032 the radius they strike within as they land, 190 + 10·L (below), and for 1083 another value | the executors, `0x4D1EB0`, `0x6A6550`, `0x51CC20` | 0.75 + 0.05·L | 0.75 + 0.05·L | 0.8 + 0.1·L |
+| `+0x58`, `+0x5C` | `f32` | a second value by the level, of each art its own: the factor of the strikes of 1003 (1.8 + 0.2·L) and 1083 (0.9 + 0.1·L), the value that 1032 gives each creature it lands by (5 + 10·L; **hypothesis** for its sense), the kicks' 55 + 7·L and 40 + 5·L (**hypothesis** for their sense) | `0x4D1EB0`, `0x4FF0B0`, `0x51CC60` | 0 | 0 | 0 |
 | `+0x60`, `+0x64` | `i32` | a whole value by the level: for the `Rundum` arts the radius in percent of the reach, `L·[+0x64] + [+0x60]`, shown 100 less | `0x4FF0B0`, `0x5893B0` | 0 | 0 | 160 + 20·L |
-| `+0x68`, `+0x6C` | `i32` | another, of each art its own (1014's in `0x4D1EB0`) | | 0 | 0 | 0 |
+| `+0x68`, `+0x6C` | `i32` | another, of each art its own (1014's in `0x4D1EB0`, below) | | 0 | 0 | 0 |
 | `+0x70` | `u32` | the classes | `0x4D1B20` | 1 | 2 | 2 |
 | `+0x74` | byte | the flags of the first table's `+0x90` | `0x4D1BE0`, `0x4D1BD0` | 1 | 1 | 1 |
 | `+0x75`…`+0x77` | bytes | from the sheet, 0 | the loader | | | |
 
 Some of them cast a spell of the first table, whose regeneration and values they take (`0x4D1E10`): 1018 the art 8, 1019 51, 1044 47, 1049 45, 1050 6, 1051 48, 1052 12, 1053 46.
-`0x580A10` gives the arts 1061 and 1062 as the class's own `Rundum` and `Hardhit`: 1069 and 1070 of the Seraphim, 1057 and 1058 of the Gladiator, 1065 and 1066 of the Dark Elf, 1073 and 1074 of the Vampiress, 1078 and 1079 of the Dwarf, 1090 and 1091 of the Daemon.
+`0x4D1EB0` gives an art's factor at the level `L` for its description (`0x6A6550`), read again 2026-10-23 (#577): `L·[+0x54] + [+0x50]` for most of the melee arts (1000 to 1002, 1012, 1013, 1015 to 1017, 1020, 1031, 1033, 1038 to 1040, 1054, the classes' `Rundum`, `Hardhit` and `Attacke` from 1057 to 1080, 1084, 1090 to 1092), `L·[+0x5C] + [+0x58]` for 1003 and 1083, `1 + 0.1·L` for 1010, `√L / [+0x5C] + [+0x58]` for 1024 and 1025, `[+0x60] + [+0x68] − [+0x6C] + ([+0x64] + 1)·L` for 1014 (52 + 4·L), and 0 for the others.
+The jumps take their values otherwise (read 2026-10-23, #577):
+
+- the Gladiator's 1003 (`0x4FF0B0`), at the point of its clip where the executor tests 0.6 (0.7 for the `Rundum`), starts its regeneration and strikes each creature within `L·[+0x54] + [+0x50]` of it (190 + 10·L) that `0x548F60` admits, with the strike event `0x4EA3F0` and the factor `L·[+0x5C] + [+0x58]` (1.8 + 0.2·L);
+- the Vampiress's 1032 (`0x50E6C0`), at the point of its clip where the executor tests 0.35, gives each creature within `L·[+0x54] + [+0x50]` (`0x51CC20`, 190 + 10·L) beyond the two creatures' reach that `0x548F60` admits an event of `0x51CB00` with the whole value `L·[+0x5C] + [+0x58]` (`0x51CC60`, 5 + 10·L, at most 65,534);
+- the Seraphim's 1017 holds its factor at `+0x50` (1.8 + 0.2·L) and nothing at `+0x58`, as the other arts do.
+
+`0x580A10` gives the arts 1061 and 1062 as the class's own `Rundum` and `Hardhit`, by the creature's type: 1069 and 1070 of the Seraphim, 1057 and 1058 of the Gladiator, 1065 and 1066 of the Dark Elf, 1073 and 1074 of the Vampiress, 1078 and 1079 of the Dwarf, 1090 and 1091 of the Daemon; the Mage and the Wood Elf keep 1061 and 1062, the Wood Elf's own (classes `0x10`).
+The second table holds no 1090, and no rune names it (#577; **hypothesis**: the Daemon has no `Rundum`, and his level of 1061 is that of an art he cannot learn).
 The Vampiress's arts by day and by night go in pairs (1022 and 1023, …, 1073 to 1076 and 1038 to 1041), which `0x552370` maps and which are learnt and levelled together; `0x4D1CC0`, `0x4D1D60` and `0x4D1DA0` hold the sets of the night and of the day, and `0x51D840` refuses an art in the other form.
 
 ## The runes
