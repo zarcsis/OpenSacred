@@ -23,6 +23,13 @@ FAIL:
   `opensacred_game::fight` at `debug`, the original's trace `strike`): the mean time between them must agree within
   5 %, the share that lands and the mean damage within four standard deviations (the game needs
   `RUST_LOG=info,opensacred_game::fight=debug`);
+- `arts`: the Seraphim's art 1071 and the spell 18 (after `arts learn 18`) used (`arts use`), the world paused
+  while they are read: each art's time still to run just after the use must agree within 0.05 s, and the rate at
+  which it then goes down over 8 s of world time within 3 %;
+- `movement`: the hero runs 9 cells along x and back from 3246,2559 (`go +9,+0`, `go -9,+0`), read by polling the
+  state: its pace, the seconds a cell between its first and its last change of cell, and the time from its first
+  step to its stop must each agree within 5 % (the original's walk is toggled from its interface, which the driver
+  does not reach);
 - `drops`: 1,000 drops of a goblin warrior of level 10 (the game's `drop`, the original's driver's `drop --id`), the
   shares of the items' categories (`items.pak +0x2E`, a derived type 2000–2999 or 6500–7999 by its root), each within
   two points or four standard deviations, whichever is wider, and the share of the derived types.
@@ -58,6 +65,8 @@ PLACES = [
     ((4127, 2650), [(554, 4129, 2651), (555, 4122, 2648), (551, 4120, 2639), (550, 4112, 2648),
                     (558, 4109, 2639), (552, 4101, 2643), (656, 4127, 2647)]),   # the stable of 64,41 (SetNPCState)
 ]
+# Open ground for the hero's walk and run along x (#599).
+COURSE = (3246, 2559)
 # A place with no hostile about it, the stable of 64,41.
 STABLE = (4127, 2650)
 CATEGORIES = {5: 'weapon', 6: 'armour', 8: 'ring', 9: 'potion', 13: 'shield', 15: 'gold', 17: 'helmet', 18: 'shoes',
@@ -266,6 +275,79 @@ def strikes_suite(game, original, report, seconds=60):
                      f'type 76 level 1: {means[0]:.1f} / {means[1]:.1f} damage a hit')
 
 
+ART_LINE = re.compile(r'(?:spell|art) (\d+) level .* time ([\d.]+) s, factor [\d.]+, to run ([\d.]+) s')
+
+
+def arts(endpoint, line='arts'):
+    """Each art's time and time still to run, by its id, as `arts` lists them after `line`."""
+    return {int(m[1]): (float(m[2]), float(m[3])) for m in map(ART_LINE.match, endpoint.exec(line)) if m}
+
+
+def arts_suite(game, original, report, seconds=8):
+    for endpoint in (game, original):
+        endpoint.exec('arts learn 18')
+    for art in (1071, 18):
+        rates, after = [], []
+        for endpoint in (game, original):
+            endpoint.exec('arts ready')
+            endpoint.exec('pause on')
+            used = arts(endpoint, f'arts use {art}')
+            start = time.monotonic()
+            endpoint.exec('pause off')
+            time.sleep(seconds)
+            elapsed = time.monotonic() - start
+            endpoint.exec('pause on')
+            later = arts(endpoint)
+            endpoint.exec('pause off')
+            after.append(used)
+            rates.append({a: (used[a][1] - later[a][1]) / elapsed for a in used if a in later})
+        for a in sorted(set(after[0]) | set(after[1])):
+            ours, theirs = after[0].get(a), after[1].get(a)
+            if ours is None or theirs is None:
+                report.check('arts', False, f'use of {art}: art {a} in one game alone')
+                continue
+            report.check('arts', abs(ours[1] - theirs[1]) <= 0.05,
+                         f'use of {art}: art {a} to run {ours[1]:.1f} / {theirs[1]:.1f} s')
+            if theirs[1] > 0 and ours[1] > 0:
+                p, q = rates[0][a], rates[1][a]
+                report.check('arts', abs(p - q) <= 0.03 * q, f'use of {art}: art {a} runs {p:.3f} / {q:.3f} a second')
+
+
+def travel(endpoint, line, timeout=20):
+    """The seconds from the hero's first step after `line` until it stands again, and its pace: the seconds a cell
+    between its first and its last change of cell, which leave out its start and its stop."""
+    endpoint.exec(line)
+    end = time.monotonic() + timeout
+    started, cell, changes = None, None, []
+    while time.monotonic() < end:
+        hero = state(endpoint).get('hero') or {}
+        now = time.monotonic()
+        if hero.get('moving') and started is None:
+            started = now
+        elif not hero.get('moving') and started is not None:
+            pace = (changes[-1] - changes[0]) / (len(changes) - 1) if len(changes) > 1 else float('nan')
+            return now - started, pace
+        if started is not None and cell is not None and hero.get('cell') != cell:
+            changes.append(now)
+        cell = hero.get('cell')
+        time.sleep(0.01)
+    raise RuntimeError(f'{endpoint.name}: {line} did not end in {timeout} s')
+
+
+def movement_suite(game, original, report):
+    for endpoint in (game, original):
+        endpoint.exec(f'cell {COURSE[0]},{COURSE[1]}')
+    time.sleep(5)
+    wait_ready(game)
+    game.exec('gait run')
+    legs = [[travel(endpoint, 'go +9,+0'), travel(endpoint, 'go -9,+0')] for endpoint in (game, original)]
+    for leg, (ours, our_pace), (theirs, their_pace) in zip(('+9,+0', '-9,+0'), *legs):
+        report.check('movement', abs(our_pace - their_pace) <= 0.05 * their_pace,
+                     f'the hero runs {leg}: {our_pace:.3f} / {their_pace:.3f} s a cell')
+        report.check('movement', abs(ours - theirs) <= 0.05 * theirs,
+                     f'the hero runs {leg}: {ours:.2f} / {theirs:.2f} s from its first step to its stop')
+
+
 def item_categories(assets):
     """The category of each item type, a derived type's by its root (`Weapon.pak +0x24`)."""
     items = open(os.path.join(assets, 'tables', 'items.ron'), encoding='utf-8').read()
@@ -314,7 +396,7 @@ def drops_suite(game, original, report, assets, times=1000):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--suites', default='experience,hero,stats,drops,places,regeneration,strikes')
+    parser.add_argument('--suites', default='experience,hero,stats,drops,places,regeneration,strikes,arts,movement')
     parser.add_argument('--save', default='start-seraphim', help="the original's save of the Seraphim's new game")
     parser.add_argument('--types', help='the stats suite\'s creature types, comma-separated')
     parser.add_argument('--levels', default='1,10,25,40', help="the stats suite's levels")
@@ -343,6 +425,10 @@ def main():
             regeneration_suite(game, original, report)
         elif suite == 'strikes':
             strikes_suite(game, original, report)
+        elif suite == 'arts':
+            arts_suite(game, original, report)
+        elif suite == 'movement':
+            movement_suite(game, original, report)
         else:
             parser.error(f'no suite {suite}')
     print(f'{report.checks} checks, {report.failed} failed')
