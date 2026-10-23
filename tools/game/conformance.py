@@ -13,6 +13,8 @@ FAIL:
   (`compare.py`);
 - `stats`: creatures of several types at several levels, made beside the heroes (`spawn … --peaceful --immortal`),
   their `stats` compared likewise;
+- `places`: the scripts' creatures of a few places whose cells and levels are fixed (the guards of 52,39 and their
+  captains, the stable of 64,41), paired by type and cell: their levels, most health, hostility and rank must agree;
 - `drops`: 1,000 drops of a goblin warrior of level 10 (the game's `drop`, the original's driver's `drop --id`), the
   shares of the items' categories (`items.pak +0x2E`, a derived type 2000–2999 or 6500–7999 by its root), each within
   two points or four standard deviations, whichever is wider, and the share of the derived types.
@@ -37,6 +39,16 @@ spec.loader.exec_module(compare)
 # Common creatures of the Seraphim's start and of the scripts' types, with the skills 2, 8, 9, 11 and 24 among them.
 TYPES = [32, 35, 38, 52, 57, 73, 76, 112, 127, 128, 131, 259, 260, 264, 272, 279, 288, 295, 297, 304, 307, 313, 319,
          513, 516, 524, 567, 577, 655, 679, 692]
+# Places whose scripts' creatures stand at fixed cells and levels, visited in order from a fresh start so that no
+# sector comes into the view twice: the cell to stand on, and the creatures expected there, by type and cell (each
+# matched to the nearest of its type within 4 cells, as guards stroll about their posts).
+PLACES = [
+    ((3345, 2533), [(297, 3349, 2534), (295, 3347, 2535)]),            # hauptmann3 and a guard (tags 5, 0x13)
+    ((3383, 2520), [(288, 3383, 2525), (288, 3382, 2525), (288, 3383, 2529), (288, 3384, 2529),
+                    (295, 3388, 2524)]),                                # the garrison of 52,39 (tag 5)
+    ((4127, 2650), [(554, 4129, 2651), (555, 4122, 2648), (551, 4120, 2639), (550, 4112, 2648),
+                    (558, 4109, 2639), (552, 4101, 2643), (656, 4127, 2647)]),   # the stable of 64,41 (SetNPCState)
+]
 CATEGORIES = {5: 'weapon', 6: 'armour', 8: 'ring', 9: 'potion', 13: 'shield', 15: 'gold', 17: 'helmet', 18: 'shoes',
               19: 'belt', 20: 'amulet', 21: 'shoulders', 22: 'arms', 23: 'legs', 24: 'gloves', 25: 'wings',
               28: 'rune', 29: 'bridle'}
@@ -124,6 +136,34 @@ def stats_suite(game, original, report, types, levels):
                                                                                     else ''))
 
 
+def places_suite(game, original, report):
+    def nearest(found, creature, x, y, taken):
+        near = [c for c in found if c['type'] == creature and id(c) not in taken
+                and max(abs(c["cell"][0] - x), abs(c["cell"][1] - y)) <= 4]
+        best = min(near, key=lambda c: abs(c['cell'][0] - x) + abs(c['cell'][1] - y), default=None)
+        if best is not None:
+            taken.add(id(best))
+        return best
+
+    for (x, y), expected in PLACES:
+        for endpoint in (game, original):
+            endpoint.exec(f'cell {x},{y}')
+        time.sleep(5)
+        wait_ready(game)
+        ours, theirs = game.creatures(30), original.creatures(30)
+        taken_ours, taken_theirs = set(), set()
+        for creature, cx, cy in expected:
+            a, b = nearest(ours, creature, cx, cy, taken_ours), nearest(theirs, creature, cx, cy, taken_theirs)
+            if a is None or b is None:
+                missing = ' and '.join(name for name, c in (('the game', a), ('the original', b)) if c is None)
+                report.check('places', False, f'type {creature} at {cx},{cy}: none in {missing}')
+                continue
+            found = [f'{key} {a[key]} / {b[key]}' for key in ('level', 'most', 'side', 'rank')
+                     if b[key] is not None and a[key] != b[key]]
+            report.check('places', not found, f'type {creature} at {cx},{cy}, level {b["level"]}'
+                         + (': ' + '; '.join(found) if found else ''))
+
+
 def item_categories(assets):
     """The category of each item type, a derived type's by its root (`Weapon.pak +0x24`)."""
     items = open(os.path.join(assets, 'tables', 'items.ron'), encoding='utf-8').read()
@@ -172,7 +212,7 @@ def drops_suite(game, original, report, assets, times=1000):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--suites', default='experience,hero,stats,drops')
+    parser.add_argument('--suites', default='experience,hero,stats,drops,places')
     parser.add_argument('--save', default='start-seraphim', help="the original's save of the Seraphim's new game")
     parser.add_argument('--types', help='the stats suite\'s creature types, comma-separated')
     parser.add_argument('--levels', default='1,10,25,40', help="the stats suite's levels")
@@ -195,6 +235,8 @@ def main():
             stats_suite(game, original, report, types, [int(level) for level in args.levels.split(',')])
         elif suite == 'drops':
             drops_suite(game, original, report, args.assets)
+        elif suite == 'places':
+            places_suite(game, original, report)
         else:
             parser.error(f'no suite {suite}')
     print(f'{report.checks} checks, {report.failed} failed')
