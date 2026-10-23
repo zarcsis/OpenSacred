@@ -6,8 +6,8 @@
 //! by the item's sound profile (`items.pak +0x24`), the fist's for bare hands; and a shot's
 //! `SHOOT` by the bow's profile.
 //!
-//! The volume falls and the pan follows the place from the hero by a plain falloff for now
-//! (docs/decisions/2026-10-23-voices-place.md, #731).
+//! The volume falls and the pan follows the place from the hero as the original's `0x678260`
+//! gives them (docs/re/sound.md, "A sound's place", #731).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,8 +15,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Camera3d, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
-    MessageReader, Plugin, Query, Res, ResMut, Resource, Update, Vec3, With,
+    App, AssetServer, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message, MessageReader,
+    Plugin, Query, Res, ResMut, Resource, Update, Vec3, With,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
@@ -24,14 +24,21 @@ use opensacred_data::sound::Sound;
 use crate::files;
 use crate::frame::Unpaused;
 use crate::hero::{self, Body};
+use crate::iso;
 use crate::spawning::Rng;
 
 /// The slots of a profile's group, over which its variants repeat in turn (docs/02 §10.1).
 const SLOTS: u32 = 8;
-/// The distance from the hero, in world units, at which a sound falls silent, and the screen's
-/// half width in world units at which it pans to one side (the decision above).
-const HEARD_WITHIN: f32 = 1_600.0;
-const PANS_AT: f32 = 600.0;
+/// The sound manager's values that place a sound (`0x678260`, docs/re/sound.md, "A sound's place"),
+/// as the running original holds them (#731): the volume at the listener (`+0x84`), the hearing
+/// distance's base (`+0xB790`), the distance within which a sound pans less the nearer it is
+/// (`+0xB798`), and the curve's two points (`+0xB7A0` to `+0xB7AC`): the first's distance in the
+/// hearing distance and its volume between 0.5 and the volume at the listener, the second's
+/// distance and volume.
+const NEAR_VOLUME: f32 = 0.75;
+const HEARING: f32 = 1_200.0;
+const CENTRED_WITHIN: f32 = 260.0;
+const CURVE: [f32; 4] = [0.5, 0.5, 0.9, 0.1];
 
 /// The weapons' groups (docs/re/sound.md, "Profile groups").
 const HIT: u8 = 1;
@@ -127,20 +134,79 @@ impl Sfx {
     }
 }
 
-/// The volume's factor and the panning of a sound `offset` world units from the hero on the
-/// ground, `side` of them along the screen's width.
-pub fn placed(offset: f32, side: f32) -> (f32, f32) {
-    let near = (1.0 - offset / HEARD_WITHIN).clamp(0.0, 1.0);
-    (near, (side / PANS_AT).clamp(-1.0, 1.0))
+/// The distance of a sound `x`, `y` screen pixels from the listener, as the original approximates
+/// it with integers (`0x678260`): 1,007 of the longer side and 441 of the shorter per 1,024, less
+/// 40 of the longer while it is under 16 times the shorter.
+fn distance(x: i32, y: i32) -> i32 {
+    let (x, y) = (x.abs(), y.abs());
+    let (long, short) = (x.max(y), x.min(y));
+    let mut sum = long * 1_007 + short * 441;
+    if long < short * 16 {
+        sum -= long * 40;
+    }
+    (sum + 512) >> 10
 }
 
-/// The volume's factor and the panning of a sound at `at`, by the hero's place and the camera's
-/// right, `listener` and `right`.
-pub fn placed_at(at: Vec3, listener: Option<Vec3>, right: Vec3) -> (f32, f32) {
-    let offset = listener.map_or(Vec3::ZERO, |hero| (at - hero).with_y(0.0));
+/// The volume's factor, 1 at the listener, and the panning, −1 left to 1 right, of a sound `x`,
+/// `y` screen pixels at zoom 1 from the listener, right and down (`0x678260`, at the factor 1).
+/// The volume falls along three lines to silence at the hearing distance, 900 pixels; the pan
+/// goes by the side, the more the less the sound lies above or below the listener, and back to
+/// the middle within 260 pixels.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a distance in pixels, far below 2^24"
+)]
+pub fn placed(x: i32, y: i32) -> (f32, f32) {
+    let hearing = HEARING * (1.5 - NEAR_VOLUME);
+    let near = distance(x, y) as f32;
+    let d = near.min(hearing);
+    let [first, first_volume, second, second_volume] = CURVE;
+    let (first, second) = (first * hearing, second * hearing);
+    let first_volume = (0.5 - first_volume) * (NEAR_VOLUME - 0.5) + first_volume;
+    let volume = if d < first {
+        NEAR_VOLUME - (NEAR_VOLUME - first_volume) / first * d
+    } else if d < second {
+        first_volume - (d - first) * (first_volume - second_volume) / (second - first)
+    } else if d < hearing {
+        second_volume - (d - second) * second_volume / (hearing - second)
+    } else {
+        0.0
+    };
+    if d <= 0.0 {
+        return (volume / NEAR_VOLUME, 0.0);
+    }
+    // The pan from 0, left, to 1, right: by the side, half way back for the share of the distance
+    // that runs up or down the screen, wholly to the side's sign straight above or below (the
+    // original's quirk).
+    let up = -y as f32 / d;
+    let side = match (x.signum(), up <= 0.0) {
+        (1, true) => up * 0.5 + 1.0,
+        (1, false) => 1.0 - up * 0.5,
+        (-1, true) => -(up * 0.5),
+        (-1, false) => up * 0.5,
+        _ => up,
+    };
+    let centred = (1.0 - d / CENTRED_WITHIN).clamp(0.0, 1.0);
+    let pan = if side < 0.5 {
+        (0.5 - side) * centred + side
+    } else {
+        side - (side - 0.5) * centred
+    };
+    (volume / NEAR_VOLUME, (pan * 2.0 - 1.0).clamp(-1.0, 1.0))
+}
+
+/// The volume's factor and the panning of a sound at `at`, by the listener's place, the hero's:
+/// its offset in the original's screen pixels, `48 (cx − cy)` right and `24 (cx + cy)` down.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "an offset in pixels within the world, far below 2^31"
+)]
+pub fn placed_at(at: Vec3, listener: Option<Vec3>) -> (f32, f32) {
+    let offset = listener.map_or(Vec3::ZERO, |hero| at - hero);
+    let (cx, cy) = (offset.x / iso::CELL, offset.z / iso::CELL);
     placed(
-        offset.length(),
-        offset.dot(right.with_y(0.0).normalize_or_zero()),
+        (48.0 * (cx - cy)).round() as i32,
+        (24.0 * (cx + cy)).round() as i32,
     )
 }
 
@@ -229,15 +295,10 @@ fn blows(
     arms: Query<&crate::npcs::Arms>,
     places: Query<&GlobalTransform>,
     listeners: Query<&GlobalTransform, With<Body>>,
-    camera: Query<&GlobalTransform, With<Camera3d>>,
     assets: Res<AssetServer>,
     audio: Res<Audio>,
 ) {
     let listener = listeners.iter().next().map(GlobalTransform::translation);
-    let right = camera
-        .iter()
-        .next()
-        .map_or(Vec3::X, |c| c.right().as_vec3());
     let armed = |entity| armed_of(entity, hero.as_deref(), &heroes, &arms, npcs.as_deref());
     for &blow in blows.read() {
         let (at, profile, group, loud) = match blow {
@@ -270,7 +331,7 @@ fn blows(
         let Some((id, file)) = sfx.pick(profile, group) else {
             continue;
         };
-        let (near, pan) = placed_at(place.translation(), listener, right);
+        let (near, pan) = placed_at(place.translation(), listener);
         let volume = loud * near;
         if volume <= 0.0 {
             continue;
@@ -300,11 +361,23 @@ impl Plugin for SfxPlugin {
 mod tests {
     use super::*;
 
+    /// The volume and the pan of the original's own calls (#731), from 0 to 1 and at its volume
+    /// 0.75 at the listener: three creatures about the Seraphim at the start.
     #[test]
-    fn a_sound_falls_with_the_distance_and_pans_by_its_side() {
-        assert_eq!(placed(0.0, 0.0), (1.0, 0.0));
-        assert_eq!(placed(800.0, 600.0), (0.5, 1.0));
-        assert_eq!(placed(2_000.0, -900.0), (0.0, -1.0));
+    fn a_sound_falls_and_pans_as_the_originals() {
+        let original = |x: i32, y: i32| {
+            let (volume, pan) = placed(x, y);
+            (volume * NEAR_VOLUME, f32::midpoint(pan, 1.0))
+        };
+        let close = |(a, b): (f32, f32), (c, d): (f32, f32)| {
+            assert!((a - c).abs() < 1e-3 && (b - d).abs() < 1e-3, "{a} {b}");
+        };
+        assert_eq!(distance(647, 470), 813);
+        close(original(-239, 223), (0.571, 0.346));
+        close(original(647, 470), (0.097, 0.711));
+        close(original(-149, -927), (0.0, 0.515));
+        close(original(0, 7), (0.746, 0.46));
+        assert_eq!(placed(0, 0), (1.0, 0.0));
     }
 
     #[test]
