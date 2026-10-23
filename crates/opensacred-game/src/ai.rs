@@ -1102,10 +1102,19 @@ fn behave(
         return;
     };
     let hero = hero.translation;
-    // Every creature as a guard sees it, for the nearest hostile to it (`0x4EEE40`).
+    // Every creature as a guard sees it, for the nearest hostile to it, the hero among them
+    // (`0x4EEE40`): the hero of its side 1 and a type of no exception's.
     let others: Vec<Other> = creatures
         .iter()
         .map(|(entity, transform, _, mind, _)| Other::of(entity, transform.translation, mind))
+        .chain(std::iter::once(Other {
+            entity: the_hero,
+            at: hero,
+            side: minds::HEROES,
+            creature: 0,
+            level: 0,
+            size: minds::SIZE,
+        }))
         .collect();
     // Whether the hero stands on a settlement's ground, where the children gather about it.
     let in_settlement = heights
@@ -1211,7 +1220,7 @@ fn behave(
                 foe.creature,
                 foe.side
             );
-            mind.foe = Some(foe.entity);
+            mind.foe = (foe.entity != the_hero).then_some(foe.entity);
             stops.push(entity);
             continue;
         }
@@ -1686,6 +1695,54 @@ fn behave(
     }
 }
 
+/// Raises the group's alarm of each creature in a group that a strike reaches, as the strike's
+/// event comes (`0x5337CE`, `0x46AE70`), whatever the strike resolves to: the group's other idle
+/// members (`minds::Mind::idle`) take its foe for theirs where it fights a creature, come at the
+/// hero where it fights the hero, and else wake, to decide at their next tick (#669); so the
+/// start's bears by the boss 689, hostile guards without the flags' bit 0 that the hero's look
+/// does not wake, wake as the boss strikes one of them and take their guards' behaviour.
+fn alarm(mut hits: MessageReader<crate::fight::Hit>, mut creatures: Query<(Entity, &mut Mind)>) {
+    // The struck members, their groups and whom they fight: a creature, the hero, or no one.
+    let mut alarms: Vec<(Entity, u32, Option<Option<Entity>>)> = Vec::new();
+    for hit in hits.read() {
+        if let Ok((_, mind)) = creatures.get(hit.target)
+            && let Some(group) = mind.group
+            && !alarms.iter().any(|&(struck, ..)| struck == hit.target)
+        {
+            let fights = mind.fighting().then(|| mind.foe());
+            alarms.push((hit.target, group, fights));
+        }
+    }
+    for (struck, group, fights) in alarms {
+        let mut woken = 0;
+        for (entity, mut mind) in &mut creatures {
+            if entity == struck {
+                continue;
+            }
+            let heard = match fights {
+                Some(Some(foe)) if foe != entity => {
+                    let joins = mind.joins(group);
+                    if joins {
+                        mind.foe = Some(foe);
+                    }
+                    joins
+                }
+                Some(Some(_)) => false,
+                Some(None) => {
+                    mind.hears_alarm(group);
+                    mind.foe = None;
+                    mind.fighting()
+                }
+                None => mind.wakes(group),
+            };
+            woken += usize::from(heard);
+        }
+        if woken > 0 {
+            debug!("ai: {struck} is struck and raises its group {group}'s alarm, {woken} answer");
+        }
+    }
+}
+
 /// The nearest creature to `here` of the 3 × 3 sectors about it, of `others`, that the creature
 /// `entity` of `mind` is hostile to (`0x4EEE40`, a guard's foe), straight from it.
 fn nearest_foe(entity: Entity, here: Vec3, mind: &Mind, others: &[Other]) -> Option<Other> {
@@ -1721,7 +1778,8 @@ impl Plugin for AiPlugin {
                     .after(crate::crowd::gather)
                     .in_set(Step::Crowd)
                     .run_if(crate::frame::ticked),
-            );
+            )
+            .add_systems(Update, alarm.in_set(Step::Crowd).before(think));
     }
 }
 
