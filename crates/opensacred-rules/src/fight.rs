@@ -1437,35 +1437,59 @@ pub fn strike(
     Some(whole(total * share))
 }
 
-/// The level of a fill's creature of type `creature`, a horse or not (docs/re/spawning.md,
-/// "`FillSector`"): the hero's, `hero`, held within its sector's lowest and highest, `values`,
-/// moved by `jitter` by 0 to 1 below 6, −1 to 2 below 30, −2 to 3 below 90, −3 to 6 below 250, at
-/// least 1; then held by the level's setter as the creature maker sets it (`0x480D40`, through
-/// `0x549500`; [`held_level`]), so at most its sector's highest. A boss's or a champion's is its
-/// rank's instead ([`Rank::level`]).
-pub fn level(
-    values: &SpawnValues,
-    hero: u32,
-    jitter: Option<&mut Rng>,
-    creature: u32,
-    horse: bool,
-    rules: &Rules,
-) -> u32 {
-    let level = hero.clamp(values.lowest.min(values.highest), values.highest);
-    let moved = match jitter {
-        None => level.max(1),
-        Some(rng) => {
-            let (down, up) = match level {
-                0..6 => (0, 1),
-                6..30 => (1, 2),
-                30..90 => (2, 3),
-                _ => (3, 6),
-            };
-            let moved = level + rng.below(down + up + 1);
-            moved.saturating_sub(down).max(1)
-        }
+/// The highest level that a fill's run gives its creatures before the level's setter holds them
+/// (`0x47D34B`).
+const FILLS_MOST: u32 = 300;
+
+/// The level of a fill's run, which all the creatures that it makes share (`FillSector`,
+/// `0x47C610`, from `0x47D187`; docs/re/spawning.md, "`FillSector`"; #582): the hero's, `hero`,
+/// raised to the lowest of its sector's levels, `values`, when below it (to their highest where
+/// the lowest is not below it), but not held at the highest; moved once by its band, `r % 2` below
+/// 6, then two rolls averaged, `(r % 4 + r % 4)/2 − 1` below 30, `(r % 6 + r % 6)/2 − 2` below 90
+/// and `(r % 10 + r % 10)/2 − 3` below 250, none from 250; then raised by the time played,
+/// `minutes`, through the difficulty's scaling of the levels (`0x552230`, as `CreateNPC`'s), at
+/// most 300. Each creature takes it through [`filled_level`].
+pub fn fill_level(values: &SpawnValues, hero: u32, minutes: u32, dice: &mut impl Dice) -> u32 {
+    let level = if hero >= values.lowest {
+        hero
+    } else {
+        values.lowest.min(values.highest)
     };
-    held_level(moved, Some(values), creature, horse, rules)
+    let moved = match level {
+        0..6 => level + dice.below(2),
+        6..30 => (level + averaged(4, dice)).saturating_sub(1),
+        30..90 => (level + averaged(6, dice)).saturating_sub(2),
+        90..250 => (level + averaged(10, dice)).saturating_sub(3),
+        _ => level,
+    };
+    played_level(moved, minutes).min(FILLS_MOST)
+}
+
+/// Two rolls below `n` averaged, whole (`(rand() % n + rand() % n)/2`).
+fn averaged(n: u32, dice: &mut impl Dice) -> u32 {
+    let first = dice.below(n);
+    (first + dice.below(n)) / 2
+}
+
+/// The level that a fill's creature of type `creature`, a horse or not, takes from its run's,
+/// `level` ([`fill_level`]; `0x47E7C0`): one or two more on a dungeon's sector, `dungeon`, by a
+/// roll of its own (`rand() % 2`, #570), then as the level's setter holds it as the creature
+/// maker sets it ([`held_level`]), at most the highest of its sector's levels, `values`. A boss's
+/// or a champion's is its rank's instead ([`Rank::level`]), which rolls nothing here.
+pub fn filled_level(
+    level: u32,
+    dungeon: bool,
+    values: &SpawnValues,
+    (creature, horse): (u32, bool),
+    rules: &Rules,
+    dice: &mut impl Dice,
+) -> u32 {
+    let level = if dungeon {
+        level + 1 + dice.below(2)
+    } else {
+        level
+    };
+    held_level(level, Some(values), creature, horse, rules)
 }
 
 /// What raises the level of a creature that `CreateNPC` makes once its sector's levels hold it
@@ -2469,40 +2493,78 @@ mod tests {
     }
 
     #[test]
-    fn a_fills_creature_takes_the_heros_level_within_its_sectors_at_most_their_highest() {
-        let start = SpawnValues {
+    fn a_fills_run_takes_one_level_the_heros_raised_to_its_sectors_lowest_and_jittered() {
+        /// Rolls that give the values they hold, in order.
+        struct Rolls(Vec<u32>);
+        impl Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let roll = self.0.remove(0);
+                assert!(roll < n, "{roll} below {n}");
+                roll
+            }
+        }
+        fn fill(values: &SpawnValues, hero: u32, minutes: u32, rolls: &[u32]) -> u32 {
+            let mut dice = Rolls(rolls.to_vec());
+            let level = fill_level(values, hero, minutes, &mut dice);
+            assert!(dice.0.is_empty(), "rolls left: {:?}", dice.0);
+            level
+        }
+        let values = |lowest, highest| SpawnValues {
             density: 50,
-            lowest: 1,
-            highest: 4,
+            lowest,
+            highest,
         };
+        // A hero of level 1 in 48,39 (25 to 38): from 25, by `(r % 4 + r % 4)/2 − 1`, 25 in 7
+        // cases of 16, as the original's fills come out (#582).
+        let west = values(25, 38);
+        assert_eq!(fill(&west, 1, 0, &[0, 1]), 24);
+        assert_eq!(fill(&west, 1, 0, &[1, 2]), 25);
+        assert_eq!(fill(&west, 1, 0, &[3, 2]), 26);
+        assert_eq!(fill(&west, 1, 0, &[3, 3]), 27);
+        let at_25 = (0..4)
+            .flat_map(|a| (0..4).map(move |b| [a, b]))
+            .filter(|rolls| fill(&west, 1, 0, rolls) == 25)
+            .count();
+        assert_eq!(at_25, 7);
+        // The start (1 to 4): 1 or 2 by one roll.
+        assert_eq!(fill(&values(1, 4), 1, 0, &[0]), 1);
+        assert_eq!(fill(&values(1, 4), 1, 0, &[1]), 2);
+        // A hero above the highest keeps its level and its band here: 40 by −2 to 3.
+        assert_eq!(fill(&west, 40, 0, &[0, 0]), 38);
+        assert_eq!(fill(&west, 40, 0, &[5, 5]), 43);
+        // A lowest not below the highest gives the highest.
+        assert_eq!(fill(&values(10, 8), 1, 0, &[1, 1]), 8);
+        // From 90 by −3 to 6, none from 250; the time played as `CreateNPC`'s, at most 300.
+        assert_eq!(fill(&values(1, 300), 100, 0, &[9, 9]), 106);
+        assert_eq!(fill(&values(1, 300), 290, 0, &[]), 290);
+        assert_eq!(fill(&values(1, 300), 290, 121, &[]), 300);
+        assert_eq!(fill(&values(1, 100), 50, 121, &[2, 3]), 52);
+    }
+
+    #[test]
+    fn a_fills_creature_takes_its_runs_level_one_or_two_more_in_a_dungeon_held_at_the_highest() {
+        let rules = Rules::default();
         let west = SpawnValues {
             density: 50,
             lowest: 25,
             highest: 38,
         };
-        // A wolf, and a horse.
-        fn wolf(values: &SpawnValues, hero: u32, rng: Option<&mut Rng>) -> u32 {
-            level(values, hero, rng, 568, false, &Rules::default())
-        }
-        fn horse(values: &SpawnValues, hero: u32, rng: Option<&mut Rng>) -> u32 {
-            level(values, hero, rng, 554, true, &Rules::default())
-        }
-        assert_eq!(wolf(&start, HERO_LEVEL, None), 1);
-        assert_eq!(wolf(&west, HERO_LEVEL, None), 25);
-        let mut rng = Rng::of(50, 39, 0);
-        assert!((0..200).all(|_| (1..=2).contains(&wolf(&start, HERO_LEVEL, Some(&mut rng)))));
-        assert!((0..200).all(|_| (24..=27).contains(&wolf(&west, HERO_LEVEL, Some(&mut rng)))));
-        // At the highest, moved by −2 to 3 and held there by the level's setter, but a horse's.
-        let held: Vec<u32> = (0..400).map(|_| wolf(&west, 38, Some(&mut rng))).collect();
+        let mut rng = Rng::of(48, 39, 0);
+        let wolf = (568, false);
+        assert_eq!(filled_level(25, false, &west, wolf, &rules, &mut rng), 25);
+        // Held at the highest by the level's setter (#562), but a horse.
+        assert_eq!(filled_level(43, false, &west, wolf, &rules, &mut rng), 38);
         assert_eq!(
-            (held.iter().min(), held.iter().max()),
-            (Some(&36), Some(&38))
+            filled_level(43, false, &west, (554, true), &rules, &mut rng),
+            43
         );
-        let horses: Vec<u32> = (0..400).map(|_| horse(&west, 38, Some(&mut rng))).collect();
-        assert_eq!(
-            (horses.iter().min(), horses.iter().max()),
-            (Some(&36), Some(&41))
-        );
+        // In a dungeon one or two more, a roll each (#570), held there too.
+        let dungeon: Vec<u32> = (0..100)
+            .map(|_| filled_level(25, true, &west, wolf, &rules, &mut rng))
+            .collect();
+        assert!(dungeon.contains(&26) && dungeon.contains(&27));
+        assert!(dungeon.iter().all(|level| (26..=27).contains(level)));
+        assert_eq!(filled_level(38, true, &west, wolf, &rules, &mut rng), 38);
     }
 
     #[test]
