@@ -1514,11 +1514,11 @@ fn roll_damage(damage: &[[f32; 2]; KINDS], rng: &mut Rng) -> [f32; KINDS] {
     rolled
 }
 
-/// The damage that a strike of `attacker` deals `defender`, its share `share` of a strike, or
+/// The damage that a strike of `attacker` deals `defender`, the strike's factor `share`, or
 /// none when it misses (`0x56B130`): the chance `A/(A + D)` (`0x43EEE0`) against a roll of 0 to
 /// 1,000 over 1,000; each kind's damage `d` rolled, then `d·(1 − 1/(1 + d/r)^k)` against the
 /// kind's resistance `r`, `d²/(d + r)` for the exponent `k` of 1, less the defender's damping
-/// of bronze; the sum times the share, whole.
+/// of bronze; the sum times the factor ([`scaled`]), at least 1, whole.
 pub fn strike(
     attacker: &Combat,
     defender: &Combat,
@@ -1529,6 +1529,37 @@ pub fn strike(
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
+    Some(damage(attacker, defender, (share, k), rng))
+}
+
+/// A strike of a combat art of the second table at its level in play `level` (`0x56B130`: a
+/// hit's kind other than 0 by a creature in its action of the arts, or its action 5), its factor
+/// `factor` (`arts::factor`): its chance by the art's attack ([`art_attack`]) against a roll of
+/// 0 to 1,000 over 1,000, its damage as a plain strike's ([`strike`]) by the factor.
+pub fn art_strike(
+    attacker: &Combat,
+    defender: &Combat,
+    (factor, k): (f32, f32),
+    level: u32,
+    rng: &mut Rng,
+) -> Option<u32> {
+    let chance = hit_chance(art_attack(attacker.attack, level), defender.defence);
+    if chance < to_f32(rng.below(1001)) / 1000.0 {
+        return None;
+    }
+    Some(damage(attacker, defender, (factor, k), rng))
+}
+
+/// The attack that a strike of a combat art of the second table takes into its hit's chance
+/// (`0x56B130`): `A · (1.3 + 0.125·L)`, `L` the art's level in play (the entry's level and bonus,
+/// `0x580A10`), at 53 bits and stored as a float.
+pub fn art_attack(attack: f32, level: u32) -> f32 {
+    stored((f64::from(level) * 0.125 + 1.3) * f64::from(attack))
+}
+
+/// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
+/// the damping, summed and scaled by the strike's factor ([`scaled`]), at least 1, whole.
+fn damage(attacker: &Combat, defender: &Combat, (factor, k): (f32, f32), rng: &mut Rng) -> u32 {
     let total: f32 = roll_damage(&attacker.damage, rng)
         .iter()
         .zip(defender.resistance)
@@ -1537,7 +1568,17 @@ pub fn strike(
             dealt(d, r, k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
-    Some(whole(total * share))
+    whole(scaled(total, factor).max(1.0))
+}
+
+/// A strike's damage `total` times its factor `factor` (the event's `+0x1C`, `0x56B130`) where the
+/// factor lies between 0 and 500 and is not 1, else as it is: a factor of 0 scales nothing.
+pub fn scaled(total: f32, factor: f32) -> f32 {
+    if factor > 0.0 && factor < 500.0 && factor != 1.0 {
+        total * factor
+    } else {
+        total
+    }
 }
 
 /// The highest level that a fill's run gives its creatures before the level's setter holds them
@@ -2036,6 +2077,61 @@ mod tests {
         };
         assert_eq!(strike(&weak, &attacker, (1.0, 1.0), &mut rng), Some(14));
         assert_eq!(strike(&weak, &defender, (1.0, 1.0), &mut rng), Some(9));
+    }
+
+    /// A combat art's strike (#508): the attack `A · (1.3 + 0.125·L)` in its chance, as the
+    /// original's Seraphim's 1071 took `28.5` into 40.61 at level 1 and 47.74 at level 3, and its
+    /// damage times its factor; any landed strike deals 1 at least.
+    #[test]
+    fn an_arts_strike_takes_its_attack_and_its_factor() {
+        assert_eq!(art_attack(28.5, 1), 40.6125);
+        assert_eq!(art_attack(28.5, 3), 47.7375);
+        assert_eq!(art_attack(10.0, 0), 13.0);
+        // The factor scales between 0 and 500 but at 1; 0 scales nothing.
+        assert_eq!(
+            [0.0, 0.8, 1.0, 499.0, 500.0].map(|factor| scaled(10.0, factor)),
+            [10.0, 8.0, 10.0, 4990.0, 10.0]
+        );
+        let attacker = Combat {
+            attack: 10.0,
+            defence: 0.0,
+            damage: [[10.0, 10.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+        };
+        let defender = Combat {
+            defence: 20.0,
+            resistance: [10.0, 0.0, 0.0, 0.0],
+            ..attacker
+        };
+        // 10²/(10 + 10) = 5, times 0.8 = 4; at level 1 the art's chance is 14.25/34.25.
+        let landed = |art: bool, rng: &mut Rng| {
+            (0..1000)
+                .filter_map(|_| {
+                    if art {
+                        art_strike(&attacker, &defender, (0.8, 1.0), 1, rng)
+                    } else {
+                        strike(&attacker, &defender, (1.0, 1.0), rng)
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut rng = Rng::of(50, 39, 0);
+        let plain = landed(false, &mut rng);
+        let art = landed(true, &mut rng);
+        assert!(plain.iter().all(|&d| d == 5) && art.iter().all(|&d| d == 4));
+        // About 333 and 416 strikes of the thousand land.
+        assert!((300..370).contains(&plain.len()), "{}", plain.len());
+        assert!((380..450).contains(&art.len()), "{}", art.len());
+        // A strike that lets less than 1 through deals 1.
+        let armoured = Combat {
+            resistance: [100_000.0, 0.0, 0.0, 0.0],
+            defence: 0.0,
+            ..defender
+        };
+        assert_eq!(strike(&attacker, &armoured, (1.0, 1.0), &mut rng), Some(1));
     }
 
     #[test]

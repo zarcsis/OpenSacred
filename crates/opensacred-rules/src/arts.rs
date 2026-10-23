@@ -1,11 +1,12 @@
 //! A creature's combat arts (docs/re/arts.md): the list its stats hold, an art's level in play,
 //! each entry's regeneration time by its record and its skills, the runes that teach the arts,
 //! the hero's arts at a new game, and their regeneration: a use that starts it for every art of
-//! its kind and the frames that run it down. `opensacred-game` keeps the hero's list; the arts'
-//! strikes (#508) and the combos are not here.
+//! its kind and the frames that run it down; and how the weapon arts `Attacke`, `Rundum` and
+//! `Hardhit` strike, their factors and their targets (#508), whose chance and damage
+//! `fight::art_strike` resolves. `opensacred-game` keeps the hero's list; the combos are not here.
 
 use opensacred_data::heroes::HeroArt;
-use opensacred_data::tables::{Arts as Tables, Balance};
+use opensacred_data::tables::{Arts as Tables, Balance, WeaponArt};
 
 use crate::fight::curve;
 
@@ -115,6 +116,116 @@ const OWN: [(u16, &[u16]); 4] = [
     (1002, &[1080, 1092, 1059, 1063, 1067, 1071, 1075, 1040]),
     (1009, &[1093, 1060, 1064, 1068, 1072, 1076, 1041]),
 ];
+
+/// How far beyond the two creatures' reach an `Attacke` strikes (`0x4FF0B0`, `0x5038F0`).
+pub const ATTACKE_BEYOND: u32 = 45;
+/// The measure of its clip before which a `Rundum` strikes (`0x4FF0B0`).
+pub const RUNDUM_UNTIL: f32 = 0.7;
+/// How near a bone a `Rundum`'s creature must be, whatever its radius (`0x4FF0B0`).
+const RUNDUM_MOST: u32 = 1000;
+
+/// How a weapon art strikes, by its executor (docs/re/arts.md, "An art in a strike").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Style {
+    /// A strike at each hit point of its clip on its target, or on the next hostile creature,
+    /// within the reach and [`ATTACKE_BEYOND`].
+    Attacke,
+    /// Strikes before [`RUNDUM_UNTIL`] of its clip on the creatures nearest its weapons' and
+    /// hands' bones within its radius ([`rundum_radius`]).
+    Rundum,
+    /// One strike on its target at its clip's hit point.
+    Hardhit,
+}
+
+/// How the art `art` strikes: the classes' own `Rundum`, `Hardhit` and `Attacke`, which
+/// `0x581D40` finds for the generic 1000, 1001 and 1002 (the Gladiator's 1057 to 1059 and the
+/// Seraphim's 1069 to 1071 read in their executors, the others' `Attacke` by the same test of
+/// the reach; **hypothesis** for the other classes' `Rundum` and `Hardhit`); none for another.
+pub fn style(art: u16) -> Option<Style> {
+    OWN.iter()
+        .zip([Style::Rundum, Style::Hardhit, Style::Attacke])
+        .find(|((_, own), _)| own.contains(&art))
+        .map(|(_, style)| style)
+}
+
+/// The factor of a strike of the weapon art `record` at its level in play `level`, which its
+/// executor sends with the strike: `L·[+0x54] + [+0x50]` at 53 bits, stored as a float.
+pub fn factor(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    narrow(f64::from(level).mul_add(step, base))
+}
+
+/// The factor that a creature's strike event carries (`0x4EA3F0`): halved where it holds two
+/// weapons or a weapon of kind 8, 0.5 for a factor of 0 or below.
+pub fn held_factor(factor: f32, halved: bool) -> f32 {
+    match (halved, factor <= 0.0) {
+        (false, _) => factor,
+        (true, true) => 0.5,
+        (true, false) => factor * 0.5,
+    }
+}
+
+/// A creature that an art may strike, as its executor finds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Candidate {
+    pub id: u32,
+    /// Its distance from the striker, or from the bone, in world units (`0x5370B0`).
+    pub distance: u32,
+    /// The reach of the striker and of it (`0x4DBC60`).
+    pub reach: u32,
+    /// Whether it lives and the striker may strike it (`0x549080`, `0x548F60`).
+    pub hostile: bool,
+}
+
+/// The creature that an `Attacke` strikes at a hit point of its clip (`0x4FF0B0`, `0x5038F0`):
+/// its target while that lives within the reach and [`ATTACKE_BEYOND`], else the first of the
+/// world's creatures (`others`, in its list's order) other than it that is hostile within them,
+/// which becomes its target; none ends the art.
+pub fn attacke_target(target: Option<Candidate>, others: &[Candidate]) -> Option<u32> {
+    let within = |c: &Candidate| c.hostile && c.distance <= c.reach + ATTACKE_BEYOND;
+    if let Some(target) = target.filter(within) {
+        return Some(target.id);
+    }
+    let current = target.map(|t| t.id);
+    others
+        .iter()
+        .find(|c| Some(c.id) != current && within(c))
+        .map(|c| c.id)
+}
+
+/// The radius about a bone within which a `Rundum` of `record` at its level in play `level`
+/// strikes (`0x4FF0B0`): `[+0x60] + [+0x64]·L` per cent of the reach `reach`.
+pub fn rundum_radius(record: &WeaponArt, level: u32, reach: u32) -> f32 {
+    let [base, step] = record.value_60.map(i64::from);
+    let percent = base + step * i64::from(level);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a radius in per cent of a reach, a few hundred, as the original's float"
+    )]
+    let (reach, percent) = (reach as f32, percent as f32);
+    reach * percent * 0.01
+}
+
+/// The creature that a `Rundum` strikes by a bone of a weapon or a hand (`0x4FF0B0`): the nearest
+/// of `candidates` (their distances from the bone) within `radius` and 1,000, unless it is the
+/// one it struck last (`+0x190`) or none may be struck; candidates of the same distance keep the
+/// first.
+pub fn rundum_target(candidates: &[Candidate], radius: f32, last: Option<u32>) -> Option<u32> {
+    let mut nearest: Option<&Candidate> = None;
+    for c in candidates {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a distance in world units, as the original's float"
+        )]
+        let within = (c.distance as f32) < radius;
+        if c.distance < RUNDUM_MOST && within && nearest.is_none_or(|n| c.distance < n.distance) {
+            nearest = Some(c);
+        }
+    }
+    nearest
+        .filter(|c| c.hostile && Some(c.id) != last)
+        .map(|c| c.id)
+}
 
 /// The table an art is of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -630,10 +741,10 @@ impl Arts {
             .is_some_and(|index| self.raise(index, levels, true, true, context))
     }
 
-    /// A rune of `art` read by a creature of the type of `context` (`cItemUpgrade`, `0x5CD100`), its
-    /// requirements met (`0x54ABE0`, the caller's): the art of the second table where that holds
-    /// it for the class, else of the first, else refused; added at level 0 if lacking and raised
-    /// by 1 for good. A refused rune is kept, a read one used up (its flag `0x8000000`).
+    /// A rune of `art` read by a creature of the type of `context` (`cItemUpgrade`, `0x5CD100`),
+    /// its requirements met (`0x54ABE0`, the caller's): the art of the second table where that
+    /// holds it for the class, else of the first, else refused; added at level 0 if lacking and
+    /// raised by 1 for good. A refused rune is kept, a read one used up (its flag `0x8000000`).
     pub fn read_rune(&mut self, art: u16, context: &Context<'_>) -> Result<(), Refusal> {
         if art == 0 {
             return Err(Refusal::NoArt);
@@ -701,7 +812,8 @@ impl Arts {
         }
     }
 
-    /// A frame of `seconds` of the regeneration (`0x562730`, the local player's hero's alone, not
+    /// `seconds` of the regeneration (`0x562730`, which the original runs on its world's tick of
+    /// about 0.1 s, `0x5375C0`; the local player's hero's alone, not
     /// while its `+0x200` has the bit `0x1000000`): each art with time still to run loses
     /// `seconds · factor · speed`, the spells' speed for an art of the first table and 1019 and
     /// the weapon arts' for the others, held within 0 and its time.
