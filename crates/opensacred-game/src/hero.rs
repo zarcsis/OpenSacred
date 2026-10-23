@@ -126,6 +126,9 @@ pub struct Hero {
     /// Where to go first, if anywhere.
     pub target: Option<Vec3>,
     pub gait: Gait,
+    /// Its size by its type and what it holds, of which and a creature's their reach is the
+    /// mean (`opensacred_rules::minds::size`, `0x4DBC60`, #642).
+    pub size: u32,
     gltf: Option<Handle<Gltf>>,
     spawned: bool,
 }
@@ -150,6 +153,7 @@ impl Hero {
             position,
             target: None,
             gait: Gait::Run,
+            size: opensacred_rules::minds::SIZE,
             gltf: None,
             spawned: false,
         }
@@ -167,6 +171,11 @@ impl Hero {
 /// ([`still`]): the screenshot waits for it.
 #[derive(Resource, Default)]
 pub struct Ready(pub bool);
+
+/// The hero's size (`opensacred_rules::minds::size`), of which and a creature's their reach is
+/// the mean (#642).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Size(pub u32);
 
 /// The root of the hero's model and where it goes.
 #[derive(Component)]
@@ -443,6 +452,7 @@ pub fn spawn(
         },
         models::Ordered::default(),
         shadows::Casts,
+        Size(hero.size),
     ));
     if let Some(combat) = hero.combat {
         body.insert(combat);

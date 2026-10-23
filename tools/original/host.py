@@ -860,7 +860,8 @@ class Host:
                          + (' hostile' if c['hostile'] else ' peaceful') + (f" {c['rank']}" if c['rank'] else '')
                          + f" ai {c['ai'][0]}.{c['ai'][1]}"
                          f" action {c['action'][0]}.{c['action'][1]}"
-                         + (f" target {c['target']}" if c['target'] else ''))
+                         + (f" target {c['target']}" if c['target'] else '')
+                         + (f" dialogue {c['dialogue']}" if c['dialogue'] > 0 else ''))
         return lines
 
     def command_stats(self, rest):

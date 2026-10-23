@@ -119,8 +119,9 @@ const OWN: [(u16, &[u16]); 4] = [
 
 /// How far beyond the two creatures' reach an `Attacke` strikes (`0x4FF0B0`, `0x5038F0`).
 pub const ATTACKE_BEYOND: u32 = 45;
-/// The measure of its clip before which a `Rundum` strikes (`0x4FF0B0`).
-pub const RUNDUM_UNTIL: f32 = 0.7;
+/// What is left of its clip, as a part of it, below which the Gladiator's `Rundum` looks for
+/// its creatures (`0x4FF0B0` at `0x500CCC`): from 0.3 of the clip to its end.
+const RUNDUM_LEFT: f32 = 0.7;
 /// How near a bone a `Rundum`'s creature must be, whatever its radius (`0x4FF0B0`).
 const RUNDUM_MOST: u32 = 1000;
 
@@ -130,8 +131,8 @@ pub enum Style {
     /// A strike at each hit point of its clip on its target, or on the next hostile creature,
     /// within the reach and [`ATTACKE_BEYOND`].
     Attacke,
-    /// Strikes before [`RUNDUM_UNTIL`] of its clip on the creatures nearest its weapons' and
-    /// hands' bones within its radius ([`rundum_radius`]).
+    /// Strikes, while it looks ([`rundum_looks`]), the creatures nearest its weapons' and hands'
+    /// bones within its radius ([`rundum_radius`]).
     Rundum,
     /// One strike on its target at its clip's hit point.
     Hardhit,
@@ -193,6 +194,14 @@ pub fn attacke_target(target: Option<Candidate>, others: &[Candidate]) -> Option
         .map(|c| c.id)
 }
 
+/// Whether the `Rundum` of a creature of type `kind`, `done` of its clip played, looks for the
+/// creatures about its bones: the Gladiator's (2) while what is left of its clip is less than
+/// [`RUNDUM_LEFT`] of it (`0x4FF0B0` at `0x500CCC`), the Seraphim's (`0x5038F0` at `0x504F37`),
+/// the Dark Elf's and the Wood Elf's throughout (docs/re/arts.md, "A `Rundum`'s run", #644).
+pub fn rundum_looks(kind: u32, done: f32) -> bool {
+    kind != 2 || 1.0 - done < RUNDUM_LEFT
+}
+
 /// The radius about a bone within which a `Rundum` of `record` at its level in play `level`
 /// strikes (`0x4FF0B0`): `[+0x60] + [+0x64]·L` per cent of the reach `reach`.
 pub fn rundum_radius(record: &WeaponArt, level: u32, reach: u32) -> f32 {
@@ -207,17 +216,22 @@ pub fn rundum_radius(record: &WeaponArt, level: u32, reach: u32) -> f32 {
 }
 
 /// The creature that a `Rundum` strikes by a bone of a weapon or a hand (`0x4FF0B0`): the nearest
-/// of `candidates` (their distances from the bone) within `radius` and 1,000, unless it is the
+/// of `candidates` (their distances from the bone) within 1,000 and its radius by its reach with
+/// the striker (`radius`, [`rundum_radius`], as `0x4DBC60` gives it for each), unless it is the
 /// one it struck last (`+0x190`) or none may be struck; candidates of the same distance keep the
 /// first.
-pub fn rundum_target(candidates: &[Candidate], radius: f32, last: Option<u32>) -> Option<u32> {
+pub fn rundum_target(
+    candidates: &[Candidate],
+    radius: impl Fn(u32) -> f32,
+    last: Option<u32>,
+) -> Option<u32> {
     let mut nearest: Option<&Candidate> = None;
     for c in candidates {
         #[expect(
             clippy::cast_precision_loss,
             reason = "a distance in world units, as the original's float"
         )]
-        let within = (c.distance as f32) < radius;
+        let within = (c.distance as f32) < radius(c.reach);
         if c.distance < RUNDUM_MOST && within && nearest.is_none_or(|n| c.distance < n.distance) {
             nearest = Some(c);
         }

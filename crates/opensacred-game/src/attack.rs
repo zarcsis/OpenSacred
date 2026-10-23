@@ -173,22 +173,30 @@ fn engage(
             &mut Attack,
             Option<&mut Striking>,
             Option<&fight::Combat>,
+            Option<&crate::hero::Size>,
         ),
         Without<Dies>,
     >,
-    targets: Query<(&GlobalTransform, &Health), Without<Dies>>,
+    targets: Query<(&GlobalTransform, &Health, Option<&crate::ai::Mind>), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut hits: MessageWriter<fight::Hit>,
 ) {
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, mut attack, striking, combat) in &mut heroes {
+    for (hero, mut transform, mut body, mut attack, striking, combat, size) in &mut heroes {
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
-            .filter(|(_, health)| health.current > 0)
-            .map(|(at, _)| at.translation());
+            .filter(|(_, health, _)| health.current > 0);
+        // The reach of the hero and its target, by their sizes (`0x4DBC60`, #642).
+        let reach = minds::reach(
+            size.map_or(minds::SIZE, |size| size.0),
+            target
+                .and_then(|(_, _, mind)| mind)
+                .map_or(minds::SIZE, |mind| mind.size()),
+        );
+        let target = target.map(|(at, ..)| at.translation());
         let here = transform.translation;
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|player| players.get_mut(player).ok())
@@ -204,7 +212,7 @@ fn engage(
             if minds::hit_due(striking.fractions, striking.struck, done) {
                 striking.struck += 1;
                 if let (Some(entity), Some(at)) = (attack.target, target)
-                    && minds::hero_hits((at - here).with_y(0.0).length())
+                    && minds::hero_hits((at - here).with_y(0.0).length(), reach)
                 {
                     hits.write(fight::Hit {
                         attacker: hero,
@@ -235,7 +243,7 @@ fn engage(
             commands.entity(hero).remove::<Attack>();
             continue;
         }
-        if minds::hero_comes_on(attack.at_once, (aimed - here).with_y(0.0).length()) {
+        if minds::hero_comes_on(attack.at_once, (aimed - here).with_y(0.0).length(), reach) {
             // Coming on, its chain breaks.
             body.send(aimed);
             attack.chain.breaks();

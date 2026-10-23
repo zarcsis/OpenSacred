@@ -16,6 +16,7 @@ use opensacred_rules::arts::{
     self, ArtClip, Candidate, Creature, Style, attacke_target, due, hardhit_point, held_factor,
     made_from, rundum_radius, rundum_target,
 };
+use opensacred_rules::minds;
 
 use crate::ai::Mind;
 use crate::arts::HeroArts;
@@ -26,9 +27,6 @@ use crate::motions::Slots;
 use crate::npcs::Dies;
 use crate::spawning::Rng;
 
-/// The reach of the hero and a creature (`0x4DBC60`: 130 by default; **hypothesis** for every
-/// type, as `opensacred_rules::minds` has it).
-const REACH: u32 = 130;
 /// The blend into an art's clip (`0x593320`'s 0.5 over the attack speed, at most 0.2 s;
 /// **hypothesis**: seconds).
 const BLEND: Duration = Duration::from_millis(200);
@@ -129,12 +127,13 @@ pub fn may_make(arts: &HeroArts, art: u16) -> Result<(), String> {
 }
 
 /// On a press of the right button on a hostile creature alive, the hero makes the selected art
-/// on it (a launch on an enemy, the type 1), its attack ending; a press of the left button ends
-/// an order not yet under way.
+/// on it (a launch on an enemy, the type 1), its attack ending; with the art not ready it walks
+/// to the creature's place instead, as the original's handler of the order takes it (about
+/// `0x52FE40`, docs/re/arts.md, "The right button", #654; with Ctrl held the original's posts
+/// another event, not followed). A press of the left button ends an order not yet under way.
 #[expect(
     clippy::too_many_arguments,
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
+    reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn aim(
     mut commands: Commands,
@@ -144,10 +143,10 @@ fn aim(
     selected: Res<Selected>,
     arts: Option<Res<HeroArts>>,
     creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
-    heroes: Query<(Entity, Has<Playing>), (With<Body>, Without<Dies>)>,
+    mut heroes: Query<(Entity, &mut Body, Has<Playing>), Without<Dies>>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        for (hero, playing) in &heroes {
+        for (hero, _, playing) in &heroes {
             if !playing {
                 commands.entity(hero).remove::<Making>();
             }
@@ -163,17 +162,20 @@ fn aim(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
-    let Some(target) = creatures
+    let Some((target, place)) = creatures
         .iter()
         .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-        .map(|(entity, at, ..)| (entity, crate::attack::from_line(ray, at.translation())))
-        .filter(|&(_, distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(entity, _)| entity)
+        .map(|(entity, at, ..)| {
+            let at = at.translation();
+            (entity, at, crate::attack::from_line(ray, at))
+        })
+        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .map(|(entity, at, _)| (entity, at))
     else {
         return;
     };
-    for (hero, playing) in &heroes {
+    for (hero, mut body, playing) in &mut heroes {
         if playing {
             continue;
         }
@@ -184,6 +186,13 @@ fn aim(
                     .entity(hero)
                     .remove::<(crate::attack::Attack, crate::attack::Striking)>()
                     .insert(Making { art, target });
+            }
+            Err(_) if arts.arts.get(art).is_some() && !arts.arts.ready(art) => {
+                info!("making: {art} is not ready: the hero walks to {target}");
+                commands
+                    .entity(hero)
+                    .remove::<(crate::attack::Attack, crate::attack::Striking, Making)>();
+                body.send(place);
             }
             Err(why) => info!("making: {why}"),
         }
@@ -255,6 +264,7 @@ fn make(
             &Making,
             Option<&mut Playing>,
             Option<&Combat>,
+            Option<&hero::Size>,
         ),
         Without<Dies>,
     >,
@@ -267,7 +277,10 @@ fn make(
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
     };
-    for (hero, mut transform, mut body, making, playing, combat) in &mut heroes {
+    for (hero, mut transform, mut body, making, playing, combat, size) in &mut heroes {
+        // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
+        let size = size.map_or(minds::SIZE, |size| size.0);
+        let reach = |mind: &Mind| minds::reach(size, mind.size());
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|player| players.get_mut(player).ok())
         else {
@@ -279,11 +292,11 @@ fn make(
         };
         let Some(mut playing) = playing else {
             // The order: its target alive, within its distance.
-            let Some(target) = creatures
+            let Some((target, target_reach)) = creatures
                 .get(making.target)
                 .ok()
                 .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-                .map(|(_, at, ..)| at.translation())
+                .map(|(_, at, mind, _)| (at.translation(), reach(mind)))
             else {
                 end(&mut commands);
                 continue;
@@ -292,7 +305,7 @@ fn make(
                 end(&mut commands);
                 continue;
             };
-            let Some((at, within)) = made_from(record.distance, to_f32(REACH)) else {
+            let Some((at, within)) = made_from(record.distance, to_f32(target_reach)) else {
                 info!("making: {}'s distance is not made yet", making.art);
                 end(&mut commands);
                 continue;
@@ -398,7 +411,7 @@ fn make(
                     |index: usize, at: &GlobalTransform, mind: &Mind, health: &Health| Candidate {
                         id: u32::try_from(index).unwrap_or(u32::MAX),
                         distance: whole_distance(at.translation(), here),
-                        reach: REACH,
+                        reach: reach(mind),
                         hostile: mind.hostile() && health.current > 0,
                     };
                 for (entity, at, mind, health) in &creatures {
@@ -445,15 +458,15 @@ fn make(
                     continue;
                 }
                 // It looks for the creatures about its bones as its executor runs, on the
-                // world's tick (**hypothesis**, #617).
-                if done >= arts::RUNDUM_UNTIL || tick.seconds.is_none() {
+                // world's tick (**hypothesis**, #617), the Gladiator's from 0.3 of its clip.
+                if !arts::rundum_looks(arts.kind, done) || tick.seconds.is_none() {
                     continue;
                 }
                 let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art)
                 else {
                     continue;
                 };
-                let radius = rundum_radius(record, playing.level, REACH);
+                let radius = |reach| rundum_radius(record, playing.level, reach);
                 let point = bone(hero, &WEAPON_BONES, &children, &bones)
                     .or_else(|| bone(hero, &[HAND_BONE], &children, &bones))
                     .unwrap_or(here);
@@ -466,7 +479,7 @@ fn make(
                             Candidate {
                                 id: u32::try_from(index).unwrap_or(u32::MAX),
                                 distance: whole_distance(at.translation(), point),
-                                reach: REACH,
+                                reach: reach(mind),
                                 hostile: mind.hostile() && health.current > 0,
                             },
                         )

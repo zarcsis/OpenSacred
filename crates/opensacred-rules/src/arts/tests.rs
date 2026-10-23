@@ -647,12 +647,35 @@ fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
         candidate(5, 200, true),
         candidate(6, 90, false),
     ];
+    let radius = |reach| rundum_radius(&rundum, 1, reach);
     // The nearest is 6, which may not be struck: none.
     assert_eq!(rundum_target(&candidates, radius, None), None);
     assert_eq!(rundum_target(&candidates[..2], radius, None), Some(5));
     // Not the one it struck last.
     assert_eq!(rundum_target(&candidates[..2], radius, Some(5)), None);
+    // The radius by each one's reach with the striker: 4 at 240 within 180 % of 135.
+    let far = Candidate {
+        reach: 135,
+        ..candidate(4, 240, true)
+    };
+    assert_eq!(rundum_target(&[far], radius, None), Some(4));
     assert!(tables.weapon_arts.iter().any(|a| a.id == 1057));
+}
+
+#[test]
+fn a_rundum_looks_from_its_classs_part_of_its_clip() {
+    // The Gladiator's from 0.3 of its clip to its end: the original's 1057 struck first at
+    // +766 ms of about 1.85 s (#644).
+    assert!(!rundum_looks(2, 0.0));
+    assert!(!rundum_looks(2, 0.29));
+    assert!(rundum_looks(2, 0.31));
+    assert!(rundum_looks(2, 0.99));
+    // The Seraphim's throughout: her 1069 struck at +215 and +1249 ms of about 1.45 s.
+    assert!(rundum_looks(SERAPHIM, 0.0));
+    assert!(rundum_looks(SERAPHIM, 0.86));
+    // The Dark Elf's and the Wood Elf's alike.
+    assert!(rundum_looks(4, 0.1));
+    assert!(rundum_looks(5, 0.95));
 }
 
 #[test]

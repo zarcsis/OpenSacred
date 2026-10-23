@@ -134,7 +134,7 @@ A sector with no `Enter` function does the same.
   In those four areas it makes a crab, the type 163, in their dungeons always and elsewhere in three.
 - The object maker `0x5FBA40` makes it on the ground at the cell's centre, `(cell + 0.5) · 53.66563` truncated, with the bits `0x90000000` of `+0x14`, bit 31 the mark of a creature made during an `Enter`, which the exit handler keeps.
   It faces `((s − 50) · 0.02, (r − 50) · 0.02)` on the grid, `r` and `s` two rolls of 0 to 100 (`0x44DD90`).
-- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603).
+- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603, "A type without a record" below).
   The fish 164 and 165 are `fisc_01.grn` and `fisc_02.grn`, of class 6, the base 5, 10, 20, 10, 0, 3 and the skills 8 and 9; the 166 of `fisc_03.grn` is never made.
 
 Seen in the original on 2026-10-23, at the Seraphim's start with its world paused, five fish:
@@ -150,6 +150,27 @@ Over the world, 27,618 cells of 700 sectors fit it (counted on the sector files 
 A quarter of the cells is visited, and one in 11 of those takes a creature, so the original makes about 630 crabs and fish when every sector comes in once with an empty list.
 Whether they move is not read: the world stood paused when they were seen.
 
+### A type without a record
+
+Read 2026-10-23 (#603); **confirmed** by code and in the original unless marked otherwise.
+The client finds a type's `Creature.pak` record through its items table: the word `+0x1A` of the type's 128-byte entry is the record's place in the table of `Creature.pak`'s records, as the file holds them (`+0x563008` of the items table, 86 bytes each), which the loader `0x4371C0` writes for the id of every record; `0x43AD80` gives the record, or none where the word is 0.
+`items.pak` holds 0 there for every type (its 17,409 entries), so the type 163, which no record names, keeps 0 and the crab has none:
+
+- its class is 0 (`0x43ADC0`), the side its constructor `0x52DE40` gives it, a friend of every side but 13 (docs/re/fight.md, "Sides"), so it is peaceful;
+- the stats' maker `0x586C00` gives it the level 1, the base attributes 25, 15, 20, 20, 10 and 5 and no skill slot (its defaults for a type without a record, as a record gives a fish its base and its two skills);
+- its speed is `0x4F73C0`'s, the default of `0x4F75F0` for a type whose record gives none: 100 walking and 200 running for the type 163, as for any type out of that function's list;
+- the functions that take the record's place without `0x43AD80`'s test, as the shadow's `0x426D30` does, read the table's first record, of the id 0, whose flags are 0: the crab casts its shadow;
+- its model `krabbe.grn` has no motion slot (its `ModelDesc`, docs/02 §4.5), so it plays no motion (**hypothesis** by the data: it stands as its model is made); the `KRAB_*`, `KRA1_*` and `KRA2_*` motions are the killer crabs' (`Killerkrabbe*.grn`, the types 209, 347 and 348, 20 of which stood about the hero in 50,9).
+  Like a fish it takes its flags at its first update (docs/re/ai.md, by code): 8, the townsfolk's, being made by the waters' runner as by an `Enter` function, of class 0 and not hostile.
+
+Seen in the original on 2026-10-23 under the driver of #448, the Seraphim at level 1 on bronze:
+
+- in 50,9 (area 55, a dungeon by its keyx, docs/02 §5.1), 21 crabs and no fish, all crabs as in a coast's dungeon; in 44,67 (area 13, no dungeon) 5 crabs and 5 fish;
+- each crab of the type 163, peaceful, at level 1 with 100/100 health, its attributes its base 25, 15, 20, 20, 10 and 5, `A` 22.5 and `D` 21, each times 1 (no skill), its attack speed 140, then 120 and 130, its least and most physical damage 8.375 and 11, its resistances 1.59, 1.18, 0.59 and 0.8 before their multipliers;
+- with the world running, none of the five crabs within 40 cells of the hero in 44,67 left its cell over 40 s of play, the cells about them water that no creature may walk on.
+
+Of the 163 sectors of the four areas whose waters fit the rule, 31 are dungeons, whose waters take crabs alone (counted on the sector files 2026-10-23).
+
 ## The start of the Seraphim
 
 The nine sectors about the start (49 to 51, 38 to 40) are of the levels 1 to 4; their neighbours to the west and the north (48,37 to 48,41, 49 to 51,37) of 25 to 38.
@@ -164,12 +185,12 @@ The game takes the `CreateNPC`, `CreateObj`, `CreateTrigger` and `TriggerPatch` 
 In the Seraphim's tree that makes 3,281 NPCs and 3,123 objects over the world, against the start script's 320 and 1,990: the start sector's novices, chicken and rabbit, and the four goblins of 51,39 among them; the quests' `OnSetUp` functions give 144 of the NPCs and an object, their givers among them, such as quest 15004's by the garrison of 52,39, peaceful, staying (`0x74`) and with its dialogue (until #624 the game ran none of them).
 Each `CreateNPC`'s creature takes its level by the rule above (#530, `opensacred_rules::fight::scripted_level`): the `SpawnValues` of its cell's sector, kept for every sector with a fill or without, its roll of one more by the game's generator seeded by its cell, so the same at each coming, a horse's eighth of the hero's riding none, as the hero's skills stay at level 1 (docs/decisions/2026-10-20-levels.md), and the time played that the drops count; a creature of the start script or of a quest it enters takes its level as the game starts, at the hero's first level and no time played, though the game makes it as its sector first comes in; the setter then holds it at its sector's highest, a horse's at 250 (#562, `fight::held_level`), and at 1 where the original's is 0 (docs/decisions/2026-10-23-level-zero.md).
 A creature of a level tag takes it by the setter (#540, `fight::tagged_level`): held at its sector's highest, a horse's at 250; one of the tag 1000 is a boss, levelled as it is made at the hero's level then, as a fill's boss (docs/decisions/2026-10-20-bosses.md).
-A creature that a `SetNPCState` of the start script or of a quest it enters names after its `CreateNPC` takes that `SetNPCState`'s level tag in place of its own (#541, `npcs::set_levels`), by the same rule, and is a boss for 1000; `SetNPCState`'s other tags are not followed (#578).
+A creature that a `SetNPCState` of the start script or of a quest it enters names after its `CreateNPC` takes that `SetNPCState`'s level tag in place of its own (#541, `npcs::set_states`), by the same rule, and is a boss for 1000; of its other tags the game follows the dialogue, the flags word, the hostility, the trades and the home (#578, docs/re/netscript.md, "`SetNPCState`").
 The `Enter` functions' `FillSector`s make their creatures as their sectors come in (`spawning`, #222, #229): the count by the sector's `SpawnValues` for the hero's level and the balance's `SpawnAnimalsSP` and `SpawnEnemysSP`, the types by their weights as the client picks them, the leaders by the run's counters, the cells by the steps 6 and 7 above (the first leader of a run alone, its kind gathered about it), the rabbits' and the crows' variants, the hostile ones with bit 0 of their flags word, the run's one level as above (#582, `fight::fill_level`, rolled after the count and before the creatures are made), each common creature's one or two more on a dungeon's sector by a roll after its rank's (#570) and held at the sector's highest (#562, `fight::filled_level`), and their bosses' and champions' by their ranks (docs/re/fight.md, "Bosses and champions").
 The waters' crabs and fish (#575, `spawning::swimmers`) come in a sector that comes in anew, as its fills do, by the rule above with the game's generator seeded by the sector.
 They are made once no sector is building, on the cells of the sectors loaded then; a cell whose ring reaches a sector not loaded takes none (docs/decisions/2026-10-23-waters-edges.md).
 Each fish is made at level 1 with its two skill slots at level 1, 100 health, peaceful and with no behaviour, facing its way, and its sector keeps it as it keeps a fill's creatures.
-The crabs are not made: the game has no template for their type (#603).
+A crab is made so too, its type a record the game makes as the original makes a type without one (#664, `opensacred_rules::fight::recordless`, "A type without a record" above): of class 0, the base attributes 25, 15, 20, 20, 10 and 5 with no skill, the speeds 100 and 200 and a shadow, standing with no clip; in 44,67 a crab of the game shows the original's level, health, `A`, `D`, damage, resistances and attack speed (`stats`).
 They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the scripts' NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.
 The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the worn items and the black riders are not followed (docs/decisions/2026-10-20-spawning.md), and the creatures' levels, the fills' bosses and champions and the groups' alarm are in docs/re/fight.md, "In `opensacred-game`".

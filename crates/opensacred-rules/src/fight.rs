@@ -702,6 +702,35 @@ fn whole(value: f32) -> u32 {
     value.max(0.0).floor() as u32
 }
 
+/// The base attributes that the stats' maker `0x586C00` gives a type without a `Creature.pak`
+/// record (docs/re/spawning.md, "A type without a record").
+pub const RECORDLESS_BASE: [u8; 6] = [25, 15, 20, 20, 10, 5];
+/// The walk and run speeds that `0x4F73C0` gives a type that its list of types leaves out, which
+/// `0x4F75F0` takes where the type's record gives none.
+pub const DEFAULT_SPEEDS: [u16; 2] = [100, 200];
+
+/// The record that a type of `id` without one in `Creature.pak` is made as, the waters' crab 163
+/// (`0x43AD80` gives it none; docs/re/spawning.md, "A type without a record"): of class 0, the
+/// stats' maker's base attributes ([`RECORDLESS_BASE`]) with no skill, bonus or damping, the flags
+/// 0 of the table's first record, which the shadow's test reads, and the default speeds
+/// ([`DEFAULT_SPEEDS`], the crab's); no experience, its kill's not read.
+pub fn recordless(id: u32) -> Creature {
+    Creature {
+        id,
+        class: 0,
+        flags: 0,
+        experience: [0, 0],
+        base: RECORDLESS_BASE,
+        skills: [0; 2],
+        skills_extra: [0; 16],
+        speed: DEFAULT_SPEEDS,
+        bonus: [[0; 2]; 6],
+        bonus_value: [0; 6],
+        bonus_class: [0; 6],
+        damping: [[0; 5]; KINDS],
+    }
+}
+
 /// A creature type's values of `Creature.pak` that its fight takes: its six base attributes
 /// (`+0x0C`), its six bonuses (`+0x2A`: a kind and a target; their values `+0x36` and the
 /// opponents' classes `+0x3C`), the per cent of each kind's damage that it takes off on each
@@ -2012,6 +2041,31 @@ mod tests {
     use opensacred_data::tables::{BalanceValue, BalanceVariable};
 
     use super::*;
+
+    #[test]
+    fn a_type_without_a_record_is_made_as_the_originals_crab() {
+        let crab = recordless(163);
+        assert_eq!((crab.class, crab.flags, crab.speed), (0, 0, [100, 200]));
+        let base = Base::of(&crab);
+        assert_eq!(base.attributes, [25, 15, 20, 20, 10, 5]);
+        assert_eq!(base.skills, [0; 8]);
+        // Seen in the original (#603): at level 1, without a skill, `A` 22.5 and `D` 21 times 1,
+        // its attack speed 140, its physical damage 8.375 to 11 and its resistances 1.59, 1.18,
+        // 0.59 and 0.8 before their multipliers, 1.3395, 1.1600, 1.1600, 1.1400 and 1.1723.
+        let values = combat(&base, 1, Holds::default(), &[], &Rules::default());
+        assert_eq!(
+            (values.attack, values.defence, values.speed),
+            (22.5, 21.0, 140.0)
+        );
+        let near = |a: f32, b: f32| (a - b).abs() < 0.001;
+        assert!(near(values.damage[0][0], 8.375 * 1.339_452_2), "{values:?}");
+        assert!(near(values.damage[0][1], 11.0 * 1.339_452_2), "{values:?}");
+        assert!(
+            near(values.resistance[0], 1.590_909_1 * 1.160_027_5),
+            "{values:?}"
+        );
+        assert!(near(values.resistance[3], 0.8 * 1.172_337_3), "{values:?}");
+    }
 
     #[test]
     fn the_most_health_grows_with_the_level_by_the_originals_formula() {

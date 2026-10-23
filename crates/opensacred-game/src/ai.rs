@@ -138,6 +138,8 @@ struct Other {
     side: u8,
     creature: u32,
     level: u32,
+    /// Its size, of which and another's the reach is the mean (`minds::size`).
+    size: u32,
 }
 
 impl Other {
@@ -148,6 +150,7 @@ impl Other {
             side: mind.side,
             creature: mind.creature,
             level: mind.level,
+            size: mind.size(),
         }
     }
 
@@ -421,7 +424,7 @@ fn think(
     balance: Res<FightRules>,
     experience: Res<crate::fight::Experience>,
     doors: Doors,
-    hero: Query<(&Transform, &Body)>,
+    hero: Query<(&Transform, &Body, Option<&crate::hero::Size>)>,
     mut creatures: Query<
         (
             Entity,
@@ -434,7 +437,7 @@ fn think(
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
 ) {
-    let Some((hero, body)) = hero.iter().next() else {
+    let Some((hero, body, size)) = hero.iter().next() else {
         return;
     };
     // The creatures that fight, which an idle hostile creature of their sector may take for its
@@ -445,6 +448,7 @@ fn think(
         .map(|(entity, transform, _, mind, ..)| Other::of(entity, transform.translation, mind))
         .collect();
     let hero = hero.translation;
+    let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     let dt = tick.seconds.unwrap_or_default();
     let minds = &mut *minds;
     let look = minds.look.looks(dt);
@@ -482,6 +486,7 @@ fn think(
             .map(|other| Foe {
                 at: spot(other.at),
                 takes_on: crate::fight::takes_on(mind.level, other.level, balance.experience),
+                size: other.size,
             })
             .collect();
         let senses = Senses {
@@ -492,6 +497,7 @@ fn think(
             hero_moves,
             takes_on: crate::fight::takes_on(mind.level, experience.level, balance.experience),
             walking,
+            hero_size,
             foes: &foes,
         };
         // A straight line of walkable cells to its target.
@@ -635,6 +641,7 @@ fn pursue(
             &Transform,
             Has<crate::attack::Striking>,
             Option<&crate::attack::Attack>,
+            Option<&crate::hero::Size>,
         ),
         (With<Body>, Without<crate::npcs::Dies>),
     >,
@@ -654,7 +661,7 @@ fn pursue(
     >,
 ) {
     let dt = tick.seconds.unwrap_or_default();
-    let Some((the_hero, hero, hero_strikes, attack)) = hero.iter().next() else {
+    let Some((the_hero, hero, hero_strikes, attack, size)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
@@ -667,13 +674,18 @@ fn pursue(
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
     let seen = doors.seen(&heights);
-    // Where each creature stands, whether it strikes and the creature it fights: the foes.
-    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>)> = creatures
+    // Where each creature stands, whether it strikes, the creature it fights and its size: the
+    // foes.
+    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32)> = creatures
         .iter()
         .map(|(entity, transform, _, mind, _, striking, ..)| {
-            (entity, (transform.translation, striking, mind.foe()))
+            (
+                entity,
+                (transform.translation, striking, mind.foe(), mind.size()),
+            )
         })
         .collect();
+    let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended) in
         &mut creatures
     {
@@ -687,10 +699,10 @@ fn pursue(
         // Its target: its foe, a creature, or the hero. A foe dead or gone, or one fought with a
         // ranged weapon, it leaves.
         let foe = mind.foe();
-        let (target, aimed, target_strikes, listed, targeted) = match foe {
+        let (target, aimed, target_strikes, listed, targeted, target_size) = match foe {
             Some(foe) => match foes.get(&foe) {
-                Some(&(at, strikes, its_foe)) if !mind.ranged => {
-                    (at, foe, strikes, None, its_foe == Some(entity))
+                Some(&(at, strikes, its_foe, size)) if !mind.ranged => {
+                    (at, foe, strikes, None, its_foe == Some(entity), size)
                 }
                 _ => {
                     debug!("ai: {entity} leaves its fight with {foe}, dead or gone");
@@ -709,6 +721,7 @@ fn pursue(
                     .position(|&hostile| hostile == entity)
                     .zip(first),
                 attacked == Some(entity),
+                hero_size,
             ),
         };
         let sight = Pursuit {
@@ -724,6 +737,7 @@ fn pursue(
             hero_strikes: target_strikes,
             listed,
             targeted,
+            hero_size: target_size,
         };
         let hero = target;
         // A straight line of walkable cells to its target, asked again below.
@@ -1733,6 +1747,7 @@ mod tests {
             side,
             creature,
             level: 11,
+            size: 130,
         };
         let me = Entity::from_raw_u32(1).unwrap();
         let side = crate::iso::CELL * 64.0;

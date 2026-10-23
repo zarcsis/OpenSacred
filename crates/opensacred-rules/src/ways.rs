@@ -378,6 +378,55 @@ pub fn flags_word(tags: impl IntoIterator<Item = u8>) -> u32 {
     mode | more
 }
 
+/// The flags word that a `SetNPCState` record's operand-less tags make, in order, 0 for none
+/// (`0x48BB40`, docs/re/netscript.md, "`SetNPCState`"): the modes of [`flags_word`], each of which
+/// replaces the low 16 bits, so that a mode after `0x45` takes its `0x2000` away, unlike
+/// `CreateNPC`'s; `0x45`, `0x50` and `0x74` add their bits, `0x85` and `0x8A` clear the mode and
+/// set theirs.
+pub fn state_word(tags: impl IntoIterator<Item = u8>) -> u32 {
+    let mut word = 0u32;
+    for tag in tags {
+        let mode = |value: u32| (word & 0xFFFF_0000) | value;
+        word = match tag {
+            0x12 => mode(0x1),
+            0x13 => mode(0x2),
+            0x14 => mode(0),
+            0x2B => mode(0x8),
+            0x2E => mode(0x10),
+            0x30 => mode(0x20),
+            0x2F | 0x31 => mode(0x40),
+            0x32 => mode(0x80),
+            0x42 => mode(0x400),
+            0x43 => mode(0x800),
+            0x44 => mode(0x1000),
+            0x46 => mode(0x4000),
+            0x4C => mode(0x8000),
+            0x45 => word | 0x2000,
+            0x50 => word | 0x1_0000,
+            0x74 => word | 0x800_0000,
+            0x85 => mode(0x200_0000),
+            0x8A => mode(0x1000_0000),
+            _ => word,
+        };
+    }
+    word
+}
+
+/// The bits of a creature's flags word that a `SetNPCState`'s word leaves as they were
+/// (`0x461540`): `0x2000` and the boss's `0x80000` among them.
+const KEPT_BY_STATE: u32 = 0x668_2304;
+
+/// A creature's flags word `old` after a `SetNPCState` whose tags make `word` ([`state_word`])
+/// (`0x461540`): the record's word with the old one's [`KEPT_BY_STATE`] bits, or the old word
+/// where the record makes none.
+pub fn stated_word(old: u32, word: u32) -> u32 {
+    if word == 0 {
+        old
+    } else {
+        word | (old & KEPT_BY_STATE)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -475,6 +524,25 @@ mod tests {
         };
         assert_eq!(to_door(|_| true), Some(((5, 6), false)));
         assert_eq!(to_door(|inside| inside), Some(((5, 6), true)));
+    }
+
+    #[test]
+    fn set_npc_state_tags_make_a_word_that_replaces_the_creatures_but_its_kept_bits() {
+        assert_eq!(state_word([]), 0);
+        assert_eq!(state_word([0x12]), 0x1);
+        assert_eq!(state_word([0x46]), 0x4000);
+        assert_eq!(state_word([0x74, 0x2B]), 0x800_0008);
+        // A mode after `0x45` takes its bit away, unlike `CreateNPC`'s word.
+        assert_eq!(state_word([0x45, 0x12]), 0x1);
+        assert_eq!(flags_word([0x45, 0x12]), 0x2001);
+        assert_eq!(state_word([0x12, 0x45]), 0x2001);
+        assert_eq!(state_word([0x50, 0x85]), 0x201_0000);
+        assert_eq!(state_word([0x13, 0x14]), 0);
+        // The captain of 52,39 (`0E 46 13`) made a guard: its mode is replaced, a boss's bit
+        // and the bit `0x2000` stay.
+        let captain = flags_word([0x0E, 0x46, 0x13]) | 0x8_0000 | 0x2000;
+        assert_eq!(stated_word(captain, state_word([0x46])), 0x8_6000);
+        assert_eq!(stated_word(captain, 0), captain);
     }
 
     #[test]
