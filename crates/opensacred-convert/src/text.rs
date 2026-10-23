@@ -29,6 +29,8 @@ pub struct Summary {
     /// The strings that [`text_repairs`] repaired, and the words it replaced in them.
     pub repaired_strings: usize,
     pub repaired_words: usize,
+    /// The strings that [`text_repairs`] added.
+    pub added_strings: usize,
     /// The repairs left undone, each with its string.
     pub warnings: Vec<String>,
 }
@@ -68,6 +70,25 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
                     word.what
                 ));
             }
+        }
+        let mut added = String::new();
+        for string in &text_repairs::ADDED {
+            let id = string.id();
+            if res.get(id).is_some() {
+                summary.warnings.push(format!(
+                    "{source}: string {} ({id}), which a repair adds, is in the file; left as it is",
+                    string.name
+                ));
+                continue;
+            }
+            let _ = writeln!(added, "id-{id} = {}", pattern(string.text));
+            summary.added_strings += 1;
+        }
+        if !added.is_empty() {
+            let _ = write!(
+                ftl,
+                "\n# Strings that {source} lacks, added by opensacred-convert's repairs (docs/02 §8).\n\n{added}"
+            );
         }
         let dir = output_dir(out).join(locale);
         fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -171,7 +192,8 @@ mod tests {
     }
 
     /// Every string of the game reads back from the Fluent file as it is in `global.res`, or as
-    /// its repair makes it: every repair holds, and no string keeps a word that one replaces.
+    /// its repair makes it, and the added strings follow them: every repair holds, and no string
+    /// keeps a word that one replaces.
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_string_reads_back() {
@@ -182,12 +204,18 @@ mod tests {
         assert_eq!(summary.warnings, Vec::<String>::new());
         // docs/02 §8: the goblins' god's name 14 times in ten strings.
         assert_eq!((summary.repaired_strings, summary.repaired_words), (10, 14));
+        assert_eq!(summary.added_strings, text_repairs::ADDED.len());
         let ftl = fs::read_to_string(output_dir(&out).join("en-US/global.ftl")).unwrap();
         let back = read_back(&ftl);
         let data = read_game_file(&game.join(LANGUAGES[0].0)).unwrap();
         let res = GlobalRes::parse(&data).unwrap();
-        assert_eq!(back.len(), res.entries().len());
-        for ((id, text), entry) in back.iter().zip(res.entries()) {
+        let (strings, added) = back.split_at(res.entries().len());
+        let expected: Vec<(String, String)> = text_repairs::ADDED
+            .iter()
+            .map(|string| (format!("id-{}", string.id()), string.text.to_owned()))
+            .collect();
+        assert_eq!(added, expected.as_slice());
+        for ((id, text), entry) in strings.iter().zip(res.entries()) {
             assert_eq!(id, &format!("id-{}", entry.id));
             let original = entry.text().unwrap();
             let expected = match text_repairs::apply(&text_repairs::WORDS, entry.id, &original) {

@@ -101,6 +101,7 @@ A black rider's horse (261) brings its rider (256), hostile, a boss, with a shor
 ## `MakeGroup`
 
 `MakeGroup` (type 115, `0x4AB940`) is not a group of creatures but a rule of their equipment: its record adds an entry of `0xA0` bytes, up to 20 creature types (`02`), three items each by a pool and a chance in percent (`87`, `88`, `89`), a byte for the item maker (`8B`), a name (`1D`, `1E` or `16`) and up to ten spells (`67`), of which a creature takes one at random (`+0x2B6`, `+0x261`).
+The name is the creature's (**hypothesis**, on the trees alone: what the creature does with it is not read): the 260 functions whose `FillSector` makes the type 146, which has no name of its own, all name it in their first rule for it, and the 1,000 that make the 140 name it by the 140's own name (docs/02 §8, #684).
 Its one reader is `0x47F8E0`, which `FillSector` calls for each creature it makes of those types; the items come from the start script's `Waffenpool` pools.
 
 Read 2026-10-20 (#228):

@@ -568,10 +568,11 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.bytes as f64 / 1e6,
                 text::output_dir(&out).display(),
             );
-            if summary.repaired_strings > 0 {
+            if summary.repaired_strings + summary.added_strings > 0 {
                 println!(
-                    "  repaired: {} words in {} strings (the goblins' god's name)",
-                    summary.repaired_words, summary.repaired_strings,
+                    "  repaired: {} words in {} strings (the goblins' god's name); added: {} \
+                     strings (the fish's names)",
+                    summary.repaired_words, summary.repaired_strings, summary.added_strings,
                 );
             }
             for warning in &summary.warnings {
