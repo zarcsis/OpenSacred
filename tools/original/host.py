@@ -77,6 +77,12 @@ def single(value):
 FINAL_CELL = (0x189C, 0x591)
 GROUND_BOTTOM = 650
 CELL_LINE = re.compile(r'^\s*(\+|-)?(\d+)\s*,\s*(\+|-)?(\d+)\s*$')
+# A cell's nature, the high nibble of its ground byte, by the client's own debug names (docs/02 §5.2), and what the
+# low nibble makes of it (docs/re/movement.md).
+NATURES = ['none', 'DESERT', 'ARCTIC', 'WALD', 'GRASS', 'SUMPF', 'LAVA', 'BRIDGE', 'DUNGEON', 'WATERA', 'WATERB',
+           'STONEROAD', 'KIESROAD', 'IND-STONE', 'IND-WOOD', 'KIES']
+NIBBLES = {1: 'a mass', 2: 'a wall or water', 3: 'a teleport', 5: 'a stair up 1', 6: 'a stair down 1', 7: 'a stair up 2',
+           8: 'a stair down 2', 9: 'an entrance', 10: 'an exit'}
 
 # The keys of Settings.cfg the host sets before each start, and nothing else (#448, decision 2).
 SETTINGS = {'FULLSCREEN': '0', 'SHOWMOVIE': '0'}
@@ -499,6 +505,9 @@ class Host:
                 'cell X,Y [FLOOR]: the hero onto that cell (on the ground, or a building\'s floor), or the nearest one '
                 'it may stand on, as the scripts teleport a player',
                 'sector X,Y: the hero into that sector, near its middle',
+                "cell-info [X,Y|+DX,+DY]: what a cell is, the hero's by default: on the ground and on each floor of "
+                "the building there, its flags, ground byte and heights, whether it may be walked on and whether the "
+                "hero may stand there, the height it stands at, a door's trigger, and the objects in it",
                 'time HH:MM: the clock; day-speed DAY [NIGHT]: its rates (1 by default, 0 stops it)',
                 'zoom Z: the view\'s zoom, 0.5 to 2 (the game settles on 0.5, 1 or 2)',
                 'point X,Y: the window\'s pixel of a cell, for click',
@@ -896,6 +905,71 @@ class Host:
         placed = self.world('cell', {'x': x, 'y': y, 'floor': int(floor or 0), 'search': search})
         return [f"hero at {placed['cell'][0]},{placed['cell'][1]} (asked {x},{y})"]
 
+    def command_cell_info(self, rest):
+        x, y = self.target_cell(rest, relative_to_hero=True) if rest else (None, None)
+        info = self.world('cell-info', {'x': x, 'y': y})
+        (x, y), (sx, sy) = info['cell'], info['sector']
+        lines = [f'cell {x},{y}  sector {sx},{sy}  cell {x - sx * 64},{y - sy * 64} of it',
+                 f"of the building {info['building']}, {info['floors']} floor{'s' if info['floors'] != 1 else ''}"
+                 if info['building'] else 'of no building']
+        occupants = []
+        for level in info['levels']:
+            name = self.level_name(level)
+            lines.append(f'{name}: {self.describe_level(level)}')
+            occupants += [f'in it on {name}: {self.describe_occupant(o)}' for o in level.get('objects', [])]
+        return lines + (occupants or ['nothing stands in it'])
+
+    @staticmethod
+    def level_name(level):
+        if level['layer'] == 0:
+            return 'the ground'
+        inside = level['inside']
+        where = f", inside {inside[0]},{inside[1]}:{inside[2]}" if inside else ''
+        what = "the hero's layer, floor" if level['heroOnly'] else 'floor'
+        return f"{what} {level['floor']} (record {level['layer']}{where})"
+
+    @staticmethod
+    def describe_level(level):
+        cell = level['cell']
+        if cell is None:
+            return 'its grid holds no cell here'
+        ground, flags = cell['ground'], cell['flags']
+        words = [f'{NATURES[ground >> 4]} (0x{ground:02X}, flags 0x{flags:02X})']
+        nibble = NIBBLES.get(ground & 0xF)
+        dx, dy = cell['offsets']
+        if nibble and 5 <= ground & 0xF <= 8 and level['layer']:
+            nibble += f' by {dx:+},{dy:+}'
+        if nibble:
+            words.append(nibble)
+        if level['layer'] == 0 and (dx or dy):
+            words.append(f"its building's anchor {dx:+},{dy:+}")
+        if flags & 8:
+            words.append('barred (flag 8)')
+        door = level.get('door')
+        if door is not None:
+            if door['trigger'] is None:
+                words.append('a door of no trigger')
+            elif door['state'] is None:
+                words.append(f"a door of trigger {door['trigger']}, outside the world's table")
+            else:
+                words.append(f"a door of trigger {door['trigger']}, state 0x{door['state']:04X}, "
+                             + ('open' if door['state'] & 1 else 'closed'))
+        words.append('walkable' if level['walkable'] else 'not walkable')
+        words.append('the hero may stand there' if level['stand'] else 'the hero may not stand there')
+        corners = lambda values: ' '.join(str(v) for v in values)
+        words.append(f"heights {corners(cell['heights'])}, standing {corners(cell['standing'])}, "
+                     f"stands at {level['height']:.1f}")
+        return ', '.join(words)
+
+    @staticmethod
+    def describe_occupant(o):
+        if not o.get('creature'):
+            return f"{o['id']} type {o['type']}" + (f" gold {o['gold']}" if o['gold'] is not None else '')
+        return (f"{o['id']}{' the hero' if o['hero'] else ''} type {o['type']} level {o['level']} "
+                f"health {o['health']}/{o['most']}"
+                + ('' if o['hostile'] is None else ' hostile' if o['hostile'] else ' peaceful')
+                + (f" floor {o['floor']}" if o['floor'] else ''))
+
     def command_sector(self, rest):
         x, y = self.target_cell(rest, relative_to_hero=False)
         return self.command_cell(f'{x * 64 + 32},{y * 64 + 32}', search=24)
@@ -1078,7 +1152,7 @@ class Host:
 
 WORLD_COMMANDS = {
     'creatures': Host.command_creatures, 'stats': Host.command_stats, 'fpu': Host.command_fpu,
-    'cell': Host.command_cell,
+    'cell': Host.command_cell, 'cell-info': Host.command_cell_info,
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
