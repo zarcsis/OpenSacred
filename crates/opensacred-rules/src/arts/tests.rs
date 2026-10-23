@@ -1,6 +1,21 @@
+use std::sync::LazyLock;
+
 use opensacred_data::tables::{Spell, WeaponArt};
 
 use super::*;
+
+/// The original's curves of the skills that shorten the times.
+static ORIGINAL: LazyLock<Shortening> = LazyLock::new(Shortening::default);
+
+/// A creature of type `kind` without a skill that shortens a time.
+fn context(kind: u32, tables: &Tables) -> Context<'_> {
+    Context {
+        tables,
+        kind,
+        skills: &[],
+        shortening: &ORIGINAL,
+    }
+}
 
 const SERAPHIM: u32 = 1;
 const GLADIATOR: u32 = 2;
@@ -161,7 +176,7 @@ fn the_generic_rundum_and_hardhit_are_the_classs_own() {
 fn a_rune_teaches_its_art_at_level_1_and_raises_it_after() {
     let tables = tables();
     let mut arts = arts(&[entry(Table::WeaponArts, 1071, 1, 0)]);
-    assert_eq!(arts.read_rune(18, SERAPHIM, &tables), Ok(()));
+    assert_eq!(arts.read_rune(18, &context(SERAPHIM, &tables)), Ok(()));
     // Added at level 0 with the time 15, it rises to level 1 and 24: the 9 s it grew are still
     // to run.
     let taught = *arts.get(18).unwrap();
@@ -170,13 +185,13 @@ fn a_rune_teaches_its_art_at_level_1_and_raises_it_after() {
         (Table::Spells, 1, TAUGHT)
     );
     assert_eq!((taught.time, taught.remaining), (24.0, 9.0));
-    assert_eq!(arts.read_rune(18, SERAPHIM, &tables), Ok(()));
+    assert_eq!(arts.read_rune(18, &context(SERAPHIM, &tables)), Ok(()));
     let raised = arts.get(18).unwrap();
     assert_eq!(
         (raised.level, raised.time, raised.remaining),
         (2, 33.0, 18.0)
     );
-    assert_eq!(arts.read_rune(1071, SERAPHIM, &tables), Ok(()));
+    assert_eq!(arts.read_rune(1071, &context(SERAPHIM, &tables)), Ok(()));
     assert_eq!(levels(&arts), [(1071, 2), (18, 2)]);
     assert_eq!(arts.levels(), 4);
 }
@@ -187,13 +202,16 @@ fn a_rune_of_another_class_or_of_no_art_is_refused() {
     let mut arts = arts(&[entry(Table::WeaponArts, 1071, 1, 0)]);
     let before = arts.clone();
     assert_eq!(
-        arts.read_rune(1059, SERAPHIM, &tables),
+        arts.read_rune(1059, &context(SERAPHIM, &tables)),
         Err(Refusal::NotForClass)
     );
-    assert_eq!(arts.read_rune(0, SERAPHIM, &tables), Err(Refusal::NoArt));
+    assert_eq!(
+        arts.read_rune(0, &context(SERAPHIM, &tables)),
+        Err(Refusal::NoArt)
+    );
     // The generic `Attacke` is of no class.
     assert_eq!(
-        arts.read_rune(1002, SERAPHIM, &tables),
+        arts.read_rune(1002, &context(SERAPHIM, &tables)),
         Err(Refusal::NotForClass)
     );
     assert_eq!(arts, before);
@@ -204,12 +222,12 @@ fn a_level_stops_at_255() {
     let tables = tables();
     let mut arts = arts(&[entry(Table::WeaponArts, 1071, 255, 0)]);
     assert_eq!(
-        arts.read_rune(1071, SERAPHIM, &tables),
+        arts.read_rune(1071, &context(SERAPHIM, &tables)),
         Err(Refusal::Highest)
     );
     assert_eq!(arts.entries[0].level, 255);
     // A bonus rises apart from the level, unmarked and with the time as it was.
-    assert!(arts.raise(0, 4, false, true, SERAPHIM, &tables));
+    assert!(arts.raise(0, 4, false, true, &context(SERAPHIM, &tables)));
     let entry = arts.entries[0];
     assert_eq!((entry.level, entry.bonus, entry.flags), (255, 4, 0));
 }
@@ -218,10 +236,16 @@ fn a_level_stops_at_255() {
 fn the_vampiresss_runes_teach_both_her_forms() {
     let tables = tables();
     let mut arts = Arts::default();
-    assert_eq!(arts.read_rune(1074, VAMPIRESS_BY_DAY, &tables), Ok(()));
+    assert_eq!(
+        arts.read_rune(1074, &context(VAMPIRESS_BY_DAY, &tables)),
+        Ok(())
+    );
     assert_eq!(levels(&arts), [(1074, 1), (1039, 1)]);
     assert!(arts.entries.iter().all(Entry::taught));
-    assert_eq!(arts.read_rune(1074, VAMPIRESS_BY_DAY, &tables), Ok(()));
+    assert_eq!(
+        arts.read_rune(1074, &context(VAMPIRESS_BY_DAY, &tables)),
+        Ok(())
+    );
     assert_eq!(levels(&arts), [(1074, 2), (1039, 2)]);
     assert_eq!(counterpart(1039, VAMPIRESS_BY_DAY), 1074);
     assert_eq!(counterpart(1074, 7), 1039);
@@ -231,7 +255,7 @@ fn the_vampiresss_runes_teach_both_her_forms() {
 fn the_daemons_runes_teach_her_pairs() {
     let tables = tables();
     let mut arts = Arts::default();
-    assert_eq!(arts.read_rune(1092, DAEMON, &tables), Ok(()));
+    assert_eq!(arts.read_rune(1092, &context(DAEMON, &tables)), Ok(()));
     assert_eq!(levels(&arts), [(1092, 1), (1097, 1)]);
     let times: Vec<_> = arts.entries.iter().map(|e| e.time).collect();
     assert_eq!(times, [12.0, 32.0]);
@@ -262,7 +286,7 @@ fn a_new_game_keeps_the_arts_that_no_rune_taught() {
             remaining: 0.0,
         },
     ];
-    let arts = Arts::new_game(&template, &tables());
+    let arts = Arts::new_game(&template, &context(GLADIATOR, &tables()));
     assert_eq!(levels(&arts), [(1059, 1)]);
     // The time of the record, before any skill shortens it (#507).
     assert_eq!(arts.entries[0].time, 15.0);
@@ -302,13 +326,42 @@ fn game_file(path: &str) -> Vec<u8> {
     std::fs::read(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()))
 }
 
-/// Each class's hero at level 1 holds its template's arts that no rune taught, with the times of
-/// their records: the Seraphim's 1071 15.0 s and the Gladiator's 1059 15.0 s, as the original's
-/// new games give them before the skills shorten them (#506, #507).
+/// The skills of the heroes' types of `OriginalGame/PAK/Creature.pak`, at level 1, by type.
+fn game_skills() -> Vec<(u32, Vec<(u8, u32)>)> {
+    let creatures = opensacred_formats::tables::creatures(&game_file("PAK/Creature.pak")).unwrap();
+    creatures
+        .iter()
+        .filter(|c| (1..=9).contains(&c.id))
+        .map(|c| {
+            let record = opensacred_data::tables::Creature {
+                id: c.id,
+                class: c.class,
+                flags: c.flags,
+                experience: c.experience,
+                base: c.base,
+                skills: c.skills,
+                skills_extra: c.skills_extra,
+                speed: c.speed,
+                bonus: c.bonus,
+                bonus_value: c.bonus_value,
+                bonus_class: c.bonus_class,
+                damping: c.damping,
+            };
+            let base = crate::fight::Base::of(&record);
+            (c.id, crate::fight::skills(&base, 1, true))
+        })
+        .collect()
+}
+
+/// Each class's hero at level 1 holds its template's arts that no rune taught (#506), with the
+/// times its template holds: the records' times shortened by its skills, as the original's
+/// recomputation left them (the Seraphim's 1071 15.0 s; the Gladiator's 1059 15/1.12 by his skill
+/// 25, #507); every entry of the templates, taught or not, recomputes to its time.
 #[test]
 #[ignore = "needs the game files in OriginalGame/"]
 fn each_heros_new_game_holds_its_templates_arts() {
     let tables = game_tables();
+    let skills = game_skills();
     let mut heroes = Vec::new();
     for path in (0..8).map(|i| format!("Templates/Hero{i:02}.ptx")) {
         let amh = opensacred_formats::amh::Amh::parse(&game_file(&path)).unwrap();
@@ -328,46 +381,199 @@ fn each_heros_new_game_holds_its_templates_arts() {
                 remaining: a.remaining,
             })
             .collect();
-        let arts = Arts::new_game(&template, &tables);
-        for entry in &arts.entries {
-            let level = u32::from(entry.level);
+        let context = Context {
+            skills: &skills.iter().find(|(id, _)| *id == class).unwrap().1,
+            ..context(class, &tables)
+        };
+        let mut all = Arts {
+            entries: template.iter().filter_map(Entry::of_template).collect(),
+        };
+        all.recompute(&context);
+        for (entry, held) in all.entries.iter().zip(&template) {
             assert_eq!(
-                f64::from(entry.time),
-                time(&tables, entry.art, level).unwrap(),
-                "{path}"
+                entry.time.to_bits(),
+                held.time.to_bits(),
+                "{path} {}",
+                held.id
             );
+        }
+        let arts = Arts::new_game(&template, &context);
+        for entry in &arts.entries {
             assert_eq!((entry.level, entry.factor, entry.remaining), (1, 1.0, 0.0));
         }
-        let mut arts: Vec<u16> = arts.entries.iter().map(|e| e.art).collect();
-        arts.sort_unstable();
+        let mut arts: Vec<(u16, f32)> = arts.entries.iter().map(|e| (e.art, e.time)).collect();
+        arts.sort_by_key(|&(art, _)| art);
         heroes.push((class, arts));
     }
-    heroes.sort_unstable();
+    heroes.sort_by_key(|&(class, _)| class);
     assert_eq!(
         heroes,
         [
-            (1, vec![1071]),
-            (2, vec![1059]),
-            (3, vec![5]),
-            (4, vec![1066]),
-            (5, vec![1062]),
-            (6, vec![1022, 1023]),
-            (8, vec![1080]),
-            (9, vec![1092, 1097]),
+            (1, vec![(1071, 15.0)]),
+            (2, vec![(1059, 13.392_858)]),
+            (3, vec![(5, 5.0)]),
+            (4, vec![(1066, 7.142_857)]),
+            (5, vec![(1062, 8.0)]),
+            (6, vec![(1022, 30.0), (1023, 2.678_571_5)]),
+            (8, vec![(1080, 15.0)]),
+            (9, vec![(1092, 12.0), (1097, 32.0)]),
         ]
     );
-    let seraphim = Arts::new_game(
-        &[HeroArt {
-            table: 2,
-            id: 1071,
-            level: 1,
-            bonus: 0,
-            flags: 0,
-            time: 0.0,
-            factor: 0.0,
-            remaining: 0.0,
-        }],
-        &tables,
+}
+
+/// The Gladiator's two skills at level 1 (2 and 25, `Creature.pak`), the second shortening his
+/// weapon arts by its curve's 12 per cent.
+const GLADIATORS_SKILLS: [(u8, u32); 2] = [(2, 1), (25, 1)];
+
+#[test]
+fn a_skill_shortens_the_times_of_its_arts() {
+    let tables = tables();
+    let gladiator = Context {
+        skills: &GLADIATORS_SKILLS,
+        ..context(GLADIATOR, &tables)
+    };
+    let mut arts = Arts {
+        entries: vec![
+            Entry {
+                remaining: 14.0,
+                ..entry(Table::WeaponArts, 1059, 1, 0)
+            },
+            entry(Table::Spells, 18, 1, 0),
+        ],
+    };
+    arts.recompute(&gladiator);
+    // 15/1.12, what is still to run held to it; the spell 18 is no art of the skill 25's.
+    let shortened = arts.entries[0];
+    assert_eq!(
+        (shortened.time, shortened.remaining),
+        (13.392_858, 13.392_858)
     );
-    assert_eq!(seraphim.entries[0].time, 15.0);
+    assert_eq!(arts.entries[1].time, 24.0);
+    // A time is held at 1 s at least.
+    let mut short = Arts {
+        entries: vec![Entry {
+            time: 1.05,
+            ..entry(Table::WeaponArts, 3000, 1, 0)
+        }],
+    };
+    short.shorten(&[(25, 1)], &ORIGINAL);
+    assert_eq!(short.entries[0].time, 1.05);
+    short.entries[0].art = 1059;
+    short.shorten(&[(25, 1)], &ORIGINAL);
+    assert_eq!(short.entries[0].time, 1.0);
+}
+
+/// The Gladiator learns 1057 as runes teach it, as the original showed it with its driver (#507):
+/// 7.1 s at level 1 and 9.8 s at level 2, the growth 7.143 → 9.821 still to run.
+#[test]
+fn the_gladiators_rune_grows_a_shortened_time() {
+    let tables = tables();
+    let gladiator = Context {
+        skills: &GLADIATORS_SKILLS,
+        ..context(GLADIATOR, &tables)
+    };
+    let mut arts = Arts::default();
+    assert!(arts.teach(Table::WeaponArts, 1057, 1, &gladiator));
+    let learnt = *arts.get(1057).unwrap();
+    assert_eq!((learnt.time, learnt.remaining), (7.142_857, 2.678_571_2));
+    arts.entries[0].remaining = 0.0;
+    assert!(arts.teach(Table::WeaponArts, 1057, 1, &gladiator));
+    let raised = arts.get(1057).unwrap();
+    assert_eq!((raised.level, raised.time), (2, 9.821_428));
+    assert!(
+        (raised.remaining - 2.678_571).abs() < 1e-5,
+        "{}",
+        raised.remaining
+    );
+}
+
+#[test]
+fn a_use_starts_every_art_of_its_kind_each_held_to_its_time() {
+    let mut arts = arts(&[
+        entry(Table::WeaponArts, 1071, 1, 0),
+        entry(Table::WeaponArts, 1057, 1, 0),
+        entry(Table::Spells, 18, 1, 0),
+    ]);
+    assert!(arts.ready(1071));
+    let time = arts.time_of(1071, &tables());
+    arts.start(time, Table::WeaponArts, None, 0);
+    let remaining: Vec<f32> = arts.entries.iter().map(|e| e.remaining).collect();
+    // 1071's 15 s, 1057's own 8 s; the spell of the other kind stays ready.
+    assert_eq!(remaining, [15.0, 8.0, 0.0]);
+    assert!(!arts.ready(1071) && arts.ready(18) && arts.ready(1002));
+    // The items' and sets' flag of the weapon arts takes the time to 0.8 of it.
+    let mut quicker = arts.clone();
+    quicker.entries.iter_mut().for_each(|e| e.remaining = 0.0);
+    quicker.start(15.0, Table::WeaponArts, None, QUICKER_WEAPON_ARTS);
+    assert_eq!(quicker.entries[0].remaining, 12.0);
+    quicker.start(15.0, Table::Spells, None, QUICKER_WEAPON_ARTS);
+    assert_eq!(quicker.entries[2].remaining, 15.0);
+    // An art the creature lacks adds its record's time at level 0.
+    assert_eq!(arts.time_of(1059, &tables()), 10.0);
+}
+
+#[test]
+fn the_traps_and_the_bites_start_their_own() {
+    let mut arts = Arts {
+        entries: [1047, 1067, 1030]
+            .map(|art| Entry {
+                time: 20.0,
+                ..entry(Table::WeaponArts, art, 1, 0)
+            })
+            .to_vec(),
+    };
+    // A trap's use starts the traps, and an art of the other group, not the Attacke.
+    arts.start(10.0, Table::WeaponArts, Some(1047), 0);
+    let remaining = |arts: &Arts| arts.entries.iter().map(|e| e.remaining).collect::<Vec<_>>();
+    assert_eq!(remaining(&arts), [10.0, 0.0, 10.0]);
+    // The Attacke's use starts the arts of no group alone.
+    arts.start(5.0, Table::WeaponArts, Some(1067), 0);
+    assert_eq!(remaining(&arts), [10.0, 5.0, 10.0]);
+    // Without a group, every art of the kind.
+    arts.start(5.0, Table::WeaponArts, None, 0);
+    assert_eq!(remaining(&arts), [15.0, 10.0, 15.0]);
+}
+
+#[test]
+fn the_regeneration_runs_each_kind_at_its_speed() {
+    let mut arts = arts(&[
+        entry(Table::WeaponArts, 1071, 1, 0),
+        entry(Table::Spells, 18, 1, 0),
+        entry(Table::WeaponArts, 1085, 1, 0),
+    ]);
+    for entry in &mut arts.entries {
+        entry.time = 30.0;
+        entry.remaining = 10.0;
+    }
+    // 1085 starts as a spell but runs at the weapon arts' speed.
+    assert_eq!(arts.entries[2].kind(), Table::Spells);
+    let speeds = Speeds {
+        spells: 0.5,
+        weapon_arts: 1.25,
+    };
+    arts.regenerate(4.0, speeds);
+    let remaining: Vec<f32> = arts.entries.iter().map(|e| e.remaining).collect();
+    assert_eq!(remaining, [5.0, 8.0, 5.0]);
+    arts.regenerate(10.0, speeds);
+    assert_eq!(arts.entries[0].remaining, 0.0);
+    assert!(arts.ready(1071));
+    assert!(arts.ready(1085));
+    assert!(!arts.ready(18));
+}
+
+#[test]
+fn the_speeds_follow_the_items_and_the_regeneration_attributes() {
+    let speeds = Speeds::of([0.1, 0.0], 0.0, 20.0, 50.0, SERAPHIM);
+    assert_eq!(
+        speeds,
+        Speeds {
+            spells: 1.32,
+            weapon_arts: 1.5
+        }
+    );
+    // The Dwarf's spells at the weapon arts' speed.
+    assert_eq!(Speeds::of([0.1, 0.0], 0.0, 20.0, 50.0, 8).spells, 1.5);
+    // None below 0.
+    assert_eq!(Speeds::of([-3.0, 0.0], 0.0, 0.0, 0.0, 1).spells, 0.0);
+    assert_eq!(Speeds::default().spells, 1.0);
 }

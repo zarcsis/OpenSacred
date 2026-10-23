@@ -338,13 +338,6 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         .as_ref()
         .map(|hero| hero.worn.clone())
         .unwrap_or_default();
-    // Its template's combat arts that no rune taught, with their records' times (#506).
-    let arts = arts::HeroArts::new_game(
-        assets,
-        class.creature(),
-        template.as_ref().map_or(&[][..], |hero| &hero.arts),
-    );
-    bevy::log::debug!("game: the hero's arts {:?}", arts.lines());
     let npcs = npcs::Npcs::read(
         assets,
         &tree,
@@ -423,6 +416,16 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     hero.held = held;
     let base = fight::Base::of(&record);
     let skills = fight::skills(&base, fight::HERO_LEVEL, true);
+    // Its template's combat arts that no rune taught, with their records' times shortened by its
+    // skills (#506, #507).
+    let arts = arts::HeroArts::new_game(
+        assets,
+        class.creature(),
+        template.as_ref().map_or(&[][..], |hero| &hero.arts),
+        skills.clone(),
+        balance.as_ref(),
+    );
+    bevy::log::debug!("game: the hero's arts {:?}", arts.lines());
     let values = fight::combat(&base, fight::HERO_LEVEL, holding.0.clone(), &skills, &rules);
     bevy::log::debug!(
         "game: the hero holds and wears {} items: attack {:.2}, defence {:.2}, damage {:?}, \

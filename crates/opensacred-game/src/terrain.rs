@@ -26,7 +26,7 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 
-use crate::{buildings, iso};
+use crate::{buildings, iso, liquids};
 
 /// A diamond's box in a tile sheet and on screen.
 const DIAMOND_W: usize = 96;
@@ -58,6 +58,8 @@ pub struct Heights {
     /// The cells closed to every creature, at their levels: the closed triggers'
     /// ([`Self::occupy`]).
     occupied: HashSet<((i32, i32), Level)>,
+    /// The liquid materials of the loaded sectors' two slots ([`Self::liquids`]).
+    liquids: HashMap<(u32, u32), [u8; 2]>,
 }
 
 /// An inside layer: of its sector, by its index from 1 (docs/re/movement.md).
@@ -275,6 +277,9 @@ struct LoadedCell {
     /// The ground byte (`+0x1F`), and its high nibble, the nature.
     ground: u8,
     nature: u8,
+    /// Under a liquid, the first corner heights as the sector's file has them, its bed's
+    /// ([`Heights::liquid_bed`]).
+    bed: Option<[i8; 4]>,
     /// Whether a step on the cell sounds as on a bridge ([`bridged`]).
     bridged: bool,
     /// The cell's flags (docs/02 §5.2) and the building it belongs to.
@@ -300,6 +305,7 @@ fn walkable(flags: u8, ground: u8) -> bool {
 impl Heights {
     /// Adds the cells of `sector` and its inside layers.
     pub fn add(&mut self, sector: &Sector) {
+        self.liquids.insert((sector.x, sector.y), sector.liquids);
         for (index, layer) in sector.layers.iter().enumerate() {
             let (Ok(key), Ok(x), Ok(y), Ok(width), Ok(height)) = (
                 u16::try_from(index + 1),
@@ -373,6 +379,7 @@ impl Heights {
                     standing: cell.heights2.map(second_height),
                     ground: cell.ground,
                     nature: cell.ground >> 4,
+                    bed: liquids::liquid(cell).then_some(cell.heights),
                     bridged: bridged(cell),
                     flags: cell.flags,
                     building: buildings::anchor(sector, index),
@@ -774,6 +781,19 @@ impl Heights {
             }
         }
         false
+    }
+
+    /// The bed of the global cell `(cx, cy)` under a liquid, the natures `WATERA` and `WATERB`: its
+    /// four first corner heights as its sector's file has them, by which the crabs and fish take
+    /// their cells (`0x47C5B0`); `None` for any other cell and outside the loaded sectors.
+    pub fn liquid_bed(&self, (cx, cy): (i32, i32)) -> Option<[i8; 4]> {
+        let key = (u32::try_from(cx).ok()?, u32::try_from(cy).ok()?);
+        self.cells.get(&key)?.bed
+    }
+
+    /// The liquid materials of a loaded sector's two slots (docs/02 §5.1).
+    pub fn liquids(&self, sector: (u32, u32)) -> Option<[u8; 2]> {
+        self.liquids.get(&sector).copied()
     }
 
     /// The nature of the cell at world `(x, z)`.
@@ -1280,6 +1300,48 @@ mod tests {
         );
         // Outside the loaded sectors.
         assert!(!heights.walkable((0, 0)));
+    }
+
+    #[test]
+    fn a_liquids_cell_tells_its_bed_and_its_sector_its_liquids() {
+        let cell = |ground, heights| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights,
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let mut cells = vec![cell(0x40, [0; 4]); SIDE * SIDE];
+        // Grass sunk to −10, the water of the first slot and of the second.
+        cells[0] = cell(0x40, [-10; 4]);
+        cells[1] = cell(0x92, [-10, -5, -10, -10]);
+        cells[2] = cell(0xA0, [-20; 4]);
+        let sector = Sector {
+            x: 2,
+            y: 3,
+            id: 0,
+            liquids: [1, 11],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let side = i32::try_from(SIDE).unwrap();
+        let bed = |column| heights.liquid_bed((2 * side + column, 3 * side));
+        assert_eq!(
+            [0, 1, 2].map(bed),
+            [None, Some([-10, -5, -10, -10]), Some([-20; 4])]
+        );
+        assert_eq!(heights.liquids((2, 3)), Some([1, 11]));
+        assert_eq!(
+            (heights.liquid_bed((0, 0)), heights.liquids((0, 0))),
+            (None, None)
+        );
     }
 
     #[test]
