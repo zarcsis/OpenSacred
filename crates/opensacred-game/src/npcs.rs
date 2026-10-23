@@ -61,7 +61,7 @@ use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item, Weapon};
 use opensacred_data::world::SIDE;
-use opensacred_rules::minds;
+use opensacred_rules::{minds, ways};
 
 use crate::frame::Step;
 use crate::sectors::Streamer;
@@ -76,8 +76,13 @@ use crate::{
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
 const SET_NPC_STATE: u16 = 3;
-/// The operand of a `CreateNPC` that names its dialogue.
+/// The operand of a `CreateNPC` or a `SetNPCState` that names its dialogue, and that of a
+/// `SetNPCState` that gives its number (`0x48BB40`).
 const DIALOGUE: u8 = 0x09;
+const DIALOGUE_NUMBER: u8 = 0x0A;
+/// The operand of a `SetNPCState` that gives its creature's home, a global cell and its floor
+/// (`0x461540`, `+0x2B9`).
+const HOME: u8 = 0x4D;
 /// The tags of `CreateNPC` that make a trader (`+0x200`): the smiths, the merchants, the wizards
 /// and one with a dialogue stamped (`0x484326`…; docs/re/ai.md, "The roll").
 const TRADES: [u8; 4] = [0x23, 0x24, 0x25, 0x64];
@@ -133,7 +138,7 @@ struct Placement {
     /// A fill's boss or champion, or a script's boss (`fight::Rank`).
     rank: fight::Rank,
     /// An NPC's `CreateNPC` level tag ([`LEVEL`]), its last, or the last `SetNPCState`'s that
-    /// names it ([`set_levels`]), 0 for none, by which it takes its level and may be a boss
+    /// names it ([`set_states`]), 0 for none, by which it takes its level and may be a boss
     /// (`fight::tagged_level`, `fight::Rank::of_tag`).
     tag: u32,
     /// Whether it casts a shadow (`shadows::Casts`).
@@ -176,6 +181,9 @@ struct Placement {
     trader: bool,
     kept: bool,
     group: Option<u32>,
+    /// The cell whose centre an NPC goes home to, where a `SetNPCState` gives one, else where it
+    /// was made (`0x4D`, `+0x2B9`; [`set_states`]).
+    home: Option<(u32, u32)>,
     /// Where an NPC walks from the start (`NPC_Goto`), the global cell, and its speed in world
     /// units a second, before the game's speed: its walk speed, or its run speed where its walk
     /// is a run.
@@ -396,6 +404,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         model: kind.model.clone(),
         cell: (0, 0),
         drawn: None,
+        home: None,
         walk: None,
         speed: kind.speed,
         class: kind.class,
@@ -1215,21 +1224,123 @@ fn level_tag(ops: &[opensacred_data::netscript::Operand]) -> u32 {
         .unwrap_or(0)
 }
 
-/// Gives the creatures that `records`' `SetNPCState`s name the levels of their level tags
-/// (`0x48BB40`, through `0x461540`, which calls the level's setter at `0x46213D` as `CreateNPC`'s
-/// tag does; #541): each placement of a `CreateNPC` before the `SetNPCState` that names it,
-/// `made` the placement of each record, takes its last level tag in place of its own
-/// (`fight::tagged_level`), and 1000 makes it a boss (`+0x1F4` bit `0x80000`, `0x549500`): the
-/// stables' horses their levels, after their `CreateNPC`s' rule.
-fn set_levels(
+/// What a `SetNPCState` record changes in the creature its `01` names, of what the game keeps of a
+/// creature (`0x48BB40`, which reads the record's tags, and `0x461540`, which applies them;
+/// docs/re/netscript.md, "`SetNPCState`").
+#[derive(Clone, Debug, Default, PartialEq)]
+struct State {
+    /// Its level tag ([`LEVEL`]), the last; 0 for none.
+    level: u32,
+    /// Whether it gives the creature a dialogue or takes its dialogue away: the last of a
+    /// dialogue's name (`0x09`) found in the dialogues' table at an index above 0, or not, and
+    /// of a dialogue's number (`0x0A`), which always takes it away, the table's entries keeping
+    /// none (`0x476A05`).
+    dialogue: Option<bool>,
+    /// The flags word that its operand-less tags make (`ways::state_word`), 0 for none.
+    word: u32,
+    /// The last of `0x08` (hostile) and `0x0E` (peaceful).
+    hostile: Option<bool>,
+    /// Whether one of the tags `0x23`, `0x24`, `0x25` or `0x64` makes it a trader (`+0x200`
+    /// bits `0x1000`, `0x2000`, `0x4000` or `0x4000000`), and whether `0x64` stamps its
+    /// trader's dialogue.
+    trader: bool,
+    stamped: bool,
+    /// Its home (`0x4D`, `+0x2B9`): the cell whose centre it goes home to.
+    home: Option<(u32, u32)>,
+}
+
+impl State {
+    /// The state of a `SetNPCState` of operands `ops`, its dialogues' names looked up in the
+    /// dialogues' table `dialogues` as it stands when the record runs.
+    fn of(ops: &[opensacred_data::netscript::Operand], dialogues: &[String]) -> Self {
+        let markers = ops
+            .iter()
+            .filter(|o| matches!(o.value, Value::Marker))
+            .map(|o| o.tag);
+        let mut state = Self {
+            level: level_tag(ops),
+            word: ways::state_word(markers),
+            ..Self::default()
+        };
+        for op in ops {
+            match (op.tag, &op.value) {
+                (DIALOGUE, Value::Str(name)) => {
+                    let index = dialogues.iter().position(|d| d.eq_ignore_ascii_case(name));
+                    state.dialogue = Some(index.is_some_and(|i| i > 0));
+                }
+                (DIALOGUE_NUMBER, _) => state.dialogue = Some(false),
+                (0x08, Value::Marker) => state.hostile = Some(true),
+                (0x0E, Value::Marker) => state.hostile = Some(false),
+                (tag, Value::Marker) if TRADES.contains(&tag) => {
+                    state.trader = true;
+                    state.stamped |= tag == STAMPED;
+                }
+                (HOME, Value::I32x3([x, y, _])) => {
+                    if let (Ok(x), Ok(y)) = (u32::try_from(*x), u32::try_from(*y)) {
+                        state.home = Some((x, y));
+                    }
+                }
+                _ => {}
+            }
+        }
+        state
+    }
+
+    /// Applies it to `placement`, in the order of `0x461540`: the flags word, which takes a
+    /// trader's trade away with the mode `0x800`; the home; the side by the hostility; the
+    /// dialogue; the level, 1000 a boss; the trades, `0x64`'s dialogue last.
+    fn apply(&self, placement: &mut Placement) {
+        let (creature, _, word) = &mut placement.creature;
+        let mut stated = self.word;
+        if stated & 0x800 != 0 && placement.trader {
+            stated &= !0x800;
+            placement.trader = false;
+        }
+        *word = ways::stated_word(*word, stated);
+        if self.home.is_some() {
+            placement.home = self.home;
+        }
+        if let Some(hostile) = self.hostile {
+            placement.side = minds::stated_side(placement.side, *creature, stated, hostile);
+        }
+        if let Some(dialogue) = self.dialogue {
+            placement.dialogue = dialogue;
+        }
+        if self.level > 0 {
+            placement.tag = self.level;
+            if self.level == fight::BOSS_TAG {
+                placement.rank = fight::Rank::Boss;
+            }
+        }
+        placement.trader |= self.trader;
+        placement.dialogue |= self.stamped;
+    }
+}
+
+/// Gives the creatures that `records`' `SetNPCState`s name what those change of them
+/// ([`State`]; #541, #578): each placement of a `CreateNPC` before the `SetNPCState` that names
+/// it, `made` the placement of each record; the stables' horses their levels, after their
+/// `CreateNPC`s' rule, and the start's captain of 52,39 its dialogue. The dialogues' table fills
+/// as the records' entries of type 40 run, the first entry twice (`0x476A05`), so that a
+/// dialogue's index is its entry's place from 1 and the index 0 gives none.
+fn set_states(
     records: &[&Record],
     made: &HashMap<*const Record, usize>,
     placements: &mut [Placement],
 ) {
     let mut named: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut dialogues: Vec<String> = Vec::new();
     for record in records {
-        let Body::Operands(ops) = &record.body else {
-            continue;
+        let ops = match &record.body {
+            Body::Dialog { name, .. } => {
+                dialogues.push(name.clone());
+                if dialogues.len() == 1 {
+                    dialogues.push(name.clone());
+                }
+                continue;
+            }
+            Body::Operands(ops) => ops,
+            Body::Block(_) => continue,
         };
         match record.kind {
             CREATE_NPC => {
@@ -1239,18 +1350,13 @@ fn set_levels(
                 }
             }
             SET_NPC_STATE => {
-                let tag = level_tag(ops);
-                let indices = name_of(ops).and_then(|name| named.get(&name));
-                let (true, Some(indices)) = (tag > 0, indices) else {
+                let Some(indices) = name_of(ops).and_then(|name| named.get(&name)) else {
                     continue;
                 };
+                let state = State::of(ops, &dialogues);
                 for &index in indices {
-                    let Some(placement) = placements.get_mut(index) else {
-                        continue;
-                    };
-                    placement.tag = tag;
-                    if tag == fight::BOSS_TAG {
-                        placement.rank = fight::Rank::Boss;
+                    if let Some(placement) = placements.get_mut(index) {
+                        state.apply(placement);
                     }
                 }
             }
@@ -1606,6 +1712,7 @@ impl Npcs {
                 } else {
                     None
                 },
+                home: None,
                 walk,
                 speed: [walking, running].map(f32::from),
                 class,
@@ -1671,7 +1778,7 @@ impl Npcs {
             });
             made.insert(std::ptr::from_ref(*record), placements.len() - 1);
         }
-        set_levels(&records, &made, &mut placements);
+        set_states(&records, &made, &mut placements);
         // What each creature type that has a model is made of, and what each type that the
         // sectors' fills make is placed as ([`template`]).
         let types: HashMap<u32, Kind> = creatures
@@ -2530,8 +2637,12 @@ fn spawn(
         }
     } else {
         let (creature, record_flags, word) = placement.creature;
+        // Its home, where a `SetNPCState` gives one, else where it is made.
+        let home = placement.home.map_or(position, |(hx, hy)| {
+            iso::ground(hx as f32 + 0.5, hy as f32 + 0.5)
+        });
         let mut mind = ai::Mind::new(
-            position,
+            home,
             word,
             placement.made,
             placement.group,
@@ -4043,7 +4154,7 @@ mod tests {
             .collect();
         let mut placements = vec![Placement::default(); 4];
         placements[1].tag = 4;
-        set_levels(&records, &made, &mut placements);
+        set_states(&records, &made, &mut placements);
         let levels: Vec<(u32, fight::Rank)> = placements.iter().map(|p| (p.tag, p.rank)).collect();
         assert_eq!(
             levels,
@@ -4054,6 +4165,108 @@ mod tests {
                 (1000, fight::Rank::Boss),
             ]
         );
+    }
+
+    #[test]
+    fn a_set_npc_state_gives_the_creature_its_dialogue_side_flags_home_and_trade() {
+        let op = |tag, value| Operand { tag, value };
+        let marker = |tag| op(tag, Value::Marker);
+        let named = |kind, name: &str, rest: &[Operand]| {
+            let mut ops = vec![op(0x01, Value::Str(name.into()))];
+            ops.extend_from_slice(rest);
+            Record {
+                kind,
+                body: Body::Operands(ops),
+            }
+        };
+        let dialog = |name: &str| Record {
+            kind: 40,
+            body: Body::Dialog {
+                name: name.into(),
+                values: [0, 0],
+            },
+        };
+        let talk = |name: &str| op(DIALOGUE, Value::Str(name.into()));
+        let records = [
+            // The captain of 52,39 (`0E 46 13`), then the table's first entry, twice in it.
+            named(
+                CREATE_NPC,
+                "Res:17085",
+                &[marker(0x0E), marker(0x46), marker(0x13)],
+            ),
+            dialog("MP_Romata_99"),
+            // A dialogue not in the table yet takes none; the first entry's index 0 none.
+            named(SET_NPC_STATE, "res:17085", &[talk("auftrag22")]),
+            named(SET_NPC_STATE, "res:17085", &[talk("mp_romata_99")]),
+            dialog("auftrag22"),
+            named(SET_NPC_STATE, "res:17085", &[talk("AUFTRAG22")]),
+            // A townsperson made hostile with a guard's mode, sent to another home.
+            named(CREATE_NPC, "res:640", &[marker(0x2B)]),
+            named(
+                SET_NPC_STATE,
+                "res:640",
+                &[
+                    marker(0x08),
+                    marker(0x46),
+                    op(HOME, Value::I32x3([3230, 2766, 0])),
+                ],
+            ),
+            // A trader whose mode `0x800` takes its trade away, its dialogue by number with it;
+            // another made one with its dialogue stamped.
+            named(CREATE_NPC, "res:656", &[marker(0x24), talk("auftrag22")]),
+            named(
+                SET_NPC_STATE,
+                "res:656",
+                &[marker(0x43), op(DIALOGUE_NUMBER, Value::I32(0))],
+            ),
+            named(CREATE_NPC, "res:657", &[marker(0x42)]),
+            named(SET_NPC_STATE, "res:657", &[marker(0x64)]),
+        ];
+        let records: Vec<&Record> = records.iter().collect();
+        let made: HashMap<*const Record, usize> = [0, 6, 8, 10]
+            .iter()
+            .enumerate()
+            .map(|(index, &r)| (std::ptr::from_ref(records[r]), index))
+            .collect();
+        let mut placements = vec![Placement::default(); 4];
+        placements[0].creature = (297, 0, ways::flags_word([0x0E, 0x46, 0x13]));
+        placements[0].side = 7;
+        placements[1].creature = (640, 0, ways::flags_word([0x2B]));
+        placements[1].side = 3;
+        placements[2].trader = true;
+        placements[2].dialogue = true;
+        placements[2].creature.2 = ways::flags_word([0x24]);
+        placements[3].creature.2 = ways::flags_word([0x42]);
+        // The captain's dialogue at each `SetNPCState`, the last its own.
+        let mut captain = placements[0].clone();
+        let state = |ops: &Record, table: &[&str]| {
+            let Body::Operands(ops) = &ops.body else {
+                unreachable!("a SetNPCState has operands");
+            };
+            let table: Vec<String> = table.iter().map(|&d| d.to_owned()).collect();
+            State::of(ops, &table)
+        };
+        state(records[2], &["MP_Romata_99", "MP_Romata_99"]).apply(&mut captain);
+        assert!(!captain.dialogue);
+        captain.dialogue = true;
+        state(records[3], &["MP_Romata_99", "MP_Romata_99"]).apply(&mut captain);
+        assert!(!captain.dialogue);
+        set_states(&records, &made, &mut placements);
+        assert!(placements[0].dialogue);
+        assert_eq!(placements[0].side, 7);
+        assert_eq!(placements[0].creature.2, 0x2);
+        // The townsperson on the side 14, a guard, at home at 3230,2766.
+        assert_eq!(placements[1].side, 14);
+        assert_eq!(placements[1].creature.2, 0x4000);
+        assert_eq!(placements[1].home, Some((3230, 2766)));
+        // The trader no more, its mode as it was, its dialogue gone; the other a trader that
+        // talks.
+        assert!(!placements[2].trader);
+        assert!(!placements[2].dialogue);
+        assert_eq!(placements[2].creature.2, ways::flags_word([0x24]));
+        assert!(placements[3].trader);
+        assert!(placements[3].dialogue);
+        assert_eq!(placements[3].creature.2, 0x400);
     }
 
     #[test]

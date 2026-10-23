@@ -818,7 +818,8 @@ const WORLD = {
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
   id: 0x0c, type: 0x10, x: 0x1c, y: 0x20, floor: 0x24, layer: 0x2c, ai: 0xfc, aiSub: 0xfe, target: 0x104,
-  action: 0x150, actionSub: 0x152, gait: 0x1f8, experience: 0x3b4, level: 0x3fe, most: 0x4d4, health: 0x4d8,
+  action: 0x150, actionSub: 0x152, gait: 0x1f8, dialogue: 0x245, experience: 0x3b4, level: 0x3fe, most: 0x4d4,
+  health: 0x4d8,
 };
 const CLOCK = { dayRate: 0x10, nightRate: 0x14, hours: 0x20, minutes: 0x22, seconds: 0x24, fraction: 0x28 };
 // A creature's stats at +0x3A8 (docs/re/fight.md, docs/re/items.md, "The bonus slots in the values").
@@ -997,6 +998,8 @@ function readCreature(object) {
     ai: [object.add(CREATURE.ai).readU16(), object.add(CREATURE.aiSub).readU16()],
     action: [object.add(CREATURE.action).readU16(), object.add(CREATURE.actionSub).readU16()],
     gait: object.add(CREATURE.gait).readU8(),
+    // Its dialogue's index in the scripts' table, which sdk_STAMP_IDX writes (docs/re/ai.md), 0 or below for none.
+    dialogue: object.add(CREATURE.dialogue).readS32(),
     target: target > 0 && target < objectCount() && objectById(target) !== null ? target : null,
   };
 }

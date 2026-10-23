@@ -28,6 +28,8 @@ pub struct Listed {
     pub fighting: bool,
     pub rank: fight::Rank,
     pub dying: bool,
+    /// Whether it has a dialogue, which holds it (`+0x245`, `minds::Mind::dialogue`).
+    pub dialogue: bool,
 }
 
 impl Listed {
@@ -53,6 +55,7 @@ impl Listed {
             (self.rank == fight::Rank::Champion, " champion"),
             (self.rank == fight::Rank::Boss, " boss"),
             (self.dying, " dying"),
+            (self.dialogue, " dialogue"),
         ] {
             if holds {
                 line.push_str(what);
@@ -118,6 +121,7 @@ pub fn creatures(world: &mut World, radius: u32) -> Result<Vec<String>, String> 
                 fighting: mind.fighting(),
                 rank: rank.map_or_else(fight::Rank::default, |rank| rank.0),
                 dying,
+                dialogue: mind.dialogue,
             };
             Some((here.distance(at), listed))
         })
@@ -351,6 +355,7 @@ mod tests {
             fighting: false,
             rank: fight::Rank::Common,
             dying: false,
+            dialogue: false,
         };
         assert_eq!(
             listed.line(),
@@ -365,12 +370,13 @@ mod tests {
             awake: true,
             fighting: true,
             rank: fight::Rank::Champion,
+            dialogue: true,
             ..listed.clone()
         };
         assert!(
-            fighter.line().ends_with(
-                "cell 3253,2867 floor 2 health 83/83 level 1 hostile awake fighting champion"
-            ),
+            fighter
+                .line()
+                .ends_with("floor 2 health 83/83 level 1 hostile awake fighting champion dialogue"),
             "{}",
             fighter.line()
         );

@@ -161,6 +161,38 @@ Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless 
 - `NPC_Goto` (72, `0x49E210`) takes the NPC's name, then a cell (`0x04`, through `0x6224B0`) or raw coordinates (`0x20`), and an optional flag (`0x66`): it does not move the creature, but posts it an event of walking there (a `cEvent_creature`, id 4), starting a motion first; `Teleport` (46, `0x491D40`) places the creature at once.
 - `QuestKompassObj` (64, `0x49AC80`) points the quest compass at the named object: the quest log alone.
 
+## `SetNPCState`
+
+Read 2026-10-23 (#578); **confirmed** by code unless marked otherwise.
+`SetNPCState` (type 3, the handler `0x48BB40`) reads its tags into a record of its own, a later tag overwriting what an earlier one of its kind wrote, and hands it to `0x461540`, which changes the creature that its `01` names (the local player's for the name it keeps for the hero; nothing without a name or a number).
+In the order of `0x461540`:
+
+- The operand-less tags make a flags word as `CreateNPC`'s do (docs/02 §7.3), but each mode replaces the word's low 16 bits, so that a mode after `0x45` takes its `0x2000` away.
+  A word other than 0 replaces the creature's (`+0x1F4`) but for the bits `0x6682304`, which stay (`0x2000` and a boss's `0x80000` among them); the mode `0x800` (`0x43`) given to a trader (`+0x200` bits `0x4007000`) takes those bits away and is dropped itself.
+- `0x75` is the creature's quest, the word `+0x96` (`0x450E20`), which `ExitQuest`, `LoseQuest` and the quests' hook `0x471790` compare with a quest's number.
+- `0x4D` `(x, y, floor)` is its home (`+0x2B9`, docs/re/ai.md), at the cell's centre; the scripts give one to the hero too (**hypothesis**: where it rises again).
+- `0x08` and `0x0E`, the last of them, make it hostile or peaceful by its side (docs/re/fight.md, "Sides"), and its followers with it: `0x08` puts one that is not hostile to the hero already, or an animal, on the side 2, or 14 where the record's word has the guards' mode `0x4000` or its side is 7; `0x0E` puts one that is hostile to the hero on the side 3, or 7 so.
+  The test is `0x549000` against the creature's controlling player (`+0x39`, the local player's id in a game of one), where `CreateNPC` asks `0x548F60` of the hero, to the same answer.
+- `0x03` turns it as `CreateNPC`'s does (`0x44DDC0`), and a word with the mode 1 wakes it (`sdk_WAKE`).
+- `0x09` names a dialogue and `0x0A` gives one by its number: the walker's table of dialogues (`this+0x755C`, filled as the start script's 1,021 entries of type 40 run, the first entry added twice, `0x476A05`) is searched for the first entry of that name, case aside (`0x859690`), or whose `+0` holds that number.
+  An index above 0 becomes the creature's dialogue (`+0x245`, `sdk_STAMP_IDX`), the entry's `+0x4C` taking the creature's id; a name not found yet, the index 0 or a number not found take the creature's dialogue away.
+  The entries' `+0` is −1 in every one, and every `0x0A` of the scripts is `0A:0` (11,121 records): `0x0A` takes the dialogue away.
+- `0x73` writes `+0x25F` (the mark, docs/re/fight.md), `0x67` `+0x2B6` and `+0x261`, and `0x6B` clears `+0x2B7` bit `0x08` for 0 and sets it above 0 (the strikes' resolution and the deaths read it with `+0x251`, not read further).
+- `0x05` keeps a function's name for the creature in the script manager's list at `+0x358` (`0x464330` takes its old ones out first), as `CreateNPC`'s `0x05` does: the function its death runs (**hypothesis**, by the scripts' names: `od_5002`, the escorts' `…_LOSE_…`); `0x60` adds one too and sets `+0x1F4` bit `0x400000`.
+- `0x1F` is its level, 1000 a boss (docs/re/spawning.md, "`SetNPCState`'s level"); `0x36` writes `+0x255`, which serves nothing (docs/re/ai.md).
+- `0x23`, `0x24` and `0x25` make it a trader (`+0x200` bits `0x1000`, `0x2000` and `0x4000`), each in the script manager's list of traders, and `0x64` too (`0x4000000`) with a dialogue stamped (`0x2BF20`).
+- `0x63` names a trader whose stock of horses the creature joins (the list at `+0x79E8`, up to six horses each, at their levels), its dialogue taken away.
+- `0x11` puts it in a group (`+0x249`, `0x4A9EF0`), and `0xA1` sets `+0x14` bit `0x200000`.
+- `0x37`, `0x4B` and `0x71` hire it (`sdk_HIRE`, docs/re/movement.md), the hero's follower for the number 0; `0x37` and `0x71` also clear its `+0x1F4` bit `0x100` and set `0x4`, and `0x71` marks it in its quest's list (`+0x31C`); `0x39` and `0x65` call the quests' hook `0x471790` instead and tell the hero's client (an event `0x10B`).
+- Last its stats are computed again (`0x5796A0`).
+
+Not read further: `0x7F`, `0x80`, `0x84`, `0x8C`, `0x90` and `0x85`'s blood lines.
+In the Seraphim's tree, of the records that `opensacred-game` runs (the start script, the quests' `OnSetUp` and entered `OnEnter` functions), 66 of the start script and one of an `OnSetUp` are `SetNPCState`s, and those that name a creature made before carry `0x1F` 62 times (the stables' horses), `0x63` 59, `0x09` once (the captain of 52,39, `auftrag22`) and `0x6B` once.
+**Confirmed** in the original (2026-10-23, the Seraphim's start under the driver of #448): the captain's dialogue is 958, the place from 1 of `auftrag22` among the start script's dialogues, which the table's doubled first entry gives.
+
+In `opensacred-game`, `npcs::set_states` gives the creature that a `SetNPCState` names after its `CreateNPC` the record's level, its dialogue by the table as it stands then, its flags word, its side by its hostility (`opensacred_rules::minds::stated_side`), its trades and its home (#578); the captain lists with its dialogue as in the original.
+Its quest, its death's functions and `0x6B` are #656, the followers #657, the horses' trader and the rest #658.
+
 ## Differences from the openheilig table
 
 openheilig's tag table (MIT; derived from a Linux build with addresses `0x08xxxxxx`) differs from the GOG client in eight places:

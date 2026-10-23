@@ -205,6 +205,25 @@ pub fn created_side(class: u8, creature: u32, flags: u32, hostility: Option<bool
         _ => side,
     }
 }
+/// The side that a `SetNPCState` with a hostility tag gives a creature of side `side` and type
+/// `creature` (`0x461540`, after its flags word; docs/re/netscript.md, "`SetNPCState`"): `0x08`
+/// (`hostile`) puts one that is not hostile to the hero already, or an animal, on the side 2, or
+/// 14 where the record's word `word` ([`crate::ways::state_word`]) has the guards' mode `0x4000`
+/// or its side is 7; `0x0E` puts one that is hostile to the hero on the side 3, or 7 so; any other
+/// keeps its side.
+pub fn stated_side(side: u8, creature: u32, word: u32, hostile: bool) -> u8 {
+    let against = hostile_to_heroes(side, creature);
+    let guarding = word & 0x4000 != 0 || side == 7;
+    match (hostile, guarding) {
+        (true, _) if against && side != ANIMALS => side,
+        (true, true) => 14,
+        (true, false) => 2,
+        (false, _) if !against => side,
+        (false, true) => 7,
+        (false, false) => 3,
+    }
+}
+
 /// The behaviours' flags: the wild animals, the farm animals, the guards, the townsfolk
 /// (`0x4EF150`); those that the game follows.
 const WILD: u32 = 0x40;
@@ -2569,6 +2588,19 @@ mod tests {
         assert_eq!(side(3, 640, &[0x0E]), 3);
         // The tag `0x85` puts it on the side 2.
         assert_eq!(side(3, 640, &[0x85]), 2);
+        // `SetNPCState`: a townsperson made hostile on the side 2, or 14 with the guards' mode in
+        // the record; a monster already hostile keeps its side, an animal does not; a hostile
+        // bandit made peaceful on the side 3, or 7 on the side 14; a friend made peaceful keeps
+        // its side.
+        assert_eq!(stated_side(3, 640, 0, true), 2);
+        assert_eq!(stated_side(3, 640, 0x4000, true), 14);
+        assert_eq!(stated_side(7, 297, 0, true), 14);
+        assert_eq!(stated_side(2, 76, 0, true), 2);
+        assert_eq!(stated_side(5, 76, 0x4000, true), 5);
+        assert_eq!(stated_side(6, 516, 0, true), 2);
+        assert_eq!(stated_side(2, 279, 0, false), 3);
+        assert_eq!(stated_side(14, 279, 0x4000, false), 7);
+        assert_eq!(stated_side(3, 640, 0x4000, false), 3);
         // A mind takes the maker's side by its flags' bit 0 until it is given one.
         let mind = |flags, class| {
             Mind::new(
