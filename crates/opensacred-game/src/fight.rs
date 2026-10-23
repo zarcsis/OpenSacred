@@ -6,13 +6,11 @@
 use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 pub use opensacred_rules::fight::{
-    BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Raise, Rank, Templates, combat, fill_level,
-    filled_level, hero_health, most_health, regeneration, scripted_level, skills, tagged_level,
-    takes_on,
+    BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Raise, Rank, Templates, combat, creature_earns,
+    experience_of, fill_level, filled_level, hero_health, level_start, most_health, regeneration,
+    scripted_level, skills, tagged_level, takes_on,
 };
-use opensacred_rules::fight::{
-    Side, art_strike, experience_of, range_factor, strike, weapons_factor, weighed,
-};
+use opensacred_rules::fight::{Side, art_strike, range_factor, strike, weapons_factor, weighed};
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -93,6 +91,23 @@ pub struct Unfought {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Worth(pub [u16; 2]);
 
+/// The experience of a creature that is no hero (its stats' `+0x0C`), which its kills raise
+/// (`npcs::earn`, #690): the start of its level when the level's setter last set it
+/// (`opensacred_rules::fight::level_start`), so that it is kept only once the creature kills.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Points(pub u64);
+
+/// A creature killed by another that is no hero (#690): the killer, which earns the victim's
+/// experience (the event `0x10D`, `0x5311F5`), and what the victim was worth, its level and its
+/// rank.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Kill {
+    pub killer: Entity,
+    pub worth: Worth,
+    pub level: u32,
+    pub rank: Rank,
+}
+
 /// A creature that takes no damage, for a test (the commands `spawn --immortal` and `god`,
 /// #521): a hit lands and shows its damage, but the health stays.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -105,14 +120,16 @@ pub struct Immortal;
 /// `0x56A890`): a target without a health, or dying, ignores it; else the strike may miss, and
 /// its damage takes the target's health down, shows over it, and at 0 the target dies (the AI's
 /// state 9, `0x53E7C0`), one of its two dying clips at random, and a hero that killed it earns
-/// its experience (the event 9, `0x57D860`).
+/// its experience (the event 9, `0x57D860`), a creature that killed it through a [`Kill`].
 #[expect(
+    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 pub(crate) fn resolve(
     mut commands: Commands,
     mut hits: MessageReader<Hit>,
+    mut kills: MessageWriter<Kill>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
@@ -204,11 +221,20 @@ pub(crate) fn resolve(
             DespawnOnExit(AppState::InGame),
         ));
         if health.current == 0 {
+            let by_creature = !hero && !hero_hit;
+            if let Some(&worth) = worth.filter(|_| by_creature) {
+                kills.write(Kill {
+                    killer: hit.attacker,
+                    worth,
+                    level: health.level,
+                    rank: rank.map_or(Rank::Common, |rank| rank.0),
+                });
+            }
             let worth = worth.filter(|_| hero).map(|worth| (*worth, rank.copied()));
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
-                (hit.target, !hero && !hero_hit),
+                (hit.target, by_creature),
                 &health,
                 worth,
             );
@@ -219,8 +245,8 @@ pub(crate) fn resolve(
 /// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the
 /// hero killed it, of `worth` and its rank, the hero earns its experience (the event 9,
 /// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned. A creature
-/// killed by another (`by_creature`, #630) drops nothing, and its killer's experience, which the
-/// original adds to the killer's own (the event `0x10D`, `0x57E160`), is not kept.
+/// killed by another (`by_creature`, #630) drops nothing, and its killer earns its experience
+/// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690).
 fn fell(
     commands: &mut Commands,
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
@@ -495,6 +521,7 @@ pub struct FightPlugin;
 impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
+            .add_message::<Kill>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()
@@ -544,6 +571,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_message::<Hit>()
+            .add_message::<Kill>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()

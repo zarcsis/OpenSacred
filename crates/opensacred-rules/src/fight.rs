@@ -107,6 +107,23 @@ pub fn level_of(points: u64, current: u32) -> u32 {
         .map_or(current, |level| level + 1)
 }
 
+/// The experience that the level's setter gives a creature at its level `level` (`0x564D60`):
+/// the end of the level before, 0 below level 2.
+pub fn level_start(level: u32) -> u64 {
+    if level < 2 { 0 } else { level_end(level - 1) }
+}
+
+/// Adds a kill's `earned` experience to the `points` of a creature that is no hero, at its level
+/// `level` (`addExperience`, `0x57E160`, #690), held below the top level's end; the level of its
+/// new points where that is above `level`, which the level's setter then gives it, held
+/// ([`Rank::held`]). The attribute and skill points that the original counts at each such level
+/// an NPC never spends.
+pub fn creature_earns(points: &mut u64, level: u32, earned: u64) -> Option<u32> {
+    *points = (*points + earned).min(level_end(TOP_LEVEL) - 1);
+    let reached = level_of(*points, level);
+    (reached > level).then_some(reached)
+}
+
 /// A creature's rank (docs/re/fight.md, "Bosses and champions"): a boss (`+0x1F4` bit
 /// `0x80000`), a champion (`+0x2B8` bit `0x40`, with a champion's levelling, `+0xB0` bit
 /// `0x400`), a champion's levelling alone, or neither.
@@ -182,6 +199,32 @@ impl Rank {
             target = top;
         }
         target.max(rules.ranks.off + values.lowest).max(1)
+    }
+
+    /// The level that the level's setter gives a creature of this rank and of type `creature`,
+    /// which is no horse, asked for `level` without the difficulty's raise (`0x564D60` with `a` 1
+    /// and `b` 0, as `addExperience` calls it, #690), in a sector of `values`: a common creature's
+    /// held as [`held_level`] holds it; a boss's or a champion's, marked, at `LevelUpBoss` or
+    /// `LevelUpChamp` more, and not at all for a big type.
+    pub fn held(
+        self,
+        level: u32,
+        values: Option<&SpawnValues>,
+        creature: u32,
+        big: bool,
+        rules: &Rules,
+    ) -> u32 {
+        let up = match self {
+            Self::Common | Self::Levelled => {
+                return held_level(level, values, creature, false, rules);
+            }
+            Self::Boss => rules.ranks.level_up[0],
+            Self::Champion => rules.ranks.level_up[1],
+        };
+        if big {
+            return level.max(1);
+        }
+        level.min(most_level(values, creature, rules) + up).max(1)
     }
 
     /// The factor of its most health (`0x5658F0`): `HPFakBoss` or `HPFakChamp`, three times for
@@ -1905,12 +1948,17 @@ pub fn held_level(
     if horse {
         return level.min(HORSES_MOST);
     }
-    let most = if creature == AT_MOST_300 {
+    level.min(most_level(values, creature, rules)).max(1)
+}
+
+/// The highest level that the level's setter leaves a creature of type `creature` that is no
+/// horse, of a sector of `values`, before its rank's raise ([`held_level`]).
+fn most_level(values: Option<&SpawnValues>, creature: u32, rules: &Rules) -> u32 {
+    if creature == AT_MOST_300 {
         300
     } else {
         values.map_or(0, |values| values.highest) + rules.ranks.cap
-    };
-    level.min(most).max(1)
+    }
 }
 
 /// The level that `CreateNPC` gives a creature of type `creature` of a record with the level tag
@@ -3491,6 +3539,48 @@ mod tests {
         assert_eq!(held_level(400, Some(&start), 701, false, &rules), 300);
         assert_eq!(held_level(30, Some(&start), 554, true, &rules), 30);
         assert_eq!(held_level(300, None, 554, true, &rules), 250);
+    }
+
+    #[test]
+    fn a_creatures_kills_raise_its_level_past_its_levels_end_as_the_setter_holds_it() {
+        // The setter starts a creature at its level's start, so that one of level 13 needs 30,600
+        // more for its level 14 (docs/re/fight.md, "A strike's resolution").
+        assert_eq!(level_start(1), 0);
+        assert_eq!(level_start(2), 300);
+        assert_eq!(level_start(13), 113_700);
+        assert_eq!(level_end(13) - level_start(13), 30_600);
+        let mut points = level_start(13);
+        assert_eq!(creature_earns(&mut points, 13, 116), None);
+        assert_eq!(points, 113_816);
+        assert_eq!(creature_earns(&mut points, 13, 30_484), Some(14));
+        // Two levels at once; the top level's end holds the points.
+        let mut points = level_start(2);
+        assert_eq!(creature_earns(&mut points, 2, 5_600), Some(5));
+        let mut points = level_start(216);
+        assert_eq!(creature_earns(&mut points, 216, u64::from(u32::MAX)), None);
+        assert_eq!(points, level_end(216) - 1);
+        // The setter holds the level reached at the sector's highest, a boss's and a champion's
+        // `LevelUpBoss` and `LevelUpChamp` above it, a big one's not at all.
+        let rules = Rules::default();
+        let start = SpawnValues {
+            density: 50,
+            lowest: 1,
+            highest: 4,
+        };
+        let [boss, champion] = rules.ranks.level_up;
+        assert_eq!(Rank::Common.held(5, Some(&start), 295, false, &rules), 4);
+        assert_eq!(Rank::Levelled.held(5, Some(&start), 343, false, &rules), 4);
+        assert_eq!(Rank::Common.held(400, None, 701, false, &rules), 300);
+        assert_eq!(
+            Rank::Boss.held(14, Some(&start), 689, false, &rules),
+            4 + boss
+        );
+        assert_eq!(
+            Rank::Champion.held(14, Some(&start), 76, false, &rules),
+            4 + champion
+        );
+        assert_eq!(Rank::Boss.held(14, Some(&start), 689, true, &rules), 14);
+        assert_eq!(Rank::Boss.held(3, Some(&start), 689, false, &rules), 3);
     }
 
     #[test]

@@ -3854,41 +3854,157 @@ fn first_fight(
             for (held, values) in &mut arms.holding {
                 *values = npcs.items.make(held.item, grade, &mut dice);
             }
-            let skills = fight::skills(&arms.base, grade, arms.plain);
-            let factor = rank.0.health(creature, mind.class, rules);
-            let most = if arms.plain {
-                PLAIN_HEALTH
-            } else {
-                fight::most_health(arms.base.attributes, grade, &skills, factor, rules)
-            };
-            *health = fight::Health {
-                current: most,
-                most,
-                level: grade,
-            };
-            let (values, share) = arms.fight(grade, rank.0, rules);
-            let pace = values.0.pace_factor();
-            let ratio = pace / npc.pace.max(f32::EPSILON);
-            mind.speed *= ratio;
-            mind.run *= ratio;
-            npc.pace = pace;
-            npc.share = share;
-            *combat = values;
-            mind.level = grade;
+            let regenerates = relevel(
+                grade,
+                rank.0,
+                (&mut *mind, &mut *health, &mut *combat, &mut *npc),
+                &arms,
+                rules,
+            );
+            // The level's setter starts its experience anew at its level (#690).
             commands
                 .entity(who)
-                .remove::<fight::Unfought>()
-                .insert(fight::Regenerates::new(fight::regeneration(
-                    &arms.base, grade, &skills, rules,
-                )));
+                .remove::<(fight::Unfought, fight::Points)>()
+                .insert(regenerates);
             levelled.insert(who);
             bevy::log::info!(
                 "npcs: {who}, a {creature} of rank {:?}, levelled at its first fight to {grade} by \
-                 its opponent's {opponent}, health {most}",
-                rank.0
+                 its opponent's {opponent}, health {}",
+                rank.0,
+                health.most
             );
         }
     }
+}
+
+/// Gives each creature that killed another the victim's experience (the event `0x10D`,
+/// `0x5311F5`, #690) through `addExperience` (`0x57E160`): `0x57D860`'s experience of the victim
+/// at the killer's level, twice or 1.5 times for a boss or a champion, added to the killer's
+/// points, which start at its level's start (`fight::Points`). Once they pass its level's end,
+/// the level's setter (`0x564D60`, with `a` 1 and `b` 0) gives it their level held at the sector
+/// it stands in (`opensacred_rules::fight::Rank::held`) and makes its values anew with its health
+/// refilled, its items as they are, even where the hold keeps its level, as the original's does
+/// at each such kill. The owner's share (`+0x1EC`) waits for creatures with owners (#657).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn earn(
+    mut commands: Commands,
+    mut kills: MessageReader<fight::Kill>,
+    npcs: Option<Res<Npcs>>,
+    mut killers: Query<(
+        Option<&mut fight::Points>,
+        Option<&fight::Ranked>,
+        &Transform,
+        &mut ai::Mind,
+        &mut fight::Health,
+        &mut fight::Combat,
+        &Arms,
+        &mut Npc,
+    )>,
+) {
+    let Some(npcs) = npcs else {
+        return;
+    };
+    let rules = &npcs.fight;
+    for kill in kills.read() {
+        let Ok((points, ranked, transform, mut mind, mut health, mut combat, arms, mut npc)) =
+            killers.get_mut(kill.killer)
+        else {
+            continue;
+        };
+        let from = health.level;
+        let earned = kill
+            .rank
+            .earned(fight::experience_of(kill.worth.0, kill.level, from, rules));
+        let mut sum = points
+            .as_deref()
+            .map_or_else(|| fight::level_start(from), |points| points.0);
+        let reached = fight::creature_earns(&mut sum, from, u64::from(earned));
+        match points {
+            Some(mut points) => points.0 = sum,
+            None => {
+                commands.entity(kill.killer).insert(fight::Points(sum));
+            }
+        }
+        bevy::log::info!(
+            "npcs: {}, a {} of level {from}, earns {earned} experience by its kill, {sum} in all",
+            kill.killer,
+            mind.creature
+        );
+        let Some(reached) = reached else {
+            continue;
+        };
+        let rank = ranked.map_or(fight::Rank::Common, |ranked| ranked.0);
+        let values = npcs.values.get(&sector_of(transform.translation));
+        let grade = rank.held(reached, values, mind.creature, mind.big, rules);
+        let regenerates = relevel(
+            grade,
+            rank,
+            (&mut *mind, &mut *health, &mut *combat, &mut *npc),
+            arms,
+            rules,
+        );
+        commands.entity(kill.killer).insert(regenerates);
+        bevy::log::info!(
+            "npcs: {}, a {} of level {from}, reaches the level {reached} by its kills' \
+             experience, held at {grade}, health {}",
+            kill.killer,
+            mind.creature,
+            health.most
+        );
+    }
+}
+
+/// The sector that the point `here` of the world stands in.
+fn sector_of(here: Vec3) -> (u32, u32) {
+    let (x, y) = paths::cell_of(here.x, here.z);
+    let side = i32::try_from(SIDE).unwrap_or(64);
+    (
+        u32::try_from(x.div_euclid(side)).unwrap_or(0),
+        u32::try_from(y.div_euclid(side)).unwrap_or(0),
+    )
+}
+
+/// Makes a creature's values anew at its level `grade` and of its rank `rank`, as the level's
+/// setter does (`0x564D60` and its recomputation `0x5796A0`): its skills, its most health with its
+/// health refilled to it, its attack, defence, damage, resistances and pace with its items as
+/// they are, its hits' share, and its regeneration, which it returns.
+fn relevel(
+    grade: u32,
+    rank: fight::Rank,
+    (mind, health, combat, npc): (
+        &mut ai::Mind,
+        &mut fight::Health,
+        &mut fight::Combat,
+        &mut Npc,
+    ),
+    arms: &Arms,
+    rules: &fight::Rules,
+) -> fight::Regenerates {
+    let skills = fight::skills(&arms.base, grade, arms.plain);
+    let factor = rank.health(mind.creature, mind.class, rules);
+    let most = if arms.plain {
+        PLAIN_HEALTH
+    } else {
+        fight::most_health(arms.base.attributes, grade, &skills, factor, rules)
+    };
+    *health = fight::Health {
+        current: most,
+        most,
+        level: grade,
+    };
+    let (values, share) = arms.fight(grade, rank, rules);
+    let pace = values.0.pace_factor();
+    let ratio = pace / npc.pace.max(f32::EPSILON);
+    mind.speed *= ratio;
+    mind.run *= ratio;
+    npc.pace = pace;
+    npc.share = share;
+    *combat = values;
+    mind.level = grade;
+    fight::Regenerates::new(fight::regeneration(&arms.base, grade, &skills, rules))
 }
 
 /// What an NPC fights with: its type's values and its model, by which its values and its clips
@@ -4150,7 +4266,8 @@ impl Plugin for NpcsPlugin {
                     .chain()
                     .in_set(Step::Npcs),
             )
-            .add_systems(Update, first_fight.before(fight::resolve));
+            .add_systems(Update, first_fight.before(fight::resolve))
+            .add_systems(Update, earn.after(fight::resolve));
     }
 }
 
