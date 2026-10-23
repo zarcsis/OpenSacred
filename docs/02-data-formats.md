@@ -904,6 +904,7 @@ Estimate: < 1 day with the ready-made code.
   Ten messages carry one German word, the name of a god that the goblins' and the orcs' lines invoke: alone in nine and in a compound in one.
   They are ids 63580866, 63580868, 567832966, 588918616, 640731051, 724553692, 724553694, 990141306, 1478592224 and 1478592228.
   No string of the file holds an English form of the name.
+  The word stands 14 times in them, twice in four, and no other string holds it; `opensacred-convert text` replaces it with a name of the project's own since #683 (below).
 - **Missing names and lines**, which ReBorn restored in every language after Sacred NL (**community-reported**): two kinds show in the data (**confirmed**), whether they are those ReBorn restored is a **hypothesis**.
   Names: a creature type's name is the string whose id is the hash of its number in decimal, as a weapon's (§6.2; type 37 is id 5818), and 25 of the 474 types have none: the empty type 0, 146, 164 to 167, 182, 183 (`Anducar.grn`, `Anducar_Demon.grn`), 222 to 224, 328, 356, 357, 361 to 365, 367, 368, 599 (`WOLF.GRN`), 706 (`NOBLE_FEM.GRN`), 1879 and 6114; and 566 of the 4,883 `Weapon.pak` records have none (§6.2), 448 of them with an `items.pak` slot.
   Lines: of the `res:` keys the scripts name whole, not built at run time with `+VAR(…)`, four quest-log keys of `QuestBook` records (type 53) resolve to no string, `HQ_6_2_1_Log_preQuest`, `NQ_7607_LOG_HEADER`, `NQ_LOG_QLOSE` and `R09NQ01_Log_Qsieg`, besides `res:174242` (type 22), the one numeric reference that does not resolve (above).
@@ -912,17 +913,21 @@ Estimate: < 1 day with the ready-made code.
   The eleven items 5150 to 5160 (models 953 to 963, `gamebox_*.grn`, a model each) are named by ids 77105259 to 77105268 and 77105372, which all hold the same single word, the records' `Weapon.pak` internal name as well.
 - The unused hero voice lines, some German (**community-reported**, DarkMatters topic 72808), are cut content, not a defect.
 
-**Proposal: repairing the texts without carrying them** (#358; a proposal that awaits the maintainer's decision, nothing of it is implemented).
-`opensacred-convert text` would apply a table of repairs as it writes `global.ftl`, each a decision of its own (`docs/decisions/`), since it changes what the player reads.
-Every entry names its string by id and carries the SHA-256 of the original string it was written for, so it applies only to that text and is skipped with a warning on another one; the table carries ids, offsets, lengths and hashes, never the game's wording.
-Its sources, in the order of preference:
+**Repairing the texts without carrying them** (#358, #403; the maintainer's decision of 2026-10-23: the texts are repaired with words of the project's own, the third source below).
+`opensacred-convert text` applies a table of repairs as it writes `global.ftl` (`crates/opensacred-convert/src/text_repairs.rs`), each a decision of its own (`docs/decisions/`), since it changes what the player reads.
+The table carries ids, lengths and hashes, never the game's wording.
+A word replaced names the strings that hold it by id and the original word by its length in UTF-16 units and the SHA-256 of its UTF-16LE bytes; every span of those strings that hashes so takes the project's word, the first part of a compound too.
+A named string without such a span is left as it is, with a warning, so a repair holds only for the text of 2.28.
+Implemented since #683: the goblins' god's name, 14 words in the ten strings above (docs/decisions/2026-10-23-text-repairs.md).
+The creature types' and the items' missing names (#684, #685), the gameboxes' names (#686) and the scripts' keys that resolve to nothing (#687) are sub-issues of #403.
+The sources that were weighed, in the order of preference:
 
 1. **The same file**: a string takes another id's string whole, or a span of it (id, offset and length in UTF-16 units) replaces a span of its own.
    Nothing of the game is carried, but it repairs only what the right text already exists for elsewhere in the file; none of the reports above is such a case.
 2. **Another language the user has installed**: an id the English file lacks takes the same id of `scripts/<lang>/global.res` from the user's other installation (the GOG product has French and Russian depots, not checked locally).
    It fills a gap in another language, and that file is outside the manifest, so its strings cannot be pinned by hash in advance.
-3. **Words of the project's own**: what no installed file holds (the god's English name, names for the eleven gameboxes, the missing names and log lines) would come as English text written for OpenSacred and kept in the table, never ReBorn's or another release's wording.
-   A span to replace is named by its id, offset, length and the hash of the original span, never by the original word; each such text is a choice of translation.
+3. **Words of the project's own**, the source taken: what no installed file holds (the god's English name, names for the eleven gameboxes, the missing names and log lines) comes as English text written for OpenSacred and kept in the table, never ReBorn's or another release's wording.
+   Each such text is a choice of translation.
 4. **A text overlay the user supplies** (a patched `global.res` or a file of `id = text` lines from a mod they own), read after the original: the repository carries nothing, but the result depends on the user's copy and its terms.
 
 The limits: a repair holds only for the exact text of 2.28 that its hash names; a span replaced inside a sentence leaves the grammar around it as it is; and a text taken from another language or written by the project is no longer the original's.

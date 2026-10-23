@@ -1,7 +1,7 @@
 //! `text` subcommand: `scripts/us/global.res` → `<out>/text/en-US/global.ftl` (docs/02 §8). The
 //! message `id-N` is the string whose id is `N`, the [`sacred_hash`] of its name: the game, its
 //! tables and its scripts name strings by that hash, and the names of 10,158 of the 23,123 are not
-//! shipped.
+//! shipped. The strings are written as they are but for the repairs of [`text_repairs`].
 //!
 //! [`sacred_hash`]: opensacred_formats::text::sacred_hash
 
@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use opensacred_formats::text::GlobalRes;
 
+use crate::text_repairs::{self, Outcome};
 use crate::verify::read_game_file;
 
 /// The language directory of the GOG installation and its Fluent locale.
@@ -21,10 +22,15 @@ pub fn output_dir(out: &Path) -> PathBuf {
     out.join("text")
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub strings: usize,
     pub bytes: usize,
+    /// The strings that [`text_repairs`] repaired, and the words it replaced in them.
+    pub repaired_strings: usize,
+    pub repaired_words: usize,
+    /// The repairs left undone, each with its string.
+    pub warnings: Vec<String>,
 }
 
 pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
@@ -40,8 +46,28 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
             let text = entry
                 .text()
                 .with_context(|| format!("{source}: string {} is not UTF-16", entry.id))?;
+            let text = match text_repairs::apply(&text_repairs::WORDS, entry.id, &text) {
+                Outcome::None => text,
+                Outcome::Repaired(repaired, words) => {
+                    summary.repaired_strings += 1;
+                    summary.repaired_words += words;
+                    repaired
+                }
+                Outcome::Mismatch(warning) => {
+                    summary.warnings.push(format!("{source}: {warning}"));
+                    text
+                }
+            };
             let _ = writeln!(ftl, "id-{} = {}", entry.id, pattern(&text));
             summary.strings += 1;
+        }
+        for word in &text_repairs::WORDS {
+            for &id in word.ids.iter().filter(|&&id| res.get(id).is_none()) {
+                summary.warnings.push(format!(
+                    "{source}: string {id}, whose {} a repair replaces, is missing",
+                    word.what
+                ));
+            }
         }
         let dir = output_dir(out).join(locale);
         fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -144,7 +170,8 @@ mod tests {
         }
     }
 
-    /// Every string of the game reads back from the Fluent file as it is in `global.res`.
+    /// Every string of the game reads back from the Fluent file as it is in `global.res`, or as
+    /// its repair makes it: every repair holds, and no string keeps a word that one replaces.
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
     fn every_string_reads_back() {
@@ -152,6 +179,9 @@ mod tests {
         let out = scratch_dir("text");
         let summary = convert(&game, &out).unwrap();
         assert_eq!(summary.strings, 23_123);
+        assert_eq!(summary.warnings, Vec::<String>::new());
+        // docs/02 §8: the goblins' god's name 14 times in ten strings.
+        assert_eq!((summary.repaired_strings, summary.repaired_words), (10, 14));
         let ftl = fs::read_to_string(output_dir(&out).join("en-US/global.ftl")).unwrap();
         let back = read_back(&ftl);
         let data = read_game_file(&game.join(LANGUAGES[0].0)).unwrap();
@@ -159,7 +189,15 @@ mod tests {
         assert_eq!(back.len(), res.entries().len());
         for ((id, text), entry) in back.iter().zip(res.entries()) {
             assert_eq!(id, &format!("id-{}", entry.id));
-            assert_eq!(text, &entry.text().unwrap(), "{id}");
+            let original = entry.text().unwrap();
+            let expected = match text_repairs::apply(&text_repairs::WORDS, entry.id, &original) {
+                Outcome::Repaired(repaired, _) => repaired,
+                _ => original,
+            };
+            assert_eq!(text, &expected, "{id}");
+            for word in &text_repairs::WORDS {
+                assert!(!text_repairs::holds(word, text), "{id} keeps {}", word.what);
+            }
         }
         fs::remove_dir_all(out).unwrap();
     }

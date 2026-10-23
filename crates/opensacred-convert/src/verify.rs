@@ -142,7 +142,7 @@ pub(crate) fn sha256_file(path: &Path) -> io::Result<(String, u64)> {
 }
 
 /// Lower-case hexadecimal of a digest.
-fn hex(digest: &[u8]) -> String {
+pub(crate) fn hex(digest: &[u8]) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
