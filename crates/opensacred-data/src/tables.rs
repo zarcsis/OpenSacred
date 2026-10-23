@@ -341,9 +341,11 @@ pub struct WeaponArt {
     pub distance: i32,
     /// The launch type, as a spell's.
     pub launch: u8,
-    /// For most arts the damage's factor of each strike.
+    /// For most arts the damage's factor of each strike; for the jumps 1003 and 1032 the radius
+    /// they strike within as they land, for 1083 another value.
     pub factor: [f32; 2],
-    /// A second value by the level, of each art its own.
+    /// A second value by the level, of each art its own: the damage's factor of the strikes of
+    /// 1003 and 1083, the value that 1032 gives each creature it lands by, the kicks' own.
     pub value_58: [f32; 2],
     /// A whole value by the level: for the `Rundum` arts the radius in percent of the reach.
     pub value_60: [i32; 2],
