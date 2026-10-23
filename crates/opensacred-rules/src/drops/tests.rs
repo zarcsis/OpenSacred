@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use opensacred_data::tables::WeaponModifier;
+use opensacred_data::tables::{Item, Weapon, WeaponModifier};
 
 use super::*;
 use crate::spawning::Rng;
@@ -68,7 +68,91 @@ fn catalogue(types: &[(u32, u8, Record)]) -> Catalogue {
         categories: types.iter().map(|&(item, c, _)| (item, c)).collect(),
         records: types.iter().map(|&(item, _, r)| (item, r)).collect(),
         lists,
+        slots: types.iter().map(|&(item, ..)| (item, item)).collect(),
     }
+}
+
+/// A slot of `items.pak` of a category, flags 2 (an item).
+fn slot(slot: u32, category: u8) -> Item {
+    Item {
+        slot,
+        kind: 2,
+        class: 0,
+        subclass: 0,
+        name: String::new(),
+        texture: 0,
+        sprite: 0,
+        byte_03: 0,
+        words_08: [0; 2],
+        words_14: [0, 0, 0, 0, 0, 0, u32::from(category) << 16, 0],
+        bytes_34: [0; 3],
+        byte_57: 0,
+        words_58: [0; 10],
+    }
+}
+
+/// A record of `Weapon.pak` of a parent, of no flags.
+fn weapon(id: u32, parent: u32) -> Weapon {
+    Weapon {
+        id,
+        parent,
+        name: String::new(),
+        floats_00: [0.0; 5],
+        bytes_14: [0; 4],
+        float_18: 0.0,
+        bytes_1c: [0; 8],
+        words_84: vec![0; 63],
+    }
+}
+
+#[test]
+fn a_derived_type_is_listed_with_its_roots_entry_and_shows_its_model() {
+    // The knife 1727 and the hand axe 1741 of the weapons, the gladiator's armour 4053 of the
+    // category 21 on file, and the derived types 2029 of 1727, 2114 of 1741, 2100 of 2029, 6600
+    // of 4053 and 2500 of a parent without a slot (#596).
+    let items = [slot(1727, 5), slot(1741, 5), slot(4053, 21)];
+    let weapons = [
+        weapon(1727, 0),
+        weapon(1741, 0),
+        weapon(2029, 1727),
+        weapon(2100, 2029),
+        weapon(2114, 1741),
+        weapon(2500, 9999),
+        weapon(4053, 0),
+        weapon(6600, 4053),
+    ];
+    let mut words = vec![1727, 1741, 4053, 0, 0, 3];
+    words.resize(53, 0);
+    let templates = Templates::new(
+        &[WeaponModifier {
+            words,
+            entries: Vec::new(),
+        }],
+        &weapons,
+    );
+    let catalogue = Catalogue::new(&items, &weapons, &[], &templates);
+    assert_eq!(catalogue.list(5), [1727, 1741, 2029, 2100, 2114]);
+    // 4053 takes the category 6 at the loader, and its derived type with it.
+    assert_eq!(catalogue.list(6), [4053, 6600]);
+    assert!(catalogue.list(21).is_empty());
+    assert_eq!(catalogue.kind(2029), Some(Kind::Weapon));
+    assert_eq!(catalogue.kind(6600), Some(Kind::Armour));
+    // A derived type shows its root's model, a derived type's derived one too.
+    assert_eq!(
+        [1727, 2029, 2100, 2114, 6600, 2500].map(|item| catalogue.slot(item)),
+        [
+            Some(1727),
+            Some(1727),
+            Some(1727),
+            Some(1741),
+            Some(4053),
+            None
+        ]
+    );
+    // The drops' lookup takes the parent once: 2029 finds 1727's template, 2100 none, so the
+    // pass never takes it.
+    assert!(catalogue.records[&2029].limits.is_some());
+    assert!(catalogue.records[&2100].limits.is_none());
 }
 
 const ANY: u32 = CLASS_BITS;

@@ -64,6 +64,11 @@ const UNIQUE: u32 = 0x000F_0000;
 const EXCLUDED_TOO: u32 = 0x0010_0000;
 /// The items table's flags (`+0x00`) that keep a type out of the drops' lists.
 const UNLISTED: u32 = 0x0A00_0000;
+/// The types the items table holds room for (`0x425EA0`).
+const TABLE: u32 = 0x7E60;
+/// The type whose category the loader of `Weapon.pak` sets, whatever `items.pak` says
+/// (`0x434100`): the gladiator's armour `gladarmor01.grn`, of the category 21 on file, 6.
+const RECATEGORISED: (u32, u8) = (4053, 6);
 /// The highest level the type choice holds a level at.
 const HELD: u32 = 28;
 /// The tries of a pass.
@@ -530,16 +535,26 @@ struct Record {
 /// a pass tests, and the lists of `0x5C7FA0` by category, of the types below 8191 that the items
 /// table lists (not of its flags `0x2000000` or `0x8000000`, nor 5120–5131, 5632 or 5633, a rune
 /// only of a `+0x6A`), with a record not of the flag `0x40` and no template of the word 38 −1.
+/// The items table holds `items.pak`'s slots and the types derived from them ([`Catalogue::new`]).
 #[derive(Clone, Debug, Default)]
 pub struct Catalogue {
     categories: HashMap<u32, u8>,
     records: HashMap<u32, Record>,
     lists: HashMap<u8, Vec<u32>>,
+    /// The `items.pak` slot whose record each type's entry of the items table holds: its own, or
+    /// for a derived type its root's ([`Catalogue::slot`]).
+    slots: HashMap<u32, u32>,
 }
 
 impl Catalogue {
     /// The types of `items`, their records in `weapons` (the record whose id is the type,
     /// **hypothesis**, docs/02 §6.2), the pieces of `sets` and the limits of `templates`.
+    ///
+    /// The items table (`0x4257A0`) holds each slot's `items.pak` record; then, in `Weapon.pak`'s
+    /// order, the type of each record with a parent (`+0x24`) takes its parent's entry as it
+    /// stands, its own record kept (`+0x18`): a derived type, of 2000–2999 or 6500–7999 for the
+    /// most part, has its root's category, flags and rune, and the drops list it as they list
+    /// its root (#596). A parent without an entry leaves its type none.
     pub fn new(
         items: &[Item],
         weapons: &[Weapon],
@@ -561,29 +576,55 @@ impl Catalogue {
                     levels: [word(8).to_le_bytes()[0], word(10).to_le_bytes()[1]],
                     skill: [skill, needed],
                     set: pieces.contains(&weapon.id),
-                    limits: templates.limits(weapon.id),
+                    limits: templates.looked_up(weapon.id),
                 };
                 (weapon.id, record)
             })
             .collect();
-        let categories: HashMap<u32, u8> = items
-            .iter()
-            .map(|item| (item.slot, item.category()))
+        // Each type's entry, by the slot whose record it holds.
+        let by_slot: HashMap<u32, &Item> = items.iter().map(|item| (item.slot, item)).collect();
+        let mut slots: HashMap<u32, u32> =
+            items.iter().map(|item| (item.slot, item.slot)).collect();
+        for weapon in weapons {
+            let (id, parent) = (weapon.id, weapon.parent);
+            if !(1..TABLE).contains(&id) || !(1..TABLE).contains(&parent) {
+                continue;
+            }
+            match slots.get(&parent).copied() {
+                Some(slot) => slots.insert(id, slot),
+                None => slots.remove(&id),
+            };
+        }
+        let entry = |item: u32| slots.get(&item).and_then(|slot| by_slot.get(slot).copied());
+        let category = |item: u32| {
+            let slot = *slots.get(&item)?;
+            let category = by_slot.get(&slot)?.category();
+            Some(if slot == RECATEGORISED.0 {
+                RECATEGORISED.1
+            } else {
+                category
+            })
+        };
+        let categories: HashMap<u32, u8> = slots
+            .keys()
+            .filter_map(|&item| Some((item, category(item)?)))
             .collect();
         let mut lists: HashMap<u8, Vec<u32>> = HashMap::new();
-        for item in items {
-            let (slot, category) = (item.slot, item.category());
+        for &listed_type in slots.keys() {
+            let (Some(item), Some(category)) = (entry(listed_type), category(listed_type)) else {
+                continue;
+            };
             let rune = item.words_58[4] >> 16;
-            let listed = slot < 0x1FFF
+            let listed = listed_type < 0x1FFF
                 && item.flags() & UNLISTED == 0
                 && (category != RUNES || rune != 0)
-                && !matches!(slot, 5120..=5131 | 5632 | 5633)
-                && records.get(&slot).is_some_and(|record| {
+                && !matches!(listed_type, 5120..=5131 | 5632 | 5633)
+                && records.get(&listed_type).is_some_and(|record| {
                     record.flags & EXCLUDED == 0
                         && record.limits.is_none_or(|[flags, ..]| flags != -1)
                 });
             if listed {
-                lists.entry(category).or_default().push(slot);
+                lists.entry(category).or_default().push(listed_type);
             }
         }
         for list in lists.values_mut() {
@@ -593,7 +634,14 @@ impl Catalogue {
             categories,
             records,
             lists,
+            slots,
         }
+    }
+
+    /// The `items.pak` slot whose record the items table holds for type `item`: the type's own,
+    /// or a derived type's root's, whose model and texture it shows (#596).
+    pub fn slot(&self, item: u32) -> Option<u32> {
+        self.slots.get(&item).copied()
     }
 
     /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour or a
