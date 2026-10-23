@@ -61,6 +61,7 @@ use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item, Weapon};
 use opensacred_data::world::SIDE;
+use opensacred_rules::minds;
 
 use crate::frame::Step;
 use crate::sectors::Streamer;
@@ -148,6 +149,9 @@ struct Placement {
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
+    /// An NPC's side (`+0x1F0`), by which it is hostile to the hero or not
+    /// (`opensacred_rules::minds::hostile_to_heroes`; #580).
+    side: u8,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
@@ -408,6 +412,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         door: false,
         trigger: None,
         creature: (creature, kind.flags, 0),
+        side: kind.class,
         texture: kind.texture.clone(),
         layer: 0,
         equipment: Vec::new(),
@@ -1537,6 +1542,17 @@ impl Npcs {
             } else {
                 0
             };
+            // Its flags word and its side by its operand-less tags: its mode, and whether it is
+            // hostile or peaceful (`0x08`, `0x0E`; #580).
+            let markers = || {
+                ops.iter()
+                    .filter(|o| matches!(o.value, Value::Marker))
+                    .map(|o| o.tag)
+            };
+            let word = crowd::flags_word(markers());
+            let class = classes.get(&creature).copied().unwrap_or_default();
+            let side =
+                minds::created_side(class, creature, word, minds::created_hostility(markers()));
             placements.push(Placement {
                 model: model.clone(),
                 cell: (x, y),
@@ -1547,7 +1563,7 @@ impl Npcs {
                 },
                 walk,
                 speed: [walking, running].map(|speed| f32::from(speed) * iso::MODEL_SCALE),
-                class: classes.get(&creature).copied().unwrap_or_default(),
+                class,
                 base: bases.get(&creature).copied().unwrap_or_default(),
                 held: if record.kind == CREATE_NPC {
                     held_class(&categories)
@@ -1588,12 +1604,9 @@ impl Npcs {
                 creature: (
                     creature,
                     record_flags.get(&creature).copied().unwrap_or_default(),
-                    crowd::flags_word(
-                        ops.iter()
-                            .filter(|o| matches!(o.value, Value::Marker))
-                            .map(|o| o.tag),
-                    ),
+                    word,
                 ),
+                side,
                 texture,
                 layer,
                 equipment: if record.kind == CREATE_NPC {
@@ -1940,6 +1953,7 @@ pub fn spawn_creatures(
         } else {
             ai::of_type(creature)
         };
+    placement.side = minds::made_side(placement.class, creature, hostile);
     let hero = experience.level;
     let side = u32::try_from(SIDE).unwrap_or(64);
     let mut made = Vec::new();
@@ -2165,6 +2179,8 @@ pub fn place(
                     } else {
                         ai::of_type(made.creature)
                     };
+                // Its side as the creature maker leaves it for the entry's hostility (#580).
+                placement.side = minds::made_side(placement.class, made.creature, made.hostile);
                 // A pack's group, by its sector, its record and its leader.
                 placement.group = made.pack.and_then(|leader| {
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
@@ -2375,6 +2391,7 @@ fn spawn(
             (creature, placement.class),
         );
         mind.hold(placement.dialogue, placement.trader, placement.kept);
+        mind.side = placement.side;
         bevy::log::debug!(
             "npcs: {} is a {creature} of the flags {word:#x}, {:#x} after its first update",
             entity.id(),

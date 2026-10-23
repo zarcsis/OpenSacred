@@ -109,6 +109,102 @@ const PERIOD_HOSTILE: f32 = 2.5;
 const JITTER: f32 = 1.5;
 /// The flags whose creatures' own timers wake them: the hostile ones and the townsfolk.
 const TIMED: u32 = 0x3 | 0x408;
+
+/// The heroes' side (`+0x1F0`), their types' `Creature.pak` class (`0x43ADC0`).
+pub const HEROES: u8 = 1;
+
+/// Which sides are friends (`0x890A30`, the client's table of 16 × 16 bytes that `0x423580`
+/// reads by two creatures' sides `+0x1F0`, docs/re/fight.md, "Sides"): bit `b` of row `a` set
+/// when side `a` is a friend of side `b`, clear when hostile to it. The heroes (1) are friends of
+/// the sides 0, 1, 3, 4, 6 and 7 and hostile to the others; side 13 is hostile to all.
+const FRIENDS: [u16; 16] = [
+    0xDFFF, 0x00DB, 0xDF75, 0x00DB, 0x00DB, 0xCE75, 0xDFFF, 0x00DB, 0xDF55, 0x5F75, 0xDF75, 0xDF75,
+    0xDF55, 0x0000, 0xDF75, 0xDC55,
+];
+
+/// The type that is hostile to every creature but those of its own type and of the types 99 and
+/// 109, whatever their sides (`0x4236F3`).
+const AGAINST_ALL: u32 = 75;
+
+/// The animals' side, which the creature maker and `CreateNPC` make hostile even where it is
+/// (`0x481002`, `0x48366B`).
+const ANIMALS: u8 = 6;
+
+/// Whether a creature of side `side` and type `creature` is hostile to the heroes (`0x548F60`,
+/// `0x423580`): its side's row of [`FRIENDS`] without the heroes' bit, or its type
+/// [`AGAINST_ALL`]. The client's other cases are not followed: the pairs of the types 189 and
+/// 334 against 245 and 188, the creatures of `+0x200` bit `0x10000000` and their lists, a horse
+/// taken by its rider's side, and the flags word's bit `0x40000`, which turns the answer over.
+pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
+    let friends = FRIENDS
+        .get(usize::from(side))
+        .is_some_and(|row| row & (1 << HEROES) != 0);
+    !friends || creature == AGAINST_ALL
+}
+
+/// The side that the creature maker gives a creature of `Creature.pak` class `class` and type
+/// `creature` that it makes hostile or peaceful, `hostile` (`0x480D40`, from `0x480F24`, as a
+/// fill's entries ask): its class (`0x43ADC0`, as the constructor gives it); 2 when it is made
+/// hostile and its class is not hostile to the heroes, or is the animals'; 3 when it is made
+/// peaceful and its class is hostile, but the animals'.
+pub fn made_side(class: u8, creature: u32, hostile: bool) -> u8 {
+    let against = hostile_to_heroes(class, creature);
+    match hostile {
+        true if !against || class == ANIMALS => 2,
+        false if against && class != ANIMALS => 3,
+        _ => class,
+    }
+}
+
+/// Whether `CreateNPC`'s operand-less tags `tags`, in order, make its creature hostile or
+/// peaceful (`0x482510`, the record's hostility at `[ESP+0x34]`, −1 for neither): `0x08`
+/// hostile; `0x0E` and the modes `0x2B`, `0x2E`, `0x30`, `0x32` and `0x42` peaceful; the last of
+/// them counts, and `0x8D`, handled after the tags, makes it peaceful whatever comes before
+/// (`0x4833C6`).
+pub fn created_hostility(tags: impl IntoIterator<Item = u8>) -> Option<bool> {
+    let (mut hostility, mut seated) = (None, false);
+    for tag in tags {
+        match tag {
+            0x08 => hostility = Some(true),
+            0x0E | 0x2B | 0x2E | 0x30 | 0x32 | 0x42 => hostility = Some(false),
+            0x8D => seated = true,
+            _ => {}
+        }
+    }
+    if seated { Some(false) } else { hostility }
+}
+
+/// The side that `CreateNPC` gives its creature of `Creature.pak` class `class` and type
+/// `creature`, with the flags word `flags` that its tags make ([`crate::ways::flags_word`]) and
+/// their hostility `hostility` ([`created_hostility`]) (`0x483438` to `0x4836B2`): its class, as
+/// the constructor gives it (`0x43ADC0`), or 2 with the tag `0x85` (`+0x1F4` bit `0x2000000`);
+/// then, one of the mode `0x4000` or `0x8000` without a hostility being peaceful, a hostile one 2
+/// unless it is hostile to the heroes already and no animal, 14 instead where its mode is
+/// `0x4000` or its side 7; a peaceful one 3 when it is hostile to the heroes, 7 instead where its
+/// mode is `0x4000` or its side 7; any other keeps its side.
+pub fn created_side(class: u8, creature: u32, flags: u32, hostility: Option<bool>) -> u8 {
+    let side = if flags & 0x200_0000 != 0 { 2 } else { class };
+    let hostility = hostility.or((flags & 0xC000 != 0).then_some(false));
+    let against = hostile_to_heroes(side, creature);
+    let guarding = flags & 0x4000 != 0 || side == 7;
+    match hostility {
+        Some(true) if !against || side == ANIMALS => {
+            if guarding {
+                14
+            } else {
+                2
+            }
+        }
+        Some(false) if against => {
+            if guarding {
+                7
+            } else {
+                3
+            }
+        }
+        _ => side,
+    }
+}
 /// The behaviours' flags: the wild animals, the farm animals, the guards, the townsfolk
 /// (`0x4EF150`); those that the game follows.
 const WILD: u32 = 0x40;
@@ -382,6 +478,10 @@ pub struct Mind {
     /// Its type, and its `Creature.pak` class: the animals (4 and 6) flee from the others.
     pub creature: u32,
     pub class: u8,
+    /// Its side (`+0x1F0`), by which it is hostile to the hero or not ([`hostile_to_heroes`]):
+    /// as the creature maker leaves it for the flags' bit 0, which it sets on a creature that it
+    /// makes hostile ([`made_side`]), unless its maker gives it another ([`created_side`]).
+    pub side: u8,
     /// Whether it has a dialogue (`+0x245`, `sdk_STAMP_IDX` `0x5498F0`), which holds it: a
     /// townsperson keeps still, a guard does not stroll, a crowded creature does not part.
     pub dialogue: bool,
@@ -429,8 +529,8 @@ pub struct Mind {
 
 impl Mind {
     /// The mind of a creature made at `home` with the flags word `flags`, by an `Enter` function
-    /// or not, by `CreateNPC` (`created`) or a fill: `CreateNPC` wakes its hostile creatures as
-    /// it makes them (`sdk_WAKE`) and gives them a timer of 2.5 s.
+    /// or not, by `CreateNPC` (`created`) or a fill: `CreateNPC` wakes its creatures of the flags'
+    /// bit 0 as it makes them (`sdk_WAKE`) and gives them a timer of 2.5 s.
     pub fn new(
         home: Spot,
         flags: u32,
@@ -439,7 +539,14 @@ impl Mind {
         [speed, run]: [f32; 2],
         (creature, class): (u32, u8),
     ) -> Self {
-        let hostile = flags & 0x3 != 0;
+        // `CreateNPC` wakes the creatures of its flags' bit 0 and gives them the shorter period
+        // (`0x483A03`, `0x48396E`).
+        let woken = flags & 0x1 != 0 && created;
+        let side = if flags & 0x1 != 0 {
+            made_side(class, creature, true)
+        } else {
+            class
+        };
         // A creature of an `Enter` function still without flags takes them at its first update
         // (`0x5375C0`, `0x542B20`): the animals of class 6 the loose farm animals', the jugglers
         // theirs, the others the townsfolk's, unless `CreateNPC` holds it ([`Self::hold`]). A
@@ -460,6 +567,7 @@ impl Mind {
             run,
             creature,
             class,
+            side,
             dialogue: false,
             trader: false,
             level: 1,
@@ -475,13 +583,9 @@ impl Mind {
             shots: Chain::default(),
             takes_bow: false,
             first,
-            awake: hostile && created,
+            awake: woken,
             clock: 0.0,
-            period: if hostile && created {
-                PERIOD_HOSTILE
-            } else {
-                PERIOD
-            },
+            period: if woken { PERIOD_HOSTILE } else { PERIOD },
             rests: 0.0,
         }
     }
@@ -500,9 +604,10 @@ impl Mind {
         }
     }
 
-    /// Whether it is hostile to the hero.
+    /// Whether it is hostile to the hero, by its side and its type (`0x548F60`,
+    /// [`hostile_to_heroes`]), not by its flags.
     pub fn hostile(&self) -> bool {
-        self.flags & 0x3 != 0
+        hostile_to_heroes(self.side, self.creature)
     }
 
     /// Whether it is awake (`sdk_WAKE`): a dormant creature does not look for the hero.
@@ -2416,6 +2521,75 @@ mod tests {
     }
 
     #[test]
+    fn a_creature_is_hostile_to_the_hero_by_its_side() {
+        for side in [0, 1, 3, 4, 6, 7] {
+            assert!(!hostile_to_heroes(side, 295), "{side}");
+        }
+        for side in [2, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16] {
+            assert!(hostile_to_heroes(side, 295), "{side}");
+        }
+        // The spiders of type 75, whatever their side.
+        assert!(hostile_to_heroes(6, 75));
+        // The creature maker: a hostile bandit of class 7 on side 2, a peaceful goblin of class 2
+        // on side 3, a rabbit on its own, an animal made hostile on side 2.
+        assert_eq!(made_side(7, 279, true), 2);
+        assert_eq!(made_side(2, 76, true), 2);
+        assert_eq!(made_side(2, 76, false), 3);
+        assert_eq!(made_side(6, 516, false), 6);
+        assert_eq!(made_side(6, 516, true), 2);
+        // `CreateNPC`: the last of `0x08` and `0x0E` and the peaceful modes counts; `0x8D`
+        // makes peaceful whatever comes before.
+        assert_eq!(created_hostility([0x08, 0x12]), Some(true));
+        assert_eq!(created_hostility([0x08, 0x0E]), Some(false));
+        assert_eq!(created_hostility([0x0E, 0x08]), Some(true));
+        assert_eq!(created_hostility([0x08, 0x2B]), Some(false));
+        assert_eq!(created_hostility([0x8D, 0x08]), Some(false));
+        assert_eq!(created_hostility([0x46, 0x13]), None);
+        let side = |class, creature, tags: &[u8]| {
+            let flags = crate::ways::flags_word(tags.iter().copied());
+            created_side(
+                class,
+                creature,
+                flags,
+                created_hostility(tags.iter().copied()),
+            )
+        };
+        // The start's captain of the garrison of 52,39 (`0E 46 13`, class 7) stays on the side 7,
+        // a friend of the hero, though its mode 2 stands in the hero's way (#580).
+        assert_eq!(side(7, 297, &[0x0E, 0x46, 0x13]), 7);
+        assert!(!hostile_to_heroes(side(7, 297, &[0x0E, 0x46, 0x13]), 297));
+        // A quest's bandit (`08 46`, class 7) on the side 14, a monster (`08 12`) on its own.
+        assert_eq!(side(7, 279, &[0x08, 0x46]), 14);
+        assert_eq!(side(2, 76, &[0x08, 0x12]), 2);
+        // Without either: its class's side, but the guards' modes make a hostile class peaceful.
+        assert_eq!(side(7, 279, &[0x12]), 7);
+        assert_eq!(side(2, 76, &[0x12]), 2);
+        assert_eq!(side(2, 76, &[0x46]), 7);
+        assert_eq!(side(2, 76, &[0x4C]), 3);
+        assert_eq!(side(3, 640, &[0x0E]), 3);
+        // The tag `0x85` puts it on the side 2.
+        assert_eq!(side(3, 640, &[0x85]), 2);
+        // A mind takes the maker's side by its flags' bit 0 until it is given one.
+        let mind = |flags, class| {
+            Mind::new(
+                Spot::default(),
+                flags,
+                (true, false),
+                None,
+                SPEEDS,
+                (640, class),
+            )
+        };
+        assert!(mind(0x1, 3).hostile());
+        assert!(!mind(0x4000, 3).hostile());
+        assert!(mind(0x400, 2).hostile());
+        let mut captain = mind(0x2, 7);
+        assert!(!captain.hostile());
+        captain.side = 2;
+        assert!(captain.hostile());
+    }
+
+    #[test]
     fn a_hostile_creature_of_a_script_wakes_as_it_is_made_and_looks_every_2_5_s() {
         let home = Spot::default();
         let script = Mind::new(home, 0x1, (false, true), None, SPEEDS, (0, 0));
@@ -2425,6 +2599,9 @@ mod tests {
         assert!(!fill.awake && fill.period == PERIOD);
         let villager = Mind::new(home, 0x400, (true, true), None, SPEEDS, (0, 0));
         assert!(!villager.awake && !villager.hostile());
+        // The mode 2 is not woken (#580).
+        let captain = Mind::new(home, 0x2, (false, true), None, SPEEDS, (297, 7));
+        assert!(!captain.awake && captain.period == PERIOD);
     }
 
     #[test]
