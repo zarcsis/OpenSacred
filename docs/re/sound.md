@@ -25,6 +25,56 @@ A second table in `.data`, at VA `0x9D6908`, names the 8 groups of a profile for
 
 The footstep profiles' samples bear the footstep names out (`FOOTSTEP_HEROMALE_GRASS01` in group 1, the horse's neighing in group 0), and so do the music profile's (below).
 
+## The fight's sounds
+
+Read in Ghidra 2026-10-23 (#708, #709), **confirmed** by code unless marked, and seen with the driver of #448 (the Seraphim of level 1, the button held on an immortal goblin warrior of level 1 for three spells of 15 s, the god mode on: `trace sound-pick`, the `sound` group, a trace of `0x6852B0`).
+
+**The voices.**
+A creature speaks through `0x6852B0` (`this` the sound manager `0x6770E0()`; the creature's type `+0x3B0`, its id `+0xC`, the group, a special: 0 a line of the profile, 1 a cast's line, 2 an "unconscious" line, both of fixed ids).
+
+- The type picks a case by a byte table at `0x68BBD0` (the types 1 to 714, the index type − 1) and the jump table at `0x68B9F8`: 118 cases, `0x75` no voice; 328 types have a voice, which `Creature.pak` has no part in.
+- Each case names the profile, a roll `rand() % N` (the line on 0; the `DEATH`, group 7, forced for most) and a wait, 1 s by default, 10 s for the cases that end the switch, else 2 to 5 s.
+  The wait is kept per sound id, not per creature: a table of 128 entries at `+0xAF88` (`0x679170` tests it, `0x679120` records it).
+- The heroes take one of two profiles at random at each call: the Seraphim 1008 or 1009, the Gladiator 1002/1003, the Mage 1006/1007, the Dark Elf 1000/1001, the Wood Elf 1004/1005, the Vampiress 1010/1011 (her case names 1012 too; **hypothesis**: by her form), the Dwarf 1013/1014, the Daemon 1015/1016; one in four, 10 s.
+  Their profiles fill the groups 1 to 3 alone.
+- The start's creatures: the goblin warrior 76 2031 (one in four, the death always, 5 s), the thief 313 2023 (`ATTACK` one in seven, the others one in five, 10 s), the black magician 271 2033 (one in four, 10 s, cast lines), the novice 677 2055 (one in four, 10 s), the boss 689 2026 (one in four, 10 s), the bears 536–538, 591 and 600 2009 (one in two, 1 s), the wolves 512 and 567–588 2014 (one in two, 1 s), the boars 543 and 545 2004 (always, 1 s); the rabbits 516, 592 and 593, the pigs, chickens, cows and horses have none.
+
+The groups are passed by eight calls:
+
+| Group | When | Where |
+|---|---|---|
+| 1 `ATTACK` | a melee strike's start, the attack action's sub-state 0; a shot | `0x4E52D1`, `0x4DF06C` |
+| 2 `NORMALHIT` | a hit that did damage, the event 5's handler after `0x56B130` | `0x532161` |
+| 3 `CRITICALHIT` | such a hit when the target's sound record's `+0x2C` is below 26 (**hypothesis**: its health in per cent) | `0x532161` |
+| 7 `DEATH` | death, without the roll, stopping the creature's line | `0x536389`, `0x533504` |
+| specials | a cast, the unconscious | `0x51D438`; `0x53EAD1`, `0x56E428` |
+
+`APPROACH`, `FOLLOW`, `FOLLOW_HEROFLEE` and `FLEE` are passed by no call (**hypothesis**: unused in the fight); group 0 is the idle noises of the sound manager's update (`0x69B770`: a roll `rand() % 70` for each tracked object at rest, a profile by its type).
+A line plays only when its id waits for nothing (groups 1, 2), when the record's `+0x34` is 0 (3), and always (7); while the creature speaks (`0x678AF0`) the groups 0, 1, 4–6 and 3 give way, a normal hit stops the line and plays, a death always plays; one sample a creature (`0x678980`).
+`playSFX` (`0x693510`) plays a voice at the volume 0.45 + (`rand() % 10`) / 90 with the distances of `AIL_set_3D_sample_distances` (100 and 10.1, or by the creature's size: size × 100 and size × 0.3 + 10; the units' scale not read); 28 channels.
+
+- **Seen:** a strike that the held button chains (docs/re/fight.md, "The hero's attack") starts in sub-state 1, not 0, and calls no `ATTACK`: the hero's voice took group 1 three times in the 45 s of strikes, the goblin's, whose own strikes chain too, 32 times.
+  Of those 32 the goblin's line (2031, group 1) was picked and started 15 times, of its 42 `NORMALHIT`s 11, of the hero's 21 `NORMALHIT`s 4 (1008 or 1009, group 2): the hits about as the roll of one in four gives, the goblin's `ATTACK` about twice as often (**hypothesis**: another gate than the roll for it; not read).
+- **Seen:** every sample of the fight started through `AIL_start_sample`, none through `AIL_start_3D_sample` (**hypothesis**: `playSFX` takes the 2D path for a sound near the hero, or for every sound; not read).
+
+**The weapons.**
+
+- **The swing** (`WOOSH`, group 5): the sound event `0x67A7A0(5, 2, …)` at a strike's hit moment within reach (`0x4EA6FD`, in `0x4EA3F0`), and at a strike's start without a target (**hypothesis**: in the air), of a profile by the class of what the striker holds (`0x546F80`): 0 and 5 503, 1 and 2 500, 3 509, 4 505, 6 504, 8 500 or 516, 9 and 10 506, at (0.975 + (`rand() % 5`) / 90) × 0.5.
+  **Seen:** the goblin's swings picked 503's group 5 at each of its strikes, the Seraphim's 500's group 5 at each of hers.
+- **At the target** (`0x5320B2`–`0x532146`, `0x532731`): a hit that did damage plays the striker's weapon's `HIT` (1) by the item's profile (`items.pak +0x24`, docs/02 §6.1, read by `0x425EC0`, which falls back on a weapon of the record's kind when it is 0), the fist's (502) for bare hands, at 0.5; else its `PARADE` (2), the fist's `FIST_MISS`; the target types 512, 536, 543, 545 and 567–591 take another sound, by a name near `0x956038` (not read).
+  **Seen:** the goblin's hits at the hero picked 502's group 1, its strikes that did nothing (the god mode) 502's group 2.
+  The Seraphim's sword, the starting weapon `Weapon.pak` 7901 of the parent 1724 (whose `items.pak +0x24` is 500), picked the profile 0, its group 1 after a hit and 0 after a miss: nothing, so her starting sword's hits sound only by their swing (**hypothesis**: the starting weapons 7900–7909, whose `items.pak` slots are empty, take no profile; the fallback not read).
+- **The shot** (`0x4DCB80`): the bow's group (**hypothesis**: 3, `SHOOT`); an arrow's hit by the weapon's type (`0x5BB010`).
+- The pick `0x4261D0(profile, group)` takes one of the group's 8 slots by `rand() & 7`.
+
+**The hero's lines**, MP3 samples by name (`0x693FE0`), part of the 3,404 MP3s of `sound.pak` (docs/02 §10.2):
+
+- `HITENEMY_nn_<class>` (11 a class) from `0x6852B0` when a creature not the hero takes the group 2 or 3, 10 s since the last, one in five;
+- `BATTLECRY_nn_<class>` (10 a class) at the sound event 5 with an argument from 1003 to 1104 (**hypothesis**: a combat art), one in three, always for the arts that play their own ids 2098 to 2104;
+- `ENEMYKILLME_nn_<class>` (6 a class) at the hero's `DEATH`, with `MUSIC_DEATH` (6505, `0x694FE0`).
+
+`opensacred-game` plays none of them yet (#710 to #713).
+
 ## Footsteps by the ground
 
 A function around `0x68EDDA` plays a footstep: it switches on the nature (`nature − 0x10`, byte table `0x68FED0`, jump table `0x68FEB0`) and calls `0x4261D0(sound, group)` with the footstep group:
