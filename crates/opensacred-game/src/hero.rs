@@ -71,6 +71,8 @@ pub struct ArtClipName {
     pub clip: Option<String>,
     pub points: Vec<f32>,
     pub rate: f32,
+    /// Whether it plays at its rate itself, not times the attack's clip speed (the kicks').
+    pub fixed: bool,
     /// Whether its strikes' factors are halved, the hero holding two weapons (`0x4EA3F0`).
     pub halved: bool,
 }
@@ -83,6 +85,7 @@ pub struct ArtNode {
     pub clip: Option<Handle<AnimationClip>>,
     pub points: Vec<f32>,
     pub rate: f32,
+    pub fixed: bool,
     pub halved: bool,
 }
 
@@ -413,6 +416,7 @@ pub fn spawn(
                 clip,
                 points: art.points.clone(),
                 rate: art.rate,
+                fixed: art.fixed,
                 halved: art.halved,
             })
             .collect();
