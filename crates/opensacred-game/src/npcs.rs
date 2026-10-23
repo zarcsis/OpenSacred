@@ -1995,6 +1995,7 @@ pub fn place(
     let npcs = &mut *npcs;
     let hero = experience.level;
     let minutes = played.minutes();
+    let side = u32::try_from(SIDE).unwrap_or(64);
     let loaded: Vec<(u32, u32)> = streamer.sectors().collect();
     for &at in &loaded {
         if npcs.spawned.contains(&at) {
@@ -2108,6 +2109,8 @@ pub fn place(
                 npcs.factors.enemies
             };
             let count = spawning::count(fill, values, hero, factor, &mut rng);
+            // One level for all the creatures of the run, before they are made (`0x47D187`, #582).
+            let shared = fight::fill_level(&values, hero, minutes, &mut rng);
             let ground = spawning::Ground {
                 origin: (x0, y0),
                 dungeon: dungeons.sector(at),
@@ -2167,22 +2170,21 @@ pub fn place(
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
                     Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
                 });
-                // Its level, held at its sector's highest as the creature maker sets it (#562),
-                // a horse's not.
-                let horse = placement.class == HORSES_CLASS;
-                let level = fight::level(
-                    &values,
-                    hero,
-                    Some(&mut rng),
-                    made.creature,
-                    horse,
-                    &npcs.fight,
-                );
-                // A boss or a champion, at the hero's level and more (`0x47E6B7`, `0x550E50`).
+                // A boss or a champion, at the hero's level and more (`0x47E6B7`, `0x550E50`);
+                // any other at the run's level, one or two more on a dungeon's sector (#570),
+                // held at its sector's highest as the creature maker sets it (#562), a horse's
+                // not.
                 placement.rank =
                     fight::Rank::of_fill(made.creature, made.hostile, &mut rng, &npcs.fight);
-                let big = placement.creature.1 & crowd::BIG != 0;
-                let level = placement.rank.level(level, hero, &values, big, &npcs.fight);
+                let level = if placement.rank == fight::Rank::Common {
+                    let horse = placement.class == HORSES_CLASS;
+                    let dungeon = dungeons.sector((cx / side, cy / side));
+                    let creature = (made.creature, horse);
+                    fight::filled_level(shared, dungeon, &values, creature, &npcs.fight, &mut rng)
+                } else {
+                    let big = placement.creature.1 & crowd::BIG != 0;
+                    placement.rank.level(1, hero, &values, big, &npcs.fight)
+                };
                 let entity = spawn(
                     &mut commands,
                     &placement,
