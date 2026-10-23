@@ -4157,7 +4157,7 @@ mod tests {
         // The last counts; a pack's number, below 10,000,000, never meets a script's.
         let twice = [op(GROUP, Value::I32(3)), op(GROUP, Value::I32(4))];
         assert_eq!(script_group(&twice), Some(SCRIPT_GROUP | 4));
-        assert!(SCRIPT_GROUP > 99 * 100_000 + 99 * 1000 + 999);
+        const { assert!(SCRIPT_GROUP > 99 * 100_000 + 99 * 1000 + 999) };
     }
 
     #[test]
