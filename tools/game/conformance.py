@@ -23,6 +23,9 @@ FAIL:
   `opensacred_game::fight` at `debug`, the original's trace `strike`): the mean time between them must agree within
   5 %, the share that lands and the mean damage within four standard deviations (the game needs
   `RUST_LOG=info,opensacred_game::fight=debug`);
+- `arts`: the Seraphim's art 1071 and the spell 18 (after `arts learn 18`) used (`arts use`), the world paused
+  while they are read: each art's time still to run just after the use must agree within 0.05 s, and the rate at
+  which it then goes down over 8 s of world time within 3 %;
 - `drops`: 1,000 drops of a goblin warrior of level 10 (the game's `drop`, the original's driver's `drop --id`), the
   shares of the items' categories (`items.pak +0x2E`, a derived type 2000–2999 or 6500–7999 by its root), each within
   two points or four standard deviations, whichever is wider, and the share of the derived types.
@@ -266,6 +269,44 @@ def strikes_suite(game, original, report, seconds=60):
                      f'type 76 level 1: {means[0]:.1f} / {means[1]:.1f} damage a hit')
 
 
+ART_LINE = re.compile(r'(?:spell|art) (\d+) level .* time ([\d.]+) s, factor [\d.]+, to run ([\d.]+) s')
+
+
+def arts(endpoint, line='arts'):
+    """Each art's time and time still to run, by its id, as `arts` lists them after `line`."""
+    return {int(m[1]): (float(m[2]), float(m[3])) for m in map(ART_LINE.match, endpoint.exec(line)) if m}
+
+
+def arts_suite(game, original, report, seconds=8):
+    for endpoint in (game, original):
+        endpoint.exec('arts learn 18')
+    for art in (1071, 18):
+        rates, after = [], []
+        for endpoint in (game, original):
+            endpoint.exec('arts ready')
+            endpoint.exec('pause on')
+            used = arts(endpoint, f'arts use {art}')
+            start = time.monotonic()
+            endpoint.exec('pause off')
+            time.sleep(seconds)
+            elapsed = time.monotonic() - start
+            endpoint.exec('pause on')
+            later = arts(endpoint)
+            endpoint.exec('pause off')
+            after.append(used)
+            rates.append({a: (used[a][1] - later[a][1]) / elapsed for a in used if a in later})
+        for a in sorted(set(after[0]) | set(after[1])):
+            ours, theirs = after[0].get(a), after[1].get(a)
+            if ours is None or theirs is None:
+                report.check('arts', False, f'use of {art}: art {a} in one game alone')
+                continue
+            report.check('arts', abs(ours[1] - theirs[1]) <= 0.05,
+                         f'use of {art}: art {a} to run {ours[1]:.1f} / {theirs[1]:.1f} s')
+            if theirs[1] > 0 and ours[1] > 0:
+                p, q = rates[0][a], rates[1][a]
+                report.check('arts', abs(p - q) <= 0.03 * q, f'use of {art}: art {a} runs {p:.3f} / {q:.3f} a second')
+
+
 def item_categories(assets):
     """The category of each item type, a derived type's by its root (`Weapon.pak +0x24`)."""
     items = open(os.path.join(assets, 'tables', 'items.ron'), encoding='utf-8').read()
@@ -314,7 +355,7 @@ def drops_suite(game, original, report, assets, times=1000):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--suites', default='experience,hero,stats,drops,places,regeneration,strikes')
+    parser.add_argument('--suites', default='experience,hero,stats,drops,places,regeneration,strikes,arts')
     parser.add_argument('--save', default='start-seraphim', help="the original's save of the Seraphim's new game")
     parser.add_argument('--types', help='the stats suite\'s creature types, comma-separated')
     parser.add_argument('--levels', default='1,10,25,40', help="the stats suite's levels")
@@ -343,6 +384,8 @@ def main():
             regeneration_suite(game, original, report)
         elif suite == 'strikes':
             strikes_suite(game, original, report)
+        elif suite == 'arts':
+            arts_suite(game, original, report)
         else:
             parser.error(f'no suite {suite}')
     print(f'{report.checks} checks, {report.failed} failed')

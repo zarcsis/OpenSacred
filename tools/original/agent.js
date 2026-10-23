@@ -798,6 +798,7 @@ const WORLD = {
   addArt: ptr('0x580750'),           // the stats: thiscall (stats, an art's entry of 22 bytes on the stack), adds it
   artIndex: ptr('0x581d40'),         // the stats: thiscall (stats, art), the index of its entry
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
+  startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
 };
 const CELL = 53.66563;               // a cell's side in world units
@@ -828,6 +829,7 @@ const addArt = new NativeFunction(WORLD.addArt, 'void',
 const artIndex = new NativeFunction(WORLD.artIndex, 'uint32', ['pointer', 'uint32'], 'thiscall');
 const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'],
   'thiscall');
+const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float', 'uint32', 'uint32'], 'thiscall');
 // A creature's combat arts (docs/re/arts.md, "A creature's arts"): entries of 22 bytes between the pointers at
 // +0x102 and +0x106 of its stats.
 const ART = { list: 0x102, end: 0x106, size: 22, table: 0, id: 4, level: 6, bonus: 7, flags: 8, time: 10, factor: 14,
@@ -1152,8 +1154,9 @@ const COMMANDS = {
     return { paused: want };
   },
   // A creature's combat arts, the hero's by default (#569); `learn` raises the hero's art by levels as runes do,
-  // through the original's own functions, and `ready` ends every art's regeneration.
-  arts: (engine, { id, learn, levels, ready }) => {
+  // through the original's own functions, `ready` ends every art's regeneration, and `use` starts it as a use of the
+  // art does (#623).
+  arts: (engine, { id, learn, levels, ready, use }) => {
     const object = id ? objectById(id) : hero();
     if (object === null || !isCreature(object)) {
       throw new Error(id ? `no creature ${id}` : 'no hero');
@@ -1173,6 +1176,16 @@ const COMMANDS = {
       for (const entry of artEntries(stats)) {
         entry.add(ART.remaining).writeFloat(0);
       }
+    }
+    if (use) {
+      // An art's executor (0x562470, docs/re/arts.md): its time added to every art of its kind, 1 the spells (the
+      // arts 1019 and 1085 to 1087 among them) and 2 the weapon arts, the art itself its group.
+      const entry = artEntries(stats).find((e) => e.add(ART.id).readU16() === use);
+      if (entry === undefined) {
+        throw new Error(`the art ${use} is not the creature's`);
+      }
+      const spell = entry.add(ART.table).readU32() === 1 || use === 1019 || (use >= 1085 && use <= 1087);
+      startArt(stats, entry.add(ART.time).readFloat(), spell ? 1 : 2, use);
     }
     return artEntries(stats).map((e) => ({
       table: e.add(ART.table).readU32(), id: e.add(ART.id).readU16(), level: e.add(ART.level).readU8(),
