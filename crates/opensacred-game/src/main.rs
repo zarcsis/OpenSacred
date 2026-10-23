@@ -118,10 +118,10 @@ struct Cli {
     /// default); the window then opens without taking the focus
     #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "15702")]
     remote: Option<u16>,
-    /// Open the window outside every monitor, a window as with --windowed, for a run driven from
-    /// afar: it draws there, its screenshots are whole and it covers no one's screen
+    /// Keep the window hidden, a window as with --windowed, for a run driven from afar: it is on no
+    /// screen, taskbar or Alt-Tab, and draws on and takes its screenshots
     #[arg(long, conflicts_with = "borderless")]
-    offscreen: bool,
+    hidden: bool,
 }
 
 /// Threads of Bevy's compute pool, which runs the systems in parallel. Bevy gives it every
@@ -165,7 +165,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
     // frames do not depend on the monitor.
     let fixed = cli.screenshot.is_some() || cli.record.is_some() || cli.benchmark.is_some();
-    if cli.windowed || cli.offscreen || fixed {
+    if cli.windowed || cli.hidden || fixed {
         settings.display.mode = settings::Mode::Windowed;
     }
     if cli.borderless {
@@ -206,8 +206,9 @@ fn run(cli: Cli) -> Result<AppExit> {
                     },
                     // Driven from afar, it leaves the focus to whoever works on the desktop.
                     focused: cli.remote.is_none(),
-                    // Outside every monitor, it shows once it is there (`settings::Offscreen`).
-                    visible: !cli.offscreen,
+                    // Hidden, it renders all the same, on a locked desktop too; the game hangs when a
+                    // hidden window is shown again (Bevy 0.20, #556), so it stays hidden.
+                    visible: !cli.hidden,
                     ..default()
                 }),
                 ..default()
@@ -331,9 +332,6 @@ fn run(cli: Cli) -> Result<AppExit> {
     app.insert_resource(script);
     if let Some(port) = cli.remote {
         app.add_plugins(remote::RemoteControlPlugin { port });
-    }
-    if cli.offscreen {
-        app.init_resource::<settings::Offscreen>();
     }
     Ok(app.run())
 }
