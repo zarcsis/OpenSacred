@@ -14,7 +14,21 @@ With `E` that level and `H` the target's, `r = (E + 9)/(H + 9)` and the threshol
 A failed test sends the creature dormant again, and in one case of three to its idle action, only when its target is also beyond its reach, and it is no boss (`+0x1F4` bit `0x80000`) nor champion (`+0x2B8` bit `0x40`) outside a group, nor a creature of a script on sight: a weak monster lets the hero pass and fights only when the hero comes within its reach, and a lone boss or champion always fights.
 Otherwise it attacks a target within 800, alive and hostile to it (`0x422820`), when a straight line of walkable cells leads to it (`0x4FCC80`); without one it goes for the nearest closed door of its sector (`0x4D4800`, "Doors in the way" below), staying idle when there is none, and when no way leads to it at all (`0x4F7710`) it takes its idle action.
 It takes the AI's state 8 with a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13, 14), else 4; in a group, in one case of two, it raises the group's alarm (`0x46AE70`, docs/re/ai.md, "Groups").
-The reach `0x4DBC60(a, b)` is the mean of two sizes by type: 130 by default, the heroes 70 to 130, the monsters 70 to 480.
+The reach `0x4DBC60(a, b)`, a `__thiscall` on the creature `a` with `b` on the stack (`a` again when `b` is null), is the mean, in integers, of the two creatures' sizes by their types (`+0x10`), 130 for a type that has none of its own (read again 2026-10-23, #510):
+
+- 70: the Wood Elf (5), the Vampiress by day (6), 333;
+- 80, or 110 with a weapon in a hand (`0x546F80(0)` not 0): the Dark Elf (4), the types 274 to 303;
+- 100: the Seraphim (1), 32 to 34, 38, 45, 48 to 51, 192, 316, 699;
+- 110: 259;
+- 120: the Gladiator (2), 37, 44, 182, 188, 194, 260, 307, 308, 315, 322, 670, 671, 689, 690;
+- 170: 190, 193, 348;
+- 200: 187, 202 to 208, 253 to 255, 344, 350 to 352, 359;
+- 300: 183;
+- 420: 55;
+- 480: 52, 74, 88, 100 to 103;
+- the Mage (3), the Vampiress by night (7), the Dwarf (8), the Daemon (9) and every other type 130.
+
+So the Seraphim and a goblin warrior (76, of the default) are 115 apart, the Gladiator and one 125; the game takes 130 for every pair (#642).
 
 ## Sides
 
