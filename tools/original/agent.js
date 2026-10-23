@@ -794,6 +794,7 @@ const WORLD = {
   lowestRaise: ptr('0xad4c18'),      // by the difficulty's column: what CreateNPC adds to a sector's lowest level
   highestRaise: ptr('0xad4e1c'),     // and to its highest
   strikeEvent: ptr('0x89095c'),      // the vtable of the event that 0x4EA3F0 sends a creature it hits
+  create: ptr('0x5fba40'),           // sdk_CREATE: the object manager makes an object, its id returned
   addArt: ptr('0x580750'),           // the stats: thiscall (stats, an art's entry of 22 bytes on the stack), adds it
   artIndex: ptr('0x581d40'),         // the stats: thiscall (stats, art), the index of its entry
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
@@ -853,6 +854,7 @@ const world = {
   god: null,       // with `god on`: {id, health}, the hero and the health it keeps
   immortal: new Set(),   // the ids of the creatures `spawn --immortal` made, whose health strikes leave as it was
   fpu: {},         // by where it was read (frame, recompute, strike): {thread, word}, the x87 control word there
+  made: null,      // while a command collects them: the ids of the objects sdk_CREATE makes
 };
 
 // The calling thread's x87 control word (fnstcw), whose bits 8 and 9 give the precision of its arithmetic: 0 for 24
@@ -1304,9 +1306,9 @@ const COMMANDS = {
     }
     const made = [];
     for (let i = 0; i < times; i += 1) {
-      made.push(dropOf(creature, 0, 0, 0, heroId));
+      made.push(madeBy(() => dropOf(creature, 0, 0, 0, heroId)).map(describeMade).filter((m) => m !== null));
     }
-    return { creature: readCreature(creature), made: made.map(describeMade) };
+    return { creature: readCreature(creature), made };
   },
   // An item of a type, as a drop forced to it makes it (#559): the hero's drop of the type, at the hero's place and
   // level, thrown as a death's drop is.
@@ -1315,8 +1317,8 @@ const COMMANDS = {
     if (h === null) {
       throw new Error('no hero');
     }
-    const made = dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32());
-    return { made: describeMade(made) };
+    const made = madeBy(() => dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32()));
+    return { made: made.map(describeMade).filter((m) => m !== null) };
   },
 };
 
@@ -1429,6 +1431,28 @@ function strike(attacker, target) {
 }
 
 // An object a drop made: its id, type and, for gold, its amount.
+// The objects that sdk_CREATE makes while `call` runs on this thread (#594): what a drop makes, which its return value
+// tells only at times (0 for gold and most items).
+function madeBy(call) {
+  world.made = [];
+  try {
+    call();
+    return world.made;
+  } finally {
+    world.made = null;
+  }
+}
+
+function installMade() {
+  Interceptor.attach(WORLD.create, {
+    onLeave(result) {
+      if (world.made !== null && result.toInt32() > 0) {
+        world.made.push(result.toUInt32());
+      }
+    },
+  });
+}
+
 function describeMade(id) {
   const object = id > 0 ? objectById(id) : null;
   if (object === null) {
@@ -1562,6 +1586,7 @@ function installWorld() {
   }, 'uint32', ['pointer', 'uint32'], 'thiscall');
   Interceptor.replace(WORLD.tick, world.tick);
   installStrikes();
+  installMade();
   setInterval(() => {
     const now = Date.now();
     const late = world.jobs.filter((job) => now > job.deadline);

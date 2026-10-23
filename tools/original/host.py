@@ -1040,13 +1040,15 @@ class Host:
             raise ValueError('drop: TIMES 1 to 200')
         result = self.world('drop', {'id': options.id, 'times': options.times})
         lines = [f"drops of {self.describe_creature(result['creature'])}"]
-        lines += [f'{i + 1}: {self.describe_made(made)}' for i, made in enumerate(result['made'])]
+        lines += [f"{i + 1}: {'; '.join(self.describe_made(m) for m in made) or 'nothing'}"
+                  for i, made in enumerate(result['made'])]
         return lines
 
     def command_item(self, rest):
         if not rest.isdigit():
             raise ValueError('item TYPE')
-        return [f"made {self.describe_made(self.world('item', {'type': int(rest)})['made'])}"]
+        made = self.world('item', {'type': int(rest)})['made']
+        return [f"made {'; '.join(self.describe_made(m) for m in made) or 'nothing'}"]
 
     def quit_later(self):
         if not self.ended.wait(15):
