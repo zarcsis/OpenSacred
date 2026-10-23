@@ -297,6 +297,7 @@ python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
 python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500
+python -I tools/game/remote.py --port 15703 exec "spawn 76 --count 3"   # or: kill 10, drop 20, item 5171
 python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
 python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
 python -I tools/game/remote.py --port 15703 shell                    # by hand: a command a line, ":help" the client's own
@@ -367,6 +368,8 @@ What the first step found (2026-10-21, Windows 11, #449):
 * The world's state and commands (#451, docs/re/objects.md): the objects' table and the hero, a creature's cell, health, level, experience, AI and action, the clock, the zoom; the hero onto a cell as the scripts' `Teleport` puts a player, the clock's time and rates, the zoom, the pixel of a cell, a walk by a click there.
   The agent reads and changes the world on the render thread's frame (`cEngine_handleZoomInput`), never on Frida's thread.
 * The hero's state (#558, docs/re/objects.md): `god` keeps the hero's health through a strike's resolution and gives back any other loss at the next frame, beside the original's own `lord` flag, which spares only the knock-downs; `heal` refills a creature; `level` and `experience` add experience through the original's `addExperience`, so that each level-up is play's own.
+* The world's creatures and items (#559, docs/re/objects.md): `spawn` makes creatures with `FillSector`'s maker and the level setter, `kill` sends each hostile creature about the hero the hero's strike at a health of 1, so that the creature's own handler makes the death, the drops and the experience, `drop` and `item` call the drop.
+  A function the agent calls from inside a hook's callback runs past every hook of the agent, the traces too (Frida's guard against recursion), so the agent replaces the frame's function, calling the original at its end, rather than hooking it, and the traces see what the commands make the game do.
 * The traces (#452, docs/re/traces.md): presets for the fight's strikes, chances and damage, deaths and experience, the drops and the items made, the regeneration, the creatures' waking and idle rolls, the doors, the sounds; any address with the kinds of its arguments.
   The sounds play only at volumes above 0, so their traces take `--muted`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
 
