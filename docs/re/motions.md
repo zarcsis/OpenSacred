@@ -49,6 +49,7 @@ A soldier with a sword and a kite shield is of class 1, one with a crossbow 12, 
 ## The arts' slots
 
 A combat art's executor plays its own slot of the model for the art and the class of what the creature holds, not through `0x5467A0`'s table: the Gladiator's 201 to 222, the Seraphim's 153 and 211 to 216 (docs/re/arts.md, "The arts' clips", #509).
+The other classes' executors take the same slots for their own `Rundum`, `Hardhit` and `Attacke` (219 to 225, 201 to 207, 210 to 216), 248 and 247 for the Dwarf's guns, 194 on horseback, 144 to 154 for the kicks and the Vampiress's arts, and the action 4's clip where a class has no slot of its own (docs/re/arts.md, "The other classes' clips", #510).
 
 ## The other cases
 

@@ -56,14 +56,14 @@ The records are compiled from `0x94FDB0`: records of `0x78` bytes, the record 0 
 | `+0x00` | `u16` | the art's id | `0x4D1AF0` | | | |
 | `+0x04`, `+0x08` | `u32` | the name's and the description's text indices, as the first table's | `0x4D1D00`, `0x4D1D10` | 8266, 9166 | 8262, 9162 | 8260, 9160 |
 | `+0x0C`, `+0x2C`, `+0x30`…`+0x38` | | the icon, its texture's handle and three sprites, as the first table's | `0x4D1C20`, `0x4D1D40` | `GUI_MOVE_ATTACKE`, 618–620 | `GUI_MOVE_ATTACKE`, 618–620 | `GUI_MOVE_RUNDUM`, 624–626 |
-| `+0x3C` | `u32` | a column of the sheet, no reader found | | 7 | 7 | 5 |
+| `+0x3C` | `u32` | a column of the sheet that no code of the play reads (#510: neither the callers of `0x4D1AF0` nor a reference into the table): 5 for most, 6 and 7 for most classes' `Hardhit` and `Attacke`, 15 for their kicks, 10, 30, 48 and 120 for some special moves | | 7 | 7 | 5 |
 | `+0x40`, `+0x44` | `f32` | the regeneration time, `L·[+0x44] + [+0x40]` (`0x4D1C00`) | `0x571080` | 10 + 5·L | 10 + 5·L | 5 + 3·L |
 | `+0x48` | `i32` | the distance the art is made from: 101 to 250 is the reach of the two creatures (`0x4DBC60`), within which the creature walks to ±10 (±120 in one case); 0 where it stands; below 0 for the jumps (1003: −290, 1017: −330) | `0x4FD0F0` | 130 | 130 | 130 |
 | `+0x4C` | byte | the launch type | `0x4FD0F0`, `0x51D840` | 1 | 1 | 1 |
 | `+0x50`, `+0x54` | `f32` | for most arts the damage's factor of each strike, `L·[+0x54] + [+0x50]`, shown as `100 · factor − 100` percent; for the jumps 1003 and 1032 the radius they strike within as they land, 190 + 10·L (below), and for 1083 another value | the executors, `0x4D1EB0`, `0x6A6550`, `0x51CC20` | 0.75 + 0.05·L | 0.75 + 0.05·L | 0.8 + 0.1·L |
-| `+0x58`, `+0x5C` | `f32` | a second value by the level, of each art its own: the factor of the strikes of 1003 (1.8 + 0.2·L) and 1083 (0.9 + 0.1·L), the value that 1032 gives each creature it lands by (5 + 10·L; **hypothesis** for its sense), the kicks' 55 + 7·L and 40 + 5·L (**hypothesis** for their sense) | `0x4D1EB0`, `0x4FF0B0`, `0x51CC60` | 0 | 0 | 0 |
-| `+0x60`, `+0x64` | `i32` | a whole value by the level: for the `Rundum` arts the radius in percent of the reach, `L·[+0x64] + [+0x60]`, shown 100 less | `0x4FF0B0`, `0x5893B0` | 0 | 0 | 160 + 20·L |
-| `+0x68`, `+0x6C` | `i32` | another, of each art its own (1014's in `0x4D1EB0`, below) | | 0 | 0 | 0 |
+| `+0x58`, `+0x5C` | `f32` | a second value by the level, of each art its own: the factor of the strikes of 1003 (1.8 + 0.2·L) and 1083 (0.9 + 0.1·L), the value that 1032 gives each creature it lands by (5 + 10·L; **hypothesis** for its sense), the Wood Elf's 1008 its arrows' second value (`0x5BD2D0`, the first its factor), the kicks' 40 to 55 + 5 to 7·L, which the Gladiator's kick does not read (#510) | `0x4D1EB0`, `0x4FF0B0`, `0x51CC60`, `0x5BD2D0` | 0 | 0 | 0 |
+| `+0x60`, `+0x64` | `i32` | a whole value by the level: for the `Rundum` arts the radius in percent of the reach, `L·[+0x64] + [+0x60]`, shown 100 less; for the kicks 1,000, the base of the knockdown's time (below); for the Wood Elf's 1006, over `L·[+0x6C] + [+0x68]`, the ratio its arrow's hit takes (`0x5BB010`, not followed) | `0x4FF0B0`, `0x5893B0`, `0x5BB010` | 0 | 0 | 160 + 20·L |
+| `+0x68`, `+0x6C` | `i32` | another, of each art its own (1014's in `0x4D1EB0`, below; 1006's, above) | `0x4D1EB0`, `0x5BB010` | 0 | 0 | 0 |
 | `+0x70` | `u32` | the classes | `0x4D1B20` | 1 | 2 | 2 |
 | `+0x74` | byte | the flags of the first table's `+0x90` | `0x4D1BE0`, `0x4D1BD0` | 1 | 1 | 1 |
 | `+0x75`…`+0x77` | bytes | from the sheet, 0 | the loader | | | |
@@ -126,7 +126,7 @@ A creature's stats (docs/re/fight.md) hold its arts as a list of entries of 22 b
 The level in play is the level and the bonus (`0x580A10`); a rune raises the level by 1, to 255 at most, and the items' and sets' bonuses the bonus (`0x571710` through `0x581F80`, not for good).
 Seen in the original (2026-10-23, #569, the driver's `arts`): the new Seraphim's 1071 at level 1 has bit 0 of `+0x08` clear, as the template's entry has it, and the rune's functions set it; raised to level 3 its time went from 15 to 25 s, `10 + 5·L`, and its regeneration still to run rose by the same 10 s; the spell 18 learnt at level 1 took 24 s, `15 + 9·L`.
 A creature that is no player's and lacks an art uses it at the level `⌊creature's level / 5⌋ + 1` (`0x580A10`).
-`0x580A10` takes the generic 1061 and 1062 as the class's own (above), finds the entry by its id alone, and gives its level with its bonus, or without it on its flag; for a creature that is no player's and lacks the art, one of the flag `0x80000` of `+0x1F4` or `0x40` of `+0x2B8` takes another level, not read.
+`0x580A10` takes the generic 1061 and 1062 as the class's own (above), finds the entry by its id alone, and gives its level with its bonus, or without it on its flag; for a creature that is no player's and lacks the art, a boss (`+0x1F4` bit `0x80000`) takes that level times `SpellFakBoss` (1.4) and a champion (`+0x2B8` bit `0x40`) times `SpellFakChamp` (1.2), truncated (the balance's image at `0xAD56A0` and `0xAD56A4`; read 2026-10-23, #510).
 `0x571080` makes every entry's time: the record's value at the level, from the first table or the second, and with the bonus half of what the bonus adds to it when that is more, `v(L) + (v(L + b) − v(L))/2`; a time that grows adds as much to the regeneration still to run.
 It looks an art up in the first table, then in the second, whatever the entry's table; a spell's value is whole seconds, `L·[+0x40] + [+0x3E]` in integers (`0x4D25C0`), a weapon art's a float (`0x4D1C00`); every entry's factor becomes 1.0, and an art that neither table holds keeps its time (read 2026-10-23, #506).
 The growth is added in `0x581F80`, not here.
@@ -189,17 +189,19 @@ A hero's stats (only for a creature of the heroes' class, `0x426650`) hold its c
 Setting a combo writes its four arts and levels and makes `+0x1A` the sum of their values at their levels, from either table, 1.0 where it comes below 0.001, `+0x1E` 1.0 and `+0x22` 0.
 The speed is then `1 +` the mean over its arts of their attribute over 100, `MagicRegen` for an id below 1000 and `PhysicalRegen` above; the combo is ready when `+0x22` reaches `+0x1A` (`0x581A60`).
 While a combo runs, a use of an art takes from every combo's `+0x22` and its own goes back to 0 (read in part).
+A combo is ordered as an art of `0x200` plus its index (the right button, below); its arts' executors take the level of the combo's step (`0x56ABE0(combo, step)`: the step's level for the steps 0 to 3, else the level of the last step that has an art and a level) where the creature's `+0x2B3` and `+0x2B4` name a combo and its step, or `+0x401` a combo, instead of the art's own (read 2026-10-23, #510).
 Its description (`0x581550`) lists each art's name and level, then `+0x1A` over `+0x1E` (`+0x1A` alone where `+0x1E` is 0) to one decimal between the regeneration's label and its unit, the texts 1107 and 1146.
 
 ## An art in a strike
 
 The order to make an art (`0x4FD0F0`, `KiSpMove`) tests its launch type (`0x51D840`), walks to within its distance `+0x48` of the target and takes the class's action of the arts from `0x95583C` (the same at `0x956C48`): the Seraphim 9, the Gladiator 8, the Mage 12, the Dark Elf 10, the Wood Elf 11, the Vampiress 13, the Dwarf 14, the Daemon 15; the art in use is the creature's `+0x120`.
-The classes' executors: the Gladiator's `0x4FF0B0`, the Seraphim's `0x5038F0`, the Dark Elf's `0x506770`, the Wood Elf's `0x50AC00`, the arts 1000 to 1002 `0x50CD10`, the Vampiress's `0x50E6C0`, the Dwarf's `0x514790`, the Daemon's `0x5192E0`, the spells' `0x522480`, and the NPCs' special arts `0x4DCB80`.
+The classes' executors: the Gladiator's `0x4FF0B0`, the Seraphim's `0x5038F0`, the Dark Elf's `0x506770`, the Wood Elf's `0x50AC00`, the arts 1000 to 1002 `0x50CD10`, the Vampiress's `0x50E6C0`, the Dwarf's `0x514790`, the Daemon's `0x5192E0`, the spells' `0x522480`; a shot, an art's with a bow among them, is the action 5's `0x4DCB80` (docs/re/fight.md).
+`0x5481F0`, a creature's handler of an event whose sender is not read, picks an art of the class of the event's `+0x10` from a table of 20 rows of 8 columns by their weights, a roll out of 301, and orders it (`0x105`) on the creature for a launch type 2, else on the local player's hero (`0xAD3CE0`); in `w` cases of `w + 1` (`w` 2, 4 or 8 by the class) it posts the event `0x100` instead (read 2026-10-23, #510).
 
 - `Attacke` (1059 in `0x4FF0B0`, 1071 in `0x5038F0`): at every hit point of the clip (`0x4115D0`, `0x4135D0`, as the plain strike), it strikes the target within its reach + 45, and when the target is gone, the next hostile creature within it; it ends when the clip has no more hit points.
   Each strike is the creature's strike event (`0x4EA3F0`) of the hit's kind 1 and the factor `0.75 + 0.05·L`, and the first starts the regeneration; the strikes are as many as the clip's hit points, not by the level (**hypothesis**).
   Seen in the original (2026-10-23, #569, an immortal goblin warrior of level 1 beside the Seraphim): one use of her 1071 made 7 strikes in about 2.8 s at level 1 and at level 3 alike, each with the attack `28.5 · (1.3 + 0.125·L)` in its chance (40.61 and 47.74) and its damage times 0.8 and 0.9.
-- `Rundum` (1057): before 70 % of its clip, it strikes the creature nearest each bone of a weapon or a hand (`0x44CA30`) within `160 + 20·L` percent of the two creatures' reach, not the one it struck last (`+0x190`), with the factor `0.8 + 0.1·L`.
+- `Rundum` (1057): from 30 % of its clip (read again, #510: while what is left of it is under 70 %), it strikes the creature nearest each bone of a weapon or a hand (`0x44CA30`) within `160 + 20·L` percent of the two creatures' reach, unless it is the one it struck last (`+0x190`), with the factor `0.8 + 0.1·L`; the Seraphim's 1069 from the clip's start ("A `Rundum`'s run" below).
 - `Hardhit` (1058 in `0x4FF0B0`, 1070 in `0x5038F0`): at its clip's hit point, half the clip where the clip has none, one strike on its target with the factor `1.8 + 0.2·L`, whatever the distance, which starts the regeneration and ends the art.
 
 Read again 2026-10-23 (#508):
@@ -207,7 +209,7 @@ Read again 2026-10-23 (#508):
 - An executor sends a strike with the byte 15 as its kind and the factor `L·[+0x54] + [+0x50]`, `L` the level in play (`0x580A10`); `0x4EA3F0` makes it the hit's kind 1 with that factor, and a plain strike its kind with the factor 1, and halves the factor where the creature holds a weapon of kind 8, or an item in each hand, the one of `+0x1D4` not of the shields' category 13 (`0x427CD0`): 0.5 for a factor of 0 or below.
 - `Attacke`, the Gladiator's and the Seraphim's alike: each time its executor runs, while its target lives (`0x549080`) within the two creatures' reach and 45 (`0x5370B0` against `0x4DBC60`), it waits for the clip's next hit point and strikes then, the first strike starting the regeneration (`+0x18C` counts the strikes); its target lost, it takes the first creature of the world's list (`0xAD3CE0`, `0xAD3BC8` of them) other than it that is hostile (`0x548F60`) within the reach and 45, and with none it ends.
   The same test of the reach and 45 stands in the Wood Elf's 1063, the Vampiress's 1040 and 1075, the Dwarf's 1080 and the Daemon's 1092, and in `0x50CD10` for 1000 to 1002.
-- `Rundum`: its executor's first run starts the regeneration; each run before 0.7 of its clip it takes a point of a bone of a weapon or a hand, twice (`0x44CA30`, `0x623AD0`), and finds the creature nearest it (`0x5FEAF0`'s, but itself), within 1,000 and the radius: the second time `[+0x60] + [+0x64]·L` per cent of the reach, the first a value of the reach not read; that creature, unless it is the one struck last (`+0x190`) or it may not be struck (`0x549000`), takes a strike and becomes the last, so that a creature is struck again after another.
+- `Rundum`: its executor's first run starts the regeneration; each run from 0.3 of its clip (the Gladiator's; read again, #510) it takes a point of a bone of a weapon or a hand, twice (`0x44CA30`, `0x623AD0`), and finds the creature nearest it (`0x5FEAF0`'s, but itself), within 1,000 and the radius, `[+0x60] + [+0x64]·L` per cent of the reach both times; that creature, unless it is the one struck last (`+0x190`) or it may not be struck (`0x549000`), takes a strike and becomes the last, so that a creature is struck again after another.
 - The strike's resolution takes the art's attack only for a hit's kind other than 0 from a creature in its class's action of the arts (`0x956C48`) or the action 5, with an art of the second table (`+0x120`) whose level is the entry's level and bonus (`0x580A10`), or a combo's (`0x56ABE0`); a hit's kind other than 0 of no such art skips the hit's test, and a creature of type 71 takes the plain test as well.
 - Every strike that lands deals 1 at least, after the factor (`0x56B130`), a plain strike's too.
 
@@ -246,9 +248,137 @@ The order (`0x4FD0F0`) makes the art, taking the class's action of the arts (`0x
 
 A `Rundum`'s bones (`0x44CA30`, `0x623AD0`): first `weapon_fx01` or `Weapon_fx01` of the item in its right hand, else its own `Bip01 R Hand`, within a radius of the reach times the per cent truncated to a whole number; then `weapon_fx01` or `Weapon_fx01` of its other item, within the radius as a float.
 
-In `opensacred-game` (#509, `making`): a right click on a hostile creature, or the console's `arts make`, makes the selected art (at a new game the first whose action is read; `arts select`) if the hero holds it and it is ready; the hero comes on to within 10 of the reach (130, **hypothesis** for every type), stops, turns to the target and plays the art's clip at `GameSpeed` times its attack's clip speed times the art's rate (`opensacred_rules::arts::action`, `hit_points`, `made_from`), and sends its strikes as `fight::Hit`s of the art's level and factor (`fight::art_strike`).
-Its `Rundum` looks for the creatures about its bones on the world's tick of about 0.1 s (`frame::WorldTick`; **hypothesis**, #617), about the first weapon's effects' bone of the hero's scene, else its right hand; the second bone is left out.
-Only the Gladiator's and the Seraphim's arts have actions; the spells, the shots with a bow, the jumps and the other classes' executors wait for their reading.
+In `opensacred-game` (#509, `making`): a right click on a hostile creature, or the console's `arts make`, makes the selected art (at a new game the first whose action is read; `arts select`) if the hero holds it and it is ready, where the original's hero walks to the target with an art not ready (#654, "The right button" below); the hero comes on to within 10 of the reach (130, **hypothesis** for every type), stops, turns to the target and plays the art's clip at `GameSpeed` times its attack's clip speed times the art's rate (`opensacred_rules::arts::action`, `hit_points`, `made_from`), and sends its strikes as `fight::Hit`s of the art's level and factor (`fight::art_strike`).
+Its `Rundum` looks for the creatures about its bones on the world's tick of about 0.1 s (`frame::WorldTick`; **hypothesis**, #617), about the first weapon's effects' bone of the hero's scene, else its right hand, before 0.7 of its clip, where the original's Gladiator's looks from 0.3 and the Seraphim's throughout (#644); the second bone is left out, and the reach is 130 for every pair (#642).
+Only the Gladiator's and the Seraphim's arts have actions; the spells, the shots with a bow, the jumps and the kicks wait, and the other classes' clips are read below (#510).
+
+### The other classes' clips
+
+Read 2026-10-23 (#510) in the other executors' first runs, which play an art's clip with `0x593320(slot, blend, 1.0, rate)` as the Gladiator's and the Seraphim's do.
+With a bow or a crossbow (7, 12) a class's `Rundum`, `Hardhit` and `Attacke` are shots, the action 5 with `+0x184` 1 and the special projectiles `0x3D`, `0x3E` and `0x3F`, `min(L + 1, 5)` arrows for the first and the last (docs/re/fight.md); on horseback a `Hardhit` plays 194 at the blend 0.2, turned to its target first.
+The slots by the class of what the creature holds (`0x546F80`, docs/re/motions.md):
+
+| Executor | Rate, blend | `Attacke` | `Hardhit` | `Rundum` | Kick |
+|---|---|---|---|---|---|
+| the Gladiator's `0x4FF0B0` | the attack speed, 0.5 | 1059 (above) | 1058 (above) | 1057 (above) | 1060: 148 at the rate 1.0 |
+| the Seraphim's `0x5038F0` | the attack speed, 0.5 | 1071 (above) | 1070 (above) | 1069 (above) | 1072: 81 at the rate 1.0 |
+| the Dark Elf's `0x506770` | the attack speed, 0.5 | 1067: 0 210, 2 212, 8 216, else 211 | 1066: 0 145, 1 202, 2 203, 4 205, 8 207, else the action 4's clip | 1065: 0 219, 2 221, 4 223, 8 225, else 220 | 1068: 144 at the rate 1.0 |
+| the Wood Elf's `0x50AC00` | the attack speed, 0.25 | 1063: 0 210, 4 214, 5 215, else 211 | 1062: 0 201, 4 205, 5 206, else 202 | 1061: 0 219, 4 223, 5 224, else 220 | 1064: 147 for 2 and 3, else 146, at 1.0 and 0.5 |
+| `0x50CD10`, the generic arts | 1.0, 0.5 (`Attacke` 0.25) | 1002: 0 210, 4 214, 5 215, else 211 | 1001: the action 4's clip | 1000: 0 219, 2 221, 4 223, 5 224, 8 225, else 220 | 1009: 147 for 2 and 3, else 146 |
+| the Vampiress's `0x50E6C0` | the attack speed, 0.5 | 1040 and 1075: the claws 210, 2 212, 8 216, else 211 | 1039 and 1074: the claws 201, else the action 4's clip | 1038 and 1073: the claws 219, 8 225, else 221 | 1041 and 1076: 151 at the rate 1.0 |
+| the Dwarf's `0x514790` | 1.0, 0.5 | 1080: 0 210, 2 212, 3 213, 8 216, 13 and 14 248, else 211 | 1079: 0 201, 2 203, 3 204, 8 207, 13 247, 14 148, else 202 | 1078: 0 219, 2 221, 3 222, 13 and 14 248, else 220 | |
+| the Daemon's `0x5192E0` | 1.0, 0.5 | 1092: 0 210, 2 212, 3 213, 8 216, else 211 | 1091: a charge (below) | none | |
+
+- The Vampiress's claws are her night form's, the flag `+0x14` bit `0x2000` (the class 0 whatever she holds, docs/re/motions.md); her day arts 1073 to 1075 shoot with a bow, the night's do not test for one.
+- The Dwarf's slot falls back to 211, 202 or 220 where his model lacks it (`0x4115D0`, `0x4117B0`); his 248 and 247 are his guns' (**hypothesis** for the classes 13 and 14), and his `Rundum` with a gun first gathers the hostile creatures within 1,000 that a straight way reaches (`0x4FCC80`; not followed).
+- The Daemon's executor looks for no bone: he has no `Rundum`, as the second table has no 1090 (above); his 1091 (`_hardhit_demon`, the distance 0) tests the way to its target (`0x4FCC80`) and runs to it on the action 2's clip (**hypothesis**: a charge; not followed).
+- The kicks' and the generic arts' clips, and the Dwarf's and the Daemon's, play at the rate 1.0, not at the attack speed.
+
+### A `Rundum`'s run
+
+Read again 2026-10-23 (#510) in the Gladiator's (`0x500CCC`) and the Seraphim's (`0x504F37`, her 1069 and 1020) executors, the others' alike at their starts: the first run starts the regeneration; each run takes the point of the bone `weapon_fx01` or `Weapon_fx01` of the item in the right hand (`+0x1D8`), else of the creature's own `Bip01 R Hand` (`0x44CA30`, `0x623AD0`), and among the creatures of `0x5FEAF0`'s list but itself the nearest to that point, its whole distance below 1,000 and below `⌊reach · ([+0x60] + [+0x64]·L) · 0.01⌋`; unless that creature is the one struck last (`+0x190`) or one it may not strike (`0x549000`), it strikes it with the art's factor and makes it the last.
+Then it does the same about the bone of the item in the other hand (`+0x1D4`), without a hand's bone.
+The second nearest is never taken: by one creature a `Rundum` strikes once, by two it strikes each in turn as the blade comes nearer the other.
+The Gladiator's goes to the bones only while what is left of its clip is less than 0.7 of it, so from 0.3 of the clip to its end; the Seraphim's, the Dark Elf's and the Wood Elf's test no part of their clips (#644).
+
+Measured in the original (2026-10-23, by the coordinator with #448's driver: immortal goblin warriors of level 1 beside the hero, the art of the right button set, a probe of the strikes at `0x56B130`), from the clip's start:
+
+- the Seraphim's 1069 by one goblin struck once, at +216 ms, by two 7 times in turn, at +215, +332, +448, +548, +898, +1015 and +1249 ms of a clip of about 1.45 s;
+- the Gladiator's 1057 by one goblin struck once, at +780 ms, by two 3 times in turn, at +766, +883 and +1083 ms (+764, +882 and +1116 in a second run) of a clip of about 1.85 s (**hypothesis**: his blade's bone stays beyond the radius of 225 until then);
+- the strikes fell on the world's ticks (**hypothesis**: the executors run in the creatures' updates on the tick, #617), the Gladiator's 1059 at +449, +1098, +1649 and +2082 ms (the clip's points give 0.45, 1.08, 1.63 and 2.08 s), the Seraphim's 1070 at +415 to +465 ms and the Gladiator's 1058 at +650 to +681 ms, once each with the factor 2.0;
+- a right click with 1059 on a goblin 118 to 120 away made the art where the hero stood, at the first tick, within 10 of the reach of 125 (docs/re/fight.md).
+
+### The kicks
+
+Read 2026-10-23 (#510) in the Gladiator's 1060 (`0x5019D6`; the other classes' kicks not read, #650): once what is left of the clip is less than 0.4 of it (0.45 with a weapon of class 2 or 3), the target takes a strike with the factor and, by a roll of 0 to 99 below `0x4FC9D0(L, target)`, is knocked down.
+The chance is `100 · 5L/M` per cent, `M` the target's level (`+0x3FE`, through `0x552230` for a player's), 0 for the types 52, 53, 55, 74, 88, 100 to 103, 136, 137, 141, 144, 182, 183, 185, 237, 250 to 252, 336, 348, 360, 363, 365, 367, 701 and 1249, times 0.769 for a boss (`+0x1F4` bit `0x80000`) and 0.833 for the types of `0x426CB0`.
+A knocked target's `+0x24D` takes `[+0x60] · min(1, 5L/M)`, 1,000 times for every kick (**hypothesis**: milliseconds down), and above 10 it plays its slot 175 (`0x593770`, at 3.0).
+The kicks' `+0x58` and `+0x5C` (40 to 55 and 5 to 7 by the level) are not read on this path.
+
+### The right button
+
+Read 2026-10-23 (#510): the art of the right button is the engine's `u16` at `+0x5A` (`cEngine` at `0xAD6EF8`).
+The engine's handler of the mouse (`0x6172C0`), on the right button over a creature with an art below 1,200 there, posts the hero the event `0x105` with the target, its place and the art `0x552370(art, 0)` (the other form's for the Vampiress and the Daemon); the cursor (`0x611E70`) shows by the same art whether its launch type admits the creature under it (`0x51D840`) and whether it is ready (`0x580DF0`).
+Written by the driver, the field made the right click on a goblin make that art, and the interface did not write it back (#510).
+The event carries the target at `+0x10`, its place at `+0x18` and `+0x1C`, 100 at `+0x28`, the art's kind at `+0x2C` (0 a spell, 1 a weapon art, 2 a combo) and the art at `+0x30`.
+The creature's handler of the event (about `0x52FE40`) takes an art that is not ready as an order to walk to the target's place instead (`+0xFC` 1, with the target and its place), or with Ctrl held posts the creature an event of kind 4 (not followed); a combo's (its art `0x200` plus the combo's index) waits for `0x581A60` alike.
+
+## The effects
+
+Read 2026-10-23 (#510): a creature's stats hold its effects as a list of entries of 32 bytes from `+0x11A` to `+0x11E`: the effect's id at `+0x00`, a whole value at `+0x04`, a value as a float at `+0x14` and an art at `+0x1C`, added by `0x582D50(id, …, value, …)`.
+The recomputation (`0x5796A0`, after the items) adds each to the stats by its id (#651):
+
+| Effect | What it does |
+|---|---|
+| 1 | adds its value to `A`'s multiplier (`+0xE6`) |
+| 2 | adds it to `D`'s (`+0xEA`), held at 0.01 at least |
+| 3 to 6 | to the physical, fire, magic and poison damage multipliers (`+0x96`, `+0x9A`, `+0x9E`, `+0xA2`) |
+| 7 to 10 | to the multipliers at `+0x66`, `+0x6A`, `+0x6E`, `+0x72` (**hypothesis**: the four resistances') |
+| 11 (`0xB`) | to both regeneration speeds, the spells' (`+0xEE`) and the weapon arts' (`+0xF2`), before the attributes' factors (above) |
+| 12 | the regeneration value (`+0x138`) times 1 plus it |
+| 28 | the attack speed (`+0x3C`), `+0x3E` and the pace (`+0x40`) times it, truncated |
+| 30 | its whole value taken from the three |
+| 33 | its value to the damage multiplier of the kind its whole value names (0 to 3) |
+| 40 | with its art 1015 and the stats' `+0x148` bit `0x20000`, the record's `[+0x50] + [+0x54]·L` of 1015 at its level (1 to 100) to `A`'s and `D`'s multipliers |
+| 42 | `D`'s multiplier times 100 over its value |
+| 52 | the attack speed and the pace times it |
+| 59 | its whole value to `+0x7A` and `+0x8A` (not identified) |
+
+The other ids up to 59 do nothing there; among them the effect `0x22` (34), which `0x539E70` gives a spell's target keyed by the spell, its value the spell's duration (its value 0 at its level, or 0.8 of its time for an art of the second table), and the effects `0x15` and `0x19` of the shots (docs/re/fight.md).
+
+## The spells' executor
+
+Read 2026-10-23 (#510): the spells' executor (`0x522480`) switches on the spell and makes the spell's object with `sdk_CREATE` (`0x5FBA40`), an object of the client's types whose names its table keeps (`TYPE_FX_…`, records of 68 bytes with the number before the name); the effects then come from those objects (not read).
+By the spell, its object types, and whether the executor itself gives the target the effect `0x22` (`0x539E70`):
+
+| Spell | Objects | `0x22` |
+|---|---|---|
+| 1 (`PHASEN`) | 775 `FX_TELEPORT_IN`, 774 `FX_TELEPORT_OUT` | |
+| 2 (`STEINHAUT`) | 769 `FX_SHIELDED` | yes |
+| 3 (`SUMMONBEAR`) | 777 `FX_BIGSUMMON` | |
+| 4 (`WASSERFORM`) | 783 `FX_SUPERFLUID` | |
+| 5 (`FEUERBALL`) | 778 `FX_FIRESTRIKE` | |
+| 6 | 782 `FX_PENTAGRAMMKILLER` | |
+| 7 (`HEILKRAFT`) | 784 `FX_HEALING` | |
+| 8, 13 (`BLITZ_SERA`) | 798 `FX_LIGHTNING_STRIKE` | |
+| 11 (`FEUERSPIRALE`) | 790 `FX_FIRE_CIRCLE` | |
+| 12 (`ACIDBOLT`) | 792 `FX_GROUND_POISON` | |
+| 15 (`HIMMELSLEUCHTEN`) | 804 `FX_HOLYLIGHT` | |
+| 16 (`BANNKREIS`) | 805 `FX_GROUNDSYMBOL` | |
+| 17 (`LICHTKLINGEN`) | 814 `FX_HOLYWALL` | yes |
+| 18 (`IRRITATION`) | 816 `FX_BURNINGLIGHT` | |
+| 19 (`BEKEHRUNG`) | 806 `FX_HOLYCONVERT` | |
+| 20 (`LICHT`) | 817 `FX_MAGLITE` | |
+| 21 (`GLAUBENSSTAERKE`) | 818 `FX_CRUSADERSTRENGTH` | yes |
+| 22 (`LICHTSCHILD`) | 819 `FX_HOLYSHIELD` | yes |
+| 23 (`FEGEFEUER`) | 820 `FX_HELLFIRE` | |
+| 24 (`FLAMMENHAUT`) | 821 `FX_FIRESKIN` | yes |
+| 25 (`FLEISCHSTEIN`) | 822 `FX_STONED` | |
+| 26 (`METEORITENHAGEL`) | 823 `FX_METEOR` | |
+| 27 (`KATARAKT`) | 825 `FX_SPEEDUP` | yes |
+| 28 (`WINDBOE`) | 826 `FX_TWISTER` | yes |
+| 29 (`WIRBELWIND`) | 831 `FX_WINDSTRIKE` | |
+| 30 (`SCHILDWALL`) | 834 `FX_MAGICSHIELD` | yes |
+| 31 (`AUE`) | 835 `FX_MANAREGEN` | yes |
+| 32 (`REIKI`) | 836 `FX_HPREGEN` | yes |
+| 33 (`BLITZSCHLAG`) | 799 `FX_FREEZE`, 872 `FX_FREEZE_IMPACT` | |
+| 34 (`EISSPLITTER`) | 839 `FX_ICEBULLETS` | |
+| 35 (`FROSTRING`) | 840 `FX_CIRCLEOFICE` | |
+| 36 (`MOUSE`) | 845 `FX_CHANGELING` | |
+| 37 (`SPEED`) | 846 `FX_HIGHSPEED` | yes |
+| 38 (`CAMOUFLAGE`) | 847 `FX_BUBBLETRAP` | |
+| 39 (`THORNS`) | 848 `FX_KILLERPLANTS` | |
+| 40 (`PLANTCAGE`) | 849 `FX_PLANTCAGE` | |
+| 41 (`LOSTSOULS`) | 850 `FX_LOSTSOULS`, 779 `FX_TEMPTEX` | yes |
+| 42 (`PLANTHEAL`) | 851 `FX_NATUREHEALING` | |
+| 43 | 924 `FX_REANIMATE` | |
+| 49, 50, 52, 53 | 909 `FX_LASERBEAM_IMPACT`; 910 `FX_DAEMONFIRE` and 878 `FX_SMALLFIRE`; 922 `FX_SHADDAR_MAGIC`; 867 `FX_BALL` | |
+| 55 to 59 (the Dwarf's) | 1155 `FX_DWARF_GIER`, 1154 `FX_DWARF_MINE_SIGN`, 1152 `FX_DWARF_SHIELD`, 1021 `FX_PANZER`, 1022 `FX_STAHL` | |
+| 60 to 67 (the Daemon's) | 1005 `FX_HELLDISK`, 1004 `FX_TRANSDIM`, none for 62 (the effect 46 itself), 1173 `FX_FORCEOFHELL`, 1015 `FX_DEMONFIRE`, 1013 `FX_DAYOFTHETENTACLE`, 1011 `FX_SONGSFROMHELL` (and the effect 35), 1012 `FX_HELLSCREAM` | |
+| 69 to 72 | 1163 `FX_ANDUCAR_DEMON`, 1164 `FX_ANDUCAR_GARDE`, 1166 `FX_DAEMONENFUERST`, 1167 `FX_TERRORSPRINTER` | |
+
+The spells 44 to 48, 51, 54 and 68 fall to the switch's default, and 9, 10 and 14 to another case, and make no object there.
+The spells that give the effect `0x22`, each of the launch type 2 or 5, are those that last on their target (**hypothesis**: the effect marks a running spell for its duration); what each object gives its target, and for how long, is the objects' code.
 
 ## The heroes' starting arts
 
@@ -274,4 +404,4 @@ The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new gam
 
 ## Open
 
-The second table's `+0x3C`, and its `+0x58…+0x6C` for each art; which clip each art plays, and so how many strikes an `Attacke` makes; the spells' effects (`0x522480` and the objects it makes), the effects `0x22` and `0xB`; a rune's requirements; the combos' use in full; the NPCs' choice of their arts (`0x5481F0`, `0x4DCB80`); what drops a template's arts that a rune taught from a new game; the level that `0x580A10` gives a creature of the flag `0x80000` or `0x40` (above).
+What the spells' objects give their targets (`FX_…`, above; #652); the special weapon arts' executors (#653: the jumps 1003, 1017 and 1032 in part, 1004 to 1008, 1010 to 1016, 1018 to 1021, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what drops a template's arts that a rune taught from a new game; the effects 59's fields and 7 to 10's (above).
