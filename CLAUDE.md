@@ -29,7 +29,7 @@ cargo run --release -p opensacred-convert -- models       # PAK/models*.pak → 
 cargo run --release -p opensacred-convert -- world        # World/ + tiles.pak, items.pak, mixed.pak → assets-src/world/ (world.ron, sectors/, sprites.bin)
 cargo run --release -p opensacred-convert -- sound        # sound.pak, sndProfiles.pak, mp3/ → assets-src/sound/ (FLAC via FFmpeg, the MP3s decoded, sound.ron)
 cargo run --release -p opensacred-convert -- text         # scripts/us/global.res → assets-src/text/en-US/global.ftl
-cargo run --release -p opensacred-convert -- video        # movie/*.wmv → assets-src/video/*.webm (AV1 + Opus via FFmpeg)
+cargo run --release -p opensacred-convert -- video        # movie/*.wmv → assets-src/video/*.mkv (FFV1 + FLAC via FFmpeg; build makes AV1 + Opus WebM)
 cargo run --release -p opensacred-convert -- ui           # PAK/*.bmp → PNG, fonts, credits → assets-src/ui/
 cargo run --release -p opensacred-convert -- tables       # Creature/Weapon/Items/Items03/MOTIONS.PAK, Triggers.PAK, bin/*.bin, the arts and the voices of Sacred.exe → assets-src/tables/*.ron
 cargo run --release -p opensacred-convert -- heroes       # Templates/*.ptx → assets-src/heroes/ (heroes.ron)

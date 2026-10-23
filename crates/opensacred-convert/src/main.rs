@@ -184,8 +184,8 @@ enum Command {
         #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the WMV cutscenes of movie/ into AV1 and Opus WebM files under <ASSETS_SRC>/video/ with
-    /// FFmpeg
+    /// Convert the WMV cutscenes of movie/ into lossless masters under <ASSETS_SRC>/video/ with
+    /// FFmpeg: FFV1 and FLAC in Matroska, which build encodes into AV1 and Opus WebM
     Video {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]

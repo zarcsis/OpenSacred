@@ -1051,7 +1051,9 @@ Whether FFmpeg trims an encoder's delay at the start (by a LAME or Xing header) 
   The `COMPAT_VIDEO` key (GOG sets it to 1) affects only the cutscene display path in the original (a medium-confidence hypothesis from static analysis, docs/01 §4.5); it does not affect file reading.
   In the new engine the cutscenes are converted to AV1 + Opus and played via rav1d (docs/06, §4); they can be skipped.
   **Implemented 2026-10-17:** `opensacred-convert video` encodes the 10 WMVs with FFmpeg as an external program (SVT-AV1 at CRF 30, preset 6; libopus at 128 kbit/s) into `video/<name>.webm` and lists them in `video/video.ron`; a test checks that FFmpeg reads a converted cutscene as AV1 and Opus.
-  With several threads per cutscene, SVT-AV1 output varies from run to run; the converter therefore encodes each cutscene on one thread (`-svtav1-params lp=1`, the cutscenes in parallel; 100 s for all 10 instead of 23 s) and asks the WebM muxer for no random ids (`-fflags +bitexact`), so two runs give identical files (checked 2026-10-17).
+  That encoding ran on one thread a cutscene (`lp=1`) so that two runs gave identical files; since #698 the converter keeps lossless masters instead and encodes from them on all threads, identical reruns no longer a goal (#694).
+  **Since #698:** `opensacred-convert video` writes each WMV as a master, `video/<name>.mkv`: FFV1 version 3 video in the decoded `yuv420p` and FLAC audio in 16 bits in Matroska, at the source's resolution, frame rate and sample rate, without random ids (954 MB in 4 s for the 10); a test compares the MD5 of the frames and of the samples that FFmpeg decodes from the WMV and from the master.
+  `build` encodes each master into the game's `video/<name>.webm` (SVT-AV1 at CRF 30, preset 6, on all threads; libopus at 128 kbit/s) and writes the game's `video.ron` naming the WebM files.
 - All paks, WMV, MP3, TTF, BMP are the rights holder's content: the converter reads them from the user's own installation, verifying it against the SHA-256 manifest; neither the source nor the converted files are published.
 
 ## 11. Fonts and UI assets
