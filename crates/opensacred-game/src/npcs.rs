@@ -1533,8 +1533,15 @@ impl Npcs {
             .join(opensacred_data::tables::CREATURES);
         let text =
             fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let creatures: Vec<Creature> =
+        let mut creatures: Vec<Creature> =
             ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        // The waters' crab, which no record describes, made as the original makes a type without
+        // one (#664; docs/re/spawning.md, "A type without a record").
+        for id in std::iter::once(spawning::CRAB).chain(spawning::FISH) {
+            if !creatures.iter().any(|c| c.id == id) {
+                creatures.push(opensacred_rules::fight::recordless(id));
+            }
+        }
         let shadowless: HashSet<u32> = creatures
             .iter()
             .filter(|c| c.flags & NO_SHADOW != 0)
