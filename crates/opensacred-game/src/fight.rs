@@ -78,6 +78,17 @@ pub struct Combat(pub opensacred_rules::fight::Combat);
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Ranked(pub Rank);
 
+/// A boss, a champion or a creature of a champion's levelling not hostile to the hero, whose
+/// levelling waits for its first strike or hit (`0x56B130`, `0x550E50`, #630): the hero's look
+/// levels the hostile ones by the hero's level (`0x547377`), which the game does as it makes them
+/// (docs/decisions/2026-10-20-bosses.md), but not the others, which take their first opponent's;
+/// and whether its type is big (`Creature.pak` flag `0x02`), which its sector's highest level
+/// does not hold (`npcs::first_fight`).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Unfought {
+    pub big: bool,
+}
+
 /// What a creature is worth: `Creature.pak`'s experience `a + E·b` (`+0x08`, `+0x0A`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Worth(pub [u16; 2]);
@@ -99,7 +110,7 @@ pub struct Immortal;
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
-fn resolve(
+pub(crate) fn resolve(
     mut commands: Commands,
     mut hits: MessageReader<Hit>,
     mut dice: ResMut<Dice>,
@@ -197,7 +208,7 @@ fn resolve(
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
-                hit.target,
+                (hit.target, !hero && !hero_hit),
                 &health,
                 worth,
             );
@@ -207,15 +218,22 @@ fn resolve(
 
 /// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the
 /// hero killed it, of `worth` and its rank, the hero earns its experience (the event 9,
-/// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned.
+/// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned. A creature
+/// killed by another (`by_creature`, #630) drops nothing, and its killer's experience, which the
+/// original adds to the killer's own (the event `0x10D`, `0x57E160`), is not kept.
 fn fell(
     commands: &mut Commands,
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
-    target: Entity,
+    (target, by_creature): (Entity, bool),
     health: &Health,
     worth: Option<(Worth, Option<Ranked>)>,
 ) -> u32 {
-    commands.entity(target).insert(Dies::new(dice.0.below(2)));
+    let choice = dice.0.below(2);
+    commands.entity(target).insert(if by_creature {
+        Dies::by_creature(choice)
+    } else {
+        Dies::new(choice)
+    });
     let Some((worth, rank)) = worth else {
         return 0;
     };
@@ -277,7 +295,7 @@ pub fn kill(
         let earned = fell(
             &mut commands,
             (&mut dice, &mut experience, &rules),
-            entity,
+            (entity, false),
             &health,
             worth,
         );

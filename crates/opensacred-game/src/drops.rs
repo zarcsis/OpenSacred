@@ -245,7 +245,7 @@ fn listed(made: &[Dropped]) -> String {
 }
 
 /// Makes the drops of each NPC that dies (`0x533BA8`, the AI's state 9), before its dying clip:
-/// a hostile creature killed by the living hero, the only one that kills, drops.
+/// a hostile creature killed by the living hero drops, one that another creature killed nothing.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -267,15 +267,21 @@ fn dies(
         &fight::Worth,
         &Transform,
         Option<&crowd::InTheWay>,
+        &Dies,
     )>,
     heroes: Query<(&fight::Base, &fight::Health), (With<Body>, Without<Dies>)>,
 ) {
-    let Ok((mind, health, rank, worth, transform, way)) = creatures.get(died.entity) else {
+    let Ok((mind, health, rank, worth, transform, way, dies)) = creatures.get(died.entity) else {
         return;
     };
     let Some(tables) = tables else {
         return;
     };
+    // Killed by a creature that is no player's nor in the hero's list, it drops nothing (#630).
+    if dies.by_creature {
+        debug!("drops: {} drops nothing: a creature killed it", died.entity);
+        return;
+    }
     let hero = heroes
         .iter()
         .next()

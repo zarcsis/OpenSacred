@@ -1522,7 +1522,9 @@ impl Default for Blow {
 /// kind's, as the attack record rolls it, [`roll_damage`], #620), and the exponent of the damage
 /// `k = −log₂(1 − p)`, `p` half of 1 plus a hundredth of each level it has above the hero's; the
 /// hero striking a creature meets its defence times `ProzAW` and its resistances times
-/// `ProzRes`; between creatures, as they are, `k` 1. `hero` tells which side is the hero's: the
+/// `ProzRes`; between creatures (#630), as they are, with the exponent of the attacker's levels
+/// above its defender's, as the resolution takes it for any attacker that is no player's (an id
+/// above 16). `hero` tells which side is the hero's: the
 /// attacker's, the defender's or neither. The blow's share and factor of the levels are 1, which
 /// the strike sets.
 pub fn weighed(
@@ -1546,7 +1548,7 @@ pub fn weighed(
                 *value *= res;
             }
         }
-        None => {}
+        None => blow.k = exponent(levels.0.saturating_sub(levels.1)),
     }
     (attacker, defender, blow)
 }
@@ -2573,9 +2575,13 @@ mod tests {
         assert_eq!(a, goblin);
         assert!(near(d.defence, 16.0 * 0.65) && near(d.resistance[0], 4.48));
         assert_eq!(blow, Blow::default());
-        // Between creatures, as they are.
+        // Between creatures, as they are, the exponent of the attacker's levels above its
+        // defender's (#630): `p` 0.54 for 8 above, none for one below.
+        let (a, d, blow) = weighed(wolf, goblin, None, (9, 1), &rules);
+        assert_eq!((a, d), (wolf, goblin));
+        assert!((blow.k - -(0.46_f32).log2()).abs() < 1e-5 && near(blow.rolled, 1.0));
         assert_eq!(
-            weighed(wolf, goblin, None, (9, 1), &rules),
+            weighed(wolf, goblin, None, (1, 2), &rules),
             (wolf, goblin, Blow::default())
         );
     }

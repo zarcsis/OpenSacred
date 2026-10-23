@@ -136,10 +136,23 @@ const ANIMALS: u8 = 6;
 /// 334 against 245 and 188, the creatures of `+0x200` bit `0x10000000` and their lists, a horse
 /// taken by its rider's side, and the flags word's bit `0x40000`, which turns the answer over.
 pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
-    let friends = FRIENDS
-        .get(usize::from(side))
-        .is_some_and(|row| row & (1 << HEROES) != 0);
-    !friends || creature == AGAINST_ALL
+    hostile(side, creature, HEROES, 0)
+}
+
+/// The types that the type [`AGAINST_ALL`] is a friend of, and they of it.
+const SPIDERS_FRIENDS: [u32; 3] = [AGAINST_ALL, 99, 109];
+
+/// Whether a creature of side `side` and type `creature` is hostile to one of side `other_side`
+/// and type `other` (`0x423580`, through `0x548F60` and `0x549000`): its side's row of
+/// [`FRIENDS`] without the other's side's bit, or either of them of the type [`AGAINST_ALL`] and
+/// the other not of its friends' types, 75, 99 and 109 (`0x4236D9` to `0x423707`). The client's
+/// other cases are not followed ([`hostile_to_heroes`]).
+pub fn hostile(side: u8, creature: u32, other_side: u8, other: u32) -> bool {
+    let friends = FRIENDS.get(usize::from(side)).is_some_and(|row| {
+        u32::from(*row) & 1_u32.checked_shl(u32::from(other_side)).unwrap_or(0) != 0
+    });
+    let spider = |a: u32, b: u32| a == AGAINST_ALL && !SPIDERS_FRIENDS.contains(&b);
+    !friends || spider(creature, other) || spider(other, creature)
 }
 
 /// The side that the creature maker gives a creature of `Creature.pak` class `class` and type
@@ -301,6 +314,12 @@ const CHILD_LINES: [&str; 35] = [
 /// gives up (`0x542B20`, `0x4E1B5F`).
 const ATTACKS_WITHIN: f32 = 800.0;
 const GIVES_UP: f32 = 2_000.0;
+/// In how many ticks of one an idle hostile creature looks among the creatures of its sector for
+/// one that fights, and in how many cases of one it takes each it finds (`0x54338B`).
+const LOOKS_FOR_FOES: u32 = 3;
+const TAKES_FOE: u32 = 3;
+/// How near a guard attacks the nearest creature hostile to it (`0x4EF150`, `0x4EEE40`).
+const GUARD_ATTACKS: f32 = 500.0;
 /// The reach of two creatures of the size of most (`0x4DBC60`: 130 by default; **hypothesis**
 /// for every type, whose sizes are not read), the band about it a creature keeps (`0x4E0300`),
 /// and in how many cases of 11 it comes on at a run.
@@ -497,8 +516,8 @@ pub struct Mind {
     /// Whether it holds a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13 and 14,
     /// `0x427ED0`), with which it fights at range (the AI's state 8, `0x4DBFC0`).
     pub ranged: bool,
-    /// Whether it fights the hero (the AI's state 4, `0x4E0300`, or 8), and whether it has fled
-    /// in this fight (`+0x1F4` bit `0x200`).
+    /// Whether it fights (the AI's state 4, `0x4E0300`, or 8), the hero or a creature, and whether
+    /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
     fled: bool,
     /// In melee: whether it walks to its place about the hero for this tick (the sub-state 5),
@@ -616,9 +635,61 @@ impl Mind {
         self.awake
     }
 
-    /// Whether it fights the hero (the AI's state 4 or 8).
+    /// Whether it fights (the AI's state 4 or 8), the hero or a creature.
     pub fn fighting(&self) -> bool {
         self.fighting
+    }
+
+    /// Whether it is hostile to `other` by their sides and types (`0x549000`, [`hostile`]).
+    pub fn hostile_to(&self, other: &Self) -> bool {
+        hostile(self.side, self.creature, other.side, other.creature)
+    }
+
+    /// Whether a guard awake attacks the nearest creature hostile to it, standing at `foe`
+    /// (`0x4EF150`, `0x4EEE40`): within 500 of it, it sends itself the event `0x100` with the
+    /// creature, which takes the AI's state 4 with it for its target (`0x52FA63`), unless it fights
+    /// already; it takes the state 8 with a ranged weapon, which the game's guards leave out
+    /// (docs/decisions/2026-10-20-guards.md). Its behaviour waits while it fights.
+    pub fn guards(&mut self, here: Spot, foe: Spot) -> bool {
+        if !self.active
+            || !self.is_guard()
+            || self.fighting
+            || self.ranged
+            || (foe - here).length() >= GUARD_ATTACKS
+        {
+            return false;
+        }
+        self.fighting = true;
+        self.deciding = true;
+        self.active = false;
+        true
+    }
+
+    /// Its foe, a creature, is dead or gone: it leaves the fight, and decides again once its timer
+    /// or the hero's look wakes it (**hypothesis**: as it gives up, the AI's state 0).
+    pub fn loses_foe(&mut self) {
+        self.leaves_fight();
+    }
+
+    /// The foe an idle hostile creature at `here` takes instead of the hero at `hero`
+    /// (`0x54338B`): in one tick of three it looks among the creatures of its sector that fight,
+    /// of another side and hostile to it, alive (`foes`, which the caller finds), and takes each
+    /// within 800 of it and no farther than the hero in two cases of three, the last it takes
+    /// counting; one with a ranged weapon takes none, as the game's archers shoot only at the hero
+    /// (docs/decisions/2026-10-21-archers.md). Its index in `foes`, or `None` for the hero.
+    fn picks_foe(&self, here: Spot, hero: Spot, foes: &[Foe], rng: &mut Rng) -> Option<usize> {
+        if self.ranged || foes.is_empty() || rng.below(LOOKS_FOR_FOES) != 2 {
+            return None;
+        }
+        let to_hero = (hero - here).length();
+        let mut picked = None;
+        for (index, foe) in foes.iter().enumerate() {
+            let d = (foe.at - here).length();
+            if d < ATTACKS_WITHIN && d <= to_hero && rng.below(TAKES_FOE) != 0 {
+                picked = Some(index);
+            }
+        }
+        picked
     }
 
     /// As its strike in melee ends, whether the next one chains (`0x4E4CF0`, the attack action's
@@ -672,9 +743,11 @@ impl Mind {
     /// while the hero moves), and gives the idle action to the other hostile ones in range.
     /// Awake, it goes dormant again farther than 1,500 or 1,000 from the hero along the grid's
     /// axes; a hostile creature not fighting walks home in one case of six from farther than
-    /// 200, else comes at the hero from within 800 when it takes it on or has it within its
-    /// reach and a straight line of walkable cells leads to it (`clear`), raising its group's
-    /// alarm in one case of two (`0x46AE70`); without that line one that goes for doors
+    /// 200, else takes for its target the hero or, in one tick of three, a creature that fights
+    /// near it ([`Self::picks_foe`], `Senses::foes`, [`Thought::foe`]), and comes at it from
+    /// within 800 when it takes it on or has it within its reach and a straight line of walkable
+    /// cells leads to it (`clear`, asked with the target's point), raising its group's alarm in
+    /// one case of two (`0x46AE70`); without that line one that goes for doors
     /// ([`Self::seeks_doors`]) goes for the door in its way that `door` finds (`0x5442E8`,
     /// `0x4D4800`), and otherwise in one case of three it takes the idle action; a peaceful
     /// creature of a behaviour takes it while it stands. While it goes for a door it thinks
@@ -682,7 +755,7 @@ impl Mind {
     pub fn think(
         &mut self,
         senses: &Senses,
-        clear: impl FnOnce() -> bool,
+        clear: impl FnOnce(Spot) -> bool,
         door: impl FnOnce() -> bool,
         rng: &mut Rng,
     ) -> Thought {
@@ -697,6 +770,7 @@ impl Mind {
             hero_moves,
             takes_on,
             walking,
+            foes,
         } = *senses;
         let mut thought = Thought::default();
         if self.flags & TIMED != 0 {
@@ -724,28 +798,40 @@ impl Mind {
                 self.clock = -JITTER;
             } else if self.hostile() && !self.fighting {
                 let from_home = (here - self.home).abs();
-                // The hero worth experience to it, or within its reach, within 800, a straight
-                // line of walkable cells to it: it comes at the hero (`0x542B20`).
-                let takes_on = takes_on || distance <= REACH;
                 if rng.below(6) == 0 && (from_home.x > AWAY || from_home.y > AWAY) {
                     if !walking {
                         thought.home = Some(self.home);
                     }
-                } else if takes_on && distance < ATTACKS_WITHIN && clear() {
-                    self.fighting = true;
-                    self.deciding = true;
-                    thought.attacks = true;
-                    // In a group, in one case of two, it raises the alarm (`0x46AE70`).
-                    thought.alarm = self.group.is_some() && rng.below(2) == 0;
-                } else if takes_on && distance < ATTACKS_WITHIN && self.seeks_doors() && door() {
-                    // No straight line: the door in its way (`0x5442E8`).
-                    self.to_door = true;
-                    thought.door = true;
-                } else if rng.below(3) == 0 {
-                    // Dormant again, by chance stepping about.
-                    idle = true;
+                } else {
+                    // Its target: the hero, or a creature that fights near it (`0x54338B`).
+                    let foe = self.picks_foe(here, hero, foes, rng);
+                    let (target, takes_on) = match foe.and_then(|index| foes.get(index)) {
+                        Some(foe) => (foe.at, foe.takes_on),
+                        None => (hero, takes_on),
+                    };
+                    // Its target worth experience to it, or within its reach, within 800, a
+                    // straight line of walkable cells to it: it comes at it (`0x542B20`).
+                    let distance = (here - target).length();
+                    let takes_on = takes_on || distance <= REACH;
+                    if takes_on && distance < ATTACKS_WITHIN && clear(target) {
+                        self.fighting = true;
+                        self.deciding = true;
+                        thought.attacks = true;
+                        thought.foe = foe;
+                        // In a group, in one case of two, it raises the alarm (`0x46AE70`).
+                        thought.alarm = self.group.is_some() && rng.below(2) == 0;
+                    } else if takes_on && distance < ATTACKS_WITHIN && self.seeks_doors() && door()
+                    {
+                        // No straight line: the door in its way (`0x5442E8`).
+                        self.to_door = true;
+                        thought.door = true;
+                    } else if rng.below(3) == 0 {
+                        // Dormant again, by chance stepping about.
+                        idle = true;
+                    }
                 }
-            } else if self.flags & BEHAVIOURS != 0 {
+            } else if self.flags & BEHAVIOURS != 0 && !self.fighting {
+                // A guard that fights takes its behaviour again once its fight is over.
                 self.active = true;
             }
         }
@@ -1186,9 +1272,11 @@ impl Look {
 /// What a creature senses as it thinks ([`Mind::think`]): the time step in seconds; whether the
 /// hero looked in this tick with the creature in the 3 × 3 sectors about it; where the creature
 /// and the hero stand; whether the hero moves; whether the creature takes on the hero by the test
-/// of the levels (`fight::takes_on`); and whether it walks.
+/// of the levels (`fight::takes_on`); whether it walks; and the creatures of its sector that it
+/// may take for its foe instead of the hero, those that fight, of another side than its own,
+/// alive and hostile to it (`0x54338B`).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Senses {
+pub struct Senses<'a> {
     pub dt: f32,
     pub seen: bool,
     pub here: Spot,
@@ -1196,6 +1284,16 @@ pub struct Senses {
     pub hero_moves: bool,
     pub takes_on: bool,
     pub walking: bool,
+    pub foes: &'a [Foe],
+}
+
+/// A creature that an idle hostile creature may take for its foe ([`Senses::foes`]): where it
+/// stands, and whether the creature takes it on by the test of the levels, its own level against
+/// the foe's (`fight::takes_on`, `0x542B20`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Foe {
+    pub at: Spot,
+    pub takes_on: bool,
 }
 
 /// What a creature's thought makes it do this tick ([`Mind::think`]).
@@ -1203,9 +1301,11 @@ pub struct Senses {
 pub struct Thought {
     /// It walks home, to this point.
     pub home: Option<Spot>,
-    /// It comes at the hero (the AI's state 4), and raises its group's alarm.
+    /// It comes at its target (the AI's state 4), and raises its group's alarm.
     pub attacks: bool,
     pub alarm: bool,
+    /// Its target, the index of a creature of [`Senses::foes`], or `None` for the hero.
+    pub foe: Option<usize>,
     /// The idle action's step: the point it walks to, its home for one of an `Enter` function.
     pub step: Option<Spot>,
     /// It goes for the door in its way that its thought found (the AI's state 1).
@@ -2476,8 +2576,9 @@ mod tests {
             hero_moves: false,
             takes_on: true,
             walking: false,
+            foes: &[],
         };
-        let thought = opener.think(&senses, || true, || true, &mut rng);
+        let thought = opener.think(&senses, |_| true, || true, &mut rng);
         assert_eq!(thought, Thought::default());
         opener.left_door();
         assert!(!opener.to_door() && opener.awake);
@@ -2494,22 +2595,23 @@ mod tests {
             hero_moves: false,
             takes_on: true,
             walking: false,
+            foes: &[],
         };
         // A creature of a script, awake as it is made, by the hero: with a straight line it
         // attacks; without, it goes for a door that is found, and is busy with it.
         let made = || Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
         let mut sees = made();
-        let thought = sees.think(&senses, || true, || panic!("no door asked"), &mut rng);
+        let thought = sees.think(&senses, |_| true, || panic!("no door asked"), &mut rng);
         assert!(thought.attacks && !thought.door);
         let mut blind = made();
-        let thought = blind.think(&senses, || false, || true, &mut rng);
+        let thought = blind.think(&senses, |_| false, || true, &mut rng);
         assert!(thought.door && !thought.attacks && blind.to_door() && !blind.fighting);
         // Without a door it stays as it was; a beast seeks none.
         let mut doorless = made();
-        let thought = doorless.think(&senses, || false, || false, &mut rng);
+        let thought = doorless.think(&senses, |_| false, || false, &mut rng);
         assert!(!thought.door && !thought.attacks && !doorless.to_door());
         let mut beast = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (75, 2));
-        let thought = beast.think(&senses, || false, || panic!("no door asked"), &mut rng);
+        let thought = beast.think(&senses, |_| false, || panic!("no door asked"), &mut rng);
         assert!(!thought.door && !beast.to_door());
     }
 
@@ -3003,5 +3105,136 @@ mod tests {
         // Coming on again, it starts anew.
         chain.breaks();
         assert!((chain.strike() - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_sides_make_two_creatures_hostile_by_the_table_and_the_spider() {
+        // A peaceful creature of a side hostile to the heroes, 3 or 7, and a hostile one of 2 are
+        // hostile both ways; two of a side are friends, as are the sides 0 and 6 of every side but
+        // 13.
+        for peaceful in [3, 7] {
+            assert!(hostile(peaceful, 689, 2, 537) && hostile(2, 537, peaceful, 689));
+        }
+        assert!(!hostile(2, 76, 2, 537) && !hostile(3, 689, 3, 297));
+        assert!(!hostile(6, 512, 2, 76) && !hostile(2, 76, 0, 0));
+        assert!((0..16).all(|side| hostile(13, 0, side, 0)));
+        // The medium spider is hostile to every creature but its own and the types 99 and 109,
+        // and they to it, whatever their sides.
+        assert!(hostile(2, 75, 2, 76) && hostile(2, 76, 2, 75));
+        assert!(!hostile(2, 75, 2, 75) && !hostile(2, 99, 2, 75) && !hostile(2, 75, 2, 109));
+        // The heroes' hostility is the same table's.
+        assert_eq!(hostile_to_heroes(2, 76), hostile(2, 76, HEROES, 0));
+        assert!(hostile_to_heroes(6, 75) && !hostile_to_heroes(3, 689));
+    }
+
+    /// A guard of the start's kind, peaceful on the side 7, awake by its behaviour.
+    fn on_guard() -> Mind {
+        let mut guard = Mind::new(
+            Spot::default(),
+            0x4000,
+            (false, true),
+            None,
+            SPEEDS,
+            (689, 14),
+        );
+        guard.side = 7;
+        guard.active = true;
+        guard
+    }
+
+    #[test]
+    fn a_guard_attacks_the_nearest_creature_hostile_to_it_within_500() {
+        let here = Spot::default();
+        let mut guard = on_guard();
+        assert!(!guard.guards(here, at(500.0, 0.0)));
+        assert!(guard.active && !guard.fighting());
+        assert!(guard.guards(here, at(300.0, 400.0 - 0.01)));
+        // It fights, and its behaviour waits.
+        assert!(guard.fighting() && !guard.active);
+        assert!(!guard.guards(here, at(10.0, 0.0)));
+        // Its foe gone, it leaves the fight.
+        guard.loses_foe();
+        assert!(!guard.fighting() && !guard.active);
+        // Not a guard, one asleep or one with a bow.
+        let mut asleep = on_guard();
+        asleep.active = false;
+        let mut archer = on_guard();
+        archer.ranged = true;
+        let mut farmer = on_guard();
+        farmer.flags = TOWNSFOLK;
+        for mut other in [asleep, archer, farmer] {
+            assert!(!other.guards(here, at(100.0, 0.0)));
+        }
+    }
+
+    #[test]
+    fn an_idle_hostile_creature_takes_a_creature_that_fights_near_it_in_a_tick_of_three() {
+        let mut rng = Rng::of(22, 55, 1);
+        // A bear woken by the hero 600 off, its home where it stands; a boss fights 200 from it.
+        let senses = |foes| Senses {
+            dt: 0.1,
+            seen: true,
+            here: Spot::default(),
+            hero: at(600.0, 0.0),
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+            foes,
+        };
+        let bear = || {
+            let mut bear = Mind::new(Spot::default(), 0x1, (false, false), None, SPEEDS, (537, 6));
+            bear.side = 2;
+            bear
+        };
+        let boss = [Foe {
+            at: at(0.0, 200.0),
+            takes_on: true,
+        }];
+        let (mut at_boss, mut at_hero) = (0, 0);
+        for _ in 0..600 {
+            let mut mind = bear();
+            let thought = mind.think(&senses(&boss), |_| true, || true, &mut rng);
+            assert!(thought.attacks && mind.fighting(), "{thought:?}");
+            match thought.foe {
+                Some(0) => at_boss += 1,
+                None => at_hero += 1,
+                other => panic!("{other:?}"),
+            }
+        }
+        // One tick in three, the boss in two cases of three of those: two in nine.
+        assert!((100..170).contains(&at_boss), "{at_boss} {at_hero}");
+        // None farther than the hero, nor beyond 800 of it; and the straight line is the foe's.
+        let far = [
+            Foe {
+                at: at(0.0, 700.0),
+                takes_on: true,
+            },
+            Foe {
+                at: at(-810.0, 0.0),
+                takes_on: true,
+            },
+        ];
+        let mut blocked = 0;
+        for _ in 0..200 {
+            let mut mind = bear();
+            let thought = mind.think(&senses(&far), |_| true, || true, &mut rng);
+            assert_eq!(thought.foe, None);
+            // With a straight line to the hero alone, it attacks the hero or, its foe taken,
+            // nothing.
+            let mut mind = bear();
+            let to_hero = |to: Spot| to == at(600.0, 0.0);
+            let thought = mind.think(&senses(&boss), to_hero, || false, &mut rng);
+            assert_eq!(thought.foe, None);
+            blocked += usize::from(!thought.attacks);
+        }
+        assert!((25..75).contains(&blocked), "{blocked}");
+        // One with a bow takes none.
+        let mut archer = bear();
+        archer.ranged = true;
+        for _ in 0..100 {
+            archer.fighting = false;
+            let thought = archer.think(&senses(&boss), |_| true, || true, &mut rng);
+            assert_eq!(thought.foe, None);
+        }
     }
 }

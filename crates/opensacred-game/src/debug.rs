@@ -28,6 +28,8 @@ pub struct Listed {
     pub fighting: bool,
     pub rank: fight::Rank,
     pub dying: bool,
+    /// The creature it fights, its target, as the original's driver names it (#630).
+    pub target: Option<Entity>,
 }
 
 impl Listed {
@@ -57,6 +59,9 @@ impl Listed {
             if holds {
                 line.push_str(what);
             }
+        }
+        if let Some(target) = self.target {
+            line.push_str(&format!(" target {target}"));
         }
         line
     }
@@ -118,6 +123,7 @@ pub fn creatures(world: &mut World, radius: u32) -> Result<Vec<String>, String> 
                 fighting: mind.fighting(),
                 rank: rank.map_or_else(fight::Rank::default, |rank| rank.0),
                 dying,
+                target: mind.foe(),
             };
             Some((here.distance(at), listed))
         })
@@ -351,6 +357,7 @@ mod tests {
             fighting: false,
             rank: fight::Rank::Common,
             dying: false,
+            target: None,
         };
         assert_eq!(
             listed.line(),
@@ -365,12 +372,15 @@ mod tests {
             awake: true,
             fighting: true,
             rank: fight::Rank::Champion,
+            target: Some(Entity::from_raw_u32(471).unwrap()),
             ..listed.clone()
         };
         assert!(
-            fighter.line().ends_with(
-                "cell 3253,2867 floor 2 health 83/83 level 1 hostile awake fighting champion"
-            ),
+            fighter.line().ends_with(&format!(
+                "cell 3253,2867 floor 2 health 83/83 level 1 hostile awake fighting champion \
+                 target {}",
+                Entity::from_raw_u32(471).unwrap()
+            )),
             "{}",
             fighter.line()
         );
