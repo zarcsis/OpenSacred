@@ -134,7 +134,7 @@ A sector with no `Enter` function does the same.
   In those four areas it makes a crab, the type 163, in their dungeons always and elsewhere in three.
 - The object maker `0x5FBA40` makes it on the ground at the cell's centre, `(cell + 0.5) · 53.66563` truncated, with the bits `0x90000000` of `+0x14`, bit 31 the mark of a creature made during an `Enter`, which the exit handler keeps.
   It faces `((s − 50) · 0.02, (r − 50) · 0.02)` on the grid, `r` and `s` two rolls of 0 to 100 (`0x44DD90`).
-- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603, "A type without a record" below; the game's crabs are #664).
+- The crab's type 163 is `items.pak`'s `krabbe.grn`, which no record of `Creature.pak` describes (#603, "A type without a record" below).
   The fish 164 and 165 are `fisc_01.grn` and `fisc_02.grn`, of class 6, the base 5, 10, 20, 10, 0, 3 and the skills 8 and 9; the 166 of `fisc_03.grn` is never made.
 
 Seen in the original on 2026-10-23, at the Seraphim's start with its world paused, five fish:
@@ -190,7 +190,7 @@ The `Enter` functions' `FillSector`s make their creatures as their sectors come 
 The waters' crabs and fish (#575, `spawning::swimmers`) come in a sector that comes in anew, as its fills do, by the rule above with the game's generator seeded by the sector.
 They are made once no sector is building, on the cells of the sectors loaded then; a cell whose ring reaches a sector not loaded takes none (docs/decisions/2026-10-23-waters-edges.md).
 Each fish is made at level 1 with its two skill slots at level 1, 100 health, peaceful and with no behaviour, facing its way, and its sector keeps it as it keeps a fill's creatures.
-The crabs are not made: the game has no template for their type (#603).
+A crab is made so too, its type a record the game makes as the original makes a type without one (#664, `opensacred_rules::fight::recordless`, "A type without a record" above): of class 0, the base attributes 25, 15, 20, 20, 10 and 5 with no skill, the speeds 100 and 200 and a shadow, standing with no clip; in 44,67 a crab of the game shows the original's level, health, `A`, `D`, damage, resistances and attack speed (`stats`).
 They hold the first two items of the first `MakeGroup` rule of the sector that names their type (#228), rolled by the rule's chances from the start script's pools, in the hands `npcs` gives the scripts' NPCs, with the clips of what they hold; the third, a worn piece, the crossbows' replacement for the models without their slot, the types' own lists and the spells are not followed.
 About the start that makes some ten rabbits a sector, and in 48,39 the bandits and black magicians of the monsters' records, in packs.
 The generator is the game's own, seeded by the sector and the record, so that a sector that comes back has the same creatures; the worn items and the black riders are not followed (docs/decisions/2026-10-20-spawning.md), and the creatures' levels, the fills' bosses and champions and the groups' alarm are in docs/re/fight.md, "In `opensacred-game`".
