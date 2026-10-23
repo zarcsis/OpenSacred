@@ -166,8 +166,13 @@ enum Command {
     /// Set the hero's experience to N, or add N to it with +N: its level follows as its kills
     /// raise it
     Experience { points: String },
-    /// The hero's health to its most
-    Heal,
+    /// A creature's health to its most, or to N (1 to its most), the hero's by default; ID as
+    /// `creatures` prints it
+    Heal {
+        id: Option<String>,
+        #[arg(long)]
+        to: Option<u32>,
+    },
     /// The hero takes no damage, or takes it again; without a switch, toggles
     God { on: Option<Switch> },
     /// The hero goes straight where it is sent, through walls and over water, on the ground's
@@ -1043,18 +1048,10 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 .map_err(|e| format!("{points}: {e} (N or +N)"))?;
             Ok(Outcome::say(experience(world, number, add)?))
         }
-        Command::Heal => {
+        Command::Heal { id, to } => {
             in_game(world)?;
-            let mut heroes = world.query_filtered::<&mut fight::Health, With<Body>>();
-            let mut health = heroes
-                .iter_mut(world)
-                .next()
-                .ok_or("the hero is not in the world yet")?;
-            health.current = health.most;
-            Ok(Outcome::say(format!(
-                "health {}/{}",
-                health.current, health.most
-            )))
+            let id = id.map(|id| debug::creature(world, &id)).transpose()?;
+            Ok(Outcome::say(debug::heal(world, id, to)?))
         }
         Command::God { on } => {
             in_game(world)?;
