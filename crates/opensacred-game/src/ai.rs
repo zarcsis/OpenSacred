@@ -634,6 +634,8 @@ impl Default for FightRules {
 )]
 fn pursue(
     mut commands: Commands,
+    mut chained: Local<std::collections::HashSet<Entity>>,
+    mut lines: MessageWriter<crate::voices::Speak>,
     tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
     heights: Res<Heights>,
@@ -696,7 +698,9 @@ fn pursue(
         mind.rest(dt);
         if ended {
             let roll = minds.rng.below(4);
-            mind.ends_strike(roll);
+            if mind.ends_strike(roll) {
+                chained.insert(entity);
+            }
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
         let here = transform.translation;
@@ -839,6 +843,13 @@ fn pursue(
             Pursues::Strikes(choice) => {
                 transform.rotation = crate::hero::facing(hero - here);
                 if let Some(choice) = choice {
+                    // A strike that does not chain speaks (`0x4E52D1`, #711).
+                    if !chained.remove(&entity) {
+                        lines.write(crate::voices::Speak {
+                            speaker: entity,
+                            group: crate::voices::ATTACK,
+                        });
+                    }
                     commands
                         .entity(entity)
                         .remove::<Walk>()
@@ -870,6 +881,11 @@ fn pursue(
                 let d = (hero - here).xz().length();
                 debug!("ai: {entity} shoots at the hero from {d:.0}, its chain {chain:.1}");
                 transform.rotation = crate::hero::facing(hero - here);
+                // A shot speaks (`0x4DF06C`, #711).
+                lines.write(crate::voices::Speak {
+                    speaker: entity,
+                    group: crate::voices::ATTACK,
+                });
                 commands
                     .entity(entity)
                     .remove::<Walk>()

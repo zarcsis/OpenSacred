@@ -130,6 +130,7 @@ pub(crate) fn resolve(
     mut commands: Commands,
     mut hits: MessageReader<Hit>,
     mut kills: MessageWriter<Kill>,
+    mut lines: MessageWriter<crate::voices::Speak>,
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
@@ -210,6 +211,14 @@ pub(crate) fn resolve(
             "fight: {} hits {} for {damage}, health {}/{}",
             hit.attacker, hit.target, health.current, health.most
         );
+        // A hit that did damage makes its target speak, unless it falls (`0x532161`, #711).
+        if damage > 0 && health.current > 0 {
+            lines.write(crate::voices::Speak::hit(
+                hit.target,
+                health.current,
+                health.most,
+            ));
+        }
         commands.spawn((
             Number {
                 at: at.translation() + Vec3::Y * NUMBER_ABOVE,
@@ -572,6 +581,7 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .add_message::<Hit>()
             .add_message::<Kill>()
+            .add_message::<crate::voices::Speak>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
             .init_resource::<Experience>()
             .init_resource::<Rules>()

@@ -727,10 +727,11 @@ impl Mind {
     /// As its strike in melee ends, whether the next one chains (`0x4E4CF0`, the attack action's
     /// sub-state 2, #466): one of class 1 never chains (`0x426650`), one of a marked type
     /// ([`marked`]) chains on a `roll` of 0 of `0..4`, any other always; one that does not chain
-    /// waits [`RESTS`] before it strikes again, while its AI decides again.
-    pub fn ends_strike(&mut self, roll: u32) {
+    /// waits [`RESTS`] before it strikes again, while its AI decides again. Whether it chains.
+    pub fn ends_strike(&mut self, roll: u32) -> bool {
         let chains = self.class != 1 && (!marked(self.creature) || roll == 0);
         self.rests = if chains { 0.0 } else { RESTS };
+        chains
     }
 
     /// The time `dt` gone by of its wait before its next strike.

@@ -49,6 +49,7 @@ mod sound;
 mod srgb;
 mod statics;
 mod terrain;
+mod voices;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -271,6 +272,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
+        voices::VoicesPlugin,
     ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
@@ -283,6 +285,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(daynight::GlowTexture(glow))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(liquids::Liquids::read(&assets)?)
+    .insert_resource(voices::Voices::read(&assets)?)
     .insert_resource(hud::Hud {
         cursor: hud::cursor_file(&assets),
     })
