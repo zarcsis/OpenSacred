@@ -14,12 +14,13 @@ FAIL:
 - `stats`: creatures of several types at several levels, made beside the heroes (`spawn … --peaceful --immortal`),
   their `stats` compared likewise;
 - `places`: the scripts' creatures of a few places whose cells and levels are fixed (the guards of 52,39 and their
-  captains, the stable of 64,41), paired by type and cell: their levels, most health, hostility and rank must agree;
+  captains, quest 15004's giver, the stable of 64,41), paired by type and cell: their levels, most health, hostility and rank must agree;
 - `regeneration`: at the stable of 64,41, with no hostile about it, the health gained over 20 s of world time from 1
   (`heal --to 1`, the world paused while it is set and read): of a peaceful goblin warrior of level 50, which regenerates at `RegInFight`; of the hero of level 1
   and of level 30 alone (`RegNoEnemy`), and of level 30 beside a hostile goblin warrior (`RegInFight`); the rates
   must agree within two points of health over the time or 3 %, whichever is wider;
-- `strikes`: a hostile goblin warrior of level 1 beside the hero of level 1, its strikes over 60 s (the game's log of
+- `strikes`: a hostile goblin warrior beside the hero, both of level 1, then 10, then 21 (the bands of #615's factor),
+  each from a fresh start, its strikes over 40 s (the game's log of
   `opensacred_game::fight` at `debug`, the original's trace `strike`): the mean time between them must agree within
   5 %, the share that lands and the mean damage within four standard deviations (the game needs
   `RUST_LOG=info,opensacred_game::fight=debug`);
@@ -61,7 +62,7 @@ TYPES = [32, 35, 38, 52, 57, 73, 76, 112, 127, 128, 131, 259, 260, 264, 272, 279
 PLACES = [
     ((3345, 2533), [(297, 3349, 2534), (295, 3347, 2535)]),            # hauptmann3 and a guard (tags 5, 0x13)
     ((3383, 2520), [(288, 3383, 2525), (288, 3382, 2525), (288, 3383, 2529), (288, 3384, 2529),
-                    (295, 3388, 2524)]),                                # the garrison of 52,39 (tag 5)
+                    (295, 3388, 2524), (288, 3370, 2524)]),            # the garrison of 52,39 (tag 5), quest 15004's giver
     ((4127, 2650), [(554, 4129, 2651), (555, 4122, 2648), (551, 4120, 2639), (550, 4112, 2648),
                     (558, 4109, 2639), (552, 4101, 2643), (656, 4127, 2647)]),   # the stable of 64,41 (SetNPCState)
 ]
@@ -250,17 +251,29 @@ def last_log(endpoint):
     return entries[-1]['sequence'] if entries else 0
 
 
-def strikes_suite(game, original, report, seconds=60):
+def strikes_suite(game, original, report, save, seconds=40):
+    # The pairs of levels, the hero's and the goblin's: the bands of the factor of the attacker's level (#615) at
+    # 1 (0.65), 10 (0.667) and 21 (0.95); each pair from a fresh start, which no earlier goblin crowds.
+    for n, level in enumerate((1, 10, 21)):
+        if n:
+            fresh(game, original, save)
+        strikes_at(game, original, report, level, seconds)
+
+
+def strikes_at(game, original, report, level, seconds):
+    what = f'type 76 level {level}, hero {level}'
     for endpoint in (game, original):
+        if level > 1:
+            endpoint.exec(f'level {level}')
         endpoint.exec('god off')
         endpoint.exec('heal')
-    line = 'spawn 76 --at +1,+0 --level 1 --hostile'
+    line = f'spawn 76 --at +1,+0 --level {level} --hostile'
     ours = game.exec(line)[-1].rsplit(': ', 1)[-1].split(',')[0].strip()
     theirs = re.match(r'made (\d+)', original.exec(line)[-1])[1]
     since = last_log(game), last_log(original)
     original.exec('trace strike')
-    for _ in range(seconds // 20):
-        time.sleep(20)
+    for _ in range(seconds // 10):
+        time.sleep(10)
         for endpoint in (game, original):
             endpoint.exec('heal')
     original.exec('untrace strike')
@@ -273,24 +286,25 @@ def strikes_suite(game, original, report, seconds=60):
     found.append([(float(m[2]) / 1000, int(m[1]) if m[1] else None)
                   for e in original.call('opensacred/logs', {'after': since[1]})
                   if (m := pattern.match(e['message']))])
+    for endpoint in (game, original):
+        endpoint.exec('god on')
     if any(len(strikes) < 3 for strikes in found):
-        report.check('strikes', False, f'type 76 level 1: {len(found[0])} / {len(found[1])} strikes; the game logs '
+        report.check('strikes', False, f'{what}: {len(found[0])} / {len(found[1])} strikes; the game logs '
                      'them only with RUST_LOG=info,opensacred_game::fight=debug')
         return
     # From the first strike on, as the goblin first walks to the hero.
     gaps = [(strikes[-1][0] - strikes[0][0]) / (len(strikes) - 1) for strikes in found]
     report.check('strikes', abs(gaps[0] - gaps[1]) <= 0.05 * gaps[1],
-                 f'type 76 level 1: {gaps[0]:.2f} / {gaps[1]:.2f} s between strikes '
-                 f'({len(found[0])} / {len(found[1])} strikes)')
+                 f'{what}: {gaps[0]:.2f} / {gaps[1]:.2f} s between strikes ({len(found[0])} / {len(found[1])} strikes)')
     landed = [[damage for _, damage in strikes if damage is not None] for strikes in found]
     p, q = (len(hits) / len(strikes) for hits, strikes in zip(landed, found))
     sigma = math.sqrt(max(p * (1 - p) / len(found[0]) + q * (1 - q) / len(found[1]), 1e-9))
-    report.check('strikes', abs(p - q) <= 4 * sigma, f'type 76 level 1: {100 * p:.0f} % / {100 * q:.0f} % landed')
+    report.check('strikes', abs(p - q) <= 4 * sigma, f'{what}: {100 * p:.0f} % / {100 * q:.0f} % landed')
     if all(len(hits) >= 2 for hits in landed):
         means = [sum(hits) / len(hits) for hits in landed]
         spread = [sum((d - mean) ** 2 for d in hits) / (len(hits) - 1) / len(hits) for hits, mean in zip(landed, means)]
         report.check('strikes', abs(means[0] - means[1]) <= max(1, 4 * math.sqrt(sum(spread))),
-                     f'type 76 level 1: {means[0]:.1f} / {means[1]:.1f} damage a hit')
+                     f'{what}: {means[0]:.1f} / {means[1]:.1f} damage a hit')
 
 
 ART_LINE = re.compile(r'(?:spell|art) (\d+) level .* time ([\d.]+) s, factor [\d.]+, to run ([\d.]+) s')
@@ -442,7 +456,7 @@ def main():
         elif suite == 'regeneration':
             regeneration_suite(game, original, report)
         elif suite == 'strikes':
-            strikes_suite(game, original, report)
+            strikes_suite(game, original, report, args.save)
         elif suite == 'arts':
             arts_suite(game, original, report)
         elif suite == 'movement':
