@@ -1,9 +1,10 @@
 //! The hero's combat arts (docs/re/arts.md, #506, #507): its template's at a new game
 //! (`opensacred_rules::arts::Arts::new_game`), with the times of the arts' records of
-//! `tables/arts.ron` shortened by its skills; their regeneration every frame at the speeds of its
-//! attributes and items; and what the console's `arts` shows and does, as the original's driver
-//! does: the list, an art taught as runes teach it, every art ready, and an art's use, which
-//! starts the regeneration of every art of its kind until the hero makes them itself (#509).
+//! `tables/arts.ron` shortened by its skills; their regeneration with the game's time at the
+//! speeds of its attributes and items; and what the console's `arts` shows and does, as the
+//! original's driver does: the list, an art taught as runes teach it, every art ready, and an
+//! art's use, which starts the regeneration of every art of its kind until the hero makes them
+//! itself (#509).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -151,8 +152,9 @@ impl HeroArts {
     }
 }
 
-/// The arts' regeneration (`0x562730`), the hero's alone: every frame what is still to run of
-/// each art goes down by the frame's time times its factor and its kind's speed, the speeds by
+/// The arts' regeneration (`0x562730`), the hero's alone: what is still to run of each art goes
+/// down by the frame's time times its factor and its kind's speed (the original's by its world's
+/// tick of about 0.1 s, which this is to follow, #616), the speeds by
 /// the hero's level, attributes and items (`fight::arts_speeds`).
 fn regenerate(
     time: Res<Time>,
