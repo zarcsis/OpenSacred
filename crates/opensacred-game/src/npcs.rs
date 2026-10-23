@@ -2666,9 +2666,12 @@ fn spawn(
         mind.hold(placement.dialogue, placement.trader, placement.kept);
         mind.side = placement.side;
         bevy::log::debug!(
-            "npcs: {} is a {creature} of the flags {word:#x}, {:#x} after its first update",
+            "npcs: {} is a {creature} of the flags {word:#x}, {:#x} after its first update, side \
+             {}, group {:?}",
             entity.id(),
-            mind.flags
+            mind.flags,
+            mind.side,
+            mind.group
         );
         mind.level = grade;
         mind.ranged = placement.ranged;

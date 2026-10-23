@@ -13,7 +13,7 @@ The start's bears by the boss 689, hostile guards of the side 14, run their guar
 
 The guards and the idle hostile creatures take their foes as the original's, and fight them in melee as they fight the hero: steered by the foe alone, without the places of the hero's list of hostiles about it, the doors in their way sought as for the hero; they leave the fight once the foe is dead or gone (**hypothesis**: as giving up).
 A creature with a ranged weapon takes no creature for its foe (#670).
-The hostile creatures of a behaviour, the start's bears, stay asleep as before (#669), so that the boss fights a bear that does not strike back.
+The hostile creatures of a behaviour, the start's bears, take their behaviour once woken (#669), and a struck creature's group's alarm wakes its members or sends them into its fight; but what wakes the start's bears, which have no group, is not read, so that they stay asleep and the boss fights a bear that does not strike back.
 A creature killed by another drops nothing and earns no one experience: the killer's experience is not kept.
 The bosses' levelling at the first fight is followed for those not hostile to the hero (docs/decisions/2026-10-20-bosses.md).
 

@@ -829,7 +829,10 @@ impl Mind {
             let away = (here - hero).abs();
             if away.x > FAR_X || away.y > FAR_Y {
                 self.clock = -JITTER;
-            } else if self.hostile() && !self.fighting {
+            } else if self.hostile()
+                && !self.fighting
+                && (self.flags & 0x1 != 0 || self.flags & BEHAVIOURS == 0)
+            {
                 let from_home = (here - self.home).abs();
                 if rng.below(6) == 0 && (from_home.x > AWAY || from_home.y > AWAY) {
                     if !walking {
@@ -892,6 +895,36 @@ impl Mind {
             self.fighting = true;
             self.deciding = true;
         }
+    }
+
+    /// Whether it is idle for its group's alarm: in the AI's state 0, neither fighting, going for
+    /// a door nor taking its behaviour (`0x46AE70` takes the members of the AI's state 0).
+    pub fn idle(&self) -> bool {
+        !self.fighting && !self.to_door && !self.active
+    }
+
+    /// The alarm of its group `group` raised by a member that was struck and fights a creature
+    /// (`0x46AE70`, the event `0x100` with the member's target, `0x52FA63`): an idle member takes
+    /// that creature for its foe, whatever its side; whether it does. One with a ranged weapon does
+    /// not, as the game's archers shoot only at the hero (docs/decisions/2026-10-21-archers.md).
+    pub fn joins(&mut self, group: u32) -> bool {
+        if self.group != Some(group) || !self.idle() || self.ranged {
+            return false;
+        }
+        self.fighting = true;
+        self.deciding = true;
+        true
+    }
+
+    /// The alarm of its group `group` raised by a member that was struck and fights no one, alive
+    /// (`0x46AE70`, `sdk_WAKE`): an idle member wakes, and decides at its next tick; whether it
+    /// does.
+    pub fn wakes(&mut self, group: u32) -> bool {
+        if self.group != Some(group) || !self.idle() {
+            return false;
+        }
+        self.awake = true;
+        true
     }
 
     /// Whether it goes for a door in its way (`0x4D4800`): not of the classes 2, 5 and 6
@@ -3277,6 +3310,59 @@ mod tests {
         guard.side = 7;
         guard.active = true;
         guard
+    }
+
+    #[test]
+    fn a_hostile_guard_without_the_flags_bit_0_takes_its_behaviour_and_wakes_at_its_alarm() {
+        let mut rng = Rng::of(22, 55, 2);
+        // A bear of the start, `CreateNPC`'s mode `0x4000` with the tag `0x08`: hostile on the
+        // side 14, its flags word the mode alone, in a group.
+        let mut bear = Mind::new(
+            at(0.0, 0.0),
+            0x4000,
+            (false, true),
+            Some(7),
+            SPEEDS,
+            (537, 6),
+        );
+        bear.side = 14;
+        assert!(bear.hostile() && !bear.awake());
+        let senses = Senses {
+            dt: 0.1,
+            seen: true,
+            here: Spot::default(),
+            hero: at(300.0, 0.0),
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+            hero_size: SIZE,
+            foes: &[],
+        };
+        // The hero's look gives it the idle action alone, without bit 0.
+        let thought = bear.think(&senses, |_| true, || true, &mut rng);
+        assert!(!thought.attacks && !bear.active && !bear.fighting());
+        // Its group's alarm wakes it, and it takes its guard's behaviour, not the hero's pursuit.
+        assert!(!bear.wakes(8) && bear.wakes(7));
+        let thought = bear.think(&senses, |_| true, || true, &mut rng);
+        assert!(!thought.attacks && bear.active && !bear.fighting());
+        assert!(bear.guards(Spot::default(), at(300.0, 0.0)) && bear.fighting());
+        // Busy, it neither wakes nor joins; one idle joins its fellow's fight.
+        assert!(!bear.wakes(7) && !bear.joins(7));
+        let mut fellow = Mind::new(
+            at(0.0, 0.0),
+            0x4000,
+            (false, true),
+            Some(7),
+            SPEEDS,
+            (538, 6),
+        );
+        fellow.side = 14;
+        assert!(fellow.joins(7) && fellow.fighting());
+        // With bit 0 it comes at the hero as before.
+        let mut marked = Mind::new(at(0.0, 0.0), 0x4001, (false, false), None, SPEEDS, (537, 6));
+        marked.side = 14;
+        let thought = marked.think(&senses, |_| true, || true, &mut rng);
+        assert!(thought.attacks && !marked.active);
     }
 
     #[test]
