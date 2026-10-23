@@ -15,6 +15,7 @@ mod netscript;
 mod sound;
 mod tables;
 mod text;
+mod text_repairs;
 mod textures;
 mod ui;
 mod verify;
@@ -567,6 +568,15 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.bytes as f64 / 1e6,
                 text::output_dir(&out).display(),
             );
+            if summary.repaired_strings > 0 {
+                println!(
+                    "  repaired: {} words in {} strings (the goblins' god's name)",
+                    summary.repaired_words, summary.repaired_strings,
+                );
+            }
+            for warning in &summary.warnings {
+                eprintln!("warning: {warning}");
+            }
             Ok(ExitCode::SUCCESS)
         }
     }

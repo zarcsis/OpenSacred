@@ -39,6 +39,7 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 | Our own code under MIT OR Apache-2.0 | Any file of the game, in any form: executables, archives, models, textures, sounds, movies, saves |
 | Facts about the formats (docs/02) and descriptions of the original's behavior in our own words (docs/re/) | Converted assets, atlases, glTF models, HD packs, screenshots or recordings of converted assets |
 | Addresses, offsets, identifiers, counts and hashes needed to read the data or to check a reader | Decompiler output (pseudo-C, listings) or code translated from it; memory dumps |
+| Words of the project's own that the converter puts in place of the game's texts' defects, named by the strings' ids and the original words' hashes (docs/02 §8, #403) | Another release's or a mod's wording of those texts |
 | The SHA-256 manifest of the reference installation (`docs/manifest-gog-2.28.txt`) | Texts of the game, its dialogues, credits or license agreements |
 | Synthetic test data, such as the screenshot test's world | Code from projects without a license or under an incompatible one; leaked builds, sources or SDKs |
 | | Anything about removing or circumventing a protection |
