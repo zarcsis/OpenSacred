@@ -30,6 +30,8 @@ pub struct Listed {
     pub dying: bool,
     /// Whether it has a dialogue, which holds it (`+0x245`, `minds::Mind::dialogue`).
     pub dialogue: bool,
+    /// The creature it fights, its target, as the original's driver names it (#630).
+    pub target: Option<Entity>,
 }
 
 impl Listed {
@@ -60,6 +62,9 @@ impl Listed {
             if holds {
                 line.push_str(what);
             }
+        }
+        if let Some(target) = self.target {
+            line.push_str(&format!(" target {target}"));
         }
         line
     }
@@ -122,6 +127,7 @@ pub fn creatures(world: &mut World, radius: u32) -> Result<Vec<String>, String> 
                 rank: rank.map_or_else(fight::Rank::default, |rank| rank.0),
                 dying,
                 dialogue: mind.dialogue,
+                target: mind.foe(),
             };
             Some((here.distance(at), listed))
         })
@@ -356,6 +362,7 @@ mod tests {
             rank: fight::Rank::Common,
             dying: false,
             dialogue: false,
+            target: None,
         };
         assert_eq!(
             listed.line(),
@@ -371,12 +378,14 @@ mod tests {
             fighting: true,
             rank: fight::Rank::Champion,
             dialogue: true,
+            target: Some(Entity::from_raw_u32(471).unwrap()),
             ..listed.clone()
         };
         assert!(
-            fighter
-                .line()
-                .ends_with("floor 2 health 83/83 level 1 hostile awake fighting champion dialogue"),
+            fighter.line().ends_with(&format!(
+                "floor 2 health 83/83 level 1 hostile awake fighting champion dialogue target {}",
+                Entity::from_raw_u32(471).unwrap()
+            )),
             "{}",
             fighter.line()
         );

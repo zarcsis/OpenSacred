@@ -16,6 +16,10 @@
 //! (docs/decisions/2026-10-20-idle.md).
 //! Without a straight line or a way to the hero, a creature goes for the nearest closed door of
 //! its sector that a hero turned, and opens it ([`open`], docs/decisions/2026-10-21-doors.md).
+//! The creatures of hostile sides fight one another (#630): a guard awake attacks the nearest
+//! creature hostile to it within 500, and an idle hostile creature, in one tick of three, takes
+//! for its foe instead of the hero a creature that fights near it; they fight as they fight the
+//! hero, in melee (docs/decisions/2026-10-23-creatures-fight.md).
 //! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
 //! components, reads the world for them and carries them out: the walks, the strikes, the shots,
 //! the doors, the lines and the turns. They decide at each of the world's ticks alone
@@ -26,7 +30,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 pub use opensacred_rules::minds::of_type;
 use opensacred_rules::minds::{
-    self, AT_THE_DOOR, BEHAVES_WITHIN, Blocked, Child, Decision, DoorSeen, Evening, Pursues,
+    self, AT_THE_DOOR, BEHAVES_WITHIN, Blocked, Child, Decision, DoorSeen, Evening, Foe, Pursues,
     Pursuit, RANGE, Senses, Spot, Walking, Why, child, daemon_fear, daemon_near, door_in_the_way,
     evening_way, follow, opens, runs_from, steps_off, townsperson, trader_for,
 };
@@ -90,6 +94,9 @@ pub struct Mind {
     /// The door it goes into a house by, from its outer point, where the door stands, and the
     /// inner point it walks to once it opens it (the sub-states 8, 9 and 7, #431).
     entering: Option<(Entity, Vec3, Vec3)>,
+    /// The creature it fights, its target (`+0x104`), while it fights one rather than the hero
+    /// (#630).
+    foe: Option<Entity>,
 }
 
 impl Mind {
@@ -112,7 +119,44 @@ impl Mind {
             door: None,
             opening: None,
             entering: None,
+            foe: None,
         }
+    }
+
+    /// The creature it fights, while it fights one rather than the hero (#630).
+    pub fn foe(&self) -> Option<Entity> {
+        self.foe.filter(|_| self.fighting())
+    }
+}
+
+/// A creature as another sees it for the fights between them (#630): its entity, where it
+/// stands, its side and type, by which they are hostile or not (`minds::hostile`), and its level.
+#[derive(Clone, Copy, Debug)]
+struct Other {
+    entity: Entity,
+    at: Vec3,
+    side: u8,
+    creature: u32,
+    level: u32,
+    /// Its size, of which and another's the reach is the mean (`minds::size`).
+    size: u32,
+}
+
+impl Other {
+    fn of(entity: Entity, at: Vec3, mind: &Mind) -> Self {
+        Self {
+            entity,
+            at,
+            side: mind.side,
+            creature: mind.creature,
+            level: mind.level,
+            size: mind.size(),
+        }
+    }
+
+    /// Whether `mind` is hostile to it (`0x549000`).
+    fn hated_by(&self, mind: &Mind) -> bool {
+        minds::hostile(mind.side, mind.creature, self.side, self.creature)
     }
 }
 
@@ -390,12 +434,19 @@ fn think(
             Has<Walk>,
             &Layered,
         ),
-        Without<Body>,
+        (Without<Body>, Without<crate::npcs::Dies>),
     >,
 ) {
     let Some((hero, body, size)) = hero.iter().next() else {
         return;
     };
+    // The creatures that fight, which an idle hostile creature of their sector may take for its
+    // foe (`0x54338B`).
+    let fighters: Vec<Other> = creatures
+        .iter()
+        .filter(|(.., mind, _, _)| mind.fighting())
+        .map(|(entity, transform, _, mind, ..)| Other::of(entity, transform.translation, mind))
+        .collect();
     let hero = hero.translation;
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     let dt = tick.seconds.unwrap_or_default();
@@ -415,6 +466,29 @@ fn think(
     for (entity, transform, way, mut mind, walking, layered) in &mut creatures {
         let here = transform.translation;
         let (x, y) = sector(here);
+        // The creatures of its sector that fight, of another side, hostile to it, which an idle
+        // hostile creature may take for its foe, and whether it takes each on by its level.
+        let candidates: Vec<&Other> = if mind.hostile() && !mind.fighting() {
+            fighters
+                .iter()
+                .filter(|other| {
+                    other.entity != entity
+                        && other.side != mind.side
+                        && sector(other.at) == (x, y)
+                        && other.hated_by(&mind)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let foes: Vec<Foe> = candidates
+            .iter()
+            .map(|other| Foe {
+                at: spot(other.at),
+                takes_on: crate::fight::takes_on(mind.level, other.level, balance.experience),
+                size: other.size,
+            })
+            .collect();
         let senses = Senses {
             dt,
             seen: look && (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0,
@@ -424,10 +498,11 @@ fn think(
             takes_on: crate::fight::takes_on(mind.level, experience.level, balance.experience),
             walking,
             hero_size,
+            foes: &foes,
         };
-        // A straight line of walkable cells to the hero.
-        let clear = || {
-            paths::clear(here.xz(), hero.xz(), |cell| {
+        // A straight line of walkable cells to its target.
+        let clear = |to: Spot| {
+            paths::clear(here.xz(), Vec2::new(to.x, to.y), |cell| {
                 heights.walkable_on(cell, way.level)
             })
         };
@@ -451,11 +526,31 @@ fn think(
             steps.push((entity, point(home, here.y)));
         }
         if thought.attacks {
-            let distance = (here - hero).xz().length();
-            debug!(
-                "ai: {entity} {:?} the hero from {distance:.0}",
-                Why::Attacks
-            );
+            mind.foe = thought
+                .foe
+                .and_then(|index| candidates.get(index))
+                .map(|other| other.entity);
+            match candidates
+                .iter()
+                .find(|other| Some(other.entity) == mind.foe)
+            {
+                Some(foe) => {
+                    let distance = (here - foe.at).xz().length();
+                    debug!(
+                        "ai: {entity} {:?} {}, a {} that fights, from {distance:.0}",
+                        Why::Attacks,
+                        foe.entity,
+                        foe.creature
+                    );
+                }
+                None => {
+                    let distance = (here - hero).xz().length();
+                    debug!(
+                        "ai: {entity} {:?} the hero from {distance:.0}",
+                        Why::Attacks
+                    );
+                }
+            }
             if let (true, Some(group)) = (thought.alarm, mind.group) {
                 alarms.push(group);
             }
@@ -490,7 +585,10 @@ fn think(
     // The alarm sends a group's idle hostile members at the hero too.
     for group in alarms {
         for (_, _, _, mut mind, ..) in &mut creatures {
-            mind.hears_alarm(group);
+            if !mind.fighting() {
+                mind.hears_alarm(group);
+                mind.foe = None;
+            }
         }
     }
 }
@@ -522,6 +620,9 @@ impl Default for FightRules {
 /// the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no straight line leads to
 /// the hero, and shoots, standing turned to the hero. As a strike in melee ends, its next chains
 /// or waits for the AI's two steps, as the rules decide (`Mind::ends_strike`, #466).
+/// One that fights a creature, its foe (#630), fights it so in melee, steered by the foe alone
+/// without places about it; it leaves the fight once its foe is dead or gone, and one with a
+/// ranged weapon leaves it too (docs/decisions/2026-10-23-creatures-fight.md).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -573,6 +674,18 @@ fn pursue(
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
     let seen = doors.seen(&heights);
+    // Where each creature stands, whether it strikes, the creature it fights and its size: the
+    // foes.
+    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32)> = creatures
+        .iter()
+        .map(|(entity, transform, _, mind, _, striking, ..)| {
+            (
+                entity,
+                (transform.translation, striking, mind.foe(), mind.size()),
+            )
+        })
+        .collect();
+    let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended) in
         &mut creatures
     {
@@ -583,9 +696,37 @@ fn pursue(
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
         let here = transform.translation;
+        // Its target: its foe, a creature, or the hero. A foe dead or gone, or one fought with a
+        // ranged weapon, it leaves.
+        let foe = mind.foe();
+        let (target, aimed, target_strikes, listed, targeted, target_size) = match foe {
+            Some(foe) => match foes.get(&foe) {
+                Some(&(at, strikes, its_foe, size)) if !mind.ranged => {
+                    (at, foe, strikes, None, its_foe == Some(entity), size)
+                }
+                _ => {
+                    debug!("ai: {entity} leaves its fight with {foe}, dead or gone");
+                    mind.loses_foe();
+                    mind.foe = None;
+                    continue;
+                }
+            },
+            None => (
+                hero,
+                the_hero,
+                hero_strikes,
+                nearest
+                    .hostiles
+                    .iter()
+                    .position(|&hostile| hostile == entity)
+                    .zip(first),
+                attacked == Some(entity),
+                hero_size,
+            ),
+        };
         let sight = Pursuit {
             here: spot(here),
-            hero: spot(hero),
+            hero: spot(target),
             walk: walk.map(|walk| Walking {
                 target: spot(walk.target()),
                 comes_on: walk.comes_on(),
@@ -593,16 +734,13 @@ fn pursue(
             }),
             striking,
             health: health.map(|health| (health.current, health.most)),
-            hero_strikes,
-            listed: nearest
-                .hostiles
-                .iter()
-                .position(|&hostile| hostile == entity)
-                .zip(first),
-            targeted: attacked == Some(entity),
-            hero_size: size.map_or(opensacred_rules::minds::SIZE, |size| size.0),
+            hero_strikes: target_strikes,
+            listed,
+            targeted,
+            hero_size: target_size,
         };
-        // A straight line of walkable cells to the hero, asked again below.
+        let hero = target;
+        // A straight line of walkable cells to its target, asked again below.
         let clear = || {
             paths::clear(here.xz(), hero.xz(), |cell| {
                 heights.walkable_on(cell, way.level)
@@ -611,6 +749,9 @@ fn pursue(
         let Some(pursues) = mind.pursue(&sight, clear, &mut minds.rng) else {
             continue;
         };
+        if !mind.fighting() {
+            mind.foe = None;
+        }
         match pursues {
             Pursues::GivesUp => {
                 let d = (hero - here).xz().length();
@@ -697,7 +838,7 @@ fn pursue(
                     commands
                         .entity(entity)
                         .remove::<Walk>()
-                        .insert(Strikes::at(the_hero, choice));
+                        .insert(Strikes::at(aimed, choice));
                 }
             }
             Pursues::BacksOff { to, runs } => {
@@ -728,7 +869,7 @@ fn pursue(
                 commands
                     .entity(entity)
                     .remove::<Walk>()
-                    .insert(Strikes::shot(the_hero, choice, chain));
+                    .insert(Strikes::shot(aimed, choice, chain));
             }
             // It stops where it stands and changes its weapons (`npcs::rearm`).
             Pursues::ToMelee(weapon) => {
@@ -954,13 +1095,18 @@ fn behave(
     daemon: Res<Daemon>,
     mut creatures: Query<
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
-        Without<Body>,
+        (Without<Body>, Without<crate::npcs::Dies>),
     >,
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
+    // Every creature as a guard sees it, for the nearest hostile to it (`0x4EEE40`).
+    let others: Vec<Other> = creatures
+        .iter()
+        .map(|(entity, transform, _, mind, _)| Other::of(entity, transform.translation, mind))
+        .collect();
     // Whether the hero stands on a settlement's ground, where the children gather about it.
     let in_settlement = heights
         .flags(paths::cell_of(hero.x, hero.z))
@@ -1049,6 +1195,26 @@ fn behave(
     let mut stops: Vec<Entity> = Vec::new();
     for (entity, transform, way, mut mind, walk) in &mut creatures {
         let here = transform.translation;
+        // A guard awake, walking or standing, attacks the nearest creature of the 3 × 3 sectors
+        // about it that it is hostile to, within 500 (`0x4EF150`, `0x4EEE40`, the event `0x100`).
+        if mind.active
+            && mind.is_guard()
+            && (here - hero).xz().length() <= BEHAVES_WITHIN
+            && let Some(foe) = nearest_foe(entity, here, &mind, &others)
+            && mind.guards(spot(here), spot(foe.at))
+        {
+            let d = (foe.at - here).xz().length();
+            debug!(
+                "ai: {entity} {:?} {}, a {} of the side {}, from {d:.0}",
+                Why::Attacks,
+                foe.entity,
+                foe.creature,
+                foe.side
+            );
+            mind.foe = Some(foe.entity);
+            stops.push(entity);
+            continue;
+        }
         if let Some(walk) = walk {
             // A guard decides as it walks too, the others only standing (`0x4EE030`, #608): on a
             // stroll it turns back to its post from farther than 90.
@@ -1520,6 +1686,26 @@ fn behave(
     }
 }
 
+/// The nearest creature to `here` of the 3 × 3 sectors about it, of `others`, that the creature
+/// `entity` of `mind` is hostile to (`0x4EEE40`, a guard's foe), straight from it.
+fn nearest_foe(entity: Entity, here: Vec3, mind: &Mind, others: &[Other]) -> Option<Other> {
+    let (x, y) = sector_of(here);
+    others
+        .iter()
+        .filter(|other| {
+            let (ox, oy) = sector_of(other.at);
+            other.entity != entity
+                && (ox - x).abs() <= 1.0
+                && (oy - y).abs() <= 1.0
+                && other.hated_by(mind)
+        })
+        .min_by(|a, b| {
+            let (da, db) = ((a.at - here).xz().length(), (b.at - here).xz().length());
+            da.total_cmp(&db)
+        })
+        .copied()
+}
+
 /// The creatures' idle life.
 pub struct AiPlugin;
 
@@ -1542,6 +1728,45 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_guard_takes_the_nearest_creature_hostile_to_it_of_the_sectors_about_it() {
+        // The start's boss, a guard on the side 7, and the bears of the side 14 about it.
+        let mut boss = Mind::new(
+            Vec3::ZERO,
+            0x4000,
+            (false, true),
+            None,
+            [70.0, 180.0],
+            (689, 14),
+        );
+        boss.side = 7;
+        let other = |bits, x: f32, side, creature| Other {
+            entity: Entity::from_raw_u32(bits).unwrap(),
+            at: Vec3::new(x, 0.0, 10.0),
+            side,
+            creature,
+            level: 11,
+            size: 130,
+        };
+        let me = Entity::from_raw_u32(1).unwrap();
+        let side = crate::iso::CELL * 64.0;
+        let others = [
+            other(1, 0.0, 7, 689),
+            other(2, 400.0, 14, 537),
+            other(3, 300.0, 7, 297),
+            other(4, 250.0, 6, 520),
+            other(5, 350.0, 14, 538),
+            other(6, -2.5 * side, 2, 76),
+        ];
+        // Not itself, a friend of its side, a farm animal, nor one beyond the 3 × 3 sectors.
+        let foe = nearest_foe(me, Vec3::new(10.0, 0.0, 10.0), &boss, &others).unwrap();
+        assert_eq!(foe.entity, Entity::from_raw_u32(5).unwrap());
+        assert_eq!(
+            nearest_foe(me, Vec3::ZERO, &boss, &others[..1]).map(|o| o.entity),
+            None
+        );
+    }
 
     #[test]
     fn a_townsperson_runs_700_from_a_hostile_within_800() {

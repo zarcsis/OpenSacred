@@ -52,9 +52,9 @@ use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
     Component, DetectChangesMut, Entity, GlobalTransform, GltfAssetLabel, Handle, Has, Image, In,
-    IntoScheduleConfigs, MeshMaterial3d, MessageWriter, Name, On, Plugin, Query, Remove, Res,
-    ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec2, Vec3, With, Without,
-    WorldAssetRoot,
+    IntoScheduleConfigs, MeshMaterial3d, MessageReader, MessageWriter, Name, On, Plugin, Query,
+    Remove, Res, ResMut, Resource, StandardMaterial, Time, Transform, Update, Vec2, Vec3, With,
+    Without, WorldAssetRoot,
 };
 use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use opensacred_data::heroes::Worn;
@@ -2145,6 +2145,11 @@ pub fn spawn_creatures(
         if request.immortal {
             commands.entity(entity).insert(fight::Immortal);
         }
+        // A level asked for is the creature's own, not a boss's marker to level at its first
+        // fight.
+        if request.level.is_some() {
+            commands.entity(entity).remove::<fight::Unfought>();
+        }
         let placed = Placed {
             at,
             source: Source::Filled(Box::new(placement.clone())),
@@ -2717,6 +2722,14 @@ fn spawn(
             fight::Worth(placement.base.experience),
             fight::Regenerates::new(fight::regeneration(&placement.base, grade, &skills, rules)),
         ));
+        // A boss or a champion not hostile to the hero takes its level at its first fight.
+        if placement.rank != fight::Rank::Common
+            && !minds::hostile_to_heroes(placement.side, creature)
+        {
+            entity.insert(fight::Unfought {
+                big: record_flags & crowd::BIG != 0,
+            });
+        }
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),
@@ -3509,6 +3522,8 @@ fn put(
 pub struct Dies {
     pub choice: u32,
     played: bool,
+    /// Whether a creature killed it, not the hero: it drops nothing (`0x533BA8`, #630).
+    pub by_creature: bool,
 }
 
 impl Dies {
@@ -3516,6 +3531,15 @@ impl Dies {
         Self {
             choice,
             played: false,
+            by_creature: false,
+        }
+    }
+
+    /// A death at a creature's hands, with its dying clip `choice`.
+    pub fn by_creature(choice: u32) -> Self {
+        Self {
+            by_creature: true,
+            ..Self::new(choice)
         }
     }
 }
@@ -3700,6 +3724,122 @@ fn strike(
             if strikes.shot.is_none() {
                 ended.insert(StrikeEnded);
             }
+        }
+    }
+}
+
+/// Levels each boss, champion or creature of a champion's levelling still unfought
+/// (`fight::Unfought`) at its first strike or hit, as the hit is sent and before it is resolved
+/// (`0x56B130` for both sides, `0x550E50`, #630): its opponent's level, a creature's or the
+/// hero's, plus `LevelUpBoss` or `LevelUpChamp`, held within the levels of the sector it stands
+/// in (`opensacred_rules::fight::Rank::level`); its health refilled to its new most, its items
+/// made again at its new level, and its attack, defence, damage, resistances, regeneration and
+/// pace made anew.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn first_fight(
+    mut commands: Commands,
+    mut hits: MessageReader<fight::Hit>,
+    npcs: Option<Res<Npcs>>,
+    experience: Res<fight::Experience>,
+    heroes: Query<(), With<hero::Body>>,
+    levels: Query<&fight::Health, Without<fight::Unfought>>,
+    mut unfought: Query<(
+        &fight::Unfought,
+        &fight::Ranked,
+        &Transform,
+        &mut ai::Mind,
+        &mut fight::Health,
+        &mut fight::Combat,
+        &mut Arms,
+        &mut Npc,
+    )>,
+) {
+    let Some(npcs) = npcs else {
+        return;
+    };
+    let mut levelled = HashSet::new();
+    for hit in hits.read() {
+        for (who, opponent) in [(hit.attacker, hit.target), (hit.target, hit.attacker)] {
+            if levelled.contains(&who) || !unfought.contains(who) {
+                continue;
+            }
+            let opponent = if heroes.contains(opponent) {
+                experience.level
+            } else if let Ok(health) = levels.get(opponent) {
+                health.level
+            } else if let Ok((.., health, _, _, _)) = unfought.get(opponent) {
+                health.level
+            } else {
+                continue;
+            };
+            let Ok((
+                unfought,
+                rank,
+                transform,
+                mut mind,
+                mut health,
+                mut combat,
+                mut arms,
+                mut npc,
+            )) = unfought.get_mut(who)
+            else {
+                continue;
+            };
+            let here = transform.translation;
+            let (x, y) = paths::cell_of(here.x, here.z);
+            let side = i32::try_from(SIDE).unwrap_or(64);
+            let at = (
+                u32::try_from(x.div_euclid(side)).unwrap_or(0),
+                u32::try_from(y.div_euclid(side)).unwrap_or(0),
+            );
+            let values = npcs.values.get(&at).copied().unwrap_or_default();
+            let rules = &npcs.fight;
+            let grade = rank.0.level(1, opponent, &values, unfought.big, rules);
+            let creature = mind.creature;
+            let mut dice = spawning::Rng::of(
+                u32::try_from(x).unwrap_or(0),
+                u32::try_from(y).unwrap_or(0),
+                usize::try_from(creature).unwrap_or(0),
+            );
+            for (held, values) in &mut arms.holding {
+                *values = npcs.items.make(held.item, grade, &mut dice);
+            }
+            let skills = fight::skills(&arms.base, grade, arms.plain);
+            let factor = rank.0.health(creature, mind.class, rules);
+            let most = if arms.plain {
+                PLAIN_HEALTH
+            } else {
+                fight::most_health(arms.base.attributes, grade, &skills, factor, rules)
+            };
+            *health = fight::Health {
+                current: most,
+                most,
+                level: grade,
+            };
+            let (values, share) = arms.fight(grade, rank.0, rules);
+            let pace = values.0.pace_factor();
+            let ratio = pace / npc.pace.max(f32::EPSILON);
+            mind.speed *= ratio;
+            mind.run *= ratio;
+            npc.pace = pace;
+            npc.share = share;
+            *combat = values;
+            mind.level = grade;
+            commands
+                .entity(who)
+                .remove::<fight::Unfought>()
+                .insert(fight::Regenerates::new(fight::regeneration(
+                    &arms.base, grade, &skills, rules,
+                )));
+            levelled.insert(who);
+            bevy::log::info!(
+                "npcs: {who}, a {creature} of rank {:?}, levelled at its first fight to {grade} by \
+                 its opponent's {opponent}, health {most}",
+                rank.0
+            );
         }
     }
 }
@@ -3962,7 +4102,8 @@ impl Plugin for NpcsPlugin {
                 )
                     .chain()
                     .in_set(Step::Npcs),
-            );
+            )
+            .add_systems(Update, first_fight.before(fight::resolve));
     }
 }
 
