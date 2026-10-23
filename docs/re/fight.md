@@ -16,6 +16,22 @@ Otherwise it attacks a target within 800, alive and hostile to it (`0x422820`), 
 It takes the AI's state 8 with a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13, 14), else 4; in a group, in one case of two, it raises the group's alarm (`0x46AE70`, docs/re/ai.md, "Groups").
 The reach `0x4DBC60(a, b)` is the mean of two sizes by type: 130 by default, the heroes 70 to 130, the monsters 70 to 480.
 
+## Sides
+
+Status: **confirmed** by code (read 2026-10-23, #580) unless marked otherwise.
+Whether a creature is hostile to another is a matter of their sides (`+0x1F0`), not of their flags words: `0x548F60` and `0x549000` ask `0x423580`, which reads the client's table of 16 × 16 bytes at `0x890A30` (kept in a copy at `0x8EB548`, which it checks and copies again) by the first creature's side as the row and the other's as the column, 0 hostile and 1 a friend.
+The heroes are of side 1, their types' `Creature.pak` class; the side 1 is a friend of the sides 0, 1, 3, 4, 6 and 7 and hostile to the sides 2, 5 and 8 to 15, and so are those to it; the side 13 is hostile to every side, the sides 0 and 6 friends of every side but 13, and the hostile sides are friends of one another but for 5 and 8, 5 and 12 and 9 and 15 both ways and 15 against 5 and 8; the table is not symmetric, the hostile sides being friends of the side 4, the horses', which is hostile to them.
+`0x423580` also makes the type 75 (`med_spider.grn`) hostile to every creature but those of the types 75, 99 and 109, makes the types 189 and 334 hostile to the types 245 and 188 and the other way about, takes a horse's rider's side for the horse, has a creature of `+0x200` bit `0x10000000` keep friends with those of its list, and turns its answer over for a creature of `+0x1F4` bit `0x40000`.
+
+A creature's side is its type's `Creature.pak` class (`+0x04`, through `0x43ADC0`), which its constructor (`0x52DE40`) gives it; `0x52E420` sets another, or the class again.
+The creature maker `0x480D40`, which `FillSector` calls with each entry's hostility, puts a creature it makes hostile on the side 2 when its class is not hostile to the local hero or is the animals' (6), and sets bit 0 of its flags word; one it makes peaceful on the side 3 when its class is hostile to the hero and not the animals', and clears bit 0 (`0x480F24` to `0x4810A7`).
+`CreateNPC` (`0x482510`) keeps a hostility from its tags, the last of them counting: `0x08` hostile, `0x0E` peaceful and the modes `0x2B`, `0x2E`, `0x30`, `0x32` and `0x42` peaceful too; `0x8D`, handled after the tags (an event `0x109` and `+0x200` bit `0x10`, not read further), makes it peaceful whatever comes before; the tag `0x85` puts it on the side 2 first (`0x48344E`).
+Without a hostility, the modes `0x4000` and `0x8000` (`0x46`, `0x4C`) make it peaceful (`0x483616`).
+A hostile one then goes on the side 2, or 14 for the mode `0x4000` or the side 7, unless it is hostile to the hero already and no animal; a peaceful one on the side 3, or 7 so, when it is hostile to the hero (`0x483605` to `0x4836B2`); a creature without either keeps its class's side.
+So the start's captain of the garrison of 52,39 (`0E 46 13`, the type 297 of class 7, the guards' side) is a friend of the hero, though its mode 2 has it stand in the hero's way (docs/re/movement.md).
+`CreateNPC` wakes a creature of the flags' bit 0 alone, and gives it the timer's shorter period (`0x483A03`, `0x48396E`).
+In the Seraphim's tree 58 records of the start script (the animals of a goodie quest and others, with `08` and the mode `0x4000`), 42 of the quests' `OnEnter` functions and 17 of the sectors' `Init`s (of the classes 11 and others, `08` without a mode) are hostile by their sides and were peaceful by their flags' bits; the captain is the start script's one the other way.
+
 ## Melee: the AI's state 4
 
 `0x4E0300` keeps a creature within a band about its reach `R`: `R − 15` to `R + 15` (`R + 45` for a player's).
@@ -238,7 +254,7 @@ The value times the rate times the frame's time (**hypothesis**: in seconds) add
 
 ## Open
 
-The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 6 on; the special projectiles, the arrows' deflection (`0x561090`) and `FernAll`, which no code found uses; whether the hero's click opens a door (#372, "Doors in the way"); the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5); which creatures are hostile to one another (`sdk_HOSTILITY_PREDICATE`, `0x548F60`).
+The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 6 on; the special projectiles, the arrows' deflection (`0x561090`) and `FernAll`, which no code found uses; whether the hero's click opens a door (#372, "Doors in the way"); the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5); what sets a creature's `+0x200` bit `0x10000000` and its list, and `+0x1F4` bit `0x40000` ("Sides").
 
 ## In `opensacred-game`
 
@@ -254,6 +270,7 @@ No criticals, life leech or death scripts follow (docs/decisions/2026-10-20-hits
 The hero attacks (#283, `attack`): a left click on a hostile creature alive, within 45 of the cursor's line of sight up to 110 over its feet, makes it the hero's target, and the press does not steer the hero while it is held; the hero runs at it until within the band `R + 45`, 175, then stops, turns to it and strikes with one of its model's attack clips for bare hands at random, at its attack speed, hitting at the clip's fractions when the target is within 1.5 times the reach, 195, with a share of 1; it strikes again until the target dies, and a click elsewhere ends the attack with its strike.
 With Ctrl held it strikes once, at once, where it stands, at the creature or in the air.
 Its strikes on a target are chained (#312, `opensacred_rules::minds::Chain`): each after the first plays 0.1 faster than the last, up to 1.7 times, and coming on again breaks the chain.
+A creature is hostile to the hero by its side and its type (#580, `opensacred_rules::minds::hostile_to_heroes`), not by its flags word: the table of the sides and the type 75; a fill's by its entry's hostility as the creature maker sets it (`minds::made_side`), a `CreateNPC`'s by its tags (`minds::created_side`), a `spawn`'s as the creature maker's; the other cases of `0x423580` are not followed, and `CreateNPC` wakes only its creatures of the flags' bit 0.
 The fills make bosses and champions (#318, `fight::Rank`): by their types and by `HarteSau`, at the hero's level plus `LevelUpBoss` or `LevelUpChamp` within their sector's, their health, attack, defence and kill's experience times their factors (docs/decisions/2026-10-20-bosses.md); so do the start's and the quests' `CreateNPC` records of the level tag 1000 (#540, `fight::Rank::of_tag`).
 The hero's attack, defence, damage and resistances are its type's record's (`game::Class::creature`) by the same recomputation as an NPC's, unarmed, at its level, and a kill earns it the creature's experience by `0x57D860` and `0x551530` (`fight::experience_of`), which the overlay shows (docs/decisions/2026-10-20-hero-attack.md).
 The hero takes the creatures' hits (#292): its health is its type's record's by `0x5658F0` without a creature's factors (`fight::hero_health`), and between the hero and a creature bronze's factors weigh a strike (`fight::weighed`): the creature's attack times `ProzAW` and its damages times `ProzDmg` when it strikes the hero, with the exponent `k` of a creature above the hero's level (`fight::exponent`, its share held at 0.99 from 1 up, #407), and the creature's defence times `ProzAW` and its resistances times `ProzRes` when the hero strikes it.
