@@ -507,7 +507,8 @@ class Host:
                 "heal [ID] [--to N]: a creature's health to its most, or to N (at most its most), the hero's by default",
                 "arts [ID]: a creature's combat arts, the hero's by default; arts learn ART [LEVELS]: the hero learns "
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
-                'ready at once',
+                "ready at once; arts use ART: the hero's art starts its regeneration as a use of it does, its time "
+                'added to every art of its kind',
                 "pause [on|off]: the world's time stands without the menu, the frames going on, or goes on; "
                 'without a switch, toggles',
                 'level N: the hero rises to level N, its experience the level\'s start, as kills raise it',
@@ -945,7 +946,7 @@ class Host:
 
     def command_arts(self, rest):
         words = rest.split()
-        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False}
+        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False, 'use': None}
         if words and words[0] == 'learn':
             if not 2 <= len(words) <= 3 or not all(w.isdigit() for w in words[1:]):
                 raise ValueError('arts learn ART [LEVELS]')
@@ -955,10 +956,12 @@ class Host:
                 raise ValueError('arts learn: LEVELS 1 to 255')
         elif words == ['ready']:
             params['ready'] = True
+        elif len(words) == 2 and words[0] == 'use' and words[1].isdigit():
+            params['use'] = int(words[1])
         elif len(words) == 1 and words[0].isdigit():
             params['id'] = int(words[0])
         elif words:
-            raise ValueError('arts [ID], arts learn ART [LEVELS] or arts ready')
+            raise ValueError('arts [ID], arts learn ART [LEVELS], arts ready or arts use ART')
         arts = self.world('arts', params)
         if not arts:
             return ['no combat arts']
