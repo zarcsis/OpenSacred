@@ -21,7 +21,10 @@ pub const DIR: &str = "manifest";
 const EXTRA_SOURCES: &[(&str, &[&str])] = &[
     ("models", &["PAK/texture.pak", "PAK/texture03.pak"]),
     ("world", &["PAK/texture.pak", "PAK/Items.pak"]),
-    ("tables", &["PAK/models.pak", "PAK/models03.pak"]),
+    (
+        "tables",
+        &["PAK/models.pak", "PAK/models03.pak", "Sacred.exe"],
+    ),
     ("sound", &["Sacred.exe"]),
 ];
 

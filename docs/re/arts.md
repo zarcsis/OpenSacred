@@ -6,6 +6,7 @@ Status: **confirmed** by code where it gives an address, read 2026-10-22 (#500, 
 
 The arts are the records of two tables compiled into `Sacred.exe`, the defaults of a balancing spreadsheet: `0x5E6550` can load them again from its sheets and write them out as `xls_magictypes.h` (the first table) and `xls_smovetypes.h` (the second), its sheets named by class and kind (`GladMo`, `SeraSp`, `SeraMo`, `MageFire`, `MageEarth`, `MageWater`, `MageAir`, `MageLost`, `DelfMo`, `DelfTr`, `VampSu`, `VampMo`, `DwarfMo`, `DwarfSp`, `DaemonMo`, `DaemonSp` and others).
 The first table holds the spells, the second the weapon arts (its icons `GUI_MOVE_*`, its sheet `SMOVETYPES`): every melee class's own `Rundum`, `Hardhit`, `Attacke` and `Kick` (the icons' names), the Gladiator's and the Seraphim's special moves, the Wood Elf's bow arts, the Vampiress's arts, the Dwarf's guns and the Daemon's arts.
+`opensacred-convert tables` writes both into `tables/arts.ron`, their layout in docs/02 §6.5 (#505).
 
 The parsers of the sheet's words name three of the fields' values:
 

@@ -1,25 +1,31 @@
 //! `tables` subcommand: `Creature.pak`, `Weapon.pak`, `Items.pak` with the overlay
-//! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK` and the data tables of `bin/` → one RON file each
-//! under `<out>/tables/` (docs/02 §6; the format is [`opensacred_data::tables`]).
+//! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK`, the data tables of `bin/` and the combat arts'
+//! tables of `Sacred.exe` → one RON file each under `<out>/tables/` (docs/02 §6; the format is
+//! [`opensacred_data::tables`]).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
-    ARMOUR_SWITCHES, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue, BalanceVariable,
-    CREATURES, Creature, EffectChance, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES,
-    MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass, QualityWeight, STAIRS,
-    START_POINTS, STATIC_REMAP, StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS, WEAPON_MODIFIERS,
-    WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponModifier,
+    ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
+    BalanceVariable, CREATURES, Creature, EffectChance, ITEM_SETS, ITEMS, Item, ItemSet,
+    MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass, QualityWeight, STAIRS,
+    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, WEAPON_GROUPS,
+    WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
 };
+use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
 use opensacred_formats::items::{self, Items};
 use opensacred_formats::mdl::{Kind, MdlPak};
 use opensacred_formats::tables;
+use opensacred_formats::text::sacred_hash;
 use serde::Serialize;
 
-use crate::verify::read_game_file;
+use crate::verify::{read_game_file, read_reference_file};
+
+/// How many indices a short description's text lies after the long one's (`0x5893B0`).
+const SHORT_DESCRIPTION: u32 = 600;
 
 pub fn output_dir(out: &Path) -> PathBuf {
     out.join("tables")
@@ -34,6 +40,8 @@ pub struct Summary {
     pub triggers: usize,
     /// The files of `bin/`.
     pub bin_tables: usize,
+    pub spells: usize,
+    pub weapon_arts: usize,
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -193,6 +201,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         .collect::<Result<Vec<_>>>()?;
     write(&dir, TRIGGERS, &triggers)?;
     let bin_tables = convert_bin_tables(game_dir, &dir)?;
+    let arts = arts(game_dir)?;
+    write(&dir, ARTS, &arts)?;
 
     Ok(Summary {
         creatures: creatures.len(),
@@ -201,6 +211,80 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         motions: motions.len(),
         triggers: triggers.len(),
         bin_tables,
+        spells: arts.spells.len(),
+        weapon_arts: arts.weapon_arts.len(),
+    })
+}
+
+/// The `global.res` id of the text index `index`: the hash of the index in decimal (docs/02 §8).
+fn text(index: u32) -> u32 {
+    sacred_hash(index.to_string().as_bytes())
+}
+
+/// The ids of an art's name, long description and short description.
+fn texts(head: &Head) -> Result<[u32; 3]> {
+    let short = head
+        .description
+        .checked_add(SHORT_DESCRIPTION)
+        .with_context(|| format!("Sacred.exe: art {}'s description index", head.id))?;
+    Ok([text(head.name), text(head.description), text(short)])
+}
+
+/// The combat arts' two tables of `Sacred.exe`, which must be the manifest's: they are read at
+/// the addresses of that build (docs/02 §6.5).
+fn arts(game_dir: &Path) -> Result<Arts> {
+    let exe = read_reference_file(game_dir, "Sacred.exe")?;
+    let spells = arts::spells(&exe)
+        .context("Sacred.exe")?
+        .into_iter()
+        .map(|s| {
+            let [name, description, short_description] = texts(&s.head)?;
+            Ok(Spell {
+                id: s.head.id,
+                name,
+                description,
+                short_description,
+                icon: s.head.icon,
+                sprites: s.head.sprites,
+                launch: s.launch,
+                regeneration: s.regeneration,
+                effects: s.effects,
+                values: s.values,
+                caps: s.caps,
+                element: s.element,
+                classes: s.classes,
+                flags: s.flags,
+            })
+        })
+        .collect::<Result<_>>()?;
+    let weapon_arts = arts::weapon_arts(&exe)
+        .context("Sacred.exe")?
+        .into_iter()
+        .map(|a| {
+            let [name, description, short_description] = texts(&a.head)?;
+            Ok(WeaponArt {
+                id: a.head.id,
+                name,
+                description,
+                short_description,
+                icon: a.head.icon,
+                sprites: a.head.sprites,
+                value_3c: a.value_3c,
+                regeneration: a.regeneration,
+                distance: a.distance,
+                launch: a.launch,
+                factor: a.factor,
+                value_58: a.value_58,
+                value_60: a.value_60,
+                value_68: a.value_68,
+                classes: a.classes,
+                flags: a.flags,
+            })
+        })
+        .collect::<Result<_>>()?;
+    Ok(Arts {
+        spells,
+        weapon_arts,
     })
 }
 
@@ -370,6 +454,8 @@ mod tests {
                 motions: 3_423,
                 triggers: 1_246,
                 bin_tables: 12,
+                spells: 70,
+                weapon_arts: 94,
             }
         );
         let dir = output_dir(&out);
@@ -390,7 +476,71 @@ mod tests {
         assert_eq!(motions.len(), 3_423);
         let _: Vec<Creature> = ron::from_str(&read(CREATURES)).unwrap();
         let _: Vec<Trigger> = ron::from_str(&read(TRIGGERS)).unwrap();
+        // The arts come back from their text as they were read.
+        let arts: Arts = ron::from_str(&read(ARTS)).unwrap();
+        assert_eq!(arts, super::arts(&game).unwrap());
         fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The arts' texts are `global.res` ids: every name and short description is a string of
+    /// it, and every long description but the eleven spells' of the index 0 (#505).
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_arts_name_their_texts_by_global_res_ids() {
+        let game = repo_root().join("OriginalGame");
+        let arts = arts(&game).unwrap();
+        let res = read(&game, "scripts/us/global.res").unwrap();
+        let res = opensacred_formats::text::GlobalRes::parse(&res).unwrap();
+        let texts = arts
+            .spells
+            .iter()
+            .map(|s| (s.id, [s.name, s.description, s.short_description]))
+            .chain(
+                arts.weapon_arts
+                    .iter()
+                    .map(|a| (a.id, [a.name, a.description, a.short_description])),
+            );
+        let mut missing = Vec::new();
+        for (id, ids) in texts {
+            for (kind, text) in ["name", "description", "short"].into_iter().zip(ids) {
+                if res.get(text).is_none() {
+                    missing.push((id, kind));
+                }
+            }
+        }
+        let eleven: Vec<(u16, &str)> = (43..=53).map(|id| (id, "description")).collect();
+        missing.sort_unstable();
+        assert_eq!(missing, eleven);
+        // `GUI_SPELL_IRRITATION`: the indices 816 and 9247, the short description 9847.
+        let irritation = arts.spells.iter().find(|s| s.id == 18).unwrap();
+        assert_eq!(
+            [
+                irritation.name,
+                irritation.description,
+                irritation.short_description
+            ],
+            [b"816".as_slice(), b"9247", b"9847"].map(sacred_hash)
+        );
+        let attack = arts.weapon_arts.iter().find(|a| a.id == 1071).unwrap();
+        assert_eq!(attack.name, sacred_hash(b"8266"));
+        assert_eq!(
+            (attack.factor, attack.regeneration, attack.distance),
+            ([0.75, 0.05], [10.0, 5.0], 130)
+        );
+    }
+
+    /// A `Sacred.exe` that is not the manifest's is refused: the arts lie at that build's
+    /// addresses.
+    #[test]
+    fn the_arts_are_read_from_the_reference_executable_alone() {
+        let game = scratch_dir("tables-arts");
+        fs::write(game.join("Sacred.exe"), b"MZ").unwrap();
+        let error = arts(&game).unwrap_err().to_string();
+        assert!(
+            error.contains("not the GOG Sacred Gold 2.28 file"),
+            "{error}"
+        );
+        fs::remove_dir_all(game).unwrap();
     }
 
     fn game_file_bytes(game: &Path, path: &str) -> Vec<u8> {

@@ -60,7 +60,7 @@ const RULES: &[(&str, Status)] = &[
     (
         "Sacred.exe",
         Status::Skipped(
-            "the original program: rules recovered in M3; `sound` reads its sound names",
+            "the original program: rules recovered in M3; `sound` reads its sound names, `tables` its combat arts",
         ),
     ),
     (

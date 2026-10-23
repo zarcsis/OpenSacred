@@ -122,7 +122,7 @@ fn records<'a>(
     Ok((count, Reader::at(data, HEADER)))
 }
 
-fn u16s<const N: usize>(r: &mut Reader<'_>) -> Result<[u16; N]> {
+pub(crate) fn u16s<const N: usize>(r: &mut Reader<'_>) -> Result<[u16; N]> {
     let mut out = [0; N];
     for value in &mut out {
         *value = r.u16()?;
@@ -142,7 +142,7 @@ pub(crate) fn name_field(r: &mut Reader<'_>, len: usize, what: &'static str) -> 
 }
 
 /// Bytes that must be zero.
-fn zeros(r: &mut Reader<'_>, len: usize, what: &'static str) -> Result<()> {
+pub(crate) fn zeros(r: &mut Reader<'_>, len: usize, what: &'static str) -> Result<()> {
     let at = r.offset();
     if r.bytes(len, what)?.iter().any(|&b| b != 0) {
         return Err(r.error_at(at, field(what, 1, "zeros".into())));
