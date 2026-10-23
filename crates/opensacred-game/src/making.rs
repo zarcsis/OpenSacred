@@ -79,8 +79,14 @@ pub fn clips(
         .into_iter()
         .filter_map(|style| {
             let action = arts::action(kind, style, class)?;
+            // The slot's clip, else the one it falls back to (the Dwarf's).
             let clip = match action.clip {
-                ArtClip::Slot(slot) => Some(slots?.slot(slot)?.to_owned()),
+                ArtClip::Slot(slot) => Some(
+                    slots?
+                        .slot(slot)
+                        .or_else(|| slots?.slot(action.fallback?))?
+                        .to_owned(),
+                ),
                 ArtClip::Attack => None,
             };
             let floats = clip
@@ -108,15 +114,23 @@ pub fn clips(
 
 /// At a new game, the hero's first art whose action is read is the right button's.
 fn select_first(arts: Option<Res<HeroArts>>, mut selected: ResMut<Selected>) {
-    let Some(arts) = arts.filter(|arts| arts.is_added()) else {
+    // A hero that holds the selected art keeps it; a new game's hero, which does not, takes its
+    // first (#678).
+    let Some(arts) = arts else {
         return;
     };
-    selected.0 = arts
+    if selected.0.is_some_and(|art| arts.arts.get(art).is_some()) {
+        return;
+    }
+    let first = arts
         .arts
         .entries
         .iter()
         .find(|e| arts::style(e.art).is_some())
         .map(|e| e.art);
+    if selected.0 != first {
+        selected.0 = first;
+    }
 }
 
 /// Whether the hero may make `art` now: it holds it, it is ready, and its action is read.
@@ -656,7 +670,7 @@ mod tests {
         // Her `Hardhit` plays one of the attack's clips.
         let hardhit = clips.iter().find(|c| c.style == Style::Hardhit).unwrap();
         assert_eq!(hardhit.clip, None);
-        // A class whose executor is not read has none.
-        assert!(super::clips(4, 1, Some(&slots), &points).is_empty());
+        // The Mage, whose executor is not read, has none.
+        assert!(super::clips(3, 1, Some(&slots), &points).is_empty());
     }
 }

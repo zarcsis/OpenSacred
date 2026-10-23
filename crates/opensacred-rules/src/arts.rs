@@ -254,12 +254,15 @@ pub enum ArtClip {
 }
 
 /// What a creature's art plays: its clip, and the rate it plays at as a factor of its attack's
-/// clip speed (the attack speed over 100, `0x584FE0`), or, `fixed`, the rate itself (the kicks').
+/// clip speed (the attack speed over 100, `0x584FE0`), or, `fixed`, the rate itself (the kicks',
+/// the Dwarf's and the Daemon's), and the slot it falls back to where the model lacks the clip's
+/// (the Dwarf's).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArtAction {
     pub clip: ArtClip,
     pub rate: f32,
     pub fixed: bool,
+    pub fallback: Option<u16>,
 }
 
 /// The Seraphim's `Attacke`'s rate with a weapon of the classes it plays the slot 211 for
@@ -268,20 +271,33 @@ const SERAPHIMS_ATTACKE: f32 = 0.73;
 
 /// What the art of `style` of a creature of type `kind` plays, holding what is of `class`
 /// (`motions::class`, `0x546F80`), on foot (the Gladiator's `0x4FF0B0`, the Seraphim's
-/// `0x5038F0`; docs/re/arts.md, "The arts' clips"): none with a bow or a crossbow (the classes 7
-/// and 12, whose arts are shots, not here), nor for another class's executor, not read.
+/// `0x5038F0`, the Dark Elf's `0x506770`, the Wood Elf's `0x50AC00`, the Vampiress's
+/// `0x50E6C0`, the Dwarf's `0x514790`, the Daemon's `0x5192E0`; docs/re/arts.md, "The arts'
+/// clips" and "The other classes' clips", #649): none with a bow or a crossbow (the classes 7
+/// and 12, whose arts are shots, not here), nor for the Daemon's `Rundum` and charge, the other
+/// classes' kicks and the Mage, not read. The Vampiress by night (7) plays her claws' column
+/// (**hypothesis**: her night form is the one of the flag `+0x14` bit `0x2000`).
 pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
     if matches!(class, 7 | 12) {
         return None;
     }
-    let slot = |slot| ArtAction {
-        clip: ArtClip::Slot(slot),
-        rate: 1.0,
-        fixed: false,
-    };
+    let slot = slot_of;
     let kick = |slot| ArtAction {
         fixed: true,
         ..slot_of(slot)
+    };
+    // The Dwarf's and the Daemon's play at the rate 1.0, the Dwarf's falling back to `back`.
+    let plain = |slot| ArtAction {
+        fixed: true,
+        ..slot_of(slot)
+    };
+    let dwarfs = |slot, back| ArtAction {
+        fallback: Some(back),
+        ..plain(slot)
+    };
+    let attack = ArtAction {
+        clip: ArtClip::Attack,
+        ..slot_of(0)
     };
     match (kind, style) {
         (1, Style::Attacke) => Some(match class {
@@ -294,11 +310,7 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             },
         }),
         (1, Style::Rundum) => Some(slot(153)),
-        (1, Style::Hardhit) => Some(ArtAction {
-            clip: ArtClip::Attack,
-            rate: 1.0,
-            fixed: false,
-        }),
+        (1, Style::Hardhit) => Some(attack),
         (1, Style::Kick) => Some(kick(81)),
         (2, Style::Kick) => Some(kick(148)),
         (2, Style::Attacke) => Some(slot(match class {
@@ -319,6 +331,94 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             3 => 204,
             8 => 207,
             _ => 202,
+        })),
+        (4, Style::Attacke) => Some(slot(match class {
+            0 => 210,
+            2 => 212,
+            8 => 216,
+            _ => 211,
+        })),
+        (4, Style::Hardhit) => Some(match class {
+            0 => slot(145),
+            1 => slot(202),
+            2 => slot(203),
+            4 => slot(205),
+            8 => slot(207),
+            _ => attack,
+        }),
+        (4, Style::Rundum) => Some(slot(match class {
+            0 => 219,
+            2 => 221,
+            4 => 223,
+            8 => 225,
+            _ => 220,
+        })),
+        (5, Style::Attacke) => Some(slot(match class {
+            0 => 210,
+            4 => 214,
+            5 => 215,
+            _ => 211,
+        })),
+        (5, Style::Hardhit) => Some(slot(match class {
+            0 => 201,
+            4 => 205,
+            5 => 206,
+            _ => 202,
+        })),
+        (5, Style::Rundum) => Some(slot(match class {
+            0 => 219,
+            4 => 223,
+            5 => 224,
+            _ => 220,
+        })),
+        (7, Style::Attacke) => Some(slot(210)),
+        (7, Style::Hardhit) => Some(slot(201)),
+        (7, Style::Rundum) => Some(slot(219)),
+        (6, Style::Attacke) => Some(slot(match class {
+            2 => 212,
+            8 => 216,
+            _ => 211,
+        })),
+        (6, Style::Hardhit) => Some(attack),
+        (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
+        (8, Style::Attacke) => Some(dwarfs(
+            match class {
+                0 => 210,
+                2 => 212,
+                3 => 213,
+                8 => 216,
+                13 | 14 => 248,
+                _ => 211,
+            },
+            211,
+        )),
+        (8, Style::Hardhit) => Some(dwarfs(
+            match class {
+                0 => 201,
+                2 => 203,
+                3 => 204,
+                8 => 207,
+                13 => 247,
+                14 => 148,
+                _ => 202,
+            },
+            202,
+        )),
+        (8, Style::Rundum) if !matches!(class, 13 | 14) => Some(dwarfs(
+            match class {
+                0 => 219,
+                2 => 221,
+                3 => 222,
+                _ => 220,
+            },
+            220,
+        )),
+        (9, Style::Attacke) => Some(plain(match class {
+            0 => 210,
+            2 => 212,
+            3 => 213,
+            8 => 216,
+            _ => 211,
         })),
         _ => None,
     }
@@ -352,6 +452,7 @@ fn slot_of(slot: u16) -> ArtAction {
         clip: ArtClip::Slot(slot),
         rate: 1.0,
         fixed: false,
+        fallback: None,
     }
 }
 
