@@ -289,22 +289,26 @@ impl Regenerates {
     }
 }
 
-/// The regeneration (`0x562730`): each creature's value times its rate
+/// The regeneration (`0x562730`), on the world's tick as the creatures' updates run it
+/// (`frame::WorldTick`, #616): each creature's value times its rate
 /// (`Rules::regeneration_rate`), an NPC's `RegInFight`, the hero's `RegInFight` in the fight (a
 /// hostile within 350, its stance), `RegEnemyNear` with a hostile within 1,000, else
-/// `RegNoEnemy`, times the frame's time in seconds (**hypothesis**), up to its most health; none
-/// while it dies.
+/// `RegNoEnemy`, times the tick's seconds, up to its most health; none while it dies.
 fn regenerate(
-    time: Res<Time>,
+    tick: Res<crate::frame::WorldTick>,
     rules: Res<Rules>,
     nearest: Res<crate::crowd::Nearest>,
     mut living: Query<(&mut Health, &mut Regenerates, Has<Body>), Without<Dies>>,
 ) {
+    let Some(seconds) = tick.seconds else {
+        return;
+    };
     let hostile = nearest.found.then_some(nearest.distance);
     for (mut health, mut regenerates, hero) in &mut living {
         let rate = rules.regeneration_rate(hero, hostile);
-        let gained = regenerates.gather(rate, time.delta_secs());
-        if gained > 0 && health.current < health.most {
+        let full = health.current == 0 || health.current >= health.most;
+        let gained = regenerates.gather(rate, seconds, full);
+        if gained > 0 {
             health.current = (health.current + gained).min(health.most);
         }
     }
@@ -460,7 +464,13 @@ impl Plugin for FightPlugin {
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
             .add_systems(Update, (resolve, level_up, rise).chain())
-            .add_systems(Update, regenerate.in_set(crate::frame::Unpaused));
+            .add_systems(
+                Update,
+                regenerate
+                    .in_set(crate::frame::Unpaused)
+                    .after(crate::frame::Step::Tick)
+                    .run_if(crate::frame::ticked),
+            );
     }
 }
 

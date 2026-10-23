@@ -761,6 +761,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(bevy::state::app::StatesPlugin)
             .init_state::<AppState>()
+            .init_resource::<Time>()
             .add_plugins(crate::frame::FramePlugin)
             .init_resource::<Runs>()
             .add_systems(
