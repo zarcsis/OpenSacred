@@ -100,12 +100,26 @@ def wait_ready(endpoint, timeout=180):
     raise RuntimeError(f'{endpoint.name}: not ready in {timeout} s')
 
 
+def wait_fresh(endpoint, timeout=180):
+    """Waits until `endpoint` is ready with its hero at level 1 and no experience, as a new game and the Seraphim's
+    save start: `ready` alone may still be the old game's, before a load has begun (#634)."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            now = state(endpoint)
+            if now.get('ready') and now.get('experience') == [1, 0]:
+                return
+        except OSError:
+            pass
+        time.sleep(0.5)
+    raise RuntimeError(f'{endpoint.name}: no fresh game in {timeout} s')
+
+
 def fresh(game, original, save):
     game.exec('new-game --class seraphim')
     original.exec(f'load {save}')
-    time.sleep(2)
     for endpoint in (game, original):
-        wait_ready(endpoint)
+        wait_fresh(endpoint)
         endpoint.exec('god on')
 
 
