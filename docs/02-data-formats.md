@@ -909,6 +909,8 @@ Estimate: < 1 day with the ready-made code.
   Names: a creature type's name is the string whose id is the hash of its number in decimal, as a weapon's (§6.2; type 37 is id 5818), and 25 of the 474 types have none: the empty type 0, 146, 164 to 167, 182, 183 (`Anducar.grn`, `Anducar_Demon.grn`), 222 to 224, 328, 356, 357, 361 to 365, 367, 368, 599 (`WOLF.GRN`), 706 (`NOBLE_FEM.GRN`), 1879 and 6114; and 566 of the 4,883 `Weapon.pak` records have none (§6.2), 448 of them with an `items.pak` slot.
   Lines: of the `res:` keys the scripts name whole, not built at run time with `+VAR(…)`, four quest-log keys of `QuestBook` records (type 53) resolve to no string, `HQ_6_2_1_Log_preQuest`, `NQ_7607_LOG_HEADER`, `NQ_LOG_QLOSE` and `R09NQ01_Log_Qsieg`, besides `res:174242` (type 22), the one numeric reference that does not resolve (above).
   What the game shows for a missing name or line is not read.
+  Of the 25 types, the scripts give every creature that they make a name of its own (read on the trees' listings 2026-10-23, #684): `CreateNPC`'s tag `01` in every record of the types 146, 182, 222 to 224, 328, 356, 357, 361 to 365, 367, 368 and 6114, the first `MakeGroup` rule's `1D` in the 260 functions whose `FillSector` makes a 146, and `Morph`'s `01` for the 183.
+  The fish 164 and 165, which the sectors' runner makes in the waters without a script (docs/re/spawning.md), are the only creatures of these types that the world makes without a name; no script makes the 0, 166, 167, 599, 706 or 1879 (whether the engine does is not read).
 - **Generic names of the arcade's "gamebox" items** (**community-reported**): **confirmed**.
   The eleven items 5150 to 5160 (models 953 to 963, `gamebox_*.grn`, a model each) are named by ids 77105259 to 77105268 and 77105372, which all hold the same single word, the records' `Weapon.pak` internal name as well.
 - The unused hero voice lines, some German (**community-reported**, DarkMatters topic 72808), are cut content, not a defect.
@@ -919,7 +921,8 @@ The table carries ids, lengths and hashes, never the game's wording.
 A word replaced names the strings that hold it by id and the original word by its length in UTF-16 units and the SHA-256 of its UTF-16LE bytes; every span of those strings that hashes so takes the project's word, the first part of a compound too.
 A named string without such a span is left as it is, with a warning, so a repair holds only for the text of 2.28.
 Implemented since #683: the goblins' god's name, 14 words in the ten strings above (docs/decisions/2026-10-23-text-repairs.md).
-The creature types' and the items' missing names (#684, #685), the gameboxes' names (#686) and the scripts' keys that resolve to nothing (#687) are sub-issues of #403.
+A string the file lacks is added under the hash of its name, after the file's strings, unless the file holds it; since #684, the names of the fish 164 and 165 (docs/decisions/2026-10-23-fish-names.md).
+The items' missing names (#685), the gameboxes' names (#686) and the scripts' keys that resolve to nothing (#687) are sub-issues of #403.
 The sources that were weighed, in the order of preference:
 
 1. **The same file**: a string takes another id's string whole, or a span of it (id, offset and length in UTF-16 units) replaces a span of its own.

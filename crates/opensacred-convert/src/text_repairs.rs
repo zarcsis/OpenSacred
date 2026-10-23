@@ -2,8 +2,10 @@
 //! the project's own (#403, docs/decisions/2026-10-23-text-repairs.md). A repair names its strings
 //! by id and the original's word by its length and SHA-256, never by its wording (docs/08 §3), so
 //! it replaces only the word of 2.28 that it was written for; a string it names that holds no such
-//! word is left as it is, with a warning.
+//! word is left as it is, with a warning. A string the file lacks is added under the hash of its
+//! name, unless the file holds it.
 
+use opensacred_formats::text::sacred_hash;
 use sha2::{Digest, Sha256};
 
 /// A word of the original replaced wherever it stands in the strings that the repair names, a
@@ -47,6 +49,39 @@ const GOBLIN_GOD: Word = Word {
     sha256: "793472b294b97d9d774f37f9742f97d5c24e54841eda5759ea3aab8396ca6a81",
     text: "Stompa",
 };
+
+/// A string that the file lacks, added under the hash of its name.
+#[derive(Debug, Clone, Copy)]
+pub struct Added {
+    /// The string's name, whose hash is its id: a creature type's number in decimal (docs/02 §6.2).
+    pub name: &'static str,
+    /// The project's own text.
+    pub text: &'static str,
+}
+
+impl Added {
+    pub fn id(&self) -> u32 {
+        sacred_hash(self.name.as_bytes())
+    }
+}
+
+/// The strings that `text` adds: the names of the waters' shoals of fish, the only creatures of a
+/// type without a name that the scripts or the sectors' runner make (#684,
+/// docs/decisions/2026-10-23-fish-names.md). The runner makes them without a script
+/// (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every creature of
+/// the other such types that they make a name of its own.
+pub const ADDED: [Added; 2] = [
+    // `fisc_01.grn`: three small fish and a middle-sized one.
+    Added {
+        name: "164",
+        text: "Shoal of Fish",
+    },
+    // `fisc_02.grn`: three small fish.
+    Added {
+        name: "165",
+        text: "Shoal of Small Fish",
+    },
+];
 
 /// What [`apply`] did to a string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +219,20 @@ mod tests {
         let word = grunt(&[]);
         assert!(holds(&word, "a Gruntfood"));
         assert!(!holds(&word, "grunt"));
+    }
+
+    #[test]
+    fn the_added_strings_are_named_once() {
+        let mut ids: Vec<u32> = ADDED.iter().map(Added::id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), ADDED.len());
+        // A creature type's name is the hash of its number (docs/02 §6.2): type 37 is id 5818.
+        let probe = Added {
+            name: "37",
+            text: "",
+        };
+        assert_eq!(probe.id(), 5818);
     }
 
     #[test]
