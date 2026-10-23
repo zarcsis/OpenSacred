@@ -1832,8 +1832,8 @@ impl Npcs {
     /// The level that `CreateNPC` gives the creature of `placement`: its level tag's, held by
     /// its cell's sector's highest, or a boss's marker level (`fight::tagged_level`, #540); else
     /// (`fight::scripted_level`) the hero's, `hero`, by the levels of its cell's sector, then a
-    /// horse's by the hero's riding and any other's by the time played, `minutes`; its roll the
-    /// same each time it is made on its cell.
+    /// horse's by the hero's riding and any other's by the time played, `minutes`, held at the
+    /// sector's highest (#562); its roll the same each time it is made on its cell.
     fn scripted_level(&self, placement: &Placement, hero: u32, minutes: u32) -> u32 {
         let (x, y) = placement.cell;
         let side = u32::try_from(SIDE).unwrap_or(64);
@@ -1852,7 +1852,7 @@ impl Npcs {
             fight::Raise::Played { minutes }
         };
         let mut dice = spawning::Rng::of(x, y, LEVEL_ROLL);
-        fight::scripted_level(values, hero, raise, &mut dice)
+        fight::scripted_level(values, hero, raise, creature, &self.fight, &mut dice)
     }
 }
 
@@ -2117,7 +2117,17 @@ pub fn place(
                     let run = u32::try_from(index * 100 + leader).ok()? % 1000;
                     Some((at.0 % 100 * 100 + at.1 % 100) * 1000 + run)
                 });
-                let level = fight::level(&values, hero, Some(&mut rng));
+                // Its level, held at its sector's highest as the creature maker sets it (#562),
+                // a horse's not.
+                let horse = placement.class == HORSES_CLASS;
+                let level = fight::level(
+                    &values,
+                    hero,
+                    Some(&mut rng),
+                    made.creature,
+                    horse,
+                    &npcs.fight,
+                );
                 // A boss or a champion, at the hero's level and more (`0x47E6B7`, `0x550E50`).
                 placement.rank =
                     fight::Rank::of_fill(made.creature, made.hostile, &mut rng, &npcs.fight);

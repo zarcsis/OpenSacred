@@ -1421,22 +1421,35 @@ pub fn strike(
     Some(whole(total * share))
 }
 
-/// A creature's level (docs/re/spawning.md): the hero's, `hero`, held within its sector's lowest
-/// and highest, and for one of a fill, `jitter`, moved by 0 to 1 below 6, −1 to 2 below 30, −2 to
-/// 3 below 90, −3 to 6 below 250; at least 1.
-pub fn level(values: &SpawnValues, hero: u32, jitter: Option<&mut Rng>) -> u32 {
+/// The level of a fill's creature of type `creature`, a horse or not (docs/re/spawning.md,
+/// "`FillSector`"): the hero's, `hero`, held within its sector's lowest and highest, `values`,
+/// moved by `jitter` by 0 to 1 below 6, −1 to 2 below 30, −2 to 3 below 90, −3 to 6 below 250, at
+/// least 1; then held by the level's setter as the creature maker sets it (`0x480D40`, through
+/// `0x549500`; [`held_level`]), so at most its sector's highest. A boss's or a champion's is its
+/// rank's instead ([`Rank::level`]).
+pub fn level(
+    values: &SpawnValues,
+    hero: u32,
+    jitter: Option<&mut Rng>,
+    creature: u32,
+    horse: bool,
+    rules: &Rules,
+) -> u32 {
     let level = hero.clamp(values.lowest.min(values.highest), values.highest);
-    let Some(rng) = jitter else {
-        return level.max(1);
+    let moved = match jitter {
+        None => level.max(1),
+        Some(rng) => {
+            let (down, up) = match level {
+                0..6 => (0, 1),
+                6..30 => (1, 2),
+                30..90 => (2, 3),
+                _ => (3, 6),
+            };
+            let moved = level + rng.below(down + up + 1);
+            moved.saturating_sub(down).max(1)
+        }
     };
-    let (down, up) = match level {
-        0..6 => (0, 1),
-        6..30 => (1, 2),
-        30..90 => (2, 3),
-        _ => (3, 6),
-    };
-    let moved = level + rng.below(down + up + 1);
-    moved.saturating_sub(down).max(1)
+    held_level(moved, Some(values), creature, horse, rules)
 }
 
 /// What raises the level of a creature that `CreateNPC` makes once its sector's levels hold it
@@ -1451,15 +1464,18 @@ pub enum Raise {
     Played { minutes: u32 },
 }
 
-/// The level that `CreateNPC` gives a creature of a record without a level of its own
-/// (`0x482510`, from `0x48459F`; docs/re/spawning.md, "`CreateNPC`'s level"): the hero's,
+/// The level that `CreateNPC` gives a creature of type `creature` of a record without a level of
+/// its own (`0x482510`, from `0x48459F`; docs/re/spawning.md, "`CreateNPC`'s level"): the hero's,
 /// `hero`, held within the levels of the creature's sector, `values`, where it has both: their
 /// lowest below them, their highest above, else the hero's or one more by a roll (`rand() % 2`);
-/// then raised by `raise`.
+/// then raised by `raise`, and held by the level's setter ([`held_level`], at `0x48475B`): a
+/// horse's at most 250, any other's at most its sector's highest.
 pub fn scripted_level(
     values: Option<&SpawnValues>,
     hero: u32,
     raise: Raise,
+    creature: u32,
+    rules: &Rules,
     dice: &mut impl Dice,
 ) -> u32 {
     let level = match values.filter(|values| values.lowest > 0 && values.highest > 0) {
@@ -1469,8 +1485,10 @@ pub fn scripted_level(
         None => hero,
     };
     match raise {
-        Raise::Horse { riding } => level + riding / 8,
-        Raise::Played { minutes } => played_level(level, minutes),
+        Raise::Horse { riding } => held_level(level + riding / 8, values, creature, true, rules),
+        Raise::Played { minutes } => {
+            held_level(played_level(level, minutes), values, creature, false, rules)
+        }
     }
 }
 
@@ -1481,16 +1499,43 @@ pub const BOSS_TAG: u32 = 1000;
 /// The type whose level the level's setter holds at 300 wherever it stands (`0x565473`).
 const AT_MOST_300: u32 = 701;
 
+/// The highest level the level's setter leaves a horse (`0x56550C`).
+const HORSES_MOST: u32 = 250;
+
+/// The level that the level's setter (`0x564D60`, docs/re/spawning.md, "The level's setter")
+/// leaves a creature of type `creature`, a horse or not, set to `level` without its scaling, as
+/// `CreateNPC` and the creature maker set it (`0x48475B`, `0x549500`), and with it on bronze,
+/// where the scaling keeps it: a horse's at most 250 (`0x4266F0`); any other's at most the
+/// highest level of its sector, `values`, plus bronze's `LevelKap` (0), or that addition alone
+/// where the sector has no highest, 300 for the type 701; at least 1, where the original leaves 0
+/// in a sector without levels (docs/decisions/2026-10-23-level-zero.md). A boss's or a champion's
+/// hold, raised by `LevelUpBoss` or `LevelUpChamp` and none for a big type, is [`Rank::level`]'s:
+/// the setter holds a creature before it is ranked.
+pub fn held_level(
+    level: u32,
+    values: Option<&SpawnValues>,
+    creature: u32,
+    horse: bool,
+    rules: &Rules,
+) -> u32 {
+    if horse {
+        return level.min(HORSES_MOST);
+    }
+    let most = if creature == AT_MOST_300 {
+        300
+    } else {
+        values.map_or(0, |values| values.highest) + rules.ranks.cap
+    };
+    level.min(most).max(1)
+}
+
 /// The level that `CreateNPC` gives a creature of type `creature` of a record with the level tag
 /// `0x1F`, `tag` (`0x482510`, from `0x4843C2`; docs/re/spawning.md, "`CreateNPC`'s level"), or
 /// none for 0, a record without one, whose creature takes [`scripted_level`]'s. For
 /// [`BOSS_TAG`], a boss's marker level 1 ([`Rank::of_tag`]), which [`Rank::level`] then levels
-/// as a fill's boss. For any other, that level as the level's setter (`0x564D60`) takes it,
-/// without the hero's, the sector's lowest or the time played: through the difficulty's scaling
-/// of the levels, which keeps it on bronze, then a horse's at most 250 and any other's at most
-/// the highest level of its sector, `values`, plus bronze's `LevelKap` (0), or 300 for the type
-/// 701; at least 1, where the original leaves 0 in a sector without levels, in which no tagged
-/// record of the scripts stands.
+/// as a fill's boss. For any other, that level as the level's setter takes it, without the
+/// hero's, the sector's lowest or the time played: through the difficulty's scaling of the
+/// levels, which keeps it on bronze, then held ([`held_level`]).
 pub fn tagged_level(
     tag: u32,
     values: Option<&SpawnValues>,
@@ -1501,15 +1546,7 @@ pub fn tagged_level(
     match tag {
         0 => None,
         BOSS_TAG => Some(1),
-        level if horse => Some(level.min(250)),
-        level => {
-            let most = if creature == AT_MOST_300 {
-                300
-            } else {
-                values.map_or(0, |values| values.highest) + rules.ranks.cap
-            };
-            Some(level.min(most).max(1))
-        }
+        level => Some(held_level(level, values, creature, horse, rules)),
     }
 }
 
@@ -2348,7 +2385,7 @@ mod tests {
     }
 
     #[test]
-    fn a_creature_takes_the_heros_level_within_its_sectors() {
+    fn a_fills_creature_takes_the_heros_level_within_its_sectors_at_most_their_highest() {
         let start = SpawnValues {
             density: 50,
             lowest: 1,
@@ -2359,15 +2396,33 @@ mod tests {
             lowest: 25,
             highest: 38,
         };
-        assert_eq!(level(&start, HERO_LEVEL, None), 1);
-        assert_eq!(level(&west, HERO_LEVEL, None), 25);
+        // A wolf, and a horse.
+        fn wolf(values: &SpawnValues, hero: u32, rng: Option<&mut Rng>) -> u32 {
+            level(values, hero, rng, 568, false, &Rules::default())
+        }
+        fn horse(values: &SpawnValues, hero: u32, rng: Option<&mut Rng>) -> u32 {
+            level(values, hero, rng, 554, true, &Rules::default())
+        }
+        assert_eq!(wolf(&start, HERO_LEVEL, None), 1);
+        assert_eq!(wolf(&west, HERO_LEVEL, None), 25);
         let mut rng = Rng::of(50, 39, 0);
-        assert!((0..200).all(|_| (1..=2).contains(&level(&start, HERO_LEVEL, Some(&mut rng)))));
-        assert!((0..200).all(|_| (24..=27).contains(&level(&west, HERO_LEVEL, Some(&mut rng)))));
+        assert!((0..200).all(|_| (1..=2).contains(&wolf(&start, HERO_LEVEL, Some(&mut rng)))));
+        assert!((0..200).all(|_| (24..=27).contains(&wolf(&west, HERO_LEVEL, Some(&mut rng)))));
+        // At the highest, moved by −2 to 3 and held there by the level's setter, but a horse's.
+        let held: Vec<u32> = (0..400).map(|_| wolf(&west, 38, Some(&mut rng))).collect();
+        assert_eq!(
+            (held.iter().min(), held.iter().max()),
+            (Some(&36), Some(&38))
+        );
+        let horses: Vec<u32> = (0..400).map(|_| horse(&west, 38, Some(&mut rng))).collect();
+        assert_eq!(
+            (horses.iter().min(), horses.iter().max()),
+            (Some(&36), Some(&41))
+        );
     }
 
     #[test]
-    fn a_scripts_creature_takes_the_heros_level_within_its_sectors_or_one_more() {
+    fn a_scripts_creature_takes_the_heros_level_within_its_sectors_at_most_their_highest() {
         /// A roll below 2 that always gives the value it holds.
         struct Roll(u32);
         impl Dice for Roll {
@@ -2381,64 +2436,64 @@ mod tests {
             lowest,
             highest,
         };
+        // The blacksmith 688, a creature that is no horse.
+        fn npc(values: Option<&SpawnValues>, hero: u32, raise: Raise, roll: u32) -> u32 {
+            scripted_level(values, hero, raise, 688, &Rules::default(), &mut Roll(roll))
+        }
         let start = Raise::Played { minutes: 0 };
         // The blacksmith's plateau of 50,44 (4 to 7) and the trader of 64,41 (29 to 45) for a hero
         // of level 1, read in the original (#530); the start (1 to 4), within its levels.
         let smith = values(4, 7);
-        assert_eq!(scripted_level(Some(&smith), 1, start, &mut Roll(1)), 4);
-        assert_eq!(
-            scripted_level(Some(&values(29, 45)), 1, start, &mut Roll(1)),
-            29
-        );
-        assert_eq!(
-            scripted_level(Some(&values(1, 4)), 1, start, &mut Roll(0)),
-            1
-        );
-        assert_eq!(
-            scripted_level(Some(&values(1, 4)), 1, start, &mut Roll(1)),
-            2
-        );
-        // Above its highest the highest; one more of the highest at it.
-        assert_eq!(scripted_level(Some(&smith), 9, start, &mut Roll(1)), 7);
-        assert_eq!(scripted_level(Some(&smith), 7, start, &mut Roll(1)), 8);
-        // A sector without its levels, or with a level of 0, holds none and rolls none.
-        assert_eq!(scripted_level(None, 3, start, &mut Roll(1)), 3);
-        assert_eq!(
-            scripted_level(Some(&values(0, 7)), 1, start, &mut Roll(1)),
-            1
-        );
-        // A horse by an eighth of the hero's riding, without the time played.
+        assert_eq!(npc(Some(&smith), 1, start, 1), 4);
+        assert_eq!(npc(Some(&values(29, 45)), 1, start, 1), 29);
+        assert_eq!(npc(Some(&values(1, 4)), 1, start, 0), 1);
+        assert_eq!(npc(Some(&values(1, 4)), 1, start, 1), 2);
+        // Above its highest the highest; at it, one more held back at the highest by the
+        // level's setter (#562).
+        assert_eq!(npc(Some(&smith), 9, start, 1), 7);
+        assert_eq!(npc(Some(&smith), 7, start, 1), 7);
+        // A sector without its levels holds none and rolls none, and the setter holds its
+        // creature at bronze's `LevelKap`, 0, and so at 1; one with a lowest of 0 rolls none.
+        assert_eq!(npc(None, 3, start, 1), 1);
+        assert_eq!(npc(Some(&values(0, 7)), 1, start, 1), 1);
+        assert_eq!(npc(Some(&values(0, 7)), 9, start, 1), 7);
+        // A horse by an eighth of the hero's riding, without the time played, and not held at
+        // the sector's highest.
         let horse = |riding| Raise::Horse { riding };
-        assert_eq!(scripted_level(Some(&smith), 1, horse(7), &mut Roll(1)), 4);
-        assert_eq!(scripted_level(Some(&smith), 1, horse(17), &mut Roll(1)), 6);
-        // The time played: no more below 15 minutes, a per cent from 15, five from 121 minutes.
+        assert_eq!(npc(Some(&smith), 1, horse(7), 1), 4);
+        assert_eq!(npc(Some(&smith), 1, horse(17), 1), 6);
+        assert_eq!(npc(Some(&smith), 7, horse(17), 1), 10);
+        // The time played: no more below 15 minutes, a per cent from 15, five from 121 minutes,
+        // up to the sector's highest.
         let played = |minutes| Raise::Played { minutes };
         let high = values(40, 250);
-        assert_eq!(
-            scripted_level(Some(&high), 100, played(14), &mut Roll(0)),
-            100
-        );
-        assert_eq!(
-            scripted_level(Some(&high), 100, played(15), &mut Roll(0)),
-            101
-        );
-        assert_eq!(
-            scripted_level(Some(&high), 50, played(120), &mut Roll(0)),
-            52
-        );
+        assert_eq!(npc(Some(&high), 100, played(14), 0), 100);
+        assert_eq!(npc(Some(&high), 100, played(15), 0), 101);
+        assert_eq!(npc(Some(&high), 50, played(120), 0), 52);
         // 50 × 1.05 + 0.5 by the original's 0.01 of a float lies just below 53.
-        assert_eq!(
-            scripted_level(Some(&high), 50, played(121), &mut Roll(0)),
-            52
-        );
-        assert_eq!(
-            scripted_level(Some(&high), 60, played(121), &mut Roll(0)),
-            63
-        );
-        assert_eq!(
-            scripted_level(Some(&smith), 4, played(100_000), &mut Roll(0)),
-            4
-        );
+        assert_eq!(npc(Some(&high), 50, played(121), 0), 52);
+        assert_eq!(npc(Some(&high), 60, played(121), 0), 63);
+        assert_eq!(npc(Some(&smith), 4, played(100_000), 0), 4);
+        assert_eq!(npc(Some(&values(40, 100)), 100, played(121), 0), 100);
+    }
+
+    #[test]
+    fn the_level_setter_holds_a_creature_at_its_sectors_highest_but_a_horse() {
+        let rules = Rules::default();
+        let start = SpawnValues {
+            density: 50,
+            lowest: 1,
+            highest: 4,
+        };
+        assert_eq!(held_level(3, Some(&start), 295, false, &rules), 3);
+        assert_eq!(held_level(5, Some(&start), 295, false, &rules), 4);
+        // Without a highest, at bronze's `LevelKap` alone, 0, and so at 1.
+        assert_eq!(held_level(5, None, 295, false, &rules), 1);
+        // The type 701 at 300 wherever it stands; a horse at 250.
+        assert_eq!(held_level(280, Some(&start), 701, false, &rules), 280);
+        assert_eq!(held_level(400, Some(&start), 701, false, &rules), 300);
+        assert_eq!(held_level(30, Some(&start), 554, true, &rules), 30);
+        assert_eq!(held_level(300, None, 554, true, &rules), 250);
     }
 
     #[test]
