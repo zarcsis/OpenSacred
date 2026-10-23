@@ -69,7 +69,8 @@ Status: **confirmed** by code and in the running original (2026-10-22, #559), wh
   Seen: a goblin warrior made in 51,39 at the level 20 through `0x549500` took the level 4, and with `b` 1 the level 20.
 - A strike lands as the event 5 that `0x4EA3F0` sends its target: an event of the vtable `0x89095C`, its type 5 at `+4`, the attacker's id at `+8`, the target's at `+0x0C` and `+0x10`, then the strike's record (the weapon's type and id, the attacker's id, four words of fixed damages, a kind, a word and the factor, a float), handled at once by the target's `+0x18` of its vtable (`0x52E590` for a creature): a target farther than 1,500 from its attacker ignores it.
   The death that gives drops and experience is made there, with the attacker as the killer: an unarmed strike of the hero at a creature whose health is 1 kills it as the hero's kill (seen: the goblins of 51,39 died, each called the drop once with the killer 1, and the hero took 27 and 45 experience), while a health set to 0 alone makes the creature die with no drop and no experience.
-- The drop `0x559BF0` (`thiscall` of the creature; the type asked, the bonus, the value and the killer's id) returns the id of the last object it made, 0 for none; with a type forced it makes that item even for a hero (docs/re/items.md, "One call of the drop"), at the creature's place and level.
+- The drop `0x559BF0` (`thiscall` of the creature; the type asked, the bonus, the value and the killer's id) makes its objects through `sdk_CREATE` (`0x5FBA40`); with a type forced it makes that item even for a hero (docs/re/items.md, "One call of the drop"), at the creature's place and level.
+  Its return value is not what it made: 0 for gold and for most items, an id at times (seen 2026-10-23, #594: 30 drops returned one potion while `sdk_CREATE` made 3 gold piles and 4 items more), so the driver collects what `sdk_CREATE` makes during each call.
 
 ## The console's cheats
 
