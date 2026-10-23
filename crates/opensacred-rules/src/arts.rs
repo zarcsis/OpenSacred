@@ -1,11 +1,13 @@
 //! A creature's combat arts (docs/re/arts.md): the list its stats hold, an art's level in play,
-//! each entry's regeneration time by its record, the runes that teach the arts, and the hero's
-//! arts at a new game. `opensacred-game` keeps the hero's list; the regeneration that runs it
-//! down (#507), the skills that shorten the times (`0x566070`, #507) and the arts' strikes (#508)
-//! are not here.
+//! each entry's regeneration time by its record and its skills, the runes that teach the arts,
+//! the hero's arts at a new game, and their regeneration: a use that starts it for every art of
+//! its kind and the frames that run it down. `opensacred-game` keeps the hero's list; the arts'
+//! strikes (#508) and the combos are not here.
 
 use opensacred_data::heroes::HeroArt;
-use opensacred_data::tables::Arts as Tables;
+use opensacred_data::tables::{Arts as Tables, Balance};
+
+use crate::fight::curve;
 
 /// The bit of an entry's flags that a rune sets: on every art it adds (`0x580750`) and on every
 /// art it raises for good (`0x581F80`).
@@ -51,6 +53,60 @@ const RAISED_WITH: [(u16, u16); 19] = [
     (1040, 1075),
     (1041, 1076),
 ];
+/// The skills that shorten the times of arts (`0x566070` through `0x565DC0`): each skill, the
+/// balance's keys of its curve (`…off`, `…__s`, `…__w`) and the arts it shortens.
+const SHORTENING: [(u8, &str, &[u16]); 14] = [
+    (1, "HM", &[13, 15, 17, 18, 19, 20, 21, 22, 1019]),
+    (15, "FM", &[5, 11, 23, 24]),
+    (16, "WM", &[27, 4, 34, 35]),
+    (17, "EM", &[2, 16, 25, 26]),
+    (18, "LM", &[1, 28, 29, 33]),
+    (19, "MM", &[3, 7, 36, 37, 38, 39, 40, 41, 42]),
+    (
+        20,
+        "KO",
+        &[
+            1023, 1025, 1027, 1029, 1038, 1039, 1040, 1041, 1032, 43, 1030, 1031, 1033, 1034, 1035,
+            1036, 1037,
+        ],
+    ),
+    (
+        25,
+        "KO",
+        &[
+            1000, 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013,
+            1014, 1015, 1016, 1017, 1018, 1020, 1057, 1058, 1059, 1060, 1061, 1062, 1063, 1064,
+            1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075, 1076, 1054, 1022,
+            1024, 1026, 1028, 1042, 1043, 1044, 1045, 1046, 1091, 1094, 1092, 1097, 1102, 1098,
+            1101, 1099, 1103, 1100, 1078, 1079, 1080, 1082, 1083, 1084, 1089,
+        ],
+    ),
+    (26, "BA", &[1047, 1048, 1049, 1050, 1051, 1052, 1053]),
+    (27, "KO", &[1047, 1048, 1049, 1050, 1051, 1052, 1053]),
+    (
+        28,
+        "BL",
+        &[1022, 43, 1032, 1030, 1031, 1033, 1034, 1035, 1036, 1037],
+    ),
+    (29, "WT", &[1087, 1086, 1085, 55, 56, 57, 58, 59]),
+    (31, "KO", &[1087, 1086, 1085, 55, 56, 57, 58, 59]),
+    (32, "HOM", &[60, 61, 62, 63, 64, 65, 66, 67]),
+];
+/// The original's curves of the skills that shorten the arts' times: `KO`'s, and every other's.
+const KO: [f32; 3] = [12.0, 50.0, 300.0];
+const SHORTENS: [f32; 3] = [6.0, 50.0, 100.0];
+/// The groups of arts whose uses start the regeneration of their own (`0x562390`): the Dark Elf's
+/// traps and the Vampiress's bites and bats.
+const GROUPS: [&[u16]; 2] = [
+    &[1051, 1052, 1053, 1048, 1049, 1047, 1050],
+    &[1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037],
+];
+/// The bits of the stats' `+0x148` that take the time a use adds to 0.8 of it (`0x562470`): for
+/// the spells and for the weapon arts, set by the items' and the sets' effects (`0x571710`).
+pub const QUICKER_SPELLS: u32 = 8;
+pub const QUICKER_WEAPON_ARTS: u32 = 4;
+/// What is still to run of an art that is ready, at most (`0x580DF0`).
+const READY: f32 = 0.01;
 /// The arts that `0x581D40` finds for the generic `Rundum`, `Hardhit`, `Attacke` and `Kick`
 /// (1000, 1001, 1002, 1009): every class's own.
 const OWN: [(u16, &[u16]); 4] = [
@@ -135,6 +191,22 @@ impl Entry {
     /// The level in play: the level and the bonus.
     pub fn in_play(&self) -> u32 {
         u32::from(self.level) + u32::from(self.bonus)
+    }
+
+    /// The kind whose uses start its regeneration (`0x562470`): its table's, the spells' for
+    /// 1019 and 1085 to 1087.
+    pub fn kind(&self) -> Table {
+        if matches!(self.art, 1019 | 1085..=1087) {
+            Table::Spells
+        } else {
+            self.table
+        }
+    }
+
+    /// Whether it regenerates at the spells' speed (`0x562730`): an art of the first table, and
+    /// 1019; 1085 to 1087, which start as spells, run at the weapon arts'.
+    fn at_spells_speed(&self) -> bool {
+        self.table == Table::Spells || self.art == 1019
     }
 }
 
@@ -237,6 +309,114 @@ fn narrow(value: f64) -> f32 {
     value as f32
 }
 
+/// The speeds the arts regenerate at: the stats' `+0xEE` for the spells and `+0xF2` for the
+/// weapon arts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Speeds {
+    pub spells: f32,
+    pub weapon_arts: f32,
+}
+
+impl Default for Speeds {
+    fn default() -> Self {
+        Self {
+            spells: 1.0,
+            weapon_arts: 1.0,
+        }
+    }
+}
+
+impl Speeds {
+    /// The speeds of a creature of type `kind` (`0x5796A0`): the spells'
+    /// `(1 + bonuses[0] + effect) · (1 + magic / 100)` and the weapon arts'
+    /// `(1 + bonuses[1] + effect) · (1 + physical / 100)`, none below 0, the Dwarf's spells at
+    /// the weapon arts' speed. `bonuses` are its items' bonuses 813 and 814 (`0x32D`, `0x32E`),
+    /// each a hundredth of its value; `effect` the value of its effect `0xB`; `magic` and
+    /// `physical` its attributes `MagicRegen` (4) and `PhysicalRegen` (3) with its items'.
+    pub fn of(bonuses: [f32; 2], effect: f32, magic: f32, physical: f32, kind: u32) -> Self {
+        let speed = |bonus: f32, attribute: f32| {
+            let base = 1.0 + bonus + effect;
+            narrow((f64::from(attribute) * 0.01 + 1.0) * f64::from(base)).max(0.0)
+        };
+        let weapon_arts = speed(bonuses[1], physical);
+        let spells = if kind == 8 {
+            weapon_arts
+        } else {
+            speed(bonuses[0], magic)
+        };
+        Self {
+            spells,
+            weapon_arts,
+        }
+    }
+
+    /// The speed of an entry's kind.
+    fn of_entry(self, entry: &Entry) -> f32 {
+        if entry.at_spells_speed() {
+            self.spells
+        } else {
+            self.weapon_arts
+        }
+    }
+}
+
+/// The curves of the skills that shorten the arts' times, the balance's `HM`, `FM`, `WM`, `EM`,
+/// `LM`, `MM`, `KO`, `BA`, `BL`, `WT` and `HOM` (`0x566070`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shortening {
+    curves: Vec<(u8, [f32; 3], &'static [u16])>,
+}
+
+impl Default for Shortening {
+    /// The original's curves.
+    fn default() -> Self {
+        Self {
+            curves: SHORTENING
+                .iter()
+                .map(|&(skill, keys, arts)| (skill, if keys == "KO" { KO } else { SHORTENS }, arts))
+                .collect(),
+        }
+    }
+}
+
+impl Shortening {
+    /// The curves of `balance`, the original's where it lacks them.
+    pub fn of(balance: &Balance) -> Self {
+        let mut shortening = Self::default();
+        for ((_, triple, _), &(_, keys, _)) in shortening.curves.iter_mut().zip(&SHORTENING) {
+            for (value, suffix) in triple.iter_mut().zip(["off", "__s", "__w"]) {
+                *value = balance.f32(&format!("{keys}{suffix}")).unwrap_or(*value);
+            }
+        }
+        shortening
+    }
+}
+
+/// What the stats' recomputation (`0x5796A0`) makes the arts' times of: the arts' tables, the
+/// creature's type, its skills with their levels in their slots' order, and the curves of the
+/// skills that shorten the times.
+#[derive(Clone, Copy, Debug)]
+pub struct Context<'a> {
+    pub tables: &'a Tables,
+    pub kind: u32,
+    pub skills: &'a [(u8, u32)],
+    pub shortening: &'a Shortening,
+}
+
+/// Whether a use of the art `group` starts the regeneration of `art` (`0x562390`): the art
+/// itself, and else where both or neither are of the groups ([`GROUPS`]), whichever.
+fn shares(art: u16, group: u16) -> bool {
+    if art == group {
+        return true;
+    }
+    let count = GROUPS
+        .iter()
+        .flat_map(|arts| arts.iter())
+        .filter(|&&a| a == art || a == group)
+        .count();
+    count == 0 || count == 2
+}
+
 /// Why a rune does not teach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
@@ -255,11 +435,12 @@ pub struct Arts {
 }
 
 impl Arts {
-    /// The hero's arts at a new game, of its template's: the entries that no rune taught, with
-    /// their times by their records (**hypothesis**: a new game drops the arts its template
-    /// marks [`TAUGHT`]; the Seraphim starts with 1071 alone and the Gladiator with 1059 alone,
-    /// as the original's do, seen 2026-10-23, #506).
-    pub fn new_game(template: &[HeroArt], tables: &Tables) -> Self {
+    /// The hero's arts at a new game, of its template's: the entries that no rune taught, their
+    /// times recomputed ([`Self::recompute`]); a new game drops the arts its template marks
+    /// [`TAUGHT`] (seen in the original 2026-10-23, #506: the Seraphim starts with 1071 alone,
+    /// the Gladiator with 1059 alone, the Daemon with 1097 and 1092, the Vampiress with 1022 and
+    /// 1023).
+    pub fn new_game(template: &[HeroArt], context: &Context<'_>) -> Self {
         let mut arts = Self {
             entries: template
                 .iter()
@@ -267,8 +448,32 @@ impl Arts {
                 .filter(|entry| !entry.taught())
                 .collect(),
         };
-        arts.times(tables);
+        arts.recompute(context);
         arts
+    }
+
+    /// The arts' part of the stats' recomputation (`0x5796A0`): every time by its record
+    /// ([`Self::times`]), then shortened by the skills ([`Self::shorten`]).
+    pub fn recompute(&mut self, context: &Context<'_>) {
+        self.times(context.tables);
+        self.shorten(context.skills, context.shortening);
+    }
+
+    /// The skills' shortening of the times (`0x566070` through `0x565DC0`): for each skill in its
+    /// slot's order that shortens arts, each art of its list that the creature holds has its time
+    /// divided by `1 + v/100`, `v` the skill's curve at its level, held at 1 s at least, and what
+    /// is still to run held to it.
+    pub fn shorten(&mut self, skills: &[(u8, u32)], shortening: &Shortening) {
+        for &(skill, level) in skills.iter().filter(|&&(_, level)| level > 0) {
+            for (_, triple, arts) in shortening.curves.iter().filter(|(s, ..)| *s == skill) {
+                let v = curve(*triple, level);
+                for entry in self.entries.iter_mut().filter(|e| arts.contains(&e.art)) {
+                    let time = narrow(f64::from(entry.time) / (f64::from(v) * 0.01 + 1.0));
+                    entry.time = time.max(1.0);
+                    entry.remaining = entry.remaining.min(entry.time);
+                }
+            }
+        }
     }
 
     /// The index of the entry of `art` (`0x581D40`): for the generic `Rundum`, `Hardhit`,
@@ -328,8 +533,9 @@ impl Arts {
     /// Adds `art` of `table` at level 0, marked [`TAUGHT`], unless the creature holds it
     /// (`0x580750`): with the Vampiress's other art of its pair, and with the art's counterpart
     /// ([`counterpart`]) where it is another, whether held or not; then every time
-    /// ([`Self::times`]).
-    pub fn add(&mut self, table: Table, art: u16, kind: u32, tables: &Tables) {
+    /// ([`Self::recompute`]).
+    pub fn add(&mut self, table: Table, art: u16, context: &Context<'_>) {
+        let kind = context.kind;
         if self.get(art).is_some() {
             return;
         }
@@ -353,7 +559,7 @@ impl Arts {
         if other != 0 && other != art {
             self.entries.push(entry(other));
         }
-        self.times(tables);
+        self.recompute(context);
     }
 
     /// Raises the entry at `index` by `levels` (`0x581F80`): for good its level, marked
@@ -367,8 +573,7 @@ impl Arts {
         levels: u8,
         for_good: bool,
         linked: bool,
-        kind: u32,
-        tables: &Tables,
+        context: &Context<'_>,
     ) -> bool {
         let Some(entry) = self.entries.get_mut(index) else {
             return false;
@@ -388,7 +593,7 @@ impl Arts {
         }
         let (art, before) = (entry.art, entry.time);
         if for_good {
-            self.times(tables);
+            self.recompute(context);
         }
         if let Some(entry) = self.entries.get_mut(index)
             && before < entry.time
@@ -402,14 +607,14 @@ impl Arts {
                 .and_then(|&(_, with)| self.index(with));
             match with {
                 Some(with) => {
-                    self.raise(with, levels, for_good, false, kind, tables);
+                    self.raise(with, levels, for_good, false, context);
                 }
                 None => {
-                    let other = counterpart(art, kind);
+                    let other = counterpart(art, context.kind);
                     if other != art
                         && let Some(other) = self.index(other)
                     {
-                        self.raise(other, levels, for_good, false, kind, tables);
+                        self.raise(other, levels, for_good, false, context);
                     }
                 }
             }
@@ -419,28 +624,22 @@ impl Arts {
 
     /// Teaches `art` of `table` by `levels`, as that many runes would (`0x580750`, `0x581D40`,
     /// `0x581F80` for good with the linked arts), whatever the creature's class; whether it rose.
-    pub fn teach(
-        &mut self,
-        table: Table,
-        art: u16,
-        levels: u8,
-        kind: u32,
-        tables: &Tables,
-    ) -> bool {
-        self.add(table, art, kind, tables);
+    pub fn teach(&mut self, table: Table, art: u16, levels: u8, context: &Context<'_>) -> bool {
+        self.add(table, art, context);
         self.index(art)
-            .is_some_and(|index| self.raise(index, levels, true, true, kind, tables))
+            .is_some_and(|index| self.raise(index, levels, true, true, context))
     }
 
-    /// A rune of `art` read by a creature of type `kind` (`cItemUpgrade`, `0x5CD100`), its
+    /// A rune of `art` read by a creature of the type of `context` (`cItemUpgrade`, `0x5CD100`), its
     /// requirements met (`0x54ABE0`, the caller's): the art of the second table where that holds
     /// it for the class, else of the first, else refused; added at level 0 if lacking and raised
     /// by 1 for good. A refused rune is kept, a read one used up (its flag `0x8000000`).
-    pub fn read_rune(&mut self, art: u16, kind: u32, tables: &Tables) -> Result<(), Refusal> {
+    pub fn read_rune(&mut self, art: u16, context: &Context<'_>) -> Result<(), Refusal> {
         if art == 0 {
             return Err(Refusal::NoArt);
         }
-        let class = class_mask(kind);
+        let tables = context.tables;
+        let class = class_mask(context.kind);
         let table = if tables
             .weapon_arts
             .iter()
@@ -456,10 +655,64 @@ impl Arts {
         } else {
             return Err(Refusal::NotForClass);
         };
-        if self.teach(table, art, 1, kind, tables) {
+        if self.teach(table, art, 1, context) {
             Ok(())
         } else {
             Err(Refusal::Highest)
+        }
+    }
+
+    /// Whether `art` is ready (`0x580DF0`): at most 0.01 s of its regeneration still to run; an
+    /// art the creature lacks is.
+    pub fn ready(&self, art: u16) -> bool {
+        self.get(art).is_none_or(|entry| entry.remaining <= READY)
+    }
+
+    /// The time that a use of `art` adds (`0x582850`): its entry's, else its record's at level 0
+    /// (`0x582A20`).
+    pub fn time_of(&self, art: u16, tables: &Tables) -> f32 {
+        match self.get(art) {
+            Some(entry) => entry.time,
+            None => time(tables, art, 0).map_or(0.0, narrow),
+        }
+    }
+
+    /// A use of an art of `kind` (`0x562470`, which its executor calls once, at its first strike
+    /// or its cast): `time` is added to what is still to run of every art of the kind
+    /// ([`Entry::kind`]), 0.8 of it where `flags` (the stats' `+0x148`) has the kind's
+    /// [`QUICKER_SPELLS`] or [`QUICKER_WEAPON_ARTS`], each held within 0 and its time; with
+    /// `group`, an art its executor names, only the arts that share its start ([`shares`]).
+    /// While a combo runs the original runs the combos' instead, which are not here.
+    pub fn start(&mut self, time: f32, kind: Table, group: Option<u16>, flags: u32) {
+        let quicker = match kind {
+            Table::Spells => QUICKER_SPELLS,
+            Table::WeaponArts => QUICKER_WEAPON_ARTS,
+        };
+        let added = if flags & quicker != 0 {
+            time * 0.8
+        } else {
+            time
+        };
+        for entry in &mut self.entries {
+            if entry.kind() != kind || group.is_some_and(|group| !shares(entry.art, group)) {
+                continue;
+            }
+            entry.remaining = (entry.remaining + added).min(entry.time).max(0.0);
+        }
+    }
+
+    /// A frame of `seconds` of the regeneration (`0x562730`, the local player's hero's alone, not
+    /// while its `+0x200` has the bit `0x1000000`): each art with time still to run loses
+    /// `seconds · factor · speed`, the spells' speed for an art of the first table and 1019 and
+    /// the weapon arts' for the others, held within 0 and its time.
+    pub fn regenerate(&mut self, seconds: f32, speeds: Speeds) {
+        for entry in &mut self.entries {
+            if entry.remaining <= 0.0 {
+                continue;
+            }
+            let rate = entry.factor * speeds.of_entry(entry);
+            let left = f64::from(entry.remaining) - f64::from(rate) * f64::from(seconds);
+            entry.remaining = narrow(left).max(0.0).min(entry.time);
         }
     }
 }

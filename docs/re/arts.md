@@ -146,9 +146,41 @@ Its executor calls `0x562470` once, at its first strike or its cast: it adds the
 - The weapon arts' speed (`+0xF2`) is `(1 + Σ items' bonus 0x32E / 100 + the effect 0xB) · (1 + PhysicalRegen / 100)`.
 - `MagicRegen` and `PhysicalRegen` are the attributes at the stats' `+0x18` and `+0x16` with the items (`0x5796A0`); the Dwarf's spells take the weapon arts' speed.
 - The time shown is the time over the speed (`0x5828E0`, `0x5893B0`).
-- No skill is read on this path (**hypothesis**: a skill that shortens the regeneration acts through the attributes or the effect `0xB`, not found).
+- No skill is read on this path; the skills shorten the times themselves (below).
 
 A handler at `0x52B6BB` (after an effect `0x1E`) takes the regeneration of both kinds away at once (−1000); what sets it off is not read.
+
+Read again 2026-10-23 (#507):
+
+- `0x562470(time, kind, group)` takes the kind as a table's number, 1 the spells and 2 the weapon arts; with a combo running (the creature's `+0x2B4`, the stats' `+0x59`) or the kind 3 it runs the combos' instead (not read here).
+  For each entry it takes the kind of the entry's table, the spells' for 1019 and 1085 to 1087, and the time, 0.8 of it with the flag of that kind; an entry of the kind given takes it, held within 0 and its time, unless `group` is an art and `0x562390` refuses the pair.
+  `0x562390(art, group)` admits the art itself, and else counts how many of the two are among the traps 1047 to 1053 and the bites and bats 1030 to 1037: it admits 0 or 2, whatever the groups, and refuses 1.
+- The executors pass the time of `0x582850(art)`, the entry's time, else `0x582A20(art, 0, 0)`, the record's at level 0: the Gladiator's `(time, 2, 0)`, the Dark Elf's `Attacke` its own id 1067 as the group, one call of the Dark Elf's the time times a constant first; which executor passes what is #508's.
+- `0x562730` takes the spells' speed for an entry of the first table and 1019, the weapon arts' for any other: 1085 to 1087, which start as spells, run at the weapon arts' speed.
+  An entry with time still to run loses `factor · speed · seconds`, held within 0 and its time; the frame's function runs it for the creature whose `+0x39` is the local player's number alone.
+- `0x5796A0` sets both speeds to 1.0, adds a hundredth of each item's bonus 813 (`0x32D`) to the spells' and 814 (`0x32E`) to the weapon arts', adds the value of the effect `0xB` to both, multiplies them by `1 + MagicRegen/100` and `1 + PhysicalRegen/100` after the skills, holds them at 0 and above, and gives the Dwarf (type 8) the weapon arts' speed for his spells.
+- `0x5796A0` writes the times in `0x571080` and then calls the skills' function `0x566070` (`0x57C658`), whose `0x565DC0` shortens the times of a list of arts by a skill: each art of the list that the creature holds has its time divided by `1 + v/100`, `v` the skill's curve at its level from a triple of balance keys (`off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`), held at 1 s at least, its regeneration still to run held to it.
+
+| Skill | Keys | `off`, `S`, `w` | Arts |
+|---|---|---|---|
+| 1 | `HM` | 6, 50, 100 | the spells 13, 15, 17 to 22, and 1019 |
+| 15 | `FM` | 6, 50, 100 | 5, 11, 23, 24 |
+| 16 | `WM` | 6, 50, 100 | 4, 27, 34, 35 |
+| 17 | `EM` | 6, 50, 100 | 2, 16, 25, 26 |
+| 18 | `LM` | 6, 50, 100 | 1, 28, 29, 33 |
+| 19 | `MM` | 6, 50, 100 | 3, 7, 36 to 42 |
+| 20 | `KO` | 12, 50, 300 | 43, 1023, 1025, 1027, 1029 to 1041 |
+| 25 | `KO` | 12, 50, 300 | 1000 to 1018, 1020, 1022, 1024, 1026, 1028, 1042 to 1046, 1054, 1057 to 1076, 1078 to 1080, 1082 to 1084, 1089, 1091, 1092, 1094, 1097 to 1103 |
+| 26 | `BA` | 6, 50, 100 | 1047 to 1053 |
+| 27 | `KO` | 12, 50, 300 | 1047 to 1053 |
+| 28 | `BL` | 6, 50, 100 | 43, 1022, 1030 to 1037 |
+| 29 | `WT` | 6, 50, 100 | 1085 to 1087, 55 to 59 |
+| 31 | `KO` | 12, 50, 300 | 1085 to 1087, 55 to 59 |
+| 32 | `HOM` | 6, 50, 100 | 60 to 67 |
+
+The heroes' second starting skills are 25 for the Gladiator and the Dark Elf and 20 for the Vampiress, each at level 1 so that `v` is 12: their times are the records' over 1.12 (the Gladiator's 1059 13.39 s and 1057 7.14 s, seen 2026-10-23 with the driver, #507), as the templates hold them; the other classes' skills are none of these.
+The Gladiator's 1057 taught by a rune then rose from 7.14 to 9.82 s at level 2, the growth still to run (seen).
+`opensacred_rules::arts` follows them (`Arts::recompute`, `Arts::shorten`, `Arts::start`, `Arts::regenerate`, `Arts::ready`, `Speeds`), `opensacred_rules::fight::arts_speeds` gives a creature's speeds, and the game runs the hero's regeneration every frame (#507); every entry of the 8 templates, taught or not, recomputes to the very time the template holds.
 
 ## A hero's combos
 
@@ -193,8 +225,8 @@ Each entry carries its time at level 1 as the stats' recomputation left it: the 
 `opensacred_formats::amh` reads them (`Amh::arts`, matching `amh_dump.py --arts`), and `opensacred-convert heroes` writes them into `heroes.ron` (#506).
 
 In the original's new game the Seraphim has the first alone, 1071 at level 1 of the time 15.0, its entry as the template's (seen 2026-10-22 with #448's driver), and the Gladiator 1059 alone (seen 2026-10-23, #507); the hero's loader `0x585C60` reads every entry, and what drops the others is not read.
-The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new game keeps (**hypothesis**) the arts of the template that no rune taught: the Daemon's 1097 and 1092 and the Vampiress's 1022 and 1023, pairs of their forms, and the first of the others.
-`opensacred_rules::arts::Arts::new_game` keeps them, their times by their records, and the game gives them to the hero (#506).
+The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new game keeps the arts of the template that no rune taught: the Daemon's 1097 and 1092 and the Vampiress's 1022 and 1023, pairs of their forms, and the first of the others (**confirmed** in the original 2026-10-23 with the driver's `arts`: the Daemon's 1097 of 32.0 s and 1092 of 12.0 s, the Vampiress's 1022 of 30.0 s and 1023 of 2.7 s, each at level 1).
+`opensacred_rules::arts::Arts::new_game` keeps them, their times by their records shortened by the hero's skills (#507), and the game gives them to the hero (#506).
 
 ## Open
 
