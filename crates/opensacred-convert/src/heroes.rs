@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use opensacred_data::heroes::{Hero, HeroEntry, Heroes, INDEX, Section, Worn};
+use opensacred_data::heroes::{Hero, HeroArt, HeroEntry, Heroes, INDEX, Section, Worn};
 use opensacred_formats::amh::Amh;
 
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
@@ -61,6 +61,24 @@ fn worn(amh: &Amh) -> Result<Vec<Worn>> {
         .collect())
 }
 
+/// The combat arts of a template's creature section, as it holds them.
+fn arts(amh: &Amh) -> Result<Vec<HeroArt>> {
+    Ok(amh
+        .arts()?
+        .into_iter()
+        .map(|a| HeroArt {
+            table: a.table,
+            id: a.id,
+            level: a.level,
+            bonus: a.bonus,
+            flags: a.flags,
+            time: a.time,
+            factor: a.factor,
+            remaining: a.remaining,
+        })
+        .collect())
+}
+
 /// Converts the templates; returns how many.
 pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
     let dir = output_dir(out);
@@ -70,6 +88,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
         let amh = Amh::parse(&data).with_context(|| source.clone())?;
         let info = amh.summary().with_context(|| source.clone())?;
         let worn = worn(&amh).with_context(|| source.clone())?;
+        let arts = arts(&amh).with_context(|| source.clone())?;
         let hero = Hero {
             sections: amh
                 .sections
@@ -99,6 +118,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
             level: info.level,
             class: info.class,
             worn,
+            arts,
         });
     }
     let count = heroes.len();
@@ -142,6 +162,15 @@ mod tests {
         // The Seraphim's weapon, the record 7901 in her right hand (docs/02 §9): physical damage
         // 21 to 23, `A` 5, `D` 2.
         let seraphim = index.heroes.iter().find(|h| h.class == 1).unwrap();
+        // Her combat arts: 1071, and 18 taught by a rune (docs/re/arts.md).
+        let arts: Vec<_> = seraphim
+            .arts
+            .iter()
+            .map(|a| (a.table, a.id, a.level, a.flags, a.time))
+            .collect();
+        assert_eq!(arts, [(2, 1071, 1, 0, 15.0), (1, 18, 1, 1, 24.0)]);
+        let counts: Vec<_> = index.heroes.iter().map(|h| h.arts.len()).collect();
+        assert_eq!(counts.iter().sum::<usize>(), 19);
         let blade = seraphim.worn.iter().find(|w| w.item == 7901).unwrap();
         assert_eq!(blade.id, 18);
         assert_eq!(

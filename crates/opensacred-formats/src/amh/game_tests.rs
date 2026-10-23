@@ -82,3 +82,52 @@ fn every_item_matches_amh_dump_py() {
     assert_eq!(ours.iter().filter(|row| row.contains("\t0\t")).count(), 14);
     fs::remove_dir_all(out).unwrap();
 }
+
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python"]
+fn every_combat_art_matches_amh_dump_py() {
+    let out = scratch_dir("amh-arts");
+    let rows = out.join("arts.tsv");
+    let game = repo_root().join("OriginalGame");
+    run_python(
+        "tools/analysis/formats/amh_dump.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--arts"),
+            rows.as_os_str(),
+        ],
+    );
+    let mut ours = Vec::new();
+    for path in (0..8).map(|i| format!("Templates/Hero{i:02}.ptx")) {
+        let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        for (k, art) in amh.arts().unwrap().iter().enumerate() {
+            ours.push(format!(
+                "{path}\t{k}\t{}\t{}\t{}\t{}\t{}\t{:08x}\t{:08x}\t{:08x}",
+                art.table,
+                art.id,
+                art.level,
+                art.bonus,
+                art.flags,
+                art.time.to_bits(),
+                art.factor.to_bits(),
+                art.remaining.to_bits()
+            ));
+        }
+    }
+    let theirs = fs::read_to_string(&rows).unwrap();
+    assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
+    // Two arts in each template but the Daemon's three and the Vampiress's four.
+    assert_eq!(ours.len(), 19);
+    // The Seraphim's: 1071 of the second table and 18 of the first, at level 1 with their
+    // records' times, the second taught by a rune (docs/re/arts.md).
+    let amh = Amh::parse(&game_file("Templates/Hero01.ptx")).unwrap();
+    let arts: Vec<_> = amh
+        .arts()
+        .unwrap()
+        .iter()
+        .map(|a| (a.table, a.id, a.level, a.flags, a.time))
+        .collect();
+    assert_eq!(arts, [(2, 1071, 1, 0, 15.0), (1, 18, 1, 1, 24.0)]);
+    fs::remove_dir_all(out).unwrap();
+}

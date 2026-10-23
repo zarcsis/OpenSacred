@@ -92,7 +92,19 @@ A hero reads a rune through `cItemUpgrade` (`0x5CD100`):
 2. its art is of the second table when that holds it with the hero's class in `+0x70`, else of the first when that holds it with the class in `+0x8C`, else the rune is refused (an engine's event 7, 2 and a line of the log) and kept;
 3. `0x580750` adds the art to the hero's list at level 0 if it lacks it, with the Vampiress's or the Daemon's linked art, and `0x581F80` raises its level by 1 for good, the linked ones too, and recomputes the stats, so that the first rune teaches the art at level 1;
    `0x580750` takes the stats and the entry of 22 bytes on the stack (the table, the id, the rest 0), `0x581D40` gives the entry's index of an id, and `0x581F80` takes the index, the levels (1), for good (1) and whether to leave the linked arts (0) (read 2026-10-23, #569).
-4. the rune takes the flag `0x8000000`, used.
+4. the rune takes the flag `0x8000000`, used, unless `0x581F80` refused (a level past 255), when it is kept.
+
+The three functions, read 2026-10-23 (#506):
+
+- `0x580750` does nothing for an art the list holds (by its id alone); else it appends the entry with bit 0 of its `+0x08` set, and for the Vampiress (the types 6 and 7) the night art of a day art's pair (1022 and 1023, 1024 and 1025, 1026 and 1027, 1028 and 1029, 1073 to 1076 and 1038 to 1041), and for any creature the art's counterpart by `0x552370` where that is another, each a copy of the entry, marked too, whether the list holds it or not; then it recomputes the stats (`0x5796A0`).
+  `0x552370`, with its flag set as here, gives the Daemon's (type 9) other art of a pair of the table at `0x891154` (1094 and 1091, 1097 and 1092, 1099 and 1101, 1098 and 1102, 1100 and 1103), either way; the Vampiress's other form's, the day art of a night art by day (6) and the night art of a day art by night (7); else the art itself.
+  So a rune that the Vampiress reads by night adds the night art twice (read, not seen).
+- `0x581D40` gives the index of the first entry of an id, the count where there is none; for the generic `Rundum`, `Hardhit`, `Attacke` and `Kick` (1000, 1001, 1002, 1009) the first entry of any class's own (1000: 1078, 1090, 1057, 1069, 1065, 1061, 1073, 1038; 1001: 1079, 1091, 1058, 1062, 1066, 1070, 1074, 1039; 1002: 1080, 1092, 1059, 1063, 1067, 1071, 1075, 1040; 1009: 1093, 1060, 1064, 1068, 1072, 1076, 1041).
+- `0x581F80(index, n, for good, leave the linked)` raises for good the entry's level by `n`, refused where it passes 255, sets its bit 0 and recomputes the stats; else its bonus, refused alike, without the stats.
+  Where the time then grew, the growth is added to the regeneration still to run: an art a rune adds goes from its time at level 0 to its time at level 1, so that it waits that growth, the record's step, before its first use (the spell 18, 15 to 24 s: 9 s; **hypothesis** as to what the play shows).
+  Unless told to leave them, it raises by as much the art raised with this one where the list holds it (1022, 1024, 1026 and 1028 their night arts 1023 to 1029, and 1025, 1027 and 1029 theirs back but not 1023; 1000 to 1002 and 1009 the night's 1038 to 1041; 1073 to 1076 and 1038 to 1041 each other), else the counterpart of `0x552370`, each with the linked ones left; and it marks the creature's stats changed (`+0x127`).
+
+`opensacred_rules::arts` follows the three (`Arts::add`, `Arts::index`, `Arts::raise`) and the rune's reading, its requirements left to the caller (`Arts::read_rune`, #506).
 
 A debugging path (`0x557D60`, under flag `0x1000` of `0x182EE3C`) destroys the rune even when refused.
 
@@ -106,7 +118,7 @@ A creature's stats (docs/re/fight.md) hold its arts as a list of entries of 22 b
 | `+0x04` | `u16`, the art's id |
 | `+0x06` | byte, its level |
 | `+0x07` | byte, a bonus to the level, of the items and the sets |
-| `+0x08` | `u16`: bit 0 set when learnt, the high byte a slot of the shortcuts (`0x580C80`, `0x580D00`) |
+| `+0x08` | `u16`: bit 0 set on an art a rune taught (`0x580750` sets it on every art it adds, `0x581F80` on every art it raises for good), the high byte a slot of the shortcuts (`0x580C80`, `0x580D00`) |
 | `+0x0A` | `f32`, its regeneration time |
 | `+0x0E` | `f32`, its regeneration's factor, 1.0 |
 | `+0x12` | `f32`, the regeneration still to run, in seconds |
@@ -114,7 +126,11 @@ A creature's stats (docs/re/fight.md) hold its arts as a list of entries of 22 b
 The level in play is the level and the bonus (`0x580A10`); a rune raises the level by 1, to 255 at most, and the items' and sets' bonuses the bonus (`0x571710` through `0x581F80`, not for good).
 Seen in the original (2026-10-23, #569, the driver's `arts`): the new Seraphim's 1071 at level 1 has bit 0 of `+0x08` clear, as the template's entry has it, and the rune's functions set it; raised to level 3 its time went from 15 to 25 s, `10 + 5·L`, and its regeneration still to run rose by the same 10 s; the spell 18 learnt at level 1 took 24 s, `15 + 9·L`.
 A creature that is no player's and lacks an art uses it at the level `⌊creature's level / 5⌋ + 1` (`0x580A10`).
+`0x580A10` takes the generic 1061 and 1062 as the class's own (above), finds the entry by its id alone, and gives its level with its bonus, or without it on its flag; for a creature that is no player's and lacks the art, one of the flag `0x80000` of `+0x1F4` or `0x40` of `+0x2B8` takes another level, not read.
 `0x571080` makes every entry's time: the record's value at the level, from the first table or the second, and with the bonus half of what the bonus adds to it when that is more, `v(L) + (v(L + b) − v(L))/2`; a time that grows adds as much to the regeneration still to run.
+It looks an art up in the first table, then in the second, whatever the entry's table; a spell's value is whole seconds, `L·[+0x40] + [+0x3E]` in integers (`0x4D25C0`), a weapon art's a float (`0x4D1C00`); every entry's factor becomes 1.0, and an art that neither table holds keeps its time (read 2026-10-23, #506).
+The growth is added in `0x581F80`, not here.
+The skills' function `0x566070`, which the stats' recomputation runs after it, then shortens the times of some arts by some skills (#507).
 `0x582A20(art, level, bonus)` gives the same for one art.
 The drops' `a` is the sum of the levels of a hero's arts without their bonuses (`0x5598B0`, docs/re/items.md).
 
@@ -162,20 +178,24 @@ So at level 1 the Seraphim's 1071 and the Gladiator's 1059 strike with 1.425 tim
 
 Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (above): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229 (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):
 
-| Template | Class | Arts (table, id, level 1) |
-|---|---|---|
-| `Hero00.ptx` | Gladiator | 2: 1059, 1057 |
-| `Hero01.ptx` | Seraphim | 2: 1071; 1: 18 |
-| `Hero02.ptx` | Daemon | 2: 1097, 1092; 1: 66 |
-| `Hero03.ptx` | Dwarf | 2: 1080; 1: 55 |
-| `Hero04.ptx` | Wood Elf | 2: 1062; 1: 42 |
-| `Hero05.ptx` | Mage | 1: 5, 32 |
-| `Hero06.ptx` | Dark Elf | 2: 1066, 1051 |
-| `Hero07.ptx` | Vampiress | 2: 1022, 1023, 1074, 1039 |
+| Template | Class | Arts (table, id, level 1), bit 0 clear | Arts with bit 0 set |
+|---|---|---|---|
+| `Hero00.ptx` | Gladiator | 2: 1059 | 2: 1057 |
+| `Hero01.ptx` | Seraphim | 2: 1071 | 1: 18 |
+| `Hero02.ptx` | Daemon | 2: 1097, 1092 | 1: 66 |
+| `Hero03.ptx` | Dwarf | 2: 1080 | 1: 55 |
+| `Hero04.ptx` | Wood Elf | 2: 1062 | 1: 42 |
+| `Hero05.ptx` | Mage | 1: 5 | 1: 32 |
+| `Hero06.ptx` | Dark Elf | 2: 1066 | 2: 1051 |
+| `Hero07.ptx` | Vampiress | 2: 1022, 1023 | 2: 1074, 1039 |
 
-Each entry carries its time at level 1 already, the art's record's at that level (the Seraphim's 1071 15.0, her 18 24.0).
-In the original's new game the Seraphim has the first alone, 1071 at level 1 of the time 15.0, its entry as the template's (seen 2026-10-22 with #448's driver); why the second is not there is not read.
+Each entry carries its time at level 1 as the stats' recomputation left it: the record's, shortened by the class's skill where one shortens it (#507; the Seraphim's 1071 15.0 and her 18 24.0, the records'; the Gladiator's 1059 13.39 and 1057 7.14, the records' 15 and 8 over 1.12).
+`opensacred_formats::amh` reads them (`Amh::arts`, matching `amh_dump.py --arts`), and `opensacred-convert heroes` writes them into `heroes.ron` (#506).
+
+In the original's new game the Seraphim has the first alone, 1071 at level 1 of the time 15.0, its entry as the template's (seen 2026-10-22 with #448's driver), and the Gladiator 1059 alone (seen 2026-10-23, #507); the hero's loader `0x585C60` reads every entry, and what drops the others is not read.
+The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new game keeps (**hypothesis**) the arts of the template that no rune taught: the Daemon's 1097 and 1092 and the Vampiress's 1022 and 1023, pairs of their forms, and the first of the others.
+`opensacred_rules::arts::Arts::new_game` keeps them, their times by their records, and the game gives them to the hero (#506).
 
 ## Open
 
-The second table's `+0x3C`, and its `+0x58…+0x6C` for each art; which clip each art plays, and so how many strikes an `Attacke` makes; the spells' effects (`0x522480` and the objects it makes), the effects `0x22` and `0xB`; a rune's requirements; the combos' use in full; the NPCs' choice of their arts (`0x5481F0`, `0x4DCB80`); why the Seraphim's art 18 is missing in a new game.
+The second table's `+0x3C`, and its `+0x58…+0x6C` for each art; which clip each art plays, and so how many strikes an `Attacke` makes; the spells' effects (`0x522480` and the objects it makes), the effects `0x22` and `0xB`; a rune's requirements; the combos' use in full; the NPCs' choice of their arts (`0x5481F0`, `0x4DCB80`); what drops a template's arts that a rune taught from a new game; the level that `0x580A10` gives a creature of the flag `0x80000` or `0x40` (above).

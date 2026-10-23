@@ -4,10 +4,11 @@
 //!
 //! It holds the spawning's rolls ([`spawning`]), the fight's formulas with the hero's levels
 //! ([`fight`]), the ways with the cells in the way ([`ways`]), the creatures' decisions with
-//! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]) and what a killed creature
-//! drops ([`drops`]).
+//! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
+//! drops ([`drops`]) and a creature's combat arts with the runes that teach them ([`arts`]).
 
 pub mod arrows;
+pub mod arts;
 pub mod drops;
 pub mod fight;
 pub mod minds;

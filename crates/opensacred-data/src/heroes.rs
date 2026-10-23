@@ -14,12 +14,12 @@ pub const VERSION: u32 = 1;
 pub const INDEX: &str = "heroes.ron";
 
 /// The index, `heroes.ron`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Heroes {
     pub heroes: Vec<HeroEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HeroEntry {
     /// The file in the installation, such as `Templates/Hero00.ptx`.
     pub source: String,
@@ -32,6 +32,30 @@ pub struct HeroEntry {
     /// does not hold (docs/02 §9).
     #[serde(default)]
     pub worn: Vec<Worn>,
+    /// The combat arts its template holds, as the creature section has them (docs/re/arts.md,
+    /// "The heroes' starting arts").
+    #[serde(default)]
+    pub arts: Vec<HeroArt>,
+}
+
+/// A combat art of a template: an entry of a creature's list of arts (docs/re/arts.md, "A
+/// creature's arts").
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HeroArt {
+    /// 1 an art of the first table, a spell; 2 of the second, a weapon art.
+    pub table: u32,
+    pub id: u16,
+    pub level: u8,
+    /// A bonus to the level, of the items and the sets.
+    pub bonus: u8,
+    /// Bit 0 set on an art a rune taught, the high byte the shortcut's slot.
+    pub flags: u16,
+    /// Its regeneration time, in seconds.
+    pub time: f32,
+    /// Its regeneration's factor.
+    pub factor: f32,
+    /// The regeneration still to run, in seconds.
+    pub remaining: f32,
 }
 
 /// An item a hero wears or holds.
