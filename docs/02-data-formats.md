@@ -19,7 +19,7 @@ The level of confidence is marked with these words: **confirmed on file** (parse
 - World: a 100×100 grid of sectors (6,050 exist); a sector is 64×64 cells of 32 B each with corner heights (step 5, 78.4% of cells are flat).
   Converted into binary sectors; the new renderer builds real terrain from the heights.
 - NetScript: 141 record types, 113 of which occur in the 20 script directories, 45 cover 95% of records; the interpreter is in the client.
-  Converted into an intermediate representation (IR) for the interpreter in `opensacred-rules`.
+  Converted into an intermediate representation (IR), which the converter translates into Luau for the game (#720).
 - `global.res`: UTF-16LE, 23,123 strings with id = `sacred_hash(name)`; the formula is verified.
   Converted to Fluent.
 - Original saves are not supported; the hero templates are converted with their sections whole, into starting presets once their layouts are recovered (§9).
@@ -856,7 +856,7 @@ The most frequent types (per campaign tree): 115 `MakeGroup` 22,762; 100 `SpawnV
 ### 7.4 Control flow semantics
 
 According to sacred-sdk (the walker `FUN_00475680`, 123 `case`s) and, independently, openheilig: on a false condition `IF` (0x3A) scans forward by record lengths to `ELSE` (0x3B)/`ELSEIF` (0x42); `ELSE` skips exactly one record; "guard" conditions (`QuestDone`, `GroupIsDead`, …) abort the whole section on a false result; 0x2B/0x00 is the end; guard 0x29 makes records be skipped up to 0x2A.
-The interpreter must **refuse** an unknown type rather than skip it, otherwise the body of an `IF` will run unconditionally.
+The translator must **refuse** a control flow or a record type it does not know rather than skip it, otherwise the body of an `IF` would run unconditionally (#723).
 
 ### 7.5 Where the interpreter is and where the compiler is
 
@@ -867,16 +867,17 @@ This refutes an earlier guess ("the VM on the server is the best entry point") a
 Addresses according to sacred-sdk: the operand reader `FUN_00472BC0` (a table of 256 markers in 40 groups), the walker `FUN_00475680`, section start `FUN_0046BA90`.
 The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScriptedSequenceR`, `cInterpretSQW`, error messages with line numbers, keyword and directive tables `ToDoBloecke:`/`Delay:`/`Belohnungen:`/`Dialog:`) is built into the exe: the grammar can be recovered by decompilation, which opens up quest modding from text.
 
-### 7.6 Conversion and the interpreter: what is needed, and the estimate
+### 7.6 Conversion and the translation into Luau: what is needed, and the estimate
 
 1. A disassembler in Rust with a "no remainder" check on all 20 trees: done 2026-10-17 (`opensacred_formats::netscript`, §7.1).
 2. IR: done 2026-10-17 as a faithful one (`opensacred_data::netscript`, `opensacred-convert netscript`): one postcard file per tree with the start script, the quest flags, `FunkCode.bin` split into its named function blocks by `Vectoren.bin`, the quests and the regions; the records keep their types and operand tags.
    `--listing` writes a readable listing of each tree.
-   Grouping into quests, states, conditions and actions waits for the record semantics (step 3).
-3. Record type semantics from the interpreter code in Ghidra, starting with the most frequent: 45 types give 95% of campaign records, 68 give 99%.
+   Grouping into quests, states, conditions and actions is the translator's (step 4).
+3. The walker's control flow read off the client (#722), then the record types' semantics from its code in Ghidra, starting with the most frequent: 45 types give 95% of campaign records, 68 give 99%.
    For each type, a test on real records.
-4. The interpreter in `opensacred-rules`: a `match` on the record type; the 28 types absent from the release are not implemented.
-5. Estimate: converter and IR 15–30 agent-hours (M1); interpreter and semantics 25–50 agent-hours (M4).
+4. The translator in `opensacred-convert` (#723): each tree into Luau sources, a file per quest, sector, region and start script, with their bytecode; a record becomes a call of the scripts' API, the control flow Luau's `if`, `elseif` and `else`; what it does not understand fails the conversion.
+5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726); the 28 types absent from the release are not implemented.
+6. Estimate: converter and IR 15–30 agent-hours (M1); the translator, the runtime and the semantics 25–50 agent-hours (M4).
 
 ## 8. Localization: global.res and the hash
 

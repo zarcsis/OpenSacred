@@ -106,7 +106,7 @@ Functions that touch D3D, files or threads cannot be checked this way; for those
 | Global variables | Bevy resources or an explicit context in `opensacred-rules` |
 | `rand()` from the CRT (LCG 214013/2531011) | a small generator of our own (SplitMix64, `opensacred-rules`'s `spawning.rs`), seeded by the sector and the record, so that a sector that comes back has the same creatures; to keep the "feel" of the loot the LCG can be reproduced, exactness is not required |
 | x87 numbers with 80-bit intermediate values | `f32`/`f64`; bit-exact precision is not a goal |
-| The NetScript interpreter built on `switch` and `goto` | `match` on the record type over the parsed IR; no jumps by offset |
+| The NetScript interpreter built on `switch` and `goto` | the scripts translated by the converter into structured Luau, run through mlua (PLAN.md ADR-13) |
 | Engine threads and critical sections | the Bevy system schedule; in `opensacred-rules` (#364) the rules are to be single-threaded and deterministic within one machine; today they run as Bevy systems of `opensacred-game` on each frame's time |
 
 The `unsafe` policy: the workspace lint `unsafe_code = "deny"` (`Cargo.toml`, `[workspace.lints.rust]`), which `opensacred-formats`, `opensacred-data`, `opensacred-rules`, `opensacred-convert` and `opensacred-game` take through `[lints] workspace = true`.
@@ -247,9 +247,12 @@ Versions as of 2026-10-16.
 | Localization at run time | fluent | 0.17.0 | MIT or Apache-2.0 |
 | Images and textures (M7) | ktx2, intel_tex_2 (BC7) | 0.5.0, 0.5.0 | Apache-2.0; MIT or Apache-2.0 |
 | Tests | insta, proptest | 1.49.0, 1.12.0 | Apache-2.0; MIT or Apache-2.0 |
-| Modding scripts (optional) | rhai | 1.26.1 | MIT or Apache-2.0 |
+| Scripts: the translated NetScript, and mods after 1.0 (#725) | mlua with its `luau` feature (Luau vendored) | 0.12.2 | MIT |
 | Upscaling through ONNX (M7, optional) | ort | 2.0.0-rc.14 | MIT or Apache-2.0 |
 | Oracle (development only) | unicorn-engine | 2.1.5 | GPL-2.0 |
+
+Luau took Rhai's place on 2026-10-23 (PLAN.md ADR-13, #720): its types let a definition file of the scripts' API check scripts in luau-lsp, its sandbox and interrupts come built in, the converter compiles its bytecode ahead, and it is faster.
+It costs a C++ build of Luau's vendored sources, confined to the scripts' crate, and its WebAssembly needs Emscripten, which no longer matters since the browser version was dropped.
 
 Update policy: Rust stable at the latest version (currently 1.99.1), bumped together with the dependencies; dependencies daily, in a `Dependencies: cargo update` pull request, and a `deps` issue for each newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"; docs/03 §3.3); Bevy when a release comes out, after the ecosystem crates we use have been updated.
 

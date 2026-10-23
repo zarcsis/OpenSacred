@@ -179,7 +179,7 @@ Two independent groups have named the VM records: openheilig 120/141 from the ke
 The keyword table is also present in Sacred.exe itself (`.data`, file offset 0x54ce78, verified locally).
 The shipped scripts use 113 of the 141 record types; 45 cover 95% of the campaign's records, 68 cover 99%.
 The interpreter lives in the client, not in `GameServer.exe` (the server stores QuestDB and relays `TRIGGER_*`), and the community has not implemented it with any claim to accuracy: sacred-sdk executes quests and dialogs with its own runtime, openheilig with its own interpreter.
-The new plan estimates the interpreter and semantics at 40–80 agent-hours (docs/06, §8).
+The plan translates the scripts into Luau and estimates the translator, the runtime and the semantics at 40–80 agent-hours (docs/06, §8).
 
 **Networking.**
 The TinCat-2 transport (28 B frame, CRC32 of the body), the lobby (56 message types, obfuscation) and the UDP announcement are described and implemented in three codebases (C#, TS, C++).
