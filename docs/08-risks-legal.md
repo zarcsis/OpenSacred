@@ -73,7 +73,7 @@ Anything made locally while studying the original (Ghidra projects, notes with d
 | openheilig | MIT code, CC BY-SA 4.0 research | layouts from the code, with the notice; facts from the research, in our own words |
 | bssth/sacred-sdk | MIT | NetScript facts, the string hash, addresses; the notice is in `THIRD-PARTY-NOTICES.md` |
 | kirides/sacred-bild | GPL-3.0 | function names only, in a developer's local Ghidra project; nothing is committed |
-| kryotek, sacredbamboo | AGPL-3.0 and others | not used: networking is out of scope |
+| kryotek, sacredbamboo | AGPL-3.0 and others | not used before multiplayer, after version 1.0; then facts about the protocol only, in our own words, no code |
 | SacredEngineRemake | no license (all rights reserved) | not used |
 
 Facts about formats are not protected by copyright; code is.

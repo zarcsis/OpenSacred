@@ -464,7 +464,7 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 | Visual C++ 6.0, decomp.me, reccmp, objdiff | byte-for-byte matching is not a goal |
 | IDA Pro, Binary Ninja | paid |
 | Wine environments for old compilers | old toolchains are not used |
-| Network analyzers (TinCat protocol) | networking is out of scope |
+| Network analyzers (TinCat protocol) | not before multiplayer, after version 1.0 (PLAN.md §13) |
 
 ## Open questions
 
