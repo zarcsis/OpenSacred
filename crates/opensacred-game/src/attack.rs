@@ -195,6 +195,7 @@ fn engage(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut hits: MessageWriter<fight::Hit>,
     mut lines: MessageWriter<crate::voices::Speak>,
+    mut blows: MessageWriter<crate::sfx::Blow>,
 ) {
     let Some(clips) = clips else {
         return;
@@ -229,9 +230,14 @@ fn engage(
             let done = active.seek_time() / striking.length;
             if minds::hit_due(striking.fractions, striking.struck, done) {
                 striking.struck += 1;
+                // The swing within reach or in the air (`0x4EA6FD`, #712).
+                if attack.target.is_none() {
+                    blows.write(crate::sfx::Blow::Swing { striker: hero });
+                }
                 if let (Some(entity), Some(at)) = (attack.target, target)
                     && minds::hero_hits((at - here).with_y(0.0).length(), reach)
                 {
+                    blows.write(crate::sfx::Blow::Swing { striker: hero });
                     hits.write(fight::Hit {
                         attacker: hero,
                         target: entity,
