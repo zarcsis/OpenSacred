@@ -3,6 +3,7 @@
 //! models, the world, the sound, the texts, the cutscenes, the scripts, the tables and the heroes.
 
 mod animation;
+mod build;
 mod coverage;
 mod embedded;
 mod ffmpeg;
@@ -45,16 +46,33 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run every conversion in order: textures, models, world, sound, text, video, ui, netscript,
-    /// tables, heroes; skip those whose manifest under <OUT>/manifest/ still holds
+    /// Run every extraction in order (textures, models, world, sound, text, video, ui, netscript,
+    /// tables, heroes) into <ASSETS_SRC>, skipping those whose manifest under
+    /// <ASSETS_SRC>/manifest/ still holds, then build the game's assets into <OUT>
     All {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
+        assets_src: PathBuf,
+        /// The game's assets' directory (stage B)
         #[arg(long, default_value = "assets")]
         out: PathBuf,
-        /// Run every conversion even if its outputs are up to date
+        /// Run every extraction and build every master even if its outputs are up to date
+        #[arg(long)]
+        force: bool,
+    },
+    /// Build the game's assets in <OUT> from the masters in <ASSETS_SRC> (stage B), only those
+    /// whose masters changed
+    Build {
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
+        assets_src: PathBuf,
+        /// The game's assets' directory (stage B)
+        #[arg(long, default_value = "assets")]
+        out: PathBuf,
+        /// Build every master even if its output is up to date
         #[arg(long)]
         force: bool,
     },
@@ -66,114 +84,114 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
     },
-    /// Convert TEX textures (PAK/texture*.pak) into RGBA PNG under <OUT>/textures/
+    /// Convert TEX textures (PAK/texture*.pak) into RGBA PNG under <ASSETS_SRC>/textures/
     Textures {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
     /// Convert the GRN models and motions of PAK/models*.pak into glTF binaries under
-    /// <OUT>/models/; a model's file carries the motions of its slots as animations, and its
-    /// textures are the PNGs of `textures` in the same <OUT>
+    /// <ASSETS_SRC>/models/; a model's file carries the motions of its slots as animations, and its
+    /// textures are the PNGs of `textures` in the same <ASSETS_SRC>
     Models {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
         /// Convert only the record with this name, such as SERAPHIM.GRN (repeatable)
         #[arg(long = "model", value_name = "NAME")]
         only: Vec<String>,
     },
     /// Convert the world (World/sectors.*, Static.PAK, Floor.PAK, PAK/tiles.pak) into
-    /// <OUT>/world/world.ron and one sector file per sector; tile sheets are the PNGs of
-    /// `textures` in the same <OUT>
+    /// <ASSETS_SRC>/world/world.ron and one sector file per sector; tile sheets are the PNGs of
+    /// `textures` in the same <ASSETS_SRC>
     World {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
         /// Convert only the sector at this grid position, such as 50,39
         #[arg(long, value_name = "X,Y", value_parser = parse_position)]
         sector: Option<(u32, u32)>,
     },
     /// Convert the samples of PAK/sound.pak (WAV to FLAC with FFmpeg, MP3 copied), the profiles
-    /// of PAK/sndProfiles.pak and the music of mp3/ into <OUT>/sound/
+    /// of PAK/sndProfiles.pak and the music of mp3/ into <ASSETS_SRC>/sound/
     Sound {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
         /// Convert only the sample with this id (repeatable)
         #[arg(long = "sample", value_name = "ID")]
         only: Vec<usize>,
     },
-    /// Convert the strings of scripts/us/global.res into the Fluent file <OUT>/text/en-US/global.ftl
+    /// Convert the strings of scripts/us/global.res into the Fluent file <ASSETS_SRC>/text/en-US/global.ftl
     Text {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the loading and save screens (BMP to PNG), the fonts and the credits into <OUT>/ui/
+    /// Convert the loading and save screens (BMP to PNG), the fonts and the credits into <ASSETS_SRC>/ui/
     Ui {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
     /// Convert the NetScript bytecode of the 20 trees of bin/ into one tree file each under
-    /// <OUT>/netscript/
+    /// <ASSETS_SRC>/netscript/
     Netscript {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
         /// Also write a readable listing of each tree (<tree>.txt, about 130 MB in all)
         #[arg(long)]
         listing: bool,
     },
     /// Convert the creature, weapon, item, motion and trigger tables, the data tables of bin/, and
-    /// the combat arts and the creatures' voices of Sacred.exe into RON files under <OUT>/tables/
+    /// the combat arts and the creatures' voices of Sacred.exe into RON files under <ASSETS_SRC>/tables/
     Tables {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the hero templates of Templates/ into hero files under <OUT>/heroes/
+    /// Convert the hero templates of Templates/ into hero files under <ASSETS_SRC>/heroes/
     Heroes {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the WMV cutscenes of movie/ into AV1 and Opus WebM files under <OUT>/video/ with
+    /// Convert the WMV cutscenes of movie/ into AV1 and Opus WebM files under <ASSETS_SRC>/video/ with
     /// FFmpeg
     Video {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
-        /// Output directory for converted assets
-        #[arg(long, default_value = "assets")]
+        /// The masters' directory (stage A)
+        #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
         /// Convert only the cutscene with this name, such as intro (repeatable)
         #[arg(long = "movie", value_name = "NAME")]
@@ -219,7 +237,10 @@ impl Command {
             Command::Netscript { game_dir, out, .. } => (game_dir, out, "netscript", true),
             Command::Tables { game_dir, out } => (game_dir, out, "tables", true),
             Command::Heroes { game_dir, out } => (game_dir, out, "heroes", true),
-            Command::All { .. } | Command::Coverage | Command::Verify { .. } => return None,
+            Command::All { .. }
+            | Command::Build { .. }
+            | Command::Coverage
+            | Command::Verify { .. } => return None,
         })
     }
 }
@@ -228,56 +249,58 @@ fn main() -> Result<ExitCode> {
     match Cli::parse().command {
         Command::All {
             game_dir,
+            assets_src,
             out,
             force,
         } => {
             let start = Instant::now();
+            let src = assets_src;
             let converter = manifest::converter()?;
             for command in [
                 Command::Textures {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                 },
                 Command::Models {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                     only: Vec::new(),
                 },
                 Command::World {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                     sector: None,
                 },
                 Command::Sound {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                     only: Vec::new(),
                 },
                 Command::Text {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                 },
                 Command::Video {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                     only: Vec::new(),
                 },
                 Command::Ui {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                 },
                 Command::Netscript {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                     listing: false,
                 },
                 Command::Tables {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                 },
                 Command::Heroes {
                     game_dir: game_dir.clone(),
-                    out: out.clone(),
+                    out: src.clone(),
                 },
             ] {
                 if let Some((game_dir, out, name, _)) = command.manifest()
@@ -289,6 +312,11 @@ fn main() -> Result<ExitCode> {
                 }
                 run(command)?;
             }
+            run(Command::Build {
+                assets_src: src,
+                out,
+                force,
+            })?;
             println!("all done in {:.1} s", start.elapsed().as_secs_f64());
             Ok(ExitCode::SUCCESS)
         }
@@ -321,6 +349,24 @@ fn run(command: Command) -> Result<ExitCode> {
 fn execute(command: Command) -> Result<ExitCode> {
     match command {
         Command::All { .. } => unreachable!("`all` runs the other commands"),
+        Command::Build {
+            assets_src,
+            out,
+            force,
+        } => {
+            let start = Instant::now();
+            let summary = build::build(&assets_src, &out, force)?;
+            println!(
+                "build: {} masters, {} built, {} up to date, {} removed -> {} in {:.1} s",
+                summary.masters,
+                summary.built,
+                summary.kept,
+                summary.removed,
+                out.display(),
+                start.elapsed().as_secs_f64()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Coverage => {
             let coverage = coverage::coverage()?;
             println!(

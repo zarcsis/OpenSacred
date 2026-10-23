@@ -221,7 +221,7 @@ OpenSacred/
 ├─ CLAUDE.md                  project rules for Claude Code
 ├─ crates/
 │  ├─ opensacred-formats/     reading the original formats (PAK, TEX, GRN, sectors, NetScript, global.res, AMH templates)
-│  ├─ opensacred-convert/     CLI: OriginalGame → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, all, coverage)
+│  ├─ opensacred-convert/     CLI: OriginalGame → assets-src/ → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, build, all, coverage)
 │  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
 │  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, the quests' state (the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, #364)
 │  ├─ opensacred-scripts/     (#725, planned) the Luau runtime of the translated scripts and of mods: mlua with Luau, the scripts' API
@@ -276,7 +276,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | Packing | loose files, which tools edit | ZIP archives by kind (stored entries for compressed data, deflate for text), read through an asset reader with a loose overlay (#699) | the game starts from the archives alone |
 
 Principles: the converter runs in two stages (ADR-05), is incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
-Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten).
+Done 2026-10-17: each subcommand records `assets/manifest/<command>.ron`, since #696 `assets-src/manifest/<command>.ron` and `build` its own in `assets/` (the SHA-256 of the converter executable, of every installation file it read and of every file it wrote); `all` skips a command whose record still holds (3 s to check all ten).
 Identical reruns are no longer a goal (2026-10-23, #694): stage A stays reproducible by nature and keeps its tests, so that its manifests show what a change of the converter changed; stage B's lossy encoders (AV1, Opus, BC7, later ASTC) need not be, and no test asserts their reruns.
 Outputs are never committed.
 The converter repairs the defects of the original's data as it writes them (#348): `assets/` holds sound data, the game reads it as it is, and the HD packs made from it (M7) start clean, while `opensacred-formats` reads the original's files as they are.
