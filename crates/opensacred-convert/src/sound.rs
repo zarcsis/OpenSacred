@@ -1,7 +1,8 @@
 //! `sound` subcommand: `PAK/sound.pak`, `PAK/sndProfiles.pak`, `mp3/` and the sound names of
-//! `Sacred.exe` → `<out>/sound/` (docs/02 §10; the format is [`opensacred_data::sound`]). A WAV sample becomes lossless FLAC, encoded
-//! by FFmpeg ([`crate::ffmpeg`]) bit-exactly, so that a rerun gives the same files; an MP3 sample
-//! and the music are copied, an MP3 sample without the zero bytes before its first frame.
+//! `Sacred.exe` → `<out>/sound/` (docs/02 §10; the format is [`opensacred_data::sound`]): FLAC
+//! masters, encoded by FFmpeg ([`crate::ffmpeg`]) bit-exactly, so that a rerun gives the same
+//! files. A WAV sample becomes lossless FLAC; an MP3 sample and the music are decoded from their
+//! first frame into 16-bit FLAC, which keeps what the MP3 decoder gives (#697).
 
 use std::collections::HashMap;
 use std::fs;
@@ -35,6 +36,28 @@ const FLAC: [&str; 16] = [
     "pipe:1",
 ];
 
+/// FFmpeg's arguments for an MP3 on stdin, from its first frame, to 16-bit FLAC on stdout.
+const MP3_FLAC: [&str; 18] = [
+    "-f",
+    "mp3",
+    "-i",
+    "pipe:0",
+    "-map_metadata",
+    "-1",
+    "-fflags",
+    "+bitexact",
+    "-flags:a",
+    "+bitexact",
+    "-sample_fmt",
+    "s16",
+    "-compression_level",
+    "8",
+    "-f",
+    "flac",
+    "-y",
+    "pipe:1",
+];
+
 pub fn output_dir(out: &Path) -> PathBuf {
     out.join("sound")
 }
@@ -46,6 +69,7 @@ pub fn sample_file(id: usize, extension: &str) -> String {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Summary {
+    /// The samples from a WAV and from an MP3, all FLAC now.
     pub flac: usize,
     pub mp3: usize,
     pub profiles: usize,
@@ -92,9 +116,12 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
                 Some(Sample::Wav { data, .. }) => {
                     (sample_file(id, "flac"), ffmpeg::pipe(&FLAC, data, &what)?)
                 }
-                // The zeros some records carry before their first frame are dropped (#354,
-                // docs/decisions/2026-10-20-mp3-leading-zeros.md).
-                Some(Sample::Mp3 { data, lead }) => (sample_file(id, "mp3"), data[lead..].to_vec()),
+                // Decoded from the first frame: the zeros some records carry before it are left
+                // out (#354, docs/decisions/2026-10-20-mp3-leading-zeros.md).
+                Some(Sample::Mp3 { data, lead }) => (
+                    sample_file(id, "flac"),
+                    ffmpeg::pipe(&MP3_FLAC, &data[lead..], &what)?,
+                ),
                 None => unreachable!("ids() lists used slots"),
             };
             let path = dir.join(&file);
@@ -107,10 +134,15 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
     let mut summary = Summary::default();
     let mut samples = Vec::with_capacity(converted.len());
     for (entry, len) in converted {
-        if entry.file.ends_with(".flac") {
-            summary.flac += 1;
-        } else {
+        let mp3 = pak
+            .get(usize::try_from(entry.id).unwrap_or(usize::MAX))
+            .ok()
+            .flatten()
+            .is_some_and(|sample| matches!(sample, Sample::Mp3 { .. }));
+        if mp3 {
             summary.mp3 += 1;
+        } else {
+            summary.flac += 1;
         }
         summary.bytes += u64::try_from(len).unwrap_or(0);
         samples.push(entry);
@@ -168,12 +200,24 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
         if start > 0 {
             summary.music_trimmed += 1;
         }
-        let data = &data[start..];
-        let file = format!("music/{name}");
-        let path = dir.join(&file);
-        fs::write(&path, data).with_context(|| format!("writing {}", path.display()))?;
-        summary.bytes += u64::try_from(data.len()).unwrap_or(0);
-        music.push(Music { id, file });
+        let stem = stem.to_owned();
+        music.push((id, stem, name, start, data));
+    }
+    // Decoded from the first frame into FLAC (#697).
+    let decoded = music
+        .par_iter()
+        .map(|(id, stem, name, start, data)| {
+            let file = format!("music/{stem}.flac");
+            let flac = ffmpeg::pipe(&MP3_FLAC, &data[*start..], &format!("mp3/{name}"))?;
+            let path = dir.join(&file);
+            fs::write(&path, &flac).with_context(|| format!("writing {}", path.display()))?;
+            Ok((Music { id: *id, file }, flac.len()))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut music = Vec::with_capacity(decoded.len());
+    for (entry, len) in decoded {
+        summary.bytes += u64::try_from(len).unwrap_or(0);
+        music.push(entry);
     }
     summary.music = music.len();
 
@@ -200,9 +244,9 @@ mod tests {
         assert_eq!(sample_file(1020, "flac"), "samples/01020.flac");
     }
 
-    /// A PCM and an IMA ADPCM sample become FLAC that FFmpeg decodes back to the PCM it decodes
-    /// the original to; an MP3 sample is copied without its leading zeros; a second run writes the
-    /// same bytes.
+    /// A PCM, an IMA ADPCM and an MP3 sample become FLAC that FFmpeg decodes to the PCM it
+    /// decodes the original to, the MP3 from its first frame as 16 bits; so does the music; a
+    /// second run writes the same bytes.
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn samples_convert_losslessly_and_reproducibly() {
@@ -229,7 +273,17 @@ mod tests {
         assert_eq!((summary.flac, summary.mp3, summary.profiles), (2, 1, 175));
         let dir = output_dir(&out);
         let pcm = |data: &[u8], format: &str| {
-            let args = ["-f", format, "-i", "pipe:0", "-f", "s16le", "pipe:1"];
+            let args = [
+                "-f",
+                format,
+                "-i",
+                "pipe:0",
+                "-sample_fmt",
+                "s16",
+                "-f",
+                "s16le",
+                "pipe:1",
+            ];
             ffmpeg::pipe(&args, data, "a test sample").unwrap()
         };
         for &id in &picked[..2] {
@@ -239,12 +293,11 @@ mod tests {
             let flac = fs::read(dir.join(sample_file(id, "flac"))).unwrap();
             assert_eq!(pcm(&flac, "flac"), pcm(data, "wav"), "sample {id}");
         }
-        let mp3 = fs::read(dir.join(sample_file(picked[2], "mp3"))).unwrap();
+        let flac = fs::read(dir.join(sample_file(picked[2], "flac"))).unwrap();
         let Some(Sample::Mp3 { data, lead }) = pak.get(picked[2]).unwrap() else {
             panic!("{}", picked[2]);
         };
-        assert_eq!(mp3, &data[lead..]);
-        assert_eq!(&mp3[..2], &[0xFF, 0xFB]);
+        assert_eq!(pcm(&flac, "flac"), pcm(&data[lead..], "mp3"));
         let first = fs::read(dir.join(sample_file(picked[0], "flac"))).unwrap();
         convert(&game, &out, &picked[..1]).unwrap();
         assert_eq!(
@@ -255,16 +308,23 @@ mod tests {
         assert_eq!(index.music.len(), 173);
         // docs/02 §10.3: 154 music files hold bytes before their first frame.
         assert_eq!(summary.music_trimmed, 154);
-        for music in &index.music {
-            let ours = fs::read(dir.join(&music.file)).unwrap();
-            let theirs = fs::read(game.join("mp3").join(&music.file["music/".len()..])).unwrap();
-            assert_eq!(mp3_first_frame(&ours), Some(0), "{}", music.file);
-            assert!(theirs.ends_with(&ours), "{}", music.file);
-        }
+        // The first music file: the PCM of its FLAC, that of the MP3 from its first frame.
+        let first = &index.music[0];
+        let ours = fs::read(dir.join(&first.file)).unwrap();
+        let stem = &first.file["music/".len()..first.file.len() - ".flac".len()];
+        let theirs = fs::read(game.join("mp3").join(format!("{stem}.mp3"))).unwrap();
+        let start = mp3_first_frame(&theirs).unwrap();
+        assert_eq!(
+            pcm(&ours, "flac"),
+            pcm(&theirs[start..], "mp3"),
+            "{}",
+            first.file
+        );
+        assert!(index.music.iter().all(|m| m.file.ends_with(".flac")));
         assert_eq!(index.music.iter().filter(|m| m.id.is_some()).count(), 171);
         assert_eq!(index.names.len(), 6869);
         let wood = index.music.iter().find(|m| m.id == Some(6560)).unwrap();
-        assert_eq!(wood.file, "music/MUSIC_WOOD01.mp3");
+        assert_eq!(wood.file, "music/MUSIC_WOOD01.flac");
         let footsteps = index
             .profiles
             .iter()
