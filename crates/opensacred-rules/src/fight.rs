@@ -344,34 +344,44 @@ fn fade(h: f32, [s1, s2]: [f32; 2]) -> f32 {
 }
 
 /// A creature's regeneration (`0x562730`): its value (`+0x138`) and what it has gathered toward
-/// its next health.
+/// its next health (`+0x13C`, a whole number).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Regenerates {
     pub value: f32,
-    kept: f32,
+    kept: u32,
 }
 
 impl Regenerates {
     pub fn new(value: f32) -> Self {
-        Self { value, kept: 0.0 }
+        Self { value, kept: 0 }
     }
 
-    /// Gathers `value · rate · seconds` and gives the health it makes: each 4,096 one, the
-    /// remainder kept the low ten bits of what was gathered when it gives any (the original's
-    /// mask `0x3FF`, not `0xFFF`).
-    pub fn gather(&mut self, rate: f32, seconds: f32) -> u32 {
-        self.kept += self.value * rate * seconds;
-        let gathered = whole(self.kept);
-        if gathered < 4096 {
+    /// Gathers `value · rate · seconds`, the seconds of the world's tick, and gives the health it
+    /// makes (`0x562730`): the sum with what was kept taken whole at each tick, each 4,096 of it
+    /// one health, the remainder kept the low ten bits of what was gathered when it gives any
+    /// (the original's mask `0x3FF`, not `0xFFF`), so that a tick's step above 1,024 loses its
+    /// overshoot's 1,024s (#616). A creature at its most health, `full`, or at 0 gathers
+    /// nothing and keeps nothing.
+    pub fn gather(&mut self, rate: f32, seconds: f32, full: bool) -> u32 {
+        if full {
+            self.kept = 0;
             return 0;
         }
-        self.kept = to_f32(gathered & 0x3FF);
+        let gathered = whole_f64(
+            f64::from(self.value) * f64::from(rate) * f64::from(seconds) + f64::from(self.kept),
+        );
+        if gathered < 4096 {
+            self.kept = gathered;
+            return 0;
+        }
+        self.kept = gathered & 0x3FF;
         gathered >> 12
     }
 }
 
 /// The regeneration value of a creature of `base` at level `level` (`0x5796A0`): `2·a3`, its
-/// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`).
+/// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`), taken
+/// whole (`+0x138` is a whole number, which the skill's case stores with `_ftol`).
 pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules) -> f32 {
     let b3 = u32::from(base.attributes[3]);
     let value = to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10));
@@ -380,7 +390,7 @@ pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules
         .filter(|&&(skill, _)| skill == 10)
         .map(|&(_, at)| curve(rules.curves.regeneration, at) / 100.0)
         .sum();
-    value * (1.0 + skill)
+    to_f32(whole(value * (1.0 + skill)))
 }
 
 /// How near its nearest hostile puts the hero in the fight, in world units: the client's
@@ -1514,11 +1524,11 @@ fn roll_damage(damage: &[[f32; 2]; KINDS], rng: &mut Rng) -> [f32; KINDS] {
     rolled
 }
 
-/// The damage that a strike of `attacker` deals `defender`, its share `share` of a strike, or
+/// The damage that a strike of `attacker` deals `defender`, the strike's factor `share`, or
 /// none when it misses (`0x56B130`): the chance `A/(A + D)` (`0x43EEE0`) against a roll of 0 to
 /// 1,000 over 1,000; each kind's damage `d` rolled, then `d·(1 − 1/(1 + d/r)^k)` against the
 /// kind's resistance `r`, `d²/(d + r)` for the exponent `k` of 1, less the defender's damping
-/// of bronze; the sum times the share, whole.
+/// of bronze; the sum times the factor ([`scaled`]), at least 1, whole.
 pub fn strike(
     attacker: &Combat,
     defender: &Combat,
@@ -1529,6 +1539,37 @@ pub fn strike(
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
+    Some(damage(attacker, defender, (share, k), rng))
+}
+
+/// A strike of a combat art of the second table at its level in play `level` (`0x56B130`: a
+/// hit's kind other than 0 by a creature in its action of the arts, or its action 5), its factor
+/// `factor` (`arts::factor`): its chance by the art's attack ([`art_attack`]) against a roll of
+/// 0 to 1,000 over 1,000, its damage as a plain strike's ([`strike`]) by the factor.
+pub fn art_strike(
+    attacker: &Combat,
+    defender: &Combat,
+    (factor, k): (f32, f32),
+    level: u32,
+    rng: &mut Rng,
+) -> Option<u32> {
+    let chance = hit_chance(art_attack(attacker.attack, level), defender.defence);
+    if chance < to_f32(rng.below(1001)) / 1000.0 {
+        return None;
+    }
+    Some(damage(attacker, defender, (factor, k), rng))
+}
+
+/// The attack that a strike of a combat art of the second table takes into its hit's chance
+/// (`0x56B130`): `A · (1.3 + 0.125·L)`, `L` the art's level in play (the entry's level and bonus,
+/// `0x580A10`), at 53 bits and stored as a float.
+pub fn art_attack(attack: f32, level: u32) -> f32 {
+    stored((f64::from(level) * 0.125 + 1.3) * f64::from(attack))
+}
+
+/// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
+/// the damping, summed and scaled by the strike's factor ([`scaled`]), at least 1, whole.
+fn damage(attacker: &Combat, defender: &Combat, (factor, k): (f32, f32), rng: &mut Rng) -> u32 {
     let total: f32 = roll_damage(&attacker.damage, rng)
         .iter()
         .zip(defender.resistance)
@@ -1537,7 +1578,17 @@ pub fn strike(
             dealt(d, r, k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
-    Some(whole(total * share))
+    whole(scaled(total, factor).max(1.0))
+}
+
+/// A strike's damage `total` times its factor `factor` (the event's `+0x1C`, `0x56B130`) where the
+/// factor lies between 0 and 500 and is not 1, else as it is: a factor of 0 scales nothing.
+pub fn scaled(total: f32, factor: f32) -> f32 {
+    if factor > 0.0 && factor < 500.0 && factor != 1.0 {
+        total * factor
+    } else {
+        total
+    }
 }
 
 /// The highest level that a fill's run gives its creatures before the level's setter holds them
@@ -2038,6 +2089,61 @@ mod tests {
         assert_eq!(strike(&weak, &defender, (1.0, 1.0), &mut rng), Some(9));
     }
 
+    /// A combat art's strike (#508): the attack `A · (1.3 + 0.125·L)` in its chance, as the
+    /// original's Seraphim's 1071 took `28.5` into 40.61 at level 1 and 47.74 at level 3, and its
+    /// damage times its factor; any landed strike deals 1 at least.
+    #[test]
+    fn an_arts_strike_takes_its_attack_and_its_factor() {
+        assert_eq!(art_attack(28.5, 1), 40.6125);
+        assert_eq!(art_attack(28.5, 3), 47.7375);
+        assert_eq!(art_attack(10.0, 0), 13.0);
+        // The factor scales between 0 and 500 but at 1; 0 scales nothing.
+        assert_eq!(
+            [0.0, 0.8, 1.0, 499.0, 500.0].map(|factor| scaled(10.0, factor)),
+            [10.0, 8.0, 10.0, 4990.0, 10.0]
+        );
+        let attacker = Combat {
+            attack: 10.0,
+            defence: 0.0,
+            damage: [[10.0, 10.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+        };
+        let defender = Combat {
+            defence: 20.0,
+            resistance: [10.0, 0.0, 0.0, 0.0],
+            ..attacker
+        };
+        // 10²/(10 + 10) = 5, times 0.8 = 4; at level 1 the art's chance is 14.25/34.25.
+        let landed = |art: bool, rng: &mut Rng| {
+            (0..1000)
+                .filter_map(|_| {
+                    if art {
+                        art_strike(&attacker, &defender, (0.8, 1.0), 1, rng)
+                    } else {
+                        strike(&attacker, &defender, (1.0, 1.0), rng)
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut rng = Rng::of(50, 39, 0);
+        let plain = landed(false, &mut rng);
+        let art = landed(true, &mut rng);
+        assert!(plain.iter().all(|&d| d == 5) && art.iter().all(|&d| d == 4));
+        // About 333 and 416 strikes of the thousand land.
+        assert!((300..370).contains(&plain.len()), "{}", plain.len());
+        assert!((380..450).contains(&art.len()), "{}", art.len());
+        // A strike that lets less than 1 through deals 1.
+        let armoured = Combat {
+            resistance: [100_000.0, 0.0, 0.0, 0.0],
+            defence: 0.0,
+            ..defender
+        };
+        assert_eq!(strike(&attacker, &armoured, (1.0, 1.0), &mut rng), Some(1));
+    }
+
     #[test]
     fn a_damage_is_rolled_between_its_ends_in_steps_by_its_size() {
         let mut rng = Rng::of(50, 39, 0);
@@ -2093,12 +2199,12 @@ mod tests {
         // The skill 8 raises the attack and the defence, truncated: 24.5 · 1.07 and 30.2 · 1.13.
         let trained = combat(&wolf, 10, Holds::default(), &[(8, 1)], &rules);
         assert!(near(trained.attack, 26.0) && near(trained.defence, 34.0));
-        // The skill 10 the regeneration: 44 · 1.06.
+        // The skill 10 the regeneration: 44 · 1.06, 46.64 taken whole (#616).
         let base = Base {
             attributes: [0, 0, 0, 22, 0, 0],
             ..Base::default()
         };
-        assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.64).abs() < 1e-3);
+        assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.0).abs() < 1e-3);
     }
 
     #[test]
@@ -2295,9 +2401,37 @@ mod tests {
         let mut regenerates = Regenerates::new(44.0);
         // 44 · 128 a second: 5,632 after one, a health and 5,632 − 4,096 = 1,536 kept as its
         // low ten bits, 512.
-        assert_eq!(regenerates.gather(128.0, 0.5), 0);
-        assert_eq!(regenerates.gather(128.0, 0.5), 1);
-        assert!((regenerates.kept - 512.0).abs() < 1e-3);
+        assert_eq!(regenerates.gather(128.0, 0.5, false), 0);
+        assert_eq!(regenerates.gather(128.0, 0.5, false), 1);
+        assert_eq!(regenerates.kept, 512);
+        // At its most it keeps nothing.
+        assert_eq!(regenerates.gather(128.0, 0.5, true), 0);
+        assert_eq!(regenerates.kept, 0);
+    }
+
+    #[test]
+    fn the_ticks_mask_takes_the_overshoot_of_a_fast_regeneration() {
+        // The Seraphim of level 30 alone (#616): 170 · 128 = 21,760 a second, on ticks of 6 and 7
+        // frames, 0.1 and 0.1167 s. Each tick adds 2,176 or 2,538 and each 4,096 crossed keeps
+        // only its overshoot's low ten bits: about 4.6 a second where 5.31 would be gathered, as
+        // the original's 4.55 measured.
+        let mut regenerates = Regenerates::new(170.0);
+        let (mut seconds, mut gained) = (0.0, 0);
+        for tick in 0..200 {
+            let step = if tick % 2 == 0 { 0.1 } else { 0.116_666_67 };
+            seconds += step;
+            gained += regenerates.gather(128.0, step, false);
+        }
+        let rate = f64::from(gained) / f64::from(seconds);
+        assert!((4.4..4.8).contains(&rate), "{rate}");
+        // The Seraphim of level 1 (44) adds below 1,024 a tick and loses only the fractions.
+        let mut regenerates = Regenerates::new(44.0);
+        let gained: u32 = (0..200)
+            .map(|tick| {
+                regenerates.gather(128.0, if tick % 2 == 0 { 0.1 } else { 0.116_666_67 }, false)
+            })
+            .sum();
+        assert_eq!(gained, 29);
     }
 
     #[test]

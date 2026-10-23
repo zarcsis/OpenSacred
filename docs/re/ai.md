@@ -6,11 +6,20 @@ Status: **confirmed** on the code unless marked otherwise.
 
 ## Two states
 
-A creature carries two states, each a short with a sub-state after it: its AI's (`+0xFC`, `+0xFE`) and its action's (`+0x150`, `+0x152`), which the creatures' update `0x5375C0` switches on at every frame.
+A creature carries two states, each a short with a sub-state after it: its AI's (`+0xFC`, `+0xFE`) and its action's (`+0x150`, `+0x152`), which the creatures' update `0x5375C0` switches on at every world tick (below).
 It runs the AI only for a creature whose simulating client (byte `+0x39`) is the local player or none; the creature maker sets it to the local player for every id above 16, so in the single player's game every creature thinks.
 
 - The AI's states: 0 idle (`0x542B20`), 1 (`0x53A170`), 2 a behaviour or a walk ordered (`0x4EE030`), 4 a melee fight (`0x4E0300`), 5 (in the update), 6 (`0x51CFD0`), 8 a fight at range (`0x4DBFC0`), 9 dead (`0x53E7C0`), 10 to 14 (`0x529C60`, `0x4FD0F0`, `0x4EC560`, `0x4EA890`, `0x4EAC80`).
 - The actions: 0 standing (`0x544890`), 1 moving (`0x4F4770`), 2 (`0x546690`), …, 8 (`0x4FF0B0`), 10 (`0x506770`), 14 (`0x514790`).
+
+## The world's tick
+
+The creatures' update (`0x5375C0`) runs on a tick of the world, not at every frame (**confirmed** by a probe, #616).
+The render loop (`cEngine::renderThread::run`, `0x60E350`) adds each frame's time to the float `0xAD6EFC`; once the sum is above 0.1 s, it calls `0x60DF00` and `0x60F130` with it and sets it to 0.
+Observed: the hero's update came every 100 or 117 ms, with its argument 0.1 or 0.117, so every 6 or 7 frames at 60 a second, 108 ms on average.
+The hero, two goblins and two horses changed their regeneration's accumulators at the same moments, and the hero's at each of 18 resets of `0xAD6EFC` in 2 s and at no other time.
+Which call of `0x60F130` (`sdk_SACRED_KERNEL_GET`, `0x809170`) reaches the updates, and what of the creatures runs at every frame (the walk looks smooth), is open (#617).
+`opensacred-game` runs the regeneration on such a tick (`frame::WorldTick`, #616).
 
 ## Dormant and awake
 
@@ -162,7 +171,7 @@ When one of them fights, or decides to attack (in one case of two), the group's 
 
 ## Open
 
-The test of the levels in detail; the AI's states 1, 6 and 10 to 14; a formation of groups (`+0x25F` `0xD160`); the original's frame rate, which scales every chance taken at a frame.
+The test of the levels in detail; the AI's states 1, 6 and 10 to 14; a formation of groups (`+0x25F` `0xD160`); which of the chances that the creatures' update takes at each world tick (about 9.3 a second, above) the game takes at every frame instead (#617).
 Of the townsfolk: the meaning of `0x434070`, which spares some types a torch; a following child's catch-up (`0x4EBF20`); the hero's list at `+0x39C` that keeps a child following it; how the engine's event 6 shows the lines.
 
 ## In `opensacred-game`

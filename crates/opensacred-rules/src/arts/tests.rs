@@ -577,3 +577,80 @@ fn the_speeds_follow_the_items_and_the_regeneration_attributes() {
     assert_eq!(Speeds::of([-3.0, 0.0], 0.0, 0.0, 0.0, 1).spells, 0.0);
     assert_eq!(Speeds::default().spells, 1.0);
 }
+
+#[test]
+fn the_classes_own_arts_strike_by_their_style() {
+    assert_eq!(style(1071), Some(Style::Attacke));
+    assert_eq!(style(1059), Some(Style::Attacke));
+    assert_eq!(style(1057), Some(Style::Rundum));
+    assert_eq!(style(1069), Some(Style::Rundum));
+    assert_eq!(style(1058), Some(Style::Hardhit));
+    assert_eq!(style(1070), Some(Style::Hardhit));
+    assert_eq!((style(1003), style(18)), (None, None));
+}
+
+#[test]
+fn an_arts_factor_rises_by_its_level_and_halves_with_two_weapons() {
+    let tables = tables();
+    let attacke = tables.weapon_arts.iter().find(|a| a.id == 1071).unwrap();
+    // The Seraphim's `Attacke`: 0.75 + 0.05·L, 0.8 at level 1 and 0.9 at level 3.
+    assert_eq!(factor(attacke, 1), 0.8);
+    assert_eq!(factor(attacke, 3), 0.9);
+    assert_eq!(held_factor(0.8, false), 0.8);
+    assert_eq!(held_factor(0.8, true), 0.4);
+    assert_eq!(held_factor(0.0, true), 0.5);
+}
+
+fn candidate(id: u32, distance: u32, hostile: bool) -> Candidate {
+    Candidate {
+        id,
+        distance,
+        reach: 130,
+        hostile,
+    }
+}
+
+#[test]
+fn an_attacke_strikes_its_target_or_the_next_within_its_reach() {
+    let others = [
+        candidate(7, 100, false),
+        candidate(8, 180, true),
+        candidate(9, 120, true),
+    ];
+    // Its target within the reach and 45.
+    assert_eq!(
+        attacke_target(Some(candidate(5, 175, true)), &others),
+        Some(5)
+    );
+    // Gone beyond them, or dead: the first hostile creature within them, in the list's order.
+    assert_eq!(
+        attacke_target(Some(candidate(5, 176, true)), &others),
+        Some(9)
+    );
+    assert_eq!(
+        attacke_target(Some(candidate(5, 10, false)), &others),
+        Some(9)
+    );
+    assert_eq!(attacke_target(None, &others[..2]), None);
+}
+
+#[test]
+fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
+    let tables = tables();
+    let mut rundum = weapon_art(1057, [5.0, 3.0], 2);
+    rundum.value_60 = [160, 20];
+    // 160 + 20·L per cent of the reach: 180 % of 130 at level 1.
+    let radius = rundum_radius(&rundum, 1, 130);
+    assert!((radius - 234.0).abs() < 1e-4, "{radius}");
+    let candidates = [
+        candidate(4, 240, true),
+        candidate(5, 200, true),
+        candidate(6, 90, false),
+    ];
+    // The nearest is 6, which may not be struck: none.
+    assert_eq!(rundum_target(&candidates, radius, None), None);
+    assert_eq!(rundum_target(&candidates[..2], radius, None), Some(5));
+    // Not the one it struck last.
+    assert_eq!(rundum_target(&candidates[..2], radius, Some(5)), None);
+    assert!(tables.weapon_arts.iter().any(|a| a.id == 1057));
+}

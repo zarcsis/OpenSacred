@@ -140,7 +140,8 @@ An art is ready when its regeneration still to run is at most 0.01 (`0x580DF0`, 
 Its executor calls `0x562470` once, at its first strike or its cast: it adds the art's time to the regeneration still to run of **every** art of its kind, the spells or the weapon arts, each held to its own time, so the two kinds regenerate apart (the arts 1019 and 1085 to 1087 count as spells); two flags of the stats' `+0x148`, 8 for the spells and 4 for the weapon arts, set by the items' and sets' effects in `0x571710`, take the added time down to 0.8 of it.
 `0x562390` keeps the Dark Elf's traps 1047 to 1053 and the Vampiress's arts 1030 to 1037 to their own groups.
 
-`0x562730` runs the regeneration for the local player's hero alone, not while its `+0x200` has bit `0x1000000`: each art's regeneration still to run goes down by the frame's time times its factor and its kind's speed, held within 0 and its time.
+`0x562730` runs the regeneration for the local player's hero alone, not while its `+0x200` has bit `0x1000000`: each art's regeneration still to run goes down by the time of the world's tick times its factor and its kind's speed, held within 0 and its time.
+It runs on the world's tick, not every frame: the render loop `0x60E350` gathers the frames' time in the float `0xAD6EFC` and, once it is above 0.1 s, calls the creatures' updates `0x5375C0`, which call `0x562730` (`0x5395D2`) with that time, and sets it back to 0; the hero's came every 100 or 117 ms with 0.1 or 0.117 s, 6 or 7 frames at 60 per second (measured with a probe 2026-10-23, #616, #617), so that what is still to run goes down in steps of about 0.1 s and an art is ready at the first tick after it reaches 0.
 
 - The spells' speed (the stats' `+0xEE`) is `(1 + Σ items' bonus 0x32D / 100 + the sets' bonuses + the effect 0xB) · (1 + MagicRegen / 100)`.
 - The weapon arts' speed (`+0xF2`) is `(1 + Σ items' bonus 0x32E / 100 + the effect 0xB) · (1 + PhysicalRegen / 100)`.
@@ -157,7 +158,7 @@ Read again 2026-10-23 (#507):
   `0x562390(art, group)` admits the art itself, and else counts how many of the two are among the traps 1047 to 1053 and the bites and bats 1030 to 1037: it admits 0 or 2, whatever the groups, and refuses 1.
 - The executors pass the time of `0x582850(art)`, the entry's time, else `0x582A20(art, 0, 0)`, the record's at level 0: the Gladiator's `(time, 2, 0)`, the Dark Elf's `Attacke` its own id 1067 as the group, one call of the Dark Elf's the time times a constant first; which executor passes what is #508's.
 - `0x562730` takes the spells' speed for an entry of the first table and 1019, the weapon arts' for any other: 1085 to 1087, which start as spells, run at the weapon arts' speed.
-  An entry with time still to run loses `factor · speed · seconds`, held within 0 and its time; the frame's function runs it for the creature whose `+0x39` is the local player's number alone.
+  An entry with time still to run loses `factor · speed · seconds`, `seconds` the tick's, held within 0 and its time; it runs for the creature whose `+0x39` is the local player's number alone.
 - `0x5796A0` sets both speeds to 1.0, adds a hundredth of each item's bonus 813 (`0x32D`) to the spells' and 814 (`0x32E`) to the weapon arts', adds the value of the effect `0xB` to both, multiplies them by `1 + MagicRegen/100` and `1 + PhysicalRegen/100` after the skills, holds them at 0 and above, and gives the Dwarf (type 8) the weapon arts' speed for his spells.
 - `0x5796A0` writes the times in `0x571080` and then calls the skills' function `0x566070` (`0x57C658`), whose `0x565DC0` shortens the times of a list of arts by a skill: each art of the list that the creature holds has its time divided by `1 + v/100`, `v` the skill's curve at its level from a triple of balance keys (`off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`), held at 1 s at least, its regeneration still to run held to it.
 
@@ -180,7 +181,7 @@ Read again 2026-10-23 (#507):
 
 The heroes' second starting skills are 25 for the Gladiator and the Dark Elf and 20 for the Vampiress, each at level 1 so that `v` is 12: their times are the records' over 1.12 (the Gladiator's 1059 13.39 s and 1057 7.14 s, seen 2026-10-23 with the driver, #507), as the templates hold them; the other classes' skills are none of these.
 The Gladiator's 1057 taught by a rune then rose from 7.14 to 9.82 s at level 2, the growth still to run (seen).
-`opensacred_rules::arts` follows them (`Arts::recompute`, `Arts::shorten`, `Arts::start`, `Arts::regenerate`, `Arts::ready`, `Speeds`), `opensacred_rules::fight::arts_speeds` gives a creature's speeds, and the game runs the hero's regeneration every frame (#507); every entry of the 8 templates, taught or not, recomputes to the very time the template holds.
+`opensacred_rules::arts` follows them (`Arts::recompute`, `Arts::shorten`, `Arts::start`, `Arts::regenerate`, `Arts::ready`, `Speeds`), `opensacred_rules::fight::arts_speeds` gives a creature's speeds, and the game runs the hero's regeneration with its frames' time, the original's tick of about 0.1 s to follow (#616); every entry of the 8 templates, taught or not, recomputes to the very time the template holds.
 
 ## A hero's combos
 
@@ -198,11 +199,23 @@ The classes' executors: the Gladiator's `0x4FF0B0`, the Seraphim's `0x5038F0`, t
 - `Attacke` (1059 in `0x4FF0B0`, 1071 in `0x5038F0`): at every hit point of the clip (`0x4115D0`, `0x4135D0`, as the plain strike), it strikes the target within its reach + 45, and when the target is gone, the next hostile creature within it; it ends when the clip has no more hit points.
   Each strike is the creature's strike event (`0x4EA3F0`) of the hit's kind 1 and the factor `0.75 + 0.05·L`, and the first starts the regeneration; the strikes are as many as the clip's hit points, not by the level (**hypothesis**).
   Seen in the original (2026-10-23, #569, an immortal goblin warrior of level 1 beside the Seraphim): one use of her 1071 made 7 strikes in about 2.8 s at level 1 and at level 3 alike, each with the attack `28.5 · (1.3 + 0.125·L)` in its chance (40.61 and 47.74) and its damage times 0.8 and 0.9.
-- `Rundum` (1057): before 70 % of its clip, it strikes the creature nearest each bone of a weapon or a hand (`0x44CA30`) within `160 + 20·L` percent of the two creatures' reach, each creature once (`+0x190`), with the factor `0.8 + 0.1·L`.
+- `Rundum` (1057): before 70 % of its clip, it strikes the creature nearest each bone of a weapon or a hand (`0x44CA30`) within `160 + 20·L` percent of the two creatures' reach, not the one it struck last (`+0x190`), with the factor `0.8 + 0.1·L`.
+- `Hardhit` (1058 in `0x4FF0B0`, 1070 in `0x5038F0`): at its clip's hit point, half the clip where the clip has none, one strike on its target with the factor `1.8 + 0.2·L`, whatever the distance, which starts the regeneration and ends the art.
+
+Read again 2026-10-23 (#508):
+
+- An executor sends a strike with the byte 15 as its kind and the factor `L·[+0x54] + [+0x50]`, `L` the level in play (`0x580A10`); `0x4EA3F0` makes it the hit's kind 1 with that factor, and a plain strike its kind with the factor 1, and halves the factor where the creature holds a weapon of kind 8, or an item in each hand, the one of `+0x1D4` not of the shields' category 13 (`0x427CD0`): 0.5 for a factor of 0 or below.
+- `Attacke`, the Gladiator's and the Seraphim's alike: each time its executor runs, while its target lives (`0x549080`) within the two creatures' reach and 45 (`0x5370B0` against `0x4DBC60`), it waits for the clip's next hit point and strikes then, the first strike starting the regeneration (`+0x18C` counts the strikes); its target lost, it takes the first creature of the world's list (`0xAD3CE0`, `0xAD3BC8` of them) other than it that is hostile (`0x548F60`) within the reach and 45, and with none it ends.
+  The same test of the reach and 45 stands in the Wood Elf's 1063, the Vampiress's 1040 and 1075, the Dwarf's 1080 and the Daemon's 1092, and in `0x50CD10` for 1000 to 1002.
+- `Rundum`: its executor's first run starts the regeneration; each run before 0.7 of its clip it takes a point of a bone of a weapon or a hand, twice (`0x44CA30`, `0x623AD0`), and finds the creature nearest it (`0x5FEAF0`'s, but itself), within 1,000 and the radius: the second time `[+0x60] + [+0x64]·L` per cent of the reach, the first a value of the reach not read; that creature, unless it is the one struck last (`+0x190`) or it may not be struck (`0x549000`), takes a strike and becomes the last, so that a creature is struck again after another.
+- The strike's resolution takes the art's attack only for a hit's kind other than 0 from a creature in its class's action of the arts (`0x956C48`) or the action 5, with an art of the second table (`+0x120`) whose level is the entry's level and bonus (`0x580A10`), or a combo's (`0x56ABE0`); a hit's kind other than 0 of no such art skips the hit's test, and a creature of type 71 takes the plain test as well.
+- Every strike that lands deals 1 at least, after the factor (`0x56B130`), a plain strike's too.
+
+`opensacred_rules::fight::art_strike` and `art_attack` resolve an art's strike, `fight::strike` scales any strike by its factor between 0 and 500 and deals 1 at least, and `opensacred_rules::arts` gives the arts' styles, factors and targets (`style`, `factor`, `held_factor`, `attacke_target`, `rundum_radius`, `rundum_target`, #508).
 - With a bow the Seraphim's 1069, 1070 and 1071 are shots: the action 5, `+0x184` 1, the special projectiles `0x3D`, `0x3E` and `0x3F`, and `min(L + 1, 5)` arrows for 1069 and 1071.
 
 The strike's resolution (`0x56B130`, docs/re/fight.md) takes, for a strike of a hit's kind other than 0 by a creature in its action of the arts (or the action 5) with an art of the second table, the attack `A' = A · (1.3 + 0.125·L)` (times the usual factor) into the hit's chance `A' / (A' + D)`, the level the entry's or the combo's slot's; the description shows it as `30 + 12.5·L` percent of attack (`0x5893B0`).
-Other kinds other than 0 skip the hit's test (**hypothesis**: they always land).
+Other kinds other than 0 skip the hit's test, so that they always land (read again, #508, above).
 The damage, summed after the resistances, is multiplied by the hit's factor when it lies between 0 and 500 and is not 1, at least 1; `0x4EA3F0` halves the factor with two weapons or a weapon of kind 8.
 So at level 1 the Seraphim's 1071 and the Gladiator's 1059 strike with 1.425 times the attack for 80 % of the damage.
 

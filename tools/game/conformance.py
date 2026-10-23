@@ -15,6 +15,14 @@ FAIL:
   their `stats` compared likewise;
 - `places`: the scripts' creatures of a few places whose cells and levels are fixed (the guards of 52,39 and their
   captains, the stable of 64,41), paired by type and cell: their levels, most health, hostility and rank must agree;
+- `regeneration`: at the stable of 64,41, with no hostile about it, the health gained over 20 s of world time from 1
+  (`heal --to 1`, the world paused while it is set and read): of a peaceful goblin warrior of level 50, which regenerates at `RegInFight`; of the hero of level 1
+  and of level 30 alone (`RegNoEnemy`), and of level 30 beside a hostile goblin warrior (`RegInFight`); the rates
+  must agree within two points of health over the time or 3 %, whichever is wider;
+- `strikes`: a hostile goblin warrior of level 1 beside the hero of level 1, its strikes over 60 s (the game's log of
+  `opensacred_game::fight` at `debug`, the original's trace `strike`): the mean time between them must agree within
+  5 %, the share that lands and the mean damage within four standard deviations (the game needs
+  `RUST_LOG=info,opensacred_game::fight=debug`);
 - `drops`: 1,000 drops of a goblin warrior of level 10 (the game's `drop`, the original's driver's `drop --id`), the
   shares of the items' categories (`items.pak +0x2E`, a derived type 2000–2999 or 6500–7999 by its root), each within
   two points or four standard deviations, whichever is wider, and the share of the derived types.
@@ -24,6 +32,7 @@ Nothing is written; the report names types, levels and categories alone, so it m
 Example
   python -I tools/game/conformance.py
   python -I tools/game/conformance.py --suites experience,hero --save start-seraphim
+  python -I tools/game/conformance.py --suites regeneration
 
 Expected output: a line per check, `PASS experience: type 76 level 10, hero 1: +109` or `FAIL stats: type 32 level 10:
 A 37.5 / 47`, then `N checks, M failed`; the exit code is 1 when one failed. Dependencies: the standard library.
@@ -49,6 +58,8 @@ PLACES = [
     ((4127, 2650), [(554, 4129, 2651), (555, 4122, 2648), (551, 4120, 2639), (550, 4112, 2648),
                     (558, 4109, 2639), (552, 4101, 2643), (656, 4127, 2647)]),   # the stable of 64,41 (SetNPCState)
 ]
+# A place with no hostile about it, the stable of 64,41.
+STABLE = (4127, 2650)
 CATEGORIES = {5: 'weapon', 6: 'armour', 8: 'ring', 9: 'potion', 13: 'shield', 15: 'gold', 17: 'helmet', 18: 'shoes',
               19: 'belt', 20: 'amulet', 21: 'shoulders', 22: 'arms', 23: 'legs', 24: 'gloves', 25: 'wings',
               28: 'rune', 29: 'bridle'}
@@ -164,6 +175,97 @@ def places_suite(game, original, report):
                          + (': ' + '; '.join(found) if found else ''))
 
 
+def regenerated(endpoint, heal, stats, seconds):
+    """The health per second that `endpoint` regains over `seconds` of world time after `heal` set it to 1; `stats`
+    reads it (its first line names the health)."""
+    endpoint.exec('pause on')
+    endpoint.exec(heal)
+    start = time.monotonic()
+    endpoint.exec('pause off')
+    time.sleep(seconds)
+    elapsed = time.monotonic() - start
+    endpoint.exec('pause on')
+    health = int(re.search(r'health (\d+)/', endpoint.exec(stats)[0])[1])
+    endpoint.exec('pause off')
+    return (health - 1) / elapsed
+
+
+def regeneration_suite(game, original, report, seconds=20):
+    def check(what, ours, theirs):
+        ok = abs(ours - theirs) <= max(2 / seconds, 0.03 * theirs)
+        report.check('regeneration', ok, f'{what}: {ours:.3f} / {theirs:.3f} a second')
+
+    # The stable of 64,41, with no hostile within 40 cells: the start's lone goblins stroll in and out of the
+    # 1,000 of `RegEnemyNear`.
+    for endpoint in (game, original):
+        endpoint.exec(f'cell {STABLE[0]},{STABLE[1]}')
+    time.sleep(5)
+    wait_ready(game)
+    line = 'spawn 76 --at +3,+3 --level 50 --peaceful --immortal'
+    ours = game.exec(line)[-1].rsplit(': ', 1)[-1].split(',')[0].strip()
+    theirs = re.match(r'made (\d+)', original.exec(line)[-1])[1]
+    check('type 76 level 50', regenerated(game, f'heal {ours} --to 1', f'stats {ours}', seconds),
+          regenerated(original, f'heal {theirs} --to 1', f'stats {theirs}', seconds))
+    for level in (1, 30):
+        for endpoint in (game, original):
+            endpoint.exec(f'level {level}')
+        check(f'the hero of level {level} alone', regenerated(game, 'heal --to 1', 'stats', seconds),
+              regenerated(original, 'heal --to 1', 'stats', seconds))
+    for endpoint in (game, original):
+        endpoint.exec('spawn 76 --at +1,+0 --level 30 --hostile --immortal')
+    time.sleep(2)
+    check('the hero of level 30 in a fight', regenerated(game, 'heal --to 1', 'stats', seconds),
+          regenerated(original, 'heal --to 1', 'stats', seconds))
+
+
+def last_log(endpoint):
+    entries = endpoint.call('opensacred/logs', {'after': 0})
+    return entries[-1]['sequence'] if entries else 0
+
+
+def strikes_suite(game, original, report, seconds=60):
+    for endpoint in (game, original):
+        endpoint.exec('god off')
+        endpoint.exec('heal')
+    line = 'spawn 76 --at +1,+0 --level 1 --hostile'
+    ours = game.exec(line)[-1].rsplit(': ', 1)[-1].split(',')[0].strip()
+    theirs = re.match(r'made (\d+)', original.exec(line)[-1])[1]
+    since = last_log(game), last_log(original)
+    original.exec('trace strike')
+    for _ in range(seconds // 20):
+        time.sleep(20)
+        for endpoint in (game, original):
+            endpoint.exec('heal')
+    original.exec('untrace strike')
+    found = []
+    pattern = re.compile(rf'fight: {re.escape(ours)} (?:hits \S+ for (\d+)|misses)')
+    found.append([(e['seconds'], int(m[1]) if m[1] else None)
+                  for e in game.call('opensacred/logs', {'after': since[0]})
+                  if (m := pattern.match(e['message']))])
+    pattern = re.compile(rf'strike: attacker {theirs} type .*?(?:hit (\d+)|no damage) \| t ([\d.]+) ms')
+    found.append([(float(m[2]) / 1000, int(m[1]) if m[1] else None)
+                  for e in original.call('opensacred/logs', {'after': since[1]})
+                  if (m := pattern.match(e['message']))])
+    if any(len(strikes) < 3 for strikes in found):
+        report.check('strikes', False, f'type 76 level 1: {len(found[0])} / {len(found[1])} strikes; the game logs '
+                     'them only with RUST_LOG=info,opensacred_game::fight=debug')
+        return
+    # From the first strike on, as the goblin first walks to the hero.
+    gaps = [(strikes[-1][0] - strikes[0][0]) / (len(strikes) - 1) for strikes in found]
+    report.check('strikes', abs(gaps[0] - gaps[1]) <= 0.05 * gaps[1],
+                 f'type 76 level 1: {gaps[0]:.2f} / {gaps[1]:.2f} s between strikes '
+                 f'({len(found[0])} / {len(found[1])} strikes)')
+    landed = [[damage for _, damage in strikes if damage is not None] for strikes in found]
+    p, q = (len(hits) / len(strikes) for hits, strikes in zip(landed, found))
+    sigma = math.sqrt(max(p * (1 - p) / len(found[0]) + q * (1 - q) / len(found[1]), 1e-9))
+    report.check('strikes', abs(p - q) <= 4 * sigma, f'type 76 level 1: {100 * p:.0f} % / {100 * q:.0f} % landed')
+    if all(len(hits) >= 2 for hits in landed):
+        means = [sum(hits) / len(hits) for hits in landed]
+        spread = [sum((d - mean) ** 2 for d in hits) / (len(hits) - 1) / len(hits) for hits, mean in zip(landed, means)]
+        report.check('strikes', abs(means[0] - means[1]) <= max(1, 4 * math.sqrt(sum(spread))),
+                     f'type 76 level 1: {means[0]:.1f} / {means[1]:.1f} damage a hit')
+
+
 def item_categories(assets):
     """The category of each item type, a derived type's by its root (`Weapon.pak +0x24`)."""
     items = open(os.path.join(assets, 'tables', 'items.ron'), encoding='utf-8').read()
@@ -212,7 +314,7 @@ def drops_suite(game, original, report, assets, times=1000):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--suites', default='experience,hero,stats,drops,places')
+    parser.add_argument('--suites', default='experience,hero,stats,drops,places,regeneration,strikes')
     parser.add_argument('--save', default='start-seraphim', help="the original's save of the Seraphim's new game")
     parser.add_argument('--types', help='the stats suite\'s creature types, comma-separated')
     parser.add_argument('--levels', default='1,10,25,40', help="the stats suite's levels")
@@ -237,6 +339,10 @@ def main():
             drops_suite(game, original, report, args.assets)
         elif suite == 'places':
             places_suite(game, original, report)
+        elif suite == 'regeneration':
+            regeneration_suite(game, original, report)
+        elif suite == 'strikes':
+            strikes_suite(game, original, report)
         else:
             parser.error(f'no suite {suite}')
     print(f'{report.checks} checks, {report.failed} failed')
