@@ -31,8 +31,8 @@ pub struct Aim(pub bool);
 
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
 /// at once, where it stands, once; whether it ends with its strike, the player having sent the
-/// hero elsewhere; whether the button that sent it is still held; and whether a click still asks
-/// for a strike that has not begun.
+/// hero elsewhere; whether the button that sent it is still held; whether a click still asks
+/// for a strike that has not begun; and whether its first strike spoke its `ATTACK` line.
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
@@ -41,6 +41,7 @@ pub struct Attack {
     ends: bool,
     held: bool,
     asked: bool,
+    spoke: bool,
 }
 
 impl Attack {
@@ -133,9 +134,15 @@ pub(crate) fn aim(
             ends: false,
             held: true,
             asked: true,
+            spoke: false,
         };
         match (aim.0, attack) {
-            (true, Some(mut attack)) => *attack = next,
+            // A click on the same target goes on with its attack, which spoke at its first
+            // strike (the original's sub-state 1 anew, `0x4E4CF0`).
+            (true, Some(mut attack)) => {
+                let spoke = attack.spoke && attack.target == next.target;
+                *attack = Attack { spoke, ..next };
+            }
             (true, None) => {
                 commands
                     .entity(hero)
@@ -187,6 +194,7 @@ fn engage(
     targets: Query<(&GlobalTransform, &Health, Option<&crate::ai::Mind>), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut hits: MessageWriter<fight::Hit>,
+    mut lines: MessageWriter<crate::voices::Speak>,
 ) {
     let Some(clips) = clips else {
         return;
@@ -293,6 +301,15 @@ fn engage(
             .play(&mut player, *node, blend)
             .set_speed(speed.0 * attack_speed);
         attack.asked = false;
+        // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
+        // chains do not (#711).
+        if !attack.spoke {
+            attack.spoke = true;
+            lines.write(crate::voices::Speak {
+                speaker: hero,
+                group: crate::voices::ATTACK,
+            });
+        }
         commands.entity(hero).insert(Striking {
             node: *node,
             length,

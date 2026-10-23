@@ -132,6 +132,8 @@ pub struct Hero {
     /// Its size by its type and what it holds, of which and a creature's their reach is the
     /// mean (`opensacred_rules::minds::size`, `0x4DBC60`, #642).
     pub size: u32,
+    /// Its type, the class's (`game::Class::creature`): whose voice it speaks with (`voices`).
+    pub creature: u32,
     gltf: Option<Handle<Gltf>>,
     spawned: bool,
 }
@@ -157,6 +159,7 @@ impl Hero {
             target: None,
             gait: Gait::Run,
             size: opensacred_rules::minds::SIZE,
+            creature: 1,
             gltf: None,
             spawned: false,
         }

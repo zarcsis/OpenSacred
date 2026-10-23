@@ -75,7 +75,8 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 - `BATTLECRY_nn_<class>` (10 a class) at the sound event 5 with an argument from 1003 to 1104 (**hypothesis**: a combat art), one in three, always for the arts that play their own ids 2098 to 2104;
 - `ENEMYKILLME_nn_<class>` (6 a class) at the hero's `DEATH`, with `MUSIC_DEATH` (6505, `0x694FE0`).
 
-`opensacred-game` plays none of them yet (#710 to #713).
+`opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume above, lowered and panned by a plain falloff for now (docs/decisions/2026-10-23-voices-place.md, #731).
+The weapons' sounds and the heroes' lines wait (#712, #713).
 
 ## Footsteps by the ground
 
