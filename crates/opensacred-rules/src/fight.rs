@@ -984,8 +984,8 @@ fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
 /// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
 /// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's and the most health's (10,
 /// `HR…AW`, `HP…VW`), the
-/// defence's again (9, `P…`, with a shield `P…S`), and each resistance's (11, `R…Ph`, `R…Fe`,
-/// `R…Ma`, `R…Gi`).
+/// defence's again (9, `P…`, with a shield `P…S`), each resistance's (11, `R…Ph`, `R…Fe`,
+/// `R…Ma`, `R…Gi`), and the fist fight's attack and attack speed (24, `FK…AW`, `FK…SP`).
 #[derive(Clone, Debug, PartialEq)]
 struct Curves {
     damage: [f32; 3],
@@ -996,6 +996,8 @@ struct Curves {
     parry: [f32; 3],
     parry_shield: [f32; 3],
     resistances: [[f32; 3]; KINDS],
+    fist: [f32; 3],
+    fist_speed: [f32; 3],
 }
 
 impl Default for Curves {
@@ -1015,6 +1017,8 @@ impl Default for Curves {
                 [12.0, 50.0, 200.0],
                 [12.0, 50.0, 200.0],
             ],
+            fist: [12.0, 50.0, 200.0],
+            fist_speed: [6.0, 50.0, 100.0],
         }
     }
 }
@@ -1054,6 +1058,8 @@ impl Curves {
                 resistance(2, "Ma"),
                 resistance(3, "Gi"),
             ],
+            fist: triple(["FKoffAW", "FK_s_AW", "FK_w_AW"], default.fist),
+            fist_speed: triple(["FKoffSP", "FK_s_SP", "FK_w_SP"], default.fist_speed),
         }
     }
 }
@@ -1099,7 +1105,9 @@ pub fn attack_speed(id: u32) -> f32 {
 ///
 /// - the skills `skills` (`0x566070`): 2 raises every damage multiplier, 8 the attack's and the
 ///   defence's, 9 the defence's (more with a shield), 11 each resistance's, by its curve's per
-///   cent; an attack or a defence whose multiplier is not 1 is truncated.
+///   cent, and 24, the fist fight, unarmed, the attack's by its curve's per cent and the attack
+///   speed by its other curve, taken whole (#588); an attack or a defence whose multiplier is not
+///   1 is truncated.
 ///
 /// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's,
 /// its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md).
@@ -1220,6 +1228,7 @@ pub fn combat(
     let (mut damage_skill, mut attack_skill, mut defence_skill) =
         (0.0, 1.0 + attack_bonus, 1.0 + defence_bonus);
     let mut resistance_skill = [0.0; KINDS];
+    let mut fist_speed = 0.0;
     for &(skill, at) in skills {
         match skill {
             2 => damage_skill += curve(curves.damage, at) / 100.0,
@@ -1239,6 +1248,11 @@ pub fn combat(
                 for (value, triple) in resistance_skill.iter_mut().zip(curves.resistances) {
                     *value += curve(triple, at) / 100.0;
                 }
+            }
+            // Holding nothing (`0x546F80` of class 0).
+            24 if !armed => {
+                attack_skill += curve(curves.fist, at) / 100.0;
+                fist_speed += curve(curves.fist_speed, at);
             }
             _ => {}
         }
@@ -1278,7 +1292,9 @@ pub fn combat(
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
-        speed: (attack_speed(base.id) + speed_bonus).clamp(100.0, 220.0),
+        speed: (attack_speed(base.id) + speed_bonus + fist_speed)
+            .trunc()
+            .clamp(100.0, 220.0),
     }
 }
 
@@ -1955,6 +1971,37 @@ mod tests {
             ..Base::default()
         };
         assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.64).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_fist_fight_raises_an_unarmed_creatures_attack_and_attack_speed() {
+        let rules = Rules::default();
+        // The skeleton warrior (type 32) of the skills 2 and 24, as the original's at the levels
+        // 10 and 40 (#588): `A` 47 and 180, the attack speed 153 and 182.
+        let skeleton = Base {
+            id: 32,
+            attributes: [25, 35, 15, 15, 0, 50],
+            skills: [2, 24, 11, 4, 0, 0, 0, 0],
+            ..Base::default()
+        };
+        for (level, attack, speed) in [(10, 47.0, 153.0), (40, 180.0, 182.0)] {
+            let unarmed = combat(
+                &skeleton,
+                level,
+                Holds::default(),
+                &skills(&skeleton, level, false),
+                &rules,
+            );
+            assert!(near(unarmed.attack, attack), "{level}: {}", unarmed.attack);
+            assert!(near(unarmed.speed, speed), "{level}: {}", unarmed.speed);
+        }
+        // Armed, the skill does nothing.
+        let armed = Holds {
+            weapon: true,
+            ..Holds::default()
+        };
+        let with = combat(&skeleton, 10, armed, &[(24, 3)], &rules);
+        assert!(near(with.attack, 37.5) && near(with.speed, 140.0));
     }
 
     #[test]
