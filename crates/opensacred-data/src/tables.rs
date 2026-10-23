@@ -25,6 +25,7 @@ pub const MERCENARIES: &str = "mercenaries.ron";
 pub const MERCENARIES_ADDON: &str = "mercenaries_addon.ron";
 pub const START_POINTS: &str = "start_points.ron";
 pub const ARTS: &str = "arts.ron";
+pub const VOICES: &str = "voices.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -102,6 +103,51 @@ impl Item {
     /// it goes (5 weapons, 6 armour, 8 rings, 9 potions, 20 amulets, …).
     pub fn category(&self) -> u8 {
         self.words_14[6].to_le_bytes()[2]
+    }
+
+    /// The sound profile at `+0x24` (docs/02 §6.1), `words_14[4]`: a slot of `sndProfiles.pak`,
+    /// whose groups a weapon's swing, hit and parry take (500 a sword, 501 a bow, 503 a knife), 0
+    /// for none and for every creature (docs/re/sound.md, "The fight's sounds").
+    pub fn sound(&self) -> u32 {
+        self.words_14[4]
+    }
+}
+
+/// The creatures' voices (`0x6852B0`, docs/re/sound.md, "The fight's sounds"), `voices.ron`: the
+/// types that speak, by the case of each type in `Sacred.exe`'s byte table at `0x68BBD0`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Voices {
+    pub voices: Vec<Voice>,
+}
+
+/// A creature type's voice.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Voice {
+    /// The creature's type, 1 to 714.
+    pub creature: u16,
+    /// Its profile, a slot of `sndProfiles.pak`, or the heroes' two, of which each line takes one
+    /// at random.
+    pub profiles: Vec<u16>,
+    /// A line of the groups 1 `ATTACK`, 2 `NORMALHIT`, 3 `CRITICALHIT` and 7 `DEATH` plays when
+    /// `rand() % n` is 0: 1 always, 0 never.
+    pub rolls: [u8; 4],
+    /// The seconds for which a sound id that played waits before it plays again.
+    pub wait: f32,
+    /// The ids of its lines at a cast and when it falls unconscious, one of them at random.
+    pub casts: Vec<u16>,
+    pub faints: Vec<u16>,
+}
+
+impl Voice {
+    /// The roll of a group, 0 for a group of none (`APPROACH`, `FOLLOW`, `FLEE`, …).
+    pub fn roll(&self, group: u8) -> u8 {
+        match group {
+            1 => self.rolls[0],
+            2 => self.rolls[1],
+            3 => self.rolls[2],
+            7 => self.rolls[3],
+            _ => 0,
+        }
     }
 }
 
