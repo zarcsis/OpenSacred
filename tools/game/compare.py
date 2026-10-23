@@ -36,7 +36,7 @@ Dependencies: the standard library.
 import argparse, json, re, struct, sys, time, urllib.request
 
 LINE = re.compile(r'^(\S+) type (\d+) cell (-?\d+),(-?\d+)(?: floor (\d+))?.*? health (\d+)/(\d+) level (\d+)'
-                  r'(?: (hostile|peaceful))?(?: (champion|boss))?')
+                  r'(?: (hostile|peaceful))?(?: awake)?(?: fighting)?(?: (champion|boss))?')
 CELL = re.compile(r'^\s*(\d+)\s*,\s*(\d+)\s*$')
 
 
