@@ -257,12 +257,13 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 
 * A game started with `--remote` listens for remote control on `127.0.0.1:15702`, Bevy's Remote Protocol with the game's own methods (docs/10 §8); `tools/game/remote.py` is its client.
   Bevy 0.20's `RemoteHttpPlugin` also serves the render sub-app, on 15703 unless told otherwise, the original's driver's port (below): the game moves that server to a port the system picks, which nothing calls (#528).
-* Claude Code starts the game in the background so that it neither covers the maintainer's screen nor touches the maintainer's settings, history and log: muted, with files of its own, and its window opening without the focus and outside every monitor (`--offscreen`, #554).
-  Created hidden, the window is moved past the monitors' right edge once they are known, then shown; a change of the display keeps it there.
-* The game draws outside every monitor and on a locked desktop alike, and its screenshots are read back from the GPU rather than from the screen (observed 2026-10-22, #554: 60 frames a second through a lock of nearly two minutes, each screenshot of the lock written on time and of a new frame), so it needs nothing like the original's dgVoodoo2 (§3.8).
+* Claude Code starts the game in the background so that it neither covers the maintainer's screen nor touches the maintainer's settings, history and log: muted, with files of its own, and its window hidden (`--hidden`, #556): on no screen, taskbar or Alt-Tab, as the original's driver keeps its own (§3.8).
+  Bevy creates every window hidden and shows it after; `--hidden` leaves it so.
+  A hidden window cannot be shown again: the game hangs when one is (Bevy 0.20 on Windows, observed with the window hidden at the start or later, 2026-10-22).
+* The game draws hidden, outside every monitor and on a locked desktop alike, and its screenshots are read back from the GPU rather than from the screen (observed 2026-10-22, #554, #556: outside the monitors, 60 frames a second through a lock of nearly two minutes, each screenshot of the lock written on time and of a new frame; hidden, the same through a lock of 80 s, and the hero walking on a click), so it needs nothing like the original's dgVoodoo2 (§3.8).
 
   ```bash
-  cargo run --release -p opensacred-game -- --remote --offscreen --no-music \
+  cargo run --release -p opensacred-game -- --remote --hidden --no-music \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log      # from a worktree also --assets ../../../assets
   python -I tools/game/remote.py wait-state menu
   python -I tools/game/remote.py exec "new-game --class mage"

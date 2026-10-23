@@ -53,7 +53,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * No file means the defaults, and the file is written the first time a setting changes.
   A file that does not parse is reported and left alone, never overwritten; an unknown key is reported.
 * Writing changes only the keys it sets and keeps the user's comments (`toml_edit`).
-* The command line overrides the file for one run without writing it: `--settings FILE` (another file, for the tests and Claude Code's runs), `--windowed` or `--borderless`, `--width` and `--height`, and `--offscreen`, a window outside every monitor for the runs driven from afar (#554).
+* The command line overrides the file for one run without writing it: `--settings FILE` (another file, for the tests and Claude Code's runs), `--windowed` or `--borderless`, `--width` and `--height`, and `--hidden`, a window that is never shown, for the runs driven from afar (#556).
 * `--screenshot`, `--record` and `--benchmark` run in a window of the given size, as now, so that their frames do not depend on the monitor.
 * The overlays add `[debug] overlay` and `[debug] log` (§5); the rest of docs/06 §6 (sound, controls, gameplay) comes with M6.
 
@@ -195,7 +195,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   The game registers its own method under that name after Bevy's, which takes its place: it looks the entity up and answers `ENTITY_NOT_FOUND` (-23401) for one that is gone, as Bevy's other methods on an entity do, and hands the rest to Bevy's.
 * The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-state`, `wait-ready`, `key F11`, `type`, `click X Y`, `move`, `wheel`, `screenshot FILE`, `logs`, `call METHOD`, `shell`, and `--port`.
   `shell` (#550) reads lines until `:quit`, for driving a game by hand: a line is a command of the game, one starting with `:` a call of the client with the same arguments (`:state`, `:key Escape`, `:screenshot FILE`), and `:logs` goes on from the last record shown; `:follow on` prints the new records after each line.
-* Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --offscreen --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window opening unfocused outside every monitor (#554).
+* Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window hidden (#556).
 * Screenshots and logs taken this way are pictures of the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
 * Done 2026-10-19 (#175), in a module `remote`, with the client `tools/game/remote.py` and the recipe in docs/03 §3.7.
   The input waits in a queue that sends each message in its frame before Bevy reads the input: a key's release a frame after its press, a click's press a frame after the cursor's move and its release `hold` frames later (2 by default), so that the game's systems see the key and the button held.
