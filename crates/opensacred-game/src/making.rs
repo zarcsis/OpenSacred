@@ -16,6 +16,7 @@ use opensacred_rules::arts::{
     self, ArtClip, Candidate, Creature, Style, attacke_target, due, hardhit_point, held_factor,
     made_from, rundum_radius, rundum_target,
 };
+use opensacred_rules::minds;
 
 use crate::ai::Mind;
 use crate::arts::HeroArts;
@@ -26,9 +27,6 @@ use crate::motions::Slots;
 use crate::npcs::Dies;
 use crate::spawning::Rng;
 
-/// The reach of the hero and a creature (`0x4DBC60`: 130 by default; **hypothesis** for every
-/// type, as `opensacred_rules::minds` has it).
-const REACH: u32 = 130;
 /// The blend into an art's clip (`0x593320`'s 0.5 over the attack speed, at most 0.2 s;
 /// **hypothesis**: seconds).
 const BLEND: Duration = Duration::from_millis(200);
@@ -255,6 +253,7 @@ fn make(
             &Making,
             Option<&mut Playing>,
             Option<&Combat>,
+            Option<&hero::Size>,
         ),
         Without<Dies>,
     >,
@@ -267,7 +266,10 @@ fn make(
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
     };
-    for (hero, mut transform, mut body, making, playing, combat) in &mut heroes {
+    for (hero, mut transform, mut body, making, playing, combat, size) in &mut heroes {
+        // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
+        let size = size.map_or(minds::SIZE, |size| size.0);
+        let reach = |mind: &Mind| minds::reach(size, mind.size());
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|player| players.get_mut(player).ok())
         else {
@@ -279,11 +281,11 @@ fn make(
         };
         let Some(mut playing) = playing else {
             // The order: its target alive, within its distance.
-            let Some(target) = creatures
+            let Some((target, target_reach)) = creatures
                 .get(making.target)
                 .ok()
                 .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-                .map(|(_, at, ..)| at.translation())
+                .map(|(_, at, mind, _)| (at.translation(), reach(mind)))
             else {
                 end(&mut commands);
                 continue;
@@ -292,7 +294,7 @@ fn make(
                 end(&mut commands);
                 continue;
             };
-            let Some((at, within)) = made_from(record.distance, to_f32(REACH)) else {
+            let Some((at, within)) = made_from(record.distance, to_f32(target_reach)) else {
                 info!("making: {}'s distance is not made yet", making.art);
                 end(&mut commands);
                 continue;
@@ -398,7 +400,7 @@ fn make(
                     |index: usize, at: &GlobalTransform, mind: &Mind, health: &Health| Candidate {
                         id: u32::try_from(index).unwrap_or(u32::MAX),
                         distance: whole_distance(at.translation(), here),
-                        reach: REACH,
+                        reach: reach(mind),
                         hostile: mind.hostile() && health.current > 0,
                     };
                 for (entity, at, mind, health) in &creatures {
@@ -453,7 +455,7 @@ fn make(
                 else {
                     continue;
                 };
-                let radius = rundum_radius(record, playing.level, REACH);
+                let radius = |reach| rundum_radius(record, playing.level, reach);
                 let point = bone(hero, &WEAPON_BONES, &children, &bones)
                     .or_else(|| bone(hero, &[HAND_BONE], &children, &bones))
                     .unwrap_or(here);
@@ -466,7 +468,7 @@ fn make(
                             Candidate {
                                 id: u32::try_from(index).unwrap_or(u32::MAX),
                                 distance: whole_distance(at.translation(), point),
-                                reach: REACH,
+                                reach: reach(mind),
                                 hostile: mind.hostile() && health.current > 0,
                             },
                         )

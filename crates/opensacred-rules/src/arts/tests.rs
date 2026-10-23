@@ -647,11 +647,18 @@ fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
         candidate(5, 200, true),
         candidate(6, 90, false),
     ];
+    let radius = |reach| rundum_radius(&rundum, 1, reach);
     // The nearest is 6, which may not be struck: none.
     assert_eq!(rundum_target(&candidates, radius, None), None);
     assert_eq!(rundum_target(&candidates[..2], radius, None), Some(5));
     // Not the one it struck last.
     assert_eq!(rundum_target(&candidates[..2], radius, Some(5)), None);
+    // The radius by each one's reach with the striker: 4 at 240 within 180 % of 135.
+    let far = Candidate {
+        reach: 135,
+        ..candidate(4, 240, true)
+    };
+    assert_eq!(rundum_target(&[far], radius, None), Some(4));
     assert!(tables.weapon_arts.iter().any(|a| a.id == 1057));
 }
 

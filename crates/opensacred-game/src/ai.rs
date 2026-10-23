@@ -380,7 +380,7 @@ fn think(
     balance: Res<FightRules>,
     experience: Res<crate::fight::Experience>,
     doors: Doors,
-    hero: Query<(&Transform, &Body)>,
+    hero: Query<(&Transform, &Body, Option<&crate::hero::Size>)>,
     mut creatures: Query<
         (
             Entity,
@@ -393,10 +393,11 @@ fn think(
         Without<Body>,
     >,
 ) {
-    let Some((hero, body)) = hero.iter().next() else {
+    let Some((hero, body, size)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
+    let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     let dt = tick.seconds.unwrap_or_default();
     let minds = &mut *minds;
     let look = minds.look.looks(dt);
@@ -422,6 +423,7 @@ fn think(
             hero_moves,
             takes_on: crate::fight::takes_on(mind.level, experience.level, balance.experience),
             walking,
+            hero_size,
         };
         // A straight line of walkable cells to the hero.
         let clear = || {
@@ -538,6 +540,7 @@ fn pursue(
             &Transform,
             Has<crate::attack::Striking>,
             Option<&crate::attack::Attack>,
+            Option<&crate::hero::Size>,
         ),
         (With<Body>, Without<crate::npcs::Dies>),
     >,
@@ -557,7 +560,7 @@ fn pursue(
     >,
 ) {
     let dt = tick.seconds.unwrap_or_default();
-    let Some((the_hero, hero, hero_strikes, attack)) = hero.iter().next() else {
+    let Some((the_hero, hero, hero_strikes, attack, size)) = hero.iter().next() else {
         return;
     };
     let hero = hero.translation;
@@ -597,6 +600,7 @@ fn pursue(
                 .position(|&hostile| hostile == entity)
                 .zip(first),
             targeted: attacked == Some(entity),
+            hero_size: size.map_or(opensacred_rules::minds::SIZE, |size| size.0),
         };
         // A straight line of walkable cells to the hero, asked again below.
         let clear = || {

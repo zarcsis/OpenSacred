@@ -216,17 +216,22 @@ pub fn rundum_radius(record: &WeaponArt, level: u32, reach: u32) -> f32 {
 }
 
 /// The creature that a `Rundum` strikes by a bone of a weapon or a hand (`0x4FF0B0`): the nearest
-/// of `candidates` (their distances from the bone) within `radius` and 1,000, unless it is the
+/// of `candidates` (their distances from the bone) within 1,000 and its radius by its reach with
+/// the striker (`radius`, [`rundum_radius`], as `0x4DBC60` gives it for each), unless it is the
 /// one it struck last (`+0x190`) or none may be struck; candidates of the same distance keep the
 /// first.
-pub fn rundum_target(candidates: &[Candidate], radius: f32, last: Option<u32>) -> Option<u32> {
+pub fn rundum_target(
+    candidates: &[Candidate],
+    radius: impl Fn(u32) -> f32,
+    last: Option<u32>,
+) -> Option<u32> {
     let mut nearest: Option<&Candidate> = None;
     for c in candidates {
         #[expect(
             clippy::cast_precision_loss,
             reason = "a distance in world units, as the original's float"
         )]
-        let within = (c.distance as f32) < radius;
+        let within = (c.distance as f32) < radius(c.reach);
         if c.distance < RUNDUM_MOST && within && nearest.is_none_or(|n| c.distance < n.distance) {
             nearest = Some(c);
         }
