@@ -1096,6 +1096,17 @@ const COMMANDS = {
     world.god = want ? { id: h.add(CREATURE.id).readU32(), hero: h, health: h.add(CREATURE.health).readS32() } : null;
     return { god: want, hero: readCreature(h) };
   },
+  // The world's time stands, as under the menu over a game, without the menu (#567): the first byte of the timer,
+  // which the state reads as the screen `paused`; the frames go on.
+  pause: (engine, { on }) => {
+    const timer = ADDRESSES.timer.readPointer();
+    if (timer.isNull()) {
+      throw new Error('no timer');
+    }
+    const want = on ?? timer.readU8() === 0;
+    timer.writeU8(want ? 1 : 0);
+    return { paused: want };
+  },
   // A creature's health to its most, the hero's by default.
   heal: (engine, { id }) => {
     const object = id ? objectById(id) : hero();

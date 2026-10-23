@@ -490,6 +490,8 @@ class Host:
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
                 "heal [ID]: a creature's health to its most, the hero's by default",
+                "pause [on|off]: the world's time stands without the menu, the frames going on, or goes on; "
+                'without a switch, toggles',
                 'level N: the hero rises to level N, its experience the level\'s start, as kills raise it',
                 'experience N or experience +N: the hero\'s experience set to N (upward only) or raised by N, its level '
                 'following',
@@ -898,6 +900,12 @@ class Host:
         result = self.world('god', {'on': None if not rest else rest == 'on'})
         return [f"god {'on' if result['god'] else 'off'}: {self.describe_hero(result['hero'])}"]
 
+    def command_pause(self, rest):
+        if rest not in ('', 'on', 'off'):
+            raise ValueError('pause [on|off]')
+        paused = self.world('pause', {'on': None if not rest else rest == 'on'})['paused']
+        return ['paused: the world stands, the frames go on' if paused else 'going on']
+
     def command_heal(self, rest):
         oid = int(rest) if rest else None
         c = self.world('heal', {'id': oid})
@@ -992,7 +1000,7 @@ WORLD_COMMANDS = {
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
-    'god': Host.command_god, 'heal': Host.command_heal, 'level': Host.command_level,
+    'god': Host.command_god, 'heal': Host.command_heal, 'pause': Host.command_pause, 'level': Host.command_level,
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
 }
