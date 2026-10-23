@@ -1,6 +1,6 @@
 # The drops lie where they fall, and no one picks them up yet
 
-Drops (`opensacred-game`), 2026-10-21 (#415).
+Drops (`opensacred-game`), 2026-10-21 (#415); brought up to date 2026-10-23 (#692).
 Follows [2026-10-21-drops](2026-10-21-drops.md), the drops' rules.
 
 ## The original
@@ -14,7 +14,7 @@ How long an item lies, and whether it stays when its sector is left, is not read
 A creature drops as its `npcs::Dies` is added, when it is hostile to the hero, the hero lives, and its type is not 71 or 75; the drops fly as the original's and lie where they come to rest, drawn as their models with their items' textures, until the game ends.
 But:
 
-- The killer is not tested: the hero is the only creature that kills in the game, and it has no companions or summoned creatures.
+- The killer is tested as far as the game has killers: a creature that another creature kills drops nothing (`npcs::Dies::by_creature`, since #630), and the hero has no companions or summoned creatures yet.
 - The class 5's test of the most health is not followed: every creature of the game has a most health, so it would keep every skeleton from dropping, and the game's undead do not rise again.
 - The state `+0x1F0` 7 is not followed, the game giving its creatures no such state.
 - No pick-up, which comes with the inventory (M5), and no labels on Alt; the drops make no sound and cast no shadow.
