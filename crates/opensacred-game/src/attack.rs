@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use bevy::prelude::*;
-use opensacred_rules::minds::{self, Chain};
+use opensacred_rules::minds;
 
 use crate::ai::Mind;
 use crate::fight::{self, Health};
@@ -30,15 +30,14 @@ const BLEND: Duration = Duration::from_millis(100);
 pub struct Aim(pub bool);
 
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
-/// at once, where it stands, once; whether it ends with its strike, the player having sent the
-/// hero elsewhere; and the chain of its strikes (`+0x210`, `opensacred_rules::minds::Chain`).
+/// at once, where it stands, once; and whether it ends with its strike, the player having sent
+/// the hero elsewhere.
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
     point: Vec3,
     at_once: bool,
     ends: bool,
-    chain: Chain,
 }
 
 impl Attack {
@@ -123,16 +122,9 @@ pub(crate) fn aim(
             point,
             at_once,
             ends: false,
-            chain: Chain::default(),
         };
         match (aim.0, attack) {
-            // A new order while the attack goes on keeps its chain.
-            (true, Some(mut attack)) => {
-                *attack = Attack {
-                    chain: attack.chain,
-                    ..next
-                };
-            }
+            (true, Some(mut attack)) => *attack = next,
             (true, None) => {
                 commands
                     .entity(hero)
@@ -152,8 +144,8 @@ pub(crate) fn aim(
 /// its target it runs to it, after it as it moves; in the band, or at once, it stops, turns to
 /// the target and strikes: one of its attack clips at random, once, at the game's speed, which
 /// hits at the clip's fractions (0.5 for a first of 0; a second where there is one) when the
-/// target is then within 1.5 times the reach. It strikes again until the target dies; a strike
-/// at once or in the air is one.
+/// target is then within 1.5 times the reach, its strikes at an even pace. It strikes again until
+/// the target dies; a strike at once or in the air is one.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -170,7 +162,7 @@ fn engage(
             Entity,
             &mut Transform,
             &mut Body,
-            &mut Attack,
+            &Attack,
             Option<&mut Striking>,
             Option<&fight::Combat>,
             Option<&crate::hero::Size>,
@@ -184,7 +176,7 @@ fn engage(
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, mut attack, striking, combat, size) in &mut heroes {
+    for (hero, mut transform, mut body, attack, striking, combat, size) in &mut heroes {
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
@@ -244,9 +236,7 @@ fn engage(
             continue;
         }
         if minds::hero_comes_on(attack.at_once, (aimed - here).with_y(0.0).length(), reach) {
-            // Coming on, its chain breaks.
             body.send(aimed);
-            attack.chain.breaks();
             continue;
         }
         body.stop();
@@ -263,9 +253,8 @@ fn engage(
             .get(clip)
             .map_or(1.0, AnimationClip::duration)
             .max(0.01);
-        // At its attack speed times its chain's factor (`0x4E4CF0`).
-        let chain = attack.chain.strike();
-        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed()) * chain;
+        // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
+        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed());
         transitions
             .play(&mut player, *node, BLEND)
             .set_speed(speed.0 * attack_speed);
