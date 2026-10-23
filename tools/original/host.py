@@ -9,9 +9,13 @@ is in place (else it kills it). The game lives in a job object that kills it whe
 agent ends it when the host's heartbeat stops. The host serves JSON-RPC 2.0 over HTTP on 127.0.0.1 with the game's
 own methods: `opensacred/state`, `opensacred/screenshot {path}`, `opensacred/logs {after}`, `opensacred/exec {line}`.
 `tools/game/remote.py --port 15703` is its client. Frames, logs and traces stay on this machine (docs/08 §3).
+With `--interactive` the maintainer plays it instead (#551): full screen through dgVoodoo2 on a monitor, scaled with its
+proportions kept, the maintainer's own mouse and keyboard reaching it while its window has the foreground.
 
 Example
   python -I tools/original/host.py --log-file <scratch>/original.log          # run_in_background
+  python -I tools/original/host.py --interactive                              # the maintainer's play
+  python -I tools/game/remote.py --port 15703 shell                            # its commands by hand
   python -I tools/game/remote.py --port 15703 state
   python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
   python -I tools/game/remote.py --port 15703 exec quit
@@ -67,6 +71,12 @@ VOLUMES = {'MUSICVOLUME': '0', 'SFXVOLUME': '0', 'VOICEVOLUME': '0'}
 # With --muted the game plays its sounds at the installation's volumes, for the sound traces, and the agent silences
 # mss32.dll's output.
 MUTED_VOLUMES = {'MUSICVOLUME': '64', 'SFXVOLUME': '64', 'VOICEVOLUME': '64'}
+# The keys of dgVoodoo.conf the host sets before each start (#551). In the maintainer's play the game runs full screen
+# (FULLSCREEN 1), which dgVoodoo2 makes a window of the monitor's size with the game's 1024 x 768 scaled into it, its
+# proportions kept, and no display mode changed; the game's own window mode cannot be scaled, as its flip copies the
+# window's whole client rectangle from a back buffer of 1024 x 768. Else dgVoodoo2's defaults.
+DGVOODOO_PLAY = {'FullscreenAttributes': 'fake', 'ScalingMode': 'stretched_ar', 'WindowedAttributes': ''}
+DGVOODOO_BACKGROUND = {'FullscreenAttributes': '', 'ScalingMode': 'unspecified', 'WindowedAttributes': ''}
 
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 kernel32.OpenProcess.restype = wintypes.HANDLE
@@ -149,11 +159,13 @@ def check_executable(game_dir):
     return exe
 
 
-def set_settings(game_dir, sound, muted, journal):
-    """Sets FULLSCREEN, SHOWMOVIE and the three volumes in Settings.cfg (0; the game's 64 when `muted`; kept with
-    `sound`); keeps every other line."""
+def set_settings(game_dir, sound, muted, interactive, journal):
+    """Sets FULLSCREEN (1 in the maintainer's play through dgVoodoo2, else 0), SHOWMOVIE and the three volumes in
+    Settings.cfg (0; the game's 64 when `muted`; kept with `sound`); keeps every other line."""
     path = os.path.join(game_dir, 'Settings.cfg')
     wanted = dict(SETTINGS, **(MUTED_VOLUMES if muted else {} if sound else VOLUMES))
+    if interactive:
+        wanted['FULLSCREEN'] = '1'
     with open(path, 'rb') as f:
         text = f.read().decode('latin-1')
     lines = text.split('\r\n')
@@ -176,6 +188,32 @@ def set_settings(game_dir, sound, muted, journal):
         with open(path, 'wb') as f:
             f.write('\r\n'.join(lines).encode('latin-1'))
         journal.push('INFO', 'host', 'Settings.cfg: ' + ', '.join(changed))
+
+
+def set_dgvoodoo(game_dir, interactive, journal):
+    """Sets the window's keys of dgVoodoo2's dgVoodoo.conf beside Sacred.exe (docs/03 §3.8), keeping every other line;
+    the maintainer's play needs dgVoodoo2, the background runs do not."""
+    path = os.path.join(game_dir, 'dgVoodoo.conf')
+    if not (os.path.isfile(path) and os.path.isfile(os.path.join(game_dir, 'DDraw.dll'))):
+        if interactive:
+            raise SystemExit(f'error: --interactive needs dgVoodoo2 beside Sacred.exe: DDraw.dll, D3DImm.dll and '
+                             f'dgVoodoo.conf in {game_dir} (docs/03 §3.8)')
+        return
+    with open(path, 'rb') as f:
+        text = f.read().decode('latin-1')
+    changed = []
+    for key, value in (DGVOODOO_PLAY if interactive else DGVOODOO_BACKGROUND).items():
+        line = re.compile(rf'(?m)^({key}\s*=)[ \t]*([^\r\n]*)')
+        found = line.search(text)
+        if found is None:
+            raise SystemExit(f'error: {path} has no key {key}')
+        if found.group(2).strip() != value:
+            text = text[:found.start()] + f'{found.group(1)} {value}' + text[found.end():]
+            changed.append(f'{key} {found.group(2).strip() or "(empty)"} -> {value or "(empty)"}')
+    if changed:
+        with open(path, 'wb') as f:
+            f.write(text.encode('latin-1'))
+        journal.push('INFO', 'host', 'dgVoodoo.conf: ' + ', '.join(changed))
 
 
 class Host:
@@ -204,7 +242,8 @@ class Host:
         running = [p.pid for p in device.enumerate_processes() if p.name.lower() == 'sacred.exe']
         if running:
             raise SystemExit(f'error: a Sacred.exe runs already (pid {running[0]}); one original runs at a time')
-        set_settings(self.game_dir, self.args.sound, self.args.muted, self.journal)
+        set_dgvoodoo(self.game_dir, self.args.interactive, self.journal)
+        set_settings(self.game_dir, self.args.sound, self.args.muted, self.args.interactive, self.journal)
         with open(self.args.agent, encoding='utf-8') as f:
             source = f.read()
         self.pid = frida.spawn([exe] + self.args.arg, cwd=self.game_dir)
@@ -218,7 +257,8 @@ class Host:
             self.script.load()
             self.agent = self.script.exports_sync
             report = self.agent.init({'place': self.args.place, 'heartbeatTimeout': 5000,
-                                      'gameLog': not self.args.no_game_log, 'muted': self.args.muted})
+                                      'gameLog': not self.args.no_game_log, 'muted': self.args.muted,
+                                      'interactive': self.args.interactive, 'monitor': self.args.monitor})
             missing = [name for name, ok in report['guards'].items() if not ok]
             if missing:
                 raise RuntimeError(f'guards not in place: {", ".join(missing)}')
@@ -360,7 +400,8 @@ class Host:
             'frames': agent.get('frames', 0),
             'focused': agent.get('focused'),
             'rect': rect,
-            'place': self.args.place,
+            'place': 'interactive' if self.args.interactive else self.args.place,
+            'player_has_window': agent.get('player_has_window'),
             'refusals': agent.get('refusals', 0),
             'flip_error': agent.get('flip_error', 0),
             'muted': agent.get('muted'),
@@ -895,6 +936,12 @@ def main():
     parser.add_argument('--port', type=int, default=15703, help='the port of the remote control (15703 by default)')
     parser.add_argument('--place', choices=['offscreen', 'behind'], default='offscreen',
                         help='the window to the right of every monitor (by default) or behind the other windows')
+    parser.add_argument('--interactive', action='store_true',
+                        help="the maintainer's play (#551): the window borderless on a monitor, the game's frame scaled "
+                             "into it by dgVoodoo2, the player's mouse and keyboard reaching it while it has the "
+                             "foreground; never for Claude Code's runs, which stay in the background")
+    parser.add_argument('--monitor', type=int, default=0,
+                        help="with --interactive, the monitor: 0 the primary (by default), else the n-th the log lists")
     parser.add_argument('--sound', action='store_true', help="keep Settings.cfg's volumes, audible")
     parser.add_argument('--muted', action='store_true',
                         help="the game's volumes 64, so that it plays its sounds for the sound traces, while the agent "

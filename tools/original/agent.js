@@ -55,7 +55,9 @@ function isInput(message) {
     (message >= 0x281 && message <= 0x291) || message === 0xff || message === WM.SETCURSOR;
 }
 
-const config = { place: 'offscreen', heartbeatTimeout: 5000 };
+// `interactive` (#551): the maintainer plays the original on the monitor `monitor` (0 the primary, else the n-th that
+// the system lists), its window scaled by dgVoodoo2; the player's input reaches it while its window has the foreground.
+const config = { place: 'offscreen', heartbeatTimeout: 5000, interactive: false, monitor: 0 };
 const guards = {};
 const state = {
   window: null,          // the game's main window
@@ -103,6 +105,8 @@ const native = {
   getSystemMetrics: new NativeFunction(user32.getExportByName('GetSystemMetrics'), 'int', ['int'], 'stdcall'),
   clientToScreen: new NativeFunction(user32.getExportByName('ClientToScreen'), 'int', ['pointer', 'pointer'],
     'stdcall'),
+  clipCursor: new NativeFunction(user32.getExportByName('ClipCursor'), 'int', ['pointer'], 'stdcall'),
+  getClipCursor: new NativeFunction(user32.getExportByName('GetClipCursor'), 'int', ['pointer'], 'stdcall'),
   getWindowRect: new NativeFunction(user32.getExportByName('GetWindowRect'), 'int', ['pointer', 'pointer'],
     'stdcall'),
   postMessageA: new NativeFunction(user32.getExportByName('PostMessageA'), 'int',
@@ -110,6 +114,11 @@ const native = {
   setWindowPos: new NativeFunction(user32.getExportByName('SetWindowPos'), 'int',
     ['pointer', 'pointer', 'int', 'int', 'int', 'int', 'uint'], 'stdcall'),
   isWindow: new NativeFunction(user32.getExportByName('IsWindow'), 'int', ['pointer'], 'stdcall'),
+  getForegroundWindow: new NativeFunction(user32.getExportByName('GetForegroundWindow'), 'pointer', [], 'stdcall'),
+  enumDisplayMonitors: new NativeFunction(user32.getExportByName('EnumDisplayMonitors'), 'int',
+    ['pointer', 'pointer', 'pointer', 'pointer'], 'stdcall'),
+  getMonitorInfoW: new NativeFunction(user32.getExportByName('GetMonitorInfoW'), 'int', ['pointer', 'pointer'],
+    'stdcall'),
 };
 
 const counter = Memory.alloc(8);
@@ -126,6 +135,10 @@ function end(code, why) {
     return;
   }
   state.ending = true;
+  if (clip.held !== null) {
+    clip.wanted = null;
+    holdCursor();
+  }
   send({ type: 'fatal', message: why });
   native.terminateProcess(ptr(-1), code);
 }
@@ -134,8 +147,36 @@ function isGameWindow(hwnd) {
   return state.window !== null && hwnd.equals(state.window);
 }
 
-// Where the window goes: to the right of every monitor, or behind the other windows where the system put it.
+// The monitors as the system lists them: their rectangles, and which is the primary (MONITORINFOF_PRIMARY).
+function monitors() {
+  const found = [];
+  const info = Memory.alloc(40);
+  const each = new NativeCallback((monitor) => {
+    info.writeU32(40);
+    if (native.getMonitorInfoW(monitor, info) !== 0) {
+      const rect = [0, 4, 8, 12].map((offset) => info.add(4 + offset).readS32());
+      found.push({ rect, primary: (info.add(36).readU32() & 1) !== 0 });
+    }
+    return 1;
+  }, 'int', ['pointer', 'pointer', 'pointer', 'pointer'], 'stdcall');
+  native.enumDisplayMonitors(ptr(0), ptr(0), each, ptr(0));
+  return found;
+}
+
+// Where the window goes: to the right of every monitor, or behind the other windows where the system put it; for the
+// maintainer's play, at the corner of the monitor asked for, where dgVoodoo2 makes it the monitor's size.
 function placement() {
+  if (config.interactive) {
+    const all = monitors();
+    all.forEach((m, i) => log('INFO', `monitor ${i + 1}: ${m.rect[2] - m.rect[0]}x${m.rect[3] - m.rect[1]} at ` +
+      `${m.rect[0]},${m.rect[1]}${m.primary ? ', the primary' : ''}`));
+    const chosen = config.monitor > 0 ? all[config.monitor - 1] : all.find((m) => m.primary);
+    if (chosen === undefined) {
+      end(6, `no monitor ${config.monitor}: ${all.length} found`);
+      return { x: 0, y: 0, behind: false };
+    }
+    return { x: chosen.rect[0], y: chosen.rect[1], behind: false };
+  }
   if (config.place === 'behind') {
     return { x: 0, y: 0, behind: true };
   }
@@ -182,15 +223,43 @@ function installHookGuards() {
   });
 }
 
+// The window that has the foreground in truth, past the guard below that answers the game's window; looked up at
+// most every 50 ms, as the key queries ask it many times a frame.
+let askingTruth = false;
+const foreground = { window: ptr(0), at: 0 };
+
+function trueForeground() {
+  const time = Date.now();
+  if (time - foreground.at > 50) {
+    askingTruth = true;
+    try {
+      foreground.window = native.getForegroundWindow();
+    } finally {
+      askingTruth = false;
+    }
+    foreground.at = time;
+  }
+  return foreground.window;
+}
+
+// In the maintainer's play, whether the player's input is the game's: its window has the foreground.
+function playerHasWindow() {
+  return config.interactive && state.window !== null && trueForeground().equals(state.window);
+}
+
 function installFocusGuards() {
-  // The calls that would take the focus or raise a window do nothing.
-  replace('user32.dll', 'SetForegroundWindow', 'int', ['pointer'], () => 1);
-  replace('user32.dll', 'BringWindowToTop', 'int', ['pointer'], () => 1);
-  replace('user32.dll', 'SetActiveWindow', 'pointer', ['pointer'], () => state.window ?? ptr(0));
-  replace('user32.dll', 'SetFocus', 'pointer', ['pointer'], () => state.window ?? ptr(0));
+  // The calls that would take the focus or raise a window do nothing, but in the maintainer's play.
+  replace('user32.dll', 'SetForegroundWindow', 'int', ['pointer'], (original, hwnd) =>
+    config.interactive ? original(hwnd) : 1);
+  replace('user32.dll', 'BringWindowToTop', 'int', ['pointer'], (original, hwnd) =>
+    config.interactive ? original(hwnd) : 1);
+  replace('user32.dll', 'SetActiveWindow', 'pointer', ['pointer'], (original, hwnd) =>
+    config.interactive ? original(hwnd) : state.window ?? ptr(0));
+  replace('user32.dll', 'SetFocus', 'pointer', ['pointer'], (original, hwnd) =>
+    config.interactive ? original(hwnd) : state.window ?? ptr(0));
   // The focus queries answer with the game's window, so that sdk_FORCE_FG_WAIT ends at once (docs/re/window.md).
   for (const name of ['GetForegroundWindow', 'GetActiveWindow', 'GetFocus']) {
-    replace('user32.dll', name, 'pointer', [], (original) => state.window ?? original());
+    replace('user32.dll', name, 'pointer', [], (original) => (askingTruth ? original() : state.window ?? original()));
   }
   // A message box would take the focus and stop its thread: it is logged and answered OK.
   for (const name of ['MessageBoxA', 'MessageBoxW']) {
@@ -213,12 +282,22 @@ function installWindowGuards() {
       if (!this.topLevel) {
         return;
       }
+      this.className = args[1].compare(ptr(0x10000)) < 0 ? `#${args[1].toUInt32()}` : args[1].readCString();
+      // In the maintainer's play the game's window opens shown and activated on the monitor asked for, and nothing
+      // moves it after: dgVoodoo2 makes it the monitor's size.
+      if (config.interactive) {
+        if (this.className === 'Sacred') {
+          state.place = placement();
+          args[4] = ptr(state.place.x);
+          args[5] = ptr(state.place.y);
+        }
+        return;
+      }
       const exStyle = (args[0].toUInt32() | WS_EX_NOACTIVATE) & ~WS_EX_TOPMOST;
       args[0] = ptr(exStyle >>> 0);
       state.place = placement();
       args[4] = ptr(state.place.x);
       args[5] = ptr(state.place.y);
-      this.className = args[1].compare(ptr(0x10000)) < 0 ? `#${args[1].toUInt32()}` : args[1].readCString();
       // The game's window opens hidden: its ShowWindow, right after, shows it without activation.
       if (this.className === 'Sacred') {
         args[3] = ptr((style & ~WS_VISIBLE) >>> 0);
@@ -235,7 +314,7 @@ function installWindowGuards() {
   attach('user32.dll', 'ShowWindow', {
     onEnter(args) {
       this.window = false;
-      if (!isGameWindow(args[0])) {
+      if (!isGameWindow(args[0]) || config.interactive) {
         return;
       }
       const command = args[1].toInt32();
@@ -256,6 +335,15 @@ function installWindowGuards() {
   attach('user32.dll', 'SetWindowPos', {
     onEnter(args) {
       if (!isGameWindow(args[0])) {
+        return;
+      }
+      // In the maintainer's play the window keeps the monitor's corner, where the game would centre its 1024 x 768 and
+      // dgVoodoo2 then grows it to the monitor's size from there.
+      if (config.interactive) {
+        if ((args[6].toUInt32() & SWP.NOMOVE) === 0 && state.place !== null) {
+          args[2] = ptr(state.place.x);
+          args[3] = ptr(state.place.y);
+        }
         return;
       }
       let flags = args[6].toUInt32() | SWP.NOACTIVATE;
@@ -283,9 +371,67 @@ function installWindowGuards() {
   });
 }
 
+// The calls of ClipCursor and SetCursorPos in the maintainer's play, logged the first times.
+let cursorCalls = 0;
+// The game's clip of the cursor in the maintainer's play, in its 1024 x 768, held while its window has the foreground
+// and let go when another window takes it (the game believes itself active throughout). dgVoodoo2 maps the game's
+// rectangle and points onto the picture it scales into the window, below these guards: they pass them as they are.
+const clip = { wanted: null, held: null, heldAt: 0, passing: false };
+const clipRect = Memory.alloc(16);
+
+// Holds the cursor in the game's clip while its window has the foreground, again every second in case the system let
+// it go (a locked desktop does), and lets it go otherwise.
+function holdCursor() {
+  const wanted = clip.wanted !== null && playerHasWindow() ? clip.wanted : null;
+  if (wanted === null && clip.held === null) {
+    return;
+  }
+  if (wanted !== null && String(wanted) === String(clip.held) && Date.now() - clip.heldAt < 1000) {
+    return;
+  }
+  if (wanted !== null) {
+    wanted.forEach((value, i) => clipRect.add(4 * i).writeS32(value));
+  }
+  clip.passing = true;
+  try {
+    native.clipCursor(wanted === null ? ptr(0) : clipRect);
+  } finally {
+    clip.passing = false;
+  }
+  clip.held = wanted;
+  clip.heldAt = Date.now();
+}
+
 function installCursorAndDisplayGuards() {
-  replace('user32.dll', 'ClipCursor', 'int', ['pointer'], () => 1);
-  replace('user32.dll', 'SetCursorPos', 'int', ['int', 'int'], () => 1);
+  // The cursor is never held in the window. In the maintainer's play the game holds it in its screen and may move it
+  // while its window has the foreground.
+  replace('user32.dll', 'ClipCursor', 'int', ['pointer'], (original, rect) => {
+    if (clip.passing) {
+      return original(rect);
+    }
+    if (config.interactive) {
+      clip.wanted = rect.isNull() ? null : [0, 4, 8, 12].map((o) => rect.add(o).readS32());
+      if (cursorCalls < 20) {
+        cursorCalls += 1;
+        log('DEBUG', `ClipCursor(${clip.wanted ?? 'NULL'})`);
+      }
+      holdCursor();
+    }
+    return 1;
+  });
+  replace('user32.dll', 'SetCursorPos', 'int', ['int', 'int'], (original, x, y) => {
+    if (!playerHasWindow()) {
+      return 1;
+    }
+    if (cursorCalls < 20) {
+      cursorCalls += 1;
+      log('DEBUG', `SetCursorPos(${x}, ${y})`);
+    }
+    return original(x, y);
+  });
+  if (config.interactive) {
+    setInterval(holdCursor, 100);
+  }
   for (const name of ['ChangeDisplaySettingsA', 'ChangeDisplaySettingsW']) {
     replace('user32.dll', name, 'int', ['pointer', 'uint'], (original, mode) => {
       if (!mode.isNull()) {
@@ -316,26 +462,40 @@ function installCursorAndDisplayGuards() {
 }
 
 // The maintainer's own keys and cursor never reach the game: the queries answer from the agent's virtual keyboard and
-// cursor, all keys up and the cursor at the window's corner until the agent's input moves them (#450).
+// cursor, all keys up and the cursor at the window's corner until the agent's input moves them (#450). In the
+// maintainer's play they answer from the system while the game's window has the foreground (#551), so that the keys
+// typed into a terminal never reach the game.
 const virtualInput = { cursor: { x: 0, y: 0 }, keys: new Uint8Array(256), pressed: new Uint8Array(256) };
 
 function installInputGuards() {
   replace('user32.dll', 'GetAsyncKeyState', 'int16', ['int'], (original, key) => {
+    if (playerHasWindow()) {
+      return original(key);
+    }
     const down = (virtualInput.keys[key & 0xff] & 0x80) !== 0;
     const pressed = virtualInput.pressed[key & 0xff];
     virtualInput.pressed[key & 0xff] = 0;
     return (down ? -32768 : 0) | pressed;
   });
   replace('user32.dll', 'GetKeyState', 'int16', ['int'], (original, key) => {
+    if (playerHasWindow()) {
+      return original(key);
+    }
     const value = virtualInput.keys[key & 0xff];
     return ((value & 0x80) !== 0 ? -32768 : 0) | (value & 1);
   });
   replace('user32.dll', 'GetKeyboardState', 'int', ['pointer'], (original, buffer) => {
+    if (playerHasWindow()) {
+      return original(buffer);
+    }
     buffer.writeByteArray(virtualInput.keys.buffer);
     return 1;
   });
   const point = Memory.alloc(8);
   replace('user32.dll', 'GetCursorPos', 'int', ['pointer'], (original, out) => {
+    if (playerHasWindow()) {
+      return original(out);
+    }
     point.writeS32(virtualInput.cursor.x);
     point.add(4).writeS32(virtualInput.cursor.y);
     if (state.window !== null) {
@@ -349,9 +509,19 @@ function installInputGuards() {
 
 // DirectDraw's exclusive full-screen level, which would change the display mode, ends the run; so does a display
 // mode set through it. IDirectDraw and IDirectDraw7 share the vtable's first entries: SetCooperativeLevel is the
-// 21st, SetDisplayMode the 22nd.
+// 21st, SetDisplayMode the 22nd. In the maintainer's play the game runs full screen through dgVoodoo2's DirectDraw
+// beside Sacred.exe, whose full screen is a window of the monitor's size and changes no display mode (#551): there
+// both pass, and through any other DirectDraw they end the run all the same.
 function installDirectDrawGuards() {
   const ddraw = Module.load('ddraw.dll');
+  const directory = (path) => path.replace(/[^\\/]*$/, '').toLowerCase();
+  const sacred = Process.findModuleByName('Sacred.exe').path;
+  const wrapped = directory(ddraw.path) === directory(sacred);
+  log('INFO', `DirectDraw: ${ddraw.path}${wrapped ? ' (dgVoodoo2 beside Sacred.exe)' : `, Sacred.exe ${sacred}`}`);
+  if (config.interactive && !wrapped) {
+    throw new Error(`the maintainer's play needs dgVoodoo2's DirectDraw beside Sacred.exe, not ${ddraw.path}`);
+  }
+  const fullScreenPasses = config.interactive && wrapped;
   const hooked = new Set();
   function guardInterface(object) {
     const vtable = object.readPointer();
@@ -363,7 +533,11 @@ function installDirectDrawGuards() {
         onEnter(args) {
           const flags = args[2].toUInt32();
           if ((flags & (DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN)) !== 0) {
-            end(3, `DirectDraw's exclusive full-screen level (0x${flags.toString(16)}): FULLSCREEN is not 0?`);
+            if (fullScreenPasses) {
+              log('INFO', `DirectDraw's exclusive full-screen level (0x${flags.toString(16)}), dgVoodoo2's`);
+            } else {
+              end(3, `DirectDraw's exclusive full-screen level (0x${flags.toString(16)}): FULLSCREEN is not 0?`);
+            }
           }
         },
       });
@@ -372,7 +546,12 @@ function installDirectDrawGuards() {
       hooked.add(setDisplayMode.toString());
       Interceptor.attach(setDisplayMode, {
         onEnter(args) {
-          end(3, `DirectDraw's SetDisplayMode ${args[1].toUInt32()}x${args[2].toUInt32()}`);
+          const mode = `${args[1].toUInt32()}x${args[2].toUInt32()}`;
+          if (fullScreenPasses) {
+            log('INFO', `DirectDraw's SetDisplayMode ${mode}, dgVoodoo2's: no display mode changes`);
+          } else {
+            end(3, `DirectDraw's SetDisplayMode ${mode}`);
+          }
         },
       });
     }
@@ -1371,6 +1550,22 @@ function installWindowProcedure() {
         focusSeen += 1;
         log('DEBUG', `window procedure: ${FOCUS_MESSAGES[message]}(${args[2]}, ${args[3]}) as the system sent it`);
       }
+      // In the maintainer's play the game takes its first activation and no other: full screen, it answers each with
+      // its surfaces restored, the display mode set again and its textures and models flushed, which took the
+      // foreground back from the first Alt-Tab and ended the game after a few (#551); dgVoodoo2 loses no surface.
+      // The system's input passes, as the keys come to the window with the foreground alone.
+      if (config.interactive) {
+        if (message === WM.ACTIVATEAPP) {
+          if (activated || args[2].toUInt32() === 0) {
+            args[1] = ptr(WM.NULL);
+          } else {
+            activated = true;
+          }
+        } else if (message === WM.KILLFOCUS) {
+          args[1] = ptr(WM.NULL);
+        }
+        return;
+      }
       switch (message) {
         case WM.ACTIVATEAPP:
         case WM.NCACTIVATE:
@@ -1392,7 +1587,7 @@ function installWindowProcedure() {
       }
     },
     onLeave(result) {
-      if (this.message === WM.MOUSEACTIVATE) {
+      if (this.message === WM.MOUSEACTIVATE && !config.interactive) {
         result.replace(ptr(MA_NOACTIVATEANDEAT));
       }
     },
@@ -1406,6 +1601,7 @@ function installWindowProcedure() {
 const FOCUS_MESSAGES = { 0x6: 'WM_ACTIVATE', 0x7: 'WM_SETFOCUS', 0x8: 'WM_KILLFOCUS', 0x1c: 'WM_ACTIVATEAPP',
   0x21: 'WM_MOUSEACTIVATE', 0x86: 'WM_NCACTIVATE' };
 let focusSeen = 0;
+let activated = false;  // in the maintainer's play, whether the game has taken its one activation
 
 // Each flip is a frame; a screenshot asked for is taken by the flip itself, from the back buffer (captureScreenshot,
 // docs/re/window.md).
@@ -1449,6 +1645,30 @@ function installExit() {
     onLeave(result) {
       state.exiting = true;
       log('INFO', `WinMain returned ${result.toInt32()}`);
+    },
+  });
+  // The process's exceptions, the first ones logged with where they happened, so that a crash shows in the log before
+  // the process goes; the game's own handlers still take them. Those of no kind Frida names (`system`) are raised on
+  // purpose, at each start too (KERNELBASE's RaiseException).
+  let exceptions = 0;
+  Process.setExceptionHandler((details) => {
+    if (exceptions < 20) {
+      exceptions += 1;
+      const module = Process.findModuleByAddress(details.address);
+      const where = module === null ? `${details.address}` :
+        `${module.name}+0x${details.address.sub(module.base).toString(16)}`;
+      const memory = details.memory ? `, ${details.memory.operation} at ${details.memory.address}` : '';
+      log(details.type === 'system' ? 'DEBUG' : 'WARN', `exception ${details.type} at ${where}${memory}`);
+    }
+    return false;
+  });
+  // The game or a library of its may end the process past the C runtime, as the full screen's way out does.
+  Interceptor.attach(kernel32.getExportByName('ExitProcess'), {
+    onEnter(args) {
+      if (!state.ending) {
+        state.exiting = true;
+        log('INFO', `ExitProcess(${args[0].toUInt32()})`);
+      }
     },
   });
   Process.attachModuleObserver({
@@ -1627,6 +1847,8 @@ rpc.exports = {
       focused: (ADDRESSES.engineFlags.readU32() & INACTIVE) === 0,
       screen: screen(),
       cursor: [virtualInput.cursor.x, virtualInput.cursor.y],
+      interactive: config.interactive,
+      player_has_window: playerHasWindow(),
       refusals,
       muted: config.muted ? mute.set : null,
       ...frameStats(),

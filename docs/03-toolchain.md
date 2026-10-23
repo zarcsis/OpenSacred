@@ -301,6 +301,8 @@ python -I tools/game/remote.py --port 15703 logs --after 0
 python -I tools/game/remote.py --port 15703 exec quit
 ```
 
+The maintainer plays the original themselves with `python -I tools/original/host.py --interactive` (#551, below): full screen on the primary monitor (`--monitor N` for another), the commands at hand from a terminal through `remote.py --port 15703 shell`.
+
 The maintainer's decisions of 2026-10-21:
 
 * **Frida, not a Rust crate.**
@@ -308,10 +310,11 @@ The maintainer's decisions of 2026-10-21:
   `frida` joins `tools/requirements.txt`; the tool runs locally, never in CI or a release.
 * **In place, in `OriginalGame/`.**
   The game may overwrite every file it writes itself (`Settings.cfg`, `save/`, `Capture/`, `DEBUG.LOG`, `ExpLog.LOG`, the `DefPos.bin` caches), never one of the manifest, so `verify` and the oracle's check stay green.
-  Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, `SHOWMOVIE : 0`, the three volumes 0) and nothing else.
+  Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, 1 in the maintainer's play; `SHOWMOVIE : 0`; the three volumes 0) and nothing else.
   Worktrees link `OriginalGame/` to one installation, so one original runs at a time.
 * **At any time, without disturbing the maintainer.**
   The original runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.
+  The maintainer's own play (`--interactive`, 2026-10-22) is the one run that takes the screen, started by the maintainer or at their word.
 * **One client for both games.**
   The host serves the game's own methods with the same parameters (`opensacred/exec`, `opensacred/state`, `opensacred/input`, `opensacred/screenshot`, `opensacred/logs`) on `127.0.0.1:15703`, so `tools/game/remote.py --port 15703` drives the original, and both can run side by side; a project skill `original` says how, as the skill `game` does.
 
@@ -361,6 +364,30 @@ What the first step found (2026-10-21, Windows 11, #449):
   The agent reads and changes the world on the render thread's frame (`cEngine_handleZoomInput`), never on Frida's thread.
 * The traces (#452, docs/re/traces.md): presets for the fight's strikes, chances and damage, deaths and experience, the drops and the items made, the regeneration, the creatures' waking and idle rolls, the doors, the sounds; any address with the kinds of its arguments.
   The sounds play only at volumes above 0, so their traces take `--muted`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
+
+The maintainer's play (#551, asked for on 2026-10-22): the original on the screen, its 1024 × 768 scaled to the whole monitor with its proportions kept, played with the maintainer's own mouse and keyboard while the driver's commands stay at hand.
+
+* **Full screen through dgVoodoo2.**
+  The game's own window mode cannot be scaled: its flip copies the window's whole client rectangle from a back buffer of 1024 × 768, so a larger window fails every flip with `DDERR_INVALIDRECT` and shows black (docs/re/window.md).
+  So the host writes `FULLSCREEN : 1` into `Settings.cfg` and `FullscreenAttributes = fake`, `ScalingMode = stretched_ar` into `dgVoodoo.conf`, and the background runs set them back (`FULLSCREEN : 0`, the two keys empty and `unspecified`).
+  dgVoodoo2's full screen is a borderless window of the monitor's size with no display mode changed: the game's exclusive level and its `SetDisplayMode 1024x768` pass when `ddraw.dll` is dgVoodoo2's beside `Sacred.exe`, and end the run through any other.
+  `--interactive` without dgVoodoo2 in place stops before the start.
+* **On the screen.**
+  The window opens shown and activated at the corner of the monitor asked for (the primary by default; the log lists them), where the agent keeps it.
+  On 3840 × 2160 the picture is 2880 × 2160 between black bars; the screenshots still come from the back buffer, 1024 × 768.
+* **The player's input.**
+  The window procedure passes the system's mouse and keyboard messages; the key and cursor queries answer from the system while the game's window has the foreground, and from the agent's virtual input otherwise, so that the keys typed into a terminal never reach the game.
+  The agent's own input (`click`, `go`, `key`) works throughout.
+* **The cursor.**
+  The game holds the cursor in its screen (`ClipCursor(0,0,1024,768)` as it is activated) and moves it (`SetCursorPos`); dgVoodoo2 maps both onto the picture below the agent's guards, which pass them as they are while the game's window has the foreground.
+  The agent lets the cursor go when another window takes the foreground and holds it again on the game's return.
+* **The focus.**
+  Full screen, the game answers each `WM_ACTIVATEAPP` with its surfaces restored, the display mode set again and its textures and models flushed; the background runs' turning of a deactivation into an activation so took the foreground back from the first Alt-Tab and ended the game after the second.
+  In the maintainer's play the game takes its first activation and no other, and keeps drawing behind another window; `WM_ACTIVATE` and `WM_NCACTIVATE` pass as the system sends them.
+  The maintainer checked it on 2026-10-22: the cursor stays on the picture, Alt-Tab leaves at once and frees the cursor, the return holds it again, the game draws on.
+* **The process's exceptions** are logged with where they happened (the first 20; those raised on purpose at `DEBUG`), and its own exit through `ExitProcess` is told from the agent's unloading.
+* The tabblocker's hooks, the display mode changes through the system, `SendInput` and its kin, the job object and the heartbeat stay guarded as in the background runs.
+  The monitors other than the primary are not checked yet.
 
 ## 4. Binary analysis
 

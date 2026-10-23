@@ -21,7 +21,7 @@ python -I tools/game/remote.py --port 15703 logs --after 0
 python -I tools/game/remote.py --port 15703 exec quit                 # the game closes as its window is closed
 ```
 
-The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (`--sound` keeps the volumes), and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen.
+The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (`--sound` keeps the volumes), and the window's keys of dgVoodoo2's `dgVoodoo.conf` back to their defaults, and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen; 6 when `--monitor` names no monitor.
 
 Stopping the host's background task ends the game within a second (a job object). A run that hangs is ended by stopping that task, never by killing `Sacred.exe` by hand while the host lives.
 
@@ -36,6 +36,7 @@ Stopping the host's background task ends the game within a second (a job object)
 | `--muted` | the game's volumes 64, so that it plays its sounds (for the sound traces), while the agent sets every volume of mss32.dll to 0; never `--sound` while the maintainer may hear it |
 | `--arg WORD` | a word of `Sacred.exe`'s command line, as `--arg tabblocker` (docs/re/window.md) |
 | `--port N` | another port (15703 by default) |
+| `--interactive` (`--monitor N`) | the maintainer's play (#551, docs/03 §3.8): the original full screen through dgVoodoo2 on the primary monitor (or the n-th the log lists), scaled with its proportions kept, the maintainer's mouse and keyboard reaching it while it has the foreground; it takes the screen and the focus, so only when the maintainer starts it or asks for it, never for a check of Claude Code's own |
 
 ## What the client does here
 
