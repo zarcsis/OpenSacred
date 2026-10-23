@@ -307,7 +307,7 @@ const GIVES_UP: f32 = 2_000.0;
 const REACH: f32 = 130.0;
 const BAND: f32 = 15.0;
 const RUNS_IN: u32 = 7;
-/// How near the hero a wounded creature flees, how far, and in how many frames of one it does
+/// How near the hero a wounded creature flees, how far, and in how many ticks of one it does
 /// (`0x4E0300`); how far from home a creature at full health in the band goes back (the leash,
 /// 2,500 or 5,000; **hypothesis**: the nearer).
 const FLEES_WITHIN: f32 = 199.0;
@@ -388,16 +388,12 @@ const STROLL_FARM: i32 = 150;
 /// strolls.
 const POST: f32 = 90.0;
 const STROLL_GUARD: i32 = 200;
-/// The world's tick, on which the original updates its creatures (`0x5375C0`): the render loop
-/// (`0x60E350`) gathers the frames' time and ticks once it is above 0.1 s, every 6 or 7 frames
-/// at 60 frames a second, 108 ms on average (#616).
-const TICK: f32 = 0.108;
-/// The chance of a stroll, a tick's 1 in 101 (`0x4EF150`), as a rate a second, about one in
-/// 11 s (#608).
-const STROLLS_A_SECOND: f32 = 1.0 / (101.0 * TICK);
-/// The chance that an idle creature sharing its cell parts, a frame's 1 in 6, as a rate a second
-/// (`0x544890`), and how far about home or itself it goes.
-const PARTS_A_SECOND: f32 = 30.0 / 6.0;
+/// The chance of a stroll, a tick's 1 in 101 (`0x4EF150`, `rand() % 101`), about one in 11 s at
+/// the world's tick of 108 ms on average (#608, #617).
+const STROLLS: u32 = 101;
+/// The chance that an idle creature sharing its cell parts, a tick's 1 in 6 (`0x544890`), and how
+/// far about home or itself it goes.
+const PARTS: u32 = 6;
 const PART: i32 = 100;
 /// The flag that keeps a creature from parting (`CreateNPC`'s tag `0x74`).
 const STAYS: u32 = 0x800_0000;
@@ -496,7 +492,7 @@ pub struct Mind {
     pub trader: bool,
     /// Its level (`+0x3FE`, `fight::level`).
     pub level: u32,
-    /// A peaceful creature awake, which takes its behaviour at every frame while it stands.
+    /// A peaceful creature awake, which takes its behaviour at every tick while it stands.
     pub active: bool,
     /// Whether it holds a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13 and 14,
     /// `0x427ED0`), with which it fights at range (the AI's state 8, `0x4DBFC0`).
@@ -505,7 +501,7 @@ pub struct Mind {
     /// in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
     fled: bool,
-    /// In melee: whether it walks to its place about the hero for this frame (the sub-state 5),
+    /// In melee: whether it walks to its place about the hero for this tick (the sub-state 5),
     /// and then at a run.
     placing: Option<bool>,
     /// Whether it goes for a door in its way (the AI's state 1 with the door its target,
@@ -669,7 +665,7 @@ impl Mind {
         }
     }
 
-    /// Its own timer, the hero's look and its thought this frame, by what it `senses`
+    /// Its own timer, the hero's look and its thought this tick, by what it `senses`
     /// (`0x5375C0`, `0x542B20`): the timer of a hostile creature or a townsperson wakes it
     /// every 5 s (2.5 s for one that `CreateNPC` woke), jittered by ±1.5 s; the hero's look
     /// wakes a creature not hostile within 1,875 and a hostile one of bit 0 within 800 (400
@@ -817,7 +813,7 @@ impl Mind {
     /// ([`Self::ends_strike`]). Deciding, the second, third or fourth of the hero's list of
     /// hostiles that stands nearer than `R − 15` to the first takes its place about the hero
     /// instead ([`place`], the sub-state 5): farther than the band from it, it walks there at a
-    /// run in one case of two (never one of class 5), stopping within 40, for a frame, and is
+    /// run in one case of two (never one of class 5), stopping within 40, for a tick, and is
     /// then steered by the hero alone, striking in the band, coming on beyond it and stepping
     /// back nearer. One that went to melee from its bow ([`Self::at_range`]) takes a bow again,
     /// deciding, coming on or in the band, for the hero beyond its reach + 100 (`0x4D4A80`, at
@@ -857,7 +853,7 @@ impl Mind {
             return Some(self.takes_a_bow(rng));
         }
         let steps_back = || Pursues::StepsBack(here + (here - hero).unit() * ((lo + hi) / 2.0));
-        // Its place held for a frame, it is steered by the hero alone, as the sub-state 2 steers
+        // Its place held for a tick, it is steered by the hero alone, as the sub-state 2 steers
         // a creature that moves (`0x4E23A4`).
         if let Some(runs) = self.placing.take() {
             return Some(if d > hi {
@@ -1087,32 +1083,31 @@ impl Mind {
         self.takes_bow
     }
 
-    /// Where it parts to, standing at `here`, `crowded` by another in its cell, in a frame of `dt`
-    /// seconds (`0x544890`): unless it stays (`CreateNPC`'s tag `0x74`), has a dialogue, is a
-    /// trader or fights, at a rate of 5 a second, to a point by [`parting`].
-    pub fn parts(&self, here: Spot, crowded: bool, dt: f32, rng: &mut Rng) -> Option<Spot> {
+    /// Where it parts to at this tick of the world, standing at `here`, `crowded` by another in its
+    /// cell (`0x544890`): unless it stays (`CreateNPC`'s tag `0x74`), has a dialogue, is a trader
+    /// or fights, in one tick of 6, to a point by [`parting`].
+    pub fn parts(&self, here: Spot, crowded: bool, rng: &mut Rng) -> Option<Spot> {
         (crowded
             && self.flags & STAYS == 0
             && !self.dialogue
             && !self.trader
             && !self.fighting
-            && chance(rng, PARTS_A_SECOND, dt))
-        .then(|| parting(self.home, here, rng))
+            && rng.below(PARTS) == 0)
+            .then(|| parting(self.home, here, rng))
     }
 
-    /// What it does now by its behaviour, awake at `here`, `crowded` or not, walking to
-    /// `walking` or standing, in a frame of `dt` seconds, the nearest it fears at `fear`
-    /// (`behaviour`): an animal strolls at a tick's 1 in 101 ([`STROLLS_A_SECOND`]), or at once
-    /// where another shares its cell, and a guard at the same rate.
+    /// What it does at this tick of the world by its behaviour, awake at `here`, `crowded` or
+    /// not, walking to `walking` or standing, the nearest it fears at `fear` (`behaviour`): an
+    /// animal strolls in one tick of 101 ([`STROLLS`]), or at once where another shares its cell,
+    /// and a guard at the same chance.
     pub fn behaves(
         &self,
         here: Spot,
         fear: Option<Spot>,
         (crowded, walking): (bool, Option<Spot>),
-        dt: f32,
         rng: &mut Rng,
     ) -> Option<(Spot, Why)> {
-        let strolls = chance(rng, STROLLS_A_SECOND, dt) || (crowded && self.is_animal());
+        let strolls = rng.below(STROLLS) == 0 || (crowded && self.is_animal());
         behaviour(self, here, fear, (strolls, walking), rng)
     }
 
@@ -1177,7 +1172,7 @@ pub fn of_type(creature: u32) -> u32 {
 pub struct Look(f32);
 
 impl Look {
-    /// Whether the hero looks in a frame of `dt` seconds.
+    /// Whether the hero looks in a tick of `dt` seconds.
     pub fn looks(&mut self, dt: f32) -> bool {
         self.0 += dt;
         let looks = self.0 >= LOOK_EVERY;
@@ -1189,7 +1184,7 @@ impl Look {
 }
 
 /// What a creature senses as it thinks ([`Mind::think`]): the time step in seconds; whether the
-/// hero looked in this frame with the creature in the 3 × 3 sectors about it; where the creature
+/// hero looked in this tick with the creature in the 3 × 3 sectors about it; where the creature
 /// and the hero stand; whether the hero moves; whether the creature takes on the hero by the test
 /// of the levels (`fight::takes_on`); and whether it walks.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1203,7 +1198,7 @@ pub struct Senses {
     pub walking: bool,
 }
 
-/// What a creature's thought makes it do this frame ([`Mind::think`]).
+/// What a creature's thought makes it do this tick ([`Mind::think`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Thought {
     /// It walks home, to this point.
@@ -1297,7 +1292,7 @@ pub enum Pursues {
     /// At range, it stops, turns to the hero and shoots by the choice of its attack's clip (one
     /// of five), at its attack speed times `chain`.
     Shoots { choice: u32, chain: f32 },
-    /// In melee, it walks to its place about the hero for a frame, at a run or not, stopping
+    /// In melee, it walks to its place about the hero for a tick, at a run or not, stopping
     /// within `within` of it.
     TakesPlace { to: Spot, runs: bool, within: f32 },
     /// At range, it puts away the bow of its left hand and fights in melee, with this weapon in
@@ -1402,7 +1397,7 @@ fn bow(roll: &mut impl FnMut(u32) -> u32) -> u32 {
 
 /// Whether a creature fighting the hero flees (`0x4E0300`): at a third of its `health`'s most or
 /// less, within 199 of the hero, not of the classes 1 and 5, not fled yet in this fight, while
-/// the hero does not strike, in one case of eight a frame (`roll` of 0 to 7).
+/// the hero does not strike, in one case of eight a tick (`roll` of 0 to 7).
 fn flees(
     (current, most): (u32, u32),
     distance: f32,
@@ -1416,18 +1411,6 @@ fn flees(
         && !mind.fled
         && !hero_strikes
         && roll == 0
-}
-
-/// Whether a chance of `rate` a second comes in a frame of `dt` seconds.
-fn chance(rng: &mut Rng, rate: f32, dt: f32) -> bool {
-    let p = 1.0 - (-rate * dt).exp();
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "a probability between 0 and 1, in parts of 10,000"
-    )]
-    let parts = (p.clamp(0.0, 1.0) * 10_000.0) as u32;
-    rng.below(10_000) < parts
 }
 
 /// A point within `within` of `at` along each axis, at random.
@@ -1880,7 +1863,7 @@ mod tests {
         let goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 2));
         let health = |current| (current, 72);
         assert!(flees(health(24), 150.0, &goblin, false, 0));
-        // More than a third left, too far, the hero striking, or not this frame: it stays.
+        // More than a third left, too far, the hero striking, or not this tick: it stays.
         assert!(!flees(health(25), 150.0, &goblin, false, 0));
         assert!(!flees(health(24), 200.0, &goblin, false, 0));
         assert!(!flees(health(24), 150.0, &goblin, true, 0));
@@ -2284,7 +2267,7 @@ mod tests {
         assert_eq!(place(near, hero, (4, first)), None);
         assert_eq!(place(at(880.0, 1115.0), hero, (1, first)), None);
         // The second, in the band, its place farther than 145 from it: it walks there for a
-        // frame, stopping within 40, at a run in one case of two.
+        // tick, stopping within 40, at a run in one case of two.
         let mut rng = Rng::of(51, 39, 4);
         let here = at(-100.0, 60.0);
         let first = at(-120.0, 0.0);
@@ -2951,22 +2934,25 @@ mod tests {
     }
 
     #[test]
-    fn a_rate_a_second_comes_about_as_often_at_any_frame_rate() {
+    fn a_stroll_and_a_parting_come_in_one_tick_of_101_and_of_6() {
         let mut rng = Rng::of(0, 0, 3);
-        for frames in [30.0_f32, 144.0] {
-            let dt = 1.0 / frames;
-            // 1,000 seconds' frames, about 92 strolls, a tick's 1 in 101.
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "a whole count of frames"
-            )]
-            let count = (1_000.0 * frames) as u32;
-            let strolls = (0..count)
-                .filter(|_| chance(&mut rng, STROLLS_A_SECOND, dt))
-                .count();
-            assert!((65..125).contains(&strolls), "{frames}: {strolls}");
-        }
+        let home = at(1000.0, 1000.0);
+        let rabbit = Mind::new(home, of_type(516), (true, false), None, SPEEDS, (516, 6));
+        // 10,000 ticks, about 99 strolls standing alone, and about 1,667 partings crowded.
+        let strolls = (0..10_000)
+            .filter(|_| {
+                rabbit
+                    .behaves(home, None, (false, None), &mut rng)
+                    .is_some()
+            })
+            .count();
+        assert!((70..130).contains(&strolls), "{strolls}");
+        let farmer = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (640, 3));
+        let parts = (0..10_000)
+            .filter(|_| farmer.parts(home, true, &mut rng).is_some())
+            .count();
+        assert!((1_500..1_850).contains(&parts), "{parts}");
+        assert!((0..100).all(|_| farmer.parts(home, false, &mut rng).is_none()));
     }
 
     #[test]
