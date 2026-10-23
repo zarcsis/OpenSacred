@@ -255,6 +255,8 @@ const CHEST: u8 = 4;
 const DOOR: u8 = 10;
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
+/// A `Creature.pak` record's flag of a big type (`0x426CB0`).
+const BIG: u8 = 0x02;
 /// The weapon kinds of `Weapon.pak +0x1E` held in the left hand: bows and crossbows.
 const BOW: u8 = 7;
 const CROSSBOW: u8 = 12;
@@ -2674,6 +2676,7 @@ fn spawn(
         mind.level = grade;
         mind.ranged = placement.ranged;
         mind.armed = placement.held != 0;
+        mind.big = record_flags & BIG != 0;
         // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`); a
         // crab's or a fish's the stats' own.
         let skills = fight::skills(&placement.base, grade, placement.plain);
@@ -3648,7 +3651,7 @@ fn strike(
             &GlobalTransform,
             Option<&fight::Combat>,
         ),
-        Without<Dies>,
+        (Without<Dies>, Without<crate::making::Knocked>),
     >,
     places: Query<&GlobalTransform>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,

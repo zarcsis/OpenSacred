@@ -663,6 +663,79 @@ fn a_rundum_strikes_the_nearest_within_its_radius_but_its_last() {
 }
 
 #[test]
+fn a_kick_strikes_at_its_classs_point_and_may_knock_its_target_back() {
+    assert_eq!(style(1060), Some(Style::Kick));
+    assert_eq!(style(1072), Some(Style::Kick));
+    assert_eq!(style(1068), Some(Style::Kick));
+    // The Gladiator's 148 and the Seraphim's 81, at the rate 1.0 whatever the attack speed.
+    let fixed = |kind| match action(kind, Style::Kick, 1) {
+        Some(ArtAction {
+            clip: ArtClip::Slot(slot),
+            rate,
+            fixed: true,
+            ..
+        }) => Some((slot, rate)),
+        _ => None,
+    };
+    assert_eq!(fixed(2), Some((148, 1.0)));
+    assert_eq!(fixed(1), Some((81, 1.0)));
+    assert_eq!(kick_point(2, 1), 0.6);
+    assert_eq!(kick_point(2, 3), 0.55);
+    assert_eq!(kick_point(1, 2), 0.4);
+    // The Gladiator's 1060 at level 1 on a goblin warrior of level 1: 500 %, always; on one of
+    // level 10, 50 %; a boss and a big one less; a dragon (52) never.
+    assert_eq!(knockback_chance(1, (76, 1), false, false), 500.0);
+    assert_eq!(knockback_chance(1, (76, 10), false, false), 50.0);
+    assert!((knockback_chance(1, (76, 10), true, false) - 38.461_54).abs() < 1e-3);
+    assert!((knockback_chance(1, (76, 10), false, true) - 41.666_67).abs() < 1e-3);
+    assert_eq!(knockback_chance(1, (52, 1), false, false), 0.0);
+    // 1,000 back, as the original's goblin took (#650), or less against a stronger target.
+    let mut kick = weapon_art(1060, [5.0, 3.0], 2);
+    kick.value_60 = [1000, 0];
+    assert_eq!(knockback(&kick, 1, 1), Some(1000));
+    assert_eq!(knockback(&kick, 1, 10), Some(500));
+    assert_eq!(knockback(&kick, 1, 600), None);
+}
+
+#[test]
+fn the_other_classes_arts_play_their_executors_clips() {
+    let slot = |kind, style, class| match action(kind, style, class) {
+        Some(ArtAction {
+            clip: ArtClip::Slot(slot),
+            fixed,
+            fallback,
+            ..
+        }) => Some((slot, fixed, fallback)),
+        Some(_) => Some((0, false, None)),
+        None => None,
+    };
+    // The Dark Elf's: his starting 1066 with his blades (class 8), bare-handed and with a sword.
+    assert_eq!(slot(4, Style::Hardhit, 8), Some((207, false, None)));
+    assert_eq!(slot(4, Style::Hardhit, 0), Some((145, false, None)));
+    assert_eq!(slot(4, Style::Hardhit, 3), Some((0, false, None)));
+    assert_eq!(slot(4, Style::Rundum, 4), Some((223, false, None)));
+    // The Wood Elf's, with a dagger (5) and a staff (4).
+    assert_eq!(slot(5, Style::Attacke, 5), Some((215, false, None)));
+    assert_eq!(slot(5, Style::Hardhit, 4), Some((205, false, None)));
+    // The Vampiress's claws by night, a two-handed weapon by day.
+    assert_eq!(slot(7, Style::Rundum, 2), Some((219, false, None)));
+    assert_eq!(slot(6, Style::Rundum, 2), Some((221, false, None)));
+    assert_eq!(slot(6, Style::Hardhit, 2), Some((0, false, None)));
+    // The Dwarf's at 1.0, falling back to 211, 202 and 220; with a gun 248 and 247.
+    assert_eq!(slot(8, Style::Attacke, 14), Some((248, true, Some(211))));
+    assert_eq!(slot(8, Style::Hardhit, 13), Some((247, true, Some(202))));
+    assert_eq!(slot(8, Style::Rundum, 3), Some((222, true, Some(220))));
+    assert_eq!(slot(8, Style::Rundum, 14), None);
+    // The Daemon's `Attacke` at 1.0, and neither a `Rundum` nor his charge.
+    assert_eq!(slot(9, Style::Attacke, 1), Some((211, true, None)));
+    assert_eq!(slot(9, Style::Rundum, 1), None);
+    assert_eq!(slot(9, Style::Hardhit, 1), None);
+    // The Mage has none, and the bows shoot.
+    assert_eq!(slot(3, Style::Attacke, 1), None);
+    assert_eq!(slot(5, Style::Attacke, 7), None);
+}
+
+#[test]
 fn a_rundum_looks_from_its_classs_part_of_its_clip() {
     // The Gladiator's from 0.3 of its clip to its end: the original's 1057 struck first at
     // +766 ms of about 1.85 s (#644).
@@ -684,6 +757,8 @@ fn an_arts_action_plays_its_classs_clip_for_what_it_holds() {
         Some(ArtAction {
             clip: ArtClip::Slot(slot),
             rate,
+            fixed: false,
+            ..
         }) => Some((slot, rate)),
         _ => None,
     };
@@ -702,9 +777,9 @@ fn an_arts_action_plays_its_classs_clip_for_what_it_holds() {
     assert_eq!(slot(2, Style::Rundum, 3), Some((222, 1.0)));
     assert_eq!(slot(2, Style::Hardhit, 1), Some((202, 1.0)));
     assert_eq!(slot(2, Style::Hardhit, 8), Some((207, 1.0)));
-    // With a bow the arts are shots; another class's executor is not read.
+    // With a bow the arts are shots; the Mage's executor is not read.
     assert_eq!(action(1, Style::Attacke, 7), None);
-    assert_eq!(action(4, Style::Attacke, 1), None);
+    assert_eq!(action(3, Style::Attacke, 1), None);
 }
 
 #[test]

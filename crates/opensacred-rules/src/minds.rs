@@ -538,6 +538,9 @@ pub struct Mind {
     /// Whether it holds something of a class other than 0 (`0x546F80(0)`), which its size takes
     /// for some types ([`size`]).
     pub armed: bool,
+    /// Whether its type is big (`Creature.pak` flags bit `0x02`, `0x426CB0`), which a kick knocks
+    /// back less often (`arts::knockback_chance`).
+    pub big: bool,
     /// Whether it fights (the AI's state 4, `0x4E0300`, or 8), the hero or a creature, and whether
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
@@ -621,6 +624,7 @@ impl Mind {
             active: false,
             ranged: false,
             armed: false,
+            big: false,
             fighting: false,
             fled: false,
             placing: None,

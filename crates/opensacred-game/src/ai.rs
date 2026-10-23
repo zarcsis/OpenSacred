@@ -434,7 +434,11 @@ fn think(
             Has<Walk>,
             &Layered,
         ),
-        (Without<Body>, Without<crate::npcs::Dies>),
+        (
+            Without<Body>,
+            Without<crate::npcs::Dies>,
+            Without<crate::making::Knocked>,
+        ),
     >,
 ) {
     let Some((hero, body, size)) = hero.iter().next() else {
@@ -657,7 +661,7 @@ fn pursue(
             &Layered,
             Has<crate::npcs::StrikeEnded>,
         ),
-        Without<Body>,
+        (Without<Body>, Without<crate::making::Knocked>),
     >,
 ) {
     let dt = tick.seconds.unwrap_or_default();

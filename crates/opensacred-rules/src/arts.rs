@@ -136,15 +136,19 @@ pub enum Style {
     Rundum,
     /// One strike on its target at its clip's hit point.
     Hardhit,
+    /// One strike on its target at its class's point of its clip ([`kick_point`]), which may
+    /// knock it back ([`knockback_chance`], [`knockback`]).
+    Kick,
 }
 
-/// How the art `art` strikes: the classes' own `Rundum`, `Hardhit` and `Attacke`, which
-/// `0x581D40` finds for the generic 1000, 1001 and 1002 (the Gladiator's 1057 to 1059 and the
-/// Seraphim's 1069 to 1071 read in their executors, the others' `Attacke` by the same test of
-/// the reach; **hypothesis** for the other classes' `Rundum` and `Hardhit`); none for another.
+/// How the art `art` strikes: the classes' own `Rundum`, `Hardhit`, `Attacke` and `Kick`, which
+/// `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the Gladiator's 1057 to 1060 and
+/// the Seraphim's 1069 to 1072 read in their executors, the others' `Attacke` by the same test of
+/// the reach; **hypothesis** for the other classes' `Rundum`, `Hardhit` and `Kick`); none for
+/// another.
 pub fn style(art: u16) -> Option<Style> {
     OWN.iter()
-        .zip([Style::Rundum, Style::Hardhit, Style::Attacke])
+        .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
         .find(|((_, own), _)| own.contains(&art))
         .map(|(_, style)| style)
 }
@@ -250,11 +254,15 @@ pub enum ArtClip {
 }
 
 /// What a creature's art plays: its clip, and the rate it plays at as a factor of its attack's
-/// clip speed (the attack speed over 100, `0x584FE0`).
+/// clip speed (the attack speed over 100, `0x584FE0`), or, `fixed`, the rate itself (the kicks',
+/// the Dwarf's and the Daemon's), and the slot it falls back to where the model lacks the clip's
+/// (the Dwarf's).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArtAction {
     pub clip: ArtClip,
     pub rate: f32,
+    pub fixed: bool,
+    pub fallback: Option<u16>,
 }
 
 /// The Seraphim's `Attacke`'s rate with a weapon of the classes it plays the slot 211 for
@@ -263,15 +271,33 @@ const SERAPHIMS_ATTACKE: f32 = 0.73;
 
 /// What the art of `style` of a creature of type `kind` plays, holding what is of `class`
 /// (`motions::class`, `0x546F80`), on foot (the Gladiator's `0x4FF0B0`, the Seraphim's
-/// `0x5038F0`; docs/re/arts.md, "The arts' clips"): none with a bow or a crossbow (the classes 7
-/// and 12, whose arts are shots, not here), nor for another class's executor, not read.
+/// `0x5038F0`, the Dark Elf's `0x506770`, the Wood Elf's `0x50AC00`, the Vampiress's
+/// `0x50E6C0`, the Dwarf's `0x514790`, the Daemon's `0x5192E0`; docs/re/arts.md, "The arts'
+/// clips" and "The other classes' clips", #649): none with a bow or a crossbow (the classes 7
+/// and 12, whose arts are shots, not here), nor for the Daemon's `Rundum` and charge, the other
+/// classes' kicks and the Mage, not read. The Vampiress by night (7) plays her claws' column
+/// (**hypothesis**: her night form is the one of the flag `+0x14` bit `0x2000`).
 pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
     if matches!(class, 7 | 12) {
         return None;
     }
-    let slot = |slot| ArtAction {
-        clip: ArtClip::Slot(slot),
-        rate: 1.0,
+    let slot = slot_of;
+    let kick = |slot| ArtAction {
+        fixed: true,
+        ..slot_of(slot)
+    };
+    // The Dwarf's and the Daemon's play at the rate 1.0, the Dwarf's falling back to `back`.
+    let plain = |slot| ArtAction {
+        fixed: true,
+        ..slot_of(slot)
+    };
+    let dwarfs = |slot, back| ArtAction {
+        fallback: Some(back),
+        ..plain(slot)
+    };
+    let attack = ArtAction {
+        clip: ArtClip::Attack,
+        ..slot_of(0)
     };
     match (kind, style) {
         (1, Style::Attacke) => Some(match class {
@@ -284,10 +310,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             },
         }),
         (1, Style::Rundum) => Some(slot(153)),
-        (1, Style::Hardhit) => Some(ArtAction {
-            clip: ArtClip::Attack,
-            rate: 1.0,
-        }),
+        (1, Style::Hardhit) => Some(attack),
+        (1, Style::Kick) => Some(kick(81)),
+        (2, Style::Kick) => Some(kick(148)),
         (2, Style::Attacke) => Some(slot(match class {
             0 => 210,
             2 => 212,
@@ -306,6 +331,94 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             3 => 204,
             8 => 207,
             _ => 202,
+        })),
+        (4, Style::Attacke) => Some(slot(match class {
+            0 => 210,
+            2 => 212,
+            8 => 216,
+            _ => 211,
+        })),
+        (4, Style::Hardhit) => Some(match class {
+            0 => slot(145),
+            1 => slot(202),
+            2 => slot(203),
+            4 => slot(205),
+            8 => slot(207),
+            _ => attack,
+        }),
+        (4, Style::Rundum) => Some(slot(match class {
+            0 => 219,
+            2 => 221,
+            4 => 223,
+            8 => 225,
+            _ => 220,
+        })),
+        (5, Style::Attacke) => Some(slot(match class {
+            0 => 210,
+            4 => 214,
+            5 => 215,
+            _ => 211,
+        })),
+        (5, Style::Hardhit) => Some(slot(match class {
+            0 => 201,
+            4 => 205,
+            5 => 206,
+            _ => 202,
+        })),
+        (5, Style::Rundum) => Some(slot(match class {
+            0 => 219,
+            4 => 223,
+            5 => 224,
+            _ => 220,
+        })),
+        (7, Style::Attacke) => Some(slot(210)),
+        (7, Style::Hardhit) => Some(slot(201)),
+        (7, Style::Rundum) => Some(slot(219)),
+        (6, Style::Attacke) => Some(slot(match class {
+            2 => 212,
+            8 => 216,
+            _ => 211,
+        })),
+        (6, Style::Hardhit) => Some(attack),
+        (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
+        (8, Style::Attacke) => Some(dwarfs(
+            match class {
+                0 => 210,
+                2 => 212,
+                3 => 213,
+                8 => 216,
+                13 | 14 => 248,
+                _ => 211,
+            },
+            211,
+        )),
+        (8, Style::Hardhit) => Some(dwarfs(
+            match class {
+                0 => 201,
+                2 => 203,
+                3 => 204,
+                8 => 207,
+                13 => 247,
+                14 => 148,
+                _ => 202,
+            },
+            202,
+        )),
+        (8, Style::Rundum) if !matches!(class, 13 | 14) => Some(dwarfs(
+            match class {
+                0 => 219,
+                2 => 221,
+                3 => 222,
+                _ => 220,
+            },
+            220,
+        )),
+        (9, Style::Attacke) => Some(plain(match class {
+            0 => 210,
+            2 => 212,
+            3 => 213,
+            8 => 216,
+            _ => 211,
         })),
         _ => None,
     }
@@ -332,6 +445,84 @@ pub fn hardhit_point(points: &[f32]) -> f32 {
         .filter(|&point| point > 0.0 && point <= 1.0)
         .unwrap_or(0.5)
 }
+
+/// The clip of the slot `slot` at its attack's rate.
+fn slot_of(slot: u16) -> ArtAction {
+    ArtAction {
+        clip: ArtClip::Slot(slot),
+        rate: 1.0,
+        fixed: false,
+        fallback: None,
+    }
+}
+
+/// The point of its clip at which a kick strikes, of a creature of type `kind` holding what is of
+/// `class`: the Gladiator's (`0x4FF0B0` at `0x5019D6`) once what is left of the clip is less than
+/// 0.4 of it, 0.45 with a weapon of class 2 or 3; the Seraphim's (`0x5038F0` at `0x50408E`) once
+/// it is less than 0.6 (docs/re/arts.md, "The kicks", #650).
+pub fn kick_point(kind: u32, class: u8) -> f32 {
+    match (kind, class) {
+        (1, _) => 0.4,
+        (_, 2 | 3) => 0.55,
+        _ => 0.6,
+    }
+}
+
+/// The chance in per cent that a kick of the level in play `level` knocks back its target of
+/// type `creature` and level `target` (`0x4FC9D0`): `100 · 5L/M`, 0 for a target of level 0 and
+/// for the types that no kick moves, times 1/1.3 for a boss (`+0x1F4` bit `0x80000`) and 1/1.2
+/// for a big type (`Creature.pak` flags bit `0x02`, `0x426CB0`); a roll of 0 to 99 below it
+/// knocks the target back. `M` is the target's level as it stands for a creature (`+0x3FE`), the
+/// difficulty's for a player's (`0x552230`, not here).
+pub fn knockback_chance(level: u32, (creature, target): (u32, u32), boss: bool, big: bool) -> f32 {
+    const UNMOVED: [u32; 28] = [
+        52, 53, 55, 74, 88, 100, 101, 102, 103, 136, 137, 141, 144, 182, 183, 185, 237, 250, 251,
+        252, 336, 348, 360, 363, 365, 367, 701, 1249,
+    ];
+    if target == 0 || UNMOVED.contains(&creature) {
+        return 0.0;
+    }
+    let mut chance = narrow(f64::from(5 * level) / f64::from(target));
+    if boss {
+        chance *= 0.769_230_8;
+    }
+    if big {
+        chance *= 0.833_333_3;
+    }
+    chance * 100.0
+}
+
+/// How far a kick of `record` at the level in play `level` knocks back its target of level
+/// `target` (`0x4FF0B0`): `[+0x60] · min(1, 5L/M)` in whole units, none at 10 or less; the
+/// target slides away from the kicker at [`KNOCKBACK_SPEED`] until it has gone that far
+/// (`0x594D12`).
+pub fn knockback(record: &WeaponArt, level: u32, target: u32) -> Option<u32> {
+    let ratio = if target == 0 {
+        1.0
+    } else {
+        (f64::from(5 * level) / f64::from(target)).min(1.0)
+    };
+    let distance = whole_units(f64::from(record.value_60[0]) * ratio);
+    u32::try_from(distance)
+        .ok()
+        .filter(|&distance| distance > 10)
+}
+
+/// A whole number of units, as the original's `_ftol` truncates it.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a distance of a few thousand units at most, truncated as the original's _ftol"
+)]
+fn whole_units(value: f64) -> i64 {
+    value
+        .trunc()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i64
+}
+
+/// How fast a knocked-back creature slides away from its kicker, in units a second, and the most
+/// of a frame's time that one step takes (`0x594D12`: `0x890D5C`, `0x8907E4`).
+pub const KNOCKBACK_SPEED: f32 = 400.0;
+pub const KNOCKBACK_STEP: f32 = 0.3;
 
 /// Whether a strike of an art at the hit point `point` is due, `done` of its clip played: past
 /// the point (the executors wait while what is left of the clip is at least `1 − point` of it).
