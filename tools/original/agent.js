@@ -1093,7 +1093,7 @@ const COMMANDS = {
     const want = on ?? world.god === null;
     const flags = WORLD.cheats.readU32();
     WORLD.cheats.writeU32(want ? (flags | GOD) >>> 0 : (flags & ~GOD) >>> 0);
-    world.god = want ? { id: h.add(CREATURE.id).readU32(), health: h.add(CREATURE.health).readS32() } : null;
+    world.god = want ? { id: h.add(CREATURE.id).readU32(), hero: h, health: h.add(CREATURE.health).readS32() } : null;
     return { god: want, hero: readCreature(h) };
   },
   // A creature's health to its most, the hero's by default.
@@ -1386,15 +1386,20 @@ function installStrikes() {
   });
 }
 
+// A load or a new game makes a new hero of the same id (#565): the health kept is then the new one's own.
 function keepGodHealth() {
   const god = world.god;
   const h = hero();
-  if (god === null || h === null || h.add(CREATURE.id).readU32() !== god.id) {
+  if (god === null || h === null) {
     return;
   }
   const health = h.add(CREATURE.health).readS32();
+  if (!h.equals(god.hero) || h.add(CREATURE.id).readU32() !== god.id) {
+    Object.assign(god, { id: h.add(CREATURE.id).readU32(), hero: h, health });
+    return;
+  }
   if (health < god.health) {
-    h.add(CREATURE.health).writeS32(god.health);
+    h.add(CREATURE.health).writeS32(Math.min(god.health, h.add(CREATURE.most).readS32()));
   } else {
     god.health = health;
   }
