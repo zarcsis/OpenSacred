@@ -1,7 +1,7 @@
 //! `build`, the converter's stage B (PLAN.md ADR-05, #694): the game's assets in `<out>` from the
-//! masters that the extraction commands (stage A) write into `<assets-src>`. For now it copies
-//! each master as it is, so that the game reads what it read before while the later sub-issues
-//! change the formats one kind at a time (#696). It records `<out>/manifest/build.ron`: the
+//! masters that the extraction commands (stage A) write into `<assets-src>`. It encodes the
+//! cutscenes' masters into AV1 and Opus WebM (#698) and copies the other masters as they are,
+//! while the later sub-issues change the formats one kind at a time (#696). It records `<out>/manifest/build.ron`: the
 //! masters it built from and the files it wrote, each with its SHA-256; a master whose hash is
 //! the one recorded and whose output is in place is not built again, and the outputs of masters
 //! that are gone are removed.
@@ -17,6 +17,31 @@ use crate::manifest::{self, FileHash, RunManifest};
 
 /// The manifest's name under `<out>/manifest/`.
 pub const NAME: &str = "build";
+
+/// How stage B makes a master's output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Make {
+    Copy,
+    /// A cutscene's FFV1 and FLAC master, encoded into AV1 and Opus WebM.
+    Video,
+    /// The cutscenes' index, naming the WebM files.
+    VideoIndex,
+}
+
+/// The output's path of the master at `path`, and how it is made.
+fn make(path: &str) -> (String, Make) {
+    let video = crate::video::DIR;
+    if path == format!("{video}/{}", opensacred_data::video::INDEX) {
+        return (path.to_owned(), Make::VideoIndex);
+    }
+    match path
+        .strip_prefix(&format!("{video}/"))
+        .and_then(|name| name.strip_suffix(".mkv"))
+    {
+        Some(stem) => (format!("{video}/{stem}.webm"), Make::Video),
+        None => (path.to_owned(), Make::Copy),
+    }
+}
 
 /// What a build did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -83,32 +108,45 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     let outcomes: Vec<(FileHash, bool)> = masters
         .par_iter()
         .map(|master| {
-            let target = out.join(&master.path);
-            let same = built_from.get(master.path.as_str()) == Some(&master)
-                && written
-                    .get(master.path.as_str())
-                    .is_some_and(|o| fs::metadata(&target).is_ok_and(|m| m.len() == o.size));
-            if !same {
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("creating {}", parent.display()))?;
-                }
-                fs::copy(src.join(&master.path), &target).with_context(|| {
-                    format!("building {} from {}", target.display(), master.path)
-                })?;
+            let (path, how) = make(&master.path);
+            let target = out.join(&path);
+            let last = written.get(path.as_str()).filter(|o| {
+                built_from.get(master.path.as_str()) == Some(&master)
+                    && fs::metadata(&target).is_ok_and(|m| m.len() == o.size)
+            });
+            if let Some(&last) = last {
+                return Ok((last.clone(), false));
             }
-            Ok((
-                FileHash {
-                    path: master.path.clone(),
-                    size: master.size,
-                    sha256: master.sha256.clone(),
-                },
-                !same,
-            ))
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            let from = src.join(&master.path);
+            let what = || format!("building {} from {}", target.display(), master.path);
+            let output = match how {
+                Make::Copy => {
+                    fs::copy(&from, &target).with_context(what)?;
+                    FileHash {
+                        path,
+                        size: master.size,
+                        sha256: master.sha256.clone(),
+                    }
+                }
+                Make::Video => {
+                    crate::video::encode(&from, &target).with_context(what)?;
+                    manifest::hash(&target, path)?
+                }
+                Make::VideoIndex => {
+                    let text = fs::read_to_string(&from).with_context(what)?;
+                    fs::write(&target, crate::video::built_index(&text)?).with_context(what)?;
+                    manifest::hash(&target, path)?
+                }
+            };
+            Ok((output, true))
         })
         .collect::<Result<_>>()?;
     // The outputs of masters that are gone.
-    let now: HashSet<&str> = masters.iter().map(|m| m.path.as_str()).collect();
+    let now: HashSet<&str> = outcomes.iter().map(|(o, _)| o.path.as_str()).collect();
     let mut removed = 0;
     for path in written.keys().filter(|p| !now.contains(**p)) {
         let target = out.join(path);
@@ -117,7 +155,7 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
             removed += 1;
         }
     }
-    let count = now.len();
+    let count = masters.len();
     let built = outcomes.iter().filter(|(_, built)| *built).count();
     let outputs: Vec<FileHash> = outcomes.into_iter().map(|(file, _)| file).collect();
     manifest::write(
@@ -146,6 +184,22 @@ mod tests {
         let path = dir.join(path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn the_cutscenes_masters_are_built_into_webm() {
+        assert_eq!(
+            make("video/intro.mkv"),
+            ("video/intro.webm".to_owned(), Make::Video)
+        );
+        assert_eq!(
+            make("video/video.ron"),
+            ("video/video.ron".to_owned(), Make::VideoIndex)
+        );
+        assert_eq!(
+            make("tables/items.ron"),
+            ("tables/items.ron".to_owned(), Make::Copy)
+        );
     }
 
     #[test]
