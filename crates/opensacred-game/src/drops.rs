@@ -214,7 +214,10 @@ fn throw(
             },
             DespawnOnExit(AppState::InGame),
         ));
-        if let Some((model, texture)) = tables.looks.get(&dropped.item) {
+        // A derived type shows its root's model and texture, the items table's entry it holds
+        // (#596).
+        let slot = tables.catalogue.slot(dropped.item).unwrap_or(dropped.item);
+        if let Some((model, texture)) = tables.looks.get(&slot) {
             let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.clone()));
             entity.insert((WorldAssetRoot(scene), models::Ordered::default()));
             if let Some(texture) = texture {

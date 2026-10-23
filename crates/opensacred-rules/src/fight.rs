@@ -843,6 +843,24 @@ impl Templates {
             .map(|words| [38, 39, 40].map(|i| signed(words[i])))
     }
 
+    /// The words 38 to 40 of the template that the drops' lookup `0x42CA70` finds for an item of
+    /// type `item` (#596): its parent's, once, for a type within 2001–2998 or 6501–7998, none
+    /// where that parent lies within 2000–2999 or 6500–7999 itself, else its own.
+    pub fn looked_up(&self, item: u32) -> Option<[i64; 3]> {
+        let item = if matches!(item, 2001..=2998 | 6501..=7998) {
+            match self.parents.get(&item) {
+                Some(2000..=2999 | 6500..=7999) => return None,
+                Some(&parent) => parent,
+                None => item,
+            }
+        } else {
+            item
+        };
+        self.by_type
+            .get(&item)
+            .map(|words| [38, 39, 40].map(|i| signed(words[i])))
+    }
+
     /// The template of an item of type `item`, its parent's while the type lies within 2000–2999
     /// or 6500–7999, at most six times (`0x5D5080`).
     fn of(&self, item: u32) -> Option<&TemplateWords> {
