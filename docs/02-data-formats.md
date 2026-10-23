@@ -1070,7 +1070,7 @@ Whether FFmpeg trims an encoder's delay at the start (by a LAME or Xing header) 
 ### 12.1 Targets per format
 
 The converter writes in two stages (PLAN.md ADR-05 and §7, #694): stage A extracts lossless masters into `assets-src/`, the targets below, and stage B builds the game's assets into `assets/` from them: the textures as KTX2 with BC7 and mipmaps (#700), the sound and the music as Opus in Ogg (#701), the cutscenes as AV1 and Opus in WebM (#698), the scripts as Luau bytecode, all in ZIP archives by kind (#699); the rest as the masters are.
-Since #696 the extraction commands write the targets below into `assets-src/` and `build` copies them into `assets/`, until the later sub-issues change the formats.
+Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/` as they are, but for the cutscenes, until the later sub-issues change the formats.
 
 | Source | Target | Check |
 |---|---|---|
@@ -1098,7 +1098,10 @@ Since #696 the extraction commands write the targets below into `assets-src/` an
   HD packs and mods go to `assets-hd/` in the masters' formats with the same relative paths.
 * `opensacred-game` reads `assets/` in layers (#699): a path takes the first that has it, the loose files of the directory itself, then the ZIP archives of its `overlays/` (HD packs, mods), then the base ZIP archives beside the loose files, each set in the order of the archives' names.
   An archive's entries are stored or deflated, their paths the loose files' relative to `assets/` with `/` between the parts; both Bevy's asset server (its default asset source) and the game's own reads of the tables, sectors, scripts and atlases go through the layers.
-  Since the first part of #699 the game reads archives where it finds them; `build` still writes loose files until the second part packs them.
+  `build` writes the base archives by kind (#699): `data.zip` (the tables, texts, scripts and heroes), `models.zip`, `music.zip` (`sound/music/`), `sound.zip` (the rest of `sound/`), `textures.zip`, `ui.zip`, `video.zip` and `world.zip`, with `manifest/` beside them loose.
+  The archives are reproducible: the entries in the order of their paths with UTF-8 names, the date 1980-01-01 00:00, the formats compressed already (PNG, glTF binary, FLAC, MP3, Ogg, WebM, KTX2, the sectors in zlib) stored and the rest deflated at level 6 where that makes it smaller, a stored entry's data aligned to 16 bytes by Android's `zipalign` padding field (`0xD935`) and no other extra field; no ZIP64, so an archive stays below 4 GiB and 65,535 entries.
+  `build.ron` records each entry as `<archive>/<path>`; an archive whose masters all changed nothing is kept, and one written again copies its unchanged entries from the old archive as they are.
+  It removes the loose files that earlier runs wrote into `assets/` and that would take the archives' place: the outputs of the builds before #699 that `build.ron` names, and those of the extractions before #696 that their records under `assets/manifest/` name, with the records; any other loose file stays, the layer read first.
 
 ### 12.3 Order
 

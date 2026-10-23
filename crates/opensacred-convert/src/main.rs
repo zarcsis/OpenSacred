@@ -357,11 +357,12 @@ fn execute(command: Command) -> Result<ExitCode> {
             let start = Instant::now();
             let summary = build::build(&assets_src, &out, force)?;
             println!(
-                "build: {} masters, {} built, {} up to date, {} removed -> {} in {:.1} s",
+                "build: {} masters, {} built, {} up to date, {} removed -> {} archives in {} in {:.1} s",
                 summary.masters,
                 summary.built,
                 summary.kept,
                 summary.removed,
+                summary.archives,
                 out.display(),
                 start.elapsed().as_secs_f64()
             );

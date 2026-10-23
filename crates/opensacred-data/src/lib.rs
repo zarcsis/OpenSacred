@@ -3,6 +3,7 @@
 //!
 //! The game reads only these types and never the original files.
 
+pub mod archive;
 pub mod heroes;
 pub mod netscript;
 mod packed;

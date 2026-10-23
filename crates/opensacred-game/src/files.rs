@@ -1,160 +1,45 @@
 //! The game's files (#699; PLAN.md ADR-05): the converter's `assets/` in layers. A path takes the
 //! first layer that has it: the loose directory itself (debugging, HD packs and mods in the
 //! making), then the overlay archives in its `overlays/` (HD packs, mods), then the base archives
-//! beside the loose files, each set in the order of the archives' names. An archive is a ZIP of
-//! stored and deflated entries whose paths are the loose files', so that Explorer and 7-Zip open it
-//! and a modder can see and replace a file.
+//! beside the loose files, each set in the order of the archives' names. The archives are ZIP
+//! files whose paths are the loose files' ([`opensacred_data::archive`]).
 //!
 //! Both readers go through the layers: Bevy's asset server through [`AssetFiles`], the default
 //! asset source, and the game's own reads of tables, sectors and atlases through [`read`],
 //! [`read_to_string`], [`open`], [`exists`] and [`read_dir`], which fall back on the file system
 //! for a path outside the assets or before [`init`].
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek, SeekFrom};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 use bevy::asset::io::{
     AssetReader, AssetReaderError, PathStream, Reader, VecReader, file::FileAssetReader,
 };
 use bevy::tasks::futures_lite::stream;
+use opensacred_data::archive::{self, Archive, OVERLAYS};
 
-/// The overlay archives' directory under the assets.
-pub const OVERLAYS: &str = "overlays";
-
-/// ZIP's signatures: the end of the central directory, a central directory's entry and a local
-/// header.
-const END: u32 = 0x0605_4B50;
-const CENTRAL: u32 = 0x0201_4B50;
-const LOCAL: u32 = 0x0403_4B50;
-/// The compression methods the archives use.
-const STORED: u16 = 0;
-const DEFLATED: u16 = 8;
-
-/// An archive's entry: its local header's offset, its sizes and whether it is deflated.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Entry {
-    header: u64,
-    compressed: u64,
-    size: u64,
-    deflated: bool,
-}
-
-/// An archive's central directory, its entries by their paths.
-#[derive(Debug)]
-struct Archive {
-    path: PathBuf,
-    entries: HashMap<String, Entry>,
-}
-
-fn u16_at(data: &[u8], at: usize) -> io::Result<u16> {
-    data.get(at..at + 2)
-        .map(|b| u16::from_le_bytes([b[0], b[1]]))
-        .ok_or_else(|| invalid("a ZIP record cut short"))
-}
-
-fn u32_at(data: &[u8], at: usize) -> io::Result<u32> {
-    data.get(at..at + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .ok_or_else(|| invalid("a ZIP record cut short"))
+/// The archives' name of the path `relative` to the assets: its parts between `/`, `.` and `..`
+/// resolved (the world names its atlases `world/../textures/…`); none for a path outside them.
+fn name_of(relative: &Path) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in relative.components() {
+        match part {
+            Component::Normal(part) => parts.push(part.to_str()?),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(parts.join("/"))
 }
 
 fn invalid(what: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, what.to_owned())
-}
-
-fn usize_of(value: u64) -> io::Result<usize> {
-    usize::try_from(value).map_err(|_| invalid("a ZIP size beyond memory"))
-}
-
-impl Archive {
-    /// Reads the central directory of the ZIP at `path`.
-    fn open(path: &Path) -> io::Result<Self> {
-        let mut file = File::open(path)?;
-        let length = file.metadata()?.len();
-        // The end record, 22 bytes and a comment of up to 65,535, at the file's end.
-        let tail = length.min(22 + 0xFFFF);
-        file.seek(SeekFrom::Start(length - tail))?;
-        let mut end = vec![0; usize_of(tail)?];
-        file.read_exact(&mut end)?;
-        let at = (0..end.len().saturating_sub(21))
-            .rev()
-            .find(|&at| u32_at(&end, at).is_ok_and(|s| s == END))
-            .ok_or_else(|| invalid("no end of a ZIP's central directory"))?;
-        let count = u16_at(&end, at + 10)?;
-        let size = u32_at(&end, at + 12)?;
-        let offset = u32_at(&end, at + 16)?;
-        file.seek(SeekFrom::Start(u64::from(offset)))?;
-        let mut directory = vec![0; usize_of(u64::from(size))?];
-        file.read_exact(&mut directory)?;
-        let mut entries = HashMap::with_capacity(usize::from(count));
-        let mut at = 0;
-        for _ in 0..count {
-            if u32_at(&directory, at)? != CENTRAL {
-                return Err(invalid(
-                    "a ZIP central directory's entry without its signature",
-                ));
-            }
-            let method = u16_at(&directory, at + 10)?;
-            let compressed = u32_at(&directory, at + 20)?;
-            let size = u32_at(&directory, at + 24)?;
-            let name_length = usize::from(u16_at(&directory, at + 28)?);
-            let extra = usize::from(u16_at(&directory, at + 30)?);
-            let comment = usize::from(u16_at(&directory, at + 32)?);
-            let header = u32_at(&directory, at + 42)?;
-            let name_bytes = directory
-                .get(at + 46..at + 46 + name_length)
-                .ok_or_else(|| invalid("a ZIP entry's name cut short"))?;
-            let name = String::from_utf8_lossy(name_bytes).replace('\\', "/");
-            at += 46 + name_length + extra + comment;
-            if name.ends_with('/') {
-                continue;
-            }
-            if method != STORED && method != DEFLATED {
-                return Err(invalid("a ZIP entry neither stored nor deflated"));
-            }
-            entries.insert(
-                name,
-                Entry {
-                    header: u64::from(header),
-                    compressed: u64::from(compressed),
-                    size: u64::from(size),
-                    deflated: method == DEFLATED,
-                },
-            );
-        }
-        Ok(Self {
-            path: path.to_owned(),
-            entries,
-        })
-    }
-
-    /// The data of `entry`, inflated where it is deflated.
-    fn read(&self, entry: Entry) -> io::Result<Vec<u8>> {
-        let mut file = File::open(&self.path)?;
-        file.seek(SeekFrom::Start(entry.header))?;
-        let mut local = [0; 30];
-        file.read_exact(&mut local)?;
-        if u32_at(&local, 0)? != LOCAL {
-            return Err(invalid("a ZIP entry without its local header"));
-        }
-        let skip = u64::from(u16_at(&local, 26)?) + u64::from(u16_at(&local, 28)?);
-        file.seek(SeekFrom::Current(i64::try_from(skip).unwrap_or(0)))?;
-        let mut data = vec![0; usize_of(entry.compressed)?];
-        file.read_exact(&mut data)?;
-        if !entry.deflated {
-            return Ok(data);
-        }
-        let size = usize_of(entry.size)?;
-        let inflated = miniz_oxide::inflate::decompress_to_vec_with_limit(&data, size)
-            .map_err(|_| invalid("a ZIP entry that does not inflate"))?;
-        if inflated.len() != size {
-            return Err(invalid("a ZIP entry of another size than its record's"));
-        }
-        Ok(inflated)
-    }
 }
 
 /// The assets' layers: the loose directory, then the overlay and the base archives.
@@ -170,7 +55,11 @@ fn archives_in(dir: &Path) -> io::Result<Vec<Archive>> {
         Ok(entries) => entries
             .filter_map(Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")))
+            .filter(|p| {
+                p.is_file()
+                    && p.extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case(archive::EXTENSION))
+            })
             .collect(),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(e),
@@ -197,23 +86,12 @@ impl Layers {
 
     /// `path` relative to the assets, as the archives name it, if it is in them.
     fn relative(&self, path: &Path) -> Option<String> {
-        let relative = path.strip_prefix(&self.root).unwrap_or(path);
-        if relative.is_absolute() {
-            return None;
-        }
-        Some(relative.to_string_lossy().replace('\\', "/"))
+        name_of(path.strip_prefix(&self.root).unwrap_or(path))
     }
 
-    /// The first archive's entry for the relative path `name`.
-    fn find(&self, name: &str) -> Option<(&Archive, Entry)> {
-        self.archives
-            .iter()
-            .find_map(|archive| archive.entries.get(name).map(|&e| (archive, e)))
-    }
-
-    /// The data of `name`, relative to the assets, from the archives.
+    /// The data of `name`, relative to the assets, from the first archive that has it.
     fn archived(&self, name: &str) -> Option<io::Result<Vec<u8>>> {
-        self.find(name).map(|(archive, entry)| archive.read(entry))
+        self.archives.iter().find_map(|archive| archive.read(name))
     }
 
     /// The data of `path`: the loose file's, else an archive's.
@@ -231,7 +109,7 @@ impl Layers {
         path.exists()
             || self
                 .relative(path)
-                .is_some_and(|name| self.find(&name).is_some())
+                .is_some_and(|name| self.archives.iter().any(|a| a.contains(&name)))
     }
 
     /// The names directly in the directory `dir`, loose or archived, sorted.
@@ -251,7 +129,7 @@ impl Layers {
                 format!("{}/", prefix.trim_end_matches('/'))
             };
             for archive in &self.archives {
-                for name in archive.entries.keys() {
+                for name in archive.names() {
                     if let Some(rest) = name.strip_prefix(&prefix) {
                         found = true;
                         let first = rest.split('/').next().unwrap_or(rest);
@@ -390,9 +268,7 @@ impl AssetFiles {
 
 /// An archived asset's data, by its path relative to the assets.
 fn archived(path: &Path) -> Option<Vec<u8>> {
-    let layers = layers()?;
-    let name = path.to_string_lossy().replace('\\', "/");
-    layers.archived(&name)?.ok()
+    layers()?.archived(&name_of(path)?)?.ok()
 }
 
 impl AssetReader for AssetFiles {
@@ -437,11 +313,14 @@ impl AssetReader for AssetFiles {
             return Ok(true);
         }
         Ok(layers().is_some_and(|layers| {
-            let name = format!("{}/", path.to_string_lossy().replace('\\', "/"));
+            let Some(name) = name_of(path) else {
+                return false;
+            };
+            let name = format!("{name}/");
             layers
                 .archives
                 .iter()
-                .any(|a| a.entries.keys().any(|k| k.starts_with(&name)))
+                .any(|a| a.names().any(|k| k.starts_with(&name)))
         }))
     }
 }
@@ -451,53 +330,12 @@ mod tests {
     use super::*;
 
     /// A ZIP of `files`, the even ones stored and the odd ones deflated.
-    fn zip(files: &[(&str, &[u8])]) -> Vec<u8> {
-        let mut out = Vec::new();
-        let mut central = Vec::new();
+    fn zip(path: &Path, files: &[(&str, &[u8])]) {
+        let mut writer = archive::Writer::create(path).unwrap();
         for (index, (name, data)) in files.iter().enumerate() {
-            let deflated = index % 2 == 1;
-            let stored = if deflated {
-                miniz_oxide::deflate::compress_to_vec(data, 6)
-            } else {
-                data.to_vec()
-            };
-            let method: u16 = if deflated { DEFLATED } else { STORED };
-            let header = u32::try_from(out.len()).unwrap();
-            let name_length = u16::try_from(name.len()).unwrap();
-            let compressed = u32::try_from(stored.len()).unwrap();
-            let size = u32::try_from(data.len()).unwrap();
-            out.extend_from_slice(&LOCAL.to_le_bytes());
-            out.extend_from_slice(&[20, 0, 0, 0]);
-            out.extend_from_slice(&method.to_le_bytes());
-            out.extend_from_slice(&[0; 8]);
-            out.extend_from_slice(&compressed.to_le_bytes());
-            out.extend_from_slice(&size.to_le_bytes());
-            out.extend_from_slice(&name_length.to_le_bytes());
-            out.extend_from_slice(&[0, 0]);
-            out.extend_from_slice(name.as_bytes());
-            out.extend_from_slice(&stored);
-            central.extend_from_slice(&CENTRAL.to_le_bytes());
-            central.extend_from_slice(&[20, 0, 20, 0, 0, 0]);
-            central.extend_from_slice(&method.to_le_bytes());
-            central.extend_from_slice(&[0; 8]);
-            central.extend_from_slice(&compressed.to_le_bytes());
-            central.extend_from_slice(&size.to_le_bytes());
-            central.extend_from_slice(&name_length.to_le_bytes());
-            central.extend_from_slice(&[0; 12]);
-            central.extend_from_slice(&header.to_le_bytes());
-            central.extend_from_slice(name.as_bytes());
+            writer.add(name, data, index % 2 == 1).unwrap();
         }
-        let offset = u32::try_from(out.len()).unwrap();
-        let count = u16::try_from(files.len()).unwrap();
-        out.extend_from_slice(&central);
-        out.extend_from_slice(&END.to_le_bytes());
-        out.extend_from_slice(&[0; 4]);
-        out.extend_from_slice(&count.to_le_bytes());
-        out.extend_from_slice(&count.to_le_bytes());
-        out.extend_from_slice(&u32::try_from(central.len()).unwrap().to_le_bytes());
-        out.extend_from_slice(&offset.to_le_bytes());
-        out.extend_from_slice(&[0, 0]);
-        out
+        writer.finish().unwrap();
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -512,21 +350,19 @@ mod tests {
     fn a_path_takes_the_first_layer_that_has_it() {
         let root = scratch("layers");
         let text = b"( voices: [] )".repeat(20);
-        fs::write(
-            root.join("data.zip"),
-            zip(&[
+        zip(
+            &root.join("data.zip"),
+            &[
                 ("tables/items.ron", b"[]"),
                 ("tables/voices.ron", &text),
                 ("tables/balance.ron", b"base"),
-            ]),
-        )
-        .unwrap();
+            ],
+        );
         fs::create_dir_all(root.join(OVERLAYS)).unwrap();
-        fs::write(
-            root.join(OVERLAYS).join("mod.zip"),
-            zip(&[("tables/balance.ron", b"overlay")]),
-        )
-        .unwrap();
+        zip(
+            &root.join(OVERLAYS).join("mod.zip"),
+            &[("tables/balance.ron", b"overlay")],
+        );
         fs::create_dir_all(root.join("tables")).unwrap();
         fs::write(root.join("tables/items.ron"), "loose").unwrap();
         let layers = Layers::open(&root).unwrap();
@@ -542,6 +378,14 @@ mod tests {
         );
         assert_eq!(layers.read(&root.join("tables/voices.ron")).unwrap(), text);
         assert!(layers.exists(&root.join("tables/voices.ron")));
+        // A path through `..`, as the world names its atlases.
+        assert_eq!(
+            layers
+                .read(&root.join("world/../tables/voices.ron"))
+                .unwrap(),
+            text
+        );
+        assert_eq!(name_of(Path::new("../tables")), None);
         assert!(!layers.exists(&root.join("tables/none.ron")));
         assert!(layers.read(&root.join("tables/none.ron")).is_err());
         let names: Vec<String> = layers
