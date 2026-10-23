@@ -344,34 +344,44 @@ fn fade(h: f32, [s1, s2]: [f32; 2]) -> f32 {
 }
 
 /// A creature's regeneration (`0x562730`): its value (`+0x138`) and what it has gathered toward
-/// its next health.
+/// its next health (`+0x13C`, a whole number).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Regenerates {
     pub value: f32,
-    kept: f32,
+    kept: u32,
 }
 
 impl Regenerates {
     pub fn new(value: f32) -> Self {
-        Self { value, kept: 0.0 }
+        Self { value, kept: 0 }
     }
 
-    /// Gathers `value · rate · seconds` and gives the health it makes: each 4,096 one, the
-    /// remainder kept the low ten bits of what was gathered when it gives any (the original's
-    /// mask `0x3FF`, not `0xFFF`).
-    pub fn gather(&mut self, rate: f32, seconds: f32) -> u32 {
-        self.kept += self.value * rate * seconds;
-        let gathered = whole(self.kept);
-        if gathered < 4096 {
+    /// Gathers `value · rate · seconds`, the seconds of the world's tick, and gives the health it
+    /// makes (`0x562730`): the sum with what was kept taken whole at each tick, each 4,096 of it
+    /// one health, the remainder kept the low ten bits of what was gathered when it gives any
+    /// (the original's mask `0x3FF`, not `0xFFF`), so that a tick's step above 1,024 loses its
+    /// overshoot's 1,024s (#616). A creature at its most health, `full`, or at 0 gathers
+    /// nothing and keeps nothing.
+    pub fn gather(&mut self, rate: f32, seconds: f32, full: bool) -> u32 {
+        if full {
+            self.kept = 0;
             return 0;
         }
-        self.kept = to_f32(gathered & 0x3FF);
+        let gathered = whole_f64(
+            f64::from(self.value) * f64::from(rate) * f64::from(seconds) + f64::from(self.kept),
+        );
+        if gathered < 4096 {
+            self.kept = gathered;
+            return 0;
+        }
+        self.kept = gathered & 0x3FF;
         gathered >> 12
     }
 }
 
 /// The regeneration value of a creature of `base` at level `level` (`0x5796A0`): `2·a3`, its
-/// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`).
+/// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`), taken
+/// whole (`+0x138` is a whole number, which the skill's case stores with `_ftol`).
 pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules) -> f32 {
     let b3 = u32::from(base.attributes[3]);
     let value = to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10));
@@ -380,7 +390,7 @@ pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules
         .filter(|&&(skill, _)| skill == 10)
         .map(|&(_, at)| curve(rules.curves.regeneration, at) / 100.0)
         .sum();
-    value * (1.0 + skill)
+    to_f32(whole(value * (1.0 + skill)))
 }
 
 /// How near its nearest hostile puts the hero in the fight, in world units: the client's
@@ -2189,12 +2199,12 @@ mod tests {
         // The skill 8 raises the attack and the defence, truncated: 24.5 · 1.07 and 30.2 · 1.13.
         let trained = combat(&wolf, 10, Holds::default(), &[(8, 1)], &rules);
         assert!(near(trained.attack, 26.0) && near(trained.defence, 34.0));
-        // The skill 10 the regeneration: 44 · 1.06.
+        // The skill 10 the regeneration: 44 · 1.06, 46.64 taken whole (#616).
         let base = Base {
             attributes: [0, 0, 0, 22, 0, 0],
             ..Base::default()
         };
-        assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.64).abs() < 1e-3);
+        assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.0).abs() < 1e-3);
     }
 
     #[test]
@@ -2391,9 +2401,37 @@ mod tests {
         let mut regenerates = Regenerates::new(44.0);
         // 44 · 128 a second: 5,632 after one, a health and 5,632 − 4,096 = 1,536 kept as its
         // low ten bits, 512.
-        assert_eq!(regenerates.gather(128.0, 0.5), 0);
-        assert_eq!(regenerates.gather(128.0, 0.5), 1);
-        assert!((regenerates.kept - 512.0).abs() < 1e-3);
+        assert_eq!(regenerates.gather(128.0, 0.5, false), 0);
+        assert_eq!(regenerates.gather(128.0, 0.5, false), 1);
+        assert_eq!(regenerates.kept, 512);
+        // At its most it keeps nothing.
+        assert_eq!(regenerates.gather(128.0, 0.5, true), 0);
+        assert_eq!(regenerates.kept, 0);
+    }
+
+    #[test]
+    fn the_ticks_mask_takes_the_overshoot_of_a_fast_regeneration() {
+        // The Seraphim of level 30 alone (#616): 170 · 128 = 21,760 a second, on ticks of 6 and 7
+        // frames, 0.1 and 0.1167 s. Each tick adds 2,176 or 2,538 and each 4,096 crossed keeps
+        // only its overshoot's low ten bits: about 4.6 a second where 5.31 would be gathered, as
+        // the original's 4.55 measured.
+        let mut regenerates = Regenerates::new(170.0);
+        let (mut seconds, mut gained) = (0.0, 0);
+        for tick in 0..200 {
+            let step = if tick % 2 == 0 { 0.1 } else { 0.116_666_67 };
+            seconds += step;
+            gained += regenerates.gather(128.0, step, false);
+        }
+        let rate = f64::from(gained) / f64::from(seconds);
+        assert!((4.4..4.8).contains(&rate), "{rate}");
+        // The Seraphim of level 1 (44) adds below 1,024 a tick and loses only the fractions.
+        let mut regenerates = Regenerates::new(44.0);
+        let gained: u32 = (0..200)
+            .map(|tick| {
+                regenerates.gather(128.0, if tick % 2 == 0 { 0.1 } else { 0.116_666_67 }, false)
+            })
+            .sum();
+        assert_eq!(gained, 29);
     }
 
     #[test]
