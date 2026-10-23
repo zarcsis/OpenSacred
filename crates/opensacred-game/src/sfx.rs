@@ -46,6 +46,8 @@ const FIST: u32 = 502;
 pub struct Sfx {
     /// Each profile's groups: the variants' sound ids and sample files.
     profiles: HashMap<u32, Vec<Vec<(u32, String)>>>,
+    /// The sound ids and sample files by the original's names (`SOUND_FX_HITENEMY_01_SERA`).
+    named: HashMap<String, (u32, String)>,
     samples: HashMap<u32, Handle<AudioSource>>,
     pub(crate) dice: Rng,
 }
@@ -79,8 +81,17 @@ impl Sfx {
                 (profile.slot, groups)
             })
             .collect();
+        let named = sound
+            .names
+            .iter()
+            .filter_map(|n| {
+                let file = files.get(&n.id)?;
+                Some((n.name.clone(), (n.id, format!("sound/{file}"))))
+            })
+            .collect();
         Ok(Self {
             profiles,
+            named,
             samples: HashMap::new(),
             dice: Rng::of(0, 0, 4),
         })
@@ -95,6 +106,11 @@ impl Sfx {
         }
         let slot = usize::try_from(self.dice.below(SLOTS)).ok()?;
         variants.get(slot % variants.len()).cloned()
+    }
+
+    /// The sound id and the sample file of the sound named `name`.
+    pub fn named(&self, name: &str) -> Option<(u32, String)> {
+        self.named.get(name).cloned()
     }
 
     /// The sample of the sound `id`, loaded from `file` once.

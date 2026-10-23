@@ -294,6 +294,7 @@ fn make(
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut hits: MessageWriter<fight::Hit>,
+    mut cries: MessageWriter<crate::voices::BattleCry>,
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
@@ -392,6 +393,8 @@ fn make(
                 "making: the hero makes {} ({style:?}) at level {level}, its factor {factor}",
                 making.art
             );
+            // The hero's battle cry (`0x67A7A0`'s event 5, `0x693FE0`, #713).
+            cries.write(crate::voices::BattleCry { hero });
             commands.entity(hero).insert(Playing {
                 style,
                 node,
