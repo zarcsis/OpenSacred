@@ -172,6 +172,8 @@ impl Stats {
             fight::Rank::Common => {}
             fight::Rank::Champion => head.push_str(" champion"),
             fight::Rank::Boss => head.push_str(" boss"),
+            // A champion's levelling alone, which the original's lists show as nothing (#621).
+            fight::Rank::Levelled => head.push_str(" levelled"),
         }
         let mut lines = vec![head];
         if let Some(attributes) = self.attributes {

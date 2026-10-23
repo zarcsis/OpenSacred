@@ -108,20 +108,27 @@ pub fn level_of(points: u64, current: u32) -> u32 {
 }
 
 /// A creature's rank (docs/re/fight.md, "Bosses and champions"): a boss (`+0x1F4` bit
-/// `0x80000`), a champion (`+0x2B8` bit `0x40`), or neither.
+/// `0x80000`), a champion (`+0x2B8` bit `0x40`, with a champion's levelling, `+0xB0` bit
+/// `0x400`), a champion's levelling alone, or neither.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Rank {
     #[default]
     Common,
     Boss,
     Champion,
+    /// A champion's levelling without the champion's mark (#621): a fill's 343 or 212, made at
+    /// the marker level 1 and levelled at its first fight as a champion is, with the champions'
+    /// drops' bonus and none of the factors of the levels (#615); the factors of its health, its
+    /// attack and defence and the drop's chance, which the mark gates, are a common creature's.
+    Levelled,
 }
 
 impl Rank {
     /// The rank of a fill's creature of type `creature` (`FillSector`, `0x47E6B7`): the types
-    /// 203, 342 and 349 champions; 37, 48, 55 and 84 a boss or a champion by a coin, 127 and 49
-    /// so in one case of two; else, `hostile` to the hero, a champion when a roll of 0 to 1,000
-    /// is below `HarteSau`.
+    /// 203, 342 and 349 champions; 343 and 212 a champion's levelling alone (`0x47E6F3`, after a
+    /// roll of 5 for 343 that changes nothing); 37, 48, 55 and 84 a boss or a champion by a coin,
+    /// 127 and 49 so in one case of two; else, `hostile` to the hero, a champion when a roll of 0
+    /// to 1,000 is below `HarteSau`.
     pub fn of_fill(creature: u32, hostile: bool, rng: &mut Rng, rules: &Rules) -> Self {
         let coin = |rng: &mut Rng| {
             if rng.below(2) == 1 {
@@ -132,6 +139,7 @@ impl Rank {
         };
         match creature {
             203 | 342 | 349 => Self::Champion,
+            343 | 212 => Self::Levelled,
             37 | 48 | 55 | 84 => coin(rng),
             127 | 49 if rng.below(2) == 0 => coin(rng),
             _ if hostile && to_f32(rng.below(1001)) < rules.ranks.champions => Self::Champion,
@@ -151,8 +159,10 @@ impl Rank {
     }
 
     /// Its level, made at the hero's level `hero` (`0x550E50`): the hero's plus `LevelUpBoss` or
-    /// `LevelUpChamp`, at least `OffLevel` plus the sector's lowest, and unless its type is big at
-    /// most `LevelKap` plus the sector's highest plus the same; a common creature's `level`.
+    /// `LevelUpChamp` (a champion's levelling alone too, which the strike levels as it does a
+    /// champion, `0x56B682`), at least `OffLevel` plus the sector's lowest, and unless its type is
+    /// big at most `LevelKap` plus the sector's highest plus the same; a common creature's
+    /// `level`.
     pub fn level(
         self,
         level: u32,
@@ -164,7 +174,7 @@ impl Rank {
         let up = match self {
             Self::Common => return level,
             Self::Boss => rules.ranks.level_up[0],
-            Self::Champion => rules.ranks.level_up[1],
+            Self::Champion | Self::Levelled => rules.ranks.level_up[1],
         };
         let mut target = hero + up;
         let top = rules.ranks.cap + values.highest + up;
@@ -178,7 +188,7 @@ impl Rank {
     /// the types 701, 137 and 53, 1.8 times for a creature of class 10 on bronze.
     pub fn health(self, creature: u32, class: u8, rules: &Rules) -> f32 {
         let factor = match self {
-            Self::Common => return 1.0,
+            Self::Common | Self::Levelled => return 1.0,
             Self::Boss => rules.ranks.health[0],
             Self::Champion => rules.ranks.health[1],
         };
@@ -192,17 +202,18 @@ impl Rank {
     /// Its attack's and its defence's factors (`0x56B9AC`): `AWFak…` and `VWFak…`.
     pub fn fight(self, rules: &Rules) -> [f32; 2] {
         match self {
-            Self::Common => [1.0, 1.0],
+            Self::Common | Self::Levelled => [1.0, 1.0],
             Self::Boss => rules.ranks.fight[0],
             Self::Champion => rules.ranks.fight[1],
         }
     }
 
     /// Its kill's factor of the experience (`0x57D860`): twice for a boss, 1.5 times for a
-    /// champion.
+    /// champion; a champion's levelling alone a common creature's (**hypothesis**: which bit
+    /// gives the factor is not read, #621).
     pub fn experience(self) -> f32 {
         match self {
-            Self::Common => 1.0,
+            Self::Common | Self::Levelled => 1.0,
             Self::Boss => 2.0,
             Self::Champion => 1.5,
         }
@@ -3203,6 +3214,39 @@ mod tests {
             .count();
         assert!((120..290).contains(&champions), "{champions}");
         assert!((0..1000).all(|_| Rank::of_fill(76, false, &mut rng, &rules) == Rank::Common));
+    }
+
+    #[test]
+    fn a_fills_343_and_212_take_a_champions_levelling_alone() {
+        // `FillSector` makes them at the marker level 1 with `+0xB0` bit `0x400` and no mark,
+        // hostile or not (#621).
+        let rules = Rules::default();
+        let mut rng = Rng::of(50, 39, 0);
+        for (creature, hostile) in [(343, true), (343, false), (212, true), (212, false)] {
+            assert_eq!(
+                Rank::of_fill(creature, hostile, &mut rng, &rules),
+                Rank::Levelled
+            );
+        }
+        // The strike levels it as a champion; the mark's factors stay a common creature's.
+        let values = SpawnValues {
+            density: 50,
+            lowest: 4,
+            highest: 7,
+        };
+        assert_eq!(
+            Rank::Levelled.level(1, 5, &values, false, &rules),
+            Rank::Champion.level(1, 5, &values, false, &rules)
+        );
+        assert_eq!(Rank::Levelled.health(343, 2, &rules), 1.0);
+        assert_eq!(Rank::Levelled.fight(&rules), [1.0, 1.0]);
+        assert_eq!(Rank::Levelled.experience(), 1.0);
+        // Its strikes at the hero skip the factor of its level, as a champion's do (#615).
+        assert_eq!(
+            weapons_factor(Some(Side::Defender), 1, Rank::Levelled, &rules),
+            1.0
+        );
+        assert!(weapons_factor(Some(Side::Defender), 1, Rank::Common, &rules) < 1.0);
     }
 
     #[test]
