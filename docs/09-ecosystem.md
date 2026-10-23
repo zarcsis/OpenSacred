@@ -141,7 +141,7 @@ That is why the new engine renders at native resolution with a configurable zoom
 ### 2.5 Multiplayer
 
 The official lobby does not work; the community plays over LAN via VPN and through its own lobby servers.
-For this project, networking is out of scope.
+For this project, multiplayer comes after version 1.0 (PLAN.md ADR-09).
 
 ## 3. Community projects
 
@@ -155,8 +155,8 @@ For this project, networking is out of scope.
 | **karolak6612/open-grn** | C++20 / MIT | 6 commits, all on 2026-08-31; 1 PR with no response; 14★ | a `granny.dll` 1.2b reimplementation: container, poses, multi-track animation, ADSR blending, D3D skinning, textures, VFS; `grn_dump.py`, `grn_unpack.py`; 105 exports = 101 Granny + 4 internal `_Bink_*` | a reference on the format and the animation semantics (`control.cpp`: parameters 0–8) for an approximate mapping onto Bevy; its code is not used | described by its README as an AI-assisted proof of concept; tests without asserts against the original |
 | **ancaria-dev/grn2glb** | C++ / MIT; VTex codec LGPL-2.1-or-later | 33 commits, 2026-09-06 → 2026-10-01; no releases | GRN parser (`grn_parser.cpp` ≈530 lines): 1,571 models, 1,009 skinned; VTex decoder (≈500 lines, derived from FFmpeg `bink.c`); C ABI | a reference for our Granny parser: tag tables and the reading order of the MIT core, with the notice in `THIRD-PARTY-NOTICES.md`; the LGPL VTex codec is not used (FFmpeg runs as an external program) | 1/1,571 animations make it into the GLB; deformation in pose is not verified |
 | **maci0/openmiles** | Zig 0.16 / GPL-3.0 | 679 commits, 0.4.0 from 2026-09-29; 8★ | a drop-in `mss32.dll` for MSS v3–v9 (`-Dmss-version=6`), miniaudio + TinySoundFont, MP3/OGG/WAV, 3D, timers | a reference for `AIL_*` semantics when recreating the sound logic; no code is used | 0.x with no guarantees; tested on Europa 1400, not on Sacred; Zig is not part of our stack |
-| **kryotek777/Sacred-Gold-LobbyServer** | C# / .NET 10 / AGPL-3.0 | March 2025 → April 2026, 180 commits; 47★ | TinCat2/CUSTOMDATA lobby, string obfuscation, OpenNet/ClosedNet (characters on the server, a separate `SacredClosedNet.exe`), WebAPI and a panel; a public instance | not used: networking is out of scope | AGPL-3 |
-| **stefanwerfling/sacredbamboo** | TypeScript / GPL-3.0 | 24 commits, 2026 | all 56 `SacredMsgType` on the wire, ≈2/3 of the handlers, a game-server skeleton | not used: networking is out of scope | GPL-3.0 |
+| **kryotek777/Sacred-Gold-LobbyServer** | C# / .NET 10 / AGPL-3.0 | March 2025 → April 2026, 180 commits; 47★ | TinCat2/CUSTOMDATA lobby, string obfuscation, OpenNet/ClosedNet (characters on the server, a separate `SacredClosedNet.exe`), WebAPI and a panel; a public instance | not used before multiplayer, after version 1.0; then facts only | AGPL-3 |
+| **stefanwerfling/sacredbamboo** | TypeScript / GPL-3.0 | 24 commits, 2026 | all 56 `SacredMsgType` on the wire, ≈2/3 of the handlers, a game-server skeleton | not used before multiplayer, after version 1.0; then facts only | GPL-3.0 |
 | **Aytackydln/SacredEngineRemake** | C# (.NET, Avalonia, DX12) / **no license** | 119 commits, the last on 2026-10-12; 7★ | a coverage report of 38 file patterns / 65 StructLayouts; the type table in the exe (VA 0x8EC328, 5,624 × 0x44); a managed Granny 1 parser + an x64 DLL backend; sector and minimap rendering, GPU particles, HUD; TinCat Frame/Codec/Checksum/Login, LAN admission | not used | no license: all rights reserved |
 | **sonicmouse/SacredGameTools** | C++ (2005) / MIT (2022) | 3 commits | save format, layout of `TINCAT2.DLL` 2.0.24 (according to sacred-sdk) | historical cross-check of formats | an old TinCat version |
 | **S22F5/GhidraExports** | XML | 2020 | `granny.exports`, a library definition for Ghidra (101 exports) | import into the local Ghidra project | — |
@@ -183,7 +183,7 @@ The new plan estimates the interpreter and semantics at 40–80 agent-hours (doc
 
 **Networking.**
 The TinCat-2 transport (28 B frame, CRC32 of the body), the lobby (56 message types, obfuscation) and the UDP announcement are described and implemented in three codebases (C#, TS, C++).
-The game protocol on top of them is not described: ≥107 packet names are known from error strings, the real enum is estimated at 110–140 types; the project does not need it, since networking is out of scope.
+The game protocol on top of them is not described: ≥107 packet names are known from error strings, the real enum is estimated at 110–140 types; the project needs it only if multiplayer, after version 1.0, speaks the original's protocol (PLAN.md §13).
 
 **Localization and saves.**
 `sacred_hash` from sacred-sdk reproduces 946/947 numeric `res:N` references and 12,965/23,123 `global.res` ids from the shipped names (the rest are hashes of names from unshipped sources); the file is plain UTF-16LE.
@@ -203,8 +203,8 @@ OpenSacred's code is MIT OR Apache-2.0 (docs/08 §3).
 | open-grn | MIT | **no by policy**: a reference on the format and the semantics; its code is not used | — |
 | sacred-bild | GPL-3.0 | **no** | function names only, in a local Ghidra project, never committed |
 | OpenMiles | GPL-3.0 | **no** | a reference on `AIL_*` semantics only |
-| kryotek | AGPL-3.0 | **no** | not used: networking is out of scope |
-| sacredbamboo | GPL-3.0 | **no** | not used: networking is out of scope |
+| kryotek | AGPL-3.0 | **no** | not used before multiplayer, after version 1.0; then facts only |
+| sacredbamboo | GPL-3.0 | **no** | not used before multiplayer, after version 1.0; then facts only |
 | SacredEngineRemake, ptasev/Age-of-Mythology (GRN node names) | no license | **no** | not used |
 | Unicorn (`unicorn-engine`) | GPL-2.0 | **no** | only in `opensacred-oracle`, a separate development-only crate, never linked into the converter or the game: GPL-2.0 cannot be combined with Apache-2.0 |
 | Leaked or unlicensed code, builds or SDKs | — | **no** | never used |
@@ -283,7 +283,7 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 * **Bridge → standalone exe**: TR2X 8 months, TR1X 10 months, OpenRCT2 ≈2.75 years, KeeperFX 15 years.
   The spread is explained not by the size of the game but by whether there is an exit criterion and comparison infrastructure.
   The plan has no bridge: the game is written from the start as its own Rust executable.
-* **Client and server on a shared engine**: fallout1-ce took ≈8 months after fallout2-ce; Sacred has 1,176 game functions and 258 classes shared; for our project this means that `GameServer.exe` is useful as an auxiliary binary during analysis, while the server itself is not reimplemented.
+* **Client and server on a shared engine**: fallout1-ce took ≈8 months after fallout2-ce; Sacred has 1,176 game functions and 258 classes shared; for our project this means that `GameServer.exe` is useful as an auxiliary binary during analysis, while the server itself is not reimplemented: multiplayer comes after version 1.0 and is written anew (PLAN.md ADR-09).
 
 ### 5.3 How comparable projects handled each subsystem
 
@@ -295,7 +295,7 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 | Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | Bevy's text (parley), the original TTFs; a free Unicode font (Noto) planned |
 | Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira + Symphonia; sounds are converted to FLAC |
 | Video | Smacker libraries (isle); most skip cutscenes | AV1 via FFmpeg during conversion, rav1d during playback; skipping |
-| Networking | ZeroTier + TCP (DevilutionX 1.3); custom (OpenRCT2); absent (swars) | we do not do it: networking is out of scope |
+| Networking | ZeroTier + TCP (DevilutionX 1.3); custom (OpenRCT2); absent (swars) | after version 1.0 (PLAN.md ADR-09, §13) |
 | Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | a fixed simulation step in `opensacred-rules` (#364; whether the game takes one is open), rendering at the monitor refresh rate; today the rules run in `opensacred-game` on each frame's time, with no fixed step |
 | Saves | Julius: compatibility with the original in both directions | not needed for us: our own save format (docs/06, §6) |
 

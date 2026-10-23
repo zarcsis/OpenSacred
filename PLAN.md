@@ -18,7 +18,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 * **Engine: Bevy 0.20 on wgpu** (Vulkan on Windows, Linux and Android; WebGPU in Chrome).
   The game rules live in a separate crate with no engine dependency, so if needed we can switch to Godot with godot-rust without losing the logic.
   Unreal Engine and Godot with C++ were considered and rejected (§5).
-* **Nothing networked:** no server, no multiplayer, no lobby.
+* **Multiplayer after version 1.0:** until then nothing networked, no server and no lobby, but nothing that rules multiplayer out (ADR-09).
   Compatibility with the original saves is not needed.
 * **Only free tools and dependencies:** Ghidra 12.1 with an MCP server for Claude Code, Rust, Visual Studio Build Tools 2026, Vulkan SDK, Unicorn, FFmpeg, Blender, RenderDoc.
 * **Solo development, almost entirely through Claude Code.**
@@ -35,7 +35,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 |---|---|
 | The main goal is to play comfortably on modern hardware | The success criterion is completing the Sacred and Underworld campaigns in 4K without crashes, not matching the original |
 | Fidelity to the original is not a priority; modern improvements are acceptable | No byte-for-byte matching, no VC6, no determinism requirements; behavior may be redesigned |
-| No server or network components are planned | Network code, TinCat, lobby, `GameServer.exe` as a target: out of scope |
+| Multiplayer after version 1.0 (changed 2026-10-23: no network components were planned before) | No network code, TinCat, lobby or server before 1.0; the game is built so that a host can later run it for several players (ADR-09) |
 | Work only with the GOG version | The reference is GOG ENG 2.28; the tools read the user's own installation |
 | The game does not have to read the original formats and saves | An offline converter into open formats; the runtime reads only those; HD and upscale packs in the future |
 | Solo development almost entirely through Claude Code | Estimates in agent-hours and tokens; the process is built around tests and text artifacts |
@@ -56,8 +56,9 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings, gamepad; 4K and HiDPI; a playthrough without critical bugs |
 | G6 | HD assets | The upscale pipeline produces HD packs that the game picks up on top of the base assets |
 | G7 | Other platforms | Linux: the same functionality; Android and Chrome: by a separate decision after G5 |
+| G8 | Multiplayer | After G5: the Sacred and Underworld campaigns played together over the network; how is decided when the work starts (§13) |
 
-**Out of scope:** multiplayer, server, lobby; loading the original saves; byte-for-byte compatibility; the Steam version; macOS and iOS; publishing the game assets in any form.
+**Out of scope:** networking before version 1.0 (multiplayer comes after it, G8); loading the original saves; byte-for-byte compatibility; the Steam version; macOS and iOS; publishing the game assets in any form.
 
 ## 2. What is already known
 
@@ -90,7 +91,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 | ADR-06 Graphics and 4K | Rendering at native resolution through wgpu (Vulkan by default on Windows, DX12 as fallback); an orthographic camera with the original's angle and adjustable zoom; the ground is real 3D terrain from a heightmap; scalable UI; HD packs on top of the base assets | The original is bound by the CPU and by 1024×768, not by the GPU; a modern renderer removes both limits |
 | ADR-07 Sound, input, video | Kira via `bevy_kira_audio` with Symphonia decoders (pure Rust); Bevy input with key remapping and gamepad; video: AV1 with the rav1d decoder, the HTML video element in the browser | Everything is free and builds for Windows, Linux, Android and WebAssembly |
 | ADR-08 Saves and settings | Our own versioned save format (serde, RON or postcard); settings in TOML in the user directory | The original saves are not needed; a modern format is easier to debug |
-| ADR-09 Network | Not done: no server, no multiplayer; `GameServer.exe` is used only as an auxiliary binary when analyzing shared functions | Requirement (§1.1) |
+| ADR-09 Network | Multiplayer after version 1.0 (M9), no network code, server or lobby before it; until then the game does not rule it out: the rules stay apart from the engine (ADR-04), the world's state lives in the rules and the ECS rather than in presentation or input, and the scripts run on the host, as in the original (docs/02 §7.5); `GameServer.exe` is an auxiliary binary when analyzing shared functions, and a reference for the server's part once M9 starts | Requirement (§1.1), changed 2026-10-23 |
 | ADR-10 Tools | Free only: Ghidra 12.1 + pyghidra-mcp (GhidraMCP 2.0 as the alternative with the GUI), Unicorn (emulating the original's functions for tests), Frida (driving the running original for Claude Code, #448), x64dbg, dgVoodoo2 (optional), RenderDoc, Vulkan SDK 1.4, Blender, FFmpeg, Visual Studio Build Tools 2026 | Requirement (§1.1); IDA Pro and Binary Ninja are excluded |
 | ADR-11 Process | Claude Code as the main executor: `CLAUDE.md` with rules, MCP to Ghidra, tests as guardrails (converter golden data, oracle vectors, screenshot tests), small tasks, maintainer review | Solo development; quality rests on automated checks, not on manual review of every line |
 | ADR-12 Repository and legal | The repository is public and holds no game bytes: no game files, converted assets, HD packs or dumps, in the repository or in CI; users supply their own GOG copy and run the converter locally; converted output is never published (§12, docs/08) | The game belongs to the rights holder; every user needs their own copy |
@@ -323,6 +324,7 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
 | M7 HD assets | upscaling, HD packs, mipmaps | 15–30 | 10–30 |
 | M8 Platforms | Linux 5–10; Android 25–50; Chrome (WebAssembly) 25–50 | 55–110 | 20–40 |
+| M9 Multiplayer | the campaigns played together over the network: the protocol, a host or a server, joining a game, the multiplayer script trees (docs/02 §7.2) | not estimated (§13) | not estimated |
 
 ### 9.3 Money and calendar (estimate)
 
@@ -473,6 +475,7 @@ The daily dependency check opens a `deps` issue for every newer incompatible rel
 | Maintainer burnout | medium | high | the vertical slice gives a visible result early; milestones are short |
 | Claude Code misunderstands the original's behavior | medium | medium | vector tests, screenshot tests, the decision log; Claude Code's own observations of the running original (#448); maintainer review of key formulas |
 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests use synthetic data or the user's local installation; the same rules for issues and pull requests (§12) |
+| The single-player game makes multiplayer expensive after 1.0 | medium | medium | ADR-09: the rules apart from the engine, the world's state in the rules and the ECS, the scripts run on the host |
 
 ## 12. Legal and asset policy
 
@@ -493,6 +496,7 @@ This is not legal advice.
 
 1. The actual cost of an agent-hour on the project's tasks (in tokens and at API prices): to be refined after 30 days.
 2. Whether Android and the web are needed: a decision after version 1.0.
+3. How multiplayer is made after version 1.0 (M9): our own protocol between OpenSacred games or the original's (TinCat 2, docs/09 §3.2), so that the original clients could join; a host's game or a dedicated server; which network crate; its estimate.
 
 Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the channel order of format 6 textures (docs/02, §3.1), how completely the Granny animation curves carry over to glTF (all of them do, docs/02 §4.5); on 2026-10-17, where the image of the extensionless static templates of `Items.pak` lives (the `mixed.pak` sprite named at `+0x10`, docs/02 §3.3, §6.1).
 

@@ -18,7 +18,7 @@ The status of claims is marked with these words: **confirmed** — there is an a
 * On the order of **2,000–3,000 functions** need analysis: rules, items, AI, the script interpreter (§8).
   Rendering and sound are written anew, but what they show (the draw order, the liquids, the light by the hour, the music and the footsteps by the ground) is read off the code into `docs/re/`; UI, input, networking and the file layer are written from scratch without reading the original's code.
 * `GameServer.exe` is an auxiliary binary: 1,176 game functions (227 KB) are byte-identical to the client, which helps confirm function boundaries and classes.
-  The server itself is not ported: networking is out of scope.
+  The server itself is not ported: multiplayer comes after version 1.0 and is written anew (PLAN.md ADR-09).
 * Behavior details useful for the reimplementation: random numbers come from the MSVC CRT LCG; object positions are integers; x87 precision in the original was not fixed, so bit-exact results are not needed (§7).
 
 ## 1. Contents of the release
@@ -229,8 +229,8 @@ Client: 389 imports from 16 DLLs (41 `jmp [IAT]` thunks); 31 imports are loaded 
 | mss32.dll | 62 | 237 | 57 of 62 functions: streams (`AIL_set_stream_volume_pan` 27, `AIL_pause_stream` 24), 3D samples (`AIL_set_3D_position` 15) | Kira + Symphonia |
 | libxml2.dll | 12 | 154 | `xmlGetProp` 86, `xmlSetProp` 30: `guiconfig.xml` | not needed (new UI, settings in TOML) |
 | IMM32 | 10 | 70 | IME (`ImmGetCompositionStringW` 21) | IME via Bevy and winit |
-| tincat2.dll | 4 | 31 | `TinCat_GetBuildNumber` 19, `TinCat_Scramble` 8; the rest of the API is a virtual interface | not needed: no networking |
-| WS2_32 | 14 | 21 | UDP: `recvfrom`, `select` (LAN announce/ping 2005); `connect/send` only in the server | not needed: no networking |
+| tincat2.dll | 4 | 31 | `TinCat_GetBuildNumber` 19, `TinCat_Scramble` 8; the rest of the API is a virtual interface | not needed: networking comes after version 1.0 and is written anew |
+| WS2_32 | 14 | 21 | UDP: `recvfrom`, `select` (LAN announce/ping 2005); `connect/send` only in the server | not needed: networking comes after version 1.0 and is written anew |
 | ijl15.dll | 4 | 12 | JPEG | the `image` crate (converter) |
 | OLEAUT32 / ole32 | 5 / 4 | 13 / 5 | Excel OLE automation (the balancing tool, 0x5E6550 ≈ 16 KB: reads sheets and writes `defaults.h`/`xls_*.h`) and COM for `amstream` | not needed |
 | ADVAPI32 | 6 | 9 | registry: `Software\Microsoft\Direct3D` (PSGP), MSLU, writing a DirectPlay8 key without importing `dpnet.dll` | settings in TOML |
@@ -376,7 +376,7 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | UI | 987 / 572 KB | **not analyzed**: a new interface; only the formulas the UI displays are taken from the code |
 | Rendering, D3D7, fonts | 134 / 56 KB | **selective analysis**: what is drawn and in what order ([docs/re/drawing.md](re/drawing.md), [liquids.md](re/liquids.md), [daynight.md](re/daynight.md)), not the D3D7 calls, whose facts are in [docs/05-renderer-vulkan-4k.md](05-renderer-vulkan-4k.md) |
 | Sound | — | **selective analysis**: the choice of the music, the footsteps and the ambient loops ([docs/re/sound.md](re/sound.md)); the Miles layer is replaced |
-| Video, networking, files, IME | — | **not analyzed**: replaced or out of scope |
+| Video, networking, files, IME | — | **not analyzed**: replaced, networking after version 1.0 |
 | Libraries (CRT, STLport, zlib, D3DX7) | ≈2,750 | **not analyzed** |
 
 In total, on the order of 2,000–3,000 functions need analysis.

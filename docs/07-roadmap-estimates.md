@@ -134,6 +134,11 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 * Linux 5–10; Android 25–50; Chrome (WebAssembly) 25–50, by a separate decision.
 
+### M9. Multiplayer — not estimated yet
+
+* After version 1.0 (PLAN.md ADR-09): the Sacred and Underworld campaigns played together over the network; the protocol, a host or a server, joining a game, the multiplayer script trees.
+* Estimated once it is decided how it is made (PLAN.md §13): speaking the original's protocol, whose game messages nobody has described (docs/09 §3.2), costs far more than a protocol of our own.
+
 ## 3. Totals
 
 | Milestone | Agent-hours | Maintainer hours |
@@ -148,13 +153,14 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 | **To version 1.0** | **≈390–770** | **≈230–460** |
 | M7 | 15–30 | 10–30 |
 | M8 | 55–110 | 20–40 |
-| **Everything** | **≈460–910** | **≈260–530** |
+| M9 | not estimated | not estimated |
+| **Everything but M9** | **≈460–910** | **≈260–530** |
 
 ### 3.1 Money at API prices (estimate)
 
 The hypothetical cost of the same tokens at API prices, not money spent (see the note at the top):
 
-| Mode | To version 1.0 | Everything |
+| Mode | To version 1.0 | Everything but M9 |
 |---|---|---|
 | Claude Opus 5.5 only ($8–18/h) | ≈$3.1k–13.9k, center ≈$6k | ≈$3.7k–16.4k |
 | Claude Sonnet 5.5 only ($4–10/h) | ≈$1.6k–7.7k | ≈$1.8k–9.1k |
@@ -178,7 +184,7 @@ The duration is determined by the larger of the two: agent-hours ÷ agent pace, 
 ```text
 M0 → M1 (starting region) → M2 → M3 → M4 → M6
                  └→ M1 (rest) ─────┘   M5 in parallel with M3–M4
-M7 and M8 come after M6
+M7, M8 and M9 come after M6
 ```
 
 ## 4. The first 30 and 90 days
@@ -224,6 +230,7 @@ M7 and M8 come after M6
 1. The actual cost of an agent-hour on the project's tasks (in tokens and at API prices): after 30 days of tracking.
 2. The actual pace of function analysis: after the first 50 functions of M3.
 3. The decision on Android and the browser: after version 1.0.
+4. How multiplayer is made, and its estimate: when M9 starts (PLAN.md §13).
 
 ## Sources
 

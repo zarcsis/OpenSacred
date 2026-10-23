@@ -12,7 +12,7 @@
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
 * **Scripts:** NetScript bytecode is converted into an intermediate representation (IR); the interpreter will live in `opensacred-rules`.
   Until then `opensacred-game` places the NPCs and objects of the start script and of the sectors' `Init`, `Enter` and `FillSector` records.
-* **No networking:** no server, no multiplayer, no lobby; no Steam or GOG Galaxy integration is needed.
+* **Multiplayer after version 1.0** (PLAN.md ADR-09): until then no networking, no server, no lobby; no Steam or GOG Galaxy integration is needed.
 
 ## 1. Platforms
 
@@ -97,7 +97,7 @@ Movies are not needed to complete the game, so this is a low priority.
   Since #169 and #170 a `[debug]` section keeps whether the overlay (F3) and the log (F4) show.
   The game writes only the key it changes, through `toml_edit`, so the user's comments, order and unknown keys stay; a file that does not read is reported, the defaults are taken, and it is never written; an unknown key is reported.
   `--settings FILE` reads and writes another file, `--windowed`, `--borderless`, `--width` and `--height` override it for one run, and `--screenshot`, `--record` and `--benchmark` run in a window of the given size.
-  The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` are not needed (no networking).
+  The original's gameplay options are carried over by meaning: `AUTOTRACKENEMY`, `SHOWPOTIONS`, `PICKUPAUTO`, `NIGHT_DARKNESS`, `UNIQUE_COLOR`, `SHOW_ENEMYINFO`; `CHAT_*` wait for multiplayer, after version 1.0.
 * **The original saves** (`.pax`) are not supported.
   The hero templates `Templates/*.ptx` are converted into starter kits for character creation.
 
@@ -117,7 +117,7 @@ Estimate: 3–6 agent-hours (M1 and M5).
 
 ### 8.1 What is known
 
-* 20 script directories: `bin/TYPE_NPC_*` (8 classes) and `bin/NetScriptCamp` are the Sacred campaign; `bin/Addon/*` is Underworld (9 identical trees); `bin/NetScript` is multiplayer (not needed).
+* 20 script directories: `bin/TYPE_NPC_*` (8 classes) and `bin/NetScriptCamp` are the Sacred campaign; `bin/Addon/*` is Underworld (9 identical trees); `bin/NetScript` and `bin/Addon/NetScript` are multiplayer, converted with the rest and run once multiplayer comes, after version 1.0.
 * Records of the form "length u16, type u16, data"; the type space is 141, of which 113 occur in the release; 45 types cover 95% of the campaign records, 68 cover 99%.
 * The interpreter is in the client; the compiler's keyword resolvers in `.text`, with their strings in `.data`, name 135 of the 141 types.
 * Details: `docs/02-data-formats.md`, §7, and `docs/re/netscript.md`.
@@ -137,7 +137,7 @@ Estimate: 40–80 agent-hours (M1 and M4); the main source of content uncertaint
 
 | Original subsystem | Decision |
 |---|---|
-| TinCat 2 networking, lobby, LAN announcement, `GameServer.exe` | out of scope |
+| TinCat 2 networking, lobby, LAN announcement, `GameServer.exe` | not before version 1.0; multiplayer after it (PLAN.md ADR-09, §13) |
 | Loading the original formats in the game | only through the converter |
 | Compatibility with `.pax` saves | no |
 | The original's Miles, amstream, IJL, libxml2, unicows, CRT and STLport | replaced by the Rust ecosystem or not needed |
