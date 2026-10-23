@@ -1982,7 +1982,7 @@ fn behaviour(
 /// `R` the reach of the hero and its target ([`reach`]).
 const HERO_BAND: f32 = 45.0;
 const HITS_WITHIN: f32 = 1.5;
-/// How much each chained strike raises the speed of the next, and the most (`0x4E4CF0`).
+/// How much each shot raises the speed of the next, and the most (`0x4DBFC0`).
 const CHAIN_STEP: f32 = 0.1;
 const CHAIN_MOST: f32 = 1.7;
 
@@ -2026,10 +2026,11 @@ pub fn attack_ends(at_once: bool, ends: bool, alive: bool) -> bool {
     at_once || ends || !alive
 }
 
-/// The chain of the hero's strikes on a target (`+0x210`, `0x4E4CF0`): the factor of the speed
-/// of its last strike, and the count of its strikes.
+/// The chain of an archer's shots (`+0x210`, `0x4DBFC0`): the factor of the speed of its last
+/// shot, and the count of its shots. The hero's strikes keep its attack speed: its `+0x210` stays
+/// 1 in the original, its button held or clicked (#704).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Chain {
+struct Chain {
     factor: f32,
     strikes: u32,
 }
@@ -2044,9 +2045,8 @@ impl Default for Chain {
 }
 
 impl Chain {
-    /// The factor of the next strike: 1 for the first, else the last's raised by 0.1, at most
-    /// 1.7.
-    pub fn strike(&mut self) -> f32 {
+    /// The factor of the next shot: 1 for the first, else the last's raised by 0.1, at most 1.7.
+    fn strike(&mut self) -> f32 {
         self.factor = if self.strikes == 0 {
             1.0
         } else {
@@ -2054,11 +2054,6 @@ impl Chain {
         };
         self.strikes += 1;
         self.factor
-    }
-
-    /// Coming on again, the chain breaks.
-    pub fn breaks(&mut self) {
-        *self = Self::default();
     }
 }
 
@@ -3267,14 +3262,11 @@ mod tests {
     }
 
     #[test]
-    fn a_chain_of_strikes_grows_faster_by_a_tenth_up_to_1_7() {
+    fn a_chain_of_shots_grows_faster_by_a_tenth_up_to_1_7() {
         let mut chain = Chain::default();
         let factors: Vec<f32> = (0..10).map(|_| chain.strike()).collect();
         assert!((factors[0] - 1.0).abs() < 1e-6 && (factors[1] - 1.1).abs() < 1e-6);
         assert!((factors[7] - 1.7).abs() < 1e-5 && (factors[9] - 1.7).abs() < 1e-5);
-        // Coming on again, it starts anew.
-        chain.breaks();
-        assert!((chain.strike() - 1.0).abs() < 1e-6);
     }
 
     #[test]
