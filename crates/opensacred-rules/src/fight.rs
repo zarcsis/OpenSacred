@@ -138,6 +138,17 @@ impl Rank {
         }
     }
 
+    /// The rank of a `CreateNPC`'s creature of the level tag `0x1F`, `tag` (`0x4843C9`): a boss
+    /// for [`BOSS_TAG`], else common (the bosses of the tag `0x72`, which only the dynamic quests'
+    /// records carry, are not followed).
+    pub fn of_tag(tag: u32) -> Self {
+        if tag == BOSS_TAG {
+            Self::Boss
+        } else {
+            Self::Common
+        }
+    }
+
     /// Its level, made at the hero's level `hero` (`0x550E50`): the hero's plus `LevelUpBoss` or
     /// `LevelUpChamp`, at least `OffLevel` plus the sector's lowest, and unless its type is big at
     /// most `LevelKap` plus the sector's highest plus the same; a common creature's `level`.
@@ -1463,6 +1474,45 @@ pub fn scripted_level(
     }
 }
 
+/// The level tag `0x1F` of a `CreateNPC` record that makes its creature a boss of the marker
+/// level 1 (`0x4843C9`).
+pub const BOSS_TAG: u32 = 1000;
+
+/// The type whose level the level's setter holds at 300 wherever it stands (`0x565473`).
+const AT_MOST_300: u32 = 701;
+
+/// The level that `CreateNPC` gives a creature of type `creature` of a record with the level tag
+/// `0x1F`, `tag` (`0x482510`, from `0x4843C2`; docs/re/spawning.md, "`CreateNPC`'s level"), or
+/// none for 0, a record without one, whose creature takes [`scripted_level`]'s. For
+/// [`BOSS_TAG`], a boss's marker level 1 ([`Rank::of_tag`]), which [`Rank::level`] then levels
+/// as a fill's boss. For any other, that level as the level's setter (`0x564D60`) takes it,
+/// without the hero's, the sector's lowest or the time played: through the difficulty's scaling
+/// of the levels, which keeps it on bronze, then a horse's at most 250 and any other's at most
+/// the highest level of its sector, `values`, plus bronze's `LevelKap` (0), or 300 for the type
+/// 701; at least 1, where the original leaves 0 in a sector without levels, in which no tagged
+/// record of the scripts stands.
+pub fn tagged_level(
+    tag: u32,
+    values: Option<&SpawnValues>,
+    creature: u32,
+    horse: bool,
+    rules: &Rules,
+) -> Option<u32> {
+    match tag {
+        0 => None,
+        BOSS_TAG => Some(1),
+        level if horse => Some(level.min(250)),
+        level => {
+            let most = if creature == AT_MOST_300 {
+                300
+            } else {
+                values.map_or(0, |values| values.highest) + rules.ranks.cap
+            };
+            Some(level.min(most).max(1))
+        }
+    }
+}
+
 /// A level `level` scaled by the difficulty and raised by the time played (`0x552230`), bronze's:
 /// `⌊L·(1 + x/100) + 0.5⌋`, at least 1, with `x` the tenth of the curve of the minutes `m`
 /// (`0x565D70`) `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated, 0 to 9: one more
@@ -2389,5 +2439,55 @@ mod tests {
             scripted_level(Some(&smith), 4, played(100_000), &mut Roll(0)),
             4
         );
+    }
+
+    #[test]
+    fn a_scripts_level_tag_gives_a_boss_or_its_level_within_its_sectors_highest() {
+        let rules = Rules::default();
+        let values = |lowest, highest| SpawnValues {
+            density: 50,
+            lowest,
+            highest,
+        };
+        let start = values(1, 4);
+        // 1000: a boss of the marker level 1, which then takes the hero's level plus two within
+        // its sector's, as a fill's boss.
+        assert_eq!(Rank::of_tag(BOSS_TAG), Rank::Boss);
+        assert_eq!(
+            tagged_level(BOSS_TAG, Some(&start), 577, false, &rules),
+            Some(1)
+        );
+        assert_eq!(Rank::Boss.level(1, 1, &start, false, &rules), 3);
+        // Any other: that level, with no hero's level, lowest or time played in it, at most its
+        // sector's highest: the goodie 692 of 60,75 (6 to 10) at 6, the guards of the start
+        // script's garrison in 52,39 (1 to 4) of the tag 5 at 4.
+        assert_eq!(Rank::of_tag(6), Rank::Common);
+        assert_eq!(
+            tagged_level(6, Some(&values(6, 10)), 692, false, &rules),
+            Some(6)
+        );
+        assert_eq!(
+            tagged_level(1, Some(&values(6, 10)), 692, false, &rules),
+            Some(1)
+        );
+        assert_eq!(tagged_level(5, Some(&start), 295, false, &rules), Some(4));
+        // A horse at most 250, wherever it stands; the type 701 at most 300.
+        assert_eq!(
+            tagged_level(128, Some(&start), 554, true, &rules),
+            Some(128)
+        );
+        assert_eq!(
+            tagged_level(300, Some(&start), 554, true, &rules),
+            Some(250)
+        );
+        assert_eq!(
+            tagged_level(400, Some(&start), 701, false, &rules),
+            Some(300)
+        );
+        // A sector without levels holds it at bronze's `LevelKap`, 0, and so at 1.
+        assert_eq!(tagged_level(5, None, 295, false, &rules), Some(1));
+        // 0 or none: the rule of the records without one.
+        assert_eq!(Rank::of_tag(0), Rank::Common);
+        assert_eq!(tagged_level(0, Some(&start), 295, false, &rules), None);
     }
 }
