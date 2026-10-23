@@ -77,7 +77,8 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 
 `opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume above, lowered and panned by a plain falloff for now (docs/decisions/2026-10-23-voices-place.md, #731).
 It plays the weapons' sounds (`sfx`, #712): a strike's swing by the class of what the striker holds at its hit moment within reach or in the air; at the target the striker's weapon's `HIT` when the hit did damage, else its `PARADE`, by the sound profile of the weapon's own type, so that a starting weapon without a slot of its own is silent there as the original's, and the fist's for bare hands; a shot's group 3 by the bow's profile (**hypothesis**: `SHOOT`); at the original's volumes, placed as the voices.
-The heroes' lines wait (#713).
+It plays the heroes' lines by name (`voices`, #713): a taunt when a creature takes a hit's line, one in five and 10 s after the last; a battle cry at the start of a combat art, one in three; the death's line at the hero's fall; one of the class's at random, as the hero's line.
+Not yet: `MUSIC_DEATH` with the death's line (#734), the vampiress's `realvamp` lines and the arts that play their own cries.
 
 ## Footsteps by the ground
 

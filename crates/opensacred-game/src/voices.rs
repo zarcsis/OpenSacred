@@ -6,6 +6,10 @@
 //! id but at a death; it gives way to the creature's own line still playing but at a hit, which
 //! stops that line, and at a death; it records the wait of its id. One line a creature.
 //!
+//! The hero speaks lines of its own too, MP3 samples by name (`0x693FE0`, #713): a taunt when a
+//! creature takes a hit's line, one in five and 10 s after the last; a battle cry at a combat art,
+//! one in three; and its death's line.
+//!
 //! The line plays at the original's volume, 0.45 + (`rand() % 10`) / 90, lowered with the
 //! distance from the hero and panned by its side on the screen (docs/decisions/2026-10-23-voices-place.md:
 //! the original's falloff, `0x678260`, is not read yet).
@@ -40,6 +44,65 @@ pub const DEATH: u8 = 7;
 /// record's `+0x2C` below 26, **hypothesis**: its health in per cent).
 const CRITICAL: u32 = 26;
 
+/// The hero's taunts' wait, in seconds.
+const TAUNTS_AFTER: f64 = 10.0;
+
+/// The hero makes a combat art: its battle cry, one in three.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BattleCry {
+    pub hero: Entity,
+}
+
+/// The hero's lines by name (`0x693FE0`): the name's stem, how many a class has, and the roll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeroLine {
+    HitEnemy,
+    BattleCry,
+    EnemyKillMe,
+}
+
+impl HeroLine {
+    fn stem(self) -> &'static str {
+        match self {
+            Self::HitEnemy => "HITENEMY",
+            Self::BattleCry => "BATTLECRY",
+            Self::EnemyKillMe => "ENEMYKILLME",
+        }
+    }
+
+    fn count(self) -> u32 {
+        match self {
+            Self::HitEnemy => 11,
+            Self::BattleCry => 10,
+            Self::EnemyKillMe => 6,
+        }
+    }
+
+    fn roll(self) -> u8 {
+        match self {
+            Self::HitEnemy => 5,
+            Self::BattleCry => 3,
+            Self::EnemyKillMe => 1,
+        }
+    }
+
+    /// The sound's name of the line `n` of the hero of type `creature`.
+    fn name(self, creature: u32, n: u32) -> Option<String> {
+        let class = match creature {
+            1 => "SERA",
+            2 => "GLAD",
+            3 => "MAGE",
+            4 => "DELF",
+            5 => "HELF",
+            6 | 7 => "VAMP",
+            8 => "DWARF",
+            9 => "DEMON",
+            _ => return None,
+        };
+        Some(format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1))
+    }
+}
+
 /// A creature speaks: the group of its profile that the fight passes.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Speak {
@@ -68,6 +131,8 @@ pub struct Voices {
     voices: HashMap<u32, Voice>,
     /// Until when, in the game's seconds, a sound id waits.
     waits: HashMap<u32, f64>,
+    /// When the hero last taunted.
+    taunted: Option<f64>,
     dice: Rng,
 }
 
@@ -91,6 +156,7 @@ impl Voices {
         Ok(Self {
             voices,
             waits: HashMap::new(),
+            taunted: None,
             dice: Rng::of(0, 0, 3),
         })
     }
@@ -109,6 +175,39 @@ impl Voices {
         let (id, file) = sfx.pick(u32::from(profile), group)?;
         Some((id, file, wait))
     }
+
+    /// The hero's `line`, of the hero of type `creature`, if its roll gives one (a taunt also
+    /// 10 s after the last, at `now`): one of the class's at random.
+    fn hero_line(
+        &mut self,
+        sfx: &Sfx,
+        creature: u32,
+        line: HeroLine,
+        now: f64,
+    ) -> Option<(u32, String)> {
+        if line == HeroLine::HitEnemy && self.taunted.is_some_and(|t| now - t < TAUNTS_AFTER) {
+            return None;
+        }
+        if !rolls(line.roll(), &mut self.dice) {
+            return None;
+        }
+        let name = line.name(creature, self.dice.below(line.count()))?;
+        let found = sfx.named(&name)?;
+        if line == HeroLine::HitEnemy {
+            self.taunted = Some(now);
+        }
+        Some(found)
+    }
+}
+
+/// A line to play: who speaks it, its sound id and file, the wait it records, and what it does
+/// to the speaker's own line.
+struct Said {
+    speaker: Entity,
+    id: u32,
+    file: String,
+    wait: Option<f32>,
+    play: Play,
 }
 
 /// Whether a line of a group of roll `n` plays: always for 1, never for 0, else when
@@ -144,7 +243,7 @@ fn play(group: u8, speaking: bool, waiting: bool) -> Play {
     }
 }
 
-/// Plays the lines that the fight asks for.
+/// Plays the lines that the fight asks for: the creatures' by their voices, and the hero's own.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -153,6 +252,7 @@ fn play(group: u8, speaking: bool, waiting: bool) -> Play {
 fn speak(
     mut commands: Commands,
     mut lines: MessageReader<Speak>,
+    mut cries: MessageReader<BattleCry>,
     mut voices: ResMut<Voices>,
     mut sfx: ResMut<Sfx>,
     hero: Option<Res<hero::Hero>>,
@@ -162,7 +262,7 @@ fn speak(
         Has<Body>,
         Option<&Speaking>,
     )>,
-    heroes: Query<&GlobalTransform, With<Body>>,
+    heroes: Query<(Entity, &GlobalTransform), With<Body>>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
     assets: Res<AssetServer>,
     audio: Res<Audio>,
@@ -170,45 +270,106 @@ fn speak(
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
-    let listener = heroes.iter().next().map(GlobalTransform::translation);
+    let the_hero = heroes.iter().next();
+    let listener = the_hero.map(|(_, at)| at.translation());
+    let hero_type = hero.as_ref().map(|hero| hero.creature);
     let right = camera
         .iter()
         .next()
         .map_or(Vec3::X, |c| c.right().as_vec3());
-    for line in lines.read() {
-        let Ok((at, mind, is_hero, speaking)) = speakers.get(line.speaker) else {
-            continue;
-        };
-        let creature = if is_hero {
-            let Some(hero) = &hero else {
-                continue;
-            };
-            hero.creature
-        } else if let Some(mind) = mind {
-            mind.thinks.creature
-        } else {
-            continue;
-        };
-        let Some((id, file, wait)) = voices.line(&mut sfx, creature, line.group) else {
-            continue;
-        };
-        let still = speaking.is_some_and(|s| {
+    let playing = |speaking: Option<&Speaking>| {
+        speaking.is_some_and(|s| {
             matches!(
                 audio.state(&s.0),
                 PlaybackState::Playing { .. } | PlaybackState::Queued
             )
-        });
+        })
+    };
+    let mut said = Vec::new();
+    for line in lines.read() {
+        let Ok((_, mind, is_hero, speaking)) = speakers.get(line.speaker) else {
+            continue;
+        };
+        if is_hero && line.group == DEATH {
+            // The hero's death speaks its line by name (`0x6852B0`, `0x693FE0`).
+            if let Some((id, file)) = hero_type
+                .and_then(|creature| voices.hero_line(&sfx, creature, HeroLine::EnemyKillMe, now))
+            {
+                said.push(Said {
+                    speaker: line.speaker,
+                    id,
+                    file,
+                    wait: None,
+                    play: Play::Interrupts,
+                });
+            }
+            continue;
+        }
+        // A creature's hit makes the hero taunt (`0x6852B0`'s hero branch).
+        if !is_hero
+            && matches!(line.group, NORMAL_HIT | CRITICAL_HIT)
+            && let (Some((hero, _)), Some(creature)) = (the_hero, hero_type)
+            && let Some((id, file)) = voices.hero_line(&sfx, creature, HeroLine::HitEnemy, now)
+        {
+            said.push(Said {
+                speaker: hero,
+                id,
+                file,
+                wait: None,
+                play: Play::Plays,
+            });
+        }
+        let creature = match (is_hero, mind) {
+            (true, _) => match hero_type {
+                Some(creature) => creature,
+                None => continue,
+            },
+            (false, Some(mind)) => mind.thinks.creature,
+            (false, None) => continue,
+        };
+        let Some((id, file, wait)) = voices.line(&mut sfx, creature, line.group) else {
+            continue;
+        };
         let waiting = voices.waits.get(&id).is_some_and(|&until| until > now);
-        match play(line.group, still, waiting) {
+        let play = play(line.group, playing(speaking), waiting);
+        if play != Play::GivesWay {
+            said.push(Said {
+                speaker: line.speaker,
+                id,
+                file,
+                wait: Some(wait),
+                play,
+            });
+        }
+    }
+    for cry in cries.read() {
+        if let Some((id, file)) = hero_type
+            .and_then(|creature| voices.hero_line(&sfx, creature, HeroLine::BattleCry, now))
+        {
+            said.push(Said {
+                speaker: cry.hero,
+                id,
+                file,
+                wait: None,
+                play: Play::Plays,
+            });
+        }
+    }
+    for line in said {
+        let Ok((at, _, _, speaking)) = speakers.get(line.speaker) else {
+            continue;
+        };
+        match line.play {
             Play::GivesWay => continue,
+            Play::Plays if playing(speaking) => continue,
+            Play::Plays => {}
             Play::Interrupts => {
                 if let Some(speaking) = speaking
-                    && let Some(mut line) = instances.get_mut(&speaking.0)
+                    && let Some(mut old) = instances.get_mut(&speaking.0)
                 {
-                    line.stop(AudioTween::default());
+                    old.stop(AudioTween::default());
                 }
             }
-            Play::Plays => {}
         }
         let loud = 0.45 + sfx.roll(10) / 90.0;
         let (near, pan) = sfx::placed_at(at.translation(), listener, right);
@@ -216,16 +377,18 @@ fn speak(
         if volume <= 0.0 {
             continue;
         }
-        let sample = sfx.sample(id, file, &assets);
+        let sample = sfx.sample(line.id, line.file, &assets);
         let instance = audio
             .play(sample)
             .with_volume(sfx::decibels(volume))
             .with_panning(pan)
             .handle();
-        voices.waits.insert(id, now + f64::from(wait));
+        if let Some(wait) = line.wait {
+            voices.waits.insert(line.id, now + f64::from(wait));
+        }
         debug!(
-            "voices: {} of type {creature} speaks group {} ({id}), at {volume:.2}, panned {pan:.2}",
-            line.speaker, line.group
+            "voices: {} speaks {}, at {volume:.2}, panned {pan:.2}",
+            line.speaker, line.id
         );
         commands.entity(line.speaker).insert(Speaking(instance));
     }
@@ -247,6 +410,7 @@ pub struct VoicesPlugin;
 impl Plugin for VoicesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Speak>()
+            .add_message::<BattleCry>()
             .add_systems(Update, (dies, speak).chain().in_set(Unpaused));
     }
 }
@@ -279,6 +443,23 @@ mod tests {
         assert_eq!(play(CRITICAL_HIT, false, true), Play::Plays);
         // A death always plays, over the creature's own line.
         assert_eq!(play(DEATH, true, true), Play::Interrupts);
+    }
+
+    #[test]
+    fn the_hero_lines_are_named_by_the_class() {
+        assert_eq!(
+            HeroLine::HitEnemy.name(1, 0).as_deref(),
+            Some("SOUND_FX_HITENEMY_01_SERA")
+        );
+        assert_eq!(
+            HeroLine::BattleCry.name(9, 9).as_deref(),
+            Some("SOUND_FX_BATTLECRY_10_DEMON")
+        );
+        assert_eq!(
+            HeroLine::EnemyKillMe.name(5, 5).as_deref(),
+            Some("SOUND_FX_ENEMYKILLME_06_HELF")
+        );
+        assert_eq!(HeroLine::HitEnemy.name(76, 0), None);
     }
 
     #[test]
