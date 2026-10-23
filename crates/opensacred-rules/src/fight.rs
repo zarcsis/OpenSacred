@@ -1080,13 +1080,19 @@ pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
 /// `off` at level 1, `w` at level `S + 1`, `off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`; none
 /// below level 1. The world's x87 unit computes it at 53 bits and stores it as a float (#589,
 /// #593): the float nearest the doubles' result, which single precision can miss by a bit.
-pub(crate) fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
+pub(crate) fn curve(triple: [f32; 3], level: u32) -> f32 {
+    stored(per_cent(triple, level))
+}
+
+/// A skill's per cent at level `level` as the world's x87 unit computes it at 53 bits, before
+/// it is stored ([`curve`]): the most health's raise keeps it on the unit (`0x5658F0`, #598).
+fn per_cent([off, steps, most]: [f32; 3], level: u32) -> f64 {
     if level < 1 || steps <= 0.0 {
         return 0.0;
     }
     let [off, steps, most] = [off, steps, most].map(f64::from);
     let x = (most - off) * (1.0 - 1.0 / (f64::from(level - 1) / steps + 1.0));
-    stored(x + x + off)
+    x + x + off
 }
 
 /// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
@@ -1891,14 +1897,14 @@ pub fn hero_health(base: [u8; 6], level: u32, skills: &[(u8, u32)], rules: &Rule
     health_of(base, level, health_raise(skills, rules), 1.0, 1.0)
 }
 
-/// The skill 10's raise of a most health (`0x5658F0`): its per cent of the curve `HP…VW` at its
-/// level, over 100; 0 without it.
-fn health_raise(skills: &[(u8, u32)], rules: &Rules) -> f32 {
+/// The skill 10's per cent of the curve `HP…VW` for a most health (`0x5658F0`): of its first
+/// slot, at its level, as the x87 unit computes it at 53 bits and keeps it, not stored as a
+/// float ([`per_cent`], #598); none without the skill.
+fn health_raise(skills: &[(u8, u32)], rules: &Rules) -> Option<f64> {
     skills
         .iter()
-        .filter(|&&(skill, _)| skill == 10)
-        .map(|&(_, at)| curve(rules.curves.health, at) / 100.0)
-        .sum()
+        .find(|&&(skill, _)| skill == 10)
+        .map(|&(_, at)| per_cent(rules.curves.health, at))
 }
 
 /// The factor of the health's exponent by the base (the float at `0x891298`, a little under 0.004).
@@ -1906,7 +1912,7 @@ const HEALTH_EXPONENT: f32 = 0.003_996_323_3;
 
 /// The most health of `base` at `level`, times `rank` and then `factor` (`0x5658F0`), in double
 /// precision as the client's FPU computes it: the exponent's factor a float, the rest doubles.
-fn health_of(base: [u8; 6], level: u32, raise: f32, rank: f32, factor: f64) -> u32 {
+fn health_of(base: [u8; 6], level: u32, raise: Option<f64>, rank: f32, factor: f64) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
     let l = f64::from(level.max(1) - 1);
     let (a0, a3) = (a + (l * a / 10.0).floor(), b + (l * b / 10.0).floor());
@@ -1918,11 +1924,11 @@ fn health_of(base: [u8; 6], level: u32, raise: f32, rank: f32, factor: f64) -> u
     } else {
         0.0
     };
-    // The skill 10's raise, taken whole, before the 100 for 0 and the factors.
-    let most = if raise == 0.0 {
-        most
-    } else {
-        (most * f64::from(1.0 + raise)).trunc()
+    // The skill 10's raise `m·v·0.01 + m`, 0.01 the float a little below it, at 53 bits and taken
+    // whole, before the 100 for 0 and the factors (#598).
+    let most = match raise {
+        Some(per_cent) => (most * per_cent * HUNDREDTH + most).trunc(),
+        None => most,
     };
     // A boss's or a champion's factor, taken whole, before the 100 for 0 and the level's factor.
     let most = if rank == 1.0 {
@@ -1987,6 +1993,20 @@ mod tests {
         assert!(f64::from(with) > f64::from(without) * (raise - 0.01));
         assert!(f64::from(with) < f64::from(without) * (raise + 0.01));
         assert_eq!(most_health([1; 6], 1, &[], 1.0, &weak), 0);
+    }
+
+    #[test]
+    fn the_skill_10_raises_the_most_health_at_53_bits_by_the_float_hundredth() {
+        // The type 557 (base 10 and 20) at level 82: the most 2,850, its skill 10 of level 27 a
+        // per cent of 90.2105…, which raises it to exactly 5,421 in real numbers; the original
+        // keeps the per cent on the x87 unit and multiplies by the float 0.01, a little below a
+        // hundredth, so 5,420.99994 and 5,420, where a float's sum 1 + v/100 gave 5,421 (#598).
+        let rules = Rules::default();
+        let base = [10, 20, 15, 20, 0, 10];
+        assert_eq!(hero_health(base, 82, &[], &rules), 2850);
+        assert_eq!(hero_health(base, 82, &[(10, 27)], &rules), 5420);
+        // Of its first slot of the skill 10 alone.
+        assert_eq!(hero_health(base, 82, &[(10, 27), (10, 3)], &rules), 5420);
     }
 
     #[test]
@@ -2591,7 +2611,7 @@ mod tests {
         );
         assert_eq!(
             hero_health(base, 1, &[], &Rules::default()),
-            health_of(base, 1, 0.0, 1.0, 1.0)
+            health_of(base, 1, None, 1.0, 1.0)
         );
     }
 
