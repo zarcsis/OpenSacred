@@ -745,6 +745,14 @@ class Host:
         self.click(SAVES_PICTURE(shown), 0.5)
         self.click(SAVES_LOAD, 1)
         self.click(SAVES_CONFIRM, 1)
+        try:
+            self.wait_screen({'loading'}, 15)
+        except TimeoutError:
+            # In a game the original opens its saves' screen only away from hostiles (#634): its menu stays open.
+            if self.agent_state().get('screen') == 'paused':
+                self.agent.input({'key': 'Escape'})
+            raise RuntimeError("the load did not start: in a game the original's menu opens its saves only away "
+                               'from hostiles, so put the hero elsewhere first') from None
         self.wait_screen({'game'}, 180)
 
     # --- Traces ------------------------------------------------------------------------------------------------
