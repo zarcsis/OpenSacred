@@ -227,6 +227,120 @@ pub fn rundum_target(candidates: &[Candidate], radius: f32, last: Option<u32>) -
         .map(|c| c.id)
 }
 
+/// The clip of an art's action (`0x593320` from the executors): a motion slot of the creature's
+/// model, or one of its attack's clips (the action 4, `0x5467A0`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArtClip {
+    Slot(u16),
+    Attack,
+}
+
+/// What a creature's art plays: its clip, and the rate it plays at as a factor of its attack's
+/// clip speed (the attack speed over 100, `0x584FE0`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArtAction {
+    pub clip: ArtClip,
+    pub rate: f32,
+}
+
+/// The Seraphim's `Attacke`'s rate with a weapon of the classes it plays the slot 211 for
+/// (`0x891080`).
+const SERAPHIMS_ATTACKE: f32 = 0.73;
+
+/// What the art of `style` of a creature of type `kind` plays, holding what is of `class`
+/// (`motions::class`, `0x546F80`), on foot (the Gladiator's `0x4FF0B0`, the Seraphim's
+/// `0x5038F0`; docs/re/arts.md, "The arts' clips"): none with a bow or a crossbow (the classes 7
+/// and 12, whose arts are shots, not here), nor for another class's executor, not read.
+pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
+    if matches!(class, 7 | 12) {
+        return None;
+    }
+    let slot = |slot| ArtAction {
+        clip: ArtClip::Slot(slot),
+        rate: 1.0,
+    };
+    match (kind, style) {
+        (1, Style::Attacke) => Some(match class {
+            2 => slot(212),
+            4 => slot(214),
+            8 => slot(216),
+            _ => ArtAction {
+                rate: SERAPHIMS_ATTACKE,
+                ..slot(211)
+            },
+        }),
+        (1, Style::Rundum) => Some(slot(153)),
+        (1, Style::Hardhit) => Some(ArtAction {
+            clip: ArtClip::Attack,
+            rate: 1.0,
+        }),
+        (2, Style::Attacke) => Some(slot(match class {
+            0 => 210,
+            2 => 212,
+            3 => 213,
+            8 => 216,
+            _ => 211,
+        })),
+        (2, Style::Rundum) => Some(slot(match class {
+            2 => 221,
+            3 => 222,
+            _ => 220,
+        })),
+        (2, Style::Hardhit) => Some(slot(match class {
+            0 => 201,
+            2 => 203,
+            3 => 204,
+            8 => 207,
+            _ => 202,
+        })),
+        _ => None,
+    }
+}
+
+/// The hit points of an art's clip, the fractions of it at which its strikes are due: its
+/// motion's floats from `MotionDesc +0xA0` (`floats_62[1..]` of `tables/motions.ron`), the
+/// `n`-th read for the `n`-th strike (`0x4135D0` at `8 + n`), up to the first that is not above
+/// 0, which ends an `Attacke`.
+pub fn hit_points(floats: &[f32]) -> Vec<f32> {
+    floats
+        .iter()
+        .copied()
+        .take_while(|&point| point > 0.0)
+        .collect()
+}
+
+/// The point of a `Hardhit`'s one strike: its clip's first hit point, half the clip where that is
+/// not within (0, 1] (`0x4FF0B0`, `0x5038F0`).
+pub fn hardhit_point(points: &[f32]) -> f32 {
+    points
+        .first()
+        .copied()
+        .filter(|&point| point > 0.0 && point <= 1.0)
+        .unwrap_or(0.5)
+}
+
+/// Whether a strike of an art at the hit point `point` is due, `done` of its clip played: past
+/// the point (the executors wait while what is left of the clip is at least `1 − point` of it).
+pub fn due(point: f32, done: f32) -> bool {
+    done > point
+}
+
+/// How far from its target a creature makes an art of the record's distance `distance`, and how
+/// near that it must stand (`0x4FD0F0`): 101 to 250 the reach of the two creatures `reach`,
+/// within 10 of it; 0 where it stands; none for another, the jumps' below 0 among them (not
+/// here).
+pub fn made_from(distance: i32, reach: f32) -> Option<(f32, f32)> {
+    match distance {
+        0 => Some((0.0, f32::INFINITY)),
+        100..=250 => Some((reach, MADE_WITHIN)),
+        _ => None,
+    }
+}
+
+/// How near the distance an art is made from its creature must stand (`0x4FD0F0`; 120 for a
+/// rider, not here).
+const MADE_WITHIN: f32 = 10.0;
+
 /// The table an art is of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Table {

@@ -26,6 +26,7 @@ pub const KEYS: &[(&str, &[(&str, &str)])] = &[
             ("Left button", "walk or run to the cursor"),
             ("Left button on a foe", "attack it"),
             ("Ctrl+left button", "strike at once"),
+            ("Right button on a foe", "make the selected combat art"),
             ("R", "walk or run"),
             ("Wheel", "zoom in and out"),
             ("Esc", "pause: Continue, Main menu, Quit"),

@@ -10,7 +10,9 @@ pub use opensacred_rules::fight::{
     filled_level, hero_health, most_health, regeneration, scripted_level, skills, tagged_level,
     takes_on,
 };
-use opensacred_rules::fight::{Side, experience_of, range_factor, strike, weapons_factor, weighed};
+use opensacred_rules::fight::{
+    Side, art_strike, experience_of, range_factor, strike, weapons_factor, weighed,
+};
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -19,14 +21,16 @@ use crate::spawning::Rng;
 
 /// A hit of a strike (`0x4EA3F0`, which the strike `0x4EA1F0` calls as it lands, the event 5):
 /// its attacker, its target and its share of the strike, 0.5 for each hit of two (docs/re/fight.md,
-/// "Melee: the AI's state 4", "A strike's resolution"), and whether it is a hit at range, an
-/// arrow's (`arrows`), with the bow in its attacker's hand (`0x5BB010`).
+/// "Melee: the AI's state 4", "A strike's resolution"), whether it is a hit at range, an
+/// arrow's (`arrows`), with the bow in its attacker's hand (`0x5BB010`), and for a strike of a
+/// combat art of the second table its level in play, its factor the share (`making`, #509).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Hit {
     pub attacker: Entity,
     pub target: Entity,
     pub share: f32,
     pub ranged: bool,
+    pub art: Option<u32>,
 }
 
 /// The dice of the strikes.
@@ -142,7 +146,7 @@ fn resolve(
             _ => None,
         };
         let level = mind.map_or(experience.level, |mind| mind.level);
-        let (mut attacker, defender, k) =
+        let (mut attacker, defender, mut blow) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);
         if hit.ranged {
             let distance = (from.translation() - at.translation()).xz().length();
@@ -155,13 +159,19 @@ fn resolve(
         }
         let ranked = ranked.map_or(Rank::Common, |ranked| ranked.0);
         let factor = weapons_factor(side, level, ranked, &rules);
+        blow.share = hit.share;
+        blow.weapons = factor;
         if side == Some(Side::Defender) {
             debug!(
                 "fight: {} of level {level} strikes {}, its damage times {factor:.4}",
                 hit.attacker, hit.target
             );
         }
-        let Some(damage) = strike(&attacker, &defender, (hit.share, k, factor), &mut dice.0) else {
+        let landed = match hit.art {
+            Some(art) => art_strike(&attacker, &defender, blow, art, &mut dice.0),
+            None => strike(&attacker, &defender, blow, &mut dice.0),
+        };
+        let Some(damage) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
@@ -535,6 +545,7 @@ mod tests {
                     target,
                     share: 1.0,
                     ranged: false,
+                    art: None,
                 });
             }
         }

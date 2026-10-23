@@ -230,6 +230,7 @@ fn fly(
             target: on,
             share: 1.0,
             ranged: true,
+            art: None,
         });
         let size = creatures
             .get(on)

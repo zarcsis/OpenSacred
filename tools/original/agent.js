@@ -800,6 +800,20 @@ const WORLD = {
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
+  // The cells (docs/re/movement.md, "Positions and layers"): a position is 16 bytes, the sector's number (u16, 0 to
+  // look it up), x and y (i32, cells or world units) and the floor (u8 at +0x0C); a layer is 0 for the ground, else
+  // the Static.PAK record of a building's floor.
+  toCell: ptr('0x6224e0'),           // a position: thiscall (cell position out, world position), x and y by the side
+  sectorOfCell: ptr('0x635d10'),     // the world: thiscall (world, cell position), its sector's number filled in, not 0
+  cell: ptr('0x634c50'),             // the world: thiscall (world, cell position, layer), its cell of 32 bytes, or 0
+  walkable: ptr('0x636c10'),         // the world: thiscall (world, cell position, layer), whether it may be walked on
+  height: ptr('0x636520'),           // the world: thiscall (world, world position, layer), the height it stands at
+  floorOf: ptr('0x6354d0'),          // the world: thiscall (world, cell position, n), floor n of the building there (0
+                                     // the building itself), its record, or 0
+  floors: ptr('0x635400'),           // the world: thiscall (world, building), the count of its floors
+  record: ptr('0x635e50'),           // the world: thiscall (world, index), Static.PAK's record of 64 bytes, cached
+  mayStand: ptr('0x4ebca0'),         // cCreature: thiscall (creature, cell position, layer, 1), its own test of a cell
+  triggerCells: ptr('0xab44c8'),     // the root of the scripts' tree of the trigger cells (0x4BF460)
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -834,6 +848,45 @@ const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float',
 // +0x102 and +0x106 of its stats.
 const ART = { list: 0x102, end: 0x106, size: 22, table: 0, id: 4, level: 6, bonus: 7, flags: 8, time: 10, factor: 14,
   remaining: 18 };
+const toCell = new NativeFunction(WORLD.toCell, 'pointer', ['pointer', 'pointer'], 'thiscall');
+const sectorOfCell = new NativeFunction(WORLD.sectorOfCell, 'uint8', ['pointer', 'pointer'], 'thiscall');
+const cellAt = new NativeFunction(WORLD.cell, 'pointer', ['pointer', 'pointer', 'uint32'], 'thiscall');
+const walkableAt = new NativeFunction(WORLD.walkable, 'uint8', ['pointer', 'pointer', 'uint32'], 'thiscall');
+// The height comes back on the x87 stack, which a NativeFunction of 'double' read as 0: a stub calls the function
+// and stores it. The stub's memory is held here, as Memory.alloc's block is freed once nothing in JavaScript holds it.
+const heightCode = Memory.alloc(Process.pageSize);
+// push ebp; mov ebp, esp; push [ebp+0x14] (the layer); push [ebp+0x10] (the position); mov ecx, [ebp+0x0C] (the
+// world); call [ebp+8]; mov eax, [ebp+0x18]; fstp qword [eax]; pop ebp; ret
+heightCode.writeByteArray([0x55, 0x8b, 0xec, 0xff, 0x75, 0x14, 0xff, 0x75, 0x10, 0x8b, 0x4d, 0x0c, 0xff, 0x55, 0x08,
+  0x8b, 0x45, 0x18, 0xdd, 0x18, 0x5d, 0xc3]);
+Memory.protect(heightCode, Process.pageSize, 'r-x');
+const heightStub = new NativeFunction(heightCode, 'void', ['pointer', 'pointer', 'pointer', 'uint32', 'pointer'],
+  'default');
+const heightOut = Memory.alloc(8);
+
+function heightAt(theWorld, position, layer) {
+  heightStub(WORLD.height, theWorld, position, layer, heightOut);
+  return heightOut.readDouble();
+}
+
+const floorOf = new NativeFunction(WORLD.floorOf, 'uint32', ['pointer', 'pointer', 'uint32'], 'thiscall');
+const floorCount = new NativeFunction(WORLD.floors, 'uint16', ['pointer', 'uint32'], 'thiscall');
+const staticRecord = new NativeFunction(WORLD.record, 'pointer', ['pointer', 'uint32'], 'thiscall');
+const mayStand = new NativeFunction(WORLD.mayStand, 'uint8', ['pointer', 'pointer', 'uint32', 'uint32'], 'thiscall');
+const sectorObject = new NativeFunction(WORLD.sectorExists, 'pointer', ['pointer', 'uint32'], 'thiscall');
+// A cell of 32 bytes (docs/02 §5.2): the chain of its objects, the drawn corner heights and those a creature stands
+// at (i8, left, top, right, bottom), the offsets (to the building's anchor on the ground, a stair's on a floor), the
+// flags and the ground byte.
+const CELL_RECORD = { objects: 0x08, heights: 0x10, standing: 0x18, offsets: 0x1c, flags: 0x1e, ground: 0x1f };
+const NEXT_IN_CELL = 0x30;           // an object's next in its cell's chain, an id
+const SECTOR_ORIGIN = 0x44;          // a sector: its first cell, x and y (i32)
+const SECTOR_FLAGS = 0x30;           // a sector: its flags; 0x10000 its cells in memory
+const SECTOR_LOADED = 0x10000;
+// A Static.PAK record (docs/re/movement.md): its sector's number, the index from 1 of the inside layer of its sector
+// that holds a floor's grid, and a floor's height.
+const STATIC = { sector: 0x0c, layer: 0x2d, height: 0x33 };
+const FLOOR_STEP = 28;               // a floor's height (+0x33) in units of the models' height
+const TRIGGERS = { begin: 0x268, end: 0x26c, size: 16, state: 0x0a };   // the world's triggers' records
 const isHostile = new NativeFunction(WORLD.hostile, 'uint8', ['pointer', 'uint32'], 'thiscall');
 const dropOf = new NativeFunction(WORLD.drop, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const sectorExists = new NativeFunction(WORLD.sectorExists, 'uint32', ['pointer', 'uint32'], 'thiscall');
@@ -1334,7 +1387,155 @@ const COMMANDS = {
     const made = madeBy(() => dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32()));
     return { made: made.map(describeMade).filter((m) => m !== null) };
   },
+  // What a cell is, the hero's by default (#568): on the ground, on each floor of the building there and on the
+  // hero's own layer, its cell's bytes, whether it may be walked on, whether the hero may stand there (as the
+  // teleport tests it), the height it stands at, a door's trigger and the objects of the cell's chain.
+  'cell-info': (engine, { x, y }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const theWorld = WORLD.objects.readPointer().readPointer();
+    if (theWorld.isNull()) {
+      throw new Error('no world');
+    }
+    // The hero's cell as the original takes it from its position (+0x18); the block is held here, as Memory.alloc's
+    // is freed once nothing in JavaScript holds it.
+    const own = Memory.alloc(16);
+    toCell(own, h.add(0x18));
+    const cx = x ?? own.add(4).readS32();
+    const cy = y ?? own.add(8).readS32();
+    const position = cellPosition(cx, cy, 0);
+    if (sectorOfCell(theWorld, position) === 0) {
+      throw new Error(`${cx},${cy} lies in no sector of the world`);
+    }
+    const sector = sectorObject(theWorld, position.readU16());
+    if (sector.isNull() || (sector.add(SECTOR_FLAGS).readU32() & SECTOR_LOADED) === 0) {
+      throw new Error(`the sector of ${cx},${cy} is not in memory: the hero nearer first`);
+    }
+    // The building whose cells the ground cell's offsets lead to, and its floors (0x6354D0, as the teleport finds a
+    // floor's layer).
+    const building = floorOf(theWorld, cellPosition(cx, cy, 0), 0);
+    const count = building === 0 ? 0 : floorCount(theWorld, building);
+    const levels = [{ floor: 0, layer: 0 }];
+    for (let n = 1; n <= count; n += 1) {
+      levels.push({ floor: n, layer: floorOf(theWorld, cellPosition(cx, cy, 0), n) });
+    }
+    const heroLayer = h.add(CREATURE.layer).readU32();
+    if (heroLayer !== 0 && !levels.some((level) => level.layer === heroLayer)) {
+      levels.push({ floor: h.add(CREATURE.floor).readU8(), layer: heroLayer, heroOnly: true });
+    }
+    const heroId = h.add(CREATURE.id).readU32();
+    return {
+      cell: [cx, cy], sector: sectorCoordinates(sector), building, floors: count,
+      // The hero's own layer where its grid holds the cell.
+      levels: levels.map((level) => describeLevel(theWorld, h, heroId, cx, cy, level))
+        .filter((level) => !level.heroOnly || level.cell !== null),
+    };
+  },
 };
+
+// A cell's position: no sector's number (the functions look it up), the global cell and the floor.
+function cellPosition(x, y, floor) {
+  const position = Memory.alloc(16);
+  position.writeU16(0);
+  position.add(4).writeS32(x);
+  position.add(8).writeS32(y);
+  position.add(0x0c).writeU8(floor);
+  return position;
+}
+
+// A sector's coordinates, by its first cell.
+function sectorCoordinates(sector) {
+  return [Math.floor(sector.add(SECTOR_ORIGIN).readS32() / 64), Math.floor(sector.add(SECTOR_ORIGIN + 4).readS32() / 64)];
+}
+
+// A level of a cell: its cell's bytes and what the original's functions say of it.
+function describeLevel(theWorld, h, heroId, cx, cy, { floor, layer, heroOnly }) {
+  const out = { floor, layer, heroOnly: heroOnly === true, inside: null, cell: null };
+  let floorHeight = 0;
+  if (layer !== 0) {
+    const record = staticRecord(theWorld, layer);
+    if (!record.isNull()) {
+      const index = record.add(STATIC.layer).readU8();
+      floorHeight = record.add(STATIC.height).readU8() * FLOOR_STEP;
+      const sector = sectorObject(theWorld, record.add(STATIC.sector).readU16());
+      out.inside = sector.isNull() ? null : [...sectorCoordinates(sector), index];
+    }
+  }
+  const cell = cellAt(theWorld, cellPosition(cx, cy, floor), layer);
+  if (cell.isNull()) {
+    return out;
+  }
+  const bytes = (at, n) => Array.from({ length: n }, (_, i) => cell.add(at + i).readS8());
+  const flags = cell.add(CELL_RECORD.flags).readU8();
+  out.cell = {
+    flags, ground: cell.add(CELL_RECORD.ground).readU8(), heights: bytes(CELL_RECORD.heights, 4),
+    standing: bytes(CELL_RECORD.standing, 4), offsets: bytes(CELL_RECORD.offsets, 2),
+  };
+  out.walkable = walkableAt(theWorld, cellPosition(cx, cy, floor), layer) !== 0;
+  out.stand = mayStand(h, cellPosition(cx, cy, floor), layer, 1) !== 0;
+  // 0x636520 at the cell's middle, plus the floor's own height as 0x636310 adds it.
+  const middle = Memory.alloc(16);
+  middle.add(4).writeS32(Math.floor((cx + 0.5) * CELL));
+  middle.add(8).writeS32(Math.floor((cy + 0.5) * CELL));
+  middle.add(0x0c).writeU8(floor);
+  out.height = heightAt(theWorld, middle, layer) + floorHeight;
+  if ((flags & 4) !== 0) {
+    out.door = doorTrigger(theWorld, cx, cy, floor);
+  }
+  out.objects = cellObjects(cell.add(CELL_RECORD.objects).readU32()).map((o) => describeOccupant(o, heroId));
+  return out;
+}
+
+// The trigger of a door's cell: the scripts' tree of trigger cells, keyed by `((x << 14 | y) << 4) | floor` (the
+// floor 0 below 2), each node's key at +4, its trigger's index at +8 and the lower and higher nodes at +0x0C and
+// +0x10; the trigger's state is the word +0x0A of its record in the world's table, bit 0 open (0x636C10).
+function doorTrigger(theWorld, x, y, floor) {
+  const key = ((((x << 14) | y) << 4) | (floor >= 2 ? floor : 0)) >>> 0;
+  let node = WORLD.triggerCells.readPointer();
+  for (let depth = 0; !node.isNull() && depth < 64; depth += 1) {
+    const at = node.add(4).readU32();
+    if (at === key) {
+      const index = node.add(8).readU32();
+      const begin = theWorld.add(TRIGGERS.begin).readPointer();
+      const count = theWorld.add(TRIGGERS.end).readPointer().sub(begin).toInt32() / TRIGGERS.size;
+      return { trigger: index, state: index < count ? begin.add(index * TRIGGERS.size + TRIGGERS.state).readU16() : null };
+    }
+    node = node.add(key < at ? 0x0c : 0x10).readPointer();
+  }
+  return { trigger: null, state: null };
+}
+
+// The objects of a cell's chain: the id at its +0x08, then each object's next (+0x30).
+function cellObjects(first) {
+  const found = [];
+  const seen = new Set();
+  let id = first;
+  while (id !== 0 && !seen.has(id) && found.length < 64) {
+    seen.add(id);
+    const object = objectById(id);
+    if (object === null) {
+      break;
+    }
+    found.push(object);
+    id = object.add(NEXT_IN_CELL).readU32();
+  }
+  return found;
+}
+
+function describeOccupant(object, heroId) {
+  const id = object.add(CREATURE.id).readU32();
+  const type = object.add(CREATURE.type).readU32();
+  if (!isCreature(object)) {
+    return { id, type, gold: type >= 5132 && type <= 5135 ? object.add(0x120).readU32() : null };
+  }
+  return {
+    id, type, creature: true, hero: id === heroId, level: object.add(CREATURE.level).readU16(),
+    health: object.add(CREATURE.health).readS32(), most: object.add(CREATURE.most).readS32(),
+    hostile: id === heroId ? null : isHostile(object, heroId) !== 0, floor: object.add(CREATURE.floor).readU8(),
+  };
+}
 
 // The entries of a creature's arts.
 function artEntries(stats) {

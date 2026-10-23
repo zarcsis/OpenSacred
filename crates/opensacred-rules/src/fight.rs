@@ -1480,28 +1480,54 @@ pub fn arts_speeds(base: &Base, level: u32, holds: &Holds) -> arts::Speeds {
     arts::Speeds::of(bonuses, 0.0, a[4], a[3], base.id)
 }
 
+/// What a strike's resolution (`0x56B130`) takes besides its two sides' values.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Blow {
+    /// The strike's factor (the event's `+0x1C`, [`scaled`]): its share of a series, an art's.
+    pub share: f32,
+    /// The exponent of its damage against the resistances ([`exponent`]).
+    pub k: f32,
+    /// The factor of each kind's rolled damage: bronze's `ProzDmg` for a creature striking the
+    /// hero, else 1 ([`weighed`], #620).
+    pub rolled: f32,
+    /// The factor of the sum by the attacker's level ([`weapons_factor`]).
+    pub weapons: f64,
+}
+
+impl Default for Blow {
+    /// A plain strike: every factor 1.
+    fn default() -> Self {
+        Self {
+            share: 1.0,
+            k: 1.0,
+            rolled: 1.0,
+            weapons: 1.0,
+        }
+    }
+}
+
 /// The values of a strike between `attacker` and `defender` on bronze (`0x56B130`): a creature
-/// striking the hero has its attack times `ProzAW` and its damages times `ProzDmg`, and the
-/// exponent of the damage `k = −log₂(1 − p)`, `p` half of 1 plus a hundredth of each level it has
-/// above the hero's; the hero striking a creature meets its defence times `ProzAW` and its
-/// resistances times `ProzRes`; between creatures, as they are, `k` 1. `hero` tells which side
-/// is the hero's: the attacker's, the defender's or neither.
+/// striking the hero has its attack times `ProzAW` and its rolled damage times `ProzDmg` (each
+/// kind's, as the attack record rolls it, [`roll_damage`], #620), and the exponent of the damage
+/// `k = −log₂(1 − p)`, `p` half of 1 plus a hundredth of each level it has above the hero's; the
+/// hero striking a creature meets its defence times `ProzAW` and its resistances times
+/// `ProzRes`; between creatures, as they are, `k` 1. `hero` tells which side is the hero's: the
+/// attacker's, the defender's or neither. The blow's share and factor of the levels are 1, which
+/// the strike sets.
 pub fn weighed(
     mut attacker: Combat,
     mut defender: Combat,
     hero: Option<Side>,
     levels: (u32, u32),
     rules: &Rules,
-) -> (Combat, Combat, f32) {
+) -> (Combat, Combat, Blow) {
     let [aw, dmg, res] = rules.difficulty;
-    let mut k = 1.0;
+    let mut blow = Blow::default();
     match hero {
         Some(Side::Defender) => {
             attacker.attack *= aw;
-            for ends in &mut attacker.damage {
-                *ends = ends.map(|end| end * dmg);
-            }
-            k = exponent(levels.0.saturating_sub(levels.1));
+            blow.rolled = dmg;
+            blow.k = exponent(levels.0.saturating_sub(levels.1));
         }
         Some(Side::Attacker) => {
             defender.defence *= aw;
@@ -1511,7 +1537,7 @@ pub fn weighed(
         }
         None => {}
     }
-    (attacker, defender, k)
+    (attacker, defender, blow)
 }
 
 /// The exponent `k` of a strike's damage against the resistances (`0x56B130`) of an attacker
@@ -1588,54 +1614,81 @@ pub enum Side {
     Defender,
 }
 
-/// Each kind's damage of a strike (`0x568D70`): a whole number of steps between the kind's least
-/// and most, the steps hundredths while the physical most is below 100, tenths below 1,000, else
-/// units; 15 physical when every kind's is below 1.
-fn roll_damage(damage: &[[f32; 2]; KINDS], rng: &mut Rng) -> [f32; KINDS] {
+/// Each kind's damage of a strike (`0x568D70`, as the attack record rolls it; #620): while the
+/// physical most is below 100 the ends times 100 on the x87 unit, truncated toward 0, a whole
+/// number `n` between them (a least below 0 taken as 0, a most below 0 as 1) and the damage `n`
+/// times the float 0.01 stored as a float; below 1,000 likewise in tenths, `n` times the float
+/// 0.1; below 10,000 in units; from 10,000 the least plus a roll of 0 to 100 hundredths of the
+/// span, `(most − least)·r·0.01 + least`. 15 physical when every kind's is below 1; then each
+/// times `factor` (`ProzDmg` for a creature striking the hero, `0x56B130`, after the record) at
+/// 53 bits, stored as a float.
+fn roll_damage(damage: &[[f32; 2]; KINDS], factor: f32, rng: &mut Rng) -> [f32; KINDS] {
     let step = match damage[0][1] {
-        most if most < 100.0 => 100.0,
-        most if most < 1000.0 => 10.0,
-        _ => 1.0,
+        most if most < 100.0 => Some((100.0, HUNDREDTH)),
+        most if most < 1000.0 => Some((10.0, f64::from(0.1_f32))),
+        most if most < 10_000.0 => Some((1.0, 1.0)),
+        _ => None,
     };
     let mut rolled = damage.map(|[least, most]| {
-        let (least, most) = (whole(least * step), whole(most * step));
-        let (low, high) = (least.min(most), least.max(most));
-        to_f32(low + rng.below(high - low + 1)) / step
+        let (least, most) = (f64::from(least), f64::from(most));
+        let Some((step, unit)) = step else {
+            let r = f64::from(rng.below(101));
+            return stored((most - least) * r * HUNDREDTH + least);
+        };
+        let low = truncated(least * step).max(0);
+        let high = truncated(most * step);
+        let high = if high < 0 { 1 } else { high };
+        let (low, high) = (low.min(high), low.max(high));
+        let n = if low == high {
+            low
+        } else {
+            let span = u32::try_from(high - low + 1).unwrap_or(u32::MAX);
+            low + i64::from(rng.below(span))
+        };
+        stored(f64::from(i32::try_from(n).unwrap_or(i32::MAX)) * unit)
     });
     if rolled.iter().all(|&d| d < 1.0) {
         rolled[0] = 15.0;
     }
+    if factor != 1.0 {
+        rolled = rolled.map(|d| stored(f64::from(d) * f64::from(factor)));
+    }
     rolled
+}
+
+/// A double truncated toward 0, as `__ftol` takes it, held within the integers of 32 bits.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the original truncates the end of a damage to an integer of 32 bits"
+)]
+fn truncated(value: f64) -> i64 {
+    value
+        .trunc()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i64
 }
 
 /// The damage that a strike of `attacker` deals `defender`, the strike's factor `share`, or
 /// none when it misses (`0x56B130`): the chance `A/(A + D)` (`0x43EEE0`) against a roll of 0 to
 /// 1,000 over 1,000; each kind's damage `d` rolled, then `d·(1 − 1/(1 + d/r)^k)` against the
 /// kind's resistance `r`, `d²/(d + r)` for the exponent `k` of 1, less the defender's damping
-/// of bronze; the sum, a float, times the factor of the attacker's level `weapons`
-/// ([`weapons_factor`]) and the strike's factor ([`taken`]), at least 1, whole.
-pub fn strike(
-    attacker: &Combat,
-    defender: &Combat,
-    (share, k, weapons): (f32, f32, f64),
-    rng: &mut Rng,
-) -> Option<u32> {
+/// of bronze; the sum, a float, times the factor of the attacker's level and the strike's factor
+/// ([`taken`]), at least 1, whole. `blow` holds those factors, `k` and the rolled damage's.
+pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Option<u32> {
     let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
-    Some(damage(attacker, defender, (share, k, weapons), rng))
+    Some(damage(attacker, defender, blow, rng))
 }
 
 /// A strike of a combat art of the second table at its level in play `level` (`0x56B130`: a
-/// hit's kind other than 0 by a creature in its action of the arts, or its action 5), its factor
-/// `factor` (`arts::factor`): its chance by the art's attack ([`art_attack`]) against a roll of
-/// 0 to 1,000 over 1,000, its damage as a plain strike's ([`strike`]) by the factor and by the
-/// factor of the attacker's level `weapons` ([`weapons_factor`]).
+/// hit's kind other than 0 by a creature in its action of the arts, or its action 5), the blow's
+/// share its factor (`arts::factor`): its chance by the art's attack ([`art_attack`]) against a
+/// roll of 0 to 1,000 over 1,000, its damage as a plain strike's ([`strike`]).
 pub fn art_strike(
     attacker: &Combat,
     defender: &Combat,
-    (factor, k, weapons): (f32, f32, f64),
+    blow: Blow,
     level: u32,
     rng: &mut Rng,
 ) -> Option<u32> {
@@ -1643,7 +1696,7 @@ pub fn art_strike(
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
     }
-    Some(damage(attacker, defender, (factor, k, weapons), rng))
+    Some(damage(attacker, defender, blow, rng))
 }
 
 /// The attack that a strike of a combat art of the second table takes into its hit's chance
@@ -1655,21 +1708,16 @@ pub fn art_attack(attack: f32, level: u32) -> f32 {
 
 /// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
 /// the damping, summed, and what the sum takes off the health ([`taken`]).
-fn damage(
-    attacker: &Combat,
-    defender: &Combat,
-    (factor, k, weapons): (f32, f32, f64),
-    rng: &mut Rng,
-) -> u32 {
-    let total: f32 = roll_damage(&attacker.damage, rng)
+fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
+    let total: f32 = roll_damage(&attacker.damage, blow.rolled, rng)
         .iter()
         .zip(defender.resistance)
         .zip(defender.damping)
         .map(|((&d, r), damping)| {
-            dealt(d, r, k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
+            dealt(d, r, blow.k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
-    taken(total, factor, weapons)
+    taken(total, blow.share, blow.weapons)
 }
 
 /// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
@@ -2136,7 +2184,7 @@ mod tests {
         );
         let mut rng = Rng::of(50, 39, 0);
         let hits = (0..10_000)
-            .filter(|_| strike(&goblin, &wolf, (1.0, 1.0, 1.0), &mut rng).is_some())
+            .filter(|_| strike(&goblin, &wolf, Blow::default(), &mut rng).is_some())
             .count();
         // A/(A + D) = 18.5/34.5 = 0.536.
         assert!((5_100..5_650).contains(&hits), "{hits}");
@@ -2146,7 +2194,7 @@ mod tests {
             ..wolf
         };
         let misses = (0..10_010)
-            .filter(|_| strike(&wolf, &open, (1.0, 1.0, 1.0), &mut rng).is_none())
+            .filter(|_| strike(&wolf, &open, Blow::default(), &mut rng).is_none())
             .count();
         assert!((1..40).contains(&misses), "{misses}");
     }
@@ -2190,7 +2238,7 @@ mod tests {
         };
         // 10²/(10 + 10) = 5; with a damping of 40 per cent, 3; half a strike, 2.
         assert_eq!(
-            strike(&attacker, &defender, (1.0, 1.0, 1.0), &mut rng),
+            strike(&attacker, &defender, Blow::default(), &mut rng),
             Some(5)
         );
         let damped = Combat {
@@ -2198,11 +2246,19 @@ mod tests {
             ..defender
         };
         assert_eq!(
-            strike(&attacker, &damped, (1.0, 1.0, 1.0), &mut rng),
+            strike(&attacker, &damped, Blow::default(), &mut rng),
             Some(3)
         );
         assert_eq!(
-            strike(&attacker, &defender, (0.5, 1.0, 1.0), &mut rng),
+            strike(
+                &attacker,
+                &defender,
+                Blow {
+                    share: 0.5,
+                    ..Blow::default()
+                },
+                &mut rng
+            ),
             Some(2)
         );
         // Every kind below 1: 15 physical, of which a resistance of 0 lets 0.9999 through.
@@ -2211,10 +2267,10 @@ mod tests {
             ..attacker
         };
         assert_eq!(
-            strike(&weak, &attacker, (1.0, 1.0, 1.0), &mut rng),
+            strike(&weak, &attacker, Blow::default(), &mut rng),
             Some(14)
         );
-        assert_eq!(strike(&weak, &defender, (1.0, 1.0, 1.0), &mut rng), Some(9));
+        assert_eq!(strike(&weak, &defender, Blow::default(), &mut rng), Some(9));
     }
 
     /// A combat art's strike (#508): the attack `A · (1.3 + 0.125·L)` in its chance, as the
@@ -2249,9 +2305,18 @@ mod tests {
             (0..1000)
                 .filter_map(|_| {
                     if art {
-                        art_strike(&attacker, &defender, (0.8, 1.0, 1.0), 1, rng)
+                        art_strike(
+                            &attacker,
+                            &defender,
+                            Blow {
+                                share: 0.8,
+                                ..Blow::default()
+                            },
+                            1,
+                            rng,
+                        )
                     } else {
-                        strike(&attacker, &defender, (1.0, 1.0, 1.0), rng)
+                        strike(&attacker, &defender, Blow::default(), rng)
                     }
                 })
                 .collect::<Vec<_>>()
@@ -2270,7 +2335,7 @@ mod tests {
             ..defender
         };
         assert_eq!(
-            strike(&attacker, &armoured, (1.0, 1.0, 1.0), &mut rng),
+            strike(&attacker, &armoured, Blow::default(), &mut rng),
             Some(1)
         );
     }
@@ -2280,17 +2345,55 @@ mod tests {
         let mut rng = Rng::of(50, 39, 0);
         let damage = [[3.33, 4.43], [0.0; 2], [0.0; 2], [0.0; 2]];
         let rolls: Vec<f32> = (0..1000)
-            .map(|_| roll_damage(&damage, &mut rng)[0])
+            .map(|_| roll_damage(&damage, 1.0, &mut rng)[0])
             .collect();
-        assert!(rolls.iter().all(|&d| (3.33..=4.43).contains(&d)));
+        // The float 3.33 is 3.3299999…, whose hundredths truncate to 332 (#620).
+        assert!(rolls.iter().all(|&d| (3.32..=4.43).contains(&d)));
         // Hundredths below 100.
         assert!(rolls.iter().any(|&d| (d * 10.0).fract() > 0.01));
         // Tenths from 100.
         let large = [[150.0, 160.0], [0.0; 2], [0.0; 2], [0.0; 2]];
         assert!((0..100).all(|_| {
-            let d = roll_damage(&large, &mut rng)[0] * 10.0;
+            let d = roll_damage(&large, 1.0, &mut rng)[0] * 10.0;
             (d - d.round()).abs() < 1e-3
         }));
+    }
+
+    #[test]
+    fn a_creatures_rolled_damage_takes_proz_dmg_after_the_record_at_53_bits() {
+        let mut rng = Rng::of(50, 39, 0);
+        let one = |d: f32| [[d, d], [0.0; 2], [0.0; 2], [0.0; 2]];
+        // The goblin warrior's strikes at the Seraphim that the original's trace read (#620): the
+        // rolls 2163, 1930 and 1962 hundredths, each times the float 0.01 stored as a float, then
+        // times 0.9 at 53 bits and stored.
+        for (end, expected) in [
+            (21.635, 19.467_f32),
+            (19.305, 17.369_999),
+            (19.625, 17.657_999),
+        ] {
+            assert_eq!(roll_damage(&one(end), 0.9, &mut rng)[0], expected, "{end}");
+        }
+        // The rule of 15 takes the rolled damage before the factor: 1.05 stays itself, about
+        // 0.94 after it, where the ends scaled first made every kind below 1 and so 15.
+        let kept = roll_damage(&one(1.055), 0.9, &mut rng)[0];
+        assert!((0.94..0.95).contains(&kept), "{kept}");
+        assert_eq!(roll_damage(&one(0.95), 0.9, &mut rng)[0], 13.5);
+        // The step goes by the most before the factor: 105 rolls in tenths.
+        let tenths = roll_damage(
+            &[[100.0, 109.9], [0.0; 2], [0.0; 2], [0.0; 2]],
+            1.0,
+            &mut rng,
+        );
+        assert!(((tenths[0] * 10.0) - (tenths[0] * 10.0).round()).abs() < 1e-3);
+        // From 10,000 the least plus whole hundredths of the span.
+        let huge = [[10_000.0, 20_000.0], [0.0; 2], [0.0; 2], [0.0; 2]];
+        assert!((0..100).all(|_| {
+            let d = roll_damage(&huge, 1.0, &mut rng)[0];
+            (10_000.0..=20_000.0).contains(&d) && (d % 100.0).abs() < 1e-3
+        }));
+        // A least below 0 is 0, a most below 0 is 1: a roll of 0 to 1 hundredth.
+        let negative = roll_damage(&[[-5.0, -1.0], [0.0; 2], [0.0; 2], [0.0; 2]], 1.0, &mut rng);
+        assert_eq!(negative[0], 15.0);
     }
 
     #[test]
@@ -2445,23 +2548,24 @@ mod tests {
             combat(&a_wolf(), 1, Holds::default(), &[], &rules),
             combat(&a_goblin(), 1, Holds::default(), &[], &rules),
         );
-        // A creature striking the hero: its attack times 0.65, its damage times 0.9.
-        let (a, d, k) = weighed(wolf, goblin, Some(Side::Defender), (1, 1), &rules);
-        assert!(near(a.attack, 13.0 * 0.65) && near(a.damage[0][1], 4.43 * 0.9));
+        // A creature striking the hero: its attack times 0.65, its rolled damage times 0.9, its
+        // damage's ends as they are (#620).
+        let (a, d, blow) = weighed(wolf, goblin, Some(Side::Defender), (1, 1), &rules);
+        assert!(near(a.attack, 13.0 * 0.65) && a.damage == wolf.damage);
         assert_eq!(d, goblin);
-        assert!((k - 1.0).abs() < 1e-6);
+        assert!((blow.k - 1.0).abs() < 1e-6 && near(blow.rolled, 0.9));
         // Ten levels above the hero's: `p` 0.55, `k = −log₂ 0.45`.
-        let (.., k) = weighed(wolf, goblin, Some(Side::Defender), (11, 1), &rules);
-        assert!((k - -(0.45_f32).log2()).abs() < 1e-5);
+        let (.., blow) = weighed(wolf, goblin, Some(Side::Defender), (11, 1), &rules);
+        assert!((blow.k - -(0.45_f32).log2()).abs() < 1e-5);
         // The hero striking a creature: its defence times 0.65.
-        let (a, d, k) = weighed(goblin, wolf, Some(Side::Attacker), (1, 11), &rules);
+        let (a, d, blow) = weighed(goblin, wolf, Some(Side::Attacker), (1, 11), &rules);
         assert_eq!(a, goblin);
         assert!(near(d.defence, 16.0 * 0.65) && near(d.resistance[0], 4.48));
-        assert!((k - 1.0).abs() < 1e-6);
+        assert_eq!(blow, Blow::default());
         // Between creatures, as they are.
         assert_eq!(
             weighed(wolf, goblin, None, (9, 1), &rules),
-            (wolf, goblin, 1.0)
+            (wolf, goblin, Blow::default())
         );
     }
 
@@ -2593,7 +2697,15 @@ mod tests {
         };
         // `10·(1 − 1/2²)` = 7.5 for `k` 2.
         assert_eq!(
-            strike(&attacker, &defender, (1.0, 2.0, 1.0), &mut rng),
+            strike(
+                &attacker,
+                &defender,
+                Blow {
+                    k: 2.0,
+                    ..Blow::default()
+                },
+                &mut rng
+            ),
             Some(7)
         );
     }

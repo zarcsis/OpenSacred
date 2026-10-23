@@ -134,7 +134,10 @@ pub(crate) fn aim(
                 };
             }
             (true, None) => {
-                commands.entity(hero).insert(next);
+                commands
+                    .entity(hero)
+                    .remove::<crate::making::Making>()
+                    .insert(next);
             }
             (false, Some(mut attack)) => attack.ends = true,
             (false, None) => {}
@@ -208,6 +211,7 @@ fn engage(
                         target: entity,
                         share: 1.0,
                         ranged: false,
+                        art: None,
                     });
                 }
             }

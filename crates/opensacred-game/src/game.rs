@@ -16,8 +16,8 @@ use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
 use crate::{
-    ai, arts, atmosphere, daynight, fight, hero, iso, lines, motions, music, npcs, sectors, sound,
-    terrain,
+    ai, arts, atmosphere, daynight, fight, hero, iso, lines, making, motions, music, npcs, sectors,
+    sound, terrain,
 };
 
 /// Where the process is.
@@ -381,6 +381,9 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         .as_ref()
         .and_then(|slots| slots.stance(held_class).map(str::to_owned));
     let hits = npcs::hit_fractions(assets);
+    // The clips of its class's arts' actions for what it holds, and their hit points (#509).
+    let points = npcs::hit_points(assets);
+    let arts = making::clips(class.creature(), held_class, slots.as_ref(), &points);
     let dying = slots
         .as_ref()
         .map(|slots| {
@@ -413,6 +416,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.stance = stance;
     hero.attacks = attacks;
+    hero.arts = arts;
     hero.held = held;
     let base = fight::Base::of(&record);
     let skills = fight::skills(&base, fight::HERO_LEVEL, true);
