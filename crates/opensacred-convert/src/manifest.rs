@@ -1,5 +1,5 @@
 //! The run manifests (PLAN.md §7: "writes a manifest with the source of every output file"):
-//! after a full run, each subcommand records under `<out>/manifest/<command>.ron` the converter
+//! after a full run, each extraction records under `<assets-src>/manifest/<command>.ron` the converter
 //! that ran, the installation files it read and the files it wrote, each with its SHA-256. `all`
 //! skips a command whose manifest names the same converter and sources and whose outputs are all
 //! in place, and two runs that write the same manifests wrote the same files.
@@ -68,7 +68,7 @@ pub fn sources(command: &str) -> Result<Vec<String>> {
     Ok(paths)
 }
 
-fn hash(path: &Path, name: String) -> Result<FileHash> {
+pub(crate) fn hash(path: &Path, name: String) -> Result<FileHash> {
     let (sha256, size) =
         sha256_file(path).with_context(|| format!("reading {}", path.display()))?;
     Ok(FileHash {
@@ -85,7 +85,7 @@ pub fn converter() -> Result<String> {
 }
 
 /// The files under `dir`, as paths relative to `base` with `/` separators, sorted.
-fn files(base: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
+pub(crate) fn files(base: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
@@ -123,14 +123,19 @@ pub fn record(game_dir: &Path, out: &Path, command: &str) -> Result<RunManifest>
         sources,
         outputs: hash_all(out, &outputs)?,
     };
-    let path = manifest_path(out, command);
+    write(out, &manifest)?;
+    Ok(manifest)
+}
+
+/// Writes `manifest` as `<out>/manifest/<command>.ron`.
+pub fn write(out: &Path, manifest: &RunManifest) -> Result<()> {
+    let path = manifest_path(out, &manifest.command);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
-    let text = ron::ser::to_string_pretty(&manifest, ron::ser::PrettyConfig::default())
-        .with_context(|| format!("writing the manifest of {command}"))?;
-    fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
-    Ok(manifest)
+    let text = ron::ser::to_string_pretty(manifest, ron::ser::PrettyConfig::default())
+        .with_context(|| format!("writing the manifest of {}", manifest.command))?;
+    fs::write(&path, text).with_context(|| format!("writing {}", path.display()))
 }
 
 /// Forgets the run of `command`, after a run that wrote only some of its outputs.

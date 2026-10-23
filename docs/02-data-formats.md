@@ -1066,7 +1066,7 @@ Consequence for the converter: PCM and IMA ADPCM → FLAC, MP3 records are copie
 ### 12.1 Targets per format
 
 The converter writes in two stages (PLAN.md ADR-05 and §7, #694): stage A extracts lossless masters into `assets-src/`, the targets below, and stage B builds the game's assets into `assets/` from them: the textures as KTX2 with BC7 and mipmaps (#700), the sound and the music as Opus in Ogg (#701), the cutscenes as AV1 and Opus in WebM (#698), the scripts as Luau bytecode, all in ZIP archives by kind (#699); the rest as the masters are.
-Until #696 the converter writes the targets below straight into `assets/`.
+Since #696 the extraction commands write the targets below into `assets-src/` and `build` copies them into `assets/`, until the later sub-issues change the formats.
 
 | Source | Target | Check |
 |---|---|---|
@@ -1087,9 +1087,9 @@ Until #696 the converter writes the targets below straight into `assets/`.
 
 * `opensacred-formats`: reading the original formats (safe slice parsing, no `unsafe`).
 * `opensacred-data`: open format types shared by the converter and the game.
-* `opensacred-convert`: a CLI with the subcommands `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, `all` and `coverage`; parallel (rayon); the two stages, extract and build, come with #696.
+* `opensacred-convert`: a CLI with the subcommands `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `netscript`, `tables`, `heroes`, `build`, `all` and `coverage`; parallel (rayon); the commands but `build` are stage A, extracting into `--assets-src` (`assets-src/`), and `build` is stage B, building into `--out` (`assets/`) the files whose masters changed (#696).
   Stage A is reproducible by nature; stage B's lossy encoders need not be, and identical reruns are no longer a goal (#694).
-  Each full run of a command records `manifest/<command>.ron` under the output directory (the SHA-256 of the converter, of the installation files it read and of the files it wrote), and `all` skips a command whose record still holds.
+  Each full run of an extraction records `manifest/<command>.ron` under the masters' directory, and `build` its own under the game's (the SHA-256 of the converter, of the installation files it read and of the files it wrote), and `all` skips a command whose record still holds.
 * Outputs go to `assets-src/` (the masters) and `assets/` (the game's), neither committed.
   HD packs and mods go to `assets-hd/` in the masters' formats with the same relative paths.
 

@@ -9,6 +9,7 @@
 *.dump
 # Extracted and converted game assets, HD packs and analysis output
 /assets/
+/assets-src/
 /assets-hd/
 /extracted/
 /analysis-output/
