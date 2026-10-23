@@ -21,14 +21,14 @@ The game is `opensacred-game` (docs/10). It reads the converted assets of `asset
 - **Interactive** (look, decide, act again): start the game with `--remote` in the background, then call `tools/game/remote.py` as often as needed.
 
   ```bash
-  cargo run --release -p opensacred-game -- --assets <assets> --remote --windowed --no-music \
+  cargo run --release -p opensacred-game -- --assets <assets> --remote --offscreen --no-music \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log      # run_in_background
   python -I tools/game/remote.py wait-state menu        # up, on its main menu
   python -I tools/game/remote.py exec "new-game --class dwarf"
   python -I tools/game/remote.py wait-ready             # loaded, the hero animating, the sectors in place
   ```
 
-Always pass `--windowed`, `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), console history and log. With `--remote` the window opens without taking the focus.
+Always pass `--offscreen` (or `--windowed` for a one-shot script), `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), console history and log. `--offscreen` opens a window outside every monitor, where it draws on and its screenshots are whole, also while the computer is locked (#554); with `--remote` the window opens without taking the focus.
 
 ## What the client does
 

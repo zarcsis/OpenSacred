@@ -9,7 +9,7 @@ With `--port 15703` it drives the original Sacred.exe under `tools/original/host
 (docs/03 §3.8).
 
 Example
-  cargo run --release -p opensacred-game -- --remote --windowed --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log
+  cargo run --release -p opensacred-game -- --remote --offscreen --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log
   python -I tools/game/remote.py wait-state menu            # the game is up, on its menu
   python -I tools/game/remote.py exec "new-game --class mage"
   python -I tools/game/remote.py wait-ready                 # loaded, the hero animating, the sectors in place
