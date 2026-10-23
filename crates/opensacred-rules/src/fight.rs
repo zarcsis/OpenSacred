@@ -20,10 +20,10 @@ const BRONZE: usize = 5;
 const KINDS: usize = 4;
 
 /// The rows of the table of `A` and `D` at `0x956C80`, all alike: the per cent of the attributes
-/// `a0` and `a2` that the attack takes, and that the defence takes (docs/re/fight.md, "An NPC's
-/// attack, defence and damage").
-const ATTACK: [f32; 2] = [50.0, 50.0];
-const DEFENCE: [f32; 2] = [20.0, 80.0];
+/// `a0` and `a2` that the attack takes, and of an item's `A`, and the same of the defence
+/// (docs/re/fight.md, "An NPC's attack, defence and damage").
+const ATTACK: [f32; 3] = [50.0, 50.0, 100.0];
+const DEFENCE: [f32; 3] = [20.0, 80.0, 100.0];
 
 /// The hero's experience, which its kills earn (`0x57D860`), its level by it (`0x57F8D0`), and
 /// the attribute and skill points its levels gave (`0x57E160`), which it cannot spend yet, and
@@ -760,16 +760,29 @@ pub struct Templates {
     parents: HashMap<u32, u32>,
 }
 
-/// The constant 0.01 of the item maker, a single-precision float a little below it.
+/// The constant 0.01 of the item maker and of the skills (`0x890CB0`), a single-precision float a
+/// little below it.
 const HUNDREDTH: f64 = 0.009_999_999_776_482_582;
 
 /// A value stored as a single-precision float.
+fn single(value: f64) -> f64 {
+    f64::from(stored(value))
+}
+
+/// A double stored as a float, as the x87 unit stores a result: the nearest float.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "the original stores the value as a float"
 )]
-fn single(value: f64) -> f64 {
-    f64::from(value as f32)
+fn stored(value: f64) -> f32 {
+    value as f32
+}
+
+/// A per cent `value` added to a multiplier `times` as the world's x87 unit adds it, at 53 bits
+/// (#589), and stored as a float (`0x566070`, `0x5796A0`): `value` times the float 0.01
+/// (`0x890CB0`) plus `times` (#593).
+fn raised(times: f32, value: f32) -> f32 {
+    stored(f64::from(value) * HUNDREDTH + f64::from(times))
 }
 
 /// The whole part of a double, 0 below 0.
@@ -973,12 +986,15 @@ pub fn skills(base: &Base, level: u32, hero: bool) -> Vec<(u8, u32)> {
 
 /// A skill's per cent at level `level` (`0x566070`), of the balance's triple `[off, S, w]`:
 /// `off` at level 1, `w` at level `S + 1`, `off + 2(w − off)(1 − 1/(1 + (level − 1)/S))`; none
-/// below level 1.
+/// below level 1. The world's x87 unit computes it at 53 bits and stores it as a float (#589,
+/// #593): the float nearest the doubles' result, which single precision can miss by a bit.
 fn curve([off, steps, most]: [f32; 3], level: u32) -> f32 {
     if level < 1 || steps <= 0.0 {
         return 0.0;
     }
-    off + 2.0 * (most - off) * (1.0 - 1.0 / (1.0 + to_f32(level - 1) / steps))
+    let [off, steps, most] = [off, steps, most].map(f64::from);
+    let x = (most - off) * (1.0 - 1.0 / (f64::from(level - 1) / steps + 1.0));
+    stored(x + x + off)
 }
 
 /// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
@@ -1108,6 +1124,11 @@ pub fn attack_speed(id: u32) -> f32 {
 ///   cent, and 24, the fist fight, unarmed, the attack's by its curve's per cent and the attack
 ///   speed by its other curve, taken whole (#588); an attack or a defence whose multiplier is not
 ///   1 is truncated.
+/// - `A` and `D`, their multipliers and their products as the world's x87 unit computes them, at
+///   53 bits (#589, #593): each part of `A` and `D` times the float 0.01, the items' first, and
+///   each per cent of a multiplier (the items' bonuses, then the skills in their slots' order)
+///   times it, added and stored as a float in turn; the product of `A` or `D` and its multiplier
+///   truncated as it is, not stored as a float first.
 ///
 /// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's,
 /// its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md).
@@ -1160,9 +1181,12 @@ pub fn combat(
     // 801 to 804 a kind's damage (with the condition's bit 15, its resistance), 805 to 808 a
     // hundredth to its multiplier, 809 and 810 to those of `A` and `D`, 811 the attack speed, 815
     // to 820 the attributes, by the attributes before them; the other effects are not followed.
-    let (mut item_attack, mut item_defence) = (0.0, 0.0);
+    // `A` and `D` and their multipliers as the recomputation stores them (`+0x5A`, `+0x5E`, `+0xE6`,
+    // `+0xEA`): each item's `A` and `D` times the row's 100 per cent, then its bonuses.
+    let (mut attack, mut defence) = (0.0_f32, 0.0_f32);
+    let (mut attack_times, mut defence_times) = (1.0_f32, 1.0_f32);
     let mut item_multipliers = [0.0_f32; KINDS];
-    let (mut attack_bonus, mut defence_bonus, mut speed_bonus) = (0.0, 0.0, 0.0);
+    let mut speed_bonus = 0.0;
     let mut attribute_bonuses = [0.0_f32; 6];
     for item in &holds.items {
         for (ends, item) in damage.iter_mut().zip(item.damage) {
@@ -1172,8 +1196,8 @@ pub fn combat(
         for (value, item) in resistance.iter_mut().zip(item.resistance) {
             *value += item;
         }
-        item_attack += item.attack;
-        item_defence += item.defence;
+        attack = raised(attack, item.attack * ATTACK[2]);
+        defence = raised(defence, item.defence * DEFENCE[2]);
         for bonus in item.bonuses.iter().filter(|bonus| bonus.holds(base.id)) {
             let value = bonus.value(grown);
             let kind = |first: u32| usize::try_from((bonus.effect & 0xFFFF) - first).ok();
@@ -1194,8 +1218,8 @@ pub fn combat(
                         item_multipliers[kind] += value / 100.0;
                     }
                 }
-                809 => attack_bonus += value / 100.0,
-                810 => defence_bonus += value / 100.0,
+                809 => attack_times = raised(attack_times, value),
+                810 => defence_times = raised(defence_times, value),
                 811 => speed_bonus += value,
                 815..=820 => {
                     // `a0`, `a2`, `a1`, `a3`, `a4`, `a5` in the effects' order.
@@ -1225,16 +1249,15 @@ pub fn combat(
     }
     // The skills' parts of the multipliers.
     let curves = &rules.curves;
-    let (mut damage_skill, mut attack_skill, mut defence_skill) =
-        (0.0, 1.0 + attack_bonus, 1.0 + defence_bonus);
+    let mut damage_skill = 0.0;
     let mut resistance_skill = [0.0; KINDS];
     let mut fist_speed = 0.0;
     for &(skill, at) in skills {
         match skill {
             2 => damage_skill += curve(curves.damage, at) / 100.0,
             8 => {
-                attack_skill += curve(curves.attack, at) / 100.0;
-                defence_skill += curve(curves.defence, at) / 100.0;
+                attack_times = raised(attack_times, curve(curves.attack, at));
+                defence_times = raised(defence_times, curve(curves.defence, at));
             }
             9 => {
                 let parry = if holds.shield {
@@ -1242,7 +1265,7 @@ pub fn combat(
                 } else {
                     curves.parry
                 };
-                defence_skill += curve(parry, at) / 100.0;
+                defence_times = raised(defence_times, curve(parry, at));
             }
             11 => {
                 for (value, triple) in resistance_skill.iter_mut().zip(curves.resistances) {
@@ -1251,7 +1274,7 @@ pub fn combat(
             }
             // Holding nothing (`0x546F80` of class 0).
             24 if !armed => {
-                attack_skill += curve(curves.fist, at) / 100.0;
+                attack_times = raised(attack_times, curve(curves.fist, at));
                 fist_speed += curve(curves.fist_speed, at);
             }
             _ => {}
@@ -1273,22 +1296,23 @@ pub fn combat(
             1.0 + resistance_skill[kind] + f * b[1] / 10.0 / rules.resistance_divisors[kind];
         *value = value.max(0.0) * factor.max(0.0) * res;
     }
-    let multiplied = |value: f32, factor: f32| {
-        if factor == 1.0 {
+    // The attributes' parts after the items' (`0x5796A0`), each held at 0 and above.
+    let part =
+        |[t0, t1]: [f32; 2]| f64::from(a[0]) * f64::from(t0) + f64::from(a[2]) * f64::from(t1);
+    let attack = raised(attack, stored(part([ATTACK[0], ATTACK[1]]))).max(0.0);
+    let defence = raised(defence, stored(part([DEFENCE[0], DEFENCE[1]]))).max(0.0);
+    // The attack record (`0x568D70`) truncates the product of the two floats, exact at 53 bits.
+    let multiplied = |value: f32, times: f32| {
+        let times = times.max(0.0);
+        if times == 1.0 {
             value
         } else {
-            to_f32(whole(value * factor))
+            to_f32(whole_f64(f64::from(value) * f64::from(times)))
         }
     };
     Combat {
-        attack: multiplied(
-            (a[0] * ATTACK[0] + a[2] * ATTACK[1]) / 100.0 + item_attack,
-            attack_skill,
-        ),
-        defence: multiplied(
-            (a[0] * DEFENCE[0] + a[2] * DEFENCE[1]) / 100.0 + item_defence,
-            defence_skill,
-        ),
+        attack: multiplied(attack, attack_times),
+        defence: multiplied(defence, defence_times),
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
@@ -1995,6 +2019,75 @@ mod tests {
             ..Base::default()
         };
         assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.64).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_and_d_take_their_multipliers_as_the_originals_world_at_53_bits() {
+        let rules = Rules::default();
+        let curves = &rules.curves;
+        // The multipliers as the original's driver read them exactly (#589): the skill 8 at
+        // level 10 gives 1.43 (1.4299999475) and 1.7767797, where single precision gives
+        // 1.4300001 and 1.7767799; at level 8 1.3598245 and 1.6507018; the skills 9, then 8, at
+        // level 26 `D`'s 4.2599998, single precision 4.26.
+        let times = |triples: &[[f32; 3]], at: u32| {
+            triples
+                .iter()
+                .fold(1.0, |times, &triple| raised(times, curve(triple, at)))
+        };
+        for (triples, at, expected) in [
+            (&[curves.attack][..], 10, 1.43_f32),
+            (&[curves.defence][..], 10, 1.776_779_7),
+            (&[curves.attack][..], 8, 1.359_824_5),
+            (&[curves.defence][..], 8, 1.650_701_8),
+            (&[curves.attack][..], 26, 1.856_666_6),
+            (&[curves.parry, curves.defence][..], 26, 4.259_999_8),
+        ] {
+            assert_eq!(times(triples, at).to_bits(), expected.to_bits(), "{at}");
+        }
+        // And so `A` and `D`, the products truncated as they are (#593): the type 200 at level
+        // 31 (its skills 2, 11 and 8 at level 10) `A` 100 times 1.43, 142, not 143, and `D` 177;
+        // the type 51 at level 78 (11, 2, 9 and 8 at 26) `A` 239 times 1.8566666, 443, and `D`
+        // 200 times 4.2599998, 851, not 852; the goblin 76 at level 25 84 and 114.
+        let base = |id: u32, attributes: [u8; 6], skills: [u8; 4]| Base {
+            id,
+            attributes,
+            skills: [skills[0], skills[1], skills[2], skills[3], 0, 0, 0, 0],
+            ..Base::default()
+        };
+        for (base, level, attack, defence) in [
+            (
+                base(200, [25, 20, 25, 16, 10, 15], [2, 11, 8, 24]),
+                31,
+                142.0,
+                177.0,
+            ),
+            (
+                base(51, [35, 25, 20, 43, 10, 12], [11, 2, 9, 8]),
+                78,
+                443.0,
+                851.0,
+            ),
+            (
+                base(76, [15, 20, 22, 12, 0, 4], [8, 2, 0, 0]),
+                25,
+                84.0,
+                114.0,
+            ),
+        ] {
+            let values = combat(
+                &base,
+                level,
+                Holds::default(),
+                &skills(&base, level, false),
+                &rules,
+            );
+            assert_eq!(
+                (values.attack, values.defence),
+                (attack, defence),
+                "{}",
+                base.id
+            );
+        }
     }
 
     #[test]
