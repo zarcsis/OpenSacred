@@ -152,22 +152,24 @@ impl HeroArts {
     }
 }
 
-/// The arts' regeneration (`0x562730`), the hero's alone: what is still to run of each art goes
-/// down by the frame's time times its factor and its kind's speed (the original's by its world's
-/// tick of about 0.1 s, which this is to follow, #616), the speeds by
-/// the hero's level, attributes and items (`fight::arts_speeds`).
+/// The arts' regeneration (`0x562730`), the hero's alone, on the world's tick as the creatures'
+/// updates run it (`frame::WorldTick`, #627): what is still to run of each art goes down by the
+/// tick's seconds times its factor and its kind's speed, the speeds by the hero's level,
+/// attributes and items (`fight::arts_speeds`).
 fn regenerate(
-    time: Res<Time>,
+    tick: Res<crate::frame::WorldTick>,
     experience: Res<Experience>,
     arts: Option<ResMut<HeroArts>>,
     heroes: Query<(&Base, Option<&Holding>), With<Body>>,
 ) {
-    let (Some(mut arts), Some((base, holding))) = (arts, heroes.iter().next()) else {
+    let (Some(seconds), Some(mut arts), Some((base, holding))) =
+        (tick.seconds, arts, heroes.iter().next())
+    else {
         return;
     };
     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
     let speeds = opensacred_rules::fight::arts_speeds(base, experience.level, &holds);
-    arts.arts.regenerate(time.delta_secs(), speeds);
+    arts.arts.regenerate(seconds, speeds);
 }
 
 /// The hero's arts' regeneration.
@@ -175,7 +177,13 @@ pub struct ArtsPlugin;
 
 impl Plugin for ArtsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, regenerate.in_set(crate::frame::Unpaused));
+        app.add_systems(
+            Update,
+            regenerate
+                .in_set(crate::frame::Unpaused)
+                .after(crate::frame::Step::Tick)
+                .run_if(crate::frame::ticked),
+        );
     }
 }
 
