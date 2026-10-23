@@ -2658,6 +2658,7 @@ fn spawn(
         );
         mind.level = grade;
         mind.ranged = placement.ranged;
+        mind.armed = placement.held != 0;
         // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`); a
         // crab's or a fish's the stats' own.
         let skills = fight::skills(&placement.base, grade, placement.plain);

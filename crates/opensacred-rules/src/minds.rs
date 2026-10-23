@@ -320,10 +320,10 @@ const CHILD_LINES: [&str; 35] = [
 /// gives up (`0x542B20`, `0x4E1B5F`).
 const ATTACKS_WITHIN: f32 = 800.0;
 const GIVES_UP: f32 = 2_000.0;
-/// The reach of two creatures of the size of most (`0x4DBC60`: 130 by default; **hypothesis**
-/// for every type, whose sizes are not read), the band about it a creature keeps (`0x4E0300`),
-/// and in how many cases of 11 it comes on at a run.
-const REACH: f32 = 130.0;
+/// The size of a creature of a type without one of its own, of which the reach of two creatures
+/// is the mean ([`size`], [`reach`], `0x4DBC60`), the band about the reach a creature keeps
+/// (`0x4E0300`), and in how many cases of 11 it comes on at a run.
+pub const SIZE: u32 = 130;
 const BAND: f32 = 15.0;
 const RUNS_IN: u32 = 7;
 /// How near the hero a wounded creature flees, how far, and in how many ticks of one it does
@@ -363,9 +363,9 @@ const SHOOTS: (f32, f32) = (250.0, 650.0);
 /// one case of two; before its sub-states, one of class 5 within 150 of its target goes in one
 /// case of four, its bow put away (`0x4DBFC0`); and a creature that went to melee from its bow
 /// takes one again for a target beyond its reach + 100 (`0x4D4A80`).
-const SWITCHES_WITHIN: f32 = 1.5 * REACH;
+const SWITCHES_WITHIN: f32 = 1.5;
 const DROPS_BOW_WITHIN: f32 = 150.0;
-const TAKES_BOW_BEYOND: f32 = REACH + 100.0;
+const TAKES_BOW_BEYOND: f32 = 100.0;
 /// The weapons of the switch, `items.pak` types made at the creature's level (`0x5D5080`): the
 /// four of melee, held in the right hand, and the two bows, held in the left.
 pub const SWORD: u32 = 1753;
@@ -516,6 +516,9 @@ pub struct Mind {
     /// Whether it holds a ranged weapon in a hand (item category 5, weapon kinds 7, 12, 13 and 14,
     /// `0x427ED0`), with which it fights at range (the AI's state 8, `0x4DBFC0`).
     pub ranged: bool,
+    /// Whether it holds something of a class other than 0 (`0x546F80(0)`), which its size takes
+    /// for some types ([`size`]).
+    pub armed: bool,
     /// Whether it fights the hero (the AI's state 4, `0x4E0300`, or 8), and whether it has fled
     /// in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
@@ -548,6 +551,11 @@ pub struct Mind {
 }
 
 impl Mind {
+    /// Its size, of which and another's the reach of two creatures is the mean ([`size`]).
+    pub fn size(&self) -> u32 {
+        size(self.creature, self.armed)
+    }
+
     /// The mind of a creature made at `home` with the flags word `flags`, by an `Enter` function
     /// or not, by `CreateNPC` (`created`) or a fill: `CreateNPC` wakes its creatures of the flags'
     /// bit 0 as it makes them (`sdk_WAKE`) and gives them a timer of 2.5 s.
@@ -593,6 +601,7 @@ impl Mind {
             level: 1,
             active: false,
             ranged: false,
+            armed: false,
             fighting: false,
             fled: false,
             placing: None,
@@ -716,6 +725,7 @@ impl Mind {
             hero_moves,
             takes_on,
             walking,
+            hero_size,
         } = *senses;
         let mut thought = Thought::default();
         if self.flags & TIMED != 0 {
@@ -745,7 +755,7 @@ impl Mind {
                 let from_home = (here - self.home).abs();
                 // The hero worth experience to it, or within its reach, within 800, a straight
                 // line of walkable cells to it: it comes at the hero (`0x542B20`).
-                let takes_on = takes_on || distance <= REACH;
+                let takes_on = takes_on || distance <= reach_f32(self.size(), hero_size);
                 if rng.below(6) == 0 && (from_home.x > AWAY || from_home.y > AWAY) {
                     if !walking {
                         thought.home = Some(self.home);
@@ -859,16 +869,18 @@ impl Mind {
             health,
             hero_strikes,
             listed,
+            hero_size,
             ..
         } = *sight;
-        let (lo, hi) = (REACH - BAND, REACH + BAND);
+        let reach = reach_f32(self.size(), hero_size);
+        let (lo, hi) = (reach - BAND, reach + BAND);
         let within = lo + BAND;
         let d = (hero - here).length();
         if d > GIVES_UP {
             self.leaves_fight();
             return Some(Pursues::GivesUp);
         }
-        if self.takes_bow && !striking && d > TAKES_BOW_BEYOND {
+        if self.takes_bow && !striking && d > reach + TAKES_BOW_BEYOND {
             return Some(self.takes_a_bow(rng));
         }
         let steps_back = || Pursues::StepsBack(here + (here - hero).unit() * ((lo + hi) / 2.0));
@@ -894,7 +906,7 @@ impl Mind {
         // Deciding, near the hero's nearest hostile, it takes its place (`0x4E1404`, `0x4E224E`).
         if walk.is_none()
             && !striking
-            && let Some(to) = listed.and_then(|listed| place(here, hero, listed))
+            && let Some(to) = listed.and_then(|listed| place(here, hero, listed, reach))
         {
             let runs = self.class != 5 && rng.below(2) == 0;
             if (to - here).length() > hi {
@@ -989,8 +1001,10 @@ impl Mind {
             walk,
             striking,
             targeted,
+            hero_size,
             ..
         } = *sight;
+        let within = SWITCHES_WITHIN * reach_f32(self.size(), hero_size);
         // The shot's action plays while its AI is idle (the AI's state 0, `0x4DC9A3`).
         if striking {
             return None;
@@ -1004,7 +1018,7 @@ impl Mind {
             if (SHOOTS.0..=SHOOTS.1).contains(&d) {
                 return Some(self.shoot(rng));
             }
-            if let Some(switch) = self.switches(d, targeted, rng) {
+            if let Some(switch) = self.switches(d, targeted, within, rng) {
                 return Some(switch);
             }
             self.deciding = false;
@@ -1017,7 +1031,7 @@ impl Mind {
             if walk.is_some() {
                 return None;
             }
-            if let Some(switch) = self.switches(d, targeted, rng) {
+            if let Some(switch) = self.switches(d, targeted, within, rng) {
                 return Some(switch);
             }
             self.backs += 1;
@@ -1063,11 +1077,11 @@ impl Mind {
     }
 
     /// Whether an archer `d` from the hero goes to melee (`0x4D4B70`): the hero attacking it
-    /// (`targeted`) from within 1.5 times the reach, by [`melee_switch`]. The original's other
-    /// conditions hold for every creature of the game: its id above 16, no companion of a player
-    /// (`+0x251`), its `+0x1F0` not 12.
-    fn switches(&mut self, d: f32, targeted: bool, rng: &mut Rng) -> Option<Pursues> {
-        if !targeted || d > SWITCHES_WITHIN {
+    /// (`targeted`) from within 1.5 times the reach (`within`), by [`melee_switch`]. The
+    /// original's other conditions hold for every creature of the game: its id above 16, no
+    /// companion of a player (`+0x251`), its `+0x1F0` not 12.
+    fn switches(&mut self, d: f32, targeted: bool, within: f32, rng: &mut Rng) -> Option<Pursues> {
+        if !targeted || d > within {
             return None;
         }
         let (weapon, takes_bow) = melee_switch(self.creature, self.class, &mut |n| rng.below(n))?;
@@ -1079,6 +1093,7 @@ impl Mind {
     /// right hand if it takes one.
     fn goes_to_melee(&mut self, weapon: Option<u32>) -> Pursues {
         self.ranged = false;
+        self.armed = weapon.is_some();
         self.deciding = true;
         self.backs = 0;
         self.placing = None;
@@ -1091,6 +1106,7 @@ impl Mind {
     fn takes_a_bow(&mut self, rng: &mut Rng) -> Pursues {
         self.takes_bow = false;
         self.ranged = true;
+        self.armed = true;
         self.deciding = true;
         self.backs = 0;
         self.placing = None;
@@ -1215,6 +1231,8 @@ pub struct Senses {
     pub hero_moves: bool,
     pub takes_on: bool,
     pub walking: bool,
+    /// The hero's size ([`size`]), of which and the creature's the reach is the mean.
+    pub hero_size: u32,
 }
 
 /// What a creature's thought makes it do this tick ([`Mind::think`]).
@@ -1266,15 +1284,57 @@ pub struct Pursuit {
     pub hero_strikes: bool,
     pub listed: Option<(usize, Spot)>,
     pub targeted: bool,
+    /// The hero's size ([`size`]), of which and the creature's the reach is the mean.
+    pub hero_size: u32,
 }
 
 /// The place about the hero at `hero` of a creature at `here` that is the `index`-th of the
 /// hero's list of hostiles, from 0, whose first stands at `first` (`0x4E1404`, `0x4E224E`): for
 /// the second, third and fourth, nearer than `R − 15` to the first, the point `R − 15` from the
-/// hero along the world's `+x`, `−y` and `+y`, the grid's axes; `None` for any other.
-pub fn place(here: Spot, hero: Spot, (index, first): (usize, Spot)) -> Option<Spot> {
+/// hero along the world's `+x`, `−y` and `+y`, the grid's axes, `R` the reach `reach`; `None`
+/// for any other.
+pub fn place(here: Spot, hero: Spot, (index, first): (usize, Spot), reach: f32) -> Option<Spot> {
     let along = *PLACES.get(index.checked_sub(1)?)?;
-    ((here - first).length() < REACH - BAND).then(|| hero + along * (REACH - BAND))
+    ((here - first).length() < reach - BAND).then(|| hero + along * (reach - BAND))
+}
+
+/// The size of a creature of type `creature` (`0x4DBC60`, docs/re/fight.md, #642), `armed`
+/// whether it holds something of a class other than 0 (`0x546F80(0)`): 70 for the Wood Elf, the
+/// Vampiress by day and 333; 80, or 110 armed, for the Dark Elf and the types 274 to 303; 100 for
+/// the Seraphim and others; 120 for the Gladiator and others; up to 480 for the great beasts;
+/// [`SIZE`] for the Mage, the Vampiress by night, the Dwarf, the Daemon and every type without
+/// one of its own.
+pub fn size(creature: u32, armed: bool) -> u32 {
+    match creature {
+        5 | 6 | 333 => 70,
+        4 | 274..=303 if armed => 110,
+        4 | 274..=303 => 80,
+        1 | 32..=34 | 38 | 45 | 48..=51 | 192 | 316 | 699 => 100,
+        259 => 110,
+        2 | 37 | 44 | 182 | 188 | 194 | 260 | 307 | 308 | 315 | 322 | 670 | 671 | 689 | 690 => 120,
+        190 | 193 | 348 => 170,
+        187 | 202..=208 | 253..=255 | 344 | 350..=352 | 359 => 200,
+        183 => 300,
+        55 => 420,
+        52 | 74 | 88 | 100..=103 => 480,
+        _ => SIZE,
+    }
+}
+
+/// The reach of two creatures of the sizes `size` and `other` ([`size`]): their mean, in whole
+/// units (`0x4DBC60`).
+pub fn reach(size: u32, other: u32) -> u32 {
+    (size + other) / 2
+}
+
+/// The reach of two creatures of the sizes `size` and `other` ([`reach`]) as a distance.
+fn reach_f32(size: u32, other: u32) -> f32 {
+    units(reach(size, other))
+}
+
+/// A whole number of world units, a reach, as a distance.
+fn units(value: u32) -> f32 {
+    f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
 /// A creature's walk: its target, whether it comes on at the hero (a walk of
@@ -1780,19 +1840,19 @@ fn behaviour(
 }
 
 /// The hero's band, in which it strikes, `R + 45` (`0x4E0300` for a hero), and how far a hit
-/// lands, 1.5 times the reach for a player's (`0x4EA1F0`; **hypothesis** that the base is `R`);
-/// the reach is a creature's of the default size, the creatures' own.
-const HERO_BAND: f32 = REACH + 45.0;
-const HITS_WITHIN: f32 = 1.5 * REACH;
+/// lands, 1.5 times the reach for a player's (`0x4EA1F0`; **hypothesis** that the base is `R`),
+/// `R` the reach of the hero and its target ([`reach`]).
+const HERO_BAND: f32 = 45.0;
+const HITS_WITHIN: f32 = 1.5;
 /// How much each chained strike raises the speed of the next, and the most (`0x4E4CF0`).
 const CHAIN_STEP: f32 = 0.1;
 const CHAIN_MOST: f32 = 1.7;
 
 /// Whether the hero, its attack aimed at a point `distance` away on the ground, comes on toward
-/// it (`0x6172C0`, the AI's state 4 for a hero): farther than its band, unless it strikes at
-/// once, where it stands; else it stops, turns to it and strikes.
-pub fn hero_comes_on(at_once: bool, distance: f32) -> bool {
-    !at_once && distance > HERO_BAND
+/// it (`0x6172C0`, the AI's state 4 for a hero): farther than its band about the reach `reach`,
+/// unless it strikes at once, where it stands; else it stops, turns to it and strikes.
+pub fn hero_comes_on(at_once: bool, distance: f32, reach: u32) -> bool {
+    !at_once && distance > units(reach) + HERO_BAND
 }
 
 /// Whether the hero's strike's next hit is due (the attack action 3, `0x4E4CF0`), `done` of its
@@ -1816,9 +1876,9 @@ pub fn looses(a: f32, done: f32) -> bool {
 }
 
 /// Whether the hero's hit lands on a target `distance` away on the ground: within 1.5 times the
-/// reach.
-pub fn hero_hits(distance: f32) -> bool {
-    distance <= HITS_WITHIN
+/// reach `reach`.
+pub fn hero_hits(distance: f32, reach: u32) -> bool {
+    distance <= HITS_WITHIN * units(reach)
 }
 
 /// Whether the hero's attack ends with the strike that ends: a strike at once or in the air is
@@ -1905,6 +1965,7 @@ mod tests {
         // 700 off, the hero far from where its walk heads: a flight runs on (#387), a walk that
         // comes on turns after the hero.
         let sight = |comes_on| Pursuit {
+            hero_size: SIZE,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: Some(Walking {
@@ -1936,6 +1997,7 @@ mod tests {
     /// What an archer at the origin sees of the hero at `d` along x, standing or walking.
     fn at_range(d: f32, walk: Option<Walking>) -> Pursuit {
         Pursuit {
+            hero_size: SIZE,
             here: Spot::default(),
             hero: at(d, 0.0),
             walk,
@@ -2261,6 +2323,7 @@ mod tests {
     /// hero's hostiles, whose first stands at `first`.
     fn listed(here: Spot, index: usize, first: Spot) -> Pursuit {
         Pursuit {
+            hero_size: SIZE,
             here,
             hero: Spot::default(),
             walk: None,
@@ -2273,18 +2336,53 @@ mod tests {
     }
 
     #[test]
+    fn the_reach_is_the_mean_of_the_two_types_sizes() {
+        // The Seraphim, the Gladiator and the Mage beside a goblin warrior, of the default size.
+        assert_eq!(reach(size(1, true), size(76, false)), 115);
+        assert_eq!(reach(size(2, true), size(76, false)), 125);
+        assert_eq!(reach(size(3, true), size(76, false)), 130);
+        // The Dark Elf by what he holds, the Wood Elf, the types 32 to 34, a great beast.
+        assert_eq!(size(4, false), 80);
+        assert_eq!(size(4, true), 110);
+        assert_eq!(size(290, true), 110);
+        assert_eq!(size(5, true), 70);
+        assert_eq!(size(33, false), 100);
+        assert_eq!(size(52, false), 480);
+        // In whole units: 70 and 125 reach 97.
+        assert_eq!(reach(70, 125), 97);
+        let mut mind = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (4, 0));
+        assert_eq!(mind.size(), 80);
+        mind.armed = true;
+        assert_eq!(mind.size(), 110);
+        // The hero's band and hits by its reach with its target.
+        assert!(!hero_comes_on(false, 160.0, 115));
+        assert!(hero_comes_on(false, 161.0, 115));
+        assert!(hero_hits(172.0, 115));
+        assert!(!hero_hits(173.0, 115));
+    }
+
+    #[test]
     fn the_second_to_fourth_of_the_heros_hostiles_take_their_places_about_it() {
         let hero = at(1000.0, 1000.0);
         let first = at(880.0, 1000.0);
         let near = at(900.0, 1060.0);
         // Along the world's +x, −y and +y, 115 from the hero; the first and the fifth have none,
         // nor one 115 or more from the first.
-        assert_eq!(place(near, hero, (1, first)), Some(at(1115.0, 1000.0)));
-        assert_eq!(place(near, hero, (2, first)), Some(at(1000.0, 885.0)));
-        assert_eq!(place(near, hero, (3, first)), Some(at(1000.0, 1115.0)));
-        assert_eq!(place(near, hero, (0, first)), None);
-        assert_eq!(place(near, hero, (4, first)), None);
-        assert_eq!(place(at(880.0, 1115.0), hero, (1, first)), None);
+        assert_eq!(
+            place(near, hero, (1, first), 130.0),
+            Some(at(1115.0, 1000.0))
+        );
+        assert_eq!(
+            place(near, hero, (2, first), 130.0),
+            Some(at(1000.0, 885.0))
+        );
+        assert_eq!(
+            place(near, hero, (3, first), 130.0),
+            Some(at(1000.0, 1115.0))
+        );
+        assert_eq!(place(near, hero, (0, first), 130.0), None);
+        assert_eq!(place(near, hero, (4, first), 130.0), None);
+        assert_eq!(place(at(880.0, 1115.0), hero, (1, first), 130.0), None);
         // The second, in the band, its place farther than 145 from it: it walks there for a
         // tick, stopping within 40, at a run in one case of two.
         let mut rng = Rng::of(51, 39, 4);
@@ -2488,6 +2586,7 @@ mod tests {
         opener.hears_alarm(9);
         assert!(!opener.fighting);
         let senses = Senses {
+            hero_size: SIZE,
             dt: 0.01,
             seen: true,
             here: Spot::default(),
@@ -2506,6 +2605,7 @@ mod tests {
     fn an_idle_creature_without_a_straight_line_goes_for_the_door_in_its_way() {
         let mut rng = Rng::of(50, 40, 8);
         let senses = Senses {
+            hero_size: SIZE,
             dt: 0.01,
             seen: false,
             here: Spot::default(),
