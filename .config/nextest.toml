@@ -1,0 +1,8 @@
+# cargo-nextest's settings (https://nexte.st/docs/configuration/).
+
+# The GRN cross-checks run tools/analysis/formats/grn_dump.py over every model, which holds them in
+# memory; beside the other tests on the game files one ran out of it (#746). Each takes every
+# thread, so that it runs alone.
+[[profile.default.overrides]]
+filter = 'test(/_match_grn_dump_py$/)'
+threads-required = "num-cpus"
