@@ -680,13 +680,12 @@ impl Mind {
     /// Whether a guard awake attacks the nearest creature hostile to it, standing at `foe`
     /// (`0x4EF150`, `0x4EEE40`): within 500 of it, it sends itself the event `0x100` with the
     /// creature, which takes the AI's state 4 with it for its target (`0x52FA63`), unless it fights
-    /// already; it takes the state 8 with a ranged weapon, which the game's guards leave out
-    /// (docs/decisions/2026-10-20-guards.md). Its behaviour waits while it fights.
+    /// already; the state 8 with a ranged weapon, in which it fights at range ([`Self::at_range`],
+    /// #670). Its behaviour waits while it fights.
     pub fn guards(&mut self, here: Spot, foe: Spot) -> bool {
         if !self.active
             || !self.is_guard()
             || self.fighting
-            || self.ranged
             || (foe - here).length() >= GUARD_ATTACKS
         {
             return false;
@@ -707,10 +706,10 @@ impl Mind {
     /// (`0x54338B`): in one tick of three it looks among the creatures of its sector that fight,
     /// of another side and hostile to it, alive (`foes`, which the caller finds), and takes each
     /// within 800 of it and no farther than the hero in two cases of three, the last it takes
-    /// counting; one with a ranged weapon takes none, as the game's archers shoot only at the hero
-    /// (docs/decisions/2026-10-21-archers.md). Its index in `foes`, or `None` for the hero.
+    /// counting; one with a ranged weapon too, which fights it at range (#670). Its index in
+    /// `foes`, or `None` for the hero.
     fn picks_foe(&self, here: Spot, hero: Spot, foes: &[Foe], rng: &mut Rng) -> Option<usize> {
-        if self.ranged || foes.is_empty() || rng.below(LOOKS_FOR_FOES) != 2 {
+        if foes.is_empty() || rng.below(LOOKS_FOR_FOES) != 2 {
             return None;
         }
         let to_hero = (hero - here).length();
@@ -906,10 +905,10 @@ impl Mind {
 
     /// The alarm of its group `group` raised by a member that was struck and fights a creature
     /// (`0x46AE70`, the event `0x100` with the member's target, `0x52FA63`): an idle member takes
-    /// that creature for its foe, whatever its side; whether it does. One with a ranged weapon does
-    /// not, as the game's archers shoot only at the hero (docs/decisions/2026-10-21-archers.md).
+    /// that creature for its foe, whatever its side; whether it does. One with a ranged weapon
+    /// fights it at range (#670).
     pub fn joins(&mut self, group: u32) -> bool {
-        if self.group != Some(group) || !self.idle() || self.ranged {
+        if self.group != Some(group) || !self.idle() {
             return false;
         }
         self.fighting = true;
@@ -3419,16 +3418,18 @@ mod tests {
         // Its foe gone, it leaves the fight.
         guard.loses_foe();
         assert!(!guard.fighting() && !guard.active);
-        // Not a guard, one asleep or one with a bow.
+        // Not a guard, or one asleep.
         let mut asleep = on_guard();
         asleep.active = false;
-        let mut archer = on_guard();
-        archer.ranged = true;
         let mut farmer = on_guard();
         farmer.flags = TOWNSFOLK;
-        for mut other in [asleep, archer, farmer] {
+        for mut other in [asleep, farmer] {
             assert!(!other.guards(here, at(100.0, 0.0)));
         }
+        // One with a bow attacks too, to fight at range (#670).
+        let mut archer = on_guard();
+        archer.ranged = true;
+        assert!(archer.guards(here, at(100.0, 0.0)) && archer.fighting());
     }
 
     #[test]
@@ -3496,13 +3497,14 @@ mod tests {
             blocked += usize::from(!thought.attacks);
         }
         assert!((25..75).contains(&blocked), "{blocked}");
-        // One with a bow takes none.
-        let mut archer = bear();
-        archer.ranged = true;
-        for _ in 0..100 {
-            archer.fighting = false;
+        // One with a bow takes the boss as often, to fight it at range (#670).
+        let mut taken = 0;
+        for _ in 0..600 {
+            let mut archer = bear();
+            archer.ranged = true;
             let thought = archer.think(&senses(&boss), |_| true, || true, &mut rng);
-            assert_eq!(thought.foe, None);
+            taken += usize::from(thought.foe == Some(0));
         }
+        assert!((100..170).contains(&taken), "{taken}");
     }
 }

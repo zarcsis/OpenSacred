@@ -5,14 +5,14 @@
 //! or the first creature, nearer its way than the sum of the two sizes, alive and hostile to the
 //! shooter (`0x5BB010`): the hit is the fight's ([`fight::Hit`], at range), and the arrow sticks
 //! in a creature of a size above 20 for 5 s, but not in the hero (`0x5BAB40`). The rules are
-//! `opensacred_rules::arrows`; the game's creatures are hostile to the hero alone, so a
-//! creature's arrow hits only the hero, and flies on through the others
-//! (docs/decisions/2026-10-21-archers.md).
+//! `opensacred_rules::arrows`. A creature's arrow hits the hero when its shooter is hostile to
+//! the hero, and a creature of a side or type hostile to its shooter's (`0x548F60`, #670): the
+//! arrows of the archers that fight a creature, and those that a creature comes in the way of.
 
 use bevy::prelude::*;
 pub use opensacred_rules::arrows::size;
 use opensacred_rules::arrows::{self, Point};
-use opensacred_rules::minds::Spot;
+use opensacred_rules::minds::{self, Spot};
 
 use crate::crowd::InTheWay;
 use crate::fight::{self, Health};
@@ -75,6 +75,16 @@ fn pointing(velocity: Point) -> Quat {
         Quat::IDENTITY
     } else {
         Quat::from_rotation_arc(Vec3::Z, direction)
+    }
+}
+
+/// Whether an arrow of `shooter` hits what it comes on: the hero, alive when `hero` holds
+/// `Some(true)`, when the shooter is hostile to it; a creature, alive when `other` holds its mind,
+/// when the shooter is hostile to its side or type (`0x548F60`).
+fn lands(shooter: &minds::Mind, hero: Option<bool>, other: Option<&minds::Mind>) -> bool {
+    match hero {
+        Some(alive) => alive && shooter.hostile(),
+        None => other.is_some_and(|other| shooter.hostile_to(other)),
     }
 }
 
@@ -144,10 +154,11 @@ fn loose(
 }
 
 /// Flies each arrow a frame on (`0x5BB010`): it ends where it may not fly on and is gone when its
-/// time is out; it hits the hero, its target or the first creature near the part of its way it
-/// flew, when the hero is alive and the shooter alive and hostile to it, sending the fight's hit
-/// at range with the shooter's values (`fight::Hit`, the event 5 with the bow), and is gone, or
-/// sticks in a creature of a size above 20.
+/// time is out; it comes on the hero, its target or the first creature near the part of its way it
+/// flew, and hits it when it is alive and hostile to the shooter, alive too (the hero to a shooter
+/// hostile to it, a creature to one of a hostile side or type), sending the fight's hit at range
+/// with the shooter's values (`fight::Hit`, the event 5 with the bow), and is gone, or sticks in a
+/// creature of a size above 20; else it flies on.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -210,11 +221,17 @@ fn fly(
         let Some(on) = arrows::picks(way, arrow.size, near, arrow.target) else {
             continue;
         };
-        // Only the hero is hostile to a hostile shooter, and only while both live.
+        // The hero, alive, to a shooter hostile to it; a creature, alive, to one of a hostile side
+        // or type; the shooter alive.
+        let Ok(shooter) = shooters.get(arrow.shooter) else {
+            continue;
+        };
         let hero_hit = hero.is_some_and(|(e, ..)| e == on);
-        let alive = hero.is_some_and(|(.., health)| health.current > 0);
-        let hostile = shooters.get(arrow.shooter).is_ok_and(|mind| mind.hostile());
-        if !(hero_hit && alive && hostile) {
+        let the_hero = hero
+            .filter(|_| hero_hit)
+            .map(|(.., health)| health.current > 0);
+        let other = shooters.get(on).ok().map(|other| &other.thinks);
+        if !lands(&shooter.thinks, the_hero, other) {
             continue;
         }
         let distance = match (places.get(arrow.shooter), places.get(on)) {
@@ -279,6 +296,38 @@ impl Plugin for ArrowsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_arrow_hits_the_hero_or_a_creature_hostile_to_its_shooter() {
+        let mind = |creature, side| {
+            let mut mind = minds::Mind::new(
+                Spot::default(),
+                0,
+                (false, false),
+                None,
+                [100.0, 200.0],
+                (creature, 0),
+            );
+            mind.side = side;
+            mind
+        };
+        // A thief of the side 2, hostile to the hero; the boss of the start, of the side 3,
+        // peaceful to it; a bear of the side 2, hostile to the boss (the sides' table).
+        let thief = mind(313, 2);
+        let boss = mind(689, 3);
+        let bear = mind(537, 2);
+        assert!(thief.hostile() && !boss.hostile() && boss.hostile_to(&bear));
+        // The thief's arrow hits the hero alive, not dead; the boss's never hits the hero.
+        assert!(lands(&thief, Some(true), None));
+        assert!(!lands(&thief, Some(false), None));
+        assert!(!lands(&boss, Some(true), None));
+        // The boss's arrow hits the bear, alive, not a creature of its own side nor a dead bear;
+        // the thief's flies on through the bear, of its side.
+        assert!(lands(&boss, None, Some(&bear)));
+        assert!(!lands(&boss, None, Some(&mind(689, 3))));
+        assert!(!lands(&boss, None, None));
+        assert!(!lands(&thief, None, Some(&bear)));
+    }
 
     #[test]
     fn an_arrow_points_its_tip_along_its_flight() {
