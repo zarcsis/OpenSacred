@@ -476,10 +476,24 @@ fn make(
             }
             // A boon gives its effects at its own point of its clip.
             if matches!(style, Style::Boon | Style::Ward) {
-                points = arts::boon(record, level)
-                    .or_else(|| arts::ward(record, level))
+                let boon = arts::boon(record, level).or_else(|| arts::ward(record, level));
+                points = boon
+                    .as_ref()
                     .map(|boon| vec![boon.point])
                     .unwrap_or_default();
+                // What it takes off and gives as it starts (the Daemon's 1094).
+                if let Some(boon) = boon.filter(|b| !b.clears.is_empty() || !b.starts.is_empty()) {
+                    commands
+                        .entity(hero)
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| {
+                            effects.take_off(&boon.clears);
+                            for (effect, seconds) in boon.starts {
+                                effects.add(effect, seconds);
+                            }
+                        });
+                }
             }
             // A `Rundum`, the whirling blow and the hurled blades start their regeneration as
             // they start.

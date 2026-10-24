@@ -41,6 +41,11 @@ impl Effects {
             .any(|timed| arts.iter().any(|&art| timed.effect.art == u32::from(art)))
     }
 
+    /// Takes off every effect keyed by one of `arts` (`0x5888F0`).
+    pub fn take_off(&mut self, arts: &[u32]) {
+        self.0.retain(|timed| !arts.contains(&timed.effect.art));
+    }
+
     /// The effects and their seconds, in their order.
     pub fn timed(&self) -> &[Timed] {
         &self.0
