@@ -14,12 +14,15 @@ anyhow.workspace = true
 bevy.workspace = true
 bevy_kira_audio.workspace = true
 clap.workspace = true
+kira.workspace = true
 opensacred-data.workspace = true
 opensacred-rules.workspace = true
 png.workspace = true
 ron.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+symphonia.workspace = true
+symphonia-adapter-libopus.workspace = true
 toml_edit.workspace = true
 
 [lints]

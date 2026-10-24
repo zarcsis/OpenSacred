@@ -6,7 +6,7 @@ An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, 
 
 OpenSacred contains none of the game's files. You need your own copy of Sacred Gold from GOG:
 
-- an offline converter reads your installation once and turns its assets into open formats (PNG, glTF, FLAC/MP3, AV1/Opus WebM, RON, Fluent);
+- an offline converter reads your installation once and turns its assets into open formats (PNG and KTX2, glTF, FLAC and Ogg Opus, AV1/Opus WebM, RON, Fluent);
 - the engine reads only those formats;
 - the game's rules are reimplemented from documented behavior ([docs/re/](docs/re/)); deliberate deviations from the original are recorded in [docs/decisions/](docs/decisions/).
 

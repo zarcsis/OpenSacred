@@ -3,12 +3,15 @@
 //! masters, encoded by FFmpeg ([`crate::ffmpeg`]) bit-exactly, so that a rerun gives the same
 //! files. A WAV sample becomes lossless FLAC; an MP3 sample and the music are decoded from their
 //! first frame into 16-bit FLAC, which keeps what the MP3 decoder gives (#697).
+//!
+//! `build` encodes each master into Ogg Opus for the game ([`encode_opus`], #701) and writes the
+//! game's `sound.ron` naming the Opus files ([`built_index`]).
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use opensacred_data::sound::{INDEX, Music, Profile, SampleEntry, Sound, SoundName};
 use opensacred_formats::sound::{Profiles, Sample, SoundPak, mp3_first_frame};
 use rayon::prelude::*;
@@ -58,8 +61,80 @@ const MP3_FLAC: [&str; 18] = [
     "pipe:1",
 ];
 
+/// The bitrates of the game's Opus (#701, docs/decisions/2026-10-23-opus.md): a sample's mono and
+/// stereo, at least the 48 to 96 kbit/s of the MP3 samples but for 72 of 128; the music's, at the
+/// MP3s' 256 kbit/s.
+const SAMPLE_BITRATES: [&str; 2] = ["96k", "128k"];
+const MUSIC_BITRATES: [&str; 2] = ["128k", "256k"];
+
 pub fn output_dir(out: &Path) -> PathBuf {
     out.join("sound")
+}
+
+/// The channels of the FLAC stream `flac`, from its first metadata block, the stream's info.
+fn flac_channels(flac: &[u8]) -> Result<u8> {
+    if flac.get(..4) != Some(b"fLaC") || flac.get(4).map(|b| b & 0x7F) != Some(0) {
+        bail!("not a FLAC stream that begins with its STREAMINFO");
+    }
+    // After the sample rate's 20 bits, at the byte 18 of the stream, 3 bits of channels less one.
+    let byte = *flac.get(20).context("a FLAC stream cut short")?;
+    Ok(((byte >> 1) & 0x07) + 1)
+}
+
+/// The Ogg Opus file of the sound whose master is the FLAC `flac` (`build`, #701): FFmpeg's
+/// libopus at 48 kHz, at the bitrate of a music file or of a sample and of its channels.
+pub fn encode_opus(flac: &[u8], music: bool, what: &str) -> Result<Vec<u8>> {
+    let [mono, stereo] = if music {
+        MUSIC_BITRATES
+    } else {
+        SAMPLE_BITRATES
+    };
+    let bitrate = if flac_channels(flac).with_context(|| what.to_owned())? == 1 {
+        mono
+    } else {
+        stereo
+    };
+    let args = [
+        "-f",
+        "flac",
+        "-i",
+        "pipe:0",
+        "-map_metadata",
+        "-1",
+        "-fflags",
+        "+bitexact",
+        "-flags:a",
+        "+bitexact",
+        "-ar",
+        "48000",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        bitrate,
+        "-f",
+        "ogg",
+        "-y",
+        "pipe:1",
+    ];
+    ffmpeg::pipe(&args, flac, what)
+}
+
+/// The game's sound index of the masters' `masters` (`build`, #701): the samples and the music
+/// named as the Opus files that `build` makes of the FLAC masters.
+pub fn built_index(masters: &str) -> Result<String> {
+    let mut index: Sound = ron::from_str(masters).context("reading the masters' sound.ron")?;
+    let files = index
+        .samples
+        .iter_mut()
+        .map(|s| &mut s.file)
+        .chain(index.music.iter_mut().map(|m| &mut m.file));
+    for file in files {
+        if let Some(stem) = file.strip_suffix(".flac") {
+            *file = format!("{stem}.{}", opensacred_data::sound::EXTENSION);
+        }
+    }
+    ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default())
+        .context("writing the game's sound.ron")
 }
 
 /// `samples/01020.flac`.
@@ -242,6 +317,61 @@ mod tests {
     #[test]
     fn sample_files_are_named_by_id() {
         assert_eq!(sample_file(1020, "flac"), "samples/01020.flac");
+    }
+
+    #[test]
+    fn the_game_index_names_the_opus_files() {
+        let index = Sound {
+            samples: vec![SampleEntry {
+                id: 2,
+                file: "samples/00002.flac".to_owned(),
+            }],
+            profiles: Vec::new(),
+            music: vec![Music {
+                id: Some(6560),
+                file: "music/MUSIC_WOOD01.flac".to_owned(),
+            }],
+            names: Vec::new(),
+        };
+        let text = ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default()).unwrap();
+        let built: Sound = ron::from_str(&built_index(&text).unwrap()).unwrap();
+        assert_eq!(built.samples[0].file, "samples/00002.opus");
+        assert_eq!(built.music[0].file, "music/MUSIC_WOOD01.opus");
+    }
+
+    /// A FLAC of a second of a tone, mono and stereo, becomes Ogg Opus at its bitrate that FFmpeg
+    /// decodes back to the same length at 48 kHz.
+    #[test]
+    #[ignore = "needs FFmpeg"]
+    fn a_master_becomes_ogg_opus_of_its_length() {
+        let tone = |channels: &str| {
+            let args = [
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=44100:duration=1",
+                "-ac",
+                channels,
+                "-f",
+                "flac",
+                "pipe:1",
+            ];
+            ffmpeg::pipe(&args, &[], "a tone").unwrap()
+        };
+        for (channels, count) in [("1", 1), ("2", 2)] {
+            let flac = tone(channels);
+            assert_eq!(flac_channels(&flac).unwrap(), count);
+            let opus = encode_opus(&flac, false, "a tone").unwrap();
+            assert_eq!(&opus[..4], b"OggS");
+            let pcm = ffmpeg::pipe(
+                &["-i", "pipe:0", "-f", "s16le", "-ac", "1", "pipe:1"],
+                &opus,
+                "the tone's Opus",
+            )
+            .unwrap();
+            assert_eq!(pcm.len(), 2 * 48_000, "{channels} channels");
+        }
+        assert!(flac_channels(b"RIFF").is_err());
     }
 
     /// A PCM, an IMA ADPCM and an MP3 sample become FLAC that FFmpeg decodes to the PCM it

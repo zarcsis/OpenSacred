@@ -46,6 +46,10 @@ enum Make {
     Model,
     /// The world index, naming the KTX2 textures.
     WorldIndex,
+    /// A sample's or, if `true`, a music file's FLAC master, encoded into Ogg Opus.
+    Sound(bool),
+    /// The sound index, naming the Opus files.
+    SoundIndex,
     /// A cutscene's FFV1 and FLAC master, encoded into AV1 and Opus WebM.
     Video,
     /// The cutscenes' index, naming the WebM files.
@@ -54,12 +58,15 @@ enum Make {
 
 impl Make {
     /// Every way.
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 10] = [
         Self::Copy,
         Self::Texture(Use::Read),
         Self::Texture(Use::Sampled),
         Self::Model,
         Self::WorldIndex,
+        Self::Sound(false),
+        Self::Sound(true),
+        Self::SoundIndex,
         Self::Video,
         Self::VideoIndex,
     ];
@@ -73,6 +80,8 @@ impl Make {
             Self::Texture(_) => ("texture", 1),
             Self::Model => ("model", 1),
             Self::WorldIndex => ("world-index", 1),
+            Self::Sound(_) => ("sound", 1),
+            Self::SoundIndex => ("sound-index", 1),
             Self::Video => ("video", 0),
             Self::VideoIndex => ("video-index", 0),
         }
@@ -93,6 +102,17 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     }
     if path == world_index() {
         return (path.to_owned(), Make::WorldIndex);
+    }
+    if path == format!("sound/{}", opensacred_data::sound::INDEX) {
+        return (path.to_owned(), Make::SoundIndex);
+    }
+    if let Some(stem) = path.strip_suffix(".flac")
+        && path.starts_with("sound/")
+    {
+        return (
+            format!("{stem}.{}", opensacred_data::sound::EXTENSION),
+            Make::Sound(path.starts_with("sound/music/")),
+        );
     }
     if path.starts_with("models/") && path.ends_with(".glb") {
         return (path.to_owned(), Make::Model);
@@ -226,6 +246,16 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
         Make::WorldIndex => {
             let text = fs::read_to_string(&from).with_context(what)?;
             Ok(crate::world::built_index(&text)
+                .with_context(what)?
+                .into_bytes())
+        }
+        Make::Sound(music) => {
+            let flac = fs::read(&from).with_context(what)?;
+            crate::sound::encode_opus(&flac, music, &planned.master.path).with_context(what)
+        }
+        Make::SoundIndex => {
+            let text = fs::read_to_string(&from).with_context(what)?;
+            Ok(crate::sound::built_index(&text)
                 .with_context(what)?
                 .into_bytes())
         }
@@ -523,6 +553,21 @@ mod tests {
             ("world/world.ron".to_owned(), Make::WorldIndex)
         );
         assert_eq!(
+            make("sound/sound.ron"),
+            ("sound/sound.ron".to_owned(), Make::SoundIndex)
+        );
+        assert_eq!(
+            make("sound/samples/00002.flac"),
+            ("sound/samples/00002.opus".to_owned(), Make::Sound(false))
+        );
+        assert_eq!(
+            make("sound/music/MUSIC_WOOD01.flac"),
+            (
+                "sound/music/MUSIC_WOOD01.opus".to_owned(),
+                Make::Sound(true)
+            )
+        );
+        assert_eq!(
             make("models/models/0661-seraphim.glb"),
             ("models/models/0661-seraphim.glb".to_owned(), Make::Model)
         );
@@ -569,7 +614,7 @@ mod tests {
         let out = scratch_dir("build-out");
         write(&src, "tables/items.ron", "[]");
         write(&src, "text/en-US/global.ftl", "a = b");
-        write(&src, "sound/samples/00002.flac", "fLaC");
+        write(&src, "ui/fonts/antqs__.ttf", "font");
         write(&src, "manifest/tables.ron", "not a manifest");
         // A loose output of a build before the archives, and one of an extraction before the two
         // stages, with its record.
@@ -616,8 +661,8 @@ mod tests {
         assert!(manifest::read(&out, "text").unwrap().is_none());
         assert_eq!(read(&out, "data.zip", "tables/items.ron").unwrap(), "[]");
         assert_eq!(
-            read(&out, "sound.zip", "sound/samples/00002.flac").unwrap(),
-            "fLaC"
+            read(&out, "ui.zip", "ui/fonts/antqs__.ttf").unwrap(),
+            "font"
         );
         // Stage A's manifests are not masters.
         assert!(read(&out, "data.zip", "manifest/tables.ron").is_none());
@@ -629,7 +674,7 @@ mod tests {
         // A changed master is built again, the others of its archive copied; a master gone takes
         // its archive with it.
         write(&src, "tables/items.ron", "[()]");
-        fs::remove_file(src.join("sound/samples/00002.flac")).unwrap();
+        fs::remove_file(src.join("ui/fonts/antqs__.ttf")).unwrap();
         let changed = build(&src, &out, false).unwrap();
         assert_eq!((changed.built, changed.kept, changed.removed), (1, 1, 1));
         assert_eq!(read(&out, "data.zip", "tables/items.ron").unwrap(), "[()]");
@@ -637,7 +682,7 @@ mod tests {
             read(&out, "data.zip", "text/en-US/global.ftl").unwrap(),
             "a = b"
         );
-        assert!(!out.join("sound.zip").exists());
+        assert!(!out.join("ui.zip").exists());
         // `force` builds everything, into the same bytes.
         let data = fs::read(out.join("data.zip")).unwrap();
         assert_eq!(build(&src, &out, true).unwrap().built, 2);

@@ -1,11 +1,13 @@
 //! The converted sound (docs/02 §10): `sound.ron` holds the [`Sound`] index of the samples, the
-//! profiles that name them, the music and the original program's names of the sound ids. Samples
-//! are FLAC (from the WAVs) or MP3 files under `samples/`, the music MP3 files under `music/`.
+//! profiles that name them, the music and the original program's names of the sound ids. The
+//! masters are FLAC files under `samples/` and `music/`, the game's Ogg Opus files (#701).
 
 use serde::{Deserialize, Serialize};
 
 /// The index file under the sound directory.
 pub const INDEX: &str = "sound.ron";
+/// The extension of the game's sound files, Ogg Opus.
+pub const EXTENSION: &str = "opus";
 
 /// The sound index, `sound.ron`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
