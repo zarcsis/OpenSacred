@@ -318,24 +318,27 @@ The creature's handler of the event (about `0x52FE40`) takes an art that is not 
 
 ## The effects
 
-Read 2026-10-23 (#510): a creature's stats hold its effects as a list of entries of 32 bytes from `+0x11A` to `+0x11E`: the effect's id at `+0x00`, a whole value at `+0x04`, a value as a float at `+0x14` and an art at `+0x1C`, added by `0x582D50(id, …, value, …)`.
-The recomputation (`0x5796A0`, after the items) adds each to the stats by its id (#651):
+Read 2026-10-23 (#510): a creature's stats hold its effects as a list of entries of 32 bytes from `+0x11A` to `+0x11E`: the effect's id at `+0x00`, a whole value at `+0x04`, a value as a float at `+0x14`, its seconds at `+0x18` and an art at `+0x1C`, added by `0x582D50(id, whole, value, seconds, art, …)`, which recomputes the stats.
+The recomputation (`0x5796A0`) adds each to the stats by its id, in the list's order, after the items and the record's bonuses and before the skills (`0x566070`, called after the loop), the attack speed then held from 100 to 220 (#651):
 
 | Effect | What it does |
 |---|---|
 | 1 | adds its value to `A`'s multiplier (`+0xE6`) |
 | 2 | adds it to `D`'s (`+0xEA`), held at 0.01 at least |
 | 3 to 6 | to the physical, fire, magic and poison damage multipliers (`+0x96`, `+0x9A`, `+0x9E`, `+0xA2`) |
-| 7 to 10 | to the multipliers at `+0x66`, `+0x6A`, `+0x6E`, `+0x72` (**hypothesis**: the four resistances') |
+| 7 to 10 | to the four resistances themselves (`+0x66`, `+0x6A`, `+0x6E`, `+0x72`), before their multipliers |
 | 11 (`0xB`) | to both regeneration speeds, the spells' (`+0xEE`) and the weapon arts' (`+0xF2`), before the attributes' factors (above) |
-| 12 | the regeneration value (`+0x138`) times 1 plus it |
-| 28 | the attack speed (`+0x3C`), `+0x3E` and the pace (`+0x40`) times it, truncated |
+| 12 | the regeneration value (`+0x138`) times 1 plus it, truncated |
+| 28 | `+0x3E`, the attack speed (`+0x3C`) and the pace (`+0x40`) times it, each truncated |
 | 30 | its whole value taken from the three |
 | 33 | its value to the damage multiplier of the kind its whole value names (0 to 3) |
 | 40 | with its art 1015 and the stats' `+0x148` bit `0x20000`, the record's `[+0x50] + [+0x54]·L` of 1015 at its level (1 to 100) to `A`'s and `D`'s multipliers |
-| 42 | `D`'s multiplier times 100 over its value |
-| 52 | the attack speed and the pace times it |
-| 59 | its whole value to `+0x7A` and `+0x8A` (not identified) |
+| 42 | `D`'s multiplier times 100 over its value, a value above 2⁻²³ |
+| 52 | the attack speed and the pace times it, truncated |
+| 59 | its whole value to the fire damage's most and least (`+0x7A`, `+0x8A`) |
+
+**Confirmed** 2026-10-24 in the running original (the driver's `effect`, through `0x582D50`, on the Seraphim's new game): 1 of 0.2 on a multiplier of 1.25 gave 1.45; 2 of −5 gave `D`'s 0.01 and of 0.3 1.3; 42 of 50 doubled it; 3 of 0.5 and 33 of 0.5 with the whole value 1 took the physical and the fire multipliers to 1.5; 7 of 10 took the physical resistance from 1.86 to 11.86, its multiplier unchanged; 52 of 1.5 took the attack speed of 154 to 220 (231 held) and the pace of 132 to 198, 28 `+0x3E` too, from 120 to 180; 30 of the whole 20 took 20 from the three; 59 of the whole 5 gave the fire damage 5 and 5.
+`opensacred_rules::fight` follows them (`Effect`, `combat_with`, `regeneration_with`, `arts_speeds_with`; #651) but for 40; no creature of the game has an effect yet, the spells' and the weapon arts' objects giving them later (#672, #653).
 
 The other ids up to 59 do nothing there; among them the effect `0x22` (34), which `0x539E70` gives a spell's target keyed by the spell, its value the spell's duration (its value 0 at its level, or 0.8 of its time for an art of the second table), and the effects `0x15` and `0x19` of the shots (docs/re/fight.md).
 

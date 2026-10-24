@@ -800,6 +800,7 @@ const WORLD = {
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
+  addEffect: ptr('0x582d50'),        // the stats: thiscall (stats, id, whole, value, seconds, art, 0, 0, 0), an effect
   // The cells (docs/re/movement.md, "Positions and layers"): a position is 16 bytes, the sector's number (u16, 0 to
   // look it up), x and y (i32, cells or world units) and the floor (u8 at +0x0C); a layer is 0 for the ground, else
   // the Static.PAK record of a building's floor.
@@ -845,6 +846,8 @@ const artIndex = new NativeFunction(WORLD.artIndex, 'uint32', ['pointer', 'uint3
 const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'],
   'thiscall');
 const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float', 'uint32', 'uint32'], 'thiscall');
+const addEffect = new NativeFunction(WORLD.addEffect, 'void',
+  ['pointer', 'uint32', 'int32', 'float', 'float', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 // A creature's combat arts (docs/re/arts.md, "A creature's arts"): entries of 22 bytes between the pointers at
 // +0x102 and +0x106 of its stats.
 const ART = { list: 0x102, end: 0x106, size: 22, table: 0, id: 4, level: 6, bonus: 7, flags: 8, time: 10, factor: 14,
@@ -1249,6 +1252,16 @@ const COMMANDS = {
       time: e.add(ART.time).readFloat(), factor: e.add(ART.factor).readFloat(),
       remaining: e.add(ART.remaining).readFloat(),
     }));
+  },
+  // An effect on a creature's stats, the hero's by default, through the original's own 0x582D50 (#651, docs/re/arts.md,
+  // "The effects"): its id, whole value, value, seconds and art, as a spell's object gives it.
+  effect: (engine, { id, effect, whole, value, seconds, art }) => {
+    const object = id ? objectById(id) : hero();
+    if (object === null || !isCreature(object)) {
+      throw new Error(id ? `no creature ${id}` : 'no hero');
+    }
+    addEffect(object.add(STATS), effect, whole, value, seconds, art, 0, 0, 0);
+    return readStats(object);
   },
   // A creature's health to its most, or to `to` (at most its most), the hero's by default.
   heal: (engine, { id, to }) => {

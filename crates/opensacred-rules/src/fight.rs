@@ -495,8 +495,23 @@ impl Regenerates {
 /// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`), taken
 /// whole (`+0x138` is a whole number, which the skill's case stores with `_ftol`).
 pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules) -> f32 {
+    regeneration_with(base, level, skills, &[], rules)
+}
+
+/// [`regeneration`] with the creature's effects `effects` (#651): before the skill, the effect 12
+/// takes the value times 1 plus its own, truncated (`0x5796A0`).
+pub fn regeneration_with(
+    base: &Base,
+    level: u32,
+    skills: &[(u8, u32)],
+    effects: &[Effect],
+    rules: &Rules,
+) -> f32 {
     let b3 = u32::from(base.attributes[3]);
-    let value = to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10));
+    let mut value = to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10));
+    for effect in effects.iter().filter(|e| e.id == effects::REGENERATION) {
+        value = quickened(value, f64::from(effect.value) + 1.0);
+    }
     let skill: f32 = skills
         .iter()
         .filter(|&&(skill, _)| skill == 10)
@@ -1310,6 +1325,71 @@ pub fn pace(id: u32) -> f32 {
     if id == 5 { 120.0 } else { 130.0 }
 }
 
+/// An effect on a creature (docs/re/arts.md, "The effects"): an entry of its stats' list from
+/// `+0x11A` to `+0x11E`, 32 bytes, that `0x582D50` adds: the effect's id (`+0x00`), a whole value
+/// (`+0x04`), a value as a float (`+0x14`) and the art that keys it (`+0x1C`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Effect {
+    pub id: u32,
+    pub whole: i32,
+    pub value: f32,
+    pub art: u32,
+}
+
+impl Effect {
+    /// An effect of `id` and `value`, of no whole value and no art.
+    pub fn new(id: u32, value: f32) -> Self {
+        Self {
+            id,
+            whole: 0,
+            value,
+            art: 0,
+        }
+    }
+}
+
+/// The effects' ids that the recomputation follows (`0x5796A0`, its loop over the list after the
+/// items and the record's bonuses, before the skills).
+pub mod effects {
+    /// `A`'s multiplier (`+0xE6`) and `D`'s (`+0xEA`), plus the value.
+    pub const ATTACK: u32 = 1;
+    pub const DEFENCE: u32 = 2;
+    /// The four kinds' damage multipliers (`+0x96` to `+0xA2`), plus the value, from the
+    /// physical; or the kind of the whole value, 0 to 3.
+    pub const DAMAGE: u32 = 3;
+    pub const DAMAGE_OF: u32 = 33;
+    /// The four kinds' resistances (`+0x66` to `+0x72`), plus the value, from the physical.
+    pub const RESISTANCE: u32 = 7;
+    /// Both regeneration speeds of the arts, the spells' (`+0xEE`) and the weapon arts' (`+0xF2`).
+    pub const ARTS_SPEED: u32 = 11;
+    /// The regeneration value (`+0x138`), times 1 plus the value, truncated.
+    pub const REGENERATION: u32 = 12;
+    /// The attack speed (`+0x3C`) and the pace (`+0x40`) times the value, truncated, and `+0x3E`
+    /// too for 28.
+    pub const SPEEDS: u32 = 28;
+    pub const QUICKENS: u32 = 52;
+    /// The whole value taken from the attack speed, the pace and `+0x3E`.
+    pub const SLOWS: u32 = 30;
+    /// `D`'s multiplier times 100 over the value, a value above `f32::EPSILON`.
+    pub const SHIELDS: u32 = 42;
+    /// The fire damage's most and least (`+0x7A`, `+0x8A`), plus the whole value.
+    pub const FIRE: u32 = 59;
+}
+
+/// The least multiplier of `D` that the effect 2 leaves (the float `0x3C23D70A`).
+const LEAST_DEFENCE_TIMES: f32 = 0.01;
+
+/// A whole number of the stats (the speeds `+0x3C`, `+0x40`, the regeneration value `+0x138`)
+/// times `by`, as the x87 unit multiplies them, truncated as `_ftol` does (`0x5796A0`, the effects
+/// 12, 28 and 52).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a speed or a regeneration value, far below the integers' range"
+)]
+fn quickened(whole: f32, by: f64) -> f32 {
+    (f64::from(whole) * by).trunc() as f32
+}
+
 /// The attack, defence, damage and resistances of an NPC of `base` and level `level`, `armed`
 /// when it holds a weapon (the recomputation `0x5796A0` and the attack record `0x568D70`;
 /// docs/re/fight.md, "An NPC's attack, defence and damage"):
@@ -1334,12 +1414,30 @@ pub fn pace(id: u32) -> f32 {
 ///   truncated as it is, not stored as a float first.
 ///
 /// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's,
-/// its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md).
+/// its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md). Without effects
+/// ([`combat_with`]).
 pub fn combat(
     base: &Base,
     level: u32,
     holds: Holds,
     skills: &[(u8, u32)],
+    rules: &Rules,
+) -> Combat {
+    combat_with(base, level, holds, skills, &[], rules)
+}
+
+/// [`combat`] with the creature's effects `effects` (#651), which the recomputation adds after
+/// the items and before the skills, each in its turn by its id ([`effects`]): to `A`'s and `D`'s
+/// multipliers, `D`'s held at 0.01 at least, and `D`'s times 100 over a value; to the kinds'
+/// damage multipliers and to their resistances; the attack speed and the pace times a value or
+/// less a whole one, truncated; the fire damage's ends. The effect 40, by the art 1015's level,
+/// is left out.
+pub fn combat_with(
+    base: &Base,
+    level: u32,
+    holds: Holds,
+    skills: &[(u8, u32)],
+    effects: &[Effect],
     rules: &Rules,
 ) -> Combat {
     let armed = holds.weapon;
@@ -1450,6 +1548,63 @@ pub fn combat(
         damage[0][1] += 0.15 * (2.0 * a[0] + a[2]) + l / 2.0;
         damage[0][0] += 0.175 * (a[0] + a[2]) + l / 2.0;
     }
+    // The effects (`0x5796A0`, #651), after the items, before the skills. The attack speed is a
+    // whole number of the stats by then (`+0x3C`).
+    let mut speed = attack_speed(base.id) + speed_bonus;
+    let mut speeds_changed = false;
+    for effect in effects {
+        let kind = |first: u32| usize::try_from(effect.id.checked_sub(first)?).ok();
+        match effect.id {
+            effects::ATTACK => attack_times += effect.value,
+            effects::DEFENCE => {
+                defence_times += effect.value;
+                if defence_times < LEAST_DEFENCE_TIMES {
+                    defence_times = LEAST_DEFENCE_TIMES;
+                }
+            }
+            3..=6 => {
+                if let Some(kind) = kind(effects::DAMAGE) {
+                    item_multipliers[kind] += effect.value;
+                }
+            }
+            effects::DAMAGE_OF => {
+                if let Some(times) = usize::try_from(effect.whole)
+                    .ok()
+                    .and_then(|kind| item_multipliers.get_mut(kind))
+                {
+                    *times += effect.value;
+                }
+            }
+            7..=10 => {
+                if let Some(kind) = kind(effects::RESISTANCE) {
+                    resistance[kind] += effect.value;
+                }
+            }
+            effects::SPEEDS | effects::QUICKENS => {
+                speed = quickened(speed.trunc(), f64::from(effect.value));
+                pace = quickened(pace, f64::from(effect.value));
+                speeds_changed = true;
+            }
+            effects::SLOWS => {
+                let whole = effect.whole as f32;
+                speed = speed.trunc() - whole;
+                pace -= whole;
+                speeds_changed = true;
+            }
+            effects::SHIELDS if effect.value > f32::EPSILON => {
+                defence_times = stored(100.0 / f64::from(effect.value) * f64::from(defence_times));
+            }
+            effects::FIRE => {
+                let whole = effect.whole as f32;
+                damage[1][0] += whole;
+                damage[1][1] += whole;
+            }
+            _ => {}
+        }
+    }
+    if !speeds_changed {
+        speed = attack_speed(base.id) + speed_bonus;
+    }
     // The skills' parts of the multipliers.
     let curves = &rules.curves;
     let mut damage_skill = 0.0;
@@ -1521,9 +1676,7 @@ pub fn combat(
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
-        speed: (attack_speed(base.id) + speed_bonus + fist_speed)
-            .trunc()
-            .clamp(100.0, 220.0),
+        speed: (speed + fist_speed).trunc().clamp(100.0, 220.0),
         pace,
     }
 }
@@ -1540,6 +1693,17 @@ fn attribute_of(effect: u32) -> Option<usize> {
 /// `0x32E`) and its attributes `MagicRegen` (4) and `PhysicalRegen` (3), grown by its level and
 /// raised by its items' (as [`combat`]'s, held at 0 and above); no effect `0xB` yet.
 pub fn arts_speeds(base: &Base, level: u32, holds: &Holds) -> arts::Speeds {
+    arts_speeds_with(base, level, holds, &[])
+}
+
+/// [`arts_speeds`] with the creature's effects `effects` (#651): each effect 11 adds its value to
+/// both speeds before the attributes' factors.
+pub fn arts_speeds_with(
+    base: &Base,
+    level: u32,
+    holds: &Holds,
+    effects: &[Effect],
+) -> arts::Speeds {
     let level = level.max(1);
     let grown = base
         .attributes
@@ -1560,7 +1724,12 @@ pub fn arts_speeds(base: &Base, level: u32, holds: &Holds) -> arts::Speeds {
         }
     }
     let a: [f32; 6] = std::array::from_fn(|i| (to_f32(grown[i]) + attribute_bonuses[i]).max(0.0));
-    arts::Speeds::of(bonuses, 0.0, a[4], a[3], base.id)
+    let effect = effects
+        .iter()
+        .filter(|e| e.id == effects::ARTS_SPEED)
+        .map(|e| e.value)
+        .sum();
+    arts::Speeds::of(bonuses, effect, a[4], a[3], base.id)
 }
 
 /// What a strike's resolution (`0x56B130`) takes besides its two sides' values.
@@ -2231,6 +2400,116 @@ mod tests {
     }
 
     /// A wolf (512) and a goblin warrior (76) of `Creature.pak`, as far as their fight goes.
+    #[test]
+    fn the_effects_change_the_stats_after_the_items_and_before_the_skills() {
+        let rules = Rules::default();
+        let wolf = a_wolf();
+        let with = |effects: &[Effect], skills: &[(u8, u32)]| {
+            combat_with(&wolf, 10, Holds::default(), skills, effects, &rules)
+        };
+        let plain = with(&[], &[]);
+        let whole = |value: f64| to_f32(whole_f64(value));
+        // `A`'s multiplier plus 0.25, then the skill 8's per cent on it.
+        let raised_attack = with(&[Effect::new(effects::ATTACK, 0.25)], &[]);
+        assert_eq!(raised_attack.attack, whole(f64::from(plain.attack) * 1.25));
+        let trained = with(&[Effect::new(effects::ATTACK, 0.25)], &[(8, 1)]);
+        let times = raised(1.25, curve(rules.curves.attack, 1));
+        assert_eq!(
+            trained.attack,
+            whole(f64::from(plain.attack) * f64::from(times))
+        );
+        // `D`'s multiplier held at 0.01, and times 100 over a value.
+        let low = with(&[Effect::new(effects::DEFENCE, -5.0)], &[]);
+        assert_eq!(
+            low.defence,
+            whole(f64::from(plain.defence) * f64::from(0.01_f32))
+        );
+        let shielded = with(&[Effect::new(effects::SHIELDS, 50.0)], &[]);
+        assert_eq!(shielded.defence, whole(f64::from(plain.defence) * 2.0));
+        assert_eq!(with(&[Effect::new(effects::SHIELDS, 0.0)], &[]), plain);
+        // A kind's damage multiplier, by its id or by the whole value of 33; the others' stay.
+        let fiercer = with(&[Effect::new(4, 0.5)], &[]);
+        let by_whole = with(
+            &[Effect {
+                whole: 1,
+                ..Effect::new(effects::DAMAGE_OF, 0.5)
+            }],
+            &[],
+        );
+        assert_eq!(fiercer, by_whole);
+        assert_eq!(fiercer.damage[0], plain.damage[0]);
+        assert!(fiercer.damage[1][1] >= plain.damage[1][1]);
+        // A resistance plus its value before its multiplier.
+        let resisting = with(&[Effect::new(effects::RESISTANCE, 10.0)], &[]);
+        assert!(resisting.resistance[0] > plain.resistance[0] + 10.0);
+        assert_eq!(resisting.resistance[1..], plain.resistance[1..]);
+        // The fire damage's ends plus the whole value: a wolf's 0 to some.
+        let burning = with(
+            &[Effect {
+                whole: 5,
+                ..Effect::new(effects::FIRE, 0.0)
+            }],
+            &[],
+        );
+        assert_eq!(plain.damage[1], [0.0, 0.0]);
+        assert!(burning.damage[1][0] > 5.0 && burning.damage[1][0] == burning.damage[1][1]);
+        // The attack speed and the pace times a value, truncated, held at 220; less a whole value.
+        assert_eq!((plain.speed, plain.pace), (140.0, 130.0));
+        let quick = with(&[Effect::new(effects::QUICKENS, 1.5)], &[]);
+        assert_eq!((quick.speed, quick.pace), (210.0, 195.0));
+        let quicker = with(
+            &[
+                Effect::new(effects::SPEEDS, 1.5),
+                Effect::new(effects::QUICKENS, 1.5),
+            ],
+            &[],
+        );
+        assert_eq!((quicker.speed, quicker.pace), (220.0, 292.0));
+        let slow = with(
+            &[Effect {
+                whole: 20,
+                ..Effect::new(effects::SLOWS, 0.0)
+            }],
+            &[],
+        );
+        assert_eq!((slow.speed, slow.pace), (120.0, 110.0));
+        // The ids the recomputation does not follow change nothing.
+        assert_eq!(
+            with(&[Effect::new(34, 9.0), Effect::new(40, 1.0)], &[]),
+            plain
+        );
+    }
+
+    #[test]
+    fn the_effects_raise_the_regeneration_and_the_arts_speeds() {
+        let rules = Rules::default();
+        let base = Base {
+            attributes: [0, 0, 0, 22, 0, 0],
+            ..Base::default()
+        };
+        // 44 times 1.5, then the skill 10's per cent on it.
+        let effect = [Effect::new(effects::REGENERATION, 0.5)];
+        assert_eq!(regeneration_with(&base, 1, &[], &effect, &rules), 66.0);
+        let skill = curve(rules.curves.regeneration, 1) / 100.0;
+        assert_eq!(
+            regeneration_with(&base, 1, &[(10, 1)], &effect, &rules),
+            to_f32(whole(66.0 * (1.0 + skill)))
+        );
+        // Both arts' speeds plus 0.2 before the attributes' factors.
+        let plain = arts_speeds(&base, 1, &Holds::default());
+        let faster = arts_speeds_with(
+            &base,
+            1,
+            &Holds::default(),
+            &[Effect::new(effects::ARTS_SPEED, 0.2)],
+        );
+        assert!(
+            (faster.spells - plain.spells * 1.2).abs() < 1e-5,
+            "{faster:?}"
+        );
+        assert!((faster.weapon_arts - plain.weapon_arts * 1.2).abs() < 1e-5);
+    }
+
     fn a_wolf() -> Base {
         Base {
             id: 512,
