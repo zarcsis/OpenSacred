@@ -172,6 +172,12 @@ pub enum Style {
     /// At once, without a clip: the effect of the multi-shot on its maker ([`volley`]), the Wood
     /// Elf's 1005 (`GUI_MOVE_MULTIPFEIL`, `0x50AC00`), of the launch type 0.
     Volley,
+    /// With a bow or a crossbow, a shot at its target of the art's own arrows
+    /// (`arrows::projectile`), its regeneration started; without one, nothing: the Wood Elf's
+    /// dumdum 1004 (`GUI_MOVE_DUMDUM`), its strike of the art's factor ([`factor`]), and club
+    /// arrow 1007 (`GUI_MOVE_KEULEN`), which may knock its target back by [`club_knockback`]
+    /// (`arrows::club_knocks`; `0x50AC00`, `0x5BB010`).
+    Arrow,
     /// A leap to a point on the ground at most its reach away ([`panther_reach`],
     /// [`panther_point`]), the Dark Elf's 1043 (`GUI_MOVE_PANTHER`, `0x506770`), of the launch
     /// type 3, at a rate by its reach ([`panther_rate`]).
@@ -274,6 +280,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1005 {
         return Some(Style::Volley);
+    }
+    if art == 1004 || art == 1007 {
+        return Some(Style::Arrow);
     }
     if art == 1043 {
         return Some(Style::Panther);
@@ -1117,6 +1126,14 @@ pub fn volley(record: &WeaponArt, level: u32) -> (Effect, f32) {
         level: 0,
     };
     (effect, narrow(seconds))
+}
+
+/// How far the Wood Elf's club arrow `record` at the level in play `level` knocks back the
+/// creature it knocks (`0x5BB010`): the event 3 of the whole value `[+0x60] + [+0x64]·L`, 15.
+pub fn club_knockback(record: &WeaponArt, level: u32) -> u32 {
+    let [base, step] = record.value_60;
+    u32::try_from(base.saturating_add(step.saturating_mul(i32::try_from(level).unwrap_or(0))))
+        .unwrap_or(0)
 }
 
 /// The Vampiress's types by day and by night (docs/02 §6.2), and the effect that her night's form

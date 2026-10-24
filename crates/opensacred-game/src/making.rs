@@ -387,6 +387,7 @@ fn make(
             Option<&mut Playing>,
             Option<&Combat>,
             Option<&hero::Size>,
+            Option<&fight::Holding>,
         ),
         Without<Dies>,
     >,
@@ -406,7 +407,7 @@ fn make(
         return;
     };
     let by_day = clock.is_none_or(|clock| clock.phase() == crate::daynight::Phase::Day);
-    for (hero, mut transform, mut body, making, playing, combat, size) in &mut heroes {
+    for (hero, mut transform, mut body, making, playing, combat, size, holding) in &mut heroes {
         // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
         let size = size.map_or(minds::SIZE, |size| size.0);
         let reach = |mind: &Mind| minds::reach(size, mind.size());
@@ -483,6 +484,30 @@ fn make(
                     .or_default()
                     .and_modify(move |mut effects| effects.add(effect, seconds));
                 arts.start(making.art);
+                end(&mut commands);
+                continue;
+            }
+            // A special arrow is the hero's shot at its target, of the art's own arrows, with a
+            // bow or a crossbow in hand, its regeneration started; without one, nothing
+            // (`0x50AC00`).
+            if style == Style::Arrow {
+                if holding.is_some_and(|holding| holding.0.ranged) && making.target != hero {
+                    let special = crate::arrows::Special {
+                        art: making.art,
+                        level,
+                        factor: arts::factor(record, level),
+                    };
+                    info!(
+                        "making: {} shoots {} at the level {level}",
+                        making.art, making.target
+                    );
+                    commands
+                        .entity(hero)
+                        .insert(crate::attack::Attack::shot(making.target, special));
+                    arts.start(making.art);
+                } else {
+                    info!("making: {} wants a bow or a crossbow", making.art);
+                }
                 end(&mut commands);
                 continue;
             }
@@ -1081,7 +1106,7 @@ fn make(
                 }
             }
             // The multi-shot ends as it starts, without a clip.
-            Style::Volley => end(&mut commands),
+            Style::Volley | Style::Arrow => end(&mut commands),
             // Its strikes are `blades`'; it ends with its clip.
             Style::Blades => {
                 if finished {
@@ -1341,6 +1366,17 @@ fn make(
             }
         }
     }
+}
+
+/// Whether an art of the level in play `level` may knock back the creature of `mind` at all
+/// (`0x4FC9D0` above 0, `arts::knockback_chance`), as the club arrow asks.
+pub(crate) fn may_knock(level: u32, mind: &minds::Mind) -> bool {
+    arts::knockback_chance(
+        level,
+        (mind.creature, mind.level),
+        mind.flags & BOSS != 0,
+        mind.big,
+    ) > 0.0
 }
 
 /// Whether a kick's roll of 0 to 99, an art's of the level in play `level`, knocks back the

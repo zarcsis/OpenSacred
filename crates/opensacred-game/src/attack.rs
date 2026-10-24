@@ -32,8 +32,8 @@ pub struct Aim(pub bool);
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
 /// at once, where it stands, once; whether it ends with its strike, the player having sent the
 /// hero elsewhere; whether the button that sent it is still held; whether a click still asks
-/// for a strike that has not begun; whether its first strike spoke its `ATTACK` line; and where
-/// its AI stands.
+/// for a strike that has not begun; whether its first strike spoke its `ATTACK` line; where its
+/// AI stands; and the combat art it is a shot of (a special arrow), if any.
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
@@ -44,6 +44,7 @@ pub struct Attack {
     asked: bool,
     spoke: bool,
     phase: Phase,
+    special: Option<crate::arrows::Special>,
 }
 
 /// Where the hero's attack stands in the AI's state 4 (`0x4E0300`), which steps at the world's
@@ -79,6 +80,19 @@ impl Attack {
             asked: true,
             spoke: false,
             phase: Phase::Ordered,
+            special: None,
+        }
+    }
+
+    /// The hero's shot of the combat art `special` at `target`, at once, where it stands, once,
+    /// at the next tick (the action 5 that the Wood Elf's executor sets for her special arrows,
+    /// `0x50AC00`).
+    pub fn shot(target: Entity, special: crate::arrows::Special) -> Self {
+        Self {
+            at_once: true,
+            phase: Phase::InBand,
+            special: Some(special),
+            ..Self::ordered(target)
         }
     }
 }
@@ -168,6 +182,7 @@ pub(crate) fn aim(
             asked: true,
             spoke: false,
             phase: Phase::Ordered,
+            special: None,
         };
         match (aim.0, attack) {
             // A click on the same target goes on with its attack, which spoke at its first
@@ -291,6 +306,7 @@ fn engage(
                         shots.write(crate::arrows::Loose {
                             shooter: hero,
                             target: entity,
+                            special: attack.special,
                         });
                     }
                 } else if let (Some(entity), Some(at)) = (attack.target, target)

@@ -24,8 +24,26 @@ pub const MULTI_SHOT: u32 = 0x15;
 /// The most arrows of a shot (`+0x25D`).
 const MOST_ARROWS: u32 = 20;
 /// How far each arrow of a shot after the first turns from the first, to either side in turn,
-/// in radians (`⌈i/2⌉ · 0.05`).
+/// in radians (`⌈i/2⌉ · 0.05`), and a special arrow's of the Wood Elf (`⌈i/2⌉ · 0.15`).
 const FAN: f32 = 0.05;
+const SPECIAL_FAN: f32 = 0.15;
+
+/// The type of a plain shot's arrow (`ARROW_LONG.GRN`).
+pub const ARROW: u32 = 3070;
+
+/// The type of the arrows that a shot of the combat art `art` makes (`0x4DCB80`, the byte
+/// `+0x18E` the art less 1000): the Wood Elf's special arrows 1004, 1006, 1007 and 1008 the
+/// types 3078, 3074, 3075 and 3077 (`ARROW_EXPLOSION.GRN`, `ARROW_SPIDER.GRN`,
+/// `ARROW_LONG.GRN`, `ARROW_BLADE.GRN`), any other shot [`ARROW`].
+pub fn projectile(art: Option<u16>) -> u32 {
+    match art {
+        Some(1004) => 3078,
+        Some(1006) => 3074,
+        Some(1007) => 3075,
+        Some(1008) => 3077,
+        _ => ARROW,
+    }
+}
 
 /// The arrows of a shot of a hero with the multi-shot's whole value `whole` (`+0x25D`): that many,
 /// 1 to 20, 1 without it.
@@ -38,8 +56,31 @@ pub fn volley(whole: Option<i32>) -> u32 {
 /// How far the `i`-th arrow of a shot turns in the plane from the first's line (`0x4DD90E`):
 /// `⌈i/2⌉ · 0.05` radians, to one side for an odd `i` and to the other for an even.
 pub fn fanned(i: u32) -> f32 {
-    let step = f32::from(u16::try_from(i.div_ceil(2)).unwrap_or(u16::MAX)) * FAN;
+    fanned_by(i, FAN)
+}
+
+/// How far the `i`-th arrow of a shot of the combat art `art` turns from the first's line
+/// (`0x4DCB80`): by `⌈i/2⌉ · 0.15` radians for the Wood Elf's 1004, 1006 and 1007, as
+/// [`fanned`] for any other (1008's round the circle is not here).
+pub fn fanned_for(i: u32, art: Option<u16>) -> f32 {
+    match art {
+        Some(1004 | 1006 | 1007) => fanned_by(i, SPECIAL_FAN),
+        _ => fanned(i),
+    }
+}
+
+fn fanned_by(i: u32, fan: f32) -> f32 {
+    let step = f32::from(u16::try_from(i.div_ceil(2)).unwrap_or(u16::MAX)) * fan;
     if i % 2 == 1 { step } else { -step }
+}
+
+/// Whether the Wood Elf's club arrow 1007 at the level in play `level` knocks back the creature
+/// of the level `target` that it hits, shot by a hero of the level `hero` (`0x5BB010`): below
+/// `0.4·hero + 5·level`, and of a type that a kick may move (`arts::knockback_chance` above 0,
+/// with no roll; not here).
+pub fn club_knocks(target: u32, hero: u32, level: u32) -> bool {
+    let bound = f64::from(hero).mul_add(0.4, f64::from(5 * level));
+    f64::from(target) < bound
 }
 
 /// The effect by which a hero turns arrows aside (`0x19`, `0x561090`).
@@ -351,6 +392,9 @@ mod tests {
         assert_eq!(fanned(1), 0.05);
         assert_eq!(fanned(2), -0.05);
         assert!((fanned(3) - 0.1).abs() < 1e-6 && (fanned(4) + 0.1).abs() < 1e-6);
+        assert!((fanned_for(1, Some(1004)) - 0.15).abs() < 1e-6);
+        assert!((fanned_for(4, Some(1007)) + 0.3).abs() < 1e-6);
+        assert_eq!(fanned_for(1, None), 0.05);
         let arrow = Arrow::new(Point::default(), Point::new(Spot::new(600.0, 0.0), 0.0));
         let turned = arrow.turned_by(std::f32::consts::FRAC_PI_2);
         assert!(turned.velocity().ground.x.abs() < 1e-3);
@@ -375,5 +419,25 @@ mod tests {
         arrow.turn(Point::new(Spot::new(0.0, -3.0), 0.0));
         assert_eq!(arrow.at(), Point::default());
         assert!((arrow.velocity().ground.y + SPEED).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_special_arrows_fly_their_own_projectiles() {
+        assert_eq!(projectile(None), ARROW);
+        assert_eq!(projectile(Some(1004)), 3078);
+        assert_eq!(projectile(Some(1006)), 3074);
+        assert_eq!(projectile(Some(1007)), 3075);
+        assert_eq!(projectile(Some(1008)), 3077);
+        assert_eq!(projectile(Some(1061)), ARROW);
+    }
+
+    #[test]
+    fn the_club_arrow_knocks_back_a_creature_below_its_bound() {
+        // A hero of level 1 at the level 1: below 5.4.
+        assert!(club_knocks(5, 1, 1));
+        assert!(!club_knocks(6, 1, 1));
+        // Of level 20 at the level 3: below 23.
+        assert!(club_knocks(22, 20, 3));
+        assert!(!club_knocks(23, 20, 3));
     }
 }

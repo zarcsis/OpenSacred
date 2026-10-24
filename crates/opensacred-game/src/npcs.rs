@@ -269,8 +269,9 @@ const CROSSBOW: u8 = 12;
 /// The weapon kinds of the ranged weapons, with which a creature fights at range (`0x427ED0`;
 /// docs/re/fight.md, "Who fights"): the bows, the crossbows, 13 and the muskets.
 const RANGED: [u8; 4] = [BOW, CROSSBOW, 13, 14];
-/// The arrows' type, `ARROW_LONG.GRN`, of the archers' shots (`0x4EB700`).
-const ARROW: u32 = 3070;
+/// The arrows' types: the archers' shots' `ARROW_LONG.GRN` (`0x4EB700`) and the Wood Elf's
+/// special arrows' (`opensacred_rules::arrows::projectile`).
+const ARROWS: [u32; 5] = [arrows::ARROW, 3074, 3075, 3077, 3078];
 
 /// A hand of an NPC's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -479,8 +480,8 @@ pub struct Npcs {
     slots: HashMap<String, motions::Slots>,
     /// The instruments' models and textures, of [`INSTRUMENTS`].
     instruments: Vec<Option<(String, Option<String>)>>,
-    /// The arrows' model, texture and size ([`ARROW`]).
-    arrow: Option<(String, Option<String>, f32)>,
+    /// The arrows' models, textures and sizes by their types ([`ARROWS`]).
+    arrows: HashMap<u32, (String, Option<String>, f32)>,
     /// The fractions of the attack's clips at which they hit, by the clips' names upper-cased
     /// (`MotionDesc +0xA0`, `+0xA4`: `floats_62[1]` and `[2]` of `tables/motions.ron`).
     hits: HashMap<String, [f32; 2]>,
@@ -1961,14 +1962,18 @@ impl Npcs {
                     Some((model, texture))
                 })
                 .collect(),
-            arrow: items.get(&ARROW).and_then(|item| {
-                let model = models.get(&item.name.to_ascii_uppercase())?.clone();
-                let texture = match item.words_08[0] {
-                    0 => None,
-                    number => textures.get(&number).cloned(),
-                };
-                Some((model, texture, arrows::size(item.words_14[0])))
-            }),
+            arrows: ARROWS
+                .into_iter()
+                .filter_map(|kind| {
+                    let item = items.get(&kind)?;
+                    let model = models.get(&item.name.to_ascii_uppercase())?.clone();
+                    let texture = match item.words_08[0] {
+                        0 => None,
+                        number => textures.get(&number).cloned(),
+                    };
+                    Some((kind, (model, texture, arrows::size(item.words_14[0]))))
+                })
+                .collect(),
             spawned: HashSet::new(),
             kept: Kept::default(),
             waters: Vec::new(),
@@ -2063,11 +2068,11 @@ impl Npcs {
         (class_of(&holding), held)
     }
 
-    /// The arrows' model and texture, relative to the asset directory, and their size, where
-    /// the arrows' model was converted.
-    pub fn arrow(&self) -> Option<(&str, Option<&str>, f32)> {
-        self.arrow
-            .as_ref()
+    /// The model and texture of the arrows of type `kind`, relative to the asset directory, and
+    /// their size, where their model was converted.
+    pub fn arrow(&self, kind: u32) -> Option<(&str, Option<&str>, f32)> {
+        self.arrows
+            .get(&kind)
             .map(|(model, texture, size)| (model.as_str(), texture.as_deref(), *size))
     }
 
@@ -3792,6 +3797,7 @@ fn strike(
             shots.write(arrows::Loose {
                 shooter: entity,
                 target: strikes.target,
+                special: None,
             });
         } else if due {
             strikes.struck += 1;
