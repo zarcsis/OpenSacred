@@ -38,6 +38,9 @@ pub struct Hit {
 #[derive(Resource)]
 pub(crate) struct Dice(Rng);
 
+/// The Dwarf's creature type (docs/02 §6.2).
+const DWARF: u32 = 8;
+
 /// The hero's experience, its level and the points its levels gave
 /// (`opensacred_rules::fight::Experience`).
 #[derive(Resource, Debug, Clone, Copy, Default, PartialEq, Eq, Deref, DerefMut)]
@@ -74,6 +77,12 @@ pub struct Holding(pub Holds);
 /// (`opensacred_rules::fight::Combat`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Deref)]
 pub struct Combat(pub opensacred_rules::fight::Combat);
+
+/// The Dwarf's frenzy (the creature's float `+0x584`): with the effect of his 1082 his strikes
+/// raise it and it falls by the frame, and it quickens his attack (`opensacred_rules::arts::
+/// quickened`); 0 without the effect.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+pub struct Frenzy(pub f32);
 
 /// A creature's rank, a fill's boss or champion (`opensacred_rules::fight::Rank`).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -138,6 +147,10 @@ pub(crate) fn resolve(
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
+    (hero_arts, effects): (
+        Option<Res<crate::arts::HeroArts>>,
+        Query<&crate::effects::Effects>,
+    ),
     attackers: Query<(
         &Combat,
         Has<Body>,
@@ -219,6 +232,27 @@ pub(crate) fn resolve(
         };
         if !immortal {
             health.current = health.current.saturating_sub(damage);
+        }
+        // The Dwarf's landed strike raises his frenzy while his 1082's effect holds
+        // (`0x56DC31`).
+        if hero
+            && hero_arts.as_ref().is_some_and(|arts| arts.kind == DWARF)
+            && let Some(whole) = effects.get(hit.attacker).ok().and_then(|effects| {
+                effects
+                    .list()
+                    .into_iter()
+                    .find(|effect| effect.id == opensacred_rules::arts::FRENZY)
+                    .map(|effect| effect.whole)
+            })
+        {
+            commands
+                .entity(hit.attacker)
+                .entry::<Frenzy>()
+                .or_default()
+                .and_modify(move |mut frenzy| {
+                    frenzy.0 = opensacred_rules::arts::frenzy_rises(frenzy.0, whole);
+                    debug!("fight: the frenzy rises to {:.2}", frenzy.0);
+                });
         }
         debug!(
             "fight: {} hits {} for {damage}, health {}/{}",
@@ -552,6 +586,7 @@ impl Plugin for FightPlugin {
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
             .add_systems(Update, (resolve, level_up, rise).chain())
+            .add_systems(Update, calm.in_set(crate::frame::Unpaused))
             .add_systems(
                 Update,
                 regenerate
@@ -559,6 +594,35 @@ impl Plugin for FightPlugin {
                     .after(crate::frame::Step::Tick)
                     .run_if(crate::frame::ticked),
             );
+    }
+}
+
+/// Lowers each frenzy by its effect's value a second, a fifth of it while its creature fights a
+/// foe (`0x537E57`), and sets it to 0 without the effect.
+fn calm(
+    time: Res<Time>,
+    mut frenzies: Query<(
+        &mut Frenzy,
+        Option<&crate::effects::Effects>,
+        Option<&crate::attack::Attack>,
+    )>,
+) {
+    let dt = time.delta_secs();
+    for (mut frenzy, effects, attack) in &mut frenzies {
+        let value = effects.and_then(|effects| {
+            effects
+                .list()
+                .into_iter()
+                .find(|effect| effect.id == opensacred_rules::arts::FRENZY)
+                .map(|effect| effect.value)
+        });
+        let fighting = attack.is_some_and(|attack| attack.target().is_some());
+        let calmer = value.map_or(0.0, |value| {
+            opensacred_rules::arts::frenzy_falls(frenzy.0, value, dt, fighting)
+        });
+        if calmer != frenzy.0 {
+            frenzy.0 = calmer;
+        }
     }
 }
 

@@ -220,6 +220,10 @@ pub enum Style {
     /// (`ECF_ONFRIENDLY`), on a friend or on himself, whom the right button on him makes its
     /// target (seen).
     Boon,
+    /// As a boon, at its own clip: the Dwarf's 1082 (`gui_moves_abschlag`, `0x514790`), the effect
+    /// [`FRENZY`] on himself ([`boon`]), with which his strikes quicken his attack
+    /// ([`frenzy_rises`], [`frenzy_falls`], [`quickened`]).
+    Frenzy,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -255,6 +259,9 @@ pub fn refused_while(art: u16) -> &'static [u16] {
 pub fn style(art: u16) -> Option<Style> {
     if BOONS.contains(&art) {
         return Some(Style::Boon);
+    }
+    if art == 1082 {
+        return Some(Style::Frenzy);
     }
     if art == 1012 {
         return Some(Style::Smite);
@@ -629,6 +636,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             ..plain(148)
         }),
         (8, Style::Boon) => Some(plain(154)),
+        // His 1082 the slot 157 at the rate 1.0 (`0x514790` at `0x518600`).
+        (8, Style::Frenzy) => Some(plain(157)),
         // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
         // `0x51BC63`).
         (9, Style::Boon) => Some(plain(150)),
@@ -773,6 +782,24 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
             replaces: Vec::new(),
         });
     }
+    // The Dwarf's 1082 below 0.9 its effect 47 of the whole value `b` and the value `[+0x60]`
+    // for `a` seconds, keyed by it (`0x514790` at `0x516040`).
+    if record.id == 1082 {
+        let frenzy = Effect {
+            id: FRENZY,
+            whole: i32::try_from(whole_units(f64::from(b))).unwrap_or(0),
+            value: narrow(f64::from(record.value_60[0])),
+            art: u32::from(record.id),
+            level: 1,
+        };
+        return Some(Boon {
+            point: 0.1,
+            effects: vec![(frenzy, a)],
+            clears: Vec::new(),
+            starts: Vec::new(),
+            replaces: Vec::new(),
+        });
+    }
     let (point, effects, seconds) = match record.id {
         1047 => (0.7, [(1, a), (6, b)], narrow(whole(record.value_60))),
         1048 => (0.8, [(2, a), (12, b)], narrow(whole(record.value_60))),
@@ -788,6 +815,44 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
         starts: Vec::new(),
         replaces: Vec::new(),
     })
+}
+
+/// The effect of the Dwarf's 1082 (`0x2F`): while it holds, his attack speed is his stats' and
+/// his frenzy's (the creature's float `+0x584`; [`quickened`], `0x584FE0`), which his strikes
+/// raise toward its whole value ([`frenzy_rises`]) and which falls by its value a second
+/// ([`frenzy_falls`]).
+pub const FRENZY: u32 = 47;
+
+/// The Dwarf's frenzy `frenzy` after a strike of his lands, his effect [`FRENZY`] of the whole
+/// value `whole` holding (`0x56B130` at `0x56DC31`): a third of the way to the whole value, held
+/// at it.
+pub fn frenzy_rises(frenzy: f32, whole: i32) -> f32 {
+    let whole = narrow(f64::from(whole));
+    if frenzy < whole {
+        frenzy + (whole - frenzy) * 0.333_333_34
+    } else {
+        whole
+    }
+}
+
+/// The Dwarf's frenzy `frenzy` after a frame of `dt` seconds, his effect [`FRENZY`] of the value
+/// `value` holding (`0x537E57`): less the value a second, a fifth of it while he fights a foe
+/// (his query `0x11`, seen: 1 a second while he struck a goblin, 5 once it was dead), and 0 once
+/// it comes to about 0 (`0x890C9C`).
+pub fn frenzy_falls(frenzy: f32, value: f32, dt: f32, fighting: bool) -> f32 {
+    let value = if fighting { value * 0.2 } else { value };
+    let frenzy = frenzy - value * dt;
+    if frenzy <= 1.192_092_9e-7 {
+        0.0
+    } else {
+        frenzy
+    }
+}
+
+/// The attack speed of a creature whose stats give `speed`, its frenzy `frenzy` (`0x584FE0`): their
+/// sum truncated, at most 220.
+pub fn quickened(speed: f32, frenzy: f32) -> f32 {
+    (speed + frenzy).trunc().min(220.0)
 }
 
 /// The point of its clip at which a kick strikes, of a creature of type `kind` holding what is of

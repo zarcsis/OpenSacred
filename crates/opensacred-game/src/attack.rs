@@ -242,6 +242,7 @@ fn engage(
             Option<&fight::Combat>,
             Option<&crate::hero::Size>,
             Option<&fight::Holding>,
+            Option<&fight::Frenzy>,
         ),
         Without<Dies>,
     >,
@@ -257,7 +258,8 @@ fn engage(
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, mut attack, striking, combat, size, holding) in &mut heroes
+    for (hero, mut transform, mut body, mut attack, striking, combat, size, holding, frenzy) in
+        &mut heroes
     {
         // With a bow or a crossbow in hand it shoots (the AI's state 8 for a hero, #784).
         let ranged = holding.is_some_and(|holding| holding.0.ranged);
@@ -280,7 +282,11 @@ fn engage(
             continue;
         };
         // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
-        let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed());
+        // Quickened by the Dwarf's frenzy (`0x584FE0`).
+        let attack_speed = combat.map_or(1.0, |combat| {
+            opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
+                / 100.0
+        });
         let ticked = tick.seconds.is_some();
         let mut blend = BLEND;
         // Whether a strike starts at this frame whatever the AI's step: the next of a held button

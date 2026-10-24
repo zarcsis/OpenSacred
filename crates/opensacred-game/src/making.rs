@@ -87,6 +87,7 @@ pub fn clips(
         Style::Hardhit,
         Style::Kick,
         Style::Boon,
+        Style::Frenzy,
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -275,7 +276,9 @@ fn aim(
                 info!("making: {art} wants a friend, or the hero himself, under the cursor");
                 continue;
             }
-            (_, true, _) if arts::style(art) == Some(Style::Boon) => (hero, at.translation()),
+            (_, true, _) if matches!(arts::style(art), Some(Style::Boon | Style::Frenzy)) => {
+                (hero, at.translation())
+            }
             // The changeling is made where the hero stands, wherever the button (seen), and the
             // dash at the ground under the cursor.
             _ if arts::style(art) == Some(Style::Changeling) => (hero, at.translation()),
@@ -288,7 +291,7 @@ fn aim(
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
                 let target = if matches!(
                     arts::style(art),
-                    Some(Style::Boon | Style::Changeling | Style::Dash)
+                    Some(Style::Boon | Style::Frenzy | Style::Changeling | Style::Dash)
                 ) {
                     hero
                 } else {
@@ -388,6 +391,7 @@ fn make(
             Option<&Combat>,
             Option<&hero::Size>,
             Option<&fight::Holding>,
+            Option<&fight::Frenzy>,
         ),
         Without<Dies>,
     >,
@@ -407,7 +411,9 @@ fn make(
         return;
     };
     let by_day = clock.is_none_or(|clock| clock.phase() == crate::daynight::Phase::Day);
-    for (hero, mut transform, mut body, making, playing, combat, size, holding) in &mut heroes {
+    for (hero, mut transform, mut body, making, playing, combat, size, holding, frenzy) in
+        &mut heroes
+    {
         // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
         let size = size.map_or(minds::SIZE, |size| size.0);
         let reach = |mind: &Mind| minds::reach(size, mind.size());
@@ -543,7 +549,10 @@ fn make(
                 .get(&clip)
                 .map_or(1.0, AnimationClip::duration)
                 .max(0.01);
-            let clip_speed = combat.map_or(1.0, |combat| combat.clip_speed());
+            // At the attack speed, quickened by the Dwarf's frenzy (`0x584FE0`).
+            let clip_speed = combat.map_or(1.0, |combat| {
+                arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0)) / 100.0
+            });
             // The target's place, the jump's point.
             let mut point = creatures
                 .get(making.target)
@@ -639,7 +648,10 @@ fn make(
                 points = vec![1.0 - arts::SMITE_LEFT];
             }
             // A boon gives its effects at its own point of its clip.
-            if matches!(style, Style::Boon | Style::Ward | Style::Form) {
+            if matches!(
+                style,
+                Style::Boon | Style::Frenzy | Style::Ward | Style::Form
+            ) {
                 let boon = arts::boon(record, level)
                     .or_else(|| arts::ward(record, level))
                     .or_else(|| arts::form(record, level));
@@ -1178,7 +1190,7 @@ fn make(
                     end(&mut commands);
                 }
             }
-            Style::Boon | Style::Ward | Style::Form => {
+            Style::Boon | Style::Frenzy | Style::Ward | Style::Form => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
                     && playing
