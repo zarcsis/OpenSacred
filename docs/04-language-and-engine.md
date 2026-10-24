@@ -4,7 +4,7 @@
 
 * **The language is Rust for the entire product:** the game, the asset converter, the tools.
   One language for everything is a project goal, with a chance to be the first project of its kind (§1.3), and it is technically feasible: Bevy, wgpu, Kira and Symphonia cover all the needed subsystems in Rust.
-  One C library comes along: Bevy decodes its KTX2 tone-mapping tables with the C zstd (`zstd_c` in `Cargo.toml`), as the Rust decoder has an open advisory, and the textures' KTX2 files are supercompressed with it (#700).
+  Two C libraries come along: Bevy decodes its KTX2 tone-mapping tables with the C zstd (`zstd_c` in `Cargo.toml`), as the Rust decoder has an open advisory, and the textures' KTX2 files are supercompressed with it (#700); and libopus decodes the sound (#701), which `opusic-sys` builds from its sources with CMake.
   The converter links the BC7 encoder's kernels, which `intel_tex_2` ships compiled from Intel's ISPC sources, so that no ISPC compiler is needed.
 * **No intermediate C++ layer.**
   The original is decompiled only to understand its formats and rules; the behavior is described in prose in `docs/re/`, implemented independently in Rust and checked by tests written from that description and by observations of the running original (#227).
@@ -221,7 +221,7 @@ The direct dependencies of `[workspace.dependencies]` in `Cargo.toml` and what B
 | Graphics API (through Bevy) | wgpu | 30.0.1 | MIT or Apache-2.0 |
 | Text (through Bevy) | parley | 0.11.1 | MIT or Apache-2.0 |
 | Sound | bevy_kira_audio / kira | 0.27.1 / 0.12.5 | MIT or Apache-2.0 |
-| Audio decoders (through Kira: FLAC, MP3) | symphonia | 0.6.1 | MPL-2.0 |
+| Audio decoders: the game's Ogg Opus (#701), decoded whole into Kira's static sounds by the game's `opus` | symphonia (its Ogg demuxer), symphonia-adapter-libopus, opusic-sys (libopus 1.5, built with CMake), kira | 0.6.1, 0.3.0, 0.7.5, 0.12.5 | MPL-2.0; MIT or Apache-2.0; BSD-3-Clause; MIT or Apache-2.0 |
 | Serialization | serde, ron, postcard, serde_json | 1.0.229, 0.12.2, 1.1.3, 1.0.154 | MIT or Apache-2.0 |
 | Settings file (comments and order kept) | toml_edit | 0.25.17 | MIT or Apache-2.0 |
 | The game's commands (shell-like splitting) | shlex | 2.0.1 | MIT or Apache-2.0 |
@@ -246,7 +246,6 @@ Versions as of 2026-10-16.
 | AV1 video | rav1d | 1.1.0 | BSD-2-Clause |
 | WebM container | matroska-demuxer or webm-iterable | 0.8.1 / 0.7.1 | Zlib, MIT or Apache-2.0 / MIT |
 | Localization at run time | fluent | 0.17.0 | MIT or Apache-2.0 |
-| The sound's Opus (M3, #701): a decoder | libopus through a binding (chosen with #701) | — | BSD-3-Clause |
 | The game's archives (M3, #699) | none: a reader and a writer of their own in `opensacred-data` over miniz_oxide and crc32fast, already dependencies (store and deflate are all they need) | 0.9.1, 1.5.3 | MIT or Zlib or Apache-2.0; MIT or Apache-2.0 |
 | Tests | insta, proptest | 1.49.0, 1.12.0 | Apache-2.0; MIT or Apache-2.0 |
 | Scripts: the translated NetScript, and mods after 1.0 (#725) | mlua with its `luau` feature (Luau vendored) | 0.12.2 | MIT |

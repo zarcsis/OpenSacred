@@ -34,6 +34,7 @@ mod models;
 mod motions;
 mod music;
 mod npcs;
+mod opus;
 mod overlay;
 mod paths;
 mod pause;
@@ -269,9 +270,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
-        overlay::OverlayPlugin,
+        opus::OpusPlugin,
     ))
     .add_plugins((
+        overlay::OverlayPlugin,
         pause::PausePlugin,
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,

@@ -66,14 +66,18 @@ bevy = { version = "0.20.0", default-features = false, features = [
     "x11",
     "zstd_c",
 ] }
-# Sound (ADR-07): Kira through Bevy; the converted samples are FLAC and MP3.
-bevy_kira_audio = { version = "0.27.1", default-features = false, features = ["flac", "mp3"] }
+# Sound (ADR-07): Kira through Bevy. The game's sound is Ogg Opus (#701), which the game decodes
+# itself (`opus`) into Kira's static sounds; bevy_kira_audio builds only with a format of its own,
+# and Ogg Vorbis adds the least, Symphonia's Ogg demuxer being the game's already.
+bevy_kira_audio = { version = "0.27.1", default-features = false, features = ["ogg"] }
 clap = { version = "4.6.7", features = ["derive"] }
 crc32fast = "1.5.2"
 fluent-syntax = "0.12.0"
 # The BC7 encoder of the converter's textures (#700): Intel's ISPC Texture Compressor, its
 # kernels prebuilt for Windows, Linux and macOS, so that no ISPC is needed.
 intel_tex_2 = "0.5.0"
+# Kira's static sounds, which the game's Opus loader makes (#701).
+kira = { version = "0.12.5", default-features = false }
 # The reader of the KTX2 textures, Bevy's own, which the tests check the writer against (#700).
 ktx2 = "0.5.0"
 # Direct rather than through flate2: inflate with an output limit is exactly what TEX needs.
@@ -85,6 +89,10 @@ ron = "0.12.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
+# The Ogg demuxer of the game's Opus (#701), and the Opus decoder for it, over the C libopus that
+# its `opusic-sys` builds with CMake.
+symphonia = { version = "0.6.1", default-features = false, features = ["ogg"] }
+symphonia-adapter-libopus = "0.3.0"
 # The game's commands split their lines as a shell does (docs/10 §6).
 thiserror = "2.0.21"
 # The game's settings file (docs/10 §3): read through serde, written key by key keeping the

@@ -34,7 +34,7 @@ cargo run --release -p opensacred-convert -- ui           # PAK/*.bmp → PNG, f
 cargo run --release -p opensacred-convert -- tables       # Creature/Weapon/Items/Items03/MOTIONS.PAK, Triggers.PAK, bin/*.bin, the arts and the voices of Sacred.exe → assets-src/tables/*.ron
 cargo run --release -p opensacred-convert -- heroes       # Templates/*.ptx → assets-src/heroes/ (heroes.ron)
 cargo run --release -p opensacred-convert -- netscript    # bin/**/{Funk,Start,Quest}Code.bin + Vectoren.bin → assets-src/netscript/ (--listing: <tree>.txt)
-cargo run --release -p opensacred-convert -- build        # stage B: the game's assets in assets/ from the masters in assets-src/ (the textures into KTX2, #700), packed into ZIP archives by kind, only those whose masters changed made again (#694, #699)
+cargo run --release -p opensacred-convert -- build        # stage B: the game's assets in assets/ from the masters in assets-src/ (the textures into KTX2, #700; the sound into Ogg Opus, #701), packed into ZIP archives by kind, only those whose masters changed made again (#694, #699)
 cargo run --release -p opensacred-convert -- all          # every extraction in order into assets-src/, skipping those whose assets-src/manifest/<command>.ron still holds, then build (--force runs all)
 cargo run -p opensacred-convert -- coverage               # what becomes of each file of the manifest
 cargo run --release -p opensacred-oracle --features emulator   # the fight's functions of OriginalGame/Sacred.exe in Unicorn → vectors in OPENSACRED_VECTORS, else %LOCALAPPDATA%\OpenSacred\vectors (--out, --precision 24|53|64); needs CMake, Ninja, a C compiler and libclang (LIBCLANG_PATH), docs/03 §3.4

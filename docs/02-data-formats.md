@@ -1036,7 +1036,7 @@ Whether FFmpeg trims an encoder's delay at the start (by a LAME or Xing header) 
 ### 10.3 MP3 music and WMV video
 
 - `mp3/`: 173 files, 399.5 MB (`MUSIC_*`, `JINGLE_*`, `ATMOSPOT_*`, `Meet*`); the original plays them as Miles streams via `mssmp3.asi` (`AIL_open_stream` with `.\MP3\<name>.mp3`; `AIL_set_stream_volume_pan` is the most frequent AIL function, 27 calls).
-  In the new engine the music comes as FLAC masters decoded from the MP3s (#697), Opus for the game later (#701), and Kira provides several simultaneous streams with smooth transitions (hypothesis based on the `MUSIC%2d handle=…` log).
+  In the new engine the music comes as FLAC masters decoded from the MP3s (#697), Ogg Opus for the game since #701 (§12.2), and Kira provides several simultaneous streams with smooth transitions (hypothesis based on the `MUSIC%2d handle=…` log).
   154 of the files hold bytes before their first frame (**confirmed** on every file 2026-10-20, #367): 152 zeros (835 bytes in 128 files, 417 in 16, 522 in 8), and `JINGLE_FIGHT_EASY14.mp3` and `…EASY15.mp3` the name of the jingle before them (`…EASY13.mp3`, `…EASY14.mp3`) then zeros, 1,347 and 1,859 bytes in all; 19 start with the sync word.
   The original's decoder searches for the sync word; `opensacred-convert sound` writes each file from its first frame (`opensacred_formats::sound::mp3_first_frame`: the first valid MPEG-1 Layer III header whose frame ends the file or is followed by another), a repair of the data (docs/decisions/2026-10-20-music-junk.md).
   A music file has a sound id (§10.2) by its name: `MUSIC_WOOD01.mp3` is `SOUND_FX_MUSIC_WOOD01`, id 6,560; 171 of the 173 files match (not `ATMOSPOT_WATERFALL`, `ATMO_VILLAGE_SIEGE_MILITARY`), and `sound.ron` records the id of each.
@@ -1070,7 +1070,7 @@ Whether FFmpeg trims an encoder's delay at the start (by a LAME or Xing header) 
 ### 12.1 Targets per format
 
 The converter writes in two stages (PLAN.md ADR-05 and §7, #694): stage A extracts lossless masters into `assets-src/`, the targets below, and stage B builds the game's assets into `assets/` from them: the textures as KTX2 with BC7 and mipmaps (#700), the sound and the music as Opus in Ogg (#701), the cutscenes as AV1 and Opus in WebM (#698), the scripts as Luau bytecode, all in ZIP archives by kind (#699); the rest as the masters are.
-Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/` as they are, but for the textures (#700) and the cutscenes, until the later sub-issues change the other formats.
+Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/` as they are, but for the textures (#700), the sound (#701) and the cutscenes, until the later sub-issues change the other formats.
 
 | Source | Target | Check |
 |---|---|---|
@@ -1108,6 +1108,9 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
   The others carry a full mip chain down to 1 × 1, in BC7 (`VK_FORMAT_BC7_SRGB_BLOCK`, Intel's ISPC Texture Compressor at its opaque basic settings) where every texel is opaque and both sides are multiples of 4, else in 8-bit RGBA, as the game reads their alpha (docs/decisions/2026-10-23-textures.md).
   A level halves the one before by a box of 2 × 2 texels: the colours averaged in linear light, each weighted by its alpha, and the alpha averaged and then scaled so that the share of texels over the models' alpha test (64.5 / 255) stays the largest level's.
   The models' glTF binaries refer to the `.ktx2` files instead of the PNGs (1,441 references), the 26 images that models embed are embedded as KTX2 (`image/ktx2`), and the game's `world.ron` names the sheets and atlases as `.ktx2`; `build` makes every texture again when the masters' `world.ron` changes, as it decides their encoding.
+* The sound (#701): `build` encodes each FLAC master of `sound/samples/` and `sound/music/` into Ogg Opus of the same path but its extension, by FFmpeg's libopus at 48 kHz (variable bitrate, bit-exact flags): a sample at 96 kbit/s mono and 128 stereo, a music file at 128 mono and 256 stereo (docs/decisions/2026-10-23-opus.md); the game's `sound.ron` names the `.opus` files.
+  The game decodes a file whole as it loads it (`opensacred-game`'s `opus`: Symphonia's Ogg demuxer and libopus through `symphonia-adapter-libopus`), the encoder's delay and padding dropped by the stream's pre-skip and last granule position, so that a sound keeps its length in samples at 48 kHz.
+  On the masters of 2026-10-23 (confirmed): the 6,598 samples went from 809 MiB of FLAC to 280 MiB (`sound.zip`) and the 173 music files from 1,082 MiB to 440 MiB (`music.zip`), encoded in 63 s on 24 threads; every 20th sample and every music file decodes, through the game's decoders, to its master's length at 48 kHz within one sample.
   On the masters of 2026-10-23 (confirmed): of the 9,897 textures outside the world's, 85 % of the texels are of opaque textures, 4 % of textures whose alpha is only 0 or 255 and 11 % of translucent ones (every fourth texture counted); the world's textures take 67 % of their PNGs' size (every twentieth); `textures.zip` went from 1,123 MiB of PNG to 932 MiB, and `build` made the textures and the models in 131 s on 24 threads.
 
 ### 12.3 Order

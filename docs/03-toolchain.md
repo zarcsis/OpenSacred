@@ -28,10 +28,11 @@
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
 | | Visual Studio Build Tools 2026 | MSVC 14.50 + Windows SDK | free for individual development | the linker for Rust on Windows |
 | | cargo-nextest, cargo-deny | current | open source | fast tests, dependency license checks |
+| | CMake (Ninja when in `PATH`) | 4.4.3 | BSD-3-Clause, free | builds libopus for the game's sound (`opusic-sys`, #701), and Unicorn for the oracle (§3.4) |
 | Assets | Blender | 5.2 LTS | GPL | inspecting glTF models and animations |
 | | Khronos glTF-Validator | 2.0.0-dev.3.10 (latest release, a pre-release) | Apache-2.0 | checking the `.glb` files from the converter |
 | | KTX-Software (`ktx`, `toktx`) | current | Apache-2.0 | KTX2, BC7, Basis Universal |
-| | FFmpeg | 9.0 | LGPL/GPL | WMV → AV1 + Opus in WebM; the WAV samples of `sound.pak` → FLAC; the VTex textures of GRN files (one-frame Bink 1) → RGBA (invoked by the converter as an external program, `FFMPEG` or `ffmpeg` from `PATH`) |
+| | FFmpeg | 9.0 | LGPL/GPL | WMV → AV1 + Opus in WebM; the WAV samples of `sound.pak` → FLAC; the sound's FLAC masters → Ogg Opus (`build`, #701); the VTex textures of GRN files (one-frame Bink 1) → RGBA (invoked by the converter as an external program, `FFMPEG` or `ffmpeg` from `PATH`) |
 | | Real-ESRGAN ncnn-vulkan, waifu2x-ncnn-vulkan | current | BSD-3 / MIT | offline upscaling (M7) |
 | Rendering | Vulkan SDK (LunarG) | 1.4.363.0 | free | validation layers, vkconfig |
 | | RenderDoc | 1.46 | MIT | capturing and analyzing frames of our renderer |
@@ -54,7 +55,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin), not 21.**
   Ghidra 12.1.4 accepts any 64-bit JDK of version 21 or later (`application.java.min=21`, no upper bound), and Ghidra's main branch already requires 25.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
