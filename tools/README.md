@@ -12,7 +12,7 @@
 
 ## How to run
 
-* Python 3.12+ (required by numpy 2.5; tested on 3.15.0); dependencies: `pip install -r tools/requirements.txt`.
+* Python 3.12+ (required by numpy 2.5; tested on 3.15.1); dependencies: `pip install -r tools/requirements.txt`.
   After a Python upgrade, reinstall the dependencies: each version has its own packages.
 * Run from the repository root with `python3 -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
 * The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`.
@@ -30,7 +30,7 @@ python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --ou
 `tools/ghidra/` holds the Ghidra scripts (Java, compiled by Ghidra as it runs them) that build up the local project of docs/03 §4.1, and the merger of the community's names; they run on the project with the pyghidra-mcp server stopped (docs/03 §3.2), and their outputs stay in the project, never in the repository.
 
 ```powershell
-$g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.1.4_PUBLIC\support\analyzeHeadless.bat"
+$g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadless.bat"
 & $g "$env:USERPROFILE\GhidraProjects" OpenSacred -process Sacred.exe-d98109 -noanalysis -scriptPath tools\ghidra `
   -postScript RttiClassesScript.java `
   -postScript ImportNamesScript.java <dir>\community-names.tsv `

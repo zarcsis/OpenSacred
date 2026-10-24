@@ -3,8 +3,8 @@
 ## Summary
 
 * All tools are free.
-  Binary analysis uses **Ghidra 12.1.4** with the MCP server **pyghidra-mcp** for Claude Code (**GhidraMCP 2.0** is the alternative with the Ghidra GUI); IDA Pro and Binary Ninja are excluded.
-* The product is built with **Rust 1.99.1** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.50 and the Windows SDK are needed for Rust on Windows).
+  Binary analysis uses **Ghidra 12.2** with the MCP server **pyghidra-mcp** for Claude Code (**GhidraMCP 2.0** is the alternative with the Ghidra GUI); IDA Pro and Binary Ninja are excluded.
+* The product is built with **Rust 1.99.1** (edition 2024) and **Visual Studio Build Tools 2026** (MSVC 14.51 and the Windows SDK are needed for Rust on Windows).
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions), **Frida** (driving the running original, #448) and **x64dbg**; **dgVoodoo2** (the driven original drawing on a locked desktop, and its frames captured in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
@@ -16,19 +16,20 @@
 
 | Stage | Tool | Version | License, price | Purpose |
 |---|---|---|---|---|
-| Binary analysis | Ghidra | 12.1.4 (JDK 25 LTS, Temurin) | Apache-2.0, free | disassembler and decompiler; RTTI, classes, a shared labeling database |
+| Binary analysis | Ghidra | 12.2 (JDK 25 LTS, Temurin) | Apache-2.0, free | disassembler and decompiler; RTTI, classes, a shared labeling database |
 | | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session (§3.2) |
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
-| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.0 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
+| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
 | | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
 | | dgVoodoo2 | 2.87.5 | freeware | its two DLLs and its configuration beside `Sacred.exe` in `OriginalGame/`, so that the driven original draws on a locked desktop (§3.8); the original runs on Windows 11 without it (docs/09 §2.2); RenderDoc does not capture D3D7, and through dgVoodoo2 (D3D7 → D3D11) a frame of the original can be captured when the render states recovered by `tools/analysis/render/d3d7scan.py` do not answer a question |
 | Product build | Rust (rustup, cargo, clippy, rustfmt) | 1.99.1, edition 2024 | MIT or Apache-2.0 | all product code |
-| | Visual Studio Build Tools 2026 | MSVC 14.50 + Windows SDK | free for individual development | the linker for Rust on Windows |
+| | Visual Studio Build Tools 2026 | MSVC 14.51 + Windows SDK | free for individual development | the linker for Rust on Windows |
 | | cargo-nextest, cargo-deny | current | open source | fast tests (`.config/nextest.toml` runs the GRN cross-checks alone, #746), dependency license checks |
-| | CMake (Ninja when in `PATH`) | 4.4.3 | BSD-3-Clause, free | builds libopus for the game's sound (`opusic-sys`, #701), and Unicorn for the oracle (§3.4) |
+| | CMake (Ninja when in `PATH`) | 4.4.4 (Ninja 1.13.2) | BSD-3-Clause, free | builds libopus for the game's sound (`opusic-sys`, #701), and Unicorn for the oracle (§3.4) |
+| | LLVM (libclang) | 23.1.4 | Apache-2.0 with LLVM exception | the libclang with which bindgen makes the oracle's Unicorn bindings (§3.4) |
 | Assets | Blender | 5.2 LTS | GPL | inspecting glTF models and animations |
 | | Khronos glTF-Validator | 2.0.0-dev.3.10 (latest release, a pre-release) | Apache-2.0 | checking the `.glb` files from the converter |
 | | KTX-Software (`ktx`, `toktx`) | current | Apache-2.0 | KTX2, BC7, Basis Universal |
@@ -55,18 +56,20 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.1.4 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
-* **The JDK for Ghidra is 25 LTS (Temurin), not 21.**
-  Ghidra 12.1.4 accepts any 64-bit JDK of version 21 or later (`application.java.min=21`, no upper bound), and Ghidra's main branch already requires 25.
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
+* **The JDK for Ghidra is 25 LTS (Temurin).**
+  Ghidra 12.2 requires a 64-bit JDK of version 25 or later (`application.java.min=25`, no upper bound); 12.1 still accepted 21.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
   If `JAVA_HOME` points to another JDK (for example, from Android Studio), the path to Temurin goes into `JAVA_HOME_OVERRIDE` in `support/launch.properties` in the Ghidra directory.
 * **Ghidra has no installer:** the release zip, checked against the SHA-256 in the release notes, is unpacked into `%LOCALAPPDATA%\Programs\Ghidra\`, which needs no administrator rights.
-  The GUI is then `%LOCALAPPDATA%\Programs\Ghidra\ghidra_12.1.4_PUBLIC\ghidraRun.bat` and the headless analyzer `support\analyzeHeadless.bat` next to it; on 2026-10-18 the headless import and analysis of a 32-bit PE ran on Temurin 25.
+  The GUI is then `%LOCALAPPDATA%\Programs\Ghidra\ghidra_12.2_PUBLIC\ghidraRun.bat` and the headless analyzer `support\analyzeHeadless.bat` next to it; on 2026-10-18 the headless import and analysis of a 32-bit PE ran on Temurin 25.
   `JAVA_HOME_OVERRIDE` names Temurin's versioned directory (`C:\Program Files\Eclipse Adoptium\jdk-25.0.4.101-hotspot`), which a Temurin update replaces; Ghidra ignores an override that no longer points to a JDK, so it is updated with Temurin.
+  A new release of Ghidra is unpacked next to the old one, gets the old one's `JAVA_HOME_OVERRIDE` in its own `support/launch.properties`, and takes over `GHIDRA_INSTALL_DIR` (§3.2) once the server is stopped.
+  It upgrades the project's data as it opens it, so the project directory (§3.2) is copied aside first; on 2026-10-24 Ghidra 12.2 opened the project of 12.1.4, the scripts of `tools/ghidra/` compiled against it without a warning, and pyghidra-mcp 0.2.7 served it.
 * **x64dbg comes from winget** (`winget install --id x64dbg.x64dbg --exact`): a portable zip of the GitHub release, which winget checks against the SHA-256 in its manifest and unpacks into `%LOCALAPPDATA%\Microsoft\WinGet\Packages\x64dbg.x64dbg_Microsoft.Winget.Source_8wekyb3d8bbwe\release\`.
   `Sacred.exe` is debugged with `x32\x32dbg.exe` there (`x96dbg.exe` next to `x32\` picks the debugger by the program's bitness); on 2026-10-18 its 32-bit engine (`x32\headless.exe`) started, and `x32dbg.exe` carries a valid signature of the x64dbg author.
   winget reports the command aliases `x32dbg` and `x64dbg` but creates no links for them, so the debugger stays outside `PATH`.
-* **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, x64dbg (above).
+* **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, LLVM at `C:\Program Files\LLVM\` (§3.4), x64dbg (above).
   The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver.
   glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
 * **Not every tool is needed from the start:** Ghidra and the MCP server were set up on 2026-10-18, ahead of M3; KTX-Software is optional, as `build` writes the KTX2 files itself (#700), though its `ktx info` shows one; the upscalers come with M7.
@@ -76,7 +79,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 rustup update stable
 rustc --version            # 1.99.1, the version of rust-toolchain.toml, which rustup installs in the checkout
 cargo --version
-cl                         # MSVC 19.50 from Build Tools 2026 (in Developer PowerShell)
+cl                         # MSVC 19.51 from Build Tools 2026 (in Developer PowerShell)
 cargo run -p opensacred-convert -- verify   # your installation in OriginalGame/ against the manifest
 ```
 
@@ -128,7 +131,7 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
 ```powershell
 # Once: uv, the Ghidra directory, the connection
 winget install --id astral-sh.uv --exact
-[Environment]::SetEnvironmentVariable('GHIDRA_INSTALL_DIR', "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.1.4_PUBLIC", 'User')
+[Environment]::SetEnvironmentVariable('GHIDRA_INSTALL_DIR', "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC", 'User')
 claude mcp add --transport http --scope user ghidra http://127.0.0.1:8000/mcp
 
 # The server, as a hidden process of its own; started by hand after a reboot
@@ -182,7 +185,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   `cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'` compares `opensacred_rules::fight` with them (`crates/opensacred-rules/tests/oracle.rs`, ignored without the game files): the levels' ends and the levels exactly, the chance within 10⁻⁶ and the damage within 10⁻⁵ of its value (x87 against `f32`); the differences found are bugs of their own: #406, #407 and #408 are fixed, and the test leaves out the most health's vectors of #417 and #418 until they are.
   On 2026-10-21 a release run took 80 s; the functions called no import, so no Windows stub was needed.
 * **The oracle's build:** the emulator is the feature `emulator` of `opensacred-oracle`, so that the workspace builds without Unicorn's toolchain: `unicorn-engine-sys` builds Unicorn's C library with CMake, Ninja (on Windows the ones of Visual Studio when they are not in `PATH`) and the C compiler, and makes its bindings with bindgen, which needs libclang (without it the build stops: "Unable to find libclang").
-  On 2026-10-21 it built with CMake 4.4.3, Ninja 1.13.1, MSVC 19.51 and the libclang of LLVM 15.0.6 through `LIBCLANG_PATH`, in 20 s with 32 jobs.
+  On 2026-10-24 it built with CMake 4.4.4, Ninja 1.13.2, MSVC 19.51 and the libclang of LLVM 23.1.4 (`winget install --id LLVM.LLVM --exact`), in 25 s with 32 jobs: bindgen finds libclang in LLVM's own directory, `C:\Program Files\LLVM\bin`, without `LIBCLANG_PATH`, though the installer leaves that directory out of `PATH`.
   CI builds the workspace without the feature: the oracle there checks its PE reader and its files (`cargo nextest run -p opensacred-oracle`); the emulator's own tests, on a synthetic image, run with `--features emulator` and need no game files.
   Without the feature, the oracle checks the installation, the image and the directory, and stops.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
@@ -476,4 +479,4 @@ Closed: software Vulkan in CI is enough for the screenshot test, which runs on l
 ## Sources
 
 * The compiler, the libraries and the functions shared by the client and the server: docs/01, §3 and §5.
-* Rust 1.99.1: the stable channel; Visual Studio 2026 and MSVC 14.50: devblogs.microsoft.com/cppblog; Vulkan SDK 1.4.363.0: lunarg.com.
+* Rust 1.99.1: the stable channel; Visual Studio 2026 and MSVC 14.51: devblogs.microsoft.com/cppblog; Vulkan SDK 1.4.363.0: lunarg.com.
