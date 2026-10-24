@@ -170,21 +170,16 @@ fn point(spot: Spot, y: f32) -> Vec3 {
     Vec3::new(spot.x, y, spot.y)
 }
 
-/// The game's generator for the creatures' chances, the hero's look, and whether it looked at
-/// this tick.
+/// The game's generator for the creatures' chances.
 #[derive(Resource)]
 struct Minds {
     rng: Rng,
-    look: minds::Look,
-    looked: bool,
 }
 
 impl Default for Minds {
     fn default() -> Self {
         Self {
             rng: Rng::of(0, 0, 0),
-            look: minds::Look::default(),
-            looked: false,
         }
     }
 }
@@ -408,9 +403,9 @@ fn open(
     }
 }
 
-/// Runs the creatures' timers, the hero's look every 0.3 s, and the awake creatures' thought
-/// (`opensacred_rules::minds::Mind::think`), and walks them where it sends them: a creature
-/// without a straight line to the hero to the door in its way, if it finds one.
+/// Runs the creatures' timers, the wakes of the hero's look (`crowd::look`), and the awake
+/// creatures' thought (`opensacred_rules::minds::Mind::think`), and walks them where it sends
+/// them: a creature without a straight line to the hero to the door in its way, if it finds one.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -420,6 +415,7 @@ fn think(
     mut commands: Commands,
     tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
+    nearest: Res<Nearest>,
     heights: Res<Heights>,
     balance: Res<FightRules>,
     experience: Res<crate::fight::Experience>,
@@ -455,8 +451,7 @@ fn think(
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     let dt = tick.seconds.unwrap_or_default();
     let minds = &mut *minds;
-    let look = minds.look.looks(dt);
-    minds.looked = look;
+    let look = nearest.looked;
     let side = crate::iso::CELL * 64.0;
     let sector = |p: Vec3| ((p.x / side).floor(), (p.z / side).floor());
     let (sx, sy) = sector(hero);
@@ -1042,12 +1037,13 @@ fn danger(here: Vec3, hostiles: &[Vec3], rng: &mut Rng) -> Option<Vec3> {
 fn aside(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
+    nearest: Res<Nearest>,
     heights: Res<Heights>,
     crowd: Res<Crowd>,
     hero: Query<&Transform, With<Body>>,
     creatures: Query<(Entity, &Transform, &InTheWay, &Mind), (With<Walk>, Without<Body>)>,
 ) {
-    let (Some(hero), true) = (hero.iter().next(), minds.looked) else {
+    let (Some(hero), true) = (hero.iter().next(), nearest.looked) else {
         return;
     };
     let hero = hero.translation;
@@ -1104,6 +1100,7 @@ fn aside(
 fn behave(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
+    nearest: Res<Nearest>,
     crowd: Res<Crowd>,
     heights: Res<Heights>,
     hero: Query<(Entity, &Transform), With<Body>>,
@@ -1160,7 +1157,7 @@ fn behave(
         .collect();
     // What the townsfolk visit and take for partners: the farm and wild animals and the humans
     // of class 3, at the hero's looks.
-    let [animals, humans, traders]: [Vec<(Entity, Vec3)>; 3] = if minds.looked {
+    let [animals, humans, traders]: [Vec<(Entity, Vec3)>; 3] = if nearest.looked {
         let of = |wanted: fn(&Mind) -> bool| -> Vec<(Entity, Vec3)> {
             creatures
                 .iter()
@@ -1201,7 +1198,7 @@ fn behave(
         })
         .collect();
     // The doors at their logical positions, with their points, at the hero's looks.
-    let doors: Vec<(Entity, Vec3, Option<DoorPoints>)> = if minds.looked {
+    let doors: Vec<(Entity, Vec3, Option<DoorPoints>)> = if nearest.looked {
         doors
             .iter()
             .map(|(entity, object, door)| {
@@ -1402,7 +1399,7 @@ fn behave(
             continue;
         }
         // A townsperson awake decides at a look of the hero's, unless its dialogue holds it.
-        if mind.active && folk && minds.looked && !mind.dialogue {
+        if mind.active && folk && nearest.looked && !mind.dialogue {
             let (x, y) = sector(here);
             // The nearest door within 1,500 of the 3 × 3 sectors (`0x4EE300`).
             let nearest_door = doors
@@ -1795,6 +1792,7 @@ impl Plugin for AiPlugin {
                 (open, think, aside, behave, pursue)
                     .chain()
                     .after(crate::crowd::gather)
+                    .after(crate::crowd::look)
                     .in_set(Step::Crowd)
                     .run_if(crate::frame::ticked),
             )

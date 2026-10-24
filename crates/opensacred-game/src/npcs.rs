@@ -63,7 +63,7 @@ use opensacred_data::world::SIDE;
 use opensacred_rules::{minds, ways};
 
 use crate::files;
-use crate::frame::Step;
+use crate::frame::{Step, WorldTick};
 use crate::sectors::Streamer;
 use crate::terrain::Heights;
 use crate::terrain::Level;
@@ -3687,11 +3687,12 @@ fn hits_within(size: u32, other: u32) -> f32 {
     HITS_WITHIN * f32::from(u16::try_from(minds::reach(size, other)).unwrap_or(u16::MAX))
 }
 
-/// Plays each striking NPC's attack once, and at the clip's fractions (0.5 for a first of 0; a
-/// second when it is above 0) sends a hit of its share when the target is then within reach; a
-/// walk ends the strike (`0x4E4CF0`, `0x4EA1F0`). A shot plays its clip at its attack speed
-/// times its chain, and at the clip's first fraction looses its arrow (`arrows::Loose`,
-/// `0x4DD90E`).
+/// Plays each striking NPC's attack once, and at the first tick of the world past the clip's
+/// fractions (0.5 for a first of 0; a second when it is above 0), or at its end, sends a hit of
+/// its share when the target is then within reach, as the action steps at the ticks alone (#617);
+/// a walk ends the strike (`0x4E4CF0`, `0x4EA1F0`). A shot plays its clip at its attack speed
+/// times its chain, and at the first tick past the clip's first fraction, or at its end, looses
+/// its arrow (`arrows::Loose`, `0x4DD90E`).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -3699,6 +3700,7 @@ fn hits_within(size: u32, other: u32) -> f32 {
 )]
 fn strike(
     mut commands: Commands,
+    tick: Res<WorldTick>,
     mut strikers: Query<
         (
             Entity,
@@ -3757,12 +3759,14 @@ fn strike(
         } else {
             0.5
         };
-        let due = match (strikes.shot, strikes.struck) {
-            (Some(_), 0) => opensacred_rules::minds::looses(fractions[0], done),
-            (None, 0) => done >= first,
-            (None, 1) => fractions[1] > 0.0 && done >= fractions[1],
-            _ => false,
-        };
+        // At a tick, or as the clip ends between two, which the next tick's thought then sees.
+        let due = (tick.seconds.is_some() || active.is_finished())
+            && match (strikes.shot, strikes.struck) {
+                (Some(_), 0) => opensacred_rules::minds::looses(fractions[0], done),
+                (None, 0) => done >= first,
+                (None, 1) => fractions[1] > 0.0 && done >= fractions[1],
+                _ => false,
+            };
         if due && strikes.shot.is_some() {
             strikes.struck += 1;
             blows.write(crate::sfx::Blow::Shot { shooter: entity });

@@ -6,10 +6,10 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
-use opensacred_rules::ways;
 pub use opensacred_rules::ways::{BIG, HOSTILE, constructed, flags_word};
+use opensacred_rules::{minds, ways};
 
-use crate::frame::Step;
+use crate::frame::{Step, WorldTick};
 use crate::hero::Body;
 use crate::npcs::Object;
 use crate::paths::Cell;
@@ -110,8 +110,9 @@ pub fn gather(
 
 /// The hero's list of its hostile creatures, as the client keeps it for the fight stance and the
 /// places about the hero (`0xAD3CE0`, filled by `0x547070`, docs/re/motions.md, "The fight
-/// stance"; docs/re/fight.md, "Melee: the AI's state 4"): looked for every 0.3 s among the
-/// creatures of the 3 × 3 sectors about the hero within [`RANGE`], at most 55, nearest first.
+/// stance"; docs/re/fight.md, "Melee: the AI's state 4"): looked for every 0.3 s of the world's
+/// ticks (`minds::Look`, #617) among the creatures of the 3 × 3 sectors about the hero within
+/// [`RANGE`], at most 55, nearest first.
 /// The distance to the nearest is kept as it was while none is found, 0 before any is, as the
 /// client's is when the process starts.
 #[derive(Resource, Default)]
@@ -123,32 +124,33 @@ pub struct Nearest {
     /// The hostiles that the last look found, nearest first: none when it found none, as the
     /// list's count (`0xAD3BC8`) is then 0.
     pub hostiles: Vec<Entity>,
-    /// The time since the last look.
-    since: f32,
+    /// Whether the hero looked at this tick: the creatures' thought asks it too, as the same
+    /// look wakes them (`ai`).
+    pub looked: bool,
+    /// The look's timer.
+    look: minds::Look,
 }
-
-/// How often the hero looks for its nearest hostile, in seconds (`+0x204` of a player's hero).
-const LOOK_EVERY: f32 = 0.3;
 /// How far it looks, in world units: the client's `(S + 45) · 25`, `S` a smoothed rate of its
 /// frames (**hypothesis**: about 1,900 to 2,600 units); taken at 30 frames a second.
 const RANGE: f32 = 1_875.0;
 /// How many hostiles the list keeps.
 const LISTED: usize = 55;
 
-/// Looks for the hero's hostile creatures: those whose flags word has bit 0 or 1, in the 3 × 3
-/// sectors about the hero and within [`RANGE`] (**hypothesis**: those bits for the client's
-/// hostility to the hero, `0x548F30`).
-fn look(
-    time: Res<Time>,
+/// At a tick of the world whose time takes the look's timer above 0.3 s (`0x5375C0`, #617), looks
+/// for the hero's hostile creatures: those whose flags word has bit 0 or 1, in the 3 × 3 sectors
+/// about the hero and within [`RANGE`] (**hypothesis**: those bits for the client's hostility to
+/// the hero, `0x548F30`).
+pub(crate) fn look(
+    tick: Res<WorldTick>,
     mut nearest: ResMut<Nearest>,
     hero: Query<&Transform, With<Body>>,
     creatures: Query<(Entity, &Transform, &InTheWay), Without<Body>>,
 ) {
-    nearest.since += time.delta_secs();
-    if nearest.since < LOOK_EVERY {
+    let nearest = &mut *nearest;
+    nearest.looked = nearest.look.looks(tick.seconds.unwrap_or_default());
+    if !nearest.looked {
         return;
     }
-    nearest.since = 0.0;
     let Some(hero) = hero.iter().next() else {
         return;
     };
@@ -184,7 +186,10 @@ impl Plugin for CrowdPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Crowd>()
             .init_resource::<Nearest>()
-            .add_systems(Update, (gather, look).in_set(Step::Crowd));
+            .add_systems(
+                Update,
+                (gather, look.run_if(crate::frame::ticked)).in_set(Step::Crowd),
+            );
     }
 }
 

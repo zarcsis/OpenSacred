@@ -18,10 +18,17 @@ The creatures' update (`0x5375C0`) runs on a tick of the world, not at every fra
 The render loop (`cEngine::renderThread::run`, `0x60E350`) adds each frame's time to the float `0xAD6EFC`; once the sum is above 0.1 s, it calls `0x60DF00` and `0x60F130` with it and sets it to 0.
 Observed: the hero's update came every 100 or 117 ms, with its argument 0.1 or 0.117, so every 6 or 7 frames at 60 a second, 108 ms on average.
 The hero, two goblins and two horses changed their regeneration's accumulators at the same moments, and the hero's at each of 18 resets of `0xAD6EFC` in 2 s and at no other time.
-Which call of `0x60F130` (`sdk_SACRED_KERNEL_GET`, `0x809170`) reaches the updates, and what of the creatures runs at every frame (the walk looks smooth), is open (#617).
+Which call of `0x60F130` (`sdk_SACRED_KERNEL_GET`, `0x809170`) reaches the updates is not read (#617).
 A probe of a hostile goblin coming at the hero and striking (2026-10-23, #617): every change of its action `+0x150` and of its AI state `+0xFC` fell on a tick, at its offset 0, its strikes' starts and ends among them (a strike of 12 ticks, 1.30 s), while its position changed at every frame as it walked; the hero's position too moves at every frame, its action's changes and the mouse's orders on the ticks (docs/re/movement.md, "The hero's orders and its stop"; #640).
 So the creatures decide, and take their chances, on the tick; they move and their clips play at every frame.
+A probe of the hero's attack (2026-10-23, #617, the hero's AI and action states and its target read at every frame against the ticks, a goblin within its band clicked about every 1.2 s): each of 29 changes fell on a tick.
+At a click's tick the hero took the AI's state 4 in its sub-state 0, at the next its sub-state 2, and at the one after the attack action 3 in its sub-state 1, the AI back to 0; the action's sub-state 2, the hit, came 4 ticks into the strike (0.43 s), and the action ended 5 or 6 ticks after that.
+So the actions' switches, a strike's hit and its end among them, wait for the tick as the decisions do.
+The hero's look (`0x547070`) ran at 53 ticks and at no other frame, 220 to 350 ms apart.
+Its timer, as every creature's, is an accumulator (`+0x208`) of the ticks' time against the period (`+0x204`), read in `0x5375C0` on 2026-10-23: once the sum is above the period (not equal to it), the period is taken off it while it stays above, so that it fires once and keeps what is above, which a sum of more than ten periods does not keep; at 7 frames a tick the looks come 3, 3 and then 2 ticks apart.
+A dormant creature's own timer that wakes it then takes the jitter off what it kept (`rand() % 31 · 0.1 − 1.5`, "Dormant and awake" below).
 `opensacred-game` runs the regeneration on such a tick (`frame::WorldTick`, #616), and the creatures' decisions (#639): the AI's systems (`ai::open`, `think`, `aside`, `behave`, `pursue`) run only when the world ticks, with the tick's time for their timers, and their rolls are a tick's.
+The hero's look runs there too (`crowd::look`, #617), its list of hostiles and the creatures' wakes from one timer (`minds::Look`), which keeps its remainder as the creatures' own timers do; the strikes' hits and the shots' arrows wait for the first tick past their clips' fractions (`npcs::strike`, `attack::engage`), and the hero's attack steps as the original's: the click's order at a tick, its decision at the next, and its strike at the one after when it stands in its band.
 
 ## Dormant and awake
 
@@ -198,14 +205,14 @@ The creatures of hostile sides (docs/re/fight.md, "Sides") fight one another by 
 
 ## Open
 
-The test of the levels in detail; the AI's states 1, 6 and 10 to 14; a formation of groups (`+0x25F` `0xD160`); whether the actions' own switches (a strike's end, a walk's stop) wait for the tick in the original as its decisions do (#617; the game ends them at the frame, and decides at the next tick).
+The test of the levels in detail; the AI's states 1, 6 and 10 to 14; a formation of groups (`+0x25F` `0xD160`).
 Of the townsfolk: the meaning of `0x434070`, which spares some types a torch; a following child's catch-up (`0x4EBF20`); the hero's list at `+0x39C` that keeps a child following it; how the engine's event 6 shows the lines.
 
 ## In `opensacred-game`
 
 The decisions named below as `minds::…` live in `opensacred-rules` (`opensacred_rules::minds`, #362); `opensacred-game`'s `ai` keeps the minds as components, finds the creatures, the doors and the cells about a creature, and carries the decisions out with the walks, the strikes, the lines and the turns.
 `ai` gives each NPC a mind (`ai::Mind`, #237; `minds::Mind`): its home where it was made, its flags word, whether an `Enter` function made it and whether `CreateNPC` did, its group, its walk speed.
-The hostile ones of `CreateNPC` wake as they are made and look every 2.5 s, the other hostile ones and the townsfolk every 5 s, jittered by ±1.5 s; the hero's look every 0.3 s wakes the creatures not hostile within 1,875 and the hostile ones within 800 (400 while it moves), and gives the idle action to the other hostile ones in range; an awake creature farther than 1,500 or 1,000 from the hero along the grid's axes goes dormant again.
+The hostile ones of `CreateNPC` wake as they are made and look every 2.5 s, the other hostile ones and the townsfolk every 5 s, jittered by ±1.5 s, each timer keeping what its tick took it above its period; the hero's look every 0.3 s of the ticks wakes the creatures not hostile within 1,875 and the hostile ones within 800 (400 while it moves), and gives the idle action to the other hostile ones in range; an awake creature farther than 1,500 or 1,000 from the hero along the grid's axes goes dormant again.
 The idle action's step walks a creature (`npcs::Walk`, at its walk speed and with its walk clip) to a point within 150, home in one case of four, or, made by an `Enter` function, turned about the hero, its home and its group's members moving with it.
 An awake hostile creature, in one case of six, walks home from farther than 200; else one that takes on the hero or has it within its reach comes at it (docs/re/fight.md, "In `opensacred-game`"), and any other in one case of three takes the idle action (docs/decisions/2026-10-20-idle.md); the fidgets are left out.
 The animals take their behaviours (#238): a fill's peaceful creature its type's flags (`minds::of_type`) with its constructor's critter bit (`ways::constructed`, #468), so that the rabbits' variants take none, an `Enter` function's creature without flags those of its first update; awake, a wild one runs (`npcs::Walk::run`, at its run speed and with its run clip) from the nearest creature of its sector neither of class 4 nor 6, the hero among them, within 300, walks back within 50 of home from farther than 380, and strolls within 100 of home; a farm one steps away to the point beyond itself from such a creature within 200 and strolls within 150 of home; the strolls come in one tick of 101 (#608, #639, docs/decisions/2026-10-20-animals.md).

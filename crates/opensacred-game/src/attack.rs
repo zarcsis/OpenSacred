@@ -12,7 +12,7 @@ use opensacred_rules::minds;
 
 use crate::ai::Mind;
 use crate::fight::{self, Health};
-use crate::frame::{Control, Step, Unpaused};
+use crate::frame::{Control, Step, Unpaused, WorldTick};
 use crate::hero::{self, Body, Clips, GameSpeed};
 use crate::npcs::Dies;
 use crate::spawning::Rng;
@@ -32,7 +32,8 @@ pub struct Aim(pub bool);
 /// The hero's attack: its target, or none for a strike in the air at `point`; whether it strikes
 /// at once, where it stands, once; whether it ends with its strike, the player having sent the
 /// hero elsewhere; whether the button that sent it is still held; whether a click still asks
-/// for a strike that has not begun; and whether its first strike spoke its `ATTACK` line.
+/// for a strike that has not begun; whether its first strike spoke its `ATTACK` line; and where
+/// its AI stands.
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
@@ -42,6 +43,22 @@ pub struct Attack {
     held: bool,
     asked: bool,
     spoke: bool,
+    phase: Phase,
+}
+
+/// Where the hero's attack stands in the AI's state 4 (`0x4E0300`), which steps at the world's
+/// ticks alone (#617): the original's hero, sent by a click at a target in its band, took the
+/// state 4 at the click's tick, its sub-state 2 at the next and struck at the one after.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// Sent by a click, an order that the next tick takes (`0x60F130`, after the hero's update).
+    Ordered,
+    /// Deciding (the sub-state 0, or 6 after a strike that did not chain).
+    Deciding,
+    /// Coming on to the band (the sub-state 1), its move ending in it.
+    ComesOn,
+    /// In the band, turned to its target (the sub-state 2): it strikes at the next tick.
+    InBand,
 }
 
 impl Attack {
@@ -135,6 +152,7 @@ pub(crate) fn aim(
             held: true,
             asked: true,
             spoke: false,
+            phase: Phase::Ordered,
         };
         match (aim.0, attack) {
             // A click on the same target goes on with its attack, which spoke at its first
@@ -158,16 +176,20 @@ pub(crate) fn aim(
     }
 }
 
-/// The hero's attack (the AI's state 4 for a hero, docs/re/fight.md): farther than its band from
-/// its target it runs to it, after it as it moves; in the band, or at once, it stops, turns to
-/// the target and strikes: one of its attack clips at random, once, at the game's speed, which
-/// hits at the clip's fractions (0.5 for a first of 0; a second where there is one) when the
+/// The hero's attack (the AI's state 4 for a hero, docs/re/fight.md), deciding at the world's
+/// ticks ([`Phase`], #617): the click's order taken at a tick, it decides at the next; farther
+/// than its band from its target it runs to it, after it as it moves, its move ending in the band
+/// at any frame; in the band, or at once, it stops and turns to the target, and at the next tick
+/// strikes: one of its attack clips at random, once, at the game's speed, which hits at the first
+/// tick past the clip's fractions (0.5 for a first of 0; a second where there is one) when the
 /// target is then within 1.5 times the reach, its strikes at an even pace. It strikes again while
 /// the button that sent it is held or a click asks for another (the original's attack action keeps
 /// its first half while the button is held, #705), until the target dies; a strike at once or in
 /// the air is one. With the button held, the next strike starts as soon as this one's hits are
-/// struck and its clip has the turn to the next left (`minds::strike_gives_way`, #707); a click
-/// waits for the clip's end.
+/// struck and its clip has the turn to the next left (`minds::strike_gives_way`, #707), at any
+/// frame as the clip queued at the hit starts; a click waits for the clip's end, which a tick
+/// sees, and strikes then; a strike that does not chain ends there and its AI decides again at
+/// the next tick.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -175,6 +197,7 @@ pub(crate) fn aim(
 )]
 fn engage(
     mut commands: Commands,
+    tick: Res<WorldTick>,
     mut dice: ResMut<Dice>,
     clips: Option<Res<Clips>>,
     speed: Res<GameSpeed>,
@@ -221,14 +244,19 @@ fn engage(
         };
         // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
         let attack_speed = combat.map_or(1.0, |combat| combat.clip_speed());
+        let ticked = tick.seconds.is_some();
         let mut blend = BLEND;
+        // Whether a strike starts at this frame whatever the AI's step: the next of a held button
+        // or of a click.
+        let mut now = false;
         if let Some(mut striking) = striking {
             let Some(active) = player.animation(striking.node) else {
                 commands.entity(hero).remove::<Striking>();
                 continue;
             };
             let done = active.seek_time() / striking.length;
-            if minds::hit_due(striking.fractions, striking.struck, done) {
+            // The action tests its hits at its steps, the world's ticks, alone (`0x4EA1F0`).
+            if ticked && minds::hit_due(striking.fractions, striking.struck, done) {
                 striking.struck += 1;
                 // The swing within reach or in the air (`0x4EA6FD`, #712).
                 if attack.target.is_none() {
@@ -258,20 +286,38 @@ fn engage(
             {
                 commands.entity(hero).remove::<Striking>();
                 blend = Duration::from_secs_f32(left.max(0.001));
-            } else {
-                if active.is_finished() {
-                    commands.entity(hero).remove::<Striking>();
-                    if minds::attack_ends(
-                        attack.at_once,
-                        attack.ends,
-                        target.is_some(),
-                        attack.held || attack.asked,
-                    ) {
-                        commands.entity(hero).remove::<Attack>();
-                    }
-                }
+                now = true;
+            } else if !(ticked && active.is_finished()) {
                 continue;
+            } else {
+                commands.entity(hero).remove::<Striking>();
+                if minds::attack_ends(
+                    attack.at_once,
+                    attack.ends,
+                    target.is_some(),
+                    attack.held || attack.asked,
+                ) {
+                    commands.entity(hero).remove::<Attack>();
+                    continue;
+                }
+                if !attack.asked {
+                    // Not chained, the action ends and the AI decides again (the sub-state 6).
+                    attack.phase = Phase::Deciding;
+                    continue;
+                }
+                now = true;
             }
+        }
+        if !now && !ticked {
+            // Between the ticks only its move to the band ends there (`0x4F4770`).
+            if attack.phase == Phase::ComesOn
+                && !attack.ends
+                && let Some(at) = target
+                && !minds::hero_comes_on(false, (at - here).with_y(0.0).length(), reach)
+            {
+                body.stop();
+            }
+            continue;
         }
         let aimed = match (attack.target, target) {
             (Some(_), Some(at)) => at,
@@ -285,12 +331,23 @@ fn engage(
             commands.entity(hero).remove::<Attack>();
             continue;
         }
+        if !now && attack.phase == Phase::Ordered {
+            // The click's order taken at this tick, it decides at the next.
+            attack.phase = Phase::Deciding;
+            continue;
+        }
         if minds::hero_comes_on(attack.at_once, (aimed - here).with_y(0.0).length(), reach) {
             body.send(aimed);
+            attack.phase = Phase::ComesOn;
             continue;
         }
         body.stop();
         transform.rotation = hero::facing((aimed - here).with_y(0.0));
+        if !now && attack.phase != Phase::InBand {
+            // In the band, turned to its target, it strikes at the next tick.
+            attack.phase = Phase::InBand;
+            continue;
+        }
         let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
         let Some((node, clip, fractions)) = usize::try_from(dice.0.below(count))
             .ok()
@@ -307,6 +364,7 @@ fn engage(
             .play(&mut player, *node, blend)
             .set_speed(speed.0 * attack_speed);
         attack.asked = false;
+        attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
         // chains do not (#711).
         if !attack.spoke {
