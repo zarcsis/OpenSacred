@@ -17,7 +17,7 @@ pub const SPEED: f32 = 600.0;
 pub const LIFE: f32 = 1.5;
 /// The size of a type whose `items.pak +0x14` is 0, as the arrows' and the heroes' are
 /// (`0x428CE0`).
-const SIZE: f32 = 50.0;
+pub const SIZE: f32 = 50.0;
 /// How long an arrow stays stuck in a creature after its hit, in seconds, and the size above
 /// which a creature takes it (`0x5BAB40`).
 pub const STICKS_FOR: f32 = 5.0;

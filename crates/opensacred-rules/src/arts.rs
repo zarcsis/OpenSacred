@@ -139,9 +139,9 @@ pub enum Style {
     /// One strike on its target at its class's point of its clip ([`kick_point`]), which may
     /// knock it back ([`knockback_chance`], [`knockback`]).
     Kick,
-    /// At each of its runs, a strike on the creature that the blade in its right hand touches
-    /// ([`blade_touches`]), other than the one it struck last: the Seraphim's 1054
-    /// (`GUI_MOVE_SCHLEUDERKLINGEN`, `0x5038F0`).
+    /// At each of its runs, a strike on the creature that the point of its socket of the item in
+    /// its hand touches first ([`blade_touches`]), unless that is the one it struck last: the
+    /// Seraphim's 1054 (`GUI_MOVE_SCHLEUDERKLINGEN`, `0x5038F0`).
     Blades,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
@@ -243,7 +243,7 @@ pub fn attacke_target(target: Option<Candidate>, others: &[Candidate]) -> Option
 }
 
 /// Whether the blade of a [`Style::Blades`], its point `distance` from a creature of the size
-/// `size` (`items.pak +0x14`, `arrows::size`), touches it, the blade's item of the size
+/// `size` (`items.pak +0x14`, `arrows::size`), touches it, the item in the hand of the size
 /// `blade` (`0x600340`: nearer than the sum of the two types' sizes, `0x428CE0`).
 pub fn blade_touches(distance: f32, size: f32, blade: f32) -> bool {
     distance < size + blade

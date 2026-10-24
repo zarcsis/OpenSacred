@@ -732,23 +732,40 @@ fn make(
     }
 }
 
-/// The size of the blade of the hurled blades, its item's `items.pak +0x14` (50 for 0, which a
-/// blade has; **hypothesis** for the hero's, whose items' words the game does not keep).
-const BLADE: f32 = 50.0;
+/// The item in a hero's hand that its hurled blades strike with (`0x5038F0`): the one in its
+/// right hand, else its left's (`+0x1D8`, `+0x1D4`), and its size (`items.pak +0x14`, 50 for 0,
+/// `0x428CE0`); a hero without one strikes nothing with them.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Blade {
+    pub right: bool,
+    pub size: f32,
+}
+
+/// The bones whose point the hurled blades strike from, by the hand of the hero's [`Blade`]: the
+/// hero's own socket of the item in that hand, else the hand.
+fn blade_bones(blade: Blade) -> [&'static str; 2] {
+    if blade.right {
+        ["Bone_weapon_01", HAND_BONE]
+    } else {
+        ["Bone_weapon_02", "Bip01 L Hand"]
+    }
+}
 
 /// The hurled blades' strikes (the Seraphim's 1054, `0x5038F0`), at each of the world's ticks
-/// as its executor runs: the point of the weapon's bone of the hero's right hand, where it holds
-/// one (`0x44CA30`; its hand's bone where the model of its weapon has none), and the hostile
-/// creature nearest it that it touches (`arts::blade_touches`, the creature's size
-/// `arrows::Size`), other than the one it struck last, takes a strike of the art's level and
-/// factor and becomes the last.
+/// as its executor runs: the point of the hero's socket of its [`Blade`] (`0x44CA30` of
+/// `Bone_weapon_01` or `Bone_weapon_02`), and the living creature nearest it that it touches by
+/// the two sizes (`arts::blade_touches`, the creature's `arrows::Size`), where it is hostile and
+/// not the one struck last, takes a strike of the art's level and factor and becomes the last.
+/// The original takes the first object of its sectors' lists that the point touches
+/// (`0x600340`), of any kind, and strikes nothing that tick where that is the last struck or one
+/// it may not strike (`0x549000`); the nearest creature stands for the first.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
 fn blades(
     tick: Res<WorldTick>,
-    mut heroes: Query<(Entity, &mut Playing), Without<Dies>>,
+    mut heroes: Query<(Entity, &mut Playing, Option<&Blade>), Without<Dies>>,
     creatures: Query<
         (
             Entity,
@@ -766,27 +783,29 @@ fn blades(
     if tick.seconds.is_none() {
         return;
     }
-    for (hero, mut playing) in &mut heroes {
+    for (hero, mut playing, blade) in &mut heroes {
         if playing.style != Style::Blades {
             continue;
         }
-        let Some(point) = bone(hero, &WEAPON_BONES, &children, &bones)
-            .or_else(|| bone(hero, &[HAND_BONE], &children, &bones))
-        else {
+        let Some(blade) = blade.copied() else {
+            continue;
+        };
+        let Some(point) = bone(hero, &blade_bones(blade), &children, &bones) else {
             continue;
         };
         let touched = creatures
             .iter()
-            .filter(|&(entity, _, mind, health, _)| {
-                Some(entity) != playing.last && mind.hostile() && health.current > 0
-            })
-            .map(|(entity, at, _, _, size)| {
+            .filter(|&(.., health, _)| health.current > 0)
+            .map(|(entity, at, mind, _, size)| {
                 let distance = (at.translation() - point).xz().length();
-                (entity, distance, size.map_or(BLADE, |size| size.0))
+                let size = size.map_or(opensacred_rules::arrows::SIZE, |size| size.0);
+                (entity, mind.hostile(), distance, size)
             })
-            .filter(|&(_, distance, size)| arts::blade_touches(distance, size, BLADE))
-            .min_by(|a, b| a.1.total_cmp(&b.1));
-        if let Some((entity, ..)) = touched {
+            .filter(|&(.., distance, size)| arts::blade_touches(distance, size, blade.size))
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        if let Some((entity, true, ..)) = touched
+            && Some(entity) != playing.last
+        {
             hits.write(fight::Hit {
                 attacker: hero,
                 target: entity,
