@@ -77,7 +77,7 @@ for k in range(0, (STE - STS) // 0x10000 + 1):
             nf += 1; tot += sz; labs[SL(a)] += sz
             if sz >= MIN and h in common: mat += sz
     rows.append((lo, nf, tot, mat, labs.most_common(3)))
-json.dump({'gs_label_match': {k: (gm[k], gt[k]) for k in gt}, 'sacred_label_match': {k: (sm[k], stt[k]) for k in stt}, 'sacred_rows': [(hex(r[0]), r[1], r[2], r[3], r[4]) for r in rows]}, open(args.out, 'w'), indent=1)
+json.dump({'gs_label_match': {k: (gm[k], gt[k]) for k in gt}, 'sacred_label_match': {k: (sm[k], stt[k]) for k in stt}, 'sacred_rows': [(hex(r[0]), r[1], r[2], r[3], r[4]) for r in rows]}, open(args.out, 'w', encoding='utf-8', newline=''), indent=1)
 print("Sacred per-64KB: start, funcs, bytes, matched-with-GS bytes, top labels")
 for r in rows: print("  0x%x %4d %6d %6d %s" % (r[0], r[1], r[2], r[3], r[4]))
 rows = []

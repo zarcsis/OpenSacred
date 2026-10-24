@@ -34,7 +34,7 @@ d = open(STATIC, 'rb').read()
 if len(d) < 0x100:
     sys.exit('%s is too short for a PAK (%d bytes)' % (STATIC, len(d)))
 magic, count = struct.unpack_from('<4sI', d, 0)
-out = open(OUT + 'static_stats.txt', 'w')
+out = open(OUT + 'static_stats.txt', 'w', encoding='utf-8', newline='')
 def w(s):
     out.write(s + '\n'); print(s)
 w('magic %r count %d filesize %d' % (magic, count, len(d)))

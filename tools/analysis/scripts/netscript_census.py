@@ -71,7 +71,7 @@ for (fn, h), rels in sorted(cls.items()):
     if fn == 'FunkCode.bin': print(f'  {h}: {len(rels)} dirs: {rels}')
 groups = sorted(G)
 allops = sorted(set(op for g in G for fn in G[g] for op in G[g][fn]))
-with open(out, 'w') as f:
+with open(out, 'w', encoding='utf-8', newline='') as f:
     hdr = ['op', 'hex', 'name'] + [f'{g}:{fn[:-8]}' for g in groups for fn in ['FunkCode.bin', 'StartCode.bin', 'QuestCode.bin']] + ['total', 'needed_by', 'n_lens', 'top_first_tag', 'top_last_tag']
     f.write('\t'.join(hdr) + '\n')
     for op in range(0, 141):

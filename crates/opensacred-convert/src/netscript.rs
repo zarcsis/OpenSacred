@@ -311,7 +311,7 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
         summary.bytes += bytes;
         trees.push(entry);
     }
-    let text = ron::ser::to_string_pretty(&NetScript { trees }, ron::ser::PrettyConfig::default())
+    let text = ron::ser::to_string_pretty(&NetScript { trees }, crate::utf8::pretty())
         .context("writing netscript.ron")?;
     let path = dir.join(INDEX);
     fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;

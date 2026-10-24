@@ -139,7 +139,7 @@ pub fn write(out: &Path, manifest: &RunManifest) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
-    let text = ron::ser::to_string_pretty(manifest, ron::ser::PrettyConfig::default())
+    let text = ron::ser::to_string_pretty(manifest, crate::utf8::pretty())
         .with_context(|| format!("writing the manifest of {}", manifest.command))?;
     fs::write(&path, text).with_context(|| format!("writing {}", path.display()))
 }

@@ -21,6 +21,7 @@ mod text;
 mod text_repairs;
 mod textures;
 mod ui;
+mod utf8;
 mod verify;
 mod video;
 mod voices;

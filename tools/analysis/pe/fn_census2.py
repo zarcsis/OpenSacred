@@ -115,5 +115,5 @@ R['particle_slot_stats'] = slot_stats
 sig = collections.Counter(tuple(S.get(p, (0, None))[1] for p in e) for nm, (va, e) in best.items())
 R['particle_classes_fully_duplicate_body_sets'] = sum(c for s, c in sig.items() if c > 1)
 R['particle_vtable_len_hist'] = dict(collections.Counter(len(e) for va, e in best.values()))
-json.dump(R, open(args.out, 'w'), indent=1, default=str)
+json.dump(R, open(args.out, 'w', encoding='utf-8', newline=''), indent=1, default=str)
 for k, v in R.items(): print(k, '=', json.dumps(v, default=str)[:2500])

@@ -1067,7 +1067,7 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 - UI bitmaps: 1024×1024 `UI_*.TGA` in format 6 (A8R8G8B8, §3.1), the cursor `MOUSE_MAIN.TGA`; the `cUI_*` widget layout is defined in code, there are no layout files.
   The new interface is designed from scratch; the original's textures are used as skins.
 - Loading screens: `pak/loading0/1.bmp`, `loadgame.bmp`, `savegame.bmp`, `LoadingUW00/01.bmp`: BMP 1024×768, 24-bit, uncompressed, rows from the bottom; three files carry 2 bytes after the pixels.
-  **Implemented 2026-10-17:** `opensacred_formats::bmp` decodes them, `opensacred-convert ui` writes `ui/screens/*.png` (a test compares every pixel with FFmpeg's decoding) and copies the two fonts to `ui/fonts/` and `credits.txt`, `credits2.txt` (ASCII with CRLF) to `ui/texts/`.
+  **Implemented 2026-10-17:** `opensacred_formats::bmp` decodes them, `opensacred-convert ui` writes `ui/screens/*.png` (a test compares every pixel with FFmpeg's decoding) and copies the two fonts to `ui/fonts/` and `credits.txt`, `credits2.txt` (ASCII with CRLF) to `ui/texts/`, with LF since #835.
 
 ## 12. Conversion: targets, order, checks
 
@@ -1099,6 +1099,7 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
   Stage A is reproducible by nature; stage B's lossy encoders need not be, and identical reruns are no longer a goal (#694).
   Each full run of an extraction records `manifest/<command>.ron` under the masters' directory, and `build` its own under the game's (the SHA-256 of the converter, of the installation files it read and of the files it wrote), and `all` skips a command whose record still holds.
 * Outputs go to `assets-src/` (the masters) and `assets/` (the game's), neither committed.
+  Every text file of both is UTF-8 without a BOM with LF line ends on every platform (#834, #835): the RON through `ron`'s pretty layout with `\n` (its default writes `\r\n` on Windows), the Fluent and the listings by `writeln!`, and the text files of the original (the credits) with their CRLF made LF; `build` writes every text output (`.ftl`, `.json`, `.luau`, `.ron`, `.toml`, `.txt`) so, a BOM dropped, CRLF and a lone CR made LF, and a master that is not UTF-8 an error.
   HD packs and mods go to `assets-hd/` in the masters' formats with the same relative paths.
 * `opensacred-game` reads `assets/` in layers (#699): a path takes the first that has it, the loose files of the directory itself, then the ZIP archives of its `overlays/` (HD packs, mods), then the base ZIP archives beside the loose files, each set in the order of the archives' names.
   An archive's entries are stored or deflated, their paths the loose files' relative to `assets/` with `/` between the parts; both Bevy's asset server (its default asset source) and the game's own reads of the tables, sectors, scripts and atlases go through the layers.

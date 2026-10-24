@@ -1,5 +1,5 @@
 //! `ui` subcommand: the loading and save screens of `PAK/*.bmp` → PNG, the fonts of `font/` and
-//! the credits → `<out>/ui/` (docs/02 §11).
+//! the credits → `<out>/ui/` (docs/02 §11), the credits as UTF-8 with LF line ends (#835).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -59,12 +59,15 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         fs::write(&file, png).with_context(|| format!("writing {}", file.display()))?;
         summary.screens += 1;
     }
-    for (paths, sub, count) in [
-        (&FONTS[..], "fonts", &mut summary.fonts),
-        (&CREDITS[..], "texts", &mut summary.texts),
+    for (paths, sub, count, text) in [
+        (&FONTS[..], "fonts", &mut summary.fonts, false),
+        (&CREDITS[..], "texts", &mut summary.texts, true),
     ] {
         for path in paths {
-            let data = read_game_file(&game_dir.join(path))?;
+            let mut data = read_game_file(&game_dir.join(path))?;
+            if text {
+                data = crate::utf8::normalized(&data).context(path)?;
+            }
             let file = dir.join(sub).join(target(path, None));
             fs::write(&file, data).with_context(|| format!("writing {}", file.display()))?;
             *count += 1;
@@ -88,7 +91,8 @@ mod tests {
         assert_eq!(target("font/ANTQS__.TTF", None), "antqs__.ttf");
     }
 
-    /// Every screen decodes to the pixels FFmpeg decodes it to.
+    /// Every screen decodes to the pixels FFmpeg decodes it to, and the credits keep their text
+    /// with LF line ends.
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn screens_match_ffmpeg() {
@@ -111,6 +115,19 @@ mod tests {
             let (width, height, pixels) = read_png_bytes(&png);
             assert_eq!((width, height), (1024, 768));
             assert!(pixels == reference, "{path}");
+        }
+        // The credits, ASCII with CRLF in the original (docs/02 §11), with LF alone.
+        for path in CREDITS {
+            let original = read_game_file(&game.join(path)).unwrap();
+            let ours = fs::read(output_dir(&out).join("texts").join(target(path, None))).unwrap();
+            assert!(
+                original.contains(&b'\r') && !ours.contains(&b'\r'),
+                "{path}"
+            );
+            assert_eq!(
+                String::from_utf8(ours).unwrap(),
+                String::from_utf8(original).unwrap().replace("\r\n", "\n")
+            );
         }
         fs::remove_dir_all(out).unwrap();
     }

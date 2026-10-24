@@ -35,7 +35,7 @@ for i in range(9):          # outer loop: 9 rows (ecx 0..8)
         bottom = ((J + S + 50.0) * INV, (T + 48.0) * INV + EPS)
         right = ((J + S + 97.5) * INV + EPS, (T + 23.5) * INV)
         table.append((left, top, bottom, right))
-with open(OUT + 'uv_table.txt', 'w') as f:
+with open(OUT + 'uv_table.txt', 'w', encoding='utf-8', newline='') as f:
     f.write('cell  left(u,v)            top(u,v)             bottom(u,v)          right(u,v)           | texel-space rhombus bbox x0..x1 y0..y1\n')
     for c, (l, t, b, r) in enumerate(table):
         f.write('%2d   (%.5f,%.5f)  (%.5f,%.5f)  (%.5f,%.5f)  (%.5f,%.5f) | x %.1f..%.1f  y %.1f..%.1f\n' % (

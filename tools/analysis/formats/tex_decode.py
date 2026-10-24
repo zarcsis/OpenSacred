@@ -32,7 +32,7 @@ args = ap.parse_args()
 PAK = args.pak or os.path.join(args.game_dir, 'PAK', 'texture03.pak')
 os.makedirs(args.out, exist_ok=True)
 OUT = os.path.join(args.out, '')
-log = open(OUT + 'tex_decode.txt', 'w')
+log = open(OUT + 'tex_decode.txt', 'w', encoding='utf-8', newline='')
 def w(s):
     log.write(s + '\n'); print(s)
 def dec4444(p):  # D3DFMT_A4R4G4B4 little-endian u16: A15-12 R11-8 G7-4 B3-0

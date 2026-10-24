@@ -120,7 +120,7 @@ for (i, idx, ordn, off, csz, usz) in recs[:MAXSEC]:
     done += 1
     if done % 500 == 0: print('..', done, file=sys.stderr)
 hvar.sort(reverse=True)
-with open(OUT + 'sector_stats.txt', 'w') as f:
+with open(OUT + 'sector_stats.txt', 'w', encoding='utf-8', newline='') as f:
     f.write('sectors %d cells %d\n' % (done, ncells))
     f.write('\n## per-byte histograms (offset: distinct values, top-8 value:count)\n')
     for b in range(32):

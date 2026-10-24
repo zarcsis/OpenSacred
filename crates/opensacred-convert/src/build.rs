@@ -2,8 +2,9 @@
 //! masters that the extraction commands (stage A) write into `<assets-src>`. It encodes the
 //! textures' PNG masters into KTX2 ([`crate::ktx`], #700), with them the models' references to
 //! them and the images they embed and the world index's, and the cutscenes' masters into AV1 and
-//! Opus WebM (#698); it takes the other masters as they are, while the later sub-issues change the
-//! formats one kind at a time (#696), and packs the outputs into ZIP archives by kind,
+//! Opus WebM (#698); it takes the other masters as they are, but writes the text files as UTF-8
+//! with LF line ends ([`crate::utf8`], #835), while the later sub-issues change the formats one
+//! kind at a time (#696), and packs the outputs into ZIP archives by kind,
 //! [`opensacred_data::archive`]'s (#699): `data.zip` (the tables, texts, scripts and heroes),
 //! `models.zip`, `music.zip`, `sound.zip`, `textures.zip`, `ui.zip`, `video.zip` and `world.zip`,
 //! the entries in the order of their paths.
@@ -70,7 +71,8 @@ impl Make {
     /// before the versions (#700), which a manifest without them records.
     fn way(self) -> (&'static str, u32) {
         match self {
-            Self::Copy => ("copy", 0),
+            // 1: the text files UTF-8 without a BOM with LF line ends (#835).
+            Self::Copy => ("copy", 1),
             // 2: the levels' alpha never lowered (#816).
             Self::Texture(_) => ("texture", 2),
             Self::Model => ("model", 1),
@@ -227,7 +229,14 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
     let from = src.join(&planned.master.path);
     let what = || format!("building {} from {}", planned.path, planned.master.path);
     match planned.how {
-        Make::Copy => fs::read(&from).with_context(what),
+        Make::Copy => {
+            let data = fs::read(&from).with_context(what)?;
+            if crate::utf8::is_text(&planned.path) {
+                crate::utf8::normalized(&data).with_context(what)
+            } else {
+                Ok(data)
+            }
+        }
         Make::Texture(usage) => {
             let png = fs::read(&from).with_context(what)?;
             crate::ktx::encode(&png, usage).with_context(what)
@@ -587,6 +596,38 @@ mod tests {
         assert!(!deflated("world/sectors/1-2.sector"));
     }
 
+    /// A text master that a tool saved with a BOM and CRLF is written with LF alone, a binary one
+    /// as it is, and one that is not UTF-8 stops the build (#835).
+    #[test]
+    fn the_text_outputs_are_utf8_with_lf() {
+        let src = scratch_dir("build-text-src");
+        let out = scratch_dir("build-text-out");
+        write(&src, "tables/items.ron", "\u{FEFF}[\r\n    (),\r\n]\r\n");
+        write(&src, "ui/texts/credits.txt", "a\r\nb\r\n");
+        write(&src, "ui/fonts/antqs__.ttf", "font\r\n");
+        build(&src, &out, false).unwrap();
+        assert_eq!(
+            read(&out, "data.zip", "tables/items.ron").unwrap(),
+            "[\n    (),\n]\n"
+        );
+        assert_eq!(
+            read(&out, "ui.zip", "ui/texts/credits.txt").unwrap(),
+            "a\nb\n"
+        );
+        assert_eq!(
+            read(&out, "ui.zip", "ui/fonts/antqs__.ttf").unwrap(),
+            "font\r\n"
+        );
+        fs::write(src.join("tables/items.ron"), b"\xE9").unwrap();
+        let error = build(&src, &out, false).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("tables/items.ron"),
+            "{error:#}"
+        );
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
     #[test]
     fn a_build_packs_the_masters_and_redoes_only_what_changed() {
         let src = scratch_dir("build-src");
@@ -689,7 +730,7 @@ mod tests {
                     .collect(),
                 atlases: Vec::new(),
             };
-            let text = ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default());
+            let text = ron::ser::to_string_pretty(&world, crate::utf8::pretty());
             write(&src, "world/world.ron", &text.unwrap());
         };
         let format = |name: &str| {
@@ -718,12 +759,14 @@ mod tests {
         assert_eq!(build(&src, &out, false).unwrap().built, 3);
         assert_eq!(format("00001-sheet"), (ktx2::Format::BC7_SRGB_BLOCK, 4));
         assert_eq!(format("00002-dwarf"), (ktx2::Format::R8G8B8A8_SRGB, 1));
-        // The manifest of a build before the ways' versions: the ways of a version made again.
+        // The manifest of a build before the ways' versions: the ways of a version made again, the
+        // copy's among them since #835.
         let mut run = manifest::read(&out, NAME).unwrap().unwrap();
         assert_eq!(run.ways.get("texture"), Some(&2));
+        assert_eq!(run.ways.get("copy"), Some(&1));
         run.ways.clear();
         manifest::write(&out, &run).unwrap();
-        assert_eq!(build(&src, &out, false).unwrap().built, 3);
+        assert_eq!(build(&src, &out, false).unwrap().built, 4);
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }

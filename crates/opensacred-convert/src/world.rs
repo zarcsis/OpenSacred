@@ -253,8 +253,8 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
         sheets,
         atlases: atlases.paths,
     };
-    let text = ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default())
-        .context("writing world.ron")?;
+    let text =
+        ron::ser::to_string_pretty(&world, crate::utf8::pretty()).context("writing world.ron")?;
     let path = dir.join(INDEX);
     fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     Ok(summary)
@@ -503,7 +503,7 @@ pub fn built_index(masters: &str) -> Result<String> {
             *name = format!("{stem}.{}", opensacred_data::texture::EXTENSION);
         }
     }
-    ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default())
+    ron::ser::to_string_pretty(&world, crate::utf8::pretty())
         .context("writing the game's world.ron")
 }
 
@@ -524,8 +524,7 @@ mod tests {
             sheets: vec!["../textures/texture/00007-sheet.png".to_owned()],
             atlases: vec!["../textures/texture/00009-atlas.png".to_owned()],
         };
-        let masters =
-            ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default()).unwrap();
+        let masters = ron::ser::to_string_pretty(&world, crate::utf8::pretty()).unwrap();
         assert_eq!(
             textures_named(&masters).unwrap(),
             [
