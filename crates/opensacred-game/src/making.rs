@@ -75,41 +75,47 @@ pub fn clips(
     slots: Option<&Slots>,
     points: &HashMap<String, Vec<f32>>,
 ) -> Vec<ArtClipName> {
-    [Style::Attacke, Style::Rundum, Style::Hardhit, Style::Kick]
-        .into_iter()
-        .filter_map(|style| {
-            let action = arts::action(kind, style, class)?;
-            // The slot's clip, else the one it falls back to (the Dwarf's).
-            let clip = match action.clip {
-                ArtClip::Slot(slot) => Some(
-                    slots?
-                        .slot(slot)
-                        .or_else(|| slots?.slot(action.fallback?))?
-                        .to_owned(),
-                ),
-                ArtClip::Attack => None,
-            };
-            let floats = clip
-                .as_ref()
-                .and_then(|name| points.get(&name.to_ascii_uppercase()))
-                .cloned()
-                .unwrap_or_default();
-            // A kick strikes at its class's point of its clip, not at the clip's hit points.
-            let points = if style == Style::Kick {
-                vec![arts::kick_point(kind, class)]
-            } else {
-                arts::hit_points(&floats)
-            };
-            Some(ArtClipName {
-                style,
-                clip,
-                points,
-                rate: action.rate,
-                fixed: action.fixed,
-                halved: class == 8,
-            })
+    [
+        Style::Attacke,
+        Style::Rundum,
+        Style::Hardhit,
+        Style::Kick,
+        Style::Boon,
+    ]
+    .into_iter()
+    .filter_map(|style| {
+        let action = arts::action(kind, style, class)?;
+        // The slot's clip, else the one it falls back to (the Dwarf's).
+        let clip = match action.clip {
+            ArtClip::Slot(slot) => Some(
+                slots?
+                    .slot(slot)
+                    .or_else(|| slots?.slot(action.fallback?))?
+                    .to_owned(),
+            ),
+            ArtClip::Attack => None,
+        };
+        let floats = clip
+            .as_ref()
+            .and_then(|name| points.get(&name.to_ascii_uppercase()))
+            .cloned()
+            .unwrap_or_default();
+        // A kick strikes at its class's point of its clip, not at the clip's hit points.
+        let points = if style == Style::Kick {
+            vec![arts::kick_point(kind, class)]
+        } else {
+            arts::hit_points(&floats)
+        };
+        Some(ArtClipName {
+            style,
+            clip,
+            points,
+            rate: action.rate,
+            fixed: action.fixed,
+            halved: class == 8,
         })
-        .collect()
+    })
+    .collect()
 }
 
 /// At a new game, the hero's first art whose action is read is the right button's.
@@ -202,6 +208,12 @@ fn aim(
         }
         match may_make(&arts, art) {
             Ok(()) => {
+                // A boon's target is its maker (the launch type 5, `0x51D840`).
+                let target = if arts::style(art) == Some(Style::Boon) {
+                    hero
+                } else {
+                    target
+                };
                 info!("making: the hero makes {art} on {target}");
                 commands
                     .entity(hero)
@@ -313,32 +325,35 @@ fn make(
             commands.entity(hero).remove::<(Making, Playing)>();
         };
         let Some(mut playing) = playing else {
-            // The order: its target alive, within its distance.
-            let Some((target, target_reach)) = creatures
-                .get(making.target)
-                .ok()
-                .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-                .map(|(_, at, mind, _)| (at.translation(), reach(mind)))
-            else {
-                end(&mut commands);
-                continue;
-            };
             let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) else {
                 end(&mut commands);
                 continue;
             };
-            let Some((at, within)) = made_from(record.distance, to_f32(target_reach)) else {
-                info!("making: {}'s distance is not made yet", making.art);
-                end(&mut commands);
-                continue;
-            };
-            let distance = (target - here).with_y(0.0).length();
-            if at > 0.0 && distance > at + within {
-                body.send(target);
-                continue;
+            // A boon is made where the hero stands, on itself; any other art on its target alive,
+            // within its distance.
+            if making.target != hero {
+                let Some((target, target_reach)) = creatures
+                    .get(making.target)
+                    .ok()
+                    .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
+                    .map(|(_, at, mind, _)| (at.translation(), reach(mind)))
+                else {
+                    end(&mut commands);
+                    continue;
+                };
+                let Some((at, within)) = made_from(record.distance, to_f32(target_reach)) else {
+                    info!("making: {}'s distance is not made yet", making.art);
+                    end(&mut commands);
+                    continue;
+                };
+                let distance = (target - here).with_y(0.0).length();
+                if at > 0.0 && distance > at + within {
+                    body.send(target);
+                    continue;
+                }
+                transform.rotation = hero::facing((target - here).with_y(0.0));
             }
             body.stop();
-            transform.rotation = hero::facing((target - here).with_y(0.0));
             let (Some(style), Some(level)) = (
                 arts::style(making.art),
                 arts.arts.level_in_play(
@@ -359,7 +374,7 @@ fn make(
                 continue;
             };
             // The art's clip, or one of the attack's at random for the Seraphim's `Hardhit`.
-            let (node, clip, points) = match (action.node, &action.clip) {
+            let (node, clip, mut points) = match (action.node, &action.clip) {
                 (Some(node), Some(clip)) => (node, clip.clone(), action.points.clone()),
                 _ => {
                     let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
@@ -386,6 +401,12 @@ fn make(
                     speed.0 * clip_speed * action.rate
                 });
             let factor = held_factor(arts::factor(record, level), action.halved);
+            // A boon gives its effects at its own point of its clip.
+            if style == Style::Boon {
+                points = arts::boon(record, level)
+                    .map(|boon| vec![boon.point])
+                    .unwrap_or_default();
+            }
             if style == Style::Rundum {
                 arts.start(making.art);
             }
@@ -422,6 +443,39 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Boon => {
+                // Its effects on the hero at its point (`0x506770`), and its regeneration.
+                if playing.struck == 0
+                    && playing
+                        .points
+                        .first()
+                        .is_some_and(|&point| due(point, done))
+                {
+                    playing.struck = 1;
+                    let boon = arts
+                        .tables
+                        .weapon_arts
+                        .iter()
+                        .find(|a| a.id == making.art)
+                        .and_then(|record| arts::boon(record, playing.level));
+                    if let Some(boon) = boon {
+                        info!("making: {} gives the hero {:?}", making.art, boon.effects);
+                        commands
+                            .entity(hero)
+                            .entry::<crate::effects::Effects>()
+                            .or_default()
+                            .and_modify(move |mut effects| {
+                                for (effect, seconds) in boon.effects {
+                                    effects.add(effect, seconds);
+                                }
+                            });
+                    }
+                    arts.start(making.art);
+                }
+                if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Attacke => {
                 let Some(&point) = playing.points.get(playing.struck) else {
                     end(&mut commands);

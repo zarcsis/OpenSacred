@@ -805,3 +805,41 @@ fn an_arts_clip_strikes_at_its_hit_points() {
     assert_eq!(made_from(0, 130.0).map(|(at, _)| at), Some(0.0));
     assert_eq!(made_from(-290, 130.0), None);
 }
+
+#[test]
+fn the_dark_elfs_boons_give_him_their_effects() {
+    // GOG 2.28's 1047 and 1048: `[+0x50]` 0.3 + 0.2·L, `[+0x58]` 0.2 + 0.05·L, `[+0x60]` 29 + L.
+    let record = |id| WeaponArt {
+        factor: [0.3, 0.2],
+        value_58: [0.2, 0.05],
+        value_60: [29, 1],
+        launch: 5,
+        distance: 0,
+        ..weapon_art(id, [0.0; 2], 8)
+    };
+    assert_eq!(style(1047), Some(Style::Boon));
+    assert_eq!(style(1048), Some(Style::Boon));
+    assert_eq!(
+        action(4, Style::Boon, 1).map(|a| (a.clip, a.fixed)),
+        Some((ArtClip::Slot(180), true))
+    );
+    let testosterone = boon(&record(1047), 3).unwrap();
+    assert_eq!(testosterone.point, 0.7);
+    let [(attack, seconds), (poison, _)] = testosterone.effects.as_slice() else {
+        panic!("two effects");
+    };
+    assert_eq!((attack.id, attack.art, *seconds), (1, 1047, 32.0));
+    assert!((attack.value - 0.9).abs() < 1e-6 && (poison.value - 0.35).abs() < 1e-6);
+    assert_eq!(poison.id, 6);
+    let adrenaline = boon(&record(1048), 1).unwrap();
+    assert_eq!(adrenaline.point, 0.8);
+    assert_eq!(
+        adrenaline
+            .effects
+            .iter()
+            .map(|(e, s)| (e.id, *s))
+            .collect::<Vec<_>>(),
+        [(2, 30.0), (12, 30.0)]
+    );
+    assert!(boon(&record(1071), 1).is_none());
+}

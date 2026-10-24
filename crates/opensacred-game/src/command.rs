@@ -431,8 +431,8 @@ fn experience(world: &mut World, points: u64, add: bool) -> Result<String, Strin
     ))
 }
 
-/// The hero makes `art` on the hostile creature nearest it (`making::Making`), its attack
-/// ending; which creature, as a line.
+/// The hero makes `art` on the hostile creature nearest it (`making::Making`), or a boon on
+/// itself, its attack ending; which creature, as a line.
 fn make_art(world: &mut World, art: u16) -> Result<String, String> {
     let mut heroes =
         world.query_filtered::<(Entity, &Transform), (With<Body>, Without<npcs::Dies>)>();
@@ -441,6 +441,13 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .next()
         .map(|(hero, transform)| (hero, transform.translation))
         .ok_or("the hero is not in the world yet")?;
+    if opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Boon) {
+        world
+            .entity_mut(hero)
+            .remove::<(crate::attack::Attack, crate::attack::Striking)>()
+            .insert(crate::making::Making { art, target: hero });
+        return Ok(format!("the hero makes {art} on itself"));
+    }
     let mut creatures = world.query_filtered::<
         (Entity, &GlobalTransform, &ai::Mind, &fight::Health),
         Without<npcs::Dies>,
