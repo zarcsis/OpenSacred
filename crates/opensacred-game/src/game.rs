@@ -399,7 +399,8 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     // The Vampiress's other form, her night's (#758).
     let forms = (class == Class::Vampiress && game.hero.is_none())
         .then(|| {
-            let night = forms::Form::night(assets, &hits, &points)?;
+            let base = fight::Base::of(&record);
+            let night = forms::Form::night(assets, &hits, &points, &base)?;
             let steps = sound::Footsteps::read(
                 assets,
                 [&night.clips.moving[1], &night.clips.moving[2]],
@@ -409,7 +410,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
                 creature: class.creature(),
                 model: model.clone(),
                 clips: clips.clone(),
-                base: fight::Base::of(&record),
+                base,
                 speeds: record.speed,
                 size: opensacred_rules::minds::size(class.creature(), held_class != 0),
                 armed: true,
