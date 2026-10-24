@@ -821,7 +821,15 @@ pub struct Base {
     /// Its eight skill slots (`0x586C00`): `+0x14`, `+0x15` and, for a type not of class 1, the
     /// first six of `+0x16`; 0 for none.
     pub skills: [u8; 8],
+    /// Whether its creature is in the Vampiress's night form (`+0x14` bit `0x2000`), which takes
+    /// [`NIGHT_SLOWS`] off its three speeds.
+    pub night: bool,
 }
+
+/// What the Vampiress's night form takes off the attack speed, `+0x3E` and the pace, after the
+/// skills and before their limits (`0x5796A0` at `0x57CA23`, the creature's `+0x14` bit
+/// `0x2000`; seen: 154, 120 and 130 by day, 139, 105 and 115 by night).
+pub const NIGHT_SLOWS: f32 = 15.0;
 
 impl Base {
     pub fn of(creature: &Creature) -> Self {
@@ -841,6 +849,7 @@ impl Base {
                 }
                 skills
             },
+            night: false,
         }
     }
 }
@@ -1715,14 +1724,16 @@ pub fn combat_with(
             to_f32(whole_f64(f64::from(value) * f64::from(times)))
         }
     };
+    // The night form's speeds, after the skills (`0x57CA23`).
+    let slows = if base.night { NIGHT_SLOWS } else { 0.0 };
     Combat {
         attack: multiplied(attack, attack_times),
         defence: multiplied(defence, defence_times),
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
-        speed: (speed + fist_speed).trunc().clamp(100.0, 220.0),
-        pace,
+        speed: ((speed + fist_speed).trunc() - slows).clamp(100.0, 220.0),
+        pace: pace - slows,
     }
 }
 
@@ -2553,6 +2564,33 @@ mod tests {
             "{faster:?}"
         );
         assert!((faster.weapon_arts - plain.weapon_arts * 1.2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_night_form_takes_fifteen_off_the_speeds() {
+        let rules = Rules::of(None);
+        let day = Base {
+            skills: [0; 8],
+            ..a_wolf()
+        };
+        let night = Base { night: true, ..day };
+        let [by_day, by_night] =
+            [day, night].map(|base| combat(&base, 1, Holds::default(), &[], &rules));
+        assert_eq!(by_night.speed, by_day.speed - NIGHT_SLOWS);
+        assert_eq!(by_night.pace, by_day.pace - NIGHT_SLOWS);
+        // Before the limits: 100 at least.
+        let quick = combat_with(
+            &night,
+            1,
+            Holds::default(),
+            &[],
+            &[Effect {
+                whole: 40,
+                ..Effect::new(effects::SLOWS, 0.0)
+            }],
+            &rules,
+        );
+        assert_eq!(quick.speed, 100.0);
     }
 
     fn a_wolf() -> Base {

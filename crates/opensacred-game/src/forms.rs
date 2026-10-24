@@ -79,6 +79,7 @@ impl Form {
             model,
             base: Base(opensacred_rules::fight::Base {
                 attributes: record.base,
+                night: true,
                 ..day.0
             }),
             speeds: record.speed,
