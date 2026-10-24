@@ -1319,12 +1319,9 @@ pub struct TreeFade {
 
 impl TreeFade {
     /// Reads `TransSize` and `TransValu` from `tables/balance.ron`.
-    pub fn read(assets: &Path) -> Result<Self> {
-        let path = assets.join("tables").join(opensacred_data::tables::BALANCE);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let balance: opensacred_data::tables::Balance =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    pub fn read(tables: &crate::tables::Tables) -> Result<Self> {
+        let path = tables.path(opensacred_data::tables::BALANCE);
+        let balance = tables.balance()?;
         let variable = |name: &str| -> Result<f32> {
             let value = balance
                 .f32(name)
@@ -2379,7 +2376,7 @@ pub(crate) mod tests {
             ron::to_string(&balance).unwrap(),
         )
         .unwrap();
-        let size = TreeFade::read(&dir).unwrap();
+        let size = TreeFade::read(&crate::tables::Tables::new(&dir)).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         assert_eq!(
             size,

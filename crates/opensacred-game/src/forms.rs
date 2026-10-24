@@ -6,7 +6,6 @@
 //! current kept within it).
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use bevy::prelude::*;
@@ -57,15 +56,16 @@ impl Form {
     /// type, 6, by which the recomputation takes the record's bonuses, the damping and the skills
     /// (`0x5796A0` at `0x5797FD`; seen: `+0x08` 6 by night, #792).
     pub fn night(
-        assets: &Path,
+        shared: &crate::sectors::Shared,
         hits: &HashMap<String, [f32; 2]>,
         points: &HashMap<String, Vec<f32>>,
         day: &Base,
     ) -> Result<Self> {
+        let assets = &shared.assets;
         let model = crate::npcs::model_files(assets)?
             .remove(NIGHT_MODEL)
             .ok_or_else(|| anyhow!("no model {NIGHT_MODEL} in {}", assets.display()))?;
-        let record = crate::game::record(assets, rules::VAMPIRESS_BY_NIGHT)?;
+        let record = crate::game::record(&shared.tables, rules::VAMPIRESS_BY_NIGHT)?;
         Ok(Self {
             creature: rules::VAMPIRESS_BY_NIGHT,
             clips: crate::game::clips_of(

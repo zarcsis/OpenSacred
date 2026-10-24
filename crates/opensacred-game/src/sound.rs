@@ -24,7 +24,6 @@ use bevy::prelude::{
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, PlaybackState};
 use opensacred_data::sound::{EXTENSION, Music, Sound};
-use opensacred_data::tables::Motion;
 
 use crate::files;
 use crate::frame::Step;
@@ -108,16 +107,12 @@ impl Footsteps {
     /// Reads the moments of the steps of the `walk` and `run` clips, and takes the samples of
     /// `profile` from the sound index `sound`.
     pub fn read(
-        assets: &Path,
+        tables: &crate::tables::Tables,
         [walk, run]: [&str; 2],
         profile: &str,
         sound: &Sound,
     ) -> Result<Self> {
-        let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let motions: Vec<Motion> =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let motions = tables.motions()?;
         let moments = [walk, run].map(|clip| {
             let name = format!("{clip}.GRN");
             motions

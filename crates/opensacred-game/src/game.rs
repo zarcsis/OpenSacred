@@ -1,6 +1,7 @@
 //! The game's states (docs/10 §4): the menu, a game loading for a chosen hero, and the game,
 //! which start and end inside the process. What every game shares (the world's index, the
-//! sprites, the tables) is read once, in `main`; what a game starts from ([`NewGame`]) is loaded
+//! sprites, in `main`; the tables, when first asked for, `tables`) is read once; what a game
+//! starts from ([`NewGame`]) is loaded
 //! on Bevy's async compute pool behind a loading screen, and each module takes back what it made
 //! when the game is left (`OnExit(AppState::InGame)`). The camera and the light stay for every
 //! game: the interface of the menus draws through the same camera.
@@ -16,6 +17,7 @@ use bevy::text::FontSize;
 use clap::{Args, ValueEnum};
 
 use crate::files;
+use crate::tables::Tables;
 use crate::{
     ai, arts, atmosphere, daynight, fight, forms, hero, iso, lines, making, motions, music, npcs,
     sectors, sound, terrain,
@@ -308,18 +310,18 @@ struct Loaded {
 
 /// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
 /// values of its fight.
-pub fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
-    let path = assets
-        .join("tables")
-        .join(opensacred_data::tables::CREATURES);
-    let text =
-        files::read_to_string(&path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
-    let creatures: Vec<opensacred_data::tables::Creature> =
-        ron::from_str(&text).map_err(|e| anyhow!("parsing {}: {e}", path.display()))?;
-    creatures
-        .into_iter()
+pub fn record(tables: &Tables, id: u32) -> Result<opensacred_data::tables::Creature> {
+    tables
+        .creatures()?
+        .iter()
         .find(|c| c.id == id)
-        .ok_or_else(|| anyhow!("no creature {id} in {}", path.display()))
+        .cloned()
+        .ok_or_else(|| {
+            anyhow!(
+                "no creature {id} in {}",
+                tables.path(opensacred_data::tables::CREATURES).display()
+            )
+        })
 }
 
 /// The template of the hero of `class` (`heroes.ron`, docs/02 §9): the items it wears and holds
@@ -345,6 +347,7 @@ fn load(
     speed: f32,
 ) -> Result<Loaded> {
     let assets = &shared.assets;
+    let tables = &shared.tables;
     let class = game.class.unwrap_or_default();
     let tree = game.tree.clone().unwrap_or_else(|| class.tree().into());
     let side = u32::try_from(opensacred_data::world::SIDE)?;
@@ -382,7 +385,7 @@ fn load(
         .map(|hero| hero.worn.clone())
         .unwrap_or_default();
     let npcs = npcs::Npcs::read(
-        assets,
+        shared,
         &tree,
         &worn.iter().map(|worn| worn.item).collect::<Vec<_>>(),
     )?;
@@ -397,8 +400,8 @@ fn load(
             .ok_or_else(|| anyhow!("no model {grn} in {}", assets.display()))?,
     };
     let profile = game.footsteps.clone().unwrap_or_else(|| footsteps.into());
-    let hits = npcs::hit_fractions(assets);
-    let points = npcs::hit_points(assets);
+    let hits = npcs::hit_fractions(tables);
+    let points = npcs::hit_points(tables);
     let mut clips = clips_of(
         assets,
         &model,
@@ -417,22 +420,19 @@ fn load(
         }
     }
     let [idle, walk, run] = clips.moving.clone();
-    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile, sound)?;
+    let footsteps = sound::Footsteps::read(tables, [&walk, &run], &profile, sound)?;
     // The balance's values of the fight, and the hero's own by its type's record and its
     // template's items (#486).
-    let balance =
-        files::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
-            .ok()
-            .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
-    let rules = fight::Rules::of(balance.as_ref());
-    let record = record(assets, game.creature.unwrap_or(class.creature()))?;
+    let balance = tables.balance().ok();
+    let rules = fight::Rules::of(balance);
+    let record = record(tables, game.creature.unwrap_or(class.creature()))?;
     // The Vampiress's other form, her night's (#758).
     let forms = (class == Class::Vampiress && game.hero.is_none())
         .then(|| {
             let base = fight::Base::of(&record);
-            let night = forms::Form::night(assets, &hits, &points, &base)?;
+            let night = forms::Form::night(shared, &hits, &points, &base)?;
             let steps = sound::Footsteps::read(
-                assets,
+                tables,
                 [&night.clips.moving[1], &night.clips.moving[2]],
                 &profile,
                 sound,
@@ -467,7 +467,7 @@ fn load(
         class.creature(),
         template.as_ref().map_or(&[][..], |hero| &hero.arts),
         skills.clone(),
-        balance.as_ref(),
+        balance,
     );
     bevy::log::debug!("game: the hero's arts {:?}", arts.lines());
     let values = fight::combat(&base, fight::HERO_LEVEL, holding.0.clone(), &skills, &rules);
@@ -510,7 +510,7 @@ fn load(
         None
     } else {
         Some((
-            music::Music::read(assets, sound)?,
+            music::Music::new(&shared.world, sound),
             atmosphere::Atmosphere::new(sound),
         ))
     };

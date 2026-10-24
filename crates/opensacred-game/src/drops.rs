@@ -13,10 +13,7 @@ use anyhow::{Result, anyhow};
 use bevy::prelude::*;
 use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use opensacred_data::tables::{
-    BALANCE, Balance, ITEM_SETS, ITEMS, Item, ItemSet, WEAPON_MODIFIERS, WEAPONS, Weapon,
-    WeaponModifier,
-};
+use opensacred_data::tables::{ITEM_SETS, ItemSet, WEAPON_MODIFIERS, WeaponModifier};
 use opensacred_rules::drops::{
     self, Catalogue, Dead, Death, Dropped, Flight, Hero, Kill, Kind, Rules,
 };
@@ -27,7 +24,7 @@ use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::npcs::{Dies, Retexture};
 use crate::terrain::{Heights, Level};
-use crate::{ai, crowd, fight, files, iso, models, npcs};
+use crate::{ai, crowd, fight, files, iso, models, npcs, sectors};
 
 /// What the drops read: the balance's values, the item types to choose from, the templates that
 /// make the items, and each item type's model and texture, relative to the asset directory.
@@ -50,14 +47,15 @@ fn table<T: serde::de::DeserializeOwned>(assets: &Path, file: &str) -> Result<T>
 impl Tables {
     /// The tables of `tables/` (the balance's values the original's where `balance.ron` lacks
     /// them) and the models and textures of the converted items.
-    fn read(assets: &Path) -> Result<Self> {
-        let items: Vec<Item> = table(assets, ITEMS)?;
-        let weapons: Vec<Weapon> = table(assets, WEAPONS)?;
+    fn read(shared: &sectors::Shared) -> Result<Self> {
+        let assets = &shared.assets;
+        let items = shared.tables.items()?;
+        let weapons = shared.tables.weapons()?;
         let sets: Vec<ItemSet> = table(assets, ITEM_SETS)?;
         let modifiers: Vec<WeaponModifier> = table(assets, WEAPON_MODIFIERS)?;
-        let balance: Option<Balance> = table(assets, BALANCE).ok();
-        let templates = fight::Templates::new(&modifiers, &weapons);
-        let catalogue = Catalogue::new(&items, &weapons, &sets, &templates);
+        let balance = shared.tables.balance().ok();
+        let templates = fight::Templates::new(&modifiers, weapons);
+        let catalogue = Catalogue::new(items, weapons, &sets, &templates);
         let models = npcs::model_files(assets)?;
         let textures = npcs::texture_files(assets)?;
         let looks = items
@@ -72,7 +70,7 @@ impl Tables {
             })
             .collect();
         Ok(Self {
-            rules: Rules::of(balance.as_ref()),
+            rules: Rules::of(balance),
             catalogue,
             templates,
             looks,
@@ -376,8 +374,8 @@ fn begin(mut commands: Commands, data: Option<Res<Data>>) {
     let Some(data) = data else {
         return;
     };
-    let assets = data.0.assets.clone();
-    let task = AsyncComputeTaskPool::get().spawn(async move { Tables::read(&assets) });
+    let shared = data.0.clone();
+    let task = AsyncComputeTaskPool::get().spawn(async move { Tables::read(&shared) });
     commands.insert_resource(Reading(task));
 }
 

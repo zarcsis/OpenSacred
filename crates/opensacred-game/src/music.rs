@@ -19,10 +19,8 @@
 //! music, as the original was after it.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
     Added, App, AssetServer, Handle, IntoScheduleConfigs, OnExit, Plugin, Query, Res, ResMut,
@@ -37,7 +35,7 @@ use opensacred_data::world::{SIDE, World};
 use crate::daynight::{Clock, Phase};
 use crate::game::AppState;
 use crate::npcs::Dies;
-use crate::{files, frame, hero, iso};
+use crate::{frame, hero, iso};
 use bevy_kira_audio::AudioApp;
 
 const PROFILE: &str = "music";
@@ -113,8 +111,8 @@ struct Playing {
 
 impl Music {
     /// Takes the tracks of the `music` profile's `PEACE` group from the sound index `sound`, and
-    /// reads the sectors' music.
-    pub fn read(assets: &Path, sound: &Sound) -> Result<Self> {
+    /// the sectors' music from the world index `world`.
+    pub fn new(world: &World, sound: &Sound) -> Self {
         let ids = sound
             .profiles
             .iter()
@@ -130,11 +128,6 @@ impl Music {
                 .map(crate::sound::music_file)
         };
         let files = ids.iter().filter_map(|&id| track(id)).collect();
-        let path = assets.join("world").join(opensacred_data::world::INDEX);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let world: World =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let sectors = world
             .sectors
             .iter()
@@ -146,14 +139,14 @@ impl Music {
         let next = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
-        Ok(Self {
+        Self {
             files,
             next: usize::try_from(next).unwrap_or(0),
             sectors,
             death,
             playing: None,
             hushed: None,
-        })
+        }
     }
 }
 

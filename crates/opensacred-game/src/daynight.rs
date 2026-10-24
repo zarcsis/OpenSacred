@@ -26,9 +26,8 @@
 //! the spells' lights, and the torches.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use bevy::asset::embedded_asset;
 use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMaterialPlugin};
 use bevy::math::{Vec2, Vec3, Vec4};
@@ -45,7 +44,6 @@ use opensacred_data::tables::Item;
 use opensacred_data::world::{Sector, StaticObject, World};
 
 use crate::blended::{self, Layer};
-use crate::files;
 
 /// The shader of [`Night`], embedded in the binary.
 pub const SHADER: &str = "embedded://opensacred_game/night.wesl";
@@ -211,14 +209,10 @@ pub struct LightTypes(HashMap<u32, f32>);
 
 impl LightTypes {
     /// Reads the light sources' types of `items.ron`.
-    pub fn read(assets: &Path) -> Result<Self> {
-        let path = assets.join("tables").join(opensacred_data::tables::ITEMS);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let items: Vec<Item> =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    pub fn read(tables: &crate::tables::Tables) -> Result<Self> {
         Ok(Self(
-            items
+            tables
+                .items()?
                 .iter()
                 .filter(|item| flags(item) & LIGHT != 0)
                 .map(|item| (item.slot, f32::from(radius(item))))
