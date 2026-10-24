@@ -2060,6 +2060,25 @@ pub fn hero_comes_on(at_once: bool, distance: f32, reach: u32) -> bool {
     !at_once && distance > units(reach) + HERO_BAND
 }
 
+/// How far the hero with a ranged weapon shoots from where it stands, and how near it comes on to
+/// its target from farther (the AI's state 8 for a hero, **hypothesis**: the archers' band's far
+/// edge and their stop, `0x4DBFC0`; the original's Wood Elf shot at once from 107 and from 537,
+/// #784).
+pub const HERO_SHOOTS_WITHIN: f32 = 800.0;
+pub const HERO_COMES_ON_TO: f32 = 450.0;
+
+/// Whether the hero with a ranged weapon, its target `distance` away, comes on toward it rather
+/// than shooting: farther than [`HERO_SHOOTS_WITHIN`] where it stands, or, coming on already
+/// (`coming`), until it is within [`HERO_COMES_ON_TO`]; a shot at once is where it stands.
+pub fn hero_comes_on_to_shoot(at_once: bool, distance: f32, coming: bool) -> bool {
+    let within = if coming {
+        HERO_COMES_ON_TO
+    } else {
+        HERO_SHOOTS_WITHIN
+    };
+    !at_once && distance > within
+}
+
 /// Whether the hero's strike's next hit is due (the attack action 3, `0x4E4CF0`), `done` of its
 /// clip played and `struck` hits sent, by the clip's `fractions`: the first at its first
 /// fraction, 0.5 for one of 0; a second at its second where there is one.
@@ -2849,6 +2868,18 @@ mod tests {
         assert_eq!(thought, Thought::default());
         opener.left_door();
         assert!(!opener.to_door() && opener.awake);
+    }
+
+    #[test]
+    fn the_hero_with_a_bow_shoots_where_it_stands_within_its_band() {
+        // As the original's Wood Elf shot at once from 107 and from 537.
+        assert!(!hero_comes_on_to_shoot(false, 107.0, false));
+        assert!(!hero_comes_on_to_shoot(false, 537.0, false));
+        // From farther it comes on, until within 450; at once it shoots where it stands.
+        assert!(hero_comes_on_to_shoot(false, 966.0, false));
+        assert!(hero_comes_on_to_shoot(false, 600.0, true));
+        assert!(!hero_comes_on_to_shoot(false, 440.0, true));
+        assert!(!hero_comes_on_to_shoot(true, 966.0, false));
     }
 
     #[test]

@@ -66,6 +66,21 @@ impl Attack {
     pub fn target(&self) -> Option<Entity> {
         self.target
     }
+
+    /// The hero's attack on `target`, as a click on it orders it, the button not held (the
+    /// console's `attack`).
+    pub fn ordered(target: Entity) -> Self {
+        Self {
+            target: Some(target),
+            point: Vec3::ZERO,
+            at_once: false,
+            ends: false,
+            held: false,
+            asked: true,
+            spoke: false,
+            phase: Phase::Ordered,
+        }
+    }
 }
 
 /// The strike the hero plays (the attack action 3, `0x4E4CF0`): its clip's node, its length,
@@ -211,19 +226,26 @@ fn engage(
             Option<&mut Striking>,
             Option<&fight::Combat>,
             Option<&crate::hero::Size>,
+            Option<&fight::Holding>,
         ),
         Without<Dies>,
     >,
     targets: Query<(&GlobalTransform, &Health, Option<&crate::ai::Mind>), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut shots): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::arrows::Loose>,
+    ),
     mut lines: MessageWriter<crate::voices::Speak>,
     mut blows: MessageWriter<crate::sfx::Blow>,
 ) {
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, mut attack, striking, combat, size) in &mut heroes {
+    for (hero, mut transform, mut body, mut attack, striking, combat, size, holding) in &mut heroes
+    {
+        // With a bow or a crossbow in hand it shoots (the AI's state 8 for a hero, #784).
+        let ranged = holding.is_some_and(|holding| holding.0.ranged);
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
@@ -262,7 +284,16 @@ fn engage(
                 if attack.target.is_none() {
                     blows.write(crate::sfx::Blow::Swing { striker: hero });
                 }
-                if let (Some(entity), Some(at)) = (attack.target, target)
+                if ranged {
+                    // Its shot leaves at the clip's first hit, an arrow from its left hand toward
+                    // its target (`0x4DD90E`, `0x4EB700`), which the arrows fly and hit.
+                    if let (Some(entity), 1) = (attack.target, striking.struck) {
+                        shots.write(crate::arrows::Loose {
+                            shooter: hero,
+                            target: entity,
+                        });
+                    }
+                } else if let (Some(entity), Some(at)) = (attack.target, target)
                     && minds::hero_hits((at - here).with_y(0.0).length(), reach)
                 {
                     blows.write(crate::sfx::Blow::Swing { striker: hero });
@@ -313,9 +344,16 @@ fn engage(
             if attack.phase == Phase::ComesOn
                 && !attack.ends
                 && let Some(at) = target
-                && !minds::hero_comes_on(false, (at - here).with_y(0.0).length(), reach)
             {
-                body.stop();
+                let distance = (at - here).with_y(0.0).length();
+                let comes_on = if ranged {
+                    minds::hero_comes_on_to_shoot(false, distance, true)
+                } else {
+                    minds::hero_comes_on(false, distance, reach)
+                };
+                if !comes_on {
+                    body.stop();
+                }
             }
             continue;
         }
@@ -336,7 +374,13 @@ fn engage(
             attack.phase = Phase::Deciding;
             continue;
         }
-        if minds::hero_comes_on(attack.at_once, (aimed - here).with_y(0.0).length(), reach) {
+        let distance = (aimed - here).with_y(0.0).length();
+        let comes_on = if ranged {
+            minds::hero_comes_on_to_shoot(attack.at_once, distance, attack.phase == Phase::ComesOn)
+        } else {
+            minds::hero_comes_on(attack.at_once, distance, reach)
+        };
+        if comes_on {
             body.send(aimed);
             attack.phase = Phase::ComesOn;
             continue;
