@@ -897,6 +897,22 @@ fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
 }
 
 #[test]
+fn the_blood_bite_drains_its_factor_from_its_target() {
+    assert_eq!(style(1030), Some(Style::Bite));
+    assert_eq!(
+        action(VAMPIRESS_BY_NIGHT, Style::Bite, 0).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(144), 1.0))
+    );
+    assert_eq!(action(VAMPIRESS_BY_DAY, Style::Bite, 0), None);
+    let bite = WeaponArt {
+        factor: [10.0, 20.0],
+        ..weapon_art(1030, [9.0, 6.0], 32)
+    };
+    assert_eq!(bite_drain(&bite, 1), 30);
+    assert_eq!(bite_drain(&bite, 5), 110);
+}
+
+#[test]
 fn the_claw_jump_strikes_and_holds_the_creatures_about_her_landing() {
     assert_eq!(style(1032), Some(Style::Jump));
     assert_eq!(

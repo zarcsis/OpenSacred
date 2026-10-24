@@ -99,6 +99,7 @@ pub fn clips(
         Style::Changeling,
         Style::Dash,
         Style::Backbreaker,
+        Style::Bite,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -664,6 +665,51 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Bite => {
+                // Below 0.9 left of its clip its target is held with the effect 15 and struck with
+                // a fixed physical damage of its drain, and she takes as much health; then it ends
+                // (`0x50E6C0`).
+                if !due(1.0 - arts::BITES, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                if let (Some(record), Ok((_, _, mind, health))) =
+                    (record, creatures.get(playing.target))
+                    && mind.hostile()
+                    && health.current > 0
+                {
+                    let drain = arts::bite_drain(record, playing.level);
+                    let effect = opensacred_rules::fight::Effect {
+                        art: u32::from(making.art),
+                        ..opensacred_rules::fight::Effect::new(15, 0.0)
+                    };
+                    let mut bitten = commands.entity(playing.target);
+                    bitten.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                    bitten
+                        .entry::<Mind>()
+                        .and_modify(|mut mind| mind.stunned(arts::BITE_HOLD));
+                    bitten
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| effects.add(effect, arts::BITE_HOLD));
+                    hits.write(fight::Hit {
+                        share: 1.0,
+                        fixed: Some(to_f32(drain)),
+                        ..hit(playing.target, &playing)
+                    });
+                    commands
+                        .entity(hero)
+                        .entry::<Health>()
+                        .and_modify(move |mut health| {
+                            health.current = (health.current + drain).min(health.most);
+                        });
+                    info!("making: {} drains {drain}", making.art);
+                }
+                end(&mut commands);
+            }
             Style::Backbreaker => {
                 // At its point it lets its target go with its strike; the target stays held by a
                 // roll, else its timer comes back within 0.5 s (`0x4FF0B0`).
