@@ -897,6 +897,22 @@ fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
 }
 
 #[test]
+fn the_right_button_makes_the_art_of_the_form() {
+    // The Vampiress's of her form.
+    assert_eq!(right_button(1023, VAMPIRESS_BY_DAY, |_| false), 1022);
+    assert_eq!(right_button(1022, VAMPIRESS_BY_NIGHT, |_| false), 1023);
+    assert_eq!(right_button(1030, VAMPIRESS_BY_DAY, |_| false), 1030);
+    // The Daemon's second while his first's effect holds, else the first.
+    assert_eq!(right_button(1091, 9, |_| false), 1094);
+    assert_eq!(right_button(1094, 9, |_| false), 1094);
+    assert_eq!(right_button(1094, 9, |key| key == 1094), 1091);
+    assert_eq!(right_button(1091, 9, |key| key == 1094), 1091);
+    assert_eq!(right_button(1092, 9, |key| key == 1097), 1092);
+    assert_eq!(right_button(1092, 9, |_| false), 1097);
+    assert_eq!(right_button(1012, 2, |_| true), 1012);
+}
+
+#[test]
 fn the_domination_holds_its_target_by_its_level() {
     assert_eq!(style(1024), Some(Style::Dominate));
     assert_eq!(style(1025), Some(Style::Dominate));

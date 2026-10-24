@@ -242,16 +242,21 @@ fn aim(
         })
         .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
         .min_by(|a, b| a.2.total_cmp(&b.2));
-    let launch = arts
-        .tables
-        .weapon_arts
-        .iter()
-        .find(|a| a.id == art)
-        .map(|a| a.launch);
+    let selected = art;
     for (hero, at, mut body, playing, effects) in &mut heroes {
         if playing {
             continue;
         }
+        // The art of the hero's form for the selected one (`0x552370`).
+        let art = arts::right_button(selected, arts.kind, |key| {
+            effects.is_some_and(|effects| effects.holds_any(&[key]))
+        });
+        let launch = arts
+            .tables
+            .weapon_arts
+            .iter()
+            .find(|a| a.id == art)
+            .map(|a| a.launch);
         // The right button on the hero himself makes him the target, nearer the cursor's line
         // than a hostile creature (seen: the Gladiator's 1015, of the launch type 2, made on
         // himself so, and refused on a hostile creature or on the ground).
