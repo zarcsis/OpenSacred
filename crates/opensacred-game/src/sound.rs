@@ -8,8 +8,12 @@
 //! of the cell under the hero (docs/02 §5.2), `BRIDGE` on a bridge over a liquid as the client's
 //! step gives it (`0x639080`, `terrain::Heights::step_nature`), as the client's switch at
 //! `0x68EDDA` maps them (docs/re/sound.md).
+//!
+//! The sound index, `sound/sound.ron`, is parsed once at the start ([`Index`], #827): the weapons'
+//! sounds (`sfx`), the footsteps, the music and the ambient loops take their samples from it.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -19,7 +23,7 @@ use bevy::prelude::{
     Plugin, Query, Res, ResMut, Resource, Time, Transform, Update,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, PlaybackState};
-use opensacred_data::sound::Sound;
+use opensacred_data::sound::{EXTENSION, Music, Sound};
 use opensacred_data::tables::Motion;
 
 use crate::files;
@@ -54,6 +58,33 @@ fn group(nature: u8) -> usize {
     }
 }
 
+/// The sound index, `sound/sound.ron`, as read at the start.
+#[derive(Resource, Clone)]
+pub struct Index(pub Arc<Sound>);
+
+impl Index {
+    pub fn read(assets: &Path) -> Result<Self> {
+        let path = assets.join("sound").join(opensacred_data::sound::INDEX);
+        let text =
+            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let sound = ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        Ok(Self(Arc::new(sound)))
+    }
+}
+
+/// The file of the sample `id`, relative to the asset directory: `sound/samples/01020.opus`.
+pub fn sample_file(id: u32) -> String {
+    format!(
+        "sound/{}",
+        opensacred_data::sound::sample_file(id, EXTENSION)
+    )
+}
+
+/// The file of `music`, relative to the asset directory: `sound/music/MUSIC_WOOD01.opus`.
+pub fn music_file(music: &Music) -> String {
+    format!("sound/{}", music.file(EXTENSION))
+}
+
 /// The footstep sounds of the hero's walk and run clips.
 #[derive(Resource)]
 pub struct Footsteps {
@@ -74,9 +105,14 @@ pub struct Footsteps {
 const STUCK: Duration = Duration::from_secs(2);
 
 impl Footsteps {
-    /// Reads the moments of the steps of the `walk` and `run` clips and the samples of
-    /// `profile`.
-    pub fn read(assets: &Path, [walk, run]: [&str; 2], profile: &str) -> Result<Self> {
+    /// Reads the moments of the steps of the `walk` and `run` clips, and takes the samples of
+    /// `profile` from the sound index `sound`.
+    pub fn read(
+        assets: &Path,
+        [walk, run]: [&str; 2],
+        profile: &str,
+        sound: &Sound,
+    ) -> Result<Self> {
         let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
         let text =
             files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -90,24 +126,19 @@ impl Footsteps {
                 .map(|m| m.floats_46[..2].to_vec())
                 .unwrap_or_default()
         });
-        let path = assets.join("sound").join(opensacred_data::sound::INDEX);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let sound: Sound =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         let groups = sound
             .profiles
             .iter()
             .find(|p| p.name == profile)
-            .map(|p| p.groups.clone())
+            .map(|p| p.groups.as_slice())
             .unwrap_or_default();
         let files = std::array::from_fn(|g| {
             groups
                 .get(g)
                 .into_iter()
                 .flatten()
-                .filter_map(|id| sound.samples.iter().find(|s| s.id == *id))
-                .map(|s| format!("sound/{}", s.file))
+                .filter(|id| sound.samples.contains(id))
+                .map(|&id| sample_file(id))
                 .collect()
         });
         Ok(Self {

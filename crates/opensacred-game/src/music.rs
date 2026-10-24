@@ -112,13 +112,9 @@ struct Playing {
 }
 
 impl Music {
-    /// Reads the tracks of the `music` profile's `PEACE` group and the sectors' music.
-    pub fn read(assets: &Path) -> Result<Self> {
-        let path = assets.join("sound").join(opensacred_data::sound::INDEX);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let sound: Sound =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    /// Takes the tracks of the `music` profile's `PEACE` group from the sound index `sound`, and
+    /// reads the sectors' music.
+    pub fn read(assets: &Path, sound: &Sound) -> Result<Self> {
         let ids = sound
             .profiles
             .iter()
@@ -131,7 +127,7 @@ impl Music {
                 .music
                 .iter()
                 .find(|m| m.id == Some(id))
-                .map(|m| format!("sound/{}", m.file))
+                .map(crate::sound::music_file)
         };
         let files = ids.iter().filter_map(|&id| track(id)).collect();
         let path = assets.join("world").join(opensacred_data::world::INDEX);

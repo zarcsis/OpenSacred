@@ -8,10 +8,8 @@
 //! (docs/re/sound.md); the regions' exceptions are not followed.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
     App, AssetServer, Handle, IntoScheduleConfigs, OnExit, Plugin, Query, Res, ResMut, Resource,
@@ -21,7 +19,6 @@ use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioSource, AudioTwe
 use opensacred_data::sound::Sound;
 
 use crate::daynight::{Clock, Phase};
-use crate::files;
 use crate::frame::{Playing, Unpaused};
 use crate::game::AppState;
 use crate::hero::Body;
@@ -92,25 +89,20 @@ pub struct Atmosphere {
 }
 
 impl Atmosphere {
-    /// Finds the loops' files by their sound names (`sound/sound.ron`).
-    pub fn read(assets: &Path) -> Result<Self> {
-        let path = assets.join("sound").join(opensacred_data::sound::INDEX);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let sound: Sound =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    /// Finds the loops' files by their sound names in the sound index `sound`.
+    pub fn new(sound: &Sound) -> Self {
         let file = |name: &str| {
             let id = sound.names.iter().find(|n| n.name == name)?.id;
             let music = sound.music.iter().find(|m| m.id == Some(id))?;
-            Some(format!("sound/{}", music.file))
+            Some(crate::sound::music_file(music))
         };
-        Ok(Self {
+        Self {
             files: DAY.map(|name| name.and_then(file)),
             night: NIGHT.map(|name| name.and_then(file)),
             playing: None,
             wanted: None,
             loaded: HashMap::new(),
-        })
+        }
     }
 }
 
