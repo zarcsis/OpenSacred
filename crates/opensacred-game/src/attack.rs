@@ -298,6 +298,7 @@ fn engage(
                 {
                     blows.write(crate::sfx::Blow::Swing { striker: hero });
                     hits.write(fight::Hit {
+                        fixed: None,
                         attacker: hero,
                         target: entity,
                         share: 1.0,

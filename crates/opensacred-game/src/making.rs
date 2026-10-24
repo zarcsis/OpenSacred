@@ -566,7 +566,11 @@ fn make(
                     end(&mut commands);
                     continue;
                 }
-                rate = arts::jump_rate(whole_distance(here, point));
+                rate = if arts.kind == arts::VAMPIRESS_BY_NIGHT {
+                    arts::CLAW_JUMP_RATE
+                } else {
+                    arts::jump_rate(whole_distance(here, point))
+                };
             }
             let played = if action.fixed {
                 speed.0 * rate
@@ -652,6 +656,7 @@ fn make(
         let done = active.seek_time() / playing.length;
         let finished = active.is_finished();
         let hit = |target: Entity, playing: &Playing| fight::Hit {
+            fixed: None,
             attacker: hero,
             target,
             share: playing.factor,
@@ -872,6 +877,7 @@ fn make(
                                     continue;
                                 }
                                 hits.write(fight::Hit {
+                                    fixed: None,
                                     share: factor,
                                     ..hit(entity, &playing)
                                 });
@@ -883,6 +889,36 @@ fn make(
                                         .entry::<Mind>()
                                         .and_modify(move |mut mind| mind.stunned(seconds));
                                 }
+                            }
+                        }
+                        (arts::VAMPIRESS_BY_NIGHT, Some(record)) => {
+                            // Each hostile about her beyond the two's reach: a strike of a fixed
+                            // physical damage, and held by the kicks' roll (`0x50E6C0` at
+                            // `0x512F6F`).
+                            let (radius, damage) = arts::claw_quake(record, playing.level);
+                            for &entity in &nearest.hostiles {
+                                let Ok((_, at, mind, health)) = creatures.get(entity) else {
+                                    continue;
+                                };
+                                let distance = to_f32(whole_distance(at.translation(), here));
+                                if !mind.hostile()
+                                    || health.current == 0
+                                    || distance >= radius + to_f32(reach(mind))
+                                {
+                                    continue;
+                                }
+                                if knocks_back(&mut dice.0, playing.level, mind) {
+                                    commands
+                                        .entity(entity)
+                                        .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                                        .entry::<Mind>()
+                                        .and_modify(|mut mind| mind.stunned(arts::CLAW_HOLD));
+                                }
+                                hits.write(fight::Hit {
+                                    share: 1.0,
+                                    fixed: Some(damage),
+                                    ..hit(entity, &playing)
+                                });
                             }
                         }
                         _ => {
@@ -1249,6 +1285,7 @@ fn blades(
             && Some(entity) != playing.last
         {
             hits.write(fight::Hit {
+                fixed: None,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,

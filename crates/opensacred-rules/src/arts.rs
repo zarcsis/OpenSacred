@@ -244,7 +244,7 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1020 {
         return Some(Style::Whirl);
     }
-    if art == 1017 || art == 1003 {
+    if art == 1017 || art == 1003 || art == 1032 {
         return Some(Style::Jump);
     }
     if art == 1014 {
@@ -561,6 +561,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Gladiator's 1003 the slot 144 at the blend 0.15 (`0x4FF0B0` at `0x502619`), at the
         // same rate.
         (2, Style::Jump) => Some(plain(144)),
+        // The Vampiress's claw jump by night: the slot 153 (seen at the rate 3).
+        (7, Style::Jump) => Some(plain(153)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C2F`; 169 mounted).
         (2, Style::Roar) => Some(plain(149)),
@@ -867,9 +869,42 @@ pub fn order_distance(art: u16, distance: i32) -> i32 {
 
 /// What is left of its clip, as a part of it, below which a [`Style::Jump`] of a hero of the
 /// kind `kind` flies to its target, and below which it lands: the Seraphim's 0.75 and 0.4
-/// (`0x5038F0` at `0x504570`), the Gladiator's 0.8 and 0.6 (`0x4FF0B0` at `0x50057C`).
+/// (`0x5038F0` at `0x504570`), the Gladiator's 0.8 and 0.6 (`0x4FF0B0` at `0x50057C`), the
+/// Vampiress's by night 0.8 and 0.35 (`0x50E6C0`; seen: her flight 0.2 of her clip in).
 pub fn jump_points(kind: u32) -> [f32; 2] {
-    if kind == 2 { [0.8, 0.6] } else { [0.75, 0.4] }
+    match kind {
+        2 => [0.8, 0.6],
+        7 => [0.8, 0.35],
+        _ => [0.75, 0.4],
+    }
+}
+
+/// The rate of the Vampiress's claw jump's clip (seen: 3, where the others' rule by the distance
+/// gives 4; how she takes it, not read).
+pub const CLAW_JUMP_RATE: f32 = 3.0;
+
+/// How long the claw jump holds a creature that its roll takes as she lands (`0x50E6C0` at
+/// `0x513005`: stopped, its timer set back by the float 3.0 at `0x890768`; seen: about 3 s).
+pub const CLAW_HOLD: f32 = 3.0;
+
+/// The radius about the Vampiress beyond the reach of the two and the fixed physical damage of the
+/// strike her claw jump of `record` sends each creature in it as she lands, at the level in play
+/// `level` (`0x50E6C0` at `0x512F6F`, the event 5 with the damage in its record's first fixed
+/// damage): `L·[+0x54] + [+0x50]`, 190 + 10·L, and `L·[+0x5C] + [+0x58]`, 5 + 10·L, whole and at
+/// most 65,534 (seen: each goblin warrior of level 1 about her lost 10 of it).
+pub fn claw_quake(record: &WeaponArt, level: u32) -> (f32, f32) {
+    let radius = {
+        let [base, step] = record.factor.map(f64::from);
+        narrow(f64::from(level).mul_add(step, base))
+    };
+    let damage = {
+        let [base, step] = record.value_58.map(f64::from);
+        whole_units(f64::from(level).mul_add(step, base)).clamp(0, 65_534)
+    };
+    (
+        radius,
+        narrow(f64::from(u32::try_from(damage).unwrap_or(0))),
+    )
 }
 
 /// The radius about the Gladiator and the factor of the strikes of his jump of `record` as he

@@ -336,6 +336,7 @@ fn fly(
             arrow.shooter
         );
         hits.write(fight::Hit {
+            fixed: None,
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,
