@@ -68,7 +68,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 * **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, x64dbg (above).
   The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver.
   glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
-* **Not every tool is needed from the start:** Ghidra and the MCP server were set up on 2026-10-18, ahead of M3; KTX-Software comes when the textures move to KTX2 (the texture converter writes PNG), the upscalers with M7.
+* **Not every tool is needed from the start:** Ghidra and the MCP server were set up on 2026-10-18, ahead of M3; KTX-Software is optional, as `build` writes the KTX2 files itself (#700), though its `ktx info` shows one; the upscalers come with M7.
 
 ```powershell
 # Toolchain check

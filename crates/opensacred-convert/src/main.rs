@@ -9,6 +9,7 @@ mod embedded;
 mod ffmpeg;
 mod gltf;
 mod heroes;
+mod ktx;
 mod manifest;
 mod model_repairs;
 mod models;

@@ -4,6 +4,7 @@
 //! skips a command whose manifest names the same converter and sources and whose outputs are all
 //! in place, and two runs that write the same manifests wrote the same files.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -37,6 +38,10 @@ pub struct RunManifest {
     pub sources: Vec<FileHash>,
     /// The files written, relative to the output directory.
     pub outputs: Vec<FileHash>,
+    /// `build`'s ways of making its outputs, each with its version (#700): a way whose version
+    /// changed makes its outputs again.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ways: BTreeMap<String, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +127,7 @@ pub fn record(game_dir: &Path, out: &Path, command: &str) -> Result<RunManifest>
         converter: converter()?,
         sources,
         outputs: hash_all(out, &outputs)?,
+        ways: BTreeMap::new(),
     };
     write(out, &manifest)?;
     Ok(manifest)

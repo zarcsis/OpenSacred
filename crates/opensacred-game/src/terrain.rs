@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
@@ -23,6 +23,8 @@ use bevy::render::render_resource::{
     TextureDimension, TextureFormat,
 };
 use bevy::shader::ShaderRef;
+use opensacred_data::texture;
+pub use opensacred_data::texture::Rgba;
 use opensacred_data::world::{Cell, DIAMONDS, LayerCell, SIDE, Sector, World};
 
 use crate::{buildings, files, iso, liquids};
@@ -853,36 +855,11 @@ fn inside(x: usize, y: usize) -> bool {
     dx + dy <= 1.0
 }
 
-/// An RGBA image decoded from a PNG.
-pub struct Rgba {
-    pub width: usize,
-    pub height: usize,
-    pub pixels: Vec<u8>,
-}
-
-pub fn read_png(path: &Path) -> Result<Rgba> {
-    let file = files::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let mut decoder = png::Decoder::new(file);
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
-    let mut reader = decoder
-        .read_info()
-        .with_context(|| format!("reading {}", path.display()))?;
-    let size = reader
-        .output_buffer_size()
-        .with_context(|| format!("{}: image too large", path.display()))?;
-    let mut pixels = vec![0; size];
-    let info = reader
-        .next_frame(&mut pixels)
-        .with_context(|| format!("decoding {}", path.display()))?;
-    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
-        bail!("{}: not 8-bit RGBA after expansion", path.display());
-    }
-    pixels.truncate(info.buffer_size());
-    Ok(Rgba {
-        width: usize::try_from(info.width)?,
-        height: usize::try_from(info.height)?,
-        pixels,
-    })
+/// A texture that the game reads on the CPU, as the converter writes it: 8-bit RGBA, its texels as
+/// the master's (`opensacred_data::texture`).
+pub fn read_texture(path: &Path) -> Result<Rgba> {
+    let data = files::read(path).with_context(|| format!("reading {}", path.display()))?;
+    texture::read(&data).with_context(|| format!("decoding {}", path.display()))
 }
 
 /// The tile sheets, decoded on first use.
@@ -900,7 +877,7 @@ impl Sheets<'_> {
                 .sheets
                 .get(usize::try_from(sheet)?)
                 .with_context(|| format!("no tile sheet {sheet}"))?;
-            let image = read_png(&self.dir.join(name))?;
+            let image = read_texture(&self.dir.join(name))?;
             self.loaded.insert(sheet, image);
         }
         self.loaded

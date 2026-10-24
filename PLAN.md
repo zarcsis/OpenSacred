@@ -260,8 +260,8 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 
 | Source | Master (stage A, `assets-src/`) | Game (stage B, `assets/`) | How it is checked |
 |---|---|---|---|
-| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 | KTX2 with BC7, a full mip chain and zstd supercompression; ASTC for Android later (M8, #702) | pixel comparison with a reference decoder; viewing |
-| Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | KTX2 as the textures | rendering a test sector |
+| `texture.pak` etc. (ARGB4444 + zlib; A8R8G8B8 uncompressed) | PNG RGBA8 | KTX2 with zstd supercompression (#700): BC7 with a full mip chain for the opaque textures that the GPU samples, 8-bit RGBA for the others; ASTC for Android later (M8, #702) | pixel comparison with a reference decoder; viewing |
+| Ground tiles, MIX atlases | PNG atlases + a UV table of 18 diamonds | KTX2 in 8-bit RGBA, one level, as the game composes them on the CPU | rendering a test sector |
 | `models.pak` (Granny 1.2b) | glTF 2.0 (`.glb`): meshes, skeletons, weights, materials, its textures by reference to the PNGs | the same `.glb`, referring to the KTX2 textures by path | glTF-Validator, Blender, an in-game screenshot test |
 | Granny animations | glTF clips; the Bip01 bone names are kept so that clips fit models with the same skeleton | in the models' `.glb` | visual check, comparing poses in key frames |
 | World: `sectors.wldx`, `sectors.keyx`, `Floor.PAK`, `Static.PAK`, `Triggers.PAK` | binary sectors (serde + postcard in a zlib stream) + RON descriptions | the same files | loading all 6,050 sectors |
@@ -293,7 +293,7 @@ Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
   Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
 * Visible area: by default as in the original at zoom 1.0, but with 4K pixel density; an extended view is an option.
 * The UI scales independently of the scene resolution; fonts are rasterized for the actual DPI.
-* The base textures go to the game as KTX2 with BC7 and a full mip chain from M3 (#700), built by stage B from the PNG masters.
+* The base textures go to the game as KTX2 since M3 (#700), built by stage B from the PNG masters: BC7 with a full mip chain where the GPU samples them and they are opaque (docs/decisions/2026-10-23-textures.md).
 * HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate) and separate alpha channel processing, into PNG masters in `assets-hd/`, which stage B packs as it packs the base ones.
   Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
 

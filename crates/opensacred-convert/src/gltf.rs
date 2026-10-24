@@ -996,9 +996,40 @@ fn latin1(name: &[u8]) -> String {
     name.iter().map(|&b| char::from(b)).collect()
 }
 
+/// A GLB container's JSON and binary chunk (empty without one), as [`glb`] writes them.
+pub fn split_glb(data: &[u8]) -> Result<(Value, Vec<u8>)> {
+    let word = |at: usize| -> Result<usize> {
+        let bytes = data.get(at..at + 4).context("a GLB cut short")?;
+        Ok(usize::try_from(u32::from_le_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3],
+        ]))?)
+    };
+    if data.get(..4) != Some(b"glTF") || word(4)? != 2 || word(8)? != data.len() {
+        bail!("not a GLB of glTF 2.0");
+    }
+    let json_length = word(12)?;
+    if data.get(16..20) != Some(b"JSON") {
+        bail!("a GLB without its JSON chunk first");
+    }
+    let json_end = 20 + json_length;
+    let json = serde_json::from_slice(data.get(20..json_end).context("a GLB cut short")?)
+        .context("parsing the GLB's JSON")?;
+    if json_end == data.len() {
+        return Ok((json, Vec::new()));
+    }
+    let bin_length = word(json_end)?;
+    if data.get(json_end + 4..json_end + 8) != Some(b"BIN\0") {
+        bail!("a GLB whose second chunk is not its binary");
+    }
+    let bin = data
+        .get(json_end + 8..json_end + 8 + bin_length)
+        .context("a GLB cut short")?;
+    Ok((json, bin.to_vec()))
+}
+
 /// GLB container: the 12-byte header, the JSON chunk padded with spaces, the binary chunk padded
 /// with zeros.
-fn glb(mut json: Vec<u8>, mut bin: Vec<u8>) -> Result<Vec<u8>> {
+pub fn glb(mut json: Vec<u8>, mut bin: Vec<u8>) -> Result<Vec<u8>> {
     json.resize(json.len().next_multiple_of(4), b' ');
     bin.resize(bin.len().next_multiple_of(4), 0);
     let chunks = [(*b"JSON", json), (*b"BIN\0", bin)];

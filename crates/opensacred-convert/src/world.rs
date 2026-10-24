@@ -2,7 +2,8 @@
 //! `PAK/tiles.pak`, `PAK/items.pak` and `PAK/mixed.pak` → `<out>/world/world.ron`,
 //! `<out>/world/sectors/<x>-<y>.sector` and `<out>/world/sprites.bin` (docs/02 §5; the format is
 //! [`opensacred_data::world`]). Tile sheets and atlases are referred to as the PNGs that
-//! `opensacred-convert textures` writes to `<out>/textures/texture/`.
+//! `opensacred-convert textures` writes to `<out>/textures/texture/`, and in the game's index as
+//! the KTX2 files that `build` makes of them ([`built_index`]).
 
 use std::collections::HashMap;
 use std::fs;
@@ -466,6 +467,46 @@ fn to_index(record: u32) -> Result<usize> {
     usize::try_from(record).context("record index")
 }
 
+/// The textures that the world index `masters` names, the tile sheets and the atlases, relative to
+/// the masters' root: the game composes them on the CPU (`build`, #700).
+pub fn textures_named(masters: &str) -> Result<Vec<String>> {
+    let world: World = ron::from_str(masters).context("reading the masters' world.ron")?;
+    world
+        .sheets
+        .iter()
+        .chain(&world.atlases)
+        .map(|name| {
+            let path = format!("world/{name}");
+            let mut parts: Vec<&str> = Vec::new();
+            for part in path.split('/') {
+                match part {
+                    ".." => {
+                        parts
+                            .pop()
+                            .with_context(|| format!("{name} lies outside the masters"))?;
+                    }
+                    "." | "" => {}
+                    part => parts.push(part),
+                }
+            }
+            Ok(parts.join("/"))
+        })
+        .collect()
+}
+
+/// The game's world index of the masters' `masters` (`build`, #700): the sheets and the atlases
+/// named as the KTX2 textures that `build` makes of the PNG masters.
+pub fn built_index(masters: &str) -> Result<String> {
+    let mut world: World = ron::from_str(masters).context("reading the masters' world.ron")?;
+    for name in world.sheets.iter_mut().chain(&mut world.atlases) {
+        if let Some(stem) = name.strip_suffix(".png") {
+            *name = format!("{stem}.{}", opensacred_data::texture::EXTENSION);
+        }
+    }
+    ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default())
+        .context("writing the game's world.ron")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,6 +515,27 @@ mod tests {
     #[test]
     fn file_names_are_grid_positions() {
         assert_eq!(file_name(50, 39), "50-39.sector");
+    }
+
+    #[test]
+    fn the_game_index_names_the_ktx2_textures_of_the_masters_index() {
+        let world = World {
+            sectors: Vec::new(),
+            sheets: vec!["../textures/texture/00007-sheet.png".to_owned()],
+            atlases: vec!["../textures/texture/00009-atlas.png".to_owned()],
+        };
+        let masters =
+            ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default()).unwrap();
+        assert_eq!(
+            textures_named(&masters).unwrap(),
+            [
+                "textures/texture/00007-sheet.png",
+                "textures/texture/00009-atlas.png"
+            ]
+        );
+        let built: World = ron::from_str(&built_index(&masters).unwrap()).unwrap();
+        assert_eq!(built.sheets, ["../textures/texture/00007-sheet.ktx2"]);
+        assert_eq!(built.atlases, ["../textures/texture/00009-atlas.ktx2"]);
     }
 
     /// Sector 45,52 holds walls and towers of a castle, buildings of flag 0x400 of two floors

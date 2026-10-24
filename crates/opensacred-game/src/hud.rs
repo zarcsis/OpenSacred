@@ -17,15 +17,15 @@ use bevy::image::ImageLoaderSettings;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage};
+use opensacred_data::texture;
 
 use crate::files;
 
 /// The height of the original's screen, which the interface is laid out on.
 const SCREEN_HEIGHT: f32 = 768.0;
 
-/// The original's cursor: the arrow in the top left 32 × 32 of its 64 × 64 image, its tip at the
-/// corner.
-const CURSOR: &str = "mouse_main";
+/// The original's cursor (`texture::CURSOR`): the arrow in the top left 32 × 32 of its 64 × 64
+/// image, its tip at the corner.
 const CURSOR_SIDE: usize = 32;
 
 /// The interface's images.
@@ -35,10 +35,10 @@ pub struct Hud {
     pub cursor: Option<PathBuf>,
 }
 
-/// The converted texture named `name` (`textures/texture/<record>-<name>.png`).
+/// The converted texture named `name` (`textures/texture/<record>-<name>.ktx2`).
 pub fn find_texture(assets: &Path, name: &str) -> Option<PathBuf> {
     let dir = assets.join("textures").join("texture");
-    let suffix = format!("-{name}.png");
+    let suffix = format!("-{name}.{}", texture::EXTENSION);
     files::read_dir(&dir).ok()?.into_iter().find(|path| {
         path.file_name()
             .and_then(|n| n.to_str())
@@ -49,7 +49,10 @@ pub fn find_texture(assets: &Path, name: &str) -> Option<PathBuf> {
 /// The converted textures named `names`, relative to the asset directory with `/` between the
 /// parts, as the asset server takes them; one look through the directory for all.
 pub fn find_textures(assets: &Path, names: &[&str]) -> Vec<Option<String>> {
-    let suffixes: Vec<String> = names.iter().map(|name| format!("-{name}.png")).collect();
+    let suffixes: Vec<String> = names
+        .iter()
+        .map(|name| format!("-{name}.{}", texture::EXTENSION))
+        .collect();
     let mut found = vec![None; names.len()];
     let dir = assets.join("textures").join("texture");
     for path in files::read_dir(&dir).into_iter().flatten() {
@@ -64,7 +67,7 @@ pub fn find_textures(assets: &Path, names: &[&str]) -> Vec<Option<String>> {
 }
 
 pub fn cursor_file(assets: &Path) -> Option<PathBuf> {
-    find_texture(assets, CURSOR)
+    find_texture(assets, texture::CURSOR)
 }
 
 /// An interface image, read as stored: in the frame's sRGB values.
@@ -75,27 +78,17 @@ pub fn image(assets: &AssetServer, path: impl Into<String>) -> Handle<Image> {
         .load(path.into())
 }
 
-/// The top left `CURSOR_SIDE` square of an RGBA PNG, each pixel `scale` times wider and taller.
+/// The top left `CURSOR_SIDE` square of an 8-bit RGBA texture, each pixel `scale` times wider
+/// and taller.
 fn cursor_image(path: &Path, scale: usize) -> Result<Image> {
-    let file = files::open(path).map_err(|e| anyhow!("opening {}: {e}", path.display()))?;
-    let mut decoder = png::Decoder::new(file);
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::ALPHA);
-    let mut reader = decoder
-        .read_info()
-        .map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
-    let size = reader
-        .output_buffer_size()
-        .ok_or_else(|| anyhow!("{}: image too large", path.display()))?;
-    let mut pixels = vec![0; size];
-    let info = reader
-        .next_frame(&mut pixels)
-        .map_err(|e| anyhow!("decoding {}: {e}", path.display()))?;
-    let width = usize::try_from(info.width)?;
-    if info.color_type != png::ColorType::Rgba
-        || width < CURSOR_SIDE
-        || usize::try_from(info.height)? < CURSOR_SIDE
-    {
-        bail!("{}: not an RGBA image of at least 32 x 32", path.display());
+    let data = files::read(path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
+    let texture::Rgba {
+        width,
+        height,
+        pixels,
+    } = texture::read(&data).map_err(|e| anyhow!("decoding {}: {e}", path.display()))?;
+    if width < CURSOR_SIDE || height < CURSOR_SIDE {
+        bail!("{}: not an image of at least 32 x 32", path.display());
     }
     let side = CURSOR_SIDE * scale;
     let mut out = Vec::with_capacity(side * side * 4);
@@ -227,21 +220,18 @@ mod tests {
 
     #[test]
     fn the_cursor_is_the_top_left_square_scaled_in_whole_steps() {
-        let path =
-            std::env::temp_dir().join(format!("opensacred-game-cursor-{}.png", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "opensacred-game-cursor-{}.{}",
+            std::process::id(),
+            texture::EXTENSION
+        ));
         let mut rgba = vec![0u8; 64 * 64 * 4];
         // An opaque red pixel at (1, 0) and one outside the square at (40, 40).
         rgba[4..8].copy_from_slice(&[255, 0, 0, 255]);
         let far = (40 * 64 + 40) * 4;
         rgba[far..far + 4].copy_from_slice(&[0, 255, 0, 255]);
-        let mut encoder = png::Encoder::new(fs::File::create(&path).unwrap(), 64, 64);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .unwrap()
-            .write_image_data(&rgba)
-            .unwrap();
+        let file = texture::write(texture::Encoding::Rgba8, 64, 64, &[rgba]).unwrap();
+        fs::write(&path, file).unwrap();
         let image = cursor_image(&path, 2).unwrap();
         fs::remove_file(&path).unwrap();
         assert_eq!((image.width(), image.height()), (64, 64));

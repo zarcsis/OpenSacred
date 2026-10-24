@@ -234,8 +234,8 @@ fn translucent(
 }
 
 /// Whether some texels of `image` are of alpha under 255: of 8-bit RGBA, as the converter writes
-/// the models' textures (`opensacred-convert textures`, `models`), by their alpha; of another
-/// format or without its data, taken to be.
+/// every texture with such a texel (`opensacred_data::texture`), by their alpha; of BC7, which it
+/// writes only of opaque images, none; of another format or without its data, taken to be.
 fn translucent_texels(image: &Image) -> bool {
     match (image.texture_descriptor.format, &image.data) {
         (TextureFormat::Rgba8UnormSrgb | TextureFormat::Rgba8Unorm, Some(data)) => data
@@ -243,6 +243,7 @@ fn translucent_texels(image: &Image) -> bool {
             .0
             .iter()
             .any(|&[.., alpha]| alpha < u8::MAX),
+        (TextureFormat::Bc7RgbaUnormSrgb | TextureFormat::Bc7RgbaUnorm, _) => false,
         _ => true,
     }
 }
@@ -625,6 +626,10 @@ mod tests {
         // Texels of alpha 0, which the alpha test drops, count too: the filtered alpha at their
         // edges lies between.
         assert!(translucent_texels(&image(0, TextureFormat::Rgba8Unorm)));
+        // BC7, which the converter writes of opaque images alone.
+        let mut bc7 = image(0, TextureFormat::Rgba8UnormSrgb);
+        bc7.texture_descriptor.format = TextureFormat::Bc7RgbaUnormSrgb;
+        assert!(!translucent_texels(&bc7));
         // A format the converter does not write.
         assert!(translucent_texels(&image(
             255,
