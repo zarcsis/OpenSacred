@@ -188,6 +188,9 @@ enum Command {
         /// The art it is keyed by
         #[arg(long, default_value_t = 0)]
         art: u32,
+        /// The level it carries (the arrowproof's, which its deflection reads)
+        #[arg(long, default_value_t = 0)]
+        level: u16,
         #[arg(long)]
         id: Option<String>,
     },
@@ -1126,6 +1129,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             whole,
             seconds,
             art,
+            level,
             id,
         } => {
             in_game(world)?;
@@ -1135,6 +1139,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 whole,
                 value,
                 art,
+                level,
             };
             Ok(Outcome::say(debug::effect(world, id, effect, seconds)?))
         }

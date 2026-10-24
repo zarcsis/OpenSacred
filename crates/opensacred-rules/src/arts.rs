@@ -162,6 +162,9 @@ pub enum Style {
     /// its maker's list near it ([`viper`]) stunned by a kick's roll, each with the effect 35:
     /// the Dark Elf's 1042 (`GUI_MOVE_NATTER`, `0x506770`).
     Viper,
+    /// Its effect on its maker at a part of its clip ([`ward`]): the Dark Elf's arrowproof 1045
+    /// (`GUI_MOVE_ARROWPROOF`, `0x506770`), of the launch type 2, made on himself.
+    Ward,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -221,6 +224,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1042 {
         return Some(Style::Viper);
+    }
+    if art == 1045 {
+        return Some(Style::Ward);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -506,6 +512,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Dark Elf's 1042 the slot 148 at the blend 0.5 and the rate 1.0 (`0x506770` at
         // `0x509DEE`).
         (4, Style::Viper) => Some(plain(148)),
+        // The Dark Elf's 1045 the slot 146 at the blend 0.5 and the rate 1.0 (`0x506770` at
+        // `0x509E28`; 194 at the blend 0.2 mounted).
+        (4, Style::Ward) => Some(plain(146)),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -630,6 +639,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
                 whole: 0,
                 value,
                 art: u32::from(record.id),
+                level: 0,
             },
             seconds,
         )
@@ -811,6 +821,35 @@ pub fn jump_landing(from: [f32; 2], to: [f32; 2], reach: Option<u32>) -> [f32; 2
     }
     let half = f32::from(u16::try_from(reach / 2).unwrap_or(u16::MAX));
     [to[0] - half * dx / distance, to[1] - half * dy / distance]
+}
+
+/// What is left of its clip, as a part of it, below which a [`Style::Ward`] gives its effect
+/// (`0x506770` at `0x508561`: the double 0.2 at `0x890DB0`).
+pub const WARD_LEFT: f32 = 0.2;
+
+/// What the arrowproof `record` gives at the level in play `level` ([`Style::Ward`], `0x506770`
+/// at `0x508561`), as a [`Boon`]: below [`WARD_LEFT`] of its clip, on its target where it is of a
+/// hero's class (`0x426610`), else on its maker, the effect `0x19`, the arrows' deflection
+/// (`arrows::deflection_chance`), of `[+0x58] + [+0x5C]·L` (1 + 0.05·L) for
+/// `[+0x50] + [+0x54]·L` seconds (44 + L), keyed by 1045 and with its level; its whole value, the
+/// object 883 it makes, is left out.
+pub fn ward(record: &WeaponArt, level: u32) -> Option<Boon> {
+    if record.id != 1045 {
+        return None;
+    }
+    let l = f64::from(level);
+    let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
+    let effect = Effect {
+        id: crate::arrows::DEFLECTION,
+        whole: 0,
+        value: by_level(record.value_58),
+        art: u32::from(record.id),
+        level: u16::try_from(level).unwrap_or(u16::MAX),
+    };
+    Some(Boon {
+        point: 1.0 - WARD_LEFT,
+        effects: vec![(effect, by_level(record.factor))],
+    })
 }
 
 /// What is left of its clip, as a part of it, below which a [`Style::Viper`] stuns

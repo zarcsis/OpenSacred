@@ -1327,13 +1327,16 @@ pub fn pace(id: u32) -> f32 {
 
 /// An effect on a creature (docs/re/arts.md, "The effects"): an entry of its stats' list from
 /// `+0x11A` to `+0x11E`, 32 bytes, that `0x582D50` adds: the effect's id (`+0x00`), a whole value
-/// (`+0x04`), a value as a float (`+0x14`) and the art that keys it (`+0x1C`).
+/// (`+0x04`), a value as a float (`+0x14`), the art that keys it (`+0x1C`), and the level its
+/// adder's eighth argument puts first in the entry's list at `+0x08` (the arrowproof's, which
+/// the deflection reads, `0x561090`; 0 for none).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Effect {
     pub id: u32,
     pub whole: i32,
     pub value: f32,
     pub art: u32,
+    pub level: u16,
 }
 
 impl Effect {
@@ -1344,6 +1347,7 @@ impl Effect {
             whole: 0,
             value,
             art: 0,
+            level: 0,
         }
     }
 }

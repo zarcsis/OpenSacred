@@ -18,6 +18,45 @@ pub const LIFE: f32 = 1.5;
 /// The size of a type whose `items.pak +0x14` is 0, as the arrows' and the heroes' are
 /// (`0x428CE0`).
 pub const SIZE: f32 = 50.0;
+/// The effect by which a hero turns arrows aside (`0x19`, `0x561090`).
+pub const DEFLECTION: u32 = 0x19;
+
+/// The chance that a hero with the effect [`DEFLECTION`] keyed by `art`, of the level `level`
+/// (its entry's first word at `+0x08`), turns an arrow of a shooter of the level `shooter` aside
+/// (`0x561090`): `c / (L + 9 + c)`, `c = (5·level + 9)·k`, `k` 2 for the effect of the spell 22
+/// and 1 for the others, at most 1; a roll of `rand() / 32767` not above it turns the arrow.
+pub fn deflection_chance(level: u16, art: u32, shooter: u32) -> f32 {
+    let k = if art == 0x16 { 2.0 } else { 1.0 };
+    let c = (f32::from(level) * 5.0 + 9.0) * k;
+    let shooter = f32::from(u16::try_from(shooter).unwrap_or(u16::MAX));
+    (c / (shooter + 9.0 + c)).min(1.0)
+}
+
+/// What becomes of an arrow that the effect [`DEFLECTION`] keyed by `art` turns aside
+/// (`0x561090`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Deflected {
+    /// Sent back at its shooter, the hero its shooter now, its hits of the effect's value: the
+    /// Dark Elf's arrowproof 1045 (`0x415`).
+    Back,
+    /// Sent off in a direction at random in the plane, the hero its shooter now: the spell 28.
+    Away,
+    /// Destroyed: the spells 22, 24 and 30.
+    Gone,
+    /// Neither hits nor is changed, flying on: the others.
+    Passes,
+}
+
+/// What becomes of an arrow that the effect [`DEFLECTION`] keyed by `art` turns aside.
+pub fn deflected(art: u32) -> Deflected {
+    match art {
+        0x415 => Deflected::Back,
+        0x1C => Deflected::Away,
+        0x16 | 0x18 | 0x1E => Deflected::Gone,
+        _ => Deflected::Passes,
+    }
+}
+
 /// How long an arrow stays stuck in a creature after its hit, in seconds, and the size above
 /// which a creature takes it (`0x5BAB40`).
 pub const STICKS_FOR: f32 = 5.0;
@@ -87,6 +126,18 @@ impl Arrow {
     /// Its velocity a second, the way it points.
     pub fn velocity(&self) -> Point {
         self.velocity
+    }
+
+    /// The arrow turned where it is along `direction` at its speed, its time going on
+    /// (`0x561090`).
+    pub fn turn(&mut self, direction: Point) {
+        let (along, up) = (direction.ground, direction.height);
+        let length = (along.length().powi(2) + up * up).sqrt();
+        self.velocity = if length >= 1e-7 {
+            Point::new(along * (SPEED / length), up * (SPEED / length))
+        } else {
+            Point::default()
+        };
     }
 
     /// Its flight in a frame of `dt` seconds (`0x5BB010`): none once its time is out, when it is
@@ -254,5 +305,25 @@ mod tests {
         assert!(sticks(45.0, false));
         assert!(!sticks(20.0, false));
         assert!(!sticks(50.0, true));
+    }
+
+    #[test]
+    fn a_deflection_turns_an_arrow_by_its_level_against_the_shooters() {
+        // The arrowproof of level 1 against a shooter of level 1: 14 / (1 + 9 + 14).
+        assert!((deflection_chance(1, 0x415, 1) - 14.0 / 24.0).abs() < 1e-6);
+        // The spell 22's doubles its `c`; at most 1.
+        assert!((deflection_chance(1, 0x16, 1) - 28.0 / 38.0).abs() < 1e-6);
+        assert!(deflection_chance(1, 0x415, 50) < 0.25);
+        assert_eq!(deflected(0x415), Deflected::Back);
+        assert_eq!(deflected(0x1C), Deflected::Away);
+        assert_eq!(deflected(0x16), Deflected::Gone);
+        assert_eq!(deflected(0x18), Deflected::Gone);
+        assert_eq!(deflected(0x1E), Deflected::Gone);
+        assert_eq!(deflected(7), Deflected::Passes);
+        // Sent back along a new direction at its speed, where it is.
+        let mut arrow = Arrow::new(Point::default(), Point::new(Spot::new(600.0, 0.0), 0.0));
+        arrow.turn(Point::new(Spot::new(0.0, -3.0), 0.0));
+        assert_eq!(arrow.at(), Point::default());
+        assert!((arrow.velocity().ground.y + SPEED).abs() < 1e-3);
     }
 }

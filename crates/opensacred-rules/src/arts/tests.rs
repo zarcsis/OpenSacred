@@ -845,6 +845,32 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_arrowproof_gives_its_maker_the_deflection() {
+    assert_eq!(style(1045), Some(Style::Ward));
+    assert_eq!(
+        action(4, Style::Ward, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(146), 1.0, true))
+    );
+    // 1045's record: `[+0x50]` 44 + L, `[+0x58]` 1 + 0.05·L.
+    let proof = WeaponArt {
+        factor: [44.0, 1.0],
+        value_58: [1.0, 0.05],
+        launch: 2,
+        distance: 0,
+        ..weapon_art(1045, [30.0, 12.0], 8)
+    };
+    let given = ward(&proof, 3).unwrap();
+    assert_eq!(given.point, 0.8);
+    let (effect, seconds) = given.effects[0];
+    assert_eq!(
+        (effect.id, effect.art, effect.level, seconds),
+        (0x19, 1045, 3, 47.0)
+    );
+    assert!((effect.value - 1.15).abs() < 1e-6);
+    assert!(ward(&weapon_art(1047, [0.0; 2], 8), 1).is_none());
+}
+
+#[test]
 fn the_viper_stuns_its_target_and_the_hostiles_about_it() {
     assert_eq!(style(1042), Some(Style::Viper));
     assert_eq!(
