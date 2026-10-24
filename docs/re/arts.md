@@ -418,8 +418,33 @@ Seen in the original on 2026-10-23 under the driver of #448, the Seraphim at lev
 - `BANNKREIS` (16) and `HIMMELSLEUCHTEN` (15) on the goblins gave no effect within 5 s, their regenerations running (**hypothesis**: they act on the undead and the demons alone, as their names say).
 - `GLAUBENSSTAERKE` (21) did not run by a right click on the hero herself (its launch type, `+0x3C`, not followed).
 
-So the first table's values (above) are not each object's own: `IRRITATION`'s value 0 is 14 + L seconds, at most 30, where its effect lasted 3 s (**hypothesis**: the object gives it anew while it lasts).
-What each object gives, for how long and to whom, beyond these, is not read: `0x5ABD80`'s and `0x5B2600`'s cases, and the objects' actions (#672).
+So the first table's values (above) are not each object's own: `IRRITATION`'s value 0 is 14 + L seconds, at most 30, where its effect lasted 3 s (the action 7 below scales it by the target).
+What each object gives beyond the actions below, for how long and to whom, is not read: `0x5ABD80`'s cases and which action each object's system runs (#672).
+
+#### The objects' actions
+
+Read 2026-10-23 (#672); **confirmed** by code unless marked otherwise.
+`0x5B2600` is the objects' actions: the update (`0x5A6680`, at `0x5A9AAF`) calls it at each frame with the action that the object's system holds, asked of the systems' manager by the object's `+0x6E` (`0x7CBD90`), so that which action an object runs comes from its system's data, not from its type (not read); 0 does nothing, and 1 to 11 are switched on.
+The object's art is its `+0x118`, the record of the first table ("The first table" above), and its level `+0xE4`; its caster is `+0x54` and its target `+0x60`, each checked to be the object it was when the action started.
+
+- **The action 6, the art's effects on its target:** the record's thirteen pairs from the attack's on, each `base + step·L` that is not 0, given as an effect for the art's value 0 at its level in seconds (`0x4D26B0`, truncated; 1 without a record), keyed by the art:
+
+  | Pair | Effect | Its value |
+  |---|---|---|
+  | 4, the attack (`+0x52`, `+0x54`) | 1, `A`'s multiplier | a hundredth of it |
+  | 5, the defence (`+0x56`, `+0x58`) | 2, `D`'s multiplier | a hundredth |
+  | 6 to 9, the resistances (`+0x5A` to `+0x68`) | 7 to 10, the resistances | the pair's value |
+  | 10, the speed (`+0x6A`, `+0x6C`) | 28, the attack speed and the pace | 1 plus a hundredth |
+  | 11, the mental regeneration (`+0x6E`, `+0x70`) | 11, the arts' regeneration speeds | a hundredth |
+  | 12, the physical regeneration (`+0x72`, `+0x74`) | 12, the regeneration value | a hundredth |
+
+  The damages' pairs 0 to 3 give no effect here.
+  So `GUI_SPELL_STEINHAUT` at level 1 gives `D`'s multiplier 0.2 and the physical and poison resistances 65 and 25 for 45 s (**hypothesis**: that its object runs the action 6; not seen).
+- **The action 7, an effect that holds its target**, of the id the action's data names (13, 14 or 15), the effect's whole value 1 for 13 and 14: for the art's value 0 in seconds times the share of five times its level in the target's `+0x3FE` where that is larger (**hypothesis**: the target's resistance to the spells, not read), none for a target of the flags' bit `0x80000` (`+0x1F4`) or of `+0x2B8` bit `0x40`; the effect 15 lasts the value 0, or 3 s from a caster of an id above 16, and goes to the creature that a ridden target carries (`+0x14` bit 2, `+0x1EC`), and an event follows it (`+0x18`, not read).
+- **The action 9** gives the effect 15 with a value of the action's data, for the art's value 0 in seconds, as the action 7's.
+- The actions 1 to 5, 8, 10 and 11 give no effect (not read further).
+
+**Seen** in the running original (the driver of #448, the Seraphim at level 1 with an immortal goblin of type 76 at level 5, `arts select 18` and the right button on the goblin, traces of `0x5B2600` and `0x582D50`): `IRRITATION`'s object (type 816) ran the action 7 once, which gave the goblin the effect 13 of the whole value 1 for 3 s, keyed by the art 18; the objects of the types 772 and 773 about the hero ran the actions 1 and others, and the birds (type 886) the action 0 at each frame.
 
 ## The heroes' starting arts
 

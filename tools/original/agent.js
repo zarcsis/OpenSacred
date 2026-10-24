@@ -1213,9 +1213,10 @@ const COMMANDS = {
     return { paused: want };
   },
   // A creature's combat arts, the hero's by default (#569); `learn` raises the hero's art by levels as runes do,
-  // through the original's own functions, `ready` ends every art's regeneration, and `use` starts it as a use of the
-  // art does (#623).
-  arts: (engine, { id, learn, levels, ready, use }) => {
+  // through the original's own functions, `ready` ends every art's regeneration, `use` starts it as a use of the
+  // art does (#623), and `select` puts an art on the right button, the engine's +0x5A, with +0x58 1 for a weapon art
+  // and 0 for a spell (#672, docs/re/arts.md, "The spells' objects").
+  arts: (engine, { id, learn, levels, ready, use, select }) => {
     const object = id ? objectById(id) : hero();
     if (object === null || !isCreature(object)) {
       throw new Error(id ? `no creature ${id}` : 'no hero');
@@ -1235,6 +1236,14 @@ const COMMANDS = {
       for (const entry of artEntries(stats)) {
         entry.add(ART.remaining).writeFloat(0);
       }
+    }
+    if (select) {
+      const game = ADDRESSES.engine.readPointer();
+      if (game.isNull()) {
+        throw new Error('no game');
+      }
+      game.add(0x5a).writeU16(select);
+      game.add(0x58).writeU8(select < 1000 ? 0 : 1);
     }
     if (use) {
       // An art's executor (0x562470, docs/re/arts.md): its time added to every art of its kind, 1 the spells (the
