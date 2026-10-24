@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
     ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
-    BalanceVariable, CREATURES, Creature, EffectChance, ITEM_SETS, ITEMS, Item, ItemSet,
-    MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass, QualityWeight, STAIRS,
-    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS,
-    WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
+    BalanceVariable, CREATURES, Creature, EffectChance, IDLE_NOISES, ITEM_SETS, ITEMS, Item,
+    ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass,
+    QualityWeight, STAIRS, START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger,
+    VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt,
+    WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -44,6 +45,8 @@ pub struct Summary {
     pub weapon_arts: usize,
     /// The creature types that speak.
     pub voices: usize,
+    /// The creature types that make an idle noise, hostile and not.
+    pub idle_noises: (usize, usize),
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -207,6 +210,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     write(&dir, ARTS, &arts)?;
     let voices = crate::voices::voices(&read_reference_file(game_dir, "Sacred.exe")?)?;
     write(&dir, VOICES, &voices)?;
+    let idle_noises = crate::idle_noises::idle_noises();
+    write(&dir, IDLE_NOISES, &idle_noises)?;
 
     Ok(Summary {
         creatures: creatures.len(),
@@ -218,6 +223,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         spells: arts.spells.len(),
         weapon_arts: arts.weapon_arts.len(),
         voices: voices.voices.len(),
+        idle_noises: (idle_noises.hostile.len(), idle_noises.peaceful.len()),
     })
 }
 
@@ -462,6 +468,7 @@ mod tests {
                 spells: 70,
                 weapon_arts: 94,
                 voices: 322,
+                idle_noises: (311, 241),
             }
         );
         let dir = output_dir(&out);

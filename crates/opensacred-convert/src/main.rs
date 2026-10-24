@@ -9,6 +9,7 @@ mod embedded;
 mod ffmpeg;
 mod gltf;
 mod heroes;
+mod idle_noises;
 mod ktx;
 mod manifest;
 mod model_repairs;
@@ -588,7 +589,7 @@ fn execute(command: Command) -> Result<ExitCode> {
         Command::Tables { game_dir, out } => {
             let summary = tables::convert(&game_dir, &out)?;
             println!(
-                "tables: {} creatures, {} weapons, {} items, {} motions, {} triggers, {} files of bin/, {} spells, {} weapon arts, {} voices -> {}",
+                "tables: {} creatures, {} weapons, {} items, {} motions, {} triggers, {} files of bin/, {} spells, {} weapon arts, {} voices, {} and {} idle noises -> {}",
                 summary.creatures,
                 summary.weapons,
                 summary.items,
@@ -598,6 +599,8 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.spells,
                 summary.weapon_arts,
                 summary.voices,
+                summary.idle_noises.0,
+                summary.idle_noises.1,
                 tables::output_dir(&out).display(),
             );
             Ok(ExitCode::SUCCESS)

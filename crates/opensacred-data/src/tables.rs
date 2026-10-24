@@ -26,6 +26,7 @@ pub const MERCENARIES_ADDON: &str = "mercenaries_addon.ron";
 pub const START_POINTS: &str = "start_points.ron";
 pub const ARTS: &str = "arts.ron";
 pub const VOICES: &str = "voices.ron";
+pub const IDLE_NOISES: &str = "idle_noises.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,6 +150,38 @@ impl Voice {
             _ => 0,
         }
     }
+}
+
+/// The creatures' idle noises, `idle_noises.ron` (#714; docs/re/sound.md, "The idle noises"):
+/// what each type makes in the sound manager's update as a creature hostile to the hero and as
+/// one that is not, the two lists that the update follows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdleNoises {
+    pub hostile: Vec<IdleNoise>,
+    pub peaceful: Vec<IdleNoise>,
+}
+
+/// A creature type's idle noise.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IdleNoise {
+    /// The creature's type, 1 to 714.
+    pub creature: u16,
+    /// It plays when `rand() % n` is 0, after the update's own roll: 1 always.
+    pub roll: u8,
+    pub sound: IdleSound,
+    /// The seconds for which the sound id that played waits before it plays again.
+    pub wait: f32,
+    /// Added to the voices' volume, 0.45 + (`rand() % 10`) / 90.
+    pub volume: f32,
+}
+
+/// What an idle noise plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IdleSound {
+    /// A variant of the group 0 of a profile, a slot of `sndProfiles.pak`.
+    Profile(u16),
+    /// One of `count` sound ids from `first`, at random.
+    Ids { first: u16, count: u16 },
 }
 
 /// The parameters of a motion of `MOTIONS.PAK`, in the global motion order: those of
