@@ -69,7 +69,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * Done 2026-10-19 (#171), in a module `game`: the systems of a game are in a set `frame::Playing`, which runs only in `InGame`; the camera and the light are spawned once and stay, so that the menus draw through the same camera and its sRGB frame; each module takes back what it made on `OnExit(InGame)`, the sectors with what they adopted, the hero, the building it was in, the music and the night, and `game` the resources it loaded, and warns of anything left in the world when the menu comes.
   Until the menu (#172), the process goes straight into the game that the command line gives and ends, failing, when it does not load.
 * The menu: New Game and Quit, in the original's interface font.
-  New Game shows the seven classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game.
+  New Game shows the eight classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game (the Vampiress since #790).
   The mouse, or the arrows, Enter and Esc.
   Done 2026-10-19 (#172), in a module `menu` (docs/decisions/2026-10-19-menus.md): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.png`).
   A game that the command line names starts at once, and a screenshot's, a recording's or a benchmark's ends the process when it does not load; any other goes back to the menu.
