@@ -845,6 +845,30 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_hand_of_god_strikes_its_target_and_the_hostiles_within_the_reach() {
+    assert_eq!(style(1012), Some(Style::Smite));
+    assert_eq!(
+        action(2, Style::Smite, 1).map(|a| (a.clip, a.fixed)),
+        Some((ArtClip::Slot(146), true))
+    );
+    let creature = |id, distance| Candidate {
+        id,
+        distance,
+        reach: 130,
+        hostile: true,
+    };
+    let others = [
+        creature(0, 120),
+        creature(1, 140),
+        creature(2, 129),
+        creature(3, 130),
+    ];
+    // Its target wherever it stands, the others strictly within the reach.
+    assert_eq!(smitten(Some(1), &others, 130), [1, 0, 2]);
+    assert_eq!(smitten(None, &others, 130), [0, 2]);
+}
+
+#[test]
 fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
     // The Gladiator's 1015, of the launch type 2, needs a friend for its target (seen).
     assert_eq!(style(1015), None);

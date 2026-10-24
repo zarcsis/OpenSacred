@@ -139,6 +139,10 @@ pub enum Style {
     /// One strike on its target at its class's point of its clip ([`kick_point`]), which may
     /// knock it back ([`knockback_chance`], [`knockback`]).
     Kick,
+    /// One strike on its target and the same on every hostile creature nearer that target than
+    /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
+    /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
+    Smite,
     /// Effects on its maker at a part of its clip, made where it stands ([`boon`]): the Dark
     /// Elf's 1047 and 1048 and the Dwarf's 1089, of the launch type 5 (`ECF_ONMEMYSELFANDI`,
     /// whose target `0x51D840` makes the maker itself).
@@ -174,6 +178,9 @@ pub fn refused_while(art: u16) -> &'static [u16] {
 pub fn style(art: u16) -> Option<Style> {
     if BOONS.contains(&art) {
         return Some(Style::Boon);
+    }
+    if art == 1012 {
+        return Some(Style::Smite);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -224,6 +231,26 @@ pub fn attacke_target(target: Option<Candidate>, others: &[Candidate]) -> Option
         .iter()
         .find(|c| Some(c.id) != current && within(c))
         .map(|c| c.id)
+}
+
+/// What is left of its clip, as a part of it, below which a [`Style::Smite`] strikes
+/// (`0x4FF0B0`).
+pub const SMITE_LEFT: f32 = 0.35;
+
+/// The creatures that a [`Style::Smite`] strikes, by their ids: its target, if any, wherever it
+/// stands, and every other of the hero's list of hostiles (`0xAD3CE0`, `others`, each its
+/// distance from the target) nearer the target than the reach of its maker and the target,
+/// `reach` (`0x5370B0` and `0x4DBC60` of the target).
+pub fn smitten(target: Option<u32>, others: &[Candidate], reach: u32) -> Vec<u32> {
+    target
+        .into_iter()
+        .chain(
+            others
+                .iter()
+                .filter(|c| Some(c.id) != target && c.distance < reach)
+                .map(|c| c.id),
+        )
+        .collect()
 }
 
 /// Whether the `Rundum` of a creature of type `kind`, `done` of its clip played, looks for the
@@ -412,6 +439,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // (`0x506770` at `0x50A09F`; mounted, 194 at 0.2, not followed), the Dwarf's 1089 the
         // slot 154 (`0x514790`).
         (4, Style::Boon) => Some(plain(180)),
+        // The Gladiator's 1012 the slot 146 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
+        // `0x502C10`).
+        (2, Style::Smite) => Some(plain(146)),
         (8, Style::Boon) => Some(plain(154)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
         (8, Style::Attacke) => Some(dwarfs(

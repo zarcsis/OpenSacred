@@ -81,6 +81,7 @@ pub fn clips(
         Style::Hardhit,
         Style::Kick,
         Style::Boon,
+        Style::Smite,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -324,6 +325,7 @@ fn make(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut hits: MessageWriter<fight::Hit>,
     mut cries: MessageWriter<crate::voices::BattleCry>,
+    nearest: Res<crate::crowd::Nearest>,
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
@@ -418,6 +420,10 @@ fn make(
                     speed.0 * clip_speed * action.rate
                 });
             let factor = held_factor(arts::factor(record, level), action.halved);
+            // A smite strikes at its own point of its clip.
+            if style == Style::Smite {
+                points = vec![1.0 - arts::SMITE_LEFT];
+            }
             // A boon gives its effects at its own point of its clip.
             if style == Style::Boon {
                 points = arts::boon(record, level)
@@ -460,6 +466,63 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Smite => {
+                // Its target and the hero's hostiles nearer it than the two's reach, once
+                // (`0x4FF0B0`).
+                if playing.struck == 0
+                    && playing
+                        .points
+                        .first()
+                        .is_some_and(|&point| due(point, done))
+                {
+                    playing.struck = 1;
+                    // The hostiles about the target, by their distance from it (`0x4FF0B0`).
+                    let target = creatures.get(playing.target).ok();
+                    let within = target.map_or(0, |(_, _, mind, _)| reach(mind));
+                    let centre = target.map_or(here, |(_, at, ..)| at.translation());
+                    let others: Vec<(Entity, Candidate)> = nearest
+                        .hostiles
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, &entity)| {
+                            let (_, at, mind, health) = creatures.get(entity).ok()?;
+                            Some((
+                                entity,
+                                Candidate {
+                                    id: u32::try_from(index).ok()?,
+                                    distance: whole_distance(at.translation(), centre),
+                                    reach: reach(mind),
+                                    hostile: mind.hostile() && health.current > 0,
+                                },
+                            ))
+                        })
+                        .collect();
+                    let target_id = others
+                        .iter()
+                        .find(|(entity, _)| *entity == playing.target)
+                        .map(|&(_, c)| c.id);
+                    let candidates: Vec<Candidate> = others.iter().map(|&(_, c)| c).collect();
+                    let mut struck: Vec<Entity> = Vec::new();
+                    if target.is_some() && target_id.is_none() {
+                        struck.push(playing.target);
+                    }
+                    for id in arts::smitten(target_id, &candidates, within) {
+                        if let Some(&(entity, _)) =
+                            usize::try_from(id).ok().and_then(|index| others.get(index))
+                        {
+                            struck.push(entity);
+                        }
+                    }
+                    info!("making: {} strikes {} creatures", making.art, struck.len());
+                    for entity in struck {
+                        hits.write(hit(entity, &playing));
+                    }
+                    arts.start(making.art);
+                    end(&mut commands);
+                } else if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Boon => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
