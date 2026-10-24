@@ -1,10 +1,10 @@
-# Dependencies of the tools/ scripts (versions installed in the research environment; `pip show`, 2026-10-16).
-# Python >= 3.12 (required by numpy 2.5; tested on 3.15.0). Run: python3 -I <script> ... (see tools/README.md).
-# Latest stable releases as of 2026-10-16; capstone 6 is still alpha only (6.0.0a11), so we stay on 5.x.
+# Dependencies of the tools/ scripts (versions installed in the research environment; `pip show`, 2026-10-24).
+# Python >= 3.12 (required by numpy 2.5; tested on 3.15.1). Run: python3 -I <script> ... (see tools/README.md).
+# Latest stable releases as of 2026-10-24; capstone 6 is still alpha only (6.0.0a11), so we stay on 5.x.
 pefile==2024.8.26
 capstone==5.0.9
 numpy==2.5.4
-pillow==12.3.0
+pillow==13.0.0
 # The curated scripts do not import lief directly; it is kept as a tool for manual PE triage.
 lief==1.0.0
 # The original's driver (tools/original/, docs/03 §3.8): run locally, never in CI or a release.
