@@ -97,6 +97,7 @@ pub fn clips(
         Style::Form,
         Style::Panther,
         Style::Changeling,
+        Style::Dash,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -263,15 +264,20 @@ fn aim(
                 continue;
             }
             (_, true, _) if arts::style(art) == Some(Style::Boon) => (hero, at.translation()),
-            // The changeling is made where the hero stands, wherever the button (seen).
+            // The changeling is made where the hero stands, wherever the button (seen), and the
+            // dash at the ground under the cursor.
             _ if arts::style(art) == Some(Style::Changeling) => (hero, at.translation()),
+            _ if arts::style(art) == Some(Style::Dash) => (hero, ground),
             (_, _, Some((entity, place, _))) => (entity, place),
             _ => continue,
         };
         match may_make(&arts, art, effects) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
-                let target = if matches!(arts::style(art), Some(Style::Boon | Style::Changeling)) {
+                let target = if matches!(
+                    arts::style(art),
+                    Some(Style::Boon | Style::Changeling | Style::Dash)
+                ) {
                     hero
                 } else {
                     target
@@ -283,7 +289,8 @@ fn aim(
                     .insert(Making {
                         art,
                         target,
-                        point: (launch == Some(3)).then_some(ground),
+                        point: (launch == Some(3) || arts::style(art) == Some(Style::Dash))
+                            .then_some(ground),
                     });
             }
             Err(_) if arts.arts.get(art).is_some() && !arts.arts.ready(art) => {
@@ -517,6 +524,32 @@ fn make(
                 }
                 rate = arts::panther_rate(reach);
             }
+            if style == Style::Dash {
+                // Its point at its reach at most, the farthest of its line where she may stand
+                // with a straight way to it (`0x50E6C0`).
+                let aimed = making.point.unwrap_or(point);
+                let reach = arts::dash_reach(record, level);
+                let [x, z] = arts::panther_point(here.xz().into(), aimed.xz().into(), reach, false);
+                let level = body.level();
+                let walkable = |cell| heights.walkable_on(cell, level);
+                let far = Vec3::new(x, here.y, z);
+                let along = (far - here).normalize_or_zero();
+                // From its point back toward her a cell at a time.
+                let reached = std::iter::successors(Some((far - here).length()), |&left| {
+                    (left > 0.0).then(|| (left - crate::iso::CELL).max(0.0))
+                })
+                .map(|left| here + along * left)
+                .find(|to| {
+                    walkable(crate::paths::cell_of(to.x, to.z))
+                        && crate::paths::clear(here.xz(), to.xz(), walkable)
+                });
+                let Some(reached) = reached else {
+                    info!("making: the dash has nowhere to go");
+                    end(&mut commands);
+                    continue;
+                };
+                point = reached;
+            }
             if style == Style::Jump {
                 // A jump wants a straight way to its point and a place to stand there, and plays
                 // at a rate by its length (`0x5038F0` at `0x505B6E`).
@@ -604,6 +637,17 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Dash => {
+                // Below 0.8 left of its clip she is put at its point, starts its regeneration and
+                // ends (`0x50E6C0`).
+                if due(1.0 - arts::DASHES, done) {
+                    body.teleport(&mut transform, playing.point);
+                    arts.start(making.art);
+                    end(&mut commands);
+                } else if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Changeling => {
                 // Below 0.5 left of its clip the Vampiress changes her form: 1022 into her
                 // night's for its time and its regeneration started, 1023 back to her day's and

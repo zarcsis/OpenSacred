@@ -875,6 +875,29 @@ fn the_changeling_changes_the_vampiress_for_the_night_forms_time() {
 }
 
 #[test]
+fn the_dash_puts_the_vampiress_at_its_point_within_its_reach() {
+    assert_eq!(style(1028), Some(Style::Dash));
+    assert_eq!(style(1029), Some(Style::Dash));
+    assert_eq!(
+        action(VAMPIRESS_BY_DAY, Style::Dash, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(144), DASH_RATE, true))
+    );
+    let day = WeaponArt {
+        value_60: [400, 25],
+        launch: 0,
+        distance: 0,
+        ..weapon_art(1028, [4.0, 3.0], 32)
+    };
+    let night = WeaponArt {
+        value_60: [500, 50],
+        ..day.clone()
+    };
+    assert_eq!(dash_reach(&day, 1), 425);
+    assert_eq!(dash_reach(&night, 2), 600);
+    assert!(in_form(1028, VAMPIRESS_BY_DAY) && !in_form(1028, VAMPIRESS_BY_NIGHT));
+}
+
+#[test]
 fn the_panther_leaps_to_its_point_within_its_reach() {
     assert_eq!(style(1043), Some(Style::Panther));
     assert_eq!(
