@@ -34,6 +34,13 @@ impl Effects {
         });
     }
 
+    /// Whether an effect keyed by one of `arts` holds (`0x582B00`).
+    pub fn holds_any(&self, arts: &[u16]) -> bool {
+        self.0
+            .iter()
+            .any(|timed| arts.iter().any(|&art| timed.effect.art == u32::from(art)))
+    }
+
     /// The effects and their seconds, in their order.
     pub fn timed(&self) -> &[Timed] {
         &self.0
