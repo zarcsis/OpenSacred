@@ -441,7 +441,17 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .next()
         .map(|(hero, transform)| (hero, transform.translation))
         .ok_or("the hero is not in the world yet")?;
-    if opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Boon) {
+    // A boon is made on the hero, as is an art on a friend without one (the launch type 2).
+    let launch = world
+        .resource::<crate::arts::HeroArts>()
+        .tables
+        .weapon_arts
+        .iter()
+        .find(|a| a.id == art)
+        .map(|a| a.launch);
+    if opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Boon)
+        || launch == Some(2)
+    {
         world
             .entity_mut(hero)
             .remove::<(crate::attack::Attack, crate::attack::Striking)>()

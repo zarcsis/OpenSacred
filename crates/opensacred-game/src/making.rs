@@ -183,6 +183,7 @@ fn aim(
     mut heroes: Query<
         (
             Entity,
+            &GlobalTransform,
             &mut Body,
             Has<Playing>,
             Option<&crate::effects::Effects>,
@@ -191,7 +192,7 @@ fn aim(
     >,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        for (hero, _, playing, _) in &heroes {
+        for (hero, _, _, playing, _) in &heroes {
             if !playing {
                 commands.entity(hero).remove::<Making>();
             }
@@ -207,7 +208,7 @@ fn aim(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
-    let Some((target, place)) = creatures
+    let picked = creatures
         .iter()
         .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
         .map(|(entity, at, ..)| {
@@ -215,15 +216,33 @@ fn aim(
             (entity, at, crate::attack::from_line(ray, at))
         })
         .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .map(|(entity, at, _)| (entity, at))
-    else {
-        return;
-    };
-    for (hero, mut body, playing, effects) in &mut heroes {
+        .min_by(|a, b| a.2.total_cmp(&b.2));
+    let launch = arts
+        .tables
+        .weapon_arts
+        .iter()
+        .find(|a| a.id == art)
+        .map(|a| a.launch);
+    for (hero, at, mut body, playing, effects) in &mut heroes {
         if playing {
             continue;
         }
+        // The right button on the hero himself makes him the target, nearer the cursor's line
+        // than a hostile creature (seen: the Gladiator's 1015, of the launch type 2, made on
+        // himself so, and refused on a hostile creature or on the ground).
+        let on_hero = crate::attack::from_line(ray, at.translation());
+        let on_hero = on_hero <= crate::attack::PICKED_WITHIN
+            && picked.is_none_or(|(.., distance)| on_hero < distance);
+        let (target, place) = match (launch, on_hero, picked) {
+            (Some(2), true, _) => (hero, at.translation()),
+            (Some(2), false, _) => {
+                info!("making: {art} wants a friend, or the hero himself, under the cursor");
+                continue;
+            }
+            (_, true, _) if arts::style(art) == Some(Style::Boon) => (hero, at.translation()),
+            (_, _, Some((entity, place, _))) => (entity, place),
+            _ => continue,
+        };
         match may_make(&arts, art, effects) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
