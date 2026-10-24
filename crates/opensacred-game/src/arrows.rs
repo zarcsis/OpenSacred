@@ -104,6 +104,8 @@ fn loose(
     mut commands: Commands,
     mut shots: MessageReader<Loose>,
     npcs: Option<Res<Npcs>>,
+    rules: Option<Res<fight::Rules>>,
+    effects: Query<&crate::effects::Effects, With<Body>>,
     assets: Res<AssetServer>,
     children: Query<&Children>,
     names: Query<&Name>,
@@ -128,34 +130,49 @@ fn loose(
         let from =
             bone(shot.shooter, HAND).unwrap_or(shooter.translation() + Vec3::Y * HAND_HEIGHT);
         let toward = bone(shot.target, NECK).unwrap_or(target.translation());
-        let flight = arrows::Arrow::new(point(from), point(toward));
+        let first = arrows::Arrow::new(point(from), point(toward));
         let level = ways.get(shot.shooter).ok().and_then(|way| way.level);
         let Some((model, texture, size)) = npcs.arrow() else {
             continue;
         };
-        debug!(
-            "arrows: {} looses an arrow at {} from {:.0},{:.0},{:.0} toward {:.0},{:.0},{:.0}",
-            shot.shooter, shot.target, from.x, from.y, from.z, toward.x, toward.y, toward.z
-        );
-        let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
-        let mut arrow = commands.spawn((
-            WorldAssetRoot(scene),
-            Transform::from_translation(from)
-                .with_rotation(pointing(flight.velocity()))
-                .with_scale(Vec3::splat(iso::MODEL_SCALE)),
-            models::Ordered::default(),
-            Arrow {
-                flight,
-                shooter: shot.shooter,
-                target: shot.target,
-                level,
-                size,
-                share: 1.0,
-            },
-            DespawnOnExit(AppState::InGame),
-        ));
-        if let Some(texture) = texture {
-            arrow.insert(Retexture::load(&assets, texture));
+        // A hero with the multi-shot looses as many arrows as its whole value, fanned, each of
+        // `Multipfeil` to the power of their number (`0x4DD90E`, `0x56D173`).
+        let count = arrows::volley(effects.get(shot.shooter).ok().and_then(|effects| {
+            effects
+                .list()
+                .into_iter()
+                .find(|effect| effect.id == arrows::MULTI_SHOT)
+                .map(|effect| effect.whole)
+        }));
+        let share = rules
+            .as_ref()
+            .map_or(1.0, |rules| rules.0.multi_shot(count));
+        for i in 0..count {
+            let flight = first.turned_by(arrows::fanned(i));
+            debug!(
+                "arrows: {} looses an arrow at {} from {:.0},{:.0},{:.0} toward {:.0},{:.0},{:.0}",
+                shot.shooter, shot.target, from.x, from.y, from.z, toward.x, toward.y, toward.z
+            );
+            let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
+            let mut arrow = commands.spawn((
+                WorldAssetRoot(scene),
+                Transform::from_translation(from)
+                    .with_rotation(pointing(flight.velocity()))
+                    .with_scale(Vec3::splat(iso::MODEL_SCALE)),
+                models::Ordered::default(),
+                Arrow {
+                    flight,
+                    shooter: shot.shooter,
+                    target: shot.target,
+                    level,
+                    size,
+                    share,
+                },
+                DespawnOnExit(AppState::InGame),
+            ));
+            if let Some(texture) = texture {
+                arrow.insert(Retexture::load(&assets, texture));
+            }
         }
     }
 }

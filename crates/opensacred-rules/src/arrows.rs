@@ -18,6 +18,30 @@ pub const LIFE: f32 = 1.5;
 /// The size of a type whose `items.pak +0x14` is 0, as the arrows' and the heroes' are
 /// (`0x428CE0`).
 pub const SIZE: f32 = 50.0;
+/// The effect of the multi-shot (`0x15`): a shot of a hero with it looses as many arrows as its
+/// whole value (`+0x25D`, 1 to 20).
+pub const MULTI_SHOT: u32 = 0x15;
+/// The most arrows of a shot (`+0x25D`).
+const MOST_ARROWS: u32 = 20;
+/// How far each arrow of a shot after the first turns from the first, to either side in turn,
+/// in radians (`⌈i/2⌉ · 0.05`).
+const FAN: f32 = 0.05;
+
+/// The arrows of a shot of a hero with the multi-shot's whole value `whole` (`+0x25D`): that many,
+/// 1 to 20, 1 without it.
+pub fn volley(whole: Option<i32>) -> u32 {
+    whole
+        .and_then(|whole| u32::try_from(whole).ok())
+        .map_or(1, |whole| whole.clamp(1, MOST_ARROWS))
+}
+
+/// How far the `i`-th arrow of a shot turns in the plane from the first's line (`0x4DD90E`):
+/// `⌈i/2⌉ · 0.05` radians, to one side for an odd `i` and to the other for an even.
+pub fn fanned(i: u32) -> f32 {
+    let step = f32::from(u16::try_from(i.div_ceil(2)).unwrap_or(u16::MAX)) * FAN;
+    if i % 2 == 1 { step } else { -step }
+}
+
 /// The effect by which a hero turns arrows aside (`0x19`, `0x561090`).
 pub const DEFLECTION: u32 = 0x19;
 
@@ -126,6 +150,17 @@ impl Arrow {
     /// Its velocity a second, the way it points.
     pub fn velocity(&self) -> Point {
         self.velocity
+    }
+
+    /// The arrow turned in the plane by `angle` radians, its speed kept.
+    pub fn turned_by(mut self, angle: f32) -> Self {
+        let (sin, cos) = angle.sin_cos();
+        let g = self.velocity.ground;
+        self.velocity = Point::new(
+            Spot::new(g.x * cos - g.y * sin, g.x * sin + g.y * cos),
+            self.velocity.height,
+        );
+        self
     }
 
     /// The arrow turned where it is along `direction` at its speed, its time going on
@@ -305,6 +340,21 @@ mod tests {
         assert!(sticks(45.0, false));
         assert!(!sticks(20.0, false));
         assert!(!sticks(50.0, true));
+    }
+
+    #[test]
+    fn a_multi_shot_fans_its_arrows_to_either_side() {
+        assert_eq!(volley(None), 1);
+        assert_eq!(volley(Some(2)), 2);
+        assert_eq!(volley(Some(0)), 1);
+        assert_eq!(volley(Some(30)), 20);
+        assert_eq!(fanned(1), 0.05);
+        assert_eq!(fanned(2), -0.05);
+        assert!((fanned(3) - 0.1).abs() < 1e-6 && (fanned(4) + 0.1).abs() < 1e-6);
+        let arrow = Arrow::new(Point::default(), Point::new(Spot::new(600.0, 0.0), 0.0));
+        let turned = arrow.turned_by(std::f32::consts::FRAC_PI_2);
+        assert!(turned.velocity().ground.x.abs() < 1e-3);
+        assert!((turned.velocity().ground.y - SPEED).abs() < 1e-3);
     }
 
     #[test]
