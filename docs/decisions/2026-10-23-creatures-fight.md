@@ -1,4 +1,4 @@
-# The creatures of hostile sides fight one another, in melee
+# The creatures of hostile sides fight one another
 
 AI and fight (`opensacred-game`), 2026-10-23 (#630).
 
@@ -12,11 +12,11 @@ The start's bears by the boss 689, hostile guards of the side 14, run their guar
 ## Ours
 
 The guards and the idle hostile creatures take their foes as the original's, and fight them in melee as they fight the hero: steered by the foe alone, without the places of the hero's list of hostiles about it, the doors in their way sought as for the hero; they leave the fight once the foe is dead or gone (**hypothesis**: as giving up).
-A creature with a ranged weapon takes no creature for its foe (#670).
+A creature with a ranged weapon takes its foes as the others and fights them at range, its arrows hitting the creatures hostile to it (#670).
 The hostile creatures of a behaviour, the start's bears, take their behaviour once woken (#669), and a struck creature's group's alarm wakes its members or sends them into its fight: the start's bears, of one group by `CreateNPC`'s tag `0x11`, wake as the boss strikes one of them and attack the hero or the boss.
 A creature killed by another drops nothing, and its killer earns its experience and the levels it reaches, as the original's (#690, docs/re/fight.md); until #690 the killer's experience was not kept, which the maintainer asked to follow.
 The bosses' levelling at the first fight is followed for those not hostile to the hero (docs/decisions/2026-10-20-bosses.md).
 
 ## Why
 
-The melee, the sides and the levelling are read and the game had them; the archers' arrows hit only the hero (docs/decisions/2026-10-21-archers.md), so the fights at range wait for an issue of their own (#670).
+The melee, the sides and the levelling are read and the game had them; the fights at range came with #670, once the arrows could hit a creature.

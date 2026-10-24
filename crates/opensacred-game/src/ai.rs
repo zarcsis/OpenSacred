@@ -624,9 +624,9 @@ impl Default for FightRules {
 /// the hero (`0x4DBFC0`, #391): it backs off, comes on, goes round where no straight line leads to
 /// the hero, and shoots, standing turned to the hero. As a strike in melee ends, its next chains
 /// or waits for the AI's two steps, as the rules decide (`Mind::ends_strike`, #466).
-/// One that fights a creature, its foe (#630), fights it so in melee, steered by the foe alone
-/// without places about it; it leaves the fight once its foe is dead or gone, and one with a
-/// ranged weapon leaves it too (docs/decisions/2026-10-23-creatures-fight.md).
+/// One that fights a creature, its foe (#630), fights it so, in melee or at range (#670), steered
+/// by the foe alone without places about it; it leaves the fight once its foe is dead or gone
+/// (docs/decisions/2026-10-23-creatures-fight.md).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -704,12 +704,11 @@ fn pursue(
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
         let here = transform.translation;
-        // Its target: its foe, a creature, or the hero. A foe dead or gone, or one fought with a
-        // ranged weapon, it leaves.
+        // Its target: its foe, a creature, or the hero. A foe dead or gone it leaves.
         let foe = mind.foe();
         let (target, aimed, target_strikes, listed, targeted, target_size) = match foe {
             Some(foe) => match foes.get(&foe) {
-                Some(&(at, strikes, its_foe, size)) if !mind.ranged => {
+                Some(&(at, strikes, its_foe, size)) => {
                     (at, foe, strikes, None, its_foe == Some(entity), size)
                 }
                 _ => {
@@ -879,7 +878,7 @@ fn pursue(
             // It stops where it stands, turns to the hero and shoots.
             Pursues::Shoots { choice, chain } => {
                 let d = (hero - here).xz().length();
-                debug!("ai: {entity} shoots at the hero from {d:.0}, its chain {chain:.1}");
+                debug!("ai: {entity} shoots at {aimed} from {d:.0}, its chain {chain:.1}");
                 transform.rotation = crate::hero::facing(hero - here);
                 // A shot speaks (`0x4DF06C`, #711).
                 lines.write(crate::voices::Speak {
