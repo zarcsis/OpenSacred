@@ -56,7 +56,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.15.1 for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.15 for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin).**
   Ghidra 12.2 requires a 64-bit JDK of version 25 or later (`application.java.min=25`, no upper bound); 12.1 still accepted 21.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -110,7 +110,7 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
   A process keeps the directory it was started from as its own for as long as it runs, and Windows does not let a process's working directory be deleted.
   On 2026-10-18 a server restarted from a worktree kept `ExitWorktree` and `Remove-Item` from deleting that worktree ("being used by another process") until it was restarted with its own working directory; started from the main checkout, as the first start is, it would pin the checkout the same way.
 * **Python.**
-  uv runs pyghidra-mcp on Python 3.13, which it downloads itself: `onnxruntime`, which chromadb needs, has wheels up to Python 3.14 and none for the research scripts' 3.15.1 (on 2026-10-24, with onnxruntime 1.31.0, uv still could not resolve pyghidra-mcp 0.2.7 on 3.15).
+  uv runs pyghidra-mcp on Python 3.13, which it downloads itself: `onnxruntime`, which chromadb needs, has wheels up to Python 3.14 and none for the research scripts' 3.15 (on 2026-10-24, with onnxruntime 1.31.0, uv still could not resolve pyghidra-mcp 0.2.7 on 3.15).
 * **Java.**
   pyghidra loads the JVM into its Python process and finds the JDK as Ghidra's own launchers do, so `JAVA_HOME_OVERRIDE` (§2) applies: on 2026-10-18 it loaded Temurin 25 although `JAVA_HOME` named Android Studio's runtime.
   `GHIDRA_INSTALL_DIR`, a user environment variable, names the Ghidra directory.
