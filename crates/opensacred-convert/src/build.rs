@@ -77,7 +77,8 @@ impl Make {
     fn way(self) -> (&'static str, u32) {
         match self {
             Self::Copy => ("copy", 0),
-            Self::Texture(_) => ("texture", 1),
+            // 2: the levels' alpha never lowered (#816).
+            Self::Texture(_) => ("texture", 2),
             Self::Model => ("model", 1),
             Self::WorldIndex => ("world-index", 1),
             Self::Sound(_) => ("sound", 1),
@@ -741,7 +742,7 @@ mod tests {
         assert_eq!(format("00002-dwarf"), (ktx2::Format::R8G8B8A8_SRGB, 1));
         // The manifest of a build before the ways' versions: the ways of a version made again.
         let mut run = manifest::read(&out, NAME).unwrap().unwrap();
-        assert_eq!(run.ways.get("texture"), Some(&1));
+        assert_eq!(run.ways.get("texture"), Some(&2));
         run.ways.clear();
         manifest::write(&out, &run).unwrap();
         assert_eq!(build(&src, &out, false).unwrap().built, 3);
