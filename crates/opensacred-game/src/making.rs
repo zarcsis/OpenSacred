@@ -92,6 +92,7 @@ pub fn clips(
         Style::Roar,
         Style::Viper,
         Style::Ward,
+        Style::Form,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -475,8 +476,10 @@ fn make(
                 points = vec![1.0 - arts::SMITE_LEFT];
             }
             // A boon gives its effects at its own point of its clip.
-            if matches!(style, Style::Boon | Style::Ward) {
-                let boon = arts::boon(record, level).or_else(|| arts::ward(record, level));
+            if matches!(style, Style::Boon | Style::Ward | Style::Form) {
+                let boon = arts::boon(record, level)
+                    .or_else(|| arts::ward(record, level))
+                    .or_else(|| arts::form(record, level));
                 points = boon
                     .as_ref()
                     .map(|boon| vec![boon.point])
@@ -758,7 +761,7 @@ fn make(
                     end(&mut commands);
                 }
             }
-            Style::Boon | Style::Ward => {
+            Style::Boon | Style::Ward | Style::Form => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
                     && playing
@@ -775,6 +778,7 @@ fn make(
                         .and_then(|record| {
                             arts::boon(record, playing.level)
                                 .or_else(|| arts::ward(record, playing.level))
+                                .or_else(|| arts::form(record, playing.level))
                         });
                     if let Some(boon) = boon {
                         info!("making: {} gives the hero {:?}", making.art, boon.effects);
@@ -783,6 +787,7 @@ fn make(
                             .entry::<crate::effects::Effects>()
                             .or_default()
                             .and_modify(move |mut effects| {
+                                effects.take_off(&boon.replaces);
                                 for (effect, seconds) in boon.effects {
                                     effects.add(effect, seconds);
                                 }

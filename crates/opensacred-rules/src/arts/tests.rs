@@ -845,6 +845,62 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_daemons_forms_replace_each_other() {
+    assert_eq!(style(1097), Some(Style::Form));
+    assert_eq!(style(1100), Some(Style::Form));
+    assert_eq!(
+        action(9, Style::Form, 0).map(|a| (a.clip, a.fixed)),
+        Some((ArtClip::Slot(160), true))
+    );
+    let record = |id, value_60, value_68| WeaponArt {
+        factor: [44.0, 1.0],
+        value_58: [10.0, 20.0],
+        value_60,
+        value_68,
+        launch: 2,
+        distance: 0,
+        ..weapon_art(id, [30.0, 12.0], 0x80_0000)
+    };
+    let fierce = form(&record(1097, [15, 5], [15, 5]), 1).unwrap();
+    let ids: Vec<(u32, u32, f32)> = fierce
+        .effects
+        .iter()
+        .map(|(e, s)| (e.id, e.art, *s))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            (3, 1097, 45.0),
+            (1, 1097, 45.0),
+            (7, 1097, 45.0),
+            (60, DAEMON_FORM, 45.0)
+        ]
+    );
+    assert!((fierce.effects[0].0.value - 0.2).abs() < 1e-6);
+    assert_eq!(fierce.replaces, [1094, 1097, 1098, 1099, 1100, DAEMON_FORM]);
+    let fire = form(&record(1098, [0, 0], [0, 871]), 1).unwrap();
+    let (aura, resistance) = (fire.effects[0].0, fire.effects[1].0);
+    assert_eq!((aura.id, aura.whole, resistance.id), (53, 1, 8));
+    assert!((aura.value - 0.871).abs() < 1e-6 && (resistance.value - 30.0).abs() < 1e-6);
+    assert_eq!(
+        form(&record(1099, [0, 0], [0, 871]), 1).unwrap().effects[1]
+            .0
+            .id,
+        10
+    );
+    assert_eq!(
+        form(&record(1100, [0, 0], [0, 871]), 1).unwrap().effects[1]
+            .0
+            .id,
+        9
+    );
+    assert_eq!(
+        form(&record(1097, [15, 5], [15, 5]), 200).unwrap().effects[0].1,
+        180.0
+    );
+}
+
+#[test]
 fn the_daemons_boon_takes_his_forms_off_and_quickens_him() {
     assert_eq!(style(1094), Some(Style::Boon));
     assert_eq!(
