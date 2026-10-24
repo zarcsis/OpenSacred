@@ -181,6 +181,10 @@ pub enum Style {
     /// ([`changeling_seconds`]), 1023 (`GUI_MOVE_CHANGELING`) back to her day's (`0x50E6C0`), of
     /// the launch type 0, made where she stands.
     Changeling,
+    /// The Vampiress's dash, 1028 (`GUI_MOVE_SPEED_DAY`) and 1029 (`GUI_MOVE_SPEED`), of the
+    /// launch type 0: once what is left of its clip is below [`DASHES`] she is put at its point,
+    /// the action's at most its reach away ([`dash_reach`]) where she may stand (`0x50E6C0`).
+    Dash,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -259,6 +263,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1022 || art == 1023 {
         return Some(Style::Changeling);
+    }
+    if art == 1028 || art == 1029 {
+        return Some(Style::Dash);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -550,6 +557,11 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The changeling in either form: the slot 144 at the rate 0.7 (seen).
         (6 | 7, Style::Changeling) => Some(ArtAction {
             rate: CHANGELING_RATE,
+            ..plain(144)
+        }),
+        // The dash: the slot 144 at the rate 5 (seen by day).
+        (6 | 7, Style::Dash) => Some(ArtAction {
+            rate: DASH_RATE,
             ..plain(144)
         }),
         // The Dark Elf's 1045 the slot 146 at the blend 0.5 and the rate 1.0 (`0x506770` at
@@ -991,6 +1003,20 @@ pub fn changeling_seconds(record: &WeaponArt, level: u32, day: bool) -> f32 {
     let [base, step] = record.factor.map(f64::from);
     let seconds = narrow(f64::from(level).mul_add(step, base));
     if day { seconds } else { 2.0 * seconds }
+}
+
+/// What is left of its clip, as a part of it, below which a [`Style::Dash`] puts its maker at its
+/// point, and the rate of its clip (seen: the slot 144 at 5, and the Vampiress at her point 0.36 s
+/// after the click).
+pub const DASHES: f32 = 0.8;
+pub const DASH_RATE: f32 = 5.0;
+
+/// How far the Vampiress's dash `record` goes at most at the level in play `level` (`0x50E6C0`):
+/// `[+0x60] + [+0x64]·L`, 400 + 25·L by day (1028), 500 + 50·L by night (1029); seen: a click 12
+/// cells off put her 8 cells off at level 1.
+pub fn dash_reach(record: &WeaponArt, level: u32) -> u32 {
+    let [base, step] = record.value_60.map(i64::from);
+    u32::try_from(base + step * i64::from(level)).unwrap_or(0)
 }
 
 /// Whether a Vampiress of type `kind` may make `art` in her form (`0x51D840`): a day art of her

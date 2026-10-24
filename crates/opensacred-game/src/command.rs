@@ -482,8 +482,10 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .map(|(entity, place, ..)| (entity, (place.translation() - at).xz().length()))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or("no hostile creature is about")?;
-    // An art aimed at a point takes the creature's place (the launch type 3).
-    let point = (launch == Some(3)).then(|| {
+    // An art aimed at a point takes the creature's place (the launch type 3, and the dash).
+    let aimed = launch == Some(3)
+        || opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Dash);
+    let point = aimed.then(|| {
         let mut places = world.query::<&GlobalTransform>();
         places
             .get(world, target)
