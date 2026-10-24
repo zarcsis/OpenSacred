@@ -845,6 +845,23 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_whirling_blow_strikes_as_her_rundum_and_knocks_back() {
+    assert_eq!(style(1020), Some(Style::Whirl));
+    assert_eq!(
+        action(1, Style::Whirl, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(149), 1.0, true))
+    );
+    assert_eq!(action(1, Style::Whirl, 7), None);
+    // `[+0x58]` 170 + 5·L.
+    let whirl = WeaponArt {
+        value_58: [170.0, 5.0],
+        ..weapon_art(1020, [20.0, 12.0], 1)
+    };
+    assert_eq!(whirl_knockback(&whirl, 1), 175);
+    assert_eq!(whirl_knockback(&whirl, 10), 220);
+}
+
+#[test]
 fn the_hurled_blades_strike_what_the_blade_touches() {
     assert_eq!(style(1054), Some(Style::Blades));
     assert_eq!(

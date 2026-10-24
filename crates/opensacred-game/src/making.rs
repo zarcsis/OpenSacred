@@ -83,6 +83,7 @@ pub fn clips(
         Style::Boon,
         Style::Smite,
         Style::Blades,
+        Style::Whirl,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -450,8 +451,9 @@ fn make(
                     .map(|boon| vec![boon.point])
                     .unwrap_or_default();
             }
-            // A `Rundum` and the hurled blades start their regeneration as they start.
-            if matches!(style, Style::Rundum | Style::Blades) {
+            // A `Rundum`, the whirling blow and the hurled blades start their regeneration as
+            // they start.
+            if matches!(style, Style::Rundum | Style::Whirl | Style::Blades) {
                 arts.start(making.art);
             }
             info!(
@@ -640,15 +642,9 @@ fn make(
                         && health.current > 0
                     {
                         hits.write(hit(playing.target, &playing));
-                        let chance = arts::knockback_chance(
-                            playing.level,
-                            (mind.creature, mind.level),
-                            mind.flags & BOSS != 0,
-                            mind.big,
-                        );
-                        let roll = to_f32(dice.0.below(100));
+                        let knocks = knocks_back(&mut dice.0, playing.level, mind);
                         let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
-                        if roll < chance
+                        if knocks
                             && let Some(left) = record.and_then(|record| {
                                 arts::knockback(record, playing.level, mind.level)
                             })
@@ -680,7 +676,7 @@ fn make(
                     end(&mut commands);
                 }
             }
-            Style::Rundum => {
+            Style::Rundum | Style::Whirl => {
                 if finished {
                     end(&mut commands);
                     continue;
@@ -726,10 +722,37 @@ fn make(
                 {
                     hits.write(hit(chosen, &playing));
                     playing.last = Some(chosen);
+                    // The whirling blow knocks back each creature it strikes by a kick's roll
+                    // (`0x5038F0` at `0x50522A`).
+                    if playing.style == Style::Whirl
+                        && let Ok((_, _, mind, _)) = creatures.get(chosen)
+                        && knocks_back(&mut dice.0, playing.level, mind)
+                    {
+                        commands
+                            .entity(chosen)
+                            .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                            .insert(Knocked {
+                                by: hero,
+                                from: here,
+                                left: to_f32(arts::whirl_knockback(record, playing.level)),
+                            });
+                    }
                 }
             }
         }
     }
+}
+
+/// Whether a kick's roll of 0 to 99, an art's of the level in play `level`, knocks back the
+/// creature of `mind` (`0x4FC9D0`, `arts::knockback_chance`).
+fn knocks_back(dice: &mut Rng, level: u32, mind: &Mind) -> bool {
+    let chance = arts::knockback_chance(
+        level,
+        (mind.creature, mind.level),
+        mind.flags & BOSS != 0,
+        mind.big,
+    );
+    to_f32(dice.below(100)) < chance
 }
 
 /// The item in a hero's hand that its hurled blades strike with (`0x5038F0`): the one in its

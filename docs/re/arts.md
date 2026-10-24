@@ -361,6 +361,10 @@ The Seraphim's executor (`0x5038F0`) has cases for 1003 and 1017 together, 1013 
   **Seen** as 1018: the effect 17 of the whole value 1 for 30 s.
 - **1020 (`GUI_MOVE_WIRBELSCHLAG`)** runs as her `Rundum` 1069 ("A `Rundum`'s run" above), with the radius `[+0x60] + [+0x64]·L`, 160 + 5·L per cent of the reach, and the factor 0.7 + 0.05·L; refused with a bow or a crossbow, it sets `+0x1F4` bit `0x800000` while it runs (cleared at its end with `0x450630` and `0x44DDC0`, not followed).
   Each creature it strikes is knocked back as by a kick, by a roll of 0 to 99 below `0x4FC9D0(L, target)` ("The kicks" above): the event of kind 3 from the Seraphim with the whole value `[+0x58] + [+0x5C]·L`, 170 + 5·L.
+  On foot it plays the slot 149 at the blend 0.5 and the rate 1.0 (`0x50619A`; the case of the art's switch at `0x505B67`, by the bytes at `0x5066D0`), not her `Rundum`'s 153 at the attack speed.
+  **Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1 after `load start-seraphim` moved to 3250,2511, `arts learn 1020`, four goblin warriors of level 5 made on the four cells beside her, which stepped back to two cells, and two creatures of type 313 come by; the right button on one, the trace `strike`): twelve strikes of 17 to 19 in two waves, six from 54.67 s to 55.31 s, a tick apart and each on another creature, and six from 58.06 s to 58.99 s, each creature struck again 2.9 to 3.8 s after its first strike, once it had come back from its knockback.
+  `opensacred-game` makes it (#754, `opensacred_rules::arts::Style::Whirl`, `whirl_knockback`): as her `Rundum`, its regeneration started as it starts, and each creature struck knocked back (`making::Knocked`) by the kicks' roll the distance 170 + 5·L; the bit `0x800000` and the second clip of `0x5491F0` are left out.
+  On the same goblins the game's Seraphim struck as often per wave, 17 or 18 each, but in four waves within 4.7 s, its knocked creatures coming back 0.8 to 1.2 s after their strike (#773).
 - **1021 (`GUI_MOVE_DOPPELGAENGER`)**, of no class, only ends and starts its regeneration here.
 
 ### The Gladiator's

@@ -143,6 +143,10 @@ pub enum Style {
     /// its hand touches first ([`blade_touches`]), unless that is the one it struck last: the
     /// Seraphim's 1054 (`GUI_MOVE_SCHLEUDERKLINGEN`, `0x5038F0`).
     Blades,
+    /// Her `Rundum`'s strikes, each creature struck knocked back by a kick's roll
+    /// ([`knockback_chance`], [`whirl_knockback`]): the Seraphim's 1020
+    /// (`GUI_MOVE_WIRBELSCHLAG`, `0x5038F0`, which runs it as her 1069).
+    Whirl,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -190,6 +194,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1054 {
         return Some(Style::Blades);
+    }
+    if art == 1020 {
+        return Some(Style::Whirl);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -460,6 +467,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (2, Style::Smite) => Some(plain(146)),
         // The Seraphim's 1054 the slot 148 at the blend 0.5 and the rate 1.6 (`0x5038F0` at
         // `0x505D44`).
+        // The Seraphim's 1020 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
+        // `0x50619A`).
+        (1, Style::Whirl) => Some(plain(149)),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -644,6 +654,14 @@ pub fn knockback(record: &WeaponArt, level: u32, target: u32) -> Option<u32> {
     u32::try_from(distance)
         .ok()
         .filter(|&distance| distance > 10)
+}
+
+/// How far a creature that a [`Style::Whirl`] of `record` at the level in play `level` knocks
+/// back slides (`0x5038F0` at `0x50522A`): the event of kind 3 with the whole value
+/// `[+0x58] + [+0x5C]·L`, 170 + 5·L for 1020, whatever the target's level.
+pub fn whirl_knockback(record: &WeaponArt, level: u32) -> u32 {
+    let [base, step] = record.value_58.map(f64::from);
+    u32::try_from(whole_units(f64::from(level).mul_add(step, base))).unwrap_or(0)
 }
 
 /// A whole number of units, as the original's `_ftol` truncates it.
