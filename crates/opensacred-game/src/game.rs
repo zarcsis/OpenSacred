@@ -313,7 +313,12 @@ fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::Hero
 
 /// Loads the game `game` would start: the hero at its start, the first sector built, the start
 /// script's NPCs and objects, the footsteps, the music.
-fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> {
+fn load(
+    shared: &sectors::Shared,
+    sound: &opensacred_data::sound::Sound,
+    game: &NewGame,
+    speed: f32,
+) -> Result<Loaded> {
     let assets = &shared.assets;
     let class = game.class.unwrap_or_default();
     let tree = game.tree.clone().unwrap_or_else(|| class.tree().into());
@@ -387,7 +392,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         }
     }
     let [idle, walk, run] = clips.moving.clone();
-    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
+    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile, sound)?;
     // The balance's values of the fight, and the hero's own by its type's record and its
     // template's items (#486).
     let balance =
@@ -405,6 +410,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
                 assets,
                 [&night.clips.moving[1], &night.clips.moving[2]],
                 &profile,
+                sound,
             )?;
             let day = forms::Form {
                 creature: class.creature(),
@@ -479,8 +485,8 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         None
     } else {
         Some((
-            music::Music::read(assets)?,
-            atmosphere::Atmosphere::read(assets)?,
+            music::Music::read(assets, sound)?,
+            atmosphere::Atmosphere::new(sound),
         ))
     };
     Ok(Loaded {
@@ -595,12 +601,15 @@ fn begin(
     mut commands: Commands,
     request: Res<Request>,
     data: Res<Data>,
+    index: Res<sound::Index>,
     speed: Res<hero::GameSpeed>,
     screen: Res<LoadingScreen>,
     assets: Res<AssetServer>,
 ) {
-    let (shared, game, speed) = (Arc::clone(&data.0), request.0.clone(), speed.0);
-    let task = AsyncComputeTaskPool::get().spawn(async move { load(&shared, &game, speed) });
+    let (shared, sound) = (Arc::clone(&data.0), Arc::clone(&index.0));
+    let (game, speed) = (request.0.clone(), speed.0);
+    let task =
+        AsyncComputeTaskPool::get().spawn(async move { load(&shared, &sound, &game, speed) });
     commands.insert_resource(Pending(task));
     let mut root = commands.spawn((
         DespawnOnExit(AppState::Loading),

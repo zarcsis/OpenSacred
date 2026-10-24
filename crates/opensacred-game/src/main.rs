@@ -171,6 +171,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         assets: assets.clone(),
         shadows: shadows.clone(),
     };
+    let sound_index = sound::Index::read(&assets)?;
     let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
     // frames do not depend on the monitor.
@@ -303,7 +304,8 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(liquids::Liquids::read(&assets)?)
     .insert_resource(voices::Voices::read(&assets)?)
-    .insert_resource(sfx::Sfx::read(&assets)?)
+    .insert_resource(sfx::Sfx::new(&sound_index.0))
+    .insert_resource(sound_index)
     .insert_resource(hud::Hud {
         cursor: hud::cursor_file(&assets),
     })

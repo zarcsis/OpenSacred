@@ -48,8 +48,6 @@ enum Make {
     WorldIndex,
     /// A sample's or, if `true`, a music file's FLAC master, encoded into Ogg Opus.
     Sound(bool),
-    /// The sound index, naming the Opus files.
-    SoundIndex,
     /// A cutscene's FFV1 and FLAC master, encoded into AV1 and Opus WebM.
     Video,
     /// The cutscenes' index, naming the WebM files.
@@ -58,7 +56,7 @@ enum Make {
 
 impl Make {
     /// Every way.
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 9] = [
         Self::Copy,
         Self::Texture(Use::Read),
         Self::Texture(Use::Sampled),
@@ -66,7 +64,6 @@ impl Make {
         Self::WorldIndex,
         Self::Sound(false),
         Self::Sound(true),
-        Self::SoundIndex,
         Self::Video,
         Self::VideoIndex,
     ];
@@ -82,7 +79,6 @@ impl Make {
             Self::Model => ("model", 1),
             Self::WorldIndex => ("world-index", 1),
             Self::Sound(_) => ("sound", 1),
-            Self::SoundIndex => ("sound-index", 1),
             Self::Video => ("video", 0),
             Self::VideoIndex => ("video-index", 0),
         }
@@ -103,9 +99,6 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     }
     if path == world_index() {
         return (path.to_owned(), Make::WorldIndex);
-    }
-    if path == format!("sound/{}", opensacred_data::sound::INDEX) {
-        return (path.to_owned(), Make::SoundIndex);
     }
     if let Some(stem) = path.strip_suffix(".flac")
         && path.starts_with("sound/")
@@ -253,12 +246,6 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
         Make::Sound(music) => {
             let flac = fs::read(&from).with_context(what)?;
             crate::sound::encode_opus(&flac, music, &planned.master.path).with_context(what)
-        }
-        Make::SoundIndex => {
-            let text = fs::read_to_string(&from).with_context(what)?;
-            Ok(crate::sound::built_index(&text)
-                .with_context(what)?
-                .into_bytes())
         }
         Make::Video => {
             let target = staging.join(&planned.path);
@@ -555,7 +542,7 @@ mod tests {
         );
         assert_eq!(
             make("sound/sound.ron"),
-            ("sound/sound.ron".to_owned(), Make::SoundIndex)
+            ("sound/sound.ron".to_owned(), Make::Copy)
         );
         assert_eq!(
             make("sound/samples/00002.flac"),

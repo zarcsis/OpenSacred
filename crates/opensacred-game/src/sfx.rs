@@ -10,9 +10,7 @@
 //! gives them (docs/re/sound.md, "A sound's place", #731).
 
 use std::collections::HashMap;
-use std::path::Path;
 
-use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
     App, AssetServer, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message, MessageReader,
@@ -21,10 +19,10 @@ use bevy::prelude::{
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
 
-use crate::files;
 use crate::frame::Unpaused;
 use crate::hero::{self, Body};
 use crate::iso;
+use crate::sound::sample_file;
 use crate::spawning::Rng;
 
 /// The slots of a profile's group, over which its variants repeat in turn (docs/02 §10.1).
@@ -62,17 +60,12 @@ pub struct Sfx {
 }
 
 impl Sfx {
-    /// Reads the profiles of `sound/sound.ron`.
-    pub fn read(assets: &Path) -> Result<Self> {
-        let path = assets.join("sound").join(opensacred_data::sound::INDEX);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let sound: Sound =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let files: HashMap<u32, &str> = sound
+    /// The profiles of the sound index `sound`.
+    pub fn new(sound: &Sound) -> Self {
+        let files: HashMap<u32, String> = sound
             .samples
             .iter()
-            .map(|s| (s.id, s.file.as_str()))
+            .map(|&id| (id, sample_file(id)))
             .collect();
         let profiles = sound
             .profiles
@@ -83,7 +76,7 @@ impl Sfx {
                     .iter()
                     .map(|ids| {
                         ids.iter()
-                            .filter_map(|id| files.get(id).map(|f| (*id, format!("sound/{f}"))))
+                            .filter_map(|id| files.get(id).map(|f| (*id, f.clone())))
                             .collect()
                     })
                     .collect();
@@ -95,20 +88,16 @@ impl Sfx {
             .iter()
             .filter_map(|n| {
                 let file = files.get(&n.id)?;
-                Some((n.name.clone(), (n.id, format!("sound/{file}"))))
+                Some((n.name.clone(), (n.id, file.clone())))
             })
             .collect();
-        let files = files
-            .into_iter()
-            .map(|(id, file)| (id, format!("sound/{file}")))
-            .collect();
-        Ok(Self {
+        Self {
             profiles,
             named,
             files,
             samples: HashMap::new(),
             dice: Rng::of(0, 0, 4),
-        })
+        }
     }
 
     /// A variant of `profile`'s `group`: a slot of 8 at random, the group's variants repeating

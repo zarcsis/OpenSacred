@@ -4,15 +4,17 @@
 //! files. A WAV sample becomes lossless FLAC; an MP3 sample and the music are decoded from their
 //! first frame into 16-bit FLAC, which keeps what the MP3 decoder gives (#697).
 //!
-//! `build` encodes each master into Ogg Opus for the game ([`encode_opus`], #701) and writes the
-//! game's `sound.ron` naming the Opus files ([`built_index`]).
+//! `build` encodes each master into Ogg Opus for the game ([`encode_opus`], #701) and copies
+//! `sound.ron`, which names the files by the samples' ids and the music's names alone (#827).
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use opensacred_data::sound::{INDEX, Music, Profile, SampleEntry, Sound, SoundName};
+use opensacred_data::sound::{
+    INDEX, MASTER_EXTENSION, Music, Profile, Sound, SoundName, sample_file,
+};
 use opensacred_formats::sound::{Profiles, Sample, SoundPak, mp3_first_frame};
 use rayon::prelude::*;
 
@@ -119,29 +121,6 @@ pub fn encode_opus(flac: &[u8], music: bool, what: &str) -> Result<Vec<u8>> {
     ffmpeg::pipe(&args, flac, what)
 }
 
-/// The game's sound index of the masters' `masters` (`build`, #701): the samples and the music
-/// named as the Opus files that `build` makes of the FLAC masters.
-pub fn built_index(masters: &str) -> Result<String> {
-    let mut index: Sound = ron::from_str(masters).context("reading the masters' sound.ron")?;
-    let files = index
-        .samples
-        .iter_mut()
-        .map(|s| &mut s.file)
-        .chain(index.music.iter_mut().map(|m| &mut m.file));
-    for file in files {
-        if let Some(stem) = file.strip_suffix(".flac") {
-            *file = format!("{stem}.{}", opensacred_data::sound::EXTENSION);
-        }
-    }
-    ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default())
-        .context("writing the game's sound.ron")
-}
-
-/// `samples/01020.flac`.
-pub fn sample_file(id: usize, extension: &str) -> String {
-    format!("samples/{id:05}.{extension}")
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Summary {
     /// The samples from a WAV and from an MP3, all FLAC now.
@@ -185,32 +164,27 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
         .collect();
     let converted = ids
         .par_iter()
-        .map(|&id| {
-            let what = format!("PAK/sound.pak sample {id}");
-            let (file, bytes) = match pak.get(id).context(what.clone())? {
-                Some(Sample::Wav { data, .. }) => {
-                    (sample_file(id, "flac"), ffmpeg::pipe(&FLAC, data, &what)?)
-                }
+        .map(|&slot| {
+            let what = format!("PAK/sound.pak sample {slot}");
+            let bytes = match pak.get(slot).context(what.clone())? {
+                Some(Sample::Wav { data, .. }) => ffmpeg::pipe(&FLAC, data, &what)?,
                 // Decoded from the first frame: the zeros some records carry before it are left
                 // out (#354, docs/decisions/2026-10-20-mp3-leading-zeros.md).
-                Some(Sample::Mp3 { data, lead }) => (
-                    sample_file(id, "flac"),
-                    ffmpeg::pipe(&MP3_FLAC, &data[lead..], &what)?,
-                ),
+                Some(Sample::Mp3 { data, lead }) => ffmpeg::pipe(&MP3_FLAC, &data[lead..], &what)?,
                 None => unreachable!("ids() lists used slots"),
             };
-            let path = dir.join(&file);
+            let id = u32::try_from(slot).context("sample id")?;
+            let path = dir.join(sample_file(id, MASTER_EXTENSION));
             fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
-            let id = u32::try_from(id).context("sample id")?;
-            Ok((SampleEntry { id, file }, bytes.len()))
+            Ok((slot, id, bytes.len()))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
     let mut samples = Vec::with_capacity(converted.len());
-    for (entry, len) in converted {
+    for (slot, id, len) in converted {
         let mp3 = pak
-            .get(usize::try_from(entry.id).unwrap_or(usize::MAX))
+            .get(slot)
             .ok()
             .flatten()
             .is_some_and(|sample| matches!(sample, Sample::Mp3 { .. }));
@@ -220,7 +194,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
             summary.flac += 1;
         }
         summary.bytes += u64::try_from(len).unwrap_or(0);
-        samples.push(entry);
+        samples.push(id);
     }
 
     let mut list = Vec::new();
@@ -282,11 +256,14 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
     let decoded = music
         .par_iter()
         .map(|(id, stem, name, start, data)| {
-            let file = format!("music/{stem}.flac");
+            let music = Music {
+                id: *id,
+                name: stem.clone(),
+            };
             let flac = ffmpeg::pipe(&MP3_FLAC, &data[*start..], &format!("mp3/{name}"))?;
-            let path = dir.join(&file);
+            let path = dir.join(music.file(MASTER_EXTENSION));
             fs::write(&path, &flac).with_context(|| format!("writing {}", path.display()))?;
-            Ok((Music { id: *id, file }, flac.len()))
+            Ok((music, flac.len()))
         })
         .collect::<Result<Vec<_>>>()?;
     let mut music = Vec::with_capacity(decoded.len());
@@ -313,31 +290,6 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
 mod tests {
     use super::*;
     use crate::testing::{repo_root, scratch_dir};
-
-    #[test]
-    fn sample_files_are_named_by_id() {
-        assert_eq!(sample_file(1020, "flac"), "samples/01020.flac");
-    }
-
-    #[test]
-    fn the_game_index_names_the_opus_files() {
-        let index = Sound {
-            samples: vec![SampleEntry {
-                id: 2,
-                file: "samples/00002.flac".to_owned(),
-            }],
-            profiles: Vec::new(),
-            music: vec![Music {
-                id: Some(6560),
-                file: "music/MUSIC_WOOD01.flac".to_owned(),
-            }],
-            names: Vec::new(),
-        };
-        let text = ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default()).unwrap();
-        let built: Sound = ron::from_str(&built_index(&text).unwrap()).unwrap();
-        assert_eq!(built.samples[0].file, "samples/00002.opus");
-        assert_eq!(built.music[0].file, "music/MUSIC_WOOD01.opus");
-    }
 
     /// A FLAC of a second of a tone, mono and stereo, becomes Ogg Opus at its bitrate that FFmpeg
     /// decodes back to the same length at 48 kHz.
@@ -416,45 +368,49 @@ mod tests {
             ];
             ffmpeg::pipe(&args, data, "a test sample").unwrap()
         };
+        let master = |slot: usize| {
+            fs::read(dir.join(sample_file(u32::try_from(slot).unwrap(), MASTER_EXTENSION))).unwrap()
+        };
         for &id in &picked[..2] {
             let Some(Sample::Wav { data, .. }) = pak.get(id).unwrap() else {
                 panic!("{id}");
             };
-            let flac = fs::read(dir.join(sample_file(id, "flac"))).unwrap();
-            assert_eq!(pcm(&flac, "flac"), pcm(data, "wav"), "sample {id}");
+            assert_eq!(pcm(&master(id), "flac"), pcm(data, "wav"), "sample {id}");
         }
-        let flac = fs::read(dir.join(sample_file(picked[2], "flac"))).unwrap();
+        let flac = master(picked[2]);
         let Some(Sample::Mp3 { data, lead }) = pak.get(picked[2]).unwrap() else {
             panic!("{}", picked[2]);
         };
         assert_eq!(pcm(&flac, "flac"), pcm(&data[lead..], "mp3"));
-        let first = fs::read(dir.join(sample_file(picked[0], "flac"))).unwrap();
+        let first = master(picked[0]);
         convert(&game, &out, &picked[..1]).unwrap();
-        assert_eq!(
-            fs::read(dir.join(sample_file(picked[0], "flac"))).unwrap(),
-            first
-        );
+        assert_eq!(master(picked[0]), first);
         let index: Sound = ron::from_str(&fs::read_to_string(dir.join(INDEX)).unwrap()).unwrap();
+        assert_eq!(index.samples, [u32::try_from(picked[0]).unwrap()]);
         assert_eq!(index.music.len(), 173);
         // docs/02 §10.3: 154 music files hold bytes before their first frame.
         assert_eq!(summary.music_trimmed, 154);
         // The first music file: the PCM of its FLAC, that of the MP3 from its first frame.
         let first = &index.music[0];
-        let ours = fs::read(dir.join(&first.file)).unwrap();
-        let stem = &first.file["music/".len()..first.file.len() - ".flac".len()];
-        let theirs = fs::read(game.join("mp3").join(format!("{stem}.mp3"))).unwrap();
+        let ours = fs::read(dir.join(first.file(MASTER_EXTENSION))).unwrap();
+        let theirs = fs::read(game.join("mp3").join(format!("{}.mp3", first.name))).unwrap();
         let start = mp3_first_frame(&theirs).unwrap();
         assert_eq!(
             pcm(&ours, "flac"),
             pcm(&theirs[start..], "mp3"),
             "{}",
-            first.file
+            first.name
         );
-        assert!(index.music.iter().all(|m| m.file.ends_with(".flac")));
+        assert!(
+            index
+                .music
+                .iter()
+                .all(|m| dir.join(m.file(MASTER_EXTENSION)).is_file())
+        );
         assert_eq!(index.music.iter().filter(|m| m.id.is_some()).count(), 171);
         assert_eq!(index.names.len(), 6869);
         let wood = index.music.iter().find(|m| m.id == Some(6560)).unwrap();
-        assert_eq!(wood.file, "music/MUSIC_WOOD01.flac");
+        assert_eq!(wood.name, "MUSIC_WOOD01");
         let footsteps = index
             .profiles
             .iter()
