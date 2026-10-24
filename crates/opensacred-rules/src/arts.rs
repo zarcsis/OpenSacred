@@ -1473,6 +1473,26 @@ pub fn counterpart(art: u16, kind: u32) -> u16 {
     }
 }
 
+/// The art that the right button makes for the selected `art` of a hero of type `kind`
+/// (`0x552370` with its flag clear, as the mouse's handler `0x6172C0` asks it): the Vampiress's of
+/// her form ([`counterpart`]); the Daemon's second art of a pair of `0x891154` while an effect
+/// keyed by its first holds (`holds`, `0x582B00`), and its first otherwise (seen: 1091 selected
+/// made 1094); the art itself for any other.
+pub fn right_button(art: u16, kind: u32, holds: impl Fn(u16) -> bool) -> u16 {
+    if kind != 9 {
+        return counterpart(art, kind);
+    }
+    for (first, second) in DAEMON {
+        if art == first && holds(first) {
+            return second;
+        }
+        if art == second && !holds(first) {
+            return first;
+        }
+    }
+    art
+}
+
 /// An art's regeneration time at the level `level`, from its record: a spell's `base + step·L`
 /// in whole seconds (`0x4D25C0`), a weapon art's in floats (`0x4D1C00`); the first table is
 /// searched first (`0x571080`), and none holds an art of neither.

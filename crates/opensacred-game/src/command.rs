@@ -1252,6 +1252,14 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     let mut heroes =
                         world.query_filtered::<Option<&crate::effects::Effects>, With<Body>>();
                     let effects = heroes.iter(world).next().flatten().cloned();
+                    // The art of the hero's form for the one asked, as the right button takes it
+                    // (`0x552370`).
+                    let kind = world.resource::<crate::arts::HeroArts>().kind;
+                    let art = opensacred_rules::arts::right_button(art, kind, |key| {
+                        effects
+                            .as_ref()
+                            .is_some_and(|effects| effects.holds_any(&[key]))
+                    });
                     crate::making::may_make(
                         world.resource::<crate::arts::HeroArts>(),
                         art,
