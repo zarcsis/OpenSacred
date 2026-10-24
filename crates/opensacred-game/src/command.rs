@@ -462,7 +462,11 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         world
             .entity_mut(hero)
             .remove::<(crate::attack::Attack, crate::attack::Striking)>()
-            .insert(crate::making::Making { art, target: hero });
+            .insert(crate::making::Making {
+                art,
+                target: hero,
+                point: None,
+            });
         return Ok(format!("the hero makes {art} on itself"));
     }
     let mut creatures = world.query_filtered::<
@@ -475,10 +479,17 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .map(|(entity, place, ..)| (entity, (place.translation() - at).xz().length()))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or("no hostile creature is about")?;
+    // An art aimed at a point takes the creature's place (the launch type 3).
+    let point = (launch == Some(3)).then(|| {
+        let mut places = world.query::<&GlobalTransform>();
+        places
+            .get(world, target)
+            .map_or(at, GlobalTransform::translation)
+    });
     world
         .entity_mut(hero)
         .remove::<(crate::attack::Attack, crate::attack::Striking)>()
-        .insert(crate::making::Making { art, target });
+        .insert(crate::making::Making { art, target, point });
     Ok(format!("the hero makes {art} on {target} at {distance:.0}"))
 }
 

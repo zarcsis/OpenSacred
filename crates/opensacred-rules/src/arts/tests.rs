@@ -845,6 +845,45 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_panther_leaps_to_its_point_within_its_reach() {
+    assert_eq!(style(1043), Some(Style::Panther));
+    assert_eq!(
+        action(4, Style::Panther, 1).map(|a| (a.clip, a.fixed)),
+        Some((ArtClip::Slot(182), true))
+    );
+    // 1043's record: `[+0x50]` 400 + 50·L.
+    let panther = WeaponArt {
+        factor: [400.0, 50.0],
+        launch: 3,
+        distance: 0,
+        ..weapon_art(1043, [4.0, 2.0], 8)
+    };
+    assert_eq!(panther_reach(&panther, 1), 450);
+    assert_eq!(panther_reach(&panther, 3), 550);
+    // The rate by the reach: 6 − 4.545 at 450, 1 beyond 500.
+    assert!((panther_rate(450) - 1.4545).abs() < 1e-3);
+    assert_eq!(panther_rate(550), 1.0);
+    assert_eq!(panther_rate(5), 5.0);
+    // Within the reach the point itself; beyond it, brought to the reach; far, to the reach.
+    assert_eq!(
+        panther_point([0.0, 0.0], [300.0, 0.0], 450, false),
+        [300.0, 0.0]
+    );
+    assert_eq!(
+        panther_point([0.0, 0.0], [900.0, 0.0], 450, false),
+        [450.0, 0.0]
+    );
+    assert_eq!(
+        panther_point([0.0, 0.0], [300.0, 0.0], 450, true),
+        [450.0, 0.0]
+    );
+    assert_eq!(
+        panther_point([10.0, 10.0], [10.0, 10.0], 450, false),
+        [10.0, 10.0]
+    );
+}
+
+#[test]
 fn the_multi_shot_gives_its_arrows_by_the_level() {
     assert_eq!(style(1005), Some(Style::Volley));
     // 1005's record: `[+0x50]` 50 + 144·L, `[+0x58]` 77 + 20·L, `[+0x60]` 20.
