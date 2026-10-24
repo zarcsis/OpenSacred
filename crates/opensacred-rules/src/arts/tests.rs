@@ -845,6 +845,39 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_roar_knocks_back_and_holds_the_hostiles_about_its_maker() {
+    assert_eq!(style(1014), Some(Style::Roar));
+    assert_eq!(
+        action(2, Style::Roar, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(149), 1.0, true))
+    );
+    // 1014's record: `[+0x50]` 150 + 10·L, `[+0x58]` 3 + 0.35·L, `[+0x60]` 50 + 3·L,
+    // `[+0x68]` 20 and 18.
+    let roar = WeaponArt {
+        factor: [150.0, 10.0],
+        value_58: [3.0, 0.35],
+        value_60: [50, 3],
+        value_68: [20, 18],
+        launch: 2,
+        distance: 0,
+        ..weapon_art(1014, [10.0, 6.0], 2)
+    };
+    assert_eq!(roar_radius(&roar, 1), 160);
+    assert_eq!(roar_radius(&roar, 10), 250);
+    assert_eq!(roar_knockback(&roar, 1), 56);
+    assert_eq!(roar_knockback(&roar, 10), 92);
+    assert!((roar_hold(&roar, 1) - 3.35).abs() < 1e-6);
+    assert!((roar_hold(&roar, 10) - 6.5).abs() < 1e-6);
+    // At least 10.
+    let weak = WeaponArt {
+        value_60: [0, 0],
+        value_68: [0, 20],
+        ..roar
+    };
+    assert_eq!(roar_knockback(&weak, 1), 10);
+}
+
+#[test]
 fn the_jump_flies_to_its_target_and_strikes_as_it_lands() {
     assert_eq!(style(1017), Some(Style::Jump));
     assert_eq!(

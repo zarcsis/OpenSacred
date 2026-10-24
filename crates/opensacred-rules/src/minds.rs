@@ -968,13 +968,14 @@ impl Mind {
     /// Knocked back by a kick or the whirling blow (`0x531AF7`, the event of kind 3 in the
     /// creature's events' handler): it leaves its fight and stands (`0x54E6D0`: the AI's state 0,
     /// the action 0), and is held (`+0x200` bit `0x40000`), its timer set to fire in [`HELD`]
-    /// seconds; held, it thinks nothing (`0x542B20`), and the first firing of its timer that
-    /// finds its slide over lets it go and wakes it (`0x5375C0`).
-    pub fn knocked(&mut self) {
+    /// seconds, or in `held` where that is longer (the roar's, `0x4FF0B0` at `0x4FFDCA`); held,
+    /// it thinks nothing (`0x542B20`), and the first firing of its timer that finds its slide
+    /// over lets it go and wakes it (`0x5375C0`).
+    pub fn knocked(&mut self, held: f32) {
         self.leaves_fight();
         self.to_door = false;
         self.held = true;
-        self.clock = self.period - HELD;
+        self.clock = self.period - HELD.max(held);
     }
 
     /// Whether it is held after a knockback ([`Self::knocked`]).
@@ -2854,7 +2855,7 @@ mod tests {
         let mut goblin = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
         let thought = goblin.think(&senses(0.1, false), |_| true, || false, &mut rng);
         assert!(thought.attacks && goblin.fighting);
-        goblin.knocked();
+        goblin.knocked(0.0);
         assert!(goblin.held() && !goblin.fighting);
         // Held, it thinks nothing for 3 s, the hero beside it.
         for _ in 0..29 {
@@ -2866,11 +2867,20 @@ mod tests {
         let thought = goblin.think(&senses(0.11, false), |_| true, || false, &mut rng);
         assert!(!goblin.held() && thought.attacks);
         // A firing while it slides holds it on.
-        goblin.knocked();
+        goblin.knocked(0.0);
         for _ in 0..31 {
             goblin.think(&senses(0.1, true), |_| true, || false, &mut rng);
         }
         assert!(goblin.held());
+        // The roar's hold of 3.35 s outlasts the event's 3.
+        let mut roared = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        roared.knocked(3.35);
+        for _ in 0..33 {
+            roared.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        }
+        assert!(roared.held());
+        roared.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        assert!(!roared.held());
     }
 
     #[test]
