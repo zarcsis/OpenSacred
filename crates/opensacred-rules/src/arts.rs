@@ -189,6 +189,10 @@ pub enum Style {
     /// up and held ([`backbreaker_hold`]), let go at its point ([`backbreaker_lets_go`]) with a
     /// strike of [`backbreaker_factor`], and held on by a roll ([`backbreaker_holds`]).
     Backbreaker,
+    /// The Vampiress's blood bite 1030 (`GUI_MOVE_BLUTBISS`, `0x50E6C0`), by night: once what is
+    /// left of its clip is below [`BITES`] its target is held for [`BITE_HOLD`] with the effect
+    /// 15, struck with a fixed physical damage of [`bite_drain`], and she takes as much health.
+    Bite,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -273,6 +277,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1010 {
         return Some(Style::Backbreaker);
+    }
+    if art == 1030 {
+        return Some(Style::Bite);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -563,6 +570,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (2, Style::Jump) => Some(plain(144)),
         // The Vampiress's claw jump by night: the slot 153 (seen at the rate 3).
         (7, Style::Jump) => Some(plain(153)),
+        // Her blood bite by night: the slot 144 at the rate 1.0 (seen).
+        (7, Style::Bite) => Some(plain(144)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C2F`; 169 mounted).
         (2, Style::Roar) => Some(plain(149)),
@@ -877,6 +886,22 @@ pub fn jump_points(kind: u32) -> [f32; 2] {
         7 => [0.8, 0.35],
         _ => [0.75, 0.4],
     }
+}
+
+/// What is left of its clip, as a part of it, below which the blood bite bites (`0x50E6C0`), and
+/// how long its target is held, with the effect 15 keyed by 1030 (seen: 0.44 s into the clip, and
+/// the target frozen about 4.4 s).
+pub const BITES: f32 = 0.9;
+pub const BITE_HOLD: f32 = 4.4;
+
+/// What the blood bite of `record` at the level in play `level` drains (`0x50E6C0`): its factor
+/// `L·[+0x54] + [+0x50]`, 10 + 20·L, whole and at most 65,534, a fixed physical damage to its
+/// target (the event `0x406`) and as much health to her (seen: at level 1 a goblin warrior lost
+/// 25 of it through its resistance, and she took 30).
+pub fn bite_drain(record: &WeaponArt, level: u32) -> u32 {
+    let [base, step] = record.factor.map(f64::from);
+    let drain = whole_units(f64::from(level).mul_add(step, base)).clamp(0, 65_534);
+    u32::try_from(drain).unwrap_or(0)
 }
 
 /// The rate of the Vampiress's claw jump's clip (seen: 3, where the others' rule by the distance
