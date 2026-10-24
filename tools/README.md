@@ -12,7 +12,7 @@
 
 ## How to run
 
-* Python 3.15.1; dependencies: `pip install -r tools/requirements.txt`.
+* Python 3.15 (tested on 3.15.1); dependencies: `pip install -r tools/requirements.txt`.
   After a Python upgrade, reinstall the dependencies: each version has its own packages.
 * Run from the repository root with `python3 -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
 * The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`.

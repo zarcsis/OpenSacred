@@ -1,5 +1,5 @@
 # Dependencies of the tools/ scripts (versions installed in the research environment; `pip show`, 2026-10-24).
-# Python 3.15.1. Run: python3 -I <script> ... (see tools/README.md).
+# Python 3.15 (tested on 3.15.1). Run: python3 -I <script> ... (see tools/README.md).
 # Latest stable releases as of 2026-10-24; capstone 6 is still alpha only (6.0.0a11), so we stay on 5.x.
 pefile==2024.8.26
 capstone==5.0.9
