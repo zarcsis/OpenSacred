@@ -1352,6 +1352,24 @@ impl Effect {
     }
 }
 
+/// Turns a part of one kind's least and most damage into another's by the effect 53 `turns`
+/// (`0x5796A0` at `0x57CA45`): each part `part · end + 0.5` truncated, `part` `1 − value^whole`
+/// stored as a float, taken from the one kind and added to the other.
+fn turn_damage(damage: &mut [[f32; 2]; KINDS], turns: &Effect) {
+    let from = usize::from(turns.level & 0xF);
+    let to = usize::from((turns.level >> 8) & 0xF);
+    if from >= KINDS || to >= KINDS {
+        return;
+    }
+    let value = f64::from(turns.value.clamp(0.0, 1.0));
+    let part = f64::from(stored(1.0 - value.powi(turns.whole)));
+    let moved = damage[from].map(|end| to_f32(whole_f64(part * f64::from(end) + 0.5)));
+    for (end, moved) in moved.into_iter().enumerate() {
+        damage[from][end] -= moved;
+        damage[to][end] += moved;
+    }
+}
+
 /// The effects' ids that the recomputation follows (`0x5796A0`, its loop over the list after the
 /// items and the record's bonuses, before the skills).
 pub mod effects {
@@ -1378,6 +1396,11 @@ pub mod effects {
     pub const SHIELDS: u32 = 42;
     /// The fire damage's most and least (`+0x7A`, `+0x8A`), plus the whole value.
     pub const FIRE: u32 = 59;
+    /// A part of one kind's damage turned into another's, the first of them alone (`0x5796A0` at
+    /// `0x57CA45`, after the loop): the kinds the low nibble of its level and that of its second
+    /// byte (`0x582D50`'s eighth argument), the part `1 − value^whole`, its value held from 0 to 1
+    /// as it is added (`0x582D50`); the Daemon's forms' auras (docs/re/arts.md, "The Daemon's").
+    pub const TURNS: u32 = 53;
 }
 
 /// The least multiplier of `D` that the effect 2 leaves (the float `0x3C23D70A`).
@@ -1608,6 +1631,9 @@ pub fn combat_with(
     }
     if !speeds_changed {
         speed = attack_speed(base.id) + speed_bonus;
+    }
+    if let Some(turns) = effects.iter().find(|effect| effect.id == effects::TURNS) {
+        turn_damage(&mut damage, turns);
     }
     // The skills' parts of the multipliers.
     let curves = &rules.curves;
@@ -3914,5 +3940,30 @@ mod tests {
         // 0 or none: the rule of the records without one.
         assert_eq!(Rank::of_tag(0), Rank::Common);
         assert_eq!(tagged_level(0, Some(&start), 295, false, &rules), None);
+    }
+
+    #[test]
+    fn the_effect_53_turns_a_part_of_the_physical_damage_into_fire() {
+        // The Daemon's 1098 as the original's driver showed it: 16.84 to 20.84 physical became
+        // 14.84 to 17.84 and a fire damage of 2 to 3.
+        let mut damage = [[16.84, 20.84], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]];
+        let turns = Effect {
+            whole: 1,
+            level: 0x100,
+            ..Effect::new(effects::TURNS, 0.871)
+        };
+        turn_damage(&mut damage, &turns);
+        assert!((damage[0][0] - 14.84).abs() < 1e-4 && (damage[0][1] - 17.84).abs() < 1e-4);
+        assert_eq!(damage[1], [2.0, 3.0]);
+        // A kind beyond the four changes nothing.
+        let mut same = [[10.0, 20.0]; KINDS];
+        turn_damage(
+            &mut same,
+            &Effect {
+                level: 0x500,
+                ..turns
+            },
+        );
+        assert_eq!(same, [[10.0, 20.0]; KINDS]);
     }
 }
