@@ -237,9 +237,13 @@ pub fn stats(world: &mut World, id: Option<Entity>) -> Result<Vec<String>, Strin
                 .iter(world)
                 .next()
                 .ok_or("the hero is not in the world yet")?;
+            // Its type, the night's form's by night (`forms`); its stats keep their record's.
+            let kind = world
+                .get_resource::<crate::arts::HeroArts>()
+                .map(|arts| arts.kind);
             Stats {
                 id: None,
-                creature: base.map(|base| base.id),
+                creature: kind.or(base.map(|base| base.id)),
                 health: health.copied(),
                 attributes: base.map(|base| base.attributes),
                 combat: combat.copied(),

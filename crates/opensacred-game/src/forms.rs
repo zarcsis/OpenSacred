@@ -52,11 +52,15 @@ pub struct Form {
 }
 
 impl Form {
-    /// The Vampiress's night's form: her type 7's record, `VLADY_N.GRN` and its claws' clips.
+    /// The Vampiress's night's form: `VLADY_N.GRN` and its claws' clips, her type 7's record's
+    /// base attributes and speeds, and her day's values (`day`) for the rest: her stats keep their
+    /// type, 6, by which the recomputation takes the record's bonuses, the damping and the skills
+    /// (`0x5796A0` at `0x5797FD`; seen: `+0x08` 6 by night, #792).
     pub fn night(
         assets: &Path,
         hits: &HashMap<String, [f32; 2]>,
         points: &HashMap<String, Vec<f32>>,
+        day: &Base,
     ) -> Result<Self> {
         let model = crate::npcs::model_files(assets)?
             .remove(NIGHT_MODEL)
@@ -73,7 +77,10 @@ impl Form {
                 points,
             ),
             model,
-            base: Base::of(&record),
+            base: Base(opensacred_rules::fight::Base {
+                attributes: record.base,
+                ..day.0
+            }),
             speeds: record.speed,
             size: opensacred_rules::minds::size(rules::VAMPIRESS_BY_NIGHT, false),
             armed: false,
