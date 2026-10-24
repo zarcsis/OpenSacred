@@ -6,9 +6,11 @@
 //!
 //! A level halves the one before by a box of 2 × 2 texels: the colours averaged in linear light,
 //! each weighted by its alpha, so that the colour of a texel the alpha hides does not bleed into
-//! its neighbours; the alpha averaged, then scaled so that the share of texels the models' alpha
-//! test keeps stays the level 0's, as the coverage of foliage would thin out with each level
-//! otherwise (Castaño, "Computing Alpha Mipmaps", 2010).
+//! its neighbours; the alpha averaged, then raised where the share of texels the models' alpha
+//! test keeps falls short of the level 0's, as the coverage of foliage would thin out with each
+//! level otherwise (Castaño, "Computing Alpha Mipmaps", 2010). It is never lowered: a model's
+//! texels of alpha under 255 are blended, so a lowered alpha would make the whole model fainter
+//! where only its edge grew (#816).
 
 use std::sync::LazyLock;
 
@@ -131,18 +133,15 @@ impl Linear {
         kept as f32 / self.texels.len() as f32
     }
 
-    /// The scale of the alpha that brings the coverage nearest `target`.
+    /// The scale of the alpha, 1 or more, that brings the coverage nearest `target`: 1 where the
+    /// coverage reaches it already, as a scale under 1 would take every opaque texel's alpha
+    /// under 255 with it.
     fn alpha_scale(&self, target: f32) -> f32 {
-        let at_one = self.coverage(1.0);
-        if at_one == target {
+        if self.coverage(1.0) >= target {
             return 1.0;
         }
-        // The coverage grows with the scale: bisect between a scale under and one over.
-        let (mut low, mut high) = if at_one < target {
-            (1.0, MOST_SCALE)
-        } else {
-            (0.0, 1.0)
-        };
+        // The coverage grows with the scale: bisect between 1, under, and the widest, over.
+        let (mut low, mut high) = (1.0, MOST_SCALE);
         for _ in 0..24 {
             let middle = 0.5 * (low + high);
             if self.coverage(middle) < target {
@@ -345,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn a_levels_alpha_is_scaled_to_keep_the_share_that_the_alpha_test_keeps() {
+    fn a_levels_alpha_is_raised_to_keep_the_share_that_the_alpha_test_keeps() {
         let level = Linear {
             width: 8,
             height: 1,
@@ -357,8 +356,8 @@ mod tests {
         let more = level.alpha_scale(0.875);
         assert_eq!(level.coverage(more), 0.875);
         assert!((1.26..1.28).contains(&more), "{more}");
-        let fewer = level.alpha_scale(0.5);
-        assert_eq!(level.coverage(fewer), 0.5);
+        // A share over the target stays: a scale under 1 would take every alpha down with it.
+        assert_eq!(level.alpha_scale(0.5), 1.0);
         // A blob of soft alpha: each level keeps about level 0's share, where a plain average
         // would let its fringe pass the test.
         let rgba: Vec<u8> = (0..32 * 32)
@@ -378,6 +377,28 @@ mod tests {
                 (kept - target).abs() <= 0.06,
                 "level {index}: {kept} for {target}"
             );
+        }
+    }
+
+    #[test]
+    fn the_opaque_texels_stay_opaque_at_every_level() {
+        // An opaque skin with a stroke of alpha 0 down its column 15: at level 1 the boxes over
+        // the stroke average to 0.5 and pass the alpha test, more than level 0's share; the
+        // texels away from the stroke keep their alpha of 255 all the same (#816).
+        let rgba: Vec<u8> = (0..32 * 32)
+            .flat_map(|i| [120, 80, 60, if i % 32 == 15 { 0 } else { 255 }])
+            .collect();
+        let levels = levels(32, 32, &rgba);
+        for (index, level) in levels.iter().enumerate() {
+            let width = 32 >> index;
+            let stroke = 15 >> index;
+            for (texel, &[.., alpha]) in level.as_chunks::<4>().0.iter().enumerate() {
+                if texel % width == stroke {
+                    assert!(alpha < u8::MAX, "level {index}, texel {texel}");
+                } else {
+                    assert_eq!(alpha, u8::MAX, "level {index}, texel {texel}");
+                }
+            }
         }
     }
 }
