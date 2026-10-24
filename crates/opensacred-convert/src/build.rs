@@ -50,13 +50,11 @@ enum Make {
     Sound(bool),
     /// A cutscene's FFV1 and FLAC master, encoded into AV1 and Opus WebM.
     Video,
-    /// The cutscenes' index, naming the WebM files.
-    VideoIndex,
 }
 
 impl Make {
     /// Every way.
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 8] = [
         Self::Copy,
         Self::Texture(Use::Read),
         Self::Texture(Use::Sampled),
@@ -65,7 +63,6 @@ impl Make {
         Self::Sound(false),
         Self::Sound(true),
         Self::Video,
-        Self::VideoIndex,
     ];
 
     /// The way's name in the manifest and its version, raised when the converter makes its
@@ -80,7 +77,6 @@ impl Make {
             Self::WorldIndex => ("world-index", 1),
             Self::Sound(_) => ("sound", 1),
             Self::Video => ("video", 0),
-            Self::VideoIndex => ("video-index", 0),
         }
     }
 }
@@ -93,10 +89,6 @@ fn world_index() -> String {
 /// The output's path of the master at `path`, and how it is made; `read` holds the textures that
 /// the game reads on the CPU besides the cursor's.
 fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
-    let video = crate::video::DIR;
-    if path == format!("{video}/{}", opensacred_data::video::INDEX) {
-        return (path.to_owned(), Make::VideoIndex);
-    }
     if path == world_index() {
         return (path.to_owned(), Make::WorldIndex);
     }
@@ -126,11 +118,18 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
             Make::Texture(usage),
         );
     }
+    let video = crate::video::DIR;
     match path
         .strip_prefix(&format!("{video}/"))
         .and_then(|name| name.strip_suffix(".mkv"))
     {
-        Some(stem) => (format!("{video}/{stem}.webm"), Make::Video),
+        Some(stem) => (
+            format!(
+                "{video}/{}",
+                opensacred_data::video::file(stem, opensacred_data::video::EXTENSION)
+            ),
+            Make::Video,
+        ),
         None => (path.to_owned(), Make::Copy),
     }
 }
@@ -257,10 +256,6 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
             let data = fs::read(&target).with_context(what)?;
             fs::remove_file(&target).with_context(|| format!("removing {}", target.display()))?;
             Ok(data)
-        }
-        Make::VideoIndex => {
-            let text = fs::read_to_string(&from).with_context(what)?;
-            Ok(crate::video::built_index(&text)?.into_bytes())
         }
     }
 }
@@ -527,10 +522,6 @@ mod tests {
         assert_eq!(
             make("video/intro.mkv"),
             ("video/intro.webm".to_owned(), Make::Video)
-        );
-        assert_eq!(
-            make("video/video.ron"),
-            ("video/video.ron".to_owned(), Make::VideoIndex)
         );
         assert_eq!(
             make("tables/items.ron"),
