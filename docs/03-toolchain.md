@@ -29,7 +29,7 @@
 | | Visual Studio Build Tools 2026 | MSVC 14.51 + Windows SDK | free for individual development | the linker for Rust on Windows |
 | | cargo-nextest, cargo-deny | current | open source | fast tests (`.config/nextest.toml` runs the GRN cross-checks alone, #746), dependency license checks |
 | | CMake (Ninja when in `PATH`) | 4.4.4 (Ninja 1.13.2) | BSD-3-Clause, free | builds libopus for the game's sound (`opusic-sys`, #701), and Unicorn for the oracle (§3.4) |
-| | LLVM (libclang) | 23.1.4 | Apache-2.0 with LLVM exception | the libclang with which bindgen makes the oracle's Unicorn bindings (§3.4) |
+| | C++ Clang tools for Windows, a component of Build Tools | LLVM 22.1.3 | Apache-2.0 with LLVM exception | the libclang with which bindgen makes the oracle's Unicorn bindings (§3.4) |
 | Assets | Blender | 5.2 LTS | GPL | inspecting glTF models and animations |
 | | Khronos glTF-Validator | 2.0.0-dev.3.10 (latest release, a pre-release) | Apache-2.0 | checking the `.glb` files from the converter |
 | | KTX-Software (`ktx`, `toktx`) | current | Apache-2.0 | KTX2, BC7, Basis Universal |
@@ -56,7 +56,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin).**
   Ghidra 12.2 requires a 64-bit JDK of version 25 or later (`application.java.min=25`, no upper bound); 12.1 still accepted 21.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -69,7 +69,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 * **x64dbg comes from winget** (`winget install --id x64dbg.x64dbg --exact`): a portable zip of the GitHub release, which winget checks against the SHA-256 in its manifest and unpacks into `%LOCALAPPDATA%\Microsoft\WinGet\Packages\x64dbg.x64dbg_Microsoft.Winget.Source_8wekyb3d8bbwe\release\`.
   `Sacred.exe` is debugged with `x32\x32dbg.exe` there (`x96dbg.exe` next to `x32\` picks the debugger by the program's bitness); on 2026-10-18 its 32-bit engine (`x32\headless.exe`) started, and `x32dbg.exe` carries a valid signature of the x64dbg author.
   winget reports the command aliases `x32dbg` and `x64dbg` but creates no links for them, so the debugger stays outside `PATH`.
-* **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, LLVM at `C:\Program Files\LLVM\` (§3.4), x64dbg (above).
+* **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, x64dbg (above).
   The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver.
   glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
 * **Not every tool is needed from the start:** Ghidra and the MCP server were set up on 2026-10-18, ahead of M3; KTX-Software is optional, as `build` writes the KTX2 files itself (#700), though its `ktx info` shows one; the upscalers come with M7.
@@ -185,7 +185,9 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   `cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'` compares `opensacred_rules::fight` with them (`crates/opensacred-rules/tests/oracle.rs`, ignored without the game files): the levels' ends and the levels exactly, the chance within 10⁻⁶ and the damage within 10⁻⁵ of its value (x87 against `f32`); the differences found are bugs of their own: #406, #407 and #408 are fixed, and the test leaves out the most health's vectors of #417 and #418 until they are.
   On 2026-10-21 a release run took 80 s; the functions called no import, so no Windows stub was needed.
 * **The oracle's build:** the emulator is the feature `emulator` of `opensacred-oracle`, so that the workspace builds without Unicorn's toolchain: `unicorn-engine-sys` builds Unicorn's C library with CMake, Ninja (on Windows the ones of Visual Studio when they are not in `PATH`) and the C compiler, and makes its bindings with bindgen, which needs libclang (without it the build stops: "Unable to find libclang").
-  On 2026-10-24 it built with CMake 4.4.4, Ninja 1.13.2, MSVC 19.51 and the libclang of LLVM 23.1.4 (`winget install --id LLVM.LLVM --exact`), in 25 s with 32 jobs: bindgen finds libclang in LLVM's own directory, `C:\Program Files\LLVM\bin`, without `LIBCLANG_PATH`, though the installer leaves that directory out of `PATH`.
+  libclang comes with the Build Tools component "C++ Clang tools for Windows" (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`), which puts LLVM under `VC\Tools\Llvm` and is updated with Build Tools; bindgen's clang-sys looks there by itself, as it does in a standalone LLVM's `C:\Program Files\LLVM`, so neither needs `LIBCLANG_PATH`.
+  The component is added in the Visual Studio Installer, or with `setup.exe modify --installPath <Build Tools> --add Microsoft.VisualStudio.Component.VC.Llvm.Clang --quiet --norestart` started elevated: with `--quiet` the installer refuses to raise its rights itself and exits with 5007.
+  On 2026-10-24 it built with CMake 4.4.4, Ninja 1.13.2, MSVC 19.51 and the component's libclang of LLVM 22.1.3, with no other LLVM on the machine, in 26 s with 32 jobs.
   CI builds the workspace without the feature: the oracle there checks its PE reader and its files (`cargo nextest run -p opensacred-oracle`); the emulator's own tests, on a synthetic image, run with `--features emulator` and need no game files.
   Without the feature, the oracle checks the installation, the image and the directory, and stops.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
