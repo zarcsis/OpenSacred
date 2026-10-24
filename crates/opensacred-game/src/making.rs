@@ -91,6 +91,7 @@ pub fn clips(
         Style::Jump,
         Style::Roar,
         Style::Viper,
+        Style::Ward,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -474,8 +475,9 @@ fn make(
                 points = vec![1.0 - arts::SMITE_LEFT];
             }
             // A boon gives its effects at its own point of its clip.
-            if style == Style::Boon {
+            if matches!(style, Style::Boon | Style::Ward) {
                 points = arts::boon(record, level)
+                    .or_else(|| arts::ward(record, level))
                     .map(|boon| vec![boon.point])
                     .unwrap_or_default();
             }
@@ -552,6 +554,7 @@ fn make(
                                 whole: 0,
                                 value: 0.0,
                                 art: u32::from(making.art),
+                                level: 0,
                             };
                             let mut stunned = commands.entity(entity);
                             stunned.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
@@ -741,7 +744,7 @@ fn make(
                     end(&mut commands);
                 }
             }
-            Style::Boon => {
+            Style::Boon | Style::Ward => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
                     && playing
@@ -755,7 +758,10 @@ fn make(
                         .weapon_arts
                         .iter()
                         .find(|a| a.id == making.art)
-                        .and_then(|record| arts::boon(record, playing.level));
+                        .and_then(|record| {
+                            arts::boon(record, playing.level)
+                                .or_else(|| arts::ward(record, playing.level))
+                        });
                     if let Some(boon) = boon {
                         info!("making: {} gives the hero {:?}", making.art, boon.effects);
                         commands

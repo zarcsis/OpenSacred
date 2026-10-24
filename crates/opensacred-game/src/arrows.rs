@@ -44,7 +44,8 @@ pub struct Loose {
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Size(pub f32);
 
-/// An arrow in flight: its flight, its shooter, its target, the level it flies on, its size.
+/// An arrow in flight: its flight, its shooter, its target, the level it flies on, its size, and
+/// the share of its hit (1, an arrowproof's value for one it sent back, `0x561090`'s `+0x230`).
 #[derive(Component)]
 struct Arrow {
     flight: arrows::Arrow,
@@ -52,7 +53,12 @@ struct Arrow {
     target: Entity,
     level: Level,
     size: f32,
+    share: f32,
 }
+
+/// The dice of the arrows' deflection (`0x561090`'s `rand`).
+#[derive(Resource)]
+struct Dice(opensacred_rules::spawning::Rng);
 
 /// An arrow stuck in a creature, and how long it stays there, in seconds.
 #[derive(Component)]
@@ -144,6 +150,7 @@ fn loose(
                 target: shot.target,
                 level,
                 size,
+                share: 1.0,
             },
             DespawnOnExit(AppState::InGame),
         ));
@@ -169,9 +176,19 @@ fn fly(
     time: Res<Time>,
     heights: Res<Heights>,
     mut hits: MessageWriter<fight::Hit>,
+    mut dice: ResMut<Dice>,
     mut flying: Query<(Entity, &mut Arrow, &mut Transform)>,
     shooters: Query<&ai::Mind, Without<Dies>>,
-    hero: Query<(Entity, &Transform, &Body, &Health), (Without<Arrow>, Without<Dies>)>,
+    hero: Query<
+        (
+            Entity,
+            &Transform,
+            &Body,
+            &Health,
+            Option<&crate::effects::Effects>,
+        ),
+        (Without<Arrow>, Without<Dies>),
+    >,
     creatures: Query<
         (Entity, &Transform, &InTheWay, Option<&Size>),
         (Without<Body>, Without<Arrow>),
@@ -205,7 +222,7 @@ fn fly(
         // The creatures on its level, and the hero, but its shooter.
         let near = hero
             .iter()
-            .filter(|(_, _, body, _)| body.level() == level)
+            .filter(|&&(e, _, body, ..)| body.level() == level && e != arrow.shooter)
             .map(|&(e, at, ..)| (e, Spot::new(at.translation.x, at.translation.z), 50.0))
             .chain(
                 creatures
@@ -222,17 +239,76 @@ fn fly(
             continue;
         };
         // The hero, alive, to a shooter hostile to it; a creature, alive, to one of a hostile side
-        // or type; the shooter alive.
-        let Ok(shooter) = shooters.get(arrow.shooter) else {
-            continue;
-        };
+        // or type; the shooter alive. One the hero sent back hits a creature hostile to the hero.
+        let hero_shot = hero.is_some_and(|(e, ..)| e == arrow.shooter);
         let hero_hit = hero.is_some_and(|(e, ..)| e == on);
-        let the_hero = hero
-            .filter(|_| hero_hit)
-            .map(|(.., health)| health.current > 0);
         let other = shooters.get(on).ok().map(|other| &other.thinks);
-        if !lands(&shooter.thinks, the_hero, other) {
+        let shooter = shooters.get(arrow.shooter).ok();
+        let hits_it = match (hero_shot, shooter) {
+            (true, _) => other.is_some_and(minds::Mind::hostile),
+            (false, Some(shooter)) => {
+                let the_hero = hero
+                    .filter(|_| hero_hit)
+                    .map(|(_, _, _, health, _)| health.current > 0);
+                lands(&shooter.thinks, the_hero, other)
+            }
+            (false, None) => false,
+        };
+        if !hits_it {
             continue;
+        }
+        // A hero with the effect of deflection may turn it aside by its chance (`0x561090`).
+        if hero_hit
+            && let Some((hero_entity, at, _, _, Some(effects))) = hero
+            && let Some(ward) = effects
+                .list()
+                .into_iter()
+                .find(|e| e.id == arrows::DEFLECTION)
+        {
+            let shooter_level = shooter.map_or(0, |shooter| shooter.thinks.level);
+            let chance = arrows::deflection_chance(ward.level, ward.art, shooter_level);
+            let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
+            if roll <= chance {
+                let random = |dice: &mut Dice| {
+                    let mut unit = || {
+                        f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0 * 2.0
+                            - 1.0
+                    };
+                    Point::new(Spot::new(unit(), unit()), 0.0)
+                };
+                let deflected = arrows::deflected(ward.art);
+                debug!(
+                    "arrows: {entity} of {} turned aside by the hero ({deflected:?}, {:.0} %)",
+                    arrow.shooter,
+                    chance * 100.0
+                );
+                match deflected {
+                    arrows::Deflected::Back => {
+                        let old = arrow.shooter;
+                        let direction = match places.get(old) {
+                            Ok(to) => {
+                                let d = to.translation() - at.translation;
+                                Point::new(Spot::new(d.x, d.z), d.y)
+                            }
+                            Err(_) => random(&mut dice),
+                        };
+                        arrow.flight.turn(direction);
+                        arrow.shooter = hero_entity;
+                        arrow.target = old;
+                        arrow.share = ward.value;
+                        transform.rotation = pointing(arrow.flight.velocity());
+                    }
+                    arrows::Deflected::Away => {
+                        let direction = random(&mut dice);
+                        arrow.flight.turn(direction);
+                        arrow.shooter = hero_entity;
+                        transform.rotation = pointing(arrow.flight.velocity());
+                    }
+                    arrows::Deflected::Gone => commands.entity(entity).despawn(),
+                    arrows::Deflected::Passes => {}
+                }
+                continue;
+            }
         }
         let distance = match (places.get(arrow.shooter), places.get(on)) {
             (Ok(a), Ok(b)) => (a.translation() - b.translation()).xz().length(),
@@ -245,7 +321,7 @@ fn fly(
         hits.write(fight::Hit {
             attacker: arrow.shooter,
             target: on,
-            share: 1.0,
+            share: arrow.share,
             ranged: true,
             art: None,
         });
@@ -283,13 +359,15 @@ pub struct ArrowsPlugin;
 
 impl Plugin for ArrowsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<Loose>().add_systems(
-            Update,
-            (loose, fly, unstick)
-                .chain()
-                .after(Step::Npcs)
-                .in_set(Playing),
-        );
+        app.insert_resource(Dice(opensacred_rules::spawning::Rng::of(0, 0, 3)))
+            .add_message::<Loose>()
+            .add_systems(
+                Update,
+                (loose, fly, unstick)
+                    .chain()
+                    .after(Step::Npcs)
+                    .in_set(Playing),
+            );
     }
 }
 
