@@ -927,6 +927,14 @@ fn the_special_arrows_are_shots() {
     };
     assert_eq!(club_knockback(&club, 1), 15);
     assert_eq!(club_knockback(&club, 9), 15);
+    assert_eq!(style(1008), Some(Style::Arrow));
+    let blade = WeaponArt {
+        factor: [5.66, 0.35],
+        value_58: [0.7, 0.05],
+        ..weapon_art(1008, [10.0, 6.0], 0)
+    };
+    let (seconds, factor) = blades(&blade, 2);
+    assert!((seconds - 6.36).abs() < 1e-5 && (factor - 0.8).abs() < 1e-6);
 }
 
 #[test]

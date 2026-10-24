@@ -492,10 +492,18 @@ fn make(
             // (`0x50AC00`).
             if style == Style::Arrow {
                 if holding.is_some_and(|holding| holding.0.ranged) && making.target != hero {
+                    // The blades' strikes carry their own factor, and fly for a time.
+                    let (seconds, factor) = if making.art == 1008 {
+                        let (seconds, factor) = arts::blades(record, level);
+                        (Some(seconds), factor)
+                    } else {
+                        (None, arts::factor(record, level))
+                    };
                     let special = crate::arrows::Special {
                         art: making.art,
                         level,
-                        factor: arts::factor(record, level),
+                        factor,
+                        seconds,
                     };
                     info!(
                         "making: {} shoots {} at the level {level}",
