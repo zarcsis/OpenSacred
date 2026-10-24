@@ -1,21 +1,24 @@
 //! The converted world (docs/02 §5, §12.1): an index and one file per sector.
 //!
 //! `world.ron` holds the [`World`] index: the sectors of the 100 × 100 grid, the ground tile
-//! sheets and the atlases of the static objects. `sectors/<x>-<y>.sector` holds a [`Sector`] and
+//! sheets and the atlases of the miniatures. `sectors/<x>-<y>.sector` holds a [`Sector`] and
 //! `sprites.bin` the [`Sprites`] of the static objects, each postcard-encoded in a zlib stream
-//! ([`Sector::encode`], [`Sprites::encode`]). A tile is the original `tiles.pak` index: tile `t` is
-//! diamond `t % 18` (docs/02 §5.4) of sheet `t / 18`.
+//! ([`Sector::encode`], [`Sprites::encode`]); `sprites/<record>` holds each sprite's image,
+//! assembled from its pieces by the converter ([`sprite_image`], #838). A tile is the original
+//! `tiles.pak` index: tile `t` is diamond `t % 18` (docs/02 §5.4) of sheet `t / 18`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::packed::{DecodeError, decode, encode};
 
 /// Version of the sector and sprite encodings; a file of another version does not load.
-pub const SECTOR_VERSION: u32 = 8;
+pub const SECTOR_VERSION: u32 = 9;
 /// The index file under the world directory.
 pub const INDEX: &str = "world.ron";
 /// The sprite table under the world directory.
 pub const SPRITES_FILE: &str = "sprites.bin";
+/// The directory of the sprites' images under the world directory.
+pub const SPRITES_DIR: &str = "sprites";
 /// Cells per side of a sector.
 pub const SIDE: usize = 64;
 /// Diamonds per tile sheet.
@@ -27,9 +30,14 @@ pub struct World {
     pub sectors: Vec<SectorEntry>,
     /// Image of every tile sheet, relative to `world.ron`: sheet `t / 18` of tile `t`.
     pub sheets: Vec<String>,
-    /// Image of every atlas that sprites and miniatures cut pieces from, relative to
-    /// `world.ron`; [`Piece::atlas`] and [`Miniature::atlas`] index it.
+    /// Image of every atlas that miniatures cut their squares from, relative to `world.ron`;
+    /// [`Miniature::atlas`] indexes it.
     pub atlases: Vec<String>,
+    /// The atlases that the sprites' images were assembled from, relative to `world.ron`, in the
+    /// masters' index alone: the converter's `build` leaves out of the game's assets those that
+    /// [`World::atlases`] does not name (#838).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assembled_from: Vec<String>,
 }
 
 /// A sector of the grid; 3,950 of the 10,000 positions have none.
@@ -226,24 +234,22 @@ pub struct Sprites {
     pub sprites: Vec<Option<Sprite>>,
 }
 
-/// A sprite assembled from pieces of atlases, drawn with its top left corner at an object's
-/// position.
+/// A sprite, drawn with its top left corner at an object's position: its image, `sprites/<record>`
+/// ([`sprite_image`]), covers the rectangle `rect` of it, which the converter assembled from the
+/// sprite's pieces of `mixed.pak` (docs/02 §3.3, #838).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sprite {
     pub width: u16,
     pub height: u16,
-    pub pieces: Vec<Piece>,
+    /// `x0, y0, x1, y1` of the image in the sprite, pixels: from the pieces' smallest corner,
+    /// cut to the sprite's width and height.
+    pub rect: [u16; 4],
 }
 
-/// A rectangle of an atlas, copied to a rectangle of the same size in the sprite.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Piece {
-    /// Index into [`World::atlases`].
-    pub atlas: u32,
-    /// `x0, y0, x1, y1` in the atlas, pixels.
-    pub source: [u16; 4],
-    /// `x0, y0, x1, y1` in the sprite, pixels; pieces may run past the sprite's size.
-    pub rect: [u16; 4],
+/// The image of sprite `record` (`mixed.pak`'s record) under the world directory, of the
+/// extension `extension`: `png` among the masters, `ktx2` in the game's assets.
+pub fn sprite_image(record: u32, extension: &str) -> String {
+    format!("{SPRITES_DIR}/{record:05}.{extension}")
 }
 
 impl Sector {
@@ -374,11 +380,7 @@ mod tests {
                 Some(Sprite {
                     width: 105,
                     height: 90,
-                    pieces: vec![Piece {
-                        atlas: 0,
-                        source: [64, 0, 107, 70],
-                        rect: [0, 0, 43, 70],
-                    }],
+                    rect: [0, 0, 43, 70],
                 }),
             ],
         };

@@ -1,7 +1,7 @@
-//! The static objects of a sector (docs/02 §6.1): each object's sprite, assembled from pieces of
-//! atlases, drawn with its top-left corner at the object's screen position. The sector's sprites
-//! are assembled once when it is built and packed into pages, so that filtering runs across the
-//! pieces' edges as within them.
+//! The static objects of a sector (docs/02 §6.1): each object's sprite, its image as the converter
+//! assembled it from pieces of atlases (#838), drawn with its top-left corner at the object's
+//! screen position. The sector's sprites are read once when it is built and packed into pages, so
+//! that filtering runs across the pieces' edges as within them.
 //!
 //! The original draws the ground, then the objects back to front. Here a sprite is a quad in the
 //! plane of the screen, as flat as the original's, set at the depth of the centre of its cell at
@@ -53,11 +53,13 @@ use bevy::render::render_resource::{
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use opensacred_data::texture;
-use opensacred_data::world::{SIDE, Sector, Shadow, Sprite, Sprites, StaticObject, World};
+use opensacred_data::world::{
+    SIDE, Sector, Shadow, Sprite, Sprites, StaticObject, World, sprite_image,
+};
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
-use crate::terrain::{Rgba, read_texture};
+use crate::terrain::read_texture;
 use crate::{buildings, files, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
@@ -456,14 +458,10 @@ struct Quad {
     fades: bool,
 }
 
-/// A sprite assembled from its pieces, one to one, over its rectangle: so that filtering blends
-/// the texels on either side of a piece's edge as it does inside a piece. Filtering each piece in
-/// its own atlas could not reach the next piece's texels, and the step between two pieces showed
-/// as a line once magnified. The rectangle is the sprite's size from its pieces' smallest corner,
-/// past which the pieces' blocks hold transparent texels only (docs/02 §3.3): where the art is
-/// cut at the rectangle's edge to go on in another sprite, its edge's texels then reach the edge,
-/// as the original draws them, rather than fading out into those texels half a texel short of
-/// it, where what lay behind both sprites showed through as a line (#35).
+/// A sprite's image over its rectangle, which the converter assembled from its pieces one to one
+/// (`world/sprites/<record>.ktx2`, #838): so that filtering blends the texels on either side of a
+/// piece's edge as it does inside a piece. The rectangle is the sprite's size from its pieces'
+/// smallest corner (docs/02 §3.3, #35).
 struct Assembled {
     /// The rectangle in the sprite's pixels: `x0, y0, x1, y1`.
     rect: [i32; 4],
@@ -472,76 +470,26 @@ struct Assembled {
     pixels: Vec<u8>,
 }
 
-/// The sprite's pieces copied from their atlases into one image; `None` without pieces.
-fn assemble(sprite: &Sprite, atlases: &mut Atlases<'_>) -> Result<Option<Assembled>> {
-    let mut covered: Option<[i32; 4]> = None;
-    for piece in &sprite.pieces {
-        let [x0, y0, x1, y1] = piece.rect.map(i32::from);
-        covered = Some(match covered {
-            None => [x0, y0, x1, y1],
-            Some([a, b, c, d]) => [a.min(x0), b.min(y0), c.max(x1), d.max(y1)],
-        });
-    }
-    let Some([x0, y0, x1, y1]) = covered else {
-        return Ok(None);
-    };
-    let rect = [
-        x0,
-        y0,
-        x1.min(x0 + i32::from(sprite.width)),
-        y1.min(y0 + i32::from(sprite.height)),
-    ];
+/// The image of sprite `id` of the world directory `dir`, as large as its rectangle.
+fn read_sprite(dir: &Path, id: u32, sprite: &Sprite) -> Result<Assembled> {
+    let path = dir.join(sprite_image(id, texture::EXTENSION));
+    let image = read_texture(&path)?;
+    let rect = sprite.rect.map(i32::from);
     let width = usize::try_from(rect[2] - rect[0])?;
     let height = usize::try_from(rect[3] - rect[1])?;
-    let mut pixels = vec![0u8; 4 * width * height];
-    for piece in &sprite.pieces {
-        let atlas = atlases.get(piece.atlas)?;
-        let [u0, v0, u1, v1] = piece.source.map(usize::from);
-        let x = usize::try_from(i32::from(piece.rect[0]) - rect[0])?;
-        let y = usize::try_from(i32::from(piece.rect[1]) - rect[1])?;
-        // The part of the piece within the rectangle and the atlas.
-        let u1 = u1.min(atlas.width).min((u0 + width).saturating_sub(x));
-        let v1 = v1.min(atlas.height).min((v0 + height).saturating_sub(y));
-        if u1 <= u0 {
-            continue;
-        }
-        for v in v0..v1 {
-            let from = 4 * (v * atlas.width + u0);
-            let to = 4 * (v * atlas.width + u1);
-            let at = 4 * ((y + v - v0) * width + x);
-            pixels[at..at + to - from].copy_from_slice(&atlas.pixels[from..to]);
-        }
-    }
-    Ok(Some(Assembled {
+    anyhow::ensure!(
+        (image.width, image.height) == (width, height),
+        "{}: {} × {} texels for a rectangle of {width} × {height}",
+        path.display(),
+        image.width,
+        image.height
+    );
+    Ok(Assembled {
         rect,
         width,
         height,
-        pixels,
-    }))
-}
-
-/// The atlases of the sprites' pieces, decoded on first use.
-struct Atlases<'a> {
-    dir: &'a Path,
-    world: &'a World,
-    loaded: HashMap<u32, Rgba>,
-}
-
-impl Atlases<'_> {
-    fn get(&mut self, atlas: u32) -> Result<&Rgba> {
-        if !self.loaded.contains_key(&atlas) {
-            let name = self
-                .world
-                .atlases
-                .get(usize::try_from(atlas)?)
-                .with_context(|| format!("no atlas {atlas}"))?;
-            let image = read_texture(&self.dir.join(name))?;
-            self.loaded.insert(atlas, image);
-        }
-        self.loaded
-            .get(&atlas)
-            .with_context(|| format!("atlas {atlas}"))
-    }
+        pixels: image.pixels,
+    })
 }
 
 /// Where each sprite went on the pages: its page and the top-left corner of its image there.
@@ -603,7 +551,7 @@ fn pack(sprites: &BTreeMap<u32, Assembled>) -> (Vec<Page>, Placed) {
     (pages, placed)
 }
 
-/// The sprite of an object, if it has one with pieces and is drawn as a sprite.
+/// The sprite of an object, if it has one with an image and is drawn as a sprite.
 fn sprite_of<'a>(object: &StaticObject, sprites: &'a Sprites) -> Option<(u32, &'a Sprite)> {
     if object.flags & (HIDDEN | MINIATURE) != 0 || object.sprite == 0 {
         return None;
@@ -612,7 +560,7 @@ fn sprite_of<'a>(object: &StaticObject, sprites: &'a Sprites) -> Option<(u32, &'
         .sprites
         .get(usize::try_from(object.sprite).ok()?)?
         .as_ref()?;
-    (!sprite.pieces.is_empty()).then_some((object.sprite, sprite))
+    Some((object.sprite, sprite))
 }
 
 /// The quad of an object: its assembled sprite on its page, or its miniature's square; none
@@ -1070,22 +1018,15 @@ pub fn build(
     let dir = assets.join("world");
     let mut objects = Vec::new();
     flatten(&sector.statics, &mut objects);
-    // Each sprite of the sector assembled once, then packed into pages.
-    let mut atlases = Atlases {
-        dir: &dir,
-        world,
-        loaded: HashMap::new(),
-    };
+    // Each sprite of the sector read once, then packed into pages.
     let mut assembled: BTreeMap<u32, Assembled> = BTreeMap::new();
     for object in &objects {
         if let Some((id, sprite)) = sprite_of(object, sprites)
             && !assembled.contains_key(&id)
-            && let Some(image) = assemble(sprite, &mut atlases)?
         {
-            assembled.insert(id, image);
+            assembled.insert(id, read_sprite(&dir, id, sprite)?);
         }
     }
-    drop(atlases);
     let (pages, placed) = pack(&assembled);
     let shadow_size = shadows
         .map(|path| texture_size(&assets.join(path)))
@@ -1553,7 +1494,7 @@ fn sprite_passes(
 pub(crate) mod tests {
     use std::fs;
 
-    use opensacred_data::world::{Cell, Piece, Sprite};
+    use opensacred_data::world::{Cell, Sprite};
 
     use super::*;
 
@@ -1581,6 +1522,32 @@ pub(crate) mod tests {
         let pixels: Vec<u8> = (0..width * height).flat_map(|_| colour).collect();
         let file = texture::write(texture::Encoding::Rgba8, width, height, &[pixels]).unwrap();
         fs::write(path, file).unwrap();
+    }
+
+    /// A sprite of `width` × `height` pixels whose image covers it whole.
+    fn whole(width: u16, height: u16) -> Sprite {
+        Sprite {
+            width,
+            height,
+            rect: [0, 0, width, height],
+        }
+    }
+
+    /// Writes the image of each of `sprites` under `dir/world`, all opaque white, as the converter
+    /// writes them (#838).
+    fn write_sprites(dir: &Path, sprites: &Sprites) {
+        fs::create_dir_all(dir.join("world").join(opensacred_data::world::SPRITES_DIR)).unwrap();
+        for (id, sprite) in sprites.sprites.iter().enumerate() {
+            let Some(sprite) = sprite else { continue };
+            let [x0, y0, x1, y1] = sprite.rect.map(u32::from);
+            let id = u32::try_from(id).unwrap();
+            write_atlas(
+                &dir.join("world").join(sprite_image(id, texture::EXTENSION)),
+                x1 - x0,
+                y1 - y0,
+                [255; 4],
+            );
+        }
     }
 
     #[test]
@@ -1646,19 +1613,10 @@ pub(crate) mod tests {
             sectors: Vec::new(),
             sheets: Vec::new(),
             atlases: vec!["atlas.ktx2".into()],
+            assembled_from: Vec::new(),
         };
         // Sprites over their whole rectangles: a floor, a carpet, a chest, a wall and a bed.
-        let sprite = |width, height| {
-            Some(Sprite {
-                width,
-                height,
-                pieces: vec![Piece {
-                    atlas: 0,
-                    source: [0, 0, 8, 8],
-                    rect: [0, 0, width, height],
-                }],
-            })
-        };
+        let sprite = |width, height| Some(whole(width, height));
         let sprites = Sprites {
             sprites: vec![
                 None,
@@ -1669,6 +1627,7 @@ pub(crate) mod tests {
                 sprite(190, 150),
             ],
         };
+        write_sprites(&dir, &sprites);
         // A building over the cells (4..=12, 5..=20), its anchor at (8, 8), as the house of
         // sector 52,39.
         let cell = Cell {
@@ -1991,51 +1950,32 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_sprite_is_assembled_from_its_pieces_and_packed_apart() {
+    fn a_sprites_image_is_read_over_its_rectangle_and_packed_apart() {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-pieces-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        write_atlas(&dir.join("red.ktx2"), 8, 8, [255, 0, 0, 255]);
-        write_atlas(&dir.join("blue.ktx2"), 8, 8, [0, 0, 255, 255]);
-        let world = World {
-            sectors: Vec::new(),
-            sheets: Vec::new(),
-            atlases: vec!["red.ktx2".into(), "blue.ktx2".into()],
-        };
-        // Two pieces side by side from two atlases, and a third below them that runs past the
-        // sprite's size, which counts from the pieces' smallest corner.
-        let piece = |atlas, source, rect| Piece {
-            atlas,
-            source,
-            rect,
-        };
+        let images = dir.join(opensacred_data::world::SPRITES_DIR);
+        fs::create_dir_all(&images).unwrap();
+        write_atlas(&images.join("00001.ktx2"), 8, 5, [255, 0, 0, 255]);
+        // The image of a sprite of 8 × 5 from its pieces' smallest corner at (2, 1).
         let sprite = Sprite {
             width: 8,
             height: 5,
-            pieces: vec![
-                piece(0, [4, 4, 8, 8], [2, 1, 6, 5]),
-                piece(1, [0, 0, 4, 4], [6, 1, 10, 5]),
-                piece(1, [0, 0, 8, 2], [2, 5, 10, 7]),
-            ],
+            rect: [2, 1, 10, 6],
         };
-        let mut atlases = Atlases {
-            dir: &dir,
-            world: &world,
-            loaded: HashMap::new(),
-        };
-        let image = assemble(&sprite, &mut atlases).unwrap().unwrap();
-        drop(atlases);
-        fs::remove_dir_all(&dir).unwrap();
-        // Cut at the size: the third piece's second row goes.
+        let image = read_sprite(&dir, 1, &sprite).unwrap();
         assert_eq!(
             (image.rect, image.width, image.height),
             ([2, 1, 10, 6], 8, 5)
         );
         assert_eq!(image.pixels.len(), 4 * 8 * 5);
-        let pixel = |x: usize, y: usize| &image.pixels[4 * (y * 8 + x)..4 * (y * 8 + x) + 4];
-        assert_eq!(pixel(3, 3), [255, 0, 0, 255]);
-        assert_eq!(pixel(4, 0), [0, 0, 255, 255]);
-        assert_eq!(pixel(7, 4), [0, 0, 255, 255]);
+        // An image of another size than its rectangle does not draw.
+        let other = Sprite {
+            rect: [0, 0, 8, 4],
+            ..sprite
+        };
+        let error = read_sprite(&dir, 1, &other).err().unwrap().to_string();
+        assert!(error.contains("8 × 5 texels"), "{error}");
+        fs::remove_dir_all(&dir).unwrap();
         // Two of them on a page, a gutter apart and whole.
         let sprites = BTreeMap::from([
             (1, image),
@@ -2071,6 +2011,7 @@ pub(crate) mod tests {
             sectors: Vec::new(),
             sheets: Vec::new(),
             atlases: vec!["mini.ktx2".into()],
+            assembled_from: Vec::new(),
         };
         let cell = Cell {
             tile: 0,
@@ -2150,6 +2091,7 @@ pub(crate) mod tests {
             sectors: Vec::new(),
             sheets: Vec::new(),
             atlases: vec!["mini.ktx2".into()],
+            assembled_from: Vec::new(),
         };
         // Water in cell (5, 5), the bank in (6, 5) at height 0.
         let cell = |ground, heights| Cell {
@@ -2266,22 +2208,12 @@ pub(crate) mod tests {
             sectors: Vec::new(),
             sheets: Vec::new(),
             atlases: vec!["atlas.ktx2".into()],
-        };
-        let piece = Piece {
-            atlas: 0,
-            source: [0, 0, 8, 8],
-            rect: [0, 0, 8, 8],
+            assembled_from: Vec::new(),
         };
         let sprites = Sprites {
-            sprites: vec![
-                None,
-                Some(Sprite {
-                    width: 8,
-                    height: 8,
-                    pieces: vec![piece],
-                }),
-            ],
+            sprites: vec![None, Some(whole(8, 8))],
         };
+        write_sprites(&dir, &sprites);
         let cell = Cell {
             tile: 0,
             overlays: Vec::new(),
@@ -2406,21 +2338,12 @@ pub(crate) mod tests {
             sectors: Vec::new(),
             sheets: Vec::new(),
             atlases: vec!["atlas.ktx2".into()],
+            assembled_from: Vec::new(),
         };
         let sprites = Sprites {
-            sprites: vec![
-                None,
-                Some(Sprite {
-                    width: 8,
-                    height: 8,
-                    pieces: vec![Piece {
-                        atlas: 0,
-                        source: [0, 0, 8, 8],
-                        rect: [0, 0, 8, 8],
-                    }],
-                }),
-            ],
+            sprites: vec![None, Some(whole(8, 8))],
         };
+        write_sprites(&dir, &sprites);
         let cell = Cell {
             tile: 0,
             overlays: Vec::new(),
@@ -2520,21 +2443,12 @@ pub(crate) mod tests {
             sectors: Vec::new(),
             sheets: Vec::new(),
             atlases: vec!["atlas.ktx2".into()],
+            assembled_from: Vec::new(),
         };
         let sprites = Sprites {
-            sprites: vec![
-                None,
-                Some(Sprite {
-                    width: 8,
-                    height: 8,
-                    pieces: vec![Piece {
-                        atlas: 0,
-                        source: [0, 0, 8, 8],
-                        rect: [0, 0, 8, 8],
-                    }],
-                }),
-            ],
+            sprites: vec![None, Some(whole(8, 8))],
         };
+        write_sprites(&dir, &sprites);
         let cell = Cell {
             tile: 0,
             overlays: Vec::new(),

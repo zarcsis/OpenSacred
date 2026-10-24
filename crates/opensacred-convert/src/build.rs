@@ -105,12 +105,14 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     if path.starts_with("models/") && path.ends_with(".glb") {
         return (path.to_owned(), Make::Model);
     }
+    let sprite = path.starts_with(&format!("world/{}/", opensacred_data::world::SPRITES_DIR));
     if let Some(stem) = path.strip_suffix(".png")
-        && (path.starts_with("textures/") || path.starts_with("ui/screens/"))
+        && (path.starts_with("textures/") || path.starts_with("ui/screens/") || sprite)
     {
         let cursor = path.starts_with("textures/texture/")
             && stem.ends_with(&format!("-{}", texture::CURSOR));
-        let usage = if cursor || read.contains(path) {
+        // The sprites' images too, which the game packs into its pages (#838).
+        let usage = if cursor || sprite || read.contains(path) {
             Use::Read
         } else {
             Use::Sampled
@@ -137,17 +139,17 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
 }
 
 /// The textures that the world index among the masters in `src` names, which the game composes on
-/// the CPU; none without the index.
-fn read_on_cpu(src: &Path) -> Result<HashSet<String>> {
+/// the CPU, and the atlases that the sprites' images were assembled from and that it does not name,
+/// which `build` leaves out (#838); none without the index.
+fn world_textures(src: &Path) -> Result<(HashSet<String>, HashSet<String>)> {
     let path = src.join(world_index());
     if !path.exists() {
-        return Ok(HashSet::new());
+        return Ok((HashSet::new(), HashSet::new()));
     }
     let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    Ok(crate::world::textures_named(&text)
-        .with_context(|| format!("reading {}", path.display()))?
-        .into_iter()
-        .collect())
+    let (named, assembled) =
+        crate::world::textures_of(&text).with_context(|| format!("reading {}", path.display()))?;
+    Ok((named.into_iter().collect(), assembled.into_iter().collect()))
 }
 
 /// The archive of the output at `path`: one by kind.
@@ -177,6 +179,8 @@ pub struct Summary {
     pub masters: usize,
     pub built: usize,
     pub kept: usize,
+    /// The atlases that the sprites' images were assembled from, left out (#838).
+    pub left_out: usize,
     pub removed: usize,
     pub archives: usize,
 }
@@ -423,7 +427,7 @@ fn remove_extracted(out: &Path) -> Result<usize> {
 /// Builds the game's assets in `out` from the masters in `src`; `force` builds every master.
 pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     let masters = masters(src)?;
-    let read = read_on_cpu(src)?;
+    let (read, assembled) = world_textures(src)?;
     let recorded = manifest::read(out, NAME)?;
     let built_from: HashMap<&str, &FileHash> = recorded
         .as_ref()
@@ -445,7 +449,7 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
         same_world,
     };
     let mut archives: BTreeMap<String, Vec<Planned>> = BTreeMap::new();
-    for master in &masters {
+    for master in masters.iter().filter(|m| !assembled.contains(&m.path)) {
         let (path, how) = make(&master.path, &read);
         archives
             .entry(archive_of(&path))
@@ -479,6 +483,10 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
         }
     }
     let count = masters.len();
+    let left_out = masters
+        .iter()
+        .filter(|m| assembled.contains(&m.path))
+        .count();
     let archive_count = archives.len();
     drop(archives);
     let built = packed.iter().map(|(_, built)| built).sum();
@@ -502,7 +510,8 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     Ok(Summary {
         masters: count,
         built,
-        kept: count - built,
+        kept: count - left_out - built,
+        left_out,
         removed,
         archives: archive_count,
     })
@@ -582,6 +591,15 @@ mod tests {
             make("textures/texture/14791-mouse_main.png").1,
             Make::Texture(Use::Read)
         );
+        // The sprites' images, which the game packs on the CPU (#838).
+        assert_eq!(
+            make("world/sprites/00001.png"),
+            (
+                "world/sprites/00001.ktx2".to_owned(),
+                Make::Texture(Use::Read)
+            )
+        );
+        assert_eq!(archive_of("world/sprites/00001.ktx2"), "world.zip");
     }
 
     #[test]
@@ -729,6 +747,7 @@ mod tests {
                     .map(|s| format!("../textures/texture/{s}.png"))
                     .collect(),
                 atlases: Vec::new(),
+                assembled_from: Vec::new(),
             };
             let text = ron::ser::to_string_pretty(&world, crate::utf8::pretty());
             write(&src, "world/world.ron", &text.unwrap());
@@ -767,6 +786,64 @@ mod tests {
         run.ways.clear();
         manifest::write(&out, &run).unwrap();
         assert_eq!(build(&src, &out, false).unwrap().built, 4);
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The sprites' images go to `world.zip` for the CPU, and the atlases they were assembled
+    /// from leave the game's assets but those that a miniature cuts its square from (#838).
+    #[test]
+    fn the_sprites_are_read_on_the_cpu_and_their_atlases_left_out() {
+        let src = scratch_dir("build-sprites-src");
+        let out = scratch_dir("build-sprites-out");
+        let png = crate::textures::encode_png(8, 8, &[255; 256]).unwrap();
+        for path in [
+            "textures/texture/00001-mix0.444.png",
+            "textures/texture/00002-mini.png",
+            "world/sprites/00001.png",
+        ] {
+            let path = src.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, &png).unwrap();
+        }
+        let world = opensacred_data::world::World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: vec!["../textures/texture/00002-mini.png".to_owned()],
+            assembled_from: vec![
+                "../textures/texture/00001-mix0.444.png".to_owned(),
+                "../textures/texture/00002-mini.png".to_owned(),
+            ],
+        };
+        let text = ron::ser::to_string_pretty(&world, crate::utf8::pretty()).unwrap();
+        write(&src, "world/world.ron", &text);
+        let summary = build(&src, &out, false).unwrap();
+        assert_eq!(
+            (
+                summary.masters,
+                summary.built,
+                summary.kept,
+                summary.left_out
+            ),
+            (4, 3, 0, 1)
+        );
+        let textures = Archive::open(&out.join("textures.zip")).unwrap();
+        assert!(
+            textures
+                .read("textures/texture/00001-mix0.444.ktx2")
+                .is_none()
+        );
+        assert!(textures.read("textures/texture/00002-mini.ktx2").is_some());
+        let world = Archive::open(&out.join("world.zip")).unwrap();
+        let file = world.read("world/sprites/00001.ktx2").unwrap().unwrap();
+        let header = ktx2::Reader::new(&file[..]).unwrap().header();
+        assert_eq!(
+            (header.format.unwrap(), header.level_count),
+            (ktx2::Format::R8G8B8A8_SRGB, 1)
+        );
+        let index = String::from_utf8(world.read("world/world.ron").unwrap().unwrap()).unwrap();
+        assert!(!index.contains("assembled_from"), "{index}");
+        assert_eq!(build(&src, &out, false).unwrap().kept, 3);
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }

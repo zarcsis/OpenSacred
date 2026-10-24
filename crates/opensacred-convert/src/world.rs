@@ -1,22 +1,35 @@
 //! `world` subcommand: `World/sectors.keyx` and `sectors.wldx` with `Static.PAK`, `Floor.PAK`,
-//! `PAK/tiles.pak`, `PAK/items.pak` and `PAK/mixed.pak` → `<out>/world/world.ron`,
-//! `<out>/world/sectors/<x>-<y>.sector` and `<out>/world/sprites.bin` (docs/02 §5; the format is
-//! [`opensacred_data::world`]). Tile sheets and atlases are referred to as the PNGs that
-//! `opensacred-convert textures` writes to `<out>/textures/texture/`, and in the game's index as
-//! the KTX2 files that `build` makes of them ([`built_index`]).
+//! `PAK/tiles.pak`, `PAK/items.pak`, `PAK/mixed.pak` and `PAK/texture.pak` →
+//! `<out>/world/world.ron`, `<out>/world/sectors/<x>-<y>.sector`, `<out>/world/sprites.bin` and
+//! `<out>/world/sprites/<record>.png` (docs/02 §5; the format is [`opensacred_data::world`]). Tile
+//! sheets and the miniatures' atlases are referred to as the PNGs that `opensacred-convert
+//! textures` writes to `<out>/textures/texture/`, and in the game's index as the KTX2 files that
+//! `build` makes of them ([`built_index`]).
+//!
+//! Each sprite of `mixed.pak` with pieces is assembled here once, its pieces copied one to one
+//! from the atlases of `texture.pak` into one image over its rectangle (#838): so that the game
+//! filters the texels on either side of a piece's edge as it does inside a piece, where filtering
+//! each piece in its own atlas could not reach the next piece's texels and the step between two
+//! pieces showed as a line once magnified. The rectangle is the sprite's size from its pieces'
+//! smallest corner, past which the pieces' blocks hold transparent texels only (docs/02 §3.3):
+//! where the art is cut at the rectangle's edge to go on in another sprite, its edge's texels then
+//! reach the edge, as the original draws them, rather than fading out into those texels half a
+//! texel short of it (#35). The atlases that only the sprites' pieces use leave the game's assets
+//! ([`World::assembled_from`]).
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use opensacred_data::world::{
-    Building, Cell, INDEX, Layer, LayerCell, Miniature, Overlay, Piece, SPRITES_FILE, Sector,
-    SectorEntry, Shadow, Sprite, Sprites, StaticObject, World,
+    Building, Cell, INDEX, Layer, LayerCell, Miniature, Overlay, SPRITES_DIR, SPRITES_FILE, Sector,
+    SectorEntry, Shadow, Sprite, Sprites, StaticObject, World, sprite_image,
 };
 use opensacred_formats::items::Items;
 use opensacred_formats::mixed::Sprites as MixedPak;
-use opensacred_formats::tex::TexPak;
+use opensacred_formats::tex::{TexPak, Texture};
 use opensacred_formats::world::{Floors, Keyx, SectorKey, Statics, Tiles};
 use rayon::prelude::*;
 
@@ -59,8 +72,10 @@ pub struct Summary {
     /// Static objects drawn by a sprite, and by a miniature.
     pub sprite_statics: usize,
     pub miniatures: usize,
-    /// Sprites with pieces, and the atlases of sprites and miniatures.
+    /// Sprites with an image, the atlases their images were assembled from, and those of the
+    /// miniatures.
     pub sprites: usize,
+    pub assembled_from: usize,
     pub atlases: usize,
     /// Tile sheets whose texture record is empty: no image to refer to.
     pub missing_sheets: usize,
@@ -164,10 +179,12 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
         });
     }
 
-    let mut atlases = Atlases::default();
-    let sprites = convert_sprites(&mixed, &texture_pak, &mut atlases).context("PAK/mixed.pak")?;
+    let (sprites, assembled_from) =
+        convert_sprites(&mixed, &texture_pak, &dir).context("PAK/mixed.pak")?;
     summary.sprites = sprites.sprites.iter().flatten().count();
+    summary.assembled_from = assembled_from.len();
     // The atlases of the miniature types, so that every sector finds them.
+    let mut atlases = Atlases::default();
     for index in 0..items.len() {
         if let Some(item) = items.get(index)?
             && matches!(item.kind, 8 | 12)
@@ -248,10 +265,21 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
         })
         .collect();
     entries.sort_by_key(|e| (e.y, e.x));
+    let assembled_from = assembled_from
+        .into_iter()
+        .map(|texture| {
+            let index = usize::try_from(texture).context("texture index")?;
+            let record = texture_pak
+                .record(index)?
+                .with_context(|| format!("atlas {texture}: empty texture record"))?;
+            Ok(png_path(index, record.header.name()))
+        })
+        .collect::<Result<Vec<_>>>()?;
     let world = World {
         sectors: entries,
         sheets,
         atlases: atlases.paths,
+        assembled_from,
     };
     let text =
         ron::ser::to_string_pretty(&world, crate::utf8::pretty()).context("writing world.ron")?;
@@ -267,9 +295,59 @@ fn count(list: &[StaticObject], filter: &dyn Fn(&StaticObject) -> bool) -> usize
         .sum()
 }
 
-/// The sprites of `mixed.pak`, their pieces' atlases added to `atlases`.
-fn convert_sprites(mixed: &MixedPak, pak: &TexPak, atlases: &mut Atlases) -> Result<Sprites> {
+/// A piece of a sprite: a rectangle of a `texture.pak` atlas, copied to a rectangle of the same
+/// size in the sprite.
+struct Piece {
+    /// The atlas's `texture.pak` record.
+    texture: u32,
+    /// `x0, y0, x1, y1` in the atlas, pixels.
+    source: [u16; 4],
+    /// `x0, y0, x1, y1` in the sprite, pixels; pieces may run past the sprite's size.
+    rect: [u16; 4],
+}
+
+/// A sprite of `mixed.pak` with pieces: its record, its size and its pieces.
+struct Pieces {
+    record: u32,
+    width: u16,
+    height: u16,
+    pieces: Vec<Piece>,
+}
+
+impl Pieces {
+    /// The rectangle that the sprite's image covers: from the pieces' smallest corner, past which
+    /// they hold transparent texels only (docs/02 §3.3), cut to the sprite's width and height.
+    fn rect(&self) -> [u16; 4] {
+        let mut covered = [u16::MAX, u16::MAX, 0, 0];
+        for piece in &self.pieces {
+            let [x0, y0, x1, y1] = piece.rect;
+            covered = [
+                covered[0].min(x0),
+                covered[1].min(y0),
+                covered[2].max(x1),
+                covered[3].max(y1),
+            ];
+        }
+        let [x0, y0, x1, y1] = covered;
+        [
+            x0,
+            y0,
+            x1.min(x0.saturating_add(self.width)),
+            y1.min(y0.saturating_add(self.height)),
+        ]
+    }
+}
+
+/// Sprites assembled at once by one thread, their atlases decoded once for them: neighbouring
+/// records take their pieces from neighbouring atlases, so that each thread holds few.
+const SPRITES_AT_ONCE: usize = 64;
+
+/// The sprites of `mixed.pak`, each with its rectangle, and their images assembled from their
+/// pieces of the atlases of `pak` into `<dir>/sprites/` (#838); the atlases they were assembled
+/// from, as `pak`'s records.
+fn convert_sprites(mixed: &MixedPak, pak: &TexPak, dir: &Path) -> Result<(Sprites, Vec<u32>)> {
     let mut sprites = vec![None];
+    let mut assembled = Vec::new();
     for index in 1..mixed.len() {
         let sprite = mixed.get(index)?;
         if sprite.pieces.is_empty() {
@@ -278,7 +356,6 @@ fn convert_sprites(mixed: &MixedPak, pak: &TexPak, atlases: &mut Atlases) -> Res
         }
         let mut pieces = Vec::with_capacity(sprite.pieces.len());
         for piece in &sprite.pieces {
-            let atlas = atlases.add(piece.texture, pak)?;
             let texture = pak
                 .record(usize::try_from(piece.texture).context("texture index")?)?
                 .context("atlas without image")?;
@@ -290,18 +367,105 @@ fn convert_sprites(mixed: &MixedPak, pak: &TexPak, atlases: &mut Atlases) -> Res
             // The fractions fall on whole pixels (docs/02 §3.3).
             let source = [u0 * w, v0 * h, u1 * w, v1 * h].map(|v| pixel(v.round()));
             pieces.push(Piece {
-                atlas,
+                texture: piece.texture,
                 source,
                 rect: piece.rect,
             });
         }
-        sprites.push(Some(Sprite {
+        let pieces = Pieces {
+            record: u32::try_from(index).context("sprite record")?,
             width: sprite.width,
             height: sprite.height,
             pieces,
+        };
+        let rect = pieces.rect();
+        // A rectangle without texels, which draws nothing, has no image.
+        if rect[2] <= rect[0] || rect[3] <= rect[1] {
+            sprites.push(None);
+            continue;
+        }
+        sprites.push(Some(Sprite {
+            width: sprite.width,
+            height: sprite.height,
+            rect,
         }));
+        assembled.push(pieces);
     }
-    Ok(Sprites { sprites })
+    let images = dir.join(SPRITES_DIR);
+    if images.exists() {
+        fs::remove_dir_all(&images).with_context(|| format!("removing {}", images.display()))?;
+    }
+    fs::create_dir_all(&images).with_context(|| format!("creating {}", images.display()))?;
+    assembled
+        .par_chunks(SPRITES_AT_ONCE)
+        .try_for_each(|chunk| {
+            let mut atlases = HashMap::new();
+            for sprite in chunk {
+                let (width, height, pixels) = assemble(sprite, pak, &mut atlases)
+                    .with_context(|| format!("sprite {}", sprite.record))?;
+                let path = dir.join(sprite_image(sprite.record, "png"));
+                let png = textures::encode_png(width, height, &pixels)?;
+                fs::write(&path, png).with_context(|| format!("writing {}", path.display()))?;
+            }
+            anyhow::Ok(())
+        })?;
+    let mut from: Vec<u32> = assembled
+        .iter()
+        .flat_map(|sprite| sprite.pieces.iter().map(|piece| piece.texture))
+        .collect();
+    from.sort_unstable();
+    from.dedup();
+    Ok((Sprites { sprites }, from))
+}
+
+/// The image of `sprite` over its rectangle ([`Pieces::rect`]): its pieces copied one to one from
+/// their atlases of `pak`, decoded into `atlases` on first use; its width, height and 8-bit RGBA
+/// texels, rows from the top. Past the pieces, and where a piece runs past its atlas, the texels
+/// are transparent.
+fn assemble(
+    sprite: &Pieces,
+    pak: &TexPak,
+    atlases: &mut HashMap<u32, Texture>,
+) -> Result<(u32, u32, Vec<u8>)> {
+    let rect = sprite.rect();
+    let width = usize::from(rect[2] - rect[0]);
+    let height = usize::from(rect[3] - rect[1]);
+    let mut pixels = vec![0u8; 4 * width * height];
+    for piece in &sprite.pieces {
+        let atlas = match atlases.entry(piece.texture) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let record = pak
+                    .record(usize::try_from(piece.texture)?)?
+                    .with_context(|| format!("atlas {}: empty texture record", piece.texture))?;
+                entry.insert(
+                    record
+                        .decode()
+                        .with_context(|| format!("decoding atlas {}", piece.texture))?,
+                )
+            }
+        };
+        let (atlas_width, atlas_height) = (
+            usize::try_from(atlas.width)?,
+            usize::try_from(atlas.height)?,
+        );
+        let [u0, v0, u1, v1] = piece.source.map(usize::from);
+        let x = usize::from(piece.rect[0] - rect[0]);
+        let y = usize::from(piece.rect[1] - rect[1]);
+        // The part of the piece within the rectangle and the atlas.
+        let u1 = u1.min(atlas_width).min((u0 + width).saturating_sub(x));
+        let v1 = v1.min(atlas_height).min((v0 + height).saturating_sub(y));
+        if u1 <= u0 {
+            continue;
+        }
+        for v in v0..v1 {
+            let from = 4 * (v * atlas_width + u0);
+            let to = 4 * (v * atlas_width + u1);
+            let at = 4 * ((y + v - v0) * width + x);
+            pixels[at..at + to - from].copy_from_slice(&atlas.rgba[from..to]);
+        }
+    }
+    Ok((u32::try_from(width)?, u32::try_from(height)?, pixels))
 }
 
 #[expect(
@@ -467,35 +631,48 @@ fn to_index(record: u32) -> Result<usize> {
     usize::try_from(record).context("record index")
 }
 
-/// The textures that the world index `masters` names, the tile sheets and the atlases, relative to
-/// the masters' root: the game composes them on the CPU (`build`, #700).
-pub fn textures_named(masters: &str) -> Result<Vec<String>> {
+/// The path of `name`, relative to `world.ron`, relative to the masters' root.
+fn master_path(name: &str) -> Result<String> {
+    let path = format!("world/{name}");
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            ".." => {
+                parts
+                    .pop()
+                    .with_context(|| format!("{name} lies outside the masters"))?;
+            }
+            "." | "" => {}
+            part => parts.push(part),
+        }
+    }
+    Ok(parts.join("/"))
+}
+
+/// What the world index `masters` says of the textures, relative to the masters' root
+/// (`build`): those it names, the tile sheets and the miniatures' atlases, which the game composes
+/// on the CPU (#700), and the atlases that the sprites' images were assembled from and that it
+/// does not name, which the game reads no more (#838).
+pub fn textures_of(masters: &str) -> Result<(Vec<String>, Vec<String>)> {
     let world: World = ron::from_str(masters).context("reading the masters' world.ron")?;
-    world
+    let named = world
         .sheets
         .iter()
         .chain(&world.atlases)
-        .map(|name| {
-            let path = format!("world/{name}");
-            let mut parts: Vec<&str> = Vec::new();
-            for part in path.split('/') {
-                match part {
-                    ".." => {
-                        parts
-                            .pop()
-                            .with_context(|| format!("{name} lies outside the masters"))?;
-                    }
-                    "." | "" => {}
-                    part => parts.push(part),
-                }
-            }
-            Ok(parts.join("/"))
-        })
-        .collect()
+        .map(|name| master_path(name))
+        .collect::<Result<Vec<_>>>()?;
+    let assembled = world
+        .assembled_from
+        .iter()
+        .filter(|name| !world.atlases.contains(name))
+        .map(|name| master_path(name))
+        .collect::<Result<Vec<_>>>()?;
+    Ok((named, assembled))
 }
 
 /// The game's world index of the masters' `masters` (`build`, #700): the sheets and the atlases
-/// named as the KTX2 textures that `build` makes of the PNG masters.
+/// named as the KTX2 textures that `build` makes of the PNG masters, without the atlases that the
+/// sprites were assembled from.
 pub fn built_index(masters: &str) -> Result<String> {
     let mut world: World = ron::from_str(masters).context("reading the masters' world.ron")?;
     for name in world.sheets.iter_mut().chain(&mut world.atlases) {
@@ -503,6 +680,7 @@ pub fn built_index(masters: &str) -> Result<String> {
             *name = format!("{stem}.{}", opensacred_data::texture::EXTENSION);
         }
     }
+    world.assembled_from.clear();
     ron::ser::to_string_pretty(&world, crate::utf8::pretty())
         .context("writing the game's world.ron")
 }
@@ -523,18 +701,73 @@ mod tests {
             sectors: Vec::new(),
             sheets: vec!["../textures/texture/00007-sheet.png".to_owned()],
             atlases: vec!["../textures/texture/00009-atlas.png".to_owned()],
+            assembled_from: vec![
+                "../textures/texture/00008-mix1.444.png".to_owned(),
+                "../textures/texture/00009-atlas.png".to_owned(),
+            ],
         };
         let masters = ron::ser::to_string_pretty(&world, crate::utf8::pretty()).unwrap();
+        // The atlas of a miniature that a sprite's pieces were cut from too stays.
         assert_eq!(
-            textures_named(&masters).unwrap(),
-            [
-                "textures/texture/00007-sheet.png",
-                "textures/texture/00009-atlas.png"
-            ]
+            textures_of(&masters).unwrap(),
+            (
+                vec![
+                    "textures/texture/00007-sheet.png".to_owned(),
+                    "textures/texture/00009-atlas.png".to_owned()
+                ],
+                vec!["textures/texture/00008-mix1.444.png".to_owned()]
+            )
         );
-        let built: World = ron::from_str(&built_index(&masters).unwrap()).unwrap();
+        let text = built_index(&masters).unwrap();
+        assert!(!text.contains("assembled_from"), "{text}");
+        let built: World = ron::from_str(&text).unwrap();
         assert_eq!(built.sheets, ["../textures/texture/00007-sheet.ktx2"]);
         assert_eq!(built.atlases, ["../textures/texture/00009-atlas.ktx2"]);
+        assert!(built.assembled_from.is_empty());
+    }
+
+    #[test]
+    fn a_sprite_is_assembled_from_its_pieces_over_its_rectangle() {
+        // Two atlases of 8 × 8 texels, red and blue, in a texture.pak.
+        let atlas = |name: &'static [u8], [r, g, b, a]: [u8; 4]| crate::testing::Tex {
+            name,
+            width: 8,
+            height: 8,
+            format: 6,
+            data: [b, g, r, a].repeat(64),
+        };
+        let pak = crate::testing::tex_pak(&[
+            Some(atlas(b"MIX0.444", [255, 0, 0, 255])),
+            Some(atlas(b"MIX1.444", [0, 0, 255, 255])),
+        ]);
+        let pak = TexPak::parse(&pak).unwrap();
+        // Two pieces side by side from the two atlases, and a third below them that runs past the
+        // sprite's size, which counts from the pieces' smallest corner.
+        let piece = |texture, source, rect| Piece {
+            texture,
+            source,
+            rect,
+        };
+        let sprite = Pieces {
+            record: 1,
+            width: 8,
+            height: 5,
+            pieces: vec![
+                piece(0, [4, 4, 8, 8], [2, 1, 6, 5]),
+                piece(1, [0, 0, 4, 4], [6, 1, 10, 5]),
+                piece(1, [0, 0, 8, 2], [2, 5, 10, 7]),
+            ],
+        };
+        // Cut at the size: the third piece's second row goes.
+        assert_eq!(sprite.rect(), [2, 1, 10, 6]);
+        let mut atlases = HashMap::new();
+        let (width, height, pixels) = assemble(&sprite, &pak, &mut atlases).unwrap();
+        assert_eq!((width, height, pixels.len()), (8, 5, 4 * 8 * 5));
+        assert_eq!(atlases.len(), 2);
+        let pixel = |x: usize, y: usize| &pixels[4 * (y * 8 + x)..4 * (y * 8 + x) + 4];
+        assert_eq!(pixel(3, 3), [255, 0, 0, 255]);
+        assert_eq!(pixel(4, 0), [0, 0, 255, 255]);
+        assert_eq!(pixel(7, 4), [0, 0, 255, 255]);
     }
 
     /// Sector 45,52 holds walls and towers of a castle, buildings of flag 0x400 of two floors
@@ -608,6 +841,8 @@ mod tests {
         // Counted on Static.PAK and items.pak for #100.
         const SHADOWS_AT_START: usize = 267;
         const MONASTERY_FLOORS: usize = 1;
+        // The atlases of the sprites' pieces (docs/02 §3.3).
+        const MIX_ATLASES: usize = 10_585;
         let shadows = count(&sector.statics, &|o| o.shadow.is_some());
         assert_eq!(shadows, SHADOWS_AT_START);
         let mut all = Vec::new();
@@ -631,6 +866,23 @@ mod tests {
         let sprites = Sprites::decode(&fs::read(dir.join(SPRITES_FILE)).unwrap()).unwrap();
         assert_eq!(sprites.sprites.len(), 32_096);
         assert_eq!(sprites.sprites.iter().flatten().count(), 16_255);
+        // Each sprite's image as large as its rectangle, within its size (#838).
+        for (record, sprite) in sprites.sprites.iter().enumerate().step_by(97) {
+            let Some(sprite) = sprite else { continue };
+            let record = u32::try_from(record).unwrap();
+            let file = fs::File::open(dir.join(sprite_image(record, "png"))).unwrap();
+            let info = png::Decoder::new(std::io::BufReader::new(file))
+                .read_info()
+                .unwrap();
+            let [x0, y0, x1, y1] = sprite.rect;
+            assert_eq!(
+                (info.info().width, info.info().height),
+                (u32::from(x1 - x0), u32::from(y1 - y0)),
+                "sprite {record}"
+            );
+            assert!(x1 - x0 <= sprite.width && y1 - y0 <= sprite.height);
+        }
+        assert_eq!(summary.assembled_from, MIX_ATLASES);
         assert!(
             summary.overlays > 1000 && summary.statics > 500,
             "{summary:?}"
