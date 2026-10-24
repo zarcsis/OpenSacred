@@ -808,9 +808,10 @@ impl Mind {
         let mut thought = Thought::default();
         if self.flags & TIMED != 0 {
             self.clock += dt;
-            if self.clock >= self.period {
+            if fires(&mut self.clock, self.period) {
+                // The jitter is taken off what the timer kept (`0x5375C0`, #617).
                 let jitter = f32::from(u16::try_from(rng.below(31)).unwrap_or(15)) * 0.1;
-                self.clock = jitter - JITTER;
+                self.clock -= jitter - JITTER;
                 self.awake = true;
             }
         }
@@ -1325,19 +1326,33 @@ pub fn of_type(creature: u32) -> u32 {
     }
 }
 
-/// The hero's look about, every 0.3 s (`0x547070`): the time since it last looked.
+/// Runs a creature's timer (`+0x208` against its period `+0x204`, `0x5375C0`) on a tick: once
+/// `clock` is above `period` the timer fires, taking periods off it while it stays above, so that
+/// it keeps the remainder (none when that is above ten periods). Whether it fired.
+fn fires(clock: &mut f32, period: f32) -> bool {
+    if *clock <= period {
+        return false;
+    }
+    while *clock > period {
+        *clock -= period;
+        if *clock > period * 10.0 {
+            *clock = 0.0;
+        }
+    }
+    true
+}
+
+/// The hero's look about, every 0.3 s (`0x547070`), its timer's: the time gathered toward the
+/// next look.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Look(f32);
 
 impl Look {
-    /// Whether the hero looks in a tick of `dt` seconds.
+    /// Whether the hero looks in a tick of `dt` seconds: at the first tick that takes its timer
+    /// above 0.3 s, which keeps what is above, so that the looks come 2 or 3 ticks apart (#617).
     pub fn looks(&mut self, dt: f32) -> bool {
         self.0 += dt;
-        let looks = self.0 >= LOOK_EVERY;
-        if looks {
-            self.0 = 0.0;
-        }
-        looks
+        fires(&mut self.0, LOOK_EVERY)
     }
 }
 
@@ -2917,6 +2932,24 @@ mod tests {
         // The mode 2 is not woken (#580).
         let captain = Mind::new(home, 0x2, (false, true), None, SPEEDS, (297, 7));
         assert!(!captain.awake && captain.period == PERIOD);
+    }
+
+    #[test]
+    fn the_timers_keep_what_is_above_their_period() {
+        // Ticks of 7 frames at 60 a second: the hero looks 3, 3 and then 2 ticks apart, as the
+        // original's looks came 233 or 350 ms apart (#617).
+        let mut look = Look::default();
+        let looks: Vec<bool> = (0..8).map(|_| look.looks(7.0 / 60.0)).collect();
+        assert_eq!(looks, [false, false, true, false, false, true, false, true]);
+        // Exactly at its period it waits for the next tick.
+        let mut clock = 0.3;
+        assert!(!fires(&mut clock, 0.3));
+        // A long tick fires once and keeps what is above its periods.
+        let mut clock = 1.0;
+        assert!(fires(&mut clock, 0.3) && (clock - 0.1).abs() < 1e-6);
+        // Above ten periods it starts again from 0.
+        let mut clock = 50.0;
+        assert!(fires(&mut clock, 0.3) && clock == 0.0);
     }
 
     #[test]
