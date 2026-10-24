@@ -185,6 +185,10 @@ pub enum Style {
     /// launch type 0: once what is left of its clip is below [`DASHES`] she is put at its point,
     /// the action's at most its reach away ([`dash_reach`]) where she may stand (`0x50E6C0`).
     Dash,
+    /// The Gladiator's backbreaker 1010 (`GUI_MOVE_RUECKENBRECHER`, `0x4FF0B0`): its target taken
+    /// up and held ([`backbreaker_hold`]), let go at its point ([`backbreaker_lets_go`]) with a
+    /// strike of [`backbreaker_factor`], and held on by a roll ([`backbreaker_holds`]).
+    Backbreaker,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -266,6 +270,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1028 || art == 1029 {
         return Some(Style::Dash);
+    }
+    if art == 1010 {
+        return Some(Style::Backbreaker);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -473,6 +480,15 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             _ => 220,
         })),
         (2, Style::Hardhit) => Some(slot(match class {
+            0 => 201,
+            2 => 203,
+            3 => 204,
+            8 => 207,
+            _ => 202,
+        })),
+        // The backbreaker: his `Hardhit`'s slot at the rate 1.0 (seen: 202 with a one-handed
+        // weapon; the others' **hypothesis**).
+        (2, Style::Backbreaker) => Some(plain(match class {
             0 => 201,
             2 => 203,
             3 => 204,
@@ -822,6 +838,9 @@ pub fn due(point: f32, done: f32) -> bool {
 pub fn made_from(distance: i32, reach: f32) -> Option<(f32, f32)> {
     match distance {
         0 => Some((0.0, f32::INFINITY)),
+        // The backbreaker's 80 (**hypothesis**: the distance itself; seen: he came within a
+        // cell of the goblin warrior).
+        1..=99 => Some((narrow(f64::from(distance)), MADE_WITHIN)),
         100..=250 => Some((reach, MADE_WITHIN)),
         _ => None,
     }
@@ -1004,6 +1023,39 @@ pub fn changeling_seconds(record: &WeaponArt, level: u32, day: bool) -> f32 {
     let seconds = narrow(f64::from(level).mul_add(step, base));
     if day { seconds } else { 2.0 * seconds }
 }
+
+/// What is left of its clip, as a part of it, below which the backbreaker lets its target go: 0.7
+/// with a weapon of the classes 2 and 3, else 0.5 (`0x4FF0B0`; seen: 0.88 s into the 1.98 s of
+/// `GLAD_SPECIAL_HHIT_1H` at 1.25 with a one-handed weapon).
+pub fn backbreaker_lets_go(class: u8) -> f32 {
+    if matches!(class, 2 | 3) { 0.7 } else { 0.5 }
+}
+
+/// How long the backbreaker holds its target of the level `target` that a Gladiator of the level
+/// `maker` takes up (`0x4FF0B0`): `2·L' + 3 − M` seconds, from 5 to 10 (seen: about 5.4 s on a
+/// goblin warrior of level 1 by the Gladiator of level 1).
+pub fn backbreaker_hold(maker: u32, target: u32) -> f32 {
+    let seconds = (2 * i64::from(maker) + 3 - i64::from(target)).clamp(5, 10);
+    f32::from(u8::try_from(seconds).unwrap_or(10))
+}
+
+/// The factor of the backbreaker's strike at its level in play `level` (`0x4FF0B0`; `0x4D1EB0`
+/// gives the same): `1 + 0.1·L`, its record's `[+0x50]` and `[+0x54]` not read.
+pub fn backbreaker_factor(level: u32) -> f32 {
+    narrow(f64::from(level).mul_add(0.1, 1.0))
+}
+
+/// Whether the backbreaker's target of the level `target` stays held once let go, by a roll
+/// `roll` of 0 to 99 (`0x4FF0B0`): below `100·L/M`, its level in play `L` and `M` the target's,
+/// times 0.769 for a boss; else its timer comes back within [`LET_GO`].
+pub fn backbreaker_holds(level: u32, target: u32, boss: bool, roll: u32) -> bool {
+    let mut chance = 100.0 * f64::from(level) / f64::from(target.max(1));
+    if boss {
+        chance *= 0.769;
+    }
+    f64::from(roll) < chance
+}
+pub const LET_GO: f32 = 0.5;
 
 /// What is left of its clip, as a part of it, below which a [`Style::Dash`] puts its maker at its
 /// point, and the rate of its clip (seen: the slot 144 at 5, and the Vampiress at her point 0.36 s

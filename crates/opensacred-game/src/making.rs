@@ -98,6 +98,7 @@ pub fn clips(
         Style::Panther,
         Style::Changeling,
         Style::Dash,
+        Style::Backbreaker,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -117,9 +118,12 @@ pub fn clips(
             .and_then(|name| points.get(&name.to_ascii_uppercase()))
             .cloned()
             .unwrap_or_default();
-        // A kick strikes at its class's point of its clip, not at the clip's hit points.
+        // A kick strikes at its class's point of its clip, not at the clip's hit points, and the
+        // backbreaker at its own by what the hero holds.
         let points = if style == Style::Kick {
             vec![arts::kick_point(kind, class)]
+        } else if style == Style::Backbreaker {
+            vec![1.0 - arts::backbreaker_lets_go(class)]
         } else {
             arts::hit_points(&floats)
         };
@@ -382,9 +386,10 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries): (
+    (mut hits, mut cries, ranks): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
+        Query<&fight::Ranked>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -569,7 +574,21 @@ fn make(
                 speed.0 * clip_speed * rate
             };
             transitions.play(&mut player, node, BLEND).set_speed(played);
-            let factor = held_factor(arts::factor(record, level), action.halved);
+            let factor = if style == Style::Backbreaker {
+                arts::backbreaker_factor(level)
+            } else {
+                held_factor(arts::factor(record, level), action.halved)
+            };
+            // The backbreaker takes its target up and holds it (`0x4FF0B0`).
+            if style == Style::Backbreaker
+                && let Ok((_, _, _, health)) = creatures.get(making.target)
+            {
+                let seconds = arts::backbreaker_hold(experience.level, health.level);
+                let mut held = commands.entity(making.target);
+                held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                held.entry::<Mind>()
+                    .and_modify(move |mut mind| mind.stunned(seconds));
+            }
             // A smite strikes at its own point of its clip.
             if style == Style::Smite {
                 points = vec![1.0 - arts::SMITE_LEFT];
@@ -597,9 +616,12 @@ fn make(
                         });
                 }
             }
-            // A `Rundum`, the whirling blow and the hurled blades start their regeneration as
-            // they start.
-            if matches!(style, Style::Rundum | Style::Whirl | Style::Blades) {
+            // A `Rundum`, the whirling blow, the hurled blades and the backbreaker start their
+            // regeneration as they start.
+            if matches!(
+                style,
+                Style::Rundum | Style::Whirl | Style::Blades | Style::Backbreaker
+            ) {
                 arts.start(making.art);
             }
             info!(
@@ -637,6 +659,33 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Backbreaker => {
+                // At its point it lets its target go with its strike; the target stays held by a
+                // roll, else its timer comes back within 0.5 s (`0x4FF0B0`).
+                let point = playing.points.first().copied().unwrap_or(0.5);
+                if !due(point, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                if let Ok((_, _, _, health)) = creatures.get(playing.target)
+                    && health.current > 0
+                {
+                    hits.write(hit(playing.target, &playing));
+                    let boss = ranks
+                        .get(playing.target)
+                        .is_ok_and(|rank| rank.0 == opensacred_rules::fight::Rank::Boss);
+                    let roll = dice.0.below(100);
+                    if !arts::backbreaker_holds(playing.level, health.level, boss, roll) {
+                        commands
+                            .entity(playing.target)
+                            .entry::<Mind>()
+                            .and_modify(|mut mind| mind.stunned(arts::LET_GO));
+                    }
+                }
+                end(&mut commands);
+            }
             Style::Dash => {
                 // Below 0.8 left of its clip she is put at its point, starts its regeneration and
                 // ends (`0x50E6C0`).

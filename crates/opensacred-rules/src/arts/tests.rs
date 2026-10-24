@@ -586,7 +586,7 @@ fn the_classes_own_arts_strike_by_their_style() {
     assert_eq!(style(1069), Some(Style::Rundum));
     assert_eq!(style(1058), Some(Style::Hardhit));
     assert_eq!(style(1070), Some(Style::Hardhit));
-    assert_eq!((style(1010), style(18)), (None, None));
+    assert_eq!((style(1013), style(18)), (None, None));
 }
 
 #[test]
@@ -872,6 +872,28 @@ fn the_changeling_changes_the_vampiress_for_the_night_forms_time() {
     assert!(!in_form(1073, VAMPIRESS_BY_NIGHT));
     assert!(in_form(1030, VAMPIRESS_BY_DAY));
     assert!(in_form(1043, 4));
+}
+
+#[test]
+fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
+    assert_eq!(style(1010), Some(Style::Backbreaker));
+    assert_eq!(
+        action(2, Style::Backbreaker, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(202), 1.0, true))
+    );
+    assert_eq!(backbreaker_lets_go(1), 0.5);
+    assert_eq!(backbreaker_lets_go(3), 0.7);
+    // `2·L' + 3 − M` from 5 to 10.
+    assert_eq!(backbreaker_hold(1, 1), 5.0);
+    assert_eq!(backbreaker_hold(5, 4), 9.0);
+    assert_eq!(backbreaker_hold(20, 1), 10.0);
+    assert!((backbreaker_factor(3) - 1.3).abs() < 1e-6);
+    // `100·L/M`: always on one of its level or below, a boss's times 0.769.
+    assert!(backbreaker_holds(1, 1, false, 99));
+    assert!(!backbreaker_holds(1, 4, false, 25));
+    assert!(backbreaker_holds(1, 4, false, 24));
+    assert!(!backbreaker_holds(1, 1, true, 77));
+    assert_eq!(made_from(80, 70.0), Some((80.0, 10.0)));
 }
 
 #[test]
