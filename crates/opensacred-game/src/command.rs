@@ -166,6 +166,10 @@ enum Command {
     /// Set the hero's experience to N, or add N to it with +N: its level follows as its kills
     /// raise it
     Experience { points: String },
+    /// The hero attacks the hostile creature ID, or the nearest, as a left click on it does: it
+    /// comes into its band and strikes once, or shoots with a bow or a crossbow; ID as
+    /// `creatures` prints it
+    Attack { id: Option<String> },
     /// A creature's health to its most, or to N (1 to its most), the hero's by default; ID as
     /// `creatures` prints it
     Heal {
@@ -476,6 +480,35 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .remove::<(crate::attack::Attack, crate::attack::Striking)>()
         .insert(crate::making::Making { art, target });
     Ok(format!("the hero makes {art} on {target} at {distance:.0}"))
+}
+
+/// The hero's attack on the hostile creature `id`, or the nearest alive, as a left click on it
+/// orders it (`attack::Attack::ordered`).
+fn attack(world: &mut World, id: Option<Entity>) -> Result<String, String> {
+    let mut heroes =
+        world.query_filtered::<(Entity, &Transform), (With<Body>, Without<npcs::Dies>)>();
+    let (hero, at) = heroes
+        .iter(world)
+        .next()
+        .map(|(hero, transform)| (hero, transform.translation))
+        .ok_or("the hero is not in the world yet")?;
+    let mut creatures = world.query_filtered::<
+        (Entity, &GlobalTransform, &ai::Mind, &fight::Health),
+        Without<npcs::Dies>,
+    >();
+    let (target, distance) = creatures
+        .iter(world)
+        .filter(|&(entity, _, mind, health)| {
+            mind.hostile() && health.current > 0 && id.is_none_or(|id| id == entity)
+        })
+        .map(|(entity, place, ..)| (entity, (place.translation() - at).xz().length()))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .ok_or("no hostile creature alive to attack")?;
+    world
+        .entity_mut(hero)
+        .remove::<(crate::making::Making, crate::attack::Striking)>()
+        .insert(crate::attack::Attack::ordered(target));
+    Ok(format!("the hero attacks {target} at {distance:.0}"))
 }
 
 /// Gives the hero a marker `M` (`fight::Immortal`, `hero::Flies`) or takes it away, as `on`
@@ -1117,6 +1150,11 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                 .parse()
                 .map_err(|e| format!("{points}: {e} (N or +N)"))?;
             Ok(Outcome::say(experience(world, number, add)?))
+        }
+        Command::Attack { id } => {
+            in_game(world)?;
+            let id = id.map(|id| debug::creature(world, &id)).transpose()?;
+            Ok(Outcome::say(attack(world, id)?))
         }
         Command::Heal { id, to } => {
             in_game(world)?;
