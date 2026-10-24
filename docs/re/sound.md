@@ -51,7 +51,7 @@ The groups are passed by eight calls:
 | 7 `DEATH` | death, without the roll, stopping the creature's line | `0x536389`, `0x533504` |
 | specials | a cast, the unconscious | `0x51D438`; `0x53EAD1`, `0x56E428` |
 
-`APPROACH`, `FOLLOW`, `FOLLOW_HEROFLEE` and `FLEE` are passed by no call (**hypothesis**: unused in the fight); group 0 is the idle noises of the sound manager's update (`0x69B770`: a roll `rand() % 70` for each tracked object at rest, a profile by its type).
+`APPROACH`, `FOLLOW`, `FOLLOW_HEROFLEE` and `FLEE` are passed by no call of the fight; the sound manager's update passes them, by the creature's state, as its idle noises ("The idle noises" below).
 A line plays only when its id waits for nothing (groups 1, 2), when the record's `+0x34` is 0 (3), and always (7); while the creature speaks (`0x678AF0`) the groups 0, 1, 4–6 and 3 give way, a normal hit stops the line and plays, a death always plays; one sample a creature (`0x678980`).
 `playSFX` (`0x693510`) plays a voice at the volume 0.45 + (`rand() % 10`) / 90 with the distances of `AIL_set_3D_sample_distances` (100 and 10.1, or by the creature's size: size × 100 and size × 0.3 + 10; the units' scale not read); 28 channels.
 
@@ -96,6 +96,26 @@ On the 2D path `playSFX` takes a sample's volume and pan from `0x678260(id, fact
   What sets the values is not read (**hypothesis**: `+0x84` the settings' volume of the effects, set by the driver's `--muted` to the game's 64).
 
 `opensacred-game` places the voices and the weapons' sounds so (`sfx::placed`, #731): the offset from the hero in those pixels, the distance as the integers give it, the three lines over the same values, divided by the 0.75 at the listener so that a sound there plays at its own volume, and the pan from −1 to 1.
+
+## The idle noises
+
+Recovered 2026-10-23 (#714) from the sound manager's update (`0x69B770`) and its event handler (`0x67A7A0`), and checked in the running original under the driver of #448.
+
+- **The lists.** The sound events 6 and 11 report the objects near the hero (the sub-command 0 or 1 with the object's id, place and type; 2 measures the distances again and drops those beyond the hearing; 4 and 5 set and clear a record's flag 2; 6 sets the flag 4 or 8): the sub-command 1 and the hero go into the first list, 32 records of `0x88` bytes at `+0xDA4`, the others into the second, 256 at `+0x1EA4` (a third, 16 at `+0xA6A4`, takes the event 10's objects, `+0xAF34` to `+0xAF3C` counting them).
+  **Seen** (a trace of `0x67A7A0` at the Seraphim's start, 32,000 calls): the thieves and bandits, hostile to the hero, came with the event 6's sub-command 1, the rabbits, pigs and novices and the type 679 of the start, peaceful, with its 0, the birds (type 886) with the event 11, the hero (id 1) with 0 into the first list by its id.
+- **The tick.** The update runs at the world's tick (**seen**: a call every 0.1 to 0.13 s, its time as the argument), and its idle noises' block when the time it gathers is above 0.05 s, so at each tick.
+- **The first list**, within `+0xB790` (1,200 pixels) by the integer distance of `0x678260` (above): `rand() % 20` gives 0, the record's state `+0xDBC` is neither 2 nor 6, the creature does not speak (`0x678AF0`); the state gives the group, 0 → 0, 1 → 1, 3 → 4, 4 → 5, 5 → 6 (the names' `APPROACH`, `ATTACK`, `FOLLOW`, `FOLLOW_HEROFLEE`, `FLEE`), and the type a case through the byte table at `0x6A03C8` (the types `0x20` to `0x2CA`) and the jump table at `0x6A0240`: a roll of one in 2 to 5 or none, a profile, a wait of 0.5 to 60 s, a volume added.
+  A record of the flag 4 or 8 takes another path by the type's name (not read).
+  `0x68BEA0` keeps the state from the record's counters (`+0xDFE` to `+0xE08`, **hypothesis**: the ticks standing, moving and striking) and its moves against the hero's: 0 once `+0xDFE` is over 50 and the others low, 1 once `+0xE06` reaches 31, 2 once `+0xE08` reaches 2, 3, 4 or 5 by whether it goes towards the hero or away from it within 500 while `+0xE00` or `+0xE02` is over 50, and 6 when its `+0x1A` slot is under 1; a new record is in the state 0.
+- **The second list**, within `+0xB790` × (1.5 − `+0x84`) (900 pixels): `rand() % 70` gives 0, the state is 0 (which nothing changes in this list), the creature does not speak and its own sample does not play (`+0x1ED8`, `0x678E40`); the type a case through a switch: a roll, a variant of a profile's group 0 or a sound id of a run at random, a wait of 0 to 10 s, a volume added.
+  The townsfolk's murmurs (the runs from 13,450, 13,600 and 16,050) also wait for the flag 2 to be clear; the types 702 to 705 take one run while the manager's `+0x8C` is 1 and another while it is not (`+0x8C` not read); 52, 74, 88 and 100 to 103 ask `0x678DA0` for the group.
+- **The noise** plays as a voice: unless its id waits (`0x679170`), at 0.45 + (`rand() % 10`) / 90 plus the case's volume (−0.2 to 0.7), the id then waiting the case's seconds (`0x679120`; the second list only for a wait that is not 0), one sample a creature (`0x678930`, `0x678980`).
+  A roll of the first list that fails leaves the profile of the record before it, at first 0, which picks nothing.
+- **The cases**, read off the two switches by a walk of the code with the type known and `rand()` free (311 types of the first list, 241 of the second): the first's profiles are the creatures' voices' (the wolves 2014 one in two, the bears 2009 and the boars 2004 one in three, the goblins 2031 one in three, 30 s, the thieves 2023 one in three, 60 s, the boss 2026 one in five, 5 s); the second's add the animals' (the pigs 2011 and the rabbits' none), the novices 2055, the townsfolk's murmurs and the children's.
+  **Checked** at the start (the trace of `0x4261D0`, `sound-pick`): three pigs made 11 picks of 2011's group 0 in 64 s against 12.6 by these rolls, three thieves 38 of 2023 against about 30.
+  `opensacred-convert tables` holds the cases as a table and writes `tables/idle_noises.ron` (`opensacred_data::tables::IdleNoises`).
+
+`opensacred-game` makes them so (`voices`, #714): at each world tick a creature within the hearing rolls one in 70, or one in 20 if it is hostile to the hero and does not fight, then its type's noise, docs/decisions/2026-10-23-idle-noises.md says what it leaves out.
 
 ## Footsteps by the ground
 

@@ -13,6 +13,13 @@
 //! The line plays at the original's volume, 0.45 + (`rand() % 10`) / 90, lowered with the
 //! distance from the hero and panned by its side as the original places it (`sfx::placed`,
 //! `0x678260`).
+//!
+//! Between the fights the creatures make their idle noises (#714; docs/re/sound.md, "The idle
+//! noises"), as the sound manager's update does (`0x69B770`) at each world tick: a creature near
+//! the hero that is not hostile to it rolls one in 70, one hostile to it one in 20 while it does
+//! not fight, then its type's noise rolls its own (`tables/idle_noises.ron`) and plays a variant
+//! of its profile's group 0 or one of its run of sound ids, unless the creature speaks or the id
+//! waits; the id then waits the noise's seconds, and the volume adds the noise's own.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -22,10 +29,10 @@ use bevy::log::debug;
 use bevy::prelude::{
     Added, App, AssetServer, Assets, Commands, Component, Entity, GlobalTransform, Handle, Has,
     IntoScheduleConfigs, Message, MessageReader, MessageWriter, Plugin, Query, Res, ResMut,
-    Resource, Time, Update, With,
+    Resource, Time, Update, With, Without,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
-use opensacred_data::tables::{VOICES, Voice};
+use opensacred_data::tables::{IDLE_NOISES, IdleNoise, IdleNoises, IdleSound, VOICES, Voice};
 
 use crate::files;
 use crate::frame::Unpaused;
@@ -46,6 +53,13 @@ const CRITICAL: u32 = 26;
 
 /// The hero's taunts' wait, in seconds.
 const TAUNTS_AFTER: f64 = 10.0;
+
+/// The idle noises' rolls at each world tick (`0x69B770`): one in 20 for a creature hostile to the
+/// hero (the update's first list), one in 70 for the others (the second).
+const HOSTILE_IDLE: u8 = 20;
+const PEACEFUL_IDLE: u8 = 70;
+/// The profiles' group of the idle noises.
+const IDLE: u8 = 0;
 
 /// The hero makes a combat art: its battle cry, one in three.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,6 +147,9 @@ pub struct Voices {
     waits: HashMap<u32, f64>,
     /// When the hero last taunted.
     taunted: Option<f64>,
+    /// The idle noises of the types hostile to the hero, and of the others.
+    hostile_idle: HashMap<u32, IdleNoise>,
+    peaceful_idle: HashMap<u32, IdleNoise>,
     dice: Rng,
 }
 
@@ -153,12 +170,62 @@ impl Voices {
         } else {
             HashMap::new()
         };
+        // Without `tables/idle_noises.ron` (assets converted before it), no creature makes one.
+        let path = assets.join("tables").join(IDLE_NOISES);
+        let idle = if files::exists(&path) {
+            let text = files::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
+        } else {
+            IdleNoises {
+                hostile: Vec::new(),
+                peaceful: Vec::new(),
+            }
+        };
+        let by_type = |noises: Vec<IdleNoise>| {
+            noises
+                .into_iter()
+                .map(|n| (u32::from(n.creature), n))
+                .collect()
+        };
         Ok(Self {
             voices,
             waits: HashMap::new(),
             taunted: None,
+            hostile_idle: by_type(idle.hostile),
+            peaceful_idle: by_type(idle.peaceful),
             dice: Rng::of(0, 0, 3),
         })
+    }
+
+    /// The idle noise of `creature` at this tick, hostile to the hero or not, if the update's roll
+    /// and then the type's give one.
+    fn idle_roll(&mut self, creature: u32, hostile: bool) -> Option<IdleNoise> {
+        let (roll, noises) = if hostile {
+            (HOSTILE_IDLE, &self.hostile_idle)
+        } else {
+            (PEACEFUL_IDLE, &self.peaceful_idle)
+        };
+        let noise = noises.get(&creature)?.clone();
+        (rolls(roll, &mut self.dice) && rolls(noise.roll, &mut self.dice)).then_some(noise)
+    }
+
+    /// The idle noise of `creature` at this tick, if the rolls give one: the sound id, its file,
+    /// its wait and the volume it adds.
+    fn idle_noise(
+        &mut self,
+        sfx: &mut Sfx,
+        creature: u32,
+        hostile: bool,
+    ) -> Option<(u32, String, f32, f32)> {
+        let noise = self.idle_roll(creature, hostile)?;
+        let (id, file) = match noise.sound {
+            IdleSound::Profile(profile) => sfx.pick(u32::from(profile), IDLE)?,
+            IdleSound::Ids { first, count } => {
+                sfx.with_id(u32::from(first) + self.dice.below(u32::from(count)))?
+            }
+        };
+        Some((id, file, noise.wait, noise.volume))
     }
 
     /// The line of `creature`'s voice for `group`, if its roll gives one: the profile (one of
@@ -389,6 +456,73 @@ fn speak(
     }
 }
 
+/// The creatures near the hero make their idle noises at the world's tick: those not hostile to
+/// it in any state, those hostile while they do not fight (the original's state of rest, the
+/// record's `+0xDBC` 0, which `0x68BEA0` keeps from the creature's moves and strikes); the noise
+/// plays as the voices do, at most at the full volume.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn idle(
+    mut commands: Commands,
+    mut voices: ResMut<Voices>,
+    mut sfx: ResMut<Sfx>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &crate::ai::Mind,
+            Option<&Speaking>,
+        ),
+        Without<Dies>,
+    >,
+    heroes: Query<&GlobalTransform, With<Body>>,
+    assets: Res<AssetServer>,
+    audio: Res<Audio>,
+    time: Res<Time>,
+) {
+    let Some(listener) = heroes.iter().next().map(GlobalTransform::translation) else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    for (creature, at, mind, speaking) in &creatures {
+        let (near, pan) = sfx::placed_at(at.translation(), Some(listener));
+        if near <= 0.0 {
+            continue;
+        }
+        let speaks = speaking.is_some_and(|s| {
+            matches!(
+                audio.state(&s.0),
+                PlaybackState::Playing { .. } | PlaybackState::Queued
+            )
+        });
+        let hostile = mind.thinks.hostile();
+        if speaks || (hostile && mind.thinks.fighting()) {
+            continue;
+        }
+        let Some((id, file, wait, louder)) =
+            voices.idle_noise(&mut sfx, mind.thinks.creature, hostile)
+        else {
+            continue;
+        };
+        if voices.waits.get(&id).is_some_and(|&until| until > now) {
+            continue;
+        }
+        let loud = (0.45 + sfx.roll(10) / 90.0 + louder).min(1.0);
+        let volume = loud * near;
+        let sample = sfx.sample(id, file, &assets);
+        let instance = audio
+            .play(sample)
+            .with_volume(sfx::decibels(volume))
+            .with_panning(pan)
+            .handle();
+        voices.waits.insert(id, now + f64::from(wait));
+        debug!("voices: {creature} makes the idle noise {id}, at {volume:.2}, panned {pan:.2}");
+        commands.entity(creature).insert(Speaking(instance));
+    }
+}
+
 /// A creature that dies speaks its death.
 fn dies(dying: Query<Entity, Added<Dies>>, mut lines: MessageWriter<Speak>) {
     for speaker in &dying {
@@ -406,7 +540,13 @@ impl Plugin for VoicesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Speak>()
             .add_message::<BattleCry>()
-            .add_systems(Update, (dies, speak).chain().in_set(Unpaused));
+            .add_systems(Update, (dies, speak).chain().in_set(Unpaused))
+            .add_systems(
+                Update,
+                idle.after(speak)
+                    .in_set(Unpaused)
+                    .run_if(crate::frame::ticked),
+            );
     }
 }
 
@@ -455,6 +595,40 @@ mod tests {
             Some("SOUND_FX_ENEMYKILLME_06_HELF")
         );
         assert_eq!(HeroLine::HitEnemy.name(76, 0), None);
+    }
+
+    #[test]
+    fn an_idle_noise_rolls_one_in_20_hostile_or_70_not_then_its_own() {
+        let noise = |creature, roll| IdleNoise {
+            creature,
+            roll,
+            sound: IdleSound::Profile(2014),
+            wait: 0.0,
+            volume: 0.0,
+        };
+        let mut voices = Voices {
+            voices: HashMap::new(),
+            waits: HashMap::new(),
+            taunted: None,
+            hostile_idle: HashMap::from([(512, noise(512, 2))]),
+            peaceful_idle: HashMap::from([(560, noise(560, 2)), (677, noise(677, 1))]),
+            dice: Rng::of(0, 0, 3),
+        };
+        let mut count = |creature, hostile| {
+            (0..56_000)
+                .filter(|_| voices.idle_roll(creature, hostile).is_some())
+                .count()
+        };
+        // A wolf hostile to the hero: 56,000 / 20 / 2 = 1,400; a pig 400; a novice 800.
+        let wolf = count(512, true);
+        assert!((1_250..1_550).contains(&wolf), "{wolf}");
+        let pig = count(560, false);
+        assert!((330..470).contains(&pig), "{pig}");
+        let novice = count(677, false);
+        assert!((700..900).contains(&novice), "{novice}");
+        // No noise of its list, none at all.
+        assert_eq!(count(512, false), 0);
+        assert_eq!(count(76, true), 0);
     }
 
     #[test]

@@ -779,6 +779,7 @@ A value by the level `L` is a pair `(a, b)`, `a + L·b`.
 
 **Confirmed** by code and in the running original 2026-10-23 (#710): 714 bytes at VA `0x68BBD0` give the creature types 1 to 714, in order, the case of the voice function `0x6852B0` (docs/re/sound.md, "The fight's sounds"), below 118, `0x75` none; 328 types have another case.
 What each case does lies in its code, not in data: `opensacred-convert tables` holds the 118 cases' values as a table and writes the types' voices into `tables/voices.ron` (`opensacred_data::tables::Voices`).
+The creatures' idle noises (#714) lie in code too, two switches by the type in the sound manager's update (docs/re/sound.md, "The idle noises"): `opensacred-convert tables` holds their cases and writes `tables/idle_noises.ron` (`opensacred_data::tables::IdleNoises`), 311 types as hostile to the hero and 241 as not.
 
 ## 7. NetScript scripts
 

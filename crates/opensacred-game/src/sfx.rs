@@ -55,6 +55,8 @@ pub struct Sfx {
     profiles: HashMap<u32, Vec<Vec<(u32, String)>>>,
     /// The sound ids and sample files by the original's names (`SOUND_FX_HITENEMY_01_SERA`).
     named: HashMap<String, (u32, String)>,
+    /// The sample files by their sound ids.
+    files: HashMap<u32, String>,
     samples: HashMap<u32, Handle<AudioSource>>,
     pub(crate) dice: Rng,
 }
@@ -96,9 +98,14 @@ impl Sfx {
                 Some((n.name.clone(), (n.id, format!("sound/{file}"))))
             })
             .collect();
+        let files = files
+            .into_iter()
+            .map(|(id, file)| (id, format!("sound/{file}")))
+            .collect();
         Ok(Self {
             profiles,
             named,
+            files,
             samples: HashMap::new(),
             dice: Rng::of(0, 0, 4),
         })
@@ -118,6 +125,11 @@ impl Sfx {
     /// The sound id and the sample file of the sound named `name`.
     pub fn named(&self, name: &str) -> Option<(u32, String)> {
         self.named.get(name).cloned()
+    }
+
+    /// The sound id and the sample file of the sound `id`, if it has one.
+    pub fn with_id(&self, id: u32) -> Option<(u32, String)> {
+        Some((id, self.files.get(&id)?.clone()))
     }
 
     /// The sample of the sound `id`, loaded from `file` once.
