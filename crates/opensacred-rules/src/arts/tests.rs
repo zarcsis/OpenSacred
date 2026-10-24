@@ -897,6 +897,24 @@ fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
 }
 
 #[test]
+fn the_domination_holds_its_target_by_its_level() {
+    assert_eq!(style(1024), Some(Style::Dominate));
+    assert_eq!(style(1025), Some(Style::Dominate));
+    assert_eq!(
+        action(VAMPIRESS_BY_DAY, Style::Dominate, 1).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(149), 1.0))
+    );
+    let day = WeaponArt {
+        factor: [17.0, 3.0],
+        ..weapon_art(1024, [20.0, 12.0], 32)
+    };
+    assert_eq!(domination_seconds(&day, 1, 1), 20.0);
+    assert_eq!(domination_seconds(&day, 1, 5), 20.0);
+    // Above 5L, times 5L/M.
+    assert_eq!(domination_seconds(&day, 1, 10), 10.0);
+}
+
+#[test]
 fn the_blood_bite_drains_its_factor_from_its_target() {
     assert_eq!(style(1030), Some(Style::Bite));
     assert_eq!(
