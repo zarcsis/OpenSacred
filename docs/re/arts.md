@@ -316,6 +316,58 @@ Written by the driver, the field made the right click on a goblin make that art,
 The event carries the target at `+0x10`, its place at `+0x18` and `+0x1C`, 100 at `+0x28`, the art's kind at `+0x2C` (0 a spell, 1 a weapon art, 2 a combo) and the art at `+0x30`.
 The creature's handler of the event (about `0x52FE40`) takes an art that is not ready as an order to walk to the target's place instead (`+0xFC` 1, with the target and its place), or with Ctrl held posts the creature an event of kind 4 (not followed); a combo's (its art `0x200` plus the combo's index) waits for `0x581A60` alike.
 
+## The special weapon arts
+
+Read 2026-10-24 (#653) in the executors' disassembly, **confirmed** by code unless marked otherwise.
+An executor's first run (the action's sub-state 0) plays the art's clip and passes to the sub-state 1; each later run (the sub-state 1, at the world's ticks) takes `left`, the share of the clip still to play, and acts on it; an art ends by `+0x16C` 1.
+The arts of the second table whose classes (`+0x70`) are 0 belong to no hero: 1000 to 1002, 1009 and 1021.
+
+### The Seraphim's
+
+The Seraphim's executor (`0x5038F0`) has cases for 1003 and 1017 together, 1013 and 1054 together, 1018, 1019, 1020 with 1069, 1021, and her `Hardhit`, `Attacke` and kick (above); of them her own are 1017, 1018, 1019, 1020 and 1054 (the classes 1), the jump 1003 and the hurled blades 1013 being the Gladiator's (2).
+
+- **The jumps, 1017 (`GUI_MOVE_KAMPFSPRUNG`) and 1003 here.**
+  The first run tests the way to the action's point (`0x4FCC80`) and that the creature may stand there (`0x4EBC40`), and without either ends the art (the sub-state 2); else it plays the clip and sets `+0x200` bit `0x10`.
+  Once `left` is below 0.75, once, it takes its target's place where the target lives (else the action's point), brought nearer by half the two creatures' reach (`0x4DBC60`), and flies there (`0x44DED0`: a move through the air, `+0x14` bit `0x100000`, to the ground's height), and starts the regeneration.
+  Once `left` is below 0.4 it lands: its target, where it may strike it (`0x549000`), takes one strike of the factor `L·[+0x54] + [+0x50]`, 1.8 + 0.2·L for 1017, with the effect `0x44` on it; then the art ends and the bit `0x10` is cleared.
+  So the Seraphim's jump strikes its target alone, where the Gladiator's strikes about it ("The second table" above).
+- **The hurled blades, 1054 (`GUI_MOVE_SCHLEUDERKLINGEN`) and 1013 here.**
+  With a bow or a crossbow in hand (the classes 7 and 12, `0x546F80`) the art is refused (the AI's state 0); 1054 starts its regeneration at its first run, 1013 at none of this executor's.
+  Each run takes the point of the bone of the item in the right hand (`0x44CA30`, `0x623AD0`) and the first creature of the sectors about it that the point touches by the two types' radii (`0x600340`, `0x428CE0`), other than itself and the creature it struck last (`+0x190`); where it may strike it, it strikes with the factor `L·[+0x54] + [+0x50]`, 1.35 + 0.15·L for 1054 (2.75 + 0.25·L for 1013), with the effect `0x44`, and that creature becomes the last.
+  So the blade strikes what it passes through as the clip swings it, each creature once until it strikes another.
+- **1018 (`GUI_MOVE_BFG`, the launch type 5).**
+  The first run plays the clip with the effect `0x43` on the Seraphim and sets `+0x200` bit `0x10`.
+  Once `left` is below 0.5 it takes the items out of both hands (`0x556A30` of the slots 13 and 12, the interface's taskbar told for the local player), starts the regeneration, ends, and gives the Seraphim the effect 16 of the whole value `L` for `[+0x58] + [+0x5C]·L` seconds, 29.5 + 0.5·L, keyed by 1018.
+  The effect's adder (`0x582D50`) sets `+0x200` bit `0x200000`, makes the item of type 3809 (`SeraBFG.GRN`, of class 5 and subclass 24) unless the one it made before lives (`+0x263`), and puts it in her right hand (`0x555E00`, the slot 13): a weapon of her own for the effect's time (what becomes of her items as it ends, not followed).
+  **Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1 after `load start-seraphim`, `arts learn 1018`, `arts select 1018` and the right button on an immortal goblin warrior beside her, a trace of `0x582D50`): the effect 16 of the whole value 1 for 30 s, the weapon's glow turned on, then her damage 35 to 42 physical and 8 to 15 magic, her attack speed 100 (154 before), and one click's strike took the goblin's 52 health whole.
+- **1019 (`GUI_SPELL_ENERGIEBLITZE`, the launch type 5).**
+  The first run plays the clip and sets `+0x200` bit `0x10`.
+  Once `left` is below 0.35 it gives the Seraphim the effect 17 of the whole value `L` for 29.5 + 0.5·L seconds, ends, starts the regeneration, and makes an object of type 844 (`FX_SERA_SM_CAST`) at her place with its level, `1000 · (29.5 + 0.5·L)` (milliseconds) and her four damages' multipliers, each the sum of the stats' `+0x96` and `+0xB6`, `+0x9A` and `+0xBA`, `+0x9E` and `+0xBE`, `+0xA2` and `+0xC2`, with the effect `0x43` twice.
+  The effect 17's adder sets `+0x200` bit `0x400000` and makes an object of type 856 (`FX_GENERIC`) with the effect `0x50` for each item in her hands (**hypothesis**: the weapons' glow; what the bit and the object 844 do in a fight, not followed).
+  **Seen** as 1018: the effect 17 of the whole value 1 for 30 s.
+- **1020 (`GUI_MOVE_WIRBELSCHLAG`)** runs as her `Rundum` 1069 ("A `Rundum`'s run" above), with the radius `[+0x60] + [+0x64]·L`, 160 + 5·L per cent of the reach, and the factor 0.7 + 0.05·L; refused with a bow or a crossbow, it sets `+0x1F4` bit `0x800000` while it runs (cleared at its end with `0x450630` and `0x44DDC0`, not followed).
+  Each creature it strikes is knocked back as by a kick, by a roll of 0 to 99 below `0x4FC9D0(L, target)` ("The kicks" above): the event of kind 3 from the Seraphim with the whole value `[+0x58] + [+0x5C]·L`, 170 + 5·L.
+- **1021 (`GUI_MOVE_DOPPELGAENGER`)**, of no class, only ends and starts its regeneration here.
+
+### The Gladiator's
+
+The Gladiator's executor (`0x4FF0B0`) has cases for 1003, 1010, 1012, 1013 and 1054 together, 1014, 1015, 1016, and his `Rundum`, `Hardhit`, `Attacke` and kick (above); his own are 1003, 1010, 1012, 1013, 1014, 1015 and 1016 (the classes 2).
+
+- **The jump 1003 (`GUI_MOVE_KAMPFSPRUNG`)** starts as the Seraphim's; once `left` is below 0.8 it flies to its target's place, and once it is below 0.6 it lands, ends and starts its regeneration: a weather event of kind `0x2D` (**hypothesis**: the ground shaking), and each creature of the hero's list (`0xAD3CE0`) within `L·[+0x54] + [+0x50]` of it (190 + 10·L) that `0x548F60` admits takes a strike of the factor `L·[+0x5C] + [+0x58]` (1.8 + 0.2·L, as "The second table" above has it).
+  By a roll of 0 to 99 below the kicks' chance (`0x4FC9D0`), a creature that lives is stunned: `+0x200` bit `0x40000`, its timer (`+0x208`) set back by its level plus 3 seconds, at least 2 (**hypothesis**: the time it stands), an object made with an effect, and the event told to the network.
+- **1010 (`GUI_MOVE_RUECKENBRECHER`, the distance 80)** takes its target up.
+  Its first run admits a target of the kinds 5, 7, 8, 12 or 14 (`0x43ADC0`) that is not of the big types (`0x426CB0`), else ends (the AI's state 0); it keeps the item of its right hand (`+0x1D8` at `+0x17C`), holds the target there instead, fastened to its own `Bip01 Neck`, else its `Bip01 R Hand`, the target's `+0x14` bit `0x1000` and `+0x200` bit `0x40000` set and its timer set back by `2·L' + 3 − M` seconds held from 5 to 10 (`L'` the Gladiator's level `+0x3FE`, `M` the target's).
+  Once `left` is below 0.5 (0.7 with a weapon of the classes 2 and 3) it lets the target go: the right hand empty again, the target put down by its bone's point and thrown (`0x44DED0`), with a strike of the hit's kind 1 and the factor `1 + 0.1·L` (`0x4D1EB0` gives the same; the record's `+0x50` and `+0x54`, 70 and 6, are not read here); unless a roll of 0 to 99 falls below `100·L/M` (times 0.769 for a boss), the target's timer comes back within 0.5 s.
+  Then the art ends and the interface's taskbar is told.
+- **1012 (`GUI_MOVE_HANDGOTTES`)**, once `left` is below 0.35: a strike at its target of the factor `L·[+0x54] + [+0x50]`, 3.6 + 0.4·L, and the same strike at every other creature of the hero's list nearer the Gladiator than the reach of him and his target (`0x5370B0` against `0x4DBC60`), each with an effect; then it ends.
+- **The hurled blades 1013 (`GUI_MOVE_SCHLEUDERKLINGEN`) and 1054 here** need an item in a hand that `0x427A40` admits, else end at once.
+  Once `left` is below 0.6 the item leaves the hand (`0x556A30`) and flies (`0x44DED0`, `+0x14` bit `0x1000000`) to the point 200 beyond its target along the line from the Gladiator (750 from him for a creature that is no player), at the speed 55 (80 for a creature that is no player), the throw told to the network (**hypothesis**: the flying item strikes and comes back by its own update, not followed).
+- **1014 (`GUI_MOVE_EHRFURCHT`, the launch type 2)**, at its first run of the sub-state 1: every creature about it (`0x5FEAF0`) but itself nearer the Gladiator than `L·[+0x54] + [+0x50]` truncated, 150 + 10·L, that `0x548F60` admits and whose id is above 16 gets `+0x24D` = `[+0x60] + [+0x68] − [+0x6C] + ([+0x64] + 1)·L`, 52 + 4·L, at least 10, and plays its hit clip (`0x593770`); by a roll of 0 to 99 below the kicks' chance it takes the event of kind 3 from the Gladiator with that value and is held for `[+0x58] + [+0x5C]·L` seconds, 3 + 0.35·L, at least (its timer, `+0x200` bit `0x40000`); each with an effect.
+  So the Gladiator's roar knocks back and stuns the hostile creatures about him.
+- **1015 (`GUI_MOVE_HELDENMUT`, the launch type 2)**, once `left` is below 0.3: its target where `0x5490B0` admits it, else the Gladiator himself, takes the effects 1 and 2 of the value `[+0x50] + [+0x54]·L`, 0.5 + 0.2·L, for `[+0x58] + [+0x5C]·L` seconds, 39.5 + 0.5·L, keyed by 1015: `A`'s and `D`'s multipliers raised ("The effects" below); then it ends, starts its regeneration, makes an effect `0x42` and calls `0x539E70` (the effect 34 of the art's time, above).
+- **1016 (`GUI_MOVE_KLINGENBLICK`, the launch type 2)**, once `left` is below 0.3: its target or himself, as 1015, takes the effect 18 of a whole value, `[+0x50] + [+0x54]·L` (3 + 7·L) times one plus a hundredth of a curve of a value of the Gladiator's (`0x582450` with 2, through `0x565D70` and the balance's values at `0xAD44D0` to `0xAD44D8`) plus `L` over the value at `0xAD5630` (partly read), for 39.5 + 0.5·L seconds, keyed by 1016; then as 1015.
+  The effect 18's adder sets `+0x200` bit `0x800000` (what it does in a fight, not followed).
+
 ## The effects
 
 Read 2026-10-23 (#510): a creature's stats hold its effects as a list of entries of 32 bytes from `+0x11A` to `+0x11E`: the effect's id at `+0x00`, a whole value at `+0x04`, a value as a float at `+0x14`, its seconds at `+0x18` and an art at `+0x1C`, added by `0x582D50(id, whole, value, seconds, art, …)`, which recomputes the stats.
@@ -470,4 +522,4 @@ The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new gam
 
 ## Open
 
-What the spells' objects give their targets beyond what "The spells' objects" reads (`0x5ABD80`'s and `0x5B2600`'s cases, the objects' actions; #672); the special weapon arts' executors (#653: the jumps 1003, 1017 and 1032 in part, 1004 to 1008, 1010 to 1016, 1018 to 1021, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
+What the spells' objects give their targets beyond what "The spells' objects" reads (`0x5ABD80`'s and `0x5B2600`'s cases, the objects' actions; #672); the special weapon arts' executors (#653: the jump 1032 in part, 1004 to 1008, what the effects 16, 17 and 18 do in a fight, the hurled blades' flight, the Vampiress's 1022 to 1037, the Dark Elf's 1042 to 1053, the Dwarf's 1081 to 1089, the Daemon's 1091 and 1093 to 1103) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
