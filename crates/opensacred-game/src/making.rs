@@ -101,6 +101,7 @@ pub fn clips(
         Style::Backbreaker,
         Style::Bite,
         Style::Dominate,
+        Style::Kiss,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -631,7 +632,12 @@ fn make(
             // regeneration as they start.
             if matches!(
                 style,
-                Style::Rundum | Style::Whirl | Style::Blades | Style::Backbreaker | Style::Dominate
+                Style::Rundum
+                    | Style::Whirl
+                    | Style::Blades
+                    | Style::Backbreaker
+                    | Style::Dominate
+                    | Style::Kiss
             ) {
                 arts.start(making.art);
             }
@@ -671,6 +677,47 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Kiss => {
+                // At its point its curse lands on its target: its attack's and defence's
+                // multipliers lowered for 5 s (the effects 1 and 2 keyed by 1033); then it ends
+                // (`0x50E6C0`).
+                if !due(arts::KISS_LANDS, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                if let (Some(record), Ok((_, _, mind, health))) =
+                    (record, creatures.get(playing.target))
+                    && mind.hostile()
+                    && health.current > 0
+                {
+                    let value = arts::curse(record, playing.level);
+                    let cursed = |id| opensacred_rules::fight::Effect {
+                        art: u32::from(making.art),
+                        level: 1,
+                        ..opensacred_rules::fight::Effect::new(id, value)
+                    };
+                    let (attack, defence) = (
+                        cursed(opensacred_rules::fight::effects::ATTACK),
+                        cursed(opensacred_rules::fight::effects::DEFENCE),
+                    );
+                    commands
+                        .entity(playing.target)
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| {
+                            effects.add(defence, arts::CURSE_SECONDS);
+                            effects.add(attack, arts::CURSE_SECONDS);
+                        });
+                    info!(
+                        "making: {} curses {} by {value}",
+                        making.art, playing.target
+                    );
+                }
+                end(&mut commands);
+            }
             Style::Dominate => {
                 // Below 0.6 left of its clip its target, no boss nor champion, is stopped and takes
                 // the effect 13, under which it does not fight her (`ai`); then it ends
