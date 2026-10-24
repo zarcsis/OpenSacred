@@ -59,7 +59,7 @@ use bevy::prelude::{
 use bevy::world_serialization::{WorldAsset, WorldInstanceReady};
 use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
-use opensacred_data::tables::{Creature, Item, Weapon};
+use opensacred_data::tables::{Creature, Item};
 use opensacred_data::world::SIDE;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::{minds, ways};
@@ -67,11 +67,12 @@ use opensacred_rules::{minds, ways};
 use crate::files;
 use crate::frame::{Step, WorldTick};
 use crate::sectors::Streamer;
+use crate::tables::Tables;
 use crate::terrain::Heights;
 use crate::terrain::Level;
 use crate::{
     ai, arrows, buildings, crowd, daynight, drops, fight, hero, iso, models, motions, paths,
-    shadows, spawning,
+    sectors, shadows, spawning,
 };
 
 /// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
@@ -1156,13 +1157,10 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
 
 /// The fractions of the attack's clips at which they hit (`0x4EA1F0`, docs/re/fight.md), none
 /// where `tables/motions.ron` cannot be read.
-pub fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
-    let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
-    let motions: Vec<opensacred_data::tables::Motion> = files::read_to_string(&path)
-        .ok()
-        .and_then(|text| ron::from_str(&text).ok())
-        .unwrap_or_default();
-    motions
+pub fn hit_fractions(tables: &Tables) -> HashMap<String, [f32; 2]> {
+    tables
+        .motions()
+        .unwrap_or_default()
         .iter()
         .filter(|m| m.floats_62[1] > 0.0 || m.floats_62[2] > 0.0)
         .map(|m| {
@@ -1177,13 +1175,10 @@ pub fn hit_fractions(assets: &Path) -> HashMap<String, [f32; 2]> {
 /// whose leading ones above 0 are the hit points of an art's clip (#509,
 /// `opensacred_rules::arts::hit_points`), by the motion's name as [`hit_fractions`] has it; none
 /// where the table cannot be read.
-pub fn hit_points(assets: &Path) -> HashMap<String, Vec<f32>> {
-    let path = assets.join("tables").join(opensacred_data::tables::MOTIONS);
-    let motions: Vec<opensacred_data::tables::Motion> = files::read_to_string(&path)
-        .ok()
-        .and_then(|text| ron::from_str(&text).ok())
-        .unwrap_or_default();
-    motions
+pub fn hit_points(tables: &Tables) -> HashMap<String, Vec<f32>> {
+    tables
+        .motions()
+        .unwrap_or_default()
         .iter()
         .map(|m| {
             let name = m.name.to_ascii_uppercase();
@@ -1546,23 +1541,14 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
 impl Npcs {
     /// Reads the scripts of `tree` and the tables, and what of them the hero's template's items
     /// `worn` are ([`Self::hero_holds`]).
-    pub fn read(assets: &Path, tree: &str, worn: &[u32]) -> Result<Self> {
+    pub fn read(shared: &sectors::Shared, tree: &str, worn: &[u32]) -> Result<Self> {
+        let assets = &shared.assets;
+        let tables = &shared.tables;
         let path = assets.join("netscript").join(format!("{tree}.nsc"));
         let data = files::read(&path).with_context(|| format!("reading {}", path.display()))?;
         let tree = Tree::decode(&data).with_context(|| format!("decoding {}", path.display()))?;
-        let path = assets.join("tables").join(opensacred_data::tables::ITEMS);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let items: Vec<Item> =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        let items: HashMap<u32, &Item> = items.iter().map(|i| (i.slot, i)).collect();
-        let path = assets
-            .join("tables")
-            .join(opensacred_data::tables::CREATURES);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-        let mut creatures: Vec<Creature> =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let items: HashMap<u32, &Item> = tables.items()?.iter().map(|i| (i.slot, i)).collect();
+        let mut creatures: Vec<Creature> = tables.creatures()?.to_vec();
         // The waters' crab, which no record describes, made as the original makes a type without
         // one (#664; docs/re/spawning.md, "A type without a record").
         for id in std::iter::once(spawning::CRAB).chain(spawning::FISH) {
@@ -1584,13 +1570,7 @@ impl Npcs {
             .map(|c| (c.id, fight::Base::of(c)))
             .collect();
         // The balance, from which the fills' factors and the health's (none where it is lacking).
-        let balance =
-            files::read_to_string(assets.join("tables").join(opensacred_data::tables::BALANCE))
-                .ok()
-                .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
-        let path = assets.join("tables").join(opensacred_data::tables::WEAPONS);
-        let text =
-            files::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let balance = tables.balance().ok();
         // The templates of the items' values (`wpmod.bin`), none where they cannot be read.
         let modifiers: Vec<opensacred_data::tables::WeaponModifier> = files::read_to_string(
             assets
@@ -1600,8 +1580,7 @@ impl Npcs {
         .ok()
         .and_then(|text| ron::from_str(&text).ok())
         .unwrap_or_default();
-        let weapons: Vec<Weapon> =
-            ron::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        let weapons = tables.weapons()?;
         // A weapon's kind, by its type, which is its item's slot (docs/02 §6.2).
         let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
         let models = model_files(assets)?;
@@ -1943,14 +1922,14 @@ impl Npcs {
             templates,
             types,
             classes,
-            factors: factors(balance.as_ref()),
-            fight: fight::Rules::of(balance.as_ref()),
-            items: fight::Templates::new(&modifiers, &weapons),
+            factors: factors(balance),
+            fight: fight::Rules::of(balance),
+            items: fight::Templates::new(&modifiers, weapons),
             rules: rules(&tree),
             pools,
             gear,
             slots: model_slots,
-            hits: hit_fractions(assets),
+            hits: hit_fractions(tables),
             instruments: INSTRUMENTS
                 .iter()
                 .map(|&(slot, _)| {

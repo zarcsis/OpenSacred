@@ -15,7 +15,7 @@ use crate::game::AppState;
 use crate::npcs::Dies;
 use crate::sectors::Streamer;
 use crate::terrain::{Heights, LANDING_REACH, Landing, Level};
-use crate::{files, iso, models, paths, shadows};
+use crate::{iso, models, paths, shadows};
 
 /// How close to its target the hero stops.
 pub(crate) const ARRIVED: f32 = 4.0;
@@ -44,13 +44,10 @@ impl Default for GameSpeed {
 
 impl GameSpeed {
     /// Reads `GameSpeed` from `tables/balance.ron`.
-    pub fn read(assets: &std::path::Path) -> anyhow::Result<Self> {
-        let path = assets.join("tables").join(opensacred_data::tables::BALANCE);
-        let text = files::read_to_string(&path)
-            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-        let balance: opensacred_data::tables::Balance =
-            ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
-        let speed = balance
+    pub fn read(tables: &crate::tables::Tables) -> anyhow::Result<Self> {
+        let path = tables.path(opensacred_data::tables::BALANCE);
+        let speed = tables
+            .balance()?
             .f32("GameSpeed")
             .ok_or_else(|| anyhow::anyhow!("no GameSpeed in {}", path.display()))?;
         anyhow::ensure!(
@@ -1123,7 +1120,7 @@ mod tests {
             ron::to_string(&balance).unwrap(),
         )
         .unwrap();
-        let speed = GameSpeed::read(&dir).unwrap();
+        let speed = GameSpeed::read(&crate::tables::Tables::new(&dir)).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(speed.0, 1.25);
     }

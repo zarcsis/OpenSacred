@@ -953,10 +953,9 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     Ok(Outcome::say("the music is on"))
                 }
                 Switch::On => {
-                    let assets = world.resource::<Data>().0.assets.clone();
+                    let shared = world.resource::<Data>().0.clone();
                     let sound = world.resource::<crate::sound::Index>().clone();
-                    let music =
-                        music::Music::read(&assets, &sound.0).map_err(|e| format!("{e:#}"))?;
+                    let music = music::Music::new(&shared.world, &sound.0);
                     let atmosphere = atmosphere::Atmosphere::new(&sound.0);
                     world.insert_resource(music);
                     world.insert_resource(atmosphere);

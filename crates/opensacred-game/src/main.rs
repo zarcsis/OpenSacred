@@ -53,6 +53,7 @@ mod shadows;
 mod sound;
 mod srgb;
 mod statics;
+mod tables;
 mod terrain;
 mod voices;
 
@@ -165,12 +166,13 @@ fn run(cli: Cli) -> Result<AppExit> {
     // The lamps' glow, `PARTICLE_GLOW01`, and the statics' shadows, `SHADOW_TREE00`.
     let glow = texture("particle_glow01").unwrap_or_default();
     let shadows = texture("shadow_tree00");
-    let shared = sectors::Shared {
+    let shared = Arc::new(sectors::Shared {
         world,
         sprites: statics::read_sprites(&assets)?,
+        tables: tables::Tables::new(&assets),
         assets: assets.clone(),
         shadows: shadows.clone(),
-    };
+    });
     let sound_index = sound::Index::read(&assets)?;
     let (settings_file, mut settings) = settings::SettingsFile::read(cli.settings);
     // A screenshot, a recording and a benchmark run in a window of the given size, so that their
@@ -295,11 +297,11 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
-    .insert_resource(game::Data(Arc::new(shared)))
-    .insert_resource(daynight::LightTypes::read(&assets)?)
+    .insert_resource(daynight::LightTypes::read(&shared.tables)?)
     .insert_resource(dungeons)
-    .insert_resource(hero::GameSpeed::read(&assets)?)
-    .insert_resource(statics::TreeFade::read(&assets)?)
+    .insert_resource(hero::GameSpeed::read(&shared.tables)?)
+    .insert_resource(statics::TreeFade::read(&shared.tables)?)
+    .insert_resource(game::Data(shared))
     .insert_resource(daynight::GlowTexture(glow))
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(liquids::Liquids::read(&assets)?)

@@ -16,6 +16,7 @@ use crate::frame::Step;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::liquids::Liquids;
+use crate::tables::Tables;
 use crate::terrain::Heights;
 use crate::{blended, daynight, iso, liquids, statics, terrain};
 
@@ -29,11 +30,13 @@ const GRID: i64 = 100;
 const BUILDING_AT_ONCE: usize = 2;
 
 /// What every build reads: the asset directory, the world index, the sprite table and the
-/// shadow atlas, relative to the asset directory, if the converted textures have it.
+/// shadow atlas, relative to the asset directory, if the converted textures have it; and the
+/// tables that the start and every game's load read, each parsed once (#830).
 pub struct Shared {
     pub assets: PathBuf,
     pub world: World,
     pub sprites: Sprites,
+    pub tables: Tables,
     pub shadows: Option<String>,
 }
 
@@ -333,6 +336,7 @@ mod tests {
             sprites: Sprites {
                 sprites: Vec::new(),
             },
+            tables: Tables::new(&PathBuf::new()),
             shadows: None,
         })
     }
