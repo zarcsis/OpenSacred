@@ -985,6 +985,9 @@ struct Gear {
     /// item without a slot of its own, as the heroes' starting weapons, whose hits the original
     /// sounds by their swing alone (#709, #712).
     sound: u32,
+    /// Its size (`items.pak +0x14`, 50 for 0, `arrows::size`): a held item's for the hurled
+    /// blades' touch (`0x600340`, `0x428CE0`; `making::Blade`).
+    size: f32,
 }
 
 /// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, and its three items' pools and
@@ -1898,6 +1901,7 @@ impl Npcs {
                     },
                     counts: item.byte_03 & 2 == 0,
                     sound: items.get(&slot).map_or(0, |own| own.sound()),
+                    size: arrows::size(item.words_14[0]),
                 };
                 Some((slot, gear))
             })
@@ -2005,6 +2009,20 @@ impl Npcs {
     /// ([`Self::armed`]).
     pub fn hero_armed(&self, worn: &[Worn]) -> crate::sfx::Armed {
         self.armed(&self.hero_holding(worn))
+    }
+
+    /// The item of `worn`, its template's items, that the hero's hurled blades strike with
+    /// (`0x5038F0`): the one in its right hand, else the one in its left, and its size.
+    pub fn hero_blade(&self, worn: &[Worn]) -> Option<crate::making::Blade> {
+        let holding = self.hero_holding(worn);
+        let held = holding
+            .iter()
+            .find(|held| held.hand == Hand::Right)
+            .or_else(|| holding.iter().find(|held| held.hand == Hand::Left))?;
+        Some(crate::making::Blade {
+            right: held.hand == Hand::Right,
+            size: self.gear.get(&held.item)?.size,
+        })
     }
 
     /// What the items `holding` give for a striker's weapons' sounds: the class of what it holds
@@ -5178,6 +5196,7 @@ mod tests {
             texture: None,
             counts: true,
             sound: 0,
+            size: 50.0,
         };
         let gear: HashMap<u32, Gear> = [
             (1811, gear(WEAPON, Some(BOW))),

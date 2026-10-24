@@ -136,6 +136,8 @@ pub struct Hero {
     pub creature: u32,
     /// What it holds, for its weapons' sounds (`sfx`).
     pub armed: crate::sfx::Armed,
+    /// The item in its hand that its hurled blades strike with (`making::Blade`).
+    pub blade: Option<crate::making::Blade>,
     gltf: Option<Handle<Gltf>>,
     spawned: bool,
 }
@@ -163,6 +165,7 @@ impl Hero {
             size: opensacred_rules::minds::SIZE,
             creature: 1,
             armed: crate::sfx::Armed::default(),
+            blade: None,
             gltf: None,
             spawned: false,
         }
@@ -472,6 +475,9 @@ pub fn spawn(
     }
     if let Some(equipment) = hero.equipment.take() {
         body.insert(equipment);
+    }
+    if let Some(blade) = hero.blade {
+        body.insert(blade);
     }
 }
 

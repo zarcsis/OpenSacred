@@ -421,6 +421,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
     hero.size = opensacred_rules::minds::size(class.creature(), held_class != 0);
     hero.creature = class.creature();
     hero.armed = npcs.hero_armed(&worn);
+    hero.blade = npcs.hero_blade(&worn);
     hero.held = held;
     let base = fight::Base::of(&record);
     let skills = fight::skills(&base, fight::HERO_LEVEL, true);
