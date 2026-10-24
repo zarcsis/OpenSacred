@@ -1,7 +1,7 @@
 //! Screenshot tests of the scene (M2's exit criterion, docs/05 §7). A synthetic world is written
 //! to a scratch directory in the converter's formats: a tile sheet of patterned colours, a frame
 //! of water, a sector with a hill, a pond, lighter and darker corners and a few sprite objects,
-//! one of them an underlay. It is rendered without a window into an image, through the game's
+//! one of them an underlay, with their sprites' images. It is rendered without a window into an image, through the game's
 //! own terrain, liquid, sprite and camera code, and compared with the reference
 //! `tests/screenshots/scene.png` within a tolerance that absorbs the differences between GPUs. No
 //! game files are needed, but a GPU adapter is (CI uses Mesa's software Vulkan, lavapipe), so the
@@ -32,7 +32,7 @@ use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
 use opensacred_data::texture;
 use opensacred_data::world::{
-    Cell, DIAMONDS, Piece, SIDE, Sector, SectorEntry, Sprite, Sprites, StaticObject, World,
+    Cell, DIAMONDS, SIDE, Sector, SectorEntry, Sprite, Sprites, StaticObject, World, sprite_image,
 };
 
 use crate::{blended, iso, liquids, shaders, srgb, statics, terrain};
@@ -112,8 +112,8 @@ fn sheet() -> Vec<u8> {
     rgba
 }
 
-/// A sprite atlas of 128 × 128: a tree (a trunk and a round crown with soft edges) on the left, a
-/// flat stone slab on the right.
+/// The art of the sprites, 128 × 128: a tree (a trunk and a round crown with soft edges) on the
+/// left, a flat stone slab on the right.
 fn atlas() -> Vec<u8> {
     let mut rgba = vec![0u8; 128 * 128 * 4];
     let mut put = |x: usize, y: usize, c: [u8; 4]| {
@@ -229,30 +229,33 @@ fn sector() -> Sector {
     }
 }
 
-fn sprites() -> Sprites {
-    Sprites {
-        sprites: vec![
-            None,
-            Some(Sprite {
+/// The sprites, each with the rectangle of the art it covers: the tree and the slab.
+fn sprites() -> [(Sprite, [usize; 4]); 2] {
+    [
+        (
+            Sprite {
                 width: 64,
                 height: 128,
-                pieces: vec![Piece {
-                    atlas: 0,
-                    source: [0, 0, 64, 128],
-                    rect: [0, 0, 64, 128],
-                }],
-            }),
-            Some(Sprite {
+                rect: [0, 0, 64, 128],
+            },
+            [0, 0, 64, 128],
+        ),
+        (
+            Sprite {
                 width: 64,
                 height: 32,
-                pieces: vec![Piece {
-                    atlas: 0,
-                    source: [64, 80, 128, 112],
-                    rect: [0, 0, 64, 32],
-                }],
-            }),
-        ],
-    }
+                rect: [0, 0, 64, 32],
+            },
+            [64, 80, 128, 112],
+        ),
+    ]
+}
+
+/// The texels of `art`'s rectangle `x0, y0, x1, y1`.
+fn crop(art: &[u8], [x0, y0, x1, y1]: [usize; 4]) -> Vec<u8> {
+    (y0..y1)
+        .flat_map(|y| art[4 * (y * 128 + x0)..4 * (y * 128 + x1)].iter().copied())
+        .collect()
 }
 
 /// Writes the synthetic world under `dir/world`.
@@ -260,14 +263,29 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
     let world_dir = dir.join("world");
     fs::create_dir_all(world_dir.join("sectors")).unwrap();
     write_texture(&world_dir.join("sheet.ktx2"), 256, 256, &sheet());
-    write_texture(&world_dir.join("atlas.ktx2"), 128, 128, &atlas());
+    // Each sprite's image, as the converter assembles it (#838).
+    fs::create_dir_all(world_dir.join(opensacred_data::world::SPRITES_DIR)).unwrap();
+    let art = atlas();
+    for (id, (sprite, from)) in (1..).zip(sprites()) {
+        let [x0, y0, x1, y1] = sprite.rect.map(u32::from);
+        write_texture(
+            &world_dir.join(sprite_image(id, texture::EXTENSION)),
+            x1 - x0,
+            y1 - y0,
+            &crop(&art, from),
+        );
+    }
     let textures = dir.join("textures").join("texture");
     fs::create_dir_all(&textures).unwrap();
     write_texture(&textures.join("00001-b_water00.ktx2"), 128, 128, &water());
     let sector = sector();
     let file = format!("sectors/{}-{}.sector", AT.0, AT.1);
     fs::write(world_dir.join(&file), sector.encode().unwrap()).unwrap();
-    let sprites = sprites();
+    let sprites = Sprites {
+        sprites: std::iter::once(None)
+            .chain(sprites().map(|(sprite, _)| Some(sprite)))
+            .collect(),
+    };
     fs::write(
         world_dir.join(opensacred_data::world::SPRITES_FILE),
         sprites.encode().unwrap(),
@@ -284,7 +302,8 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
             dungeon: false,
         }],
         sheets: vec!["sheet.ktx2".into()],
-        atlases: vec!["atlas.ktx2".into()],
+        atlases: Vec::new(),
+        assembled_from: Vec::new(),
     };
     let pretty = ron::ser::PrettyConfig::default().new_line("\n");
     let text = ron::ser::to_string_pretty(&world, pretty).unwrap();

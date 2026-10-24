@@ -332,6 +332,7 @@ mod tests {
                 sectors: Vec::new(),
                 sheets: Vec::new(),
                 atlases: Vec::new(),
+                assembled_from: Vec::new(),
             },
             sprites: Sprites {
                 sprites: Vec::new(),

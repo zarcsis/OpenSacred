@@ -145,6 +145,8 @@ This is the `cTextureManager` cache, sorted by name; the new engine builds the i
   The width and height count from the pieces' smallest corner (the negation of `dx, dy`, §6.1): past them the pieces hold only texels of alpha 0, in every one of the 16,255 sprites with pieces, while 2,122 sprites have texels of some alpha past the width and height counted from their origin.
   Confirmed 2026-10-18 by `mixed_dump.py --alpha`, which decodes the atlases' alpha from `texture.pak`.
   16,255 sprites have pieces, 15,840 none.
+  Assembled over that rectangle, their pieces copied one to one, they hold 795,069,886 texels (3.2 GB of 8-bit RGBA), against 694 million in the 10,585 atlases of 256 × 256 that their pieces lie in.
+  Confirmed 2026-10-24 by `mixed_dump.py --assembled`, which assembles every sprite from the atlases of `texture.pak` and finds the converter's images equal to its own texel for texel (#838).
   16 more bytes follow the last record (an empty sprite header, 30 × 61, outside the directory).
   An object type of Items.pak names its sprite at `+0x10` (§6.1), and a static object of Static.PAK puts the sprite's top left corner at its position (§5.5).
   Implemented 2026-10-17: `opensacred_formats::mixed`, matching `mixed_dump.py` on every record.
@@ -599,7 +601,12 @@ This closes an earlier hypothesis of "9 half-rows with a step of 24".
    A Python render of the ground of the starting sector (50, 39) from the tile sheets with the UV table of §5.4 and the overlays shows seamless grass, stone paths, the village square and a field: the table holds on real sheets.
    An overlay without a mask tile draws through the alpha of its own art tile; with the mask's alpha instead, its transparent texels show black.
    The same render with the sprites of the statics (Items.pak `+0x10` → mixed.pak, each at its top left corner, painted by `y`) shows the starting monastery, the pond with its pavilion and bridge, trees, fences, a flower garden and the field with crops: the placement holds.
-   `opensacred-convert world` also writes `sprites.bin` (the 16,255 sprites as pieces of 10,631 atlases, pixel rectangles) and gives every static object its type's kind, its sprite or, for a miniature, its atlas and square; the game assembles each sector's sprites from the atlases' PNGs when it builds the sector (docs/05 §3.6), rather than the converter writing 3.7 GB of assembled sprites.
+   `opensacred-convert world` also writes `sprites.bin` and gives every static object its type's kind, its sprite or, for a miniature, its atlas and square.
+   Since #838 it assembles each of the 16,255 sprites with pieces from its pieces of the 10,585 atlases once, into `sprites/<record>.png` over its rectangle (§3.3), and `sprites.bin` holds each sprite's size and rectangle in place of its pieces; the game reads a sector's sprites whole and only packs them into its pages (docs/05 §3.6).
+   The 16,255 masters take 531 MiB as PNG, and the world converts in 16 s on 24 threads.
+   `world.ron` names the 46 atlases of the miniatures alone, and among the masters also the 10,585 that the sprites were assembled from (`assembled_from`), which `build` leaves out of `assets/`: on the masters of 2026-10-24, `textures.zip` went from 932 MiB to 579 MiB and `world.zip`, with the sprites as KTX2 of 8-bit RGBA, from 76 MiB to 415 MiB, 994 MiB in all against 1,008 (confirmed).
+   Reading the sprites of the start's 3 × 3 sectors (799 of them) and packing them into pages took 155 ms instead of about 210, reading 14.4 MiB of the archives instead of 23.5 (summed over the nine sectors, three runs each, confirmed 2026-10-24).
+   An earlier version assembled the sprites in the game when it built a sector, as the converter writing 3.7 GB of them had been thought too much; the atlases hold about as many texels as the sprites, and each sector decoded every atlas its sprites' pieces lie in.
 4. The surface type from `+0x1F` (water, lava) and the corner light are carried over as vertex and material attributes.
 5. The original's limits (0x6D5 blend layers, 0x252 batcher indices, the 3×3 sector window) are not carried over into the new code.
 
@@ -1081,7 +1088,7 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 | TEX (`texture*.pak`) | PNG RGBA8 (`textures/<pak>/`); `Texture.TMP` is a cache and is skipped | pixel cross-check against the `tools/analysis/formats/tex_decode.py` prototype |
 | Tiles and MIX atlases | PNG atlases + the UV table of the 18 diamonds | rendering a test sector |
 | MDL + GRN (`models*.pak`) | `.glb`: meshes, skeletons, weights, materials, clips; `Models.tmp` is a cache and is skipped | glTF-Validator, Blender, reference poses |
-| Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 8) and `sprites.bin` | loading all 6,050 sectors |
+| Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 9), `sprites.bin` and the sprites assembled from their pieces (`sprites/<record>.png`) | loading all 6,050 sectors; the sprites against `mixed_dump.py --assembled` |
 | `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts of `Sacred.exe` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
 | `global.res` | Fluent (`.ftl`) | 23,123 strings in place |
 | NetScript | one postcard file per tree with a `netscript.ron` index; listings on request | disassembler without remainder on the 20 trees |
@@ -1109,7 +1116,8 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
   It removes the loose files that earlier runs wrote into `assets/` and that would take the archives' place: the outputs of the builds before #699 that `build.ron` names, and those of the extractions before #696 that their records under `assets/manifest/` name, with the records; any other loose file stays, the layer read first.
   `build.ron` also records the version of each way of making an output (`ways`): an output whose way's version changed is made again, and a record without the versions stands for the ways before #700.
 * The textures (#700, `opensacred_data::texture`): `build` encodes each PNG master of `textures/` and `ui/screens/` into a KTX2 file of the same path but its extension, each level supercompressed by zstd at level 19, with no key and value data.
-  The textures that the game composes or reads on the CPU, the 15,639 tile sheets and atlases that `world/world.ron` names and the cursor (`MOUSE_MAIN.TGA`), are 8-bit RGBA in sRGB (`VK_FORMAT_R8G8B8A8_SRGB`) of one level.
+  The textures that the game composes or reads on the CPU, the 5,008 tile sheets and the 46 atlases of the miniatures that `world/world.ron` names, the 16,255 sprites of `world/sprites/` (#838) and the cursor (`MOUSE_MAIN.TGA`), are 8-bit RGBA in sRGB (`VK_FORMAT_R8G8B8A8_SRGB`) of one level.
+  The atlases that the masters' `world.ron` names as those the sprites were assembled from, and not as a miniature's, are left out.
   The others carry a full mip chain down to 1 × 1, in BC7 (`VK_FORMAT_BC7_SRGB_BLOCK`, Intel's ISPC Texture Compressor at its opaque basic settings) where every texel is opaque and both sides are multiples of 4, else in 8-bit RGBA, as the game reads their alpha (docs/decisions/2026-10-23-textures.md).
   A level halves the one before by a box of 2 × 2 texels: the colours averaged in linear light, each weighted by its alpha, and the alpha averaged and then, where the share of texels over the models' alpha test (64.5 / 255) falls short of the largest level's, raised by a scale that brings it back.
   The alpha is never lowered (#816): a scale under 1 takes every opaque texel under 255 with it, and the game blends a model's texels under 255 (docs/decisions/2026-10-22-model-alpha.md).

@@ -28,13 +28,17 @@ Example
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --items /tmp/items.tsv --sprites /tmp/sprites.tsv
   python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --alpha
+  python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --assembled ./assets-src/world/sprites
 
 Expected output (2.28): every check passes on all of its items; statistics follow, among them 2043 types of bit
 0x10000, 1635 of them leaning and 408 rectangles, one of size 0 (Dunkelbaum21), in 137 distinct cells up to 143.
 --items writes a row per items.pak record (index, used, type,
 sprite, the shadow's cell, dx, dy, shape and size, crc of the 128 bytes); --sprites a row per mixed.pak record (index, pieces, width,
 height, crc of the record). --alpha also decodes the atlases' alpha from texture.pak (a minute) and checks every sprite's
-texels against its size. Dependencies: numpy (tools/requirements.txt).
+texels against its size. --assembled DIR assembles every sprite with pieces from the atlases of texture.pak, its pieces
+copied one to one over its rectangle (from its pieces' smallest corner, cut to its width and height), and compares it
+texel for texel with DIR/<record>.png, the image that `opensacred-convert world` writes (#838; DIR is
+<assets-src>/world/sprites; a few minutes). Dependencies: numpy, Pillow for --assembled (tools/requirements.txt).
 """
 import argparse
 import collections
@@ -120,6 +124,53 @@ def check_alpha(c, stats, textures, sprite_pieces):
     stats['sprites with texels past their width and height from their origin'] = len(past_origin)
 
 
+def atlas_rgba(tx, tdirs, tex):
+    """The 8-bit RGBA texels of ARGB4444 atlas `tex`, each nibble n as 17 n, as the converter decodes them."""
+    off, size = int(tdirs[tex, 1]), int(tdirs[tex, 2])
+    tw, th, fmt = struct.unpack_from('<HHB', tx, off + 0x20)
+    if fmt != 4:
+        raise ValueError(f'texture {tex}: format {fmt}, not ARGB4444')
+    raw = zlib.decompressobj().decompress(tx[off + 0x50:off + 0x50 + size], tw * th * 2)
+    v = np.frombuffer(raw, '<u2', tw * th).reshape(th, tw)
+    argb = np.stack([(v >> 8) & 0xF, (v >> 4) & 0xF, v & 0xF, v >> 12], axis=-1).astype(np.uint8)
+    return argb * 17
+
+
+def check_assembled(c, stats, textures, sprite_pieces, directory_of_images):
+    """Assembles each sprite with pieces over its rectangle and compares it with the converter's image."""
+    from PIL import Image
+    tx = open(textures, 'rb').read()
+    tdirs, _ = directory(tx)
+    atlases = {}
+    texels = 0
+    for i, (width, height, pieces) in sorted(sprite_pieces.items()):
+        left, top = min(p[0] for p in pieces), min(p[1] for p in pieces)
+        right = min(max(p[2] for p in pieces), left + width)
+        bottom = min(max(p[3] for p in pieces), top + height)
+        image = np.zeros((bottom - top, right - left, 4), np.uint8)
+        for x0, y0, x1, y1, tex, u, v in pieces:
+            if tex not in atlases:
+                # Neighbouring sprites take their pieces from neighbouring atlases: keep the last few.
+                if len(atlases) > 64:
+                    atlases.pop(next(iter(atlases)))
+                atlases[tex] = atlas_rgba(tx, tdirs, tex)
+            atlas = atlases[tex]
+            w = min(x1, right) - x0
+            h = min(y1, bottom) - y0
+            w = min(w, atlas.shape[1] - u)
+            h = min(h, atlas.shape[0] - v)
+            if w > 0 and h > 0:
+                image[y0 - top:y0 - top + h, x0 - left:x0 - left + w] = atlas[v:v + h, u:u + w]
+        texels += image.shape[0] * image.shape[1]
+        path = os.path.join(directory_of_images, f'{i:05}.png')
+        if not c('assembled: the image of every sprite with pieces is there', os.path.exists(path), f'#{i}'):
+            continue
+        made = np.asarray(Image.open(path).convert('RGBA'))
+        c("assembled: texel for texel the converter's image", made.shape == image.shape
+          and bool(np.array_equal(made, image)), f'#{i}')
+    stats['texels of the assembled sprites'] = texels
+
+
 def main():
     ap = argparse.ArgumentParser(description='Check items.pak and mixed.pak; per-record tables.')
     ap.add_argument('--game-dir', default=DEFAULT_GAME_DIR)
@@ -127,6 +178,8 @@ def main():
     ap.add_argument('--sprites', help='write one tab-separated row per mixed.pak record to this file')
     ap.add_argument('--alpha', action='store_true',
                     help="decode the atlases' alpha and check the sprites' texels against their size")
+    ap.add_argument('--assembled', metavar='DIR',
+                    help="assemble every sprite and compare it with the converter's DIR/<record>.png")
     args = ap.parse_args()
     c = Check()
     g = lambda rel: os.path.join(args.game_dir, rel)
@@ -215,6 +268,8 @@ def main():
 
     if args.alpha:
         check_alpha(c, stats, g(TEXTURES), sprite_pieces)
+    if args.assembled:
+        check_assembled(c, stats, g(TEXTURES), sprite_pieces, args.assembled)
 
     print(f'items: {n} records, {int((dirs[:, 0] == 2).sum())} used; mixed: {nm} records')
     c.report()

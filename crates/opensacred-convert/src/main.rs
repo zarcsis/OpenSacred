@@ -111,8 +111,9 @@ enum Command {
         only: Vec<String>,
     },
     /// Convert the world (World/sectors.*, Static.PAK, Floor.PAK, PAK/tiles.pak) into
-    /// <ASSETS_SRC>/world/world.ron and one sector file per sector; tile sheets are the PNGs of
-    /// `textures` in the same <ASSETS_SRC>
+    /// <ASSETS_SRC>/world/world.ron, one sector file per sector, sprites.bin and the sprites'
+    /// images assembled from PAK/mixed.pak's pieces of PAK/texture.pak's atlases; tile sheets are
+    /// the PNGs of `textures` in the same <ASSETS_SRC>
     World {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -360,10 +361,11 @@ fn execute(command: Command) -> Result<ExitCode> {
             let start = Instant::now();
             let summary = build::build(&assets_src, &out, force)?;
             println!(
-                "build: {} masters, {} built, {} up to date, {} removed -> {} archives in {} in {:.1} s",
+                "build: {} masters, {} built, {} up to date, {} atlases of the sprites left out, {} removed -> {} archives in {} in {:.1} s",
                 summary.masters,
                 summary.built,
                 summary.kept,
+                summary.left_out,
                 summary.removed,
                 summary.archives,
                 out.display(),
@@ -506,8 +508,8 @@ fn execute(command: Command) -> Result<ExitCode> {
             let summary = world::convert(&game_dir, &out, sector)?;
             println!(
                 "world: {} sectors ({:.1} MB), {} floor overlays, {} static objects ({} with a \
-                 sprite, {} miniatures) -> {}\n  {} sprites over {} atlases; {} tile sheets \
-                 without an image",
+                 sprite, {} miniatures) -> {}\n  {} sprites assembled from {} atlases, {} atlases \
+                 of the miniatures; {} tile sheets without an image",
                 summary.sectors,
                 summary.bytes as f64 / 1e6,
                 summary.overlays,
@@ -516,6 +518,7 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.miniatures,
                 world::output_dir(&out).display(),
                 summary.sprites,
+                summary.assembled_from,
                 summary.atlases,
                 summary.missing_sheets,
             );
