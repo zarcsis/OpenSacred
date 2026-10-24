@@ -4,6 +4,7 @@
 
 use bevy::prelude::*;
 
+use crate::effects::{Effects, Timed};
 use crate::fight::{Combat, Health, Ranked};
 use crate::hero::Body;
 use crate::npcs::Dies;
@@ -152,6 +153,8 @@ pub struct Stats {
     pub attributes: Option<[u8; 6]>,
     pub combat: Option<Combat>,
     pub rank: fight::Rank,
+    /// Its effects and their seconds still to hold (#763).
+    pub effects: Vec<Timed>,
 }
 
 impl Stats {
@@ -206,6 +209,16 @@ impl Stats {
             }
             None => lines.push("no fight values".into()),
         }
+        lines.extend(self.effects.iter().map(|timed| {
+            format!(
+                "effect {} of {} (whole {}, art {}), {:.1} s left",
+                timed.effect.id,
+                timed.effect.value,
+                timed.effect.whole,
+                timed.effect.art,
+                timed.left
+            )
+        }));
         lines
     }
 }
@@ -218,8 +231,9 @@ pub fn stats(world: &mut World, id: Option<Entity>) -> Result<Vec<String>, Strin
                 Option<&Health>,
                 Option<&Combat>,
                 Option<&fight::Base>,
+                Option<&Effects>,
             ), With<Body>>();
-            let (health, combat, base) = query
+            let (health, combat, base, effects) = query
                 .iter(world)
                 .next()
                 .ok_or("the hero is not in the world yet")?;
@@ -230,12 +244,20 @@ pub fn stats(world: &mut World, id: Option<Entity>) -> Result<Vec<String>, Strin
                 attributes: base.map(|base| base.attributes),
                 combat: combat.copied(),
                 rank: fight::Rank::Common,
+                effects: effects
+                    .map(|effects| effects.timed().to_vec())
+                    .unwrap_or_default(),
             }
         }
         Some(id) => {
-            let mut query =
-                world.query::<(&ai::Mind, Option<&Health>, Option<&Combat>, Option<&Ranked>)>();
-            let (mind, health, combat, rank) = query
+            let mut query = world.query::<(
+                &ai::Mind,
+                Option<&Health>,
+                Option<&Combat>,
+                Option<&Ranked>,
+                Option<&Effects>,
+            )>();
+            let (mind, health, combat, rank, effects) = query
                 .get(world, id)
                 .map_err(|_| format!("{id} is no creature"))?;
             Stats {
@@ -245,10 +267,57 @@ pub fn stats(world: &mut World, id: Option<Entity>) -> Result<Vec<String>, Strin
                 attributes: None,
                 combat: combat.copied(),
                 rank: rank.map_or_else(fight::Rank::default, |rank| rank.0),
+                effects: effects
+                    .map(|effects| effects.timed().to_vec())
+                    .unwrap_or_default(),
             }
         }
     };
     Ok(stats.lines())
+}
+
+/// Gives creature `id`, the hero by default, `effect` for `seconds` (`effect`, #763).
+pub fn effect(
+    world: &mut World,
+    id: Option<Entity>,
+    effect: opensacred_rules::fight::Effect,
+    seconds: f32,
+) -> Result<String, String> {
+    if seconds <= 0.0 {
+        return Err("--seconds takes a time above 0".into());
+    }
+    let entity = match id {
+        None => {
+            let mut heroes = world.query_filtered::<Entity, With<Body>>();
+            heroes
+                .iter(world)
+                .next()
+                .ok_or("the hero is not in the world yet")?
+        }
+        Some(id) => {
+            let mut creatures = world.query_filtered::<Entity, (With<ai::Mind>, Without<Dies>)>();
+            creatures
+                .get(world, id)
+                .map_err(|_| format!("{id} is no living creature"))?
+        }
+    };
+    let mut entity = world.entity_mut(entity);
+    match entity.get_mut::<Effects>() {
+        Some(mut effects) => effects.add(effect, seconds),
+        None => {
+            let mut effects = Effects::default();
+            effects.add(effect, seconds);
+            entity.insert(effects);
+        }
+    }
+    let line = format!(
+        "effect {} of {} (whole {}, art {}) for {seconds} s",
+        effect.id, effect.value, effect.whole, effect.art
+    );
+    Ok(match id {
+        Some(id) => format!("{id} {line}"),
+        None => line,
+    })
 }
 
 /// Creature `id`'s health, the hero's by default, to its most or to `to` (`heal`), at most its
@@ -404,6 +473,7 @@ mod tests {
             attributes: Some([20, 12, 18, 10, 14, 9]),
             combat: Some(combat()),
             rank: fight::Rank::Common,
+            effects: Vec::new(),
         };
         assert_eq!(
             stats.lines(),

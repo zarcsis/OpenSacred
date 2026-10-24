@@ -17,6 +17,7 @@ mod daynight;
 mod debug;
 mod doors;
 mod drops;
+mod effects;
 mod fight;
 mod files;
 mod frame;
@@ -256,6 +257,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         drops::DropsPlugin,
     ))
     .add_plugins((
+        effects::EffectsPlugin,
         fight::FightPlugin,
         frame::FramePlugin,
         game::GamePlugin,
@@ -270,9 +272,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
-        opus::OpusPlugin,
     ))
     .add_plugins((
+        opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
         screenshot::ScreenshotPlugin,

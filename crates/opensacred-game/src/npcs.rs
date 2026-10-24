@@ -60,6 +60,7 @@ use opensacred_data::heroes::Worn;
 use opensacred_data::netscript::{Body, Function, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item, Weapon};
 use opensacred_data::world::SIDE;
+use opensacred_rules::fight::Effect;
 use opensacred_rules::{minds, ways};
 
 use crate::files;
@@ -3838,6 +3839,7 @@ fn first_fight(
         &mut fight::Combat,
         &mut Arms,
         &mut Npc,
+        Option<&crate::effects::Effects>,
     )>,
 ) {
     let Some(npcs) = npcs else {
@@ -3853,7 +3855,7 @@ fn first_fight(
                 experience.level
             } else if let Ok(health) = levels.get(opponent) {
                 health.level
-            } else if let Ok((.., health, _, _, _)) = unfought.get(opponent) {
+            } else if let Ok((.., health, _, _, _, _)) = unfought.get(opponent) {
                 health.level
             } else {
                 continue;
@@ -3867,6 +3869,7 @@ fn first_fight(
                 mut combat,
                 mut arms,
                 mut npc,
+                effects,
             )) = unfought.get_mut(who)
             else {
                 continue;
@@ -3896,6 +3899,9 @@ fn first_fight(
                 (&mut *mind, &mut *health, &mut *combat, &mut *npc),
                 &arms,
                 rules,
+                &effects
+                    .map(crate::effects::Effects::list)
+                    .unwrap_or_default(),
             );
             // The level's setter starts its experience anew at its level (#690).
             commands
@@ -3938,6 +3944,7 @@ fn earn(
         &mut fight::Combat,
         &Arms,
         &mut Npc,
+        Option<&crate::effects::Effects>,
     )>,
 ) {
     let Some(npcs) = npcs else {
@@ -3945,8 +3952,17 @@ fn earn(
     };
     let rules = &npcs.fight;
     for kill in kills.read() {
-        let Ok((points, ranked, transform, mut mind, mut health, mut combat, arms, mut npc)) =
-            killers.get_mut(kill.killer)
+        let Ok((
+            points,
+            ranked,
+            transform,
+            mut mind,
+            mut health,
+            mut combat,
+            arms,
+            mut npc,
+            effects,
+        )) = killers.get_mut(kill.killer)
         else {
             continue;
         };
@@ -3981,6 +3997,9 @@ fn earn(
             (&mut *mind, &mut *health, &mut *combat, &mut *npc),
             arms,
             rules,
+            &effects
+                .map(crate::effects::Effects::list)
+                .unwrap_or_default(),
         );
         commands.entity(kill.killer).insert(regenerates);
         bevy::log::info!(
@@ -4006,7 +4025,7 @@ fn sector_of(here: Vec3) -> (u32, u32) {
 /// Makes a creature's values anew at its level `grade` and of its rank `rank`, as the level's
 /// setter does (`0x564D60` and its recomputation `0x5796A0`): its skills, its most health with its
 /// health refilled to it, its attack, defence, damage, resistances and pace with its items as
-/// they are, its hits' share, and its regeneration, which it returns.
+/// they are and its effects `effects`, its hits' share, and its regeneration, which it returns.
 fn relevel(
     grade: u32,
     rank: fight::Rank,
@@ -4018,6 +4037,7 @@ fn relevel(
     ),
     arms: &Arms,
     rules: &fight::Rules,
+    effects: &[Effect],
 ) -> fight::Regenerates {
     let skills = fight::skills(&arms.base, grade, arms.plain);
     let factor = rank.health(mind.creature, mind.class, rules);
@@ -4031,7 +4051,30 @@ fn relevel(
         most,
         level: grade,
     };
-    let (values, share) = arms.fight(grade, rank, rules);
+    mind.level = grade;
+    fight::Regenerates::new(refit(
+        arms,
+        grade,
+        rank,
+        rules,
+        effects,
+        (mind, combat, npc),
+    ))
+}
+
+/// Makes an NPC's attack, defence, damage, resistances and pace anew at its level `grade` and of
+/// its rank `rank` with its effects `effects` (#763), its walk and run by its new pace, as
+/// [`rearm`] makes them with its weapons, and its hits' share; returns its regeneration's value
+/// with them.
+pub(crate) fn refit(
+    arms: &Arms,
+    grade: u32,
+    rank: fight::Rank,
+    rules: &fight::Rules,
+    effects: &[Effect],
+    (mind, combat, npc): (&mut ai::Mind, &mut fight::Combat, &mut Npc),
+) -> f32 {
+    let (values, share) = arms.fight_with(grade, rank, rules, effects);
     let pace = values.0.pace_factor();
     let ratio = pace / npc.pace.max(f32::EPSILON);
     mind.speed *= ratio;
@@ -4039,8 +4082,8 @@ fn relevel(
     npc.pace = pace;
     npc.share = share;
     *combat = values;
-    mind.level = grade;
-    fight::Regenerates::new(fight::regeneration(&arms.base, grade, &skills, rules))
+    let skills = fight::skills(&arms.base, grade, arms.plain);
+    opensacred_rules::fight::regeneration_with(&arms.base, grade, &skills, effects, rules)
 }
 
 /// What an NPC fights with: its type's values and its model, by which its values and its clips
@@ -4068,6 +4111,17 @@ impl Arms {
     /// class 0 and its right hand empty (`0x546F80`); and its hits' share of a strike, halved with
     /// two weapons, the class 8 or one in each hand, the left no shield (`0x4EA3F0`).
     fn fight(&self, grade: u32, rank: fight::Rank, rules: &fight::Rules) -> (fight::Combat, f32) {
+        self.fight_with(grade, rank, rules, &[])
+    }
+
+    /// [`Self::fight`] with its effects `effects` (#763).
+    fn fight_with(
+        &self,
+        grade: u32,
+        rank: fight::Rank,
+        rules: &fight::Rules,
+        effects: &[Effect],
+    ) -> (fight::Combat, f32) {
         let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
         let class = class_of(&in_hands);
         let holds = |hand, shield: Option<bool>| {
@@ -4088,7 +4142,8 @@ impl Arms {
                 .collect(),
         };
         let skills = fight::skills(&self.base, grade, self.plain);
-        let mut values = fight::combat(&self.base, grade, held, &skills, rules);
+        let mut values =
+            opensacred_rules::fight::combat_with(&self.base, grade, held, &skills, effects, rules);
         let [attack, defence] = rank.fight(rules);
         values.attack *= attack;
         values.defence *= defence;

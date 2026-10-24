@@ -156,20 +156,28 @@ impl HeroArts {
 /// The arts' regeneration (`0x562730`), the hero's alone, on the world's tick as the creatures'
 /// updates run it (`frame::WorldTick`, #627): what is still to run of each art goes down by the
 /// tick's seconds times its factor and its kind's speed, the speeds by the hero's level,
-/// attributes and items (`fight::arts_speeds`).
+/// attributes, items and effects (`fight::arts_speeds_with`, #763).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
 fn regenerate(
     tick: Res<crate::frame::WorldTick>,
     experience: Res<Experience>,
     arts: Option<ResMut<HeroArts>>,
-    heroes: Query<(&Base, Option<&Holding>), With<Body>>,
+    heroes: Query<(&Base, Option<&Holding>, Option<&crate::effects::Effects>), With<Body>>,
 ) {
-    let (Some(seconds), Some(mut arts), Some((base, holding))) =
+    let (Some(seconds), Some(mut arts), Some((base, holding, effects))) =
         (tick.seconds, arts, heroes.iter().next())
     else {
         return;
     };
     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
-    let speeds = opensacred_rules::fight::arts_speeds(base, experience.level, &holds);
+    let effects = effects
+        .map(crate::effects::Effects::list)
+        .unwrap_or_default();
+    let speeds =
+        opensacred_rules::fight::arts_speeds_with(base, experience.level, &holds, &effects);
     arts.arts.regenerate(seconds, speeds);
 }
 
