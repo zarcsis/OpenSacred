@@ -870,8 +870,30 @@ fn the_hand_of_god_strikes_its_target_and_the_hostiles_within_the_reach() {
 
 #[test]
 fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
-    // The Gladiator's 1015, of the launch type 2, needs a friend for its target (seen).
-    assert_eq!(style(1015), None);
+    // The Gladiator's 1015, of the launch type 2: `[+0x50]` 0.5 + 0.2·L, `[+0x58]` 39.5 + 0.5·L.
+    assert_eq!(style(1015), Some(Style::Boon));
+    let heroism = WeaponArt {
+        factor: [0.5, 0.2],
+        value_58: [39.5, 0.5],
+        launch: 2,
+        distance: 0,
+        ..weapon_art(1015, [0.0; 2], 2)
+    };
+    let given = boon(&heroism, 1).unwrap();
+    assert_eq!(given.point, 0.7);
+    assert_eq!(
+        given
+            .effects
+            .iter()
+            .map(|(e, s)| (e.id, e.art, *s))
+            .collect::<Vec<_>>(),
+        [(1, 1015, 40.0), (2, 1015, 40.0)]
+    );
+    assert!((given.effects[1].0.value - 0.7).abs() < 1e-6);
+    assert_eq!(
+        action(2, Style::Boon, 1).map(|a| a.clip),
+        Some(ArtClip::Slot(151))
+    );
     // GOG 2.28's 1089: `[+0x50]` and `[+0x58]` 0.4 + 0.1·L, `[+0x60]` 2950 + 50·L hundredths.
     let war_cry = WeaponArt {
         factor: [0.4, 0.1],

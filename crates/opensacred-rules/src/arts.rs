@@ -145,12 +145,14 @@ pub enum Style {
     Smite,
     /// Effects on its maker at a part of its clip, made where it stands ([`boon`]): the Dark
     /// Elf's 1047 and 1048 and the Dwarf's 1089, of the launch type 5 (`ECF_ONMEMYSELFANDI`,
-    /// whose target `0x51D840` makes the maker itself).
+    /// whose target `0x51D840` makes the maker itself), and the Gladiator's 1015, of the type 2
+    /// (`ECF_ONFRIENDLY`), on a friend or on himself, whom the right button on him makes its
+    /// target (seen).
     Boon,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
-const BOONS: [u16; 3] = [1047, 1048, 1089];
+const BOONS: [u16; 4] = [1015, 1047, 1048, 1089];
 
 /// The arts that `0x51D840` refuses while an effect of theirs holds on their maker (`0x582B00`):
 /// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does.
@@ -443,6 +445,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // `0x502C10`).
         (2, Style::Smite) => Some(plain(146)),
         (8, Style::Boon) => Some(plain(154)),
+        // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
+        (2, Style::Boon) => Some(plain(151)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
         (8, Style::Attacke) => Some(dwarfs(
             match class {
@@ -535,6 +539,7 @@ pub struct Boon {
 ///   multiplier) of `a` and 6 (the poison damage's) of `b`, and 1048 below 0.2 the effects 2
 ///   (`D`'s multiplier) of `a` and 12 (the regeneration) of `b`, each for `L·[+0x64] + [+0x60]`
 ///   seconds (`0x506770`);
+/// - the Gladiator's 1015 below 0.3 the effects 1 and 2 of `a` for `b` seconds (`0x4FF0B0`);
 /// - the Dwarf's 1089 below 0.2 the effects 1 of `a` and 2 of `b` for `L·[+0x64] + [+0x60]`
 ///   hundredths of a second (`0x514790`; to the hero, whom `0x51D840` refuses it while they
 ///   hold; a friend's effects of it raised by `0x5904E0`, not followed);
@@ -548,6 +553,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
     let (point, effects, seconds) = match record.id {
         1047 => (0.7, [(1, a), (6, b)], narrow(whole(record.value_60))),
         1048 => (0.8, [(2, a), (12, b)], narrow(whole(record.value_60))),
+        1015 => (0.7, [(1, a), (2, a)], b),
         1089 => (0.8, [(1, a), (2, b)], narrow(whole(record.value_60) * 0.01)),
         _ => return None,
     };
