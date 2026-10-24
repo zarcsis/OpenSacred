@@ -1056,7 +1056,8 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
   **Implemented 2026-10-17:** `opensacred-convert video` encodes the 10 WMVs with FFmpeg as an external program (SVT-AV1 at CRF 30, preset 6; libopus at 128 kbit/s) into `video/<name>.webm` and lists them in `video/video.ron`; a test checks that FFmpeg reads a converted cutscene as AV1 and Opus.
   That encoding ran on one thread a cutscene (`lp=1`) so that two runs gave identical files; since #698 the converter keeps lossless masters instead and encodes from them on all threads, identical reruns no longer a goal (#694).
   **Since #698:** `opensacred-convert video` writes each WMV as a master, `video/<name>.mkv`: FFV1 version 3 video in the decoded `yuv420p` and FLAC audio in 16 bits in Matroska, at the source's resolution, frame rate and sample rate, without random ids (954 MB in 4 s for the 10); a test compares the MD5 of the frames and of the samples that FFmpeg decodes from the WMV and from the master.
-  `build` encodes each master into the game's `video/<name>.webm` (SVT-AV1 at CRF 30, preset 6, on all threads; libopus at 128 kbit/s) and writes the game's `video.ron` naming the WebM files.
+  `build` encodes each master into the game's `video/<name>.webm` (SVT-AV1 at CRF 30, preset 6, on all threads; libopus at 128 kbit/s).
+  **Since #828** no index lists the cutscenes: a cutscene's file is named by the cutscene (`opensacred_data::video::file`), so the game finds one by its name and skips a missing one; the `video.ron` that the extraction and `build` wrote until then named each `<name>.mkv` or `<name>.webm` and nothing more, and a full `opensacred-convert video` removes the masters' one.
 - All paks, WMV, MP3, TTF, BMP are the rights holder's content: the converter reads them from the user's own installation, verifying it against the SHA-256 manifest; neither the source nor the converted files are published.
 
 ## 11. Fonts and UI assets

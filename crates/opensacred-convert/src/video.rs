@@ -2,20 +2,23 @@
 //! (docs/02 §10.3; the format is [`opensacred_data::video`]), FFV1 version 3 video in the decoded
 //! `yuv420p` and FLAC audio in 16 bits in Matroska, by FFmpeg ([`crate::ffmpeg`]) without random ids
 //! (`+bitexact`) (#698); and stage B's encoding of a master into AV1 and Opus in WebM ([`encode`]),
-//! with SVT-AV1 on all threads, whose output may vary from run to run (#694).
+//! with SVT-AV1 on all threads, whose output may vary from run to run (#694). No index lists them:
+//! a cutscene's file is named by the cutscene (#828).
 
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use opensacred_data::video::{INDEX, Movie, Video};
+use opensacred_data::video::{MASTER_EXTENSION, file};
 use rayon::prelude::*;
 
 use crate::ffmpeg;
 
 /// The cutscenes' directory under the output.
 pub const DIR: &str = "video";
+/// The index of the cutscenes that the runs before #828 wrote, removed by a full run.
+const OLD_INDEX: &str = "video.ron";
 
 pub fn output_dir(out: &Path) -> PathBuf {
     out.join(DIR)
@@ -50,18 +53,6 @@ pub fn encode(mkv: &Path, webm: &Path) -> Result<()> {
     ffmpeg::run(&args, &mkv.display().to_string())
 }
 
-/// The game's `video.ron` from the masters': each movie's WebM in place of its MKV.
-pub fn built_index(masters: &str) -> Result<String> {
-    let mut index: Video = ron::from_str(masters).context("reading the masters' video.ron")?;
-    for movie in &mut index.movies {
-        if let Some(stem) = movie.file.strip_suffix(".mkv") {
-            movie.file = format!("{stem}.webm");
-        }
-    }
-    ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default())
-        .context("writing the game's video.ron")
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Summary {
     pub movies: usize,
@@ -81,13 +72,16 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[String]) -> Result<Summary> 
     names.sort();
     let dir = output_dir(out);
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-    // A full run removes the WebM that the converter wrote here before the masters (#698).
+    // A full run removes the WebM that the converter wrote here before the masters (#698), and
+    // the index it wrote before #828.
     if only.is_empty() {
         for entry in fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
             let path = entry
                 .with_context(|| format!("reading {}", dir.display()))?
                 .path();
-            if path.extension().is_some_and(|e| e == "webm") {
+            if path.extension().is_some_and(|e| e == "webm")
+                || path.file_name().is_some_and(|n| n == OLD_INDEX)
+            {
                 fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
             }
         }
@@ -100,14 +94,13 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[String]) -> Result<Summary> 
                 .iter()
                 .any(|o| o.to_ascii_lowercase().trim_end_matches(".wmv") == stem)
     };
-    let movies = names
+    let sizes = names
         .par_iter()
         .filter(|name| wanted(name))
         .map(|name| {
             let stem = name[..name.len() - 4].to_ascii_lowercase();
-            let file = format!("{stem}.mkv");
             let input = source.join(name);
-            let output = dir.join(&file);
+            let output = dir.join(file(&stem, MASTER_EXTENSION));
             let args: Vec<&OsStr> = [
                 OsStr::new("-y"),
                 OsStr::new("-i"),
@@ -136,26 +129,16 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[String]) -> Result<Summary> 
             ]
             .to_vec();
             ffmpeg::run(&args, &format!("movie/{name}"))?;
-            let bytes = fs::metadata(&output)
-                .with_context(|| format!("reading {}", output.display()))?
-                .len();
-            Ok((Movie { name: stem, file }, bytes))
+            fs::metadata(&output)
+                .with_context(|| format!("reading {}", output.display()))
+                .map(|m| m.len())
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut summary = Summary::default();
-    let mut list = Vec::with_capacity(movies.len());
-    for (movie, bytes) in movies {
-        summary.movies += 1;
-        summary.bytes += bytes;
-        list.push(movie);
-    }
-    let index = Video { movies: list };
-    let text = ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default())
-        .context("writing video.ron")?;
-    let path = dir.join(INDEX);
-    fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
-    Ok(summary)
+    Ok(Summary {
+        movies: sizes.len(),
+        bytes: sizes.iter().sum(),
+    })
 }
 
 #[cfg(test)]
@@ -177,7 +160,7 @@ mod tests {
     }
 
     /// The shortest cutscene's master holds the WMV's frames and samples, and the game's WebM
-    /// that stage B encodes from it is AV1 video and Opus audio.
+    /// that stage B encodes from it is AV1 video and Opus audio; no index lists it.
     #[test]
     #[ignore = "needs the game files in OriginalGame/ and FFmpeg"]
     fn a_cutscene_becomes_a_lossless_master_and_av1_and_opus() {
@@ -211,12 +194,12 @@ mod tests {
             codecs.split_whitespace().collect::<Vec<_>>(),
             ["av1", "opus"]
         );
-        let text = fs::read_to_string(output_dir(&out).join(INDEX)).unwrap();
-        let index: Video = ron::from_str(&text).unwrap();
-        assert_eq!(index.movies[0].name, "ascaron");
-        assert_eq!(index.movies[0].file, "ascaron.mkv");
-        let built: Video = ron::from_str(&built_index(&text).unwrap()).unwrap();
-        assert_eq!(built.movies[0].file, "ascaron.webm");
+        let mut written: Vec<_> = fs::read_dir(output_dir(&out))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        written.sort();
+        assert_eq!(written, ["ascaron.mkv", "ascaron.webm"]);
         fs::remove_dir_all(out).unwrap();
     }
 }
