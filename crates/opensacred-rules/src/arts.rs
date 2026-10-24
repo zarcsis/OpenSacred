@@ -193,6 +193,11 @@ pub enum Style {
     /// left of its clip is below [`BITES`] its target is held for [`BITE_HOLD`] with the effect
     /// 15, struck with a fixed physical damage of [`bite_drain`], and she takes as much health.
     Bite,
+    /// The Vampiress's domination, 1024 (`GUI_MOVE_BEHERRSCHUNG_DAY`) and 1025
+    /// (`GUI_MOVE_BEHERRSCHUNG`), `0x50E6C0`: once what is left of its clip is below
+    /// [`DOMINATES`] its target, no boss nor champion, takes the effect [`DOMINATED`] for
+    /// [`domination_seconds`], and does not fight her while it holds (seen).
+    Dominate,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -280,6 +285,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1030 {
         return Some(Style::Bite);
+    }
+    if art == 1024 || art == 1025 {
+        return Some(Style::Dominate);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -572,6 +580,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (7, Style::Jump) => Some(plain(153)),
         // Her blood bite by night: the slot 144 at the rate 1.0 (seen).
         (7, Style::Bite) => Some(plain(144)),
+        // Her domination: the slot 149 at the rate 1.0 (seen by day; by night a **hypothesis**).
+        (6 | 7, Style::Dominate) => Some(plain(149)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C2F`; 169 mounted).
         (2, Style::Roar) => Some(plain(149)),
@@ -885,6 +895,27 @@ pub fn jump_points(kind: u32) -> [f32; 2] {
         2 => [0.8, 0.6],
         7 => [0.8, 0.35],
         _ => [0.75, 0.4],
+    }
+}
+
+/// What is left of its clip, as a part of it, below which the domination takes its target
+/// (`0x50E6C0`; seen: 1.77 s into the 4.29 s of the slot 149), and the effect it gives it, which
+/// sets its `+0x1F4` bit `0x20000` (`0x582D50`): while it holds the target does not fight her.
+pub const DOMINATES: f32 = 0.6;
+pub const DOMINATED: u32 = 13;
+
+/// How long the domination of `record` at the level in play `level` holds a target of the level
+/// `target` (`0x50E6C0`): its factor `L·[+0x54] + [+0x50]` in seconds, 17 + 3·L by day and
+/// 21 + 4·L by night, times `5L/M` where the target's level `M` is above `5L` (seen: 20 s on a
+/// goblin warrior of level 1 at level 1).
+pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    let seconds = f64::from(level).mul_add(step, base);
+    let most = 5 * level;
+    if target > most {
+        narrow(seconds * f64::from(most) / f64::from(target))
+    } else {
+        narrow(seconds)
     }
 }
 

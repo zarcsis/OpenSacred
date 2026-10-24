@@ -100,6 +100,7 @@ pub fn clips(
         Style::Dash,
         Style::Backbreaker,
         Style::Bite,
+        Style::Dominate,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -625,7 +626,7 @@ fn make(
             // regeneration as they start.
             if matches!(
                 style,
-                Style::Rundum | Style::Whirl | Style::Blades | Style::Backbreaker
+                Style::Rundum | Style::Whirl | Style::Blades | Style::Backbreaker | Style::Dominate
             ) {
                 arts.start(making.art);
             }
@@ -665,6 +666,52 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Dominate => {
+                // Below 0.6 left of its clip its target, no boss nor champion, is stopped and takes
+                // the effect 13, under which it does not fight her (`ai`); then it ends
+                // (`0x50E6C0`).
+                if !due(1.0 - arts::DOMINATES, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                let ranked = ranks.get(playing.target).map(|rank| rank.0).ok();
+                let common = !matches!(
+                    ranked,
+                    Some(
+                        opensacred_rules::fight::Rank::Boss
+                            | opensacred_rules::fight::Rank::Champion
+                    )
+                );
+                if let (Some(record), Ok((_, _, mind, health))) =
+                    (record, creatures.get(playing.target))
+                    && mind.hostile()
+                    && health.current > 0
+                    && common
+                {
+                    let seconds = arts::domination_seconds(record, playing.level, health.level);
+                    let effect = opensacred_rules::fight::Effect {
+                        whole: 1,
+                        ..opensacred_rules::fight::Effect::new(arts::DOMINATED, 0.0)
+                    };
+                    let mut dominated = commands.entity(playing.target);
+                    dominated.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                    dominated
+                        .entry::<Mind>()
+                        .and_modify(|mut mind| mind.stunned(0.1));
+                    dominated
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| effects.add(effect, seconds));
+                    info!(
+                        "making: {} dominates {} for {seconds} s",
+                        making.art, playing.target
+                    );
+                }
+                end(&mut commands);
+            }
             Style::Bite => {
                 // Below 0.9 left of its clip its target is held with the effect 15 and struck with
                 // a fixed physical damage of its drain, and she takes as much health; then it ends

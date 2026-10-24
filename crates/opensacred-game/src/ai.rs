@@ -430,6 +430,7 @@ fn think(
             Has<Walk>,
             &Layered,
             Has<crate::making::Knocked>,
+            Option<&crate::effects::Effects>,
         ),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
@@ -441,7 +442,7 @@ fn think(
     // foe (`0x54338B`).
     let fighters: Vec<Other> = creatures
         .iter()
-        .filter(|(.., mind, _, _, _)| mind.fighting())
+        .filter(|(.., mind, _, _, _, _)| mind.fighting())
         .map(|(entity, transform, _, mind, ..)| Other::of(entity, transform.translation, mind))
         .collect();
     let hero = hero.translation;
@@ -459,7 +460,7 @@ fn think(
     let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
     let seen = doors.seen(&heights);
-    for (entity, transform, way, mut mind, walking, layered, sliding) in &mut creatures {
+    for (entity, transform, way, mut mind, walking, layered, sliding, effects) in &mut creatures {
         // A knocked creature thinks nothing while it slides, but for its timer while it is held
         // (`opensacred_rules::minds::Mind::knocked`).
         if sliding && !mind.held() {
@@ -490,9 +491,12 @@ fn think(
                 size: other.size,
             })
             .collect();
+        // A creature that the Vampiress dominates does not see her for a foe (the effect 13).
+        let dominated =
+            effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED));
         let senses = Senses {
             dt,
-            seen: look && (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0,
+            seen: look && (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0 && !dominated,
             here: spot(here),
             hero: spot(hero),
             hero_moves,
@@ -567,7 +571,7 @@ fn think(
     }
     // A group's other members step by the same step, each within 50 of it.
     for (group, step, leader) in grouped {
-        for (entity, transform, _, mut mind, walking, _, sliding) in &mut creatures {
+        for (entity, transform, _, mut mind, walking, _, sliding, _) in &mut creatures {
             // Not one that goes for a door, sent there this tick or before, nor one knocked back.
             if entity == leader
                 || mind.group != Some(group)
@@ -666,6 +670,7 @@ fn pursue(
             Option<&crate::fight::Health>,
             &Layered,
             Has<crate::npcs::StrikeEnded>,
+            Option<&crate::effects::Effects>,
         ),
         (Without<Body>, Without<crate::making::Knocked>),
     >,
@@ -696,7 +701,7 @@ fn pursue(
         })
         .collect();
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
-    for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended) in
+    for (entity, mut transform, way, mut mind, walk, striking, health, layered, ended, effects) in
         &mut creatures
     {
         mind.rest(dt);
@@ -708,8 +713,14 @@ fn pursue(
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
         let here = transform.translation;
-        // Its target: its foe, a creature, or the hero. A foe dead or gone it leaves.
+        // Its target: its foe, a creature, or the hero. A foe dead or gone it leaves; the hero it
+        // leaves alone while she dominates it (the effect 13).
         let foe = mind.foe();
+        if foe.is_none()
+            && effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED))
+        {
+            continue;
+        }
         let (target, aimed, target_strikes, listed, targeted, target_size) = match foe {
             Some(foe) => match foes.get(&foe) {
                 Some(&(at, strikes, its_foe, size)) => {
