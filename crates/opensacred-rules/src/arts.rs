@@ -8,7 +8,7 @@
 use opensacred_data::heroes::HeroArt;
 use opensacred_data::tables::{Arts as Tables, Balance, WeaponArt};
 
-use crate::fight::curve;
+use crate::fight::{Effect, curve};
 
 /// The bit of an entry's flags that a rune sets: on every art it adds (`0x580750`) and on every
 /// art it raises for good (`0x581F80`).
@@ -139,14 +139,23 @@ pub enum Style {
     /// One strike on its target at its class's point of its clip ([`kick_point`]), which may
     /// knock it back ([`knockback_chance`], [`knockback`]).
     Kick,
+    /// Effects on its maker at a part of its clip, of the launch type 5 (`ECF_ONMEMYSELFANDI`,
+    /// whose target `0x51D840` makes the maker itself): the Dark Elf's 1047 and 1048 ([`boon`]).
+    Boon,
 }
+
+/// The arts that give their maker effects ([`Style::Boon`]).
+const BOONS: [u16; 2] = [1047, 1048];
 
 /// How the art `art` strikes: the classes' own `Rundum`, `Hardhit`, `Attacke` and `Kick`, which
 /// `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the Gladiator's 1057 to 1060 and
 /// the Seraphim's 1069 to 1072 read in their executors, the others' `Attacke` by the same test of
-/// the reach; **hypothesis** for the other classes' `Rundum`, `Hardhit` and `Kick`); none for
-/// another.
+/// the reach; **hypothesis** for the other classes' `Rundum`, `Hardhit` and `Kick`), and the
+/// boons ([`Style::Boon`]); none for another.
 pub fn style(art: u16) -> Option<Style> {
+    if BOONS.contains(&art) {
+        return Some(Style::Boon);
+    }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
         .find(|((_, own), _)| own.contains(&art))
@@ -380,6 +389,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             _ => 211,
         })),
         (6, Style::Hardhit) => Some(attack),
+        // The Dark Elf's boons, on foot, the slot 180 at the blend 0.5 and the rate 1.0
+        // (`0x506770` at `0x50A09F`; mounted, 194 at 0.2, not followed).
+        (4, Style::Boon) => Some(plain(180)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
         (8, Style::Attacke) => Some(dwarfs(
             match class {
@@ -454,6 +466,49 @@ fn slot_of(slot: u16) -> ArtAction {
         fixed: false,
         fallback: None,
     }
+}
+
+/// What a boon art gives its maker ([`Style::Boon`]): the part of its clip at which it gives
+/// it, and each effect with its seconds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Boon {
+    pub point: f32,
+    pub effects: Vec<(Effect, f32)>,
+}
+
+/// The boon of the art `record` at its level in play `level` (the Dark Elf's `0x506770`,
+/// docs/re/arts.md, "The Dark Elf's"): 1047 once what is left of its clip is below 0.3, the
+/// effects 1 (`A`'s multiplier) and 6 (the poison damage's), 1048 below 0.2 the effects 2
+/// (`D`'s multiplier) and 12 (the regeneration), of the values `L·[+0x54] + [+0x50]` and
+/// `L·[+0x5C] + [+0x58]` for `L·[+0x64] + [+0x60]` seconds, keyed by the art; none for another.
+pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
+    let (point, [first, second]) = match record.id {
+        1047 => (0.7, [1, 6]),
+        1048 => (0.8, [2, 12]),
+        _ => return None,
+    };
+    let l = f64::from(level);
+    let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
+    let [base, step] = record.value_60.map(f64::from);
+    let seconds = narrow(l.mul_add(step, base));
+    let effect = |id, value| {
+        (
+            Effect {
+                id,
+                whole: 0,
+                value,
+                art: u32::from(record.id),
+            },
+            seconds,
+        )
+    };
+    Some(Boon {
+        point,
+        effects: vec![
+            effect(first, by_level(record.factor)),
+            effect(second, by_level(record.value_58)),
+        ],
+    })
 }
 
 /// The point of its clip at which a kick strikes, of a creature of type `kind` holding what is of
