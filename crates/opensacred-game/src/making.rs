@@ -139,8 +139,13 @@ fn select_first(arts: Option<Res<HeroArts>>, mut selected: ResMut<Selected>) {
     }
 }
 
-/// Whether the hero may make `art` now: it holds it, it is ready, and its action is read.
-pub fn may_make(arts: &HeroArts, art: u16) -> Result<(), String> {
+/// Whether the hero may make `art` now: it holds it, it is ready, its action is read, and no
+/// effect holds on it that refuses it (`effects`, `arts::refused_while`, `0x51D840`).
+pub fn may_make(
+    arts: &HeroArts,
+    art: u16,
+    effects: Option<&crate::effects::Effects>,
+) -> Result<(), String> {
     if arts.arts.get(art).is_none() {
         return Err(format!("the hero holds no art {art}"));
     }
@@ -149,6 +154,9 @@ pub fn may_make(arts: &HeroArts, art: u16) -> Result<(), String> {
     }
     if arts::style(art).is_none() {
         return Err(format!("{art}'s action is not read yet"));
+    }
+    if effects.is_some_and(|effects| effects.holds_any(arts::refused_while(art))) {
+        return Err(format!("{art}'s effects still hold"));
     }
     Ok(())
 }
@@ -160,7 +168,8 @@ pub fn may_make(arts: &HeroArts, art: u16) -> Result<(), String> {
 /// another event, not followed). A press of the left button ends an order not yet under way.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn aim(
     mut commands: Commands,
@@ -170,10 +179,18 @@ fn aim(
     selected: Res<Selected>,
     arts: Option<Res<HeroArts>>,
     creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
-    mut heroes: Query<(Entity, &mut Body, Has<Playing>), Without<Dies>>,
+    mut heroes: Query<
+        (
+            Entity,
+            &mut Body,
+            Has<Playing>,
+            Option<&crate::effects::Effects>,
+        ),
+        Without<Dies>,
+    >,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        for (hero, _, playing) in &heroes {
+        for (hero, _, playing, _) in &heroes {
             if !playing {
                 commands.entity(hero).remove::<Making>();
             }
@@ -202,11 +219,11 @@ fn aim(
     else {
         return;
     };
-    for (hero, mut body, playing) in &mut heroes {
+    for (hero, mut body, playing, effects) in &mut heroes {
         if playing {
             continue;
         }
-        match may_make(&arts, art) {
+        match may_make(&arts, art, effects) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
                 let target = if arts::style(art) == Some(Style::Boon) {

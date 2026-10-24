@@ -843,3 +843,36 @@ fn the_dark_elfs_boons_give_him_their_effects() {
     );
     assert!(boon(&record(1071), 1).is_none());
 }
+
+#[test]
+fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
+    // The Gladiator's 1015, of the launch type 2, needs a friend for its target (seen).
+    assert_eq!(style(1015), None);
+    // GOG 2.28's 1089: `[+0x50]` and `[+0x58]` 0.4 + 0.1·L, `[+0x60]` 2950 + 50·L hundredths.
+    let war_cry = WeaponArt {
+        factor: [0.4, 0.1],
+        value_58: [0.4, 0.1],
+        value_60: [2950, 50],
+        launch: 5,
+        distance: 0,
+        ..weapon_art(1089, [0.0; 2], 0x40_0000)
+    };
+    let given = boon(&war_cry, 1).unwrap();
+    assert_eq!(given.point, 0.8);
+    assert_eq!(
+        given
+            .effects
+            .iter()
+            .map(|(e, s)| (e.id, *s))
+            .collect::<Vec<_>>(),
+        [(1, 30.0), (2, 30.0)]
+    );
+    assert_eq!(
+        action(8, Style::Boon, 1).map(|a| a.clip),
+        Some(ArtClip::Slot(154))
+    );
+    assert_eq!(style(1089), Some(Style::Boon));
+    assert_eq!(refused_while(1089), [1089]);
+    assert_eq!(refused_while(1019), [1018, 1019]);
+    assert!(refused_while(1071).is_empty());
+}

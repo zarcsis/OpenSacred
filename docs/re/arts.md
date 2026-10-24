@@ -322,6 +322,15 @@ Read 2026-10-24 (#653) in the executors' disassembly, **confirmed** by code unle
 An executor's first run (the action's sub-state 0) plays the art's clip and passes to the sub-state 1; each later run (the sub-state 1, at the world's ticks) takes `left`, the share of the clip still to play, and acts on it; an art ends by `+0x16C` 1.
 The arts of the second table whose classes (`+0x70`) are 0 belong to no hero: 1000 to 1002, 1009 and 1021.
 
+The order's test of an art and its target (`0x51D840`, read 2026-10-24, #759), beyond what "An art in a strike" names:
+
+- the launch types 5 and 0 make the maker its own target;
+- the type 2 (`ECF_ONFRIENDLY`) takes the maker where there is no target, and else wants a target alive, on the maker's floor, and its friend (`0x5490B0`), or, for a maker that is no player's hero, one not hostile to it (`0x549000`); the Daemon's 1094 and 1097 to 1100 pass where the maker is of the type 9;
+- 1031, 1042, 1044 to 1048, 1082 and 1089 are refused while an effect keyed by them holds on the maker (`0x582B00`), and 1018 and 1019 while either's does;
+- 1083 and 1084 want a weapon of the classes 2 or 3 in hand, 1085 and 1087 an item at `+0x1DC`, 1086 that and a straight way to its point.
+
+**Seen** 2026-10-24 in the running original (the driver of #448, the Gladiator's new game, `arts learn 1015` and `arts select 1015`): a right click on a peaceful goblin warrior beside him, and one on the ground, made nothing, so that the Gladiator's 1015 and 1016 need a friend under the cursor (a party's member, not followed); and the Dwarf's 1089, made again while its effects held, made nothing.
+
 ### The Seraphim's
 
 The Seraphim's executor (`0x5038F0`) has cases for 1003 and 1017 together, 1013 and 1054 together, 1018, 1019, 1020 with 1069, 1021, and her `Hardhit`, `Attacke` and kick (above); of them her own are 1017, 1018, 1019, 1020 and 1054 (the classes 1), the jump 1003 and the hurled blades 1013 being the Gladiator's (2).
@@ -391,7 +400,7 @@ His arts of the launch types 0 and 5 play the clip 194 at the blend 0.2 when he 
   On foot they play the slot 180 at the blend 0.5 and the rate 1.0 (`0x50A09F`).
   **Seen** 2026-10-24 in the running original (the driver of #448, the Dark Elf's new game, `arts learn 1047`, `arts select 1047` and the right button on a goblin beside him, a trace of `0x582D50`): the effects 1 of 0.5 and 6 of 0.25 for 30 s keyed by 1047, then the effect 34 for 30 s; his `A` 39 times 1.5 and his poison damage's multiplier 1.25, his weapon arts' regeneration 30 s.
   `opensacred-game` makes them (#757, `opensacred_rules::arts::Style::Boon` and `boon`): the right button on a hostile creature, or `arts make`, makes the selected boon on the hero where it stands, its clip the slot 180 at the rate 1.0, and at its point its effects (`effects::Effects`, #763) and its regeneration; the objects 864, the effect 34 and the mount's clip are left out.
-  In the game the Dark Elf of level 1 then had `A` 58 and a poison damage of 15.4 to 23.4, as the original's, and the regeneration of 30 s.
+  In the game the Dark Elf of level 1 then had `A` 58 and a poison damage of 15.4 to 23.4, as the original's, and the regeneration of 30 s; each is refused while its own effects hold (`0x51D840`, above; #759).
 - **The traps 1049 (`GUI_MOVE_BOMB`), 1050 (`GUI_MOVE_HELL`), 1051 (`GUI_MOVE_CONFUSION`), 1052 (`GUI_MOVE_VENOM`) and 1053 (`GUI_MOVE_FOG`), the launch type 0**, once `left` is below 0.7: an object of type 867 (`FX_BALL`) at his place, carrying his level, his damages' multipliers, 1.0, a value of his (`0x4D2310`), the art and the action's point, which it flies to (**hypothesis**: the thrown trap, which casts the art's spell, 45, 6, 48, 12 and 46, "The second table" above; not followed); then the art ends.
 
 ### The Vampiress's
@@ -423,6 +432,9 @@ It was read as coarsely as the Vampiress's: what each case makes, and the argume
 - **The guns 1085 (`gui_spells_flammenwerfer`), 1086 (`gui_spells_moerser`) and 1087 (`gui_spells_kanone`), the launch type 0**, make their objects as their clips run: 1085 the flames (1016, `FX_DWARF_FLAMETHROWER`, the effect `0x94`) about from 0.65 of the clip left to 0.2, 1086 a grenade (1018, `FX_DWARF_GRENADE`, the effect `0x96`) thrown to the point, 1087 a shot (1017, `FX_DWARF_SHOOT`, the effect `0x95`) at a point of the clip that comes earlier the farther the target (`0.5 − 0.0002·d` of it left, **hypothesis**: `d` the distance), and the impact 1151 with the effect `0x9C` at each creature it strikes; the casts' spells and their values are the first table's ("The second table" above; not followed).
 - **1089 (`gui_moves_kriegsschrei`, the launch type 5)**, once `left` is below 0.2: its target, else himself, where of a hero's class (`0x426610`) and without an effect of 1089 (`0x582B00`), takes the effects 1 and 2 of `[+0x50] + [+0x54]·L` and `[+0x58] + [+0x5C]·L` (0.4 + 0.1·L each) for `([+0x60] + [+0x64]·L) / 100` seconds (29.5 + 0.5·L) keyed by 1089 (with one, `0x5904E0` instead), and the object 1150 (`FX_KRIEGSSCHREI_SIGN`) with the effect `0x9B`; then each follower of his (`+0x39C`) within 500 takes the object, and one of a hero's class the effects at half their values, and so does each other player's hero within 500.
   So his war cry raises his and his party's attack and defence.
+  On foot it plays the slot 154 at the blend 0.5 and the rate 1.0, with an object 1023 and the effect `0x9A` at him as it starts.
+  **Seen** 2026-10-24 in the running original (the Dwarf's new game, 1089 learnt and made by the right button on a goblin beside him): the effects 1 and 2 of 0.5 for 30 s keyed by 1089, his `A` 25.5 and `D` 25.2 times 1.5.
+  `opensacred-game` makes it as the Dark Elf's boons (#759, `Style::Boon`): on the hero, the slot 154 at the rate 1.0, at 0.8 of its clip; the hero then had `A` 38 and `D` 37, as the original's, and it was refused while its effects held; the followers' and the other heroes' part, the object 1023 and the mount's clip are left out.
 
 ### The Daemon's
 

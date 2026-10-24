@@ -1180,7 +1180,14 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     let art = art
                         .or(world.resource::<crate::making::Selected>().0)
                         .ok_or("no art is selected")?;
-                    crate::making::may_make(world.resource::<crate::arts::HeroArts>(), art)?;
+                    let mut heroes =
+                        world.query_filtered::<Option<&crate::effects::Effects>, With<Body>>();
+                    let effects = heroes.iter(world).next().flatten().cloned();
+                    crate::making::may_make(
+                        world.resource::<crate::arts::HeroArts>(),
+                        art,
+                        effects.as_ref(),
+                    )?;
                     first.push(make_art(world, art)?);
                 }
                 _ => {}

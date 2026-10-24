@@ -139,13 +139,32 @@ pub enum Style {
     /// One strike on its target at its class's point of its clip ([`kick_point`]), which may
     /// knock it back ([`knockback_chance`], [`knockback`]).
     Kick,
-    /// Effects on its maker at a part of its clip, of the launch type 5 (`ECF_ONMEMYSELFANDI`,
-    /// whose target `0x51D840` makes the maker itself): the Dark Elf's 1047 and 1048 ([`boon`]).
+    /// Effects on its maker at a part of its clip, made where it stands ([`boon`]): the Dark
+    /// Elf's 1047 and 1048 and the Dwarf's 1089, of the launch type 5 (`ECF_ONMEMYSELFANDI`,
+    /// whose target `0x51D840` makes the maker itself).
     Boon,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
-const BOONS: [u16; 2] = [1047, 1048];
+const BOONS: [u16; 3] = [1047, 1048, 1089];
+
+/// The arts that `0x51D840` refuses while an effect of theirs holds on their maker (`0x582B00`):
+/// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does.
+pub fn refused_while(art: u16) -> &'static [u16] {
+    match art {
+        1018 | 1019 => &[1018, 1019],
+        1031 => &[1031],
+        1042 => &[1042],
+        1044 => &[1044],
+        1045 => &[1045],
+        1046 => &[1046],
+        1047 => &[1047],
+        1048 => &[1048],
+        1082 => &[1082],
+        1089 => &[1089],
+        _ => &[],
+    }
+}
 
 /// How the art `art` strikes: the classes' own `Rundum`, `Hardhit`, `Attacke` and `Kick`, which
 /// `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the Gladiator's 1057 to 1060 and
@@ -389,9 +408,11 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             _ => 211,
         })),
         (6, Style::Hardhit) => Some(attack),
-        // The Dark Elf's boons, on foot, the slot 180 at the blend 0.5 and the rate 1.0
-        // (`0x506770` at `0x50A09F`; mounted, 194 at 0.2, not followed).
+        // The boons, on foot, at the blend 0.5 and the rate 1.0: the Dark Elf's the slot 180
+        // (`0x506770` at `0x50A09F`; mounted, 194 at 0.2, not followed), the Dwarf's 1089 the
+        // slot 154 (`0x514790`).
         (4, Style::Boon) => Some(plain(180)),
+        (8, Style::Boon) => Some(plain(154)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
         (8, Style::Attacke) => Some(dwarfs(
             match class {
@@ -476,22 +497,31 @@ pub struct Boon {
     pub effects: Vec<(Effect, f32)>,
 }
 
-/// The boon of the art `record` at its level in play `level` (the Dark Elf's `0x506770`,
-/// docs/re/arts.md, "The Dark Elf's"): 1047 once what is left of its clip is below 0.3, the
-/// effects 1 (`A`'s multiplier) and 6 (the poison damage's), 1048 below 0.2 the effects 2
-/// (`D`'s multiplier) and 12 (the regeneration), of the values `L·[+0x54] + [+0x50]` and
-/// `L·[+0x5C] + [+0x58]` for `L·[+0x64] + [+0x60]` seconds, keyed by the art; none for another.
+/// The boon of the art `record` at its level in play `level` (docs/re/arts.md, "The special
+/// weapon arts"), each effect keyed by the art, the values `L·[+0x54] + [+0x50]` (`a`) and
+/// `L·[+0x5C] + [+0x58]` (`b`):
+///
+/// - the Dark Elf's 1047 once what is left of its clip is below 0.3, the effects 1 (`A`'s
+///   multiplier) of `a` and 6 (the poison damage's) of `b`, and 1048 below 0.2 the effects 2
+///   (`D`'s multiplier) of `a` and 12 (the regeneration) of `b`, each for `L·[+0x64] + [+0x60]`
+///   seconds (`0x506770`);
+/// - the Dwarf's 1089 below 0.2 the effects 1 of `a` and 2 of `b` for `L·[+0x64] + [+0x60]`
+///   hundredths of a second (`0x514790`; to the hero, whom `0x51D840` refuses it while they
+///   hold; a friend's effects of it raised by `0x5904E0`, not followed);
+///
+/// none for another.
 pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
-    let (point, [first, second]) = match record.id {
-        1047 => (0.7, [1, 6]),
-        1048 => (0.8, [2, 12]),
-        _ => return None,
-    };
     let l = f64::from(level);
     let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
-    let [base, step] = record.value_60.map(f64::from);
-    let seconds = narrow(l.mul_add(step, base));
-    let effect = |id, value| {
+    let whole = |[base, step]: [i32; 2]| l.mul_add(f64::from(step), f64::from(base));
+    let (a, b) = (by_level(record.factor), by_level(record.value_58));
+    let (point, effects, seconds) = match record.id {
+        1047 => (0.7, [(1, a), (6, b)], narrow(whole(record.value_60))),
+        1048 => (0.8, [(2, a), (12, b)], narrow(whole(record.value_60))),
+        1089 => (0.8, [(1, a), (2, b)], narrow(whole(record.value_60) * 0.01)),
+        _ => return None,
+    };
+    let effect = |(id, value)| {
         (
             Effect {
                 id,
@@ -504,10 +534,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
     };
     Some(Boon {
         point,
-        effects: vec![
-            effect(first, by_level(record.factor)),
-            effect(second, by_level(record.value_58)),
-        ],
+        effects: effects.into_iter().map(effect).collect(),
     })
 }
 
