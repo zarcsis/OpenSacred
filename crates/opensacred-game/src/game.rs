@@ -124,8 +124,8 @@ impl Class {
                 MALE,
             ),
             Class::WoodElf => (
-                "AMAZONE.GRN",
-                ["AMAZ_IDLE_BH", "AMAZ_WALK_1H", "AMAZ_RUN_1H"],
+                "ELVE_SORCERESS.GRN",
+                ["ELFF_IDLE_BH", "ELFF_WALK_1H", "ELFF_RUN_1H"],
                 FEMALE,
             ),
             Class::DarkElf => (

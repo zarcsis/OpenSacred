@@ -536,8 +536,10 @@ class Host:
                 'item TYPE: an item of that type, as a drop forced to it makes it at the hero\'s place and level',
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
                 '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
-                'out-float; the first argument is ECX for thiscall and fastcall); traces lists those running and the '
-                'presets; untrace NAME|GROUP|all',
+                'out-float; the first argument is ECX for thiscall and fastcall); ADDRESS --stack K@OFFSET,... '
+                "instead logs the values at ESP plus each offset as that instruction is reached, a function's "
+                'middle too (the kinds and double); traces lists those running and the presets; untrace '
+                'NAME|GROUP|all',
                 'quit: closes the game as its window is closed, ends it after 15 s if it is still running']}
         if word == 'new-game':
             return {'output': [self.start_script('new-game', self.new_game, self.new_game_options(rest))]}
@@ -769,10 +771,11 @@ class Host:
     # --- Traces ------------------------------------------------------------------------------------------------
 
     def trace(self, params):
-        """`original/trace {target, name, abi, args, ret, ids, limit}`: a preset's or a group's name, or an address."""
+        """`original/trace {target, name, abi, args, ret, ids, limit, stack}`: a preset's or a group's name, or an
+        address."""
         if self.ended.is_set():
             raise RuntimeError('the game has ended')
-        allowed = {'target', 'name', 'abi', 'args', 'ret', 'ids', 'limit'}
+        allowed = {'target', 'name', 'abi', 'args', 'ret', 'ids', 'limit', 'stack'}
         unknown = set(params or {}) - allowed
         if unknown or 'target' not in (params or {}):
             raise ValueError(f"original/trace takes {', '.join(sorted(allowed))}, target required")
@@ -806,6 +809,7 @@ class Host:
         parser.add_argument('--ret')
         parser.add_argument('--ids')
         parser.add_argument('--limit', type=int)
+        parser.add_argument('--stack')
         try:
             options, unknown = parser.parse_known_args(rest.split())
         except (argparse.ArgumentError, SystemExit) as e:
@@ -825,6 +829,8 @@ class Host:
             params['ids'] = [int(i) for i in options.ids.split(',')]
         if options.limit:
             params['limit'] = options.limit
+        if options.stack:
+            params['stack'] = options.stack.split(',')
         return [f"tracing {t['name']} at {t['target']}" for t in self.trace(params)]
 
     # --- The world ---------------------------------------------------------------------------------------------
