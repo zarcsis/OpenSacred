@@ -586,7 +586,7 @@ fn the_classes_own_arts_strike_by_their_style() {
     assert_eq!(style(1069), Some(Style::Rundum));
     assert_eq!(style(1058), Some(Style::Hardhit));
     assert_eq!(style(1070), Some(Style::Hardhit));
-    assert_eq!((style(1003), style(18)), (None, None));
+    assert_eq!((style(1010), style(18)), (None, None));
 }
 
 #[test]
@@ -907,6 +907,30 @@ fn the_jump_flies_to_its_target_and_strikes_as_it_lands() {
     assert_eq!(jump_height(240.0, 0.0), 0.0);
     assert_eq!(jump_height(240.0, 0.5), 20.0);
     assert_eq!(jump_height(240.0, 1.0), 0.0);
+    // The Seraphim's points and the Gladiator's.
+    assert_eq!(jump_points(1), [0.75, 0.4]);
+    assert_eq!(jump_points(2), [0.8, 0.6]);
+}
+
+#[test]
+fn the_gladiators_jump_strikes_about_him_and_stuns() {
+    assert_eq!(style(1003), Some(Style::Jump));
+    assert_eq!(
+        action(2, Style::Jump, 1).map(|a| (a.clip, a.fixed)),
+        Some((ArtClip::Slot(144), true))
+    );
+    // 1003's record: `[+0x50]` 190 + 10·L, `[+0x58]` 1.8 + 0.2·L.
+    let jump = WeaponArt {
+        factor: [190.0, 10.0],
+        value_58: [1.8, 0.2],
+        distance: -290,
+        ..weapon_art(1003, [9.0, 6.0], 2)
+    };
+    let (radius, factor) = jump_quake(&jump, 1);
+    assert_eq!(radius, 200.0);
+    assert!((factor - 2.0).abs() < 1e-6);
+    assert_eq!(jump_stun(1), 4.0);
+    assert_eq!(jump_stun(20), 23.0);
 }
 
 #[test]

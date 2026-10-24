@@ -560,10 +560,13 @@ fn make(
                 }
             }
             Style::Jump => {
-                // Once what is left of its clip is below 0.75 it flies to its target, short of it
-                // by half the two's reach, or to its point; below 0.4 it lands and strikes its
-                // target where it lives (`0x5038F0` at `0x504570`).
-                if playing.struck == 0 && due(1.0 - arts::JUMP_FLIES, done) {
+                // Once what is left of its clip is below its first point it flies to its target,
+                // short of it by half the two's reach, or to its point; below its second it lands:
+                // the Seraphim strikes her target where it lives (`0x5038F0` at `0x504570`), the
+                // Gladiator every hostile of his list about him, stunning some by the kicks' roll
+                // (`0x4FF0B0` at `0x50057C`).
+                let [flies, lands] = arts::jump_points(arts.kind);
+                if playing.struck == 0 && due(1.0 - flies, done) {
                     playing.struck = 1;
                     let target = creatures
                         .get(playing.target)
@@ -579,13 +582,42 @@ fn make(
                         flown: 0.0,
                     });
                     arts.start(making.art);
-                } else if playing.struck == 1 && due(1.0 - arts::JUMP_LANDS, done) {
+                } else if playing.struck == 1 && due(1.0 - lands, done) {
                     playing.struck = 2;
-                    if let Ok((_, _, mind, health)) = creatures.get(playing.target)
-                        && mind.hostile()
-                        && health.current > 0
-                    {
-                        hits.write(hit(playing.target, &playing));
+                    let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                    match (arts.kind, record) {
+                        (2, Some(record)) => {
+                            let (radius, factor) = arts::jump_quake(record, playing.level);
+                            for &entity in &nearest.hostiles {
+                                let Ok((_, at, mind, health)) = creatures.get(entity) else {
+                                    continue;
+                                };
+                                let distance = to_f32(whole_distance(at.translation(), here));
+                                if !mind.hostile() || health.current == 0 || distance >= radius {
+                                    continue;
+                                }
+                                hits.write(fight::Hit {
+                                    share: factor,
+                                    ..hit(entity, &playing)
+                                });
+                                if knocks_back(&mut dice.0, playing.level, mind) {
+                                    let seconds = arts::jump_stun(mind.level);
+                                    commands
+                                        .entity(entity)
+                                        .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                                        .entry::<Mind>()
+                                        .and_modify(move |mut mind| mind.stunned(seconds));
+                                }
+                            }
+                        }
+                        _ => {
+                            if let Ok((_, _, mind, health)) = creatures.get(playing.target)
+                                && mind.hostile()
+                                && health.current > 0
+                            {
+                                hits.write(hit(playing.target, &playing));
+                            }
+                        }
                     }
                     end(&mut commands);
                 } else if finished {
