@@ -109,6 +109,9 @@ const PERIOD_HOSTILE: f32 = 2.5;
 const JITTER: f32 = 1.5;
 /// The flags whose creatures' own timers wake them: the hostile ones and the townsfolk.
 const TIMED: u32 = 0x3 | 0x408;
+/// How long a knocked-back creature is held, its timer set to fire then (`0x531AF7`: `+0x208`
+/// set to `+0x204` less the float 3.0 at `0x890768`; [`Mind::knocked`]).
+const HELD: f32 = 3.0;
 
 /// The heroes' side (`+0x1F0`), their types' `Creature.pak` class (`0x43ADC0`).
 pub const HEROES: u8 = 1;
@@ -570,6 +573,9 @@ pub struct Mind {
     /// How long it waits still before it strikes again, in melee, its strike not chained
     /// ([`Self::ends_strike`]).
     rests: f32,
+    /// Knocked back and held (`+0x200` bit `0x40000`): it thinks nothing until its timer fires
+    /// with its slide over ([`Self::knocked`]).
+    held: bool,
 }
 
 impl Mind {
@@ -639,6 +645,7 @@ impl Mind {
             clock: 0.0,
             period: if woken { PERIOD_HOSTILE } else { PERIOD },
             rests: 0.0,
+            held: false,
         }
     }
 
@@ -802,18 +809,27 @@ impl Mind {
             hero_moves,
             takes_on,
             walking,
+            sliding,
             foes,
             hero_size,
         } = *senses;
         let mut thought = Thought::default();
-        if self.flags & TIMED != 0 {
+        if self.flags & TIMED != 0 || self.held {
             self.clock += dt;
             if fires(&mut self.clock, self.period) {
                 // The jitter is taken off what the timer kept (`0x5375C0`, #617).
                 let jitter = f32::from(u16::try_from(rng.below(31)).unwrap_or(15)) * 0.1;
                 self.clock -= jitter - JITTER;
                 self.awake = true;
+                // The firing that finds its slide over lets a held creature go (`0x5375C0`).
+                if !sliding {
+                    self.held = false;
+                }
             }
+        }
+        // Held, it thinks nothing (`0x542B20`).
+        if self.held {
+            return thought;
         }
         let distance = (here - hero).length();
         let wakes = if hero_moves { WAKES_MOVING } else { WAKES };
@@ -947,6 +963,23 @@ impl Mind {
     pub fn left_door(&mut self) {
         self.to_door = false;
         self.awake = true;
+    }
+
+    /// Knocked back by a kick or the whirling blow (`0x531AF7`, the event of kind 3 in the
+    /// creature's events' handler): it leaves its fight and stands (`0x54E6D0`: the AI's state 0,
+    /// the action 0), and is held (`+0x200` bit `0x40000`), its timer set to fire in [`HELD`]
+    /// seconds; held, it thinks nothing (`0x542B20`), and the first firing of its timer that
+    /// finds its slide over lets it go and wakes it (`0x5375C0`).
+    pub fn knocked(&mut self) {
+        self.leaves_fight();
+        self.to_door = false;
+        self.held = true;
+        self.clock = self.period - HELD;
+    }
+
+    /// Whether it is held after a knockback ([`Self::knocked`]).
+    pub fn held(&self) -> bool {
+        self.held
     }
 
     /// It leaves its fight with the hero.
@@ -1371,6 +1404,9 @@ pub struct Senses<'a> {
     pub hero_moves: bool,
     pub takes_on: bool,
     pub walking: bool,
+    /// Whether it slides from a knockback (`+0x200` bit `0x20000`), which holds it on
+    /// ([`Mind::knocked`]).
+    pub sliding: bool,
     /// The hero's size ([`size`]), of which and the creature's the reach is the mean.
     pub hero_size: u32,
     pub foes: &'a [Foe],
@@ -2790,12 +2826,51 @@ mod tests {
             hero_moves: false,
             takes_on: true,
             walking: false,
+            sliding: false,
             foes: &[],
         };
         let thought = opener.think(&senses, |_| true, || true, &mut rng);
         assert_eq!(thought, Thought::default());
         opener.left_door();
         assert!(!opener.to_door() && opener.awake);
+    }
+
+    #[test]
+    fn a_knocked_creature_is_held_until_its_timer_fires_with_its_slide_over() {
+        let mut rng = Rng::of(50, 40, 8);
+        let senses = |dt, sliding| Senses {
+            hero_size: SIZE,
+            dt,
+            seen: true,
+            here: Spot::default(),
+            hero: at(100.0, 0.0),
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+            sliding,
+            foes: &[],
+        };
+        // A creature of a script, woken as it is made, with the period 2.5 s.
+        let mut goblin = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        let thought = goblin.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        assert!(thought.attacks && goblin.fighting);
+        goblin.knocked();
+        assert!(goblin.held() && !goblin.fighting);
+        // Held, it thinks nothing for 3 s, the hero beside it.
+        for _ in 0..29 {
+            let thought = goblin.think(&senses(0.1, false), |_| true, || false, &mut rng);
+            assert_eq!(thought, Thought::default());
+        }
+        assert!(goblin.held());
+        // Its timer fires: it goes, and takes the hero on again.
+        let thought = goblin.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(!goblin.held() && thought.attacks);
+        // A firing while it slides holds it on.
+        goblin.knocked();
+        for _ in 0..31 {
+            goblin.think(&senses(0.1, true), |_| true, || false, &mut rng);
+        }
+        assert!(goblin.held());
     }
 
     #[test]
@@ -2810,6 +2885,7 @@ mod tests {
             hero_moves: false,
             takes_on: true,
             walking: false,
+            sliding: false,
             foes: &[],
         };
         // A creature of a script, awake as it is made, by the hero: with a straight line it
@@ -3408,6 +3484,7 @@ mod tests {
             hero_moves: false,
             takes_on: true,
             walking: false,
+            sliding: false,
             hero_size: SIZE,
             foes: &[],
         };
@@ -3477,6 +3554,7 @@ mod tests {
             hero_moves: false,
             takes_on: true,
             walking: false,
+            sliding: false,
             hero_size: SIZE,
             foes,
         };
