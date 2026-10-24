@@ -1031,7 +1031,7 @@ class Host:
 
     def command_arts(self, rest):
         words = rest.split()
-        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False, 'use': None}
+        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False, 'use': None, 'select': None}
         if words and words[0] == 'learn':
             if not 2 <= len(words) <= 3 or not all(w.isdigit() for w in words[1:]):
                 raise ValueError('arts learn ART [LEVELS]')
@@ -1043,10 +1043,12 @@ class Host:
             params['ready'] = True
         elif len(words) == 2 and words[0] == 'use' and words[1].isdigit():
             params['use'] = int(words[1])
+        elif len(words) == 2 and words[0] == 'select' and words[1].isdigit():
+            params['select'] = int(words[1])
         elif len(words) == 1 and words[0].isdigit():
             params['id'] = int(words[0])
         elif words:
-            raise ValueError('arts [ID], arts learn ART [LEVELS], arts ready or arts use ART')
+            raise ValueError('arts [ID], arts learn ART [LEVELS], arts ready, arts use ART or arts select ART')
         arts = self.world('arts', params)
         if not arts:
             return ['no combat arts']
