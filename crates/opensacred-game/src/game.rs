@@ -252,6 +252,31 @@ pub struct Data(pub Arc<sectors::Shared>);
 #[derive(Resource, Clone, Default)]
 pub struct Request(pub NewGame);
 
+/// The command line's options about how a game shows (`--zoom`, `--no-music`), which hold for
+/// every game of the run that a `new-game` starts, unless its own line sets them (#831).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct Shows {
+    zoom: Option<f32>,
+    no_music: bool,
+}
+
+impl Shows {
+    /// How `game` says its games show.
+    pub fn of(game: &NewGame) -> Self {
+        Self {
+            zoom: game.zoom,
+            no_music: game.no_music,
+        }
+    }
+
+    /// `game` with what it leaves unset taken from these.
+    pub fn fill(self, mut game: NewGame) -> NewGame {
+        game.zoom = game.zoom.or(self.zoom);
+        game.no_music |= self.no_music;
+        game
+    }
+}
+
 /// The process ends, failing, when its game does not load: a game that the command line named,
 /// for a run that has nothing else to do (a screenshot, a benchmark).
 #[derive(Resource)]
@@ -769,6 +794,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
             .init_resource::<Request>()
+            .init_resource::<Shows>()
             .add_systems(Startup, setup)
             .add_systems(OnEnter(AppState::Loading), (leftovers, begin))
             .add_systems(Update, finish.run_if(in_state(AppState::Loading)))
@@ -841,6 +867,18 @@ mod tests {
         assert!(parse(&["--sector", "50,39"]).named());
         assert!(parse(&["--time", "20:00"]).named());
         assert!(parse(&["--walking"]).named());
+    }
+
+    #[test]
+    fn a_games_line_keeps_how_it_shows_unless_it_sets_it() {
+        let parse = |args: &[&str]| Line::parse_from(["game"].iter().chain(args)).game;
+        let shows = Shows::of(&parse(&["--zoom", "1.5", "--no-music"]));
+        let game = shows.fill(parse(&["--class", "mage"]));
+        assert_eq!((game.zoom, game.no_music), (Some(1.5), true));
+        assert_eq!(game.class, Some(Class::Mage));
+        assert_eq!(shows.fill(parse(&["--zoom", "0.5"])).zoom, Some(0.5));
+        let game = Shows::default().fill(parse(&["--class", "mage"]));
+        assert_eq!((game.zoom, game.no_music), (None, false));
     }
 
     #[test]
