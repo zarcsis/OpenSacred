@@ -1994,6 +1994,35 @@ function healthAround(object) {
   return object.add(CREATURE.health).readS32();
 }
 
+// A probe at an instruction, inside a function too: as it is reached, each value by its kind at a register or at ESP
+// plus an offset (`--stack KIND@REGISTER|OFFSET,...`), a double at the offset for `double`, else the register or the
+// stack slot read as an argument of that kind. A probe has no return to wait for, so it never touches the stack as a
+// call's trace does.
+const REGISTERS = ['eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp', 'esp'];
+
+function stackProbe(spec) {
+  const reads = spec.stack.map((item) => {
+    const [kind, place] = item.split('@');
+    const at = Number(place);
+    const register = REGISTERS.includes(place);
+    if (kind === undefined || place === undefined || !(register || (Number.isInteger(at) && at >= 0))
+      || (register && kind === 'double')) {
+      throw new Error(`--stack ${item}: not KIND@REGISTER or KIND@OFFSET`);
+    }
+    return { kind, register: register ? place : null, at };
+  });
+  return (trace) => function probe() {
+    const shown = reads.map(({ kind, register, at }) => {
+      if (register !== null) {
+        return readArgument(kind, this.context[register]);
+      }
+      const slot = this.context.esp.add(at);
+      return kind === 'double' ? String(slot.readDouble()) : readArgument(kind, slot.readPointer());
+    });
+    record(trace, `(${shown.join(', ')})`);
+  };
+}
+
 // The presets, by the functions of docs/re (docs/re/traces.md lists them with their docs).
 const PRESETS = {
   // A strike's resolution (docs/re/fight.md): the defender is the creature of `this`'s +4, the attacker the id at the
@@ -2168,6 +2197,15 @@ const GROUPS = {
   sound: ['sound-pick', 'sample-file', 'sample-3d-file', 'sample-start', 'sample-3d-start', 'stream'],
 };
 
+// A loaded module by its name, whatever its case.
+function moduleNamed(name) {
+  const module = Process.enumerateModules().find((m) => m.name.toLowerCase() === name.toLowerCase());
+  if (module === undefined) {
+    throw new Error(`no module ${name}`);
+  }
+  return module;
+}
+
 function startTrace(spec) {
   const preset = PRESETS[spec.target];
   const name = spec.name ?? (preset ? spec.target : String(spec.target));
@@ -2181,12 +2219,15 @@ function startTrace(spec) {
       : ptr(preset.address);
     make = preset.make ?? genericTrace({ ...preset, ids: spec.ids });
   } else {
-    const address = ptr(String(spec.target));
+    // An address, or a module's export as `MODULE!EXPORT`.
+    const [module, exported] = String(spec.target).split('!');
+    const address = exported === undefined ? ptr(module) : moduleNamed(module).getExportByName(exported);
     if (Process.findModuleByAddress(address) === null) {
       throw new Error(`${spec.target} is neither a preset nor an address of a module`);
     }
     target = address;
-    make = genericTrace({ abi: spec.abi ?? 'cdecl', args: spec.args ?? [], ret: spec.ret, ids: spec.ids });
+    make = spec.stack?.length ? stackProbe(spec)
+      : genericTrace({ abi: spec.abi ?? 'cdecl', args: spec.args ?? [], ret: spec.ret, ids: spec.ids });
   }
   const limit = spec.limit ?? preset?.limit ?? 200;
   const trace = { name, target, listeners: [], count: 0, dropped: 0, second: 0, inSecond: 0, limit };

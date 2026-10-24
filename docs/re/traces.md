@@ -10,6 +10,11 @@ Each call becomes a record of the log (`trace` its target): the preset's name, t
 A trace logs at most 200 calls a second (its `limit`), and says how many it left out.
 The kinds of an argument: `int`, `uint`, `hex`, `u16`, `i16`, `float`, `ptr`, `object` (a pointer to an object: its id, type, cell and, for a creature, health), `id` (an object's id, read so), `cstr` (a C string), `out-float` (a pointer whose float is read as the call returns); the first argument is `ECX` for `thiscall` and `fastcall`, then `EDX` for `fastcall`.
 A function that returns a float on the x87 stack gives no return to read.
+The target may also be a module's export, `MODULE!EXPORT` (`GRANNY.DLL!_GrannySetAnimationParameter@24`), its module's name in any case.
+
+A probe reads an instruction's state instead of a call's (#785): `--stack KIND@PLACE,...` with an address, inside a function too, logs as that instruction is reached each value at its place, a register (`eax`, `ebx`, `ecx`, `edx`, `esi`, `edi`, `ebp`, `esp`) read as an argument of that kind, or an offset from `ESP` whose slot is read so, or as a `double` (the kind of a probe alone).
+It waits for no return, so it never touches the stack as a call's trace does, which, at an instruction inside a function, would take a local for the return address.
+As `trace 0x4dd855 --stack object@esi,double@228,double@140,double@348,double@108` logs a shooter's clip's start, end, loops and Granny's clock as its arrow's test reads them (docs/re/fight.md, "The archers").
 
 ## The presets
 
