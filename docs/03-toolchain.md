@@ -20,7 +20,7 @@
 | | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session (§3.2) |
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
-| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1 (minimum 3.12); packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
+| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1; packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
 | | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
@@ -56,7 +56,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.12+ for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.15.1 for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin).**
   Ghidra 12.2 requires a 64-bit JDK of version 25 or later (`application.java.min=25`, no upper bound); 12.1 still accepted 21.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -110,7 +110,7 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
   A process keeps the directory it was started from as its own for as long as it runs, and Windows does not let a process's working directory be deleted.
   On 2026-10-18 a server restarted from a worktree kept `ExitWorktree` and `Remove-Item` from deleting that worktree ("being used by another process") until it was restarted with its own working directory; started from the main checkout, as the first start is, it would pin the checkout the same way.
 * **Python.**
-  uv runs pyghidra-mcp on Python 3.13, which it downloads itself: `onnxruntime`, which chromadb needs, has wheels up to Python 3.14 and none for the research scripts' 3.15 (on 2026-10-18 uv could not resolve pyghidra-mcp 0.2.7 on 3.15).
+  uv runs pyghidra-mcp on Python 3.13, which it downloads itself: `onnxruntime`, which chromadb needs, has wheels up to Python 3.14 and none for the research scripts' 3.15.1 (on 2026-10-24, with onnxruntime 1.31.0, uv still could not resolve pyghidra-mcp 0.2.7 on 3.15).
 * **Java.**
   pyghidra loads the JVM into its Python process and finds the JDK as Ghidra's own launchers do, so `JAVA_HOME_OVERRIDE` (§2) applies: on 2026-10-18 it loaded Temurin 25 although `JAVA_HOME` named Android Studio's runtime.
   `GHIDRA_INSTALL_DIR`, a user environment variable, names the Ghidra directory.

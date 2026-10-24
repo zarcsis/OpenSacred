@@ -32,7 +32,7 @@ It is not a game you can play through yet. The plan and the queue are in [PLAN.m
 - **Windows:** Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK. The workspace links with `rust-lld` ([.cargo/config.toml](.cargo/config.toml)).
 - **FFmpeg** in `PATH`: the converter runs it for the sound, the videos and a few textures.
 - **Cargo tools** for development: `cargo install cargo-nextest cargo-deny`.
-- **Python 3.12+** (optional): only for the research scripts in [tools/](tools/README.md) and the tests that cross-check against them; `pip install -r tools/requirements.txt`.
+- **Python 3.15.1** (optional): only for the research scripts in [tools/](tools/README.md) and the tests that cross-check against them; `pip install -r tools/requirements.txt`.
 
 The full tool list is in [docs/03-toolchain.md](docs/03-toolchain.md).
 
