@@ -536,9 +536,10 @@ class Host:
                 'item TYPE: an item of that type, as a drop forced to it makes it at the hero\'s place and level',
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
                 '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
-                'out-float; the first argument is ECX for thiscall and fastcall); ADDRESS --stack K@OFFSET,... '
-                "instead logs the values at ESP plus each offset as that instruction is reached, a function's "
-                'middle too (the kinds and double); traces lists those running and the presets; untrace '
+                'out-float; the first argument is ECX for thiscall and fastcall); ADDRESS --stack '
+                'K@REGISTER|OFFSET|REGISTER+OFFSET,... instead logs a register, ESP plus an offset or the memory at '
+                "a register plus an offset as that instruction is reached, a function's middle too (the kinds and "
+                'double); MODULE!EXPORT names an export; traces lists those running and the presets; untrace '
                 'NAME|GROUP|all',
                 'quit: closes the game as its window is closed, ends it after 15 s if it is still running']}
         if word == 'new-game':

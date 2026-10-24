@@ -12,9 +12,9 @@ The kinds of an argument: `int`, `uint`, `hex`, `u16`, `i16`, `float`, `ptr`, `o
 A function that returns a float on the x87 stack gives no return to read.
 The target may also be a module's export, `MODULE!EXPORT` (`GRANNY.DLL!_GrannySetAnimationParameter@24`), its module's name in any case.
 
-A probe reads an instruction's state instead of a call's (#785): `--stack KIND@PLACE,...` with an address, inside a function too, logs as that instruction is reached each value at its place, a register (`eax`, `ebx`, `ecx`, `edx`, `esi`, `edi`, `ebp`, `esp`) read as an argument of that kind, or an offset from `ESP` whose slot is read so, or as a `double` (the kind of a probe alone).
+A probe reads an instruction's state instead of a call's (#785): `--stack KIND@PLACE,...` with an address, inside a function too, logs as that instruction is reached each value at its place, a register (`eax`, `ebx`, `ecx`, `edx`, `esi`, `edi`, `ebp`, `esp`) read as an argument of that kind, or an offset from `ESP` whose slot is read so, or as a `double` (the kind of a probe alone), or a register plus an offset, `REGISTER+OFFSET`, the memory there read the same way (#792).
 It waits for no return, so it never touches the stack as a call's trace does, which, at an instruction inside a function, would take a local for the return address.
-As `trace 0x4dd855 --stack object@esi,double@228,double@140,double@348,double@108` logs a shooter's clip's start, end, loops and Granny's clock as its arrow's test reads them (docs/re/fight.md, "The archers").
+As `trace 0x4dd855 --stack object@esi,double@228,double@140,double@348,double@108` logs a shooter's clip's start, end, loops and Granny's clock as its arrow's test reads them (docs/re/fight.md, "The archers"), and `trace 0x57c65d --stack uint@ebp+0x8,u16@ebp+0x3c,u16@ebp+0x3e,u16@ebp+0x40` the stats' type and their three speeds after the recomputation's skills.
 
 ## The presets
 

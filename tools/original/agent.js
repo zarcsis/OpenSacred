@@ -1994,29 +1994,31 @@ function healthAround(object) {
   return object.add(CREATURE.health).readS32();
 }
 
-// A probe at an instruction, inside a function too: as it is reached, each value by its kind at a register or at ESP
-// plus an offset (`--stack KIND@REGISTER|OFFSET,...`), a double at the offset for `double`, else the register or the
-// stack slot read as an argument of that kind. A probe has no return to wait for, so it never touches the stack as a
-// call's trace does.
+// A probe at an instruction, inside a function too: as it is reached, each value by its kind at a register, at ESP
+// plus an offset, or in memory at a register plus an offset (`--stack KIND@REGISTER|OFFSET|REGISTER+OFFSET,...`): a
+// register read as an argument of that kind; a stack slot or the memory read so, or as a `double`. A probe has no
+// return to wait for, so it never touches the stack as a call's trace does.
 const REGISTERS = ['eax', 'ebx', 'ecx', 'edx', 'esi', 'edi', 'ebp', 'esp'];
 
 function stackProbe(spec) {
   const reads = spec.stack.map((item) => {
     const [kind, place] = item.split('@');
-    const at = Number(place);
-    const register = REGISTERS.includes(place);
-    if (kind === undefined || place === undefined || !(register || (Number.isInteger(at) && at >= 0))
-      || (register && kind === 'double')) {
-      throw new Error(`--stack ${item}: not KIND@REGISTER or KIND@OFFSET`);
+    const [base, offset] = (place ?? '').split('+');
+    const register = REGISTERS.includes(base) ? base : null;
+    const at = Number(register === null ? place : (offset ?? 'none'));
+    const valid = kind !== undefined && place !== undefined
+      && ((register !== null && offset === undefined && kind !== 'double') || (Number.isInteger(at) && at >= 0));
+    if (!valid) {
+      throw new Error(`--stack ${item}: not KIND@REGISTER, KIND@OFFSET or KIND@REGISTER+OFFSET`);
     }
-    return { kind, register: register ? place : null, at };
+    return { kind, register, memory: register === null || offset !== undefined, at };
   });
   return (trace) => function probe() {
-    const shown = reads.map(({ kind, register, at }) => {
-      if (register !== null) {
+    const shown = reads.map(({ kind, register, memory, at }) => {
+      if (!memory) {
         return readArgument(kind, this.context[register]);
       }
-      const slot = this.context.esp.add(at);
+      const slot = (register === null ? this.context.esp : this.context[register]).add(at);
       return kind === 'double' ? String(slot.readDouble()) : readArgument(kind, slot.readPointer());
     });
     record(trace, `(${shown.join(', ')})`);
