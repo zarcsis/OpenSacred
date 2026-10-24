@@ -504,6 +504,8 @@ It was read as coarsely as the Vampiress's: what each case makes, and the argume
 - **1082 (`gui_moves_abschlag`, the launch type 5)**, once `left` is below 0.9: on himself the effect 47 for `[+0x50] + [+0x54]·L` seconds (39 + L) keyed by 1082, its value from `[+0x60]` (5; its whole value not taken), and an object of type 1019 (`FX_KRIEGSRAUSCH`) at him with the art's factor and the effect `0x98`; then it ends (what the effect 47 does, not read).
 - **1083 (`gui_moves_wucht`)**, at its clip's hit point: a move through the air (`0x44DED0`), an object of type 816 (`FX_BURNINGLIGHT`) with the effect `0x2B`, an effect added, and a strike of the factor `L·[+0x5C] + [+0x58]` (0.9 + 0.1·L, "The second table" above; not followed further).
 - **1084 (`gui_moves_kriegsrausch`)** strikes at its clip's hit points, each with an object 842 and the effect `0x42`, its target and the creatures about it (**hypothesis**, by `[+0x60] + [+0x64]·L`, 100 + 10·L; not followed).
+- 1083 and 1084 are the only arts whose records have the flag 4, "with a two-handed weapon only" (`+0x74`, the first table's `+0x90` bit 2, `UI_STAT_2H_ONLY`).
+  Seen 2026-10-24 in the running original (the driver of #448, the Dwarf's new game, 1084 learnt and the right button on a goblin warrior beside him, twice): it was not made with his starting weapon, its regeneration not started.
 - **The guns 1085 (`gui_spells_flammenwerfer`), 1086 (`gui_spells_moerser`) and 1087 (`gui_spells_kanone`), the launch type 0**, make their objects as their clips run: 1085 the flames (1016, `FX_DWARF_FLAMETHROWER`, the effect `0x94`) about from 0.65 of the clip left to 0.2, 1086 a grenade (1018, `FX_DWARF_GRENADE`, the effect `0x96`) thrown to the point, 1087 a shot (1017, `FX_DWARF_SHOOT`, the effect `0x95`) at a point of the clip that comes earlier the farther the target (`0.5 − 0.0002·d` of it left, **hypothesis**: `d` the distance), and the impact 1151 with the effect `0x9C` at each creature it strikes; the casts' spells and their values are the first table's ("The second table" above; not followed).
 - **1089 (`gui_moves_kriegsschrei`, the launch type 5)**, once `left` is below 0.2: its target, else himself, where of a hero's class (`0x426610`) and without an effect of 1089 (`0x582B00`), takes the effects 1 and 2 of `[+0x50] + [+0x54]·L` and `[+0x58] + [+0x5C]·L` (0.4 + 0.1·L each) for `([+0x60] + [+0x64]·L) / 100` seconds (29.5 + 0.5·L) keyed by 1089 (with one, `0x5904E0` instead), and the object 1150 (`FX_KRIEGSSCHREI_SIGN`) with the effect `0x9B`; then each follower of his (`+0x39C`) within 500 takes the object, and one of a hero's class the effects at half their values, and so does each other player's hero within 500.
   So his war cry raises his and his party's attack and defence.
@@ -561,6 +563,42 @@ The adder keeps one effect 53 alone: a second takes the first's place, its secon
 **Confirmed** 2026-10-24 in the running original (the driver's `effect`, through `0x582D50`, on the Seraphim's new game): 1 of 0.2 on a multiplier of 1.25 gave 1.45; 2 of −5 gave `D`'s 0.01 and of 0.3 1.3; 42 of 50 doubled it; 3 of 0.5 and 33 of 0.5 with the whole value 1 took the physical and the fire multipliers to 1.5; 7 of 10 took the physical resistance from 1.86 to 11.86, its multiplier unchanged; 52 of 1.5 took the attack speed of 154 to 220 (231 held) and the pace of 132 to 198, 28 `+0x3E` too, from 120 to 180; 30 of the whole 20 took 20 from the three; 59 of the whole 5 gave the fire damage 5 and 5.
 `opensacred_rules::fight` follows them (`Effect`, `combat_with`, `regeneration_with`, `arts_speeds_with`; #651) but for 40.
 The adder appends each effect to the list's end, so that two of one id and art stack, and recomputes the stats but for the effects `0x11`, `0x25` and `0x28` (`0x584F66`, read 2026-10-24, #763).
+
+Before that the adder has cases of its own by the effect's id (read 2026-10-24, #761; `0x582D50`), most of them a bit of the creature (its `+0x1F4`, `+0x200`, `+0xB0`, `+0x2B7` or `+0x2B8`), which other code then reads:
+
+| Effect | What the adder does besides adding it |
+|---|---|
+| 13 (`0xD`) | `+0x1F4` bit `0x20000` (the Vampiress's domination, 1024 and 1025) |
+| 14 (`0xE`) | `+0x1F4` bit `0x40000` (her master bite's on her, 1031) |
+| 15 (`0xF`) | a creature of an id up to 16 (a player) takes `+0x1F4` bit `0x8000000` and stops where its action is 1; any other is stopped (`0x537160`); a second 15 renews the first's seconds instead (her blood bite's hold, 1030) |
+| 16 (`0x10`) | `+0x200` bit `0x200000`, and the object of its `+0x263` equipped (made where it is none or flagged) |
+| 17 (`0x11`) | `+0x200` bit `0x400000`, the interface's taskbar told for the local player, two objects at it, and two of its items re-equipped (`0x556A30`) |
+| 18 (`0x12`) | `+0x200` bit `0x800000`, with 1,000 in the entry (the Gladiator's 1016) |
+| 19 (`0x13`) | two calls of the renderer's (`0x422820` with `0x423460` and `0x423430`), not followed |
+| 20 (`0x14`) | for a creature of an id above 16 alone: its items destroyed, its model made anew, its type set to the effect's whole value and its `+0x1F4` to `0x20` (a change of creature, not followed further) |
+| 21 (`0x15`) | `+0x2B7` bit 4 (the multi-shot, docs/re/fight.md) |
+| 23 (`0x17`) | `+0x1F4` bit `0x4000000` (the Vampiress's death's kiss, 1033) |
+| 24 (`0x18`) | `+0x2B7` bit `0x10`, and on a horse (`0x4266F0`) an object of ten times its seconds kept in the entry |
+| 25 (`0x19`) and 26 (`0x1A`) | `+0x2B7` bits 1 and 2 (the deflections of arrows and of spells, 1045 and 1046) |
+| 27 (`0x1B`) | `+0x200` bit `0x40000` (the knockback's hold, "The kicks") |
+| 28 (`0x1C`), 37 (`0x25`) | one alone: refused where one holds already |
+| 40 (`0x28`) | one alone: where one holds its seconds are renewed instead; else refused with a value below 1, and an object made at it by its kind |
+| 61 (`0x3D`) | one alone, refused where one holds; `+0x1F4` bit `0x4000000` and `+0xB0` bit `0x20000000`, with objects at about a third of fifty of its bones |
+| 30 (`0x1E`) | on a creature whose stats' `+0x148` has bit `0x10`, refused unless its whole value and value are 0; else `+0x1F4` bit `0x4000000`, and one already in the list merged with it (its value and seconds; not followed in detail) |
+| 31 (`0x1F`) | `+0x2B8` bit `0x20`; one alone, its seconds and value raised to the new one's, with an object at it |
+| 32 (`0x20`) | one alone, its seconds renewed; else `+0x1F4` bit `0x40000000` |
+| 33 (`0x21`) | by its whole value 0 to 5, the bits `0x8000`, `0x10000`, `0x20000`, `0x40000`, `0x80000` or `0x1000000` of `+0xB0`; one of the same whole value alone, its seconds the longer; with a value of 0, calls of `0x549460`, `0x549480`, `0x562470` and of the adder itself first (not followed) |
+| 38 (`0x26`) | one per its level word, their values merged by their seconds; `+0x1F4` bit `0x4000000` and `+0xB0` bit `0x20000000`, with objects at fifty of its bones |
+| 39 (`0x27`) | `+0x1F4` bit `0x200000` |
+| 46 (`0x2E`) | `+0xB0` bit `0x40000000` |
+| 50 (`0x32`) | one alone, its seconds renewed |
+| 53 (`0x35`) | one alone ("The effects" above) |
+| 54 (`0x36`) | `+0x200` bit `0x10000` |
+| 57 (`0x39`) | `+0x200` bit `0x1000000` |
+| 58 (`0x3A`) | the stats' pace (`+0x40`) set to 0 |
+| 1 and 3 keyed by `0x4321` | one alone (the Daemon's forms), their seconds and values the larger |
+
+What each bit then does is the code that reads it, not followed here.
 `opensacred-game` keeps a creature's effects (`effects::Effects`, #763): added at the list's end, counted down by the world's tick, one gone once its time is no longer above 0, and the hero's attack, defence, damage, resistances, attack speed, regeneration and arts' speeds, or an NPC's values with its pace and its hits' share, made anew whenever the list changes and at an NPC's levelling; the console's `effect` gives one (as the original's driver does), and `stats` lists them.
 **Seen** 2026-10-24 against the running original, the Seraphim's start in both, each effect given for 4 s in both: the effects 1, 2, 3, 7, 12, 28, 42, 52, 30 and 59 gave the hero the same values in both (`compare.py`'s parsers), and so did 1, 2, 4, 8 and 52 a goblin warrior of level 5, each worn off within 5 s in both.
 The effects' own side effects at their adding (13, 14, 16 to 18 and the others above) are not followed yet (#761); the arts and the spells that give effects come with their features (#754 to #760, #672).
