@@ -147,6 +147,11 @@ pub enum Style {
     /// ([`knockback_chance`], [`whirl_knockback`]): the Seraphim's 1020
     /// (`GUI_MOVE_WIRBELSCHLAG`, `0x5038F0`, which runs it as her 1069).
     Whirl,
+    /// A flight to its target and one strike on it as it lands ([`jump_landing`],
+    /// [`jump_height`], [`JUMP_FLIES`], [`JUMP_LANDS`]): the Seraphim's 1017
+    /// (`GUI_MOVE_KAMPFSPRUNG`, `0x5038F0`), made where she stands ([`order_distance`]) at a
+    /// rate by her distance ([`jump_rate`]).
+    Jump,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -197,6 +202,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1020 {
         return Some(Style::Whirl);
+    }
+    if art == 1017 {
+        return Some(Style::Jump);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -470,6 +478,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Seraphim's 1020 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
         // `0x50619A`).
         (1, Style::Whirl) => Some(plain(149)),
+        // The Seraphim's 1017 the slot 147 at the blend 0.15 (`0x5038F0` at `0x505C99`), its
+        // rate by its distance ([`jump_rate`]).
+        (1, Style::Jump) => Some(plain(147)),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -701,6 +712,65 @@ pub fn made_from(distance: i32, reach: f32) -> Option<(f32, f32)> {
 /// How near the distance an art is made from its creature must stand (`0x4FD0F0`; 120 for a
 /// rider, not here).
 const MADE_WITHIN: f32 = 10.0;
+
+/// The arts that the order makes where their creature stands, whatever their record's distance,
+/// once a straight way leads to the target (`0x4FD0F0`, `0x4FCC80`): the jumps 1003 and 1017,
+/// and 1032.
+const MADE_WHERE_IT_STANDS: [u16; 3] = [1003, 1017, 1032];
+
+/// The distance the order makes the art `art` of the record's distance `distance` from
+/// ([`made_from`]): 0 for [`MADE_WHERE_IT_STANDS`], else the record's.
+pub fn order_distance(art: u16, distance: i32) -> i32 {
+    if MADE_WHERE_IT_STANDS.contains(&art) {
+        0
+    } else {
+        distance
+    }
+}
+
+/// What is left of its clip, as a part of it, below which a [`Style::Jump`] flies to its
+/// target, and below which it lands and strikes (`0x5038F0` at `0x504570`: 0.75 and 0.4).
+pub const JUMP_FLIES: f32 = 0.75;
+pub const JUMP_LANDS: f32 = 0.4;
+/// The part of its clip's time that a jump's flight takes (`0x44DED0`'s time, the clip's times
+/// the float 0.25 at `0x8907C4`).
+pub const JUMP_FLIGHT: f32 = 0.25;
+
+/// The rate of a jump's clip, its maker `distance` from its target (`0x5038F0` at `0x505C4C`):
+/// 5 within 10, 1 beyond 500, else `5 − ⌊d/99⌋`, at least 1, where the original's falls to 0
+/// from 495 to 500 and holds its clip (docs/decisions/2026-10-24-jump-rate.md).
+pub fn jump_rate(distance: u32) -> f32 {
+    let rate = match distance {
+        0..10 => 5,
+        10..=500 => 5_u32.saturating_sub(distance / 99).max(1),
+        _ => 1,
+    };
+    f32::from(u8::try_from(rate).unwrap_or(1))
+}
+
+/// Where a jump from `from` to its target at `to` lands (`0x5038F0` at `0x504570`): the target's
+/// place brought nearer by half the reach of the two (`reach`, `0x4DBC60`, halved as a whole
+/// number), along the line from the jumper; its point itself without a target (`None`).
+pub fn jump_landing(from: [f32; 2], to: [f32; 2], reach: Option<u32>) -> [f32; 2] {
+    let Some(reach) = reach else {
+        return to;
+    };
+    let [dx, dy] = [to[0] - from[0], to[1] - from[1]];
+    let distance = dx.hypot(dy);
+    if distance <= f32::EPSILON {
+        return to;
+    }
+    let half = f32::from(u16::try_from(reach / 2).unwrap_or(u16::MAX));
+    [to[0] - half * dx / distance, to[1] - half * dy / distance]
+}
+
+/// How high a jump of the length `distance` flies at the part `t` of its flight, in units of the
+/// models' height (`0x44DED0`, `0x44DFE0`): `distance / 12` at its middle, on a parabola from the
+/// ground to the ground.
+pub fn jump_height(distance: f32, t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    distance / 12.0 * (1.0 - 4.0 * (t - 0.5) * (t - 0.5))
+}
 
 /// The table an art is of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
