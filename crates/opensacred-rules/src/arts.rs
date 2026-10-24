@@ -172,6 +172,10 @@ pub enum Style {
     /// At once, without a clip: the effect of the multi-shot on its maker ([`volley`]), the Wood
     /// Elf's 1005 (`GUI_MOVE_MULTIPFEIL`, `0x50AC00`), of the launch type 0.
     Volley,
+    /// A leap to a point on the ground at most its reach away ([`panther_reach`],
+    /// [`panther_point`]), the Dark Elf's 1043 (`GUI_MOVE_PANTHER`, `0x506770`), of the launch
+    /// type 3, at a rate by its reach ([`panther_rate`]).
+    Panther,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -244,6 +248,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1005 {
         return Some(Style::Volley);
+    }
+    if art == 1043 {
+        return Some(Style::Panther);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -529,6 +536,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Dark Elf's 1042 the slot 148 at the blend 0.5 and the rate 1.0 (`0x506770` at
         // `0x509DEE`).
         (4, Style::Viper) => Some(plain(148)),
+        // The Dark Elf's 1043 the slot 182 at the blend 0.5 (`0x506770` at `0x50A04D`), its rate
+        // by its reach ([`panther_rate`]).
+        (4, Style::Panther) => Some(plain(182)),
         // The Dark Elf's 1045 the slot 146 at the blend 0.5 and the rate 1.0 (`0x506770` at
         // `0x509E28`; 194 at the blend 0.2 mounted).
         (4, Style::Ward) => Some(plain(146)),
@@ -948,6 +958,46 @@ pub fn volley(record: &WeaponArt, level: u32) -> (Effect, f32) {
         level: 0,
     };
     (effect, narrow(seconds))
+}
+
+/// What is left of its clip, as a part of it, below which a [`Style::Panther`] leaps, and the
+/// part of its clip's time that its flight takes (`0x506770` at `0x507DAA`: the double 0.7 at
+/// `0x891068`, the float 0.5 at `0x890670`).
+pub const PANTHER_LEAPS: f32 = 0.7;
+pub const PANTHER_FLIGHT: f32 = 0.5;
+
+/// How far the panther `record` leaps at most at the level in play `level` (`0x509F0F`):
+/// `L·[+0x54] + [+0x50]` truncated, 400 + 50·L.
+pub fn panther_reach(record: &WeaponArt, level: u32) -> u32 {
+    let [base, step] = record.factor.map(f64::from);
+    u32::try_from(whole_units(f64::from(level).mul_add(step, base))).unwrap_or(0)
+}
+
+/// The rate of the panther's clip by its reach `reach` (`0x509FF5`): 5 within 10, 1 beyond 500,
+/// else `6 − 0.0101·reach` (the floats at `0x890954` and `0x891090`).
+pub fn panther_rate(reach: u32) -> f32 {
+    match reach {
+        0..10 => 5.0,
+        10..=500 => {
+            let reach = f64::from(reach) * f64::from(f32::from_bits(0x3C25_7EB5));
+            narrow(6.0 - reach)
+        }
+        _ => 1.0,
+    }
+}
+
+/// Where the panther from `from`, aimed at the point `to` on the ground, leaps (`0x509E7B`): `to`
+/// itself within its reach `reach`, else the point at that reach along the line, and at that reach
+/// too where the middle button is held (`far`), moved by `(to − from) · reach / d` in whole units,
+/// `d` the whole distance, 1 at least.
+pub fn panther_point(from: [f32; 2], to: [f32; 2], reach: u32, far: bool) -> [f32; 2] {
+    let delta = [0, 1].map(|i| f64::from(to[i] - from[i]).trunc());
+    let d = delta[0].hypot(delta[1]).trunc().max(1.0);
+    let reach = f64::from(reach);
+    if reach >= d && !far {
+        return to;
+    }
+    [0, 1].map(|i| narrow(f64::from(from[i]) + (delta[i] * reach / d).trunc()))
 }
 
 /// What is left of its clip, as a part of it, below which a [`Style::Ward`] gives its effect

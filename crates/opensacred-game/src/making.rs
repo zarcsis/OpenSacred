@@ -40,11 +40,13 @@ const HAND_BONE: &str = "Bip01 R Hand";
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Selected(pub Option<u16>);
 
-/// The hero's order to make an art on a creature (`0x4FD0F0`).
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+/// The hero's order to make an art on a creature, or at a point on the ground (`0x4FD0F0`).
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 pub struct Making {
     pub art: u16,
     pub target: Entity,
+    /// The point on the ground an art of the launch type 3 is aimed at.
+    pub point: Option<Vec3>,
 }
 
 /// An art's action under way: its style, its clip's node and length, its hit points and how many
@@ -93,6 +95,7 @@ pub fn clips(
         Style::Viper,
         Style::Ward,
         Style::Form,
+        Style::Panther,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -244,7 +247,12 @@ fn aim(
         let on_hero = crate::attack::from_line(ray, at.translation());
         let on_hero = on_hero <= crate::attack::PICKED_WITHIN
             && picked.is_none_or(|(.., distance)| on_hero < distance);
+        // Where the cursor's line meets the hero's height: the point of an art of the launch
+        // type 3 (`0x51D840`'s action's point).
+        let along = (at.translation().y - ray.origin.y) / ray.direction.y;
+        let ground = ray.origin + ray.direction.as_vec3() * along;
         let (target, place) = match (launch, on_hero, picked) {
+            (Some(3), ..) => (hero, ground),
             (Some(2), true, _) => (hero, at.translation()),
             (Some(2), false, _) => {
                 info!("making: {art} wants a friend, or the hero himself, under the cursor");
@@ -266,7 +274,11 @@ fn aim(
                 commands
                     .entity(hero)
                     .remove::<(crate::attack::Attack, crate::attack::Striking)>()
-                    .insert(Making { art, target });
+                    .insert(Making {
+                        art,
+                        target,
+                        point: (launch == Some(3)).then_some(ground),
+                    });
             }
             Err(_) if arts.arts.get(art).is_some() && !arts.arts.ready(art) => {
                 info!("making: {art} is not ready: the hero walks to {target}");
@@ -330,8 +342,11 @@ fn whole_distance(a: Vec3, b: Vec3) -> u32 {
 )]
 fn make(
     mut commands: Commands,
-    tick: Res<WorldTick>,
-    speed: Res<GameSpeed>,
+    (tick, speed, buttons): (
+        Res<WorldTick>,
+        Res<GameSpeed>,
+        Res<ButtonInput<MouseButton>>,
+    ),
     experience: Res<Experience>,
     clips: Option<Res<Clips>>,
     mut arts: Option<ResMut<HeroArts>>,
@@ -469,10 +484,31 @@ fn make(
                 .max(0.01);
             let clip_speed = combat.map_or(1.0, |combat| combat.clip_speed());
             // The target's place, the jump's point.
-            let point = creatures
+            let mut point = creatures
                 .get(making.target)
                 .map_or(here, |(_, at, ..)| at.translation());
             let mut rate = action.rate;
+            if style == Style::Panther {
+                // Its point at its reach at most, at its reach where the middle button is held,
+                // where it may stand, and its clip at a rate by its reach (`0x506770` at
+                // `0x509E7B`).
+                let aimed = making.point.unwrap_or(point);
+                let reach = arts::panther_reach(record, level);
+                let [x, z] = arts::panther_point(
+                    here.xz().into(),
+                    aimed.xz().into(),
+                    reach,
+                    buttons.pressed(MouseButton::Middle),
+                );
+                point = Vec3::new(x, here.y, z);
+                let to = crate::paths::cell_of(point.x, point.z);
+                if !heights.walkable_on(to, body.level()) {
+                    info!("making: the panther may not stand at its point");
+                    end(&mut commands);
+                    continue;
+                }
+                rate = arts::panther_rate(reach);
+            }
             if style == Style::Jump {
                 // A jump wants a straight way to its point and a place to stand there, and plays
                 // at a rate by its length (`0x5038F0` at `0x505B6E`).
@@ -560,6 +596,22 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Panther => {
+                // Below 0.7 left of its clip it leaps to its point in half its clip's time, starts
+                // its regeneration and ends (`0x506770` at `0x507DAA`).
+                if due(1.0 - arts::PANTHER_LEAPS, done) {
+                    commands.entity(hero).insert(Leap {
+                        from: here,
+                        to: Vec3::new(playing.point.x, here.y, playing.point.z),
+                        time: playing.seconds * arts::PANTHER_FLIGHT,
+                        flown: 0.0,
+                    });
+                    arts.start(making.art);
+                    end(&mut commands);
+                } else if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Viper => {
                 // Below 0.2 left of its clip, its target and each hostile of the hero's look
                 // within its radius of the target, by a kick's roll, stunned with the effect 35;
