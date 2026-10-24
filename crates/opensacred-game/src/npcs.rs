@@ -3812,6 +3812,7 @@ fn strike(
                 // The swing within reach (`0x4EA6FD`, #712).
                 blows.write(crate::sfx::Blow::Swing { striker: entity });
                 hits.write(fight::Hit {
+                    fixed: None,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.share,

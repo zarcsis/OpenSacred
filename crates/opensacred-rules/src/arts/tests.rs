@@ -897,6 +897,23 @@ fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
 }
 
 #[test]
+fn the_claw_jump_strikes_and_holds_the_creatures_about_her_landing() {
+    assert_eq!(style(1032), Some(Style::Jump));
+    assert_eq!(
+        action(VAMPIRESS_BY_NIGHT, Style::Jump, 0).map(|a| a.clip),
+        Some(ArtClip::Slot(153))
+    );
+    assert_eq!(jump_points(VAMPIRESS_BY_NIGHT), [0.8, 0.35]);
+    let claw = WeaponArt {
+        factor: [190.0, 10.0],
+        value_58: [5.0, 10.0],
+        ..weapon_art(1032, [9.0, 6.0], 32)
+    };
+    assert_eq!(claw_quake(&claw, 1), (200.0, 15.0));
+    assert_eq!(claw_quake(&claw, 3), (220.0, 35.0));
+}
+
+#[test]
 fn the_dash_puts_the_vampiress_at_its_point_within_its_reach() {
     assert_eq!(style(1028), Some(Style::Dash));
     assert_eq!(style(1029), Some(Style::Dash));

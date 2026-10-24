@@ -29,6 +29,9 @@ pub struct Hit {
     pub share: f32,
     pub ranged: bool,
     pub art: Option<u32>,
+    /// A fixed physical damage in place of the attacker's (the record's first fixed damage of the
+    /// event 5, as the Vampiress's claw jump sends it).
+    pub fixed: Option<f32>,
 }
 
 /// The dice of the strikes.
@@ -186,6 +189,9 @@ pub(crate) fn resolve(
                 "fight: {} at range {distance:.0} of {}, its attack times {factor:.2}",
                 hit.attacker, hit.target
             );
+        }
+        if let Some(fixed) = hit.fixed {
+            attacker.damage = [[fixed; 2], [0.0; 2], [0.0; 2], [0.0; 2]];
         }
         let ranked = ranked.map_or(Rank::Common, |ranked| ranked.0);
         let factor = weapons_factor(side, level, ranked, &rules);
@@ -610,6 +616,7 @@ mod tests {
                     share: 1.0,
                     ranged: false,
                     art: None,
+                    fixed: None,
                 });
             }
         }
