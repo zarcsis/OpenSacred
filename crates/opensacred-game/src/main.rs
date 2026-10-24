@@ -20,6 +20,7 @@ mod drops;
 mod effects;
 mod fight;
 mod files;
+mod forms;
 mod frame;
 mod game;
 mod help;
@@ -259,6 +260,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         effects::EffectsPlugin,
         fight::FightPlugin,
+        forms::FormsPlugin,
         frame::FramePlugin,
         game::GamePlugin,
         help::HelpPlugin,
@@ -271,9 +273,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
-        npcs::NpcsPlugin,
     ))
     .add_plugins((
+        npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,

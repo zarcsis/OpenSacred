@@ -845,6 +845,36 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_changeling_changes_the_vampiress_for_the_night_forms_time() {
+    assert_eq!(style(1022), Some(Style::Changeling));
+    assert_eq!(style(1023), Some(Style::Changeling));
+    for kind in [VAMPIRESS_BY_DAY, VAMPIRESS_BY_NIGHT] {
+        assert_eq!(
+            action(kind, Style::Changeling, 1).map(|a| (a.clip, a.rate, a.fixed)),
+            Some((ArtClip::Slot(144), CHANGELING_RATE, true))
+        );
+    }
+    // 1022's record: `[+0x50]` 24 + 6·L seconds, doubled but by day (seen: 30 s at 08:04).
+    let changeling = WeaponArt {
+        factor: [24.0, 6.0],
+        launch: 0,
+        ..weapon_art(1022, [30.0, 0.0], 32)
+    };
+    assert_eq!(changeling_seconds(&changeling, 1, true), 30.0);
+    assert_eq!(changeling_seconds(&changeling, 1, false), 60.0);
+    assert_eq!(changeling_seconds(&changeling, 10, true), 84.0);
+    // Her day arts by day, her night arts by night, the others in either.
+    assert!(in_form(1022, VAMPIRESS_BY_DAY));
+    assert!(!in_form(1022, VAMPIRESS_BY_NIGHT));
+    assert!(in_form(1023, VAMPIRESS_BY_NIGHT));
+    assert!(!in_form(1023, VAMPIRESS_BY_DAY));
+    assert!(in_form(1038, VAMPIRESS_BY_NIGHT));
+    assert!(!in_form(1073, VAMPIRESS_BY_NIGHT));
+    assert!(in_form(1030, VAMPIRESS_BY_DAY));
+    assert!(in_form(1043, 4));
+}
+
+#[test]
 fn the_panther_leaps_to_its_point_within_its_reach() {
     assert_eq!(style(1043), Some(Style::Panther));
     assert_eq!(

@@ -448,7 +448,8 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .next()
         .map(|(hero, transform)| (hero, transform.translation))
         .ok_or("the hero is not in the world yet")?;
-    // A boon is made on the hero, as is an art on a friend without one (the launch type 2).
+    // A boon and the changeling are made on the hero, as is an art on a friend without one (the
+    // launch type 2).
     let launch = world
         .resource::<crate::arts::HeroArts>()
         .tables
@@ -456,8 +457,10 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .iter()
         .find(|a| a.id == art)
         .map(|a| a.launch);
-    if opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Boon)
-        || launch == Some(2)
+    if matches!(
+        opensacred_rules::arts::style(art),
+        Some(opensacred_rules::arts::Style::Boon | opensacred_rules::arts::Style::Changeling)
+    ) || launch == Some(2)
     {
         world
             .entity_mut(hero)

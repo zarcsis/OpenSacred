@@ -140,6 +140,9 @@ pub struct Hero {
     pub blade: Option<crate::making::Blade>,
     gltf: Option<Handle<Gltf>>,
     spawned: bool,
+    /// Whether [`spawn`] gives the body that stands its new model rather than a body of its own
+    /// (`forms`).
+    worn: bool,
 }
 
 impl Hero {
@@ -168,7 +171,27 @@ impl Hero {
             blade: None,
             gltf: None,
             spawned: false,
+            worn: false,
         }
+    }
+
+    /// Puts on `form` (`forms`): its type, size, model and clips, which [`spawn`] gives the
+    /// hero's body in place of its own, and what it holds again on the new model where the form
+    /// shows it.
+    pub fn wear(&mut self, form: &crate::forms::Form, assets: &AssetServer) {
+        self.creature = form.creature;
+        self.size = form.size;
+        self.model.clone_from(&form.model);
+        [self.idle, self.walk, self.run] = form.clips.moving.clone();
+        self.stance.clone_from(&form.clips.stance);
+        self.attacks.clone_from(&form.clips.attacks);
+        self.arts.clone_from(&form.clips.arts);
+        self.dying.clone_from(&form.clips.dying);
+        self.gltf = Some(assets.load(self.model.clone()));
+        self.equipment = (form.armed && !self.held.is_empty())
+            .then(|| crate::npcs::equipment(assets, &self.held));
+        self.spawned = false;
+        self.worn = true;
     }
 
     fn speed(&self) -> f32 {
@@ -361,15 +384,32 @@ pub fn load(mut hero: ResMut<Hero>, assets: Res<AssetServer>) {
     }
 }
 
-/// Spawns the model once its glTF is loaded.
+/// Spawns the model once its glTF is loaded, or gives the body that stands a form's new model
+/// (`Hero::wear`).
 pub fn spawn(
     mut commands: Commands,
     mut hero: ResMut<Hero>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
+    bodies: Query<Entity, With<Body>>,
+    wielded: Query<(Entity, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
 ) {
     if hero.spawned {
         return;
+    }
+    // A form's model goes on a frame after what the old one held is gone: the spawner would
+    // put an item's instance back under a holder that the old model took away with it.
+    if hero.worn {
+        let mut stripped = false;
+        for (item, holder) in &wielded {
+            if bodies.contains(holder.0) {
+                commands.entity(item).despawn();
+                stripped = true;
+            }
+        }
+        if stripped {
+            return;
+        }
     }
     let Some(gltf) = hero.gltf.as_ref().and_then(|h| gltfs.get(h)) else {
         return;
@@ -443,6 +483,17 @@ pub fn spawn(
             arts: art_nodes,
             player: None,
         });
+    }
+    if hero.worn {
+        hero.worn = false;
+        for body in &bodies {
+            let mut body = commands.entity(body);
+            body.insert((WorldAssetRoot(scene.clone()), Size(hero.size)));
+            if let Some(equipment) = hero.equipment.take() {
+                body.insert(equipment);
+            }
+        }
+        return;
     }
     let mut body = commands.spawn((
         WorldAssetRoot(scene),
