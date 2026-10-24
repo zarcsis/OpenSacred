@@ -913,6 +913,19 @@ fn the_right_button_makes_the_art_of_the_form() {
 }
 
 #[test]
+fn the_vampiresss_bloodlust_raises_her_strikes_by_night() {
+    // From none her first strike takes it to 11, which adds 11/65 of a strike's damage.
+    assert!((bloodlust_rises(0.0) - 11.0).abs() < 1e-4);
+    assert_eq!(bloodlust_damage(30, 11.0), 35);
+    // It grows to its most: from 90, 110; above 90 it stays.
+    assert!((bloodlust_rises(90.0) - 110.0).abs() < 1e-3);
+    assert_eq!(bloodlust_rises(100.0), 100.0);
+    assert_eq!(bloodlust_damage(30, 110.0), 80);
+    assert_eq!(bloodlust_damage(30, 0.0), 30);
+    assert!((frenzy_falls(11.0, BLOODLUST_FALLS, 1.0, false) - 6.0).abs() < 1e-5);
+}
+
+#[test]
 fn the_dwarfs_frenzy_quickens_his_attack() {
     assert_eq!(style(1082), Some(Style::Frenzy));
     assert_eq!(

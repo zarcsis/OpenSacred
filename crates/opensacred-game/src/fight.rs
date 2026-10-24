@@ -84,6 +84,12 @@ pub struct Combat(pub opensacred_rules::fight::Combat);
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Frenzy(pub f32);
 
+/// The Vampiress's bloodlust (the creature's float `+0x584`, as the Dwarf's [`Frenzy`]): her
+/// strikes in her night form raise it and draw more health by it (`opensacred_rules::arts::
+/// bloodlust_damage`), by day they set it to 0, and it falls by the frame.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+pub struct Bloodlust(pub f32);
+
 /// A creature's rank, a fill's boss or champion (`opensacred_rules::fight::Rank`).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Ranked(pub Rank);
@@ -147,9 +153,11 @@ pub(crate) fn resolve(
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
-    (hero_arts, effects): (
+    (hero_arts, effects, clock, mut lusts): (
         Option<Res<crate::arts::HeroArts>>,
         Query<&crate::effects::Effects>,
+        Option<Res<crate::daynight::Clock>>,
+        Query<&mut Bloodlust>,
     ),
     attackers: Query<(
         &Combat,
@@ -229,6 +237,35 @@ pub(crate) fn resolve(
         let Some(damage) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
+        };
+        // The Vampiress's strike in her night form raises her bloodlust, by day sets it to 0
+        // (the sectors of `0x63D180` that keep it by day are left out), and draws more health by
+        // it (`0x56DB08`).
+        let damage = if hero
+            && hero_arts
+                .as_ref()
+                .is_some_and(|arts| arts.kind == opensacred_rules::arts::VAMPIRESS_BY_NIGHT)
+        {
+            let was = lusts.get(hit.attacker).map_or(0.0, |lust| lust.0);
+            let by_day = clock
+                .as_ref()
+                .is_some_and(|clock| clock.phase() == crate::daynight::Phase::Day);
+            let lust = if by_day {
+                0.0
+            } else {
+                opensacred_rules::arts::bloodlust_rises(was)
+            };
+            match lusts.get_mut(hit.attacker) {
+                Ok(mut kept) => kept.0 = lust,
+                Err(_) => {
+                    commands.entity(hit.attacker).insert(Bloodlust(lust));
+                }
+            }
+            let drawn = opensacred_rules::arts::bloodlust_damage(damage, lust);
+            debug!("fight: the bloodlust {lust:.2} takes the strike from {damage} to {drawn}");
+            drawn
+        } else {
+            damage
         };
         if !immortal {
             health.current = health.current.saturating_sub(damage);
@@ -598,7 +635,8 @@ impl Plugin for FightPlugin {
 }
 
 /// Lowers each frenzy by its effect's value a second, a fifth of it while its creature fights a
-/// foe (`0x537E57`), and sets it to 0 without the effect.
+/// foe (`0x537E57`), and sets it to 0 without the effect; and each bloodlust by 5 a second, or 1
+/// (`0x537DEC`).
 fn calm(
     time: Res<Time>,
     mut frenzies: Query<(
@@ -606,8 +644,21 @@ fn calm(
         Option<&crate::effects::Effects>,
         Option<&crate::attack::Attack>,
     )>,
+    mut lusts: Query<(&mut Bloodlust, Option<&crate::attack::Attack>), Without<Frenzy>>,
 ) {
     let dt = time.delta_secs();
+    for (mut lust, attack) in &mut lusts {
+        let fighting = attack.is_some_and(|attack| attack.target().is_some());
+        let cooler = opensacred_rules::arts::frenzy_falls(
+            lust.0,
+            opensacred_rules::arts::BLOODLUST_FALLS,
+            dt,
+            fighting,
+        );
+        if cooler != lust.0 {
+            lust.0 = cooler;
+        }
+    }
     for (mut frenzy, effects, attack) in &mut frenzies {
         let value = effects.and_then(|effects| {
             effects
