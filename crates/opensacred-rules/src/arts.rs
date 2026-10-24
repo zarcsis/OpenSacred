@@ -174,9 +174,11 @@ pub enum Style {
     Volley,
     /// With a bow or a crossbow, a shot at its target of the art's own arrows
     /// (`arrows::projectile`), its regeneration started; without one, nothing: the Wood Elf's
-    /// dumdum 1004 (`GUI_MOVE_DUMDUM`), its strike of the art's factor ([`factor`]), and club
-    /// arrow 1007 (`GUI_MOVE_KEULEN`), which may knock its target back by [`club_knockback`]
-    /// (`arrows::club_knocks`; `0x50AC00`, `0x5BB010`).
+    /// dumdum 1004 (`GUI_MOVE_DUMDUM`), its strike of the art's factor ([`factor`]), club arrow
+    /// 1007 (`GUI_MOVE_KEULEN`), which may knock its target back by [`club_knockback`]
+    /// (`arrows::club_knocks`), and blades 1008 (`GUI_MOVE_KLINGEN`), which home on their target
+    /// for a time by its level and strike what they pass through ([`blades`],
+    /// `arrows::Arrow::home`; `0x50AC00`, `0x5BD2D0`, `0x5BB010`).
     Arrow,
     /// A leap to a point on the ground at most its reach away ([`panther_reach`],
     /// [`panther_point`]), the Dark Elf's 1043 (`GUI_MOVE_PANTHER`, `0x506770`), of the launch
@@ -281,7 +283,7 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1005 {
         return Some(Style::Volley);
     }
-    if art == 1004 || art == 1007 {
+    if matches!(art, 1004 | 1007 | 1008) {
         return Some(Style::Arrow);
     }
     if art == 1043 {
@@ -1126,6 +1128,15 @@ pub fn volley(record: &WeaponArt, level: u32) -> (Effect, f32) {
         level: 0,
     };
     (effect, narrow(seconds))
+}
+
+/// How long the blades of the Wood Elf's 1008 `record` at the level in play `level` fly, in
+/// seconds, and the factor of their strikes (`0x5BD2D0`): `[+0x50] + [+0x54]·L`, 5.66 + 0.35·L,
+/// and `[+0x58] + [+0x5C]·L`, 0.7 + 0.05·L.
+pub fn blades(record: &WeaponArt, level: u32) -> (f32, f32) {
+    let l = f64::from(level);
+    let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
+    (by_level(record.factor), by_level(record.value_58))
 }
 
 /// How far the Wood Elf's club arrow `record` at the level in play `level` knocks back the

@@ -59,12 +59,16 @@ pub fn fanned(i: u32) -> f32 {
     fanned_by(i, FAN)
 }
 
-/// How far the `i`-th arrow of a shot of the combat art `art` turns from the first's line
-/// (`0x4DCB80`): by `⌈i/2⌉ · 0.15` radians for the Wood Elf's 1004, 1006 and 1007, as
-/// [`fanned`] for any other (1008's round the circle is not here).
-pub fn fanned_for(i: u32, art: Option<u16>) -> f32 {
+/// How far the `i`-th arrow of a shot of `count` arrows of the combat art `art` turns from the
+/// first's line (`0x4DCB80`): by `⌈i/2⌉ · 0.15` radians for the Wood Elf's 1004, 1006 and 1007,
+/// by `⌈i/2⌉ · 2π/count` for her 1008, round the circle, as [`fanned`] for any other.
+pub fn fanned_for(i: u32, count: u32, art: Option<u16>) -> f32 {
     match art {
         Some(1004 | 1006 | 1007) => fanned_by(i, SPECIAL_FAN),
+        Some(1008) => {
+            let count = f32::from(u16::try_from(count.max(1)).unwrap_or(u16::MAX));
+            fanned_by(i, std::f32::consts::TAU / count)
+        }
         _ => fanned(i),
     }
 }
@@ -73,6 +77,16 @@ fn fanned_by(i: u32, fan: f32) -> f32 {
     let step = f32::from(u16::try_from(i.div_ceil(2)).unwrap_or(u16::MAX)) * fan;
     if i % 2 == 1 { step } else { -step }
 }
+
+/// How fast the Wood Elf's blades 1008 fly (type 3077, `0x5BD2D0`: two thirds of [`SPEED`]),
+/// and how fast they turn toward their target, in radians a second (`0x5BB010`: by at most
+/// 5 times the frame's time).
+pub const HOMING_SPEED: f32 = 400.0;
+pub const HOMING_TURN: f32 = 5.0;
+/// How often a blade strikes, in seconds (`+0x240`), and how far from the creature it struck it
+/// takes its next target (`0x600570`: a squared distance below 100,000).
+pub const BLADE_STRIKES_EVERY: f32 = 0.5;
+pub const BLADE_NEXT_WITHIN: f32 = 316.227_77;
 
 /// Whether the Wood Elf's club arrow 1007 at the level in play `level` knocks back the creature
 /// of the level `target` that it hits, shot by a hero of the level `hero` (`0x5BB010`): below
@@ -169,18 +183,81 @@ impl Arrow {
     /// An arrow from `from` toward `toward`, straight at 600 a second for 1.5 s (`0x4EB700`); it
     /// leads no moving target. One aimed at its own point stands where it is.
     pub fn new(from: Point, toward: Point) -> Self {
-        let (along, up) = (toward.ground - from.ground, toward.height - from.height);
-        let length = (along.length().powi(2) + up * up).sqrt();
-        let velocity = if length >= 1e-7 {
-            Point::new(along * (SPEED / length), up * (SPEED / length))
-        } else {
-            Point::default()
-        };
         Self {
             at: from,
-            velocity,
+            velocity: along(
+                toward.ground - from.ground,
+                toward.height - from.height,
+                SPEED,
+            ),
             left: LIFE,
         }
+    }
+
+    /// A blade of the Wood Elf's 1008 from `from` toward `toward`, at [`HOMING_SPEED`] for
+    /// `seconds` (`0x5BD2D0`), which [`Arrow::home`] turns toward its target.
+    pub fn homing(from: Point, toward: Point, seconds: f32) -> Self {
+        Self {
+            at: from,
+            velocity: along(
+                toward.ground - from.ground,
+                toward.height - from.height,
+                HOMING_SPEED,
+            ),
+            left: seconds,
+        }
+    }
+
+    /// A homing arrow's turn in a frame of `dt` seconds before its flight (`0x5BB010`, `+0x1E4`
+    /// bit `0x10`): its direction turned toward `toward` by at most [`HOMING_TURN`] times `dt`
+    /// radians, its speed kept; then, where its next point's cell may not be walked on
+    /// (`walkable`), its velocity turned back, and else, where that point would lie at or below
+    /// the ground (`ground`), its rise.
+    pub fn home(
+        &mut self,
+        dt: f32,
+        toward: Point,
+        walkable: impl FnOnce(Point) -> bool,
+        ground: impl FnOnce(Point) -> Option<f32>,
+    ) {
+        let speed = self.speed();
+        if speed < 1e-7 {
+            return;
+        }
+        let [vx, vy, vz] = [
+            self.velocity.ground.x / speed,
+            self.velocity.ground.y / speed,
+            self.velocity.height / speed,
+        ];
+        let to = along(
+            toward.ground - self.at.ground,
+            toward.height - self.at.height,
+            1.0,
+        );
+        let [tx, ty, tz] = [to.ground.x, to.ground.y, to.height];
+        let dot = (vx * tx + vy * ty + vz * tz).clamp(-1.0, 1.0);
+        let angle = dot.acos();
+        if angle > 0.001 {
+            // The part of the way toward it square to its flight, the plane it turns in.
+            let [ux, uy, uz] = [tx - dot * vx, ty - dot * vy, tz - dot * vz];
+            let length = (ux * ux + uy * uy + uz * uz).sqrt();
+            if length >= 1e-7 {
+                let (sin, cos) = angle.min(HOMING_TURN * dt).sin_cos();
+                let turned = |v: f32, u: f32| (v * cos + u / length * sin) * speed;
+                self.velocity =
+                    Point::new(Spot::new(turned(vx, ux), turned(vy, uy)), turned(vz, uz));
+            }
+        }
+        let next = self.at.on(self.velocity, dt);
+        if !walkable(next) {
+            self.velocity = Point::new(self.velocity.ground * -1.0, -self.velocity.height);
+        } else if ground(next).is_some_and(|ground| next.height <= ground) {
+            self.velocity.height = -self.velocity.height;
+        }
+    }
+
+    fn speed(&self) -> f32 {
+        (self.velocity.ground.length().powi(2) + self.velocity.height.powi(2)).sqrt()
     }
 
     /// Where it is.
@@ -207,13 +284,7 @@ impl Arrow {
     /// The arrow turned where it is along `direction` at its speed, its time going on
     /// (`0x561090`).
     pub fn turn(&mut self, direction: Point) {
-        let (along, up) = (direction.ground, direction.height);
-        let length = (along.length().powi(2) + up * up).sqrt();
-        self.velocity = if length >= 1e-7 {
-            Point::new(along * (SPEED / length), up * (SPEED / length))
-        } else {
-            Point::default()
-        };
+        self.velocity = along(direction.ground, direction.height, SPEED);
     }
 
     /// Its flight in a frame of `dt` seconds (`0x5BB010`): none once its time is out, when it is
@@ -234,6 +305,16 @@ impl Arrow {
             self.left = 0.0;
         }
         Some((from, next.ground))
+    }
+}
+
+/// The velocity of `speed` along the ground's `ground` and the rise `up`, none for no way.
+fn along(ground: Spot, up: f32, speed: f32) -> Point {
+    let length = (ground.length().powi(2) + up * up).sqrt();
+    if length >= 1e-7 {
+        Point::new(ground * (speed / length), up * (speed / length))
+    } else {
+        Point::default()
     }
 }
 
@@ -392,9 +473,12 @@ mod tests {
         assert_eq!(fanned(1), 0.05);
         assert_eq!(fanned(2), -0.05);
         assert!((fanned(3) - 0.1).abs() < 1e-6 && (fanned(4) + 0.1).abs() < 1e-6);
-        assert!((fanned_for(1, Some(1004)) - 0.15).abs() < 1e-6);
-        assert!((fanned_for(4, Some(1007)) + 0.3).abs() < 1e-6);
-        assert_eq!(fanned_for(1, None), 0.05);
+        assert!((fanned_for(1, 1, Some(1004)) - 0.15).abs() < 1e-6);
+        assert!((fanned_for(4, 5, Some(1007)) + 0.3).abs() < 1e-6);
+        assert_eq!(fanned_for(1, 2, None), 0.05);
+        // The blades round the circle: four a quarter of it apart, the last opposite the first.
+        assert!((fanned_for(1, 4, Some(1008)) - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!((fanned_for(3, 4, Some(1008)) - std::f32::consts::PI).abs() < 1e-6);
         let arrow = Arrow::new(Point::default(), Point::new(Spot::new(600.0, 0.0), 0.0));
         let turned = arrow.turned_by(std::f32::consts::FRAC_PI_2);
         assert!(turned.velocity().ground.x.abs() < 1e-3);
@@ -429,6 +513,52 @@ mod tests {
         assert_eq!(projectile(Some(1007)), 3075);
         assert_eq!(projectile(Some(1008)), 3077);
         assert_eq!(projectile(Some(1061)), ARROW);
+    }
+
+    #[test]
+    fn a_blade_turns_toward_its_target_at_its_rate() {
+        let open = |_: Point| true;
+        let low = |_: Point| Some(-100.0);
+        // Flying along +x at 400, its target square to its way along +y.
+        let mut blade = Arrow::homing(
+            Point::default(),
+            Point::new(Spot::new(100.0, 0.0), 0.0),
+            6.0,
+        );
+        assert!((blade.velocity().ground.x - HOMING_SPEED).abs() < 1e-3);
+        let target = Point::new(Spot::new(0.0, 1000.0), 0.0);
+        blade.home(0.1, target, open, low);
+        // A tenth of a second turns it by half a radian, its speed kept.
+        let v = blade.velocity();
+        assert!((v.ground.y.atan2(v.ground.x) - 0.5).abs() < 1e-4);
+        assert!((blade.speed() - HOMING_SPEED).abs() < 1e-2);
+        // Near its line it turns onto it.
+        let mut near = Arrow::homing(
+            Point::default(),
+            Point::new(Spot::new(100.0, 0.0), 0.0),
+            6.0,
+        );
+        near.home(0.1, Point::new(Spot::new(1000.0, 100.0), 0.0), open, low);
+        let v = near.velocity();
+        assert!((v.ground.y.atan2(v.ground.x) - 0.1_f32.atan()).abs() < 1e-4);
+        // A cell that may not be walked on sends it back; the ground turns its rise.
+        let mut back = Arrow::homing(
+            Point::default(),
+            Point::new(Spot::new(100.0, 0.0), 0.0),
+            6.0,
+        );
+        back.home(0.1, Point::new(Spot::new(1000.0, 0.0), 0.0), |_| false, low);
+        assert!((back.velocity().ground.x + HOMING_SPEED).abs() < 1e-3);
+        let mut up = Arrow::homing(
+            Point::new(Spot::default(), 10.0),
+            Point::new(Spot::new(100.0, 0.0), 0.0),
+            6.0,
+        );
+        let falling = up.velocity().height;
+        up.home(0.1, Point::new(Spot::new(1000.0, 0.0), -90.0), open, |_| {
+            Some(8.0)
+        });
+        assert!(falling < 0.0 && up.velocity().height > 0.0);
     }
 
     #[test]

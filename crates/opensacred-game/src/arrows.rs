@@ -8,8 +8,9 @@
 //! `opensacred_rules::arrows`. A creature's arrow hits the hero when its shooter is hostile to
 //! the hero, and a creature of a side or type hostile to its shooter's (`0x548F60`, #670): the
 //! arrows of the archers that fight a creature, and those that a creature comes in the way of.
-//! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004 and 1007) looses the art's
-//! own arrows, whose hits are the art's strikes (docs/re/arts.md, "The Wood Elf's", #756).
+//! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004, 1007 and 1008) looses the
+//! art's own arrows, whose hits are the art's strikes, the blades homing on their foes for a time
+//! (docs/re/arts.md, "The Wood Elf's", #756).
 
 use bevy::prelude::*;
 use opensacred_rules::arrows::{self, Point};
@@ -44,13 +45,23 @@ pub struct Loose {
 }
 
 /// The combat art that a shot is of (the shooter's `+0x18E`, the art less 1000): its id, its
-/// level in play, which the arrow carries (`+0x249`), and its factor at that level, which the
-/// arrow's strike carries (the record's `+0x1C`, `0x5BB010`).
+/// level in play, which the arrow carries (`+0x249`), its factor at that level, which the arrow's
+/// strike carries (the record's `+0x1C`, `0x5BB010`), and for the blades 1008 how long they fly
+/// (`0x5BD2D0`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Special {
     pub art: u16,
     pub level: u32,
     pub factor: f32,
+    pub seconds: Option<f32>,
+}
+
+/// A homing blade's own (1008, `+0x1E4` bit `0x10`): how high over its target's feet it aims
+/// (the target's neck where it left), and how long until it may strike again (`+0x240`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Homing {
+    aim: f32,
+    wait: f32,
 }
 
 /// A creature's size for the arrows' hits (`items.pak +0x14`, 50 for 0,
@@ -70,6 +81,7 @@ struct Arrow {
     size: f32,
     share: f32,
     special: Option<Special>,
+    homing: Option<Homing>,
 }
 
 /// The dice of the arrows' deflection (`0x561090`'s `rand`).
@@ -168,8 +180,19 @@ fn loose(
         let share = shot.special.map_or(share, |special| {
             opensacred_rules::fight::scaled(share, special.factor)
         });
+        // The blades home on their target for their time (`0x5BD2D0`).
+        let (first, homing) = match shot.special.and_then(|special| special.seconds) {
+            Some(seconds) => (
+                arrows::Arrow::homing(point(from), point(toward), seconds),
+                Some(Homing {
+                    aim: toward.y - target.translation().y,
+                    wait: 0.0,
+                }),
+            ),
+            None => (first, None),
+        };
         for i in 0..count {
-            let flight = first.turned_by(arrows::fanned_for(i, art));
+            let flight = first.turned_by(arrows::fanned_for(i, count, art));
             debug!(
                 "arrows: {} looses an arrow at {} from {:.0},{:.0},{:.0} toward {:.0},{:.0},{:.0}",
                 shot.shooter, shot.target, from.x, from.y, from.z, toward.x, toward.y, toward.z
@@ -189,6 +212,7 @@ fn loose(
                     size,
                     share,
                     special: shot.special,
+                    homing,
                 },
                 DespawnOnExit(AppState::InGame),
             ));
@@ -205,7 +229,10 @@ fn loose(
 /// hostile to it, a creature to one of a hostile side or type), sending the fight's hit at range
 /// with the shooter's values (`fight::Hit`, the event 5 with the bow), and is gone, or sticks in a
 /// creature of a size above 20; else it flies on. A special arrow's hit is of its art at its
-/// level, and the club arrow's may first knock its creature back (the event 3).
+/// level, and the club arrow's may first knock its creature back (the event 3). A homing blade
+/// turns toward its target first and ends when the target is gone or dead; it passes through
+/// what it hits, striking at most every 0.5 s, and after each strike takes the nearest other
+/// creature hostile to the hero within 316 of the one it struck, else keeps its target.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -218,7 +245,7 @@ fn fly(
     mut hits: MessageWriter<fight::Hit>,
     mut dice: ResMut<Dice>,
     mut flying: Query<(Entity, &mut Arrow, &mut Transform)>,
-    shooters: Query<&ai::Mind, Without<Dies>>,
+    shooters: Query<(&ai::Mind, &Health), Without<Dies>>,
     hero: Query<
         (
             Entity,
@@ -240,6 +267,34 @@ fn fly(
     let hero = hero.iter().next();
     for (entity, mut arrow, mut transform) in &mut flying {
         let level = arrow.level;
+        if let Some(homing) = arrow.homing.as_mut() {
+            homing.wait = (homing.wait - dt).max(0.0);
+        }
+        // A blade turns toward its target alive, and ends without one (`0x5BB010`).
+        if let Some(homing) = arrow.homing {
+            let target = shooters
+                .get(arrow.target)
+                .ok()
+                .filter(|(_, health)| health.current > 0)
+                .and_then(|_| places.get(arrow.target).ok());
+            let Some(target) = target else {
+                debug!("arrows: {entity} of {} has no target", arrow.shooter);
+                commands.entity(entity).despawn();
+                continue;
+            };
+            let toward = point(target.translation() + Vec3::Y * homing.aim);
+            let walkable = |p: Point| {
+                let at = world(p);
+                let cell = paths::cell_of(at.x, at.z);
+                heights.walkable_on(cell, level) || heights.flown_over(cell, level)
+            };
+            let ground = |p: Point| {
+                let at = world(p);
+                heights.standing(at.x, at.z, level)
+            };
+            arrow.flight.home(dt, toward, walkable, ground);
+            transform.rotation = pointing(arrow.flight.velocity());
+        }
         let open = |p: Point| {
             let at = world(p);
             let cell = paths::cell_of(at.x, at.z);
@@ -283,8 +338,8 @@ fn fly(
         // or type; the shooter alive. One the hero sent back hits a creature hostile to the hero.
         let hero_shot = hero.is_some_and(|(e, ..)| e == arrow.shooter);
         let hero_hit = hero.is_some_and(|(e, ..)| e == on);
-        let other = shooters.get(on).ok().map(|other| &other.thinks);
-        let shooter = shooters.get(arrow.shooter).ok();
+        let other = shooters.get(on).ok().map(|(other, _)| &other.thinks);
+        let shooter = shooters.get(arrow.shooter).ok().map(|(mind, _)| mind);
         let hits_it = match (hero_shot, shooter) {
             (true, _) => other.is_some_and(minds::Mind::hostile),
             (false, Some(shooter)) => {
@@ -296,6 +351,10 @@ fn fly(
             (false, None) => false,
         };
         if !hits_it {
+            continue;
+        }
+        // A blade strikes at most every half second, passing through.
+        if arrow.homing.is_some_and(|homing| homing.wait > 0.0) {
             continue;
         }
         // A hero with the effect of deflection may turn it aside by its chance (`0x561090`).
@@ -397,6 +456,29 @@ fn fly(
             ranged: true,
             art: arrow.special.map(|special| special.level),
         });
+        // A blade flies on, its next target the nearest other foe within its reach of the one it
+        // struck, else the one it had (`0x600570`).
+        if let Some(homing) = arrow.homing.as_mut() {
+            homing.wait = arrows::BLADE_STRIKES_EVERY;
+            if let Ok(struck) = places.get(on) {
+                let struck = struck.translation();
+                let current = arrow.target;
+                let next = creatures
+                    .iter()
+                    .filter(|&(e, _, way, _)| e != current && way.creature && way.level == level)
+                    .filter(|&(e, ..)| {
+                        shooters
+                            .get(e)
+                            .is_ok_and(|(mind, health)| mind.hostile() && health.current > 0)
+                    })
+                    .map(|(e, at, ..)| (e, (at.translation - struck).xz().length()))
+                    .filter(|&(_, distance)| distance < arrows::BLADE_NEXT_WITHIN)
+                    .min_by(|a, b| a.1.total_cmp(&b.1))
+                    .map(|(e, _)| e);
+                arrow.target = next.unwrap_or(current);
+            }
+            continue;
+        }
         let size = creatures
             .get(on)
             .ok()
