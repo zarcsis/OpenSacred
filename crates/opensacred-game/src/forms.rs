@@ -221,7 +221,7 @@ fn change(
 }
 
 /// The night's form ends with its effect (`0x50E6C0`: 1023 takes every effect 22 off her and
-/// gives her back her day's form; **hypothesis**: the effect's end does the same).
+/// gives her back her day's form; seen: the effect's end does the same, 30 s after the change).
 fn wear_off(
     mut commands: Commands,
     forms: Option<Res<Forms>>,
