@@ -173,6 +173,24 @@ enum Command {
         #[arg(long)]
         to: Option<u32>,
     },
+    /// Give a creature, the hero by default, the effect EFFECT of the value VALUE for SECONDS
+    /// (60), as the combat arts and the spells give them (`0x582D50`): its fight values follow
+    /// from the next frame (`stats`); ID as `creatures` prints it
+    Effect {
+        effect: u32,
+        #[arg(allow_hyphen_values = true)]
+        value: f32,
+        /// Its whole value
+        #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
+        whole: i32,
+        #[arg(long, default_value_t = 60.0)]
+        seconds: f32,
+        /// The art it is keyed by
+        #[arg(long, default_value_t = 0)]
+        art: u32,
+        #[arg(long)]
+        id: Option<String>,
+    },
     /// The hero takes no damage, or takes it again; without a switch, toggles
     God { on: Option<Switch> },
     /// The hero goes straight where it is sent, through walls and over water, on the ground's
@@ -1085,6 +1103,24 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             let id = id.map(|id| debug::creature(world, &id)).transpose()?;
             Ok(Outcome::say(debug::heal(world, id, to)?))
         }
+        Command::Effect {
+            effect,
+            value,
+            whole,
+            seconds,
+            art,
+            id,
+        } => {
+            in_game(world)?;
+            let id = id.map(|id| debug::creature(world, &id)).transpose()?;
+            let effect = opensacred_rules::fight::Effect {
+                id: effect,
+                whole,
+                value,
+                art,
+            };
+            Ok(Outcome::say(debug::effect(world, id, effect, seconds)?))
+        }
         Command::God { on } => {
             in_game(world)?;
             let on = hero_switch::<fight::Immortal>(world, on)?;
@@ -1632,6 +1668,7 @@ mod tests {
             "kill",
             "item 1712",
             "heal",
+            "effect 1 0.2",
             "god",
             "fly on",
         ] {
