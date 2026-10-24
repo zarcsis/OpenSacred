@@ -541,7 +541,7 @@ Seen in the original on 2026-10-23 under the driver of #448, the Seraphim at lev
 - `GLAUBENSSTAERKE` (21) did not run by a right click on the hero herself (its launch type, `+0x3C`, not followed).
 
 So the first table's values (above) are not each object's own: `IRRITATION`'s value 0 is 14 + L seconds, at most 30, where its effect lasted 3 s (the action 7 below scales it by the target).
-What each object gives beyond the actions below, for how long and to whom, is not read: `0x5ABD80`'s cases and which action each object's system runs (#672).
+What each object gives beyond the actions and the hits below, for how long and to whom, is not read: which action each object's system runs, and the objects that neither has a case for (#672).
 
 #### The objects' actions
 
@@ -568,6 +568,61 @@ The object's art is its `+0x118`, the record of the first table ("The first tabl
 
 **Seen** in the running original (the driver of #448, the Seraphim at level 1 with an immortal goblin of type 76 at level 5, `arts select 18` and the right button on the goblin, traces of `0x5B2600` and `0x582D50`): `IRRITATION`'s object (type 816) ran the action 7 once, which gave the goblin the effect 13 of the whole value 1 for 3 s, keyed by the art 18; the objects of the types 772 and 773 about the hero ran the actions 1 and others, and the birds (type 886) the action 0 at each frame.
 
+#### The objects' hits
+
+Read 2026-10-24 (#672) in `0x5ABD80`, which the update hands each object's targets to; **confirmed** by code unless marked otherwise.
+It first makes the spell's damage event: the four kinds' damages of the first table's record, the pairs `+0x42`/`+0x44` to `+0x4E`/`+0x50` as `base + step·L` at the object's level (`+0xE4`), each times the caster's factor of its spells (`0x56A800`) and held at 65,534, the factor 1.0, the caster (`+0x54`) and the object.
+Most objects then send it once (their `+0x11C` set, so that a later run sends nothing) to each target that does not turn the spell aside (`0x561860`: a target of a hero's class with the skill 14 by the hit chance `0x43EEE0` between a value of the spell's and its level raised by the skill's curve, then a target with the effect `0x1A` by the arrows' rule of docs/re/fight.md, which for the Dark Elf's 1046 sends the spell back to its caster).
+By the object (its spell, "The spells' executor" above):
+
+| Object | Spell | What its targets take |
+|---|---|---|
+| 778 `FX_FIRESTRIKE` | 5 | the event, once |
+| 782 `FX_PENTAGRAMMKILLER` | 6 | a target of a level above the object's value (`0x7CBEA0`), or a player's hero in a network game, the event; any other the event 9 from the caster (**hypothesis**: slain); the factor `1 + (s₂₆ + s₂)/100 + (b + h)/K`, `s₂₆` and `s₂` the caster's skills 26 and 2 through the balance's curves (`0x565D70` with `0xAD45D8` and `0xAD44D0`), `b` a value of `0x5A03B0`, `h` the caster's `+0x3BC`, `K` the value at `0xAD5630` |
+| 790 `FX_FIRE_CIRCLE` | 11 | the event, once |
+| 792 `FX_GROUND_POISON` | 12 | the event, once, at the factor of 782 |
+| 794 `FX_EXPLOSION` | (the Dwarf's guns) | the event, once, at the factor of 782 but from a caster of the type 8 |
+| 801 `FX_RAILGUN` | | the event at every run |
+| 804 `FX_HOLYLIGHT` | 15 | the event, once |
+| 813 `FX_FI_SMOKE_M`, 876 `FX_FI_SMOKE_L`, 879 `FX_GEYSIR` | | an event of `0x51CB00` from the object with the damages 10, 20 or 100 of the first two kinds alone, once |
+| 814 `FX_HOLYWALL` | 17 | the event, once |
+| 817 `FX_MAGLITE` | 20 | the event, once, to the targets of the types that `0x426A80`, `0x426BC0` or `0x426B20` name (**hypothesis**: the undead and the demons) |
+| 820 `FX_HELLFIRE` | 23 | the event, once |
+| 821 `FX_FIRESKIN` | 24 | the event, once, and an object 788 (`FX_BURNING_BONE`) at each target |
+| 823 `FX_METEOR` | 26 | the event at every run |
+| 826 `FX_TWISTER` | 28 | from a caster of the local player, the event `0x112` from the caster to a target of a level 3 or more below the spell's, or by a roll of one in `3·(M − L + 6) + 1` for one nearer its level (**hypothesis**: thrown about) |
+| 831 `FX_WINDSTRIKE` | 29 | the event to every target, and to one whose level (a boss's scaled) is below `0.4·L' + 5·L` and of no big type the event of kind 3, the knockback, of the spell's value 0 at its level (`0x4D26B0`) |
+| 838 `FX_FLASH` | | the event, once |
+| 839 `FX_ICEBULLETS` | 34 | the event, once, from a caster of the local player |
+| 840 `FX_CIRCLEOFICE` | 35 | the event, once |
+| 847 `FX_BUBBLETRAP` | 38 | the event, once |
+| 848 `FX_KILLERPLANTS` | 39 | the event, once |
+| 850 `FX_LOSTSOULS` | 41 | an event of `0x51CB00` to its target, then a new target within 100,000 (`0x600570`; **hypothesis**: the souls fly on) |
+| 855 `FX_ARACATTACK` | | the event to its owner's target, once |
+| 867 `FX_BALL` | 53, the Dark Elf's traps | to each hostile target (`0x548FB0`) an event of `0x51CB00` from the caster and an object 786 (`FX_GOBLINIMPACT`) at it, whose spell it casts (`0x5B7590`) |
+| 871 `FX_CONFUSION` | | to a target neither a boss nor of `+0x2B8` bit `0x40`, without the effects 13 and 14, by a coin the effect 14 or 13 for `3·min(1, 5L/M)` seconds, its whole value the caster's level, and it stops ("The spells' objects" above) |
+| 875 `FX_BFG` | the Seraphim's 1018 | the event, once |
+| 878 `FX_SMALLFIRE` | 50 | an event of `0x51CB00` with the damages 5 and 5, or the caster's (`0x5B79F0`, `0x5B7A00`), to every target from a caster of no hero's class, else to the hostile ones |
+| 880 `FX_SPIDERPUKE` | | an event of `0x51CB00` with the damages of the event that made it, once |
+| 895 `FX_TRAP03_LASER` | | an event of `0x51CB00` with 200 of the first kind and 100 of the third, once |
+| 905 `FX_FLYINGSKULL` | the Vampiress's 1033 | the effects 2, 1 and 23 for 5 s keyed by 1033, their values from the event's (`0x4EB620`; not followed), and an object 862 at each target |
+| 906 `FX_BUBBLETRAP_EXPLO` | | the event at the factor 2.0, once |
+| 910 `FX_DAEMONFIRE`, 922 `FX_SHADDAR_MAGIC` | 50, 52 | an event of `0x51CB00` from the caster at every run |
+| 921 `FX_SHADDAR_SLAVE` | | the effect 32 for 5 s to a target of an id up to 16, or it follows the creature of the type 700 |
+| 923 `FX_DRAGON_GROUNDFIRE` | | the event of damages by the caster's skill 2 and the object's level, once |
+| 1005 `FX_HELLDISK` | the Daemon's 60 | an event of `0x51CB00` to its target, then a new target within 100,000 |
+| 1006 `FX_WALLOFFIRE`, 1007 `FX_WALLOFFIRE_LINE`, 1008 `FX_RINGOFPOISON` | the Daemon's forms (1102, 1101) | from a caster of a hero's class, to each hostile target the effect 62 of the event's whole and float values (`0x4EB630`, `0x4EB6F0`), for 1 s (**hypothesis** for its arguments' order; 1007 not to a target of `0x5539D0`) |
+| 1011 `FX_SONGSFROMHELL` | 67 | an event of `0x51CB00` to its owner's target |
+| 1012 `FX_HELLSCREAM` | 66 | to each target without an effect of the spell: the effect 1 of `−(1 − 100/p)`, `p` of `0x590C80`, and the effect 2 of a value of `0x590CA0`, keyed by the spell (their times not taken) |
+| 1013 `FX_DAYOFTHETENTACLE` | 64 | an event of `0x51CB00` from the caster, once |
+| 1020 `FX_GRENADEIMPACT` | the Dwarf's 1086 | the event of its damages (`0x5B79F0`, `0x5B7A00`), once |
+| 1154 `FX_DWARF_MINE_SIGN` | 56 | an object 1153 (`FX_DWARF_MINE`) made, once; the mine goes when its value reaches 100 (`0x5B7950`) |
+| 1159 `FX_EMPEROR`, 1162 `FX_DRYAD_GHOST`, 1163 to 1167, 1170 | 69 to 72 and the scripts' | the event of their own damages (`FX_DAEMONENFUERST` by its state, `+0x9C` 185 or 250 to 252, one kind each), 1170 `FX_EITERBLUME` 500 of the first kind and 100 of the third |
+| 1156 to 1158 `FX_PONG_…` | | a game of the scripts', not of the fight |
+
+**Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1, `arts learn 15`, `arts select 15` and the right button at the feet of a hostile goblin warrior of level 30): its health went from 757 to 715 within a second and to 571 within four, so that `HIMMELSLEUCHTEN` hits again and again over its time (**hypothesis**: it makes an object 804 at each of its beats, each hitting once); the immortal goblins' hook of the driver, which tells the strikes of `0x56B130`, told none of these hits.
+The other objects (the shields, the healings, the summons and the changes of form among them) have no case here and log their type: what they give comes from their actions ("The objects' actions" above) and from their own updates (not read).
+
 ## The heroes' starting arts
 
 Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (above): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229 (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):
@@ -592,4 +647,4 @@ The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new gam
 
 ## Open
 
-What the spells' objects give their targets beyond what "The spells' objects" reads (`0x5ABD80`'s and `0x5B2600`'s cases, the objects' actions; #672); what the special weapon arts' effects and objects do (#761: the jump 1032 in part, the Wood Elf's special arrows' projectiles, what the effects 16, 17, 18, 35 and `0x1A` do, the hurled blades' flight, the Dark Elf's traps' objects, what the Vampiress's 1026 to 1029 and 1033 make, the effects 13, 22 and 29's whole values, what the Dwarf's guns and the Daemon's rings and breaths make, the effects 47, 50, 53 and 60) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
+What the spells' objects give their targets beyond what "The spells' objects" reads (which action each object's system runs, the objects with no case in their hits and actions; #672); what the special weapon arts' effects and objects do (#761: the jump 1032 in part, the Wood Elf's special arrows' projectiles, what the effects 16, 17, 18, 35 and `0x1A` do, the hurled blades' flight, the Dark Elf's traps' objects, what the Vampiress's 1026 to 1029 and 1033 make, the effects 13, 22 and 29's whole values, what the Dwarf's guns and the Daemon's rings and breaths make, the effects 47, 50, 53 and 60) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
