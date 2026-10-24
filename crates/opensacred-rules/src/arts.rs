@@ -198,6 +198,10 @@ pub enum Style {
     /// [`DOMINATES`] its target, no boss nor champion, takes the effect [`DOMINATED`] for
     /// [`domination_seconds`], and does not fight her while it holds (seen).
     Dominate,
+    /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: its curse
+    /// lands on its target at [`KISS_LANDS`] of its clip, its attack's and defence's multipliers
+    /// lowered by [`curse`] for [`CURSE_SECONDS`] (the effects 1 and 2; seen).
+    Kiss,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -288,6 +292,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1024 || art == 1025 {
         return Some(Style::Dominate);
+    }
+    if art == 1033 {
+        return Some(Style::Kiss);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -582,6 +589,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (7, Style::Bite) => Some(plain(144)),
         // Her domination: the slot 149 at the rate 1.0 (seen by day; by night a **hypothesis**).
         (6 | 7, Style::Dominate) => Some(plain(149)),
+        // Her death's kiss by night: the slot 148 at the rate 1.0 (seen).
+        (7, Style::Kiss) => Some(plain(148)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C2F`; 169 mounted).
         (2, Style::Roar) => Some(plain(149)),
@@ -896,6 +905,21 @@ pub fn jump_points(kind: u32) -> [f32; 2] {
         7 => [0.8, 0.35],
         _ => [0.75, 0.4],
     }
+}
+
+/// The part of its clip at which the death's kiss's curse lands on its target (seen: 1.84 s into
+/// the 3.17 s of the slot 148 on a goblin two cells off; its missile, made below 0.6 left, and
+/// its flight are left out), and how long the curse holds (seen: 5 s at the levels 1 and 9).
+pub const KISS_LANDS: f32 = 0.58;
+pub const CURSE_SECONDS: f32 = 5.0;
+
+/// The value of the effects 1 and 2 that the death's kiss of `record` at the level in play
+/// `level` gives its target (`0x50E6C0`): `−1/(L·[+0x54] + [+0x50])`, `−1/(1 + 0.1·L)` (seen:
+/// −0.909 at level 1 and −0.526 at level 9), its attack and defence multiplied by
+/// `1 − 1/(1 + 0.1·L)`.
+pub fn curse(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    narrow(-1.0 / f64::from(level).mul_add(step, base).max(f64::EPSILON))
 }
 
 /// What is left of its clip, as a part of it, below which the domination takes its target

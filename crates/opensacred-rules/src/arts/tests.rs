@@ -913,6 +913,21 @@ fn the_right_button_makes_the_art_of_the_form() {
 }
 
 #[test]
+fn the_deaths_kiss_curses_attack_and_defence() {
+    assert_eq!(style(1033), Some(Style::Kiss));
+    assert_eq!(
+        action(VAMPIRESS_BY_NIGHT, Style::Kiss, 0).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(148), 1.0))
+    );
+    let kiss = WeaponArt {
+        factor: [1.0, 0.1],
+        ..weapon_art(1033, [12.0, 8.0], 32)
+    };
+    assert!((curse(&kiss, 1) + 0.909_09).abs() < 1e-4);
+    assert!((curse(&kiss, 9) + 0.526_31).abs() < 1e-4);
+}
+
+#[test]
 fn the_domination_holds_its_target_by_its_level() {
     assert_eq!(style(1024), Some(Style::Dominate));
     assert_eq!(style(1025), Some(Style::Dominate));
