@@ -165,6 +165,10 @@ pub enum Style {
     /// Its effect on its maker at a part of its clip ([`ward`]): the Dark Elf's arrowproof 1045
     /// (`GUI_MOVE_ARROWPROOF`, `0x506770`), of the launch type 2, made on himself.
     Ward,
+    /// Its effects on its maker at a part of its clip, those of his other forms taken off first
+    /// ([`form`]): the Daemon's forms 1097 to 1100 (`0x5192E0`), of the launch type 2, made on
+    /// himself.
+    Form,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -231,6 +235,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1045 {
         return Some(Style::Ward);
+    }
+    if (1097..=1100).contains(&art) {
+        return Some(Style::Form);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -527,6 +534,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
         // `0x51BC63`).
         (9, Style::Boon) => Some(plain(150)),
+        // The Daemon's forms the slot 160 at the blend 0.2 and the rate 1.0 on himself
+        // (`0x5192E0` at `0x51BEF5`; 197 at the attack's rate otherwise, not followed).
+        (9, Style::Form) => Some(plain(160)),
         // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
         (2, Style::Boon) => Some(plain(151)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
@@ -614,6 +624,8 @@ pub struct Boon {
     pub effects: Vec<(Effect, f32)>,
     pub clears: Vec<u32>,
     pub starts: Vec<(Effect, f32)>,
+    /// The keys whose effects it takes off at its point, before it gives its own.
+    pub replaces: Vec<u32>,
 }
 
 /// The boon of the art `record` at its level in play `level` (docs/re/arts.md, "The special
@@ -660,6 +672,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
             ],
             clears: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
             starts: vec![(keyed(50, 0.0, art), 10.0)],
+            replaces: Vec::new(),
         });
     }
     let (point, effects, seconds) = match record.id {
@@ -675,6 +688,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
         effects: effects.into_iter().map(effect).collect(),
         clears: Vec::new(),
         starts: Vec::new(),
+        replaces: Vec::new(),
     })
 }
 
@@ -851,6 +865,59 @@ pub fn jump_landing(from: [f32; 2], to: [f32; 2], reach: Option<u32>) -> [f32; 2
     [to[0] - half * dx / distance, to[1] - half * dy / distance]
 }
 
+/// What a form of the Daemon's `record` gives at the level in play `level` ([`Style::Form`],
+/// `0x5192E0`), as a [`Boon`]: below 0.3 left of its clip, on its target of a hero's class, else on
+/// him, the effects keyed by 1094, 1097 to 1100 and [`DAEMON_FORM`] taken off (`0x5888F0`), then
+/// for `[+0x50] + [+0x54]·L` seconds (44 + L) at most 180:
+///
+/// - 1097: the effects 3 (the physical damage's multiplier) of `([+0x60] + [+0x64]·L) / 100`
+///   and 1 (`A`'s) of `([+0x68] + [+0x6C]·L) / 100`, 0.15 + 0.05·L each, and 7 (the first
+///   resistance) of `[+0x58] + [+0x5C]·L` (10 + 20·L);
+/// - 1098, 1099 and 1100: the effect 53 of the whole value 1, 3 and 2 (the kind of damage: fire,
+///   poison, magic) and the value `[+0x6C] / 1000` (0.871), and the effect 8, 10 or 9 (that
+///   kind's resistance) of 10 + 20·L;
+///
+/// each keyed by the art, with the effect 60 keyed by [`DAEMON_FORM`] (its whole value, an id, not
+/// kept); what the effect 53 does to the damage is not followed (#761).
+pub fn form(record: &WeaponArt, level: u32) -> Option<Boon> {
+    let l = f64::from(level);
+    let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
+    let whole = |[base, step]: [i32; 2]| l.mul_add(f64::from(step), f64::from(base));
+    let art = u32::from(record.id);
+    let keyed = |id, whole, value, art| Effect {
+        id,
+        whole,
+        value,
+        art,
+        level: 0,
+    };
+    let seconds = by_level(record.factor).min(180.0);
+    let resistance = by_level(record.value_58);
+    let aura = narrow(f64::from(record.value_68[1]) / 1000.0);
+    let mut effects = match record.id {
+        1097 => vec![
+            keyed(3, 0, narrow(whole(record.value_60) * 0.01), art),
+            keyed(1, 0, narrow(whole(record.value_68) * 0.01), art),
+            keyed(7, 0, resistance, art),
+        ],
+        1098 => vec![keyed(53, 1, aura, art), keyed(8, 0, resistance, art)],
+        1099 => vec![keyed(53, 3, aura, art), keyed(10, 0, resistance, art)],
+        1100 => vec![keyed(53, 2, aura, art), keyed(9, 0, resistance, art)],
+        _ => return None,
+    };
+    effects.push(keyed(60, 0, 0.0, DAEMON_FORM));
+    Some(Boon {
+        point: 0.7,
+        effects: effects
+            .into_iter()
+            .map(|effect| (effect, seconds))
+            .collect(),
+        clears: Vec::new(),
+        starts: Vec::new(),
+        replaces: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
+    })
+}
+
 /// What is left of its clip, as a part of it, below which a [`Style::Ward`] gives its effect
 /// (`0x506770` at `0x508561`: the double 0.2 at `0x890DB0`).
 pub const WARD_LEFT: f32 = 0.2;
@@ -879,6 +946,7 @@ pub fn ward(record: &WeaponArt, level: u32) -> Option<Boon> {
         effects: vec![(effect, by_level(record.factor))],
         clears: Vec::new(),
         starts: Vec::new(),
+        replaces: Vec::new(),
     })
 }
 
