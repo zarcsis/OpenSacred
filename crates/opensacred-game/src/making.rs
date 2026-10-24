@@ -90,6 +90,7 @@ pub fn clips(
         Style::Whirl,
         Style::Jump,
         Style::Roar,
+        Style::Viper,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -518,6 +519,59 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Viper => {
+                // Below 0.2 left of its clip, its target and each hostile of the hero's look
+                // within its radius of the target, by a kick's roll, stunned with the effect 35;
+                // then it ends (`0x506770` at `0x508C3B`).
+                if !due(1.0 - arts::VIPER_LEFT, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                if let (Some(record), Ok((_, centre, ..))) = (record, creatures.get(playing.target))
+                {
+                    let (radius, seconds) = arts::viper(record, playing.level);
+                    let centre = centre.translation();
+                    let mut stung = Vec::new();
+                    let others = nearest.hostiles.iter().filter(|&&e| e != playing.target);
+                    for &entity in std::iter::once(&playing.target).chain(others) {
+                        let Ok((_, at, mind, health)) = creatures.get(entity) else {
+                            continue;
+                        };
+                        let near = entity == playing.target
+                            || to_f32(whole_distance(at.translation(), centre)) < radius;
+                        if !near || !mind.hostile() || health.current == 0 {
+                            continue;
+                        }
+                        if knocks_back(&mut dice.0, playing.level, mind) {
+                            stung.push(entity);
+                            let effect = opensacred_rules::fight::Effect {
+                                id: 35,
+                                whole: 0,
+                                value: 0.0,
+                                art: u32::from(making.art),
+                            };
+                            let mut stunned = commands.entity(entity);
+                            stunned.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                            stunned
+                                .entry::<Mind>()
+                                .and_modify(move |mut mind| mind.stunned(seconds));
+                            stunned
+                                .entry::<crate::effects::Effects>()
+                                .or_default()
+                                .and_modify(move |mut effects| effects.add(effect, seconds));
+                        }
+                    }
+                    info!(
+                        "making: {} stuns {} creatures for {seconds} s",
+                        making.art,
+                        stung.len()
+                    );
+                }
+                end(&mut commands);
+            }
             Style::Roar => {
                 // At its first run each hostile creature within its radius of the hero, by a
                 // kick's roll, is knocked back and held; then its regeneration starts and its

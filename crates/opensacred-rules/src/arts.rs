@@ -158,6 +158,10 @@ pub enum Style {
     /// ([`roar_hold`]): the Gladiator's 1014 (`GUI_MOVE_EHRFURCHT`, `0x4FF0B0`), of the launch
     /// type 2, made on himself.
     Roar,
+    /// Once what is left of its clip is below [`VIPER_LEFT`], its target and every hostile of
+    /// its maker's list near it ([`viper`]) stunned by a kick's roll, each with the effect 35:
+    /// the Dark Elf's 1042 (`GUI_MOVE_NATTER`, `0x506770`).
+    Viper,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -214,6 +218,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1014 {
         return Some(Style::Roar);
+    }
+    if art == 1042 {
+        return Some(Style::Viper);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -496,6 +503,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C2F`; 169 mounted).
         (2, Style::Roar) => Some(plain(149)),
+        // The Dark Elf's 1042 the slot 148 at the blend 0.5 and the rate 1.0 (`0x506770` at
+        // `0x509DEE`).
+        (4, Style::Viper) => Some(plain(148)),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -801,6 +811,27 @@ pub fn jump_landing(from: [f32; 2], to: [f32; 2], reach: Option<u32>) -> [f32; 2
     }
     let half = f32::from(u16::try_from(reach / 2).unwrap_or(u16::MAX));
     [to[0] - half * dx / distance, to[1] - half * dy / distance]
+}
+
+/// What is left of its clip, as a part of it, below which a [`Style::Viper`] stuns
+/// (`0x506770` at `0x508C3B`: the double 0.2 at `0x890DB0`).
+pub const VIPER_LEFT: f32 = 0.2;
+
+/// The radius about its target and the seconds of a [`Style::Viper`] of `record` at the level in
+/// play `level` (`0x506770` at `0x508E5B`): `[+0x50] + [+0x54]·L`, 148 + 2·L for 1042, a creature
+/// of the hero's list nearer the target than that stunned too; each stunned for
+/// `[+0x58] + [+0x5C]·L` seconds, 19.5 + 0.5·L, its timer set back so far and the effect 35 for
+/// that time.
+pub fn viper(record: &WeaponArt, level: u32) -> (f32, f32) {
+    let radius = {
+        let [base, step] = record.factor.map(f64::from);
+        narrow(f64::from(level).mul_add(step, base))
+    };
+    let seconds = {
+        let [base, step] = record.value_58.map(f64::from);
+        narrow(f64::from(level).mul_add(step, base))
+    };
+    (radius, seconds)
 }
 
 /// The radius of a [`Style::Roar`] of `record` at the level in play `level` (`0x4FF0B0` at

@@ -845,6 +845,24 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_viper_stuns_its_target_and_the_hostiles_about_it() {
+    assert_eq!(style(1042), Some(Style::Viper));
+    assert_eq!(
+        action(4, Style::Viper, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(148), 1.0, true))
+    );
+    // 1042's record: `[+0x50]` 148 + 2·L, `[+0x58]` 19.5 + 0.5·L.
+    let viper_art = WeaponArt {
+        factor: [148.0, 2.0],
+        value_58: [19.5, 0.5],
+        ..weapon_art(1042, [20.0, 12.0], 8)
+    };
+    assert_eq!(viper(&viper_art, 1), (150.0, 20.0));
+    assert_eq!(viper(&viper_art, 10), (168.0, 24.5));
+    assert_eq!(VIPER_LEFT, 0.2);
+}
+
+#[test]
 fn the_roar_knocks_back_and_holds_the_hostiles_about_its_maker() {
     assert_eq!(style(1014), Some(Style::Roar));
     assert_eq!(
