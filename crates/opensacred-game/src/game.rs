@@ -45,6 +45,7 @@ pub enum Class {
     DarkElf,
     Daemon,
     Dwarf,
+    Vampiress,
 }
 
 impl Class {
@@ -58,6 +59,7 @@ impl Class {
             Class::DarkElf => "Dark Elf",
             Class::Daemon => "Daemon",
             Class::Dwarf => "Dwarf",
+            Class::Vampiress => "Vampiress",
         }
     }
 
@@ -71,6 +73,7 @@ impl Class {
             Class::DarkElf => "gui_qbp_delf",
             Class::Daemon => "gui_qbp_dae",
             Class::Dwarf => "gui_qbp_dwa",
+            Class::Vampiress => "gui_qbp_vamp",
         }
     }
 
@@ -85,12 +88,14 @@ impl Class {
             Class::DarkElf => "type_npc_darkelve",
             Class::Daemon => "type_npc_daemonin",
             Class::Dwarf => "type_npc_zwerg",
+            Class::Vampiress => "type_npc_vampirelady",
         }
     }
 
     /// The hero's type: its `Creature.pak` record, whose id is also the `items.pak` slot of the
     /// class's own model (1 `SERAPHIM.GRN` … 9 `Daemonia.grn`), and the type of the class's
-    /// template (`heroes.ron`; docs/02 §6.2).
+    /// template (`heroes.ron`; docs/02 §6.2): the Vampiress's by day, 6, her night's form 7 the
+    /// art 1023's (#758).
     pub fn creature(self) -> u32 {
         match self {
             Class::Seraphim => 1,
@@ -98,6 +103,7 @@ impl Class {
             Class::Mage => 3,
             Class::DarkElf => 4,
             Class::WoodElf => 5,
+            Class::Vampiress => 6,
             Class::Dwarf => 8,
             Class::Daemon => 9,
         }
@@ -142,6 +148,11 @@ impl Class {
                 "DWARF.GRN",
                 ["DWAR_IDLE_BH", "DWAR_WALK_1H", "DWAR_RUN_1H"],
                 MALE,
+            ),
+            Class::Vampiress => (
+                "VLADY_D.GRN",
+                ["VMPD_IDLE_BH", "VMPD_WALK_1H", "VMPD_RUN_1H"],
+                FEMALE,
             ),
         }
     }
@@ -743,8 +754,8 @@ mod tests {
             .iter()
             .map(|c| c.creature())
             .collect();
-        // The templates' types (docs/02 §6.2), but the vampiress's.
-        assert!(types.iter().all(|t| [1, 2, 3, 4, 5, 8, 9].contains(t)));
+        // The templates' types (docs/02 §6.2).
+        assert!(types.iter().all(|t| [1, 2, 3, 4, 5, 6, 8, 9].contains(t)));
         let mut unique = types.clone();
         unique.sort_unstable();
         unique.dedup();

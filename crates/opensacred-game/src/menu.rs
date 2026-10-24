@@ -1,6 +1,6 @@
 //! The main menu, the choice of the hero and the pause's menu (docs/10 §4), until the original's
 //! interface of M5 (docs/decisions/2026-10-19-menus.md): the game's logo over New Game and Quit,
-//! then the seven classes of `--class` with their portraits; in a paused game (`pause`),
+//! then the eight classes of `--class` with their portraits; in a paused game (`pause`),
 //! Continue, Main menu and Quit over the frame dimmed. The mouse chooses by pointing and clicking,
 //! the keyboard with the arrows and Enter; Esc goes back a screen. A hero starts a game with the
 //! command line's other options (`game::Request`).
@@ -435,11 +435,11 @@ mod tests {
         assert_eq!(items(&mut app), 2);
         press(&mut app, KeyCode::Enter);
         assert_eq!(screen(&app), Screen::Heroes);
-        assert_eq!(items(&mut app), 7);
+        assert_eq!(items(&mut app), 8);
         press(&mut app, KeyCode::Escape);
         assert_eq!(screen(&app), Screen::Main);
         press(&mut app, KeyCode::Enter);
-        // Left of the first hero is the last, the Dwarf; three right of it, the Mage.
+        // Left of the first hero is the last, the Vampiress; three right of it, the Mage.
         press(&mut app, KeyCode::ArrowLeft);
         for _ in 0..3 {
             press(&mut app, KeyCode::ArrowRight);

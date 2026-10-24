@@ -402,7 +402,7 @@ impl FullscreenMaterial for Night {
 #[derive(Resource, Default)]
 pub struct HeroLight {
     /// Whether the hero's light is doubled by night: the Wood Elf's, class 5 (and the
-    /// Vampiress's in her night's form, class 7, who is not a class of the game yet).
+    /// Vampiress's in her night's form, class 7, not yet: her art 1023, #758).
     pub doubled: bool,
 }
 
