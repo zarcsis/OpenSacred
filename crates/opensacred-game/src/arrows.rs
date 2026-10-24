@@ -8,10 +8,12 @@
 //! `opensacred_rules::arrows`. A creature's arrow hits the hero when its shooter is hostile to
 //! the hero, and a creature of a side or type hostile to its shooter's (`0x548F60`, #670): the
 //! arrows of the archers that fight a creature, and those that a creature comes in the way of.
+//! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004 and 1007) looses the art's
+//! own arrows, whose hits are the art's strikes (docs/re/arts.md, "The Wood Elf's", #756).
 
 use bevy::prelude::*;
-pub use opensacred_rules::arrows::size;
 use opensacred_rules::arrows::{self, Point};
+pub use opensacred_rules::arrows::{ARROW, size};
 use opensacred_rules::minds::{self, Spot};
 
 use crate::crowd::InTheWay;
@@ -32,11 +34,23 @@ const NECK: &str = "Bip01 Neck";
 const HAND_HEIGHT: f32 = 80.0;
 
 /// A shot's arrow leaving its shooter's hand toward its target (`cEventArrow`, the event 9,
-/// `0x4EB700`), which the shot's clip sends at its fraction (`npcs::Strikes`).
-#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+/// `0x4EB700`), which the shot's clip sends at its fraction (`npcs::Strikes`), and the combat art
+/// it is a shot of, if any.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Loose {
     pub shooter: Entity,
     pub target: Entity,
+    pub special: Option<Special>,
+}
+
+/// The combat art that a shot is of (the shooter's `+0x18E`, the art less 1000): its id, its
+/// level in play, which the arrow carries (`+0x249`), and its factor at that level, which the
+/// arrow's strike carries (the record's `+0x1C`, `0x5BB010`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Special {
+    pub art: u16,
+    pub level: u32,
+    pub factor: f32,
 }
 
 /// A creature's size for the arrows' hits (`items.pak +0x14`, 50 for 0,
@@ -44,8 +58,9 @@ pub struct Loose {
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Size(pub f32);
 
-/// An arrow in flight: its flight, its shooter, its target, the level it flies on, its size, and
-/// the share of its hit (1, an arrowproof's value for one it sent back, `0x561090`'s `+0x230`).
+/// An arrow in flight: its flight, its shooter, its target, the level it flies on, its size, the
+/// share of its hit (1, an arrowproof's value for one it sent back, `0x561090`'s `+0x230`), and
+/// the combat art it was shot by.
 #[derive(Component)]
 struct Arrow {
     flight: arrows::Arrow,
@@ -54,6 +69,7 @@ struct Arrow {
     level: Level,
     size: f32,
     share: f32,
+    special: Option<Special>,
 }
 
 /// The dice of the arrows' deflection (`0x561090`'s `rand`).
@@ -132,7 +148,8 @@ fn loose(
         let toward = bone(shot.target, NECK).unwrap_or(target.translation());
         let first = arrows::Arrow::new(point(from), point(toward));
         let level = ways.get(shot.shooter).ok().and_then(|way| way.level);
-        let Some((model, texture, size)) = npcs.arrow() else {
+        let art = shot.special.map(|special| special.art);
+        let Some((model, texture, size)) = npcs.arrow(arrows::projectile(art)) else {
             continue;
         };
         // A hero with the multi-shot looses as many arrows as its whole value, fanned, each of
@@ -147,8 +164,12 @@ fn loose(
         let share = rules
             .as_ref()
             .map_or(1.0, |rules| rules.0.multi_shot(count));
+        // A special arrow's strike carries its art's factor, which a factor of 0 leaves out.
+        let share = shot.special.map_or(share, |special| {
+            opensacred_rules::fight::scaled(share, special.factor)
+        });
         for i in 0..count {
-            let flight = first.turned_by(arrows::fanned(i));
+            let flight = first.turned_by(arrows::fanned_for(i, art));
             debug!(
                 "arrows: {} looses an arrow at {} from {:.0},{:.0},{:.0} toward {:.0},{:.0},{:.0}",
                 shot.shooter, shot.target, from.x, from.y, from.z, toward.x, toward.y, toward.z
@@ -167,6 +188,7 @@ fn loose(
                     level,
                     size,
                     share,
+                    special: shot.special,
                 },
                 DespawnOnExit(AppState::InGame),
             ));
@@ -182,7 +204,8 @@ fn loose(
 /// flew, and hits it when it is alive and hostile to the shooter, alive too (the hero to a shooter
 /// hostile to it, a creature to one of a hostile side or type), sending the fight's hit at range
 /// with the shooter's values (`fight::Hit`, the event 5 with the bow), and is gone, or sticks in a
-/// creature of a size above 20; else it flies on.
+/// creature of a size above 20; else it flies on. A special arrow's hit is of its art at its
+/// level, and the club arrow's may first knock its creature back (the event 3).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -211,6 +234,7 @@ fn fly(
         (Without<Body>, Without<Arrow>),
     >,
     places: Query<&GlobalTransform>,
+    (experience, tables): (Res<fight::Experience>, Option<Res<crate::arts::HeroArts>>),
 ) {
     let dt = time.delta_secs();
     let hero = hero.iter().next();
@@ -335,13 +359,43 @@ fn fly(
             "arrows: {entity} of {} hits {on} {distance:.0} from its shooter",
             arrow.shooter
         );
+        // The club arrow knocks back a creature below its bound whose type a kick may move, by
+        // the event 3 of its record's value, before its strike (`0x5BB010`).
+        if let Some(special) = arrow.special.filter(|special| special.art == 1007)
+            && let Some(mind) = other
+            && arrows::club_knocks(mind.level, experience.level, special.level)
+            && crate::making::may_knock(special.level, mind)
+            && let Some(record) = tables.as_ref().and_then(|tables| {
+                tables
+                    .tables
+                    .weapon_arts
+                    .iter()
+                    .find(|a| a.id == special.art)
+            })
+            && let Ok(from) = places.get(arrow.shooter)
+        {
+            let left = opensacred_rules::arts::club_knockback(record, special.level);
+            debug!(
+                "arrows: {entity} of {} knocks {on} back by {left}",
+                arrow.shooter
+            );
+            commands
+                .entity(on)
+                .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                .insert(crate::making::Knocked {
+                    by: arrow.shooter,
+                    from: from.translation(),
+                    left: f32::from(u16::try_from(left).unwrap_or(u16::MAX)),
+                    held: 0.0,
+                });
+        }
         hits.write(fight::Hit {
             fixed: None,
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,
             ranged: true,
-            art: None,
+            art: arrow.special.map(|special| special.level),
         });
         let size = creatures
             .get(on)

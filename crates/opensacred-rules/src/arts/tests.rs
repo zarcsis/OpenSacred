@@ -913,6 +913,23 @@ fn the_right_button_makes_the_art_of_the_form() {
 }
 
 #[test]
+fn the_special_arrows_are_shots() {
+    assert_eq!(style(1004), Some(Style::Arrow));
+    assert_eq!(style(1007), Some(Style::Arrow));
+    let dumdum = WeaponArt {
+        factor: [2.35, 0.35],
+        ..weapon_art(1004, [7.0, 5.5], 0)
+    };
+    assert!((factor(&dumdum, 1) - 2.7).abs() < 1e-5);
+    let club = WeaponArt {
+        value_60: [15, 0],
+        ..weapon_art(1007, [7.0, 4.2], 0)
+    };
+    assert_eq!(club_knockback(&club, 1), 15);
+    assert_eq!(club_knockback(&club, 9), 15);
+}
+
+#[test]
 fn the_deaths_kiss_curses_attack_and_defence() {
     assert_eq!(style(1033), Some(Style::Kiss));
     assert_eq!(
