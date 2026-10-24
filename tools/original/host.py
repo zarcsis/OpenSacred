@@ -514,6 +514,8 @@ class Host:
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
                 "heal [ID] [--to N]: a creature's health to its most, or to N (at most its most), the hero's by default",
+                "effect EFFECT VALUE [--whole N] [--seconds S] [--art A] [--id ID]: an effect on a creature's stats, the "
+                "hero's by default, through the original's own 0x582D50 (60 s by default); then its stats",
                 "arts [ID]: a creature's combat arts, the hero's by default; arts learn ART [LEVELS]: the hero learns "
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
                 "ready at once; arts use ART: the hero's art starts its regeneration as a use of it does, its time "
@@ -1055,6 +1057,19 @@ class Host:
                 + f" time {a['time']:.1f} s, factor {a['factor']:g}, to run {a['remaining']:.1f} s"
                 for a in arts]
 
+    def command_effect(self, rest):
+        parser = argparse.ArgumentParser(prog='effect', add_help=False, exit_on_error=False)
+        parser.add_argument('effect', type=int)
+        parser.add_argument('value', type=float)
+        parser.add_argument('--whole', type=int, default=0)
+        parser.add_argument('--seconds', type=float, default=60.0)
+        parser.add_argument('--art', type=int, default=0)
+        parser.add_argument('--id', type=int)
+        options = parser.parse_args(rest.split())
+        self.world('effect', {'id': options.id, 'effect': options.effect, 'whole': options.whole,
+                              'value': options.value, 'seconds': options.seconds, 'art': options.art})
+        return self.command_stats('' if options.id is None else str(options.id))
+
     def command_heal(self, rest):
         parser = argparse.ArgumentParser(prog='heal', add_help=False, exit_on_error=False)
         parser.add_argument('id', type=int, nargs='?')
@@ -1157,7 +1172,7 @@ WORLD_COMMANDS = {
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
-    'god': Host.command_god, 'heal': Host.command_heal, 'pause': Host.command_pause, 'arts': Host.command_arts, 'level': Host.command_level,
+    'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause, 'arts': Host.command_arts, 'level': Host.command_level,
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
 }
