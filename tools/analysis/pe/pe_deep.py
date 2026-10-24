@@ -179,7 +179,7 @@ for n, a, b, s in secs:
 R['funcinfo_count'] = len(funcinfos); R['funcinfo_try_blocks'] = sum(f[2] for f in funcinfos)
 R['funcinfo_with_try'] = sum(1 for f in funcinfos if f[2] > 0); R['funcinfo_total_states'] = sum(f[1] for f in funcinfos)
 if args.no_disasm:
-    json.dump(R, open(args.out, 'w'), indent=1); sys.exit(0)
+    json.dump(R, open(args.out, 'w', encoding='utf-8', newline=''), indent=1); sys.exit(0)
 
 # ---------- string helpers ----------
 def str_at(v):
@@ -416,7 +416,7 @@ for a, st in strrefs:
         f = func_of(a)
         if f is not None: hs[helper_strings[st]] = (hex(f), call_targets.get(f, 0))
 R['rtti_helper_callsites'] = hs
-json.dump([[s_, size_of[s_], prop_label.get(s_, '?'), s_ in labels] for s_ in starts], open(args.out + '.funcs.json', 'w'))
+json.dump([[s_, size_of[s_], prop_label.get(s_, '?'), s_ in labels] for s_ in starts], open(args.out + '.funcs.json', 'w', encoding='utf-8', newline=''))
 R['elapsed_s'] = time.time() - t0
-json.dump(R, open(args.out, 'w'), indent=1, default=str)
+json.dump(R, open(args.out, 'w', encoding='utf-8', newline=''), indent=1, default=str)
 print("done in %.1fs -> %s" % (R['elapsed_s'], args.out))

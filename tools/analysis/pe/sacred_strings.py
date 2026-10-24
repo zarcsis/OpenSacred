@@ -50,7 +50,7 @@ cm_re = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)::(~?[A-Za-z_][A-Za-z0-9_]*)')
 for off, n, s in strings:
     for m in cm_re.finditer(s):
         cm[m.group(1)][m.group(2)] += 1
-with open(outdir + '/class_methods.md', 'w') as f:
+with open(outdir + '/class_methods.md', 'w', encoding='utf-8', newline='') as f:
     f.write("| Class | #methods | methods (count of log strings) |\n|---|---|---|\n")
     for cls in sorted(cm, key=lambda c: (-len(cm[c]), c)):
         f.write("| %s | %d | %s |\n" % (cls, len(cm[cls]), ', '.join('%s(%d)' % (m, c) if c > 1 else m for m, c in sorted(cm[cls].items()))))
@@ -73,7 +73,7 @@ for off, n, s in strings:
     if re.search(r'copyright|\(c\)|granny|miles|rad game|stlport|d3dx|intel|ijl|libxml|zlib|inflate|deflate|libpng|freetype|protectdisc|securom|safedisc|starforce|bink|smacker|vorbis|ogg|mp3|na2d|unicows|msvcrt|microsoft', sl): cats['thirdparty'].append((off, n, s))
     if re.search(r'\.cpp|\.h\b|\.c\b|buildserver|source\\|assert|__file__|debug', sl): cats['build'].append((off, n, s))
     if re.search(r'cheat|god ?mode|console|ctrl\+|debugmenu|editor|devmode|developer', sl): cats['cheat_debug'].append((off, n, s))
-with open(outdir + '/string_categories.md', 'w') as f:
+with open(outdir + '/string_categories.md', 'w', encoding='utf-8', newline='') as f:
     for k, v in cats.items():
         f.write("\n## %s (%d)\n\n" % (k, len(v)))
         for off, n, s in v[:400]:
@@ -148,7 +148,7 @@ for name, g in known.items():
     while idx >= 0:
         found.append((name, g, idx, sec_of_off(idx)))
         idx = data.find(b, idx + 1)
-with open(outdir + '/guids.md', 'w') as f:
+with open(outdir + '/guids.md', 'w', encoding='utf-8', newline='') as f:
     f.write("| GUID name | value | file offset | section |\n|---|---|---|---|\n")
     for name, g, idx, sec in found: f.write("| %s | %s | 0x%x | %s |\n" % (name, g, idx, sec))
 print("known GUIDs found:", [(n, s) for n, g, i, s in found])
@@ -156,4 +156,4 @@ print("known GUIDs found:", [(n, s) for n, g, i, s in found])
 # textual GUIDs
 tg = [(off, n, s) for off, n, s in strings if re.search(r'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', s)]
 print("textual GUIDs:", tg[:20])
-json.dump({'classes': {k: dict(v) for k, v in cm.items()}, 'cats': {k: v for k, v in cats.items()}, 'guids': found, 'textual_guids': tg, 'exts': exts.most_common()}, open(outdir + '/strings.json', 'w'), indent=1)
+json.dump({'classes': {k: dict(v) for k, v in cm.items()}, 'cats': {k: v for k, v in cats.items()}, 'guids': found, 'textual_guids': tg, 'exts': exts.most_common()}, open(outdir + '/strings.json', 'w', encoding='utf-8', newline=''), indent=1)

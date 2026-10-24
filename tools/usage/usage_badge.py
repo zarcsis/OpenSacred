@@ -66,7 +66,7 @@ total = {k: BEFORE[k] + sum(u[k] for _, u in rows) for k in FIELDS}
 
 badge = {'schemaVersion': 1, 'label': 'Claude Code',
          'message': '%s tokens · $%.0f at API prices' % (short(tokens(total)), total['cost_usd']), 'color': 'blue'}
-with open(args.badge, 'w', encoding='utf-8') as f:
+with open(args.badge, 'w', encoding='utf-8', newline='') as f:
     json.dump(badge, f, ensure_ascii=False)
     f.write('\n')
 print(badge['message'])
@@ -83,5 +83,5 @@ if args.summary:
             pr['number'], title, tokens(u) / 1e6, u['output'] / 1e6, u['cost_usd'], u['agent_hours']))
     lines.append('| **total** | **%.1f** | **%.2f** | **%.2f** | **%.1f** |' % (
         tokens(total) / 1e6, total['output'] / 1e6, total['cost_usd'], total['agent_hours']))
-    with open(args.summary, 'a', encoding='utf-8') as f:
+    with open(args.summary, 'a', encoding='utf-8', newline='') as f:
         f.write('\n'.join(lines) + '\n')

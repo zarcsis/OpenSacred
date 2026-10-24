@@ -122,7 +122,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
         });
     }
     let count = heroes.len();
-    let text = ron::ser::to_string_pretty(&Heroes { heroes }, ron::ser::PrettyConfig::default())
+    let text = ron::ser::to_string_pretty(&Heroes { heroes }, crate::utf8::pretty())
         .context("writing heroes.ron")?;
     let path = dir.join(INDEX);
     fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;

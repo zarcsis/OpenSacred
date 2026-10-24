@@ -286,7 +286,8 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
         sheets: vec!["sheet.ktx2".into()],
         atlases: vec!["atlas.ktx2".into()],
     };
-    let text = ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default()).unwrap();
+    let pretty = ron::ser::PrettyConfig::default().new_line("\n");
+    let text = ron::ser::to_string_pretty(&world, pretty).unwrap();
     fs::write(world_dir.join(opensacred_data::world::INDEX), text).unwrap();
     (world, sector, sprites)
 }

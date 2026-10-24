@@ -104,14 +104,14 @@ def pretty(s):
         else: note = 'NOT-TSS(%d)' % t
     return '%08x %-26s (%s) vt=%s %s' % (s['va'], nm, txt, s['vt'], note)
 
-with open(OUT + 'd3d7scan.txt', 'w') as f:
+with open(OUT + 'd3d7scan.txt', 'w', encoding='utf-8', newline='') as f:
     f.write('instructions %d sites %d\n' % (n, len(sites)))
     for slot in sorted(DEV):
         ss = [s for s in sites if s['slot'] == slot]
         if not ss: continue
         f.write('\n## slot 0x%02x %s : %d sites\n' % (slot, DEV[slot][0], len(ss)))
         for s in ss: f.write(pretty(s) + '\n')
-json.dump(sites, open(OUT + 'd3d7scan.json', 'w'))
+json.dump(sites, open(OUT + 'd3d7scan.json', 'w', encoding='utf-8', newline=''))
 rs = collections.Counter(); tss = collections.Counter()
 for s in sites:
     real = real_args(s)
@@ -119,7 +119,7 @@ for s in sites:
         rs[(RS[real[0][1]], fmt(real[1]))] += 1
     if s['name'] == 'SetTextureStageState' and len(real) == 3 and real[1][0] == 'imm' and real[1][1] in TSS:
         tss[(fmt(real[0]), TSS[real[1][1]], fmt(real[2]))] += 1
-with open(OUT + 'd3d7scan_summary.txt', 'w') as f:
+with open(OUT + 'd3d7scan_summary.txt', 'w', encoding='utf-8', newline='') as f:
     f.write('# SetRenderState (state, value) -> number of call sites\n')
     for k, v in sorted(rs.items()): f.write('%-24s %-16s %d\n' % (k[0], k[1], v))
     f.write('\n# SetTextureStageState (stage, type, value) -> number of call sites\n')

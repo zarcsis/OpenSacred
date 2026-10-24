@@ -279,8 +279,8 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
         music,
         names,
     };
-    let text = ron::ser::to_string_pretty(&index, ron::ser::PrettyConfig::default())
-        .context("writing sound.ron")?;
+    let text =
+        ron::ser::to_string_pretty(&index, crate::utf8::pretty()).context("writing sound.ron")?;
     let path = dir.join(INDEX);
     fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     Ok(summary)

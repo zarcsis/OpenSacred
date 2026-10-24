@@ -55,7 +55,7 @@ fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
 
 fn write<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<()> {
     // One record per line block, its arrays on one line each.
-    let config = ron::ser::PrettyConfig::default().compact_arrays(true);
+    let config = crate::utf8::pretty().compact_arrays(true);
     let text =
         ron::ser::to_string_pretty(value, config).with_context(|| format!("writing {file}"))?;
     let path = dir.join(file);

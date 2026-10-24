@@ -28,7 +28,7 @@ def grp(n):
     for p, l in [('_STL', 'STLport'), ('cUI_', 'UI widgets'), ('Command', 'UI property commands'), ('cCommand', 'UI commands'), ('cParticleSystem', 'particle FX'), ('cEvent', 'events'), ('cFile', 'file I/O'), ('cFont', 'fonts'), ('cFsFont', 'fonts'), ('NA2dLib', 'IME (NA2dLib)'), ('CIMHandler', 'IME'), ('CW32', 'IME'), ('dx', 'DirectX driver'), ('cDx', 'DirectX driver'), ('cTexture', 'textures'), ('cGranny', 'Granny'), ('cGrn', 'Granny'), ('cMSS', 'audio (Miles)'), ('cSound', 'audio'), ('TinCat', 'TinCat'), ('ITinCat', 'TinCat'), ('cCreature', 'creatures'), ('cObject', 'objects'), ('cItem', 'items'), ('cWorld', 'world'), ('cSector', 'world'), ('cMacro', 'UI commands')]:
         if n.startswith(p): return l
     return 'other'
-with open(args.out, 'w') as f:
+with open(args.out, 'w', encoding='utf-8', newline='') as f:
     f.write("## Shared classes (RTTI present in both Sacred.exe and GameServer.exe): %d\n\n" % len(shared))
     f.write(', '.join('`%s`' % c for c in shared) + "\n\n")
     f.write("## Server-only classes: %d\n\n" % len(sonly)); f.write(', '.join('`%s`' % c for c in sonly) + "\n\n")

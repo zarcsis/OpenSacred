@@ -244,5 +244,5 @@ for s in own:
     am[lab[s]] += 1
     if s in Gf: gm[lab[s]] += 1
 R['ghidra_coverage_by_module'] = {k: (gm[k], am[k]) for k in am}
-json.dump(R, open(args.out, 'w'), indent=1, default=str)
+json.dump(R, open(args.out, 'w', encoding='utf-8', newline=''), indent=1, default=str)
 for k, v in R.items(): print(k, '=', json.dumps(v, default=str)[:1800])

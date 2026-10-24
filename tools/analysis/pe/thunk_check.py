@@ -47,7 +47,7 @@ for s in ex: print(hex(s), size[s], bytes(img[s - base:s - base + 24]).hex())
 # How many 'starts' are immediately preceded by a thunk start (i.e. thunk sits between two functions)?
 ss = set(starts); print('thunk followed by another start within 10..16 bytes:', sum(1 for s in th if any((s + d) in ss for d in range(10, 17))))
 if args.out:
-    json.dump(dict(n=len(th), sizes=szs), open(args.out, 'w'))
+    json.dump(dict(n=len(th), sizes=szs), open(args.out, 'w', encoding='utf-8', newline=''))
 if args.ghidra_tsv:
     ths = set(th)
     print('thunk starts', len(ths), 'min %x max %x' % (min(ths), max(ths)), 'bytes incl. attached funclets', sum(size[s] for s in ths))
