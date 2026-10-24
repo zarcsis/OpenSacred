@@ -63,6 +63,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   For a menu, the game must start and end inside one process.
 * States `AppState { Menu, Loading, InGame }`.
   A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`), as a `clap::Args` struct that the command `new-game` reuses (§6).
+  The command line's `--zoom` and `--no-music`, which say how a game shows, hold for every game of the run: a `new-game` of a script, the console or remote control takes them from a resource `Shows` unless its own line sets them (#831).
 * What every game shares (the world's index, the sprites, the tables) is read once; `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.
 * The modules' systems run only in `InGame`: the steps of `frame::Step` take the condition once, and the plugins' `Startup` systems move to `OnEnter(InGame)`.
   Leaving `InGame` despawns the game's entities (`DespawnOnExit`) and removes its resources.

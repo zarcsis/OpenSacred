@@ -324,6 +324,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     // A game that the command line names starts at once, as if chosen in the menu; one whose run
     // has nothing else to do (a screenshot, a benchmark) ends the process when it does not load.
     let named = cli.game.named() || fixed;
+    app.insert_resource(game::Shows::of(&cli.game));
     app.insert_resource(game::Request(cli.game));
     if named {
         app.insert_state(game::AppState::Loading);

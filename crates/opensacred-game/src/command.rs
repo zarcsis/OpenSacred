@@ -18,7 +18,7 @@ use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use crate::benchmark::Benchmark;
 use crate::console::Console;
 use crate::daynight::{self, Clock};
-use crate::game::{AppState, Data, NewGame, Request};
+use crate::game::{AppState, Data, NewGame, Request, Shows};
 use crate::help::Help;
 use crate::hero::{Arrival, Body, Flies, Gait, Hero, Ready};
 use crate::overlay::Probe;
@@ -813,6 +813,11 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
     let side = opensacred_data::world::SIDE as f32;
     match command {
         Command::NewGame(game) => {
+            let game = world
+                .get_resource::<Shows>()
+                .copied()
+                .unwrap_or_default()
+                .fill(game);
             world.insert_resource(Request(game));
             set_state(world, AppState::Loading);
             Ok(Outcome::say("a new game loads"))
@@ -1781,6 +1786,22 @@ mod tests {
         let error = run(world, "zoom twice").unwrap_err();
         assert!(error.contains("twice"), "{error}");
         assert_eq!(zoom(&mut app), 2.0);
+    }
+
+    #[test]
+    fn a_new_game_keeps_how_the_command_line_shows_it() {
+        let mut app = app("shows");
+        let world = app.world_mut();
+        let Ok(Command::NewGame(line)) = parse("new-game --zoom 1.5 --no-music") else {
+            panic!("not new-game");
+        };
+        world.insert_resource(Shows::of(&line));
+        run(world, "new-game --class mage").unwrap();
+        let game = &world.resource::<Request>().0;
+        assert_eq!(game.class, Some(Class::Mage));
+        assert_eq!((game.zoom, game.no_music), (Some(1.5), true));
+        run(world, "new-game --zoom 2").unwrap();
+        assert_eq!(world.resource::<Request>().0.zoom, Some(2.0));
     }
 
     #[test]
