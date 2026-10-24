@@ -429,12 +429,9 @@ fn think(
             &mut Mind,
             Has<Walk>,
             &Layered,
+            Has<crate::making::Knocked>,
         ),
-        (
-            Without<Body>,
-            Without<crate::npcs::Dies>,
-            Without<crate::making::Knocked>,
-        ),
+        (Without<Body>, Without<crate::npcs::Dies>),
     >,
 ) {
     let Some((hero, body, size)) = hero.iter().next() else {
@@ -444,7 +441,7 @@ fn think(
     // foe (`0x54338B`).
     let fighters: Vec<Other> = creatures
         .iter()
-        .filter(|(.., mind, _, _)| mind.fighting())
+        .filter(|(.., mind, _, _, _)| mind.fighting())
         .map(|(entity, transform, _, mind, ..)| Other::of(entity, transform.translation, mind))
         .collect();
     let hero = hero.translation;
@@ -462,7 +459,12 @@ fn think(
     let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
     let seen = doors.seen(&heights);
-    for (entity, transform, way, mut mind, walking, layered) in &mut creatures {
+    for (entity, transform, way, mut mind, walking, layered, sliding) in &mut creatures {
+        // A knocked creature thinks nothing while it slides, but for its timer while it is held
+        // (`opensacred_rules::minds::Mind::knocked`).
+        if sliding && !mind.held() {
+            continue;
+        }
         let here = transform.translation;
         let (x, y) = sector(here);
         // The creatures of its sector that fight, of another side, hostile to it, which an idle
@@ -496,6 +498,7 @@ fn think(
             hero_moves,
             takes_on: crate::fight::takes_on(mind.level, experience.level, balance.experience),
             walking,
+            sliding,
             hero_size,
             foes: &foes,
         };
@@ -564,9 +567,15 @@ fn think(
     }
     // A group's other members step by the same step, each within 50 of it.
     for (group, step, leader) in grouped {
-        for (entity, transform, _, mut mind, walking, _) in &mut creatures {
-            // Not one that goes for a door, sent there this tick or before.
-            if entity == leader || mind.group != Some(group) || walking || mind.to_door() {
+        for (entity, transform, _, mut mind, walking, _, sliding) in &mut creatures {
+            // Not one that goes for a door, sent there this tick or before, nor one knocked back.
+            if entity == leader
+                || mind.group != Some(group)
+                || walking
+                || mind.to_door()
+                || sliding
+                || mind.held()
+            {
                 continue;
             }
             let here = transform.translation;

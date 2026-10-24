@@ -894,6 +894,14 @@ fn knock(
     }
 }
 
+/// A creature knocked back leaves its fight and is held until its timer fires with its slide
+/// over (`0x531AF7`, `opensacred_rules::minds::Mind::knocked`), at each knockback.
+fn held(knocked: On<Insert<Knocked>>, mut minds: Query<&mut Mind>) {
+    if let Ok(mut mind) = minds.get_mut(knocked.entity) {
+        mind.knocked();
+    }
+}
+
 /// A whole number of world units as a float.
 fn to_f32(value: u32) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
@@ -917,7 +925,8 @@ impl Plugin for MakingPlugin {
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
             )
-            .add_systems(Update, knock.in_set(Unpaused).in_set(Step::HeroMove));
+            .add_systems(Update, knock.in_set(Unpaused).in_set(Step::HeroMove))
+            .add_observer(held);
     }
 }
 
