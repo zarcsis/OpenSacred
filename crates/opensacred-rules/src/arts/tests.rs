@@ -913,6 +913,40 @@ fn the_right_button_makes_the_art_of_the_form() {
 }
 
 #[test]
+fn the_dwarfs_frenzy_quickens_his_attack() {
+    assert_eq!(style(1082), Some(Style::Frenzy));
+    assert_eq!(
+        action(8, Style::Frenzy, 0).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(157), 1.0, true))
+    );
+    let record = WeaponArt {
+        factor: [39.0, 1.0],
+        value_58: [28.0, 2.0],
+        value_60: [5, 27],
+        ..weapon_art(1082, [20.0, 12.0], 0)
+    };
+    // Seen at level 4: the effect 47 of the whole value 36 and the value 5 for 43 s.
+    let boon = boon(&record, 4).expect("1082 is a boon");
+    assert_eq!(boon.point, 0.1);
+    let (effect, seconds) = boon.effects[0];
+    assert_eq!(
+        (effect.id, effect.whole, effect.value, effect.art),
+        (FRENZY, 36, 5.0, 1082)
+    );
+    assert_eq!(seconds, 43.0);
+    // Seen: 12 after his first strike; 10.18 rose to about 18.05 at the next.
+    assert!((frenzy_rises(0.0, 36) - 12.0).abs() < 1e-5);
+    assert!((frenzy_rises(10.18, 36) - 18.79).abs() < 0.01);
+    assert_eq!(frenzy_rises(40.0, 36), 36.0);
+    // 1 a second while he fights, 5 once he does not, and 0 at the least.
+    assert!((frenzy_falls(20.0, 5.0, 0.5, true) - 19.5).abs() < 1e-5);
+    assert!((frenzy_falls(20.0, 5.0, 0.5, false) - 17.5).abs() < 1e-5);
+    assert_eq!(frenzy_falls(1.0, 5.0, 0.5, false), 0.0);
+    assert_eq!(quickened(140.0, 25.7), 165.0);
+    assert_eq!(quickened(210.0, 25.7), 220.0);
+}
+
+#[test]
 fn the_special_arrows_are_shots() {
     assert_eq!(style(1004), Some(Style::Arrow));
     assert_eq!(style(1007), Some(Style::Arrow));
