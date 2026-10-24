@@ -147,10 +147,11 @@ pub enum Style {
     /// ([`knockback_chance`], [`whirl_knockback`]): the Seraphim's 1020
     /// (`GUI_MOVE_WIRBELSCHLAG`, `0x5038F0`, which runs it as her 1069).
     Whirl,
-    /// A flight to its target and one strike on it as it lands ([`jump_landing`],
-    /// [`jump_height`], [`JUMP_FLIES`], [`JUMP_LANDS`]): the Seraphim's 1017
-    /// (`GUI_MOVE_KAMPFSPRUNG`, `0x5038F0`), made where she stands ([`order_distance`]) at a
-    /// rate by her distance ([`jump_rate`]).
+    /// A flight to its target and a landing ([`jump_landing`], [`jump_height`],
+    /// [`jump_points`]), made where its maker stands ([`order_distance`]) at a rate by its
+    /// distance ([`jump_rate`]): the Seraphim's 1017 (`GUI_MOVE_KAMPFSPRUNG`, `0x5038F0`) strikes
+    /// its target as she lands, the Gladiator's 1003 (`0x4FF0B0`) every hostile about him and
+    /// stuns some ([`jump_quake`], [`jump_stun`]).
     Jump,
     /// As its clip starts, every hostile creature about its maker within its radius
     /// ([`roar_radius`]) knocked back by a kick's roll ([`roar_knockback`]) and held
@@ -208,7 +209,7 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1020 {
         return Some(Style::Whirl);
     }
-    if art == 1017 {
+    if art == 1017 || art == 1003 {
         return Some(Style::Jump);
     }
     if art == 1014 {
@@ -489,6 +490,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Seraphim's 1017 the slot 147 at the blend 0.15 (`0x5038F0` at `0x505C99`), its
         // rate by its distance ([`jump_rate`]).
         (1, Style::Jump) => Some(plain(147)),
+        // The Gladiator's 1003 the slot 144 at the blend 0.15 (`0x4FF0B0` at `0x502619`), at the
+        // same rate.
+        (2, Style::Jump) => Some(plain(144)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C2F`; 169 mounted).
         (2, Style::Roar) => Some(plain(149)),
@@ -739,10 +743,34 @@ pub fn order_distance(art: u16, distance: i32) -> i32 {
     }
 }
 
-/// What is left of its clip, as a part of it, below which a [`Style::Jump`] flies to its
-/// target, and below which it lands and strikes (`0x5038F0` at `0x504570`: 0.75 and 0.4).
-pub const JUMP_FLIES: f32 = 0.75;
-pub const JUMP_LANDS: f32 = 0.4;
+/// What is left of its clip, as a part of it, below which a [`Style::Jump`] of a hero of the
+/// kind `kind` flies to its target, and below which it lands: the Seraphim's 0.75 and 0.4
+/// (`0x5038F0` at `0x504570`), the Gladiator's 0.8 and 0.6 (`0x4FF0B0` at `0x50057C`).
+pub fn jump_points(kind: u32) -> [f32; 2] {
+    if kind == 2 { [0.8, 0.6] } else { [0.75, 0.4] }
+}
+
+/// The radius about the Gladiator and the factor of the strikes of his jump of `record` as he
+/// lands, at the level in play `level` (`0x4FF0B0` at `0x500824`): `L·[+0x54] + [+0x50]`,
+/// 190 + 10·L for 1003, a creature of the hero's list nearer him than that struck with
+/// `L·[+0x5C] + [+0x58]`, 1.8 + 0.2·L.
+pub fn jump_quake(record: &WeaponArt, level: u32) -> (f32, f32) {
+    let radius = {
+        let [base, step] = record.factor.map(f64::from);
+        narrow(f64::from(level).mul_add(step, base))
+    };
+    let factor = {
+        let [base, step] = record.value_58.map(f64::from);
+        narrow(f64::from(level).mul_add(step, base))
+    };
+    (radius, factor)
+}
+
+/// How long the Gladiator's jump stuns a creature of the level `target` that its roll takes
+/// (`0x4FF0B0` at `0x50097D`): its level and 3 seconds, at least 2.
+pub fn jump_stun(target: u32) -> f32 {
+    (f32::from(u16::try_from(target).unwrap_or(u16::MAX)) + 3.0).max(2.0)
+}
 /// The part of its clip's time that a jump's flight takes (`0x44DED0`'s time, the clip's times
 /// the float 0.25 at `0x8907C4`).
 pub const JUMP_FLIGHT: f32 = 0.25;

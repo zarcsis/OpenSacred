@@ -112,6 +112,9 @@ const TIMED: u32 = 0x3 | 0x408;
 /// How long a knocked-back creature is held, its timer set to fire then (`0x531AF7`: `+0x208`
 /// set to `+0x204` less the float 3.0 at `0x890768`; [`Mind::knocked`]).
 const HELD: f32 = 3.0;
+/// The least time a stunned creature is held (`0x4FF0B0` at `0x5009B1`, the float 2.0 at
+/// `0x890750`; [`Mind::stunned`]).
+const STUNNED: f32 = 2.0;
 
 /// The heroes' side (`+0x1F0`), their types' `Creature.pak` class (`0x43ADC0`).
 pub const HEROES: u8 = 1;
@@ -972,10 +975,22 @@ impl Mind {
     /// it thinks nothing (`0x542B20`), and the first firing of its timer that finds its slide
     /// over lets it go and wakes it (`0x5375C0`).
     pub fn knocked(&mut self, held: f32) {
+        self.held_for(HELD.max(held));
+    }
+
+    /// Stunned where it stands by the Gladiator's jump (`0x4FF0B0` at `0x500973`): it leaves its
+    /// fight and stands (`0x54E6D0`), and is held as a knocked creature is ([`Self::knocked`])
+    /// for `seconds`, at least [`STUNNED`].
+    pub fn stunned(&mut self, seconds: f32) {
+        self.held_for(seconds.max(STUNNED));
+    }
+
+    /// It leaves its fight and is held, its timer set to fire in `seconds`.
+    fn held_for(&mut self, seconds: f32) {
         self.leaves_fight();
         self.to_door = false;
         self.held = true;
-        self.clock = self.period - HELD.max(held);
+        self.clock = self.period - seconds;
     }
 
     /// Whether it is held after a knockback ([`Self::knocked`]).
@@ -2881,6 +2896,15 @@ mod tests {
         assert!(roared.held());
         roared.think(&senses(0.1, false), |_| true, || false, &mut rng);
         assert!(!roared.held());
+        // A stunned creature is held without a slide, at least 2 s.
+        let mut stunned = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        stunned.stunned(0.5);
+        for _ in 0..19 {
+            stunned.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        }
+        assert!(stunned.held());
+        stunned.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(!stunned.held());
     }
 
     #[test]
