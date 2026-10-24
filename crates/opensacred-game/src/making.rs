@@ -89,6 +89,7 @@ pub fn clips(
         Style::Blades,
         Style::Whirl,
         Style::Jump,
+        Style::Roar,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -517,6 +518,47 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Roar => {
+                // At its first run each hostile creature within its radius of the hero, by a
+                // kick's roll, is knocked back and held; then its regeneration starts and its
+                // clip plays on (`0x4FF0B0` at `0x4FFB75`).
+                if playing.struck == 0 {
+                    playing.struck = 1;
+                    if let Some(record) =
+                        arts.tables.weapon_arts.iter().find(|a| a.id == making.art)
+                    {
+                        let radius = arts::roar_radius(record, playing.level);
+                        let left = to_f32(arts::roar_knockback(record, playing.level));
+                        let held = arts::roar_hold(record, playing.level);
+                        let mut roared = 0;
+                        for (entity, at, mind, health) in &creatures {
+                            if !mind.hostile()
+                                || health.current == 0
+                                || whole_distance(at.translation(), here) >= radius
+                            {
+                                continue;
+                            }
+                            roared += 1;
+                            if knocks_back(&mut dice.0, playing.level, mind) {
+                                commands
+                                    .entity(entity)
+                                    .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                                    .insert(Knocked {
+                                        by: hero,
+                                        from: here,
+                                        left,
+                                        held,
+                                    });
+                            }
+                        }
+                        info!("making: {} roars at {roared} creatures", making.art);
+                    }
+                    arts.start(making.art);
+                }
+                if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Jump => {
                 // Once what is left of its clip is below 0.75 it flies to its target, short of it
                 // by half the two's reach, or to its point; below 0.4 it lands and strikes its
@@ -717,6 +759,7 @@ fn make(
                                     by: hero,
                                     from: here,
                                     left: to_f32(left),
+                                    held: 0.0,
                                 });
                         }
                     }
@@ -796,6 +839,7 @@ fn make(
                                 by: hero,
                                 from: here,
                                 left: to_f32(arts::whirl_knockback(record, playing.level)),
+                                held: 0.0,
                             });
                     }
                 }
@@ -951,6 +995,9 @@ pub struct Knocked {
     pub by: Entity,
     pub from: Vec3,
     pub left: f32,
+    /// How long it is held at least beyond the event's own 3 s (the roar's,
+    /// `opensacred_rules::minds::Mind::knocked`), 0 for the others.
+    pub held: f32,
 }
 
 /// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
@@ -997,9 +1044,9 @@ fn knock(
 
 /// A creature knocked back leaves its fight and is held until its timer fires with its slide
 /// over (`0x531AF7`, `opensacred_rules::minds::Mind::knocked`), at each knockback.
-fn held(knocked: On<Insert<Knocked>>, mut minds: Query<&mut Mind>) {
-    if let Ok(mut mind) = minds.get_mut(knocked.entity) {
-        mind.knocked();
+fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
+    if let Ok((mut mind, knock)) = minds.get_mut(knocked.entity) {
+        mind.knocked(knock.held);
     }
 }
 

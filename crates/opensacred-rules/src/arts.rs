@@ -152,6 +152,11 @@ pub enum Style {
     /// (`GUI_MOVE_KAMPFSPRUNG`, `0x5038F0`), made where she stands ([`order_distance`]) at a
     /// rate by her distance ([`jump_rate`]).
     Jump,
+    /// As its clip starts, every hostile creature about its maker within its radius
+    /// ([`roar_radius`]) knocked back by a kick's roll ([`roar_knockback`]) and held
+    /// ([`roar_hold`]): the Gladiator's 1014 (`GUI_MOVE_EHRFURCHT`, `0x4FF0B0`), of the launch
+    /// type 2, made on himself.
+    Roar,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -205,6 +210,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1017 {
         return Some(Style::Jump);
+    }
+    if art == 1014 {
+        return Some(Style::Roar);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -481,6 +489,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Seraphim's 1017 the slot 147 at the blend 0.15 (`0x5038F0` at `0x505C99`), its
         // rate by its distance ([`jump_rate`]).
         (1, Style::Jump) => Some(plain(147)),
+        // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
+        // `0x502C2F`; 169 mounted).
+        (2, Style::Roar) => Some(plain(149)),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -762,6 +773,33 @@ pub fn jump_landing(from: [f32; 2], to: [f32; 2], reach: Option<u32>) -> [f32; 2
     }
     let half = f32::from(u16::try_from(reach / 2).unwrap_or(u16::MAX));
     [to[0] - half * dx / distance, to[1] - half * dy / distance]
+}
+
+/// The radius of a [`Style::Roar`] of `record` at the level in play `level` (`0x4FF0B0` at
+/// `0x4FFC15`): `L·[+0x54] + [+0x50]` truncated, 150 + 10·L for 1014; a creature nearer its maker
+/// than that is roared at.
+pub fn roar_radius(record: &WeaponArt, level: u32) -> u32 {
+    let [base, step] = record.factor.map(f64::from);
+    u32::try_from(whole_units(f64::from(level).mul_add(step, base))).unwrap_or(0)
+}
+
+/// How far a [`Style::Roar`] of `record` at the level in play `level` knocks a creature back
+/// (`0x4FF0B0` at `0x4FFCA2`): `[+0x60] + [+0x68] − [+0x6C] + ([+0x64] + 1)·L`, 52 + 4·L for
+/// 1014, at least 10, taken by the creature's `+0x24D` and sent with the event of kind 3.
+pub fn roar_knockback(record: &WeaponArt, level: u32) -> u32 {
+    let level = i64::from(level);
+    let [base, step] = record.value_60.map(i64::from);
+    let [plus, minus] = record.value_68.map(i64::from);
+    let distance = base + plus - minus + (step + 1) * level;
+    u32::try_from(distance.max(10)).unwrap_or(10)
+}
+
+/// How long a creature that a [`Style::Roar`] of `record` at the level in play `level` knocks
+/// back is held at least, in seconds (`0x4FF0B0` at `0x4FFDCA`): `[+0x58] + [+0x5C]·L`,
+/// 3 + 0.35·L for 1014, its timer set back to fire no sooner.
+pub fn roar_hold(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.value_58.map(f64::from);
+    narrow(f64::from(level).mul_add(step, base))
 }
 
 /// How high a jump of the length `distance` flies at the part `t` of its flight, in units of the
