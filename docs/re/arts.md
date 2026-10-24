@@ -612,6 +612,8 @@ Before that the adder has cases of its own by the effect's id (read 2026-10-24, 
 | 1 and 3 keyed by `0x4321` | one alone (the Daemon's forms), their seconds and values the larger |
 
 What each bit then does is the code that reads it, not followed here.
+
+The attack speed's getter (`0x584FE0`, which the fight and the clips read) has two cases of its own (read 2026-10-24, #761): while an effect 47 (`0x2F`, the Dwarf's 1082) holds, it gives the stats' `+0x3C` plus the creature's float `+0x584` (what keeps that float, not read), truncated; and for the Daemon (type 9) while an effect keyed by `0x449` holds, that times the float `0xAD5700` (not read); then at most 220.
 `opensacred-game` keeps a creature's effects (`effects::Effects`, #763): added at the list's end, counted down by the world's tick, one gone once its time is no longer above 0, and the hero's attack, defence, damage, resistances, attack speed, regeneration and arts' speeds, or an NPC's values with its pace and its hits' share, made anew whenever the list changes and at an NPC's levelling; the console's `effect` gives one (as the original's driver does), and `stats` lists them.
 **Seen** 2026-10-24 against the running original, the Seraphim's start in both, each effect given for 4 s in both: the effects 1, 2, 3, 7, 12, 28, 42, 52, 30 and 59 gave the hero the same values in both (`compare.py`'s parsers), and so did 1, 2, 4, 8 and 52 a goblin warrior of level 5, each worn off within 5 s in both.
 The effects' own side effects at their adding (13, 14, 16 to 18 and the others above) are not followed yet (#761); the arts and the spells that give effects come with their features (#754 to #760, #672).
