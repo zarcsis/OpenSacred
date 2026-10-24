@@ -845,6 +845,38 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_jump_flies_to_its_target_and_strikes_as_it_lands() {
+    assert_eq!(style(1017), Some(Style::Jump));
+    assert_eq!(
+        action(1, Style::Jump, 1).map(|a| (a.clip, a.fixed)),
+        Some((ArtClip::Slot(147), true))
+    );
+    // Made where she stands, whatever the record's distance of −330.
+    assert_eq!(order_distance(1017, -330), 0);
+    assert_eq!(order_distance(1003, -290), 0);
+    assert_eq!(order_distance(1071, 130), 130);
+    // The rate by the distance.
+    assert_eq!(jump_rate(5), 5.0);
+    assert_eq!(jump_rate(98), 5.0);
+    assert_eq!(jump_rate(99), 4.0);
+    assert_eq!(jump_rate(250), 3.0);
+    assert_eq!(jump_rate(494), 1.0);
+    assert_eq!(jump_rate(497), 1.0);
+    assert_eq!(jump_rate(800), 1.0);
+    // Short of the target by half the reach of 75, 37.
+    let [x, y] = jump_landing([0.0, 0.0], [300.0, 400.0], Some(75));
+    assert!((x - 277.8).abs() < 1e-3 && (y - 370.4).abs() < 1e-3);
+    assert_eq!(
+        jump_landing([0.0, 0.0], [300.0, 400.0], None),
+        [300.0, 400.0]
+    );
+    // The arc: on the ground at both ends, 1/12 of the length at its middle.
+    assert_eq!(jump_height(240.0, 0.0), 0.0);
+    assert_eq!(jump_height(240.0, 0.5), 20.0);
+    assert_eq!(jump_height(240.0, 1.0), 0.0);
+}
+
+#[test]
 fn the_whirling_blow_strikes_as_her_rundum_and_knocks_back() {
     assert_eq!(style(1020), Some(Style::Whirl));
     assert_eq!(

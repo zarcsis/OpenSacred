@@ -55,6 +55,10 @@ pub struct Playing {
     style: Style,
     node: AnimationNodeIndex,
     length: f32,
+    /// How long its clip plays, in seconds, at its speed.
+    seconds: f32,
+    /// Its target's place as it started, a jump's point where its target is gone.
+    point: Vec3,
     points: Vec<f32>,
     struck: usize,
     target: Entity,
@@ -84,6 +88,7 @@ pub fn clips(
         Style::Smite,
         Style::Blades,
         Style::Whirl,
+        Style::Jump,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -344,9 +349,12 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    mut hits: MessageWriter<fight::Hit>,
-    mut cries: MessageWriter<crate::voices::BattleCry>,
+    (mut hits, mut cries): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::voices::BattleCry>,
+    ),
     nearest: Res<crate::crowd::Nearest>,
+    heights: Res<crate::terrain::Heights>,
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
@@ -381,7 +389,8 @@ fn make(
                     end(&mut commands);
                     continue;
                 };
-                let Some((at, within)) = made_from(record.distance, to_f32(target_reach)) else {
+                let distance = arts::order_distance(making.art, record.distance);
+                let Some((at, within)) = made_from(distance, to_f32(target_reach)) else {
                     info!("making: {}'s distance is not made yet", making.art);
                     end(&mut commands);
                     continue;
@@ -433,13 +442,30 @@ fn make(
                 .map_or(1.0, AnimationClip::duration)
                 .max(0.01);
             let clip_speed = combat.map_or(1.0, |combat| combat.clip_speed());
-            transitions
-                .play(&mut player, node, BLEND)
-                .set_speed(if action.fixed {
-                    speed.0 * action.rate
-                } else {
-                    speed.0 * clip_speed * action.rate
-                });
+            // The target's place, the jump's point.
+            let point = creatures
+                .get(making.target)
+                .map_or(here, |(_, at, ..)| at.translation());
+            let mut rate = action.rate;
+            if style == Style::Jump {
+                // A jump wants a straight way to its point and a place to stand there, and plays
+                // at a rate by its length (`0x5038F0` at `0x505B6E`).
+                let level = body.level();
+                let walkable = |cell| heights.walkable_on(cell, level);
+                let to = crate::paths::cell_of(point.x, point.z);
+                if !crate::paths::clear(here.xz(), point.xz(), walkable) || !walkable(to) {
+                    info!("making: no straight way for the jump to its target");
+                    end(&mut commands);
+                    continue;
+                }
+                rate = arts::jump_rate(whole_distance(here, point));
+            }
+            let played = if action.fixed {
+                speed.0 * rate
+            } else {
+                speed.0 * clip_speed * rate
+            };
+            transitions.play(&mut player, node, BLEND).set_speed(played);
             let factor = held_factor(arts::factor(record, level), action.halved);
             // A smite strikes at its own point of its clip.
             if style == Style::Smite {
@@ -466,6 +492,8 @@ fn make(
                 style,
                 node,
                 length,
+                seconds: length / played.max(f32::EPSILON),
+                point,
                 points,
                 struck: 0,
                 target: making.target,
@@ -489,6 +517,39 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Jump => {
+                // Once what is left of its clip is below 0.75 it flies to its target, short of it
+                // by half the two's reach, or to its point; below 0.4 it lands and strikes its
+                // target where it lives (`0x5038F0` at `0x504570`).
+                if playing.struck == 0 && due(1.0 - arts::JUMP_FLIES, done) {
+                    playing.struck = 1;
+                    let target = creatures
+                        .get(playing.target)
+                        .ok()
+                        .filter(|(.., health)| health.current > 0);
+                    let to = target.map_or(playing.point, |(_, at, ..)| at.translation());
+                    let within = target.map(|(_, _, mind, _)| reach(mind));
+                    let [x, z] = arts::jump_landing(here.xz().into(), to.xz().into(), within);
+                    commands.entity(hero).insert(Leap {
+                        from: here,
+                        to: Vec3::new(x, here.y, z),
+                        time: playing.seconds * arts::JUMP_FLIGHT,
+                        flown: 0.0,
+                    });
+                    arts.start(making.art);
+                } else if playing.struck == 1 && due(1.0 - arts::JUMP_LANDS, done) {
+                    playing.struck = 2;
+                    if let Ok((_, _, mind, health)) = creatures.get(playing.target)
+                        && mind.hostile()
+                        && health.current > 0
+                    {
+                        hits.write(hit(playing.target, &playing));
+                    }
+                    end(&mut commands);
+                } else if finished {
+                    end(&mut commands);
+                }
+            }
             // Its strikes are `blades`'; it ends with its clip.
             Style::Blades => {
                 if finished {
@@ -841,6 +902,46 @@ fn blades(
     }
 }
 
+/// A hero's flight of its jump (`0x44DED0`, `0x44DFE0`): from `from` to `to` on the ground in
+/// `time` seconds, `flown` of them gone, its height on the arc of `arts::jump_height` above the
+/// ground under it.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Leap {
+    pub from: Vec3,
+    pub to: Vec3,
+    pub time: f32,
+    pub flown: f32,
+}
+
+/// Flies each hero in its jump (`0x44DFE0`): along the line to its landing in its flight's time,
+/// on its arc, and lands it there.
+fn leap(
+    mut commands: Commands,
+    time: Res<Time>,
+    heights: Res<crate::terrain::Heights>,
+    mut heroes: Query<(Entity, &mut Transform, &Body, &mut Leap)>,
+) {
+    for (hero, mut transform, body, mut leap) in &mut heroes {
+        leap.flown += time.delta_secs();
+        let t = if leap.time > 0.0 {
+            (leap.flown / leap.time).min(1.0)
+        } else {
+            1.0
+        };
+        let ground = leap.from.lerp(leap.to, t);
+        let length = (leap.to - leap.from).xz().length();
+        let y = heights
+            .standing(ground.x, ground.z, body.level())
+            .unwrap_or(ground.y);
+        let up =
+            crate::iso::height(arts::jump_height(length, t) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
+        transform.translation = Vec3::new(ground.x, y + up, ground.z);
+        if t >= 1.0 {
+            commands.entity(hero).remove::<Leap>();
+        }
+    }
+}
+
 /// A creature that a kick knocks back (`0x594D12`, the flag `0x20000` of `+0x200`): it slides
 /// away from its kicker `by`, from its place `from` where it is gone, at
 /// `arts::KNOCKBACK_SPEED` until it has gone `left` (`+0x24D`), doing nothing else; its walk
@@ -921,6 +1022,7 @@ impl Plugin for MakingPlugin {
                     aim.in_set(Control).before(hero::steer),
                     make.after(hero::steer).before(hero::take_orders),
                     blades.after(make),
+                    leap.after(make),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
