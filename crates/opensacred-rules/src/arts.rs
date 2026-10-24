@@ -849,6 +849,33 @@ pub fn frenzy_falls(frenzy: f32, value: f32, dt: f32, fighting: bool) -> f32 {
     }
 }
 
+/// The Vampiress's bloodlust `lust` (the creature's float `+0x584`, as the Dwarf's frenzy) after
+/// a strike of hers lands in her night form (`+0x14` bit `0x2000`; `0x56B130` at `0x56DB08`):
+/// `(lust + 10) · 1.1` while it is at most 90, else as it is.
+pub fn bloodlust_rises(lust: f32) -> f32 {
+    if lust <= 90.0 {
+        narrow((f64::from(lust) + 10.0) * f64::from(1.1_f32))
+    } else {
+        lust
+    }
+}
+
+/// The health that a strike of the Vampiress in her night form takes, `damage` before her
+/// bloodlust `lust` (risen by the strike, [`bloodlust_rises`]) adds to it (`0x56DB80`): with a
+/// bloodlust above 0 and below 150, `⌊lust · damage⌋ / 65` more, the division truncated.
+pub fn bloodlust_damage(damage: u32, lust: f32) -> u32 {
+    if lust > 0.0 && lust < 150.0 {
+        let more = (f64::from(lust) * f64::from(damage)).trunc();
+        damage.saturating_add(u32::try_from(whole_units(more) / 65).unwrap_or(0))
+    } else {
+        damage
+    }
+}
+
+/// How fast the Vampiress's bloodlust falls, a second (`0x537DEC`: 5, or 1 while she fights a
+/// foe, as [`frenzy_falls`] of this value).
+pub const BLOODLUST_FALLS: f32 = 5.0;
+
 /// The attack speed of a creature whose stats give `speed`, its frenzy `frenzy` (`0x584FE0`): their
 /// sum truncated, at most 220.
 pub fn quickened(speed: f32, frenzy: f32) -> f32 {
