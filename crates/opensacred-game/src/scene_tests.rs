@@ -30,6 +30,7 @@ use bevy::render::render_resource::{PipelineCache, TextureFormat};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use bevy::window::ExitCondition;
 use bevy::winit::WinitPlugin;
+use opensacred_data::texture;
 use opensacred_data::world::{
     Cell, DIAMONDS, Piece, SIDE, Sector, SectorEntry, Sprite, Sprites, StaticObject, World,
 };
@@ -48,6 +49,12 @@ const TIMEOUT: Duration = Duration::from_secs(600);
 const BLOCK: usize = 4;
 const BLOCK_TOLERANCE: f32 = 12.0;
 const DIFFERENT_BLOCKS: f32 = 0.01;
+
+/// Writes an 8-bit RGBA texture, as the converter writes those the game reads on the CPU.
+fn write_texture(path: &Path, width: u32, height: u32, rgba: &[u8]) {
+    let file = texture::write(texture::Encoding::Rgba8, width, height, &[rgba.to_vec()]).unwrap();
+    fs::write(path, file).unwrap();
+}
 
 fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) {
     let file = fs::File::create(path).unwrap();
@@ -252,11 +259,11 @@ fn sprites() -> Sprites {
 fn write_world(dir: &Path) -> (World, Sector, Sprites) {
     let world_dir = dir.join("world");
     fs::create_dir_all(world_dir.join("sectors")).unwrap();
-    write_png(&world_dir.join("sheet.png"), 256, 256, &sheet());
-    write_png(&world_dir.join("atlas.png"), 128, 128, &atlas());
+    write_texture(&world_dir.join("sheet.ktx2"), 256, 256, &sheet());
+    write_texture(&world_dir.join("atlas.ktx2"), 128, 128, &atlas());
     let textures = dir.join("textures").join("texture");
     fs::create_dir_all(&textures).unwrap();
-    write_png(&textures.join("00001-b_water00.png"), 128, 128, &water());
+    write_texture(&textures.join("00001-b_water00.ktx2"), 128, 128, &water());
     let sector = sector();
     let file = format!("sectors/{}-{}.sector", AT.0, AT.1);
     fs::write(world_dir.join(&file), sector.encode().unwrap()).unwrap();
@@ -276,8 +283,8 @@ fn write_world(dir: &Path) -> (World, Sector, Sprites) {
             area: 0,
             dungeon: false,
         }],
-        sheets: vec!["sheet.png".into()],
-        atlases: vec!["atlas.png".into()],
+        sheets: vec!["sheet.ktx2".into()],
+        atlases: vec!["atlas.ktx2".into()],
     };
     let text = ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default()).unwrap();
     fs::write(world_dir.join(opensacred_data::world::INDEX), text).unwrap();

@@ -1486,7 +1486,7 @@ fn position(
     })
 }
 
-/// The PNG of every `texture.pak` record (`textures/texture/NNNNN-name.png`), by its number,
+/// The texture of every `texture.pak` record (`textures/texture/NNNNN-name.ktx2`), by its number,
 /// relative to the asset directory.
 pub fn texture_files(assets: &Path) -> Result<HashMap<u32, String>> {
     let path = assets.join("textures").join("texture");
@@ -1502,7 +1502,7 @@ pub fn texture_files(assets: &Path) -> Result<HashMap<u32, String>> {
         if let Some(number) = name
             .split_once('-')
             .and_then(|(number, _)| number.parse::<u32>().ok())
-            && name.ends_with(".png")
+            && name.ends_with(&format!(".{}", opensacred_data::texture::EXTENSION))
         {
             files.insert(number, format!("textures/texture/{name}"));
         }
@@ -4343,14 +4343,19 @@ mod tests {
             std::env::temp_dir().join(format!("opensacred-game-textures-{}", std::process::id()));
         let dir = assets.join("textures").join("texture");
         fs::create_dir_all(&dir).unwrap();
-        for name in ["07442-chest02.png", "00001-cab.png", "notes.txt", "x-y.png"] {
+        for name in [
+            "07442-chest02.ktx2",
+            "00001-cab.ktx2",
+            "notes.txt",
+            "x-y.ktx2",
+        ] {
             fs::write(dir.join(name), b"").unwrap();
         }
         let files = texture_files(&assets).unwrap();
         fs::remove_dir_all(&assets).unwrap();
         assert_eq!(files.len(), 2);
-        assert_eq!(files[&7442], "textures/texture/07442-chest02.png");
-        assert_eq!(files[&1], "textures/texture/00001-cab.png");
+        assert_eq!(files[&7442], "textures/texture/07442-chest02.ktx2");
+        assert_eq!(files[&1], "textures/texture/00001-cab.ktx2");
     }
 
     #[test]

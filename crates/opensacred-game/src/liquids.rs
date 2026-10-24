@@ -285,11 +285,14 @@ impl Liquids {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            // `01073-b_water00.png`.
+            // `01073-b_water00.ktx2`.
             let Some((_, rest)) = name.split_once('-') else {
                 continue;
             };
-            let Some(stem) = rest.strip_suffix(".png") else {
+            let Some(stem) = rest
+                .strip_suffix(opensacred_data::texture::EXTENSION)
+                .and_then(|rest| rest.strip_suffix('.'))
+            else {
                 continue;
             };
             let Some(split) = stem.len().checked_sub(2) else {

@@ -3,11 +3,23 @@
 //! Release workflow tags every version `vX.Y.Z` (docs/03 §3.6), and `Cargo.toml` has none.
 //! `git describe` gives `0.4.2` on a tag and `0.4.2-3-gabc1234` three commits after it; a clone
 //! without the tags gives the commit alone, a source tree without Git "unknown".
+//!
+//! The converter also links the C++ runtime on Linux and macOS: the prebuilt library of
+//! `intel_tex_2`'s ASTC encoder is C++, and the crate links it without its runtime but on Windows
+//! (#700).
 
+use std::env;
 use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    if env::var("CARGO_PKG_NAME").is_ok_and(|name| name == "opensacred-convert") {
+        match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+            Ok("linux") => println!("cargo::rustc-link-lib=stdc++"),
+            Ok("macos") => println!("cargo::rustc-link-lib=c++"),
+            _ => {}
+        }
+    }
     let version = git(&["describe", "--always", "--match", "v[0-9]*"])
         .map(|v| v.strip_prefix('v').unwrap_or(&v).to_owned())
         .unwrap_or_else(|| "unknown".to_owned());

@@ -2,21 +2,25 @@
 //! `<out>/models/<pak>/<index>-<name>.glb` (docs/02 §4.5; the conversion is in [`gltf`]). A
 //! model's file holds its meshes and, as animations, the motions of its motion slots; a motion's
 //! file holds its skeleton and its own animation. A texture is referenced as the PNG that
-//! `opensacred-convert textures` writes to `<out>/textures/texture/`. The records that
-//! [`model_repairs`] names are repaired as they are written.
+//! `opensacred-convert textures` writes to `<out>/textures/texture/`, and in the game's file as the
+//! KTX2 file that `build` makes of it ([`built`]). The records that [`model_repairs`] names are
+//! repaired as they are written.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use opensacred_data::texture;
 use opensacred_formats::grn::{Animation, Model, Skeleton};
 use opensacred_formats::mdl::{Kind, MdlPak, Record};
 use opensacred_formats::tex::TexPak;
 use rayon::prelude::*;
+use serde_json::{Value, json};
 
 use crate::embedded;
 use crate::gltf::{self, Clip, Stats};
+use crate::ktx::{self, Use};
 use crate::model_repairs::{self, Outcome};
 use crate::textures;
 use crate::verify::read_game_file;
@@ -298,6 +302,81 @@ fn slot_motions<'a>(pak: &MdlPak<'a>, record: &Record) -> Result<Vec<Motion<'a>>
     Ok(out)
 }
 
+/// The game's file of a model whose master is `glb` (`build`, #700): its images refer to the KTX2
+/// textures that `build` makes of the PNG masters, and an image it embeds, a PNG, is embedded as
+/// the KTX2 file that `build` would make of it, the binary chunk laid out again around it.
+pub fn built(glb: &[u8]) -> Result<Vec<u8>> {
+    let (mut json, bin) = gltf::split_glb(glb)?;
+    let mut embedded: HashMap<usize, Vec<u8>> = HashMap::new();
+    let views = json["bufferViews"].clone();
+    for (index, image) in json
+        .get_mut("images")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if let Some(uri) = image.get("uri").and_then(Value::as_str) {
+            let stem = uri
+                .strip_suffix(".png")
+                .with_context(|| format!("image {index} refers to {uri}, not a PNG"))?;
+            image["uri"] = json!(format!("{stem}.{}", texture::EXTENSION));
+            continue;
+        }
+        let view = image["bufferView"]
+            .as_u64()
+            .with_context(|| format!("image {index} has neither a URI nor a buffer view"))?;
+        if image["mimeType"] != "image/png" {
+            bail!("image {index} embeds a {}, not a PNG", image["mimeType"]);
+        }
+        let view = usize::try_from(view)?;
+        let field = |name: &str| -> Result<usize> {
+            Ok(usize::try_from(views[view][name].as_u64().unwrap_or(0))?)
+        };
+        let (start, length) = (field("byteOffset")?, field("byteLength")?);
+        let png = bin
+            .get(start..start + length)
+            .with_context(|| format!("buffer view {view} lies beyond the binary chunk"))?;
+        let ktx2 =
+            ktx::encode(png, Use::Sampled).with_context(|| format!("encoding image {index}"))?;
+        embedded.insert(view, ktx2);
+        image["mimeType"] = json!(format!("image/{}", texture::EXTENSION));
+    }
+    if embedded.is_empty() {
+        let json = serde_json::to_vec(&json).context("serializing the glTF JSON")?;
+        return gltf::glb(json, bin);
+    }
+    // Each view in its order, the embedded images' replaced, each at a multiple of 4 as `gltf`
+    // lays them out.
+    let mut laid = Vec::with_capacity(bin.len());
+    for (index, view) in json
+        .get_mut("bufferViews")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        if view["buffer"] != 0 {
+            bail!("buffer view {index} is not of the binary chunk");
+        }
+        let start = usize::try_from(view["byteOffset"].as_u64().unwrap_or(0))?;
+        let length = usize::try_from(view["byteLength"].as_u64().unwrap_or(0))?;
+        let bytes = match embedded.get(&index) {
+            Some(ktx2) => ktx2.as_slice(),
+            None => bin
+                .get(start..start + length)
+                .with_context(|| format!("buffer view {index} lies beyond the binary chunk"))?,
+        };
+        laid.resize(laid.len().next_multiple_of(4), 0);
+        view["byteOffset"] = json!(laid.len());
+        view["byteLength"] = json!(bytes.len());
+        laid.extend_from_slice(bytes);
+    }
+    json["buffers"][0]["byteLength"] = json!(laid.len());
+    let json = serde_json::to_vec(&json).context("serializing the glTF JSON")?;
+    gltf::glb(json, laid)
+}
+
 #[cfg(test)]
 mod tests {
     use std::process::Command;
@@ -306,6 +385,59 @@ mod tests {
 
     use super::*;
     use crate::testing::{Tex, repo_root, scratch_dir, tex_pak};
+
+    #[test]
+    fn a_built_model_refers_to_the_ktx2_textures_and_embeds_its_own_as_ktx2() {
+        let png = textures::encode_png(4, 4, &[200; 64]).unwrap();
+        let positions = [1u8, 2, 3, 4, 5, 6];
+        let mut bin = png.clone();
+        bin.resize(bin.len().next_multiple_of(4), 0);
+        let positions_at = bin.len();
+        bin.extend_from_slice(&positions);
+        let master = json!({
+            "asset": {"version": "2.0"},
+            "buffers": [{"byteLength": bin.len()}],
+            "bufferViews": [
+                {"buffer": 0, "byteOffset": 0, "byteLength": png.len()},
+                {"buffer": 0, "byteOffset": positions_at, "byteLength": positions.len()},
+            ],
+            "images": [
+                {"name": "dwarf", "uri": "../../textures/texture/00003-dwarf.png"},
+                {"name": "own", "bufferView": 0, "mimeType": "image/png"},
+            ],
+        });
+        let glb = gltf::glb(serde_json::to_vec(&master).unwrap(), bin).unwrap();
+        let (json, bin) = gltf::split_glb(&built(&glb).unwrap()).unwrap();
+        assert_eq!(
+            json["images"][0]["uri"],
+            "../../textures/texture/00003-dwarf.ktx2"
+        );
+        assert_eq!(json["images"][1]["mimeType"], "image/ktx2");
+        let view = |index: usize| {
+            let view = &json["bufferViews"][index];
+            let start = usize::try_from(view["byteOffset"].as_u64().unwrap()).unwrap();
+            &bin[start..start + usize::try_from(view["byteLength"].as_u64().unwrap()).unwrap()]
+        };
+        // The embedded image a KTX2 of its mip chain, the other view's bytes where it now lies.
+        let ktx2 = ktx2::Reader::new(view(0)).unwrap();
+        assert_eq!(ktx2.header().pixel_width, 4);
+        assert_eq!(ktx2.header().level_count, 3);
+        assert_eq!(view(1), positions);
+        // The buffer ends with the last view, the chunk padded to 4 bytes after it.
+        let end = json["bufferViews"][1]["byteOffset"].as_u64().unwrap() + 6;
+        assert_eq!(json["buffers"][0]["byteLength"].as_u64(), Some(end));
+        assert_eq!(bin.len(), usize::try_from(end).unwrap().next_multiple_of(4));
+        // A model that embeds nothing keeps its binary chunk, and one without images gets none.
+        let mut plain = master.clone();
+        plain["images"].as_array_mut().unwrap().pop();
+        let original = vec![9; 8];
+        let glb = gltf::glb(serde_json::to_vec(&plain).unwrap(), original.clone()).unwrap();
+        assert_eq!(gltf::split_glb(&built(&glb).unwrap()).unwrap().1, original);
+        plain.as_object_mut().unwrap().remove("images");
+        let glb = gltf::glb(serde_json::to_vec(&plain).unwrap(), original.clone()).unwrap();
+        let (json, _) = gltf::split_glb(&built(&glb).unwrap()).unwrap();
+        assert_eq!(json, plain);
+    }
 
     #[test]
     fn a_models_scale_moves_its_positions_and_bones_but_turns_nothing() {

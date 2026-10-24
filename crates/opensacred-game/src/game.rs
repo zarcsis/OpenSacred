@@ -516,7 +516,7 @@ pub struct LoadingScreen(pub Option<String>);
 impl LoadingScreen {
     /// The first of the original's two loading screens of Ancaria (`loading0`, `loading1`).
     pub fn find(assets: &Path) -> Self {
-        let file = "ui/screens/loading0.png";
+        let file = "ui/screens/loading0.ktx2";
         Self(files::exists(assets.join(file)).then(|| file.into()))
     }
 }

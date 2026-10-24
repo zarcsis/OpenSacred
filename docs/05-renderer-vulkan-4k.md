@@ -8,7 +8,7 @@
 * **4K:** rendering at native resolution; by default the same area of the world is visible as in the original at zoom 1.0; an extended view is an option.
   The UI and text are scaled separately from the scene, with the window's height, and rasterized at the window's resolution (§3.5).
 * The main limit of the image is the 256² ARGB4444 textures without mipmaps.
-  The base textures go to the game as KTX2 with BC7 and mipmaps from M3 (#700); **HD packs** remove the size limit (milestone M7): offline upscaling with free models into masters that the converter's stage B packs the same way, path-based substitution on top of the base assets.
+  The base textures go to the game as KTX2 with BC7 and mipmaps since M3 (#700); **HD packs** remove the size limit (milestone M7): offline upscaling with free models into masters that the converter's stage B packs the same way, path-based substitution on top of the base assets.
 * The original's bottleneck is about 9,600 draw calls per frame on the CPU (community-reported).
   A few large meshes (a sector's ground, a page of sprites) and Bevy's GPU skinning remove it; the budget is 60 fps at 3840×2160 on a mid-range graphics card.
 
@@ -43,7 +43,7 @@ Details: the floor cell, the heights and the UV table in docs/02, §5.2–5.4; t
 | CPU skinning | Bevy GPU skinning | takes the load off the CPU |
 | Thousands of small draw calls | one ground mesh and atlas per sector, one sprite mesh per page of 2,048 × 2,048 | 60 fps in 4K |
 | 256² GDI fonts | Bevy's text (parley) at native resolution; the original TTFs; a free Unicode font is planned | crisp text at any scale |
-| No mipmaps | a full mip chain in the KTX2 textures from M3 (#700); none yet: the art is filtered linearly without them (docs/decisions/2026-10-19-linear-filter.md) | no shimmering when zoomed out |
+| No mipmaps | a full mip chain in the KTX2 textures that the GPU samples (#700, docs/decisions/2026-10-23-textures.md); the ground and the sprites, composed per sector, are filtered linearly without them (docs/decisions/2026-10-19-linear-filter.md) | no shimmering when zoomed out |
 
 Fidelity of the image is not a goal: differences are acceptable if the game looks better and reads the same.
 Where the game draws as the original does instead, a file of docs/decisions/ says why (§3.6).
@@ -150,8 +150,8 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
 | Draw calls per frame | hundreds, not thousands (batching) |
 | VRAM for the base assets | ≤ 2 GB (only the hero's surroundings are loaded) |
 
-The game holds its textures as uncompressed RGBA8 without mipmaps, composed per sector: the ground's atlas (13 MB for the median sector) and the sprites' pages of 2,048 texels across (up to 16 MB each); only the textures of the loaded sectors and of the creatures in them are in memory at any one time.
-In BC7, which comes with KTX2 in M3 (#700), all 25,535 base textures at 256² would take ≈1.6 GB (estimate).
+The game holds the world's textures as uncompressed RGBA8 without mipmaps, composed per sector: the ground's atlas (13 MB for the median sector) and the sprites' pages of 2,048 texels across (up to 16 MB each); only the textures of the loaded sectors and of the creatures in them are in memory at any one time.
+The models', the items' and the effects' textures come as KTX2 since #700, the opaque ones in BC7 with their mip chains, a byte a texel; those with alpha in 8-bit RGBA (docs/decisions/2026-10-23-textures.md).
 
 ## 5. HD assets (milestone M7)
 

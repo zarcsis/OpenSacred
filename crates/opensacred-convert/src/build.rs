@@ -1,16 +1,19 @@
 //! `build`, the converter's stage B (PLAN.md ADR-05, #694): the game's assets in `<out>` from the
 //! masters that the extraction commands (stage A) write into `<assets-src>`. It encodes the
-//! cutscenes' masters into AV1 and Opus WebM (#698), takes the other masters as they are, while
-//! the later sub-issues change the formats one kind at a time (#696), and packs the outputs into
-//! ZIP archives by kind, [`opensacred_data::archive`]'s (#699): `data.zip` (the tables, texts,
-//! scripts and heroes), `models.zip`, `music.zip`, `sound.zip`, `textures.zip`, `ui.zip`,
-//! `video.zip` and `world.zip`, the entries in the order of their paths.
+//! textures' PNG masters into KTX2 ([`crate::ktx`], #700), with them the models' references to
+//! them and the images they embed and the world index's, and the cutscenes' masters into AV1 and
+//! Opus WebM (#698); it takes the other masters as they are, while the later sub-issues change the
+//! formats one kind at a time (#696), and packs the outputs into ZIP archives by kind,
+//! [`opensacred_data::archive`]'s (#699): `data.zip` (the tables, texts, scripts and heroes),
+//! `models.zip`, `music.zip`, `sound.zip`, `textures.zip`, `ui.zip`, `video.zip` and `world.zip`,
+//! the entries in the order of their paths.
 //!
 //! It records `<out>/manifest/build.ron`: the masters it built from and each archive's entries,
 //! `<archive>/<path>`, each with its SHA-256. An archive whose masters are all the ones recorded
 //! and whose entries are in place is kept; one written again copies the entries whose masters did
-//! not change from the old archive as they are, without making them again. The archives no master
-//! makes any more and the loose files of the builds before #699 are removed.
+//! not change from the old archive as they are, without making them again; the textures are all
+//! made again when the world index changes, as it decides how they are encoded. The archives no
+//! master makes any more and the loose files of the builds before #699 are removed.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -18,9 +21,11 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use opensacred_data::archive::{self, Archive, Raw, Writer};
+use opensacred_data::texture;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
+use crate::ktx::Use;
 use crate::manifest::{self, FileHash, RunManifest};
 use crate::verify::hex;
 
@@ -35,17 +40,77 @@ const BATCH: usize = 64;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Make {
     Copy,
+    /// A texture's PNG master, encoded into KTX2 for its use.
+    Texture(Use),
+    /// A model's glTF binary, its images the KTX2 textures.
+    Model,
+    /// The world index, naming the KTX2 textures.
+    WorldIndex,
     /// A cutscene's FFV1 and FLAC master, encoded into AV1 and Opus WebM.
     Video,
     /// The cutscenes' index, naming the WebM files.
     VideoIndex,
 }
 
-/// The output's path of the master at `path`, and how it is made.
-fn make(path: &str) -> (String, Make) {
+impl Make {
+    /// Every way.
+    const ALL: [Self; 7] = [
+        Self::Copy,
+        Self::Texture(Use::Read),
+        Self::Texture(Use::Sampled),
+        Self::Model,
+        Self::WorldIndex,
+        Self::Video,
+        Self::VideoIndex,
+    ];
+
+    /// The way's name in the manifest and its version, raised when the converter makes its
+    /// outputs otherwise, so that the next build makes them again; 0 for the ways as they were
+    /// before the versions (#700), which a manifest without them records.
+    fn way(self) -> (&'static str, u32) {
+        match self {
+            Self::Copy => ("copy", 0),
+            Self::Texture(_) => ("texture", 1),
+            Self::Model => ("model", 1),
+            Self::WorldIndex => ("world-index", 1),
+            Self::Video => ("video", 0),
+            Self::VideoIndex => ("video-index", 0),
+        }
+    }
+}
+
+/// The world index among the masters.
+fn world_index() -> String {
+    format!("world/{}", opensacred_data::world::INDEX)
+}
+
+/// The output's path of the master at `path`, and how it is made; `read` holds the textures that
+/// the game reads on the CPU besides the cursor's.
+fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     let video = crate::video::DIR;
     if path == format!("{video}/{}", opensacred_data::video::INDEX) {
         return (path.to_owned(), Make::VideoIndex);
+    }
+    if path == world_index() {
+        return (path.to_owned(), Make::WorldIndex);
+    }
+    if path.starts_with("models/") && path.ends_with(".glb") {
+        return (path.to_owned(), Make::Model);
+    }
+    if let Some(stem) = path.strip_suffix(".png")
+        && (path.starts_with("textures/") || path.starts_with("ui/screens/"))
+    {
+        let cursor = path.starts_with("textures/texture/")
+            && stem.ends_with(&format!("-{}", texture::CURSOR));
+        let usage = if cursor || read.contains(path) {
+            Use::Read
+        } else {
+            Use::Sampled
+        };
+        return (
+            format!("{stem}.{}", texture::EXTENSION),
+            Make::Texture(usage),
+        );
     }
     match path
         .strip_prefix(&format!("{video}/"))
@@ -54,6 +119,20 @@ fn make(path: &str) -> (String, Make) {
         Some(stem) => (format!("{video}/{stem}.webm"), Make::Video),
         None => (path.to_owned(), Make::Copy),
     }
+}
+
+/// The textures that the world index among the masters in `src` names, which the game composes on
+/// the CPU; none without the index.
+fn read_on_cpu(src: &Path) -> Result<HashSet<String>> {
+    let path = src.join(world_index());
+    if !path.exists() {
+        return Ok(HashSet::new());
+    }
+    let text = fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(crate::world::textures_named(&text)
+        .with_context(|| format!("reading {}", path.display()))?
+        .into_iter()
+        .collect())
 }
 
 /// The archive of the output at `path`: one by kind.
@@ -136,6 +215,20 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
     let what = || format!("building {} from {}", planned.path, planned.master.path);
     match planned.how {
         Make::Copy => fs::read(&from).with_context(what),
+        Make::Texture(usage) => {
+            let png = fs::read(&from).with_context(what)?;
+            crate::ktx::encode(&png, usage).with_context(what)
+        }
+        Make::Model => {
+            let glb = fs::read(&from).with_context(what)?;
+            crate::models::built(&glb).with_context(what)
+        }
+        Make::WorldIndex => {
+            let text = fs::read_to_string(&from).with_context(what)?;
+            Ok(crate::world::built_index(&text)
+                .with_context(what)?
+                .into_bytes())
+        }
         Make::Video => {
             let target = staging.join(&planned.path);
             if let Some(parent) = target.parent() {
@@ -160,10 +253,22 @@ enum Packed {
     Made(Vec<u8>),
 }
 
-/// What the last build recorded.
+/// What the last build recorded, and whether the world index is the one it built from.
 struct Last<'a> {
     built_from: HashMap<&'a str, &'a FileHash>,
     written: HashMap<&'a str, &'a FileHash>,
+    ways: BTreeMap<String, u32>,
+    same_world: bool,
+}
+
+impl Last<'_> {
+    /// Whether the last build made `planned`'s output of its master as this one would.
+    fn same(&self, planned: &Planned) -> bool {
+        let (way, version) = planned.how.way();
+        self.built_from.get(planned.master.path.as_str()) == Some(&planned.master)
+            && self.ways.get(way).copied().unwrap_or(0) == version
+            && (self.same_world || !matches!(planned.how, Make::Texture(_)))
+    }
 }
 
 /// Writes the archive `name` of `entries` into `out`, or keeps it; its entries' hashes and how many
@@ -190,9 +295,8 @@ fn pack(
                 .written
                 .get(format!("{name}/{}", planned.path).as_str())
                 .copied()?;
-            let same = last.built_from.get(planned.master.path.as_str()) == Some(&planned.master);
             let held = old.as_ref()?.size(&planned.path) == Some(recorded.size);
-            (!force && same && held).then_some(recorded)
+            (!force && last.same(planned) && held).then_some(recorded)
         })
         .collect();
     let old_count = old.as_ref().map_or(0, |a| a.names().count());
@@ -297,20 +401,30 @@ fn remove_extracted(out: &Path) -> Result<usize> {
 /// Builds the game's assets in `out` from the masters in `src`; `force` builds every master.
 pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
     let masters = masters(src)?;
+    let read = read_on_cpu(src)?;
     let recorded = manifest::read(out, NAME)?;
+    let built_from: HashMap<&str, &FileHash> = recorded
+        .as_ref()
+        .map(|run| run.sources.iter().map(|s| (s.path.as_str(), s)).collect())
+        .unwrap_or_default();
+    let world = world_index();
+    let same_world =
+        built_from.get(world.as_str()).copied() == masters.iter().find(|m| m.path == world);
     let last = Last {
-        built_from: recorded
-            .as_ref()
-            .map(|run| run.sources.iter().map(|s| (s.path.as_str(), s)).collect())
-            .unwrap_or_default(),
+        built_from,
         written: recorded
             .as_ref()
             .map(|run| run.outputs.iter().map(|o| (o.path.as_str(), o)).collect())
             .unwrap_or_default(),
+        ways: recorded
+            .as_ref()
+            .map(|run| run.ways.clone())
+            .unwrap_or_default(),
+        same_world,
     };
     let mut archives: BTreeMap<String, Vec<Planned>> = BTreeMap::new();
     for master in &masters {
-        let (path, how) = make(&master.path);
+        let (path, how) = make(&master.path, &read);
         archives
             .entry(archive_of(&path))
             .or_default()
@@ -354,6 +468,13 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
             converter: manifest::converter()?,
             sources: masters,
             outputs,
+            ways: Make::ALL
+                .iter()
+                .map(|how| {
+                    let (way, version) = how.way();
+                    (way.to_owned(), version)
+                })
+                .collect(),
         },
     )?;
     Ok(Summary {
@@ -382,7 +503,9 @@ mod tests {
     }
 
     #[test]
-    fn the_cutscenes_masters_are_built_into_webm() {
+    fn each_master_is_made_as_its_kind() {
+        let read = HashSet::from(["textures/texture/00007-sheet.png".to_owned()]);
+        let make = |path| make(path, &read);
         assert_eq!(
             make("video/intro.mkv"),
             ("video/intro.webm".to_owned(), Make::Video)
@@ -394,6 +517,37 @@ mod tests {
         assert_eq!(
             make("tables/items.ron"),
             ("tables/items.ron".to_owned(), Make::Copy)
+        );
+        assert_eq!(
+            make("world/world.ron"),
+            ("world/world.ron".to_owned(), Make::WorldIndex)
+        );
+        assert_eq!(
+            make("models/models/0661-seraphim.glb"),
+            ("models/models/0661-seraphim.glb".to_owned(), Make::Model)
+        );
+        assert_eq!(
+            make("textures/texture/00001-dwarf.png"),
+            (
+                "textures/texture/00001-dwarf.ktx2".to_owned(),
+                Make::Texture(Use::Sampled)
+            )
+        );
+        assert_eq!(
+            make("ui/screens/loading0.png"),
+            (
+                "ui/screens/loading0.ktx2".to_owned(),
+                Make::Texture(Use::Sampled)
+            )
+        );
+        // The world's sheets and atlases, and the cursor, which the game reads on the CPU.
+        assert_eq!(
+            make("textures/texture/00007-sheet.png").1,
+            Make::Texture(Use::Read)
+        );
+        assert_eq!(
+            make("textures/texture/14791-mouse_main.png").1,
+            Make::Texture(Use::Read)
         );
     }
 
@@ -432,6 +586,7 @@ mod tests {
                     size: 7,
                     sha256: String::new(),
                 }],
+                ways: BTreeMap::new(),
             },
         )
         .unwrap();
@@ -446,6 +601,7 @@ mod tests {
                     size: 2,
                     sha256: String::new(),
                 }],
+                ways: BTreeMap::new(),
             },
         )
         .unwrap();
@@ -486,6 +642,64 @@ mod tests {
         let data = fs::read(out.join("data.zip")).unwrap();
         assert_eq!(build(&src, &out, true).unwrap().built, 2);
         assert_eq!(fs::read(out.join("data.zip")).unwrap(), data);
+        fs::remove_dir_all(src).unwrap();
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    #[test]
+    fn the_textures_are_encoded_for_their_use_and_again_when_the_world_changes() {
+        let src = scratch_dir("build-textures-src");
+        let out = scratch_dir("build-textures-out");
+        let png = crate::textures::encode_png(8, 8, &[255; 256]).unwrap();
+        for name in ["00001-sheet", "00002-dwarf"] {
+            let path = src.join(format!("textures/texture/{name}.png"));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, &png).unwrap();
+        }
+        let world = |sheets: &[&str]| {
+            let world = opensacred_data::world::World {
+                sectors: Vec::new(),
+                sheets: sheets
+                    .iter()
+                    .map(|s| format!("../textures/texture/{s}.png"))
+                    .collect(),
+                atlases: Vec::new(),
+            };
+            let text = ron::ser::to_string_pretty(&world, ron::ser::PrettyConfig::default());
+            write(&src, "world/world.ron", &text.unwrap());
+        };
+        let format = |name: &str| {
+            let archive = Archive::open(&out.join("textures.zip")).unwrap();
+            let file = archive
+                .read(&format!("textures/texture/{name}.ktx2"))
+                .unwrap()
+                .unwrap();
+            let header = ktx2::Reader::new(&file[..]).unwrap().header();
+            (header.format.unwrap(), header.level_count)
+        };
+        world(&["00001-sheet"]);
+        write(&src, "tables/items.ron", "[]");
+        assert_eq!(build(&src, &out, false).unwrap().built, 4);
+        // The world's sheet as it is, for the CPU; the other in BC7 with its mips.
+        assert_eq!(format("00001-sheet"), (ktx2::Format::R8G8B8A8_SRGB, 1));
+        assert_eq!(format("00002-dwarf"), (ktx2::Format::BC7_SRGB_BLOCK, 4));
+        assert!(
+            read(&out, "world.zip", "world/world.ron")
+                .unwrap()
+                .contains("00001-sheet.ktx2")
+        );
+        assert_eq!(build(&src, &out, false).unwrap().built, 0);
+        // A world that names the other: every texture made again, the table kept.
+        world(&["00002-dwarf"]);
+        assert_eq!(build(&src, &out, false).unwrap().built, 3);
+        assert_eq!(format("00001-sheet"), (ktx2::Format::BC7_SRGB_BLOCK, 4));
+        assert_eq!(format("00002-dwarf"), (ktx2::Format::R8G8B8A8_SRGB, 1));
+        // The manifest of a build before the ways' versions: the ways of a version made again.
+        let mut run = manifest::read(&out, NAME).unwrap().unwrap();
+        assert_eq!(run.ways.get("texture"), Some(&1));
+        run.ways.clear();
+        manifest::write(&out, &run).unwrap();
+        assert_eq!(build(&src, &out, false).unwrap().built, 3);
         fs::remove_dir_all(src).unwrap();
         fs::remove_dir_all(out).unwrap();
     }

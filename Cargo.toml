@@ -15,6 +15,8 @@ opensacred-formats = { path = "crates/opensacred-formats" }
 opensacred-rules = { path = "crates/opensacred-rules" }
 
 anyhow = "1.0.104"
+# A BC7 decoder, for the tests of the converter's textures (#700).
+bcdec_rs = "0.2.1"
 # The engine of the game (ADR-04). The default collections ("2d", "3d", "ui", "audio") minus: the
 # Wayland backend, whose client-side decorations pull the unmaintained ttf-parser (Linux runs
 # through X11 and XWayland); zstd_rust, whose ruzstd 0.8 has RUSTSEC-2026-0344 (zstd_c decodes
@@ -69,6 +71,11 @@ bevy_kira_audio = { version = "0.27.1", default-features = false, features = ["f
 clap = { version = "4.6.7", features = ["derive"] }
 crc32fast = "1.5.2"
 fluent-syntax = "0.12.0"
+# The BC7 encoder of the converter's textures (#700): Intel's ISPC Texture Compressor, its
+# kernels prebuilt for Windows, Linux and macOS, so that no ISPC is needed.
+intel_tex_2 = "0.5.0"
+# The reader of the KTX2 textures, Bevy's own, which the tests check the writer against (#700).
+ktx2 = "0.5.0"
 # Direct rather than through flate2: inflate with an output limit is exactly what TEX needs.
 miniz_oxide = { version = "0.9.1", features = ["simd"] }
 png = "0.18.1"
@@ -85,6 +92,8 @@ thiserror = "2.0.21"
 toml_edit = { version = "0.25.17", features = ["serde"] }
 # The emulator of opensacred-oracle alone (GPL-2.0, docs/04 §2.3), the 32-bit x86 of Sacred.exe.
 unicorn-engine = { version = "2.1.5", default-features = false, features = ["arch_x86"] }
+# The KTX2 textures' supercompression (#700), the C library Bevy's `zstd_c` already builds.
+zstd = { version = "0.13.3", default-features = false }
 
 [workspace.lints.rust]
 # No unsafe in our code (CLAUDE.md): opensacred-oracle's Unicorn wrapper needs none either.

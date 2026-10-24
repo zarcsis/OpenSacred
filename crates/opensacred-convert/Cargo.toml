@@ -12,6 +12,7 @@ build = "../../build.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+intel_tex_2.workspace = true
 opensacred-data.workspace = true
 opensacred-formats.workspace = true
 miniz_oxide.workspace = true
@@ -24,7 +25,10 @@ serde_json.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+bcdec_rs.workspace = true
 fluent-syntax.workspace = true
+ktx2.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

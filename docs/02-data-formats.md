@@ -12,7 +12,7 @@ The level of confidence is marked with these words: **confirmed on file** (parse
   `sectors.keyx`, `Creature.pak`, `Weapon.pak` and `MOTIONS.PAK` have the header without a directory, their records right after it, and `Triggers.PAK` has one directory entry for the whole array (§1, §5.5).
   Confirmed on file for all containers.
 - Textures: 25,535 records, 22,932 of them 256×256; format 4 = ARGB4444 + zlib, format 6 = uncompressed A8R8G8B8 (bytes B, G, R, A); no mipmaps, DXT or color key; 10,591 ground atlases `MIX*.444`.
-  Converted to PNG (master); KTX2 with mipmaps comes with the HD packs (M7, docs/05 §5).
+  Converted to PNG (the master), and by `build` into KTX2: BC7 with mipmaps for the opaque textures that the GPU samples, 8-bit RGBA for the others (§12.2, #700).
 - Models: `models.pak` and `models03.pak` = 1,574 models + 3,423 animations (1,572 + 3,421 in `models.pak`), each a complete Granny **1.2b** file.
   The format has been solved by three independent community readers; the MDL container, the GRN container, the skeleton, the meshes and their materials are confirmed on our files (§4.1–4.2); converted to glTF 2.0 with skeletons and clips.
   The original's animation blending semantics are carried over approximately, via Bevy's animation graph.
@@ -112,8 +112,8 @@ Confirmed on file 2026-10-16 by the `tools/analysis/formats/tex_fmt6.py` script:
 
 The directory is sorted by offset; records are packed back to back with no gaps (confirmed on file 2026-10-16).
 
-Conversion: each record is decompressed (zlib) and converted to RGBA8 → PNG as the master copy; KTX2 with mipmaps (BC7 for PC, ASTC or UASTC for Android) comes with the HD packs (M7, docs/05 §5).
-In total ≈1.6 Gpix, i.e. ≈3.2 GB of uncompressed 16-bit data; ≈1.6 GB in BC7 (estimate).
+Conversion: each record is decompressed (zlib) and converted to RGBA8 → PNG as the master copy; `build` encodes the masters into KTX2 (§12.2, #700), ASTC for Android later (#702).
+In total ≈1.6 Gpix, i.e. ≈3.2 GB of uncompressed 16-bit data; `build`'s `textures.zip` holds them in 977 MB with the mip chains (confirmed 2026-10-23).
 Format 6 is converted to RGBA8 by swapping bytes B and R.
 
 Implemented 2026-10-16: `opensacred_formats::tex` and `opensacred-convert textures` write `assets/textures/<pak>/<number>-<name>.png`.
@@ -1070,7 +1070,7 @@ Whether FFmpeg trims an encoder's delay at the start (by a LAME or Xing header) 
 ### 12.1 Targets per format
 
 The converter writes in two stages (PLAN.md ADR-05 and §7, #694): stage A extracts lossless masters into `assets-src/`, the targets below, and stage B builds the game's assets into `assets/` from them: the textures as KTX2 with BC7 and mipmaps (#700), the sound and the music as Opus in Ogg (#701), the cutscenes as AV1 and Opus in WebM (#698), the scripts as Luau bytecode, all in ZIP archives by kind (#699); the rest as the masters are.
-Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/` as they are, but for the cutscenes, until the later sub-issues change the formats.
+Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/` as they are, but for the textures (#700) and the cutscenes, until the later sub-issues change the other formats.
 
 | Source | Target | Check |
 |---|---|---|
@@ -1102,6 +1102,13 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
   The archives are reproducible: the entries in the order of their paths with UTF-8 names, the date 1980-01-01 00:00, the formats compressed already (PNG, glTF binary, FLAC, MP3, Ogg, WebM, KTX2, the sectors in zlib) stored and the rest deflated at level 6 where that makes it smaller, a stored entry's data aligned to 16 bytes by Android's `zipalign` padding field (`0xD935`) and no other extra field; no ZIP64, so an archive stays below 4 GiB and 65,535 entries.
   `build.ron` records each entry as `<archive>/<path>`; an archive whose masters all changed nothing is kept, and one written again copies its unchanged entries from the old archive as they are.
   It removes the loose files that earlier runs wrote into `assets/` and that would take the archives' place: the outputs of the builds before #699 that `build.ron` names, and those of the extractions before #696 that their records under `assets/manifest/` name, with the records; any other loose file stays, the layer read first.
+  `build.ron` also records the version of each way of making an output (`ways`): an output whose way's version changed is made again, and a record without the versions stands for the ways before #700.
+* The textures (#700, `opensacred_data::texture`): `build` encodes each PNG master of `textures/` and `ui/screens/` into a KTX2 file of the same path but its extension, each level supercompressed by zstd at level 19, with no key and value data.
+  The textures that the game composes or reads on the CPU, the 15,639 tile sheets and atlases that `world/world.ron` names and the cursor (`MOUSE_MAIN.TGA`), are 8-bit RGBA in sRGB (`VK_FORMAT_R8G8B8A8_SRGB`) of one level.
+  The others carry a full mip chain down to 1 × 1, in BC7 (`VK_FORMAT_BC7_SRGB_BLOCK`, Intel's ISPC Texture Compressor at its opaque basic settings) where every texel is opaque and both sides are multiples of 4, else in 8-bit RGBA, as the game reads their alpha (docs/decisions/2026-10-23-textures.md).
+  A level halves the one before by a box of 2 × 2 texels: the colours averaged in linear light, each weighted by its alpha, and the alpha averaged and then scaled so that the share of texels over the models' alpha test (64.5 / 255) stays the largest level's.
+  The models' glTF binaries refer to the `.ktx2` files instead of the PNGs (1,441 references), the 26 images that models embed are embedded as KTX2 (`image/ktx2`), and the game's `world.ron` names the sheets and atlases as `.ktx2`; `build` makes every texture again when the masters' `world.ron` changes, as it decides their encoding.
+  On the masters of 2026-10-23 (confirmed): of the 9,897 textures outside the world's, 85 % of the texels are of opaque textures, 4 % of textures whose alpha is only 0 or 255 and 11 % of translucent ones (every fourth texture counted); the world's textures take 67 % of their PNGs' size (every twentieth); `textures.zip` went from 1,123 MiB of PNG to 932 MiB, and `build` made the textures and the models in 131 s on 24 threads.
 
 ### 12.3 Order
 

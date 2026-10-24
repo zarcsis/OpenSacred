@@ -31,6 +31,7 @@
 //! hero when they are drawn after it, as the original's do ([`Fade`], `sprites.wesl`).
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -51,11 +52,12 @@ use bevy::render::render_resource::{
 };
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
+use opensacred_data::texture;
 use opensacred_data::world::{SIDE, Sector, Shadow, Sprite, Sprites, StaticObject, World};
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
-use crate::terrain::{Rgba, read_png};
+use crate::terrain::{Rgba, read_texture};
 use crate::{buildings, files, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
@@ -333,14 +335,15 @@ fn asset_path(root: &Path, dir: &Path, relative: &str) -> Result<String> {
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
 
-/// Width and height of a PNG, from its header.
-fn png_size(path: &Path) -> Result<(f32, f32)> {
-    let file = files::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let reader = png::Decoder::new(file)
-        .read_info()
+/// Width and height of a texture, from its header.
+fn texture_size(path: &Path) -> Result<(f32, f32)> {
+    let mut file = files::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut header = [0; texture::HEADER];
+    file.read_exact(&mut header)
         .with_context(|| format!("reading {}", path.display()))?;
-    let info = reader.info();
-    Ok((info.width as f32, info.height as f32))
+    let (width, height) =
+        texture::size(&header).with_context(|| format!("reading {}", path.display()))?;
+    Ok((width as f32, height as f32))
 }
 
 /// The objects and their children, depth first.
@@ -532,7 +535,7 @@ impl Atlases<'_> {
                 .atlases
                 .get(usize::try_from(atlas)?)
                 .with_context(|| format!("no atlas {atlas}"))?;
-            let image = read_png(&self.dir.join(name))?;
+            let image = read_texture(&self.dir.join(name))?;
             self.loaded.insert(atlas, image);
         }
         self.loaded
@@ -1085,7 +1088,7 @@ pub fn build(
     drop(atlases);
     let (pages, placed) = pack(&assembled);
     let shadow_size = shadows
-        .map(|path| png_size(&assets.join(path)))
+        .map(|path| texture_size(&assets.join(path)))
         .transpose()?;
     let mut batches: BTreeMap<BatchKey, Batch> = BTreeMap::new();
     let mut glows: BTreeMap<Option<(buildings::Anchor, u8)>, Glows> = BTreeMap::new();
@@ -1101,7 +1104,7 @@ pub fn build(
                 let size = match sizes.get(&atlas) {
                     Some(&size) => size,
                     None => {
-                        let size = png_size(&dir.join(name))?;
+                        let size = texture_size(&dir.join(name))?;
                         sizes.insert(atlas, size);
                         size
                     }
@@ -1575,16 +1578,12 @@ pub(crate) mod tests {
             .map_or_else(|| number(value), |(a, b)| number(a) / number(b))
     }
 
-    /// Writes an RGBA PNG of `width` × `height` pixels, all of `colour`.
+    /// Writes an 8-bit RGBA texture of `width` × `height` pixels, all of `colour`, as the converter
+    /// writes the world's atlases.
     fn write_atlas(path: &Path, width: u32, height: u32, colour: [u8; 4]) {
-        let file = fs::File::create(path).unwrap();
-        let mut encoder = png::Encoder::new(file, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().unwrap();
         let pixels: Vec<u8> = (0..width * height).flat_map(|_| colour).collect();
-        writer.write_image_data(&pixels).unwrap();
-        writer.finish().unwrap();
+        let file = texture::write(texture::Encoding::Rgba8, width, height, &[pixels]).unwrap();
+        fs::write(path, file).unwrap();
     }
 
     #[test]
@@ -1645,11 +1644,11 @@ pub(crate) mod tests {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-{name}-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
+        write_atlas(&dir.join("world").join("atlas.ktx2"), 8, 8, [255; 4]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["atlas.png".into()],
+            atlases: vec!["atlas.ktx2".into()],
         };
         // Sprites over their whole rectangles: a floor, a carpet, a chest, a wall and a bed.
         let sprite = |width, height| {
@@ -1999,12 +1998,12 @@ pub(crate) mod tests {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-pieces-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        write_atlas(&dir.join("red.png"), 8, 8, [255, 0, 0, 255]);
-        write_atlas(&dir.join("blue.png"), 8, 8, [0, 0, 255, 255]);
+        write_atlas(&dir.join("red.ktx2"), 8, 8, [255, 0, 0, 255]);
+        write_atlas(&dir.join("blue.ktx2"), 8, 8, [0, 0, 255, 255]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["red.png".into(), "blue.png".into()],
+            atlases: vec!["red.ktx2".into(), "blue.ktx2".into()],
         };
         // Two pieces side by side from two atlases, and a third below them that runs past the
         // sprite's size, which counts from the pieces' smallest corner.
@@ -2070,11 +2069,11 @@ pub(crate) mod tests {
     fn a_lamps_miniature_glows_three_times_its_size_about_it() {
         let dir = std::env::temp_dir().join(format!("opensacred-game-glow-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        write_atlas(&dir.join("world").join("mini.png"), 256, 256, [255; 4]);
+        write_atlas(&dir.join("world").join("mini.ktx2"), 256, 256, [255; 4]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["mini.png".into()],
+            atlases: vec!["mini.ktx2".into()],
         };
         let cell = Cell {
             tile: 0,
@@ -2149,11 +2148,11 @@ pub(crate) mod tests {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-liquid-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        write_atlas(&dir.join("world").join("mini.png"), 256, 256, [255; 4]);
+        write_atlas(&dir.join("world").join("mini.ktx2"), 256, 256, [255; 4]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["mini.png".into()],
+            atlases: vec!["mini.ktx2".into()],
         };
         // Water in cell (5, 5), the bank in (6, 5) at height 0.
         let cell = |ground, heights| Cell {
@@ -2265,11 +2264,11 @@ pub(crate) mod tests {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-order-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
+        write_atlas(&dir.join("world").join("atlas.ktx2"), 8, 8, [255; 4]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["atlas.png".into()],
+            atlases: vec!["atlas.ktx2".into()],
         };
         let piece = Piece {
             atlas: 0,
@@ -2405,11 +2404,11 @@ pub(crate) mod tests {
     fn abutting_sprites_meet_on_the_screen() {
         let dir = std::env::temp_dir().join(format!("opensacred-game-abut-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
+        write_atlas(&dir.join("world").join("atlas.ktx2"), 8, 8, [255; 4]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["atlas.png".into()],
+            atlases: vec!["atlas.ktx2".into()],
         };
         let sprites = Sprites {
             sprites: vec![
@@ -2518,12 +2517,12 @@ pub(crate) mod tests {
         let dir =
             std::env::temp_dir().join(format!("opensacred-game-shadows-{}", std::process::id()));
         fs::create_dir_all(dir.join("world")).unwrap();
-        write_atlas(&dir.join("world").join("atlas.png"), 8, 8, [255; 4]);
-        write_atlas(&dir.join("shadows.png"), 512, 512, [0, 0, 0, 170]);
+        write_atlas(&dir.join("world").join("atlas.ktx2"), 8, 8, [255; 4]);
+        write_atlas(&dir.join("shadows.ktx2"), 512, 512, [0, 0, 0, 170]);
         let world = World {
             sectors: Vec::new(),
             sheets: Vec::new(),
-            atlases: vec!["atlas.png".into()],
+            atlases: vec!["atlas.ktx2".into()],
         };
         let sprites = Sprites {
             sprites: vec![
@@ -2587,7 +2586,7 @@ pub(crate) mod tests {
             layers: Vec::new(),
             buildings: Vec::new(),
         };
-        let statics = build(&dir, &world, &sprites, Some("shadows.png"), &sector).unwrap();
+        let statics = build(&dir, &world, &sprites, Some("shadows.ktx2"), &sector).unwrap();
         fs::remove_dir_all(&dir).unwrap();
         let shadows: Vec<&Batch> = statics
             .batches
