@@ -1,0 +1,7 @@
+# Every text file is UTF-8 without a BOM with LF line ends, on every platform (CLAUDE.md, "Code
+# conventions"; #834); `.gitattributes` stores them so whatever an editor writes.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf

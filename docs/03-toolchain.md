@@ -455,6 +455,9 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
 
 * A Cargo workspace with profiles: in development, dependencies are built with optimizations and our own code without.
   Bevy is linked statically; `rust-lld` (`.cargo/config.toml`) keeps the links fast on Windows.
+* Every text file is UTF-8 without a BOM with LF line ends, on every platform (the maintainer's rule of 2026-10-24, #834; CLAUDE.md, "Code conventions"): the sources, the documents, the configuration, the converter's masters and the game's assets, what the game writes and the tools' outputs.
+  `.gitattributes` stores the repository's text files with LF whatever a tool writes (`* text=auto eol=lf`, #32), and `.editorconfig` asks the editors for UTF-8 and LF.
+  The code writes LF itself where a platform's default differs: `ron`'s `PrettyConfig::default()` and Python's text mode write CRLF on Windows (#835).
 * CI on GitHub Actions (`.github/workflows/ci.yml`), on every pull request and every push to `main`: a Linux job (fmt, clippy, tests without the game files, the screenshot test), a Windows job (the target platform: the build with `rust-lld` and the tests; no clippy, since the workspace has no Windows-only code, and no screenshot test, since the runner has no GPU) and `cargo deny`.
   The dependencies' build is cached by `Swatinem/rust-cache` and saved only on `main`, which pull requests restore: caches of every branch would push `main`'s out of the repository's 10 GB.
   Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
