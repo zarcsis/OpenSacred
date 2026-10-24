@@ -421,6 +421,28 @@ fn make(
                 end(&mut commands);
                 continue;
             };
+            // The multi-shot plays no clip: its effect at once, its regeneration, and it ends
+            // (`0x50AC00` at `0x50C585`).
+            if style == Style::Volley {
+                let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art)
+                else {
+                    end(&mut commands);
+                    continue;
+                };
+                let (effect, seconds) = arts::volley(record, level);
+                info!(
+                    "making: {} gives the hero {} arrows a shot for {seconds} s",
+                    making.art, effect.whole
+                );
+                commands
+                    .entity(hero)
+                    .entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(move |mut effects| effects.add(effect, seconds));
+                arts.start(making.art);
+                end(&mut commands);
+                continue;
+            }
             let Some(action) = clips.arts.iter().find(|a| a.style == style) else {
                 info!("making: the hero's model has no clip of {}", making.art);
                 end(&mut commands);
@@ -698,6 +720,8 @@ fn make(
                     end(&mut commands);
                 }
             }
+            // The multi-shot ends as it starts, without a clip.
+            Style::Volley => end(&mut commands),
             // Its strikes are `blades`'; it ends with its clip.
             Style::Blades => {
                 if finished {

@@ -845,6 +845,24 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_multi_shot_gives_its_arrows_by_the_level() {
+    assert_eq!(style(1005), Some(Style::Volley));
+    // 1005's record: `[+0x50]` 50 + 144·L, `[+0x58]` 77 + 20·L, `[+0x60]` 20.
+    let multi = WeaponArt {
+        factor: [50.0, 144.0],
+        value_58: [77.0, 20.0],
+        value_60: [20, 0],
+        launch: 0,
+        distance: 0,
+        ..weapon_art(1005, [20.0, 12.0], 0x10)
+    };
+    let arrows = |level| volley(&multi, level).0.whole;
+    assert_eq!((arrows(1), arrows(10), arrows(18)), (2, 5, 6));
+    let (effect, seconds) = volley(&multi, 1);
+    assert_eq!((effect.id, effect.art, seconds), (0x15, 1005, 20.0));
+}
+
+#[test]
 fn the_daemons_forms_replace_each_other() {
     assert_eq!(style(1097), Some(Style::Form));
     assert_eq!(style(1100), Some(Style::Form));

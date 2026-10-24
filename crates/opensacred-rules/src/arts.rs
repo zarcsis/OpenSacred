@@ -169,6 +169,9 @@ pub enum Style {
     /// ([`form`]): the Daemon's forms 1097 to 1100 (`0x5192E0`), of the launch type 2, made on
     /// himself.
     Form,
+    /// At once, without a clip: the effect of the multi-shot on its maker ([`volley`]), the Wood
+    /// Elf's 1005 (`GUI_MOVE_MULTIPFEIL`, `0x50AC00`), of the launch type 0.
+    Volley,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -238,6 +241,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if (1097..=1100).contains(&art) {
         return Some(Style::Form);
+    }
+    if art == 1005 {
+        return Some(Style::Volley);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -922,6 +928,26 @@ pub fn form(record: &WeaponArt, level: u32) -> Option<Boon> {
         starts: Vec::new(),
         replaces: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
     })
+}
+
+/// What the Wood Elf's multi-shot `record` gives her at the level in play `level` as it starts
+/// ([`Style::Volley`], `0x50AC00` at `0x50C585`): the effect `0x15` (`arrows::MULTI_SHOT`) of
+/// the whole value `⌊(L·[+0x54] + [+0x50]) / (L·[+0x5C] + [+0x58])⌋` arrows,
+/// `⌊(50 + 144·L) / (77 + 20·L)⌋`, for `L·[+0x64] + [+0x60]` seconds (20), keyed by 1005.
+pub fn volley(record: &WeaponArt, level: u32) -> (Effect, f32) {
+    let l = f64::from(level);
+    let by_level = |[base, step]: [f32; 2]| l.mul_add(f64::from(step), f64::from(base));
+    let whole = by_level(record.factor) / by_level(record.value_58);
+    let arrows = i32::try_from(whole_units(whole)).unwrap_or(1);
+    let seconds = l.mul_add(f64::from(record.value_60[1]), f64::from(record.value_60[0]));
+    let effect = Effect {
+        id: crate::arrows::MULTI_SHOT,
+        whole: arrows,
+        value: 0.0,
+        art: u32::from(record.id),
+        level: 0,
+    };
+    (effect, narrow(seconds))
 }
 
 /// What is left of its clip, as a part of it, below which a [`Style::Ward`] gives its effect

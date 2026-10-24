@@ -552,9 +552,10 @@ impl Rules {
 /// `UnterExpVoll`, `ObereEXPVoll`); bronze's factors of the strikes between the hero and the
 /// creatures (`ProzAW`, `ProzDmg`, `ProzRes`); the hero's rates of regeneration fighting, with a
 /// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); the distances and the
-/// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); and the
+/// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); the
 /// bands of the factor of a creature's strike at the hero by its level (`WaffenAll`,
-/// `AllOverLv`).
+/// `AllOverLv`); and the factor of each arrow of a multi-shot, to the power of their number
+/// (`Multipfeil`, `0x56D173`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
@@ -574,6 +575,7 @@ pub struct Rules {
     ranks: Ranks,
     range: [f32; 3],
     bands: Bands,
+    multi_shot: f32,
 }
 
 impl Default for Rules {
@@ -597,6 +599,7 @@ impl Default for Rules {
             ranks: Ranks::default(),
             range: [250.0, 1000.0, 0.25],
             bands: Bands::default(),
+            multi_shot: 0.83,
         }
     }
 }
@@ -707,6 +710,18 @@ impl Rules {
                 ]
             },
             bands: Bands::of(b),
+            multi_shot: b.f32("Multipfeil").unwrap_or(default.multi_shot),
+        }
+    }
+
+    /// The factor of each arrow's damage of a shot of `arrows` arrows, the multi-shot's
+    /// (`0x56D173`): `Multipfeil` to the power of the number, 1 for a single arrow.
+    pub fn multi_shot(&self, arrows: u32) -> f32 {
+        if arrows <= 1 {
+            1.0
+        } else {
+            self.multi_shot
+                .powi(i32::try_from(arrows).unwrap_or(i32::MAX))
         }
     }
 
