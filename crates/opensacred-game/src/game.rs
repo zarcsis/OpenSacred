@@ -17,8 +17,8 @@ use clap::{Args, ValueEnum};
 
 use crate::files;
 use crate::{
-    ai, arts, atmosphere, daynight, fight, hero, iso, lines, making, motions, music, npcs, sectors,
-    sound, terrain,
+    ai, arts, atmosphere, daynight, fight, forms, hero, iso, lines, making, motions, music, npcs,
+    sectors, sound, terrain,
 };
 
 /// Where the process is.
@@ -276,13 +276,14 @@ struct Loaded {
     texts: lines::Texts,
     rules: fight::Rules,
     arts: arts::HeroArts,
+    forms: Option<forms::Forms>,
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
 }
 
 /// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
 /// values of its fight.
-fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
+pub fn record(assets: &Path, id: u32) -> Result<opensacred_data::tables::Creature> {
     let path = assets
         .join("tables")
         .join(opensacred_data::tables::CREATURES);
@@ -366,57 +367,27 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             .ok_or_else(|| anyhow!("no model {grn} in {}", assets.display()))?,
     };
     let profile = game.footsteps.clone().unwrap_or_else(|| footsteps.into());
-    // Its idle, walk and run for what it holds by its model's slots (`0x5467A0`), the class's
-    // presets where the model's slots cannot be read; its fight stance and its attacks for what
-    // it holds, and the fractions of its attacks at which they hit.
-    let slots = motions::Slots::read(&assets.join(&model)).ok();
-    let clip = |action, preset: &str| {
-        slots
-            .as_ref()
-            .and_then(|slots| slots.clip(action, held_class))
-            .map_or_else(|| preset.to_owned(), |(name, _)| name.to_owned())
-    };
-    let idle = game
-        .idle
-        .clone()
-        .unwrap_or_else(|| clip(motions::Action::Stand, idle));
-    let walk = game
-        .walk
-        .clone()
-        .unwrap_or_else(|| clip(motions::Action::Walk, walk));
-    let run = game
-        .run
-        .clone()
-        .unwrap_or_else(|| clip(motions::Action::Run, run));
-    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
-    let stance = slots
-        .as_ref()
-        .and_then(|slots| slots.stance(held_class).map(str::to_owned));
     let hits = npcs::hit_fractions(assets);
-    // The clips of its class's arts' actions for what it holds, and their hit points (#509).
     let points = npcs::hit_points(assets);
-    let arts = making::clips(class.creature(), held_class, slots.as_ref(), &points);
-    let dying = slots
-        .as_ref()
-        .map(|slots| {
-            [173, 174]
-                .iter()
-                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    let attacks = slots
-        .map(|slots| slots.attacks(held_class))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|name| {
-            let fractions = hits
-                .get(&name.to_ascii_uppercase())
-                .copied()
-                .unwrap_or_default();
-            (name, fractions)
-        })
-        .collect();
+    let mut clips = clips_of(
+        assets,
+        &model,
+        [idle, walk, run],
+        (class.creature(), held_class),
+        &hits,
+        &points,
+    );
+    for (clip, chosen) in clips
+        .moving
+        .iter_mut()
+        .zip([&game.idle, &game.walk, &game.run])
+    {
+        if let Some(chosen) = chosen {
+            clip.clone_from(chosen);
+        }
+    }
+    let [idle, walk, run] = clips.moving.clone();
+    let footsteps = sound::Footsteps::read(assets, [&walk, &run], &profile)?;
     // The balance's values of the fight, and the hero's own by its type's record and its
     // template's items (#486).
     let balance =
@@ -425,10 +396,31 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
             .and_then(|text| ron::from_str::<opensacred_data::tables::Balance>(&text).ok());
     let rules = fight::Rules::of(balance.as_ref());
     let record = record(assets, game.creature.unwrap_or(class.creature()))?;
+    // The Vampiress's other form, her night's (#758).
+    let forms = (class == Class::Vampiress && game.hero.is_none())
+        .then(|| {
+            let night = forms::Form::night(assets, &hits, &points)?;
+            let steps = sound::Footsteps::read(
+                assets,
+                [&night.clips.moving[1], &night.clips.moving[2]],
+                &profile,
+            )?;
+            let day = forms::Form {
+                creature: class.creature(),
+                model: model.clone(),
+                clips: clips.clone(),
+                base: fight::Base::of(&record),
+                speeds: record.speed,
+                size: opensacred_rules::minds::size(class.creature(), held_class != 0),
+                armed: true,
+            };
+            anyhow::Ok(forms::Forms::new(day, night, steps))
+        })
+        .transpose()?;
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
-    hero.stance = stance;
-    hero.attacks = attacks;
-    hero.arts = arts;
+    hero.stance = clips.stance;
+    hero.attacks = clips.attacks;
+    hero.arts = clips.arts;
     hero.size = opensacred_rules::minds::size(class.creature(), held_class != 0);
     hero.creature = class.creature();
     hero.armed = npcs.hero_armed(&worn);
@@ -476,7 +468,7 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         base,
         holding,
     ));
-    hero.dying = dying;
+    hero.dying = clips.dying;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.gait = hero::Gait::Walk;
@@ -506,9 +498,72 @@ fn load(shared: &sectors::Shared, game: &NewGame, speed: f32) -> Result<Loaded> 
         texts: lines::Texts::read(assets),
         rules,
         arts,
+        forms,
         zoom: game.zoom.unwrap_or(1.0),
         music,
     })
+}
+
+/// The clips of the model `model` of a hero of type `kind` holding what is of `class`: its idle,
+/// walk and run by the model's slots (`0x5467A0`), the `presets` where the slots cannot be read;
+/// its fight stance and its attacks, with the fractions of each at which they hit (`hits`); its
+/// dying clips, the slots 173 and 174; and the clips of its arts' actions with their hit points
+/// (`points`, #509).
+pub fn clips_of(
+    assets: &Path,
+    model: &str,
+    presets: [&str; 3],
+    (kind, class): (u32, u8),
+    hits: &std::collections::HashMap<String, [f32; 2]>,
+    points: &std::collections::HashMap<String, Vec<f32>>,
+) -> forms::Clips {
+    let slots = motions::Slots::read(&assets.join(model)).ok();
+    let moving = [
+        motions::Action::Stand,
+        motions::Action::Walk,
+        motions::Action::Run,
+    ]
+    .into_iter()
+    .zip(presets)
+    .map(|(action, preset)| {
+        slots
+            .as_ref()
+            .and_then(|slots| slots.clip(action, class))
+            .map_or_else(|| preset.to_owned(), |(name, _)| name.to_owned())
+    })
+    .collect::<Vec<_>>();
+    let stance = slots
+        .as_ref()
+        .and_then(|slots| slots.stance(class).map(str::to_owned));
+    let arts = making::clips(kind, class, slots.as_ref(), points);
+    let dying = slots
+        .as_ref()
+        .map(|slots| {
+            [173, 174]
+                .iter()
+                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let attacks = slots
+        .map(|slots| slots.attacks(class))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| {
+            let fractions = hits
+                .get(&name.to_ascii_uppercase())
+                .copied()
+                .unwrap_or_default();
+            (name, fractions)
+        })
+        .collect();
+    forms::Clips {
+        moving: [moving[0].clone(), moving[1].clone(), moving[2].clone()],
+        stance,
+        attacks,
+        arts,
+        dying,
+    }
 }
 
 /// The game loading.
@@ -626,6 +681,10 @@ fn finish(
     commands.insert_resource(loaded.texts);
     commands.insert_resource(loaded.rules);
     commands.insert_resource(loaded.arts);
+    match loaded.forms {
+        Some(forms) => commands.insert_resource(forms),
+        None => commands.remove_resource::<forms::Forms>(),
+    }
     commands.insert_resource(Zoom(loaded.zoom));
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);

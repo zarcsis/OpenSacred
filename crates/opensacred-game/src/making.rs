@@ -96,6 +96,7 @@ pub fn clips(
         Style::Ward,
         Style::Form,
         Style::Panther,
+        Style::Changeling,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -172,6 +173,9 @@ pub fn may_make(
     }
     if effects.is_some_and(|effects| effects.holds_any(arts::refused_while(art))) {
         return Err(format!("{art}'s effects still hold"));
+    }
+    if !arts::in_form(art, arts.kind) {
+        return Err(format!("{art} is not made in this form"));
     }
     Ok(())
 }
@@ -259,13 +263,15 @@ fn aim(
                 continue;
             }
             (_, true, _) if arts::style(art) == Some(Style::Boon) => (hero, at.translation()),
+            // The changeling is made where the hero stands, wherever the button (seen).
+            _ if arts::style(art) == Some(Style::Changeling) => (hero, at.translation()),
             (_, _, Some((entity, place, _))) => (entity, place),
             _ => continue,
         };
         match may_make(&arts, art, effects) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
-                let target = if arts::style(art) == Some(Style::Boon) {
+                let target = if matches!(arts::style(art), Some(Style::Boon | Style::Changeling)) {
                     hero
                 } else {
                     target
@@ -342,10 +348,11 @@ fn whole_distance(a: Vec3, b: Vec3) -> u32 {
 )]
 fn make(
     mut commands: Commands,
-    (tick, speed, buttons): (
+    (tick, speed, buttons, clock): (
         Res<WorldTick>,
         Res<GameSpeed>,
         Res<ButtonInput<MouseButton>>,
+        Option<Res<crate::daynight::Clock>>,
     ),
     experience: Res<Experience>,
     clips: Option<Res<Clips>>,
@@ -378,6 +385,7 @@ fn make(
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
     };
+    let by_day = clock.is_none_or(|clock| clock.phase() == crate::daynight::Phase::Day);
     for (hero, mut transform, mut body, making, playing, combat, size) in &mut heroes {
         // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
         let size = size.map_or(minds::SIZE, |size| size.0);
@@ -596,6 +604,32 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Changeling => {
+                // Below 0.5 left of its clip the Vampiress changes her form: 1022 into her
+                // night's for its time and its regeneration started, 1023 back to her day's and
+                // 1022's regeneration started anew (seen), its own by day (`0x50E6C0`).
+                if !due(1.0 - arts::CHANGES, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let night = making.art == 1022;
+                let seconds = arts
+                    .tables
+                    .weapon_arts
+                    .iter()
+                    .find(|a| a.id == making.art)
+                    .map_or(0.0, |record| {
+                        arts::changeling_seconds(record, playing.level, by_day)
+                    });
+                commands.trigger(crate::forms::Change { night, seconds });
+                arts.start(1022);
+                if !night && by_day {
+                    arts.start(making.art);
+                }
+                end(&mut commands);
+            }
             Style::Panther => {
                 // Below 0.7 left of its clip it leaps to its point in half its clip's time, starts
                 // its regeneration and ends (`0x506770` at `0x507DAA`).

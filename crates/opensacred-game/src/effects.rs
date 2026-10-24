@@ -41,6 +41,16 @@ impl Effects {
             .any(|timed| arts.iter().any(|&art| timed.effect.art == u32::from(art)))
     }
 
+    /// Whether an effect of `id` holds.
+    pub fn holds(&self, id: u32) -> bool {
+        self.0.iter().any(|timed| timed.effect.id == id)
+    }
+
+    /// Takes off every effect of `id`.
+    pub fn remove(&mut self, id: u32) {
+        self.0.retain(|timed| timed.effect.id != id);
+    }
+
     /// Takes off every effect keyed by one of `arts` (`0x5888F0`).
     pub fn take_off(&mut self, arts: &[u32]) {
         self.0.retain(|timed| !arts.contains(&timed.effect.art));

@@ -176,6 +176,11 @@ pub enum Style {
     /// [`panther_point`]), the Dark Elf's 1043 (`GUI_MOVE_PANTHER`, `0x506770`), of the launch
     /// type 3, at a rate by its reach ([`panther_rate`]).
     Panther,
+    /// The Vampiress's change of form once what is left of its clip is below [`CHANGES`]: 1022
+    /// (`GUI_MOVE_CHANGELING_DAY`) into her night's form for the effect 22's time
+    /// ([`changeling_seconds`]), 1023 (`GUI_MOVE_CHANGELING`) back to her day's (`0x50E6C0`), of
+    /// the launch type 0, made where she stands.
+    Changeling,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -251,6 +256,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1043 {
         return Some(Style::Panther);
+    }
+    if art == 1022 || art == 1023 {
+        return Some(Style::Changeling);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -539,6 +547,11 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Dark Elf's 1043 the slot 182 at the blend 0.5 (`0x506770` at `0x50A04D`), its rate
         // by its reach ([`panther_rate`]).
         (4, Style::Panther) => Some(plain(182)),
+        // The changeling in either form: the slot 144 at the rate 0.7 (seen).
+        (6 | 7, Style::Changeling) => Some(ArtAction {
+            rate: CHANGELING_RATE,
+            ..plain(144)
+        }),
         // The Dark Elf's 1045 the slot 146 at the blend 0.5 and the rate 1.0 (`0x506770` at
         // `0x509E28`; 194 at the blend 0.2 mounted).
         (4, Style::Ward) => Some(plain(146)),
@@ -958,6 +971,38 @@ pub fn volley(record: &WeaponArt, level: u32) -> (Effect, f32) {
         level: 0,
     };
     (effect, narrow(seconds))
+}
+
+/// The Vampiress's types by day and by night (docs/02 §6.2), and the effect that her night's form
+/// lasts for (`0x50E6C0`, the adder `0x582D50` with no art's key).
+pub const VAMPIRESS_BY_DAY: u32 = 6;
+pub const VAMPIRESS_BY_NIGHT: u32 = 7;
+pub const NIGHT_FORM: u32 = 22;
+
+/// What is left of its clip, as a part of it, below which a [`Style::Changeling`] changes its
+/// maker's form, and the rate of its clip (seen: the slot 144 at 0.7 in either form).
+pub const CHANGES: f32 = 0.5;
+pub const CHANGELING_RATE: f32 = 0.7;
+
+/// How long the night's form of the changeling `record` at the level in play `level` lasts
+/// (`0x50E6C0`, `0x51CC20`): `[+0x50] + [+0x54]·L` seconds, 24 + 6·L, doubled but by day (`day`,
+/// `0x41BA60`, from 05:20 to 20:20).
+pub fn changeling_seconds(record: &WeaponArt, level: u32, day: bool) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    let seconds = narrow(f64::from(level).mul_add(step, base));
+    if day { seconds } else { 2.0 * seconds }
+}
+
+/// Whether a Vampiress of type `kind` may make `art` in her form (`0x51D840`): a day art of her
+/// pairs by day alone, a night art by night alone; any other art in either.
+pub fn in_form(art: u16, kind: u32) -> bool {
+    if VAMPIRESS.iter().any(|&(day, _)| day == art) {
+        return kind != VAMPIRESS_BY_NIGHT;
+    }
+    if VAMPIRESS.iter().any(|&(_, night)| night == art) {
+        return kind != VAMPIRESS_BY_DAY;
+    }
+    true
 }
 
 /// What is left of its clip, as a part of it, below which a [`Style::Panther`] leaps, and the
