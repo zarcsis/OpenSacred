@@ -82,6 +82,7 @@ pub fn clips(
         Style::Kick,
         Style::Boon,
         Style::Smite,
+        Style::Blades,
     ]
     .into_iter()
     .filter_map(|style| {
@@ -449,7 +450,8 @@ fn make(
                     .map(|boon| vec![boon.point])
                     .unwrap_or_default();
             }
-            if style == Style::Rundum {
+            // A `Rundum` and the hurled blades start their regeneration as they start.
+            if matches!(style, Style::Rundum | Style::Blades) {
                 arts.start(making.art);
             }
             info!(
@@ -485,6 +487,12 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            // Its strikes are `blades`'; it ends with its clip.
+            Style::Blades => {
+                if finished {
+                    end(&mut commands);
+                }
+            }
             Style::Smite => {
                 // Its target and the hero's hostiles nearer it than the two's reach, once
                 // (`0x4FF0B0`).
@@ -724,6 +732,73 @@ fn make(
     }
 }
 
+/// The size of the blade of the hurled blades, its item's `items.pak +0x14` (50 for 0, which a
+/// blade has; **hypothesis** for the hero's, whose items' words the game does not keep).
+const BLADE: f32 = 50.0;
+
+/// The hurled blades' strikes (the Seraphim's 1054, `0x5038F0`), at each of the world's ticks
+/// as its executor runs: the point of the weapon's bone of the hero's right hand, where it holds
+/// one (`0x44CA30`; its hand's bone where the model of its weapon has none), and the hostile
+/// creature nearest it that it touches (`arts::blade_touches`, the creature's size
+/// `arrows::Size`), other than the one it struck last, takes a strike of the art's level and
+/// factor and becomes the last.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn blades(
+    tick: Res<WorldTick>,
+    mut heroes: Query<(Entity, &mut Playing), Without<Dies>>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &Mind,
+            &Health,
+            Option<&crate::arrows::Size>,
+        ),
+        (Without<Dies>, Without<Body>),
+    >,
+    children: Query<&Children>,
+    bones: Query<(&Name, &GlobalTransform)>,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    if tick.seconds.is_none() {
+        return;
+    }
+    for (hero, mut playing) in &mut heroes {
+        if playing.style != Style::Blades {
+            continue;
+        }
+        let Some(point) = bone(hero, &WEAPON_BONES, &children, &bones)
+            .or_else(|| bone(hero, &[HAND_BONE], &children, &bones))
+        else {
+            continue;
+        };
+        let touched = creatures
+            .iter()
+            .filter(|&(entity, _, mind, health, _)| {
+                Some(entity) != playing.last && mind.hostile() && health.current > 0
+            })
+            .map(|(entity, at, _, _, size)| {
+                let distance = (at.translation() - point).xz().length();
+                (entity, distance, size.map_or(BLADE, |size| size.0))
+            })
+            .filter(|&(_, distance, size)| arts::blade_touches(distance, size, BLADE))
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((entity, ..)) = touched {
+            hits.write(fight::Hit {
+                attacker: hero,
+                target: entity,
+                share: playing.factor,
+                ranged: false,
+                art: Some(playing.level),
+            });
+            playing.last = Some(entity);
+        }
+    }
+}
+
 /// A creature that a kick knocks back (`0x594D12`, the flag `0x20000` of `+0x200`): it slides
 /// away from its kicker `by`, from its place `from` where it is gone, at
 /// `arts::KNOCKBACK_SPEED` until it has gone `left` (`+0x24D`), doing nothing else; its walk
@@ -795,6 +870,7 @@ impl Plugin for MakingPlugin {
                 (
                     aim.in_set(Control).before(hero::steer),
                     make.after(hero::steer).before(hero::take_orders),
+                    blades.after(make),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),

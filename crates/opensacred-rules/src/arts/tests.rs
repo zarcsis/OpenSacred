@@ -845,6 +845,18 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_hurled_blades_strike_what_the_blade_touches() {
+    assert_eq!(style(1054), Some(Style::Blades));
+    assert_eq!(
+        action(1, Style::Blades, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(148), 1.6, true))
+    );
+    // A goblin warrior's 25 and a blade's 50 (`items.pak +0x14` of 0).
+    assert!(blade_touches(74.0, 25.0, 50.0));
+    assert!(!blade_touches(75.0, 25.0, 50.0));
+}
+
+#[test]
 fn the_hand_of_god_strikes_its_target_and_the_hostiles_within_the_reach() {
     assert_eq!(style(1012), Some(Style::Smite));
     assert_eq!(
