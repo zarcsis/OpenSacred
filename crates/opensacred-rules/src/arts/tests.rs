@@ -845,6 +845,45 @@ fn the_dark_elfs_boons_give_him_their_effects() {
 }
 
 #[test]
+fn the_daemons_boon_takes_his_forms_off_and_quickens_him() {
+    assert_eq!(style(1094), Some(Style::Boon));
+    assert_eq!(
+        action(9, Style::Boon, 0).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(150), 1.0, true))
+    );
+    // 1094's record: `[+0x50]` 29 + L, `[+0x58]` 0.1 + 0.05·L, `[+0x60]` 108 + 2·L.
+    let fury = WeaponArt {
+        factor: [29.0, 1.0],
+        value_58: [0.1, 0.05],
+        value_60: [108, 2],
+        launch: 5,
+        distance: 0,
+        ..weapon_art(1094, [20.0, 12.0], 0x80_0000)
+    };
+    let given = boon(&fury, 1).unwrap();
+    assert_eq!(given.point, 0.7);
+    let effects: Vec<(u32, u32, f32)> = given
+        .effects
+        .iter()
+        .map(|(e, s)| (e.id, e.art, *s))
+        .collect();
+    assert_eq!(
+        effects,
+        [
+            (50, 1094, 30.0),
+            (2, DAEMON_FORM, 30.0),
+            (52, DAEMON_FORM, 30.0)
+        ]
+    );
+    assert!((given.effects[1].0.value - 0.15).abs() < 1e-6);
+    assert!((given.effects[2].0.value - 1.1).abs() < 1e-6);
+    assert_eq!(given.clears, [1094, 1097, 1098, 1099, 1100, DAEMON_FORM]);
+    assert_eq!(given.starts.len(), 1);
+    // At most 180 s.
+    assert_eq!(boon(&fury, 200).unwrap().effects[0].1, 180.0);
+}
+
+#[test]
 fn the_arrowproof_gives_its_maker_the_deflection() {
     assert_eq!(style(1045), Some(Style::Ward));
     assert_eq!(

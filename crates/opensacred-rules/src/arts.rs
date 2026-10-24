@@ -178,7 +178,11 @@ pub enum Style {
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
-const BOONS: [u16; 4] = [1015, 1047, 1048, 1089];
+const BOONS: [u16; 5] = [1015, 1047, 1048, 1089, 1094];
+
+/// The key of the Daemon's forms' effects of attack speed and defence (`0x4321`), beside the
+/// arts' own keys.
+pub const DAEMON_FORM: u32 = 0x4321;
 
 /// The arts that `0x51D840` refuses while an effect of theirs holds on their maker (`0x582B00`):
 /// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does.
@@ -520,6 +524,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             ..plain(148)
         }),
         (8, Style::Boon) => Some(plain(154)),
+        // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
+        // `0x51BC63`).
+        (9, Style::Boon) => Some(plain(150)),
         // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
         (2, Style::Boon) => Some(plain(151)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
@@ -599,11 +606,14 @@ fn slot_of(slot: u16) -> ArtAction {
 }
 
 /// What a boon art gives its maker ([`Style::Boon`]): the part of its clip at which it gives
-/// it, and each effect with its seconds.
+/// it, and each effect with its seconds; and as it starts, the keys whose effects it takes off
+/// (`0x5888F0`) and the effects it gives then.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Boon {
     pub point: f32,
     pub effects: Vec<(Effect, f32)>,
+    pub clears: Vec<u32>,
+    pub starts: Vec<(Effect, f32)>,
 }
 
 /// The boon of the art `record` at its level in play `level` (docs/re/arts.md, "The special
@@ -618,6 +628,11 @@ pub struct Boon {
 /// - the Dwarf's 1089 below 0.2 the effects 1 of `a` and 2 of `b` for `L·[+0x64] + [+0x60]`
 ///   hundredths of a second (`0x514790`; to the hero, whom `0x51D840` refuses it while they
 ///   hold; a friend's effects of it raised by `0x5904E0`, not followed);
+/// - the Daemon's 1094 (`0x5192E0`): as it starts, the effects keyed by 1094, 1097 to 1100 and
+///   [`DAEMON_FORM`] off and the effect 50 for 10 s keyed by 1094 (`0x51BBC5`); below 0.3 the
+///   effect 50 keyed by 1094, and the effects 2 of `b` and 52 (the attack speed and the pace) of
+///   `(L·[+0x64] + [+0x60]) / 100` keyed by [`DAEMON_FORM`], each for `a` seconds at most 180
+///   (times `1 + 0.4·f` for a Daemon of `+0x4F0` bit `0x8000`, not followed);
 ///
 /// none for another.
 pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
@@ -625,6 +640,28 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
     let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
     let whole = |[base, step]: [i32; 2]| l.mul_add(f64::from(step), f64::from(base));
     let (a, b) = (by_level(record.factor), by_level(record.value_58));
+    let keyed = |id, value, art| Effect {
+        id,
+        whole: 0,
+        value,
+        art,
+        level: 0,
+    };
+    if record.id == 1094 {
+        let art = u32::from(record.id);
+        let seconds = a.min(180.0);
+        let quickens = narrow(whole(record.value_60) * 0.01);
+        return Some(Boon {
+            point: 0.7,
+            effects: vec![
+                (keyed(50, 0.0, art), seconds),
+                (keyed(2, b, DAEMON_FORM), seconds),
+                (keyed(52, quickens, DAEMON_FORM), seconds),
+            ],
+            clears: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
+            starts: vec![(keyed(50, 0.0, art), 10.0)],
+        });
+    }
     let (point, effects, seconds) = match record.id {
         1047 => (0.7, [(1, a), (6, b)], narrow(whole(record.value_60))),
         1048 => (0.8, [(2, a), (12, b)], narrow(whole(record.value_60))),
@@ -632,21 +669,12 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
         1089 => (0.8, [(1, a), (2, b)], narrow(whole(record.value_60) * 0.01)),
         _ => return None,
     };
-    let effect = |(id, value)| {
-        (
-            Effect {
-                id,
-                whole: 0,
-                value,
-                art: u32::from(record.id),
-                level: 0,
-            },
-            seconds,
-        )
-    };
+    let effect = |(id, value)| (keyed(id, value, u32::from(record.id)), seconds);
     Some(Boon {
         point,
         effects: effects.into_iter().map(effect).collect(),
+        clears: Vec::new(),
+        starts: Vec::new(),
     })
 }
 
@@ -849,6 +877,8 @@ pub fn ward(record: &WeaponArt, level: u32) -> Option<Boon> {
     Some(Boon {
         point: 1.0 - WARD_LEFT,
         effects: vec![(effect, by_level(record.factor))],
+        clears: Vec::new(),
+        starts: Vec::new(),
     })
 }
 
