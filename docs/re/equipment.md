@@ -39,10 +39,12 @@ The start script's soldiers carry a sword and a kite shield, or a crossbow; its 
 
 **Hypothesis**: the mask `0x3F` attaches the socket's position and orientation, not its scale.
 The dark elves' blades (`weapon_Dunkelelf_*.grn`) have sockets of scale 0.23 and meshes as long as a sword's; attached with the scale, they stood four times too long.
+The scales of the nodes above a socket still place it: eleven items' sockets lie under a scaled node (docs/02 §4.2), and the daggers placed without that scale were held a hand's width off their grip, where the original's are in the fist (#814).
 
 ## In `opensacred-game`
 
 `npcs` gives each NPC of the scripts the items of its record, and each of the fills those of its `MakeGroup` rule (docs/re/spawning.md), in the client's hands: the item's model goes onto the NPC's bone with the item's socket at that bone, by the socket's position and orientation from the model's root, and wears its item's texture (`items.pak +0x08`).
+The position is by the whole chain of the model's nodes, their scales included, and the orientation by the product of their rotations, which is the rotation of the whole chain in every item (`npcs::Chain`, #814).
 The weapons' kinds come from `Weapon.pak` by the item's slot, which is the weapon record's id (**hypothesis**, docs/02 §6.2).
 A fixed item, a record of `Weapon.pak` without an `items.pak` slot of its own (the heroes' templates' weapons, 7900 to 7909), takes its parent's slot (`Weapon.pak +0x24`, followed up to eight steps), its model, texture and category, as the client copies the parent's definition into the child; its kind stays its own (#488).
 The hero holds the items of its template (docs/02 §9) that go in a hand, as an NPC's go, their models on its bones alike (#488): the Seraphim her weapon 7901, the model of its parent 1724, in her right hand, as the original's does from the start of a new game.

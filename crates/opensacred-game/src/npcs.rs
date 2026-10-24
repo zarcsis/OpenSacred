@@ -47,6 +47,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::math::{Affine3A, Quat};
 use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
@@ -2981,11 +2982,43 @@ pub fn equip(
     }
 }
 
+/// A node's place in its model by the chain of nodes from the root: the whole of their
+/// transforms, scales included, and the product of their rotations alone.
+#[derive(Clone, Copy)]
+struct Chain {
+    whole: Affine3A,
+    rotation: Quat,
+}
+
+impl Chain {
+    const ROOT: Self = Self {
+        whole: Affine3A::IDENTITY,
+        rotation: Quat::IDENTITY,
+    };
+
+    /// The place of a child whose own transform is `local`.
+    fn then(self, local: &Transform) -> Self {
+        Self {
+            whole: self.whole * local.compute_affine(),
+            rotation: self.rotation * local.rotation,
+        }
+    }
+
+    /// The node's position and orientation, without a scale: the position by the whole chain,
+    /// so that the scales above the node place it, and the orientation by the rotations.
+    fn pose(self) -> Transform {
+        Transform::from_translation(self.whole.translation.into()).with_rotation(self.rotation)
+    }
+}
+
 /// The pose of the node named `name` in a glTF's scene, from its root: its position and
-/// orientation alone. The scale of the sockets takes no part: the dark elves' blades have sockets
-/// of scale 0.23 and meshes as long as a sword's (**hypothesis**: the client's attach takes the
-/// components of mask `0x3F`, `0x44C670`, which by these models are the position and the
-/// orientation).
+/// orientation alone ([`Chain::pose`]). The scale of the sockets takes no part: the dark elves'
+/// blades have sockets of scale 0.23 and meshes as long as a sword's (**hypothesis**: the
+/// client's attach takes the components of mask `0x3F`, `0x44C670`, which by these models are
+/// the position and the orientation). The scales of the nodes above a socket do place it: the
+/// daggers' `Bone_weapon_01` lies under a node of scale 0.4, and placed without it they were held
+/// a hand's width off their grip (#814). In every item the socket's whole transform is a rotation
+/// times a uniform scale, the rotation that the product of the chain's rotations gives.
 fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> {
     let all: Vec<&GltfNode> = gltf
         .nodes
@@ -2997,23 +3030,21 @@ fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> 
         .flat_map(|node| node.children.iter().filter_map(|child| nodes.get(child)))
         .map(|child| child.index)
         .collect();
-    let mut stack: Vec<(&GltfNode, Transform)> = all
+    let mut stack: Vec<(&GltfNode, Chain)> = all
         .into_iter()
         .filter(|node| !children.contains(&node.index))
-        .map(|node| (node, Transform::IDENTITY))
+        .map(|node| (node, Chain::ROOT))
         .collect();
     while let Some((node, parent)) = stack.pop() {
-        let local = Transform::from_translation(node.transform.translation)
-            .with_rotation(node.transform.rotation);
-        let pose = parent * local;
+        let placed = parent.then(&node.transform);
         if node.name == name {
-            return Some(pose);
+            return Some(placed.pose());
         }
         stack.extend(
             node.children
                 .iter()
                 .filter_map(|child| nodes.get(child))
-                .map(|child| (child, pose)),
+                .map(|child| (child, placed)),
         );
     }
     None
@@ -4396,6 +4427,7 @@ impl Plugin for NpcsPlugin {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::FRAC_PI_2;
     use std::fs;
 
     use bevy::prelude::Vec2;
@@ -4475,6 +4507,39 @@ mod tests {
         assert!(!ranged(&[(WEAPON, Some(1)), (SHIELD, Some(0))]));
         assert!(!ranged(&[(SHIELD, None), (WEAPON, Some(BOW))]));
         assert!(!ranged(&[(27, Some(BOW))]));
+    }
+
+    #[test]
+    fn a_socket_is_placed_by_the_scales_above_it_and_posed_without_them() {
+        let close = |a: Vec3, b: Vec3| (a - b).length() < 1e-5;
+        // A dagger's socket under a node of scale 0.4 (#814): its translation counts 0.4 of
+        // itself, turned by the node; the pose keeps the rotations and no scale.
+        let blade = Transform::from_xyz(0.0, -2.0, 0.0)
+            .with_rotation(Quat::from_rotation_z(FRAC_PI_2))
+            .with_scale(Vec3::splat(0.4));
+        let socket = Transform::from_xyz(7.0, 0.5, 1.0)
+            .with_rotation(Quat::from_rotation_x(-FRAC_PI_2))
+            .with_scale(Vec3::splat(0.25));
+        let pose = Chain::ROOT.then(&blade).then(&socket).pose();
+        assert!(close(pose.translation, Vec3::new(-0.2, 0.8, 0.4)));
+        let turned = blade.rotation * socket.rotation;
+        assert!(pose.rotation.abs_diff_eq(turned, 1e-6));
+        assert_eq!(pose.scale, Vec3::ONE);
+        // A bone of a general scale/shear `R · U · diag(s) · Uᵀ`, which the converter writes as
+        // an outer node turned by `R · U` and scaled, and an inner one turned by `Uᵀ`: the pose
+        // turns by `R`, the bone's own rotation, and its child lies where the matrix puts it.
+        let r = Quat::from_rotation_y(0.7);
+        let u = Quat::from_rotation_x(0.3);
+        let outer = Transform::from_xyz(1.0, 2.0, 3.0)
+            .with_rotation(r * u)
+            .with_scale(Vec3::new(0.5, 2.0, 1.0));
+        let inner = Transform::from_rotation(u.inverse());
+        let child = Transform::from_xyz(0.0, 1.0, 0.0);
+        let sheared = Chain::ROOT.then(&outer).then(&inner);
+        assert!(sheared.pose().rotation.abs_diff_eq(r, 1e-6));
+        let matrix = outer.to_matrix() * inner.to_matrix();
+        let expected = matrix.transform_point3(Vec3::Y);
+        assert!(close(sheared.then(&child).pose().translation, expected));
     }
 
     #[test]
