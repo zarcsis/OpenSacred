@@ -139,6 +139,10 @@ pub enum Style {
     /// One strike on its target at its class's point of its clip ([`kick_point`]), which may
     /// knock it back ([`knockback_chance`], [`knockback`]).
     Kick,
+    /// At each of its runs, a strike on the creature that the blade in its right hand touches
+    /// ([`blade_touches`]), other than the one it struck last: the Seraphim's 1054
+    /// (`GUI_MOVE_SCHLEUDERKLINGEN`, `0x5038F0`).
+    Blades,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
@@ -183,6 +187,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1012 {
         return Some(Style::Smite);
+    }
+    if art == 1054 {
+        return Some(Style::Blades);
     }
     OWN.iter()
         .zip([Style::Rundum, Style::Hardhit, Style::Attacke, Style::Kick])
@@ -233,6 +240,13 @@ pub fn attacke_target(target: Option<Candidate>, others: &[Candidate]) -> Option
         .iter()
         .find(|c| Some(c.id) != current && within(c))
         .map(|c| c.id)
+}
+
+/// Whether the blade of a [`Style::Blades`], its point `distance` from a creature of the size
+/// `size` (`items.pak +0x14`, `arrows::size`), touches it, the blade's item of the size
+/// `blade` (`0x600340`: nearer than the sum of the two types' sizes, `0x428CE0`).
+pub fn blade_touches(distance: f32, size: f32, blade: f32) -> bool {
+    distance < size + blade
 }
 
 /// What is left of its clip, as a part of it, below which a [`Style::Smite`] strikes
@@ -444,6 +458,12 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Gladiator's 1012 the slot 146 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C10`).
         (2, Style::Smite) => Some(plain(146)),
+        // The Seraphim's 1054 the slot 148 at the blend 0.5 and the rate 1.6 (`0x5038F0` at
+        // `0x505D44`).
+        (1, Style::Blades) => Some(ArtAction {
+            rate: 1.6,
+            ..plain(148)
+        }),
         (8, Style::Boon) => Some(plain(154)),
         // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
         (2, Style::Boon) => Some(plain(151)),
