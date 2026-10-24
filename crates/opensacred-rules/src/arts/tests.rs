@@ -880,7 +880,10 @@ fn the_daemons_forms_replace_each_other() {
     assert_eq!(fierce.replaces, [1094, 1097, 1098, 1099, 1100, DAEMON_FORM]);
     let fire = form(&record(1098, [0, 0], [0, 871]), 1).unwrap();
     let (aura, resistance) = (fire.effects[0].0, fire.effects[1].0);
-    assert_eq!((aura.id, aura.whole, resistance.id), (53, 1, 8));
+    assert_eq!(
+        (aura.id, aura.whole, aura.level, resistance.id),
+        (53, 1, 0x100, 8)
+    );
     assert!((aura.value - 0.871).abs() < 1e-6 && (resistance.value - 30.0).abs() < 1e-6);
     assert_eq!(
         form(&record(1099, [0, 0], [0, 871]), 1).unwrap().effects[1]

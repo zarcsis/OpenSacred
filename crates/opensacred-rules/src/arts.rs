@@ -873,12 +873,13 @@ pub fn jump_landing(from: [f32; 2], to: [f32; 2], reach: Option<u32>) -> [f32; 2
 /// - 1097: the effects 3 (the physical damage's multiplier) of `([+0x60] + [+0x64]·L) / 100`
 ///   and 1 (`A`'s) of `([+0x68] + [+0x6C]·L) / 100`, 0.15 + 0.05·L each, and 7 (the first
 ///   resistance) of `[+0x58] + [+0x5C]·L` (10 + 20·L);
-/// - 1098, 1099 and 1100: the effect 53 of the whole value 1, 3 and 2 (the kind of damage: fire,
-///   poison, magic) and the value `[+0x6C] / 1000` (0.871), and the effect 8, 10 or 9 (that
-///   kind's resistance) of 10 + 20·L;
+/// - 1098, 1099 and 1100: the effect 53 (`fight::effects::TURNS`) of the whole value 1, the value
+///   `[+0x6C] / 1000` (0.871) and the level `0x100`, `0x300` or `0x200`, turning 0.129 of the
+///   physical damage into fire, poison or magic, and the effect 8, 10 or 9 (that kind's
+///   resistance) of 10 + 20·L;
 ///
 /// each keyed by the art, with the effect 60 keyed by [`DAEMON_FORM`] (its whole value, an id, not
-/// kept); what the effect 53 does to the damage is not followed (#761).
+/// kept).
 pub fn form(record: &WeaponArt, level: u32) -> Option<Boon> {
     let l = f64::from(level);
     let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
@@ -894,15 +895,20 @@ pub fn form(record: &WeaponArt, level: u32) -> Option<Boon> {
     let seconds = by_level(record.factor).min(180.0);
     let resistance = by_level(record.value_58);
     let aura = narrow(f64::from(record.value_68[1]) / 1000.0);
+    // The effect 53 of the whole value 1 and the kinds from the physical to the form's.
+    let turns = |kinds| Effect {
+        level: kinds,
+        ..keyed(53, 1, aura, art)
+    };
     let mut effects = match record.id {
         1097 => vec![
             keyed(3, 0, narrow(whole(record.value_60) * 0.01), art),
             keyed(1, 0, narrow(whole(record.value_68) * 0.01), art),
             keyed(7, 0, resistance, art),
         ],
-        1098 => vec![keyed(53, 1, aura, art), keyed(8, 0, resistance, art)],
-        1099 => vec![keyed(53, 3, aura, art), keyed(10, 0, resistance, art)],
-        1100 => vec![keyed(53, 2, aura, art), keyed(9, 0, resistance, art)],
+        1098 => vec![turns(0x100), keyed(8, 0, resistance, art)],
+        1099 => vec![turns(0x300), keyed(10, 0, resistance, art)],
+        1100 => vec![turns(0x200), keyed(9, 0, resistance, art)],
         _ => return None,
     };
     effects.push(keyed(60, 0, 0.0, DAEMON_FORM));
