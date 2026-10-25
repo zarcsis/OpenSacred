@@ -17,6 +17,9 @@ clap.workspace = true
 kira.workspace = true
 opensacred-data.workspace = true
 opensacred-rules.workspace = true
+# The scripts in Luau (#726): Luau built from mlua's vendored sources, so the game needs a C++
+# compiler too.
+opensacred-scripts.workspace = true
 png.workspace = true
 ron.workspace = true
 serde.workspace = true

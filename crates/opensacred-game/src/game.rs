@@ -20,7 +20,7 @@ use crate::files;
 use crate::tables::Tables;
 use crate::{
     ai, arsenal, arts, atmosphere, daynight, fight, forms, hero, iso, lines, making, motions,
-    music, npcs, sectors, sound, terrain,
+    music, npcs, scripts, sectors, sound, terrain,
 };
 
 /// Where the process is.
@@ -351,11 +351,13 @@ fn load(
     let tables = &shared.tables;
     let class = game.class.unwrap_or_default();
     let tree = game.tree.clone().unwrap_or_else(|| class.tree().into());
+    // The tree's start script and its sectors' functions, run in Luau (#726).
+    let scripts = scripts::run(assets, &tree)?;
     let side = u32::try_from(opensacred_data::world::SIDE)?;
     // The sector given, at its centre, or the start script's start cell.
     let start = match game.sector {
         Some(sector) => Err(sector),
-        None => match npcs::start_position(assets, &tree)? {
+        None => match npcs::start_position(&scripts) {
             Some(cell) => Ok(cell),
             None => Err((50, 39)),
         },
@@ -392,7 +394,7 @@ fn load(
         .map(|worn| worn.item)
         .chain(seraphim.then_some(opensacred_rules::arts::BFG_ITEM))
         .collect();
-    let npcs = npcs::Npcs::read(shared, &tree, &items)?;
+    let npcs = npcs::Npcs::read(shared, &scripts, &items)?;
     let holding = fight::Holding(npcs.hero_holds(&worn));
     let (held_class, held) = npcs.hero_gear(&worn);
     bevy::log::debug!("game: the hero holds {held:?}, of the class {held_class}");

@@ -32,3 +32,79 @@ pub const BYTECODE: &str = "luauc";
 /// The key of a record's operands that lists its markers' tags in their order, for a record of
 /// two markers or more (#993): the operands' table keeps no order of its keys.
 pub const MARKS: &str = "marks";
+
+/// The record type of the dialogues' table's entries, whose call is [`DIALOG_ENTRY`].
+pub const DIALOG: u16 = 40;
+/// The call of a dialogues' table's entry, `dialog_entry { name = …, values = { … } }`.
+pub const DIALOG_ENTRY: &str = "dialog_entry";
+
+/// The call of a record type in Luau: its first keyword in snake case
+/// ([`crate::netscript::name`]), `type<n>` for the types 39 and 47, which have none, and
+/// [`DIALOG_ENTRY`] for the dialogues' entries; none for any other, the flow's among them.
+pub fn call_name(kind: u16) -> Option<String> {
+    match (kind, crate::netscript::name(kind)) {
+        (DIALOG, _) => Some(DIALOG_ENTRY.to_owned()),
+        (39 | 47, _) => Some(format!("type{kind}")),
+        (_, Some(keyword)) => Some(snake(keyword)),
+        (_, None) => None,
+    }
+}
+
+/// The record type of a call in Luau ([`call_name`]).
+pub fn kind_of(call: &str) -> Option<u16> {
+    match call {
+        DIALOG_ENTRY => Some(DIALOG),
+        "type39" => Some(39),
+        "type47" => Some(47),
+        _ => crate::netscript::KEYWORDS
+            .iter()
+            .find(|&&(keyword, _)| snake(keyword) == call)
+            .map(|&(_, kind)| kind),
+    }
+}
+
+/// A keyword in snake case: `CreateNPC` → `create_npc`, `NPC_TalkTo` → `npc_talk_to`.
+pub fn snake(keyword: &str) -> String {
+    let chars: Vec<char> = keyword.chars().collect();
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_ascii_uppercase() {
+            let before = i.checked_sub(1).map(|j| chars[j]);
+            let after = chars.get(i + 1).copied();
+            let starts_word = match before {
+                Some(b) if b.is_ascii_lowercase() || b.is_ascii_digit() => true,
+                Some(b) if b.is_ascii_uppercase() => after.is_some_and(|a| a.is_ascii_lowercase()),
+                _ => false,
+            };
+            if starts_word && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_record_type_and_its_call_name_each_other() {
+        assert_eq!(snake("CreateNPC"), "create_npc");
+        assert_eq!(snake("NPC_TalkTo"), "npc_talk_to");
+        assert_eq!(snake("SetUpQuest"), "set_up_quest");
+        for kind in [1, 3, 8, 20, 21, 23, 45, 48, 50, 51, 72, 100, 114, 115, 137] {
+            let call = call_name(kind).unwrap();
+            assert_eq!(kind_of(&call), Some(kind), "{call}");
+        }
+        assert_eq!(call_name(40).as_deref(), Some("dialog_entry"));
+        assert_eq!(kind_of("type39"), Some(39));
+        // `DelNPC` and `DelOBJ` share their type, called by the first.
+        assert_eq!(call_name(55).as_deref(), Some("del_npc"));
+        assert_eq!(call_name(58), Some("if".to_owned()));
+        assert_eq!(kind_of("no_such_record"), None);
+    }
+}
