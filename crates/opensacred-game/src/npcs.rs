@@ -3302,6 +3302,7 @@ pub fn walk(
         let free =
             |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
         let leg = paths::leg(here, target, |cell| heights.walkable_on(cell, level));
+        let end = paths::cell_of(leg.x, leg.z);
         let toward = match paths::next(
             here,
             (level, false),
@@ -3309,9 +3310,9 @@ pub fn walk(
             None,
             |cell, (at, _)| free(cell, at),
             |place| {
-                let mut next = heights.neighbours(place);
-                next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, entity, false));
-                next
+                paths::passable(heights.neighbours(place), end, |cell, (at, _)| {
+                    crowd.stops(cell, at, entity, false)
+                })
             },
             |(at, _)| at,
         ) {
