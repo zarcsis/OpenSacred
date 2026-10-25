@@ -741,10 +741,18 @@ pub struct Walk {
     /// the AI's state 0, #977), the idle action's step, a parting or a step aside. One that walks
     /// so does not step aside for the hero (`0x547070`, `ai::aside`).
     idle: bool,
+    /// The leg it heads for and its course there, found as it set out on the leg
+    /// (`paths::Course`, `0x4F7710`), so that a creature that steps into its way afterwards
+    /// stops it rather than turns it round (#989).
+    course: Option<(Vec3, paths::Course<(Level, bool)>)>,
 }
 
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
 const BALKS: f32 = 1.0;
+
+/// How near the end of a leg short of its target a walker sets out on the next leg, in world
+/// units: its last step lands on the leg's point.
+const AT_LEG: f32 = 1.0;
 
 /// A creature that stays where it is made, the waters' crab and fish (`minds::still`): a walk
 /// that anything orders it ends as it starts (`0x4F4770` at `0x4F47DA`, #967).
@@ -766,6 +774,7 @@ impl Walk {
             within: hero::ARRIVED,
             comes_on: false,
             idle: false,
+            course: None,
         }
     }
 
@@ -3360,26 +3369,65 @@ pub fn walk(
         // an NPC, of an id above 16, is stopped by any).
         let free =
             |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, entity, false);
-        let leg = paths::leg(here, target, |cell| heights.walkable_on(cell, level));
-        let end = paths::cell_of(leg.x, leg.z);
-        let toward = match paths::next(
-            here,
-            (level, false),
-            leg,
-            None,
-            |cell, (at, _)| free(cell, at),
-            |place| {
-                paths::passable(heights.neighbours(place), end, |cell, (at, _)| {
-                    crowd.stops(cell, at, entity, false)
-                })
-            },
-            |(at, _)| at,
-        ) {
+        // Its leg and its course there, found as it sets out on the leg, anew off it (a stair's
+        // landing) and at the leg's end short of its target.
+        let plan = |here: Vec3| {
+            let leg = paths::leg(here, target, |cell| heights.walkable_on(cell, level));
+            let end = paths::cell_of(leg.x, leg.z);
+            let course = paths::course(
+                here,
+                (level, false),
+                leg,
+                None,
+                |cell, (at, _)| free(cell, at),
+                |place| {
+                    paths::passable(heights.neighbours(place), end, |cell, (at, _)| {
+                        crowd.stops(cell, at, entity, false)
+                    })
+                },
+                |(at, _)| at,
+            );
+            (leg, course)
+        };
+        let follow = |planned: &Option<(Vec3, paths::Course<_>)>| {
+            planned.as_ref().and_then(|(leg, course)| {
+                paths::follow(
+                    course,
+                    here,
+                    (level, false),
+                    *leg,
+                    |cell, (at, _)| free(cell, at),
+                    |(at, _)| at,
+                )
+            })
+        };
+        let at_leg = |planned: &Option<(Vec3, paths::Course<_>)>| {
+            planned.as_ref().is_some_and(|(leg, _)| {
+                (*leg - here).with_y(0.0).length() <= AT_LEG && (*leg - target).length() > 0.0
+            })
+        };
+        if walk.course.is_none() || at_leg(&walk.course) {
+            walk.course = match plan(here) {
+                (leg, Some(course)) => Some((leg, course)),
+                (_, None) => None,
+            };
+        }
+        let mut step = follow(&walk.course);
+        if step.is_none() && walk.course.is_some() {
+            walk.course = match plan(here) {
+                (leg, Some(course)) => Some((leg, course)),
+                (_, None) => None,
+            };
+            step = follow(&walk.course);
+        }
+        let toward = match step {
             Some(paths::Step::Through((next, _))) => {
                 walk.level = next;
                 continue;
             }
             Some(paths::Step::Toward(point)) => point,
+            // Its way's next step no longer clear: it stands, as at a creature in its way.
+            Some(paths::Step::Blocked) => here,
             None => target,
         };
         let to = (toward - here).with_y(0.0);
