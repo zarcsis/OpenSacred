@@ -35,7 +35,7 @@ pub struct Hit {
     /// Vampiress's claw jump and the Seraphim's bolts send them).
     pub fixed: Option<[f32; 4]>,
     /// Whether it lands without the hit chance's roll (the event 5 of the Gladiator's 1016's
-    /// effect, which carries no attacker; seen).
+    /// effect and of the Seraphim's bolts; seen, #854).
     pub sure: bool,
 }
 
