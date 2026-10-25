@@ -117,9 +117,10 @@ enum Command {
     Creatures { radius: Option<u32> },
     /// A creature's fight values, the hero's by default; ID as `creatures` prints it
     Stats { id: Option<String> },
-    /// Make COUNT creatures of type TYPE (as `creatures` prints it) about a cell, the hero's by
-    /// default, at their sector's level for the hero's or at LEVEL; hostile or peaceful by their
-    /// type unless told
+    /// Make COUNT creatures of type TYPE (as `creatures` prints it) on a cell and the rings about
+    /// it, whatever the cells are but the hero's, as the original's driver makes them, the hero's
+    /// cell by default, at their sector's level for the hero's or at LEVEL; hostile or peaceful
+    /// by their class unless told
     Spawn {
         creature: u32,
         /// The cell, X,Y or +DX,+DY from the hero's
@@ -1102,7 +1103,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             };
             let heights = heights(world)?;
             let floor = heights.floor(on).map_or(0, |(_, floor)| i32::from(floor));
-            let cells: Vec<(u32, u32)> = debug::cells_about(heights, centre, on, count, hero)
+            let cells: Vec<(u32, u32)> = debug::rings(centre, count, hero)
                 .into_iter()
                 .filter_map(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
                 .collect();

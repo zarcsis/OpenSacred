@@ -2129,9 +2129,6 @@ impl Npcs {
     }
 }
 
-/// The townsfolk's `Creature.pak` class, whom the partners are chosen from (docs/re/ai.md).
-const TOWNSFOLK_CLASS: u8 = 3;
-
 /// The horses' `Creature.pak` class, whose level `CreateNPC` raises by the hero's riding
 /// (`0x4266F0`, `fight::Raise::Horse`).
 const HORSES_CLASS: u8 = 4;
@@ -2152,8 +2149,8 @@ pub struct Spawn {
     /// hero's (`fight::scripted_level`).
     pub level: Option<u32>,
     pub rank: fight::Rank,
-    /// Hostile or peaceful, else by their type: peaceful the townsfolk, the animals that take a
-    /// behaviour and the critters, hostile the others.
+    /// Hostile or peaceful, else by their class's side: hostile where it is hostile to the heroes
+    /// (`minds::hostile_to_heroes`), as the creature maker makes them for neither.
     pub hostile: Option<bool>,
     /// Whether they take no damage (`fight::Immortal`).
     pub immortal: bool,
@@ -2243,9 +2240,11 @@ pub fn spawn_creatures(
     let creature = request.creature;
     let mut placement = npcs.template(creature, &data.0.assets)?;
     let critter = crowd::constructed(creature, placement.creature.1);
-    let hostile = request.hostile.unwrap_or(
-        placement.class != TOWNSFOLK_CLASS && ai::of_type(creature) == 0 && critter == 0,
-    );
+    // Hostile or peaceful by its class's side, as the creature maker makes it for neither
+    // (`0x480D40`'s −1 asks `0x549000` whether it is hostile to the local hero, at `0x480FD5`).
+    let hostile = request
+        .hostile
+        .unwrap_or_else(|| minds::hostile_to_heroes(placement.class, creature));
     placement.made = (false, true);
     placement.layer = request.floor;
     placement.rank = request.rank;
