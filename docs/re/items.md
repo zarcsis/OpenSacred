@@ -252,7 +252,7 @@ The treasure's items fly the same way twice as far, and the held items that `0x4
 
 Holding Alt (`GetAsyncKeyState` of `VK_MENU`, the world view's flag `0x4000`) shows a label over each item in view (`0x627180`): its name, or for gold the amount and a word, laid out by a label layout so that labels do not overlap (`cLabelLayout`, up to 1,024), on a dark translucent panel (`0xCF303030`), in a colour that the item gives (a virtual call, not followed), and the label under the cursor highlighted.
 
-The pick-up is `cCreature::pickupItem` (`0x558080`), which the AI's state 1 calls (`0x53A170`, at `0x53CEB0`; **hypothesis**: as the hero arrives at an item it was sent to, as at a door, docs/re/fight.md): a quest's item is counted (`0x4AAAE0`, below) and taken; gold adds its amount to the creature's (`0x57FD80`) and vanishes; a hero that can use the item (`0x54ABE0`) takes a weapon into its hands when both are empty, and another item into an empty slot that fits it (`0x43F3B0`, `0x43EFC0`); else for the local player onto the cursor when it holds nothing and `0x5D9060` allows (**hypothesis**: while the inventory is open), or into its inventory where its size finds room (`0x428D60`, `0x5DABA0`, `0x5D9F00`), the scripts hearing of it (`0x471790`); without room it is handed to `0x5592B0` (not followed).
+A creature takes an item off the ground as "Picking up" below tells (`cCreature::pickupItem`, `0x558080`).
 
 ### The scripts' drops
 
@@ -267,10 +267,89 @@ Picking up an item counts it for the quests that collect it (`0x4AAAE0`: a list 
 - A hit by a creature with the effect 856 (in the strike's resolution `0x56B130`, at `0x56F679`): in `rand() % 101` below its value (10 times the difficulty's factor more when its counts at `+0x4F8` hold more than four at the entry 30) the struck creature drops a gold pile (5132 in a case of two, else 5133 in a case of two, else 5134 or 5135), its amount held to the strike's damage and to a value of `0x549460` (not followed).
 - A quest's reward (`0x4AC940`) gives gold, experience and items by its flags, and after a count of finished quests at the hero's `+0x2CD` passes `R(1, 56)` a piece of a set not 33 to 38 through the drop (not followed further).
 
+## Picking up
+
+Read 2026-10-25 (#911) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise.
+
+### The click
+
+- The world view's mouse handler `0x6172C0` takes a press of the left button and picks the object under the cursor with `0x626C50`.
+  It looks among the rectangles the view drew this frame, entries of 28 bytes at the view's `+0x96B24`, and the pick gives up beyond 1,000 of them.
+- Each object in a rectangle that holds the cursor answers its pick class, its virtual query 1:
+  - an item (`cItemBase`, `0x5C70C0`) answers 2;
+  - a living creature hostile to the local hero answers 0, any other creature 3 (`0x55D260`);
+  - another 3D object answers 3 (`0x450930`).
+- The classes are tried in the order 0, 1, 2, 3, or 2, 1, 0, 3 while Alt is held (the two tables at `0x95F934`).
+  Within the first class that has a rectangle under the cursor, the rectangle whose centre lies nearest the cursor wins.
+  So a hostile creature under the cursor wins over an item unless Alt is held, the key that also shows the items' labels.
+- With Alt held and nothing picked, the last object's rectangle under the cursor is taken (`0x6270A0`).
+- With an object under the cursor, the handler sends the sound manager the event `(9, 0x5C)` with the object's type (`0x6770E0`, `0x67A7A0`; **hypothesis**: the click's sound).
+- When the cursor holds nothing (`0x655560`) and Shift is not held, an object that is not a creature, an item among them, gives the hero the event 7, with the object's id and the click's world point; with Shift held, a click on an item sends nothing.
+- While the cursor holds an item, a click on the ground with nothing under the cursor calls `0x611E20` with the hero's position and the point (**hypothesis**: it drops the held item there).
+- Holding the button (`0x60F130`, at every tick) repeats only a walk to the point under the cursor, every 0.4 s, and sends no event 7.
+- The event 7 takes the AI's state 1 (`0x53A170`) with the object as its target `+0x104` (docs/re/fight.md, "Doors in the way").
+
+### The walk
+
+- In the state 1's sub-state 0, the target's category (`items.pak +0x2E`, `0x426220`) chooses the branch: every category but 2 and 3 (the creatures), 4 (the chests) and 10 (the doors) takes the items' branch.
+- An item already out of the world (`+0x14` bit 1), or lying at a world point whose x or y is 0, ends the order (`0x54E6D0`, the idle).
+- The signposts 4993 to 4999 (`0x43F6C0`) take the sub-state 8 instead (not read).
+- A type that cannot be picked up is only walked to.
+  A type may be picked up (`0x427920`) of the categories 5 to 9, 13 to 25, 28, 29 or 33, its record's first word without bit 22; the table's eight types with bit 22 are the signposts and `windstrauch.grn`, all of the category 15 (counted in `items.ron`).
+- For an item it may pick up, the creature walks (`+0x150` 1) to the item's world point plus 25 along both x and y (`+0x158`, `+0x15C`), stopping within 50 (`+0x176`), and takes the sub-state 3.
+  It walks on the item's layer, and where the item's cell lies under a building (`0x635240`), on a layer taken from that building's cell (**hypothesis**: the building's floor).
+- A creature of `+0x200` bit 2 does not walk to it while the pick-up's clip plays (the bit not read).
+
+### The take
+
+- In the sub-state 3, once the creature stands (`+0x150` 0, `+0x241` 0), it takes the item if the item lies within its reach, else the order ends (the idle) without it:
+  - the reach is 100 for an id up to 16 (the heroes) and 200 for a higher one;
+  - the distance is the straight distance between the two world points, its integer square root rounded up;
+  - a hero also needs a straight line of walkable cells to the item (`0x4FCC80`).
+  The walk stops at most 50 + 25·√2, about 85, from the item, so a walk that reaches its point ends within a hero's reach.
+- A creature without `+0x200` bit 6 takes the item at once, with no clip (**hypothesis**: the bit marks a player's hero): it leaves the world (`0x5FC8B0`) for the slot its type gives (`0x54ACC0`, `sdk_EQUIP`).
+- A hero turns to the item (`0x44DD90`) and plays the motion 172, which the motions' names call `MOTION_PICKUP`, with the sub-mode `+0x152` `0x65` and the target `+0x184`; the clip's rate `+0x221` is 0.3 over the product of `0x584FE0`'s value and `+0x2C9` in hundredths (neither followed).
+  It plays it only while the setting `PICKUPANIM` holds (`0x81A690`, read from the configuration, on by default); else there is no clip.
+- `cCreature::pickupItem` (`0x558080`, called at `0x53CEB0`) takes the item once half the clip has played, or at once without a clip or where the clip's times are not sane (longer than 10 s, or negative); an item of `+0x14` bit `0x10`, `0x1000` or 1 is not taken.
+- The order ends (the AI's state 0) as the clip ends; a target kept at `+0x138`, with `+0x13C` 1234, then becomes the state 1's next target.
+- In a network game (`0x182EBEC` set; **hypothesis** for the meaning) the hero checks for room before the clip, as below, and without room the item jumps (`0x5592B0`); the local player sends the network event `0x141` with the item, and at the clip's half the item only leaves the world, waiting for the server's answer.
+
+### What becomes of the item (`0x558080`)
+
+- It refuses an item that is gone, of `+0x14` bit `0x10`, or whose type has bit 22 (`0x43F650`) or is 0; else it clears the item's bit `0x20` of `+0x14` ("vanishing") and logs the pick-up.
+- An item object first takes the picking creature's type's variant of its type (`0x5C7370`, "switchItem", `0x43CA20`; **hypothesis**: the class's own model of a piece).
+- The creatures of an id below 32 each have an inventory entry of `0x1180` bytes (`0x5DEBC0`, `0x5DEC90`; a log calls it `cInventoryEntry`), whose grid is `+0x115C` cells wide and `+0x115E` high.
+- Every branch that takes the item for a hero runs a script named by the item where that name begins with `Take:`: the rest of the name is the function, called with the taker (`0x4A71F0`, `0x46BF40`).
+- The branches, in this order:
+  1. **A quest's item** (`0x4AAAE0` non-zero, unless `+0x14` bit `0x4000` is set) goes into the entry's list of the main quest's items (`0x5D8280`, pairs of a type and a key); a type the list holds already is only logged, and the item is destroyed either way (`sdk_DESTROY`), with the sound event `(9, 0x81)`; a creature without an entry does not take it.
+  2. Else the item takes `+0x14` bit `0x4000`, so that it counts once, and **the element stones** go the same way into that list (`0x428680`: the first word's bit 24 with `+0x61`, `+0x62` or `+0x1C` set, the ten `Elementstein01.grn` types 6008 to 6017).
+  3. Unless the item has `+0x14` bit `0x800` (not read), the rest follow.
+  4. **Gold**, the four piles 5132 to 5135 (`0x43AF50`, the table at `0x949920`): the pile's amount (the item's query 3) is added to the creature's gold (`0x57FD80`) and the pile is destroyed, with no room needed; a kernel message of kind 6 with `0x3EC` and the amount follows at the creature's place (**hypothesis**: the amount shown over the hero).
+  5. **Into a hand or a slot**, for a creature of a hero's type (`0x426650`) that can use the item (`0x54ABE0`) and whose `+0x200` lacks `0x600000`: a weapon (category 5) into the hand its type gives (`0x54ACC0`) where both hands (`+0x1D4`, `+0x1D8`) are empty; any other item into the first of the slots 0 to 18 that its class has (`0x43F3B0`), that holds nothing or a cosmetic model (`0x426550`; the slots at `+0x1A4`), and that it fits (`0x43EFC0`; the slots' categories in docs/re/equipment.md, the torches 5632 and 5633 only the slot 12); it is equipped there (`sdk_EQUIP`), with the sound event `(9, 5)` and the item's category.
+  6. **Onto the cursor**, for the local player whose entry has `+0x1162` bit 3 (`0x5D9060`; **hypothesis**: the inventory's window open) while the cursor holds nothing (`cMouse +0x68`, `0x655550`): the item goes onto the cursor (`0x655580`, drawn 32 pixels up and to the left), with the sound event `(9, 0x80)`.
+  7. With bit `0x1000` of the global `0x182EE3C`, `0x557D60` uses or equips the item at once (a mode not followed).
+  8. **The category 14** goes into the entry's list of 256 types at `+0xD5C` (`0x5DB030`) and is destroyed, with the sound event `(9, 0x82)`; no type of the table is of the category 14.
+  9. **Into the inventory's grid**: the item's size in cells (`0x428D60`) is looked for in the grid (`0x5DABA0`), column by column from the left, each from the top, at the first place where it fits; the item clears `+0x14` bit `0x100000`, the scripts hear of it (`0x471790` with the code 2), and it leaves the world for that place (`0x5D9F00`), with the sound event `(9, 0x80)`.
+  10. **Without room**: the sound event `(8, 3)` with the item's type (**hypothesis**: the inventory's being full, its sound or line), then `0x5592B0`.
+- So in a game of one player the hero walks to the item and plays the clip even with the inventory full: the room is looked for only at the take.
+
+### Without room (`0x5592B0`)
+
+- The item stays in the world and jumps where it lies: it is put on the ground, then raised 40 to 70 above it (`rand()/32767·30 + 40`, cut to an integer), and flies by `0x44DED0` with a velocity of 0 along the ground and 100 upward, spinning at `R(−6, 6)` about each axis, with bit `0x8000000` at `+0xB0`; in a network game the network event `0x147` goes to the server too.
+
+### The automatic pick-up (the AI's state 12)
+
+- `cCreature::pickupItem` is also called from the AI's state 12 (`0x4EC560`, at `0x4ECF69` and `0x4ED095`) and from `0x536A3B` (not read).
+- Without a target, the state 12 searches square rings of cells about the creature, out to 19 cells, for the first item that may be picked up, passes the filter `0x4EC330`, and fits the inventory, is gold, or is of a type of the list at `0xAB45A0` (entries of 76 bytes, not read); the creature then walks to the item's point, stopping within 20.
+  At the clip's half it takes every such item on the 3 × 3 cells about itself, and as the clip ends it searches again; finding nothing it goes idle.
+- The filter `0x4EC330` reads the setting `PICKUPAUTO` (`0x81A4E0`): the element stones, the items of `+0x14` bit `0x800` and the types of the list at `0xAB45A0` always pass; with 1, gold and the runes (category 28) pass, of the potions (category 9) only the bottles 3999 and 5058 and the large potions 5137 to 5141, and the other items by a bar of quality that rises with the creature's `+0x3FE` at 10, 25 and 35, read from the item's magic record (`0x5BEB30`: the bits 16 to 19 of its `+0x04`, its bytes `+0x0C` to `+0x0E`); with 2 only gold; with any other value everything.
+- The state 12 is taken at `0x548010` and at `0x4EAB07` (found by a scan of the stores to `+0xFC`): at `0x548010` an idle creature takes it without a target in one case of four, with `0x182EE3C` bit `0x1000` set and `0xAD3CE4` above 250; at `0x4EAB07` the state 13 hands its target on to it (**hypothesis**: one of them starts the hero's automatic pick-up; the hero's own way into the state 12 is not found).
+
 ## Open
 
 The words 43, 46 and 49; what the quality pass makes of its map's value, and `0x5D1750`'s bonuses; the price `0x5D3AB0`; the bonus's other branch; whether `0x5796A0` adds the unconditional effects; the object's creation and the copy of a fixed item; `CreateNPC`'s second making of a rule's items; the thread that runs the scripts.
 Of the drops: the boss switch's cases (`0x533E2E`) and the type 183's last item; the item's own test of the hero's type in `0x54ABE0`; the raising of a fixed item (`0x5C2210`); the counts at `+0x4F8`, the effect 42 and the art 55, the list at `+0x39C`; the colour of an item's label; how long an item lies on the ground and whether it stays when its sector is left; what the network events of a drop carry; the receivers of the effects 856 and 868.
+Of the picking up: how the hero takes the AI's state 12 for the automatic pick-up (about `0x548010`, the state 13 `0x4EA890` at `0x4EAB07`, the caller at `0x536A3B`, the options' screen `0x718660`, which reads `PICKUPANIM` and `PICKUPAUTO`); `0x54ABE0` (whether the hero can use the item), `0x43F3B0`'s classes by type, `0x4AAAE0` as a test, `0x5D9F00` and `0x5DACB0` (the place in the grid and its fit); the item's `+0x14` bits `0x800`, `0x1000` and `0x100000`, the creature's `+0x200` bits 2 and 6 and `+0x241`; `0x611E20` (a click on the ground with an item on the cursor) and the signposts' sub-state 8; the samples of the sound events `(9, 0x80)`, `(9, 0x81)`, `(9, 0x82)`, `(9, 5)`, `(9, 0x5C)` and `(8, 3)`; the kernel message of kind 6; the network events `0x141`, `0x145` and `0x147` and the server's answer; the clip's rate (`0x584FE0`, `+0x2C9`); `0x5C7370`'s variants of the classes (`0x43CA20`).
 
 ## In `opensacred-game`
 
