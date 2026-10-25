@@ -236,8 +236,52 @@ The quests whose time the community reports:
   The giver's start dialogue (`R11aNQ02_NPC_Auftrag_Qstart`) states one day, so the data does not explain a limit of three days never announced, nor can the count's drift, at most four days at the fifth month's end.
   The quest beside it, 1101 (Blackrobes), has a limit that no string of it announces (`QIS_OnEnter1101`, `Zeitum1101` for 1,440); that the report confuses the two, or that a save and a load set the date back, is a **hypothesis**, and the original is to be checked: 1102 taken, the date noted, and `Zeitum1102` seen to run.
 
+### The handlers that these quests rely on
+
+Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code unless marked otherwise.
+
+- An `IF`'s tags (`0x4987B0`) are tested in their order, all of them to hold: `0x48` holds where a variable equals the number, `0x6D` where it is greater and `0x6E` where it is less, each false where the variable is missing.
+- `0x3A` takes a creature (`HERO` for the local hero) and an object's name, and holds where the object is in that creature's inventory (its 256 slots, compared by the object's key).
+- `0x40` holds where the named creature is in the hero's list of followers (`+0x39C`), or is the creature that `0x55C630` answers (not read).
+- `QuestBook` (53, `0x496080`) takes the text (`0x01`), the quest's number and the line's index (the two `0x0B`s), and finds the quest's entry in the log (the vector at `+0x424`, entries of 0x174 bytes, the number at `+8`): an index divisible by 10 sets the entry's title (`+0x24`), another writes the text into the first free one of its ten lines (`+0x28`).
+  It tests none of the quest's flags, so a line still goes into the log of a quest finished or lost, and nowhere for a quest never entered, whose entry its entering makes (`0x46C160`); an eleventh line is dropped.
+- `SetTimer` keeps the last `0x0B` as the id and `0x38` as the time, neither set before the tags are read (`0x4982D0`), so a record without `0x38` carries whatever time the stack held.
+
+### Moorbrook
+
+- **9009 (Whisky Supplier)**: `QIS_OnEnter9009` creates the barrel 17542 (item 6081), whose function `rg22_goodie1_start` (`0x41`) sets bit 25 of `goodies`, and the win is the target's branch on that bit.
+  The target's dialogue, `Dialog:rg22_goodie1_ziel`, tests `0x3A` of the barrel 17713 first, which quest 2203 gives as its reward (`exit2203`), and offers to buy it; while the hero carries it the branch of bit 25 is never reached, and selling or drinking it frees it (#935).
+- **2203 (Pure Water)**: `Region22Init` creates its six objects (item 6081, `0x41` `obj2203`) and its hostile target 17260 (`0x05` `tot2203`).
+  `obj2203` counts the variable `2303a` whatever the quest's state, setting bit 3 of `2203a` at a count of 6, or bit 3 of `2203`, the win, where bit 3 of `2203b` is set; `tot2203` tests bit 3 of `2203a` first, which sets the win, ahead of the branch that triggers the quest where the target is beaten before it is taken.
+  So with the objects taken before the quest and the target killed after them, the giver offers the win with the quest never entered: its `QuestBook` lines go nowhere, `ExitQuest` does nothing, and `QIS_OnExit2203` never runs (#936; that the objects can be taken first is unconditioned in the data, not seen in play).
+- The count `2303a` is also set by `Dialog:ziel2303` (bit 2), a dialogue of R23NQ03, which has no quest file: if `SetVarBit` adds 4 to a count below 4 (**hypothesis**: by its name, not read), one or two objects suffice, or the count passes 6 without `obj2203`'s equality holding, and the quest cannot be won (#943).
+- The same in the 11 trees that hold the two quests.
+
+### The log contradicting itself
+
+- **1303 (Goods Messenger)**: `zeit1303`, set for 4,320 minutes by `QIS_OnEnter1303`, writes the failure line and then `NQ_Log_Qend`, the generic completion line, and sets bit 3, on which the giver's branch writes `NQ_Log_Qfail` and loses the quest.
+  The target 17177 keeps its dialogue `ziel1303`, which tests nothing: after the failure it still writes `NQ_Log_Qend`, and its button `exit1303` gives the reward and exits the quest that the timer did not lose (#937).
+- **7619 (Death to the Dead)**: `QIS_OnEnter7619` hires its follower 19545 and gives him the death function `od_threepwood_7619`, which writes the failure line, shows the failure and loses the quest, and which nothing takes away.
+  `od_7619` runs at each death of the group 761901 and, the whole group dead, shows the completion while the quest stays open until the follower's button `btn_ok_threepwood_7619_c`: his death between the two loses the quest after the completion, and after the button writes the failure line after the win, `LoseQuest` doing nothing to the finished quest (#938; his death as a follower being likely is a **hypothesis**, what `0x39` does to a follower not read).
+  The same in the 10 Underworld trees and `bin/NetScript`.
+- **5005 (Pony Express)**: at the last leg the mage 17277 takes the dialogue `dlg_zwischenpe`, whose branch on bit 5 runs `exitpe`; `losepe`, which `timepe` starts 5 minutes after a leg's time runs out, writes the failure lines, loses the quest and removes the stations 17763 to 17766, but does not give the mage his dialogue back, which `exitpe` does (`NPC_Dialog_Magician`).
+  So after a failure on the last leg the mage still offers `exitpe`: the win line, `NQ_Log_Qend` and the reward, `ExitQuest` doing nothing to the lost quest (#939).
+  The same in all 20 trees.
+- **10255 (Arachnophobia)**: each of its seven spider areas spawns a spider and calls `LoseQuest_10255`, which writes the line `DQ_10255_LOG_LOSE2` and gives the giver the dialogue `dlg_10255_Lost`, but has no `LoseQuest`, so the quest stays entered; its restart (`btn_accept_10255_REstart`) and its win (`btn_ok_10255_sieg`, which exits it) write no line.
+  So after one failure the log's last line stays the failure line, even once the quest is won (#940; that the report means this line is a **hypothesis**); under its siblings' names (`DQ_<n>_LOG_SIEG`, as 10258 and 10261 write) the file has no line of its win or restart.
+  The same in all 20 trees.
+- **1401 (Ancarian Snow)**: `QIS_OnEnter1401` sets `zeit1401` (the id 1401) for 1,440 minutes, whose one record writes `NQ_Log_Qend`, and only `OMO1401tgilde1401` deletes it: the trigger `tgilde1401` with `0x40` naming 17180, the hero entering the area with him among its followers.
+  So a day after the start without that, the log says the quest is completed while it stays open, with no bit, reward or `ExitQuest`; the follower's death (`tot1401`) writes the failure line and leaves the timer running (#941).
+  `tot1401`'s `SetTimer` (`hinterhalt1401`) carries two `0x0B`s, 1401 and 4320, and no `0x38`: the id 4320 with a time never set, where 4320 meant as the time, which would have replaced `zeit1401` at his death, is a **hypothesis**.
+  The same in the 11 trees.
+- **1001 (Captain Pigface)**: `QIS_OnEnter1001` writes `R10NQ01_Log_Qziel01`, the line of the kill, and points the compass at the target 17041 where bit 20 of `1001` is clear (`0x4A`), as it is while the target's item 6046 is not taken (`take1001` sets it): a quest taken the usual way logs the kill at once while the target lives, and one triggered by the item's taking gets no line of the kill (#942).
+  The same in the 11 trees.
+- In the 11 trees, quest 1401's soldier 17181 names the death function `attack1401`, which no tree defines, while `attacke1401` is defined and named by nothing; the 13 smugglers of `Region13Init` (the groups 14011 and 14012) name `0x60` `schmugler1402`, while the function is `schmuggler1402` (#944).
+
+Not read: how the log window shows a quest as completed or failed, by its lines or by its state; what `0x39` does to a follower; when an object's `0x41` function runs (**hypothesis**: as it is picked up); and none of these was seen in the running original.
+
 Not read: whether a save keeps the date and the timers, the drift seen in the running original, and a test by which a repaired drop could know that its partner quest is open (these quests set no bits of their own).
-The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), and the calendar's drift (#933).
+The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944).
 
 ## `SetNPCState`
 
