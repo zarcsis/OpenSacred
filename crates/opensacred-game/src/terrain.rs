@@ -290,6 +290,9 @@ struct LoadedCell {
     /// (the low nibble 2).
     walkable: bool,
     flown_over: bool,
+    /// Whether the Daemon in his form of 1094 may step onto it though it may not be walked on
+    /// (`opensacred_rules::arts::wades`).
+    wadable: bool,
     /// Whether the cell is an entrance of its building ([`ENTRANCE`]).
     entrance: bool,
 }
@@ -386,6 +389,7 @@ impl Heights {
                     building: buildings::anchor(sector, index),
                     walkable: walkable(cell.flags, cell.ground),
                     flown_over: cell.ground & 0xF == FLOWN_OVER,
+                    wadable: opensacred_rules::arts::wades(cell.ground, cell.heights),
                     entrance: cell.ground & 0xF == ENTRANCE
                         && cell.flags & buildings::BUILDING_CELL != 0,
                 },
@@ -430,6 +434,19 @@ impl Heights {
     /// the chests that stop only some are `crowd`'s).
     pub fn walkable_on(&self, cell: (i32, i32), level: Level) -> bool {
         self.walkable_at(cell, level) && !self.occupied.contains(&(cell, level))
+    }
+
+    /// Whether the Daemon in his form of 1094 may step into a cell at a level that may not be
+    /// walked on (`0x4EBCA0` at `0x4EBD62`): a cell of the ground that he wades over
+    /// (`opensacred_rules::arts::wades`) and no closed trigger holds; the inside layers keep no
+    /// first heights, and none there.
+    pub fn wadable_on(&self, (cx, cy): (i32, i32), level: Level) -> bool {
+        level.is_none()
+            && !self.occupied.contains(&((cx, cy), level))
+            && match (u32::try_from(cx), u32::try_from(cy)) {
+                (Ok(x), Ok(y)) => self.cells.get(&(x, y)).is_some_and(|cell| cell.wadable),
+                _ => false,
+            }
     }
 
     /// Whether a cell may be walked on at a level, on the ground or in an inside layer's grid,
@@ -497,7 +514,7 @@ impl Heights {
     }
 
     /// [`Self::neighbours`], a cell at a level stepped into where `walkable` holds it.
-    fn neighbours_by(
+    pub fn neighbours_by(
         &self,
         (cell, (level, climbing)): ((i32, i32), Footing),
         walkable: impl Fn((i32, i32), Level) -> bool,

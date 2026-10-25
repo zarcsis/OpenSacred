@@ -533,6 +533,93 @@ pub fn bolt_damages(spell: &Spell, level: i32, multipliers: [f32; 4]) -> [f32; 4
 /// arts' own keys.
 pub const DAEMON_FORM: u32 = 0x4321;
 
+/// The Daemon's art of his form, 1094, and its effect, keyed by it (`0x584B16`, docs/re/arts.md,
+/// "The effects", 50).
+pub const FORM: u16 = 1094;
+pub const FORMED: u32 = 50;
+/// The effect that strikes the Daemon whose form ends where he may not stand, keyed by
+/// [`DAEMON_FORM`] (`0x5881A0`): 55.
+pub const DROWNS: u32 = 55;
+
+/// Whether the Daemon in his form of 1094 may step onto a cell of the ground that the client's
+/// test of a cell refuses, by its ground byte (`+0x1F`) and its first corner heights (`+0x10` to
+/// `+0x13`), as `0x4EBCA0` lets a creature of an effect keyed by 1094 (at `0x4EBD62`) or a mounted
+/// one: a cell of the low nibble 2, those an arrow flies over, the ponds, the fences and the walls,
+/// with a corner below 2, signed (**hypothesis**: the shallow water and the low fences).
+pub fn wades(ground: u8, heights: [i8; 4]) -> bool {
+    ground & 0xF == 2 && heights.iter().any(|&height| height < 2)
+}
+
+/// The seconds of his form within which a number counts them down over the Daemon (`0x5635BB`).
+pub const COUNTS_DOWN: f32 = 5.5;
+
+/// The number that counts the Daemon's form down over him at a tick that took its seconds from
+/// `before` to `after`, and its colour (ARGB), where he stands on a cell he may walk on or not
+/// (`walkable`): at each whole second crossed below 5.5 s, the seconds rounded (`0x5635BB`, the
+/// engine's event 6, as the townsfolk's lines), in [`countdown_colour`].
+pub fn countdown(before: f32, after: f32, walkable: bool) -> Option<(u32, u32)> {
+    let crossed = f64::from(before).trunc() > f64::from(after);
+    if !crossed || after >= COUNTS_DOWN || after < 0.0 {
+        return None;
+    }
+    let shown = u32::try_from(crate::fight::truncated(f64::from(after) + 0.5)).ok()?;
+    Some((shown, countdown_colour(after, walkable)))
+}
+
+/// The countdown's colour at `left` seconds of the form (ARGB, `0x5635BB`): yellow, `0xFFF2FF00`,
+/// where he may walk on his cell; else red, `0xFFFF0000`, from 1 s, and above it orange, its red
+/// `0xF2` and `⌊13/s⌋`, its green `0xFF` less `⌊255/s⌋`, toward red as the seconds go.
+pub fn countdown_colour(left: f32, walkable: bool) -> u32 {
+    if walkable {
+        return 0xFFF2_FF00;
+    }
+    if left <= 1.0 {
+        return 0xFFFF_0000;
+    }
+    let left = f64::from(left);
+    let red = crate::fight::truncated(-13.0 / left);
+    let green = crate::fight::truncated(-255.0 / left);
+    let rgb = 0xFF_F2FF + green - (red << 8);
+    u32::try_from((rgb << 8) & 0xFFFF_FFFF).unwrap_or(0xFFFF_0000)
+}
+
+/// How far about the Daemon, in cells, his form's end on a cell he may not stand on looks for one
+/// he may (`0x5881A0`).
+pub const LANDS_WITHIN: i32 = 5;
+
+/// The cell the Daemon is put on as his form ends on `at`, a cell he may not stand on: one at
+/// random of the first ring about him, 1 to 5 cells off, that holds one he may (`walkable`,
+/// `0x636C10`, `0x5FC8B0` in `0x5881A0`; **hypothesis**: the rings square, as the ways' window);
+/// none where none does, and he drowns ([`drowning`]).
+pub fn landing(
+    (x, y): (i32, i32),
+    walkable: impl Fn((i32, i32)) -> bool,
+    dice: &mut impl crate::spawning::Dice,
+) -> Option<(i32, i32)> {
+    (1..=LANDS_WITHIN).find_map(|ring| {
+        let cells: Vec<(i32, i32)> = (-ring..=ring)
+            .flat_map(|dy| (-ring..=ring).map(move |dx| (dx, dy)))
+            .filter(|&(dx, dy)| dx.abs().max(dy.abs()) == ring)
+            .map(|(dx, dy)| (x + dx, y + dy))
+            .filter(|&cell| walkable(cell))
+            .collect();
+        let count = u32::try_from(cells.len()).ok().filter(|&n| n > 0)?;
+        cells.get(usize::try_from(dice.below(count)).ok()?).copied()
+    })
+}
+
+/// How long the drowning's effect 55 holds, renewed while the Daemon lives, and how often it
+/// strikes him (`0x5881A0`).
+pub const DROWNING_SECONDS: f32 = 5.0;
+pub const DROWNING_EVERY: f32 = 0.5;
+
+/// The strike of the drowning's effect 55 that the Daemon's form gives him as it ends where he
+/// may not stand and none can take him, by his health: a tenth of it and 1, its whole value, which
+/// strikes him from himself every 0.5 s (`0x5881A0`, the hit's kind `0x11`).
+pub fn drowning(health: u32) -> u32 {
+    health / 10 + 1
+}
+
 /// The arts that `0x51D840` refuses while an effect of theirs holds on their maker (`0x582B00`):
 /// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does.
 pub fn refused_while(art: u16) -> &'static [u16] {

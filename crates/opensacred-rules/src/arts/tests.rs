@@ -2065,3 +2065,53 @@ fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
     assert_eq!(refused_while(1019), [1018, 1019]);
     assert!(refused_while(1071).is_empty());
 }
+
+#[test]
+fn the_daemon_in_his_form_wades_where_a_corner_is_low() {
+    // The cells an arrow flies over, the low nibble 2, with a corner below 2, signed.
+    assert!(wades(0x92, [0, 5, 5, 5]));
+    assert!(wades(0x02, [-10, 3, 3, 3]));
+    assert!(!wades(0x92, [2, 2, 2, 2]));
+    // Not a building's mass, the low nibble 1.
+    assert!(!wades(0x91, [0; 4]));
+}
+
+#[test]
+fn the_form_counts_its_last_seconds_down() {
+    // A whole second crossed below 5.5 s shows the seconds rounded.
+    assert_eq!(countdown(5.1, 4.9, false), Some((5, 0xFFF4_CB00)));
+    assert_eq!(countdown(2.05, 1.95, true), Some((2, 0xFFF2_FF00)));
+    assert_eq!(countdown(1.02, 0.98, false), Some((1, 0xFFFF_0000)));
+    // None between the whole seconds, nor above 5.5 s.
+    assert_eq!(countdown(4.5, 4.4, false), None);
+    assert_eq!(countdown(5.6, 5.4, false), None);
+    assert_eq!(countdown(6.05, 5.95, false), None);
+    // Orange toward red as the seconds go: its red `0xF2 + ⌊13/s⌋`, its green `0xFF − ⌊255/s⌋`.
+    assert_eq!(countdown_colour(5.0, false), 0xFFF4_CC00);
+    assert_eq!(countdown_colour(2.0, false), 0xFFF8_8000);
+    assert_eq!(countdown_colour(1.0, false), 0xFFFF_0000);
+    assert_eq!(countdown_colour(5.0, true), 0xFFF2_FF00);
+}
+
+#[test]
+fn the_form_ends_on_the_first_ring_that_holds_dry_ground() {
+    struct First;
+    impl crate::spawning::Dice for First {
+        fn below(&mut self, _: u32) -> u32 {
+            0
+        }
+    }
+    let dry = |cells: &'static [(i32, i32)]| move |cell| cells.contains(&cell);
+    assert_eq!(
+        landing((10, 10), dry(&[(13, 10), (16, 10)]), &mut First),
+        Some((13, 10))
+    );
+    // The ring's first cell at the roll 0, by rows.
+    assert_eq!(
+        landing((10, 10), dry(&[(11, 11), (9, 9)]), &mut First),
+        Some((9, 9))
+    );
+    // Beyond 5 cells he drowns, a tenth of his health and 1 every 0.5 s.
+    assert_eq!(landing((10, 10), dry(&[(16, 10)]), &mut First), None);
+    assert_eq!(drowning(250), 26);
+}

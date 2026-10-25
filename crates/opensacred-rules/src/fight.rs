@@ -2218,7 +2218,7 @@ fn roll_damage(damage: &[[f32; 2]; KINDS], factor: f32, rng: &mut Rng) -> [f32; 
     clippy::cast_possible_truncation,
     reason = "the original truncates the end of a damage to an integer of 32 bits"
 )]
-fn truncated(value: f64) -> i64 {
+pub(crate) fn truncated(value: f64) -> i64 {
     value
         .trunc()
         .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i64

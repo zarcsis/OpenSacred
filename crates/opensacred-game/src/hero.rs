@@ -812,11 +812,16 @@ pub fn run(
         Has<crate::making::Playing>,
         Has<Dies>,
         Has<Flies>,
+        Option<&crate::effects::Effects>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body, striking, making, dying, flies) in &mut bodies {
+    for (me, mut transform, mut body, striking, making, dying, flies, effects) in &mut bodies {
+        // The Daemon in his form of 1094 wades where the ground is low (`0x4EBCA0` at
+        // `0x4EBD62`, an effect keyed by 1094).
+        let wades =
+            effects.is_some_and(|effects| effects.holds_any(&[opensacred_rules::arts::FORM]));
         let mut moving = None;
         if body.unplaced
             && let Some(y) =
@@ -883,9 +888,12 @@ pub fn run(
             }
             let level = body.level;
             if let Some(target) = body.target {
-                // A cell it may step into: walkable, no object and no hostile creature in it.
-                let free =
-                    |cell, at| heights.walkable_on(cell, at) && !crowd.stops(cell, at, me, true);
+                // A cell it may step into: walkable, or one the Daemon wades over in his form, no
+                // object and no hostile creature in it.
+                let open = |cell, at| {
+                    heights.walkable_on(cell, at) || (wades && heights.wadable_on(cell, at))
+                };
+                let free = |cell, at| open(cell, at) && !crowd.stops(cell, at, me, true);
                 let walkable = |cell| free(cell, level);
                 // Round what blocks the way and through the doors; straight on toward a target that
                 // cannot be reached, up to what blocks it.
@@ -899,7 +907,7 @@ pub fn run(
                     onto,
                     |cell, (at, _)| free(cell, at),
                     |place| {
-                        let mut next = heights.neighbours(place);
+                        let mut next = heights.neighbours_by(place, open);
                         next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
                         next
                     },

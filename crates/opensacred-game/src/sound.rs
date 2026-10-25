@@ -7,7 +7,9 @@
 //! `SERA_WALK_1H` (**hypothesis**, docs/02 §4.1). The group of the profile follows the nature
 //! of the cell under the hero (docs/02 §5.2), `BRIDGE` on a bridge over a liquid as the client's
 //! step gives it (`0x639080`, `terrain::Heights::step_nature`), as the client's switch at
-//! `0x68EDDA` maps them (docs/re/sound.md).
+//! `0x68EDDA` maps them (docs/re/sound.md). The Daemon's steps in his form of 1094 are the sounds
+//! 1195 or 1196 at random, whatever the ground (`0x68ECF6`, the sound manager's byte `+0xAF49`;
+//! **hypothesis**: wing beats).
 //!
 //! The sound index, `sound/sound.ron`, is parsed once at the start ([`Index`], #827): the weapons'
 //! sounds (`sfx`), the footsteps, the music and the ambient loops take their samples from it.
@@ -24,7 +26,9 @@ use bevy::prelude::{
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, PlaybackState};
 use opensacred_data::sound::{EXTENSION, Music, Sound};
+use opensacred_rules::spawning::Rng;
 
+use crate::effects::Effects;
 use crate::files;
 use crate::frame::Step;
 use crate::game::AppState;
@@ -40,6 +44,8 @@ const STONE: usize = 5;
 const SAND: usize = 6;
 const WOOD: usize = 7;
 const GROUPS: usize = 8;
+/// The sounds of the Daemon's steps in his form of 1094 (`0x68ECF6`).
+const WINGS: [u32; 2] = [1195, 1196];
 
 /// The footstep group of a cell's nature, as the client's switch at `0x68EDDA` maps them:
 /// `DESERT`, `KIESROAD` and `KIES` sand, `ARCTIC` snow, `SUMPF` swamp, `WATERA` and `WATERB`
@@ -92,6 +98,11 @@ pub struct Footsteps {
     /// The sample files of each group, relative to the asset directory.
     files: [Vec<String>; GROUPS],
     samples: [Vec<Handle<AudioSource>>; GROUPS],
+    /// The sample files of the Daemon's steps in his form, and their samples, of which one at
+    /// random plays.
+    wing_files: Vec<String>,
+    wings: Vec<Handle<AudioSource>>,
+    dice: Rng,
     next: usize,
     /// The clip and its fraction at the previous frame.
     last: Option<(Gait, f32)>,
@@ -140,6 +151,13 @@ impl Footsteps {
             moments,
             files,
             samples: Default::default(),
+            wing_files: WINGS
+                .iter()
+                .filter(|id| sound.samples.contains(id))
+                .map(|&id| sample_file(id))
+                .collect(),
+            wings: Vec::new(),
+            dice: Rng::of(0, 0, 12),
             next: 0,
             last: None,
             played: None,
@@ -152,6 +170,11 @@ pub fn load(mut footsteps: ResMut<Footsteps>, assets: Res<AssetServer>) {
     for (samples, files) in footsteps.samples.iter_mut().zip(&footsteps.files) {
         *samples = files.iter().map(|file| assets.load(file.clone())).collect();
     }
+    footsteps.wings = footsteps
+        .wing_files
+        .iter()
+        .map(|file| assets.load(file.clone()))
+        .collect();
 }
 
 /// Whether the clip's fraction passed `moment` between `last` and `now`, the clip looping.
@@ -170,7 +193,7 @@ fn passed(last: f32, now: f32, moment: f32) -> bool {
 )]
 pub fn step(
     mut footsteps: ResMut<Footsteps>,
-    bodies: Query<(&Body, &Transform)>,
+    bodies: Query<(&Body, &Transform, Option<&Effects>)>,
     heights: Res<Heights>,
     clips: Option<Res<Clips>>,
     players: Query<&AnimationPlayer>,
@@ -178,10 +201,11 @@ pub fn step(
     audio: Res<Audio>,
     time: Res<Time>,
 ) {
-    let Some((gait, at)) = bodies
-        .iter()
-        .find_map(|(body, transform)| body.moving().map(|gait| (gait, transform.translation)))
-    else {
+    let Some((gait, at, winged)) = bodies.iter().find_map(|(body, transform, effects)| {
+        let winged = effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::FORMED));
+        body.moving()
+            .map(|gait| (gait, transform.translation, winged))
+    }) else {
         footsteps.last = None;
         return;
     };
@@ -208,9 +232,10 @@ pub fn step(
     } else {
         wanted
     };
+    let winged = winged && !footsteps.wings.is_empty();
     if let Some((last_gait, last)) = footsteps.last
         && last_gait == gait
-        && !footsteps.samples[group].is_empty()
+        && (winged || !footsteps.samples[group].is_empty())
     {
         for i in 0..footsteps.moments[moments].len() {
             if passed(last, now, footsteps.moments[moments][i]) {
@@ -221,9 +246,15 @@ pub fn step(
                 if stuck {
                     continue;
                 }
-                let samples = &footsteps.samples[group];
-                let sample = samples[footsteps.next % samples.len()].clone();
-                debug!("footstep at {now:.3} of the {gait:?} clip, group {group}");
+                let sample = if winged {
+                    let count = u32::try_from(footsteps.wings.len()).unwrap_or(1);
+                    let roll = usize::try_from(footsteps.dice.below(count)).unwrap_or(0);
+                    footsteps.wings[roll].clone()
+                } else {
+                    let samples = &footsteps.samples[group];
+                    samples[footsteps.next % samples.len()].clone()
+                };
+                debug!("footstep at {now:.3} of the {gait:?} clip, group {group}, wings {winged}");
                 let step = audio.play(sample).handle();
                 footsteps.played = Some((step, time.elapsed()));
                 footsteps.next += 1;

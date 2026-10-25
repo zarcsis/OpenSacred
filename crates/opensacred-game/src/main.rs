@@ -18,6 +18,7 @@ mod burns;
 mod command;
 mod console;
 mod crowd;
+mod daemon;
 mod daynight;
 mod debug;
 mod doors;
@@ -273,6 +274,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         console::ConsolePlugin,
         crowd::CrowdPlugin,
+        daemon::DaemonPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
         drops::DropsPlugin,
@@ -285,9 +287,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         glance::GlancePlugin,
         guns::GunsPlugin,
         help::HelpPlugin,
-        hero::HeroPlugin,
     ))
     .add_plugins((
+        hero::HeroPlugin,
         hud::HudPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
@@ -302,9 +304,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         pause::PausePlugin,
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
-        settings::SettingsPlugin,
     ))
     .add_plugins((
+        settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
