@@ -166,6 +166,9 @@ pub enum Style {
     /// Its effect on its maker at a part of its clip ([`ward`]): the Dark Elf's arrowproof 1045
     /// (`GUI_MOVE_ARROWPROOF`, `0x506770`), of the launch type 2, made on himself.
     Ward,
+    /// As [`Self::Ward`], its effect the spells' deflection (`0x1A`) at its own clip: the Dark
+    /// Elf's spellproof 1046 (`GUI_MOVE_SPELLPROOF`, `0x506770`), of the launch type 2.
+    WardSpells,
     /// Its effects on its maker at a part of its clip, those of his other forms taken off first
     /// ([`form`]): the Daemon's forms 1097 to 1100 (`0x5192E0`), of the launch type 2, made on
     /// himself.
@@ -612,6 +615,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1045 {
         return Some(Style::Ward);
     }
+    if art == 1046 {
+        return Some(Style::WardSpells);
+    }
     if (1097..=1100).contains(&art) {
         return Some(Style::Form);
     }
@@ -988,6 +994,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Dark Elf's 1045 the slot 146 at the blend 0.5 and the rate 1.0 (`0x506770` at
         // `0x509E28`; 194 at the blend 0.2 mounted).
         (4, Style::Ward) => Some(plain(146)),
+        // His spellproof 1046 the slot 147 at the blend 0.5 and the rate 1.0 (`0x509E62`).
+        (4, Style::WardSpells) => Some(plain(147)),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -1936,20 +1944,23 @@ pub fn panther_point(from: [f32; 2], to: [f32; 2], reach: u32, far: bool) -> [f3
 /// (`0x506770` at `0x508561`: the double 0.2 at `0x890DB0`).
 pub const WARD_LEFT: f32 = 0.2;
 
-/// What the arrowproof `record` gives at the level in play `level` ([`Style::Ward`], `0x506770`
-/// at `0x508561`), as a [`Boon`]: below [`WARD_LEFT`] of its clip, on its target where it is of a
-/// hero's class (`0x426610`), else on its maker, the effect `0x19`, the arrows' deflection
-/// (`arrows::deflection_chance`), of `[+0x58] + [+0x5C]·L` (1 + 0.05·L) for
-/// `[+0x50] + [+0x54]·L` seconds (44 + L), keyed by 1045 and with its level; its whole value, the
-/// object 883 it makes, is left out.
+/// What the arrowproof or the spellproof `record` gives at the level in play `level`
+/// ([`Style::Ward`], [`Style::WardSpells`], `0x506770` at `0x508561`), as a [`Boon`]: below
+/// [`WARD_LEFT`] of its clip, on its target where it is of a hero's class (`0x426610`), else on
+/// its maker, the effect `0x19`, the arrows' deflection (`arrows::deflection_chance`), or for
+/// 1046 the effect `0x1A`, the spells' (`crate::spells::TURNS_SPELLS`), of
+/// `[+0x58] + [+0x5C]·L` (1 + 0.05·L) for `[+0x50] + [+0x54]·L` seconds (44 + L), keyed by the
+/// art and with its level; its whole value, the object 883 or 870 it makes, is left out.
 pub fn ward(record: &WeaponArt, level: u32) -> Option<Boon> {
-    if record.id != 1045 {
-        return None;
-    }
+    let id = match record.id {
+        1045 => crate::arrows::DEFLECTION,
+        1046 => crate::spells::TURNS_SPELLS,
+        _ => return None,
+    };
     let l = f64::from(level);
     let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
     let effect = Effect {
-        id: crate::arrows::DEFLECTION,
+        id,
         whole: 0,
         value: by_level(record.value_58),
         art: u32::from(record.id),

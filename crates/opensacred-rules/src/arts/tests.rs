@@ -1363,6 +1363,18 @@ fn the_arrowproof_gives_its_maker_the_deflection() {
         (effect.id, effect.art, effect.level, seconds),
         (0x19, 1045, 3, 47.0)
     );
+    // The spellproof the same, its effect the spells' deflection, of its own clip.
+    assert_eq!(style(1046), Some(Style::WardSpells));
+    assert_eq!(
+        action(4, Style::WardSpells, 1).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(147), 1.0))
+    );
+    let spellproof = WeaponArt {
+        id: 1046,
+        ..proof.clone()
+    };
+    let (effect, seconds) = ward(&spellproof, 3).unwrap().effects[0];
+    assert_eq!((effect.id, effect.art, seconds), (0x1A, 1046, 47.0));
     assert!((effect.value - 1.15).abs() < 1e-6);
     assert!(ward(&weapon_art(1047, [0.0; 2], 8), 1).is_none());
 }
