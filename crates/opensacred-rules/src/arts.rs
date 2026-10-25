@@ -169,6 +169,12 @@ pub enum Style {
     /// As [`Self::Ward`], its effect the spells' deflection (`0x1A`) at its own clip: the Dark
     /// Elf's spellproof 1046 (`GUI_MOVE_SPELLPROOF`, `0x506770`), of the launch type 2.
     WardSpells,
+    /// The Dark Elf's traps 1049 (`GUI_MOVE_BOMB`), 1050 (`GUI_MOVE_HELL`), 1051
+    /// (`GUI_MOVE_CONFUSION`), 1052 (`GUI_MOVE_VENOM`) and 1053 (`GUI_MOVE_FOG`), of the launch type
+    /// 0 (`0x506770`): once what is left of its clip is below [`TRAPS`] he throws a ball to the
+    /// order's point ([`ball_rise`]), which makes its trap where it lands, of its spell's record
+    /// ([`trap_spell`]).
+    Trap,
     /// Its effects on its maker at a part of its clip, those of his other forms taken off first
     /// ([`form`]): the Daemon's forms 1097 to 1100 (`0x5192E0`), of the launch type 2, made on
     /// himself.
@@ -618,6 +624,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1046 {
         return Some(Style::WardSpells);
     }
+    if (1049..=1053).contains(&art) {
+        return Some(Style::Trap);
+    }
     if (1097..=1100).contains(&art) {
         return Some(Style::Form);
     }
@@ -996,6 +1005,12 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (4, Style::Ward) => Some(plain(146)),
         // His spellproof 1046 the slot 147 at the blend 0.5 and the rate 1.0 (`0x509E62`).
         (4, Style::WardSpells) => Some(plain(147)),
+        // His traps the first of the slots 109, 84 and 79 that his model has, at the blend 0.5 and
+        // the rate 1.0 (`0x50A0FC`); 79 is not tried.
+        (4, Style::Trap) => Some(ArtAction {
+            fallback: Some(84),
+            ..plain(109)
+        }),
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -1471,6 +1486,55 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
     } else {
         narrow(seconds)
     }
+}
+
+/// What is left of its clip, as a part of it, below which a trap is thrown (`0x506770`).
+pub const TRAPS: f32 = 0.7;
+/// The trap's ball (867, `0x5A55B2`, `0x5A706C`): how high its arc rises at its middle, and how
+/// fast its course's part grows a second, so that it flies 2/3 s at any distance.
+pub const BALL_RISE: f32 = 60.0;
+pub const BALL_RATE: f32 = 1.5;
+/// The traps' objects' reaches, their sizes in `items.pak` (`0x5AB490`): the explosion 794, the
+/// pentagram 782 (its size 0 counting 50), the confusion 871 and the ground's poison 792; the
+/// pentagram's time unarmed (`0x772C40`); the fog's sights 868 about its centre along each axis.
+pub const EXPLOSION_REACH: f32 = 80.0;
+pub const PENTAGRAM_REACH: f32 = 50.0;
+pub const PENTAGRAM_ARMS: f32 = 2.0;
+pub const CONFUSION_REACH: f32 = 160.0;
+pub const POISON_REACH: f32 = 80.0;
+pub const FOG_FROM: f32 = 60.0;
+
+/// The spell whose record the trap `art` makes its trap of (`0x506770`, `0x4D2310`): 45 for the
+/// bomb 1049, 6 for the pentagram 1050, 48 for the confusion 1051, 12 for the poison 1052 and 46
+/// for the fog 1053.
+pub fn trap_spell(art: u16) -> u16 {
+    match art {
+        1049 => 45,
+        1050 => 6,
+        1051 => 48,
+        1052 => 12,
+        _ => 46,
+    }
+}
+
+/// How high over its straight course the trap's ball flies at the part `s` of it (`0x5A706C`):
+/// `60·(1 − 4(s − 0.5)²)`.
+pub fn ball_rise(s: f32) -> f32 {
+    BALL_RISE * (1.0 - 4.0 * (s - 0.5) * (s - 0.5))
+}
+
+/// How long the confusion at the level `level` holds a creature of the level `creature`
+/// (`0x5AD8D0`): `3·min(1, 5·L/M)` seconds.
+pub fn confusion_seconds(level: u32, creature: u32) -> f32 {
+    let ratio = 5.0 * crate::fight::to_f32(level) / crate::fight::to_f32(creature.max(1));
+    3.0 * ratio.min(1.0)
+}
+
+/// Whether the fog at the level `level` takes a creature of the level `creature`, a boss or not
+/// (the zone's kind 4, `0x59F960` at `0x59FDDD`): no boss, its level at most `5·L + 3`, as the
+/// banishing circle's.
+pub fn fog_takes(level: u32, creature: u32, boss: bool) -> bool {
+    crate::spells::banishes(level, creature, boss)
 }
 
 /// What is left of its clip, as a part of it, below which the bats come (`0x50E6C0`), the most

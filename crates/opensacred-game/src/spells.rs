@@ -123,6 +123,501 @@ struct Changeling {
     left: f32,
 }
 
+/// The Dark Elf's trap's ball (867, `cParticleSystem_ball`): its caster, its art and level in
+/// play, its damages' multipliers, where it flies from and to, its level, the part of its course
+/// flown, and whether its look is on.
+#[derive(Component, Debug, Clone)]
+struct Ball {
+    caster: Entity,
+    art: u16,
+    spell_level: u32,
+    multipliers: [f32; 4],
+    from: Vec3,
+    to: Vec3,
+    level: Level,
+    s: f32,
+    shown: bool,
+}
+
+/// The pentagram 782 of the trap 1050 (`0x772C40`): its caster, its damages, its level, the time
+/// until it is armed and its life, and the level at or below which it slays outright.
+#[derive(Component, Debug, Clone)]
+struct Pentagram {
+    caster: Entity,
+    damages: [f32; 4],
+    level: Level,
+    arms: f32,
+    left: f32,
+    slays: u32,
+}
+
+/// The confusion 871 of the trap 1051 (`0x778F40`): the trap's level in play, its caster's level,
+/// its level, its life and its cooldown.
+#[derive(Component, Debug, Clone)]
+struct Confusion {
+    spell_level: u32,
+    caster_level: u32,
+    level: Level,
+    left: f32,
+    cooldown: f32,
+}
+
+/// The fog's zone of the trap 1053 (the kind 4, `0xAD2530`): its cell, its level, the trap's
+/// level in play and its time left.
+#[derive(Component, Debug, Clone)]
+struct Fog {
+    cell: (i32, i32),
+    level: Level,
+    spell_level: u32,
+    left: f32,
+}
+
+/// Throws the trap `art` at the level in play `spell_level` of `caster` from `from` to `to` on
+/// `level`, its damages' multipliers `multipliers` (`0x506770`): a ball that makes the trap
+/// where it lands.
+pub fn throw_trap(
+    commands: &mut Commands,
+    caster: Entity,
+    (art, spell_level): (u16, u32),
+    multipliers: [f32; 4],
+    (from, to, level): (Vec3, Vec3, Level),
+) {
+    commands.spawn((
+        Ball {
+            caster,
+            art,
+            spell_level,
+            multipliers,
+            from,
+            to,
+            level,
+            s: 0.0,
+            shown: false,
+        },
+        Transform::from_translation(from),
+        Visibility::Inherited,
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
+/// Flies each trap's ball on its arc to its point in 2/3 s (`0x5A706C`), gone without a trap at
+/// a cell it may not cross, and makes its trap where it lands, of its spell's record at the
+/// trap's level (`0x79E730`, `0x5B2600`'s action 1): the explosion 794 striking once within 80,
+/// the pentagram 782, the confusion 871, the ground's poison 792 striking within 80 once a
+/// second, or the fog's zone with its four sights 868.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their \
+              filters"
+)]
+fn balls(
+    mut commands: Commands,
+    time: Res<Time>,
+    arts: Option<Res<crate::arts::HeroArts>>,
+    looks: Option<Res<Looks>>,
+    heights: Res<crate::terrain::Heights>,
+    experience: Res<fight::Experience>,
+    mut hits: MessageWriter<fight::Hit>,
+    mut flying: Query<(Entity, &mut Ball, &mut Transform)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Dies>, Without<Ball>),
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut ball, mut transform) in &mut flying {
+        if !ball.shown {
+            ball.shown = true;
+            if let Some(looks) = &looks {
+                commands.entity(entity).with_child((
+                    Mesh3d(looks.soul.0.clone()),
+                    MeshMaterial3d(looks.flame.1.clone()),
+                ));
+            }
+        }
+        ball.s = (ball.s + opensacred_rules::arts::BALL_RATE * dt).min(1.0);
+        let at = ball.from.lerp(ball.to, ball.s);
+        let cell = crate::paths::cell_of(at.x, at.z);
+        if !heights.walkable_on(cell, ball.level) {
+            debug!("spells: the trap's ball {entity} breaks at {cell:?}");
+            commands.entity(entity).despawn();
+            continue;
+        }
+        transform.translation = at + Vec3::Y * opensacred_rules::arts::ball_rise(ball.s);
+        if ball.s < 1.0 {
+            continue;
+        }
+        commands.entity(entity).despawn();
+        let spell = opensacred_rules::arts::trap_spell(ball.art);
+        let Some(record) = arts
+            .as_ref()
+            .and_then(|arts| arts.tables.spells.iter().find(|s| s.id == spell))
+        else {
+            continue;
+        };
+        let level = i32::try_from(ball.spell_level).unwrap_or(1);
+        let damages = bolt_damages(record, level, ball.multipliers);
+        let seconds = fight_seconds(spells::value(record, 0, ball.spell_level));
+        let here = ball.to;
+        info!(
+            "spells: the trap {} lands at {here} of the spell {spell}",
+            ball.art
+        );
+        let disc = |radius: f32, look: usize| {
+            looks.as_ref().map(|looks| {
+                (
+                    Mesh3d(looks.disc.clone()),
+                    MeshMaterial3d(looks.discs[look].clone()),
+                    Transform::from_scale(Vec3::new(radius, 2.0, radius))
+                        .with_translation(Vec3::Y * 4.0),
+                )
+            })
+        };
+        match ball.art {
+            1049 => {
+                // The explosion strikes once every hostile creature within 80 and its size.
+                for (target, at, way, mind, health, size) in &creatures {
+                    let reach = opensacred_rules::arts::EXPLOSION_REACH
+                        + size.map_or(arrows::size(0), |size| size.0);
+                    if way.creature
+                        && way.level == ball.level
+                        && mind.hostile()
+                        && health.current > 0
+                        && (at.translation - here).xz().length() < reach
+                    {
+                        hits.write(fight::Hit {
+                            attacker: ball.caster,
+                            target,
+                            share: 1.0,
+                            ranged: false,
+                            art: None,
+                            fixed: Some(damages),
+                            sure: true,
+                        });
+                    }
+                }
+                if let Some(looks) = &looks {
+                    commands.spawn((
+                        Mesh3d(looks.blast.0.clone()),
+                        MeshMaterial3d(looks.blast.1.clone()),
+                        Transform::from_translation(here),
+                        Fades(0.3),
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                }
+            }
+            1050 => {
+                let mut made = commands.spawn((
+                    Pentagram {
+                        caster: ball.caster,
+                        damages,
+                        level: ball.level,
+                        arms: opensacred_rules::arts::PENTAGRAM_ARMS,
+                        left: seconds,
+                        slays: spells::value(record, 1, ball.spell_level),
+                    },
+                    Transform::from_translation(here),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(disc) = disc(opensacred_rules::arts::PENTAGRAM_REACH, 5) {
+                    made.with_child(disc);
+                }
+            }
+            1051 => {
+                let mut made = commands.spawn((
+                    Confusion {
+                        spell_level: ball.spell_level,
+                        caster_level: experience.level,
+                        level: ball.level,
+                        left: seconds,
+                        cooldown: 0.0,
+                    },
+                    Transform::from_translation(here),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(disc) = disc(opensacred_rules::arts::CONFUSION_REACH, 2) {
+                    made.with_child(disc);
+                }
+            }
+            1052 => {
+                let mut made = commands.spawn((
+                    Aura {
+                        caster: ball.caster,
+                        follows: None,
+                        reach: opensacred_rules::arts::POISON_REACH,
+                        classes: &[],
+                        damages: Some(damages),
+                        gives: Vec::new(),
+                        key: ball.art,
+                        level: ball.level,
+                        left: seconds,
+                        cooldown: 0.0,
+                        strikes: Strikes::About,
+                    },
+                    Transform::from_translation(here),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(disc) = disc(opensacred_rules::arts::POISON_REACH, 6) {
+                    made.with_child(disc);
+                }
+            }
+            _ => {
+                let mut made = commands.spawn((
+                    Fog {
+                        cell: crate::paths::cell_of(here.x, here.z),
+                        level: ball.level,
+                        spell_level: ball.spell_level,
+                        left: seconds,
+                    },
+                    Transform::from_translation(here),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                let from = opensacred_rules::arts::FOG_FROM;
+                if let Some(looks) = &looks {
+                    made.with_children(|sights| {
+                        for (x, z) in [(from, from), (from, -from), (-from, from), (-from, -from)] {
+                            sights.spawn((
+                                Mesh3d(looks.disc.clone()),
+                                MeshMaterial3d(looks.discs[4].clone()),
+                                Transform::from_translation(Vec3::new(x, 4.0, z))
+                                    .with_scale(Vec3::new(65.0, 2.0, 65.0)),
+                            ));
+                        }
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Arms each pentagram 2 s after it is made, and bursts it on the first hostile creature within
+/// 50 and its size, once (`0x772C40`, the hits `0x30E`): each hostile creature so near takes its
+/// fire and poison, or one of a level at or below its value 1 is slain; past its life it goes.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn pentagrams(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut hits: MessageWriter<fight::Hit>,
+    mut pentagrams: Query<(Entity, &mut Pentagram, &Transform)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Dies>, Without<Pentagram>),
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut pentagram, at) in &mut pentagrams {
+        pentagram.arms -= dt;
+        pentagram.left -= dt;
+        if pentagram.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        if pentagram.arms > 0.0 {
+            continue;
+        }
+        let here = at.translation;
+        let near: Vec<(Entity, u32)> = creatures
+            .iter()
+            .filter(|(_, there, way, mind, health, size)| {
+                let reach = opensacred_rules::arts::PENTAGRAM_REACH
+                    + size.map_or(arrows::size(0), |size| size.0);
+                way.creature
+                    && way.level == pentagram.level
+                    && mind.hostile()
+                    && health.current > 0
+                    && (there.translation - here).xz().length() < reach
+            })
+            .map(|(target, _, _, _, health, _)| (target, health.level))
+            .collect();
+        if near.is_empty() {
+            continue;
+        }
+        debug!(
+            "spells: the pentagram {entity} bursts on {} creatures",
+            near.len()
+        );
+        for (target, level) in near {
+            // The event 9, the kill, for one at or below its value 1 (**hypothesis**: slain).
+            let damages = if level <= pentagram.slays {
+                [f32::from(u16::MAX - 1), 0.0, 0.0, 0.0]
+            } else {
+                pentagram.damages
+            };
+            hits.write(fight::Hit {
+                attacker: pentagram.caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(damages),
+                sure: true,
+            });
+        }
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Once a second gives each hostile creature within 160 and its size of each confusion, no boss
+/// and without the effect 13 or 14, by a coin the effect 14, which turns its sides over, or 13,
+/// under which it leaves the hero alone, for `3·min(1, 5·L/M)` s, stopping it (`0x5AD8D0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn confusions(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut dice: ResMut<Dice>,
+    mut clouds: Query<(Entity, &mut Confusion, &Transform)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&fight::Ranked>,
+            Option<&Effects>,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Dies>, Without<Confusion>),
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut cloud, at) in &mut clouds {
+        cloud.left -= dt;
+        cloud.cooldown -= dt;
+        if cloud.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        if cloud.cooldown > 0.0 {
+            continue;
+        }
+        cloud.cooldown = BEAT;
+        let here = at.translation;
+        for (target, there, way, mind, health, rank, effects, size) in &creatures {
+            let reach = opensacred_rules::arts::CONFUSION_REACH
+                + size.map_or(arrows::size(0), |size| size.0);
+            let boss = rank.is_some_and(|rank| rank.0 == fight::Rank::Boss);
+            let confused = effects.is_some_and(|effects| {
+                effects.holds(opensacred_rules::arts::DOMINATED)
+                    || effects.holds(opensacred_rules::spells::CONVERTED)
+            });
+            if !way.creature
+                || way.level != cloud.level
+                || !mind.hostile()
+                || health.current == 0
+                || boss
+                || confused
+                || (there.translation - here).xz().length() >= reach
+            {
+                continue;
+            }
+            let id = if dice.0.below(2) == 0 {
+                opensacred_rules::spells::CONVERTED
+            } else {
+                opensacred_rules::arts::DOMINATED
+            };
+            let seconds =
+                opensacred_rules::arts::confusion_seconds(cloud.spell_level, health.level);
+            let effect = Effect {
+                whole: i32::try_from(cloud.caster_level).unwrap_or(1),
+                ..Effect::new(id, 0.0)
+            };
+            debug!("spells: the confusion gives {target} the effect {id} for {seconds} s");
+            let mut confused = commands.entity(target);
+            confused.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+            confused
+                .entry::<Effects>()
+                .or_default()
+                .and_modify(move |mut effects| effects.add(effect, seconds));
+        }
+    }
+}
+
+/// Counts each fog's zone down, and gives each hostile creature on its level that stands in it,
+/// of no boss and a level up to `5·L + 3`, the effect 13 for 1 s, again while it stays, under
+/// which it leaves the hero alone (the zone's kind 4, `0x59F960`, `0x5941A0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn fogs(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zones: Query<(Entity, &mut Fog)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&fight::Ranked>,
+            Option<&Effects>,
+        ),
+        (Without<Body>, Without<Dies>),
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut zone) in &mut zones {
+        zone.left -= dt;
+        if zone.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        for (creature, at, way, mind, health, rank, effects) in &creatures {
+            let (x, y) = crate::paths::cell_of(at.translation.x, at.translation.z);
+            let inside = (x - zone.cell.0).abs() <= spells::ZONE_REACH
+                && (y - zone.cell.1).abs() <= spells::ZONE_REACH;
+            // Given again before it goes, so that no tick sees it gone while the creature stays.
+            let held = effects.is_some_and(|effects| {
+                effects.timed().iter().any(|timed| {
+                    timed.effect.id == opensacred_rules::arts::DOMINATED && timed.left > 0.5
+                })
+            });
+            let boss = rank.is_some_and(|rank| rank.0 == fight::Rank::Boss);
+            if !inside
+                || held
+                || way.level != zone.level
+                || !mind.hostile()
+                || !opensacred_rules::arts::fog_takes(zone.spell_level, health.level, boss)
+            {
+                continue;
+            }
+            let effect = Effect::new(opensacred_rules::arts::DOMINATED, 0.0);
+            commands
+                .entity(creature)
+                .entry::<Effects>()
+                .or_default()
+                .and_modify(move |mut effects| effects.add(effect, 1.0));
+        }
+    }
+}
+
 /// A zone of the ring of frost (the kind 3, `0xAD2530`): its cell, its level, the ring's level
 /// in play, and its time left.
 #[derive(Component, Debug, Clone)]
@@ -2258,6 +2753,7 @@ impl Plugin for SpellsPlugin {
                     banish,
                     frost,
                     changelings,
+                    (balls, pentagrams, confusions, fogs),
                     teleport,
                     doom,
                     fade,

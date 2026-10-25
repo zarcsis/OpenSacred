@@ -122,6 +122,7 @@ pub fn clips(
         Style::Viper,
         Style::Ward,
         Style::WardSpells,
+        Style::Trap,
         Style::Form,
         Style::Panther,
         Style::Changeling,
@@ -1028,6 +1029,26 @@ fn make(
                         making.art, playing.target
                     );
                 }
+                end(&mut commands);
+            }
+            Style::Trap => {
+                // Below 0.7 left of its clip he throws its ball to the action's point, which makes
+                // the trap where it lands; its regeneration starts; then it ends (`0x506770`).
+                if !due(1.0 - arts::TRAPS, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                arts.start(making.art);
+                let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+                crate::spells::throw_trap(
+                    &mut commands,
+                    hero,
+                    (making.art, playing.level),
+                    multipliers,
+                    (here, playing.point, body.level()),
+                );
                 end(&mut commands);
             }
             Style::Bats => {
