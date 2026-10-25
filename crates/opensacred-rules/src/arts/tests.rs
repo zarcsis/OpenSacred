@@ -1616,6 +1616,61 @@ fn the_soulcatcher_gives_its_effect_for_its_spells_time_and_its_souls_heal() {
 }
 
 #[test]
+fn the_daemons_ring_burns_and_his_emperor_fans_out() {
+    // GOG 2.28's 1101: `[+0x50]` 10 + 10·L, `[+0x60]` 93 + 122·L, `[+0x68]` 50 + 20·L; 1103:
+    // `[+0x58]` 10 + 10·L, `[+0x60]` 176 + 160·L, `[+0x68]` 311 + 25·L.
+    assert_eq!(
+        (style(1101), style(1103)),
+        (Some(Style::Ring), Some(Style::Fan))
+    );
+    assert_eq!(
+        action(9, Style::Ring, 1).map(|a| a.clip),
+        Some(ArtClip::Slot(155))
+    );
+    assert_eq!(
+        action(9, Style::Fan, 1).map(|a| a.clip),
+        Some(ArtClip::Slot(144))
+    );
+    let ring = WeaponArt {
+        factor: [10.0, 10.0],
+        value_60: [93, 122],
+        value_68: [50, 20],
+        ..weapon_art(1101, [0.0; 2], 0x80_0000)
+    };
+    assert_eq!(daemon_ratio(&ring, 1), 3);
+    assert_eq!(daemon_ratio(&ring, 10), 5);
+    assert_eq!(ring_poison(&ring, 1, 1.0), 20.0);
+    assert_eq!(ring_poison(&ring, 1, 1.37), 27.0);
+    let emperor = WeaponArt {
+        value_58: [10.0, 10.0],
+        value_60: [176, 160],
+        value_68: [311, 25],
+        ..weapon_art(1103, [0.0; 2], 0x80_0000)
+    };
+    assert_eq!(
+        [1, 4, 5, 10].map(|l| daemon_ratio(&emperor, l)),
+        [1, 1, 2, 3]
+    );
+    assert_eq!(fan_magic(&emperor, 1, 1.0), 20.0);
+    // Three bolts at 100: 75/100 radians over them, the middle along the aim.
+    let bolts = fan([100.0, 0.0], 1);
+    assert_eq!(bolts.len(), 3);
+    assert!((bolts[1][0] - 1.0).abs() < 1e-6 && bolts[1][1].abs() < 1e-6);
+    assert!((bolts[2][1].atan2(bolts[2][0]) - 0.375).abs() < 1e-5);
+    assert!((bolts[0][1].atan2(bolts[0][0]) + 0.375).abs() < 1e-5);
+    // The burn: a blow at once, then one a second for its seconds.
+    let mut burn = Burn::new(20.0, 3, 3.0);
+    let mut blows = 0;
+    while !burn.over() {
+        if burn.step(1.0 / 60.0) {
+            blows += 1;
+        }
+    }
+    assert_eq!(blows, 3);
+    assert_eq!(burn.damages(), [0.0, 0.0, 0.0, 20.0]);
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));

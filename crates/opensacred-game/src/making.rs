@@ -92,6 +92,8 @@ pub fn clips(
         Style::Bolts,
         Style::Glance,
         Style::Charge,
+        Style::Ring,
+        Style::Fan,
         Style::Sweep,
         Style::Smite,
         Style::Blades,
@@ -431,11 +433,13 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries, ranks, leaps): (
+    (mut hits, mut cries, ranks, leaps, sizes, mut launches): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
         Query<&fight::Ranked>,
         Query<(), With<Leap>>,
+        Query<&crate::arrows::Size>,
+        MessageWriter<crate::bolts::Launch>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -1118,6 +1122,78 @@ fn make(
                             share: part,
                             ..hit(entity, &playing)
                         });
+                    }
+                }
+                arts.start(making.art);
+                end(&mut commands);
+            }
+            Style::Ring | Style::Fan => {
+                // Below 0.3 of its clip, once: the ring of poison burns every hostile creature
+                // alive within its reach and the creature's size (`0x5192E0` at `0x51A9B7`), or
+                // the fan of bolts leaves him toward his target, else his point (at `0x51AD88`);
+                // its regeneration starts and it ends.
+                if !due(1.0 - arts::DAEMON_ACTS, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                let multipliers = combat.map_or([1.0; 4], |combat| combat.multipliers);
+                if let Some(record) = record {
+                    if playing.style == Style::Ring {
+                        let seconds = to_f32(arts::daemon_ratio(record, playing.level));
+                        let poison = arts::ring_poison(record, playing.level, multipliers[3]);
+                        let burned: Vec<Entity> = creatures
+                            .iter()
+                            .filter(|&(entity, at, mind, health)| {
+                                let size =
+                                    sizes.get(entity).map_or(crate::arrows::size(0), |s| s.0);
+                                mind.hostile()
+                                    && health.current > 0
+                                    && (at.translation() - here).xz().length()
+                                        < arts::RING_REACH + size
+                            })
+                            .map(|(entity, ..)| entity)
+                            .collect();
+                        info!(
+                            "making: {}'s ring burns {} creatures for {poison} a second, {seconds} s",
+                            making.art,
+                            burned.len()
+                        );
+                        commands
+                            .entity(hero)
+                            .entry::<crate::burns::Burns>()
+                            .or_default()
+                            .and_modify(move |mut burns| {
+                                for entity in burned {
+                                    burns.add(entity, arts::Burn::new(poison, 3, seconds));
+                                }
+                            });
+                    } else {
+                        let aim = creatures
+                            .get(playing.target)
+                            .ok()
+                            .filter(|(.., health)| health.current > 0)
+                            .map_or(playing.point, |(_, at, ..)| at.translation());
+                        let n = arts::daemon_ratio(record, playing.level);
+                        let physical = arts::ring_poison(record, playing.level, multipliers[0]);
+                        let magic = arts::fan_magic(record, playing.level, multipliers[2]);
+                        let fan = arts::fan((aim - here).xz().into(), n);
+                        info!(
+                            "making: {} fans out {} bolts of {magic} magic",
+                            making.art,
+                            fan.len()
+                        );
+                        for direction in fan {
+                            launches.write(crate::bolts::Launch {
+                                shooter: hero,
+                                direction: Vec2::from(direction),
+                                course: crate::bolts::Course::emperor(),
+                                damages: [physical, 0.0, magic, 0.0],
+                                wait: 0.0,
+                            });
+                        }
                     }
                 }
                 arts.start(making.art);

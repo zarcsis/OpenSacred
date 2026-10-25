@@ -235,6 +235,13 @@ pub enum Style {
     /// run after its first he flies to his target ([`charge_flight`], [`jump_landing`]), and once
     /// landed he strikes it within the reach, makes his blast about him ([`Blast`]) and ends.
     Charge,
+    /// The Daemon's 1101 (`gui_moves_giftring`, `0x5192E0` at `0x51A9B7`): below 0.3 of its clip
+    /// his ring of poison burns every hostile creature within [`RING_REACH`] of him ([`Burn`],
+    /// [`ring_poison`], [`daemon_ratio`]).
+    Ring,
+    /// The Daemon's 1103 (`0x5192E0` at `0x51AD88`): below 0.3 of its clip a fan of bolts toward
+    /// his target ([`fan`], [`fan_magic`], [`EMPEROR_COURSE`]).
+    Fan,
     /// The Dwarf's 1084 (`gui_moves_kriegsrausch`, `0x514790` at `0x517BB5`), with a two-handed
     /// weapon alone: once, at its clip's first hit point, its target and every hostile creature
     /// about it ([`sweep_reaches`]), those at a part of its factor ([`sweep_factor`]).
@@ -510,6 +517,12 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1091 {
         return Some(Style::Charge);
+    }
+    if art == 1101 {
+        return Some(Style::Ring);
+    }
+    if art == 1103 {
+        return Some(Style::Fan);
     }
     if art == 1084 {
         return Some(Style::Sweep);
@@ -896,6 +909,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // `0x51BC63`), and his charge 1091 the slot 148 so (seen).
         (9, Style::Boon) => Some(plain(150)),
         (9, Style::Charge) => Some(plain(148)),
+        // His 1101 the slot 155 and his 1103 the slot 144 so (`0x51B46E`).
+        (9, Style::Ring) => Some(plain(155)),
+        (9, Style::Fan) => Some(plain(144)),
         // The Daemon's forms the slot 160 at the blend 0.2 and the rate 1.0 on himself
         // (`0x5192E0` at `0x51BEF5`; 197 at the attack's rate otherwise, not followed).
         (9, Style::Form) => Some(plain(160)),
@@ -1764,6 +1780,121 @@ pub fn sweep_reaches(record: &WeaponArt, [dx, dy]: [f32; 2]) -> bool {
 pub fn sweep_factor(record: &WeaponArt, level: u32) -> f32 {
     narrow(f64::from(factor(record, level)) * f64::from(record.value_58[1]))
 }
+
+/// A burn of the effect 62, which the caster keeps keyed by its target (the adder `0x584DDB`;
+/// docs/re/arts.md, "The Daemon's"): its damage in its kind for its seconds, a blow whenever its
+/// count of seconds passes 1.0, at once at its first update ([`Burn::step`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Burn {
+    pub damage: f32,
+    pub kind: usize,
+    pub left: f32,
+    count: f32,
+}
+
+impl Burn {
+    /// A burn of `damage` in the damage kind `kind` (1 fire, 3 poison) for `seconds`.
+    pub fn new(damage: f32, kind: usize, seconds: f32) -> Self {
+        Self {
+            damage,
+            kind,
+            left: seconds,
+            count: 1.0,
+        }
+    }
+
+    /// Steps it by `dt` seconds (`0x562730` at `0x563786`): its count takes them, and above 1.0 it
+    /// strikes and starts again from 0; whether it strikes now.
+    pub fn step(&mut self, dt: f32) -> bool {
+        self.left -= dt;
+        self.count += dt;
+        let due = self.count > 1.0;
+        if due {
+            self.count = 0.0;
+        }
+        due
+    }
+
+    /// Whether its seconds are out.
+    pub fn over(&self) -> bool {
+        self.left <= 0.0
+    }
+
+    /// Its damages by kind, for the blow it strikes (held at 65,534).
+    pub fn damages(&self) -> [f32; 4] {
+        let mut damages = [0.0; 4];
+        if let Some(damage) = damages.get_mut(self.kind) {
+            *damage = self.damage.min(65_534.0);
+        }
+        damages
+    }
+}
+
+/// What is left of the clip of the Daemon's 1101, 1102 and 1103 below which each acts
+/// (`0x8907E4`).
+pub const DAEMON_ACTS: f32 = 0.3;
+
+/// How far from the Daemon his ring of poison reaches, besides a creature's size: its type's size
+/// (`items.pak +0x14` of 1008).
+pub const RING_REACH: f32 = 350.0;
+
+/// The Daemon's 1101's, 1102's and 1103's ratio `⌊([+0x60] + [+0x64]·L)/([+0x68] + [+0x6C]·L)⌋`
+/// of `record` at the level in play `level`, 0 for a divisor not above 2⁻²³: the seconds of the
+/// burns of 1101 and 1102 (3 at the level 1), the count of 1103's bolts on each side of its aim.
+pub fn daemon_ratio(record: &WeaponArt, level: u32) -> u32 {
+    let l = f64::from(level);
+    let [a, b] = record.value_60.map(f64::from);
+    let [c, d] = record.value_68.map(f64::from);
+    let divisor = l.mul_add(d, c);
+    if divisor <= f64::from(f32::EPSILON) / 2.0 {
+        return 0;
+    }
+    u32::try_from(whole_units(l.mul_add(b, a) / divisor)).unwrap_or(0)
+}
+
+/// The poison of each blow of the Daemon's 1101 (and the fire of 1102's) of `record` at the
+/// level in play `level`, his multiplier of the kind `multiplier` (1.0 for another caster):
+/// `m·([+0x50] + [+0x54]·L)` taken whole (10 + 10·L).
+pub fn ring_poison(record: &WeaponArt, level: u32, multiplier: f32) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    let value = f64::from(level).mul_add(step, base) * f64::from(multiplier);
+    narrow(f64::from(i32::try_from(whole_units(value)).unwrap_or(0)))
+}
+
+/// The magic of each bolt of the Daemon's 1103 of `record` at the level in play `level`, his
+/// magic multiplier `multiplier`: `m·([+0x58] + [+0x5C]·L)` taken whole (10 + 10·L).
+pub fn fan_magic(record: &WeaponArt, level: u32, multiplier: f32) -> f32 {
+    let [base, step] = record.value_58.map(f64::from);
+    let value = f64::from(level).mul_add(step, base) * f64::from(multiplier);
+    narrow(f64::from(i32::try_from(whole_units(value)).unwrap_or(0)))
+}
+
+/// The directions on the ground of the `2n + 1` bolts of the Daemon's 1103 toward `aim`, the
+/// line to its target or point (`0x51B170`): over `(2n + 1)·25/d` radians about it, `d` its
+/// length held to 50 to 300, in even steps, so that neighbours lie about 25 apart at `d`.
+pub fn fan(aim: [f32; 2], n: u32) -> Vec<[f32; 2]> {
+    let length = aim[0].hypot(aim[1]);
+    let d = f64::from(length.clamp(50.0, 300.0));
+    let base = f64::from(aim[1]).atan2(f64::from(aim[0]));
+    let count = 2 * n + 1;
+    let total = f64::from(count) * 25.0 / d;
+    let step = if n == 0 {
+        0.0
+    } else {
+        total / f64::from(2 * n)
+    };
+    (0..count)
+        .map(|i| {
+            let angle = base - total / 2.0 + step * f64::from(i);
+            let angle = if n == 0 { base } else { angle };
+            [narrow(angle.cos()), narrow(angle.sin())]
+        })
+        .collect()
+}
+
+/// The course of a bolt of the Daemon's 1103 (`cParticleSystem_emperor`): its speed, 500, less 300
+/// a second, for 1.14 s, some 375 units.
+pub const EMPEROR_COURSE: (f32, f32, f32) = (500.0, 300.0, 1.14);
 
 /// How long the Daemon's blast lives, in seconds, and until when its radius grows (its particle
 /// system's `0x7C1790` and `0x7C1890`).

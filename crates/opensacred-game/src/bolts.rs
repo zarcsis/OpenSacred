@@ -1,17 +1,18 @@
-//! The Seraphim's bolts (#754; docs/re/arts.md, "Her shots with 1018's and 1019's effects" and
-//! "The Seraphim's bolts"): while her effect 17 holds each of her shots makes two railgun bolts,
-//! the second [`RAILGUN_SECOND`] after the first, and while her effect 16 holds a shot beyond 200
-//! makes one BFG bolt (`attack`). A bolt leaves where she stands along the line to her target, at
-//! a hand's height over the ground, flies straight at its speed for its time at most and ends at a
-//! cell that may not be walked on; in each frame it finds the creatures on its level, alive and
-//! hostile to the hero, nearer it than the sum of their sizes, and hits each with its damages (the
-//! fight's hit of fixed damages, `opensacred_rules::arts::bolt_damages`, which always lands, #854):
-//! the railgun's hits all it found once and goes, the BFG's hits those of its first contact and
-//! flies on harmless. A glowing ball stands in for their particle systems
+//! The bolts: the Seraphim's (#754; docs/re/arts.md, "Her shots with 1018's and 1019's effects"
+//! and "The Seraphim's bolts") and the Daemon's 1103's (#760, "The Daemon's"). While her effect 17
+//! holds each of her shots makes two railgun bolts, the second [`RAILGUN_SECOND`] after the first,
+//! and while her effect 16 holds a shot beyond 200 makes one BFG bolt (`attack`); his 1103 makes a
+//! fan of them (`making`). A bolt leaves where its shooter stands along its line, at a hand's
+//! height over the ground, flies straight at its speed, which may slow, for its time at most and
+//! ends at a cell that may not be walked on; in each frame it finds the creatures on its level,
+//! alive and hostile to the hero, nearer it than the sum of their sizes, and hits them with its
+//! damages (the fight's hit of fixed damages, which always lands, #854): the railgun's every one it
+//! found and goes, the BFG's those of its first contact and flies on harmless, the Daemon's the
+//! first alone and goes. A glowing ball stands in for their particle systems
 //! (docs/decisions/2026-10-24-bolts-look.md).
 
 use bevy::prelude::*;
-use opensacred_rules::arts::{Bolt, RAILGUN_SECOND, bolt_damages};
+use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};
 
 use crate::crowd::InTheWay;
 use crate::effects::Effects;
@@ -27,7 +28,7 @@ use crate::{ai, arrows, paths};
 /// as the arrows leave a shooter without a hand).
 const HEIGHT: f32 = 80.0;
 
-/// A shot's bolt leaving its shooter toward `toward` (the FX events of `0x4DCB80`), which the
+/// A shot's bolts leaving their shooter toward `toward` (the FX events of `0x4DCB80`), which the
 /// shot's clip sends at its first hit (`attack`).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Fire {
@@ -36,33 +37,91 @@ pub struct Fire {
     pub bolt: Bolt,
 }
 
-/// A bolt in flight: its kind, its shooter, its direction on the ground, the level it flies on,
-/// its damages, how long until it leaves and how long it flies on, and whether it hit already (a
+/// What a bolt strikes as it meets creatures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Strikes {
+    /// Every creature it finds in a frame, once, and it goes (the railgun's).
+    All,
+    /// Those of its first contact, once, and it flies on harmless (the BFG's).
+    FirstContact,
+    /// The first creature it finds alone, and it goes (the Daemon's 1103's).
+    First,
+}
+
+/// How a bolt flies and strikes, and its look: its speed in units a second, how much slower it
+/// grows each second, its most time, what it strikes and its look's index.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Course {
+    pub speed: f32,
+    pub slows: f32,
+    pub life: f32,
+    pub strikes: Strikes,
+    pub look: usize,
+}
+
+impl Course {
+    /// The course of the Seraphim's bolt `bolt`.
+    pub fn of(bolt: Bolt) -> Self {
+        let (speed, life) = bolt.flight();
+        let (strikes, look) = if bolt.goes() {
+            (Strikes::All, 0)
+        } else {
+            (Strikes::FirstContact, 1)
+        };
+        Self {
+            speed,
+            slows: 0.0,
+            life,
+            strikes,
+            look,
+        }
+    }
+
+    /// The course of a bolt of the Daemon's 1103 (`cParticleSystem_emperor`).
+    pub fn emperor() -> Self {
+        let (speed, slows, life) = EMPEROR_COURSE;
+        Self {
+            speed,
+            slows,
+            life,
+            strikes: Strikes::First,
+            look: 2,
+        }
+    }
+}
+
+/// A bolt leaving its shooter along `direction` on the ground, of its course and its damages,
+/// after `wait` seconds.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct Launch {
+    pub shooter: Entity,
+    pub direction: Vec2,
+    pub course: Course,
+    pub damages: [f32; 4],
+    pub wait: f32,
+}
+
+/// A bolt in flight: its course, its shooter, its direction on the ground, the level it flies on,
+/// its damages, how long until it leaves, how long it has flown, and whether it hit already (a
 /// BFG's, which flies on harmless).
 #[derive(Component)]
 struct Flying {
-    bolt: Bolt,
+    course: Course,
     shooter: Entity,
     direction: Vec2,
     level: Level,
     damages: [f32; 4],
     wait: f32,
-    left: f32,
+    flown: f32,
     spent: bool,
 }
 
-/// The stand-ins' meshes and materials, the railgun's and the BFG's.
+/// The stand-ins' meshes and materials: the railgun's, the BFG's and the Daemon's.
 #[derive(Resource)]
-struct Looks([(Handle<Mesh>, Handle<StandardMaterial>); 2]);
-
-impl Looks {
-    fn of(&self, bolt: Bolt) -> (Handle<Mesh>, Handle<StandardMaterial>) {
-        self.0[usize::from(bolt == Bolt::Bfg)].clone()
-    }
-}
+struct Looks(Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
 /// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
-/// the BFG (**estimate**: the colours of their glows).
+/// the BFG, a violet one for the Daemon's (**estimate**: the colours of their glows).
 fn make_looks(
     mut commands: Commands,
     meshes: Option<ResMut<Assets<Mesh>>>,
@@ -81,32 +140,32 @@ fn make_looks(
             }),
         )
     };
-    commands.insert_resource(Looks([
+    commands.insert_resource(Looks(vec![
         look(10.0, Color::srgb(0.75, 0.85, 1.0)),
         look(22.0, Color::srgb(0.55, 1.0, 0.45)),
+        look(14.0, Color::srgb(0.75, 0.45, 1.0)),
     ]));
 }
 
-/// Makes the bolts of each shot that leaves: where the shooter stands, at [`HEIGHT`], along the
-/// line on the ground to `toward` (with none, its facing), on the shooter's level, of the damages
-/// of the bolt's record by the whole value of its effect and the shooter's multipliers.
+/// Makes the launches of each of the Seraphim's shots: its bolts along the line on the ground to
+/// `toward` (with none, her facing), of the damages of the bolt's record by the whole value of
+/// its effect and her multipliers, the second railgun bolt [`RAILGUN_SECOND`] after the first.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
 )]
 fn fire(
-    mut commands: Commands,
     mut shots: MessageReader<Fire>,
-    looks: Option<Res<Looks>>,
+    mut launches: MessageWriter<Launch>,
     arts: Option<Res<crate::arts::HeroArts>>,
-    shooters: Query<(&Transform, &Body, Option<&Combat>, Option<&Effects>), Without<Flying>>,
+    shooters: Query<(&Transform, Option<&Combat>, Option<&Effects>), With<Body>>,
 ) {
-    let (Some(looks), Some(arts)) = (looks, arts) else {
+    let Some(arts) = arts else {
         shots.clear();
         return;
     };
     for shot in shots.read() {
-        let Ok((at, body, combat, effects)) = shooters.get(shot.shooter) else {
+        let Ok((at, combat, effects)) = shooters.get(shot.shooter) else {
             continue;
         };
         let level = effects
@@ -128,50 +187,67 @@ fn fire(
         };
         let multipliers = combat.map_or([1.0; 4], |combat| combat.multipliers);
         let damages = bolt_damages(spell, level, multipliers);
-        let here = at.translation;
-        let direction = (shot.toward - here)
+        let direction = (shot.toward - at.translation)
             .xz()
             .try_normalize()
-            .unwrap_or_else(|| {
-                let facing = at.rotation * Vec3::Z;
-                facing.xz().normalize_or(Vec2::Y)
-            });
-        let (_, life) = shot.bolt.flight();
-        let (mesh, material) = looks.of(shot.bolt);
+            .unwrap_or_else(|| (at.rotation * Vec3::Z).xz().normalize_or(Vec2::Y));
         debug!(
-            "bolts: {} fires {} {:?} of {damages:?} from {:.0},{:.0} along {:.2},{:.2}",
+            "bolts: {} fires {} {:?} of {damages:?}",
             shot.shooter,
             shot.bolt.count(),
-            shot.bolt,
-            here.x,
-            here.z,
-            direction.x,
-            direction.y
+            shot.bolt
         );
         for i in 0..shot.bolt.count() {
-            let wait = if i == 0 { 0.0 } else { RAILGUN_SECOND };
-            commands.spawn((
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material.clone()),
-                Transform::from_translation(here + Vec3::Y * HEIGHT),
-                if wait > 0.0 {
-                    Visibility::Hidden
-                } else {
-                    Visibility::Inherited
-                },
-                Flying {
-                    bolt: shot.bolt,
-                    shooter: shot.shooter,
-                    direction,
-                    level: body.level(),
-                    damages,
-                    wait,
-                    left: life,
-                    spent: false,
-                },
-                DespawnOnExit(AppState::InGame),
-            ));
+            launches.write(Launch {
+                shooter: shot.shooter,
+                direction,
+                course: Course::of(shot.bolt),
+                damages,
+                wait: if i == 0 { 0.0 } else { RAILGUN_SECOND },
+            });
         }
+    }
+}
+
+/// Makes the bolt of each launch where its shooter stands, at [`HEIGHT`], on its level.
+fn launch(
+    mut commands: Commands,
+    mut launches: MessageReader<Launch>,
+    looks: Option<Res<Looks>>,
+    shooters: Query<(&Transform, &Body)>,
+) {
+    let Some(looks) = looks else {
+        launches.clear();
+        return;
+    };
+    for launched in launches.read() {
+        let Ok((at, body)) = shooters.get(launched.shooter) else {
+            continue;
+        };
+        let Some((mesh, material)) = looks.0.get(launched.course.look).cloned() else {
+            continue;
+        };
+        commands.spawn((
+            Mesh3d(mesh),
+            MeshMaterial3d(material),
+            Transform::from_translation(at.translation + Vec3::Y * HEIGHT),
+            if launched.wait > 0.0 {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            },
+            Flying {
+                course: launched.course,
+                shooter: launched.shooter,
+                direction: launched.direction.normalize_or(Vec2::Y),
+                level: body.level(),
+                damages: launched.damages,
+                wait: launched.wait,
+                flown: 0.0,
+                spent: false,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
     }
 }
 
@@ -201,7 +277,7 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     for (entity, mut bolt, mut transform, mut visibility) in &mut flying {
-        // The second railgun bolt leaves its shooter's place as its time comes.
+        // A bolt that waits leaves its shooter's place as its time comes.
         if bolt.wait > 0.0 {
             bolt.wait -= dt;
             if let Ok(shooter) = shooters.get(bolt.shooter) {
@@ -212,12 +288,13 @@ fn fly(
             }
             continue;
         }
-        bolt.left -= dt;
-        let (speed, _) = bolt.bolt.flight();
+        let course = bolt.course;
+        let speed = (course.speed - course.slows * bolt.flown).max(0.0);
+        bolt.flown += dt;
         let step = bolt.direction * speed * dt;
         let ground = transform.translation.xz() + step;
         let cell = paths::cell_of(ground.x, ground.y);
-        if bolt.left <= 0.0 || !heights.walkable_on(cell, bolt.level) {
+        if bolt.flown >= course.life || !heights.walkable_on(cell, bolt.level) {
             debug!(
                 "bolts: {entity} of {} ends at {:.0},{:.0}",
                 bolt.shooter, ground.x, ground.y
@@ -234,7 +311,7 @@ fn fly(
         }
         // The creatures on its level, alive and hostile to the hero, nearer than the two sizes.
         let own = arrows::size(0);
-        let struck: Vec<Entity> = creatures
+        let mut struck: Vec<Entity> = creatures
             .iter()
             .filter(|(_, at, way, mind, health, size)| {
                 way.creature
@@ -248,6 +325,9 @@ fn fly(
             .collect();
         if struck.is_empty() {
             continue;
+        }
+        if course.strikes == Strikes::First {
+            struck.truncate(1);
         }
         for &target in &struck {
             debug!(
@@ -264,24 +344,28 @@ fn fly(
                 sure: true,
             });
         }
-        if bolt.bolt.goes() {
-            commands.entity(entity).despawn();
-        } else {
+        if course.strikes == Strikes::FirstContact {
             bolt.spent = true;
+        } else {
+            commands.entity(entity).despawn();
         }
     }
 }
 
-/// The Seraphim's bolts.
+/// The bolts.
 pub struct BoltsPlugin;
 
 impl Plugin for BoltsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Fire>()
+            .add_message::<Launch>()
             .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
-                (fire, fly).chain().after(Step::Npcs).in_set(Playing),
+                (fire, launch, fly)
+                    .chain()
+                    .after(Step::Npcs)
+                    .in_set(Playing),
             );
     }
 }
