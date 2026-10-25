@@ -813,6 +813,8 @@ The quests' defects of #356 whose repairs are in the data are mended there too, 
 - The functions `attack1401`, `schmugler1402` and `ablehnen5000` renamed to the defined `attacke1401`, `schmuggler1402` and `ablehnen5003`, in 11, 11 and 20 trees; quest 602's knight named `res:17136` where `ok1_602` and `ritterweg_602` swap his digits, in 11 ([2026-10-25-script-names](decisions/2026-10-25-script-names.md)).
 - Quests 1303's, 1401's, 10255's, 1001's and 670's log lines and ends, in 11, 11, 20, 11 and 9 trees ([2026-10-25-quest-log-records](decisions/2026-10-25-quest-log-records.md)).
 - Quests 2203, 7619 and 5005 ending once, in 11, 11 and 20 trees, with the function `od_threepwood_7619_sieg` added beside `od_7619` ([2026-10-25-quest-ends](decisions/2026-10-25-quest-ends.md)).
+- Quests 9009, 301 and 302, 501, 1702 and 2002 no longer taken away by others, in 11, 9, 9 and 11, 9 and 20 trees, with the function `QIS_OnLose501` added beside `QIS_OnEnter501` ([2026-10-25-quests-crossing](decisions/2026-10-25-quests-crossing.md)).
+- Quest 61's compass in the 5.7 dungeon and after the four elements, in 20 and 9 trees, and Jacquaire made at 9006's end, in 11 ([2026-10-25-quest-markers](decisions/2026-10-25-quest-markers.md)).
 There are no jumps by offset: branching goes by names and indices (`Vectoren.bin`), state is quest flags, variables, triggers.
 Terminology: in this document "opcode" = record type (u16), corresponding to sacred-sdk's "tag"; the operand marker is called "tag" by openheilig and "opcode" by sacred-sdk.
 

@@ -18,16 +18,26 @@ const TRIGGER_PATCH: u16 = 50;
 const CREATE_OBJ: u16 = 8;
 /// `SetTimer`.
 const SET_TIMER: u16 = 56;
-/// `SetNPCState`, `TriggerQuest`, `QuestBook`, `LoseQuest`, `IF`, `ELSE`, `NOP` and
-/// `QuestKompassObj`.
+/// `CreateNPC`, `SetNPCState`, `SetBaseTrigger`, `TriggerQuest`, `CallFunktion`, `Text`,
+/// `QuestBook`, `LoseQuest`, `IF`, `ELSE`, `SetButton`, `NOP`, `QuestKompassPos`,
+/// `QuestKompassObj`, `ELSEIF`, `SetGroupState` and `InfoPlayer`.
+const CREATE_NPC: u16 = 1;
 const SET_NPC_STATE: u16 = 3;
+const SET_BASE_TRIGGER: u16 = 4;
 const TRIGGER_QUEST: u16 = 20;
+const CALL_FUNKTION: u16 = 22;
+const TEXT: u16 = 26;
 const QUEST_BOOK: u16 = 53;
 const LOSE_QUEST: u16 = 54;
 const IF: u16 = 58;
 const ELSE: u16 = 59;
+const SET_BUTTON: u16 = 60;
 const NOP: u16 = 62;
+const QUEST_KOMPASS_POS: u16 = 63;
 const QUEST_KOMPASS_OBJ: u16 = 64;
+const ELSEIF: u16 = 66;
+const SET_GROUP_STATE: u16 = 73;
+const INFO_PLAYER: u16 = 132;
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
 /// client reads it from whatever follows the record (docs/re/netscript.md, "Truncated operands"),
@@ -178,7 +188,7 @@ pub struct Addition {
 }
 
 /// The repairs of functions that `netscript` makes.
-pub const EDITS: [Edit; 14] = [
+pub const EDITS: [Edit; 23] = [
     Edit {
         what: "quest 10260's item named (#957)",
         function: "fillchest_chestQJ_03",
@@ -249,15 +259,68 @@ pub const EDITS: [Edit; 14] = [
         function: "QIS_OnLose670",
         edit: |records| glubba_lost(records),
     },
+    Edit {
+        what: "quest 9009's win before 2203's barrel (#935)",
+        function: "Dialog:rg22_goodie1_ziel",
+        edit: whisky,
+    },
+    Edit {
+        what: "quests 301 and 302 lost at 55's start (#946)",
+        function: "Init55",
+        edit: chapter_two,
+    },
+    Edit {
+        what: "quest 501 lost at 55's end (#947)",
+        function: "NimmtDaemonenhorn",
+        edit: horn,
+    },
+    Edit {
+        what: "quest 1702's target hostile again (#948)",
+        function: "ScriptAnimShareef",
+        edit: baron,
+    },
+    Edit {
+        what: "quest 2002's monsters once it is entered (#953)",
+        function: "OMO-1tpraus20.2c",
+        edit: |records| arena(records),
+    },
+    Edit {
+        what: "quest 61's compass in the 5.7 dungeon (#958)",
+        function: "OMO-1tpreinHQ_5.7.4",
+        edit: dungeon_way,
+    },
+    Edit {
+        what: "quest 61's compass after the four elements (#958)",
+        function: "NimmtElementLuft_2",
+        edit: air_last,
+    },
+    Edit {
+        what: "Jacquaire made at 9006's end (#959)",
+        function: "rg6_goodie1_start2",
+        edit: jacquaire_made,
+    },
+    Edit {
+        what: "Jacquaire not made by the box (#959)",
+        function: "OMO9006rg6_goodie1_waldrand",
+        edit: jacquaire_not_again,
+    },
 ];
 
 /// The functions that `netscript` adds.
-pub const ADDITIONS: [Addition; 1] = [Addition {
-    what: "quest 7619's follower's death after the win (#938)",
-    name: FOLLOWER_WON,
-    beside: "od_7619",
-    records: Vec::new,
-}];
+pub const ADDITIONS: [Addition; 2] = [
+    Addition {
+        what: "quest 7619's follower's death after the win (#938)",
+        name: FOLLOWER_WON,
+        beside: "od_7619",
+        records: Vec::new,
+    },
+    Addition {
+        what: "quest 501's loss (#947)",
+        name: NOBLES_LOST,
+        beside: "QIS_OnEnter501",
+        records: nobles_lost,
+    },
+];
 
 /// The repairs of names that `netscript` makes.
 pub const RENAMES: [Rename; 3] = [
@@ -640,6 +703,204 @@ fn glubba_lost(records: &mut [Record]) -> Result<(), String> {
     Ok(())
 }
 
+/// 9009's target first tests whether the hero carries the barrel 17713, 2203's reward, and offers
+/// to buy it, so that 9009's win (bit 25 of `goodies`) is never reached while the hero carries it:
+/// the dialogue tests the win first (bit 25 set, bit 26 clear), with the win's line and button.
+fn whisky(records: &mut Vec<Record>) -> Result<(), String> {
+    let barrel = records
+        .first()
+        .is_some_and(|r| r.kind == IF && operands(r).iter().any(|o| o.tag == 0x3A));
+    if !barrel {
+        return Err("an IF of the barrel (0x3A) first".to_owned());
+    }
+    let win = the(records, "ELSEIF of bit 25 of goodies", ELSEIF, |r| {
+        has(r, 0x49, &bit(25, "goodies"))
+    })?;
+    let (Some(line), Some(button)) = (records.get(win + 1), records.get(win + 2)) else {
+        return Err("the win's Text and SetButton".to_owned());
+    };
+    if line.kind != TEXT || button.kind != SET_BUTTON {
+        return Err("the win's Text and SetButton".to_owned());
+    }
+    let (line, button) = (line.clone(), button.clone());
+    records[0].kind = ELSEIF;
+    let test = new(
+        IF,
+        vec![op(0x49, bit(25, "goodies")), op(0x4A, bit(26, "goodies"))],
+    );
+    records.splice(0..0, [test, line, button]);
+    Ok(())
+}
+
+/// The `LoseQuest` of the quest `quest`, which does nothing to a quest not entered or finished
+/// (it needs the flag 4 and not 2, `0x46CBE0`).
+fn lose(quest: i32) -> Record {
+    new(LOSE_QUEST, vec![op(0x0B, Value::I32(quest))])
+}
+
+/// The index of the one `SetGroupState` of `records` of the group `group`.
+fn group_state(records: &[Record], group: i32) -> Result<usize, String> {
+    the(
+        records,
+        &format!("SetGroupState of the group {group}"),
+        SET_GROUP_STATE,
+        |r| has(r, 0x11, &Value::I32(group)),
+    )
+}
+
+/// 55's start removes the people of 301 and 302, who hold their wins, testing neither: it loses
+/// the two quests first.
+fn chapter_two(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = group_state(records, 3012)?;
+    records.splice(i..i, [lose(301), lose(302)]);
+    Ok(())
+}
+
+/// The loss of quest 501, which has none: the failure's notice and line, as 301's loss and death
+/// write them.
+const NOBLES_LOST: &str = "QIS_OnLose501";
+
+fn nobles_lost() -> Vec<Record> {
+    vec![
+        new(
+            INFO_PLAYER,
+            vec![op(0x0B, Value::I32(1)), op(0x01, text("res:17656"))],
+        ),
+        log_line(501, "Res:NQ_Log_QFAIL"),
+    ]
+}
+
+/// 55's end removes the group 501, the nobles through whom both of 501's wins go, testing nothing
+/// of it: it loses 501 first, whose loss [`NOBLES_LOST`] writes in its log.
+fn horn(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = group_state(records, 501)?;
+    records.insert(i, lose(501));
+    Ok(())
+}
+
+/// 72's `BadToGood` makes the creatures 296 of area 31 the peaceful 297 (`RegionChange`), 1702's
+/// target 17215 among them, whose death 1702's win needs: after it, the target takes back the
+/// hostile side and the mode word that his `CreateNPC` gives him.
+fn baron(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(records, "CallFunktion of BadToGood", CALL_FUNKTION, |r| {
+        has(r, 0x01, &text("BadToGood"))
+    })?;
+    records.insert(
+        i + 1,
+        new(
+            SET_NPC_STATE,
+            vec![
+                op(0x01, text("res:17215")),
+                op(0x08, Value::Marker),
+                op(0x12, Value::Marker),
+                op(0x1F, Value::I32(1000)),
+            ],
+        ),
+    );
+    Ok(())
+}
+
+/// The arena's exit runs `monster2002` where bit 0 of `2002` is set, which the start script sets,
+/// and clears it, testing nothing of the quest, so that leaving before the quest is taken leaves
+/// it never offered: the branch needs the quest entered too (bit 1).
+fn arena(records: &mut [Record]) -> Result<(), String> {
+    let i = the(records, "ELSEIF of bit 0 of 2002 alone", ELSEIF, |r| {
+        has(r, 0x49, &bit(0, "2002")) && !has(r, 0x49, &bit(1, "2002"))
+    })?;
+    if let Body::Operands(ops) = &mut records[i].body {
+        ops.push(op(0x49, bit(1, "2002")));
+    }
+    Ok(())
+}
+
+/// A `QuestKompassPos` of quest 61 at the cell `(x, y)`.
+fn compass(x: i32, y: i32) -> Record {
+    new(
+        QUEST_KOMPASS_POS,
+        vec![
+            op(0x0B, Value::I32(x)),
+            op(0x0B, Value::I32(y)),
+            op(0x0B, Value::I32(61)),
+        ],
+    )
+}
+
+/// The 5.7 dungeon's entrance by Frostgard (5.7.4) points 61's compass for no branch where the
+/// elements of the air and of the fire (bits 6 and 9 of `61`) are both held, so that it keeps
+/// pointing back at Frostgard's side: a branch of them points it at the way on, where the hero
+/// comes in by the entrance 5.7.1 (`tpreinzHQ_5.7.1`, (5536, 2291)), whose exit leads on.
+fn dungeon_way(records: &mut Vec<Record>) -> Result<(), String> {
+    let both = |r: &Record| has(r, 0x49, &bit(6, "61")) && has(r, 0x49, &bit(9, "61"));
+    if records.iter().any(both) {
+        return Err("a chain without a branch of bits 6 and 9".to_owned());
+    }
+    let e = the(records, "ELSE", ELSE, |_| true)?;
+    let test = new(ELSEIF, vec![op(0x49, bit(6, "61")), op(0x49, bit(9, "61"))]);
+    records.splice(e..e, [test, compass(5536, 2291)]);
+    Ok(())
+}
+
+/// Taking the element of the air ends by pointing 61's compass at the 5.7.4 mouth by Frostgard,
+/// over the one that `ElementAbfrage` points at the mage once the four elements are held (bit 12
+/// of `61`): it points so only where bit 12 is clear.
+fn air_last(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(
+        records,
+        "QuestKompassPos of the 5.7.4 mouth",
+        QUEST_KOMPASS_POS,
+        |r| *r == compass(1093, 1750),
+    )?;
+    if i == 0 || records[i - 1].kind == IF {
+        return Err("a QuestKompassPos of the 5.7.4 mouth outside a test".to_owned());
+    }
+    records.splice(i + 1..i + 1, [new(ELSE, Vec::new()), new(NOP, Vec::new())]);
+    records.insert(i, new(IF, vec![op(0x4A, bit(12, "61"))]));
+    Ok(())
+}
+
+/// Jacquaire 17523, as the box of `OMO9006rg6_goodie1_waldrand` makes him in Braverock once 9006's
+/// step is done (bit 11 of `goodies`).
+fn jacquaire() -> Record {
+    new(
+        CREATE_NPC,
+        vec![
+            op(0x01, text("res:17523")),
+            op(0x02, Value::I32(689)),
+            op(0x04, Value::Name("auftrag_goodie5".to_owned())),
+            op(0x09, text("rghs_goodie1_auftrag")),
+            op(0x0E, Value::Marker),
+            op(0x46, Value::Marker),
+            op(0x1F, Value::I32(20)),
+            op(0x6B, Value::U16(1)),
+            op(0x45, Value::Marker),
+        ],
+    )
+}
+
+/// 9006's step ends with `rg6_goodie1_start2`, which places the trigger whose 6 × 6 box alone
+/// makes Jacquaire, so that a hero who leaves another way never makes him, and 9007 and 9011
+/// wait on him: the step's end makes him, before it places the box.
+fn jacquaire_made(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(
+        records,
+        "SetBaseTrigger of rg6_goodie1_waldrand",
+        SET_BASE_TRIGGER,
+        |r| has(r, 0x01, &text("rg6_goodie1_waldrand")),
+    )?;
+    records.insert(i, jacquaire());
+    Ok(())
+}
+
+/// The box no longer makes Jacquaire, made at the step's end, so that it does not teleport him
+/// back from where 9011 takes him (`CreateNPC` on a name held teleports its creature).
+fn jacquaire_not_again(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(records, "CreateNPC of Jacquaire", CREATE_NPC, |r| {
+        *r == jacquaire()
+    })?;
+    records.remove(i);
+    Ok(())
+}
+
 /// 602's knight 17136, whom `ok1_602` walks once, is named 17163 after, the two digits swapped:
 /// quest 1202's target, whom `ritterweg_602` would delete. The `count` operands become his.
 fn knight(records: &mut [Record], count: usize) -> Result<(), String> {
@@ -922,6 +1183,131 @@ mod tests {
         pigface(&mut records).unwrap();
         assert_eq!(records, start(nop, kill));
         assert!(pigface(&mut records).is_err());
+    }
+
+    #[test]
+    fn whiskys_win_comes_before_the_barrel() {
+        let text_of = |s: &str| new(TEXT, vec![op(0x1E, text(s))]);
+        let button = |s: &str| {
+            new(
+                SET_BUTTON,
+                vec![op(0x01, text("res:1024")), op(0x01, text(s))],
+            )
+        };
+        let barrel = |kind| {
+            new(
+                kind,
+                vec![op(0x3A, Value::Strs("HERO".into(), "res:17713".into()))],
+            )
+        };
+        let win = new(ELSEIF, vec![op(0x49, bit(25, "goodies"))]);
+        let mut records = vec![
+            barrel(IF),
+            text_of("Wirt_07_1000"),
+            win.clone(),
+            text_of("GQ_RG22_ZIEL_SIEG"),
+            button("rg22_goodie1_sieg"),
+            new(ELSE, Vec::new()),
+            new(NOP, Vec::new()),
+        ];
+        whisky(&mut records).unwrap();
+        assert_eq!(
+            records[..5],
+            [
+                new(
+                    IF,
+                    vec![op(0x49, bit(25, "goodies")), op(0x4A, bit(26, "goodies"))]
+                ),
+                text_of("GQ_RG22_ZIEL_SIEG"),
+                button("rg22_goodie1_sieg"),
+                barrel(ELSEIF),
+                text_of("Wirt_07_1000"),
+            ]
+        );
+        assert_eq!(records[5], win);
+        assert!(whisky(&mut records).is_err());
+    }
+
+    #[test]
+    fn the_quests_that_take_others_people_lose_them_first() {
+        let removal = |group| {
+            new(
+                SET_GROUP_STATE,
+                vec![op(0x11, Value::I32(group)), op(0x51, Value::Marker)],
+            )
+        };
+        let mut records = vec![removal(3012), removal(301)];
+        chapter_two(&mut records).unwrap();
+        assert_eq!(records, [lose(301), lose(302), removal(3012), removal(301)]);
+        let mut records = vec![removal(501), removal(551)];
+        horn(&mut records).unwrap();
+        assert_eq!(records, [lose(501), removal(501), removal(551)]);
+        assert_eq!(nobles_lost()[1], log_line(501, "Res:NQ_Log_QFAIL"));
+        let call = new(CALL_FUNKTION, vec![op(0x01, text("BadToGood"))]);
+        let mut records = vec![call.clone(), new(NOP, Vec::new())];
+        baron(&mut records).unwrap();
+        assert_eq!(records[0], call);
+        assert!(
+            has(&records[1], 0x01, &text("res:17215")) && has(&records[1], 0x08, &Value::Marker)
+        );
+    }
+
+    #[test]
+    fn the_arena_and_the_dungeon_test_their_quests() {
+        let mut records = vec![new(ELSEIF, vec![op(0x49, bit(0, "2002"))])];
+        arena(&mut records).unwrap();
+        assert_eq!(
+            records,
+            [new(
+                ELSEIF,
+                vec![op(0x49, bit(0, "2002")), op(0x49, bit(1, "2002"))]
+            )]
+        );
+        assert!(arena(&mut records).is_err());
+        let mut records = vec![
+            new(IF, vec![op(0x49, bit(6, "61")), op(0x4A, bit(9, "61"))]),
+            compass(5537, 2279),
+            new(ELSE, Vec::new()),
+            new(NOP, Vec::new()),
+        ];
+        dungeon_way(&mut records).unwrap();
+        assert_eq!(records[2].kind, ELSEIF);
+        assert_eq!(records[3], compass(5536, 2291));
+        assert_eq!(records[4].kind, ELSE);
+        assert!(dungeon_way(&mut records).is_err());
+        let mut records = vec![
+            new(NOP, Vec::new()),
+            compass(1093, 1750),
+            new(NOP, Vec::new()),
+        ];
+        air_last(&mut records).unwrap();
+        assert_eq!(
+            records,
+            [
+                new(NOP, Vec::new()),
+                new(IF, vec![op(0x4A, bit(12, "61"))]),
+                compass(1093, 1750),
+                new(ELSE, Vec::new()),
+                new(NOP, Vec::new()),
+                new(NOP, Vec::new()),
+            ]
+        );
+        assert!(air_last(&mut records).is_err());
+    }
+
+    #[test]
+    fn jacquaire_comes_with_the_steps_end_not_the_box() {
+        let trigger = new(
+            SET_BASE_TRIGGER,
+            vec![op(0x01, text("rg6_goodie1_waldrand"))],
+        );
+        let mut start = vec![trigger.clone()];
+        jacquaire_made(&mut start).unwrap();
+        assert_eq!(start, [jacquaire(), trigger]);
+        let mut the_box = vec![new(NOP, Vec::new()), jacquaire()];
+        jacquaire_not_again(&mut the_box).unwrap();
+        assert_eq!(the_box, [new(NOP, Vec::new())]);
+        assert!(jacquaire_not_again(&mut the_box).is_err());
     }
 
     #[test]
