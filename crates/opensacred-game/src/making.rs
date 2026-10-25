@@ -91,6 +91,7 @@ pub fn clips(
         Style::Bolts,
         Style::Glance,
         Style::Charge,
+        Style::Sweep,
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -543,7 +544,10 @@ fn make(
                 continue;
             }
             let Some(action) = clips.arts.iter().find(|a| a.style == style) else {
-                info!("making: the hero's model has no clip of {}", making.art);
+                info!(
+                    "making: the hero has no clip of {} for its model and what it holds",
+                    making.art
+                );
                 end(&mut commands);
                 continue;
             };
@@ -1054,6 +1058,58 @@ fn make(
                 if finished {
                     end(&mut commands);
                 }
+            }
+            Style::Sweep => {
+                // Once what is left of its clip is below its first hit point: its target alive and
+                // every hostile creature alive about it, those at a part of its factor; then its
+                // regeneration starts, with a target or without, and it ends (`0x514790` at
+                // `0x517BB5`).
+                let Some(&point) = playing.points.first() else {
+                    end(&mut commands);
+                    continue;
+                };
+                if !due(point, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                let target = creatures
+                    .get(playing.target)
+                    .ok()
+                    .filter(|(.., health)| health.current > 0);
+                if let (Some(record), Some((_, at, ..))) = (record, target) {
+                    hits.write(hit(playing.target, &playing));
+                    let centre = at.translation();
+                    let part = arts::sweep_factor(record, playing.level);
+                    let about: Vec<Entity> = creatures
+                        .iter()
+                        .filter(|&(entity, at, mind, health)| {
+                            entity != playing.target
+                                && mind.hostile()
+                                && health.current > 0
+                                && arts::sweep_reaches(
+                                    record,
+                                    (at.translation() - centre).xz().into(),
+                                )
+                        })
+                        .map(|(entity, ..)| entity)
+                        .collect();
+                    info!(
+                        "making: {} strikes its target and {} about it",
+                        making.art,
+                        about.len()
+                    );
+                    for entity in about {
+                        hits.write(fight::Hit {
+                            share: part,
+                            ..hit(entity, &playing)
+                        });
+                    }
+                }
+                arts.start(making.art);
+                end(&mut commands);
             }
             Style::Charge => {
                 // At its run after its first, the world's next tick, he flies to his target short

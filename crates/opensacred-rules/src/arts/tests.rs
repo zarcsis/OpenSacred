@@ -1563,6 +1563,32 @@ fn the_daemons_charge_flies_to_its_target_and_blasts_about_him() {
 }
 
 #[test]
+fn the_dwarfs_war_frenzy_strikes_about_its_target_with_a_two_handed_weapon() {
+    // GOG 2.28's 1084: `[+0x50]` 1.35 + 0.15·L, `[+0x58]` 26,000 and 0.6.
+    assert_eq!(style(1084), Some(Style::Sweep));
+    for class in [2, 3] {
+        assert_eq!(
+            action(8, Style::Sweep, class).map(|a| (a.clip, a.rate, a.fixed)),
+            Some((ArtClip::Slot(144), 1.0, true))
+        );
+    }
+    assert_eq!(action(8, Style::Sweep, 1), None);
+    assert_eq!(action(8, Style::Sweep, 0), None);
+    let sweep = WeaponArt {
+        factor: [1.35, 0.15],
+        value_58: [26_000.0, 0.6],
+        distance: 130,
+        ..weapon_art(1084, [0.0; 2], 0x40_0000)
+    };
+    assert!(sweep_reaches(&sweep, [161.0, 0.0]));
+    assert!(sweep_reaches(&sweep, [100.0, 126.9]));
+    assert!(!sweep_reaches(&sweep, [162.0, 0.0]));
+    assert!(!sweep_reaches(&sweep, [115.0, 115.0]));
+    assert!((sweep_factor(&sweep, 1) - 0.9).abs() < 1e-6);
+    assert!((factor(&sweep, 1) - 1.5).abs() < 1e-6);
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));
