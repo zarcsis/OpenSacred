@@ -2021,10 +2021,10 @@ pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -
     Some(damage(attacker, defender, blow, rng))
 }
 
-/// A strike that lands without the hit chance's roll, as the event 5 that the Gladiator's
-/// 1016's effect sends without an attacker (`0x562730` at `0x563310`; seen: the resolution
-/// `0x56B130` takes no chance from `0x43EEE0` for it): its damage as a plain strike's
-/// ([`strike`]).
+/// A strike that lands without the hit chance's roll, as the event 5 of four damages that the
+/// Gladiator's 1016's effect sends (`0x562730` at `0x563310`) and the Seraphim's bolts send
+/// (`0x5ABD80`; seen: the resolution `0x56B130` takes no chance from `0x43EEE0` for them, #854):
+/// its damage as a plain strike's ([`strike`]).
 pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
     damage(attacker, defender, blow, rng)
 }

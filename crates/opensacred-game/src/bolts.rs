@@ -5,9 +5,10 @@
 //! a hand's height over the ground, flies straight at its speed for its time at most and ends at a
 //! cell that may not be walked on; in each frame it finds the creatures on its level, alive and
 //! hostile to the hero, nearer it than the sum of their sizes, and hits each with its damages (the
-//! fight's hit of fixed damages, `opensacred_rules::arts::bolt_damages`): the railgun's hits all
-//! it found once and goes, the BFG's hits those of its first contact and flies on harmless. A
-//! glowing ball stands in for their particle systems (docs/decisions/2026-10-24-bolts-look.md).
+//! fight's hit of fixed damages, `opensacred_rules::arts::bolt_damages`, which always lands, #854):
+//! the railgun's hits all it found once and goes, the BFG's hits those of its first contact and
+//! flies on harmless. A glowing ball stands in for their particle systems
+//! (docs/decisions/2026-10-24-bolts-look.md).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, RAILGUN_SECOND, bolt_damages};
@@ -260,7 +261,7 @@ fn fly(
                 ranged: false,
                 art: None,
                 fixed: Some(bolt.damages),
-                sure: false,
+                sure: true,
             });
         }
         if bolt.bolt.goes() {
