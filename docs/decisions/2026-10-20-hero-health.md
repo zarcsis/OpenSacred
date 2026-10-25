@@ -6,7 +6,7 @@ Fight (`opensacred-game`), 2026-10-20 (#292); changed 2026-10-20 (#300), 2026-10
 
 The hero's most health comes from its attributes and level by `0x5658F0`, with its items and its skill 10 (docs/re/fight.md, "Health"); the creatures' strikes take it down, weighed by the difficulty's factors and a larger exponent of the damage for a creature above the hero's level, and caps of a hit on a player that are partly read.
 It regenerates by its value at the rates of a player fighting, with a hostile near or alone.
-At 0 the hero dies; how and where it comes back is not read.
+At 0 the hero dies, and about 5 s later it rises at the start's place with its health full, its level and its experience, as seen 2026-10-25 for a Seraphim of level 2 who fell at the start and 45 cells from it (docs/re/fight.md, "Health"); what sets the place and what else a death costs are not read.
 
 ## Ours
 
@@ -16,4 +16,4 @@ At 0 it plays one of its dying clips, the creatures stop coming at it, and five 
 
 ## Why
 
-The original's resurrection, its places and its costs are not read, and the game keeps no save; a hero that falls and comes back at the start lets the fight go on, and the time and the place are the simplest stand-ins until they are read.
+The game keeps no save; a hero that falls and comes back at the start lets the fight go on, which is what the original does at the start of a game, its time and place as seen; whether the original's place moves with the hero's way through the world is not read.
