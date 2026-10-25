@@ -49,6 +49,51 @@ pub const BURROWING: u16 = 57;
 pub const ARMOUR: u16 = 58;
 pub const STEEL: u16 = 59;
 
+/// The Daemon's spells: the call of death, the force of hell, the tentacles and the fear.
+pub const DISK: u16 = 60;
+pub const DOOM: u16 = 62;
+pub const FORCE: u16 = 63;
+pub const HELLFIRE: u16 = 64;
+pub const TENTACLES: u16 = 65;
+pub const CHOIR: u16 = 66;
+pub const FEAR: u16 = 67;
+
+/// The hell disk (`0x7AE040`, `0x5A7DE0`, `0x5AF93F`): its speed, how far it looks for a
+/// creature to home on (a squared 100,000), and how near it strikes one, with the creature's
+/// size.
+pub const DISK_SPEED: f32 = 250.0;
+pub const DISK_LOOKS: f32 = 316.2;
+pub const DISK_REACH: f32 = 50.0;
+/// The hellfire's choice of a target (`0x5AFF86`): within 800 of the hero and 1,300 of it along
+/// each axis, of a weight of 1 and 3 more with a ranged weapon; else within 300 and the
+/// creature's size of it.
+pub const HELLFIRE_HERO: f32 = 800.0;
+pub const HELLFIRE_BOX: f32 = 1300.0;
+pub const HELLFIRE_NEAR: f32 = 300.0;
+/// The choir's reach about the Daemon (a squared 32,000) and the most creatures it takes
+/// (`0x527DA9`).
+pub const CHOIR_REACH: f32 = 178.9;
+pub const CHOIR_MOST: usize = 20;
+
+/// The call of death's effect, whose value multiplies the Daemon's strikes' damage while above
+/// 1 (`0x56D1EC`), rising by his kills (`0x5339F3`) and falling with the time (`0x56373E`); its
+/// word, which the adder keeps, is here its `level`.
+pub const DOOMED: u32 = 46;
+/// The tentacles' effect, under which each of his kills raises a tentacle at its corpse
+/// (`0x533818`).
+pub const TENTACLED: u32 = 41;
+/// The fear's five objects about the Daemon: their distance from him, the first's angle, the
+/// steps between them, their reach with the creature's size, their life, and how long the
+/// effects they give hold (`0x528024`, `0x7B0AF0`, `0x5AFD26`).
+pub const FEAR_FROM: f32 = 160.0;
+pub const FEAR_ANGLE: f32 = 0.733;
+pub const FEAR_STEP: f32 = std::f32::consts::TAU / 5.0;
+pub const FEAR_REACH: f32 = 150.0;
+pub const FEAR_LIFE: f32 = 25.0;
+pub const FEAR_HOLDS: f32 = 1.0;
+/// A tentacle's reach with the creature's size (`0x5AFE9C`).
+pub const TENTACLE_REACH: f32 = 120.0;
+
 /// The greed's effect (`crate::fight::effects::SHIELDS`): `D`'s multiplier times 100 over its
 /// value, and its whole value the level at which the record's value 1 is the drops' `s`
 /// (`0x53464E`; docs/re/items.md).
@@ -73,7 +118,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 22] = [
+pub const MADE: [u16; 29] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -96,6 +141,13 @@ pub const MADE: [u16; 22] = [
     BURROWING,
     ARMOUR,
     STEEL,
+    DISK,
+    DOOM,
+    FORCE,
+    HELLFIRE,
+    TENTACLES,
+    CHOIR,
+    FEAR,
 ];
 
 /// The Dwarf's mines (`0x7BA8D0`, `0x7BB0B0`, `0x5B0719`, `0x5B094A`): how near another mine keeps
@@ -462,6 +514,79 @@ pub fn dwarfs(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
     effects.into_iter().map(|e| (e, seconds)).collect()
 }
 
+/// The Daemon's own effects of `spell` at the level `level`, keyed by the spell, for its value 0
+/// at its level: the call of death's [`DOOMED`] of the whole value `v₂`, the value 1 and the word
+/// `v₁` (`0x527CFC`); the force of hell's effect 4 of `v₁/100`, 59 of its fire's pair and 1 of its
+/// attack's pair over 100, from each of its two objects (`0x7C40E0`); the tentacles'
+/// [`TENTACLED`] of the whole value `L` (`0x52829F`); none for another spell.
+pub fn daemons(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
+    let pair = |at: usize| {
+        let [base, step] = spell.effects[at].map(u32::from);
+        base + step * level
+    };
+    let effect = |id: u32, whole: u32, value: f32, word: u32| Effect {
+        id,
+        whole: i32::try_from(whole).unwrap_or(i32::MAX),
+        value,
+        art: u32::from(spell.id),
+        level: u16::try_from(word).unwrap_or(u16::MAX),
+    };
+    let effects = match spell.id {
+        DOOM => vec![effect(
+            DOOMED,
+            value(spell, 2, level),
+            1.0,
+            value(spell, 1, level),
+        )],
+        FORCE => {
+            let one = [
+                effect(4, level, to_f32(value(spell, 1, level)) / 100.0, 0),
+                effect(59, pair(1), 0.0, 0),
+                effect(1, 0, to_f32(pair(4)) / 100.0, 0),
+            ];
+            one.iter().chain(&one).copied().collect()
+        }
+        TENTACLES => vec![effect(TENTACLED, level, 0.0, 0)],
+        _ => Vec::new(),
+    };
+    let seconds = to_f32(value(spell, 0, level));
+    effects.into_iter().map(|e| (e, seconds)).collect()
+}
+
+/// The call of death's value after a kill of its holder, its word `word` (`0x5339F3`): a third
+/// of the way from `value` to `1 + word/1000`.
+pub fn doom_kills(value: f32, word: u16) -> f32 {
+    value + (f32::from(word) - 1000.0 * (value - 1.0)) / 3000.0
+}
+
+/// The call of death's value after `seconds`, falling by its whole value over 1000 a second to
+/// no less than 1 (`0x56373E`).
+pub fn doom_fades(value: f32, whole: i32, seconds: f32) -> f32 {
+    let whole = i16::try_from(whole).map_or(f32::MAX, f32::from);
+    (value - whole / 1000.0 * seconds).max(1.0)
+}
+
+/// What the fear's objects give a creature they strike, keyed by the spell, for
+/// [`FEAR_HOLDS`] (`0x5AFD26`): the effects 1 and 2 of `−(1 − 100/p)`, `p` the record's attack's
+/// and defence's pairs at the level `level`, 110 + 10·L.
+pub fn fear(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
+    [(1, 4), (2, 5)]
+        .into_iter()
+        .map(|(id, at)| {
+            let [base, step] = spell.effects[at].map(u32::from);
+            let p = to_f32(base + step * level).max(1.0);
+            let effect = Effect {
+                id,
+                whole: 0,
+                value: -(1.0 - 100.0 / p),
+                art: u32::from(spell.id),
+                level: 0,
+            };
+            (effect, FEAR_HOLDS)
+        })
+        .collect()
+}
+
 /// The drops' `s` of a killer that holds the greed's effect of the whole value `level`: the record
 /// 55's value 1 at that level, 15 + 5·L (`0x53464E`).
 pub fn treasure(greed: &Spell, level: u32) -> u32 {
@@ -704,6 +829,50 @@ mod tests {
         );
         mines.values[1] = [0, 0];
         assert_eq!(ratio(&mines, 0, 1, 1), 11);
+    }
+
+    #[test]
+    fn the_daemons_doom_rises_with_his_kills_and_falls_with_the_time() {
+        // GOG 2.28's 62: the value 0 24 + L at most 60, 1 840 + 60·L, 2 56 + 4·L.
+        let mut doom = record(DOOM, &[], [24, 1], 60);
+        doom.values[1] = [840, 60];
+        doom.values[2] = [56, 4];
+        let [(effect, seconds)] = daemons(&doom, 1)[..] else {
+            panic!("one effect");
+        };
+        assert_eq!(
+            (effect.id, effect.whole, effect.value, effect.level, seconds),
+            (46, 60, 1.0, 900, 25.0)
+        );
+        // Each kill a third of the way to 1.9, then the fall of 0.06 a second.
+        let once = doom_kills(1.0, 900);
+        assert!((once - 1.3).abs() < 1e-6);
+        assert!((doom_kills(once, 900) - 1.5).abs() < 1e-6);
+        assert!((doom_fades(1.3, 60, 2.0) - 1.18).abs() < 1e-6);
+        assert_eq!(doom_fades(1.03, 60, 1.0), 1.0);
+        // 63: the fire (4, 1), the attack (20, 20), the value 1 25 + 5·L, twice.
+        let mut force = record(FORCE, &[(1, [4, 1]), (4, [20, 20])], [29, 1], 90);
+        force.values[1] = [25, 5];
+        let given: Vec<_> = daemons(&force, 1)
+            .iter()
+            .map(|(e, _)| (e.id, e.whole, e.value))
+            .collect();
+        assert_eq!(
+            given,
+            [
+                (4, 1, 0.3),
+                (59, 5, 0.0),
+                (1, 0, 0.4),
+                (4, 1, 0.3),
+                (59, 5, 0.0),
+                (1, 0, 0.4)
+            ]
+        );
+        // 67: the attack and the defence (110, 10): −1/6 at level 1, for 1 s.
+        let terror = record(FEAR, &[(4, [110, 10]), (5, [110, 10])], [25, 0], 0);
+        let given = fear(&terror, 1);
+        assert_eq!(given.len(), 2);
+        assert!((given[0].0.value + 1.0 / 6.0).abs() < 1e-6 && given[1].1 == 1.0);
     }
 
     #[test]

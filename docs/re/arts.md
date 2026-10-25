@@ -1145,6 +1145,17 @@ None gives the effect `0x22`.
 - **66 (`gui_spells_chor`), the choir**, launch type 0, 3 + 3·L physical and magic, `v₀` 19 + L at most 30 (`0x527DA9`): for the local hero, the first 20 hostile creatures within about 179, of an id above 16, of no big type and without its effect, each take the effect 35 keyed by 66 and an object 1011 following it, which gives it the effect 15 of `clamp(2M/(15·L), 0.5, 1)` (a boss's level times 1.3) for `v₀` seconds by its action 9 and strikes it once a second.
 - **67 (`gui_spells_hoellenfurcht`), the fear**, launch type 0, `v₀` 25 (`0x528024`): five objects 1012 at 160 about him, each for 25 s striking once a second the hostile creatures within 150 and their size without its effect with the effects 1 and 2 of `−(1 − 100/(110 + 10·L))` for 1 s, keyed by 67.
 
+`opensacred-game` makes the seven (#890, `opensacred_rules::spells`, `spells`):
+- the hell disk flies at 250 a second on its target, else the nearest hostile creature within about 316, else by him, and strikes the first it touches once a second, turning to the nearest other; the cells that turn it back are not tested;
+- the call of death's effect 46 rises by a third of the way to `1 + v₁/1000` at each of his kills, falls by `v₂/1000` a second to 1, and multiplies his strikes' damage while above 1;
+- the force of hell's effects 4, 59 and 1, from each of its two objects;
+- the hellfire strikes once a second one creature at random among those within 800 of him and 1,300 of it along each axis, weighed 4 for one with a ranged weapon and 1 else, or within 300 of it; the line's test and the weight of `0x5B7BC0` are left out;
+- the tentacles' effect 41, under which each of his kills raises a tentacle at its corpse, striking within 120 once a second for 10 s;
+- the choir's effect 35 on the first 20 hostile creatures within about 179, of no big type, and a choir following each, striking it once a second; its effect 15, whose value's use is not read, is left out;
+- the fear's five objects at 160 about him, each giving once a second the creatures within 150 and their size that hold none of its effects its effects 1 and 2 for 1 s.
+
+The Daemon of a new game took `A` from 32.5 to 58 under the force of hell; translucent discs stand in for the fear's objects, the tentacles and the hellfire, and an orange disk for the hell disk.
+
 ## The heroes' starting arts
 
 Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (above): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229 (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):
