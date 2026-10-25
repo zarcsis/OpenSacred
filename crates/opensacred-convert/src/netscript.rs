@@ -15,18 +15,23 @@ use opensacred_formats::netscript as original;
 use rayon::prelude::*;
 
 use crate::flow::{Ending, Stmt, Test, structure};
+use crate::script_repairs::{self, Outcome};
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
 
 pub fn output_dir(out: &Path) -> PathBuf {
     out.join("netscript")
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub trees: usize,
     pub records: usize,
     pub functions: usize,
     pub bytes: u64,
+    /// The trees and the cells that the repairs gave (`script_repairs`).
+    pub repaired_trees: usize,
+    pub repaired_cells: usize,
+    pub warnings: Vec<String>,
 }
 
 /// The trees, as the manifest names their directories: those that hold a `FunkCode.bin`.
@@ -368,7 +373,8 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
     let entries = trees()?
         .par_iter()
         .map(|source| {
-            let tree = tree(game_dir, source)?;
+            let mut tree = tree(game_dir, source)?;
+            let outcome = script_repairs::apply(&script_repairs::CELLS, source, &mut tree.start);
             let file = file_name(source);
             let bytes = tree
                 .encode()
@@ -405,13 +411,25 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 records: tree.records(),
                 functions: tree.functions.len(),
             };
-            Ok((entry, u64::try_from(bytes.len()).unwrap_or(u64::MAX)))
+            Ok((
+                entry,
+                u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+                outcome,
+            ))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
     let mut trees = Vec::with_capacity(entries.len());
-    for (entry, bytes) in entries {
+    for (entry, bytes, outcome) in entries {
+        match outcome {
+            Outcome::None => {}
+            Outcome::Repaired(cells) => {
+                summary.repaired_trees += 1;
+                summary.repaired_cells += cells;
+            }
+            Outcome::Mismatch(warning) => summary.warnings.push(warning),
+        }
         summary.trees += 1;
         summary.records += entry.records;
         summary.functions += entry.functions;
@@ -492,6 +510,10 @@ mod tests {
         let summary = convert(&game, &out, false).unwrap();
         assert_eq!(summary.trees, 20);
         assert_eq!(summary.records, 2_203_278);
+        // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
+        // trees, and no warning.
+        assert_eq!((summary.repaired_trees, summary.repaired_cells), (11, 11));
+        assert_eq!(summary.warnings, Vec::<String>::new());
         let index: NetScript =
             ron::from_str(&fs::read_to_string(output_dir(&out).join(INDEX)).unwrap()).unwrap();
         let camp = index
@@ -503,6 +525,22 @@ mod tests {
         let tree = Tree::decode(&fs::read(output_dir(&out).join(&camp.file)).unwrap()).unwrap();
         assert_eq!(tree.records(), camp.records);
         assert_eq!(tree.regions.len(), 22);
+        // Once repaired, no tree has a payload that runs past its record's end.
+        for entry in &index.trees {
+            let tree =
+                Tree::decode(&fs::read(output_dir(&out).join(&entry.file)).unwrap()).unwrap();
+            let truncated = tree
+                .start
+                .iter()
+                .chain(&tree.quest)
+                .chain(tree.functions.iter().flat_map(|f| &f.records))
+                .filter(|r| match &r.body {
+                    Body::Operands(ops) => ops.iter().any(|o| o.value == Value::Truncated),
+                    _ => false,
+                })
+                .count();
+            assert_eq!(truncated, 0, "{}", entry.source);
+        }
         fs::remove_dir_all(out).unwrap();
     }
 

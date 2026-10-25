@@ -799,6 +799,13 @@ A record = `u16 code; u16 len` (len includes the 4 header bytes), followed by op
 Tags 0x00, 0x17, 0x18, 0x21, 0x22, 0x76, 0x94 and 0xA2–0xFF end the record with an error; none occurs.
 With this table every record of the 20 trees consumes its body exactly, except: type 40, whose body is an 80-byte struct `{i32 −1; char name[64]; i32 a; i32 b; i32 0}` (16,460 records), type 41, whose body is a u16 from 1 to 5 (4,950), and 11 records of type 50 whose last tag 0x2A has no payload (the client reads 12 bytes past the record).
 Implemented 2026-10-17: `opensacred_formats::netscript` (`Script`), matching the prototype on every operand of the 51 non-empty files.
+
+The 11 truncated records are one record of one start script, which 9 Underworld trees and the 2 multiplayer trees share (`bin/Addon/NetScriptCamp`, `bin/Addon/TYPE_NPC_*`, `bin/Addon/NetScript`, `bin/NetScript`), **confirmed 2026-10-25** on the listings of all 20 trees.
+It is the `TriggerPatch` of `chestTrigger` before the `CreateObj` of the chest `chest_Pilzwald_14` (object 1339, cell (1641, 911, 0)).
+Each of the other 21 chests of that object in those start scripts has one patch, on its own cell, and over the 20 trees 40,010 of the patches of `chestTrigger` name the cell of the object after them.
+The Sacred campaign trees do not have that chest.
+Repaired 2026-10-25 (#723, [docs/decisions/2026-10-25-chest-cell.md](decisions/2026-10-25-chest-cell.md)): `opensacred-convert netscript` gives the truncated `0x2A` the cell of the chest after it, so the chest's cell is closed like the other chests' (`script_repairs`).
+`opensacred_formats` still reads the record as it is, with a truncated operand.
 There are no jumps by offset: branching goes by names and indices (`Vectoren.bin`), state is quest flags, variables, triggers.
 Terminology: in this document "opcode" = record type (u16), corresponding to sacred-sdk's "tag"; the operand marker is called "tag" by openheilig and "opcode" by sacred-sdk.
 
