@@ -618,6 +618,204 @@ fn fogs(
     }
 }
 
+/// The death's kiss's skull 905 (`FX_FLYINGSKULL`, `0x7A6370`): its caster, the creature it homes
+/// on, its direction, its curse's value and its bleeding's, its time left, and its level.
+#[derive(Component, Debug, Clone)]
+struct Skull {
+    caster: Entity,
+    target: Option<Entity>,
+    direction: Vec3,
+    curse: f32,
+    bleeds: f32,
+    left: f32,
+    level: Level,
+}
+
+/// How high over a creature's place the skull aims, for its neck (**estimate**).
+const NECK_HEIGHT: f32 = 90.0;
+
+/// Sends the death's kiss's skull of `caster` at `target` from `from`, her neck, with its curse's
+/// value and its bleeding's, for `life` seconds on `level` (`0x51042C`, the FX event `0x75`): it
+/// leaves her going straight up.
+pub fn kiss(
+    commands: &mut Commands,
+    (caster, target): (Entity, Entity),
+    from: Vec3,
+    (curse, bleeds): (f32, f32),
+    life: f32,
+    level: Level,
+) {
+    commands.spawn((
+        Skull {
+            caster,
+            target: (target != caster).then_some(target),
+            direction: Vec3::Y,
+            curse,
+            bleeds,
+            left: life,
+            level,
+        },
+        Transform::from_translation(from),
+        Visibility::Inherited,
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
+/// Flies each skull at 150 a second, turning toward its aim by at most 3 radians a second: its
+/// target's neck, else the nearest hostile creature's within about 316, else hovering about its
+/// caster's (`0x5A6680` with the flag `0x10000`); each hostile creature it touches (20 and its
+/// size) that holds no effect keyed by 1033 takes the effects 2 and 1 of its curse and 23 of its
+/// bleeding for 5 s keyed by 1033, and the skull turns to the nearest other one so uncursed within
+/// 1,000, ending without one (`0x5ABD80` at `0x5AF091`); past its life or at a cell that may not
+/// be walked on it ends.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their               filters"
+)]
+fn skulls(
+    mut commands: Commands,
+    time: Res<Time>,
+    looks: Option<Res<Looks>>,
+    mut dice: ResMut<Dice>,
+    heights: Res<crate::terrain::Heights>,
+    mut skulls: Query<(Entity, &mut Skull, &mut Transform, Has<Children>)>,
+    casters: Query<&Transform, (With<Body>, Without<Skull>)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&Effects>,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Dies>, Without<Skull>),
+    >,
+) {
+    let dt = time.delta_secs();
+    let cursed =
+        |effects: Option<&Effects>| effects.is_some_and(|effects| effects.holds_any(&[1033]));
+    // The creatures cursed in this frame, whose effects the commands have not given yet.
+    let mut given: Vec<Entity> = Vec::new();
+    for (entity, mut skull, mut transform, shown) in &mut skulls {
+        if !shown && let Some(looks) = &looks {
+            commands.entity(entity).with_child((
+                Mesh3d(looks.soul.0.clone()),
+                MeshMaterial3d(looks.discs[5].clone()),
+            ));
+        }
+        skull.left -= dt;
+        let here = transform.translation;
+        let level = skull.level;
+        let foe = |target: Entity| {
+            creatures
+                .get(target)
+                .ok()
+                .filter(|(_, _, way, mind, health, ..)| {
+                    way.level == level && mind.hostile() && health.current > 0
+                })
+        };
+        let nearest = |within: f32, uncursed: bool, given: &[Entity]| {
+            creatures
+                .iter()
+                .filter(|(target, at, way, mind, health, effects, _)| {
+                    way.level == level
+                        && mind.hostile()
+                        && health.current > 0
+                        && (!uncursed || (!cursed(*effects) && !given.contains(target)))
+                        && (at.translation - here).length() < within
+                })
+                .min_by(|a, b| {
+                    let d = |at: &Transform| (at.translation - here).length();
+                    d(a.1).total_cmp(&d(b.1))
+                })
+                .map(|(target, ..)| target)
+        };
+        if skull.target.and_then(foe).is_none() {
+            skull.target = nearest(opensacred_rules::arts::SKULL_LOOKS, false, &given);
+        }
+        // Its aim: its target's neck, else about its caster's, ±50 along each axis.
+        let aim = match skull.target.and_then(foe) {
+            Some((_, at, ..)) => at.translation + Vec3::Y * NECK_HEIGHT,
+            None => {
+                let Ok(caster) = casters.get(skull.caster) else {
+                    commands.entity(entity).despawn();
+                    continue;
+                };
+                let mut roll = || f32::from(u16::try_from(dice.0.below(101)).unwrap_or(50)) - 50.0;
+                caster.translation + Vec3::new(roll(), NECK_HEIGHT, roll())
+            }
+        };
+        let want = (aim - here).normalize_or_zero();
+        let angle = skull.direction.angle_between(want);
+        if want != Vec3::ZERO && angle > 0.001 {
+            let axis = skull
+                .direction
+                .cross(want)
+                .try_normalize()
+                .unwrap_or(Vec3::Y);
+            let turn = angle.min(opensacred_rules::arts::SKULL_TURNS * dt);
+            skull.direction =
+                (Quat::from_axis_angle(axis, turn) * skull.direction).normalize_or(Vec3::Y);
+        }
+        let next = here + skull.direction * opensacred_rules::arts::SKULL_SPEED * dt;
+        transform.translation = next;
+        let cell = crate::paths::cell_of(next.x, next.z);
+        if skull.left <= 0.0 || !heights.walkable_on(cell, level) {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let touched: Vec<Entity> = creatures
+            .iter()
+            .filter(|(target, at, way, mind, health, effects, size)| {
+                let reach = opensacred_rules::arts::SKULL_REACH
+                    + size.map_or(arrows::size(0), |size| size.0);
+                way.level == level
+                    && mind.hostile()
+                    && health.current > 0
+                    && !cursed(*effects)
+                    && !given.contains(target)
+                    && (at.translation - next).xz().length() < reach
+            })
+            .map(|(target, ..)| target)
+            .collect();
+        if touched.is_empty() {
+            continue;
+        }
+        let effect = |id, value| Effect {
+            art: 1033,
+            level: 1,
+            ..Effect::new(id, value)
+        };
+        let curse = [
+            (
+                effect(opensacred_rules::fight::effects::DEFENCE, skull.curse),
+                opensacred_rules::arts::CURSE_SECONDS,
+            ),
+            (
+                effect(opensacred_rules::fight::effects::ATTACK, skull.curse),
+                opensacred_rules::arts::CURSE_SECONDS,
+            ),
+            (
+                effect(opensacred_rules::arts::BLEEDS, skull.bleeds),
+                opensacred_rules::arts::CURSE_SECONDS,
+            ),
+        ];
+        for target in touched {
+            debug!("spells: the skull {entity} curses {target}");
+            give(&mut commands, target, curse.to_vec());
+            given.push(target);
+        }
+        // On to the nearest uncursed hostile creature within 1,000, else it ends.
+        skull.target = nearest(opensacred_rules::arts::SKULL_NEXT, true, &given);
+        if skull.target.is_none() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 /// A zone of the ring of frost (the kind 3, `0xAD2530`): its cell, its level, the ring's level
 /// in play, and its time left.
 #[derive(Component, Debug, Clone)]
@@ -2754,6 +2952,7 @@ impl Plugin for SpellsPlugin {
                     frost,
                     changelings,
                     (balls, pentagrams, confusions, fogs),
+                    skulls,
                     teleport,
                     doom,
                     fade,
