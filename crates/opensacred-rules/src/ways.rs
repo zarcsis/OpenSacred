@@ -121,6 +121,12 @@ pub fn around(cell: Cell, walkable: impl Fn(Cell) -> bool) -> impl Iterator<Item
     })
 }
 
+/// How near each other along a line, in cells, its crossings of a column's edge and of a row's
+/// make it pass a corner: a point of the world in `f32` carries about 6·10⁻⁴ of a cell (a
+/// coordinate of 300,000 units to 0.03), so that a line between two cells' centres along their
+/// diagonal passes a hair beside the corners it runs through.
+const CORNER: f32 = 2e-3;
+
 /// Whether the straight line from `a` to `b` on the ground crosses walkable cells only, but
 /// for the cell of `a`.
 ///
@@ -128,6 +134,19 @@ pub fn around(cell: Cell, walkable: impl Fn(Cell) -> bool) -> impl Iterator<Item
 /// corner, the two cells beside the corner too: a hero cannot slip between two cells that touch
 /// at a corner.
 pub fn clear(a: Point, b: Point, walkable: impl Fn(Cell) -> bool) -> bool {
+    clear_by(a, b, &walkable, &walkable)
+}
+
+/// Whether the straight line from `a` to `b` crosses only cells that `crossed` takes, but for
+/// the cell of `a`, and passes a corner only between two cells that `beside` takes: as
+/// [`clear`], for a line that keeps to some cells, a way's, while a corner it passes needs only
+/// cells that may be walked on beside it, as the way's own diagonal steps do ([`around`]).
+pub fn clear_by(
+    a: Point,
+    b: Point,
+    crossed: impl Fn(Cell) -> bool,
+    beside: impl Fn(Cell) -> bool,
+) -> bool {
     let (mut cell, end) = (cell_at(a), cell_at(b));
     let d = (b.0 - a.0, b.1 - a.1);
     let step = (sign(d.0), sign(d.1));
@@ -144,11 +163,12 @@ pub fn clear(a: Point, b: Point, walkable: impl Fn(Cell) -> bool) -> bool {
     };
     let (mut tx, mut ty) = (next(a.0, d.0), next(a.1, d.1));
     let (dx, dy) = (1.0 / d.0.abs(), 1.0 / d.1.abs());
+    let length = d.0.hypot(d.1);
     let cells = (end.0 - cell.0).abs() + (end.1 - cell.1).abs();
     for _ in 0..cells {
-        if (tx - ty).abs() < 1e-6 {
+        if (tx - ty).abs() * length < CORNER {
             // Through a corner.
-            if !walkable((cell.0 + step.0, cell.1)) || !walkable((cell.0, cell.1 + step.1)) {
+            if !beside((cell.0 + step.0, cell.1)) || !beside((cell.0, cell.1 + step.1)) {
                 return false;
             }
             cell = (cell.0 + step.0, cell.1 + step.1);
@@ -161,7 +181,7 @@ pub fn clear(a: Point, b: Point, walkable: impl Fn(Cell) -> bool) -> bool {
             cell.1 += step.1;
             ty += dy;
         }
-        if !walkable(cell) {
+        if !crossed(cell) {
             return false;
         }
         if cell == end {
@@ -493,6 +513,19 @@ mod tests {
         // Not through the wall; a point's cell is the one it lies in.
         assert!(!clear((2.5, 4.5), (8.5, 4.5), wall));
         assert_eq!(cell_at((5.99, -0.01)), (5, -1));
+    }
+
+    #[test]
+    fn a_line_a_hair_beside_a_corner_passes_the_corner() {
+        // Two cells' centres far out in the world, as they come back from its `f32` coordinates,
+        // a few ten-thousandths of a cell off: the line between them on their diagonal crosses
+        // the two cells alone and asks only the cells beside the corner (#981).
+        let (a, b) = ((5940.5004, 403.4996), (5939.4997, 404.5003));
+        let ends = |cell: Cell| cell == (5940, 403) || cell == (5939, 404);
+        assert!(clear_by(a, b, ends, |_| true));
+        assert!(!clear_by(a, b, ends, |cell| cell != (5940, 404)));
+        // A line that passes a tenth of a cell beside it crosses a third cell.
+        assert!(!clear_by((5940.6, 403.5), (5939.5, 404.5), ends, |_| true));
     }
 
     #[test]

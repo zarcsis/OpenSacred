@@ -242,6 +242,8 @@ pub struct Body {
     /// The cell a command stood it on at a floor it named: it keeps that level while it stays
     /// on the cell, whatever the cell's mass, entrance or exit would make of it ([`run`]).
     pinned: Option<(i32, i32)>,
+    /// Its course to its target, found as it took its order (`paths::Course`, `0x4F7710`).
+    course: Option<paths::Course<(Level, bool)>>,
 }
 
 /// A hero that flies, for a test (the command `fly`, #526): it goes straight where it is sent,
@@ -303,11 +305,13 @@ impl Body {
         self.target = None;
         self.onto = None;
         self.stopping = None;
+        self.course = None;
     }
 
     /// It has arrived, or can go no farther: its clip goes on to the second tick after (#640).
     fn arrives(&mut self) {
         self.target = None;
+        self.course = None;
         if self.moving.is_some() {
             self.stopping = Some(STOPS);
         }
@@ -321,6 +325,7 @@ impl Body {
         self.target = None;
         self.onto = None;
         self.stopping = None;
+        self.course = None;
         self.level = None;
         self.climbed = false;
         self.unplaced = true;
@@ -528,6 +533,7 @@ pub fn spawn(
             unplaced: false,
             landing: None,
             pinned: None,
+            course: None,
         },
         models::Ordered::default(),
         shadows::Casts,
@@ -694,6 +700,8 @@ pub fn take_orders(mut bodies: Query<&mut Body>) {
             body.target = Some(target);
             body.onto = onto;
             body.stopping = None;
+            // The way of the order is found as it is taken (`0x4F7710`), at the next frame.
+            body.course = None;
         } else if let Some(left) = body.stopping {
             body.stopping = left.checked_sub(1).filter(|&left| left > 0);
         }
@@ -895,29 +903,58 @@ pub fn run(
                 };
                 let free = |cell, at| open(cell, at) && !crowd.stops(cell, at, me, true);
                 let walkable = |cell| free(cell, level);
-                // Round what blocks the way and through the doors; straight on toward a target that
-                // cannot be reached, up to what blocks it.
+                // Round what blocks the way and through the doors, on the course found as it took
+                // its order, found anew off it (a stair's landing); straight on toward a target
+                // that cannot be reached, up to what blocks it.
                 // From where it stands it climbs no more: the stair it stands on, if any, it has
                 // climbed already or arrived on.
                 let onto = body.onto;
-                let (toward, reachable) = match paths::next(
-                    here,
-                    (level, false),
-                    target,
-                    onto,
-                    |cell, (at, _)| free(cell, at),
-                    |place| {
-                        let mut next = heights.neighbours_by(place, open);
-                        next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
-                        next
-                    },
-                    |(at, _)| at,
-                ) {
+                let plan = |here| {
+                    paths::course(
+                        here,
+                        (level, false),
+                        target,
+                        onto,
+                        |cell, (at, _)| free(cell, at),
+                        |place| {
+                            let mut next = heights.neighbours_by(place, open);
+                            next.retain(|&(cell, (at, _))| !crowd.stops(cell, at, me, true));
+                            next
+                        },
+                        |(at, _)| at,
+                    )
+                };
+                let follow = |course: &Option<paths::Course<_>>| {
+                    course.as_ref().and_then(|course| {
+                        paths::follow(
+                            course,
+                            here,
+                            (level, false),
+                            target,
+                            |cell, (at, _)| free(cell, at),
+                            |(at, _)| at,
+                        )
+                    })
+                };
+                if body.course.is_none() {
+                    body.course = plan(here);
+                }
+                let mut step = follow(&body.course);
+                if step.is_none() && body.course.is_some() {
+                    body.course = plan(here);
+                    step = follow(&body.course);
+                }
+                let (toward, reachable) = match step {
                     Some(paths::Step::Through((next, _))) => {
                         body.level = next;
                         (here, true)
                     }
                     Some(paths::Step::Toward(point)) => (point, true),
+                    // Its way's next step no longer clear: it stops, running in place a while.
+                    Some(paths::Step::Blocked) => {
+                        body.arrives();
+                        (here, true)
+                    }
                     None => (target, false),
                 };
                 let to = (toward - here).with_y(0.0);
@@ -1217,6 +1254,7 @@ mod tests {
                 unplaced: false,
                 landing: None,
                 pinned: None,
+                course: None,
             },
         ));
         app.update();

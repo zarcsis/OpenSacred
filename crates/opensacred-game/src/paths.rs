@@ -1,10 +1,11 @@
 //! The hero's way around what blocks it (docs/re/movement.md). The client finds a way from the
 //! hero's cell to the target's by a search of the fewest steps over the walkable cells of a
 //! 64 × 64 window (`0x421B90`), on the hero's layer and, through the doors, the others; the game
-//! does the same (`opensacred_rules::ways`), and heads for the farthest cell of the way on its
-//! layer that it reaches in a straight line, so that the hero does not zigzag from cell centre to
-//! cell centre.
+//! does the same (`opensacred_rules::ways`), once at each order ([`Course`]), and heads for the
+//! farthest cell of the way on its layer that it reaches in a straight line over the way's own
+//! cells, so that the hero does not zigzag from cell centre to cell centre.
 
+use std::collections::HashSet;
 use std::hash::Hash;
 
 use bevy::math::{Vec2, Vec3, Vec3Swizzles};
@@ -48,11 +49,24 @@ pub fn leg(position: Vec3, target: Vec3, walkable: impl Fn(Cell) -> bool) -> Vec
 /// Whether the straight line from world `a` to `b` on the ground crosses walkable cells only,
 /// but for the cell of `a` (`opensacred_rules::ways::clear`).
 pub fn clear(a: Vec2, b: Vec2, walkable: impl Fn(Cell) -> bool) -> bool {
-    let in_cells = |p: Vec2| {
-        let p = p / iso::CELL;
-        (p.x, p.y)
-    };
     ways::clear(in_cells(a), in_cells(b), walkable)
+}
+
+/// Whether the straight line from world `a` to `b` crosses only cells that `crossed` takes and
+/// passes a corner only between cells that `beside` takes (`opensacred_rules::ways::clear_by`).
+fn clear_by(
+    a: Vec2,
+    b: Vec2,
+    crossed: impl Fn(Cell) -> bool,
+    beside: impl Fn(Cell) -> bool,
+) -> bool {
+    ways::clear_by(in_cells(a), in_cells(b), crossed, beside)
+}
+
+/// A world point on the ground in cells.
+fn in_cells(p: Vec2) -> (f32, f32) {
+    let p = p / iso::CELL;
+    (p.x, p.y)
 }
 
 /// What the hero does next on its way to its target.
@@ -62,6 +76,10 @@ pub enum Step<L> {
     Toward(Vec3),
     /// Goes onto another layer, through the door it stands on.
     Through(L),
+    /// Stops: the next step of its way, from the centre of its cell, is no longer clear (a
+    /// creature has come beside the corner it would pass), as the original's walker stops at
+    /// the test of its line (`0x4F7DD0`).
+    Blocked,
 }
 
 /// Of the places `places` that a way's search may step onto, those where `stops` does not stop
@@ -77,13 +95,30 @@ pub fn passable<L: Copy>(
     places
 }
 
-/// What the hero at `position` on `layer` does next on its way to `target`, on level `onto` when
-/// given: heads for the target itself when the straight line to it is clear on its layer and
-/// the target is on it, else for the farthest place of the way on its layer that it reaches in a
-/// straight line, or goes through the door it stands on onto the way's next layer; `None` when
-/// the target cannot be reached. A place's layer is `level` of its `L`, which may carry more
-/// than the layer, the same along a stretch of the way.
-pub fn next<L: Copy + Eq + Hash, K: PartialEq>(
+/// A way as the original keeps it from an order to go somewhere (`0x4F7710`, docs/re/movement.md,
+/// "The way"): straight to the target when the line to it is clear as the order is given, else
+/// the places that the search found then (`0x4FABE0`). Neither is searched again until the next
+/// order, so that a creature that comes into the way afterwards stops the walker at its step
+/// (`0x4F7E10`) rather than turning it round, and the walker keeps to its way's cells, as the
+/// original's hero kept off a barrel's cell that its step's test let it onto (#981, #989).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Course<L> {
+    /// Straight to the target.
+    Straight,
+    /// Along these places, the walker's own first.
+    Way(Vec<(Cell, L)>),
+}
+
+/// The course of a walker at `position` on `layer` ordered to `target`, on level `onto` when
+/// given: straight when the line to the target is clear on its layer and the target is on it,
+/// else the way that the search finds; `None` when the target cannot be reached. A place's layer
+/// is `level` of its `L`, which may carry more than the layer.
+///
+/// The original's line runs from cell to cell (`0x4FABE0`'s first loop, each cell and, where it
+/// steps diagonally, the cells beside the corner through `0x4FAA60`), so that a walker standing
+/// off its cell's centre does not slip between two closed cells that touch at a corner of its
+/// line; the line between the two cells' centres has to be clear as well as the walker's own.
+pub fn course<L: Copy + Eq + Hash, K: PartialEq>(
     position: Vec3,
     layer: L,
     target: Vec3,
@@ -91,34 +126,77 @@ pub fn next<L: Copy + Eq + Hash, K: PartialEq>(
     walkable: impl Fn(Cell, L) -> bool,
     neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
     level: impl Fn(L) -> K,
-) -> Option<Step<L>> {
+) -> Option<Course<L>> {
     let (from, to) = (position.xz(), target.xz());
-    let on = |cell| walkable(cell, layer);
     let arrives = |at: L| onto.as_ref().is_none_or(|onto| level(at) == *onto);
-    if arrives(layer) && clear(from, to, on) {
-        return Some(Step::Toward(target));
+    let on = |cell| walkable(cell, layer);
+    let centres = (centre(cell_of(from.x, from.y)), centre(cell_of(to.x, to.y)));
+    if arrives(layer) && clear(from, to, on) && clear(centres.0, centres.1, on) {
+        return Some(Course::Straight);
     }
-    let way = path_onto(
+    path_onto(
         (cell_of(from.x, from.y), layer),
         cell_of(to.x, to.y),
         arrives,
         neighbours,
-    )?;
-    // The way on this layer, up to its first door.
-    let door = way.windows(2).position(|w| level(w[0].1) != level(w[1].1));
-    if door == Some(0) {
-        return way.get(1).map(|&(_, next)| Step::Through(next));
-    }
-    let stretch = &way[..door.map_or(way.len(), |at| at + 1)];
-    let corner = stretch
-        .iter()
-        .skip(1)
-        .rev()
-        .map(|&(cell, _)| centre(cell))
-        .find(|&point| clear(from, point, on))
-        .or_else(|| stretch.get(1).map(|&(cell, _)| centre(cell)))?;
-    Some(Step::Toward(Vec3::new(corner.x, position.y, corner.y)))
+    )
+    .map(Course::Way)
 }
+
+/// What a walker at `position` on `layer` does next on its `course` to `target`: straight on;
+/// or along its way, through the door it stands on onto the way's next layer, else for the
+/// farthest place of the way on its layer that it reaches in a straight line over the way's own
+/// cells, past corners between cells it may step on (`walkable`), and for the target itself once
+/// that is the way's last place; with none, for the centre of its own cell, from which the next
+/// is a step of the way, or, there, it stops ([`Step::Blocked`]). `None` when it stands off its
+/// way, on no place of it on its layer.
+pub fn follow<L: Copy, K: PartialEq>(
+    course: &Course<L>,
+    position: Vec3,
+    layer: L,
+    target: Vec3,
+    walkable: impl Fn(Cell, L) -> bool,
+    level: impl Fn(L) -> K,
+) -> Option<Step<L>> {
+    let Course::Way(way) = course else {
+        return Some(Step::Toward(target));
+    };
+    let from = position.xz();
+    let here = cell_of(from.x, from.y);
+    let at = way
+        .iter()
+        .rposition(|&(cell, place)| cell == here && level(place) == level(layer))?;
+    let rest = &way[at..];
+    // The way on this layer, up to its first door.
+    let door = rest.windows(2).position(|w| level(w[0].1) != level(w[1].1));
+    if door == Some(0) {
+        return rest.get(1).map(|&(_, next)| Step::Through(next));
+    }
+    let stretch = &rest[..door.map_or(rest.len(), |at| at + 1)];
+    let cells: HashSet<Cell> = stretch.iter().map(|&(cell, _)| cell).collect();
+    let along = |cell| cells.contains(&cell);
+    let beside = |cell| walkable(cell, layer);
+    let last = door.is_none().then(|| stretch.len() - 1);
+    let farthest = (1..stretch.len())
+        .rev()
+        .find(|&i| clear_by(from, centre(stretch[i].0), along, beside));
+    let point = |i: usize| {
+        let point = centre(stretch[i].0);
+        Vec3::new(point.x, position.y, point.y)
+    };
+    Some(match farthest {
+        Some(i) if Some(i) != last => Step::Toward(point(i)),
+        Some(_) => Step::Toward(target),
+        None if Some(0) == last => Step::Toward(target),
+        // Off its cell's centre, to the centre first, from which the next place is a step; there,
+        // that step no longer clear, it stops.
+        None if (centre(here) - from).length() > ON_CENTRE => Step::Toward(point(0)),
+        None => Step::Blocked,
+    })
+}
+
+/// How near its cell's centre, in world units, a walker stands at it.
+const ON_CENTRE: f32 = 0.5;
 
 #[cfg(test)]
 mod tests {
@@ -136,6 +214,56 @@ mod tests {
 
     fn at(x: f32, y: f32) -> Vec3 {
         iso::ground(x, y)
+    }
+
+    /// What a walker does next on an order given where it stands: its course, then its step.
+    fn next<L: Copy + Eq + Hash, K: PartialEq>(
+        position: Vec3,
+        layer: L,
+        target: Vec3,
+        onto: Option<K>,
+        walkable: impl Fn(Cell, L) -> bool,
+        neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
+        level: impl Fn(L) -> K,
+    ) -> Option<Step<L>> {
+        let course = course(position, layer, target, onto, &walkable, neighbours, &level)?;
+        follow(&course, position, layer, target, walkable, level)
+    }
+
+    /// The cells a walker ordered from `from` to `target` on one layer stands on as it follows
+    /// its course from point to point, and the legs it walks, the course kept from the order.
+    fn walked(
+        from: Vec3,
+        target: Vec3,
+        walkable: impl Fn(Cell) -> bool + Copy,
+    ) -> (Vec<Cell>, Vec<(Vec3, Vec3)>) {
+        let neighbours =
+            |(cell, layer): (Cell, ())| around(cell, walkable).map(|c| (c, layer)).collect();
+        let course = course(
+            from,
+            (),
+            target,
+            None::<()>,
+            |c, ()| walkable(c),
+            neighbours,
+            |l| l,
+        )
+        .expect("a course");
+        let (mut here, mut cells, mut legs) = (from, vec![cell_of(from.x, from.z)], Vec::new());
+        for _ in 0..30 {
+            let Some(Step::Toward(point)) =
+                follow(&course, here, (), target, |c, ()| walkable(c), |l| l)
+            else {
+                panic!("off the course at {:?}", cell_of(here.x, here.z));
+            };
+            legs.push((here, point));
+            here = point;
+            cells.push(cell_of(here.x, here.z));
+            if here == target {
+                break;
+            }
+        }
+        (cells, legs)
     }
 
     #[test]
@@ -168,7 +296,8 @@ mod tests {
             Some(Step::Toward(at(8.5, 4.5)))
         );
         assert!(!clear(at(2.5, 4.5).xz(), at(8.5, 4.5).xz(), wall));
-        // Behind the wall: first to the farthest cell of the way it sees, by the wall's end.
+        // Behind the wall: to the farthest cell of the way it reaches straight over the way's own
+        // cells, toward the wall's end; and on, a stretch at a time, round it to the target.
         let Some(Step::Toward(corner)) = next(
             at(2.5, 4.5),
             (),
@@ -180,9 +309,46 @@ mod tests {
         ) else {
             panic!("no way round the wall");
         };
-        let cell = cell_of(corner.x, corner.z);
-        assert!(cell.1 >= 8 && cell.0 <= 5, "{cell:?}");
         assert!(clear(at(2.5, 4.5).xz(), corner.xz(), wall));
+        let (cells, legs) = walked(at(2.5, 4.5), at(8.5, 4.5), wall);
+        assert_eq!(cells.last(), Some(&(8, 4)), "{cells:?}");
+        assert!(cells.iter().any(|&(x, y)| x <= 5 && y >= 8), "{cells:?}");
+        assert!(legs.iter().all(|&(a, b)| clear(a.xz(), b.xz(), wall)));
+    }
+
+    #[test]
+    fn off_the_straight_line_the_hero_keeps_to_its_ways_cells() {
+        // #981's barrel at (5938, 404), which the hero may step onto, between the closed cells
+        // (5938, 403) to its north and (5937, 404) to its west, and (5940, 404) closed too: the
+        // straight line from (5940, 402) to (5936, 406) passes their corners, and the way goes
+        // round the barrel's cell, which the hero then does not cut through either.
+        let closed = [(5938, 403), (5937, 403), (5937, 404), (5940, 404)];
+        let open = |cell: Cell| !closed.contains(&cell);
+        let (cells, legs) = walked(at(5940.5, 402.5), at(5936.5, 406.5), open);
+        assert_eq!(cells.last(), Some(&(5936, 406)), "{cells:?}");
+        // Every cell its legs cross, the barrel's never among them, though the straight line
+        // from a cell of the way on to the target crosses it.
+        for (a, b) in legs {
+            let (a, b) = (a.xz(), b.xz());
+            for k in 1..=100_u8 {
+                let p = a + (b - a) * (f32::from(k) / 100.0);
+                assert_ne!(cell_of(p.x, p.y), (5938, 404), "{cells:?}");
+            }
+        }
+        assert!(clear(at(5939.5, 404.5).xz(), at(5936.5, 406.5).xz(), open));
+        // Back from off its cell's centre, where its own line passes beside the corners: the line
+        // from cell to cell does not, and it keeps to its way again.
+        let (back, off) = (at(5940.5, 402.5), at(5936.45, 406.6));
+        assert!(clear(off.xz(), back.xz(), open));
+        let (cells, legs) = walked(off, back, open);
+        assert_eq!(cells.last(), Some(&(5940, 402)), "{cells:?}");
+        for (a, b) in legs {
+            let (a, b) = (a.xz(), b.xz());
+            for k in 1..=100_u8 {
+                let p = a + (b - a) * (f32::from(k) / 100.0);
+                assert_ne!(cell_of(p.x, p.y), (5938, 404), "{cells:?}");
+            }
+        }
     }
 
     #[test]
