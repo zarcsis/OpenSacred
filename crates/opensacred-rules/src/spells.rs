@@ -24,8 +24,13 @@ pub const HOLY_LIGHT: u16 = 15;
 pub const BLADES_OF_LIGHT: u16 = 17;
 pub const LIGHT: u16 = 20;
 
+/// The Seraphim's strengthening spells: the crusader's strength, `GLAUBENSSTAERKE`, and the
+/// holy shield, `LICHTSCHILD`.
+pub const CRUSADERS_STRENGTH: u16 = 21;
+pub const HOLY_SHIELD: u16 = 22;
+
 /// The spells that the game makes.
-pub const MADE: [u16; 8] = [
+pub const MADE: [u16; 10] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -34,7 +39,14 @@ pub const MADE: [u16; 8] = [
     HOLY_LIGHT,
     BLADES_OF_LIGHT,
     LIGHT,
+    CRUSADERS_STRENGTH,
+    HOLY_SHIELD,
 ];
+
+/// How long the crusader's strength's object runs before it gives its effects, in seconds
+/// (its update `0x7853E0`, then the action 6; **hypothesis**: at the world's time, its clock not
+/// read as the stone skin's is).
+pub const STRENGTH_TIME: f32 = 1.6;
 
 /// The effect that the objects of 17 and 20 give their bearer for their time, keyed by the
 /// spell (`0x784C90`, `0x7850D0`); what it does is not read.
@@ -230,6 +242,21 @@ pub fn effects(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
         .collect()
 }
 
+/// The holy shield's effect on its bearer (its system's start `0x785DE0`, at `0x785EB8`): the
+/// arrows turned aside ([`crate::arrows::DEFLECTION`]) of the level `level`, keyed by the spell,
+/// for its value 0 at its level, 43 + 2·L at most 120; its whole value, the system's `+0xAC`, is
+/// left out (**hypothesis**: the object's id).
+pub fn holy_shield(spell: &Spell, level: u32) -> (Effect, f32) {
+    let effect = Effect {
+        id: crate::arrows::DEFLECTION,
+        whole: 0,
+        value: 0.0,
+        art: u32::from(spell.id),
+        level: u16::try_from(level).unwrap_or(u16::MAX),
+    };
+    (effect, to_f32(value(spell, 0, level)))
+}
+
 /// The health that the healing's action 3 gives its target (`0x5B2600`): its value 0, 10 + 50·L,
 /// times `1 + v/100`, `v` the caster's magic lore's per cent ([`crate::fight::magic_lore`]),
 /// taken whole (**hypothesis**: the health added, as the record's label says).
@@ -343,6 +370,24 @@ mod tests {
             [Some(0.5), Some(0.65), Some(0.35), Some(0.35)]
         );
         assert_eq!((share(9), share(44), share(70)), (None, None, Some(0.95)));
+    }
+
+    #[test]
+    fn the_crusaders_strength_raises_the_attack_and_the_shield_turns_arrows() {
+        // GOG 2.28's 21: the attack 50 + 25·L for 44 + L at most 120; 22: 43 + 2·L at most 120.
+        let strength = record(CRUSADERS_STRENGTH, &[(4, [50, 25])], [44, 1], 120);
+        let [(attack, seconds)] = effects(&strength, 1)[..] else {
+            panic!("one effect");
+        };
+        assert_eq!((attack.id, attack.value, seconds), (1, 0.75, 45.0));
+        let shield = record(HOLY_SHIELD, &[], [43, 2], 120);
+        let (deflection, seconds) = holy_shield(&shield, 3);
+        assert_eq!(
+            (deflection.id, deflection.art, deflection.level, seconds),
+            (0x19, 22, 3, 49.0)
+        );
+        assert_eq!(holy_shield(&shield, 60).1, 120.0);
+        assert!(lasts(CRUSADERS_STRENGTH) && lasts(HOLY_SHIELD));
     }
 
     #[test]
