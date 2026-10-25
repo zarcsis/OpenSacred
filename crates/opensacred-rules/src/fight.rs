@@ -555,8 +555,9 @@ impl Rules {
 /// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); the
 /// bands of the factor of a creature's strike at the hero by its level (`WaffenAll`,
 /// `AllOverLv`); the factor of each arrow of a multi-shot, to the power of their number
-/// (`Multipfeil`, `0x56D173`); and the divisor of the attribute `a0`'s part of the Gladiator's
-/// 1016's effect (`BalanceGeschick`, [`Rules::glance_factor`]).
+/// (`Multipfeil`, `0x56D173`); the divisor of the attribute `a0`'s part of the Gladiator's
+/// 1016's effect (`BalanceGeschick`, [`Rules::glance_factor`]); and the span of the items'
+/// values that their levels spread over (`SpawnWeaponMin`, `SpawnWeaponMax`, [`item_level`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
@@ -578,6 +579,7 @@ pub struct Rules {
     bands: Bands,
     multi_shot: f32,
     geschick: f32,
+    spawn_weapon: [f32; 2],
 }
 
 impl Default for Rules {
@@ -603,6 +605,7 @@ impl Default for Rules {
             bands: Bands::default(),
             multi_shot: 0.83,
             geschick: 200.0,
+            spawn_weapon: [25.0, 275.0],
         }
     }
 }
@@ -715,6 +718,10 @@ impl Rules {
             bands: Bands::of(b),
             multi_shot: b.f32("Multipfeil").unwrap_or(default.multi_shot),
             geschick: b.f32("BalanceGeschick").unwrap_or(default.geschick),
+            spawn_weapon: [
+                b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
+                b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
+            ],
         }
     }
 
@@ -873,14 +880,16 @@ impl Base {
 }
 
 /// What a creature holds, as its values take it: a weapon (`0x546F80`), a shield (`0x54A660`),
-/// a ranged weapon (the kinds 7, 12, 13 and 14, `0x54A2A0`), and the values of the items it holds
-/// and wears that have them: an NPC's in its hands, a hero's of its template too.
+/// a ranged weapon (the kinds 7, 12, 13 and 14, `0x54A2A0`), the values of the items it holds
+/// and wears that have them (an NPC's in its hands, a hero's of its template too), and the
+/// skill of what it holds ([`weapon_skill`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
     pub shield: bool,
     pub ranged: bool,
     pub items: Vec<ItemValues>,
+    pub skill: u8,
 }
 
 /// An item's values (its record, docs/re/items.md): each kind's least and most damage, its
@@ -893,6 +902,14 @@ pub struct ItemValues {
     pub defence: f32,
     /// Its bonus slots, where its record gives them (a fixed item's, a hero template's).
     pub bonuses: [Bonus; BONUSES],
+    /// Its type's class (`items.pak +0x01`, `0x426220`), by which its level lowers its holder's
+    /// attack speed (5 and 27) or pace (6, 13, 17 to 19 and 21 to 25).
+    pub class: u8,
+    /// The scale of its template (`0x42CA70`, its word 6), 0 without one ([`item_level`]).
+    pub scale: u32,
+    /// Its record's family (`Weapon.pak +0x85`, the byte `+0x05` of its flags word), by which a
+    /// weapon asks its skill ([`weapon_skill`]).
+    pub family: u8,
 }
 
 /// How many bonus slots an item's record has.
@@ -945,7 +962,9 @@ impl ItemValues {
     /// The values of an item's record, given as its `u16` words from its `+4`, as `Weapon.pak
     /// +0x84` holds a fixed item's and a hero template its items' (docs/re/items.md): each kind's
     /// least damage at `+0x1C`, its most at `+0x24`, `A` at `+0x2C`, `D` at `+0x2E` and the
-    /// resistances at `+0x32`, and its bonus slots ([`Bonus`]); a word past the end is 0.
+    /// resistances at `+0x32`, its bonus slots ([`Bonus`]) and its family (`+0x05`); a word past
+    /// the end is 0. Its class and its template's scale are its type's, not its record's: none
+    /// here.
     pub fn of_record(words: &[u16]) -> Self {
         let word = |offset: usize| words.get((offset - 4) / 2).copied().unwrap_or(0);
         let at = |offset: usize| f32::from(word(offset));
@@ -959,6 +978,9 @@ impl ItemValues {
                 effect: u32::from(word(0x4A + 4 * slot)) | (u32::from(word(0x4C + 4 * slot)) << 16),
                 value: i16::from_le_bytes(word(0x6A + 2 * slot).to_le_bytes()),
             }),
+            class: 0,
+            scale: 0,
+            family: u8::try_from(word(0x04) >> 8).unwrap_or(0),
         }
     }
 }
@@ -972,6 +994,8 @@ type TemplateWords = [u32; 53];
 pub struct Templates {
     by_type: HashMap<u32, TemplateWords>,
     parents: HashMap<u32, u32>,
+    /// The types' families (`Weapon.pak +0x85`).
+    families: HashMap<u32, u8>,
 }
 
 /// The constant 0.01 of the item maker and of the skills (`0x890CB0`), a single-precision float a
@@ -1042,7 +1066,15 @@ impl Templates {
             .filter(|w| w.parent != 0)
             .map(|w| (w.id, w.parent))
             .collect();
-        Self { by_type, parents }
+        let families = weapons
+            .iter()
+            .filter_map(|w| Some((w.id, u8::try_from(w.words_84.first()? >> 8).ok()?)))
+            .collect();
+        Self {
+            by_type,
+            parents,
+            families,
+        }
     }
 
     /// The words 38 to 40 of the template of an item of type `item`, read as signed
@@ -1072,6 +1104,12 @@ impl Templates {
         self.by_type
             .get(&item)
             .map(|words| [38, 39, 40].map(|i| signed(words[i])))
+    }
+
+    /// The scale of the template of an item of type `item` (its word 6), 0 without one: the
+    /// level's estimate takes it ([`item_level`], `0x5D3AB0`).
+    pub fn scale(&self, item: u32) -> u32 {
+        self.of(item).map_or(0, |words| words[6])
     }
 
     /// The template of an item of type `item`, its parent's while the type lies within 2000–2999
@@ -1111,7 +1149,11 @@ impl Templates {
             let (least, most) = (w(i + 1), w(i + 2));
             roll_between(least, most.max(least + 1), rng)
         };
-        let mut values = ItemValues::default();
+        let mut values = ItemValues {
+            scale: words[6],
+            family: self.families.get(&item).copied().unwrap_or(0),
+            ..ItemValues::default()
+        };
         // The damage: fire, magic, poison (unless both others), then physical.
         if [8, 11, 14, 17].iter().any(|&i| w(i) > 0) {
             let mut a = [0_u32; KINDS];
@@ -1752,6 +1794,42 @@ pub fn combat_with(
             to_f32(whole_f64(f64::from(value) * f64::from(times)))
         }
     };
+    // An item above its holder's level and skill lowers its speeds (`0x57C6BB`, `0x579FBF`,
+    // `0x57CA0A`; #844): the highest level of its weapons the attack speed, the armour's least
+    // factor its pace.
+    let skill_level = |id: u8| {
+        skills
+            .iter()
+            .find(|&&(skill, _)| skill == id)
+            .map_or(0, |&(_, at)| at)
+    };
+    let v = level;
+    let mut speed = (speed + fist_speed).trunc();
+    let weapons = holds
+        .items
+        .iter()
+        .filter(|item| matches!(item.class, 5 | 27))
+        .map(|item| item_level(item, rules))
+        .max()
+        .unwrap_or(0);
+    if let Some(factor) = shortfall(weapons, v, skill_level(holds.skill)) {
+        speed = to_f32(whole_f64(f64::from(speed) * factor));
+    }
+    let armour = holds
+        .items
+        .iter()
+        .filter(|item| matches!(item.class, 6 | 13 | 17..=19 | 21..=25))
+        .filter(|item| (1..1000).contains(&item.scale))
+        .filter_map(|item| {
+            let q = shortfall(item_level(item, rules), v, skill_level(11))?;
+            Some(stored(
+                1.0 - (1.0 - q) * f64::from(item.scale) * PACE_PER_CENT,
+            ))
+        })
+        .fold(1.0_f32, f32::min);
+    if armour < 1.0 {
+        pace = (pace * armour).trunc();
+    }
     // The night form's speeds, after the skills (`0x57CA23`).
     let slows = if base.night { NIGHT_SLOWS } else { 0.0 };
     Combat {
@@ -1760,10 +1838,76 @@ pub fn combat_with(
         damage,
         resistance,
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
-        speed: ((speed + fist_speed).trunc() - slows).clamp(100.0, 220.0),
+        speed: (speed - slows).clamp(100.0, 220.0),
         pace: pace - slows,
         multipliers,
         attributes: a,
+    }
+}
+
+/// The double 0.01 by which the pace's factor takes an armour's template's scale (`0x890F58`).
+const PACE_PER_CENT: f64 = 0.01;
+
+/// The factor of an item's level `required` short of its holder's level `level` and its skill's
+/// level `skill` (`0x57C6BB`, `0x579FBF`): `((s + v + 9)/(R + 9))²` on the x87 unit, none where
+/// `R` is 0 or within `v + s`.
+fn shortfall(required: u32, level: u32, skill: u32) -> Option<f64> {
+    let has = level + skill;
+    (required != 0 && required > has).then(|| {
+        let ratio = (f64::from(has) + 9.0) / (f64::from(required) + 9.0);
+        ratio.powf(2.0)
+    })
+}
+
+/// The level that an item of the values `values` asks of its holder, the byte `+0x19` that the
+/// client works out for every record as it loads the items and for every item it makes
+/// (`0x5D3AB0`; #844): its damage's worth `D`, the mean of the four kinds' least and most summed,
+/// or their most where every least is 0; `T`, `D` and its resistances, at least 1, times 100
+/// over its template's scale where it has one; then `(T − SpawnWeaponMin)`, at least 1, times 100
+/// over `SpawnWeaponMax − SpawnWeaponMin`, rounded, held from 1 to 255. Its sockets' items, which
+/// raise it, are not followed.
+pub fn item_level(values: &ItemValues, rules: &Rules) -> u32 {
+    let least: f64 = values.damage.iter().map(|ends| f64::from(ends[0])).sum();
+    let most: f64 = values.damage.iter().map(|ends| f64::from(ends[1])).sum();
+    let worth = if values.damage.iter().all(|ends| ends[0] == 0.0) {
+        most
+    } else {
+        (least + most) / 2.0
+    };
+    let resistances: f64 = values.resistance.iter().copied().map(f64::from).sum();
+    let mut total = (worth + resistances).max(1.0);
+    if values.scale > 0 {
+        total = 100.0 * total / f64::from(values.scale);
+    }
+    let [least_worth, most_worth] = rules.spawn_weapon.map(f64::from);
+    let x = (total - least_worth).max(1.0) * 100.0 / (most_worth - least_worth);
+    whole_f64(x + 0.5).clamp(1, 255)
+}
+
+/// The skill whose level lessens the shortfall of a creature's weapon's level (`0x578ED0(0)`;
+/// #844), by the class of what it holds `class` (`0x546F80`), its right hand's family `right`
+/// and its weapons' families and kinds `weapons`, left hand first (`Weapon.pak +0x85`, `+0x1E`):
+/// 6 for two weapons (the class 8), 13 for the class 10 or a right hand's family 10, 24
+/// unarmed (the class 0), 4 for a weapon of a family below 5 or 10, 5 for one of the families 5,
+/// 6 and 22, 3 for one of 21, 23 and 24, 7 for a ranged one (the kinds 7, 12, 13 and 14), else
+/// none (0).
+pub fn weapon_skill(class: u8, right: Option<u8>, weapons: &[(u8, u8)]) -> u8 {
+    let family = |test: fn(u8) -> bool| weapons.iter().any(|&(family, _)| test(family));
+    match class {
+        8 => 6,
+        10 => 13,
+        _ if right == Some(10) => 13,
+        0 => 24,
+        _ if family(|f| f < 5 || f == 10) => 4,
+        _ if family(|f| matches!(f, 5 | 6 | 22)) => 5,
+        _ if family(|f| matches!(f, 21 | 23 | 24)) => 3,
+        _ if weapons
+            .iter()
+            .any(|&(_, kind)| matches!(kind, 7 | 12 | 13 | 14)) =>
+        {
+            7
+        }
+        _ => 0,
     }
 }
 
@@ -2991,6 +3135,81 @@ mod tests {
     }
 
     #[test]
+    fn an_item_asks_a_level_by_its_values_and_its_templates_scale() {
+        let rules = Rules::default();
+        // The Seraphim's 3809 of 1018: 35 to 42 physical and 8 to 15 magic, its template's scale
+        // 113: 50 · 100/113 = 44.25, less 25, times 100/250, 7.7, rounded to 8 (seen).
+        let staff = ItemValues {
+            damage: [[35.0, 42.0], [0.0; 2], [8.0, 15.0], [0.0; 2]],
+            class: 5,
+            scale: 113,
+            ..ItemValues::default()
+        };
+        assert_eq!(item_level(&staff, &rules), 8);
+        // Without a template, the worth itself; without values, 1; at most 255.
+        assert_eq!(item_level(&ItemValues { scale: 0, ..staff }, &rules), 10);
+        assert_eq!(item_level(&ItemValues::default(), &rules), 1);
+        let huge = ItemValues {
+            damage: [[0.0, 9000.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            ..ItemValues::default()
+        };
+        assert_eq!(item_level(&huge, &rules), 255);
+        // Its family 21 asks the skill 3 of the class 5's holder.
+        assert_eq!(weapon_skill(5, Some(21), &[(21, 0)]), 3);
+        assert_eq!(weapon_skill(8, None, &[(1, 0), (1, 0)]), 6);
+        assert_eq!(weapon_skill(0, None, &[]), 24);
+        assert_eq!(weapon_skill(2, Some(10), &[(10, 0)]), 13);
+        assert_eq!(weapon_skill(2, Some(2), &[(2, 0)]), 4);
+        assert_eq!(weapon_skill(3, Some(6), &[(6, 0)]), 5);
+        assert_eq!(weapon_skill(7, None, &[(15, 7)]), 7);
+        assert_eq!(weapon_skill(4, Some(30), &[(30, 0)]), 0);
+    }
+
+    #[test]
+    fn an_item_above_its_holders_level_lowers_its_speeds() {
+        let rules = Rules::default();
+        let staff = ItemValues {
+            damage: [[35.0, 42.0], [0.0; 2], [8.0, 15.0], [0.0; 2]],
+            class: 5,
+            scale: 113,
+            ..ItemValues::default()
+        };
+        let holding = |items: Vec<ItemValues>| Holds {
+            weapon: true,
+            items,
+            skill: 3,
+            ..Holds::default()
+        };
+        // At level 1 without the skill 3: 140 · (10/17)² = 48, held at 100 (seen).
+        let seraphim = Base {
+            id: 1,
+            attributes: [18, 15, 21, 15, 10, 15],
+            ..Base::default()
+        };
+        let low = combat(&seraphim, 1, holding(vec![staff]), &[], &rules);
+        assert_eq!(low.speed, 100.0);
+        // At level 8 it asks nothing; at level 5 with the skill 3 at 2, 140 · (16/17)², 124.
+        let high = combat(&seraphim, 8, holding(vec![staff]), &[], &rules);
+        assert_eq!(high.speed, 140.0);
+        let trained = combat(&seraphim, 5, holding(vec![staff]), &[(3, 2)], &rules);
+        assert_eq!(trained.speed, 124.0);
+        // An armour of resistance 25 by the scale 50, of level 10, at level 1: its factor
+        // 1 − (1 − (10/19)²)·50/100, 0.6385, the pace 130 to 83.
+        let armour = ItemValues {
+            resistance: [25.0, 0.0, 0.0, 0.0],
+            class: 6,
+            scale: 50,
+            ..ItemValues::default()
+        };
+        assert_eq!(item_level(&armour, &rules), 10);
+        let worn = combat(&seraphim, 1, holding(vec![armour]), &[], &rules);
+        assert_eq!(worn.pace, 83.0);
+        // The skill 11 at 9 makes up the shortfall.
+        let skilled = combat(&seraphim, 1, holding(vec![armour]), &[(11, 9)], &rules);
+        assert!(skilled.pace > 129.0, "{}", skilled.pace);
+    }
+
+    #[test]
     fn a_creature_keeps_the_multipliers_that_scale_its_damage() {
         // A wolf of level 1 armed: `F` 29.87, each kind's 1 plus `F` times its base attributes'
         // tenth over its divisor, `b0` 8, `b0 + b2` 26, `b4` 0 and `b1 + b5` 11.
@@ -3601,6 +3820,9 @@ mod tests {
                 attack: 5.0,
                 defence: 2.0,
                 bonuses,
+                class: 0,
+                scale: 0,
+                family: 0,
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
@@ -3614,6 +3836,7 @@ mod tests {
             shield: false,
             ranged: false,
             items,
+            skill: 0,
         };
         let nothing = Holds::default;
         // A townsperson 655 at 130: its walk of 60 at `GameSpeed` 1.25 times 1.3, 97.5 units a
@@ -3666,6 +3889,7 @@ mod tests {
             shield: false,
             ranged: false,
             items,
+            skill: 0,
         };
         let plain = ItemValues {
             bonuses: [Bonus::default(); BONUSES],
@@ -3741,6 +3965,7 @@ mod tests {
             shield: false,
             ranged: false,
             items: vec![dagger],
+            skill: 0,
         };
         let goblin = combat(&a_goblin(), 1, held.clone(), &[], &rules);
         // With a ranged weapon the physical multiplier takes `b2` for `b0` (#492): the goblin's
