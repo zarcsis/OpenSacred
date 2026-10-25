@@ -13,7 +13,7 @@ The two railgun bolts were seen leaving 0.1 s apart.
 Each bolt is drawn as a ball of one colour, unlit, a small blue-white one for the railgun and a larger green one for the BFG, without a light.
 The shot plays one of the hero's attack clips, at the rate of the slot the original plays, and the second railgun bolt leaves 0.1 s after the first whatever the clip.
 The bolts fly, end and hit as the original's.
-The Dark Elf's souls of his soulcatcher 1044 (#757), particle systems too, are drawn so: a small pale ball each.
+The Dark Elf's souls of his soulcatcher 1044 (#757), particle systems too, are drawn so: a small pale ball each; so are the Daemon's bolts of 1103 (#760), a violet ball each.
 
 ## Why
 
