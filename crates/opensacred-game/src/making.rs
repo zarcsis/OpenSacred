@@ -97,6 +97,7 @@ pub fn clips(
         Style::Flamer,
         Style::Mortar,
         Style::Cannon,
+        Style::Breath,
         Style::Sweep,
         Style::Hurl,
         Style::Smite,
@@ -1372,7 +1373,7 @@ fn make(
                     }
                 }
             }
-            Style::Ring | Style::Fan => {
+            Style::Ring | Style::Fan | Style::Breath => {
                 // Below 0.3 of its clip, once: the ring of poison burns every hostile creature
                 // alive within its reach and the creature's size (`0x5192E0` at `0x51A9B7`), or
                 // the fan of bolts leaves him toward his target, else his point (at `0x51AD88`);
@@ -1386,7 +1387,21 @@ fn make(
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                 let multipliers = combat.map_or([1.0; 4], |combat| combat.multipliers);
                 if let Some(record) = record {
-                    if playing.style == Style::Ring {
+                    if playing.style == Style::Breath {
+                        // His breath toward his point (`0x51AD2B`).
+                        let fire = crate::breath::Fire {
+                            by: hero,
+                            damage: arts::ring_poison(record, playing.level, multipliers[1]),
+                            seconds: to_f32(arts::daemon_ratio(record, playing.level)),
+                        };
+                        info!("making: {} breathes {fire:?}", making.art);
+                        commands.spawn(crate::breath::Breath::new(
+                            fire,
+                            here.xz(),
+                            playing.point.xz(),
+                            body.level(),
+                        ));
+                    } else if playing.style == Style::Ring {
                         let seconds = to_f32(arts::daemon_ratio(record, playing.level));
                         let poison = arts::ring_poison(record, playing.level, multipliers[3]);
                         let burned: Vec<Entity> = creatures

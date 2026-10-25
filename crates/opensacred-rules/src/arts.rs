@@ -253,6 +253,10 @@ pub enum Style {
     /// His cannon 1087 (`gui_spells_kanone`): a shot along the line to his target once what is
     /// left of its clip falls below [`cannon_left`], striking every hostile creature on it.
     Cannon,
+    /// The Daemon's 1102 (`gui_moves_feuerhauch`, `0x5192E0` at `0x51AD2B`): below 0.3 of its
+    /// clip his breath of fire leaves him toward his point, burning what it meets, and lays a
+    /// wall of fire where it stops ([`breath_speed`], [`wall_spreads`]).
+    Breath,
     /// The Dwarf's 1084 (`gui_moves_kriegsrausch`, `0x514790` at `0x517BB5`), with a two-handed
     /// weapon alone: once, at its clip's first hit point, its target and every hostile creature
     /// about it ([`sweep_reaches`]), those at a part of its factor ([`sweep_factor`]).
@@ -548,6 +552,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1103 {
         return Some(Style::Fan);
+    }
+    if art == 1102 {
+        return Some(Style::Breath);
     }
     if art == 1084 {
         return Some(Style::Sweep);
@@ -956,6 +963,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // His 1101 the slot 155 and his 1103 the slot 144 so (`0x51B46E`).
         (9, Style::Ring) => Some(plain(155)),
         (9, Style::Fan) => Some(plain(144)),
+        // His 1102 the slot 157 so (197 mounted).
+        (9, Style::Breath) => Some(plain(157)),
         // The Daemon's forms the slot 160 at the blend 0.2 and the rate 1.0 on himself
         // (`0x5192E0` at `0x51BEF5`; 197 at the attack's rate otherwise, not followed).
         (9, Style::Form) => Some(plain(160)),
@@ -1933,6 +1942,36 @@ pub fn fan(aim: [f32; 2], n: u32) -> Vec<[f32; 2]> {
             let angle = if n == 0 { base } else { angle };
             [narrow(angle.cos()), narrow(angle.sin())]
         })
+        .collect()
+}
+
+/// How far the Daemon's breath of fire flies at most (`cParticleSystem_walloffire`).
+pub const BREATH_MOST: f32 = 650.0;
+
+/// The speed of the Daemon's breath of fire at its time `t` in seconds: `150·(1 − t/10)`, not
+/// below 0.
+pub fn breath_speed(t: f32) -> f32 {
+    (150.0 * (1.0 - t / 10.0)).max(0.0)
+}
+
+/// How high over the ground the breath bounces at its time `t`, its start `rise` over the ground:
+/// `(1 − t/10)·rise·|cos 3t|`.
+pub fn breath_height(t: f32, rise: f32) -> f32 {
+    ((1.0 - t / 10.0) * rise * (3.0 * t).cos().abs()).max(0.0)
+}
+
+/// How often the breath, stopped, lays its wall's fires, and how long each burns
+/// (`FX_WALLOFFIRE_LINE`, its system's 10 s).
+pub const WALL_EVERY: f32 = 0.15;
+pub const WALL_BURNS: f32 = 10.0;
+
+/// The spreads across its line at which the stopped breath lays its wall's fires in pairs, one on
+/// each side: at each [`WALL_EVERY`] the spread grown at 200 a second, up to 200 (**estimate**: six
+/// pairs, 30 to 180).
+pub fn wall_spreads() -> Vec<f32> {
+    (1..)
+        .map(|k: u16| 200.0 * WALL_EVERY * f32::from(k))
+        .take_while(|&spread| spread < 200.0)
         .collect()
 }
 
