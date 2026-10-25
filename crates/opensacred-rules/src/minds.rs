@@ -1361,6 +1361,10 @@ impl Mind {
         (crowded, walking): (bool, Option<Spot>),
         rng: &mut Rng,
     ) -> Option<(Spot, Why)> {
+        // One that stays where it is made takes no behaviour (`0x4EE030`).
+        if still(self.creature) {
+            return None;
+        }
         let strolls = rng.below(STROLLS) == 0 || (crowded && self.is_animal());
         behaviour(self, here, fear, (strolls, walking), rng)
     }
@@ -1394,6 +1398,19 @@ impl Mind {
         let instrument = usize::try_from(rng.below(4)).unwrap_or(0);
         (instrument, self.flags & JUGGLER != 0)
     }
+}
+
+/// The types whose category the items' loader sets to `0x20` as it reads `items.pak`, which holds
+/// 3 for them (`0x42998D` to `0x4299A5`): the waters' crab and the three fish, `fisc_03.grn`'s
+/// 166 among them, which the waters never make (`crate::spawning::CRAB`, `crate::spawning::FISH`).
+const STILL: std::ops::RangeInclusive<u32> = 163..=166;
+
+/// Whether a creature of the type `creature` stays where it is made (#967): one of the category
+/// `0x20` ([`STILL`]) takes no behaviour, its AI's state 2 putting it back to idle (`0x4EE030`),
+/// and its moving action stops as it starts, whoever orders the walk (`0x4F4770` at `0x4F47DA`).
+/// Seen in the original: a fish stood on its cell for two minutes with the hero beside it.
+pub fn still(creature: u32) -> bool {
+    STILL.contains(&creature)
 }
 
 /// The flags the creature maker (`0x480D40`) gives a peaceful creature of type `creature` made
@@ -3734,6 +3751,32 @@ mod tests {
             .count();
         assert!((1_500..1_850).contains(&parts), "{parts}");
         assert!((0..100).all(|_| farmer.parts(home, false, &mut rng).is_none()));
+    }
+
+    #[test]
+    fn the_waters_crab_and_fish_take_no_behaviour() {
+        let mut rng = Rng::of(0, 0, 3);
+        let home = at(1000.0, 1000.0);
+        let hero = Some(at(1020.0, 1000.0));
+        for creature in [163, 164, 165, 166] {
+            assert!(still(creature));
+            // Made by the waters as by an `Enter` function, of class 6: the loose farm animals'
+            // flag, which it keeps, and no stroll, no step away, crowded or not.
+            let fish = Mind::new(home, 0, (true, false), None, SPEEDS, (creature, 6));
+            assert_eq!(fish.flags, FARM_LOOSE);
+            assert!((0..1_000).all(|_| {
+                fish.behaves(home, hero, (true, None), &mut rng).is_none()
+                    && fish.behaves(home, None, (false, None), &mut rng).is_none()
+            }));
+        }
+        // A chicken of the same flag steps away from the hero.
+        assert!(!still(560) && !still(167) && !still(162));
+        let chicken = Mind::new(home, 0, (true, false), None, SPEEDS, (560, 6));
+        assert!(
+            chicken
+                .behaves(home, hero, (false, None), &mut rng)
+                .is_some()
+        );
     }
 
     #[test]

@@ -741,6 +741,11 @@ pub struct Walk {
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
 const BALKS: f32 = 1.0;
 
+/// A creature that stays where it is made, the waters' crab and fish (`minds::still`): a walk
+/// that anything orders it ends as it starts (`0x4F4770` at `0x4F47DA`, #967).
+#[derive(Component)]
+pub struct Still;
+
 impl Walk {
     /// A walk to `target` from `level` at `speed`, in world units a second before the game's
     /// speed.
@@ -2799,6 +2804,9 @@ fn spawn(
         );
         mind.hold(placement.dialogue, placement.trader, placement.kept);
         mind.side = placement.side;
+        if minds::still(creature) {
+            entity.insert(Still);
+        }
         bevy::log::debug!(
             "npcs: {} is a {creature} of the flags {word:#x}, {:#x} after its first update, side \
              {}, group {:?}",
@@ -3277,7 +3285,8 @@ pub fn walk(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    crowd: Res<crowd::Crowd>,
+    // Who stands in the way, and who stays where it is made.
+    (crowd, still): (Res<crowd::Crowd>, Query<(), With<Still>>),
     speed: Res<hero::GameSpeed>,
     mut walkers: Query<(
         Entity,
@@ -3290,6 +3299,10 @@ pub fn walk(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
     for (entity, mut transform, mut walk, mut layered, mut way, npc) in &mut walkers {
+        if still.contains(entity) {
+            commands.entity(entity).remove::<Walk>();
+            continue;
+        }
         if walk.balked > 0.0 {
             walk.balked -= time.delta_secs();
             if walk.balked <= 0.0 {

@@ -149,7 +149,8 @@ Its most health is the stats' own 100 (**hypothesis**: `0x5658F0` never runs for
 The rule above fits their cells on the sector files, and also the 165 at 3398,2515 in 53,39 and the 164 and 165 at 3214,2827 and 3234,2843 in 50,44 seen earlier (#575).
 Over the world, 27,618 cells of 700 sectors fit it (counted on the sector files 2026-10-23).
 A quarter of the cells is visited, and one in 11 of those takes a creature, so the original makes about 630 crabs and fish when every sector comes in once with an empty list.
-Whether they move is not read: the world stood paused when they were seen.
+They never leave their cells (**confirmed** 2026-10-25, #967, docs/re/ai.md, "The peaceful creatures' behaviours"): the items' loader gives the types 163 to 166 the category `0x20`, whose creatures take no behaviour and whose walks stop as they start.
+The fish 1334 (type 164) at 3182,2526 stood on its cell over two minutes with the Seraphim on the next cell, its AI between the states 0 and 2.
 
 ### A type without a record
 
