@@ -2145,6 +2145,9 @@ pub struct Spawn {
     pub hostile: Option<bool>,
     /// Whether they take no damage (`fight::Immortal`).
     pub immortal: bool,
+    /// Whether no sector keeps them: they go with the game alone, as the hero's followers do
+    /// (`followers`), wherever it takes them.
+    pub roams: bool,
 }
 
 impl Npcs {
@@ -2258,6 +2261,13 @@ pub fn spawn_creatures(
         // fight.
         if request.level.is_some() {
             commands.entity(entity).remove::<fight::Unfought>();
+        }
+        if request.roams {
+            commands
+                .entity(entity)
+                .insert(bevy::prelude::DespawnOnExit(crate::game::AppState::InGame));
+            made.push(entity);
+            continue;
         }
         let placed = Placed {
             at,

@@ -72,6 +72,13 @@ pub struct Playing {
     factor: f32,
 }
 
+impl Playing {
+    /// Its target.
+    pub fn target(&self) -> Entity {
+        self.target
+    }
+}
+
 /// The dice of the hero's arts (the `Hardhit` of an attack's clip at random).
 #[derive(Resource)]
 struct Dice(Rng);
@@ -121,6 +128,7 @@ pub fn clips(
         Style::Backbreaker,
         Style::Bite,
         Style::Dominate,
+        Style::Summon,
         Style::Kiss,
     ]
     .into_iter()
@@ -975,6 +983,38 @@ fn make(
                         "making: {} dominates {} for {seconds} s",
                         making.art, playing.target
                     );
+                }
+                end(&mut commands);
+            }
+            Style::Summon => {
+                // Below 0.6 left of its clip a summoning at the first point about the call's that a
+                // straight way from her reaches, which makes her a wolf of her level and the
+                // call's for her follower; its regeneration starts whether one is made or not;
+                // then it ends (`0x512A13`, `0x512AEC`).
+                if !due(1.0 - arts::SUMMONS, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                arts.start(making.art);
+                let level = body.level();
+                let reaches = |[x, z]: [f32; 2]| {
+                    heights.walkable_on(crate::paths::cell_of(x, z), level)
+                        && crate::paths::clear(here.xz(), Vec2::new(x, z), |cell| {
+                            heights.walkable_on(cell, level)
+                        })
+                };
+                let point = [playing.point.x, playing.point.z];
+                match arts::summoning_point(point, &mut dice.0, reaches) {
+                    Some([x, z]) => crate::followers::summon(
+                        &mut commands,
+                        hero,
+                        opensacred_rules::spells::summoned(arts.kind),
+                        arts::wolf_level(experience.level, playing.level, !by_day),
+                        Vec3::new(x, here.y, z),
+                    ),
+                    None => info!("making: {} finds no point to summon at", making.art),
                 }
                 end(&mut commands);
             }

@@ -9,6 +9,7 @@ use opensacred_data::heroes::HeroArt;
 use opensacred_data::tables::{Arts as Tables, Balance, Spell, WeaponArt};
 
 use crate::fight::{Effect, curve};
+use crate::spawning::Rng;
 
 /// The bit of an entry's flags that a rune sets: on every art it adds (`0x580750`) and on every
 /// art it raises for good (`0x581F80`).
@@ -206,6 +207,11 @@ pub enum Style {
     /// [`DOMINATES`] its target, no boss nor champion, takes the effect [`DOMINATED`] for
     /// [`domination_seconds`], and does not fight her while it holds (seen).
     Dominate,
+    /// The Vampiress's call of the wolf, 1026 (`GUI_MOVE_WOLFSRUF_DAY`) and 1027
+    /// (`GUI_MOVE_WOLFSRUF`), of the launch type 3 (`0x50E6C0`): once what is left of its clip is
+    /// below [`SUMMONS`] a summoning near its point ([`summoning_point`]) that makes her a wolf
+    /// of [`wolf_level`] for her follower.
+    Summon,
     /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: its curse
     /// lands on its target at [`KISS_LANDS`] of its clip, its attack's and defence's multipliers
     /// lowered by [`curse`] for [`CURSE_SECONDS`] (the effects 1 and 2; seen).
@@ -620,6 +626,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1024 || art == 1025 {
         return Some(Style::Dominate);
     }
+    if art == 1026 || art == 1027 {
+        return Some(Style::Summon);
+    }
     if art == 1033 {
         return Some(Style::Kiss);
     }
@@ -924,6 +933,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (7, Style::Bite) => Some(plain(144)),
         // Her domination: the slot 149 at the rate 1.0 (seen by day; by night a **hypothesis**).
         (6 | 7, Style::Dominate) => Some(plain(149)),
+        // Her call of the wolf: the slot 147 at the blend 0.5 and the rate 1.0, by day and by
+        // night alike (`0x513C6D`; **hypothesis**: the night's model has its own 147).
+        (6 | 7, Style::Summon) => Some(plain(147)),
         // Her death's kiss by night: the slot 148 at the rate 1.0 (seen).
         (7, Style::Kiss) => Some(plain(148)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
@@ -1423,6 +1435,46 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
     } else {
         narrow(seconds)
     }
+}
+
+/// What is left of its clip, as a part of it, below which the call of the wolf makes its
+/// summoning, and its regeneration starts whether it does or not (`0x512A13`, `0x512AEC`).
+pub const SUMMONS: f32 = 0.6;
+/// The wolf's level's factors of the call's level in play, by day and by night (`0x8910A8`,
+/// `0x890768`).
+const WOLF_BY_DAY: f64 = 2.5;
+const WOLF_BY_NIGHT: f64 = 3.0;
+/// The steps of the radius about the call's point that its summoning is tried at (`0x512A13`).
+const SUMMONING_STEP: u32 = 20;
+const SUMMONING_MOST: u32 = 200;
+
+/// The level of the wolf that the Vampiress of level `hero` calls at the level in play `level`
+/// (`0x512A13`): `⌊0.4·l + ⌊k·L⌋⌋`, `k` 2.5 by day and 3.0 by night (the renderer's day test
+/// `0x41BA60`, not her form).
+pub fn wolf_level(hero: u32, level: u32, night: bool) -> u32 {
+    let k = if night { WOLF_BY_NIGHT } else { WOLF_BY_DAY };
+    let level = (k * f64::from(level)).floor();
+    u32::try_from(whole_units(0.4f64.mul_add(f64::from(hero), level))).unwrap_or(0)
+}
+
+/// Where the call of the wolf at `point` makes its summoning (`0x512A13`): for `r` 20, 40, … 200
+/// one point `(x − r/2 + U[0, r], y − r/2 + U[0, r])`, the first that a straight way from her
+/// reaches (`reaches`, `0x4FCC80`); none where none does.
+pub fn summoning_point(
+    [x, y]: [f32; 2],
+    rng: &mut Rng,
+    mut reaches: impl FnMut([f32; 2]) -> bool,
+) -> Option<[f32; 2]> {
+    (1..=SUMMONING_MOST / SUMMONING_STEP)
+        .map(|i| i * SUMMONING_STEP)
+        .map(|r| {
+            let mut off = || {
+                let u = rng.below(r + 1);
+                crate::fight::to_f32(u) - crate::fight::to_f32(r) / 2.0
+            };
+            [x + off(), y + off()]
+        })
+        .find(|&at| reaches(at))
 }
 
 /// What is left of its clip, as a part of it, below which the blood bite bites (`0x50E6C0`), and

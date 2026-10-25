@@ -381,6 +381,15 @@ fn act(
                     }
                 }
             }
+            // The Wood Elf's summoning at the order's point, which makes her creature of
+            // `0x426F60`, her unicorn, of the level `v₀` for her follower (`0x523413`).
+            spells::SUMMON => crate::followers::summon(
+                &mut commands,
+                act.caster,
+                spells::summoned(arts.kind),
+                spells::value(record, 0, act.level),
+                act.point,
+            ),
             // The Wood Elf's: the speed's effects from each of its two objects, the second's 28
             // refused (`0x526625`).
             spells::SPEED => {

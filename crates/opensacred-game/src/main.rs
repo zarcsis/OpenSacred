@@ -25,6 +25,7 @@ mod drops;
 mod effects;
 mod fight;
 mod files;
+mod followers;
 mod forms;
 mod frame;
 mod game;
@@ -277,6 +278,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         drops::DropsPlugin,
         effects::EffectsPlugin,
         fight::FightPlugin,
+        followers::FollowersPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
         game::GamePlugin,
@@ -284,9 +286,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         guns::GunsPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
-        hud::HudPlugin,
     ))
     .add_plugins((
+        hud::HudPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
@@ -301,9 +303,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         screenshot::ScreenshotPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
-        sfx::SfxPlugin,
     ))
     .add_plugins((
+        sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         souls::SoulsPlugin,

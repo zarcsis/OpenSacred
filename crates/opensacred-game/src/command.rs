@@ -1102,6 +1102,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                     _ => None,
                 },
                 immortal,
+                roams: false,
             };
             let made = world
                 .run_system_cached_with(npcs::spawn_creatures, request)
