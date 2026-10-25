@@ -917,6 +917,7 @@ By the object (its spell, "The spells' executor" above):
 | 1156 to 1158 `FX_PONG_…` | | a game of the scripts', not of the fight |
 
 **Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1, `arts learn 15`, `arts select 15` and the right button at the feet of a hostile goblin warrior of level 30): its health went from 757 to 715 within a second and to 571 within four, so that `HIMMELSLEUCHTEN` hits again and again over its time (its one object 804 hits once a second, "The Seraphim's spells" below); the immortal goblins' hook of the driver, which tells the strikes of `0x56B130`, told none of these hits.
+Seen again 2026-10-25 with the hook of `0x43EEE0` (#874): the light's hits were 21 of the magic each second, 56.6, 57.6, 58.7, 59.7 and 60.7 s, and the rest of that loss was the goblin's fight with others.
 The other objects (the shields, the healings, the summons and the changes of form among them) have no case here and log their type: what they give comes from their actions ("The objects' actions" above) and from their own updates (not read).
 
 #### The Seraphim's bolts
@@ -953,7 +954,8 @@ A creature's spell is an action of its own (`0x51D150`), whose order the creatur
 - **The clip** (`0x522030`) is the spell's, not the class's: on foot the slot 155 for the spells 5, 29, 33, 37, 41, 58, 59, 61, 64 and 65, 161 for 7, 12 and 36, 157 for 20, 21, 25, 30, 31, 32 and 34, and 163 for 1, 2, 4, 16, 18, 27 and 35; on horseback 199 for 1, 2, 4, 7, 21, 22, 24, 27, 30 to 32, 37 and 42, and 197 for the others of those lists.
   The types 182 and 183 always take 154, a creature of the `Creature.pak` class 10 takes 81, and the types 140 and 146 take 147 for 13, 15 and 22; a spell of no list takes 154, else the clip of the action 4.
   The Mage's model fills the slots 154 to 164 with its eleven casting clips.
-- **When it acts** (`0x521D60`): while the clip runs, and a double at `+0x22D` is not above 0 (not read), the share of the clip still to play by its Granny times, `(end − now)/(end − start)`, falls; the spell acts once it falls below the spell's share, 0.66 for 5, 0.56 for 2, 0.5 for 7 and 0.35 for 32 (the others not read).
+- **When it acts** (`0x521D60`): while the clip runs, and a double at `+0x22D` is not above 0 (not read), the share of the clip still to play by its Granny times, `(end − now)/(end − start)`, falls; the spell acts once it falls below the spell's share, a double of its own by its case (the jump table at `0x521F04` by the spell less 1, read 2026-10-25, #874): 1.0 for 1; 0.9 for 3, 42, 43 and 57; 0.8 for 14, 35, 37, 39 and 40; 0.78 for 50; 0.73 for 34; 0.7 for 11, 24 and 38; 0.66 for 5, 29, 52 and 53; 0.65 for 15 and 33; 0.64 for 49; 0.6 for 6 and 23; 0.56 for 2, 4, 16, 18, 19 and 27; 0.5 for 7, 8, 12, 13, 26, 28, 41, 55, 56, 58, 61, 63 to 67 and 72; 0.44 for 69; 0.35 for 17, 20, 21, 22, 25, 30, 31, 32 and 36; 0.2 for 59, 60 and 71; 0.1 for 62; 0.95 for 70.
+  The spells 9 and 10 take a case of their own that compares no share (not read), and 44 to 48, 51, 54 and 68 the default, which logs the spell as unknown.
   A clip of a time above 1,000 s acts at once and ends, and a clip that ends without falling below its share ends without acting.
   Once acted, with less than 0.3 s of the clip to play, the action plays the standing slot, blended in over 0.15, and waits again; a combo goes on to its next step with less than 0.5 s (`0x4FE870`).
   What ends the action after that is not read.
@@ -1039,6 +1041,10 @@ Read 2026-10-25 (#672) for her spells 13 and 15 to 22; **confirmed** by code unl
 - **`LICHTSCHILD` (22), its object 819 `FX_HOLYSHIELD`**, on a friend or the caster; the executor (`0x5245DE`) gives the bearer the effect `0x22` keyed by 22, and the FX event (`0x2E`) has the object follow it.
   Its system's start (`0x785DE0`, at `0x785EB8`) gives the bearer the effect `0x19`, the arrows turned aside (docs/re/fight.md), of the whole value of the system's `+0xAC` (**hypothesis**: the object's id) and the level `L`, for 43 + 2·L seconds, at most 120, keyed by 22: an arrow is turned aside by `c/(L' + 9 + c)`, `c = 2·(5L + 9)` and `L'` its shooter's level, and goes at the object.
   It has the flags `0x600`, but no case in the hits, so it deals no damage; it ends with its time (`0x785970`).
+
+`opensacred-game` makes 13, 15, 17 and 20 (#874, `opensacred_rules::spells`, `spells`): the lightning strikes its target at its act with the fight's sure strike of its record's damages times the spells' multipliers, and a column of light stands there for 0.25 s; the holy light stands at its point, and the blades of light and the light go with the hero, each striking about itself once a second for its time with its damages, the light only the creatures of the classes 5, 9 and 11; a translucent disc of its reach stands in for each (docs/decisions/2026-10-24-bolts-look.md).
+The blades of light and the light give the hero the effect 35 for their time, which does nothing yet; the light's light is not made.
+The Seraphim of a new game, whose spells' multipliers are 1.4187, strikes the goblin warrior of level 30 with the holy light for 21 of the magic each second, as the original's.
 
 The effect `0x22` (`0x539E70`), of the whole value and the value 0, lasts the spell's value 0 at the caster's level of the art, keyed by the spell; of the spells read here, 2, 17, 21, 22 and 32 give it.
 What the effect 35 does, the event `0x109`, and the rest of what the effect 13 does are not read.
