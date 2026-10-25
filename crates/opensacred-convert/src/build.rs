@@ -161,6 +161,15 @@ fn world_textures(src: &Path) -> Result<(HashSet<String>, HashSet<String>)> {
     Ok((named.into_iter().collect(), assembled.into_iter().collect()))
 }
 
+/// Whether the master at `path` stays among the masters alone: a tree of the scripts as the
+/// converter reads it (`netscript/<tree>.nsc`) and their index (`netscript/netscript.ron`), the
+/// sources of the Luau that the game runs (#726).
+fn masters_alone(path: &str) -> bool {
+    path.strip_prefix("netscript/").is_some_and(|name| {
+        !name.contains('/') && (name.ends_with(".nsc") || name == opensacred_data::netscript::INDEX)
+    })
+}
+
 /// The archive of the output at `path`: one by kind.
 fn archive_of(path: &str) -> String {
     let top = path.split_once('/').map_or("", |(top, _)| top);
@@ -188,7 +197,8 @@ pub struct Summary {
     pub masters: usize,
     pub built: usize,
     pub kept: usize,
-    /// The atlases that the sprites' images were assembled from, left out (#838).
+    /// The masters left out: the atlases that the sprites' images were assembled from (#838),
+    /// and the scripts' trees, which the game runs in Luau (#726).
     pub left_out: usize,
     pub removed: usize,
     pub archives: usize,
@@ -462,7 +472,8 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
         same_world,
     };
     let mut archives: BTreeMap<String, Vec<Planned>> = BTreeMap::new();
-    for master in masters.iter().filter(|m| !assembled.contains(&m.path)) {
+    let left = |m: &FileHash| assembled.contains(&m.path) || masters_alone(&m.path);
+    for master in masters.iter().filter(|m| !left(m)) {
         let (path, how) = make(&master.path, &read);
         archives
             .entry(archive_of(&path))
@@ -496,10 +507,7 @@ pub fn build(src: &Path, out: &Path, force: bool) -> Result<Summary> {
         }
     }
     let count = masters.len();
-    let left_out = masters
-        .iter()
-        .filter(|m| assembled.contains(&m.path))
-        .count();
+    let left_out = masters.iter().filter(|m| left(m)).count();
     let archive_count = archives.len();
     drop(archives);
     let built = packed.iter().map(|(_, built)| built).sum();
@@ -650,6 +658,11 @@ return F
         assert_eq!(archive_of("tables/items.ron"), "data.zip");
         assert_eq!(archive_of("netscript/StartCode.nsc"), "data.zip");
         assert_eq!(archive_of("sound/music/m01.flac"), "music.zip");
+        // The scripts' trees stay among the masters; their Luau goes to the game (#726).
+        assert!(masters_alone("netscript/type_npc_seraphim.nsc"));
+        assert!(masters_alone("netscript/netscript.ron"));
+        assert!(!masters_alone("netscript/type_npc_seraphim/index.ron"));
+        assert!(!masters_alone("netscript/type_npc_seraphim/start.luau"));
         assert_eq!(archive_of("sound/samples/00002.flac"), "sound.zip");
         assert_eq!(archive_of("textures/texture/00001-a.png"), "textures.zip");
         assert!(deflated("tables/items.ron"));

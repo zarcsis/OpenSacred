@@ -4673,6 +4673,7 @@ dependencies = [
  "kira",
  "opensacred-data",
  "opensacred-rules",
+ "opensacred-scripts",
  "png",
  "ron",
  "serde",

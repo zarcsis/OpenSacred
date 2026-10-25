@@ -54,6 +54,7 @@ mod remote;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
+mod scripts;
 mod sectors;
 mod settings;
 mod sfx;

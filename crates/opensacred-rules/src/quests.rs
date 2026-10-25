@@ -41,6 +41,16 @@ impl Section {
     }
 }
 
+/// A quest's transition that runs its sections in the middle of its record, step by step
+/// ([`Quests::step`]), for a runtime that runs each section and comes back with its answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Transition {
+    /// `SetUpQuest` ([`Quests::set_up`]).
+    SetUp,
+    /// `TriggerQuest` ([`Quests::trigger`]).
+    Trigger,
+}
+
 /// The quests' flags by number, and the quests in the quest log.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quests {
@@ -68,37 +78,64 @@ impl Quests {
     /// `SetUpQuest` (21, `0x48F7F0`, `0x46DB20`): once, the flags 1 and 8, its `OnSetUp`, its
     /// trigger, whose answer it ignores, then the flag 8 off; it does not enter the quest.
     pub fn set_up(&mut self, quest: u32, run: &mut impl FnMut(&str) -> bool) {
-        if self.flags(quest) & SET_UP != 0 {
-            return;
-        }
-        *self.flags.entry(quest).or_default() |= SET_UP | SETTING_UP;
-        self.run(quest, Section::OnSetUp, run);
-        self.run(quest, Section::Trigger, run);
-        if let Some(flags) = self.flags.get_mut(&quest) {
-            *flags &= !SETTING_UP;
-        }
+        self.steps(Transition::SetUp, quest, run);
     }
 
     /// `TriggerQuest` (20, `0x48F030`): for a quest set up, its trigger, and where that runs
     /// through, its entry (`0x46C160`): unless it is entered already, a quest log entry, the flag
     /// 4 and its `OnEnter`. Whether it entered the quest now.
     pub fn trigger(&mut self, quest: u32, run: &mut impl FnMut(&str) -> bool) -> bool {
-        if self.flags(quest) & SET_UP == 0 || !self.run(quest, Section::Trigger, run) {
-            return false;
-        }
-        self.enter(quest, run)
+        self.steps(Transition::Trigger, quest, run).len() > 1
     }
 
-    /// A quest's entry (`0x46C160`): unless it is entered already, a quest log entry, the flag 4
-    /// and its `OnEnter`; whether it entered it now.
-    fn enter(&mut self, quest: u32, run: &mut impl FnMut(&str) -> bool) -> bool {
-        if self.flags(quest) & ENTERED != 0 {
-            return false;
+    /// A transition through, its sections run by `run`: their answers.
+    fn steps(
+        &mut self,
+        transition: Transition,
+        quest: u32,
+        run: &mut impl FnMut(&str) -> bool,
+    ) -> Vec<bool> {
+        let mut ran = Vec::new();
+        while let Some(section) = self.step(transition, quest, &ran) {
+            ran.push(run(&section.function(quest)));
         }
-        self.log.insert(quest);
-        *self.flags.entry(quest).or_default() |= ENTERED;
-        self.run(quest, Section::OnEnter, run);
-        true
+        ran
+    }
+
+    /// The next section that the transition `transition` of the quest `quest` runs, its sections
+    /// so far having answered `ran`, and the flags it sets on the way; none once it is through.
+    /// `SetUpQuest` sets a quest not yet set up up, the flags 1 and 8, runs its `OnSetUp` and its
+    /// trigger whatever they answer, then takes the flag 8 off. `TriggerQuest` runs the trigger of
+    /// a quest set up, and where that runs through, enters the quest unless it is entered already
+    /// (`0x46C160`): a quest log entry, the flag 4 and its `OnEnter`.
+    pub fn step(&mut self, transition: Transition, quest: u32, ran: &[bool]) -> Option<Section> {
+        let set_up = self.flags(quest) & SET_UP != 0;
+        match (transition, ran) {
+            (Transition::SetUp, []) => {
+                if set_up {
+                    return None;
+                }
+                *self.flags.entry(quest).or_default() |= SET_UP | SETTING_UP;
+                Some(Section::OnSetUp)
+            }
+            (Transition::SetUp, [_]) => Some(Section::Trigger),
+            (Transition::SetUp, _) => {
+                if let Some(flags) = self.flags.get_mut(&quest) {
+                    *flags &= !SETTING_UP;
+                }
+                None
+            }
+            (Transition::Trigger, []) => set_up.then_some(Section::Trigger),
+            (Transition::Trigger, [true]) => {
+                if self.flags(quest) & ENTERED != 0 {
+                    return None;
+                }
+                self.log.insert(quest);
+                *self.flags.entry(quest).or_default() |= ENTERED;
+                Some(Section::OnEnter)
+            }
+            (Transition::Trigger, _) => None,
+        }
     }
 
     /// `ExitQuest` (15, `0x48EE20`, `0x46CBE0`): for a quest entered and not finished, its

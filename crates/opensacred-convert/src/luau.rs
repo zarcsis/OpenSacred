@@ -31,7 +31,6 @@ use std::fmt::Write as _;
 
 use anyhow::{Context, Result, bail};
 use opensacred_data::netscript::{Body, Operand, Record, Tree, Value};
-use opensacred_formats::netscript as original;
 
 use crate::flow::{Ending, Stmt, Test, structure};
 
@@ -56,46 +55,14 @@ const ELSEIF: u16 = 66;
 const BLOCK: u16 = 41;
 const BLOCK_END: u16 = 42;
 const CALL: u16 = 22;
-const DIALOG_ENTRY: u16 = 40;
 
 /// The Luau name of a record type: its keyword in snake case, `type<n>` or `dialog_entry` for the
-/// types without one; none for those of the flow.
+/// types without one (`opensacred_data::luau::call_name`); none for those of the flow.
 fn call_name(kind: u16) -> Result<String> {
     if matches!(kind, IF | ELSE | ELSEIF | BLOCK | BLOCK_END | 0) {
         bail!("the record type {kind} is the flow's, not a call");
     }
-    if kind == DIALOG_ENTRY {
-        return Ok("dialog_entry".to_owned());
-    }
-    match original::name(kind) {
-        Some(keyword) => Ok(snake(keyword)),
-        None if matches!(kind, 39 | 47) => Ok(format!("type{kind}")),
-        None => bail!("no record type {kind}"),
-    }
-}
-
-/// A keyword in snake case: `CreateNPC` → `create_npc`, `NPC_TalkTo` → `npc_talk_to`.
-fn snake(keyword: &str) -> String {
-    let chars: Vec<char> = keyword.chars().collect();
-    let mut out = String::new();
-    for (i, &c) in chars.iter().enumerate() {
-        if c.is_ascii_uppercase() {
-            let before = i.checked_sub(1).map(|j| chars[j]);
-            let after = chars.get(i + 1).copied();
-            let starts_word = match before {
-                Some(b) if b.is_ascii_lowercase() || b.is_ascii_digit() => true,
-                Some(b) if b.is_ascii_uppercase() => after.is_some_and(|a| a.is_ascii_lowercase()),
-                _ => false,
-            };
-            if starts_word && !out.ends_with('_') {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    opensacred_data::luau::call_name(kind).with_context(|| format!("no record type {kind}"))
 }
 
 /// A Luau string literal of `text`.
@@ -664,12 +631,12 @@ mod tests {
 
     #[test]
     fn keywords_become_snake_case_calls() {
-        assert_eq!(snake("CreateNPC"), "create_npc");
-        assert_eq!(snake("SetNPCState"), "set_npc_state");
-        assert_eq!(snake("NPC_TalkTo"), "npc_talk_to");
-        assert_eq!(snake("SetRG"), "set_rg");
-        assert_eq!(snake("DelOBJ"), "del_obj");
-        assert_eq!(snake("Toete_NPC"), "toete_npc");
+        assert_eq!(opensacred_data::luau::snake("CreateNPC"), "create_npc");
+        assert_eq!(opensacred_data::luau::snake("SetNPCState"), "set_npc_state");
+        assert_eq!(opensacred_data::luau::snake("NPC_TalkTo"), "npc_talk_to");
+        assert_eq!(opensacred_data::luau::snake("SetRG"), "set_rg");
+        assert_eq!(opensacred_data::luau::snake("DelOBJ"), "del_obj");
+        assert_eq!(opensacred_data::luau::snake("Toete_NPC"), "toete_npc");
         assert_eq!(call_name(1).unwrap(), "create_npc");
         assert_eq!(call_name(39).unwrap(), "type39");
         assert!(call_name(IF).is_err() && call_name(200).is_err());

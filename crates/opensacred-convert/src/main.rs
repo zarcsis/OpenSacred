@@ -365,7 +365,7 @@ fn execute(command: Command) -> Result<ExitCode> {
             let start = Instant::now();
             let summary = build::build(&assets_src, &out, force)?;
             println!(
-                "build: {} masters, {} built, {} up to date, {} atlases of the sprites left out, {} removed -> {} archives in {} in {:.1} s",
+                "build: {} masters, {} built, {} up to date, {} left out (the sprites' atlases, the scripts' trees), {} removed -> {} archives in {} in {:.1} s",
                 summary.masters,
                 summary.built,
                 summary.kept,

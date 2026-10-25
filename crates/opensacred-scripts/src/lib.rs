@@ -25,6 +25,10 @@ use mlua::chunk::ChunkMode;
 use mlua::{Function, Lua, MultiValue, Table, Value, VmState};
 use opensacred_data::luau::Index;
 
+mod record;
+
+pub use record::record;
+
 /// How a translated function's call ends (the walker's answer, `0x46BA90`; `opensacred-convert`'s
 /// `flow::Ending`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,12 +73,18 @@ pub enum Handled {
     Unknown,
     /// The record failed, and the call with it.
     Failed(String),
+    /// Run the function named, now, its records reaching the host, and hand the record to the
+    /// host again with whether it ran to its end, false for a function the tree lacks: a quest's
+    /// transition runs its section functions in the middle of its record (`SetUpQuest`,
+    /// `TriggerQuest`, `opensacred_rules::quests`).
+    Run(String),
 }
 
 /// What the scripts' calls reach: the game.
 pub trait Host {
-    /// The record `name` (its type's keyword in snake case) with its operands.
-    fn record(&mut self, name: &str, operands: &[Operand]) -> Handled;
+    /// The record `name` (its type's keyword in snake case) with its operands, and the answers
+    /// of the functions it asked to run so far ([`Handled::Run`]), none at first.
+    fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled;
     /// The value of the variable `name` (`var("name")`).
     fn var(&mut self, name: &str) -> i32;
 }
@@ -104,11 +114,21 @@ pub enum Error {
     },
 }
 
+/// The bytecode of the Luau `source`, as the converter's stage B compiles a tree's sources (for
+/// the tests of a host, which write their scripts of their own).
+pub fn compile(source: &str) -> Result<Vec<u8>, String> {
+    mlua::chunk::Compiler::new()
+        .compile(source)
+        .map_err(|e| e.to_string())
+}
+
 /// How many of the interrupt's checks (at the calls and the loops' back edges) a call may take
 /// before it is interrupted (**estimate**: far above any function of the scripts).
 pub const STEPS: u64 = 1_000_000;
-/// How many times a function may start again (`ToBegin`) within a call.
-pub const AGAIN_MOST: u32 = 64;
+/// How many times a function may start again (`ToBegin`) within a call: the original sets no
+/// bound, and the scripts' loops run so up to 195 times (`grabsteindialogvars`, a start script's,
+/// #726); the interrupt bounds a call's work besides.
+pub const AGAIN_MOST: u32 = 10_000;
 
 /// The names that read the built-ins rather than a record's call.
 const BUILT_INS: [&str; 12] = [
@@ -288,14 +308,27 @@ fn dispatch(
         "truncated" => Ok(Value::Nil),
         _ => {
             let operands: Vec<Operand> = args.iter().map(operand).collect();
-            match host.borrow_mut().record(name, &operands) {
-                Handled::Done => Ok(Value::Nil),
-                Handled::Answer(answer) => Ok(Value::Boolean(answer)),
-                Handled::Unknown => {
-                    inner.unknown.borrow_mut().insert(name.to_owned());
-                    Ok(Value::Nil)
+            // The host's borrow ends with each answer, so that a function it asks to run reaches
+            // it in turn.
+            let mut ran = Vec::new();
+            loop {
+                let handled = host.borrow_mut().record(name, &operands, &ran);
+                match handled {
+                    Handled::Run(function) => {
+                        let through = inner.index.functions.contains_key(&function)
+                            && run(lua, inner, &function)
+                                .map_err(mlua::Error::external)?
+                                .ran();
+                        ran.push(through);
+                    }
+                    Handled::Done => return Ok(Value::Nil),
+                    Handled::Answer(answer) => return Ok(Value::Boolean(answer)),
+                    Handled::Unknown => {
+                        inner.unknown.borrow_mut().insert(name.to_owned());
+                        return Ok(Value::Nil);
+                    }
+                    Handled::Failed(message) => return Err(mlua::Error::runtime(message)),
                 }
-                Handled::Failed(message) => Err(mlua::Error::runtime(message)),
             }
         }
     }
@@ -409,15 +442,28 @@ mod tests {
     use super::*;
 
     /// A host that records what it is asked, answers a condition `ok` true, counts a variable
-    /// `n` up, and knows no `mystery`.
+    /// `n` up, and knows no `mystery`; `set_up` runs `OnSetUp`, then `Trigger`, then, where the
+    /// trigger ran through, `OnEnter`, as a quest's transitions do, and keeps their answers.
     #[derive(Default)]
     struct Recorder {
         records: Vec<(String, Vec<Operand>)>,
         n: i32,
+        answers: Vec<Vec<bool>>,
     }
 
     impl Host for Recorder {
-        fn record(&mut self, name: &str, operands: &[Operand]) -> Handled {
+        fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled {
+            if name == "set_up" {
+                return match ran {
+                    [] => Handled::Run("OnSetUp".to_owned()),
+                    [_] => Handled::Run("Trigger".to_owned()),
+                    [_, true] => Handled::Run("OnEnter".to_owned()),
+                    _ => {
+                        self.answers.push(ran.to_vec());
+                        Handled::Done
+                    }
+                };
+            }
             self.records.push((name.to_owned(), operands.to_vec()));
             match name {
                 "ok" => Handled::Answer(true),
@@ -503,6 +549,38 @@ mod tests {
     }
 
     #[test]
+    fn a_record_runs_the_functions_its_host_asks_for_in_its_middle() {
+        let (quest, _) = runtime(&[
+            (
+                "start.luau",
+                "local t = {}\nt.Start = function()\n  before({})\n  set_up({})\n  after({})\n  return true\nend\nreturn t",
+            ),
+            (
+                "quest.luau",
+                "local t = {}\n\
+                 t.OnSetUp = function() made({}) return true end\n\
+                 t.Trigger = function() if ok({}) then return true end return false end\n\
+                 t.OnEnter = function() entered({}) return true end\n\
+                 return t",
+            ),
+        ]);
+        let mut host = Recorder::default();
+        assert_eq!(quest.call("Start", &mut host).ok(), Some(Outcome::Ran));
+        // The sections' records in the middle of the transition's, in the order run.
+        let names: Vec<&str> = host.records.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["before", "made", "ok", "entered", "after"]);
+        assert_eq!(host.answers, [vec![true, true, true]]);
+        // A section the tree lacks answers false, and the transition goes on without it.
+        let (lacking, _) = runtime(&[(
+            "start.luau",
+            "local t = {}\nt.Start = function()\n  set_up({})\n  return true\nend\nreturn t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(lacking.call("Start", &mut host).ok(), Some(Outcome::Ran));
+        assert_eq!(host.answers, [vec![false, false]]);
+    }
+
+    #[test]
     fn a_call_of_another_file_loads_it_once() {
         let (runtime, loads) = runtime(&[
             (
@@ -575,7 +653,7 @@ mod tests {
         /// A host that does every action and answers every condition false.
         struct Quiet(u32);
         impl Host for Quiet {
-            fn record(&mut self, _: &str, _: &[Operand]) -> Handled {
+            fn record(&mut self, _: &str, _: &[Operand], _: &[bool]) -> Handled {
                 self.0 += 1;
                 Handled::Answer(false)
             }

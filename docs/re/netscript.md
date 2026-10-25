@@ -187,7 +187,7 @@ Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless 
 - `QuestKompassObj` (64, `0x49AC80`) points the quest compass at the named object: the quest log alone.
 
 `opensacred-rules` keeps this state apart from Luau and from the engine (#724, `opensacred_rules::quests`): the quests' flags and the transitions above, each naming the section functions it runs for the scripts' runtime to run and taking its answer; the variables by name, kept to their first 31 bytes; and the dialogues' table below, its first entry doubled; all of it serializable for the saves (`quests::Scripts`).
-`opensacred-game` follows the quests' start in its own code until #726 moves it onto this (docs/decisions/2026-10-19-quest-npcs.md).
+`opensacred-game` runs the start script and the sectors' functions in Luau on this state since #726 (`scripts`, docs/decisions/2026-10-19-quest-npcs.md): the transitions run their sections in the middle of their records through the runtime (`opensacred_scripts::Handled::Run`, `quests::Quests::step`), and the variables and the tests on them follow "Variables and groups" below.
 
 ## Variables and groups
 
