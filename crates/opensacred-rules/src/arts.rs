@@ -6,7 +6,7 @@
 //! `fight::art_strike` resolves. `opensacred-game` keeps the hero's list; the combos are not here.
 
 use opensacred_data::heroes::HeroArt;
-use opensacred_data::tables::{Arts as Tables, Balance, WeaponArt};
+use opensacred_data::tables::{Arts as Tables, Balance, Spell, WeaponArt};
 
 use crate::fight::{Effect, curve};
 
@@ -224,6 +224,9 @@ pub enum Style {
     /// [`FRENZY`] on himself ([`boon`]), with which his strikes quicken his attack
     /// ([`frenzy_rises`], [`frenzy_falls`], [`quickened`]).
     Frenzy,
+    /// As a boon, at its own clip: the Seraphim's 1019 (`GUI_SPELL_ENERGIEBLITZE`, `0x5038F0`),
+    /// the effect [`RAILGUN`] on herself ([`boon`]), with which her shots are bolts ([`Bolt`]).
+    Bolts,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -237,6 +240,110 @@ pub const BFG: u32 = 16;
 /// The item that [`BFG`] puts in the Seraphim's right hand (`SeraBFG.GRN`, a fixed item of
 /// `Weapon.pak`).
 pub const BFG_ITEM: u32 = 3809;
+
+/// The Seraphim's effect of 1019 (`GUI_SPELL_ENERGIEBLITZE`, `0x11`): while it holds, each of her
+/// shots makes two bolts [`Bolt::Railgun`] (the adder `0x582D50`'s bit `0x400000`; docs/re/arts.md,
+/// "Her shots with 1018's and 1019's effects").
+pub const RAILGUN: u32 = 17;
+
+/// How far her target lies beyond which a creature with the effect [`BFG`] shoots (`0x53A170` at
+/// `0x53AACE`).
+pub const BFG_BEYOND: f32 = 200.0;
+
+/// How long after a shot's first [`Bolt::Railgun`] its second leaves, in seconds (seen: two
+/// objects 801 0.1 s apart; **hypothesis**: the same for every clip).
+pub const RAILGUN_SECOND: f32 = 0.1;
+
+/// A bolt of the Seraphim's shots, the objects 801 (`FX_RAILGUN`) and 875 (`FX_BFG`)
+/// (docs/re/arts.md, "The Seraphim's bolts"): it leaves where she stands along the line to her
+/// target, flies straight at its speed for its time at most (`0x5A6680`), ends at a cell that may
+/// not be walked on, and hits each hostile creature alive nearer it than the sum of their sizes
+/// (`0x5AB490`) with its damages ([`bolt_damages`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bolt {
+    /// The effect [`RAILGUN`]'s, two a shot: it hits every creature it finds in a frame, once,
+    /// and goes (`0x5ABD80` at `0x5AC24D`).
+    Railgun,
+    /// The effect [`BFG`]'s, one a shot: it hits the creatures of its first contact, once, and
+    /// flies on harmless (`0x5ABD80` at `0x5AC485`).
+    Bfg,
+}
+
+impl Bolt {
+    /// The bolt of a shot of a creature with the effect [`BFG`] (`bfg`) or [`RAILGUN`]
+    /// (`railgun`), its target at `distance`, or none: the BFG's beyond [`BFG_BEYOND`] or without
+    /// a target, the railgun's always; none, a strike, otherwise (the bits `0x200000` and
+    /// `0x400000` of `+0x200`, `0x53A170` at `0x53AACE`).
+    pub fn of(bfg: bool, railgun: bool, distance: Option<f32>) -> Option<Self> {
+        if bfg && distance.is_none_or(|distance| distance > BFG_BEYOND) {
+            Some(Self::Bfg)
+        } else if railgun {
+            Some(Self::Railgun)
+        } else {
+            None
+        }
+    }
+
+    /// The effect whose whole value is its level.
+    pub fn effect(self) -> u32 {
+        match self {
+            Self::Railgun => RAILGUN,
+            Self::Bfg => BFG,
+        }
+    }
+
+    /// Its record of the first table, whose damages it deals (`0x4D2310`).
+    pub fn spell(self) -> u16 {
+        match self {
+            Self::Railgun => 51,
+            Self::Bfg => 8,
+        }
+    }
+
+    /// How many a shot makes (`0x4DCB80`).
+    pub fn count(self) -> u32 {
+        match self {
+            Self::Railgun => 2,
+            Self::Bfg => 1,
+        }
+    }
+
+    /// Its speed in world units a second and its most time in seconds, its particle system's
+    /// (`0x5A0C50`).
+    pub fn flight(self) -> (f32, f32) {
+        match self {
+            Self::Railgun => (400.0, 2.0),
+            Self::Bfg => (200.0, 3.0),
+        }
+    }
+
+    /// The rate its shot plays at (`0x4DCB80`): the railgun's slot 164 at 1.0, the BFG's slot 145
+    /// at 1.5 times its own.
+    pub fn rate(self) -> f32 {
+        match self {
+            Self::Railgun => 1.0,
+            Self::Bfg => 1.5,
+        }
+    }
+
+    /// Whether it goes as it hits (the railgun's), rather than flying on harmless.
+    pub fn goes(self) -> bool {
+        self == Self::Railgun
+    }
+}
+
+/// The damages that a bolt of the first table's record `spell` deals, its shooter's effect of the
+/// whole value `level` and its shooter's damage multipliers `multipliers`
+/// (`fight::Combat::multipliers`, `0x4D2310`): each kind's `base + step·L` times its multiplier,
+/// truncated and held at 65,534; the shooter's spell factor, 1 for a hero (`0x56A800`), is left
+/// out.
+pub fn bolt_damages(spell: &Spell, level: i32, multipliers: [f32; 4]) -> [f32; 4] {
+    std::array::from_fn(|kind| {
+        let [base, step] = spell.effects[kind].map(f64::from);
+        let value = f64::from(level).mul_add(step, base) * f64::from(multipliers[kind]);
+        narrow(value.trunc().clamp(0.0, 65_534.0))
+    })
+}
 
 /// The key of the Daemon's forms' effects of attack speed and defence (`0x4321`), beside the
 /// arts' own keys.
@@ -271,6 +378,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1082 {
         return Some(Style::Frenzy);
+    }
+    if art == 1019 {
+        return Some(Style::Bolts);
     }
     if art == 1012 {
         return Some(Style::Smite);
@@ -656,8 +766,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
         (2, Style::Boon) => Some(plain(151)),
         // The Seraphim's 1018 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
-        // `0x506017`; 154 mounted).
+        // `0x506017`; 154 mounted), and her 1019 the slot 152 so (at `0x506137`).
         (1, Style::Boon) => Some(plain(149)),
+        (1, Style::Bolts) => Some(plain(152)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
         (8, Style::Attacke) => Some(dwarfs(
             match class {
@@ -759,7 +870,8 @@ pub struct Boon {
 ///   seconds (`0x506770`);
 /// - the Gladiator's 1015 below 0.3 the effects 1 and 2 of `a` for `b` seconds (`0x4FF0B0`);
 /// - the Seraphim's 1018 below 0.5 the effect [`BFG`] of the whole value `L` for `b` seconds,
-///   and it ends (`0x5038F0`; seen: 30 s at the level 1);
+///   and it ends (`0x5038F0`; seen: 30 s at the level 1), and her 1019 below 0.35 the effect
+///   [`RAILGUN`] so (its object 844 left out);
 /// - the Dwarf's 1089 below 0.2 the effects 1 of `a` and 2 of `b` for `L·[+0x64] + [+0x60]`
 ///   hundredths of a second (`0x514790`; to the hero, whom `0x51D840` refuses it while they
 ///   hold; a friend's effects of it raised by `0x5904E0`, not followed);
@@ -799,17 +911,23 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
             ends: false,
         });
     }
-    if record.id == 1018 {
-        let bfg = Effect {
-            id: BFG,
+    // The Seraphim's 1018 and 1019 their effects of the whole value `L`, and they end
+    // (`0x5038F0`).
+    if let Some((id, point)) = match record.id {
+        1018 => Some((BFG, 0.5)),
+        1019 => Some((RAILGUN, 0.65)),
+        _ => None,
+    } {
+        let given = Effect {
+            id,
             whole: i32::try_from(level).unwrap_or(i32::MAX),
             value: 0.0,
             art: u32::from(record.id),
             level: 0,
         };
         return Some(Boon {
-            point: 0.5,
-            effects: vec![(bfg, b)],
+            point,
+            effects: vec![(given, b)],
             clears: Vec::new(),
             starts: Vec::new(),
             replaces: Vec::new(),

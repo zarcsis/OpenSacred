@@ -417,6 +417,7 @@ mod tests {
             damping: [0; 4],
             speed: 140.0,
             pace: 130.0,
+            multipliers: [1.0; 4],
         })
     }
 

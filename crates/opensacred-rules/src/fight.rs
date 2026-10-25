@@ -1318,6 +1318,11 @@ pub struct Combat {
     /// Its pace, the stats' word `+0x40` ([`pace`]), whose hundredth scales its walk and run
     /// speeds and the rate of their clips ([`Self::pace_factor`]).
     pub pace: f32,
+    /// Each kind's damage multiplier (the stats' floats `+0x96`), by which the recomputation
+    /// scales its damage's ends and an art or an object of it scales the damages of its record
+    /// (`0x4D2310`; docs/re/arts.md, "The Seraphim's bolts"); the items' bonuses of the condition
+    /// bits `0x2000` and `0x4000`, which only those damages take, are not read.
+    pub multipliers: [f32; KINDS],
 }
 
 impl Combat {
@@ -1698,12 +1703,14 @@ pub fn combat_with(
     let physical = if holds.ranged { b[2] } else { b[0] };
     let damage_parts = [physical, b[0] + b[2], b[4], b[1] + b[5]];
     let [dmg, res] = rules.balance;
-    for (kind, ends) in damage.iter_mut().enumerate() {
-        let factor = 1.0
-            + damage_skill
+    let multipliers: [f32; KINDS] = std::array::from_fn(|kind| {
+        (1.0 + damage_skill
             + item_multipliers[kind]
-            + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind];
-        *ends = ends.map(|end| end.max(0.0) * factor.max(0.0) * dmg);
+            + f * damage_parts[kind] / 10.0 / rules.damage_divisors[kind])
+            .max(0.0)
+    });
+    for (ends, factor) in damage.iter_mut().zip(multipliers) {
+        *ends = ends.map(|end| end.max(0.0) * factor * dmg);
     }
     for (kind, value) in resistance.iter_mut().enumerate() {
         let factor =
@@ -1734,6 +1741,7 @@ pub fn combat_with(
         damping: base.damping.map(|by_difficulty| by_difficulty[0]),
         speed: ((speed + fist_speed).trunc() - slows).clamp(100.0, 220.0),
         pace: pace - slows,
+        multipliers,
     }
 }
 
@@ -2708,6 +2716,7 @@ mod tests {
             damping: [0; 4],
             speed: 140.0,
             pace: 130.0,
+            multipliers: [1.0; KINDS],
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -2771,6 +2780,7 @@ mod tests {
             damping: [0; 4],
             speed: 140.0,
             pace: 130.0,
+            multipliers: [1.0; KINDS],
         };
         let defender = Combat {
             defence: 20.0,
@@ -2916,6 +2926,35 @@ mod tests {
             ..Base::default()
         };
         assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_creature_keeps_the_multipliers_that_scale_its_damage() {
+        // A wolf of level 1 armed: `F` 29.87, each kind's 1 plus `F` times its base attributes'
+        // tenth over its divisor, `b0` 8, `b0 + b2` 26, `b4` 0 and `b1 + b5` 11.
+        let sword = ItemValues {
+            damage: [[10.0; 2], [0.0; 2], [4.0; 2], [0.0; 2]],
+            ..ItemValues::default()
+        };
+        let holds = Holds {
+            weapon: true,
+            items: vec![sword],
+            ..Holds::default()
+        };
+        let armed = combat(&a_wolf(), 1, holds, &[], &Rules::default());
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        let multipliers = [1.108_63, 1.176_53, 1.0, 1.074_68];
+        assert!(
+            armed
+                .multipliers
+                .iter()
+                .zip(multipliers)
+                .all(|(&a, b)| close(a, b)),
+            "{:?}",
+            armed.multipliers
+        );
+        assert!(close(armed.damage[0][1], 10.0 * armed.multipliers[0]));
+        assert!(close(armed.damage[2][0], 4.0));
     }
 
     #[test]
@@ -3171,6 +3210,7 @@ mod tests {
             damping: [0; 4],
             speed: 140.0,
             pace: 130.0,
+            multipliers: [1.0; KINDS],
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],

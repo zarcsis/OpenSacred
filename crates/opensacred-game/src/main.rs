@@ -10,6 +10,7 @@ mod atmosphere;
 mod attack;
 mod benchmark;
 mod blended;
+mod bolts;
 mod buildings;
 mod command;
 mod console;
@@ -254,14 +255,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blended::BlendedPlugin,
+        bolts::BoltsPlugin,
         buildings::BuildingsPlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
         crowd::CrowdPlugin,
         daynight::DayNightPlugin,
-        doors::DoorsPlugin,
     ))
     .add_plugins((
+        doors::DoorsPlugin,
         drops::DropsPlugin,
         effects::EffectsPlugin,
         fight::FightPlugin,
@@ -276,9 +278,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
-        models::ModelsPlugin,
     ))
     .add_plugins((
+        models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
@@ -293,9 +295,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
-        terrain::GroundPlugin,
     ))
-    .add_plugins((voices::VoicesPlugin,))
+    .add_plugins((terrain::GroundPlugin, voices::VoicesPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)

@@ -1446,6 +1446,77 @@ fn the_seraphims_bfg_gives_her_its_effect_halfway_through_its_clip() {
 }
 
 #[test]
+fn the_seraphims_energy_bolts_give_her_their_effect_at_their_own_clip() {
+    // GOG 2.28's 1019: `[+0x58]` 29.5 + 0.5·L, of the launch type 5.
+    assert_eq!(style(1019), Some(Style::Bolts));
+    let bolts = WeaponArt {
+        value_58: [29.5, 0.5],
+        launch: 5,
+        distance: 0,
+        ..weapon_art(1019, [0.0; 2], 1)
+    };
+    // Seen at the level 1: the effect 17 of the whole value 1 for 30 s, below 0.35 of its clip.
+    let given = boon(&bolts, 1).unwrap();
+    assert_eq!(given.point, 0.65);
+    assert!(given.ends);
+    assert_eq!(
+        given
+            .effects
+            .iter()
+            .map(|(e, s)| (e.id, e.whole, e.art, *s))
+            .collect::<Vec<_>>(),
+        [(RAILGUN, 1, 1019, 30.0)]
+    );
+    assert_eq!(
+        action(1, Style::Bolts, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(152), 1.0, true))
+    );
+    assert_eq!(refused_while(1019), [1018, 1019]);
+}
+
+#[test]
+fn her_shots_are_bolts_while_their_effects_hold() {
+    // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
+    assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));
+    assert_eq!(Bolt::of(false, true, None), Some(Bolt::Railgun));
+    assert_eq!(Bolt::of(true, false, Some(250.0)), Some(Bolt::Bfg));
+    assert_eq!(Bolt::of(true, false, None), Some(Bolt::Bfg));
+    assert_eq!(Bolt::of(true, false, Some(200.0)), None);
+    assert_eq!(Bolt::of(false, false, Some(500.0)), None);
+    assert_eq!(
+        (
+            Bolt::Railgun.count(),
+            Bolt::Railgun.flight(),
+            Bolt::Railgun.rate()
+        ),
+        (2, (400.0, 2.0), 1.0)
+    );
+    assert_eq!(
+        (Bolt::Bfg.count(), Bolt::Bfg.flight(), Bolt::Bfg.rate()),
+        (1, (200.0, 3.0), 1.5)
+    );
+    assert!(Bolt::Railgun.goes() && !Bolt::Bfg.goes());
+    // The first table's 51 and 8 of GOG 2.28: 5 + 3·L physical and 6 + 4·L magic, 30 + 20·L
+    // physical.
+    let mut railgun = spell(51, [0, 0], 0);
+    railgun.effects[0] = [5, 3];
+    railgun.effects[2] = [6, 4];
+    let mut bfg = spell(8, [0, 0], 0);
+    bfg.effects[0] = [30, 20];
+    // The Seraphim's multipliers at the level 1, about 1.42, truncate 8 and 10 to 11 and 14.
+    let multipliers = [1.418_7, 1.0, 1.418_7, 1.0];
+    assert_eq!(
+        bolt_damages(&railgun, 1, multipliers),
+        [11.0, 0.0, 14.0, 0.0]
+    );
+    assert_eq!(bolt_damages(&bfg, 3, multipliers), [127.0, 0.0, 0.0, 0.0]);
+    assert_eq!(
+        bolt_damages(&bfg, 3_000, [100.0; 4]),
+        [65_534.0, 0.0, 0.0, 0.0]
+    );
+}
+
+#[test]
 fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
     // The Gladiator's 1015, of the launch type 2: `[+0x50]` 0.5 + 0.2·L, `[+0x58]` 39.5 + 0.5·L.
     assert_eq!(style(1015), Some(Style::Boon));

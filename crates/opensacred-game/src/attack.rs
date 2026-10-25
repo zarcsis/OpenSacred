@@ -3,11 +3,13 @@
 //! its reach and strikes once, again while the button stays held or for each click during a
 //! strike (#705), until the creature dies or the player sends it elsewhere; with Ctrl held it
 //! strikes once, at once, where it stands, and a click on the ground strikes the air there. Its hits resolve as the creatures' (`fight`). Where it stands, when it strikes and when
-//! its hits land are the rules' (`opensacred_rules::minds`).
+//! its hits land are the rules' (`opensacred_rules::minds`). With a bow it shoots arrows
+//! (`arrows`), and with the Seraphim's effects of 1018 and 1019 bolts (`bolts`).
 
 use std::time::Duration;
 
 use bevy::prelude::*;
+use opensacred_rules::arts::{BFG, Bolt, RAILGUN};
 use opensacred_rules::minds;
 
 use crate::ai::Mind;
@@ -98,13 +100,15 @@ impl Attack {
 }
 
 /// The strike the hero plays (the attack action 3, `0x4E4CF0`): its clip's node, its length,
-/// the fractions at which it hits, and how many hits it has sent.
+/// the fractions at which it hits, how many hits it has sent, and the bolt it shoots, if it is a
+/// shot of bolts (the action 8, `0x4DCB80`).
 #[derive(Component)]
 pub struct Striking {
     node: AnimationNodeIndex,
     length: f32,
     fractions: [f32; 2],
     struck: u8,
+    bolt: Option<Bolt>,
 }
 
 /// The dice of the hero's strikes.
@@ -243,14 +247,16 @@ fn engage(
             Option<&crate::hero::Size>,
             Option<&fight::Holding>,
             Option<&fight::Frenzy>,
+            Option<&crate::effects::Effects>,
         ),
         Without<Dies>,
     >,
     targets: Query<(&GlobalTransform, &Health, Option<&crate::ai::Mind>), Without<Dies>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut shots): (
+    (mut hits, mut shots, mut bolts): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::arrows::Loose>,
+        MessageWriter<crate::bolts::Fire>,
     ),
     mut lines: MessageWriter<crate::voices::Speak>,
     mut blows: MessageWriter<crate::sfx::Blow>,
@@ -258,15 +264,35 @@ fn engage(
     let Some(clips) = clips else {
         return;
     };
-    for (hero, mut transform, mut body, mut attack, striking, combat, size, holding, frenzy) in
-        &mut heroes
+    for (
+        hero,
+        mut transform,
+        mut body,
+        mut attack,
+        striking,
+        combat,
+        size,
+        holding,
+        frenzy,
+        effects,
+    ) in &mut heroes
     {
-        // With a bow or a crossbow in hand it shoots (the AI's state 8 for a hero, #784).
-        let ranged = holding.is_some_and(|holding| holding.0.ranged);
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
             .filter(|(_, health, _)| health.current > 0);
+        // With the Seraphim's effect 17, or 16 beyond 200, it shoots bolts (`0x53A170` at
+        // `0x53AACE`).
+        let bolt = effects.and_then(|effects| {
+            let distance = target.map(|(at, ..)| {
+                (at.translation() - transform.translation)
+                    .with_y(0.0)
+                    .length()
+            });
+            Bolt::of(effects.holds(BFG), effects.holds(RAILGUN), distance)
+        });
+        // With a bow or a crossbow in hand it shoots (the AI's state 8 for a hero, #784).
+        let ranged = holding.is_some_and(|holding| holding.0.ranged) || bolt.is_some();
         // The reach of the hero and its target, by their sizes (`0x4DBC60`, #642).
         let reach = minds::reach(
             size.map_or(minds::SIZE, |size| size.0),
@@ -287,6 +313,8 @@ fn engage(
             opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
                 / 100.0
         });
+        // A shot of bolts at its own rate (`0x4DCB80`).
+        let rate = |bolt: Option<Bolt>| bolt.map_or(attack_speed, Bolt::rate);
         let ticked = tick.seconds.is_some();
         let mut blend = BLEND;
         // Whether a strike starts at this frame whatever the AI's step: the next of a held button
@@ -305,7 +333,17 @@ fn engage(
                 if attack.target.is_none() {
                     blows.write(crate::sfx::Blow::Swing { striker: hero });
                 }
-                if ranged {
+                if let Some(bolt) = striking.bolt {
+                    // Its bolts leave at the clip's first hit toward its target, or the point it
+                    // strikes (`0x4DDD2A`, `0x4DE162`, `0x4DE5EC`), which the bolts fly and hit.
+                    if striking.struck == 1 {
+                        bolts.write(crate::bolts::Fire {
+                            shooter: hero,
+                            toward: target.unwrap_or(attack.point),
+                            bolt,
+                        });
+                    }
+                } else if ranged {
                     // Its shot leaves at the clip's first hit, an arrow from its left hand toward
                     // its target (`0x4DD90E`, `0x4EB700`), which the arrows fly and hit.
                     if let (Some(entity), 1) = (attack.target, striking.struck) {
@@ -331,12 +369,13 @@ fn engage(
             }
             // With the button held, the next strike starts before this one's clip ends, the one
             // fading into the other over what is left (`0x5491F0`, #707).
-            let left = (striking.length - active.seek_time()).max(0.0) / (speed.0 * attack_speed);
+            let rate = rate(striking.bolt);
+            let left = (striking.length - active.seek_time()).max(0.0) / (speed.0 * rate);
             if attack.held
                 && !attack.at_once
                 && !attack.ends
                 && target.is_some()
-                && minds::strike_gives_way(striking.fractions, striking.struck, left, attack_speed)
+                && minds::strike_gives_way(striking.fractions, striking.struck, left, rate)
             {
                 commands.entity(hero).remove::<Striking>();
                 blend = Duration::from_secs_f32(left.max(0.001));
@@ -429,7 +468,7 @@ fn engage(
             .max(0.01);
         transitions
             .play(&mut player, *node, blend)
-            .set_speed(speed.0 * attack_speed);
+            .set_speed(speed.0 * rate(bolt));
         attack.asked = false;
         attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
@@ -446,6 +485,7 @@ fn engage(
             length,
             fractions: *fractions,
             struck: 0,
+            bolt,
         });
     }
 }
