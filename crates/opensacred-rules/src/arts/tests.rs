@@ -1043,6 +1043,30 @@ fn the_bats_come_of_their_type_by_her_level_and_the_sectors() {
 }
 
 #[test]
+fn the_traps_are_thrown_of_their_spells_records() {
+    assert_eq!(
+        [1049, 1050, 1051, 1052, 1053].map(style),
+        [Some(Style::Trap); 5]
+    );
+    assert_eq!(
+        action(4, Style::Trap, 1).map(|a| (a.clip, a.rate, a.fallback)),
+        Some((ArtClip::Slot(109), 1.0, Some(84)))
+    );
+    assert_eq!(
+        [1049, 1050, 1051, 1052, 1053].map(trap_spell),
+        [45, 6, 48, 12, 46]
+    );
+    // The ball's arc: 0 at its ends, 60 at its middle.
+    assert_eq!(
+        [ball_rise(0.0), ball_rise(0.5), ball_rise(1.0)],
+        [0.0, 60.0, 0.0]
+    );
+    assert_eq!(confusion_seconds(1, 1), 3.0);
+    assert_eq!(confusion_seconds(1, 10), 1.5);
+    assert!(fog_takes(1, 8, false) && !fog_takes(1, 9, false) && !fog_takes(5, 1, true));
+}
+
+#[test]
 fn the_master_bite_turns_a_weak_creature_over_for_its_seconds() {
     assert_eq!(style(1031), Some(Style::MasterBite));
     assert_eq!(
