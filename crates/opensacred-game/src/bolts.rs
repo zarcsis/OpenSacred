@@ -69,6 +69,9 @@ pub struct Course {
     /// Where it ends at a cell it may not pass, the reach and the factor of its burst (the
     /// Wood Elf's bubble's, 906).
     pub bursts: Option<(f32, f32)>,
+    /// How far it knocks back what it strikes, before its strike, and the level below which
+    /// (the Mage's whirlwind's, `opensacred_rules::spells::whirlwind_knocks`).
+    pub knocks: Option<(f32, f32)>,
 }
 
 impl Course {
@@ -89,6 +92,7 @@ impl Course {
             reach: arrows::size(0),
             beat: 1.0,
             bursts: None,
+            knocks: None,
         }
     }
 
@@ -104,6 +108,7 @@ impl Course {
             reach,
             beat: 1.0,
             bursts: None,
+            knocks: None,
         }
     }
 
@@ -119,6 +124,7 @@ impl Course {
             reach: arrows::size(0),
             beat: 1.0,
             bursts: None,
+            knocks: None,
         }
     }
 
@@ -134,6 +140,7 @@ impl Course {
             reach: arrows::size(0),
             beat: 1.0,
             bursts: None,
+            knocks: None,
         }
     }
 }
@@ -317,7 +324,7 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, ranks): (MessageWriter<fight::Hit>, Query<&fight::Ranked>),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
     shooters: Query<&Transform, (With<Body>, Without<Flying>)>,
     creatures: Query<
@@ -410,6 +417,31 @@ fn fly(
         }
         if course.strikes == Strikes::First {
             struck.truncate(1);
+        }
+        // The whirlwind's knockback first, on each of no big type below its level (`0x5AD135`).
+        if let Some((left, below)) = course.knocks {
+            for &target in &struck {
+                let boss = ranks
+                    .get(target)
+                    .is_ok_and(|rank| rank.0 == fight::Rank::Boss);
+                if let Ok((_, _, _, mind, ..)) = creatures.get(target)
+                    && opensacred_rules::spells::whirlwind_knocks_back(
+                        below, mind.level, boss, mind.big,
+                    )
+                {
+                    debug!("bolts: {entity} knocks {target} back {left:.0}");
+                    commands
+                        .entity(target)
+                        .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                        .insert(crate::making::Knocked {
+                            by: bolt.shooter,
+                            from: transform.translation,
+                            left,
+                            held: 0.0,
+                            throw: None,
+                        });
+                }
+            }
         }
         for &target in &struck {
             debug!(

@@ -97,6 +97,29 @@ struct Disk {
     all: bool,
 }
 
+/// A zone of the banishing circle (the kind 2, `0xAD2530`): its centre and cell, its level, and
+/// its time left.
+#[derive(Component, Debug, Clone)]
+struct Banishing {
+    centre: Vec3,
+    cell: (i32, i32),
+    level: Level,
+    left: f32,
+}
+
+/// A creature that a banishing circle about `from` sends away (`0x539F60`).
+#[derive(Component, Clone, Copy, Debug)]
+struct Banished {
+    from: Vec3,
+}
+
+/// Whether world point `at` stands in `zone`: within 5 cells of its cell along each axis
+/// (`0x59F960`).
+fn inside(zone: &Banishing, at: Vec3) -> bool {
+    let (x, y) = crate::paths::cell_of(at.x, at.z);
+    (x - zone.cell.0).abs() <= spells::ZONE_REACH && (y - zone.cell.1).abs() <= spells::ZONE_REACH
+}
+
 /// A meteor of the Mage's hail: its caster, where it lands, its damages, its level, and how long
 /// until it lands.
 #[derive(Component, Debug, Clone)]
@@ -574,6 +597,52 @@ fn act(
                 held.entry::<ai::Mind>()
                     .and_modify(move |mut mind| mind.stunned(seconds));
             }
+            spells::BANISHING => {
+                // Eight runes at 200 about him, and a zone of 5 cells along each axis about his
+                // cell for `v₀` seconds, which sends the creatures in it away (`0x522DE3`).
+                let seconds = fight_seconds(spells::value(record, 0, act.level));
+                let cell = crate::paths::cell_of(here.x, here.z);
+                let zone = Banishing {
+                    centre: here,
+                    cell,
+                    level: body.level(),
+                    left: seconds,
+                };
+                // At its cast, the creatures in it of no boss and of a level up to 5·L + 3.
+                for (entity, at, mind, _) in &hearers {
+                    let boss = targets
+                        .get(entity)
+                        .ok()
+                        .and_then(|(.., rank)| rank)
+                        .is_some_and(|rank| rank.0 == fight::Rank::Boss);
+                    if inside(&zone, at.translation())
+                        && mind.hostile()
+                        && spells::banishes(act.level, mind.level, boss)
+                    {
+                        commands.entity(entity).insert(Banished { from: here });
+                    }
+                }
+                let mut made = commands.spawn((
+                    zone,
+                    Transform::from_translation(here),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(looks) = &looks {
+                    made.with_children(|runes| {
+                        for k in 0..8u8 {
+                            let angle = std::f32::consts::FRAC_PI_4 * f32::from(k);
+                            let off = Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::RUNES_FROM;
+                            runes.spawn((
+                                Mesh3d(looks.disc.clone()),
+                                MeshMaterial3d(looks.discs[2].clone()),
+                                Transform::from_translation(off + Vec3::Y * 4.0)
+                                    .with_scale(Vec3::new(20.0, 2.0, 20.0)),
+                            ));
+                        }
+                    });
+                }
+            }
             spells::FROST_RING => {
                 let damages = bolt_damages(record, level, multipliers);
                 for k in 0..8u8 {
@@ -630,11 +699,19 @@ fn act(
                     (spells::SPLINTERS_COURSE, 5)
                 };
                 let damages = bolt_damages(record, level, multipliers);
+                let mut course = crate::bolts::Course::passing(course, look);
+                if act.spell == spells::WHIRLWIND {
+                    course.knocks = Some(spells::whirlwind_knocks(
+                        record,
+                        act.level,
+                        experience.level,
+                    ));
+                }
                 for angle in spells::fan(act.spell, n, line.length()) {
                     launches.write(crate::bolts::Launch {
                         shooter: act.caster,
                         direction: Vec2::from_angle(angle).rotate(base),
-                        course: crate::bolts::Course::passing(course, look),
+                        course,
                         damages,
                         wait: 0.0,
                     });
@@ -1773,6 +1850,70 @@ fn spiral(
     }
 }
 
+/// Counts each banishing circle down, and sends away each hostile creature on its level that
+/// stands in it, but one that runs out of it already (a creature's step, `0x5941A0`); each
+/// banished creature leaves its fight and runs 700 beyond its place away from the circle's centre
+/// (`0x539F60`), where it comes on again as it will.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn banish(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zones: Query<(Entity, &mut Banishing)>,
+    mut creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &mut ai::Mind,
+            Option<&crate::npcs::Walk>,
+            Option<&Banished>,
+        ),
+        (Without<Body>, Without<Dies>),
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut zone) in &mut zones {
+        zone.left -= dt;
+        if zone.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        for (creature, at, way, mind, walk, banished) in &creatures {
+            let runs_out = walk.is_some_and(|walk| !inside(&zone, walk.target()));
+            if banished.is_none()
+                && !runs_out
+                && way.level == zone.level
+                && mind.hostile()
+                && inside(&zone, at.translation)
+            {
+                commands
+                    .entity(creature)
+                    .insert(Banished { from: zone.centre });
+            }
+        }
+    }
+    for (creature, at, way, mut mind, _, banished) in &mut creatures {
+        let Some(banished) = banished else {
+            continue;
+        };
+        let here = at.translation;
+        let [x, z] = spells::banished_to([here.x, here.z], [banished.from.x, banished.from.z]);
+        debug!("spells: {creature} is banished to {x:.0},{z:.0}");
+        mind.called_off();
+        commands
+            .entity(creature)
+            .remove::<(Banished, crate::npcs::Strikes)>()
+            .insert(crate::npcs::Walk::run(
+                Vec3::new(x, here.y, z),
+                way.level,
+                mind.run,
+            ));
+    }
+}
+
 /// Puts each teleporting hero at its point once its time comes, and counts the water form down.
 #[expect(
     clippy::type_complexity,
@@ -1865,7 +2006,8 @@ impl Plugin for SpellsPlugin {
             .add_systems(
                 Update,
                 (
-                    act, shield, strike, mine, disk, meteor, chain, spiral, teleport, doom, fade,
+                    act, shield, strike, mine, disk, meteor, chain, spiral, banish, teleport, doom,
+                    fade,
                 )
                     .chain()
                     .after(Step::Npcs)
