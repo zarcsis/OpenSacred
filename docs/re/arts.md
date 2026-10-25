@@ -875,7 +875,7 @@ By the object (its spell, "The spells' executor" above):
 |---|---|---|
 | 778 `FX_FIRESTRIKE` | 5 | the event, once |
 | 782 `FX_PENTAGRAMMKILLER` | 6 | a target of a level above the object's value (`0x7CBEA0`), or a player's hero in a network game, the event; any other the event 9 from the caster (**hypothesis**: slain); the factor `1 + (s₂₆ + s₂)/100 + (b + h)/K`, `s₂₆` and `s₂` the caster's skills 26 and 2 through the balance's curves (`0x565D70` with `0xAD45D8` and `0xAD44D0`), `b` a value of `0x5A03B0`, `h` the caster's `+0x3BC`, `K` the value at `0xAD5630` |
-| 790 `FX_FIRE_CIRCLE` | 11 | the event, once |
+| 790 `FX_FIRE_CIRCLE` | 11 | the event, once a second ("The Mage's other spells" below) |
 | 792 `FX_GROUND_POISON` | 12 | the event, once, at the factor of 782 |
 | 794 `FX_EXPLOSION` | (the Dwarf's guns) | the event, once, at the factor of 782 but from a caster of the type 8 |
 | 801 `FX_RAILGUN` | | the event at every run |
@@ -883,19 +883,19 @@ By the object (its spell, "The spells' executor" above):
 | 813 `FX_FI_SMOKE_M`, 876 `FX_FI_SMOKE_L`, 879 `FX_GEYSIR` | | an event of `0x51CB00` from the object with the damages 10, 20 or 100 of the first two kinds alone, once |
 | 814 `FX_HOLYWALL` | 17 | the event, once a second |
 | 817 `FX_MAGLITE` | 20 | the event, once a second, to the targets of the `Creature.pak` classes 5, 9 and 11 (`0x426A80`, `0x426B20`, `0x426BC0`) |
-| 820 `FX_HELLFIRE` | 23 | the event, once |
-| 821 `FX_FIRESKIN` | 24 | the event, once, and an object 788 (`FX_BURNING_BONE`) at each target |
+| 820 `FX_HELLFIRE` | 23 | the event, once a second |
+| 821 `FX_FIRESKIN` | 24 | the event, once a second, and an object 788 (`FX_BURNING_BONE`) at each target |
 | 823 `FX_METEOR` | 26 | the event at every run |
-| 826 `FX_TWISTER` | 28 | from a caster of the local player, the event `0x112` from the caster to a target of a level 3 or more below the spell's, or by a roll of one in `3·(M − L + 6) + 1` for one nearer its level (**hypothesis**: thrown about) |
-| 831 `FX_WINDSTRIKE` | 29 | the event to every target, and to one whose level (a boss's scaled) is below `0.4·L' + 5·L` and of no big type the event of kind 3, the knockback, of the spell's value 0 at its level (`0x4D26B0`) |
+| 826 `FX_TWISTER` | 28 | once a second, on its bearer's owner's machine, the event from the bearer, and to every target in its reach the event `0x112` for a level 4 or more below the spell's, or by a roll of one in `3·(M − L + 6) + 1`: disarmed (`0x4E9900`) |
+| 831 `FX_WINDSTRIKE` | 29 | the event to every target, and to one whose level (a boss's scaled) is below `0.4·L' + 5·L` and of no big type the event of kind 3, the knockback, of the spell's value 1 at its level (`0x4D26B0`), once a second |
 | 838 `FX_FLASH` | | the event, once |
-| 839 `FX_ICEBULLETS` | 34 | the event, once, from a caster of the local player |
-| 840 `FX_CIRCLEOFICE` | 35 | the event, once |
-| 847 `FX_BUBBLETRAP` | 38 | the event, once |
+| 839 `FX_ICEBULLETS` | 34 | the event, once a second, from a caster of the local player |
+| 840 `FX_CIRCLEOFICE` | 35 | the event, once a second |
+| 847 `FX_BUBBLETRAP` | 38 | the event every 0.5 s, passing through |
 | 848 `FX_KILLERPLANTS` | 39 | the event, once |
-| 850 `FX_LOSTSOULS` | 41 | an event of `0x51CB00` to its target, then a new target within 100,000 (`0x600570`; **hypothesis**: the souls fly on) |
+| 850 `FX_LOSTSOULS` | 41 | an event of `0x51CB00` to its target, then a new target within a squared 100,000, about 316 (`0x600570`): the souls fly on |
 | 855 `FX_ARACATTACK` | | the event to its owner's target, once |
-| 867 `FX_BALL` | 53, the Dark Elf's traps | to each hostile target (`0x548FB0`) an event of `0x51CB00` from the caster and an object 786 (`FX_GOBLINIMPACT`) at it, whose spell it casts (`0x5B7590`) |
+| 867 `FX_BALL` | 53, the Dark Elf's traps | to each hostile target (`0x548FB0`) an event of `0x51CB00` from the caster and an object 786 (`FX_GOBLINIMPACT`) at it, sent to the network (`0x5B7590`) |
 | 871 `FX_CONFUSION` | | to a target neither a boss nor of `+0x2B8` bit `0x40`, without the effects 13 and 14, by a coin the effect 14 or 13 for `3·min(1, 5L/M)` seconds, its whole value the caster's level, and it stops ("The spells' objects" above) |
 | 875 `FX_BFG` | the Seraphim's 1018 | the event, once |
 | 878 `FX_SMALLFIRE` | 50 | an event of `0x51CB00` with the damages 5 and 5, or the caster's (`0x5B79F0`, `0x5B7A00`), to every target from a caster of no hero's class, else to the hostile ones |
@@ -906,13 +906,14 @@ By the object (its spell, "The spells' executor" above):
 | 910 `FX_DAEMONFIRE`, 922 `FX_SHADDAR_MAGIC` | 50, 52 | an event of `0x51CB00` from the caster at every run |
 | 921 `FX_SHADDAR_SLAVE` | | the effect 32 for 5 s to a target of an id up to 16, or it follows the creature of the type 700 |
 | 923 `FX_DRAGON_GROUNDFIRE` | | the event of damages by the caster's skill 2 and the object's level, once |
-| 1005 `FX_HELLDISK` | the Daemon's 60 | an event of `0x51CB00` to its target, then a new target within 100,000 |
+| 1005 `FX_HELLDISK` | the Daemon's 60 | an event of `0x51CB00` to its target, once a second, then a new target within a squared 100,000, about 316 |
 | 1006 `FX_WALLOFFIRE`, 1007 `FX_WALLOFFIRE_LINE`, 1008 `FX_RINGOFPOISON` | the Daemon's forms (1102, 1101) | from a caster of a hero's class, to each hostile target the effect 62 of the event's whole and float values (`0x4EB630`, `0x4EB6F0`), for 1 s (**hypothesis** for its arguments' order; 1007 not to a target of `0x5539D0`) |
-| 1011 `FX_SONGSFROMHELL` | 67 | an event of `0x51CB00` to its owner's target |
-| 1012 `FX_HELLSCREAM` | 66 | to each target without an effect of the spell: the effect 1 of `−(1 − 100/p)`, `p` of `0x590C80`, and the effect 2 of a value of `0x590CA0`, keyed by the spell (their times not taken) |
-| 1013 `FX_DAYOFTHETENTACLE` | 64 | an event of `0x51CB00` from the caster, once |
+| 1011 `FX_SONGSFROMHELL` | 66 | an event of `0x51CB00` to its owner's target, once a second |
+| 1012 `FX_HELLSCREAM` | 67 | to each target without an effect of the spell: the effects 1 and 2 of `−(1 − 100/p)`, `p` the record's attack's and defence's pairs (`0x590C80`, `0x590CA0`), for 1 s, keyed by the spell, once a second |
+| 1013 `FX_DAYOFTHETENTACLE` | 65 | an event of `0x51CB00` from the caster, once a second |
+| 1015 `FX_DEMONFIRE` | 64 | once a second, one target at random among the local hero's hostiles ("The Daemon's spells" below) |
 | 1020 `FX_GRENADEIMPACT` | the Dwarf's 1086 | the event of its damages (`0x5B79F0`, `0x5B7A00`), once |
-| 1154 `FX_DWARF_MINE_SIGN` | 56 | an object 1153 (`FX_DWARF_MINE`) made, once; the mine goes when its value reaches 100 (`0x5B7950`) |
+| 1154 `FX_DWARF_MINE_SIGN` | 56 | an object 1153 (`FX_DWARF_MINE`) laid at most once a second where none lies within 50 (`0x5B7950` and `0x5B7900` a distance and its inverse) |
 | 1159 `FX_EMPEROR`, 1162 `FX_DRYAD_GHOST`, 1163 to 1167, 1170 | 69 to 72 and the scripts' | the event of their own damages (`FX_DAEMONENFUERST` by its state, `+0x9C` 185 or 250 to 252, one kind each), 1170 `FX_EITERBLUME` 500 of the first kind and 100 of the third |
 | 1156 to 1158 `FX_PONG_…` | | a game of the scripts', not of the fight |
 
@@ -1060,6 +1061,81 @@ In the game a converted creature leaves its fight with the hero (**hypothesis**)
 The effect `0x22` (`0x539E70`), of the whole value and the value 0, lasts the spell's value 0 at the caster's level of the art, keyed by the spell; of the spells read here, 2, 17, 21, 22 and 32 give it.
 What the effect 35 does, the event `0x109`, and the rest of what the effect 13 does are not read.
 
+#### The spells' lock and their objects' tables
+
+Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
+
+- For the local hero the cast's test (`0x51D840`, at `0x51DA76`) refuses a spell while its target, or its caster for the launch types 0 and 5 or without a creature for its target, holds an effect keyed by the spell (`0x582B00`), for the spells 2, 17 to 22, 24, 25, 27, 28, 30 to 32 and 37: so the effect `0x22`, and the others an object gives keyed by its spell, keep a spell that lasts from being cast again.
+- `0x4D26E0(a, b, L)` is a ratio: the value `a` at the level over the value `b`, truncated and held at the cap of `a`, or the value `a` alone where `b` is 0; the spells that make a number of objects take it so (the meteors, the splinters, the thorns, the souls, the mines).
+- The particle systems are picked by the byte table at `0x5A3570` by the type less `0x300` and the jump table at `0x5A3294` (not `0x5A3270`); a system's virtual slot 2 is its update by the frame's time, 4 its start, 5 and 6 its saving and loading; `0x7CBA10` sets its state `+0x74`, of which 2 ends a moving object at a cell that stops it.
+- The hits' cases are found by the byte table at `0x5B23A8` by the type less 778 and the jump table at `0x5B2328`, and above 890 (`0x37A`) by `0x5B2454` and `0x5B2410`.
+- The FX event (`0x41E1D0`) carries its kind at `+4`, the caster and the target at `+8` and `+0xC`, a place at `+0x10` to `+0x1C`, a position at `+0x20`, a direction at `+0x2C`, two words at `+0x38` and `+0x3C`, the array from `+0x40` and a word at `+0x78`, whose `0x40` marks it for the network.
+- The zones (`0xAD2530`, records of 24 bytes: a cell, a reach of 5 cells, a level, a kind and seconds) hold the banishing circle's kind 2 and the ring of frost's kind 3: `0x59F960` applies a zone at its cast to the creatures of its sector and the eight about it hostile to the local hero (`0x548F60`, `0x603E30`), the hero himself left out, within 5 cells along each axis; a creature's step (`0x5941A0`) applies the kinds 2 and 3 again while it stays inside; `0x5375C0` counts their seconds down.
+- The effect 15 holds a creature: on an NPC its value, 0 made 1e-4, goes to `0x537160`, which sets a factor at `+0x2C9` (**hypothesis**: its time's scale, so that 0 freezes it); a player takes `+0x1F4` bit `0x8000000` and stops; the remover (`0x586D80`) sets 1.0 back.
+
+#### The Mage's other spells
+
+Read 2026-10-25 (#672) for his spells beyond the four above; **confirmed** by code unless marked otherwise.
+`v₀`, `v₁` and `v₂` are the record's values at the level under their caps, `f` the array's factor (1.0 but for `IRRITATION`).
+
+- **`PHASEN` (1), the teleport**, launch type 3, `v₀` 80 + 10·L at most 200 (`0x522742`): from the caster's place toward the order's point it tests, in steps of `(⌊10·uₓ⌋, ⌊10·u_y⌋)`, at most `v₀` points while each passes `0x636A60`, the last on which the caster may stand (`0x636DB0`) its destination, at most `10·(v₀ − 1)` away; a player stops before passing the point clicked, and for the local hero each point sends the message `0x45` that runs its cell's triggers.
+  It makes 775 `FX_TELEPORT_IN` at the destination and 774 `FX_TELEPORT_OUT` at the caster (following it); their clocks run at the cast's rate, and some 3.35 s over the rate after the act (2.8 s at 120) OUT sends the caster the event 8 with the destination, which puts it there (`0x52F26D`), and IN follows it; both end some 6.69 s over the rate after the act.
+  An order of negative coordinates goes there without tests, and a caster with `+0x4F0` bit 0 teleports its target instead (not read further).
+- **`WASSERFORM` (4), the water form**, launch type 5, `v₀` 9 + L at most 30 (`0x52313A`, its object 783): 1.6 s over the cast's rate after the act its action 6 sends the caster the event `0x109` of the overlay state 1 for `⌊v₀·f⌋` seconds, then the state 3 for 2 s (`0x44A520`); while it holds, the fight's choices of a target pass the creature over (`0x54A6D0`, read at `0x4DB8F8`, `0x4DC414`, `0x4DCA05`, `0x4E0A18` and `0x4F7F0E`; **hypothesis**: no creature takes it for its target).
+- **`FEUERSPIRALE` (11), the fire spiral**, launch type 5, 9 + 6·L fire and 5 + 3·L magic, `v₀` 25 (`0x523EDA`): five objects 790 about the caster's place, each at its angle `i·2π/5`, which grows by 3.054 a second, and a radius of `(v/175)·(80 + 40·cos a)`, `v` rising by 150 a second to 175; each strikes the creatures it touches as the bolts do (50 and their size) once a second, and ends at a cell that stops it, its life 25 s.
+- **`BANNKREIS` (16), the banishing circle**, launch type 5, `v₀` 23 + 2·L at most 90 (`0x522DE3`): eight runes 805 at 200 about the caster, a sight, and a zone of the kind 2 for `v₀·f` seconds: at its cast each creature within it of a level up to `5·L + 3`, no boss nor of `+0x2B8` bit `0x40`, runs 700 beyond its place away from the centre (`0x539F60`), and a creature that comes into it later does too (`0x5941A0`, without the test of the level); no damage.
+- **`FEGEFEUER` (23), the purgatory**, launch type 3, 4 + 6·L fire and 2 + 3·L magic, `v₀` 25 (`0x5246CD`, its object 820): at the order's point, it moves at 40 a second toward the nearest creature within about 316 that the caster may fight (`0x600570`; else the caster), for 25 s, and strikes the creatures within 50 and their size once a second; it ends at a cell that may not be walked on.
+- **`FLAMMENHAUT` (24), the fire skin**, launch type 2, `v₀` 44 + L at most 120 (`0x524828`, its object 821 following its bearer): the effect `0x22`; the arrows turned aside (`0x19`) of the level `L` for `v₀·f` seconds; its action 6 at once, the effect 2 of `(15 + 5·L)/100` and the effect 8 of 25 + 40·L for `v₀` seconds; and once a second 2 + 3·L fire to the hostile creatures within 120 and their size, each with an object 788 at it.
+- **`FLEISCHSTEIN` (25), the flesh to stone**, launch type 1, `v₀` 14 + L at most 30 (`0x52494F`, its object 822 on the target, no big type): its action 7 gives the effect 15 for `⌊v₀·f⌋` seconds, keyed by 25, the target frozen, with no test of a boss or of the levels.
+- **`METEORITENHAGEL` (26), the hail of meteors**, launch type 3, 15 + 9·L physical and 3 + 2·L fire (`0x524A83`): `⌊min(16, ⌊v₀/v₁⌋)·f⌋` meteors (1 to 20; 3 at level 1, 7 at 10), each at the point plus 120 − `U[0, 240]` along each axis, falling after up to 0.8 s from 500 at 800 a second; each strikes once the creatures within 65 and their size as it lands.
+- **`KATARAKT` (27), the quickening**, launch type 5, `v₀` 19 + L at most 60 (`0x524C8C`): the effect `0x22`, and 1.6 s over the cast's rate after the act its action 6, the effect 1 of `(10 + 7·L)/100` and the effect 28 of `1 + (13 + 2·L)/100` for `v₀` seconds (the adder takes a second effect 28 not while one holds).
+- **`WINDBOE` (28), the gust**, launch type 2, `v₀` 44 + L at most 120 (`0x524D7E`, its object 826 following its bearer): the effects `0x22` and `0x19` of the level `L`, and once a second, on its bearer's owner's machine, 2 + L physical to the hostile creatures within 125 and their size; each in its reach rolls for the event `0x112`, sure for `L > M + 3` or `L` 0, else one in `3·(M − L + 6) + 1`, `M` its level, which disarms an NPC that is no player's companion (`0x4E9900`): the item of its slot 13, else 12, 1 or 0, thrown to the ground, its values lowered for the slots 12 and 13.
+- **`WIRBELWIND` (29), the whirlwind**, launch type 0, 6 + 4·L poison, `v₀` 6 + L at most 20, `v₁` 60 + 10·L at most 200 (`0x524EA2`): `⌊v₀·f⌋` objects 831 (1 to 20) fanned at `θ₀ − 0.05·n + 0.1·i` from the line to the target, flying at 200 a second for 2.0 s; each strikes the creatures it touches once a second, with the knockback of `⌊v₁·f⌋` first to one of a level (a boss's times 1.3) below `5·L + 0.4·l`, `l` the caster's, of no big type.
+- **`SCHILDWALL` (30), the shield wall**, launch type 2, `v₀` 44 + L at most 120 (`0x52527E`, its object 834): the effects `0x22`, `0x19` and `0x1A` (the spells turned aside) of the level `L`, and about 1 s later its action 6, the effects 7 and 8 of 4 + 6·L, 9 of 25 + 40·L and 10 of 4 + 6·L for `v₀` seconds.
+- **`AUE` (31), the mana's spring**, launch type 2, `v₀` 70 + 2·L at most 180 (`0x52537C`): the effect `0x22` and its action 6 at once, the effect 11 of `(95 + 5·L)/100` for `v₀` seconds.
+- **`BLITZSCHLAG` (33), the chain lightning**, launch type 1, 6 + 4·L physical and 9 + 6·L magic, `v₀` 2 + L at most 8 (`0x526CAA`): a bolt of segments 799 of 30 from the caster to its target, at most 19 (none reaching it, no strike), and an object 872 at the target, whose action 2 strikes it alone at once; 0.2 s later its action 4 (`0x5B46CA`) leaps to the nearest other creature hostile to the caster within about 316 with a new bolt and 872, `min(2 + L, 8)` strikes in all.
+- **`EISSPLITTER` (34), the ice splinters**, launch type 0, 2 + 3·L physical and magic (`0x5258B5`): `⌊min(21, ⌊v₀/v₁⌋)·f⌋` splinters 839 (1 to 20; 4 at level 1), fanned by `15/d` radians apart, `d` the distance to the aim held from 50 to 300, flying at 150 a second for at most 3.0 s through what they strike; each strikes the creatures within 40 and their size once a second, from a caster of the local player.
+- **`FROSTRING` (35), the ring of frost**, launch type 5, 3 + 2·L physical and 4 + 3·L magic, `v₀` 25 (`0x52555A`): eight objects 840 at 170 about the caster, each striking within 60 and their size once a second for 25 s, and a zone of the kind 3 for 25 s, in which each creature hostile to the hero takes the effect 15 of `clamp(M/(15·L), 0.3, 0.8)` for 1 s, again while it stays (doubled for a boss and again for the types of `0x426B70`), so that it moves slower (**hypothesis**: the factor of its time).
+
+#### The Wood Elf's spells
+
+Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
+
+- **`SUMMONBEAR` (3)**, launch type 3, `v₀` 5·L (`0x523413`): an object 777 at the order's point that, some 1.5 s later, makes her the creature of `0x426F60` of her type, 72 (`unicorn.grn`) for the Wood Elf, as the Vampiress's wolf (above): one at a time, hired (`sdk_HIRE`), its level `v₀`, at most 250, until it dies or she calls another.
+- **`MOUSE` (36), the changeling**, launch type 5, `v₀` 14 + L at most 30 (`0x525C8C`): for the local hero, each of the first 20 creatures alive on her floor and hostile within about 179 of her, of an id above 16, of no big type, without its effect, and of a level (a boss's times 1.3) below `0.4·l + 5·L`, takes an object 845 and the effect 20, keyed by 36, for `v₀·f` seconds (a third for a boss): the adder (`0x5848A8`) turns it into one of 14 animals at random (a rabbit, a pig, a deer, a sheep or a chicken), destroying its items, and the taker turns it back.
+- **`SPEED` (37)**, launch type 2, `v₀` 19 + L at most 60 (`0x526625`): the effect `0x22` and two objects 846, each running the action 6: the effect 1 of `(10 + 7·L)/100` and the effect 28 of `1 + (13 + 2·L)/100` for `v₀` seconds; the second 28 is refused, the second 1 stacks (**hypothesis**: the attack's bonus doubled in play).
+- **`CAMOUFLAGE` (38), the bubble**, launch type 0, 18 + 27·L poison (`0x525F3F`): one object 847 flying straight at 100 a second toward the target's place for its model's clip's length, striking every hostile creature it touches every 0.5 s and passing through; at a cell that stops it, it bursts into an object 906 that strikes once within 300 and their size at the factor 2.0.
+- **`THORNS` (39)**, launch type 3, 2 + L magic and 4 + 3·L poison (`0x5260CB`): `⌊min(10, ⌊v₀/v₂⌋)·f⌋` plants 848 (2 at level 1), each within 75 of the target's place, else the point, along each axis, where it may stand, living 19 + L seconds, at most 50, and striking the creatures within 50 and their size once a second.
+- **`PLANTCAGE` (40)**, launch type 1, `v₀` 14 + L at most 30 (`0x52634B`): no big type; `⌊min(20, ⌊v₀·f⌋)/5⌋` cages 849 at the target (3 to level 5), each, some 0.67 s on, giving the effect 15 for `⌊v₀⌋` seconds keyed by 40, which holds it, with no test of a boss or of the levels.
+- **`LOSTSOULS` (41)**, launch type 5, 9 + 5·L physical and 5 + 2·L magic, `v₁` 24 + L at most 60 (`0x5268E5`): the caster's effect `0x22` for `v₁` seconds and `⌊min(8, ⌊v₀/v₂⌋)·f⌋` souls 850 at 50 about her, flying at 150 a second toward the nearest creature she may fight within about 316 (else back to her), turning at 3 radians a second, for `v₁` seconds; each strikes the first it touches once a second and turns to another.
+- **`PLANTHEAL` (42)**, launch type 2, `v₀` 10 + 50·L (`0x5267D8`): the healing's action 3 (`HEILKRAFT` above) on its target.
+
+Each acts at its share of its clip ("The spells' cast"): 3 and 42 at 0.9, 36 at 0.35, 37, 39 and 40 at 0.8, 38 at 0.7, 41 at 0.5.
+
+#### The Dwarf's spells
+
+Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
+None gives the effect `0x22`.
+
+- **55 (`gui_moves_gier`), the greed**, launch type 5, `v₀` 19 + L at most 60, `v₁` 15 + 5·L (`0x528A87`, its object 1155): the effect 42 of the whole value `L` and the value 100 + 10·L for `v₀` seconds, keyed by 55, which divides his `D` by `(100 + 10·L)/100` and gives each drop of his kills the value `s` of the record's value 1 at the effect's level (docs/re/items.md, "The drops").
+- **56 (`gui_spells_tellermine`), the mines**, launch type 5, 8 + 8·L physical and 7 + 7·L fire (`0x528995`): a sign 1154 following him, and the effect 35 keyed by 56 while it lasts; once a second, where no mine lies within 50, it lays a mine 1153, `min(11, ⌊v₀/v₁⌋)` in all (5 at level 1); a mine goes off when a hostile creature touches it while he is 100 or more off, or after 30 s, as an object 794 that strikes once every hostile creature within 80 and their size; its damages take the second array of multipliers (`+0xA6`).
+- **57 (`gui_moves_eingraben`), the burrowing**, launch type 5, `v₀` 7 + L at most 15 (`0x5287A4`, its object 1152): the effect 58 keyed by 57 for `v₀` seconds, under which his pace is 0 (`0x56377E`), and the action 6: the effect 2 of `(30 + 20·L)/100` and each resistance's of 5 + 25·L for `v₀` seconds.
+- **58 (`gui_spells_zwergenpanzer`), the dwarven armour**, launch type 2, `v₀` 44 + L at most 120 (`0x52869E`, its object 1021 `FX_PANZER`): the effect 35 keyed by 58, and the action 6: the fire and poison resistances' of 13 + 22·L for `v₀` seconds.
+- **59 (`gui_spells_zwergenstahl`), the dwarven steel**, launch type 2, `v₀` 29 + L at most 90 (`0x52888F`, its object 1022): for `v₀` seconds keyed by 59 the effect 56 of 100 + 15·L, under which the defender's physical resistance is divided by `(100 + 15·L)/100` in his strikes (`0x56C723`), and the effects 1 of `(15 + 10·L)/100` and 2 of 0.
+
+#### The Daemon's spells
+
+Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
+None gives the effect `0x22`.
+
+- **60 (`gui_spells_hoellendiskus`), the hell disk**, launch type 5, 5 + 7·L physical and 5 + 8·L fire, `v₀` 24 + L at most 60 (`0x527BA9`, its object 1005): a disk at 250 a second homing on the nearest hostile creature within about 316, else hovering by him, turned back by a cell it may not enter; once a second it strikes the first it touches (50 and its size) and turns to another; it lives `v₀` seconds.
+- **62 (`gui_spells_rufdestodes`), the call of death**, launch type 5, `v₀` 24 + L at most 60, `v₁` 840 + 60·L, `v₂` 56 + 4·L (`0x527CFC`, no object): the effect 46 of the whole value `v₂` and the value 1.0 for `v₀` seconds, keyed by 62, its word `v₁`; each of his kills raises the value by `(w − 1000·(value − 1))/3000` toward `1 + w/1000` (`0x5339F3`), it falls by `v₂/1000` a second to no less than 1 (`0x56373E`), and his strikes' damage is times it (`0x56D1EC`).
+- **63 (`gui_spells_hoellenkraft`), the force of hell**, launch type 2, `v₀` 29 + L at most 90, `v₁` 25 + 5·L (`0x5283B4`): two objects 1173 on the target, each giving for `v₀` seconds keyed by 63 the effect 4 of `(25 + 5·L)/100`, 59 of the whole value 4 + L, and by its action 6 the effect 1 of `(20 + 20·L)/100` (**hypothesis**: twice in play).
+- **64 (`gui_spells_hoellenfeuer`), the hellfire**, launch type 3, 8 + 5·L fire and magic, `v₀` 24 + L at most 45 (`0x528566`, its object 1015 at the point): once a second it strikes one creature at random among the local hero's hostiles within 800 of the hero and 1,300 of it along each axis, weighed 1, 3 more for one with a ranged weapon and 6 more by `0x5B7BC0` (not read), else among those within 300 of it, where a line from it reaches the target (`0x604030`).
+- **65 (`gui_spells_tentakel`), the tentacles**, launch type 5, 2 + L magic and 4 + 3·L poison, `v₀` 44 + L at most 90 (`0x52829F`): an object 1013 following him and the effect 41 for `v₀` seconds; each of his kills under it raises a tentacle 1013 at the corpse (`0x533818`), which strikes every hostile creature within 120 and their size once a second for 10 s.
+- **66 (`gui_spells_chor`), the choir**, launch type 0, 3 + 3·L physical and magic, `v₀` 19 + L at most 30 (`0x527DA9`): for the local hero, the first 20 hostile creatures within about 179, of an id above 16, of no big type and without its effect, each take the effect 35 keyed by 66 and an object 1011 following it, which gives it the effect 15 of `clamp(2M/(15·L), 0.5, 1)` (a boss's level times 1.3) for `v₀` seconds by its action 9 and strikes it once a second.
+- **67 (`gui_spells_hoellenfurcht`), the fear**, launch type 0, `v₀` 25 (`0x528024`): five objects 1012 at 160 about him, each for 25 s striking once a second the hostile creatures within 150 and their size without its effect with the effects 1 and 2 of `−(1 − 100/(110 + 10·L))` for 1 s, keyed by 67.
+
 ## The heroes' starting arts
 
 Each hero template's creature section `0xC7` (docs/02 §9) holds the hero's arts as the stats' list holds them (above): from its byte 1,227 a `u16` count, then the entries of 22 bytes from 1,229 (read off the 8 templates 2026-10-22 with a scratch script; the counts 2, 3 for the Daemon's and 4 for the Vampiress's, so that their sections are 22 and 44 bytes longer, 1,903 and 1,925 for 1,881):
@@ -1084,4 +1160,4 @@ The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new gam
 
 ## Open
 
-What the other classes' spells' objects give their targets (#672 read the Mage's 2, 5, 7 and 32 and the Seraphim's 13 and 15 to 22), where the fireball starts and at what height, the effects 35 and `0x22`'s use, the event `0x109`, and the casts' shares of their clips beyond 2, 5, 7 and 32; what the special weapon arts' effects and objects do (#761: the jump 1032 in part, what the Wood Elf's 1006 makes, the record's `+0x18` of 1004, what the effects 16, 17, 18, 35 and `0x1A` do, the hurled blades' flight, the Dark Elf's traps' objects, what the Vampiress's 1026 to 1029 and 1033 make, the effects 13, 22 and 29's whole values, what the Dwarf's guns and the Daemon's rings and breaths make, what `0x63D180` keeps of the Vampiress's bloodlust by day, the effects 50, 53 and 60) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
+What the effects 35 and 20's look, the event `0x109` and its overlay states, the systems' flags `0x40` and `0x1000`, where the flying spells start and at what height, the bubble's life and `0x604030`'s and `0x5B7BC0`'s tests do (the spells read by #672: the Mage's, the Seraphim's, the Wood Elf's, the Dwarf's and the Daemon's); what the special weapon arts' effects and objects do (#761: the jump 1032 in part, what the Wood Elf's 1006 makes, the record's `+0x18` of 1004, what the effects 16, 17, 18, 35 and `0x1A` do, the hurled blades' flight, the Dark Elf's traps' objects, what the Vampiress's 1026 to 1029 and 1033 make, the effects 13, 22 and 29's whole values, what the Dwarf's guns and the Daemon's rings and breaths make, what `0x63D180` keeps of the Vampiress's bloodlust by day, the effects 50, 53 and 60) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
