@@ -1019,6 +1019,28 @@ fn the_domination_holds_its_target_by_its_level() {
 }
 
 #[test]
+fn the_master_bite_turns_a_weak_creature_over_for_its_seconds() {
+    assert_eq!(style(1031), Some(Style::MasterBite));
+    assert_eq!(
+        action(VAMPIRESS_BY_NIGHT, Style::MasterBite, 1).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(154), 1.0))
+    );
+    let bite = WeaponArt {
+        value_58: [12.0, 3.0],
+        ..weapon_art(1031, [20.0, 12.0], 64)
+    };
+    // Seen: 15 s at level 1.
+    assert_eq!(master_bite_seconds(&bite, 1), 15.0);
+    // Below 0.4·l + 5·L: 5.4 for her level 1 at the bite's 1.
+    assert!(master_bites(8, false, 5, false, 1, 1));
+    assert!(!master_bites(8, false, 6, false, 1, 1));
+    assert!(!master_bites(8, false, 5, true, 1, 1));
+    assert!(!master_bites(8, true, 1, false, 1, 1));
+    assert!(!master_bites(9, false, 1, false, 1, 1));
+    assert!(!master_bites(10, false, 1, false, 1, 1));
+}
+
+#[test]
 fn the_awakening_raises_a_dead_creature_for_twice_its_factor() {
     assert_eq!(style(1034), Some(Style::Raise));
     assert_eq!(
