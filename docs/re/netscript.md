@@ -12,12 +12,36 @@ Status: **confirmed** on the code and on all 2,203,278 records of the 20 trees, 
 - It dispatches on the record type through a 141-entry jump table at `0x4784C0` (bound check `cmp eax, 0x8C`).
   18 entries go to the default case `0x4784B3`, which returns 1 and continues the section.
 - Type 40 copies the 80-byte body as is into a table of 0x50-byte entries at `this+0x755C`.
-- Type 41 reads the body as a u16 and accepts 1..5, which it dispatches through a jump table at `0x478768`.
-  Before that it checks the state at `this+0x94` and an entry of the table at `this+0x31C`.
-  What the five cases do is not analyzed yet.
-- Type 42 goes to the default case.
+- Type 41 reads the body as a u16 and accepts 1..5, which it dispatches through a jump table at `0x478768`; type 42 ends the block it opens ("Control flow" below).
 - Type 43 returns 0 and ends the section.
 - Every other record reads its operands through the operand reader, one call per operand.
+
+## Control flow
+
+Read 2026-10-24 (#722) in the walker and the function runner `FUN_0046BA90`, **confirmed** by code; the forms counted on all 20 trees by `tools/analysis/scripts/netscript_flow.py`.
+
+- **One record a call.** The walker reads the record at the cursor (its type and its length, a `u16` each), moves the cursor past it and handles it; it answers 1 to go on, 0 to stop the function, 2 and 3 (below).
+  The runner (`WorkFunktion`) reads the function's bytes (`Vectoren.bin`'s offset and length) and calls the walker until the cursor reaches the function's end, when the function **ran to its end** and the runner answers 1, or until the walker answers 0, when it answers 0.
+  The walker's 2 marks the function done (`+0x50` of its entry in the table of 84-byte functions) and answers 1, so that the runner never runs it again; 3 starts the function again from its first record.
+  The runner runs a function only while its entry is not done and, for a function of a quest (`+0x48` of its entry 0 or more), only while that quest is in the quest store with its flag 1; it does not run functions whose names begin with `InitRg` unless they name `Pools` or `_DQ_Quest_`, nor those beginning with `DQTrgRegion` or `DQStartRegion`.
+- **No offsets.** No record or operand carries an offset to jump to: the conditional records below move the cursor by the records' lengths alone, so that a record put into a function moves nothing else (sacred-sdk's report of shifted jump offsets, docs/02 §7.4, is not the walker's).
+- **`IF` (58).** Its condition (`0x4987B0`) holding, the next record runs.
+  False, the walker reads on, record by record by their lengths, and stops at the first `ELSEIF` (66) whose condition holds, or at the first `ELSE` (59): the record after it runs next.
+  It counts no inner `IF`: an `IF` within a branch shares the first `ELSEIF` or `ELSE` after it.
+  A record of type 0 or above 140, or the function's end, before either, logs `IF mit offenem Ende` and answers 0.
+- **`ELSEIF` (66)** reached in the flow, its branch having run: the walker reads on to the first `ELSE` and moves past the one record after it; without an `ELSE`, `ELSEIF mit offenem Ende` and 0.
+- **`ELSE` (59)** reached in the flow moves past the one record after it: an `ELSE`'s branch is that one record.
+- **Blocks, 41 and 42.** Type 41 sets the walker's skip (`0xAB7898`); while it is set every record is passed over but 42, which clears it.
+  41 clears it again at once where its selector's flag holds: of the entry of the interpreter's quest table (`this+0x31C`, entries of `0x34` bytes, the flags at `+0x10`) that the creature's `+0x94` names, without its flag `0x20`, the selector 1 to 5 tests the flag 1, 2, 4, 8 or `0x10`; for 1 and 2, where the creature is in the list `+0x39C` of `0x603E30`'s object and the flag holds, the flag first becomes 4 (**hypothesis**: a quest given and taken by the speaker).
+  So a block runs by the state of the creature's quest, as a dialogue's section.
+- **The guards.** `GroupIsDead` (24) and `DelDlg` (44) answer 0 on a false result, `ExitDlg` (43) and a record of type 0 always, so that the function stops; `QuestDone` to `QuestNotInProgress` (10 to 13) do too, but none of them occurs in the release.
+  `DeleteFunktionBlock` (14) marks done each function that its string operands name, or with the operand `0x0B` the function running, and answers 0; without such an operand it answers 2, the function done.
+  `ToBegin` (111) answers 3.
+- **The forms in the release** (the census, 2026-10-24): every `IF` (31,463) reaches an `ELSE` but 2, a chain of `ELSEIF`s in 20,015 of them, and every `ELSEIF` reaches an `ELSE`; the 2 are `IF`s at the end of the function `OMO-1teleportTrigger13_rg1` of two trees, before one record, so that a false condition answers 0 (a guard).
+  In 227 chains an `IF` stands in the last branch, after an `ELSEIF`, and shares the chain's `ELSE`: `IF a; A; ELSEIF b; B; IF c; C; ELSE; x` runs A for a, B and C for b and c, B and x for b alone, and x alone otherwise.
+  In 31 chains the record after the `ELSE` is an `IF` (`… ELSE IF c; R; ELSE x`): with an earlier branch run, the `ELSE` moves past the `IF` alone, so that R runs whatever c, and the second `ELSE` past x; with none run, the `IF` decides between R and x.
+  In 11 chains the record after an `ELSE` is another `ELSE` (`IF d; r; ELSE; ELSE; s`): with d the second `ELSE` is passed over with r's branch and s runs; without d the first `ELSE`'s branch is the second, which moves past s.
+  The 4,950 blocks of 41 each end at a 42, none within another, none with an `IF` chain open at its 42; type 43 occurs 4,981 times, 24 915, 44 566, 14 352, 111 1,125.
 
 ## Operand reader `FUN_00472BC0`
 

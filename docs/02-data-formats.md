@@ -870,7 +870,8 @@ The most frequent types (per campaign tree): 115 `MakeGroup` 22,762; 100 `SpawnV
 
 ### 7.4 Control flow semantics
 
-According to sacred-sdk (the walker `FUN_00475680`, 123 `case`s) and, independently, openheilig: on a false condition `IF` (0x3A) scans forward by record lengths to `ELSE` (0x3B)/`ELSEIF` (0x42); `ELSE` skips exactly one record; "guard" conditions (`QuestDone`, `GroupIsDead`, …) abort the whole section on a false result; 0x2B/0x00 is the end; guard 0x29 makes records be skipped up to 0x2A.
+**Confirmed** by code 2026-10-24 (#722; docs/re/netscript.md, "Control flow", which has the details and the census of the forms on all 20 trees): on a false condition `IF` (58, 0x3A) reads on by the records' lengths to the first `ELSEIF` (66, 0x42) whose condition holds or the first `ELSE` (59, 0x3B), counting no inner `IF`; an `ELSE` reached in the flow skips exactly one record, an `ELSEIF` reached in the flow skips to the record after the next `ELSE`'s; `GroupIsDead` (24) and `DelDlg` (44) end the function on a false result, and `ExitDlg` (43) and a record of type 0 end it; 41 skips the records up to 42 unless its selector's flag of the creature's quest holds; `DeleteFunktionBlock` (14) and `ToBegin` (111) mark functions done and start the function again.
+No record or operand carries an offset, as sacred-sdk and openheilig had it; sacred-sdk's report that inserting a record shifts jump offsets (**community-reported**) does not hold for the walker.
 The translator must **refuse** a control flow or a record type it does not know rather than skip it, otherwise the body of an `IF` would run unconditionally (#723).
 
 ### 7.5 Where the interpreter is and where the compiler is
