@@ -7,8 +7,8 @@
 //! (`arts::attacke_target`, `arts::rundum_target`, `fight::art_strike`), the first starting the
 //! regeneration of every art of its kind (`arts::HeroArts::start`). A spell is cast where the
 //! hero stands with the clip of its slot at its casts' speed, and acts once the share of its clip
-//! still to play falls below its own (`opensacred_rules::spells`, #872): the fireball leaves for
-//! its target's place as a bolt (`bolts`), and the spell's regeneration starts.
+//! still to play falls below its own (`opensacred_rules::spells`, #872): its regeneration starts
+//! and `spells` carries out what it does.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -176,6 +176,16 @@ fn boon_of(arts: &HeroArts, record: &WeaponArt, level: u32, glance: f64) -> Opti
         })
 }
 
+/// The launch type of `art`, a weapon art's or a spell's (`0x51D840`): 1 on an enemy, 2 on a
+/// friend, 3 on the ground, 4 on the dead, 5 on itself, 0 any.
+pub fn launch(arts: &HeroArts, art: u16) -> Option<u8> {
+    let weapon = arts.tables.weapon_arts.iter().find(|a| a.id == art);
+    weapon.map(|a| a.launch).or_else(|| {
+        let spell = arts.tables.spells.iter().find(|s| s.id == art)?;
+        u8::try_from(spell.launch).ok()
+    })
+}
+
 /// At a new game, the hero's first art whose action is read is the right button's.
 fn select_first(arts: Option<Res<HeroArts>>, mut selected: ResMut<Selected>) {
     // A hero that holds the selected art keeps it; a new game's hero, which does not, takes its
@@ -286,16 +296,7 @@ fn aim(
         let art = arts::right_button(selected, arts.kind, |key| {
             effects.is_some_and(|effects| effects.holds_any(&[key]))
         });
-        let launch = arts
-            .tables
-            .weapon_arts
-            .iter()
-            .find(|a| a.id == art)
-            .map(|a| a.launch)
-            .or_else(|| {
-                let spell = arts.tables.spells.iter().find(|s| s.id == art)?;
-                u8::try_from(spell.launch).ok()
-            });
+        let launch = launch(&arts, art);
         let spell = art < 1000;
         // The right button on the hero himself makes him the target, nearer the cursor's line
         // than a hostile creature (seen: the Gladiator's 1015, of the launch type 2, made on
@@ -465,13 +466,14 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries, ranks, leaps, sizes, mut launches): (
+    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
         Query<&fight::Ranked>,
         Query<(), With<Leap>>,
         Query<&crate::arrows::Size>,
         MessageWriter<crate::bolts::Launch>,
+        MessageWriter<crate::spells::Acts>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -867,34 +869,19 @@ fn make(
         match playing.style {
             Style::Cast(_) => {
                 // Once the share of its clip still to play falls below the spell's, it acts
-                // once: its regeneration starts and the fireball leaves for its target's place,
-                // or the order's point where the target is gone (`0x521D60`, `0x522480`); with
-                // less than 0.3 s of its clip to play after, or its clip done, it ends.
+                // once: its regeneration starts and its object does what it does (`0x521D60`,
+                // `0x522480`; `spells`); with less than 0.3 s of its clip to play after, or its
+                // clip done, it ends.
                 if playing.struck == 0 && playing.points.first().is_some_and(|&p| due(p, done)) {
                     playing.struck = 1;
                     arts.start(making.art);
-                    let record = arts.tables.spells.iter().find(|s| s.id == making.art);
-                    if making.art == spells::FIREBALL
-                        && let Some(record) = record
-                    {
-                        let toward = creatures
-                            .get(playing.target)
-                            .map_or(playing.point, |(_, at, ..)| at.translation());
-                        let direction = (toward - here).xz().try_normalize().unwrap_or_else(|| {
-                            (transform.rotation * Vec3::X).xz().normalize_or(Vec2::X)
-                        });
-                        let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
-                        let level = i32::try_from(playing.level).unwrap_or(1);
-                        let damages = arts::bolt_damages(record, level, multipliers);
-                        info!("making: the fireball leaves for {toward} with {damages:?}");
-                        launches.write(crate::bolts::Launch {
-                            shooter: hero,
-                            direction,
-                            course: crate::bolts::Course::fireball(playing.level),
-                            damages,
-                            wait: 0.0,
-                        });
-                    }
+                    acts.write(crate::spells::Acts {
+                        caster: hero,
+                        spell: making.art,
+                        target: playing.target,
+                        point: playing.point,
+                        level: playing.level,
+                    });
                 }
                 let left = (1.0 - done) * playing.seconds;
                 if finished || (playing.struck > 0 && left < spells::STANDS_WITHIN) {

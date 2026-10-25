@@ -1007,6 +1007,10 @@ Read 2026-10-25 (#672) for the spells of the Mage's template ("The heroes' start
   Its system's clock runs at the frame's time times the rate; past 1.6 s it ends and asks for the action 6 with the data 7, which runs once in that frame (the event that the data sends the target is not read).
   So the stone skin gives the action 6's effects once, some 1.6 s over the rate after the act: the effect 2 of `(15 + 5·L)/100`, the effect 7 of 25 + 40·L and the effect 10 of 10 + 15·L, each for 44 + L seconds, at most 120 (**hypothesis**: the value 0 truncated).
 
+`opensacred-game` makes the three (#873, `opensacred_rules::spells`, `spells`): each is cast on the hero by the right button on him or the console's `arts make`, with the clip of its slot, and acts at its share.
+The healing adds its health to the hero's, its most at most (**hypothesis**: the event 6 of the sub-kind 3 adds it), 67 at level 1 with the magic lore at level 1; the regeneration gives the effects `0x22` and 12 of 1.5 for 72 s at level 1; the stone skin gives the effect `0x22` at once and its three effects 1.6 s over the casts' rate later, 1.33 s at 120, which raise the Mage's `D` from 21.2 to 25.0 and his physical and poison resistances by 65 and 25 before their multipliers.
+What the effect `0x22` does, the event that the stone skin's data 7 sends, and the spells' sounds and sights are not made.
+
 #### The Seraphim's spells
 
 Read 2026-10-25 (#672) for her spells 13 and 15 to 22; **confirmed** by code unless marked otherwise.

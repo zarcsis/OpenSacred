@@ -1,16 +1,32 @@
 //! The spells' cast and their objects (docs/re/arts.md, "The spells' cast", "The objects'
-//! systems", "The Mage's spells"; #672, #872): the clip that a spell plays, the share of it at
-//! which the spell acts, and the fireball's flight. A spell's damages are the bolts' of its
+//! systems", "The objects' actions", "The Mage's spells"; #672, #872, #873): the clip that a
+//! spell plays, the share of it at which the spell acts, the fireball's flight, the effects that
+//! an object's action 6 gives and the healing's health. A spell's damages are the bolts' of its
 //! record ([`crate::arts::bolt_damages`]) by the caster's spells' multipliers
 //! ([`crate::fight::Combat::spells`]), and its regeneration starts as it acts.
 
-use crate::fight::to_f32;
+use opensacred_data::tables::Spell;
 
-/// The fireball, `FEUERBALL`, the Mage's first spell.
+use crate::fight::{Effect, to_f32};
+
+/// The Mage's spells: the stone skin, `STEINHAUT`; the fireball, `FEUERBALL`, his first; the
+/// healing, `HEILKRAFT`; and the regeneration, `REIKI`.
+pub const STONE_SKIN: u16 = 2;
 pub const FIREBALL: u16 = 5;
+pub const HEALING: u16 = 7;
+pub const REIKI: u16 = 32;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 1] = [FIREBALL];
+pub const MADE: [u16; 4] = [STONE_SKIN, FIREBALL, HEALING, REIKI];
+
+/// The effect by which the executor marks a spell that lasts on its bearer (`0x22`,
+/// `0x539E70`), of no value, keyed by the spell, for its value 0 at its level; what reads it is
+/// not read.
+pub const LASTS: u32 = 0x22;
+
+/// How long the stone skin's shield runs before it gives its effects, in seconds of its clock,
+/// which runs at the frame's time times the cast's rate (its system's update, the action 6).
+pub const SHIELD_TIME: f32 = 1.6;
 
 /// Whether the game makes the spell `spell`.
 pub fn made(spell: u16) -> bool {
@@ -63,6 +79,87 @@ pub fn fireball_life(level: u32) -> f32 {
     2.0 + 0.5 * to_f32(level)
 }
 
+/// Whether the executor gives the bearer of the spell `spell` the effect [`LASTS`] (`0x522480`;
+/// docs/re/arts.md, "The spells' executor").
+pub fn lasts(spell: u16) -> bool {
+    matches!(
+        spell,
+        2 | 17 | 21 | 22 | 24 | 27 | 28 | 30 | 31 | 32 | 37 | 41
+    )
+}
+
+/// The record's value `j` at the level `level`, `base + step·L`, held at its cap where it has
+/// one (`0x4D26B0`).
+pub fn value(spell: &Spell, j: usize, level: u32) -> u32 {
+    let ([base, step], cap) = (spell.values[j], spell.caps[j]);
+    let value = u32::from(base) + u32::from(step) * level;
+    if cap > 0 {
+        value.min(u32::from(cap))
+    } else {
+        value
+    }
+}
+
+/// The effect [`LASTS`] of the spell `spell` at the level `level`, with its seconds.
+pub fn lasting(spell: &Spell, level: u32) -> (Effect, f32) {
+    let effect = Effect {
+        id: LASTS,
+        whole: 0,
+        value: 0.0,
+        art: u32::from(spell.id),
+        level: 0,
+    };
+    (effect, to_f32(value(spell, 0, level)))
+}
+
+/// What an object's action 6 gives its target (`0x5B2600`; docs/re/arts.md, "The objects'
+/// actions"): each of the record's pairs from the attack's on whose `base + step·L` is not 0, an
+/// effect for the value 0 at the level in seconds, keyed by the spell: the attack's and the
+/// defence's multipliers (the effects 1 and 2) of a hundredth of it, the four resistances (7 to
+/// 10) of it, the speeds (28) of 1 plus a hundredth, the arts' regeneration speeds (11) and the
+/// regeneration (12) of a hundredth.
+pub fn effects(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
+    let seconds = to_f32(value(spell, 0, level));
+    (4..13)
+        .filter_map(|pair| {
+            let [base, step] = spell.effects[pair].map(u32::from);
+            let of = to_f32(base + step * level);
+            if of == 0.0 {
+                return None;
+            }
+            let (id, value) = match pair {
+                4 => (1, of / 100.0),
+                5 => (2, of / 100.0),
+                6..=9 => (u32::try_from(pair).ok()? + 1, of),
+                10 => (28, 1.0 + of / 100.0),
+                11 => (11, of / 100.0),
+                _ => (12, of / 100.0),
+            };
+            let effect = Effect {
+                id,
+                whole: 0,
+                value,
+                art: u32::from(spell.id),
+                level: 0,
+            };
+            Some((effect, seconds))
+        })
+        .collect()
+}
+
+/// The health that the healing's action 3 gives its target (`0x5B2600`): its value 0, 10 + 50·L,
+/// times `1 + v/100`, `v` the caster's magic lore's per cent ([`crate::fight::magic_lore`]),
+/// taken whole (**hypothesis**: the health added, as the record's label says).
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a health, whole and not negative, far below the integers' range"
+)]
+pub fn healing(spell: &Spell, level: u32, lore: f32) -> u32 {
+    let health = f64::from(value(spell, 0, level)) * (1.0 + f64::from(lore) / 100.0);
+    health.max(0.0) as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +171,83 @@ mod tests {
         assert_eq!(slot(13), 154);
     }
 
+    fn record(id: u16, effects: &[(usize, [u16; 2])], value: [u16; 2], cap: u16) -> Spell {
+        let mut spell = Spell {
+            id,
+            name: 0,
+            description: 0,
+            short_description: 0,
+            icon: String::new(),
+            sprites: [0; 3],
+            launch: 2,
+            regeneration: [0; 2],
+            effects: [[0; 2]; 13],
+            values: [[0; 2]; 3],
+            caps: [0; 3],
+            element: 0,
+            classes: 4,
+            flags: 0,
+        };
+        for &(pair, of) in effects {
+            spell.effects[pair] = of;
+        }
+        spell.values[0] = value;
+        spell.caps[0] = cap;
+        spell
+    }
+
+    #[test]
+    fn the_stone_skin_and_the_regeneration_give_their_records_effects_for_their_value() {
+        // GOG 2.28's 2: the defence 15 + 5·L, the physical resistance 25 + 40·L, the poison's
+        // 10 + 15·L, for 44 + L seconds at most 120; 32: the regeneration 135 + 15·L for 70 + 2·L
+        // at most 180.
+        let skin = record(
+            2,
+            &[(5, [15, 5]), (6, [25, 40]), (9, [10, 15])],
+            [44, 1],
+            120,
+        );
+        let given: Vec<_> = effects(&skin, 1)
+            .into_iter()
+            .map(|(e, s)| (e.id, e.value, e.art, s))
+            .collect();
+        assert_eq!(
+            given,
+            [(2, 0.2, 2, 45.0), (7, 65.0, 2, 45.0), (10, 25.0, 2, 45.0)]
+        );
+        assert_eq!(effects(&skin, 90)[0].1, 120.0);
+        let reiki = record(32, &[(12, [135, 15])], [70, 2], 180);
+        let [(regeneration, seconds)] = effects(&reiki, 1)[..] else {
+            panic!("one effect");
+        };
+        assert_eq!(
+            (regeneration.id, regeneration.value, seconds),
+            (12, 1.5, 72.0)
+        );
+        assert_eq!(
+            lasting(&reiki, 1),
+            (
+                Effect {
+                    id: LASTS,
+                    whole: 0,
+                    value: 0.0,
+                    art: 32,
+                    level: 0
+                },
+                72.0
+            )
+        );
+        assert!(lasts(STONE_SKIN) && lasts(REIKI) && !lasts(HEALING) && !lasts(FIREBALL));
+    }
+
+    #[test]
+    fn the_healing_heals_its_value_raised_by_the_magic_lore() {
+        // 10 + 50·L, times 1.12 by the magic lore at level 1.
+        let healing_record = record(7, &[], [10, 50], 0);
+        assert_eq!(healing(&healing_record, 1, 12.0), 67);
+        assert_eq!(healing(&healing_record, 2, 0.0), 110);
+    }
+
     #[test]
     fn the_fireball_acts_at_two_thirds_of_its_clip_left_and_flies_faster_by_its_level() {
         assert_eq!(share(FIREBALL), Some(0.66));
@@ -81,6 +255,6 @@ mod tests {
         // At level 1, 160 a second for 2.5 s, some 400; held at 500 from level 35.
         assert_eq!((fireball_speed(1), fireball_life(1)), (160.0, 2.5));
         assert_eq!((fireball_speed(35), fireball_speed(60)), (500.0, 500.0));
-        assert!(made(FIREBALL) && !made(13));
+        assert!(made(FIREBALL) && made(REIKI) && !made(13));
     }
 }
