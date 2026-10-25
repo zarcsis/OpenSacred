@@ -463,6 +463,7 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
             opensacred_rules::arts::Style::Boon
                 | opensacred_rules::arts::Style::Frenzy
                 | opensacred_rules::arts::Style::Bolts
+                | opensacred_rules::arts::Style::Glance
                 | opensacred_rules::arts::Style::Changeling
         )
     ) || launch == Some(2)

@@ -10,7 +10,9 @@ pub use opensacred_rules::fight::{
     experience_of, fill_level, filled_level, hero_health, level_start, most_health, regeneration,
     scripted_level, skills, tagged_level, takes_on,
 };
-use opensacred_rules::fight::{Side, art_strike, range_factor, strike, weapons_factor, weighed};
+use opensacred_rules::fight::{
+    Side, art_strike, range_factor, strike, sure_strike, weapons_factor, weighed,
+};
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -32,6 +34,9 @@ pub struct Hit {
     /// Fixed damages of the four kinds in place of the attacker's (the event 5's, as the
     /// Vampiress's claw jump and the Seraphim's bolts send them).
     pub fixed: Option<[f32; 4]>,
+    /// Whether it lands without the hit chance's roll (the event 5 of the Gladiator's 1016's
+    /// effect, which carries no attacker; seen).
+    pub sure: bool,
 }
 
 /// The dice of the strikes.
@@ -224,9 +229,10 @@ pub(crate) fn resolve(
                 hit.attacker, hit.target
             );
         }
-        let landed = match hit.art {
-            Some(art) => art_strike(&attacker, &defender, blow, art, &mut dice.0),
-            None => strike(&attacker, &defender, blow, &mut dice.0),
+        let landed = match (hit.sure, hit.art) {
+            (true, _) => Some(sure_strike(&attacker, &defender, blow, &mut dice.0)),
+            (false, Some(art)) => art_strike(&attacker, &defender, blow, art, &mut dice.0),
+            (false, None) => strike(&attacker, &defender, blow, &mut dice.0),
         };
         // At the target, the striker's weapon's hit or parry (`0x5320B2`, #712).
         blows.write(crate::sfx::Blow::Target {
@@ -700,6 +706,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; 4],
+            attributes: [0.0; 6],
         });
         let health = Health {
             current: 1_000_000,
@@ -733,6 +740,7 @@ mod tests {
                     ranged: false,
                     art: None,
                     fixed: None,
+                    sure: false,
                 });
             }
         }

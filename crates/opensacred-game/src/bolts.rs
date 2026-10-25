@@ -260,6 +260,7 @@ fn fly(
                 ranged: false,
                 art: None,
                 fixed: Some(bolt.damages),
+                sure: false,
             });
         }
         if bolt.bolt.goes() {

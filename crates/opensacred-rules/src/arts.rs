@@ -227,6 +227,10 @@ pub enum Style {
     /// As a boon, at its own clip: the Seraphim's 1019 (`GUI_SPELL_ENERGIEBLITZE`, `0x5038F0`),
     /// the effect [`RAILGUN`] on herself ([`boon`]), with which her shots are bolts ([`Bolt`]).
     Bolts,
+    /// As a boon, at its own clip: the Gladiator's 1016 (`GUI_MOVE_KLINGENBLICK`, `0x4FF0B0`),
+    /// the effect [`GLANCE`] on a friend or himself ([`glance`]), with which he strikes a
+    /// hostile creature about him about once a second ([`glance_due`]).
+    Glance,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -245,6 +249,65 @@ pub const BFG_ITEM: u32 = 3809;
 /// shots makes two bolts [`Bolt::Railgun`] (the adder `0x582D50`'s bit `0x400000`; docs/re/arts.md,
 /// "Her shots with 1018's and 1019's effects").
 pub const RAILGUN: u32 = 17;
+
+/// The Gladiator's effect of 1016 (`GUI_MOVE_KLINGENBLICK`, `0x12`): while it holds on the
+/// local player's creature, it strikes a creature of the hero's list of hostiles near it about
+/// once a second with its whole value ([`glance_due`], [`glance_reach`]; docs/re/arts.md, "The
+/// Gladiator's"). Its bit `0x800000` of `+0x200` has no reader.
+pub const GLANCE: u32 = 18;
+
+/// The milliseconds of [`GLANCE`]'s count above which its bearer strikes, at which a new effect
+/// starts it (`0x562730` at `0x5630CE`; the adder `0x582D50`).
+pub const GLANCE_EVERY: u32 = 1000;
+
+/// Whether a bearer of [`GLANCE`] of the count `count` strikes at a frame of `seconds`, the hero's
+/// list of hostiles holding any, `hostiles` (`0x562730` at `0x563048`): above [`GLANCE_EVERY`]
+/// with hostiles the count starts again from 0 and it strikes; then the count takes the frame's
+/// milliseconds, taken whole (`0x5633ED`).
+pub fn glance_due(count: &mut u32, seconds: f32, hostiles: bool) -> bool {
+    let due = *count > GLANCE_EVERY && hostiles;
+    if due {
+        *count = 0;
+    }
+    let milliseconds = u32::try_from(whole_units(f64::from(seconds) * 1000.0)).unwrap_or(0);
+    *count = count.saturating_add(milliseconds.min(u32::from(u16::MAX)));
+    due
+}
+
+/// How near its bearer of level `level` a creature is struck by [`GLANCE`]: `(l + 20)·10`
+/// (`0x5370B0`).
+pub fn glance_reach(level: u32) -> f32 {
+    narrow((f64::from(level) + 20.0) * 10.0)
+}
+
+/// What the Gladiator's 1016 gives (`0x4FF0B0` at `0x500186`, [`Style::Glance`]): below 0.3 of
+/// its clip the effect [`GLANCE`] of the whole value `L·[+0x54] + [+0x50]` (3 + 7·L) times
+/// `factor` ([`crate::fight::Rules::glance_factor`]), taken whole, for `L·[+0x5C] + [+0x58]`
+/// seconds (39.5 + 0.5·L), keyed by it (seen: 12 and 39 at the levels 1 and 4 of a Gladiator of
+/// `a0` 33); the effect 34 of its time is left out, as 1015's. None for another art.
+pub fn glance(record: &WeaponArt, level: u32, factor: f64) -> Option<Boon> {
+    if record.id != 1016 {
+        return None;
+    }
+    let l = f64::from(level);
+    let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
+    let whole = whole_units(f64::from(by_level(record.factor)) * factor);
+    let effect = Effect {
+        id: GLANCE,
+        whole: i32::try_from(whole).unwrap_or(i32::MAX),
+        value: 0.0,
+        art: u32::from(record.id),
+        level: 0,
+    };
+    Some(Boon {
+        point: 0.7,
+        effects: vec![(effect, by_level(record.value_58))],
+        clears: Vec::new(),
+        starts: Vec::new(),
+        replaces: Vec::new(),
+        ends: false,
+    })
+}
 
 /// How far her target lies beyond which a creature with the effect [`BFG`] shoots (`0x53A170` at
 /// `0x53AACE`).
@@ -381,6 +444,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1019 {
         return Some(Style::Bolts);
+    }
+    if art == 1016 {
+        return Some(Style::Glance);
     }
     if art == 1012 {
         return Some(Style::Smite);
@@ -763,8 +829,10 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Daemon's forms the slot 160 at the blend 0.2 and the rate 1.0 on himself
         // (`0x5192E0` at `0x51BEF5`; 197 at the attack's rate otherwise, not followed).
         (9, Style::Form) => Some(plain(160)),
-        // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
+        // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted), and his
+        // 1016 the slot 150 (at `0x502C85`).
         (2, Style::Boon) => Some(plain(151)),
+        (2, Style::Glance) => Some(plain(150)),
         // The Seraphim's 1018 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
         // `0x506017`; 154 mounted), and her 1019 the slot 152 so (at `0x506137`).
         (1, Style::Boon) => Some(plain(149)),
