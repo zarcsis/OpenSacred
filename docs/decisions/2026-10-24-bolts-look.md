@@ -15,6 +15,7 @@ The shot plays one of the hero's attack clips, at the rate of the slot the origi
 The bolts fly, end and hit as the original's.
 The Dark Elf's souls of his soulcatcher 1044 (#757), particle systems too, are drawn so: a small pale ball each; so are the Daemon's bolts of 1103 (#760), a violet ball each, and his breath of fire of 1102, an orange ball, its wall's fires translucent orange flames.
 The Mage's fireball (#872), the object 778 whose particle system flies with a light of radius 200 and the sounds 2000 and 2001, is an orange ball, without its light and its sounds, and the particle system of the cast on the caster's hands (the object 791) is not drawn.
+The Seraphim's lightning (#874) is a column of light at its target for 0.25 s, and her holy light, blades of light and light are translucent discs of their reach, gold, pale blue and pale yellow, the light without its light.
 Where the fireball starts and at what height is not read: it leaves where the Mage stands and flies at the bolts' height over the ground along the line on the ground, not along the original's direction in three dimensions, whose height's part shrinks at each frame.
 
 ## Why

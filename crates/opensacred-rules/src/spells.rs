@@ -1,7 +1,8 @@
 //! The spells' cast and their objects (docs/re/arts.md, "The spells' cast", "The objects'
-//! systems", "The objects' actions", "The Mage's spells"; #672, #872, #873): the clip that a
-//! spell plays, the share of it at which the spell acts, the fireball's flight, the effects that
-//! an object's action 6 gives and the healing's health. A spell's damages are the bolts' of its
+//! systems", "The objects' actions", "The Mage's spells", "The Seraphim's spells"; #672, #872 to
+//! #874): the clip that a spell plays, the share of it at which the spell acts, the fireball's
+//! flight, the effects that an object's action 6 gives, the healing's health, and the objects
+//! that strike about themselves once a second. A spell's damages are the bolts' of its
 //! record ([`crate::arts::bolt_damages`]) by the caster's spells' multipliers
 //! ([`crate::fight::Combat::spells`]), and its regeneration starts as it acts.
 
@@ -16,8 +17,76 @@ pub const FIREBALL: u16 = 5;
 pub const HEALING: u16 = 7;
 pub const REIKI: u16 = 32;
 
+/// The Seraphim's striking spells: the lightning, `BLITZ_SERA`; the holy light,
+/// `HIMMELSLEUCHTEN`; the blades of light, `LICHTKLINGEN`; and the light, `LICHT`.
+pub const LIGHTNING: u16 = 13;
+pub const HOLY_LIGHT: u16 = 15;
+pub const BLADES_OF_LIGHT: u16 = 17;
+pub const LIGHT: u16 = 20;
+
 /// The spells that the game makes.
-pub const MADE: [u16; 4] = [STONE_SKIN, FIREBALL, HEALING, REIKI];
+pub const MADE: [u16; 8] = [
+    STONE_SKIN,
+    FIREBALL,
+    HEALING,
+    REIKI,
+    LIGHTNING,
+    HOLY_LIGHT,
+    BLADES_OF_LIGHT,
+    LIGHT,
+];
+
+/// The effect that the objects of 17 and 20 give their bearer for their time, keyed by the
+/// spell (`0x784C90`, `0x7850D0`); what it does is not read.
+pub const BORNE: u32 = 35;
+
+/// How often an object that strikes about itself strikes, in seconds: the cooldown its case of
+/// the hits sets (`+0x11C`, counted down by the update).
+pub const BEAT: f32 = 1.0;
+
+/// An object that strikes about itself once a [`BEAT`] while it lives: the creatures hostile to
+/// its caster, alive, nearer it than its reach and their size, and of the `Creature.pak` classes
+/// `classes` where it names some.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Area {
+    pub reach: f32,
+    pub classes: &'static [u8],
+    /// Whether it follows its bearer, else stands where it was made.
+    pub follows: bool,
+}
+
+/// The object of `spell` that strikes about itself (`0x5ABD80`): the holy light's 804 at its
+/// point within 150 (`0x5AC972`), the blades of light's 814 about its bearer within 110
+/// (`0x5ACCB1`), the light's 817 about its bearer within 200, of the classes 5, 9 and 11 alone,
+/// the undead, the demons and the ghosts by their models' names (`0x5ADA5F`).
+pub fn area(spell: u16) -> Option<Area> {
+    match spell {
+        HOLY_LIGHT => Some(Area {
+            reach: 150.0,
+            classes: &[],
+            follows: false,
+        }),
+        BLADES_OF_LIGHT => Some(Area {
+            reach: 110.0,
+            classes: &[],
+            follows: true,
+        }),
+        LIGHT => Some(Area {
+            reach: 200.0,
+            classes: &[5, 9, 11],
+            follows: true,
+        }),
+        _ => None,
+    }
+}
+
+/// Whether the object of `spell` gives its bearer the effect [`BORNE`].
+pub fn borne(spell: u16) -> bool {
+    matches!(spell, BLADES_OF_LIGHT | LIGHT)
+}
+
+/// How long the lightning's sight lasts, in seconds (its particles, **estimate**).
+pub const LIGHTNING_SHOWS: f32 = 0.25;
 
 /// The effect by which the executor marks a spell that lasts on its bearer (`0x22`,
 /// `0x539E70`), of no value, keyed by the spell, for its value 0 at its level; what reads it is
@@ -45,17 +114,31 @@ pub fn slot(spell: u16) -> u16 {
     }
 }
 
-/// The share of its clip still to play below which the spell `spell` acts (`0x521D60`): 0.66
-/// for the fireball, 0.56 for the stone skin (2), 0.5 for the healing (7) and 0.35 for the
-/// regeneration (32); none for the others, not read.
+/// The share of its clip still to play below which the spell `spell` acts (`0x521D60`, its
+/// doubles by the spell): 0.66 for the fireball, 0.56 for the stone skin (2), 0.5 for the
+/// healing (7), 0.35 for the regeneration (32); none for 9 and 10, whose case acts otherwise
+/// (not read), nor for the spells it does not know (44 to 48, 51, 54 and 68).
 pub fn share(spell: u16) -> Option<f32> {
-    match spell {
-        5 => Some(0.66),
-        2 => Some(0.56),
-        7 => Some(0.5),
-        32 => Some(0.35),
-        _ => None,
-    }
+    Some(match spell {
+        1 => 1.0,
+        3 | 42 | 43 | 57 => 0.9,
+        14 | 35 | 37 | 39 | 40 => 0.8,
+        50 => 0.78,
+        34 => 0.73,
+        11 | 24 | 38 => 0.7,
+        5 | 29 | 52 | 53 => 0.66,
+        15 | 33 => 0.65,
+        49 => 0.64,
+        6 | 23 => 0.6,
+        2 | 4 | 16 | 18 | 19 | 27 => 0.56,
+        7 | 8 | 12 | 13 | 26 | 28 | 41 | 55 | 56 | 58 | 61 | 63..=67 | 72 => 0.5,
+        69 => 0.44,
+        17 | 20 | 21 | 22 | 25 | 30 | 31 | 32 | 36 => 0.35,
+        59 | 60 | 71 => 0.2,
+        62 => 0.1,
+        70 => 0.95,
+        _ => return None,
+    })
 }
 
 /// How much of its clip still to play at which a cast that has acted goes back to standing, in
@@ -241,6 +324,28 @@ mod tests {
     }
 
     #[test]
+    fn the_seraphims_lights_strike_about_them_once_a_second() {
+        assert_eq!(
+            [HOLY_LIGHT, BLADES_OF_LIGHT, LIGHT].map(|s| area(s).map(|a| (a.reach, a.follows))),
+            [
+                Some((150.0, false)),
+                Some((110.0, true)),
+                Some((200.0, true))
+            ]
+        );
+        assert_eq!(area(LIGHT).unwrap().classes, [5, 9, 11]);
+        assert!(area(LIGHTNING).is_none() && borne(LIGHT) && !borne(HOLY_LIGHT));
+        // GOG 2.28's 15 lives 24 + L seconds, at most 60; 17 and 20 44 + L, at most 120.
+        let light = record(HOLY_LIGHT, &[(2, [6, 9])], [24, 1], 60);
+        assert_eq!((value(&light, 0, 1), value(&light, 0, 50)), (25, 60));
+        assert_eq!(
+            [LIGHTNING, HOLY_LIGHT, BLADES_OF_LIGHT, LIGHT].map(share),
+            [Some(0.5), Some(0.65), Some(0.35), Some(0.35)]
+        );
+        assert_eq!((share(9), share(44), share(70)), (None, None, Some(0.95)));
+    }
+
+    #[test]
     fn the_healing_heals_its_value_raised_by_the_magic_lore() {
         // 10 + 50·L, times 1.12 by the magic lore at level 1.
         let healing_record = record(7, &[], [10, 50], 0);
@@ -251,10 +356,10 @@ mod tests {
     #[test]
     fn the_fireball_acts_at_two_thirds_of_its_clip_left_and_flies_faster_by_its_level() {
         assert_eq!(share(FIREBALL), Some(0.66));
-        assert_eq!(share(13), None);
+        assert_eq!(share(10), None);
         // At level 1, 160 a second for 2.5 s, some 400; held at 500 from level 35.
         assert_eq!((fireball_speed(1), fireball_life(1)), (160.0, 2.5));
         assert_eq!((fireball_speed(35), fireball_speed(60)), (500.0, 500.0));
-        assert!(made(FIREBALL) && made(REIKI) && !made(13));
+        assert!(made(FIREBALL) && made(REIKI) && !made(1));
     }
 }
