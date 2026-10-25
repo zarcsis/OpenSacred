@@ -272,5 +272,5 @@ The followers (#895, `followers`, `minds::keeps`, `minds::on_the_way`, `minds::s
   It fights as a creature fights another, and no leash takes it home (`minds::Mind::pursue`).
 - As the hero rises, its followers take their health back.
 
-Not followed: the summoned's flags bit 0 or 1, which in the game would make it one of the hero's hostiles; the master's pace (`0x585070`); the layer of the step off's point; the healers, the bats and the scripts' hirings (#657, #758); the awakening's raised dead follow, and their kills raise their victims (docs/re/arts.md, 1034).
+Not followed: the summoned's flags bit 0 or 1, which in the game would make it one of the hero's hostiles; the master's pace (`0x585070`); the layer of the step off's point; the healers and the scripts' hirings (#657); the awakening's raised dead follow, and their kills raise their victims, and the bats follow, never stepping off (docs/re/arts.md, 1034 to 1037).
 In the game, the Vampiress's wolf (a 588 of level 5 at her level 1 and the call's 2) went at a goblin that came at her; with her put 50 cells off, it was put near her and ran up to her; as she attacked one of two goblins beside her, it went at the other.

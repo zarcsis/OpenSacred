@@ -170,6 +170,109 @@ fn hire(world: &mut World, entity: Entity, master: Entity) {
     info!("followers: {master} hires {entity}");
 }
 
+/// The bats' types, which never step off from their master (`0x4F3E65`).
+const BATS: [u32; 5] = [514, 515, 594, 595, 596];
+
+/// Calls a bat of type `bat` beside `master`, the Vampiress's 1035 to 1037 at the level in play
+/// `level` (`0x50E6C0`): her bats of that type beyond `most` less the new one dismissed, the new
+/// one at `opensacred_rules::arts::bat_level` hired with the critter's flags, and sent at
+/// `target` where that is a creature.
+pub fn bats(
+    commands: &mut Commands,
+    master: Entity,
+    target: Entity,
+    bat: u32,
+    level: u32,
+    most: u32,
+) {
+    commands.queue(move |world: &mut World| call_bat(world, master, target, (bat, level, most)));
+}
+
+/// Calls a bat ([`bats`]).
+fn call_bat(
+    world: &mut World,
+    master: Entity,
+    target: Entity,
+    (bat, level, most): (u32, u32, u32),
+) {
+    let mut kept = world.query::<(Entity, &Follower, &Mind)>();
+    let theirs: Vec<Entity> = kept
+        .iter(world)
+        .filter(|(_, follower, mind)| follower.master == master && mind.creature == bat)
+        .map(|(entity, ..)| entity)
+        .collect();
+    let keeps = usize::try_from(most.saturating_sub(1)).unwrap_or(0);
+    for &entity in theirs.iter().skip(keeps) {
+        info!("followers: {master} dismisses {entity}");
+        let mut dismissed = world.entity_mut(entity);
+        dismissed.remove::<Follower>();
+        if let Some(mut mind) = dismissed.get_mut::<Mind>() {
+            mind.flags &= !minds::FOLLOWS;
+        }
+    }
+    let (Some(at), Some(on)) = (
+        world.get::<Transform>(master).map(|at| at.translation),
+        world.get::<Body>(master).map(Body::level),
+    ) else {
+        return;
+    };
+    let cell = crate::paths::cell_of(at.x, at.z);
+    let hero = world
+        .get_resource::<crate::fight::Experience>()
+        .map_or(1, |experience| experience.level);
+    let middle = world.get_resource::<crate::npcs::Npcs>().and_then(|npcs| {
+        let (x, y) = (u32::try_from(cell.0).ok()?, u32::try_from(cell.1).ok()?);
+        npcs.middle((x, y))
+    });
+    let Some(heights) = world.get_resource::<Heights>() else {
+        return;
+    };
+    let floor = heights.floor(on).map_or(0, |(_, floor)| i32::from(floor));
+    let cells: Vec<(u32, u32)> = crate::debug::cells_about(heights, cell, on, 1, cell)
+        .into_iter()
+        .filter_map(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
+        .collect();
+    let level = opensacred_rules::arts::bat_level(hero, middle.unwrap_or(hero), level);
+    let request = crate::npcs::Spawn {
+        creature: bat,
+        cells,
+        floor,
+        level: Some(level),
+        rank: crate::fight::Rank::Common,
+        hostile: Some(false),
+        immortal: false,
+        roams: true,
+    };
+    let made = match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
+        Ok(Ok(made)) => made,
+        Ok(Err(e)) => {
+            warn!("followers: no bat {bat} is made: {e}");
+            return;
+        }
+        Err(e) => {
+            warn!("followers: no bat {bat} is made: {e}");
+            return;
+        }
+    };
+    let foe = (target != master && world.get::<Mind>(target).is_some()).then_some(target);
+    for entity in made {
+        hire(world, entity, master);
+        let Ok(mut called) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        if let Some(mut mind) = called.get_mut::<Mind>() {
+            mind.flags |= opensacred_rules::arts::BATS_FLAGS;
+            if let Some(foe) = foe {
+                mind.send_at(foe);
+            }
+        }
+        if let Some(mut way) = called.get_mut::<InTheWay>() {
+            way.stands.stops = false;
+        }
+        info!("followers: a bat {bat} of level {level}, {entity}, for {master} at {foe:?}");
+    }
+}
+
 /// The flags word's bit of a raised dead creature (`+0x1F4` bit `0x2000000`, `0x511088`).
 const RAISED: u32 = 0x200_0000;
 
@@ -554,6 +657,8 @@ fn keep(
                     .insert(to_master(minds::FOLLOWER_STOPS));
             }
             Keeps::Stands => {}
+            // The bats never step off.
+            Keeps::StepsOff if BATS.contains(&mind.creature) => {}
             Keeps::StepsOff => {
                 // The first of its points with a way to it, else the last (`0x4F7710`).
                 let points = minds::stepping_off(spot(master), heading(master_at), &mut dice.0);

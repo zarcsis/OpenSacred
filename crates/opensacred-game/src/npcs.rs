@@ -2172,6 +2172,16 @@ impl Npcs {
         Ok(made)
     }
 
+    /// The middle of the levels' range of the sector of global cell `cell`, where its record
+    /// bounds them (`sdk_HIRE`'s level of a follower).
+    pub fn middle(&self, (x, y): (u32, u32)) -> Option<u32> {
+        let side = u32::try_from(SIDE).unwrap_or(64);
+        self.values
+            .get(&(x / side, y / side))
+            .filter(|values| values.highest != u32::MAX)
+            .map(|values| (values.lowest + values.highest) / 2)
+    }
+
     /// The level that `CreateNPC` gives the creature of `placement`: its level tag's, held by
     /// its cell's sector's highest, or a boss's marker level (`fight::tagged_level`, #540); else
     /// (`fight::scripted_level`) the hero's, `hero`, by the levels of its cell's sector, then a

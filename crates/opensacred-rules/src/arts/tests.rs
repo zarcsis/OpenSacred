@@ -1019,6 +1019,30 @@ fn the_domination_holds_its_target_by_its_level() {
 }
 
 #[test]
+fn the_bats_come_of_their_type_by_her_level_and_the_sectors() {
+    assert_eq!([1035, 1036, 1037].map(style), [Some(Style::Bats); 3]);
+    assert_eq!(
+        action(VAMPIRESS_BY_NIGHT, Style::Bats, 1).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(145), 1.0))
+    );
+    assert_eq!([1035, 1036, 1037].map(bat), [594, 595, 596]);
+    let attack = WeaponArt {
+        factor: [0.0, 5.0],
+        ..weapon_art(1035, [20.0, 12.0], 64)
+    };
+    let confuse = WeaponArt {
+        factor: [2.0, 0.0],
+        ..weapon_art(1036, [20.0, 12.0], 64)
+    };
+    assert_eq!([bats_most(&attack, 1), bats_most(&attack, 3)], [5, 15]);
+    assert_eq!(bats_most(&confuse, 7), 2);
+    // Seen: a bat of level 2 at her level 1 and the art's 1.
+    assert_eq!(bat_level(1, 2, 1), 2);
+    assert_eq!(bat_level(1, 9, 1), 5);
+    assert_eq!(bat_level(12, 3, 4), 12);
+}
+
+#[test]
 fn the_master_bite_turns_a_weak_creature_over_for_its_seconds() {
     assert_eq!(style(1031), Some(Style::MasterBite));
     assert_eq!(
