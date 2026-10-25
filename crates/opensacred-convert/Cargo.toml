@@ -13,9 +13,10 @@ build = "../../build.rs"
 anyhow.workspace = true
 clap.workspace = true
 intel_tex_2.workspace = true
+miniz_oxide.workspace = true
+mlua.workspace = true
 opensacred-data.workspace = true
 opensacred-formats.workspace = true
-miniz_oxide.workspace = true
 png.workspace = true
 postcard.workspace = true
 rayon.workspace = true
@@ -28,7 +29,6 @@ sha2.workspace = true
 bcdec_rs.workspace = true
 fluent-syntax.workspace = true
 ktx2.workspace = true
-mlua.workspace = true
 zstd.workspace = true
 
 [lints]
