@@ -12,6 +12,7 @@ mod benchmark;
 mod blast;
 mod blended;
 mod bolts;
+mod breath;
 mod buildings;
 mod burns;
 mod command;
@@ -262,12 +263,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         blast::BlastPlugin,
         blended::BlendedPlugin,
         bolts::BoltsPlugin,
+        breath::BreathPlugin,
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
         command::CommandPlugin,
-        console::ConsolePlugin,
     ))
     .add_plugins((
+        console::ConsolePlugin,
         crowd::CrowdPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
@@ -282,9 +284,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
-        journal::JournalPlugin,
     ))
     .add_plugins((
+        journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
@@ -299,9 +301,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
-        shaders::ShaderLibrary,
     ))
     .add_plugins((
+        shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,

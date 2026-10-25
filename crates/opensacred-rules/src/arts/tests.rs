@@ -1774,6 +1774,24 @@ fn the_dwarfs_momentum_throws_holds_and_strikes_its_target() {
 }
 
 #[test]
+fn the_daemons_breath_slows_bounces_and_lays_a_wall() {
+    assert_eq!(style(1102), Some(Style::Breath));
+    assert_eq!(
+        action(9, Style::Breath, 1).map(|a| a.clip),
+        Some(ArtClip::Slot(157))
+    );
+    assert_eq!(
+        (breath_speed(0.0), breath_speed(5.0), breath_speed(12.0)),
+        (150.0, 75.0, 0.0)
+    );
+    assert!((breath_height(0.0, 80.0) - 80.0).abs() < 1e-5);
+    assert!(breath_height(std::f32::consts::FRAC_PI_6, 80.0) < 1e-3);
+    let spreads = wall_spreads();
+    assert_eq!(spreads.len(), 6);
+    assert!((spreads[0] - 30.0).abs() < 1e-4 && (spreads[5] - 180.0).abs() < 1e-3);
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));
