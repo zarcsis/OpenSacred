@@ -310,6 +310,9 @@ fn aim(
         let ground = ray.origin + ray.direction.as_vec3() * along;
         let (target, place) = match (launch, on_hero, picked) {
             (Some(3), ..) => (hero, ground),
+            // A spell of the launch type 5 takes its caster for its target, whatever the cursor
+            // is on (`0x51D840`).
+            (Some(5), ..) if spell => (hero, at.translation()),
             (Some(2), true, _) => (hero, at.translation()),
             (Some(2), false, _) => {
                 info!("making: {art} wants a friend, or the hero himself, under the cursor");

@@ -34,6 +34,21 @@ pub const HOLY_SHIELD: u16 = 22;
 pub const IRRITATION: u16 = 18;
 pub const CONVERSION: u16 = 19;
 
+/// The Mage's skins and shields: the fire skin, `FLAMMENHAUT`; the quickening, `KATARAKT`; the
+/// gust, `WINDBOE`; the shield wall, `SCHILDWALL`; and the mana's spring, `AUE`.
+pub const FIRE_SKIN: u16 = 24;
+pub const QUICKENING: u16 = 27;
+pub const GUST: u16 = 28;
+pub const SHIELD_WALL: u16 = 30;
+pub const SPRING: u16 = 31;
+
+/// The effect by which spells are turned aside (`0x1A`; docs/re/fight.md).
+pub const TURNS_SPELLS: u32 = 0x1A;
+
+/// How long the shield wall's object runs before it gives its effects, in seconds (at the
+/// world's time).
+pub const WALL_TIME: f32 = 1.0;
+
 /// The effects by which they hold their target (the action 7, `0x5B5BB3`): 13, under which a
 /// creature leaves the hero alone (`+0x1F4` bit `0x20000`; `crate::arts::DOMINATED`), and 14,
 /// which turns its sides over (`+0x1F4` bit `0x40000`, `crate::minds::Mind::turned`).
@@ -41,7 +56,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 12] = [
+pub const MADE: [u16; 17] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -54,7 +69,26 @@ pub const MADE: [u16; 12] = [
     HOLY_SHIELD,
     IRRITATION,
     CONVERSION,
+    FIRE_SKIN,
+    QUICKENING,
+    GUST,
+    SHIELD_WALL,
+    SPRING,
 ];
+
+/// The spells that a cast refuses while an effect keyed by the spell holds on its target, the
+/// caster for the launch types 0 and 5 or without a creature for its target (`0x51D840` at
+/// `0x51DA76`, `0x582B00`): their effect `0x22` among them.
+const LOCKED: [u16; 15] = [2, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 37];
+
+/// The keys whose effects refuse a cast of `spell` while one holds on its target: the spell
+/// itself, for the spells that last; none for another.
+pub fn locked_by(spell: u16) -> &'static [u16] {
+    match LOCKED.iter().position(|&locked| locked == spell) {
+        Some(at) => &LOCKED[at..=at],
+        None => &[],
+    }
+}
 
 /// How long the crusader's strength's object runs before it gives its effects, in seconds
 /// (its update `0x7853E0`, then the action 6; **hypothesis**: at the world's time, its clock not
@@ -101,8 +135,46 @@ pub fn area(spell: u16) -> Option<Area> {
             classes: &[5, 9, 11],
             follows: true,
         }),
+        // The fire skin's 821 about its bearer within its size, 120 (`0x5AD3E1`), and the
+        // gust's 826 within 125 (`0x5ACEBA`).
+        FIRE_SKIN => Some(Area {
+            reach: 120.0,
+            classes: &[],
+            follows: true,
+        }),
+        GUST => Some(Area {
+            reach: 125.0,
+            classes: &[],
+            follows: true,
+        }),
         _ => None,
     }
+}
+
+/// The effects that turn arrows and spells aside, which the objects of the fire skin, the gust
+/// and the shield wall give their bearer as they start, keyed by the spell, of the level `level`,
+/// for the value 0 at its level ([`crate::arrows::DEFLECTION`] for the three, and
+/// [`TURNS_SPELLS`] for the shield wall; `0x78BE10`, `0x788D90`, `0x78B040`); none for another
+/// spell. Their whole value, the system's `+0xAC`, is left out (**hypothesis**: the object's id).
+pub fn turning(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
+    let ids: &[u32] = match spell.id {
+        FIRE_SKIN | GUST => &[crate::arrows::DEFLECTION],
+        SHIELD_WALL => &[crate::arrows::DEFLECTION, TURNS_SPELLS],
+        _ => &[],
+    };
+    let seconds = to_f32(value(spell, 0, level));
+    ids.iter()
+        .map(|&id| {
+            let effect = Effect {
+                id,
+                whole: 0,
+                value: 0.0,
+                art: u32::from(spell.id),
+                level: u16::try_from(level).unwrap_or(u16::MAX),
+            };
+            (effect, seconds)
+        })
+        .collect()
 }
 
 /// Whether the object of `spell` gives its bearer the effect [`BORNE`].
@@ -460,6 +532,51 @@ mod tests {
         let (effect, seconds) = holding(&conversion, 1, 1, 5).unwrap();
         assert_eq!((effect.id, seconds), (14, 15.0));
         assert!(holding(&record(HOLY_SHIELD, &[], [43, 2], 120), 1, 1, 1).is_none());
+    }
+
+    #[test]
+    fn the_mages_skins_and_shields_turn_arrows_and_strike_about_him() {
+        // GOG 2.28's 24: the defence 15 + 5·L, the fire resistance 25 + 40·L, for 44 + L at most
+        // 120; 30: the four resistances; 27: the attack and the speed, for 19 + L at most 60.
+        let skin = record(
+            FIRE_SKIN,
+            &[(1, [2, 3]), (5, [15, 5]), (7, [25, 40])],
+            [44, 1],
+            120,
+        );
+        let given: Vec<_> = effects(&skin, 1)
+            .iter()
+            .map(|(e, _)| (e.id, e.value))
+            .collect();
+        assert_eq!(given, [(2, 0.2), (8, 65.0)]);
+        let turns: Vec<_> = turning(&skin, 2)
+            .iter()
+            .map(|(e, s)| (e.id, e.level, *s))
+            .collect();
+        assert_eq!(turns, [(0x19, 2, 46.0)]);
+        let wall = record(
+            SHIELD_WALL,
+            &[(6, [4, 6]), (7, [4, 6]), (8, [25, 40]), (9, [4, 6])],
+            [44, 1],
+            120,
+        );
+        let ids: Vec<_> = turning(&wall, 1).iter().map(|(e, _)| e.id).collect();
+        assert_eq!(ids, [0x19, 0x1A]);
+        assert_eq!(effects(&wall, 1).len(), 4);
+        let quickening = record(QUICKENING, &[(4, [10, 7]), (10, [13, 2])], [19, 1], 60);
+        let given: Vec<_> = effects(&quickening, 1)
+            .iter()
+            .map(|(e, s)| (e.id, e.value, *s))
+            .collect();
+        assert_eq!(given, [(1, 0.17, 20.0), (28, 1.15, 20.0)]);
+        assert_eq!(area(FIRE_SKIN).map(|a| a.reach), Some(120.0));
+        assert_eq!(area(GUST).map(|a| a.reach), Some(125.0));
+        assert!(turning(&record(SPRING, &[], [70, 2], 180), 1).is_empty());
+        // The spells that last refuse a cast while their effects hold.
+        assert_eq!(
+            (locked_by(FIRE_SKIN), locked_by(FIREBALL)),
+            (&[24][..], &[][..])
+        );
     }
 
     #[test]

@@ -1097,6 +1097,10 @@ Read 2026-10-25 (#672) for his spells beyond the four above; **confirmed** by co
 - **`EISSPLITTER` (34), the ice splinters**, launch type 0, 2 + 3·L physical and magic (`0x5258B5`): `⌊min(21, ⌊v₀/v₁⌋)·f⌋` splinters 839 (1 to 20; 4 at level 1), fanned by `15/d` radians apart, `d` the distance to the aim held from 50 to 300, flying at 150 a second for at most 3.0 s through what they strike; each strikes the creatures within 40 and their size once a second, from a caster of the local player.
 - **`FROSTRING` (35), the ring of frost**, launch type 5, 3 + 2·L physical and 4 + 3·L magic, `v₀` 25 (`0x52555A`): eight objects 840 at 170 about the caster, each striking within 60 and their size once a second for 25 s, and a zone of the kind 3 for 25 s, in which each creature hostile to the hero takes the effect 15 of `clamp(M/(15·L), 0.3, 0.8)` for 1 s, again while it stays (doubled for a boss and again for the types of `0x426B70`), so that it moves slower (**hypothesis**: the factor of its time).
 
+`opensacred-game` makes 24, 27, 28, 30 and 31 on the hero (#886, `opensacred_rules::spells`, `spells`), and refuses a spell that lasts while an effect keyed by it holds on the hero (`arts::refused_while`): the fire skin's effects and turning aside at once and its strikes within 120 once a second; the quickening's effects 1.6 s over the cast's rate after its act; the gust's turning aside and its strikes within 125 once a second, without its roll to disarm (the game throws no item to the ground yet); the shield wall's turning aside at once and its resistances 1 s later; the spring's effect 11 at once.
+A spell of the launch type 5 is cast on the hero whatever the cursor is on.
+The Mage of a new game took `A` from 18 to 21 and his attack speed from 140 to 160 under the quickening, and his fire resistance from 1.4 to 76.8 under the fire skin, which refused a second cast while it held.
+
 #### The Wood Elf's spells
 
 Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.

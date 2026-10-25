@@ -16,8 +16,9 @@ use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::spells::{
-    self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIREBALL, HEALING, HOLY_SHIELD, IRRITATION,
-    LIGHTNING, LIGHTNING_SHOWS, REIKI, SHIELD_TIME, STONE_SKIN, STRENGTH_TIME,
+    self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIRE_SKIN, FIREBALL, HEALING, HOLY_SHIELD,
+    IRRITATION, LIGHTNING, LIGHTNING_SHOWS, QUICKENING, REIKI, SHIELD_TIME, SHIELD_WALL, SPRING,
+    STONE_SKIN, STRENGTH_TIME, WALL_TIME,
 };
 
 use crate::crowd::InTheWay;
@@ -69,11 +70,11 @@ struct Aura {
 struct Fades(f32);
 
 /// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
-/// light's and the light's; a column of light and the lightning's.
+/// light's, the light's, the fire skin's and the gust's; a column of light and the lightning's.
 #[derive(Resource)]
 struct Looks {
     disc: Handle<Mesh>,
-    discs: [Handle<StandardMaterial>; 3],
+    discs: [Handle<StandardMaterial>; 5],
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
 }
@@ -99,6 +100,8 @@ fn make_looks(
         glow(Color::srgba(1.0, 0.85, 0.4, 0.35)),
         glow(Color::srgba(0.75, 0.85, 1.0, 0.3)),
         glow(Color::srgba(1.0, 1.0, 0.75, 0.2)),
+        glow(Color::srgba(1.0, 0.45, 0.1, 0.3)),
+        glow(Color::srgba(0.85, 0.9, 0.85, 0.25)),
     ];
     let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
     commands.insert_resource(Looks {
@@ -173,7 +176,22 @@ fn act(
                     wait: 0.0,
                 });
             }
-            REIKI => given.extend(spells::effects(record, act.level)),
+            REIKI | SPRING => given.extend(spells::effects(record, act.level)),
+            QUICKENING => {
+                // As the stone skin's, its clock at the cast's rate (`0x7883C0`).
+                let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |c| c.cast) / 100.0;
+                commands.entity(act.target).insert(Shielding {
+                    left: SHIELD_TIME / rate.max(f32::EPSILON),
+                    effects: spells::effects(record, act.level),
+                });
+            }
+            SHIELD_WALL => {
+                given.extend(spells::turning(record, act.level));
+                commands.entity(act.target).insert(Shielding {
+                    left: WALL_TIME,
+                    effects: spells::effects(record, act.level),
+                });
+            }
             HOLY_SHIELD => given.push(spells::holy_shield(record, act.level)),
             IRRITATION | CONVERSION => {
                 // On a hostile creature alive, no boss nor champion, nor of a big type for the
@@ -292,6 +310,8 @@ fn act(
                     let look = match spell {
                         spells::HOLY_LIGHT => 0,
                         spells::BLADES_OF_LIGHT => 1,
+                        FIRE_SKIN => 3,
+                        spells::GUST => 4,
                         _ => 2,
                     };
                     made.with_child((
@@ -300,6 +320,12 @@ fn act(
                         Transform::from_scale(Vec3::new(area.reach, 2.0, area.reach))
                             .with_translation(Vec3::Y * 4.0),
                     ));
+                }
+                // The fire skin's effects of its record at once, and the turning aside of the
+                // fire skin and the gust.
+                given.extend(spells::turning(record, act.level));
+                if spell == FIRE_SKIN {
+                    given.extend(spells::effects(record, act.level));
                 }
                 if spells::borne(spell) {
                     let effect = Effect {
