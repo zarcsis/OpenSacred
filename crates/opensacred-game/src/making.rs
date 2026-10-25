@@ -88,6 +88,7 @@ pub fn clips(
         Style::Kick,
         Style::Boon,
         Style::Frenzy,
+        Style::Bolts,
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -276,7 +277,12 @@ fn aim(
                 info!("making: {art} wants a friend, or the hero himself, under the cursor");
                 continue;
             }
-            (_, true, _) if matches!(arts::style(art), Some(Style::Boon | Style::Frenzy)) => {
+            (_, true, _)
+                if matches!(
+                    arts::style(art),
+                    Some(Style::Boon | Style::Frenzy | Style::Bolts)
+                ) =>
+            {
                 (hero, at.translation())
             }
             // The changeling is made where the hero stands, wherever the button (seen), and the
@@ -291,7 +297,13 @@ fn aim(
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
                 let target = if matches!(
                     arts::style(art),
-                    Some(Style::Boon | Style::Frenzy | Style::Changeling | Style::Dash)
+                    Some(
+                        Style::Boon
+                            | Style::Frenzy
+                            | Style::Bolts
+                            | Style::Changeling
+                            | Style::Dash
+                    )
                 ) {
                     hero
                 } else {
@@ -650,7 +662,7 @@ fn make(
             // A boon gives its effects at its own point of its clip.
             if matches!(
                 style,
-                Style::Boon | Style::Frenzy | Style::Ward | Style::Form
+                Style::Boon | Style::Frenzy | Style::Bolts | Style::Ward | Style::Form
             ) {
                 let boon = arts::boon(record, level)
                     .or_else(|| arts::ward(record, level))
@@ -841,7 +853,7 @@ fn make(
                         .and_modify(move |mut effects| effects.add(effect, arts::BITE_HOLD));
                     hits.write(fight::Hit {
                         share: 1.0,
-                        fixed: Some(to_f32(drain)),
+                        fixed: Some([to_f32(drain), 0.0, 0.0, 0.0]),
                         ..hit(playing.target, &playing)
                     });
                     commands
@@ -1106,7 +1118,7 @@ fn make(
                                 }
                                 hits.write(fight::Hit {
                                     share: 1.0,
-                                    fixed: Some(damage),
+                                    fixed: Some([damage, 0.0, 0.0, 0.0]),
                                     ..hit(entity, &playing)
                                 });
                             }
@@ -1190,7 +1202,7 @@ fn make(
                     end(&mut commands);
                 }
             }
-            Style::Boon | Style::Frenzy | Style::Ward | Style::Form => {
+            Style::Boon | Style::Frenzy | Style::Bolts | Style::Ward | Style::Form => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
                     && playing
@@ -1209,7 +1221,7 @@ fn make(
                                 .or_else(|| arts::ward(record, playing.level))
                                 .or_else(|| arts::form(record, playing.level))
                         });
-                    // The Seraphim's 1018 ends as it gives its effect (`0x5038F0`).
+                    // The Seraphim's 1018 and 1019 end as they give their effects (`0x5038F0`).
                     let ends = boon.as_ref().is_some_and(|boon| boon.ends);
                     if let Some(boon) = boon {
                         info!("making: {} gives the hero {:?}", making.art, boon.effects);

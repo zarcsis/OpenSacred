@@ -29,9 +29,9 @@ pub struct Hit {
     pub share: f32,
     pub ranged: bool,
     pub art: Option<u32>,
-    /// A fixed physical damage in place of the attacker's (the record's first fixed damage of the
-    /// event 5, as the Vampiress's claw jump sends it).
-    pub fixed: Option<f32>,
+    /// Fixed damages of the four kinds in place of the attacker's (the event 5's, as the
+    /// Vampiress's claw jump and the Seraphim's bolts send them).
+    pub fixed: Option<[f32; 4]>,
 }
 
 /// The dice of the strikes.
@@ -212,7 +212,7 @@ pub(crate) fn resolve(
             );
         }
         if let Some(fixed) = hit.fixed {
-            attacker.damage = [[fixed; 2], [0.0; 2], [0.0; 2], [0.0; 2]];
+            attacker.damage = fixed.map(|damage| [damage; 2]);
         }
         let ranked = ranked.map_or(Rank::Common, |ranked| ranked.0);
         let factor = weapons_factor(side, level, ranked, &rules);
@@ -699,6 +699,7 @@ mod tests {
             damping: [0; 4],
             speed: 140.0,
             pace: 130.0,
+            multipliers: [1.0; 4],
         });
         let health = Health {
             current: 1_000_000,
