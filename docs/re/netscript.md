@@ -282,6 +282,7 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 - The count `2303a` is also set by `Dialog:ziel2303` (bit 2), a dialogue of R23NQ03, which has no quest file, once: the same branch sets bit 2 of `2303`, which sends the dialogue's next showing elsewhere.
   `SetVarBit` ORs the bit in ("Variables and groups"), so with k of the six objects taken as it runs, the count becomes 4 or 5 for k = 0 or 1 and `obj2203`'s `== 6` holds at the second object; 6 or 7 for k = 2 or 3, with no test run, so that the quest cannot be won; and nothing changes for k = 4 to 6 (#943).
   Nothing reads that bit: the five records of `2303a` in each tree that holds the quest are the start script's `SetVar 0`, `obj2203`'s `IncVar` and two tests, and this `SetVarBit`.
+  Repaired: the dialogue's write goes (docs/decisions/2026-10-25-shared-names.md).
 - The same in the 11 trees that hold the two quests.
 
 ### The log contradicting itself
@@ -346,6 +347,7 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
 - The group number 5001 is named by quest 501's 13 ghosts (`QIS_OnEnter501`), quest 5002's camp, the seven NPCs 17691 to 17697 that `Region20Enter` and `Region21Enter` make, and quest 5002's test (`od_5002`), attacks (`timer2_5002`, `OMO5002Hinterhalt5002`) and removal (`schatzsucher5002`).
   The groups are global by number ("Variables and groups"), so 5002's test answers alive while any of 501's ghosts lives, anywhere, its removal destroys them, and its attacks send group 5002 at them; nothing else names the group, so 501 itself never counts them.
   `QIS_OnEnter501` also creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
+  Repaired: the 13 ghosts take the group 50014 of their own (docs/decisions/2026-10-25-shared-names.md).
 
 Not read: when a region's `Init` runs, whether a removal or a `DelNPC` runs the death functions, what `0x549080` and the event `0xC` do; none of this was seen in the running original.
 
