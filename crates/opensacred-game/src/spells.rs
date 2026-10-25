@@ -69,14 +69,37 @@ struct Aura {
 #[derive(Component, Debug, Clone, Copy)]
 struct Fades(f32);
 
+/// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries, its
+/// cooldown, the mines' damages and its level.
+#[derive(Component, Debug, Clone)]
+struct MineSign {
+    caster: Entity,
+    left: u32,
+    cooldown: f32,
+    damages: [f32; 4],
+    level: Level,
+}
+
+/// A mine lying where the sign laid it: its caster, its damages, its level and its time left.
+#[derive(Component, Debug, Clone)]
+struct Mine {
+    caster: Entity,
+    damages: [f32; 4],
+    level: Level,
+    left: f32,
+}
+
 /// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
-/// light's, the light's, the fire skin's and the gust's; a column of light and the lightning's.
+/// light's, the light's, the fire skin's and the gust's; a column of light and the lightning's;
+/// a mine and its blast.
 #[derive(Resource)]
 struct Looks {
     disc: Handle<Mesh>,
     discs: [Handle<StandardMaterial>; 5],
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
+    mine: (Handle<Mesh>, Handle<StandardMaterial>),
+    blast: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
 /// Makes the stand-ins' looks (**estimate**: the colours of their glows).
@@ -104,11 +127,21 @@ fn make_looks(
         glow(Color::srgba(0.85, 0.9, 0.85, 0.25)),
     ];
     let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
+    let mine = (
+        meshes.add(Cylinder::new(14.0, 6.0)),
+        glow(Color::srgba(0.25, 0.22, 0.2, 1.0)),
+    );
+    let blast = (
+        meshes.add(Sphere::new(spells::BLAST_REACH)),
+        glow(Color::srgba(1.0, 0.6, 0.2, 0.45)),
+    );
     commands.insert_resource(Looks {
         disc: meshes.add(Cylinder::new(1.0, 1.0)),
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
         lightning,
+        mine,
+        blast,
     });
 }
 
@@ -177,6 +210,43 @@ fn act(
                 });
             }
             REIKI | SPRING => given.extend(spells::effects(record, act.level)),
+            spells::MINES => {
+                // His sign, with the mines' count of its values' ratio; their damages by his
+                // weapons' multipliers, the second array (`0x528995`).
+                let damages = bolt_damages(
+                    record,
+                    level,
+                    combat.map_or([1.0; 4], |combat| combat.multipliers),
+                );
+                commands.spawn((
+                    MineSign {
+                        caster: act.caster,
+                        left: spells::ratio(record, 0, 1, act.level),
+                        cooldown: 0.0,
+                        damages,
+                        level: body.level(),
+                    },
+                    Transform::from_translation(here),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+            // The Dwarf's: the greed's and the steel's effects at once; the burrowing's and the
+            // armour's with their action 6, the armour's object's effect 35 too.
+            spells::GREED | spells::STEEL => given.extend(spells::dwarfs(record, act.level)),
+            spells::BURROWING | spells::ARMOUR => {
+                given.extend(spells::dwarfs(record, act.level));
+                given.extend(spells::effects(record, act.level));
+                if act.spell == spells::ARMOUR {
+                    let effect = Effect {
+                        id: BORNE,
+                        whole: 0,
+                        value: 0.0,
+                        art: u32::from(act.spell),
+                        level: 0,
+                    };
+                    given.push((effect, fight_seconds(spells::value(record, 0, act.level))));
+                }
+            }
             QUICKENING => {
                 // As the stone skin's, its clock at the cast's rate (`0x7883C0`).
                 let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |c| c.cast) / 100.0;
@@ -423,6 +493,128 @@ fn strike(
     }
 }
 
+/// Each sign of mines goes with its Dwarf and lays a mine where it stands once a second, unless
+/// another lies within [`spells::MINES_APART`], until it carries none (`0x5B0719`); each mine goes
+/// off as a hostile creature comes within its reach while its Dwarf is gone or stands
+/// [`spells::MINE_SAFE`] or more off, or after [`spells::MINE_LIFE`] by itself, striking once the
+/// hostile creatures within [`spells::BLAST_REACH`] and their size (`0x5B094A`, the object 794).
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
+)]
+fn mine(
+    mut commands: Commands,
+    time: Res<Time>,
+    looks: Option<Res<Looks>>,
+    mut signs: Query<(Entity, &mut MineSign, &mut Transform), Without<Mine>>,
+    mut mines: Query<(Entity, &mut Mine, &Transform), Without<MineSign>>,
+    casters: Query<&GlobalTransform, (With<Body>, Without<Dies>)>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Dies>),
+    >,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    let laid: Vec<Vec3> = mines.iter().map(|(_, _, at)| at.translation).collect();
+    for (entity, mut sign, mut transform) in &mut signs {
+        let Ok(caster) = casters.get(sign.caster) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        transform.translation = caster.translation();
+        sign.cooldown = (sign.cooldown - dt).max(0.0);
+        let here = transform.translation;
+        let near = laid
+            .iter()
+            .any(|at| (*at - here).xz().length() < spells::MINES_APART);
+        if sign.cooldown > 0.0 || near {
+            continue;
+        }
+        let mut made = commands.spawn((
+            Mine {
+                caster: sign.caster,
+                damages: sign.damages,
+                level: sign.level,
+                left: spells::MINE_LIFE,
+            },
+            Transform::from_translation(here),
+            Visibility::Inherited,
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(looks) = &looks {
+            made.with_child((
+                Mesh3d(looks.mine.0.clone()),
+                MeshMaterial3d(looks.mine.1.clone()),
+            ));
+        }
+        sign.left = sign.left.saturating_sub(1);
+        sign.cooldown = BEAT;
+        if sign.left == 0 {
+            commands.entity(entity).despawn();
+        }
+    }
+    // The creatures on `level`, alive and hostile to the hero, nearer `centre` than `reach` and
+    // their size.
+    let near = |level: Level, centre: Vec2, reach: f32| {
+        creatures
+            .iter()
+            .filter(move |(_, at, way, mind, health, size)| {
+                way.creature
+                    && way.level == level
+                    && mind.hostile()
+                    && health.current > 0
+                    && (at.translation().xz() - centre).length()
+                        < reach + size.map_or(arrows::size(0), |size| size.0)
+            })
+            .map(|(target, ..)| target)
+    };
+    for (entity, mut mine, at) in &mut mines {
+        mine.left -= dt;
+        let centre = at.translation.xz();
+        let away = casters.get(mine.caster).map_or(true, |caster| {
+            (caster.translation().xz() - centre).length() >= spells::MINE_SAFE
+        });
+        let touched = away
+            && near(mine.level, centre, spells::MINE_REACH)
+                .next()
+                .is_some();
+        if !touched && mine.left > 0.0 {
+            continue;
+        }
+        debug!("spells: a mine of {} goes off", mine.caster);
+        for target in near(mine.level, centre, spells::BLAST_REACH) {
+            hits.write(fight::Hit {
+                attacker: mine.caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(mine.damages),
+                sure: true,
+            });
+        }
+        if let Some(looks) = &looks {
+            commands.spawn((
+                Mesh3d(looks.blast.0.clone()),
+                MeshMaterial3d(looks.blast.1.clone()),
+                Transform::from_translation(at.translation),
+                Fades(0.3),
+                DespawnOnExit(AppState::InGame),
+            ));
+        }
+        commands.entity(entity).despawn();
+    }
+}
+
 /// Takes each sight away after its time.
 fn fade(time: Res<Time>, mut commands: Commands, mut sights: Query<(Entity, &mut Fades)>) {
     for (entity, mut fades) in &mut sights {
@@ -473,7 +665,7 @@ impl Plugin for SpellsPlugin {
             .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
-                (act, shield, strike, fade)
+                (act, shield, strike, mine, fade)
                     .chain()
                     .after(Step::Npcs)
                     .in_set(Playing),

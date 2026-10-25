@@ -42,6 +42,23 @@ pub const GUST: u16 = 28;
 pub const SHIELD_WALL: u16 = 30;
 pub const SPRING: u16 = 31;
 
+/// The Dwarf's spells: the greed, the burrowing, the dwarven armour and the dwarven steel.
+pub const GREED: u16 = 55;
+pub const MINES: u16 = 56;
+pub const BURROWING: u16 = 57;
+pub const ARMOUR: u16 = 58;
+pub const STEEL: u16 = 59;
+
+/// The greed's effect (`crate::fight::effects::SHIELDS`): `D`'s multiplier times 100 over its
+/// value, and its whole value the level at which the record's value 1 is the drops' `s`
+/// (`0x53464E`; docs/re/items.md).
+pub const GREEDY: u32 = 42;
+/// The burrowing's effect, under which the Dwarf's pace is 0 (`0x56377E`).
+pub const BURROWED: u32 = 58;
+/// The steel's effect, which divides the physical resistance of what he strikes by its value
+/// over 100 (`0x56C723`).
+pub const PIERCES: u32 = 56;
+
 /// The effect by which spells are turned aside (`0x1A`; docs/re/fight.md).
 pub const TURNS_SPELLS: u32 = 0x1A;
 
@@ -56,7 +73,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 17] = [
+pub const MADE: [u16; 22] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -74,7 +91,23 @@ pub const MADE: [u16; 17] = [
     GUST,
     SHIELD_WALL,
     SPRING,
+    GREED,
+    MINES,
+    BURROWING,
+    ARMOUR,
+    STEEL,
 ];
+
+/// The Dwarf's mines (`0x7BA8D0`, `0x7BB0B0`, `0x5B0719`, `0x5B094A`): how near another mine keeps
+/// the sign from laying one, how near a hostile creature sets one off (its size and the
+/// creature's), how far from it he stands for that, how long it lies before it goes off by
+/// itself, and how far its explosion (the object 794, `0x5ADFD3`) strikes, with the creature's
+/// size.
+pub const MINES_APART: f32 = 50.0;
+pub const MINE_REACH: f32 = 90.0;
+pub const MINE_SAFE: f32 = 100.0;
+pub const MINE_LIFE: f32 = 30.0;
+pub const BLAST_REACH: f32 = 80.0;
 
 /// The spells that a cast refuses while an effect keyed by the spell holds on its target, the
 /// caster for the launch types 0 and 5 or without a creature for its target (`0x51D840` at
@@ -268,6 +301,23 @@ pub fn lasts(spell: u16) -> bool {
     )
 }
 
+/// The record's value `a` at the level `level` over its value `b`, truncated and held at the cap
+/// of `a`, or the value `a` alone where `b` is 0 (`0x4D26E0`): how many objects some spells make.
+pub fn ratio(spell: &Spell, a: usize, b: usize, level: u32) -> u32 {
+    let raw = |j: usize| {
+        let [base, step] = spell.values[j].map(u32::from);
+        base + step * level
+    };
+    let whole = match raw(b) {
+        0 => raw(a),
+        b => raw(a) / b,
+    };
+    match spell.caps[a] {
+        0 => whole,
+        cap => whole.min(u32::from(cap)),
+    }
+}
+
 /// The record's value `j` at the level `level`, `base + step·L`, held at its cap where it has
 /// one (`0x4D26B0`).
 pub fn value(spell: &Spell, j: usize, level: u32) -> u32 {
@@ -379,6 +429,43 @@ pub fn holding(spell: &Spell, level: u32, caster: u32, target: u32) -> Option<(E
 )]
 fn narrow(seconds: f64) -> f32 {
     seconds as f32
+}
+
+/// The Dwarf's own effects of `spell` at the level `level`, keyed by the spell, for its value 0
+/// at its level (`0x7BB8D0`, `0x7B9C80`, `0x7BA240`): the greed's [`GREEDY`] of the whole value
+/// `L` and the value of its defence's pair, 100 + 10·L; the burrowing's [`BURROWED`]; the steel's
+/// [`PIERCES`] of its physical resistance's pair, 100 + 15·L, the effect 1 of its attack's pair
+/// over 100 and the effect 2 of 0; none for another spell.
+pub fn dwarfs(spell: &Spell, level: u32) -> Vec<(Effect, f32)> {
+    let pair = |at: usize| {
+        let [base, step] = spell.effects[at].map(u32::from);
+        to_f32(base + step * level)
+    };
+    let effect = |id: u32, whole: u32, value: f32| Effect {
+        id,
+        whole: i32::try_from(whole).unwrap_or(i32::MAX),
+        value,
+        art: u32::from(spell.id),
+        level: 0,
+    };
+    let effects = match spell.id {
+        GREED => vec![effect(GREEDY, level, pair(5))],
+        BURROWING => vec![effect(BURROWED, 0, 0.0)],
+        STEEL => vec![
+            effect(PIERCES, 0, pair(6)),
+            effect(1, 0, pair(4) / 100.0),
+            effect(2, 0, 0.0),
+        ],
+        _ => Vec::new(),
+    };
+    let seconds = to_f32(value(spell, 0, level));
+    effects.into_iter().map(|e| (e, seconds)).collect()
+}
+
+/// The drops' `s` of a killer that holds the greed's effect of the whole value `level`: the record
+/// 55's value 1 at that level, 15 + 5·L (`0x53464E`).
+pub fn treasure(greed: &Spell, level: u32) -> u32 {
+    value(greed, 1, level)
 }
 
 /// The health that the healing's action 3 gives its target (`0x5B2600`): its value 0, 10 + 50·L,
@@ -577,6 +664,46 @@ mod tests {
             (locked_by(FIRE_SKIN), locked_by(FIREBALL)),
             (&[24][..], &[][..])
         );
+    }
+
+    #[test]
+    fn the_dwarfs_greed_burrowing_and_steel_give_their_effects() {
+        // GOG 2.28's 55: the defence's pair (100, 10), the value 0 19 + L at most 60, the value 1
+        // 15 + 5·L; 59: the attack (15, 10), the physical resistance (100, 15), 29 + L at most 90.
+        let mut greed = record(GREED, &[(5, [100, 10])], [19, 1], 60);
+        greed.values[1] = [15, 5];
+        let [(effect, seconds)] = dwarfs(&greed, 2)[..] else {
+            panic!("one effect");
+        };
+        assert_eq!(
+            (effect.id, effect.whole, effect.value, seconds),
+            (42, 2, 120.0, 21.0)
+        );
+        assert_eq!(treasure(&greed, 2), 25);
+        let steel = record(STEEL, &[(4, [15, 10]), (6, [100, 15])], [29, 1], 90);
+        let given: Vec<_> = dwarfs(&steel, 1)
+            .iter()
+            .map(|(e, s)| (e.id, e.value, *s))
+            .collect();
+        assert_eq!(given, [(56, 115.0, 30.0), (1, 0.25, 30.0), (2, 0.0, 30.0)]);
+        let burrowing = record(BURROWING, &[(5, [30, 20])], [7, 1], 15);
+        assert_eq!(dwarfs(&burrowing, 1)[0].0.id, 58);
+        assert_eq!(effects(&burrowing, 1)[0].0.id, 2);
+        assert!(dwarfs(&record(ARMOUR, &[], [44, 1], 120), 1).is_empty());
+    }
+
+    #[test]
+    fn the_dwarfs_sign_carries_mines_by_the_ratio_of_its_values() {
+        // GOG 2.28's 56: the value 0 400 + 224·L at most 11, the value 1 101 + 20·L: 5 mines at
+        // level 1, 8 at level 10, 11 from level 178.
+        let mut mines = record(MINES, &[(0, [8, 8]), (1, [7, 7])], [400, 224], 11);
+        mines.values[1] = [101, 20];
+        assert_eq!(
+            [1, 10, 200].map(|level| ratio(&mines, 0, 1, level)),
+            [5, 8, 11]
+        );
+        mines.values[1] = [0, 0];
+        assert_eq!(ratio(&mines, 0, 1, 1), 11);
     }
 
     #[test]

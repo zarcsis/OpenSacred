@@ -163,8 +163,32 @@ fn kept(mind: &ai::Mind, hero: Option<&Hero>) -> Option<&'static str> {
     }
 }
 
+/// The drops' `s` of the hero's kills: the record 55's value 1 at the level of the greed's effect
+/// that holds on it, 0 without (`0x53464E`, `opensacred_rules::spells::treasure`).
+fn treasure(
+    effects: Option<&crate::effects::Effects>,
+    arts: Option<&crate::arts::HeroArts>,
+) -> u32 {
+    let level = effects.and_then(|held| {
+        held.timed()
+            .iter()
+            .find(|timed| timed.effect.id == opensacred_rules::spells::GREEDY)
+            .map(|timed| u32::try_from(timed.effect.whole).unwrap_or(0))
+    });
+    let greed = arts.and_then(|arts| {
+        let spells = arts.tables.spells.iter();
+        spells
+            .clone()
+            .find(|spell| spell.id == opensacred_rules::spells::GREED)
+    });
+    match (level, greed) {
+        (Some(level), Some(greed)) => opensacred_rules::spells::treasure(greed, level),
+        _ => 0,
+    }
+}
+
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
-/// the time played, on bronze.
+/// the time played and its greed's `s`, on bronze.
 fn death(
     entity: Entity,
     mind: &ai::Mind,
@@ -172,7 +196,7 @@ fn death(
     rank: fight::Rank,
     worth: &fight::Worth,
     hero: Hero,
-    played: f32,
+    (played, treasure): (f32, u32),
 ) -> Death {
     Death {
         dead: Dead {
@@ -186,6 +210,7 @@ fn death(
         hero,
         kill: Kill {
             minutes: played / 60.0,
+            treasure,
             ..Kill::default()
         },
         difficulty: drops::Difficulty::Bronze,
@@ -267,7 +292,15 @@ fn dies(
         Option<&crowd::InTheWay>,
         &Dies,
     )>,
-    heroes: Query<(&fight::Base, &fight::Health), (With<Body>, Without<Dies>)>,
+    heroes: Query<
+        (
+            &fight::Base,
+            &fight::Health,
+            Option<&crate::effects::Effects>,
+        ),
+        (With<Body>, Without<Dies>),
+    >,
+    hero_arts: Option<Res<crate::arts::HeroArts>>,
 ) {
     let Ok((mind, health, rank, worth, transform, way, dies)) = creatures.get(died.entity) else {
         return;
@@ -280,10 +313,14 @@ fn dies(
         debug!("drops: {} drops nothing: a creature killed it", died.entity);
         return;
     }
+    let treasure = heroes
+        .iter()
+        .next()
+        .map_or(0, |(_, _, effects)| treasure(effects, hero_arts.as_deref()));
     let hero = heroes
         .iter()
         .next()
-        .and_then(|(base, health)| hero_of(base, health, experience.level));
+        .and_then(|(base, health, _)| hero_of(base, health, experience.level));
     if let Some(why) = kept(mind, hero.as_ref()) {
         debug!("drops: {} drops nothing: {why}", died.entity);
         return;
@@ -291,7 +328,15 @@ fn dies(
     let Some(hero) = hero else {
         return;
     };
-    let death = death(died.entity, mind, health, rank.0, worth, hero, played.0);
+    let death = death(
+        died.entity,
+        mind,
+        health,
+        rank.0,
+        worth,
+        hero,
+        (played.0, treasure),
+    );
     let made = drops::drops(
         &death,
         &tables.rules,
@@ -527,7 +572,7 @@ fn make_nearest(
         return Ok(format!("creature {} drops nothing: {why}", mind.creature));
     }
     let hero = hero.ok_or("the hero is dead")?;
-    let death = death(entity, mind, health, rank.0, worth, hero, played.0);
+    let death = death(entity, mind, health, rank.0, worth, hero, (played.0, 0));
     let mut made = Vec::new();
     for _ in 0..times.0 {
         made.extend(drops::drops(

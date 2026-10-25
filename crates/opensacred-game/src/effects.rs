@@ -101,6 +101,7 @@ fn wear(tick: Res<WorldTick>, mut creatures: Query<&mut Effects>) {
 fn refit_hero(
     experience: Res<Experience>,
     rules: Res<Rules>,
+    mut hero: Option<ResMut<crate::hero::Hero>>,
     mut heroes: Query<
         (
             &Base,
@@ -119,6 +120,10 @@ fn refit_hero(
         let list = effects.list();
         *combat = Combat(combat_with(base, level, holds, &skills, &list, &rules));
         regenerates.value = regeneration_with(base, level, &skills, &list, &rules);
+        // Its walk and run at its pace's factor, which the effects 28, 30, 52 and 58 change.
+        if let Some(hero) = hero.as_mut() {
+            hero.pace = combat.pace_factor();
+        }
     }
 }
 

@@ -205,8 +205,19 @@ pub(crate) fn resolve(
             _ => None,
         };
         let level = mind.map_or(experience.level, |mind| mind.level);
-        let (mut attacker, defender, mut blow) =
+        let (mut attacker, mut defender, mut blow) =
             weighed(attacker.0, defender.0, side, (level, health.level), &rules);
+        // The Dwarf's steel pierces what he strikes: its physical resistance over the effect's
+        // value over 100 (`0x56C723`).
+        let pierces = effects.get(hit.attacker).ok().and_then(|held| {
+            held.timed()
+                .iter()
+                .find(|timed| timed.effect.id == opensacred_rules::spells::PIERCES)
+                .map(|timed| timed.effect.value)
+        });
+        if let Some(pierces) = pierces.filter(|&value| value > 0.0) {
+            defender.resistance[0] *= 100.0 / pierces;
+        }
         if hit.ranged {
             let distance = (from.translation() - at.translation()).xz().length();
             let factor = range_factor(distance, &rules);
