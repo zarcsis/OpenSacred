@@ -28,6 +28,7 @@ mod forms;
 mod frame;
 mod game;
 mod glance;
+mod guns;
 mod help;
 mod hero;
 mod hud;
@@ -277,13 +278,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         frame::FramePlugin,
         game::GamePlugin,
         glance::GlancePlugin,
+        guns::GunsPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         journal::JournalPlugin,
-        lines::LinesPlugin,
     ))
     .add_plugins((
+        lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
@@ -298,9 +300,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
-        shadows::ShadowsPlugin,
     ))
     .add_plugins((
+        shadows::ShadowsPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
         srgb::SrgbPlugin,
