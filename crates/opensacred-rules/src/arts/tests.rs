@@ -1018,6 +1018,23 @@ fn the_domination_holds_its_target_by_its_level() {
 }
 
 #[test]
+fn the_spider_arrow_makes_spiders_by_its_values_at_most_of_the_heros_level() {
+    assert_eq!(style(1006), Some(Style::Arrow));
+    let arrow = WeaponArt {
+        value_60: [10, 130],
+        value_68: [50, 20],
+        ..weapon_art(1006, [20.0, 12.0], 32)
+    };
+    // 2 at level 1, 4 at 5, 5 at 10 and still at 28, 6 from 29.
+    assert_eq!(
+        [1, 5, 10, 28, 29].map(|l| spiders(&arrow, l, 999).0),
+        [2, 4, 5, 5, 6]
+    );
+    assert_eq!(spiders(&arrow, 1, 99).1, 5);
+    assert_eq!(spiders(&arrow, 4, 7).1, 7);
+}
+
+#[test]
 fn the_call_of_the_wolf_summons_near_its_point_a_wolf_of_her_level() {
     assert_eq!(style(1026), Some(Style::Summon));
     assert_eq!(style(1027), Some(Style::Summon));

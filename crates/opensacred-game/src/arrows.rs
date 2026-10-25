@@ -418,6 +418,23 @@ fn fly(
             "arrows: {entity} of {} hits {on} {distance:.0} from its shooter",
             arrow.shooter
         );
+        // The spider arrow ends at its first hit with no strike: its spiders about the creature
+        // it hit (`0x5BB010`, `followers::spiders`).
+        if let Some(special) = arrow.special.filter(|special| special.art == 1006) {
+            if let Some(record) = tables.as_ref().and_then(|tables| {
+                tables
+                    .tables
+                    .weapon_arts
+                    .iter()
+                    .find(|a| a.id == special.art)
+            }) {
+                let (count, level) =
+                    opensacred_rules::arts::spiders(record, special.level, experience.level);
+                crate::followers::spiders(&mut commands, on, count, level);
+            }
+            commands.entity(entity).despawn();
+            continue;
+        }
         // The club arrow knocks back a creature below its bound whose type a kick may move, by
         // the event 3 of its record's value, before its strike (`0x5BB010`).
         if let Some(special) = arrow.special.filter(|special| special.art == 1007)
