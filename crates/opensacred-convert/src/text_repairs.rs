@@ -24,8 +24,32 @@ pub struct Word {
     pub text: &'static str,
 }
 
-/// The repairs that `text` makes.
-pub const WORDS: [Word; 1] = [GOBLIN_GOD];
+/// The repairs that `text` makes: the goblins' god's name, and each gamebox's name.
+pub const WORDS: [Word; 12] = [
+    GOBLIN_GOD,
+    // 5150, `953`: a starburst on black.
+    gamebox(&[77_105_259], "Starburst Game Box"),
+    // 5151, `954`: cartoon card players on red.
+    gamebox(&[77_105_260], "Card Players Game Box"),
+    // 5152, `955`: a cartoon clown amid a jumble of colours.
+    gamebox(&[77_105_261], "Clown Game Box"),
+    // 5153, `956`: a golden sword over a battle.
+    gamebox(&[77_105_262], "Golden Sword Game Box"),
+    // 5154, `957`: a dark armoured demon on red.
+    gamebox(&[77_105_263], "Red Demon Game Box"),
+    // 5155, `958`: a football on green.
+    gamebox(&[77_105_264], "Green Football Game Box"),
+    // 5156, `959`: a footballer's legs and ball on white.
+    gamebox(&[77_105_265], "White Football Game Box"),
+    // 5157, `960`: cartoon flying machines in a blue sky.
+    gamebox(&[77_105_266], "Flying Machines Game Box"),
+    // 5158, `961`: a red splash on black.
+    gamebox(&[77_105_267], "Red Splash Game Box"),
+    // 5159, `962`: a glowing maze on violet.
+    gamebox(&[77_105_268], "Neon Maze Game Box"),
+    // 5160, `963`: an airship sketched on copper.
+    gamebox(&[77_105_372], "Airship Game Box"),
+];
 
 /// The goblins' god, whom the goblins' and the orcs' lines invoke by a German name, a goblin's
 /// form of the verb for stomping, which the English text leaves untranslated and no string of it
@@ -49,6 +73,21 @@ const GOBLIN_GOD: Word = Word {
     sha256: "793472b294b97d9d774f37f9742f97d5c24e54841eda5759ea3aab8396ca6a81",
     text: "Stompa",
 };
+
+/// The name of a gamebox, the items 5150 to 5160, in place of the one generic word of 7 units
+/// that their eleven strings hold whole, the record's internal name as well (#686,
+/// docs/decisions/2026-10-25-gamebox-names.md): a name that tells the box by its art, the box of
+/// another game, without naming that game. The string's id is the hash of the item's number
+/// (docs/02 §6.2), and its model is the item's `+0x70`, 953 to 963 in order.
+const fn gamebox(ids: &'static [u32], text: &'static str) -> Word {
+    Word {
+        what: "a gamebox's generic name",
+        ids,
+        len: 7,
+        sha256: "9aea6dd9c07271992acc7b49b6ad2b2b5d140c0612c6c67a5172b8df37806739",
+        text,
+    }
+}
 
 /// A string that the file lacks, added under the hash of its name.
 #[derive(Debug, Clone, Copy)]

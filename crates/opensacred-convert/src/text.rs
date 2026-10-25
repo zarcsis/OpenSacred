@@ -202,8 +202,9 @@ mod tests {
         let summary = convert(&game, &out).unwrap();
         assert_eq!(summary.strings, 23_123);
         assert_eq!(summary.warnings, Vec::<String>::new());
-        // docs/02 §8: the goblins' god's name 14 times in ten strings.
-        assert_eq!((summary.repaired_strings, summary.repaired_words), (10, 14));
+        // docs/02 §8: the goblins' god's name 14 times in ten strings, and the gameboxes' word
+        // once in each of their eleven.
+        assert_eq!((summary.repaired_strings, summary.repaired_words), (21, 25));
         assert_eq!(summary.added_strings, text_repairs::ADDED.len());
         let ftl = fs::read_to_string(output_dir(&out).join("en-US/global.ftl")).unwrap();
         let back = read_back(&ftl);

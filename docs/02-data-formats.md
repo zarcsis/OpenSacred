@@ -945,7 +945,7 @@ Estimate: < 1 day with the ready-made code.
   `res:174242` is the operand of the call of `spawn2003` in `zauber2003` of the quest 2003, where the same call in `QIS_OnEnter2003` names `res:17242`: a digit too many, and `spawn2003` reads no operand of its call (read on the converter's Luau 2026-10-25), so no text shows it and it needs no line.
   Of the 25 types, the scripts give every creature that they make a name of its own (read on the trees' listings 2026-10-23, #684): `CreateNPC`'s tag `01` in every record of the types 146, 182, 222 to 224, 328, 356, 357, 361 to 365, 367, 368 and 6114, the first `MakeGroup` rule's `1D` in the 260 functions whose `FillSector` makes a 146, and `Morph`'s `01` for the 183.
   The fish 164 and 165, which the sectors' runner makes in the waters without a script (docs/re/spawning.md), are the only creatures of these types that the world makes without a name; no script makes the 0, 166, 167, 599, 706 or 1879 (whether the engine does is not read).
-- **Generic names of the arcade's "gamebox" items** (**community-reported**): **confirmed**.
+- **Generic names of the arcade's "gamebox" items** (**community-reported**): **confirmed**; `opensacred-convert text` names each by its box's art since #686 (docs/decisions/2026-10-25-gamebox-names.md).
   The eleven items 5150 to 5160 (models 953 to 963, `gamebox_*.grn`, a model each) are named by ids 77105259 to 77105268 and 77105372, which all hold the same single word, the records' `Weapon.pak` internal name as well.
 - The unused hero voice lines, some German (**community-reported**, DarkMatters topic 72808), are cut content, not a defect.
 
