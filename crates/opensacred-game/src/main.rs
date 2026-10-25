@@ -9,6 +9,7 @@ mod arts;
 mod atmosphere;
 mod attack;
 mod benchmark;
+mod blast;
 mod blended;
 mod bolts;
 mod buildings;
@@ -255,15 +256,16 @@ fn run(cli: Cli) -> Result<AppExit> {
         attack::AttackPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
+        blast::BlastPlugin,
         blended::BlendedPlugin,
         bolts::BoltsPlugin,
         buildings::BuildingsPlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
         crowd::CrowdPlugin,
-        daynight::DayNightPlugin,
     ))
     .add_plugins((
+        daynight::DayNightPlugin,
         doors::DoorsPlugin,
         drops::DropsPlugin,
         effects::EffectsPlugin,
@@ -278,9 +280,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
-        making::MakingPlugin,
     ))
     .add_plugins((
+        making::MakingPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
@@ -295,9 +297,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
-        srgb::SrgbPlugin,
     ))
     .add_plugins((
+        srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
         voices::VoicesPlugin,
