@@ -1072,9 +1072,23 @@ function readClock() {
   };
 }
 
-// The window's pixel of a world point: the view's own screen-to-world function is affine on the ground's plane, so
-// three of its answers give its inverse. Heights are not taken into account; the game's pick of a click is.
-function pixelOf(engine, worldX, worldY) {
+// Screen pixels at zoom 1 by which the view raises a point per unit of the models' height: 768/400 · 2/√5, its
+// ortho(±200) on 768 pixels seen down at atan(1/2) (docs/re/drawing.md, "Depth").
+const PIXELS_PER_HEIGHT = 768 / 400 * 2 / Math.sqrt(5);
+
+// The window's pixel of a world point at a height in units of the models' height (#973), as the game's pick of a
+// click takes heights: the view's own screen-to-world function is affine on the ground's plane, so three of its
+// answers give its inverse, and the height raises the point by the view's scale against zoom 1, where a cell along x
+// is 48 pixels across and 24 down.
+function pixelOf(engine, worldX, worldY, height = 0) {
+  const [px, py] = groundPixelOf(engine, worldX, worldY);
+  const [qx, qy] = groundPixelOf(engine, worldX + CELL, worldY);
+  const scale = Math.hypot(qx - px, qy - py) / Math.hypot(48, 24);
+  return [Math.round(px), Math.round(py - height * PIXELS_PER_HEIGHT * scale)];
+}
+
+// The window's pixel of a world point on the ground's plane at height 0, unrounded.
+function groundPixelOf(engine, worldX, worldY) {
   const v = view(engine);
   const toWorld = new NativeFunction(v.readPointer().add(VIEW_SCREEN_TO_WORLD * 4).readPointer(), 'void',
     ['pointer', 'int', 'int', 'pointer'], 'thiscall');
@@ -1093,7 +1107,25 @@ function pixelOf(engine, worldX, worldY) {
     throw new Error('the view gives no projection');
   }
   const dx = worldX - x0, dy = worldY - y0;
-  return [Math.round(512 + (d * dx - b * dy) / det), Math.round(384 + (-c * dx + a * dy) / det)];
+  return [512 + (d * dx - b * dy) / det, 384 + (-c * dx + a * dy) / det];
+}
+
+// The height a creature stands at in the middle of a cell of a level, in units of the models' height: the cell's on
+// its layer (0x636520) plus its floor's own (+0x33 · 28), as cell-info gives it; 0 where the layer has no such cell.
+function standingHeight(theWorld, cx, cy, floor, layer) {
+  if (theWorld.isNull() || cellAt(theWorld, cellPosition(cx, cy, floor), layer).isNull()) {
+    return 0;
+  }
+  let floorHeight = 0;
+  if (layer !== 0) {
+    const record = staticRecord(theWorld, layer);
+    floorHeight = record.isNull() ? 0 : record.add(STATIC.height).readU8() * FLOOR_STEP;
+  }
+  const middle = Memory.alloc(16);
+  middle.add(4).writeS32(Math.floor((cx + 0.5) * CELL));
+  middle.add(8).writeS32(Math.floor((cy + 0.5) * CELL));
+  middle.add(0x0c).writeU8(floor);
+  return heightAt(theWorld, middle, layer) + floorHeight;
 }
 
 function snapshot(engine) {
@@ -1208,7 +1240,22 @@ const COMMANDS = {
     setZoom(view(engine), zoom);
     return view(engine).add(VIEW_ZOOM).readFloat();
   },
-  point: (engine, { x, y }) => pixelOf(engine, (x + 0.5) * CELL, (y + 0.5) * CELL),
+  // A cell's pixel at the height it stands at on the hero's own level, the ground or the hero's floor, so that a
+  // click there picks it (#973); on the ground where the hero's layer has no such cell.
+  point: (engine, { x, y }) => {
+    const h = hero();
+    const theWorld = WORLD.objects.readPointer().readPointer();
+    let height = 0;
+    if (h !== null) {
+      const layer = h.add(CREATURE.layer).readU32();
+      const floor = h.add(CREATURE.floor).readU8();
+      height = standingHeight(theWorld, x, y, floor, layer);
+      if (height === 0 && layer !== 0) {
+        height = standingHeight(theWorld, x, y, 0, 0);
+      }
+    }
+    return pixelOf(engine, (x + 0.5) * CELL, (y + 0.5) * CELL, height);
+  },
   // The hero takes no damage (#558): the console's own god mode, which spares a player a strike's knock-down, and its
   // health kept, by the strike's resolution and at each frame (installWorld).
   god: (engine, { on }) => {

@@ -511,7 +511,8 @@ class Host:
                 "hero may stand there, the height it stands at, a door's trigger, and the objects in it",
                 'time HH:MM: the clock; day-speed DAY [NIGHT]: its rates (1 by default, 0 stops it)',
                 'zoom Z: the view\'s zoom, 0.5 to 2 (the game settles on 0.5, 1 or 2)',
-                'point X,Y: the window\'s pixel of a cell, for click',
+                'point X,Y: the window\'s pixel of a cell at its height on the hero\'s level (the ground or its '
+                'floor), for click',
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
                 "heal [ID] [--to N]: a creature's health to its most, or to N (at most its most), the hero's by default",
