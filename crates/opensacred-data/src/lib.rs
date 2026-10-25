@@ -5,6 +5,7 @@
 
 pub mod archive;
 pub mod heroes;
+pub mod luau;
 pub mod netscript;
 mod packed;
 pub mod sound;

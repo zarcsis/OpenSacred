@@ -31,32 +31,10 @@ use std::fmt::Write as _;
 use anyhow::{Context, Result, bail};
 use opensacred_data::netscript::{Body, Operand, Record, Tree, Value};
 use opensacred_formats::netscript as original;
-use serde::{Deserialize, Serialize};
 
 use crate::flow::{Ending, Stmt, Test, structure};
 
-/// The index of a tree's functions, `index.ron` in its directory: for each name the functions of
-/// that name in the tree's order, a name that several share (the quests' `ToDo:-1.1`, 1,986
-/// functions of 142 names in a campaign tree) by each of them (**hypothesis**: the client's
-/// lookup by name, `0x460590`, takes the first).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Index {
-    pub functions: BTreeMap<String, Vec<Entry>>,
-}
-
-/// A function in a tree's sources: its file and its key in the file's table, its name or, for a
-/// name that the file holds already, the name and `#<n>`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Entry {
-    pub file: String,
-    pub key: String,
-}
-
-/// The index's file in a tree's directory.
-pub const INDEX: &str = "index.ron";
-
-/// The extension of a source's bytecode, which stage B compiles (`build`).
-pub const BYTECODE: &str = "luauc";
+pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index};
 
 /// The Luau bytecode of `source` (`mlua`'s compiler, Luau's own); an error where it does not
 /// compile.

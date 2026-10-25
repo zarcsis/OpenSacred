@@ -13,6 +13,7 @@ publish = false
 opensacred-data = { path = "crates/opensacred-data" }
 opensacred-formats = { path = "crates/opensacred-formats" }
 opensacred-rules = { path = "crates/opensacred-rules" }
+opensacred-scripts = { path = "crates/opensacred-scripts" }
 
 anyhow = "1.0.104"
 # A BC7 decoder, for the tests of the converter's textures (#700).
