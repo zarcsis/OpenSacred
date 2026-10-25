@@ -736,6 +736,11 @@ pub struct Walk {
     /// Whether it comes on at the hero in a fight (`ai::pursue`), which follows the hero as it
     /// moves, rather than a flight, a step back or a walk about (#387).
     comes_on: bool,
+    /// Whether it walks with the AI's state 0 (`0x542B20`) rather than under an order of its own
+    /// (a behaviour, a fight, a door, a master): a script's `NPC_Goto` (seen as the action 1 with
+    /// the AI's state 0, #977), the idle action's step, a parting or a step aside. One that walks
+    /// so does not step aside for the hero (`0x547070`, `ai::aside`).
+    idle: bool,
 }
 
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
@@ -760,7 +765,18 @@ impl Walk {
             balked: 0.0,
             within: hero::ARRIVED,
             comes_on: false,
+            idle: false,
         }
+    }
+
+    /// The walk, one with the AI's state 0, which does not step aside for the hero.
+    pub fn idle(self) -> Self {
+        Self { idle: true, ..self }
+    }
+
+    /// Whether it walks with the AI's state 0.
+    pub fn is_idle(&self) -> bool {
+        self.idle
     }
 
     /// The walk, stopping within `within` of its target.
@@ -2895,11 +2911,14 @@ fn spawn(
             arrows::Size(placement.size),
         ));
         if let Some(((tx, ty), speed)) = placement.walk {
-            entity.insert(Walk::to(
-                iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
-                level,
-                speed * pace,
-            ));
+            entity.insert(
+                Walk::to(
+                    iso::ground(tx as f32 + 0.5, ty as f32 + 0.5),
+                    level,
+                    speed * pace,
+                )
+                .idle(),
+            );
         }
     }
     entity.id()
