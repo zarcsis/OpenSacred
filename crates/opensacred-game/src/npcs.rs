@@ -3859,6 +3859,7 @@ fn strike(
                 blows.write(crate::sfx::Blow::Swing { striker: entity });
                 hits.write(fight::Hit {
                     fixed: None,
+                    sure: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.share,

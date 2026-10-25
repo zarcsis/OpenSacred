@@ -25,6 +25,7 @@ mod files;
 mod forms;
 mod frame;
 mod game;
+mod glance;
 mod help;
 mod hero;
 mod hud;
@@ -270,6 +271,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         forms::FormsPlugin,
         frame::FramePlugin,
         game::GamePlugin,
+        glance::GlancePlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
@@ -277,9 +279,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
-        menu::MenuPlugin,
     ))
     .add_plugins((
+        menu::MenuPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
@@ -294,9 +296,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows::ShadowsPlugin,
         sound::SoundPlugin,
         srgb::SrgbPlugin,
-        statics::StaticsPlugin,
     ))
-    .add_plugins((terrain::GroundPlugin, voices::VoicesPlugin))
+    .add_plugins((
+        statics::StaticsPlugin,
+        terrain::GroundPlugin,
+        voices::VoicesPlugin,
+    ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)

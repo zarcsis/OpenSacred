@@ -1475,6 +1475,51 @@ fn the_seraphims_energy_bolts_give_her_their_effect_at_their_own_clip() {
 }
 
 #[test]
+fn the_gladiators_glance_gives_a_whole_value_by_his_skill_and_strength() {
+    // GOG 2.28's 1016: `[+0x50]` 3 + 7·L, `[+0x58]` 39.5 + 0.5·L, of the launch type 2.
+    assert_eq!(style(1016), Some(Style::Glance));
+    assert_eq!(
+        action(2, Style::Glance, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(150), 1.0, true))
+    );
+    let glance_art = WeaponArt {
+        factor: [3.0, 7.0],
+        value_58: [39.5, 0.5],
+        launch: 2,
+        distance: 0,
+        ..weapon_art(1016, [0.0; 2], 2)
+    };
+    // Seen: a Gladiator of `a0` 33 and the skill 2 at 1, 1 + 0.12 + 33/200, gave 12 at the
+    // level 1 for 40 s and 39 at the level 4 for 41.5 s.
+    let factor = crate::fight::Rules::default().glance_factor(&[(1, 1), (2, 1)], 33.0);
+    assert!((factor - 1.285).abs() < 1e-6, "{factor}");
+    let given = |level| {
+        glance(&glance_art, level, factor).map(|boon| {
+            let (effect, seconds) = boon.effects[0];
+            (boon.point, effect.id, effect.whole, effect.art, seconds)
+        })
+    };
+    assert_eq!(given(1), Some((0.7, GLANCE, 12, 1016, 40.0)));
+    assert_eq!(given(4), Some((0.7, GLANCE, 39, 1016, 41.5)));
+    assert_eq!(glance(&weapon_art(1015, [0.0; 2], 2), 1, factor), None);
+    // A new effect's count, 1,000, strikes at its second frame and then every 63 frames of
+    // 16.67 ms (seen: 0.21 s after the effect, then every 1.07 to 1.12 s).
+    let mut count = GLANCE_EVERY;
+    let frame = 1.0 / 60.0;
+    assert!(!glance_due(&mut count, frame, true));
+    assert_eq!(count, 1016);
+    assert!(glance_due(&mut count, frame, true));
+    let next = (1..200).find(|_| glance_due(&mut count, frame, true));
+    assert_eq!(next, Some(63));
+    // Without hostiles it counts on and strikes at the first that comes.
+    for _ in 0..200 {
+        assert!(!glance_due(&mut count, frame, false));
+    }
+    assert!(glance_due(&mut count, frame, true));
+    assert_eq!(glance_reach(1), 210.0);
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));

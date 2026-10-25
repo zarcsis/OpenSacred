@@ -554,8 +554,9 @@ impl Rules {
 /// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); the distances and the
 /// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); the
 /// bands of the factor of a creature's strike at the hero by its level (`WaffenAll`,
-/// `AllOverLv`); and the factor of each arrow of a multi-shot, to the power of their number
-/// (`Multipfeil`, `0x56D173`).
+/// `AllOverLv`); the factor of each arrow of a multi-shot, to the power of their number
+/// (`Multipfeil`, `0x56D173`); and the divisor of the attribute `a0`'s part of the Gladiator's
+/// 1016's effect (`BalanceGeschick`, [`Rules::glance_factor`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rules {
     points: Vec<(f32, f32)>,
@@ -576,6 +577,7 @@ pub struct Rules {
     range: [f32; 3],
     bands: Bands,
     multi_shot: f32,
+    geschick: f32,
 }
 
 impl Default for Rules {
@@ -600,6 +602,7 @@ impl Default for Rules {
             range: [250.0, 1000.0, 0.25],
             bands: Bands::default(),
             multi_shot: 0.83,
+            geschick: 200.0,
         }
     }
 }
@@ -711,7 +714,22 @@ impl Rules {
             },
             bands: Bands::of(b),
             multi_shot: b.f32("Multipfeil").unwrap_or(default.multi_shot),
+            geschick: b.f32("BalanceGeschick").unwrap_or(default.geschick),
         }
+    }
+
+    /// The factor of the whole value of the Gladiator's 1016's effect, of a creature of the
+    /// skills `skills` and the attribute `a0` `strength` (`0x4FF0B0` at `0x500203`): one plus a
+    /// hundredth of the damage multipliers' curve at the level of its skill 2 plus `strength`
+    /// over `BalanceGeschick`, at 53 bits (`opensacred_rules::arts::glance`).
+    pub fn glance_factor(&self, skills: &[(u8, u32)], strength: f32) -> f64 {
+        let level = skills
+            .iter()
+            .find(|&&(skill, _)| skill == 2)
+            .map_or(0, |&(_, at)| at);
+        f64::from(curve(self.curves.damage, level)) * HUNDREDTH
+            + f64::from(strength) / f64::from(self.geschick)
+            + 1.0
     }
 
     /// The factor of each arrow's damage of a shot of `arrows` arrows, the multi-shot's
@@ -1323,6 +1341,9 @@ pub struct Combat {
     /// (`0x4D2310`; docs/re/arts.md, "The Seraphim's bolts"); the items' bonuses of the condition
     /// bits `0x2000` and `0x4000`, which only those damages take, are not read.
     pub multipliers: [f32; KINDS],
+    /// Its attributes `a0` to `a5` with its items' bonuses (the stats' words `+0x10`…), by which
+    /// some arts' values grow ([`Rules::glance_factor`]).
+    pub attributes: [f32; 6],
 }
 
 impl Combat {
@@ -1742,6 +1763,7 @@ pub fn combat_with(
         speed: ((speed + fist_speed).trunc() - slows).clamp(100.0, 220.0),
         pace: pace - slows,
         multipliers,
+        attributes: a,
     }
 }
 
@@ -1997,6 +2019,14 @@ pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -
         return None;
     }
     Some(damage(attacker, defender, blow, rng))
+}
+
+/// A strike that lands without the hit chance's roll, as the event 5 that the Gladiator's
+/// 1016's effect sends without an attacker (`0x562730` at `0x563310`; seen: the resolution
+/// `0x56B130` takes no chance from `0x43EEE0` for it): its damage as a plain strike's
+/// ([`strike`]).
+pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
+    damage(attacker, defender, blow, rng)
 }
 
 /// A strike of a combat art of the second table at its level in play `level` (`0x56B130`: a
@@ -2717,6 +2747,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            attributes: [0.0; 6],
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -2781,6 +2812,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            attributes: [0.0; 6],
         };
         let defender = Combat {
             defence: 20.0,
@@ -2926,6 +2958,36 @@ mod tests {
             ..Base::default()
         };
         assert!((regeneration(&base, 1, &[(10, 1)], &rules) - 46.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_sure_strike_lands_where_the_chance_would_miss() {
+        let mut rng = Rng::of(50, 39, 0);
+        let weak = Combat {
+            attack: 0.0,
+            defence: 0.0,
+            damage: [[0.0; 2], [0.0; 2], [12.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; KINDS],
+            attributes: [0.0; 6],
+        };
+        let armoured = Combat {
+            defence: 1000.0,
+            ..weak
+        };
+        // No attack against a defence of 1,000: a plain strike lands only on the roll of 0, a
+        // sure one always, 12²/(12 + 0) less the truncation.
+        let landed = (0..100)
+            .filter(|_| strike(&weak, &armoured, Blow::default(), &mut rng).is_some())
+            .count();
+        assert!(landed < 3, "{landed}");
+        let dealt: Vec<u32> = (0..100)
+            .map(|_| sure_strike(&weak, &armoured, Blow::default(), &mut rng))
+            .collect();
+        assert!(dealt.iter().all(|&d| d == 11), "{dealt:?}");
     }
 
     #[test]
@@ -3211,6 +3273,7 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            attributes: [0.0; 6],
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],

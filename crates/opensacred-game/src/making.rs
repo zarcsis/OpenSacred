@@ -89,6 +89,7 @@ pub fn clips(
         Style::Boon,
         Style::Frenzy,
         Style::Bolts,
+        Style::Glance,
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -280,7 +281,7 @@ fn aim(
             (_, true, _)
                 if matches!(
                     arts::style(art),
-                    Some(Style::Boon | Style::Frenzy | Style::Bolts)
+                    Some(Style::Boon | Style::Frenzy | Style::Bolts | Style::Glance)
                 ) =>
             {
                 (hero, at.translation())
@@ -301,6 +302,7 @@ fn aim(
                         Style::Boon
                             | Style::Frenzy
                             | Style::Bolts
+                            | Style::Glance
                             | Style::Changeling
                             | Style::Dash
                     )
@@ -382,11 +384,12 @@ fn whole_distance(a: Vec3, b: Vec3) -> u32 {
 )]
 fn make(
     mut commands: Commands,
-    (tick, speed, buttons, clock): (
+    (tick, speed, buttons, clock, rules): (
         Res<WorldTick>,
         Res<GameSpeed>,
         Res<ButtonInput<MouseButton>>,
         Option<Res<crate::daynight::Clock>>,
+        Res<fight::Rules>,
     ),
     experience: Res<Experience>,
     clips: Option<Res<Clips>>,
@@ -662,11 +665,17 @@ fn make(
             // A boon gives its effects at its own point of its clip.
             if matches!(
                 style,
-                Style::Boon | Style::Frenzy | Style::Bolts | Style::Ward | Style::Form
+                Style::Boon
+                    | Style::Frenzy
+                    | Style::Bolts
+                    | Style::Glance
+                    | Style::Ward
+                    | Style::Form
             ) {
                 let boon = arts::boon(record, level)
                     .or_else(|| arts::ward(record, level))
-                    .or_else(|| arts::form(record, level));
+                    .or_else(|| arts::form(record, level))
+                    .or_else(|| arts::glance(record, level, 1.0));
                 points = boon
                     .as_ref()
                     .map(|boon| vec![boon.point])
@@ -727,6 +736,7 @@ fn make(
         let finished = active.is_finished();
         let hit = |target: Entity, playing: &Playing| fight::Hit {
             fixed: None,
+            sure: false,
             attacker: hero,
             target,
             share: playing.factor,
@@ -1080,6 +1090,7 @@ fn make(
                                 }
                                 hits.write(fight::Hit {
                                     fixed: None,
+                                    sure: false,
                                     share: factor,
                                     ..hit(entity, &playing)
                                 });
@@ -1202,7 +1213,12 @@ fn make(
                     end(&mut commands);
                 }
             }
-            Style::Boon | Style::Frenzy | Style::Bolts | Style::Ward | Style::Form => {
+            Style::Boon
+            | Style::Frenzy
+            | Style::Bolts
+            | Style::Glance
+            | Style::Ward
+            | Style::Form => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
                     && playing
@@ -1217,9 +1233,15 @@ fn make(
                         .iter()
                         .find(|a| a.id == making.art)
                         .and_then(|record| {
+                            // The Gladiator's 1016 by his skill 2 and his `a0`.
+                            let glance = rules.glance_factor(
+                                &arts.skills,
+                                combat.map_or(0.0, |combat| combat.attributes[0]),
+                            );
                             arts::boon(record, playing.level)
                                 .or_else(|| arts::ward(record, playing.level))
                                 .or_else(|| arts::form(record, playing.level))
+                                .or_else(|| arts::glance(record, playing.level, glance))
                         });
                     // The Seraphim's 1018 and 1019 end as they give their effects (`0x5038F0`).
                     let ends = boon.as_ref().is_some_and(|boon| boon.ends);
@@ -1504,6 +1526,7 @@ fn blades(
         {
             hits.write(fight::Hit {
                 fixed: None,
+                sure: false,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
