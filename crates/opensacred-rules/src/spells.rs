@@ -46,6 +46,31 @@ pub const WATER_FORM: u16 = 4;
 pub const STONE: u16 = 25;
 pub const FROST_RING: u16 = 35;
 
+/// The Wood Elf's spells: the speed, the bubble, the thorns, the plant cage, the lost souls and
+/// the plants' healing.
+pub const SPEED: u16 = 37;
+pub const BUBBLE: u16 = 38;
+pub const THORNS: u16 = 39;
+pub const CAGE: u16 = 40;
+pub const SOULS: u16 = 41;
+pub const PLANT_HEAL: u16 = 42;
+
+/// The bubble (`0x798380`, `0x5AC138`): its speed, its time (its model's clip's, not read:
+/// **estimate**), how often and how near it strikes, and its burst's reach and factor (906,
+/// `0x5AEE99`).
+pub const BUBBLE_COURSE: (f32, f32, f32) = (100.0, 4.0, 25.0);
+pub const BUBBLE_BEAT: f32 = 0.5;
+pub const BURST: (f32, f32) = (300.0, 2.0);
+/// The thorns about their centre along each axis, and their reach (`0x5260CB`, `0x5ADBCF`).
+pub const THORNS_SCATTER: u32 = 75;
+pub const THORNS_REACH: f32 = 50.0;
+/// The souls about the Wood Elf, their first angle, their speed and reach (`0x5268E5`,
+/// `0x79D310`, `0x5AEAC4`).
+pub const SOULS_FROM: f32 = 50.0;
+pub const SOULS_ANGLE: f32 = 2.6416;
+pub const SOULS_SPEED: f32 = 150.0;
+pub const SOULS_REACH: f32 = 20.0;
+
 /// The effect that holds a creature, its time's factor 0 (`0x583485`, `0x537160`).
 pub const HELD: u32 = 15;
 /// The teleport's step along its line, in world units, and when it puts the caster at its end,
@@ -103,6 +128,10 @@ pub fn spiral_radius(v: f32, angle: f32) -> f32 {
 pub fn count(spell: &Spell, level: u32) -> u32 {
     let n = match spell.id {
         METEORS | SPLINTERS => ratio(spell, 0, 1, level),
+        // The thorns' and the souls' value 0 over their value 2, held at 10 and 8.
+        THORNS | SOULS => ratio(spell, 0, 2, level),
+        // A cage for five of the value 0's seconds (`0x52634B`).
+        CAGE => value(spell, 0, level).min(20) / 5,
         _ => value(spell, 0, level),
     };
     n.clamp(1, 20)
@@ -244,7 +273,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 39] = [
+pub const MADE: [u16; 45] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -255,6 +284,12 @@ pub const MADE: [u16; 39] = [
     WATER_FORM,
     STONE,
     FROST_RING,
+    SPEED,
+    BUBBLE,
+    THORNS,
+    CAGE,
+    SOULS,
+    PLANT_HEAL,
     METEORS,
     WHIRLWIND,
     CHAIN,
@@ -1055,6 +1090,20 @@ mod tests {
             [140.0, 0.0]
         );
         assert_eq!(teleport([5.0, 5.0], [5.0, 5.0], 90, open, open), [5.0, 5.0]);
+    }
+
+    #[test]
+    fn the_wood_elfs_thorns_souls_and_cages_come_by_their_values() {
+        // GOG 2.28's 39: 10 + 130·L at most 10 over 49 + 21·L; 41 the same at most 8; 40: 14 + L
+        // at most 30.
+        let mut thorns = record(THORNS, &[(2, [2, 1]), (3, [4, 3])], [10, 130], 10);
+        thorns.values[2] = [49, 21];
+        assert_eq!([1, 5, 10].map(|l| count(&thorns, l)), [2, 4, 5]);
+        let mut souls = record(SOULS, &[(0, [9, 5]), (2, [5, 2])], [10, 130], 8);
+        souls.values[2] = [49, 21];
+        assert_eq!([1, 10, 100].map(|l| count(&souls, l)), [2, 5, 6]);
+        let cage = record(CAGE, &[], [14, 1], 30);
+        assert_eq!([1, 5, 6, 20].map(|l| count(&cage, l)), [3, 3, 4, 4]);
     }
 
     #[test]

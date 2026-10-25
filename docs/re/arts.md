@@ -1121,6 +1121,16 @@ Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
 
 Each acts at its share of its clip ("The spells' cast"): 3 and 42 at 0.9, 36 at 0.35, 37, 39 and 40 at 0.8, 38 at 0.7, 41 at 0.5.
 
+`opensacred-game` makes 37 to 42 (#888, `opensacred_rules::spells`, `spells`, `bolts`):
+- the speed's effects from each of its two objects, the second's effect 28 refused;
+- the bubble as a bolt flying at 100 a second for 4 s (**estimate**: its clip's length is not read), striking what it touches within 25 every 0.5 s and flying on, and bursting at a cell it may not pass, striking within 300 and their size at twice its damage;
+- the thorns, each where it may stand within 75 of the centre along each axis, striking within 50 and their size once a second for `v₁` seconds;
+- the plant cage's effect 15 and hold for `v₀` seconds on a target of no big type, as the stone's, at once rather than 0.67 s on;
+- the lost souls, homing as the hell disk does at 150 a second, each striking the first it touches within 20 and its size once a second for `v₁` seconds, her effect `0x22` for as long;
+- the plants' healing, as the healing's.
+
+The changeling (36), which needs the creature's model changed, and the summoning (3), which needs the followers (#895), are not made; nor the souls' turning at 3 radians a second, which home at once.
+
 #### The Dwarf's spells
 
 Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
