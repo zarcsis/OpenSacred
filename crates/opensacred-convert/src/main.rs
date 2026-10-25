@@ -7,6 +7,7 @@ mod build;
 mod coverage;
 mod embedded;
 mod ffmpeg;
+mod flow;
 mod gltf;
 mod heroes;
 mod idle_noises;
@@ -165,7 +166,8 @@ enum Command {
         /// The masters' directory (stage A)
         #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
-        /// Also write a readable listing of each tree (<tree>.txt, about 130 MB in all)
+        /// Also write a readable listing of each tree (<tree>.txt) and of its functions'
+        /// structured flow (<tree>.flow.txt), about 130 MB each in all
         #[arg(long)]
         listing: bool,
     },

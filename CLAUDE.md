@@ -33,7 +33,7 @@ cargo run --release -p opensacred-convert -- video        # movie/*.wmv → asse
 cargo run --release -p opensacred-convert -- ui           # PAK/*.bmp → PNG, fonts, credits → assets-src/ui/
 cargo run --release -p opensacred-convert -- tables       # Creature/Weapon/Items/Items03/MOTIONS.PAK, Triggers.PAK, bin/*.bin, the arts and the voices of Sacred.exe → assets-src/tables/*.ron
 cargo run --release -p opensacred-convert -- heroes       # Templates/*.ptx → assets-src/heroes/ (heroes.ron)
-cargo run --release -p opensacred-convert -- netscript    # bin/**/{Funk,Start,Quest}Code.bin + Vectoren.bin → assets-src/netscript/ (--listing: <tree>.txt)
+cargo run --release -p opensacred-convert -- netscript    # bin/**/{Funk,Start,Quest}Code.bin + Vectoren.bin → assets-src/netscript/ (--listing: <tree>.txt and the structured flow <tree>.flow.txt)
 cargo run --release -p opensacred-convert -- build        # stage B: the game's assets in assets/ from the masters in assets-src/ (the textures into KTX2, #700; the sound into Ogg Opus, #701), packed into ZIP archives by kind, only those whose masters changed made again (#694, #699)
 cargo run --release -p opensacred-convert -- all          # every extraction in order into assets-src/, skipping those whose assets-src/manifest/<command>.ron still holds, then build (--force runs all)
 cargo run -p opensacred-convert -- coverage               # what becomes of each file of the manifest
