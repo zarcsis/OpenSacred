@@ -235,6 +235,10 @@ pub enum Style {
     /// run after its first he flies to his target ([`charge_flight`], [`jump_landing`]), and once
     /// landed he strikes it within the reach, makes his blast about him ([`Blast`]) and ends.
     Charge,
+    /// The Dwarf's 1084 (`gui_moves_kriegsrausch`, `0x514790` at `0x517BB5`), with a two-handed
+    /// weapon alone: once, at its clip's first hit point, its target and every hostile creature
+    /// about it ([`sweep_reaches`]), those at a part of its factor ([`sweep_factor`]).
+    Sweep,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -454,6 +458,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1091 {
         return Some(Style::Charge);
+    }
+    if art == 1084 {
+        return Some(Style::Sweep);
     }
     if art == 1012 {
         return Some(Style::Smite);
@@ -828,6 +835,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             ..plain(148)
         }),
         (8, Style::Boon) => Some(plain(154)),
+        // His 1084 the slot 144 at the blend 0.5 and the rate 1.0 (`0x518BF5`), which the order
+        // refuses unless what his right hand holds is of the class 2 or 3 (`0x51D840`).
+        (8, Style::Sweep) if matches!(class, 2 | 3) => Some(plain(144)),
         // His 1082 the slot 157 at the rate 1.0 (`0x514790` at `0x518600`).
         (8, Style::Frenzy) => Some(plain(157)),
         // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
@@ -1688,6 +1698,19 @@ pub fn arc(peak: f32, t: f32) -> f32 {
 /// flies ([`arc`]), a tenth of it (`0x890D9C`; seen: 0.096 s and 13.4 for 134).
 pub fn charge_flight(distance: f32) -> (f32, f32) {
     (distance * f32::from_bits(0x3A3B_3EE7), distance * 0.1)
+}
+
+/// Whether a creature `offset` from the target of the Dwarf's 1084 `record` lies within its sweep
+/// (`0x600730`): its squared whole distance at most `⌊[+0x58]⌋` (26,000, a radius of about 161).
+pub fn sweep_reaches(record: &WeaponArt, [dx, dy]: [f32; 2]) -> bool {
+    let [dx, dy] = [dx, dy].map(|d| f64::from(d.trunc()));
+    dx.mul_add(dx, dy * dy) <= f64::from(record.value_58[0]).trunc()
+}
+
+/// The factor of the Dwarf's 1084's strikes at the creatures about its target, of `record` at
+/// the level in play `level`: its own factor ([`factor`]) times `[+0x5C]` (0.6).
+pub fn sweep_factor(record: &WeaponArt, level: u32) -> f32 {
+    narrow(f64::from(factor(record, level)) * f64::from(record.value_58[1]))
 }
 
 /// How long the Daemon's blast lives, in seconds, and until when its radius grows (its particle
