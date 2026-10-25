@@ -379,6 +379,11 @@ The Seraphim's executor (`0x5038F0`) has cases for 1003 and 1017 together, 1013 
   Once `left` is below 0.35 it gives the Seraphim the effect 17 of the whole value `L` for 29.5 + 0.5·L seconds, ends, starts the regeneration, and makes an object of type 844 (`FX_SERA_SM_CAST`) at her place with its level, `1000 · (29.5 + 0.5·L)` (milliseconds) and her four damages' multipliers, each the sum of the stats' `+0x96` and `+0xB6`, `+0x9A` and `+0xBA`, `+0x9E` and `+0xBE`, `+0xA2` and `+0xC2`, with the effect `0x43` twice.
   The effect 17's adder sets `+0x200` bit `0x400000` and makes an object of type 856 (`FX_GENERIC`) with the effect `0x50` for each item in her hands (**hypothesis**: the weapons' glow); the bit `0x400000` is the one by which each of her shots makes 2 arrows (docs/re/fight.md, "At range"), and what the object 844 does is not followed.
   **Seen** as 1018: the effect 17 of the whole value 1 for 30 s.
+- **Her shots with 1018's and 1019's effects** (read 2026-10-24, #754, #761; **confirmed** by code unless marked otherwise).
+  The creatures' decision (`0x53A170` at `0x53AACE`) sends a creature of `+0x200` bit `0x200000` (the effect 16) to the shot, the action 8 (`+0xFC` 8, `+0xFE` 0), where its target lies beyond 200 or it has none, and one of the bit `0x400000` (the effect 17) always; any other only with a ranged weapon in its left hand.
+  The shot (`0x4DCB80`) with the bit `0x200000` plays the slot 145 (169 mounted) at 1.5 times its rate and makes one object 875 (`FX_BFG`, `0x4DE5EC`) where its target is (`0x556F50(13)`), none without one; with the bit `0x400000` it plays the slot 164 (169 mounted) at the rate 1.0 and makes two objects 801 (`FX_RAILGUN`, `0x4DDD2A` and `0x4DE162`) where it would make arrows, each started along the line from her to her target's cell (with none, her facing turned by 45°).
+  So 1018 turns her strikes beyond 200 into the staff's bolts and 1019 every strike into two bolts; what the objects do is "The Seraphim's bolts" below.
+  **Seen** 2026-10-24 (the driver of #448): with 1019's effect each left click on a goblin warrior beside her gave two strikes 0.117 s apart, one without it, and on one six cells off it made two objects 801, 0.1 s apart.
 - **1020 (`GUI_MOVE_WIRBELSCHLAG`)** runs as her `Rundum` 1069 ("A `Rundum`'s run" above), with the radius `[+0x60] + [+0x64]·L`, 160 + 5·L per cent of the reach, and the factor 0.7 + 0.05·L; refused with a bow or a crossbow, it sets `+0x1F4` bit `0x800000` while it runs (cleared at its end with `0x450630` and `0x44DDC0`, not followed).
   Each creature it strikes is knocked back as by a kick, by a roll of 0 to 99 below `0x4FC9D0(L, target)` ("The kicks" above): the event of kind 3 from the Seraphim with the whole value `[+0x58] + [+0x5C]·L`, 170 + 5·L.
   On foot it plays the slot 149 at the blend 0.5 and the rate 1.0 (`0x50619A`; the case of the art's switch at `0x505B67`, by the bytes at `0x5066D0`), not her `Rundum`'s 153 at the attack speed.
@@ -819,6 +824,22 @@ By the object (its spell, "The spells' executor" above):
 
 **Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1, `arts learn 15`, `arts select 15` and the right button at the feet of a hostile goblin warrior of level 30): its health went from 757 to 715 within a second and to 571 within four, so that `HIMMELSLEUCHTEN` hits again and again over its time (**hypothesis**: it makes an object 804 at each of its beats, each hitting once); the immortal goblins' hook of the driver, which tells the strikes of `0x56B130`, told none of these hits.
 The other objects (the shields, the healings, the summons and the changes of form among them) have no case here and log their type: what they give comes from their actions ("The objects' actions" above) and from their own updates (not read).
+
+#### The Seraphim's bolts
+
+Read 2026-10-24 (#761) for the objects 801 (`FX_RAILGUN`) and 875 (`FX_BFG`) that her shots make ("The Seraphim's" above); **confirmed** by code unless marked otherwise.
+Neither is a beam: each is a bolt that flies straight and hits by a circle about its place.
+
+- **Set up.** `0x5A0C50` makes only their particle systems, by the byte table `0x5A3270` plus the type (801 the railgun's of 15 particles, 875 the BFG's of one, 844 `sera_sm_cast` of 200, 856 `generic` of 500); the bolt's motion comes from its system's start: 801 at the speed 400 (`+0x98`) for at most 2.0 s, 875 at 200 for at most 3.0 s, each with a light of radius 100 and 120 (`+0x9C`, drawn only).
+- **Started** by an FX event (`0x41E1D0`) through the object's handler (`0x5A3840`): 801 by its kind `0x21`, twice, the first from `0x4DDD2A`, the second from `0x4DE162`, carrying the direction (a unit `x`, `y`, 0 toward the target's cell from the shooter's place); 875 by its kind 99 (`0x63`), with the shooter's id and its target.
+  Neither steers by its target: the bolts fly their line.
+- **The flight** (`0x5A6680`): each frame the place moves by the speed times the frame's time along the direction; a bolt ends at a cell of a kind 3 or 5 to 10 (the low nibble of `+0x1F`) or one that may not be walked on (`0x636D70`, `0x636D20`), and where it leaves the loaded sectors; so 801 flies at most 800 and 875 600.
+- **Its targets** (`0x5AB490`): the objects of its cell and the eight about it, on its level, nearer it than the sum of their sizes (`items.pak +0x14`, 50 for 0, `0x428CE0`), that are creatures other than its shooter, alive (`0x549080`) and hostile to the shooter (`0x548F30`).
+- **Its hit** (`0x5ABD80`): 801 (`0x5AC24D`) stops and hits every target it found in that frame, once, then goes; 875 (`0x5AC485`) hits the targets of its first contact once and flies on harmless to its end.
+  The hit is the event of kind 5 from the shooter (`cEvent_creature`) with four damages and the factor 1.0, sent to a target that does not turn it aside (`0x561860`), as the other objects' hits; it is not the shooter's weapon's strike.
+- **Its damages**: of the first table's record 51 for 801 and 8 for 875 (`0x4D2310`, the table at `0x952A38`), each kind's `base + step·L` (801: 5 + 3·L physical and 6 + 4·L magic; 875: 30 + 20·L physical), `L` the whole value of the shooter's effect 17 or 16, else its art's level, times the shooter's multiplier of the kind (the sum of the stats' `+0x96` and `+0xB6` for 801 and of `+0x96` and `+0xA6` for 875, and so on by fours, the arrays that the recomputation fills from the items' bonuses of the condition bits `0x2000` and `0x4000`), times the shooter's spell factor (`0x56A800`, 1.0 for a hero), truncated and held at 65,534.
+  The last two arrays are those that 1019's object 844 is given ("The Seraphim's" above).
+- How a target takes the event (its chance, its resistances) is the event 5's, read where the fight reads it (docs/re/fight.md); not followed further here.
 
 ## The heroes' starting arts
 
