@@ -2804,8 +2804,9 @@ fn spawn(
         );
         mind.hold(placement.dialogue, placement.trader, placement.kept);
         mind.side = placement.side;
+        // The category `0x20`'s, which the original draws under the water too (`0x434070`).
         if minds::still(creature) {
-            entity.insert(Still);
+            entity.insert((Still, models::Sinks));
         }
         bevy::log::debug!(
             "npcs: {} is a {creature} of the flags {word:#x}, {:#x} after its first update, side \
