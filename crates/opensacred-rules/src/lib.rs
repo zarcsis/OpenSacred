@@ -5,7 +5,8 @@
 //! It holds the spawning's rolls ([`spawning`]), the fight's formulas with the hero's levels
 //! ([`fight`]), the ways with the cells in the way ([`ways`]), the creatures' decisions with
 //! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
-//! drops ([`drops`]) and a creature's combat arts with the runes that teach them ([`arts`]).
+//! drops ([`drops`]), a creature's combat arts with the runes that teach them ([`arts`]) and the
+//! spells' cast ([`spells`]).
 
 pub mod arrows;
 pub mod arts;
@@ -13,6 +14,7 @@ pub mod drops;
 pub mod fight;
 pub mod minds;
 pub mod spawning;
+pub mod spells;
 pub mod ways;
 
 /// A global cell of the world: `x` and `y`, 64 to a sector.

@@ -786,7 +786,7 @@ pub fn takes_on(level: u32, hero: u32, (anteil, voll): (f32, f32)) -> bool {
 }
 
 /// A level, or another whole number, as a float.
-fn to_f32(level: u32) -> f32 {
+pub(crate) fn to_f32(level: u32) -> f32 {
     f32::from(u16::try_from(level).unwrap_or(u16::MAX))
 }
 
@@ -850,6 +850,10 @@ pub struct Base {
     /// [`NIGHT_SLOWS`] off its three speeds.
     pub night: bool,
 }
+
+/// The casts' speed `+0x3E` that a creature starts with (seen 120 for the Mage and the
+/// Vampiress by day, #672, #792).
+pub const CAST_SPEED: f32 = 120.0;
 
 /// What the Vampiress's night form takes off the attack speed, `+0x3E` and the pace, after the
 /// skills and before their limits (`0x5796A0` at `0x57CA23`, the creature's `+0x14` bit
@@ -1281,11 +1285,12 @@ fn per_cent([off, steps, most]: [f32; 3], level: u32) -> f64 {
 /// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's and the most health's (10,
 /// `HR…AW`, `HP…VW`), the
 /// defence's again (9, `P…`, with a shield `P…S`), each resistance's and the pace's (11, `R…Ph`,
-/// `R…Fe`, `R…Ma`, `R…Gi`, `R…SP`), and the fist fight's attack and attack speed (24, `FK…AW`,
-/// `FK…SP`).
+/// `R…Fe`, `R…Ma`, `R…Gi`, `R…SP`), the fist fight's attack and attack speed (24, `FK…AW`,
+/// `FK…SP`), and the magic lore's (14, `MK…`).
 #[derive(Clone, Debug, PartialEq)]
 struct Curves {
     damage: [f32; 3],
+    magic: [f32; 3],
     attack: [f32; 3],
     defence: [f32; 3],
     regeneration: [f32; 3],
@@ -1303,6 +1308,7 @@ impl Default for Curves {
     fn default() -> Self {
         Self {
             damage: [12.0, 50.0, 200.0],
+            magic: [12.0, 50.0, 200.0],
             attack: [7.0, 50.0, 125.0],
             defence: [13.0, 50.0, 225.0],
             regeneration: [6.0, 50.0, 150.0],
@@ -1345,6 +1351,7 @@ impl Curves {
         };
         Self {
             damage: triple(["WKoff", "WK_s", "WK_w"], default.damage),
+            magic: triple(["MKoff", "MK_s", "MK_w"], default.magic),
             attack: triple(["WoffAW", "W__sAW", "W__wAW"], default.attack),
             defence: triple(["WoffVW", "W__sVW", "W__wVW"], default.defence),
             regeneration: triple(["HRoffAW", "HR__sAW", "HR__wAW"], default.regeneration),
@@ -1383,6 +1390,16 @@ pub struct Combat {
     /// (`0x4D2310`; docs/re/arts.md, "The Seraphim's bolts"); the items' bonuses of the condition
     /// bits `0x2000` and `0x4000`, which only those damages take, are not read.
     pub multipliers: [f32; KINDS],
+    /// Each kind's multiplier of its spells' damages, the stats' `+0x96` plus `+0xB6` (docs/re/
+    /// fight.md, "An NPC's attack, defence and damage"): 1, the items' bonuses of no condition's
+    /// bit and of the bit 13 and the effects, the attributes' magic part and the magic lore's
+    /// (skill 14) curve over 100 for every kind; not the weapon lore's. The sets' bonuses are not
+    /// read.
+    pub spells: [f32; KINDS],
+    /// Its casts' speed in per cent, the stats' word `+0x3E`, which times 0.01 is the rate of
+    /// its spells' clips (`0x51E110`): [`CAST_SPEED`], quickened by the effect 28 and slowed by
+    /// the effect 30 and the Vampiress's night form as the attack speed is.
+    pub cast: f32,
     /// Its attributes `a0` to `a5` with its items' bonuses (the stats' words `+0x10`…), by which
     /// some arts' values grow ([`Rules::glance_factor`]).
     pub attributes: [f32; 6],
@@ -1606,6 +1623,9 @@ pub fn combat_with(
     let (mut attack, mut defence) = (0.0_f32, 0.0_f32);
     let (mut attack_times, mut defence_times) = (1.0_f32, 1.0_f32);
     let mut item_multipliers = [0.0_f32; KINDS];
+    // The bonuses that only the spells' damages take, of the condition's bit 13 (`+0xB6`,
+    // `0x57A6E0`), after those of the bits 15 and 14.
+    let mut spell_items = [0.0_f32; KINDS];
     let mut speed_bonus = 0.0;
     let mut pace = pace(base.id);
     let mut attribute_bonuses = [0.0_f32; 6];
@@ -1639,6 +1659,11 @@ pub fn combat_with(
                         item_multipliers[kind] += value / 100.0;
                     }
                 }
+                805..=808 if bonus.condition & 0xE000 == 0x2000 => {
+                    if let Some(kind) = kind(805) {
+                        spell_items[kind] += value / 100.0;
+                    }
+                }
                 809 => attack_times = raised(attack_times, value),
                 810 => defence_times = raised(defence_times, value),
                 811 => speed_bonus += value,
@@ -1670,6 +1695,7 @@ pub fn combat_with(
     // The effects (`0x5796A0`, #651), after the items, before the skills. The attack speed is a
     // whole number of the stats by then (`+0x3C`).
     let mut speed = attack_speed(base.id) + speed_bonus;
+    let mut cast = CAST_SPEED;
     let mut speeds_changed = false;
     for effect in effects {
         let kind = |first: u32| usize::try_from(effect.id.checked_sub(first)?).ok();
@@ -1702,12 +1728,16 @@ pub fn combat_with(
             effects::SPEEDS | effects::QUICKENS => {
                 speed = quickened(speed.trunc(), f64::from(effect.value));
                 pace = quickened(pace, f64::from(effect.value));
+                if effect.id == effects::SPEEDS {
+                    cast = quickened(cast, f64::from(effect.value));
+                }
                 speeds_changed = true;
             }
             effects::SLOWS => {
                 let whole = effect.whole as f32;
                 speed = speed.trunc() - whole;
                 pace -= whole;
+                cast -= whole;
                 speeds_changed = true;
             }
             effects::SHIELDS if effect.value > f32::EPSILON => {
@@ -1730,11 +1760,14 @@ pub fn combat_with(
     // The skills' parts of the multipliers.
     let curves = &rules.curves;
     let mut damage_skill = 0.0;
+    let mut magic_lore = 0.0;
     let mut resistance_skill = [0.0; KINDS];
     let mut fist_speed = 0.0;
     for &(skill, at) in skills {
         match skill {
             2 => damage_skill += curve(curves.damage, at) / 100.0,
+            // To every kind of the spells' multipliers (`0x566070` at `0x566479`).
+            14 => magic_lore += curve(curves.magic, at) / 100.0,
             8 => {
                 attack_times = raised(attack_times, curve(curves.attack, at));
                 defence_times = raised(defence_times, curve(curves.defence, at));
@@ -1775,6 +1808,12 @@ pub fn combat_with(
     for (ends, factor) in damage.iter_mut().zip(multipliers) {
         *ends = ends.map(|end| end.max(0.0) * factor * dmg);
     }
+    // The spells' `+0xB6`: their items' bonuses, then the attributes' magic part for every kind
+    // (`0x57B3FE`), then the magic lore's; with `+0x96`, 1 and the other items' bonuses.
+    let magic_part = f * damage_parts[2] / 10.0 / rules.damage_divisors[2];
+    let spells: [f32; KINDS] = std::array::from_fn(|kind| {
+        ((1.0 + item_multipliers[kind]) + (spell_items[kind] + magic_part + magic_lore)).max(0.0)
+    });
     for (kind, value) in resistance.iter_mut().enumerate() {
         let factor =
             1.0 + resistance_skill[kind] + f * b[1] / 10.0 / rules.resistance_divisors[kind];
@@ -1841,6 +1880,8 @@ pub fn combat_with(
         speed: (speed - slows).clamp(100.0, 220.0),
         pace: pace - slows,
         multipliers,
+        spells,
+        cast: cast - slows,
         attributes: a,
     }
 }
@@ -2891,6 +2932,8 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            spells: [1.0; KINDS],
+            cast: CAST_SPEED,
             attributes: [0.0; 6],
         };
         let defender = Combat {
@@ -2956,6 +2999,8 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            spells: [1.0; KINDS],
+            cast: CAST_SPEED,
             attributes: [0.0; 6],
         };
         let defender = Combat {
@@ -3116,6 +3161,8 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            spells: [1.0; KINDS],
+            cast: CAST_SPEED,
             attributes: [0.0; 6],
         };
         let armoured = Combat {
@@ -3207,6 +3254,59 @@ mod tests {
         // The skill 11 at 9 makes up the shortfall.
         let skilled = combat(&seraphim, 1, holding(vec![armour]), &[(11, 9)], &rules);
         assert!(skilled.pace > 129.0, "{}", skilled.pace);
+    }
+
+    #[test]
+    fn the_mages_spells_take_his_magic_part_his_lore_and_his_staffs_fire() {
+        // The Mage of a new game, as the original's driver read him (#672): `+0x96` 1 and
+        // `+0xB6` 0.5273427, 0.92734265, 0.5273427 and 0.5273427, his attributes' magic part
+        // 0.40734267 and his magic lore at level 1 0.12 for every kind, and his staff's bonus 806
+        // of 40 with the condition's bit 13 for the fire; his casts' speed 120.
+        let mage = Base {
+            id: 3,
+            attributes: [16, 15, 20, 14, 30, 10],
+            skills: [14, 12, 0, 0, 0, 0, 0, 0],
+            ..Base::default()
+        };
+        let mut staff = ItemValues {
+            damage: [[0.0; 2], [0.0; 2], [14.0, 16.0], [0.0; 2]],
+            ..ItemValues::default()
+        };
+        staff.bonuses[0] = Bonus {
+            condition: 0x2000,
+            effect: 806,
+            value: 40,
+        };
+        let holds = Holds {
+            weapon: true,
+            items: vec![staff],
+            ..Holds::default()
+        };
+        let rules = Rules::default();
+        let values = combat(&mage, 1, holds, &skills(&mage, 1, true), &rules);
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        let spells = [1.527_342_7, 1.927_342_7, 1.527_342_7, 1.527_342_7];
+        assert!(
+            values.spells.iter().zip(spells).all(|(&a, b)| close(a, b)),
+            "{:?}",
+            values.spells
+        );
+        // The weapon's multipliers take neither the lore nor the bonus of the bit 13.
+        assert!(
+            close(values.multipliers[1], 1.244_405_6),
+            "{:?}",
+            values.multipliers
+        );
+        assert_eq!(values.cast, CAST_SPEED);
+        // The fireball's 30 fire and 15 magic at level 1 are the 57 and 22 that the original's
+        // goblin took before its resistances.
+        assert_eq!(
+            (
+                (30.0 * values.spells[1]).trunc(),
+                (15.0 * values.spells[2]).trunc()
+            ),
+            (57.0, 22.0)
+        );
     }
 
     #[test]
@@ -3492,6 +3592,8 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; KINDS],
+            spells: [1.0; KINDS],
+            cast: CAST_SPEED,
             attributes: [0.0; 6],
         };
         let defender = Combat {

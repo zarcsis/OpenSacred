@@ -266,6 +266,10 @@ pub enum Style {
     /// ([`hurl_speed`], [`Flight`]), held ([`hurl_hold`]) and struck ([`hurl_factor`]); as it
     /// flies it knocks over the creatures it meets ([`bowled`]).
     Hurl,
+    /// A spell of the first table cast with the clip of its slot (`0x51D150`, `0x522030`;
+    /// [`crate::spells`]): it acts once the share of its clip still to play falls below its own
+    /// ([`crate::spells::share`]).
+    Cast(u16),
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -523,6 +527,9 @@ pub fn refused_while(art: u16) -> &'static [u16] {
 /// the reach; **hypothesis** for the other classes' `Rundum`, `Hardhit` and `Kick`), and the
 /// boons ([`Style::Boon`]); none for another.
 pub fn style(art: u16) -> Option<Style> {
+    if crate::spells::made(art) {
+        return Some(Style::Cast(crate::spells::slot(art)));
+    }
     if BOONS.contains(&art) {
         return Some(Style::Boon);
     }
@@ -771,6 +778,14 @@ const SERAPHIMS_ATTACKE: f32 = 0.73;
 /// classes' kicks and the Mage, not read. The Vampiress by night (7) plays her claws' column
 /// (**hypothesis**: her night form is the one of the flag `+0x14` bit `0x2000`).
 pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
+    // A spell's clip is its slot's whatever the class and the hand, at the rate of the casts'
+    // speed (`0x51E110`).
+    if let Style::Cast(slot) = style {
+        return Some(ArtAction {
+            fixed: true,
+            ..slot_of(slot)
+        });
+    }
     if matches!(class, 7 | 12) {
         return None;
     }
