@@ -205,9 +205,9 @@ impl Default for Minds {
     }
 }
 
-/// A step to `target` on level `level` at `speed`.
+/// A step to `target` on level `level` at `speed`, the idle action's, with the AI's state 0.
 fn walk(target: Vec3, speed: f32, way: &InTheWay) -> Walk {
-    Walk::to(target, way.level, speed)
+    Walk::to(target, way.level, speed).idle()
 }
 
 /// The sector of world point `p`.
@@ -1078,27 +1078,29 @@ fn danger(here: Vec3, hostiles: &[Vec3], rng: &mut Rng) -> Option<Vec3> {
     Some(point(runs_from(spot(here), spot(threat), rng), here.y))
 }
 
-/// Sends the creatures not hostile that walk within 91 of the hero, at its look, to a point
-/// within 200 of themselves that they reach, the first of 10 tries
-/// (`opensacred_rules::minds::Mind::steps_aside`, `0x547070`).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
-)]
+/// Sends the creatures not hostile that walk under an order of their own within 91 of the hero,
+/// at its look, to a point within 200 of themselves that they reach, the first of 10 tries
+/// (`opensacred_rules::minds::Mind::steps_aside`, `0x547070`): only while the hero's AI is in its
+/// state 0, not attacking, and only a creature whose AI is not, whose walk is not one of the AI's
+/// state 0 (`Walk::is_idle`). A script's walk, the original's `NPC_Goto`, stops at the hero
+/// instead, whom the step's test does not let it pass (#977).
 fn aside(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
     nearest: Res<Nearest>,
     heights: Res<Heights>,
     crowd: Res<Crowd>,
-    hero: Query<&Transform, With<Body>>,
-    creatures: Query<(Entity, &Transform, &InTheWay, &Mind), (With<Walk>, Without<Body>)>,
+    hero: Query<(&Transform, Has<crate::attack::Attack>), With<Body>>,
+    creatures: Query<(Entity, &Transform, &InTheWay, &Mind, &Walk), Without<Body>>,
 ) {
-    let (Some(hero), true) = (hero.iter().next(), nearest.looked) else {
+    let (Some((hero, false)), true) = (hero.iter().next(), nearest.looked) else {
         return;
     };
     let hero = hero.translation;
-    for (entity, transform, way, mind) in &creatures {
+    for (entity, transform, way, mind, walk) in &creatures {
+        if walk.is_idle() {
+            continue;
+        }
         let here = transform.translation;
         let from = (paths::cell_of(here.x, here.z), (way.level, false));
         let reaches = |to: Spot| {
@@ -1697,7 +1699,8 @@ fn behave(
                     target.x,
                     target.z
                 );
-                walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                // The standing action's (`0x544890`), with the AI's state 0.
+                walks.push((entity, Walk::to(target, way.level, mind.speed).idle()));
             }
             continue;
         }
