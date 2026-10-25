@@ -131,6 +131,7 @@ pub fn clips(
         Style::Summon,
         Style::Raise,
         Style::MasterBite,
+        Style::Bats,
         Style::Kiss,
     ]
     .into_iter()
@@ -1023,6 +1024,29 @@ fn make(
                     info!(
                         "making: {} dominates {} for {seconds} s",
                         making.art, playing.target
+                    );
+                }
+                end(&mut commands);
+            }
+            Style::Bats => {
+                // Below 0.87 left of its clip a bat of its type beside her as her follower, sent at
+                // its target, her bats of that type beyond its factor dismissed; its regeneration
+                // starts; then it ends (`0x50E6C0`).
+                if !due(1.0 - arts::BATS, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                arts.start(making.art);
+                if let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) {
+                    crate::followers::bats(
+                        &mut commands,
+                        hero,
+                        playing.target,
+                        arts::bat(making.art),
+                        playing.level,
+                        arts::bats_most(record, playing.level),
                     );
                 }
                 end(&mut commands);

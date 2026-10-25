@@ -220,6 +220,11 @@ pub enum Style {
     /// what is left of its clip is below [`MASTER_BITES`] its target, if [`master_bites`] takes
     /// it, takes the effect 14, which turns its sides over, for [`master_bite_seconds`] (seen).
     MasterBite,
+    /// The Vampiress's bats, 1035 (`GUI_MOVE_BAT_ATTACK`), 1036 (`GUI_MOVE_BAT_CONFUSE`) and 1037
+    /// (`GUI_MOVE_BAT_DEFEND`), by night, of the launch type 0 (`0x50E6C0`): once what is left of
+    /// its clip is below [`BATS`] a bat of its type ([`bat`]) beside her as her follower, sent at
+    /// its target, her bats of that type beyond [`bats_most`] dismissed.
+    Bats,
     /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: its curse
     /// lands on its target at [`KISS_LANDS`] of its clip, its attack's and defence's multipliers
     /// lowered by [`curse`] for [`CURSE_SECONDS`] (the effects 1 and 2; seen).
@@ -643,6 +648,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1031 {
         return Some(Style::MasterBite);
     }
+    if (1035..=1037).contains(&art) {
+        return Some(Style::Bats);
+    }
     if art == 1033 {
         return Some(Style::Kiss);
     }
@@ -954,6 +962,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (7, Style::Raise) => Some(plain(150)),
         // Her master's bite by night: the slot 154 at the rate 1.0 (seen).
         (7, Style::MasterBite) => Some(plain(154)),
+        // Her bats by night: the slot 145 at the blend 0.5 and the rate 1.0 (seen, 1036).
+        (7, Style::Bats) => Some(plain(145)),
         // Her death's kiss by night: the slot 148 at the rate 1.0 (seen).
         (7, Style::Kiss) => Some(plain(148)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
@@ -1453,6 +1463,37 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
     } else {
         narrow(seconds)
     }
+}
+
+/// What is left of its clip, as a part of it, below which the bats come (`0x50E6C0`), the most
+/// level they come at for each level of the art, and their flags word's bits of a critter that
+/// passes through the creatures (`0x1200000`).
+pub const BATS: f32 = 0.87;
+const BAT_LEVELS: u32 = 5;
+pub const BATS_FLAGS: u32 = 0x120_0000;
+
+/// The type of the bat that `art` calls (`0x50E6C0`): 594 for 1035, 595 for 1036, 596 for 1037.
+pub fn bat(art: u16) -> u32 {
+    match art {
+        1035 => 594,
+        1036 => 595,
+        _ => 596,
+    }
+}
+
+/// How many bats of its type the art `record` keeps at the level in play `level` (`0x50E6C0`):
+/// its factor, `[+0x50] + [+0x54]·L`, at least 1 (5·L for 1035, 2 for 1036 and 1037).
+pub fn bats_most(record: &WeaponArt, level: u32) -> u32 {
+    u32::try_from(whole_units(f64::from(factor(record, level))))
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// The level of a bat that the Vampiress of level `hero` calls at the level in play `level` in a
+/// sector whose range's middle is `middle` (`sdk_HIRE`, `0x564D60`): the greater of hers and the
+/// middle, at most `5·L`.
+pub fn bat_level(hero: u32, middle: u32, level: u32) -> u32 {
+    hero.max(middle).min(BAT_LEVELS * level).max(1)
 }
 
 /// What is left of its clip, as a part of it, below which the master's bite takes its target
