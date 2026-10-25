@@ -1,0 +1,19 @@
+[package]
+name = "opensacred-scripts"
+description = "The runtime of the scripts translated into Luau: a sandbox, an interrupt, the files loaded as first called"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+opensacred-data.workspace = true
+# Luau, built from mlua's vendored sources: only this crate and those that use it need a C++
+# compiler.
+mlua.workspace = true
+ron.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
