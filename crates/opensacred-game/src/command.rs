@@ -453,7 +453,7 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         return Err("the hero is still making an art".into());
     }
     // A boon and the changeling are made on the hero, as is an art on a friend without one (the
-    // launch type 2).
+    // launch type 2) and a spell on itself (5).
     let launch = crate::making::launch(world.resource::<crate::arts::HeroArts>(), art);
     if matches!(
         opensacred_rules::arts::style(art),
@@ -464,7 +464,7 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
                 | opensacred_rules::arts::Style::Glance
                 | opensacred_rules::arts::Style::Changeling
         )
-    ) || launch == Some(2)
+    ) || matches!(launch, Some(2 | 5))
     {
         world
             .entity_mut(hero)
