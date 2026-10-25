@@ -280,8 +280,70 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 
 Not read: how the log window shows a quest as completed or failed, by its lines or by its state; what `0x39` does to a follower; when an object's `0x41` function runs (**hypothesis**: as it is picked up); and none of these was seen in the running original.
 
+### The NPCs that later events remove
+
+Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code and on the scripts unless marked otherwise.
+
+- `SetGroupState` (73, `0x49E760`; the walker's case at `0x475ADB`) with `0x51` posts each creature of the group that its `0x11` names (`0x4C4E40`) the event `0xC` and destroys it (`sdk_DESTROY`) where `0x549080` holds (not read); `DelNPC` (55, `0x497F80`) destroys the creature that its `0x01` names and takes the name out.
+  Whether either runs the creature's death functions (`0x05`) is not read.
+- `RegionChange` (116, `0x4ABB60`, applied by `0x4ABFE0`) takes pairs of types (`0x02`, from and to) and a number 0 to 49 (`0x69`), which it compares with the byte `+0xD7` of the creature's sector (`0x622D50`), the area (keyx `+0x2C0`, docs/re/sound.md's **hypothesis**).
+  It skips an object of another area, a trader (`+0x200` bits `0x4007000`), or one of `+0x2B7` bit `0x08`, which `0x6B` above 0 sets; the others take the pair's second type, the record's flags word (keeping `0x2000`), and with `0x08` a hostile side (2, or 14 where `+0x1F0` is 7) or with `0x0E` a peaceful one (3, or 7 with the guards' mode `0x4000`), their items of the pairs' types swapped too.
+  It reads no `0x6B` of its own, so the `6B:0` of quest 55's three records does nothing.
+- **301 (Orcs!)**: `Region3Init` creates its farmer 17033 and his daughter 17032 with four cows in the group 3012, in area 3, whose dialogues hold the win once its orcs (the group 301) are dead.
+  `Init55`, the start of quest 55 (the button of `Dialog:DlgPrinzValor55`), removes the groups 3012 and 301 with `SetGroupState` `0x51`, testing nothing of 301: an open 301 whose orcs are beaten but whose farmers are not yet spoken to stays entered and cannot be won; with its orcs alive its timer still loses it (#946).
+  It removes quest 302's cattle (the group 302) and robbers (3021) too, but not its giver 17029, and 302's ending runs through its death functions `tot302` and `tot2_302`, so an open 302 stays entered unless the removal runs them (**hypothesis**, not read).
+  That the community's "start of act 2" means quest 55's start is a **hypothesis**.
+- **501 (Nucquam Astralis)**: `Region5Init` creates its Lady 17070 and Lord 17071 in the group 501, in area 11, through whom both its wins go.
+  `NimmtDaemonenhorn`, the end of quest 55 (`Dialog:Cinematic2`), removes the groups 501, 551 and 50013, testing nothing of 501; its ghost 17069 stays, but offers the win only once the group 501 is dead (`tot501`), so an open 501 cannot be won after quest 55 unless the removal runs `tot501` (#947; not read).
+- **1702 (Robber Baron)**: `Region17Init` creates its target 17215 hostile (creature 296, with the death function `tot1702`, which drops the item 6065 that the win needs), in area 31.
+  `BadToGood`, which only quest 72's `ScriptAnimShareef` calls (The Forge of the Ancestors), has a `RegionChange` of area 31 with the pair (296, 297) and `0x0E`, which makes him a creature 297 of the peaceful side, testing nothing of 1702, so that the item can no longer be won by fighting him (#948).
+  This holds where `Region17Init` ran before the forge (when a region's `Init` runs is not read); of the named `CreateNPC`s of the Seraphim's tree he is the only quest target of area 31 so changed, and `BadToGood` makes the bounty targets 18708 and 18712 of `Kopfgeldauswahl` peaceful too (that it blocks an open bounty is a **hypothesis**).
+- **670 (Glubba-Jar)**: `Init81` takes the dialogue of Glubba 18308 away and his health to 0 only where bit 1 of `670` is clear, which only `QIS_OnEnter670` sets, so he dies only where 670 was never entered: the data leaves no quest taken unfinishable, and the report fits a quest declined or never offered (**hypothesis**).
+  But `QIS_OnEnter670` gives him the death function `lose670`, which is empty, so his death as a follower leaves 670 entered with no way to finish (**hypothesis**: that `0x6B` 0 lets him die), and `QIS_OnLose670` writes the completion line on a loss (#950).
+- **1202 (Magical Thistle)**: `ok1_602`, the button of quest 602's `Dialog:ziel602` once its knight 17136 is beaten, walks 17136 once, and then names 17163 in its three `NPC_Goto`s, its `Partikel` and its call of `ritterweg_602`, which deletes 17163 (`DelNPC`).
+  17163 is quest 1202's target (`Region13Init`, in area 22, some 1,470 cells from the knight), whose dialogue holds 1202's win and then a trade, and nothing in 602 tests 1202: beating the knight before 1202's end deletes its target, and the quest stays entered, neither won nor lost, once its giver has deleted its timer; after its end, the trader is gone (#949).
+  That 17163 is 17136 with two digits swapped is a **hypothesis**: the function's name and its first `NPC_Goto`, which names the knight, support it.
+- The functions above are in the 9 trees of the Sacred campaign (`Init55`, `NimmtDaemonenhorn`, `ScriptAnimShareef`, `Init81`) and the side quests in 11 (those and `netscript`, `addon-netscript`).
+- The group number 5001 is named by quest 501's 13 ghosts, quest 5001's camp and quest 5002's test, attack and removal, so 501's ghosts would count in 5002's test and fall to its removal if the groups' numbers are global (**hypothesis**, `0x4C4E40` not read); and `QIS_OnEnter501` creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
+
+Not read: when a region's `Init` runs, whether a removal or a `DelNPC` runs the death functions, what `0x549080` and the event `0xC` do; none of this was seen in the running original.
+
+### Order traps
+
+Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below; the community's guide read once for the traps' details, nothing taken from it); **confirmed** by code and on the scripts unless marked otherwise.
+
+- `SetObjState` (2, `0x48AE90`) resolves its `0x01` name through the scripts' map of names (`+0x7668`, `0x464BD0`), which answers the id kept for the name without testing that its object still exists, and else scans the objects by their keys.
+  For an object found, `0x07` clears bit `0x8000` of its trigger's state (the object's `+0x34`, `0x634150`, the word at `+0x0A`) and `0x06` sets it; `0x0F` and `0x10` set and clear bit 0.
+  `CreateTrigger`'s `0x2C` (`0x496520`) clears bit 0 and sets `0x8000`, and `0x2D` clears `0x8000`: a trigger made with `0x2C` is closed and locked.
+- On a name that the map does not hold, `SetObjState` keeps the state in a list by name, the first kept and a later one dropped; on a name whose id has no object any more it does nothing, neither applying nor keeping the state.
+  That `CreateObj` applies a kept state as it makes the object is a **hypothesis**, which the quests' usual course requires.
+- `CreateObj` (`0x485C10`) sets bit `0x80000000` of an object's `+0x14` while an `Enter` runs (the interpreter's byte `+0x12`), and the sector's exit (`0x4954C0`) destroys such objects (`sdk_DESTROY` from `0x495E7B`), whose cleanup (`0x463A70`) erases the key from the map of names only where `+0x14` bits `0x90000000` are clear (`0x463AE4`).
+  So a door that an `Enter` made keeps its name, mapped to an id that no longer exists, once its sector has left the 3 × 3 (**hypothesis**: the exit's own calls on the map by the key, from `0x495C7D`, not read).
+- `sdk_ENGINE_TP` (`0x54D9D0`) does not place a creature of `+0x14` bit 2 whose slot 18 (`+0x1EC`, `0x556F50`) holds a horse (`0x4266F0`) or the type 1879: it teleports that instead and answers 1, whatever the horse's teleport answered (`0x54DBAC` to `0x54DC34`).
+  The horse's teleport answers 0 and moves nothing into a dungeon's sector (`0x63D1C0`, `0x622E20`), else the horse brings its rider; `Teleport` (46, `0x491D40`) tries other cells only on an answer of 0, so a mounted hero sent into a dungeon stays where he is, and nothing is logged.
+  That `+0x14` bit 2 marks the players' heroes is a **hypothesis**; slot 18 holding the mount is **confirmed**, the dismount `0x551E40` emptying it.
+
+The quests:
+
+- **2411 (Scroll of Mhic'Dar-Mon)**: its door `R24NQ11_Tür` (item 5700) is made by `Sector38094Enter` on the trigger 519, which `Sector38094Init` makes locked, and unlocked by name by `QIS_OnEnter2411`, at the giver in sector 54,56, and by `OMO-1Goodie_02_rein`, the cave's entrance, where bit 1 of `2411` is set and bit 2 clear; the scroll behind it is made by `QIS_OnEnter2411` whatever the order.
+  The quest taken first, its unlocks meet a name never seen and are kept for the door that the next `Enter` makes; the cave entered first, the name is kept for a door already destroyed, both unlocks are lost, and the next door is locked (#952; a **hypothesis** where the door's `Enter` runs after the records of the function that teleports, as the 3 × 3 is walked when the view's centre changes, docs/re/spawning.md).
+- **2201 (Spider Monster of Moorbrook)**: the same pattern: its door `R22_NQ1_Tür1` (item 5707) is made by `Sector94054Enter` in the dungeon R22.1b on the trigger 1099 that `Sector94054Init` locks, and its only unlock is the bit-11 branch of `postchange2201`, as the item 6079 is taken from the giver's corpse, on the path that answers the target's dialogue with `change2201`; the path of `nochange2201` is won at the giver without the dungeon, as the community reports declining to avoid the trap (#952).
+- In the Seraphim's tree the scripts unlock by name 38 objects that an `Enter` makes; each meets the same reading where its unlock can run after its sector was entered and left, and only 2411 and 2201 are reported.
+- **2002 (Panem et Circensis)**: the start script sets bit 0 of `2002`, and the building's exit `OMO-1tpraus20.2c` runs `monster2002` where bit 30 is clear and bit 0 set, then sets bit 30 and clears bit 0, testing nothing of the quest.
+  Before the quest is taken `2002a` is missing, so `monster2_2002` makes no creature, and Vladimir's `Dialog:auftrag2002` then holds no branch, bits 0 to 4 all clear; only `ja2002` (bit 2) and `neu2002` (quest 5001's dialogue, where bit 1 is set) set bit 0 again, so the quest can never be taken (#953; not seen in the running original).
+- **10254 (Abducted)**: `QIS_OnSetUp10254` makes the note (item 4098) with the function `ot_Brief_10254` and no `0x61` or `0x8E`, unlike its sibling 10257's note; the function tests nothing, so each run makes the giver anew with its start dialogue, and accepting makes the pirates.
+  The giver's death function loses the quest only once it is entered (`LoseQuest` needs the flag 4), so a giver killed before is replaced by picking the note up again, which the community reports as the way out rather than a trap; the function running at each pickup is **community-reported**, and a second giver of the same name while the first lives a **hypothesis**.
+- **1404 (Rescue of a Noble Lady)**: `QIS_OnEnter1404` gives Zaphod 17190 the death function `tot1404`, which makes the key 17193 (item 6061) at `CPOS:res:17190`, and its `take1404` unlocks the two doors of `Sector38030Enter` in the same sector, so 2411's pattern does not apply; the data does not depend on where he dies.
+  That the key lands on a cell or floor out of reach, or is not made, where the corpse lies on the veranda is a **hypothesis** about `CreateObj`'s placement at a creature's cell; the original is to be checked.
+- **5003 (H'Runga'zz)**: `preritual5003` sets the trigger `omo_ritualstart5003` and takes the shaman's dialogue away; `OMO5003omo_ritualstart5003` deletes the trigger, teleports `HERO` to `pos_zielwaldgott5003` in sector 15,85, a dungeon by `world.ron`, makes the god there and writes the log's line.
+  A mounted hero is not moved, yet the teleport answers success, the trigger is gone, and only the god's death function gives the shaman's dialogue back, so the quest is stuck (#954; that the trigger fires for a mounted hero is **community-reported**).
+  `Dialog:dlg_sucher5003`'s decline button names `ablehnen5000`, which no tree defines, while `ablehnen5003` exists and is named by nothing, so a declined seeker keeps bit 2 of `5003`, and a quest later taken from the shaman takes the seeker's branch (#955; that a button naming a missing function does nothing is a **hypothesis**).
+- 2411, 2201, 2002 and 1404 are the same in the 11 trees that hold them; 5003, 10254 and the sectors' functions above in all 20.
+
+To check in the original: 2411's cave entered before the quest and the trigger 519's state; the same for 2201's dungeon before `change2201`; Zaphod killed on the veranda and his key's cell and layer; 5003's altar stepped on mounted.
+
 Not read: whether a save keeps the date and the timers, the drift seen in the running original, and a test by which a repaired drop could know that its partner quest is open (these quests set no bits of their own).
-The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944).
+The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944, #946 to #955).
 
 ## `SetNPCState`
 
