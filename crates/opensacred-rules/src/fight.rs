@@ -1881,6 +1881,13 @@ pub fn combat_with(
     }
     // The night form's speeds, after the skills (`0x57CA23`).
     let slows = if base.night { NIGHT_SLOWS } else { 0.0 };
+    // The Dwarf burrowed stands: his pace 0 at every update (`0x56377E`).
+    if effects
+        .iter()
+        .any(|effect| effect.id == crate::spells::BURROWED)
+    {
+        pace = slows;
+    }
     Combat {
         attack: multiplied(attack, attack_times),
         defence: multiplied(defence, defence_times),

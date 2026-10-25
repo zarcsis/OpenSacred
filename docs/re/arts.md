@@ -1127,6 +1127,11 @@ None gives the effect `0x22`.
 - **58 (`gui_spells_zwergenpanzer`), the dwarven armour**, launch type 2, `v₀` 44 + L at most 120 (`0x52869E`, its object 1021 `FX_PANZER`): the effect 35 keyed by 58, and the action 6: the fire and poison resistances' of 13 + 22·L for `v₀` seconds.
 - **59 (`gui_spells_zwergenstahl`), the dwarven steel**, launch type 2, `v₀` 29 + L at most 90 (`0x52888F`, its object 1022): for `v₀` seconds keyed by 59 the effect 56 of 100 + 15·L, under which the defender's physical resistance is divided by `(100 + 15·L)/100` in his strikes (`0x56C723`), and the effects 1 of `(15 + 10·L)/100` and 2 of 0.
 
+`opensacred-game` makes the five (#889, `opensacred_rules::spells`, `spells`): the greed's effect 42, by which the recomputation divides his `D` and his kills' drops take the record's value 1 at its level for their `s`; the mines' sign, which lays a mine once a second where none lies within 50, each going off as described, its damages by his weapons' multipliers; the burrowing's effect 58, under which his pace is 0 and he stands, with its action 6; the armour's action 6 and effect 35; the steel's effects, the defender's physical resistance in his strikes divided by the effect 56's value over 100.
+The Dwarf of a new game took `A` from 25.5 to 31 under the steel, his fire and poison resistances from 1.8 and 1.3 to 43.5 under the armour, his `D` from 25.2 to 22 under the greed and to 35 under the burrowing; two mines laid as he walked went off under a goblin of level 1 and killed it.
+The sign's effect 35 and the mines' sight are left out, a dark disc standing in for a mine and an orange ball for its blast.
+The hero's walk now takes its pace from its effects too (the quickening's, the burrowing's).
+
 #### The Daemon's spells
 
 Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
