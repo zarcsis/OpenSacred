@@ -62,6 +62,38 @@ pub fn summoned(kind: u32) -> u32 {
     }
 }
 
+/// The Wood Elf's changeling (`MOUSE`, `0x525C8C`): the creatures it changes stand within a
+/// squared 32,000 of her (`0x600730`), the first 20; each turns into one of 14 animals at random
+/// (`0x795E20`): a rabbit, three pigs, three deer, a sheep and six chickens.
+pub const CHANGELING: u16 = 36;
+pub const CHANGES_WITHIN: f32 = 178.885;
+pub const CHANGES_MOST: usize = 20;
+pub const ANIMALS: [u32; 14] = [
+    516, 520, 521, 522, 531, 532, 533, 544, 560, 561, 562, 563, 565, 566,
+];
+/// A boss's level's factor in the changeling's test (`0x795E20`).
+const CHANGES_BOSS: f32 = 1.3;
+
+/// Whether the changeling at the level `level` of the Wood Elf of level `hero` changes a
+/// creature of `Creature.pak` class `class`, of a big type or not, of the level `creature`, a
+/// boss or not (`0x525C8C`, `0x795E20`): of no big type nor the class 10, its level, a boss's
+/// times 1.3, below `0.4·l + 5·L`.
+pub fn changes(class: u8, big: bool, creature: u32, boss: bool, hero: u32, level: u32) -> bool {
+    let creature = if boss {
+        to_f32(creature) * CHANGES_BOSS
+    } else {
+        to_f32(creature)
+    };
+    class != 10 && !big && creature < 0.4 * to_f32(hero) + 5.0 * to_f32(level)
+}
+
+/// How long the changeling of `spell` at the level `level` keeps a creature changed, a boss or
+/// not (`0x795E20`): `v₀` seconds, a third for a boss.
+pub fn changed_seconds(spell: &Spell, level: u32, boss: bool) -> f32 {
+    let seconds = to_f32(value(spell, 0, level));
+    if boss { seconds / 3.0 } else { seconds }
+}
+
 /// The Wood Elf's spells: the speed, the bubble, the thorns, the plant cage, the lost souls and
 /// the plants' healing.
 pub const SPEED: u16 = 37;
@@ -356,7 +388,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 47] = [
+pub const MADE: [u16; 48] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -369,6 +401,7 @@ pub const MADE: [u16; 47] = [
     FROST_RING,
     BANISHING,
     SUMMON,
+    CHANGELING,
     SPEED,
     BUBBLE,
     THORNS,
@@ -1175,6 +1208,21 @@ mod tests {
             [140.0, 0.0]
         );
         assert_eq!(teleport([5.0, 5.0], [5.0, 5.0], 90, open, open), [5.0, 5.0]);
+    }
+
+    #[test]
+    fn the_changeling_changes_the_weaker_creatures_for_its_seconds() {
+        // GOG 2.28's 36: v₀ 14 + L at most 30.
+        let changeling = record(CHANGELING, &[], [14, 1], 30);
+        assert_eq!(changed_seconds(&changeling, 1, false), 15.0);
+        assert_eq!(changed_seconds(&changeling, 1, true), 5.0);
+        assert_eq!(changed_seconds(&changeling, 40, false), 30.0);
+        assert!(changes(2, false, 5, false, 1, 1));
+        assert!(!changes(2, false, 6, false, 1, 1));
+        assert!(!changes(2, false, 5, true, 1, 1));
+        assert!(!changes(2, true, 1, false, 1, 1));
+        assert!(!changes(10, false, 1, false, 1, 1));
+        assert_eq!(ANIMALS.len(), 14);
     }
 
     #[test]

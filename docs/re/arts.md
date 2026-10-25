@@ -1148,7 +1148,10 @@ Each acts at its share of its clip ("The spells' cast"): 3 and 42 at 0.9, 36 at 
 - the lost souls, homing as the hell disk does at 150 a second, each striking the first it touches within 20 and its size once a second for `v₁` seconds, her effect `0x22` for as long;
 - the plants' healing, as the healing's.
 
-The changeling (36), which needs the creature's model changed, is not made; nor the souls' turning at 3 radians a second, which home at once.
+The changeling (36) changes the first 20 hostile creatures within about 179 of her that it may change, the nearest first, each into one of the 14 animals at random for `v₀` seconds, a third for a boss (#888, `opensacred_rules::spells::changes`, `changed_seconds`, `ANIMALS`; `spells::Changed`, `spells::Changeling`): the creature is hidden, its mind and its place in the way kept, and an animal of its type's own behaviour, peaceful, of the creature's level and health stands where it stood; as its time goes the creature stands again where the animal stands, with the animal's health, and the animal goes; one whose animal dies dies there.
+A new creature of the animal's type stands in for the creature, rather than the creature's own model changed, and its items, which the original destroys, stay; the puff 845 and the sample are left out.
+In the game the changeling of level 1 changed three goblin warriors of level 1 into a chicken, a pig and a deer for 15 s, which strolled, and changed them back, hostile again, where the animals stood.
+The souls' turning at 3 radians a second is not followed: they home at once.
 The summoning (3) makes her unicorn at the order's point 1.5 s after its act, of the level `v₀`, at most 250, as her follower (#895, `followers`; docs/re/ai.md, "Followers").
 
 #### The Dwarf's spells
