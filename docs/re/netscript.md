@@ -277,6 +277,7 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 - **2203 (Pure Water)**: `Region22Init` creates its six objects (item 6081, `0x41` `obj2203`) and its hostile target 17260 (`0x05` `tot2203`).
   `obj2203` counts the variable `2303a` whatever the quest's state, setting bit 3 of `2203a` at a count of 6, or bit 3 of `2203`, the win, where bit 3 of `2203b` is set; `tot2203` tests bit 3 of `2203a` first, which sets the win, ahead of the branch that triggers the quest where the target is beaten before it is taken.
   So with the objects taken before the quest and the target killed after them, the giver offers the win with the quest never entered: its `QuestBook` lines go nowhere, `ExitQuest` does nothing, and `QIS_OnExit2203` never runs (#936; that the objects can be taken first is unconditioned in the data, not seen in play).
+  Repaired: the branch enters the quest first (docs/decisions/2026-10-25-quest-ends.md).
 - The count `2303a` is also set by `Dialog:ziel2303` (bit 2), a dialogue of R23NQ03, which has no quest file, once: the same branch sets bit 2 of `2303`, which sends the dialogue's next showing elsewhere.
   `SetVarBit` ORs the bit in ("Variables and groups"), so with k of the six objects taken as it runs, the count becomes 4 or 5 for k = 0 or 1 and `obj2203`'s `== 6` holds at the second object; 6 or 7 for k = 2 or 3, with no test run, so that the quest cannot be won; and nothing changes for k = 4 to 6 (#943).
   Nothing reads that bit: the five records of `2303a` in each tree that holds the quest are the start script's `SetVar 0`, `obj2203`'s `IncVar` and two tests, and this `SetVarBit`.
@@ -286,20 +287,26 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 
 - **1303 (Goods Messenger)**: `zeit1303`, set for 4,320 minutes by `QIS_OnEnter1303`, writes the failure line and then `NQ_Log_Qend`, the generic completion line, and sets bit 3, on which the giver's branch writes `NQ_Log_Qfail` and loses the quest.
   The target 17177 keeps its dialogue `ziel1303`, which tests nothing: after the failure it still writes `NQ_Log_Qend`, and its button `exit1303` gives the reward and exits the quest that the timer did not lose (#937).
+  Repaired: the timer writes no completion line and takes the target's dialogue away (docs/decisions/2026-10-25-quest-log-records.md).
 - **7619 (Death to the Dead)**: `QIS_OnEnter7619` hires its follower 19545 and gives him the death function `od_threepwood_7619`, which writes the failure line, shows the failure and loses the quest, and which nothing takes away.
   `od_7619` runs at each death of the group 761901 and, the whole group dead, shows the completion while the quest stays open until the follower's button `btn_ok_threepwood_7619_c`: his death between the two loses the quest after the completion, and after the button writes the failure line after the win, `LoseQuest` doing nothing to the finished quest (#938; his death as a follower being likely is a **hypothesis**, what `0x39` does to a follower not read).
+  Repaired: the group's death gives him a death function with no records (docs/decisions/2026-10-25-quest-ends.md).
   The same in the 10 Underworld trees and `bin/NetScript`.
 - **5005 (Pony Express)**: at the last leg the mage 17277 takes the dialogue `dlg_zwischenpe`, whose branch on bit 5 runs `exitpe`; `losepe`, which `timepe` starts 5 minutes after a leg's time runs out, writes the failure lines, loses the quest and removes the stations 17763 to 17766, but does not give the mage his dialogue back, which `exitpe` does (`NPC_Dialog_Magician`).
   So after a failure on the last leg the mage still offers `exitpe`: the win line, `NQ_Log_Qend` and the reward, `ExitQuest` doing nothing to the lost quest (#939).
+  Repaired: `losepe` gives the mage his dialogue back (docs/decisions/2026-10-25-quest-ends.md).
   The same in all 20 trees.
 - **10255 (Arachnophobia)**: each of its seven spider areas spawns a spider and calls `LoseQuest_10255`, which writes the line `DQ_10255_LOG_LOSE2` and gives the giver the dialogue `dlg_10255_Lost`, but has no `LoseQuest`, so the quest stays entered; its restart (`btn_accept_10255_REstart`) and its win (`btn_ok_10255_sieg`, which exits it) write no line.
   So after one failure the log's last line stays the failure line, even once the quest is won (#940; that the report means this line is a **hypothesis**); under its siblings' names (`DQ_<n>_LOG_SIEG`, as 10258 and 10261 write) the file has no line of its win or restart.
+  Repaired: the restart writes the quest's task again (docs/decisions/2026-10-25-quest-log-records.md).
   The same in all 20 trees.
 - **1401 (Ancarian Snow)**: `QIS_OnEnter1401` sets `zeit1401` (the id 1401) for 1,440 minutes, whose one record writes `NQ_Log_Qend`, and only `OMO1401tgilde1401` deletes it: the trigger `tgilde1401` with `0x40` naming 17180, the hero entering the area with him among its followers.
   So a day after the start without that, the log says the quest is completed while it stays open, with no bit, reward or `ExitQuest`; the follower's death (`tot1401`) writes the failure line and leaves the timer running (#941).
+  Repaired: the timer writes nothing (docs/decisions/2026-10-25-quest-log-records.md).
   `tot1401`'s `SetTimer` (`hinterhalt1401`) carries two `0x0B`s, 1401 and 4320, and no `0x38`: the id 4320 with a time never set, where 4320 meant as the time, which would have replaced `zeit1401` at his death, is a **hypothesis**.
   The same in the 11 trees.
 - **1001 (Captain Pigface)**: `QIS_OnEnter1001` writes `R10NQ01_Log_Qziel01`, the line of the kill, and points the compass at the target 17041 where bit 20 of `1001` is clear (`0x4A`), as it is while the target's item 6046 is not taken (`take1001` sets it): a quest taken the usual way logs the kill at once while the target lives, and one triggered by the item's taking gets no line of the kill (#942).
+  Repaired: the line is written in the other branch (docs/decisions/2026-10-25-quest-log-records.md).
   The same in the 11 trees.
 - In the 11 trees, quest 1401's soldier 17181 names the death function `attack1401`, which no tree defines, while `attacke1401` is defined and named by nothing; the 13 smugglers of `Region13Init` (the groups 14011 and 14012) name `0x60` `schmugler1402`, while the function is `schmuggler1402` (#944).
   Repaired: the records name the defined functions (docs/decisions/2026-10-25-script-names.md).
@@ -326,6 +333,7 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   This holds where `Region17Init` ran before the forge (when a region's `Init` runs is not read); of the named `CreateNPC`s of the Seraphim's tree he is the only quest target of area 31 so changed, and `BadToGood` makes the bounty targets 18708 and 18712 of `Kopfgeldauswahl` peaceful too (that it blocks an open bounty is a **hypothesis**).
 - **670 (Glubba-Jar)**: `Init81` takes the dialogue of Glubba 18308 away and his health to 0 only where bit 1 of `670` is clear, which only `QIS_OnEnter670` sets, so he dies only where 670 was never entered: the data leaves no quest taken unfinishable, and the report fits a quest declined or never offered (**hypothesis**).
   But `QIS_OnEnter670` gives him the death function `lose670`, which is empty, so his death as a follower leaves 670 entered with no way to finish (**hypothesis**: that `0x6B` 0 lets him die), and `QIS_OnLose670` writes the completion line on a loss (#950).
+  Repaired: his death loses the quest, and the loss writes the failure line (docs/decisions/2026-10-25-quest-log-records.md).
 - **1202 (Magical Thistle)**: `ok1_602`, the button of quest 602's `Dialog:ziel602` once its knight 17136 is beaten, walks 17136 once, and then names 17163 in its three `NPC_Goto`s, its `Partikel` and its call of `ritterweg_602`, which deletes 17163 (`DelNPC`).
   17163 is quest 1202's target (`Region13Init`, in area 22, some 1,470 cells from the knight), whose dialogue holds 1202's win and then a trade, and nothing in 602 tests 1202: beating the knight before 1202's end deletes its target, and the quest stays entered, neither won nor lost, once its giver has deleted its timer; after its end, the trader is gone (#949).
   Repaired: the six operands name the knight (docs/decisions/2026-10-25-script-names.md).

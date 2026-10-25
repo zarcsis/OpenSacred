@@ -381,6 +381,7 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
             let report = script_repairs::repair(
                 &script_repairs::EDITS,
                 &script_repairs::RENAMES,
+                &script_repairs::ADDITIONS,
                 source,
                 &mut tree,
             );
@@ -523,7 +524,10 @@ mod tests {
         let game = repo_root().join("OriginalGame");
         let summary = convert(&game, &out, false).unwrap();
         assert_eq!(summary.trees, 20);
-        assert_eq!(summary.records, 2_203_278);
+        // The installation's records, and those that the quests' repairs add and take away: 2203's
+        // win (11 trees), 5005's loss (20), 10255's restart (20) and Glubba's death (9) gain one
+        // each, 1401's day (11) loses its one.
+        assert_eq!(summary.records, 2_203_278 + 11 + 20 + 20 + 9 - 11);
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
         assert_eq!((summary.repaired_trees, summary.repaired_cells), (11, 11));
@@ -531,14 +535,24 @@ mod tests {
         assert_eq!(
             summary.repairs,
             BTreeMap::from([
+                ("quest 1001's start (#942)", 11),
+                ("quest 10255's restart (#940)", 20),
                 ("quest 10260's item named (#957)", 20),
                 ("quest 1202's four days (#931)", 11),
+                ("quest 1303's goods after the failure (#937)", 11),
+                ("quest 1401's day (#941)", 11),
                 ("quest 1401's soldier's death function (#944)", 11),
                 ("quest 1402's smugglers' function (#944)", 11),
                 ("quest 1803's three days (#932)", 11),
+                ("quest 2203's win entering it (#936)", 11),
                 ("quest 5003's seeker's decline (#955)", 20),
+                ("quest 5005's loss on its last leg (#939)", 20),
                 ("quest 602's knight's id (#949)", 11),
                 ("quest 602's knight's id, removed (#949)", 11),
+                ("quest 670's Glubba dying (#950)", 9),
+                ("quest 670's loss (#950)", 9),
+                ("quest 7619's follower after the win (#938)", 11),
+                ("quest 7619's follower's death after the win (#938)", 11),
             ])
         );
         assert_eq!(summary.warnings, Vec::<String>::new());
