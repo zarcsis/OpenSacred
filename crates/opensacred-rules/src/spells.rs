@@ -45,6 +45,8 @@ pub const TELEPORT: u16 = 1;
 pub const WATER_FORM: u16 = 4;
 pub const STONE: u16 = 25;
 pub const FROST_RING: u16 = 35;
+/// The Mage's banishing circle (`BANNKREIS`, `0x522DE3`).
+pub const BANISHING: u16 = 16;
 
 /// The Wood Elf's summoning of her unicorn (`SUMMONBEAR`, `0x523413`), at most at the level 250
 /// (`0x564D60`).
@@ -126,6 +128,55 @@ pub const METEOR_REACH: f32 = 65.0;
 /// reaches.
 pub const WHIRLWIND_COURSE: (f32, f32, f32) = (200.0, 2.0, 50.0);
 pub const SPLINTERS_COURSE: (f32, f32, f32) = (150.0, 3.0, 40.0);
+/// The zones (`0xAD2530`): how far from a zone's cell along each axis a creature stands in it
+/// (`0x59F960`, `0x5941A0`); and how far beyond its place a creature that the banishing circle
+/// takes runs away from its centre (`0x539F60`), with its runes' distance about the caster.
+pub const ZONE_REACH: i32 = 5;
+pub const BANISHED_RUNS: f32 = 700.0;
+pub const RUNES_FROM: f32 = 200.0;
+
+/// Whether the banishing circle at the level `level` takes at its cast a creature of the level
+/// `creature`, a boss or not (`0x522DE3`, `0x59F960`): no boss, its level at most `5·L + 3`; one
+/// that steps into it later it takes whatever its level (`0x5941A0`).
+pub fn banishes(level: u32, creature: u32, boss: bool) -> bool {
+    !boss && creature <= 5 * level + 3
+}
+
+/// Where a creature at `here` that the banishing circle about `centre` takes runs (`0x539F60`):
+/// 700 beyond its place away from the centre, along the line (or along x from the centre itself).
+pub fn banished_to([x, y]: [f32; 2], [cx, cy]: [f32; 2]) -> [f32; 2] {
+    let (dx, dy) = (x - cx, y - cy);
+    let d = (dx * dx + dy * dy).sqrt();
+    let (ux, uy) = if d > f32::EPSILON {
+        (dx / d, dy / d)
+    } else {
+        (1.0, 0.0)
+    };
+    [x + ux * BANISHED_RUNS, y + uy * BANISHED_RUNS]
+}
+
+/// A boss's level's factor in the whirlwind's test of a creature it knocks back (`0x5AD135`).
+const BOSS_LEVEL: f32 = 1.3;
+
+/// How far the whirlwind of `spell` at the level `level` knocks a creature back, and the level
+/// below which it does, its caster of the level `caster` (`0x5AD135`): `⌊v₁·f⌋`, and
+/// `5·L + 0.4·l`.
+pub fn whirlwind_knocks(spell: &Spell, level: u32, caster: u32) -> (f32, f32) {
+    let left = to_f32(value(spell, 1, level));
+    (left, 5.0 * to_f32(level) + 0.4 * to_f32(caster))
+}
+
+/// Whether a whirlwind whose test's level is `below` knocks back a creature of the level
+/// `level`, a boss or not, of a big type or not (`0x5AD135`): its level, a boss's times 1.3,
+/// below it, and no big type; the event of the kind 3 comes before the strike's.
+pub fn whirlwind_knocks_back(below: f32, level: u32, boss: bool, big: bool) -> bool {
+    let level = if boss {
+        to_f32(level) * BOSS_LEVEL
+    } else {
+        to_f32(level)
+    };
+    !big && level < below
+}
 /// How long the chain lightning waits before it leaps on, and how far it looks (`0x77E2A0`,
 /// `0x5B46CA`).
 pub const CHAIN_LEAPS: f32 = 0.2;
@@ -287,7 +338,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 46] = [
+pub const MADE: [u16; 47] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -298,6 +349,7 @@ pub const MADE: [u16; 46] = [
     WATER_FORM,
     STONE,
     FROST_RING,
+    BANISHING,
     SUMMON,
     SPEED,
     BUBBLE,
@@ -1105,6 +1157,29 @@ mod tests {
             [140.0, 0.0]
         );
         assert_eq!(teleport([5.0, 5.0], [5.0, 5.0], 90, open, open), [5.0, 5.0]);
+    }
+
+    #[test]
+    fn the_banishing_circle_sends_the_weaker_creatures_700_away() {
+        assert!(banishes(1, 8, false));
+        assert!(!banishes(1, 9, false));
+        assert!(!banishes(10, 1, true));
+        assert_eq!(banished_to([300.0, 400.0], [0.0, 0.0]), [720.0, 960.0]);
+        assert_eq!(banished_to([5.0, 5.0], [5.0, 5.0]), [705.0, 5.0]);
+    }
+
+    #[test]
+    fn the_whirlwind_knocks_back_a_creature_below_its_level() {
+        // GOG 2.28's 29: v₁ 60 + 10·L at most 200.
+        let mut whirlwind = record(WHIRLWIND, &[], [6, 1], 20);
+        whirlwind.values[1] = [60, 10];
+        whirlwind.caps[1] = 200;
+        assert_eq!(whirlwind_knocks(&whirlwind, 1, 1), (70.0, 5.4));
+        assert_eq!(whirlwind_knocks(&whirlwind, 20, 10).0, 200.0);
+        assert!(whirlwind_knocks_back(5.4, 5, false, false));
+        assert!(!whirlwind_knocks_back(5.4, 6, false, false));
+        assert!(!whirlwind_knocks_back(5.4, 5, true, false));
+        assert!(!whirlwind_knocks_back(5.4, 1, false, true));
     }
 
     #[test]
