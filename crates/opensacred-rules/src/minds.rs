@@ -1965,12 +1965,20 @@ pub fn keeps(here: Spot, master: Spot) -> Keeps {
 /// The points a follower near its master at `master`, of the heading `heading` (radians from the
 /// grid's x toward its y), steps off to, in the order it tries them, the first with a way to it
 /// taken, else the last (`0x4F3E65`, `0x4F7710`): 195 from the master along its heading, the
-/// other way, then to either side, each turned by `(U[0, 100] − 50)/60` radians (`0x450680`).
-pub fn stepping_off(master: Spot, heading: f32, rng: &mut Rng) -> [Spot; 4] {
+/// other way, then to either side, each axis turned by a roll of its own, `(U[0, 100] − 50)/60`
+/// radians, the y's first (`0x4F431D` to `0x4F4380`: the sine of the first, the cosine of the
+/// second), so that a point lies within 195 of the master along each axis rather than on its
+/// circle.
+pub fn stepping_off(
+    master: Spot,
+    heading: f32,
+    dice: &mut impl crate::spawning::Dice,
+) -> [Spot; 4] {
     [0.0, OTHER_WAY, ASIDE_TURN, -ASIDE_TURN].map(|turn| {
-        let jitter = (f32::from(u16::try_from(rng.below(101)).unwrap_or(50)) - 50.0) / 60.0;
-        let angle = heading + turn + jitter;
-        master + Spot::new(angle.cos(), angle.sin()) * STEPS_TO
+        let mut jitter = || (f32::from(u16::try_from(dice.below(101)).unwrap_or(50)) - 50.0) / 60.0;
+        let along_y = heading + turn + jitter();
+        let along_x = heading + turn + jitter();
+        master + Spot::new(along_x.cos(), along_y.sin()) * STEPS_TO
     })
 }
 
@@ -2390,17 +2398,34 @@ mod tests {
 
     #[test]
     fn a_follower_steps_off_ahead_of_its_master_then_behind_and_aside() {
-        let mut rng = Rng::of(51, 39, 0);
-        let points = stepping_off(at(0.0, 0.0), 0.0, &mut rng);
-        for point in points {
-            assert!((point.length() - 195.0).abs() < 0.01);
+        // Each axis by a roll of its own, the y's first: 0 turns it by −50/60, 100 by +50/60.
+        struct Rolls(Vec<u32>);
+        impl crate::spawning::Dice for Rolls {
+            fn below(&mut self, _: u32) -> u32 {
+                self.0.remove(0)
+            }
         }
-        // Ahead within 50/60 radians of its heading, then the other way, then either side.
-        let angle = |p: Spot| p.y.atan2(p.x);
-        assert!(angle(points[0]).abs() <= 50.0 / 60.0 + 1e-4);
-        assert!((angle(points[1]).abs() - std::f32::consts::PI).abs() <= 50.0 / 60.0 + 1e-3);
-        assert!((angle(points[2]) - 1.51).abs() <= 50.0 / 60.0 + 1e-4);
-        assert!((angle(points[3]) + 1.51).abs() <= 50.0 / 60.0 + 1e-4);
+        let mut rolls = Rolls(vec![0, 100, 50, 50, 50, 50, 50, 50]);
+        let points = stepping_off(at(0.0, 0.0), 0.0, &mut rolls);
+        let turn = 50.0_f32 / 60.0;
+        let near = |p: Spot, x: f32, y: f32| (p.x - x).abs() < 0.01 && (p.y - y).abs() < 0.01;
+        assert!(
+            near(points[0], 195.0 * turn.cos(), -195.0 * turn.sin()),
+            "{:?}",
+            points[0]
+        );
+        // Then the other way and either side, unturned.
+        assert!(points[1].x < -194.9 && points[1].y.abs() < 0.2);
+        assert!(near(
+            points[2],
+            195.0 * 1.51_f32.cos(),
+            195.0 * 1.51_f32.sin()
+        ));
+        assert!(near(
+            points[3],
+            195.0 * 1.51_f32.cos(),
+            -195.0 * 1.51_f32.sin()
+        ));
     }
 
     #[test]
