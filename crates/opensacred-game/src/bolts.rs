@@ -64,6 +64,11 @@ pub struct Course {
     /// How near it strikes a creature, with the creature's size: its own size (`items.pak
     /// +0x14`, 50 for 0).
     pub reach: f32,
+    /// How long one passing through waits between its strikes (`+0x11C`).
+    pub beat: f32,
+    /// Where it ends at a cell it may not pass, the reach and the factor of its burst (the
+    /// Wood Elf's bubble's, 906).
+    pub bursts: Option<(f32, f32)>,
 }
 
 impl Course {
@@ -82,6 +87,8 @@ impl Course {
             strikes,
             look,
             reach: arrows::size(0),
+            beat: 1.0,
+            bursts: None,
         }
     }
 
@@ -95,6 +102,8 @@ impl Course {
             strikes: Strikes::Passing,
             look,
             reach,
+            beat: 1.0,
+            bursts: None,
         }
     }
 
@@ -108,6 +117,8 @@ impl Course {
             strikes: Strikes::All,
             look: 3,
             reach: arrows::size(0),
+            beat: 1.0,
+            bursts: None,
         }
     }
 
@@ -121,6 +132,8 @@ impl Course {
             strikes: Strikes::First,
             look: 2,
             reach: arrows::size(0),
+            beat: 1.0,
+            bursts: None,
         }
     }
 }
@@ -186,6 +199,7 @@ fn make_looks(
         look(18.0, Color::srgb(1.0, 0.55, 0.15)),
         look(16.0, Color::srgb(0.8, 0.85, 0.75)),
         look(8.0, Color::srgb(0.7, 0.9, 1.0)),
+        look(24.0, Color::srgb(0.55, 0.85, 0.3)),
     ]));
 }
 
@@ -342,6 +356,30 @@ fn fly(
                 "bolts: {entity} of {} ends at {:.0},{:.0}",
                 bolt.shooter, ground.x, ground.y
             );
+            // A bubble bursts at a cell it may not pass, striking about it at its factor.
+            if let Some((reach, factor)) = course.bursts.filter(|_| bolt.flown < course.life) {
+                let here = transform.translation.xz();
+                for (target, at, way, mind, health, size) in &creatures {
+                    if way.creature
+                        && way.level == bolt.level
+                        && mind.hostile()
+                        && health.current > 0
+                        && (at.translation.xz() - here).length()
+                            < reach + size.map_or(arrows::size(0), |size| size.0)
+                    {
+                        debug!("bolts: {entity} bursts on {target}");
+                        hits.write(fight::Hit {
+                            attacker: bolt.shooter,
+                            target,
+                            share: 1.0,
+                            ranged: false,
+                            art: None,
+                            fixed: Some(bolt.damages.map(|d| (d * factor).trunc())),
+                            sure: true,
+                        });
+                    }
+                }
+            }
             commands.entity(entity).despawn();
             continue;
         }
@@ -390,7 +428,7 @@ fn fly(
         }
         match course.strikes {
             Strikes::FirstContact => bolt.spent = true,
-            Strikes::Passing => bolt.cooldown = 1.0,
+            Strikes::Passing => bolt.cooldown = course.beat,
             Strikes::All | Strikes::First => commands.entity(entity).despawn(),
         }
     }

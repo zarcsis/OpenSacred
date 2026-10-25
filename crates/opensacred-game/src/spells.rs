@@ -79,8 +79,9 @@ enum Strikes {
     OneAtRandom,
 }
 
-/// The Daemon's hell disk, or the Mage's purgatory: its caster, the creature it homes on, the one
-/// it struck last, its damages, its level, its time left, its cooldown, its speed, and whether it
+/// The Daemon's hell disk, the Mage's purgatory or a lost soul of the Wood Elf's: its caster, the
+/// creature it homes on, the one it struck last, its damages, its level, its time left, its
+/// cooldown, its speed, how near it strikes a creature with the creature's size, and whether it
 /// strikes every creature within its reach rather than the first it touches (the purgatory's).
 #[derive(Component, Debug, Clone)]
 struct Disk {
@@ -92,6 +93,7 @@ struct Disk {
     left: f32,
     cooldown: f32,
     speed: f32,
+    reach: f32,
     all: bool,
 }
 
@@ -187,7 +189,7 @@ struct Mine {
 /// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
 /// light's, the light's, the fire skin's, the gust's, the fear's and a tentacle's; a column of
 /// light and the lightning's;
-/// a mine and its blast.
+/// a mine and its blast; the hell disk, a flame and a lost soul.
 #[derive(Resource)]
 struct Looks {
     disc: Handle<Mesh>,
@@ -198,6 +200,7 @@ struct Looks {
     blast: (Handle<Mesh>, Handle<StandardMaterial>),
     disk: (Handle<Mesh>, Handle<StandardMaterial>),
     flame: (Handle<Mesh>, Handle<StandardMaterial>),
+    soul: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
 /// How high over the ground the hell disk flies (**estimate**: a hand's height, as the bolts').
@@ -246,9 +249,14 @@ fn make_looks(
         meshes.add(Sphere::new(20.0)),
         glow(Color::srgba(1.0, 0.5, 0.1, 0.85)),
     );
+    let soul = (
+        meshes.add(Sphere::new(10.0)),
+        glow(Color::srgba(0.85, 0.95, 1.0, 0.7)),
+    );
     commands.insert_resource(Looks {
         disk,
         flame,
+        soul,
         disc: meshes.add(Cylinder::new(1.0, 1.0)),
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
@@ -305,7 +313,7 @@ fn act(
         let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
         let level = i32::try_from(act.level).unwrap_or(1);
         let mut given = Vec::new();
-        if spells::lasts(act.spell) {
+        if spells::lasts(act.spell) && act.spell != spells::SOULS {
             given.push(spells::lasting(record, act.level));
         }
         match act.spell {
@@ -373,6 +381,137 @@ fn act(
                     }
                 }
             }
+            // The Wood Elf's: the speed's effects from each of its two objects, the second's 28
+            // refused (`0x526625`).
+            spells::SPEED => {
+                let once = spells::effects(record, act.level);
+                given.extend(once.iter().copied());
+                given.extend(once.into_iter().filter(|(e, _)| e.id != 28));
+            }
+            spells::PLANT_HEAL => {
+                let lore = opensacred_rules::fight::magic_lore(&arts.skills, &rules);
+                let health = spells::healing(record, act.level, lore);
+                if let Ok((mut bearer, ..)) = targets.get_mut(act.target) {
+                    bearer.current = bearer.current.saturating_add(health).min(bearer.most);
+                    info!("spells: the plants heal {health}, to {}", bearer.current);
+                }
+            }
+            spells::BUBBLE => {
+                let toward = places
+                    .get(act.target)
+                    .ok()
+                    .filter(|_| act.target != act.caster)
+                    .map_or(act.point, GlobalTransform::translation);
+                let direction = (toward - here)
+                    .xz()
+                    .try_normalize()
+                    .unwrap_or_else(|| (at.rotation * Vec3::X).xz().normalize_or(Vec2::X));
+                let mut course = crate::bolts::Course::passing(spells::BUBBLE_COURSE, 6);
+                course.beat = spells::BUBBLE_BEAT;
+                course.bursts = Some(spells::BURST);
+                launches.write(crate::bolts::Launch {
+                    shooter: act.caster,
+                    direction,
+                    course,
+                    damages: bolt_damages(record, level, multipliers),
+                    wait: 0.0,
+                });
+            }
+            spells::THORNS => {
+                // About the target's place, else the point, each where it may stand.
+                let centre = places
+                    .get(act.target)
+                    .ok()
+                    .filter(|_| act.target != act.caster)
+                    .map_or(act.point, GlobalTransform::translation);
+                let damages = bolt_damages(record, level, multipliers);
+                let seconds = fight_seconds(spells::value(record, 1, act.level));
+                for _ in 0..spells::count(record, act.level) {
+                    let mut off = || {
+                        let span = 2 * spells::THORNS_SCATTER + 1;
+                        f32::from(u16::try_from(dice.0.below(span)).unwrap_or(0))
+                            - f32::from(u16::try_from(spells::THORNS_SCATTER).unwrap_or(0))
+                    };
+                    let mut place = centre + Vec3::new(off(), 0.0, off());
+                    if !heights.walkable_on(crate::paths::cell_of(place.x, place.z), body.level()) {
+                        place = centre;
+                    }
+                    let mut made = commands.spawn((
+                        Aura {
+                            caster: act.caster,
+                            follows: None,
+                            reach: spells::THORNS_REACH,
+                            classes: &[],
+                            damages: Some(damages),
+                            gives: Vec::new(),
+                            key: act.spell,
+                            level: body.level(),
+                            left: seconds,
+                            cooldown: 0.0,
+                            strikes: Strikes::About,
+                        },
+                        Transform::from_translation(place),
+                        Visibility::Inherited,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                    if let Some(looks) = &looks {
+                        made.with_child((
+                            Mesh3d(looks.disc.clone()),
+                            MeshMaterial3d(looks.discs[6].clone()),
+                            Transform::from_scale(Vec3::new(
+                                spells::THORNS_REACH,
+                                2.0,
+                                spells::THORNS_REACH,
+                            ))
+                            .with_translation(Vec3::Y * 4.0),
+                        ));
+                    }
+                }
+            }
+            spells::SOULS => {
+                // Its souls about her, homing, each striking the first it touches once a
+                // second; her effect `0x22` for their value 1 (`0x5268E5`).
+                let seconds = fight_seconds(spells::value(record, 1, act.level));
+                let effect = Effect {
+                    id: spells::LASTS,
+                    whole: 0,
+                    value: 0.0,
+                    art: u32::from(act.spell),
+                    level: 0,
+                };
+                given.push((effect, seconds));
+                let damages = bolt_damages(record, level, multipliers);
+                let n = spells::count(record, act.level);
+                for i in 0..n {
+                    let angle = std::f32::consts::TAU * fight_seconds(i) / fight_seconds(n)
+                        + spells::SOULS_ANGLE;
+                    let place =
+                        here + Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::SOULS_FROM;
+                    let mut made = commands.spawn((
+                        Disk {
+                            caster: act.caster,
+                            target: None,
+                            last: None,
+                            damages,
+                            level: body.level(),
+                            left: seconds,
+                            cooldown: 0.0,
+                            speed: spells::SOULS_SPEED,
+                            reach: spells::SOULS_REACH,
+                            all: false,
+                        },
+                        Transform::from_translation(place + Vec3::Y * DISK_HEIGHT),
+                        Visibility::Inherited,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                    if let Some(looks) = &looks {
+                        made.with_child((
+                            Mesh3d(looks.soul.0.clone()),
+                            MeshMaterial3d(looks.soul.1.clone()),
+                        ));
+                    }
+                }
+            }
             spells::TELEPORT => {
                 // Along the line to the point, the last point where he may stand, some 3.35 s
                 // over the cast's rate later (`0x522742`).
@@ -403,8 +542,9 @@ fn act(
                     left: seconds + spells::WATER_AFTER,
                 });
             }
-            spells::STONE => {
-                // A creature of no big type held for its value 0 (the effect 15, action 7).
+            spells::STONE | spells::CAGE => {
+                // A creature of no big type held for its value 0 (the effect 15, action 7): the
+                // Mage's stone, or the Wood Elf's cages about it.
                 let Ok((health, Some(mind), _)) = targets.get(act.target) else {
                     continue;
                 };
@@ -590,6 +730,7 @@ fn act(
                         left: fight_seconds(spells::value(record, 0, act.level)),
                         cooldown: 0.0,
                         speed: spells::PURGATORY_SPEED,
+                        reach: spells::DISK_REACH,
                         all: true,
                     },
                     Transform::from_translation(act.point + Vec3::Y * DISK_HEIGHT),
@@ -615,6 +756,7 @@ fn act(
                         left: fight_seconds(spells::value(record, 0, act.level)),
                         cooldown: 0.0,
                         speed: spells::DISK_SPEED,
+                        reach: spells::DISK_REACH,
                         all: false,
                     },
                     Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
@@ -1386,7 +1528,7 @@ fn disk(
                     && mind.hostile()
                     && health.current > 0
                     && (at.translation().xz() - here).length()
-                        < spells::DISK_REACH + size.map_or(arrows::size(0), |size| size.0)
+                        < disk.reach + size.map_or(arrows::size(0), |size| size.0)
             })
             .map(|(target, ..)| target)
             .take(if disk.all { usize::MAX } else { 1 })
