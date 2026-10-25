@@ -14,6 +14,7 @@ use opensacred_data::netscript::{
 use opensacred_formats::netscript as original;
 use rayon::prelude::*;
 
+use crate::flow::{Ending, Stmt, Test, structure};
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
 
 pub fn output_dir(out: &Path) -> PathBuf {
@@ -29,7 +30,7 @@ pub struct Summary {
 }
 
 /// The trees, as the manifest names their directories: those that hold a `FunkCode.bin`.
-fn trees() -> Result<Vec<String>> {
+pub(crate) fn trees() -> Result<Vec<String>> {
     let mut trees: Vec<String> = parse_manifest(GOG_MANIFEST)?
         .into_iter()
         .filter_map(|e| e.path.strip_suffix("/FunkCode.bin").map(str::to_owned))
@@ -110,7 +111,7 @@ fn script(game_dir: &Path, dir: &str, name: &str) -> Result<Vec<Record>> {
 }
 
 /// The tree of a directory.
-fn tree(game_dir: &Path, dir: &str) -> Result<Tree> {
+pub(crate) fn tree(game_dir: &Path, dir: &str) -> Result<Tree> {
     let funk_path = format!("{dir}/FunkCode.bin");
     let funk = original::Script::parse(&read_game_file(&game_dir.join(&funk_path))?)
         .with_context(|| funk_path.clone())?;
@@ -273,7 +274,94 @@ fn listing(source: &str, tree: &Tree) -> String {
     out
 }
 
-/// Converts every tree; `listing` also writes `<tree>.txt` next to each tree file.
+/// A statement of the structured flow of `records` in the listing, its lines indented by
+/// `depth`: a record run, a test of its record (`if`, `if not`, `elseif`, `else`), a return.
+fn flow_lines(out: &mut String, depth: usize, records: &[Record], stmts: &[Stmt]) {
+    let indent = "  ".repeat(depth);
+    let tested = |test: &Test| match *test {
+        Test::Condition(i) | Test::Guard(i) | Test::Block(i) => &records[i],
+    };
+    for stmt in stmts {
+        match stmt {
+            Stmt::Run(i) => record_line(out, &indent, &records[*i]),
+            Stmt::Return(ending) => {
+                let _ = writeln!(out, "{indent}return {}", ending_name(*ending));
+            }
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+            } => {
+                let (head, then, otherwise) = if then.is_empty() {
+                    ("if not ", otherwise, then)
+                } else {
+                    ("if ", then, otherwise)
+                };
+                record_line(out, &format!("{indent}{head}"), tested(test));
+                flow_lines(out, depth + 1, records, then);
+                let mut rest = otherwise;
+                // A test alone in an `else` reads as an `elseif`.
+                while let [
+                    Stmt::If {
+                        test,
+                        then,
+                        otherwise,
+                    },
+                ] = rest.as_slice()
+                    && !then.is_empty()
+                {
+                    record_line(out, &format!("{indent}elseif "), tested(test));
+                    flow_lines(out, depth + 1, records, then);
+                    rest = otherwise;
+                }
+                if !rest.is_empty() {
+                    let _ = writeln!(out, "{indent}else");
+                    flow_lines(out, depth + 1, records, rest);
+                }
+                let _ = writeln!(out, "{indent}end");
+            }
+        }
+    }
+}
+
+/// How the listing names a function's end.
+fn ending_name(ending: Ending) -> &'static str {
+    match ending {
+        Ending::Ran => "ran",
+        Ending::Stopped => "stopped",
+        Ending::Done => "done",
+        Ending::Again => "again",
+    }
+}
+
+/// The listing of a tree's functions as their flow structures (`flow::structure`, #723): an
+/// error names the tree and the function whose flow does not.
+fn flow_listing(source: &str, tree: &Tree) -> Result<String> {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "; {source}: its scripts and its {} functions, structured",
+        tree.functions.len()
+    );
+    for (name, records) in [
+        ("StartCode.bin", &tree.start),
+        ("QuestCode.bin", &tree.quest),
+    ] {
+        let stmts = structure(records).with_context(|| format!("structuring {source}/{name}"))?;
+        let _ = writeln!(out, "script {name:?}");
+        flow_lines(&mut out, 1, records, &stmts);
+    }
+    for (i, f) in tree.functions.iter().enumerate() {
+        let stmts = structure(&f.records)
+            .with_context(|| format!("structuring {source}'s function {i} {:?}", f.name))?;
+        let _ = writeln!(out, "function {i} {:?}", f.name);
+        flow_lines(&mut out, 1, &f.records, &stmts);
+    }
+    Ok(out)
+}
+
+/// Converts every tree; `listing` also writes `<tree>.txt` next to each tree file, and its
+/// functions' structured flow, `<tree>.flow.txt`.
 pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary> {
     let dir = output_dir(out);
     fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
@@ -288,9 +376,12 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
             let path = dir.join(&file);
             fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
             if listing_too {
-                let path = path.with_extension("txt");
-                fs::write(&path, listing(source, &tree))
-                    .with_context(|| format!("writing {}", path.display()))?;
+                let text = path.with_extension("txt");
+                fs::write(&text, listing(source, &tree))
+                    .with_context(|| format!("writing {}", text.display()))?;
+                let flow = path.with_extension("flow.txt");
+                fs::write(&flow, flow_listing(source, &tree)?)
+                    .with_context(|| format!("writing {}", flow.display()))?;
             }
             let entry = TreeEntry {
                 source: source.clone(),
