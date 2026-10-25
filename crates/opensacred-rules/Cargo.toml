@@ -9,11 +9,14 @@ publish.workspace = true
 
 [dependencies]
 opensacred-data.workspace = true
+# The scripts' state, which the saves keep (`quests`).
+serde.workspace = true
 
 [dev-dependencies]
-# The vectors of opensacred-oracle and the balance, which tests/oracle.rs reads.
+# The vectors of opensacred-oracle and the balance, which tests/oracle.rs reads; the scripts'
+# state's round trip.
 opensacred-formats.workspace = true
-serde.workspace = true
+postcard.workspace = true
 serde_json.workspace = true
 
 [lints]

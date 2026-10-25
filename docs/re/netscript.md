@@ -185,6 +185,9 @@ Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless 
 - `NPC_Goto` (72, `0x49E210`) takes the NPC's name, then a cell (`0x04`, through `0x6224B0`) or raw coordinates (`0x20`), and an optional flag (`0x66`): it does not move the creature, but posts it an event of walking there (a `cEvent_creature`, id 4), starting a motion first; `Teleport` (46, `0x491D40`) places the creature at once.
 - `QuestKompassObj` (64, `0x49AC80`) points the quest compass at the named object: the quest log alone.
 
+`opensacred-rules` keeps this state apart from Luau and from the engine (#724, `opensacred_rules::quests`): the quests' flags and the transitions above, each naming the section functions it runs for the scripts' runtime to run and taking its answer; the variables by name, kept to their first 31 bytes; and the dialogues' table below, its first entry doubled; all of it serializable for the saves (`quests::Scripts`).
+`opensacred-game` follows the quests' start in its own code until #726 moves it onto this (docs/decisions/2026-10-19-quest-npcs.md).
+
 ## `SetNPCState`
 
 Read 2026-10-23 (#578); **confirmed** by code unless marked otherwise.
