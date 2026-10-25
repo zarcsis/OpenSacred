@@ -597,6 +597,9 @@ fn execute(command: Command) -> Result<ExitCode> {
                     summary.repaired_cells, summary.repaired_trees,
                 );
             }
+            for (what, trees) in &summary.repairs {
+                println!("  repaired: {what} in {trees} trees");
+            }
             for warning in &summary.warnings {
                 eprintln!("warning: {warning}");
             }

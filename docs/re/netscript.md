@@ -230,9 +230,11 @@ The quests whose time the community reports:
 - **1202 (Magical Thistle)**: `QIS_OnEnter1202` sets `zeit1202` for 4,320, three days; it sets bit 4 of the variable `1202`, takes the target NPC's health to 0, writes the failure in the log and loses the quest, and the giver's dialogue at bit 2 deletes the timer.
   The giver's start dialogue (`R12NQ02_NPC_Auftrag_Qstart`) states four days, the log's start (`R12NQ02_Log_Qstart`) and the giver's dialogue while the quest is open (`R12NQ02_NPC_Auftrag_Qoffen`) three: the timer agrees with two of the three, and the report is the start dialogue's number.
   The same in the 11 trees that hold the quest.
+  Repaired: the timer runs four days (docs/decisions/2026-10-25-quest-timers.md).
 - **1803 (Kalim-Khor)**: `QIS_OnEnter1803` sets `zeitum1803` for 4,320 where bit 9 of `1803` is set, which `take1803` sets as the item 6068 is picked up before the quest is taken, and for 10,080, seven days, where it is clear, the usual way from the giver; `take1803` does not start it again once the quest is open, and `exit1803` deletes it.
   Only the giver's start dialogue (`R18NQ03_NPC_Auftrag_Qstart`) states a number, three days, so the usual way lasts seven days where three are stated; the report's "about 8" being the seven read loosely, or the count's leap at a month's end, is a **hypothesis**.
   The same in the 11 trees that hold the quest.
+  Repaired: the second timer runs three days (docs/decisions/2026-10-25-quest-timers.md).
 - **1102 (Compromising Situation)**: `QIS_OnEnter1102` sets `Zeitum1102` for 1,440, one day, which writes the failure in the log, sets bit 3 and loses the quest; `extquest1102` deletes it.
   The giver's start dialogue (`R11aNQ02_NPC_Auftrag_Qstart`) states one day, so the data does not explain a limit of three days never announced, nor can the count's drift, at most four days at the fifth month's end.
   The quest beside it, 1101 (Blackrobes), has a limit that no string of it announces (`QIS_OnEnter1101`, `Zeitum1101` for 1,440); that the report confuses the two, or that a save and a load set the date back, is a **hypothesis**, and the original is to be checked: 1102 taken, the date noted, and `Zeitum1102` seen to run.
@@ -278,6 +280,7 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 - **1001 (Captain Pigface)**: `QIS_OnEnter1001` writes `R10NQ01_Log_Qziel01`, the line of the kill, and points the compass at the target 17041 where bit 20 of `1001` is clear (`0x4A`), as it is while the target's item 6046 is not taken (`take1001` sets it): a quest taken the usual way logs the kill at once while the target lives, and one triggered by the item's taking gets no line of the kill (#942).
   The same in the 11 trees.
 - In the 11 trees, quest 1401's soldier 17181 names the death function `attack1401`, which no tree defines, while `attacke1401` is defined and named by nothing; the 13 smugglers of `Region13Init` (the groups 14011 and 14012) name `0x60` `schmugler1402`, while the function is `schmuggler1402` (#944).
+  Repaired: the records name the defined functions (docs/decisions/2026-10-25-script-names.md).
 
 Not read: how the log window shows a quest as completed or failed, by its lines or by its state; what `0x39` does to a follower; when an object's `0x41` function runs (**hypothesis**: as it is picked up); and none of these was seen in the running original.
 
@@ -303,6 +306,7 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   But `QIS_OnEnter670` gives him the death function `lose670`, which is empty, so his death as a follower leaves 670 entered with no way to finish (**hypothesis**: that `0x6B` 0 lets him die), and `QIS_OnLose670` writes the completion line on a loss (#950).
 - **1202 (Magical Thistle)**: `ok1_602`, the button of quest 602's `Dialog:ziel602` once its knight 17136 is beaten, walks 17136 once, and then names 17163 in its three `NPC_Goto`s, its `Partikel` and its call of `ritterweg_602`, which deletes 17163 (`DelNPC`).
   17163 is quest 1202's target (`Region13Init`, in area 22, some 1,470 cells from the knight), whose dialogue holds 1202's win and then a trade, and nothing in 602 tests 1202: beating the knight before 1202's end deletes its target, and the quest stays entered, neither won nor lost, once its giver has deleted its timer; after its end, the trader is gone (#949).
+  Repaired: the six operands name the knight (docs/decisions/2026-10-25-script-names.md).
   That 17163 is 17136 with two digits swapped is a **hypothesis**: the function's name and its first `NPC_Goto`, which names the knight, support it.
 - The functions above are in the 9 trees of the Sacred campaign (`Init55`, `NimmtDaemonenhorn`, `ScriptAnimShareef`, `Init81`) and the side quests in 11 (those and `netscript`, `addon-netscript`).
 - The group number 5001 is named by quest 501's 13 ghosts, quest 5001's camp and quest 5002's test, attack and removal, so 501's ghosts would count in 5002's test and fall to its removal if the groups' numbers are global (**hypothesis**, `0x4C4E40` not read); and `QIS_OnEnter501` creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
@@ -339,6 +343,7 @@ The quests:
 - **5003 (H'Runga'zz)**: `preritual5003` sets the trigger `omo_ritualstart5003` and takes the shaman's dialogue away; `OMO5003omo_ritualstart5003` deletes the trigger, teleports `HERO` to `pos_zielwaldgott5003` in sector 15,85, a dungeon by `world.ron`, makes the god there and writes the log's line.
   A mounted hero is not moved, yet the teleport answers success, the trigger is gone, and only the god's death function gives the shaman's dialogue back, so the quest is stuck (#954; that the trigger fires for a mounted hero is **community-reported**).
   `Dialog:dlg_sucher5003`'s decline button names `ablehnen5000`, which no tree defines, while `ablehnen5003` exists and is named by nothing, so a declined seeker keeps bit 2 of `5003`, and a quest later taken from the shaman takes the seeker's branch (#955; that a button naming a missing function does nothing is a **hypothesis**).
+  Repaired: the button names `ablehnen5003` (docs/decisions/2026-10-25-script-names.md).
 - 2411, 2201, 2002 and 1404 are the same in the 11 trees that hold them; 5003, 10254 and the sectors' functions above in all 20.
 
 To check in the original: 2411's cave entered before the quest and the trigger 519's state; the same for 2201's dungeon before `change2201`; Zaphod killed on the veranda and his key's cell and layer; 5003's altar stepped on mounted.
@@ -365,6 +370,7 @@ Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau o
   - **9006 (The Unknown Warrior)** has no item of its own, and its successor 9007's items 17525 to 17528 are world objects counted by their own function; but with an entry of the key 0, `0x3A` of each holds while it merely lies in the world, so its giver's dialogue takes an item's branch early and deletes with `DelOBJ` an item never taken, which is then never counted (**hypothesis**: that this is the community's "last stage", which its guide does not tie to the riddle, and that `DelOBJ` destroys an object lying in the world).
 - Raven Rock 1.3b reports fixing it in the interpreter, the fix applying as an old save loads (**community-reported**); that the list is saved with the hero is a **hypothesis** that fits it.
 - So the defect is the interpreter's, set off by one record of the data: a repair of the data names the record (`res:4609`, as 402 and 601 name their items) in all 20 trees; a repair of the VM falls back to the type's name key on the `0x61` path, refuses only a repeated type or key, and keeps an entry of the key 0 from answering `0x3A`, which also mends a state that already holds one.
+  Repaired in the data: the record names `res:4609` (docs/decisions/2026-10-25-riddle-item-name.md).
 
 Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy; to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
 
@@ -392,7 +398,8 @@ Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau o
 To check in the original: 7622's target at its cell; 9512's demon at the four cells over several new games; 2404's groups with `creatures` once the quest stalls; the bottle after an early pass through 52's box; Jacquaire after leaving region 6 without crossing the box.
 
 Not read: whether a save keeps the date and the timers, the drift seen in the running original, and a test by which a repaired drop could know that its partner quest is open (these quests set no bits of their own).
-The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944, #946 to #955, #957 to #960).
+The repairs each change a quest's course, so each is a `bug` whose decision is the maintainer's: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944, #946 to #955, #957 to #960).
+The maintainer chose them on 2026-10-25, as their issues say: `opensacred-convert netscript` makes those of the data as it writes the trees (`script_repairs`, docs/02 §7.1), each recorded as a decision; those of the runtime (#930, #933, #952, #954) are decisions for #726; #943, #951 and #960 wait for their readings.
 
 ## `SetNPCState`
 
