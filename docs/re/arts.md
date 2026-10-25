@@ -836,7 +836,7 @@ Seen in the original on 2026-10-23 under the driver of #448, the Seraphim at lev
 - `GLAUBENSSTAERKE` (21) did not run by a right click on the hero herself (its launch type, `+0x3C`, not followed).
 
 So the first table's values (above) are not each object's own: `IRRITATION`'s value 0 is 14 + L seconds, at most 30, where its effect lasted 3 s (the action 7 below scales it by the target).
-What each object gives beyond the actions and the hits below, for how long and to whom, is not read: which action each object's system runs, and the objects that neither has a case for (#672).
+Which action each object's system runs, and for how long it lives, comes from the system ("The objects' systems" below), read for the Mage's and the Seraphim's spells below (#672).
 
 #### The objects' actions
 
@@ -856,8 +856,8 @@ The object's art is its `+0x118`, the record of the first table ("The first tabl
   | 12, the physical regeneration (`+0x72`, `+0x74`) | 12, the regeneration value | a hundredth |
 
   The damages' pairs 0 to 3 give no effect here.
-  So `GUI_SPELL_STEINHAUT` at level 1 gives `D`'s multiplier 0.2 and the physical and poison resistances 65 and 25 for 45 s (**hypothesis**: that its object runs the action 6; not seen).
-- **The action 7, an effect that holds its target**, of the id the action's data names (13, 14 or 15), the effect's whole value 1 for 13 and 14: for the art's value 0 in seconds times the share of five times its level in the target's `+0x3FE` where that is larger (**hypothesis**: the target's resistance to the spells, not read), none for a target of the flags' bit `0x80000` (`+0x1F4`) or of `+0x2B8` bit `0x40`; the effect 15 lasts the value 0, or 3 s from a caster of an id above 16, and goes to the creature that a ridden target carries (`+0x14` bit 2, `+0x1EC`), and an event follows it (`+0x18`, not read).
+  So `GUI_SPELL_STEINHAUT` at level 1 gives `D`'s multiplier 0.2 and the physical and poison resistances 65 and 25 for 45 s, its object running the action 6 some 1.6 s after the act ("The Mage's spells" below).
+- **The action 7, an effect that holds its target**, of the id the action's data names (13, 14 or 15), the effect's whole value the caster's level for 13 and 14 (`+0x3FE`, 0 without a creature caster; 1 where it was seen): for the art's value 0 in seconds times the share of five times its level in the target's `+0x3FE` where that is larger (**hypothesis**: the target's resistance to the spells, not read), none for a target of the flags' bit `0x80000` (`+0x1F4`) or of `+0x2B8` bit `0x40`; the effect 15 lasts the value 0, or 3 s from a caster of an id above 16, and goes to the creature that a ridden target carries (`+0x14` bit 2, `+0x1EC`), and an event follows it (`+0x18`, not read).
 - **The action 9** gives the effect 15 with a value of the action's data, for the art's value 0 in seconds, as the action 7's.
 - The actions 1 to 5, 8, 10 and 11 give no effect (not read further).
 
@@ -867,7 +867,7 @@ The object's art is its `+0x118`, the record of the first table ("The first tabl
 
 Read 2026-10-24 (#672) in `0x5ABD80`, which the update hands each object's targets to; **confirmed** by code unless marked otherwise.
 It first makes the spell's damage event: the four kinds' damages of the first table's record, the pairs `+0x42`/`+0x44` to `+0x4E`/`+0x50` as `base + step·L` at the object's level (`+0xE4`), each times the caster's factor of its spells (`0x56A800`) and held at 65,534, the factor 1.0, the caster (`+0x54`) and the object.
-Most objects then send it once (their `+0x11C` set, so that a later run sends nothing) to each target that does not turn the spell aside (`0x561860`: a target of a hero's class with the skill 14 by the hit chance `0x43EEE0` between a value of the spell's and its level raised by the skill's curve, then a target with the effect `0x1A` by the arrows' rule of docs/re/fight.md, which for the Dark Elf's 1046 sends the spell back to its caster).
+Most objects then send it to each target that does not turn the spell aside (`0x561860`: a target of a hero's class with the skill 14 by the hit chance `0x43EEE0` between a value of the spell's and its level raised by the skill's curve, then a target with the effect `0x1A` by the arrows' rule of docs/re/fight.md, which for the Dark Elf's 1046 sends the spell back to its caster), and set their `+0x11C`, a cooldown: once for −1, once a second for 1.0 ("The objects' systems" below).
 By the object (its spell, "The spells' executor" above):
 
 | Object | Spell | What its targets take |
@@ -878,10 +878,10 @@ By the object (its spell, "The spells' executor" above):
 | 792 `FX_GROUND_POISON` | 12 | the event, once, at the factor of 782 |
 | 794 `FX_EXPLOSION` | (the Dwarf's guns) | the event, once, at the factor of 782 but from a caster of the type 8 |
 | 801 `FX_RAILGUN` | | the event at every run |
-| 804 `FX_HOLYLIGHT` | 15 | the event, once |
+| 804 `FX_HOLYLIGHT` | 15 | the event, once a second ("The Seraphim's spells" below) |
 | 813 `FX_FI_SMOKE_M`, 876 `FX_FI_SMOKE_L`, 879 `FX_GEYSIR` | | an event of `0x51CB00` from the object with the damages 10, 20 or 100 of the first two kinds alone, once |
-| 814 `FX_HOLYWALL` | 17 | the event, once |
-| 817 `FX_MAGLITE` | 20 | the event, once, to the targets of the types that `0x426A80`, `0x426BC0` or `0x426B20` name (**hypothesis**: the undead and the demons) |
+| 814 `FX_HOLYWALL` | 17 | the event, once a second |
+| 817 `FX_MAGLITE` | 20 | the event, once a second, to the targets of the `Creature.pak` classes 5, 9 and 11 (`0x426A80`, `0x426B20`, `0x426BC0`) |
 | 820 `FX_HELLFIRE` | 23 | the event, once |
 | 821 `FX_FIRESKIN` | 24 | the event, once, and an object 788 (`FX_BURNING_BONE`) at each target |
 | 823 `FX_METEOR` | 26 | the event at every run |
@@ -915,7 +915,7 @@ By the object (its spell, "The spells' executor" above):
 | 1159 `FX_EMPEROR`, 1162 `FX_DRYAD_GHOST`, 1163 to 1167, 1170 | 69 to 72 and the scripts' | the event of their own damages (`FX_DAEMONENFUERST` by its state, `+0x9C` 185 or 250 to 252, one kind each), 1170 `FX_EITERBLUME` 500 of the first kind and 100 of the third |
 | 1156 to 1158 `FX_PONG_…` | | a game of the scripts', not of the fight |
 
-**Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1, `arts learn 15`, `arts select 15` and the right button at the feet of a hostile goblin warrior of level 30): its health went from 757 to 715 within a second and to 571 within four, so that `HIMMELSLEUCHTEN` hits again and again over its time (**hypothesis**: it makes an object 804 at each of its beats, each hitting once); the immortal goblins' hook of the driver, which tells the strikes of `0x56B130`, told none of these hits.
+**Seen** 2026-10-24 in the running original (the driver of #448, the Seraphim of level 1, `arts learn 15`, `arts select 15` and the right button at the feet of a hostile goblin warrior of level 30): its health went from 757 to 715 within a second and to 571 within four, so that `HIMMELSLEUCHTEN` hits again and again over its time (its one object 804 hits once a second, "The Seraphim's spells" below); the immortal goblins' hook of the driver, which tells the strikes of `0x56B130`, told none of these hits.
 The other objects (the shields, the healings, the summons and the changes of form among them) have no case here and log their type: what they give comes from their actions ("The objects' actions" above) and from their own updates (not read).
 
 #### The Seraphim's bolts
@@ -939,6 +939,100 @@ While the hero holds the effect 17, or 16 with its target beyond 200 or none, it
 Each bolt leaves where the hero stands, at 80 over the ground, flies straight along the line on the ground at its speed for its time at most, and ends at a cell that may not be walked on; in each frame it hits each creature on its level, alive and hostile to the hero, nearer it than the sum of their sizes (`arrows::Size`, 50 for the bolt), with the fight's hit of the record's damages by the effect's whole value and the hero's damage multipliers (`fight::Combat::multipliers`) in place of the hero's own, at the factor 1 and not at range, a sure strike that rolls no chance (`opensacred_rules::fight::sure_strike`, #854).
 The railgun's goes after its hits, the BFG's flies on harmless.
 A glowing ball stands in for each bolt's particle system and light, and the attack clips for the slots 164 and 145 (docs/decisions/2026-10-24-bolts-look.md); the cells' kinds 3 and 5 to 10 and the end of the loaded sectors are not tested apart from the walkable cells, and the items' bonuses of the condition bits `0x2000` and `0x4000` are left out of the multipliers.
+
+#### The spells' cast
+
+Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
+A creature's spell is an action of its own (`0x51D150`), whose order the creature keeps from `+0x154`: its target's id, the sector's word (`+0x158`), the point's x and y (`+0x15C`, `+0x160`) and floor (`+0x168`), a flag that ends it (`+0x16C`) and the spell (`+0x174`, 1 to 72).
+
+- **The start.** The action reserves its objects' ids, as many as `0x4D2350` gives for the spell and at most 20 (from `+0x263`), and starts the cast (`0x51E110`); a cast that does not start aborts the action.
+  The cast tests the launch type (`0x51D840`, below) for the local player's hero and refuses on failure, writes the spell to `+0x1FD`, and plays the spell's clip (`0x593320`), blended in over 0.2 at the rate of the stats' `+0x3E` over 100 (1.2 for most creatures).
+  For the fireball (5) it first turns the caster to its target's place, or to the order's point without a target, makes one object 791 and plays the sound 2000; for the stone skin (2) it plays the sound 2013 at the caster and for the healing (7) the sound 2086 at the target, and neither turns the caster, nor does the regeneration (32).
+  The object 791 is only a sight: its event (kind 23) puts a particle system of the cast on the caster's hands (the bones 21 and 22 of `+0x38`), of the style 9 for the fireball, 12 for a caster of the `Creature.pak` class 5.
+- **The clip** (`0x522030`) is the spell's, not the class's: on foot the slot 155 for the spells 5, 29, 33, 37, 41, 58, 59, 61, 64 and 65, 161 for 7, 12 and 36, 157 for 20, 21, 25, 30, 31, 32 and 34, and 163 for 1, 2, 4, 16, 18, 27 and 35; on horseback 199 for 1, 2, 4, 7, 21, 22, 24, 27, 30 to 32, 37 and 42, and 197 for the others of those lists.
+  The types 182 and 183 always take 154, a creature of the `Creature.pak` class 10 takes 81, and the types 140 and 146 take 147 for 13, 15 and 22; a spell of no list takes 154, else the clip of the action 4.
+  The Mage's model fills the slots 154 to 164 with its eleven casting clips.
+- **When it acts** (`0x521D60`): while the clip runs, and a double at `+0x22D` is not above 0 (not read), the share of the clip still to play by its Granny times, `(end − now)/(end − start)`, falls; the spell acts once it falls below the spell's share, 0.66 for 5, 0.56 for 2, 0.5 for 7 and 0.35 for 32 (the others not read).
+  A clip of a time above 1,000 s acts at once and ends, and a clip that ends without falling below its share ends without acting.
+  Once acted, with less than 0.3 s of the clip to play, the action plays the standing slot, blended in over 0.15, and waits again; a combo goes on to its next step with less than 0.5 s (`0x4FE870`).
+  What ends the action after that is not read.
+- **At the act** (`0x522480`): the art's level `L` is the stats' (`0x580A10`) or the combo's step's (`0x56ABE0`); the art's regeneration starts there (`0x562470` of its kind), not at the clip's start; then the spell's object is made ("The spells' executor" above) with the FX event's array of 14 words.
+  The array holds the level (word 0), seven zeros, the caster's multipliers of the magic, the poison, the fire and the physical damage (the words 8 to 11, each the sum of two of the stats' fields: `+0x9E` and `+0xBE`, `+0xA2` and `+0xC2`, `+0x9A` and `+0xBA`, `+0x96` and `+0xB6`; `+0xA6` to `+0xB2` for the spell 56), a factor 1.0 (word 12, which only `IRRITATION` changes) and the record (word 13).
+  The object keeps the array from its `+0xE4`, so its multipliers at `+0x104` to `+0x110` and its record at `+0x118`.
+  So a spell's damage of a kind is the record's times `+0x96` plus `+0xB6` of the caster's stats: 1, the items' bonuses, the magic part of its attributes and its magic lore, not its weapon lore (docs/re/fight.md, "An NPC's attack, defence and damage").
+- **The launch types** (`0x51D840`): 0 admits any target and leaves it; 5 puts the caster in its place; 2 takes the caster without a target, else a friend alive on its floor; 1 a creature alive that may be struck, on its floor, by a test of the way; 3 a point that may be walked on and that a straight way reaches; 4 a dead creature not a player's, by a count of the corpses.
+  The spells 2, 7 and 32 take the order's target where it has one, else the caster.
+
+#### The objects' systems
+
+Read 2026-10-25 (#672); **confirmed** by code unless marked otherwise.
+What an object of a spell does over its life comes from its particle system, which `0x5A0C50` picks by the object's type (the byte table `0x5A3270`).
+The system's start (its virtual slot 4, called through `0x7CC040` with the FX event) sets its flags (`+0x7C`, which the update reads through `0x7CBD30`), an action (`+0x80`, its data at `+0x84` and `+0x88`, which `0x7CBD90` hands the update once and clears; "The objects' actions" above) and its life.
+
+- The flag `0x200` keeps the object on the creature it follows (its `+0x68`, `0x5AA480`).
+- The flag `0x400` has the update, on the caster's machine, gather the object's targets at each frame (`0x5A85A8`, `0x5AB490`: creatures other than the caster, alive, `0x549080`, hostile to it, `0x548F30`, nearer than the object's size, `items.pak +0x14`, and theirs, `0x5FF7C0`) and hand them to the hits (`0x5ABD80`, "The objects' hits" above).
+- The hits' `+0x11C` is a cooldown: the update counts it down by the frame's time to 0 (`0x5A9A10` to `0x5A9A40`), and the hits send nothing while it is above 0.
+  An object whose case sets it to 1.0 hits its targets once a second while they stay within its reach, and one that sets it to −1 hits once, as a negative time is never counted down.
+- The hits and the action 2 take each kind's damage as `base + step·L` of the record, truncated, times the object's multiplier of the kind and the caster's factor of its spells, `0x56A800` of `5L − 2`, which is 1.0 for a caster of an id up to 16, a hero; then truncated and held at 65,534.
+  They send the event of kind 5 (`cEvent_creature`, its virtual table at `0x89095C`) from the caster at the factor 1.0, and skip a target that turns the spell aside (`0x561860`).
+
+#### The Mage's spells
+
+Read 2026-10-25 (#672) for the spells of the Mage's template ("The heroes' starting arts" below) and the stone skin; **confirmed** by code unless marked otherwise.
+
+- **`FEUERBALL` (5), its object 778 `FX_FIRESTRIKE`**, launch type 0, regenerating in 3 + 2·L seconds, of 12 + 18·L fire and 6 + 9·L magic damage.
+  At the act the spell aims at its target's place, or the order's point where the target is gone, at the height of the ground there (`0x636310`, `0x6239C0`), from the caster's place (`+0x7C` to `+0x84`; a rider's mount's, 65 lower), along the unit vector between them in three dimensions (none under 1e-7).
+  It makes one object 778 at the caster's place under its first reserved id, unless the order's `+0x16C` is set, and starts it by the FX event of kind 1, which carries the caster and the direction (at the event's `+0x2C`) and no target; the object keeps the caster at `+0x68` and the direction at `+0x78`.
+  The event does not place the particle system, so where the fireball starts, and at what height, is not read.
+  Its system (`0x76BE80`) lives 2 + 0.5·L seconds and flies at 150 + 10·L a second for a hero (130 + 8·L for some other casters), at most 500, with the flags `0x51`, a light of radius 200 (drawn only), the sound 2000 as it leaves and 2001 as it strikes; at level 1, 160 a second for 2.5 s, some 400.
+  Each frame it moves by its speed times the frame's time along its direction, whose height's part is multiplied by 0.9 at each frame, and it does not steer (**hypothesis**: its `+0x8C` stays 0).
+  It fizzles when its life runs out, bursts harmless at a cell of a kind that stops it or that may not be walked on (`0x636D70`, `0x636D20`), and goes where it comes to the ground's height, leaves the loaded sectors or its caster is gone (`0x5AA330`).
+  Its targets are the bolts' ("The Seraphim's bolts" above): the creatures of its cell and the eight about it that touch it by their sizes (778's is 0, so 50), other than the caster, alive and hostile to it.
+  Its hit (`0x5ABD80` at `0x5AC015`) at its first contact marks it struck (`+0x74` 2) and stops it, and hits each creature found in that frame once (`+0x11C`) that does not turn it aside, by the event of the objects' hits: at level 1 a fresh hero's 30 fire and 15 magic before the target's resistances.
+  It gives no effect.
+  **Seen** 2026-10-25 in the running original (the driver of #448, the Mage of a new game, `arts select 5` and the right button on an immortal goblin warrior of level 5 three cells off, traces of `0x43EEE0` and `0x56B130`): the hit called `0x43EEE0` only for the four kinds' damages through the resistances, 0, 57, 22 and 0, never for a hit's chance, and the goblin took 71.
+  57 and 22 are 30 and 15 times his multipliers of the fire and the magic, 1.927 and 1.527 (docs/re/fight.md, "An NPC's attack, defence and damage"), truncated: as the bolts' event with whole damages, it rolls no hit chance (`0x56B939`, "The Seraphim's bolts" above).
+- **`HEILKRAFT` (7), its object 784 `FX_HEALING`**, made at the caster's place and following its target (the FX event of kind 16).
+  Its system asks for the action 3 once, at its first update, which runs in the same frame (the system's update `0x7CC080` at `0x5A9A0B` comes before the actions at `0x5A9AAF`).
+  The action sends the target the event 6 of the sub-kind 3 with the value 0, 10 + 50·L, times 1.0 and `1 + v/100`, `v` the caster's skill 14 by its curve (`0x565D70`, the keys at `0xAD44DC` to `0xAD44E4`) (**hypothesis**: the health healed, as the record's label says).
+  It gives no effect `0x22`.
+- **`REIKI` (32), its object 836 `FX_HPREGEN`**, following its target (the FX event of kind 59); the executor gives the target the effect `0x22` keyed by 32.
+  Its system lives 70 + 2·L seconds, at most 180, and asks for the action 6 once at its start, which gives the effect 12 of `(135 + 15·L)/100` for as many seconds, keyed by 32: the regeneration's value 1.5 at level 1 (the action 6 above).
+- **`STEINHAUT` (2), its object 769 `FX_SHIELDED`**, made at its target's place; its FX event (kind 5) carries the target as both the caster and the target, and the cast's rate (at the event's `+0x20`); the executor gives the target the effect `0x22` keyed by 2.
+  Its system's clock runs at the frame's time times the rate; past 1.6 s it ends and asks for the action 6 with the data 7, which runs once in that frame (the event that the data sends the target is not read).
+  So the stone skin gives the action 6's effects once, some 1.6 s over the rate after the act: the effect 2 of `(15 + 5·L)/100`, the effect 7 of 25 + 40·L and the effect 10 of 10 + 15·L, each for 44 + L seconds, at most 120 (**hypothesis**: the value 0 truncated).
+
+#### The Seraphim's spells
+
+Read 2026-10-25 (#672) for her spells 13 and 15 to 22; **confirmed** by code unless marked otherwise.
+
+- **`BLITZ_SERA` (13), its object 798 `FX_LIGHTNING_STRIKE`**, made at its target's cell; its FX event (`0x1F`) gives it the target to follow and the target's bone (`+0x70`, `+0x72`, `0x44CB80`).
+  Its system (`0x77D5C0`) has the flags `0x1200` and the action 2 with the data 13, which runs once at its first frame, on the machine of the object's owner's player (`+0x39`): the objects' hits' event to the spell's target (`+0x60`) alone, of the damages of the record 13 whatever spell made the object (the data names the record, `0x4D2310`), so that the spell 8 deals 13's too.
+  At level `L` they are 2 + 6·L physical and 14 + 21·L magic, times the multipliers; the sight ends with its particles, some 0.25 s.
+- **`HIMMELSLEUCHTEN` (15), its object 804 `FX_HOLYLIGHT`**, made at the point clicked that may be walked on (its event's word `0x40` marks it for the network).
+  Its system (`0x7816A0`) has the flag `0x400` alone, so that it follows nothing, and lives 24 + L seconds, at most 60.
+  Its hits (`0x5AC972`) strike every hostile creature alive within 150 and its size once a second, of 6 + 9·L magic damage, whatever its kind, and give no effect: so the goblin of level 30 lost health again and again over the light's life ("The objects' hits" above).
+- **`LICHTKLINGEN` (17), its object 814 `FX_HOLYWALL`**, on the target, else the caster; the executor (`0x5240A7`) gives the bearer the effect `0x22` keyed by 17, and the FX event (`0x29`) has the object follow it.
+  Its system (`0x784C90`) lives 44 + L seconds, at most 120, gives its bearer the effect 35 for as long, keyed by 17 (not read), and has the flags `0x600`.
+  Its hits (`0x5ACCB1`) strike the hostile creatures within 110 and their size of the bearer once a second, of 2 + 3·L physical and 2 + 3·L magic damage.
+- **`IRRITATION` (18), its object 816 `FX_BURNINGLIGHT`**: the executor (`0x524196`) sets the array's factor to `1/(t − c)` where the caster's level `c` (`+0x3FE`) is below `t`, a value of the target's (its virtual `+0x24` of `0x14`; **hypothesis**: its level).
+  Its FX event (`0x2B`) has the object follow the target, and its system (`0x77FA60`) has the flag `0x200` and the action 7 with the data 13 (`0x5B5BB3`, at `0x5B5F3F`): the effect 13 of the whole value the caster's level, keyed by 18, for `trunc(v₀·f)·min(1, 5L/M)` seconds, `v₀` 14 + L at most 30, `f` the factor and `M` the target's `+0x3FE`, none for a boss (`+0x1F4` bit `0x80000`) or a target of `+0x2B8` bit `0x40`; its sight lasts `v₀·f`.
+  So the Seraphim of level 1 on the goblin of level 5 gave the effect for `trunc(15/4)`, 3 s, as seen ("The spells' objects" above).
+  The effect 13 sets the flags' bit `0x20000`, by which the idle step (`0x54EA30`, at `0x54EA6E`) passes the creature over, and `0x54F436` reads it too (not read further).
+- **`BEKEHRUNG` (19), its object 806 `FX_HOLYCONVERT`**: the executor (`0x5242D3`) refuses a target of a big type (`Creature.pak` flag `0x02`, `0x426CB0`), its dragons' and demons' branches ending in the same test.
+  Its FX event (`0x25`) has the object follow the target, and its system (`0x782EF0`) has the flag `0x200`, the action 7 with the data 14 (at `0x5B5EE2`) and a life of its value 0: the effect 14 of the whole value the caster's level for `trunc(v₀)·min(1, 5L/M)` seconds, `v₀` 14 + L at most 25, none for a boss or a target of `+0x2B8` bit `0x40`.
+  The effect 14 sets the bit `0x40000`, which turns the creature's sides over ("The spells' objects" above).
+- **`LICHT` (20), its object 817 `FX_MAGLITE`**, on a friend or the caster, whom its FX event (`0x2C`) has it follow.
+  Its system (`0x7850D0`) lives 44 + L seconds, at most 120, with a light of radius 400 + 25·L, at most 700 (its value 1, drawn only), gives its bearer the effect 35 for as long, keyed by 20, and has the flags `0x600`.
+  Its hits (`0x5ADA5F`) strike once a second the hostile creatures within 200 and their size whose `Creature.pak` class is 5, 9 or 11 (`0x426A80`, `0x426B20`, `0x426BC0`), of 9 + 6·L magic damage; by their models' names (evidence, not code) the class 5 are the undead, 9 the demons and gargoyles, 11 the ghosts.
+- **`GLAUBENSSTAERKE` (21), its object 818 `FX_CRUSADERSTRENGTH`**, on a friend or the caster; the executor (`0x5244EF`) gives the bearer the effect `0x22` keyed by 21, and the FX event (`0x2D`) has the object follow it, at its bone 3.
+  Its system (`0x785800`) has the flags `0x1200`, and past 1.6 s its update (`0x7853E0`) ends it with the action 6 of the data 6 and the texture `FX_CROSS.TGA` (`+0x88`): the target takes the event `0x109` of those (**hypothesis**: a sign over it) and the effect 1 of `(50 + 25·L)/100`, the attack's multiplier, for 44 + L seconds, at most 120, keyed by 21.
+- **`LICHTSCHILD` (22), its object 819 `FX_HOLYSHIELD`**, on a friend or the caster; the executor (`0x5245DE`) gives the bearer the effect `0x22` keyed by 22, and the FX event (`0x2E`) has the object follow it.
+  Its system's start (`0x785DE0`, at `0x785EB8`) gives the bearer the effect `0x19`, the arrows turned aside (docs/re/fight.md), of the whole value of the system's `+0xAC` (**hypothesis**: the object's id) and the level `L`, for 43 + 2·L seconds, at most 120, keyed by 22: an arrow is turned aside by `c/(L' + 9 + c)`, `c = 2·(5L + 9)` and `L'` its shooter's level, and goes at the object.
+  It has the flags `0x600`, but no case in the hits, so it deals no damage; it ends with its time (`0x785970`).
+
+The effect `0x22` (`0x539E70`), of the whole value and the value 0, lasts the spell's value 0 at the caster's level of the art, keyed by the spell; of the spells read here, 2, 17, 21, 22 and 32 give it.
+What the effect 35 does, the event `0x109`, and the rest of what the effect 13 does are not read.
 
 ## The heroes' starting arts
 
@@ -964,4 +1058,4 @@ The arts dropped are those whose bit 0 is set, the bit a rune sets; so a new gam
 
 ## Open
 
-What the spells' objects give their targets beyond what "The spells' objects" reads (which action each object's system runs, the objects with no case in their hits and actions; #672); what the special weapon arts' effects and objects do (#761: the jump 1032 in part, what the Wood Elf's 1006 makes, the record's `+0x18` of 1004, what the effects 16, 17, 18, 35 and `0x1A` do, the hurled blades' flight, the Dark Elf's traps' objects, what the Vampiress's 1026 to 1029 and 1033 make, the effects 13, 22 and 29's whole values, what the Dwarf's guns and the Daemon's rings and breaths make, what `0x63D180` keeps of the Vampiress's bloodlust by day, the effects 50, 53 and 60) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
+What the other classes' spells' objects give their targets (#672 read the Mage's 2, 5, 7 and 32 and the Seraphim's 13 and 15 to 22), where the fireball starts and at what height, the effects 35 and `0x22`'s use, the event `0x109`, and the casts' shares of their clips beyond 2, 5, 7 and 32; what the special weapon arts' effects and objects do (#761: the jump 1032 in part, what the Wood Elf's 1006 makes, the record's `+0x18` of 1004, what the effects 16, 17, 18, 35 and `0x1A` do, the hurled blades' flight, the Dark Elf's traps' objects, what the Vampiress's 1026 to 1029 and 1033 make, the effects 13, 22 and 29's whole values, what the Dwarf's guns and the Daemon's rings and breaths make, what `0x63D180` keeps of the Vampiress's bloodlust by day, the effects 50, 53 and 60) and the other classes' kicks (#650); the `+0x58…+0x6C` that they read; a rune's requirements; the combos' run beyond their levels; the sender of `0x5481F0`'s event; what leaves a template's arts that a rune taught out of a new game (not `0x588990`, above); the effects 59's fields and 7 to 10's (above).
