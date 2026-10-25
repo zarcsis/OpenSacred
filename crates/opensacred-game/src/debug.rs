@@ -418,6 +418,8 @@ mod tests {
             speed: 140.0,
             pace: 130.0,
             multipliers: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
         })
     }

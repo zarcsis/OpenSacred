@@ -5,8 +5,10 @@
 //! two creatures, stops, turns to the target and plays its class's clip of the art for what it
 //! holds (`opensacred_rules::arts::action`) at its attack's speed; the strikes are the rules'
 //! (`arts::attacke_target`, `arts::rundum_target`, `fight::art_strike`), the first starting the
-//! regeneration of every art of its kind (`arts::HeroArts::start`). The spells and the other
-//! classes' arts wait for their reading.
+//! regeneration of every art of its kind (`arts::HeroArts::start`). A spell is cast where the
+//! hero stands with the clip of its slot at its casts' speed, and acts once the share of its clip
+//! still to play falls below its own (`opensacred_rules::spells`, #872): the fireball leaves for
+//! its target's place as a bolt (`bolts`), and the spell's regeneration starts.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -17,7 +19,7 @@ use opensacred_rules::arts::{
     self, ArtClip, Candidate, Creature, Style, attacke_target, due, hardhit_point, held_factor,
     made_from, rundum_radius, rundum_target,
 };
-use opensacred_rules::minds;
+use opensacred_rules::{minds, spells};
 
 use crate::ai::Mind;
 use crate::arts::HeroArts;
@@ -100,6 +102,11 @@ pub fn clips(
         Style::Breath,
         Style::Sweep,
         Style::Hurl,
+        Style::Cast(154),
+        Style::Cast(155),
+        Style::Cast(157),
+        Style::Cast(161),
+        Style::Cast(163),
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -284,7 +291,12 @@ fn aim(
             .weapon_arts
             .iter()
             .find(|a| a.id == art)
-            .map(|a| a.launch);
+            .map(|a| a.launch)
+            .or_else(|| {
+                let spell = arts.tables.spells.iter().find(|s| s.id == art)?;
+                u8::try_from(spell.launch).ok()
+            });
+        let spell = art < 1000;
         // The right button on the hero himself makes him the target, nearer the cursor's line
         // than a hostile creature (seen: the Gladiator's 1015, of the launch type 2, made on
         // himself so, and refused on a hostile creature or on the ground).
@@ -315,6 +327,8 @@ fn aim(
             _ if arts::style(art) == Some(Style::Changeling) => (hero, at.translation()),
             _ if arts::style(art) == Some(Style::Dash) => (hero, ground),
             (_, _, Some((entity, place, _))) => (entity, place),
+            // A spell of the launch type 0 admits the ground under the cursor (`0x51D840`).
+            (Some(0), _, None) if spell => (hero, ground),
             _ => continue,
         };
         match may_make(&arts, art, effects) {
@@ -342,7 +356,9 @@ fn aim(
                     .insert(Making {
                         art,
                         target,
-                        point: (launch == Some(3) || arts::style(art) == Some(Style::Dash))
+                        point: (launch == Some(3)
+                            || arts::style(art) == Some(Style::Dash)
+                            || (spell && target == hero))
                             .then_some(ground),
                     });
             }
@@ -480,6 +496,73 @@ fn make(
             commands.entity(hero).remove::<(Making, Playing)>();
         };
         let Some(mut playing) = playing else {
+            if let Some(Style::Cast(slot)) = arts::style(making.art) {
+                // A spell is cast where the hero stands (its order's reach not read), the
+                // fireball turning it to its target's place, or its point (`0x51E110`), with
+                // the clip of its slot, blended in over 0.2, at its casts' speed (`+0x3E`).
+                body.stop();
+                let point = making.point.unwrap_or_else(|| {
+                    creatures
+                        .get(making.target)
+                        .map_or(here, |(_, at, ..)| at.translation())
+                });
+                let toward = (point - here).with_y(0.0);
+                if spells::turns(making.art) && toward.length() > f32::EPSILON {
+                    transform.rotation = hero::facing(toward);
+                }
+                let level = arts.arts.level_in_play(
+                    making.art,
+                    Creature {
+                        kind: arts.kind,
+                        level: experience.level,
+                        player: true,
+                    },
+                );
+                let action = clips
+                    .arts
+                    .iter()
+                    .find(|a| a.style == Style::Cast(slot) && a.node.is_some())
+                    .or_else(|| {
+                        let mut arts = clips.arts.iter();
+                        arts.find(|a| a.style == Style::Cast(154) && a.node.is_some())
+                    });
+                let (Some(level), Some(share), Some(action)) =
+                    (level, spells::share(making.art), action)
+                else {
+                    info!("making: the hero has no cast of {} read", making.art);
+                    end(&mut commands);
+                    continue;
+                };
+                let (Some(node), Some(clip)) = (action.node, &action.clip) else {
+                    end(&mut commands);
+                    continue;
+                };
+                let length = animations
+                    .get(clip)
+                    .map_or(1.0, AnimationClip::duration)
+                    .max(0.01);
+                let cast = combat.map_or(opensacred_rules::fight::CAST_SPEED, |combat| combat.cast);
+                let played = speed.0 * cast / 100.0;
+                transitions.play(&mut player, node, BLEND).set_speed(played);
+                info!(
+                    "making: the hero casts {} at level {level} on {}",
+                    making.art, making.target
+                );
+                commands.entity(hero).insert(Playing {
+                    style: Style::Cast(slot),
+                    node,
+                    length,
+                    seconds: length / played.max(f32::EPSILON),
+                    point,
+                    points: vec![1.0 - share],
+                    struck: 0,
+                    target: making.target,
+                    last: None,
+                    level,
+                    factor: 1.0,
+                });
+                continue;
+            }
             let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) else {
                 end(&mut commands);
                 continue;
@@ -782,6 +865,42 @@ fn make(
             art: Some(playing.level),
         };
         match playing.style {
+            Style::Cast(_) => {
+                // Once the share of its clip still to play falls below the spell's, it acts
+                // once: its regeneration starts and the fireball leaves for its target's place,
+                // or the order's point where the target is gone (`0x521D60`, `0x522480`); with
+                // less than 0.3 s of its clip to play after, or its clip done, it ends.
+                if playing.struck == 0 && playing.points.first().is_some_and(|&p| due(p, done)) {
+                    playing.struck = 1;
+                    arts.start(making.art);
+                    let record = arts.tables.spells.iter().find(|s| s.id == making.art);
+                    if making.art == spells::FIREBALL
+                        && let Some(record) = record
+                    {
+                        let toward = creatures
+                            .get(playing.target)
+                            .map_or(playing.point, |(_, at, ..)| at.translation());
+                        let direction = (toward - here).xz().try_normalize().unwrap_or_else(|| {
+                            (transform.rotation * Vec3::X).xz().normalize_or(Vec2::X)
+                        });
+                        let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+                        let level = i32::try_from(playing.level).unwrap_or(1);
+                        let damages = arts::bolt_damages(record, level, multipliers);
+                        info!("making: the fireball leaves for {toward} with {damages:?}");
+                        launches.write(crate::bolts::Launch {
+                            shooter: hero,
+                            direction,
+                            course: crate::bolts::Course::fireball(playing.level),
+                            damages,
+                            wait: 0.0,
+                        });
+                    }
+                }
+                let left = (1.0 - done) * playing.seconds;
+                if finished || (playing.struck > 0 && left < spells::STANDS_WITHIN) {
+                    end(&mut commands);
+                }
+            }
             Style::Kiss => {
                 // At its point its curse lands on its target: its attack's and defence's
                 // multipliers lowered for 5 s (the effects 1 and 2 keyed by 1033); then it ends
@@ -2243,7 +2362,18 @@ mod tests {
         // Her `Hardhit` plays one of the attack's clips.
         let hardhit = clips.iter().find(|c| c.style == Style::Hardhit).unwrap();
         assert_eq!(hardhit.clip, None);
-        // The Mage, whose executor is not read, has none.
+        // The Mage, whose weapon arts' executor is not read, has none of those; his spells play
+        // the clip of their slot whatever he holds, at their own rate (#872).
         assert!(super::clips(3, 1, Some(&slots), &points).is_empty());
+        let mage = Slots::of([(155, "MAGE_CAST_MAGIC02"), (161, "MAGE_CAST_MAGIC08")]);
+        let casts = super::clips(3, 4, Some(&mage), &points);
+        let fireball = arts::style(spells::FIREBALL).unwrap();
+        let cast = casts.iter().find(|c| c.style == fireball).unwrap();
+        assert_eq!(cast.clip.as_deref(), Some("MAGE_CAST_MAGIC02"));
+        assert!(cast.fixed && cast.rate == 1.0);
+        assert_eq!(
+            casts.iter().map(|c| c.style).collect::<Vec<_>>(),
+            [Style::Cast(155), Style::Cast(161)]
+        );
     }
 }

@@ -8,8 +8,9 @@
 //! alive and hostile to the hero, nearer it than the sum of their sizes, and hits them with its
 //! damages (the fight's hit of fixed damages, which always lands, #854): the railgun's every one it
 //! found and goes, the BFG's those of its first contact and flies on harmless, the Daemon's the
-//! first alone and goes. A glowing ball stands in for their particle systems
-//! (docs/decisions/2026-10-24-bolts-look.md).
+//! first alone and goes. The Mage's fireball flies as a bolt too, of its own speed and time by its
+//! level, and strikes every creature it found at its first contact and goes (`making`, #872). A
+//! glowing ball stands in for their particle systems (docs/decisions/2026-10-24-bolts-look.md).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};
@@ -77,6 +78,18 @@ impl Course {
         }
     }
 
+    /// The course of the Mage's fireball at the level `level` (the object 778, `0x76BE80`): every
+    /// creature of its first contact, once, and it goes (`0x5ABD80` at `0x5AC015`).
+    pub fn fireball(level: u32) -> Self {
+        Self {
+            speed: opensacred_rules::spells::fireball_speed(level),
+            slows: 0.0,
+            life: opensacred_rules::spells::fireball_life(level),
+            strikes: Strikes::All,
+            look: 3,
+        }
+    }
+
     /// The course of a bolt of the Daemon's 1103 (`cParticleSystem_emperor`).
     pub fn emperor() -> Self {
         let (speed, slows, life) = EMPEROR_COURSE;
@@ -116,12 +129,14 @@ struct Flying {
     spent: bool,
 }
 
-/// The stand-ins' meshes and materials: the railgun's, the BFG's and the Daemon's.
+/// The stand-ins' meshes and materials: the railgun's, the BFG's, the Daemon's and the
+/// fireball's.
 #[derive(Resource)]
 struct Looks(Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
 /// Makes the stand-ins' looks: a small blue-white ball for the railgun, a larger green one for
-/// the BFG, a violet one for the Daemon's (**estimate**: the colours of their glows).
+/// the BFG, a violet one for the Daemon's, an orange one for the fireball (**estimate**: the
+/// colours of their glows).
 fn make_looks(
     mut commands: Commands,
     meshes: Option<ResMut<Assets<Mesh>>>,
@@ -144,6 +159,7 @@ fn make_looks(
         look(10.0, Color::srgb(0.75, 0.85, 1.0)),
         look(22.0, Color::srgb(0.55, 1.0, 0.45)),
         look(14.0, Color::srgb(0.75, 0.45, 1.0)),
+        look(18.0, Color::srgb(1.0, 0.55, 0.15)),
     ]));
 }
 
