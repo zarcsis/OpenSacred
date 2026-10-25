@@ -171,6 +171,9 @@ Before the switch the function leaves the loop alone while one of the region mus
 
 `opensacred-game` plays the day's column by day and at the dawn, the night's in the dusk and by night (`atmosphere.rs`, by the game's clock, docs/re/daynight.md).
 
+A static whose type has a sound profile (`items.pak +0x24`, docs/02 §6.1; the 22 waterfall types 15531 to 15560 have `atmospot_waterfall`, 10) sends the sound manager the event 13 with its cell and type at every frame it is drawn (`cWorldView_renderTileRow`, `0x62B9D5` to `0x62B9FE`); what the manager makes of it is not read.
+**Seen** 2026-10-25 (#227, check 25) beside nine of them at 51,28: in 15 s nothing of the profile 10 was picked, no sample started and no stream opened, so the original's waterfalls are silent (**hypothesis**: the profile names the id 6507, a music file's, which `sound.pak` lacks); `opensacred-game` plays no static's sound either.
+
 The regions' share is driven by the scripts (not followed): the campaign's functions set variables `atmos_rg<N>` (`bekannter1` does `IncVar atmos_rg1`), and the client holds the string `atmo_rg` (VA `0x94F4FC`), presumably to read them; 163 lines of the campaign's listing name them.
 M4 recovers the link.
 

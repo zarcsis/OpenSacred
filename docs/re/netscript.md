@@ -454,7 +454,7 @@ In the order of `0x461540`:
 - The operand-less tags make a flags word as `CreateNPC`'s do (docs/02 §7.3), but each mode replaces the word's low 16 bits, so that a mode after `0x45` takes its `0x2000` away.
   A word other than 0 replaces the creature's (`+0x1F4`) but for the bits `0x6682304`, which stay (`0x2000` and a boss's `0x80000` among them); the mode `0x800` (`0x43`) given to a trader (`+0x200` bits `0x4007000`) takes those bits away and is dropped itself.
 - `0x75` is the creature's quest, the word `+0x96` (`0x450E20`), which `ExitQuest`, `LoseQuest` and the quests' hook `0x471790` compare with a quest's number.
-- `0x4D` `(x, y, floor)` is its home (`+0x2B9`, docs/re/ai.md), at the cell's centre; the scripts give one to the hero too (**hypothesis**: where it rises again).
+- `0x4D` `(x, y, floor)` is its home (`+0x2B9`, docs/re/ai.md), at the cell's centre; the scripts give one to the hero too, where it rises after its death (**confirmed** 2026-10-25, docs/re/fight.md, "The hero's death"), as `StartPosition` (45, `0x491B30`) also sets it.
 - `0x08` and `0x0E`, the last of them, make it hostile or peaceful by its side (docs/re/fight.md, "Sides"), and its followers with it: `0x08` puts one that is not hostile to the hero already, or an animal, on the side 2, or 14 where the record's word has the guards' mode `0x4000` or its side is 7; `0x0E` puts one that is hostile to the hero on the side 3, or 7 so.
   The test is `0x549000` against the creature's controlling player (`+0x39`, the local player's id in a game of one), where `CreateNPC` asks `0x548F60` of the hero, to the same answer.
 - `0x03` turns it as `CreateNPC`'s does (`0x44DDC0`), and a word with the mode 1 wakes it (`sdk_WAKE`).
