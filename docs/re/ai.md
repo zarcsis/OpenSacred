@@ -52,6 +52,10 @@ A hostile one, in one case of six and where its home's cell lacks bit 2 of its f
   The step is an order to walk somewhere (the event 4: AI 2, then the moving action), which sets no gait: the moving action walks a creature whose gait (`+0x1F8`) is 0 (**hypothesis**: one left running by a chase runs).
 - A hostile creature 800 to 1,875 from the hero so steps about once a second while it stands, and its own timer adds a roll every 5 s or so; farther than 1,500 it stands.
 - Its home is where it was made (`+0x2B9` its sector, `+0x2BD` and `+0x2C1` its place, `+0x2C5` its layer), set by the creature maker (`0x480D40`).
+- A step of a creature of an `Enter` function in a group (`+0x249`) moves the whole group (`0x54F2AE` to `0x54F725`, read 2026-10-25, #912): `0x4C4F60` copies the group's list of members from the script manager's map (`0xAB4490`), and every member, the stepper among them, is sent its own place moved by the step and `U[−50, 50]` along each axis, its home set within 50 more of that, by the event 4, a member that walks already sent anew; nothing draws a group back to where its fill placed it.
+  So with the hero 800 to the look's range off, a pack whose members roll at each look (`1 − 0.775ⁿ` for `n` standing members) walks nearly all the time, to and fro on an arc about the hero at its distance: seen in the original with the thieves of 48,38 (#227, check 7).
+  A creature of an `Init` function or the start script sends itself alone.
+- The formation of `+0x25F` `0xD160` (`0x54F446` to `0x54F695`, `0x54F8A8` to `0x54FB08`: the first member turns, the others walk to a file behind it) is never reached in GOG 2.28: no instruction stores `0xD160` in `+0x25F`, and the scripts' tag `0x73` sets it to 64 alone.
 
 ## The peaceful creatures' behaviours
 
@@ -232,7 +236,7 @@ A follower is a creature in its master's list (`+0x39C`) with its master at `+0x
 
 ## Open
 
-The test of the levels in detail; the AI's states 1, 6 and 10 to 14; a formation of groups (`+0x25F` `0xD160`).
+The test of the levels in detail; the AI's states 1, 6 and 10 to 14.
 Of the townsfolk: the meaning of `0x434070`, which spares some types a torch; a following child's catch-up (`0x4EBF20`); the hero's list at `+0x39C` that keeps a child following it; how the engine's event 6 shows the lines.
 
 ## In `opensacred-game`
@@ -240,7 +244,7 @@ Of the townsfolk: the meaning of `0x434070`, which spares some types a torch; a 
 The decisions named below as `minds::…` live in `opensacred-rules` (`opensacred_rules::minds`, #362); `opensacred-game`'s `ai` keeps the minds as components, finds the creatures, the doors and the cells about a creature, and carries the decisions out with the walks, the strikes, the lines and the turns.
 `ai` gives each NPC a mind (`ai::Mind`, #237; `minds::Mind`): its home where it was made, its flags word, whether an `Enter` function made it and whether `CreateNPC` did, its group, its walk speed.
 The hostile ones of `CreateNPC` wake as they are made and look every 2.5 s, the other hostile ones and the townsfolk every 5 s, jittered by ±1.5 s, each timer keeping what its tick took it above its period; the hero's look every 0.3 s of the ticks wakes the creatures not hostile within 1,875 and the hostile ones within 800 (400 while it moves), and gives the idle action to the other hostile ones in range; an awake creature farther than 1,500 or 1,000 from the hero along the grid's axes goes dormant again.
-The idle action's step walks a creature (`npcs::Walk`, at its walk speed and with its walk clip) to a point within 150, home in one case of four, or, made by an `Enter` function, turned about the hero, its home and its group's members moving with it.
+The idle action's step walks a creature (`npcs::Walk`, at its walk speed and with its walk clip) to a point within 150, home in one case of four, or, made by an `Enter` function, turned about the hero, the whole group moving with it, the stepper among them, each by the step and within 50 more, its home within 50 of its target, a walking member sent anew (#912).
 An awake hostile creature, in one case of six, walks home from farther than 200; else one that takes on the hero or has it within its reach comes at it (docs/re/fight.md, "In `opensacred-game`"), and any other in one case of three takes the idle action (docs/decisions/2026-10-20-idle.md); the fidgets are left out.
 The animals take their behaviours (#238): a fill's peaceful creature its type's flags (`minds::of_type`) with its constructor's critter bit (`ways::constructed`, #468), so that the rabbits' variants take none, an `Enter` function's creature without flags those of its first update; awake, a wild one runs (`npcs::Walk::run`, at its run speed and with its run clip) from the nearest creature of its sector neither of class 4 nor 6, the hero among them, within 300, walks back within 50 of home from farther than 380, and strolls within 100 of home; a farm one steps away to the point beyond itself from such a creature within 200 and strolls within 150 of home; the strolls come in one tick of 101 (#608, #639, docs/decisions/2026-10-20-animals.md).
 The guards keep their posts (#239): awake, a guard strolls within 200 of its post at the same rate, and otherwise walks back to it from farther than 90 along an axis, deciding as it walks too, so that it turns back from a stroll beyond 90 (#608); the torches wait for the lights in hand (#61) (docs/decisions/2026-10-20-guards.md).

@@ -485,7 +485,7 @@ fn think(
     // groups whose alarm goes.
     let mut steps: Vec<(Entity, Vec3)> = Vec::new();
     let mut alarms: Vec<u32> = Vec::new();
-    let mut grouped: Vec<(u32, Vec3, Entity)> = Vec::new();
+    let mut grouped: Vec<(u32, Vec3)> = Vec::new();
     let seen = doors.seen(&heights);
     for (entity, transform, way, mut mind, walking, layered, sliding, effects) in &mut creatures {
         // A knocked creature thinks nothing while it slides, but for its timer while it is held
@@ -590,25 +590,22 @@ fn think(
                 alarms.push(group);
             }
         }
+        // A step of a group's member of an `Enter` function moves the whole group, the stepper
+        // among them, below (`0x54F2AE`).
         if let Some(step) = thought.step {
             let target = point(step, here.y);
-            steps.push((entity, target));
-            if let (Some(group), true) = (mind.group, mind.enter) {
-                grouped.push((group, target - here, entity));
+            match (mind.group, mind.enter) {
+                (Some(group), true) => grouped.push((group, target - here)),
+                _ => steps.push((entity, target)),
             }
         }
     }
-    // A group's other members step by the same step, each within 50 of it.
-    for (group, step, leader) in grouped {
-        for (entity, transform, _, mut mind, walking, _, sliding, _) in &mut creatures {
-            // Not one that goes for a door, sent there this tick or before, nor one knocked back.
-            if entity == leader
-                || mind.group != Some(group)
-                || walking
-                || mind.to_door()
-                || sliding
-                || mind.held()
-            {
+    // A group's members, the stepper among them, step by the same step, each within 50 more and
+    // its home within 50 of its target; a walking member is sent anew (`0x54F2AE` to `0x54F725`).
+    for (group, step) in grouped {
+        for (entity, transform, _, mut mind, _, _, sliding, _) in &mut creatures {
+            // Not one that goes for a door, nor one knocked back.
+            if mind.group != Some(group) || mind.to_door() || sliding || mind.held() {
                 continue;
             }
             let here = transform.translation;
