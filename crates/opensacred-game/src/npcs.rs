@@ -3709,17 +3709,46 @@ impl Dies {
     }
 }
 
+/// What a dead NPC was, which the Vampiress's awakening (1034) raises: its type, its
+/// `Creature.pak` class, whether it had a dialogue, and the level it lies on.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Corpse {
+    pub creature: u32,
+    pub class: u8,
+    pub dialogue: bool,
+    pub level: Level,
+}
+
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
-/// the way gone.
+/// the way gone, what it was kept ([`Corpse`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn die(
     mut commands: Commands,
-    mut dying: Query<(Entity, &Npc, &mut Dies)>,
+    mut dying: Query<(
+        Entity,
+        &Npc,
+        &mut Dies,
+        Option<&ai::Mind>,
+        Option<&crowd::InTheWay>,
+    )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
 ) {
-    for (entity, npc, mut dies) in &mut dying {
+    for (entity, npc, mut dies, mind, way) in &mut dying {
         if dies.played {
             continue;
+        }
+        if let (Some(mind), Some(way)) = (mind, way) {
+            bevy::log::debug!("npcs: {entity}, a {}, lies dead", mind.creature);
+            commands.entity(entity).insert(Corpse {
+                creature: mind.creature,
+                class: mind.class,
+                dialogue: mind.dialogue,
+                level: way.level,
+            });
         }
         commands
             .entity(entity)

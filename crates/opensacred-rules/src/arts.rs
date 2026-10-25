@@ -212,6 +212,10 @@ pub enum Style {
     /// below [`SUMMONS`] a summoning near its point ([`summoning_point`]) that makes her a wolf
     /// of [`wolf_level`] for her follower.
     Summon,
+    /// The Vampiress's awakening 1034 (`GUI_MOVE_ERWECKUNG`), by night, of the launch type 4 (a
+    /// dead creature, `0x50E6C0`): once what is left of its clip is below [`RAISES`] the dead
+    /// creature rises as her follower for [`raised_seconds`], at [`raised_level`].
+    Raise,
     /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: its curse
     /// lands on its target at [`KISS_LANDS`] of its clip, its attack's and defence's multipliers
     /// lowered by [`curse`] for [`CURSE_SECONDS`] (the effects 1 and 2; seen).
@@ -629,6 +633,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1026 || art == 1027 {
         return Some(Style::Summon);
     }
+    if art == 1034 {
+        return Some(Style::Raise);
+    }
     if art == 1033 {
         return Some(Style::Kiss);
     }
@@ -936,6 +943,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // Her call of the wolf: the slot 147 at the blend 0.5 and the rate 1.0, by day and by
         // night alike (`0x513C6D`; **hypothesis**: the night's model has its own 147).
         (6 | 7, Style::Summon) => Some(plain(147)),
+        // Her awakening by night: the slot 150 at the blend 0.5 and the rate 1.0 (`0x513868`).
+        (7, Style::Raise) => Some(plain(150)),
         // Her death's kiss by night: the slot 148 at the rate 1.0 (seen).
         (7, Style::Kiss) => Some(plain(148)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
@@ -1435,6 +1444,33 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
     } else {
         narrow(seconds)
     }
+}
+
+/// What is left of its clip, as a part of it, below which the awakening raises its target
+/// (`0x511088`), and how far from her a target may lie, with a straight way to it (`0x513868`).
+pub const RAISES: f32 = 0.6;
+pub const RAISES_WITHIN: f32 = 400.0;
+
+/// Whether the awakening takes a dead creature of `Creature.pak` class `class` and type
+/// `creature`, with a dialogue or not, a follower or not (`0x51D840`, case 4): no follower, no
+/// dialogue, not of the class 10 nor of the type 55.
+pub fn raises(class: u8, creature: u32, dialogue: bool, follower: bool) -> bool {
+    !follower && !dialogue && class != 10 && creature != 55
+}
+
+/// The level of the creature that the Vampiress of level `hero` raises at the level in play
+/// `level` (`0x511088`): `⌊3·L + 0.4·l⌋`.
+pub fn raised_level(hero: u32, level: u32) -> u32 {
+    u32::try_from(whole_units(
+        0.4f64.mul_add(f64::from(hero), 3.0 * f64::from(level)),
+    ))
+    .unwrap_or(0)
+}
+
+/// How long the creature that the awakening of `record` raises at the level in play `level`
+/// lives, the effect 29's time (`0x511088`): twice its factor, `2·(27 + 3·L)`.
+pub fn raised_seconds(record: &WeaponArt, level: u32) -> f32 {
+    2.0 * factor(record, level)
 }
 
 /// The spiders that the spider arrow 1006 makes at its first hit (`0x5BB010`): their type, their

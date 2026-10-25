@@ -21,6 +21,7 @@ const SERAPHIM: u32 = 1;
 const GLADIATOR: u32 = 2;
 const WOOD_ELF: u32 = 5;
 const VAMPIRESS_BY_DAY: u32 = 6;
+const VAMPIRESS_BY_NIGHT: u32 = 7;
 const DAEMON: u32 = 9;
 
 fn spell(id: u16, regeneration: [u16; 2], classes: u32) -> Spell {
@@ -1015,6 +1016,29 @@ fn the_domination_holds_its_target_by_its_level() {
     assert_eq!(domination_seconds(&day, 1, 5), 20.0);
     // Above 5L, times 5L/M.
     assert_eq!(domination_seconds(&day, 1, 10), 10.0);
+}
+
+#[test]
+fn the_awakening_raises_a_dead_creature_for_twice_its_factor() {
+    assert_eq!(style(1034), Some(Style::Raise));
+    assert_eq!(
+        action(VAMPIRESS_BY_NIGHT, Style::Raise, 1).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(150), 1.0))
+    );
+    assert_eq!(action(VAMPIRESS_BY_DAY, Style::Raise, 1), None);
+    let awakening = WeaponArt {
+        factor: [27.0, 3.0],
+        ..weapon_art(1034, [20.0, 12.0], 64)
+    };
+    // 60 s at level 1.
+    assert_eq!(raised_seconds(&awakening, 1), 60.0);
+    assert_eq!(raised_level(1, 1), 3);
+    assert_eq!(raised_level(10, 2), 10);
+    assert!(raises(2, 76, false, false));
+    assert!(!raises(2, 76, true, false));
+    assert!(!raises(2, 76, false, true));
+    assert!(!raises(10, 76, false, false));
+    assert!(!raises(2, 55, false, false));
 }
 
 #[test]
