@@ -189,6 +189,26 @@ Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless 
 `opensacred-rules` keeps this state apart from Luau and from the engine (#724, `opensacred_rules::quests`): the quests' flags and the transitions above, each naming the section functions it runs for the scripts' runtime to run and taking its answer; the variables by name, kept to their first 31 bytes; and the dialogues' table below, its first entry doubled; all of it serializable for the saves (`quests::Scripts`).
 `opensacred-game` follows the quests' start in its own code until #726 moves it onto this (docs/decisions/2026-10-19-quest-npcs.md).
 
+## Variables and groups
+
+Read off the client with Ghidra 2026-10-25 (#943, #951) by a subagent of the session; **confirmed** by code unless marked.
+
+- The scripts' variables are a vector of the interpreter (`+0x7550`, entries of 0x24 bytes), found by name without regard to case (`0x859690`) and of equal length.
+- `SetVarBit` (68, `0x49B840`) ORs `1 << (n mod 32)` into the variable for each `0x0B`, bits counted from 0; a missing variable is created with the mask.
+  The name `HeroQBit` sets a hero's quest bit of the difficulty instead (`0x424DA0`); a second `0x01` names either a creature (`res:`) or a variable whose value is the bit.
+- `UnsetVarBit` (69, `0x49C160`) clears the bit of its last `0x0B`, and does nothing to a missing variable.
+- `IncVar` (75, `0x49C930`) adds the last `0x0B`, or a named variable's value, keeping the old value where the sum is smaller (a negative increment, an overflow); a missing variable is created with the increment.
+  It also counts in one of 150 counters (`+0x7750`) for a name that does not start with `atmo_rg`, by a number parsed from the name's eighth byte (its use not read).
+- The `IF` operands: `0x48` holds where the variable exists and equals the number (a name starting with `LOC_RG` looked up in another table, `+0x334`), `0x49` where the bit is set and `0x4A` where it is clear, both false for a missing variable.
+- The groups of creatures are one map of the global interpreter (`0xAACF80`, `+0x7510`), keyed by the group's number alone, each a list of object ids: no quest, area or function enters the key.
+  `CreateNPC`'s `0x11` adds the creature to its number's group (`0x4A9EF0`) and keeps the number in the creature (`+0x249`); a destroyed creature leaves its group (`0x463A70`).
+  During an `Enter`, creatures of some types also join a group keyed `0xFFFF0000` with the creature's word `+0x18` (**hypothesis**: its sector), which never meets the scripts' numbers.
+- `GroupIsDead` (24, `0x48C860`) answers alive at the first member that lives (`0x549080`) and lacks `+0x1F4` bit `0x2000000`, wherever it stands, and takes the others out of the group.
+- `SetGroupState` (73, `0x49E760`) takes out of the group the members of `+0x14` bit `0x10`; with `0x51` it makes an object of type `0x30C` at each other creature's place, posts it the event `0xC` (**hypothesis**: the vanishing effect) and destroys the creature where it lives, wherever it is.
+- `Attack` (92, `0x4A2B40`) looks both of its groups up in the same map.
+
+Not read: `DecVar` (76, `0x49CEC0`); whether destroying a creature runs its death function; when the map of groups is emptied, and whether a save keeps it.
+
 ## The community's quest defects
 
 Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.
@@ -255,7 +275,9 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 - **2203 (Pure Water)**: `Region22Init` creates its six objects (item 6081, `0x41` `obj2203`) and its hostile target 17260 (`0x05` `tot2203`).
   `obj2203` counts the variable `2303a` whatever the quest's state, setting bit 3 of `2203a` at a count of 6, or bit 3 of `2203`, the win, where bit 3 of `2203b` is set; `tot2203` tests bit 3 of `2203a` first, which sets the win, ahead of the branch that triggers the quest where the target is beaten before it is taken.
   So with the objects taken before the quest and the target killed after them, the giver offers the win with the quest never entered: its `QuestBook` lines go nowhere, `ExitQuest` does nothing, and `QIS_OnExit2203` never runs (#936; that the objects can be taken first is unconditioned in the data, not seen in play).
-- The count `2303a` is also set by `Dialog:ziel2303` (bit 2), a dialogue of R23NQ03, which has no quest file: if `SetVarBit` adds 4 to a count below 4 (**hypothesis**: by its name, not read), one or two objects suffice, or the count passes 6 without `obj2203`'s equality holding, and the quest cannot be won (#943).
+- The count `2303a` is also set by `Dialog:ziel2303` (bit 2), a dialogue of R23NQ03, which has no quest file, once: the same branch sets bit 2 of `2303`, which sends the dialogue's next showing elsewhere.
+  `SetVarBit` ORs the bit in ("Variables and groups"), so with k of the six objects taken as it runs, the count becomes 4 or 5 for k = 0 or 1 and `obj2203`'s `== 6` holds at the second object; 6 or 7 for k = 2 or 3, with no test run, so that the quest cannot be won; and nothing changes for k = 4 to 6 (#943).
+  Nothing reads that bit: the five records of `2303a` in each tree that holds the quest are the start script's `SetVar 0`, `obj2203`'s `IncVar` and two tests, and this `SetVarBit`.
 - The same in the 11 trees that hold the two quests.
 
 ### The log contradicting itself
@@ -285,7 +307,7 @@ Not read: how the log window shows a quest as completed or failed, by its lines 
 
 Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code and on the scripts unless marked otherwise.
 
-- `SetGroupState` (73, `0x49E760`; the walker's case at `0x475ADB`) with `0x51` posts each creature of the group that its `0x11` names (`0x4C4E40`) the event `0xC` and destroys it (`sdk_DESTROY`) where `0x549080` holds (not read); `DelNPC` (55, `0x497F80`) destroys the creature that its `0x01` names and takes the name out.
+- `SetGroupState` (73, `0x49E760`; the walker's case at `0x475ADB`) with `0x51` destroys every living creature of the group that its `0x11` names, wherever it is ("Variables and groups"); `DelNPC` (55, `0x497F80`) destroys the creature that its `0x01` names and takes the name out.
   Whether either runs the creature's death functions (`0x05`) is not read.
 - `RegionChange` (116, `0x4ABB60`, applied by `0x4ABFE0`) takes pairs of types (`0x02`, from and to) and a number 0 to 49 (`0x69`), which it compares with the byte `+0xD7` of the creature's sector (`0x622D50`), the area (keyx `+0x2C0`, docs/re/sound.md's **hypothesis**).
   It skips an object of another area, a trader (`+0x200` bits `0x4007000`), or one of `+0x2B7` bit `0x08`, which `0x6B` above 0 sets; the others take the pair's second type, the record's flags word (keeping `0x2000`), and with `0x08` a hostile side (2, or 14 where `+0x1F0` is 7) or with `0x0E` a peaceful one (3, or 7 with the guards' mode `0x4000`), their items of the pairs' types swapped too.
@@ -305,7 +327,9 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   17163 is quest 1202's target (`Region13Init`, in area 22, some 1,470 cells from the knight), whose dialogue holds 1202's win and then a trade, and nothing in 602 tests 1202: beating the knight before 1202's end deletes its target, and the quest stays entered, neither won nor lost, once its giver has deleted its timer; after its end, the trader is gone (#949).
   That 17163 is 17136 with two digits swapped is a **hypothesis**: the function's name and its first `NPC_Goto`, which names the knight, support it.
 - The functions above are in the 9 trees of the Sacred campaign (`Init55`, `NimmtDaemonenhorn`, `ScriptAnimShareef`, `Init81`) and the side quests in 11 (those and `netscript`, `addon-netscript`).
-- The group number 5001 is named by quest 501's 13 ghosts, quest 5001's camp and quest 5002's test, attack and removal, so 501's ghosts would count in 5002's test and fall to its removal if the groups' numbers are global (**hypothesis**, `0x4C4E40` not read); and `QIS_OnEnter501` creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
+- The group number 5001 is named by quest 501's 13 ghosts (`QIS_OnEnter501`), quest 5002's camp, the seven NPCs 17691 to 17697 that `Region20Enter` and `Region21Enter` make, and quest 5002's test (`od_5002`), attacks (`timer2_5002`, `OMO5002Hinterhalt5002`) and removal (`schatzsucher5002`).
+  The groups are global by number ("Variables and groups"), so 5002's test answers alive while any of 501's ghosts lives, anywhere, its removal destroys them, and its attacks send group 5002 at them; nothing else names the group, so 501 itself never counts them.
+  `QIS_OnEnter501` also creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
 
 Not read: when a region's `Init` runs, whether a removal or a `DelNPC` runs the death functions, what `0x549080` and the event `0xC` do; none of this was seen in the running original.
 
