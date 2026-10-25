@@ -425,7 +425,12 @@ fn think(
     balance: Res<FightRules>,
     experience: Res<crate::fight::Experience>,
     doors: Doors,
-    hero: Query<(&Transform, &Body, Option<&crate::hero::Size>)>,
+    hero: Query<(
+        &Transform,
+        &Body,
+        Option<&crate::hero::Size>,
+        Option<&crate::spells::Unseen>,
+    )>,
     mut creatures: Query<
         (
             Entity,
@@ -440,9 +445,10 @@ fn think(
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
 ) {
-    let Some((hero, body, size)) = hero.iter().next() else {
+    let Some((hero, body, size, unseen)) = hero.iter().next() else {
         return;
     };
+    let unseen = unseen.is_some_and(|unseen| unseen.holds());
     // The creatures that fight, which an idle hostile creature of their sector may take for its
     // foe (`0x54338B`).
     let fighters: Vec<Other> = creatures
@@ -497,9 +503,10 @@ fn think(
                 size: other.size,
             })
             .collect();
-        // A creature that the Vampiress dominates does not see her for a foe (the effect 13).
-        let dominated =
-            effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED));
+        // A creature that the Vampiress dominates does not see her for a foe (the effect 13), nor
+        // any the hero in its water form (`0x54A6D0`).
+        let dominated = unseen
+            || effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED));
         let senses = Senses {
             dt,
             seen: look && (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0 && !dominated,
@@ -662,6 +669,7 @@ fn pursue(
             Has<crate::attack::Striking>,
             Option<&crate::attack::Attack>,
             Option<&crate::hero::Size>,
+            Option<&crate::spells::Unseen>,
         ),
         (With<Body>, Without<crate::npcs::Dies>),
     >,
@@ -682,9 +690,10 @@ fn pursue(
     >,
 ) {
     let dt = tick.seconds.unwrap_or_default();
-    let Some((the_hero, hero, hero_strikes, attack, size)) = hero.iter().next() else {
+    let Some((the_hero, hero, hero_strikes, attack, size, unseen)) = hero.iter().next() else {
         return;
     };
+    let unseen = unseen.is_some_and(|unseen| unseen.holds());
     let hero = hero.translation;
     // The creature the hero attacks.
     let attacked = attack.and_then(crate::attack::Attack::target);
@@ -725,6 +734,7 @@ fn pursue(
         let foe = mind.foe();
         if foe.is_none()
             && (mind.turned
+                || unseen
                 || effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED)))
         {
             continue;

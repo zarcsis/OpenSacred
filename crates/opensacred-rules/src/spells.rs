@@ -39,6 +39,29 @@ pub const CONVERSION: u16 = 19;
 /// `BLITZSCHLAG`; and the ice splinters, `EISSPLITTER`.
 pub const SPIRAL: u16 = 11;
 pub const PURGATORY: u16 = 23;
+/// The Mage's other spells: the teleport, `PHASEN`; the water form, `WASSERFORM`; the flesh to
+/// stone, `FLEISCHSTEIN`; and the ring of frost, `FROSTRING`.
+pub const TELEPORT: u16 = 1;
+pub const WATER_FORM: u16 = 4;
+pub const STONE: u16 = 25;
+pub const FROST_RING: u16 = 35;
+
+/// The effect that holds a creature, its time's factor 0 (`0x583485`, `0x537160`).
+pub const HELD: u32 = 15;
+/// The teleport's step along its line, in world units, and when it puts the caster at its end,
+/// in seconds over the cast's rate (`0x522742`, the system `0x771410`).
+pub const TELEPORT_STEP: f32 = 10.0;
+pub const TELEPORT_TIME: f32 = 3.35;
+/// The water form's overlay: the 2 s of its state 3 after its value 0 (`0x44A520`).
+pub const WATER_AFTER: f32 = 2.0;
+/// The ring of frost's eight objects about the caster: their distance, the first's angle off π
+/// and the steps between them, their reach with the creature's size, and their life
+/// (`0x52555A`, `0x5ACA87`).
+pub const FROST_FROM: f32 = 170.0;
+pub const FROST_ANGLE: f32 = std::f32::consts::PI - 0.5;
+pub const FROST_STEP: f32 = std::f32::consts::FRAC_PI_4;
+pub const FROST_REACH: f32 = 60.0;
+pub const FROST_LIFE: f32 = 25.0;
 pub const METEORS: u16 = 26;
 pub const WHIRLWIND: u16 = 29;
 pub const CHAIN: u16 = 33;
@@ -100,6 +123,41 @@ pub fn fan(spell: u16, n: u32, distance: f32) -> Vec<f32> {
                 .collect()
         }
     }
+}
+
+/// The point that the teleport takes its caster to (`0x5228F0` to `0x522A98`): along the line
+/// from `from` to `to` in steps of [`TELEPORT_STEP`], at most `points` of them, while each point
+/// may be passed (`passes`), the last on which it may stand (`stands`); a caster stopping before
+/// it passes `to`. `from` itself where none is.
+pub fn teleport(
+    from: [f32; 2],
+    to: [f32; 2],
+    points: u32,
+    passes: impl Fn([f32; 2]) -> bool,
+    stands: impl Fn([f32; 2]) -> bool,
+) -> [f32; 2] {
+    let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+    let length = dx.hypot(dy);
+    if length < 1e-7 {
+        return from;
+    }
+    let step = [
+        (TELEPORT_STEP * dx / length).trunc(),
+        (TELEPORT_STEP * dy / length).trunc(),
+    ];
+    let mut last = from;
+    for i in 0..points {
+        let k = to_f32(i);
+        let point = [from[0] + step[0] * k, from[1] + step[1] * k];
+        let along = (point[0] - from[0]).hypot(point[1] - from[1]);
+        if along > length || !passes(point) {
+            break;
+        }
+        if stands(point) {
+            last = point;
+        }
+    }
+    last
 }
 
 /// The Mage's skins and shields: the fire skin, `FLAMMENHAUT`; the quickening, `KATARAKT`; the
@@ -186,13 +244,17 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 35] = [
+pub const MADE: [u16; 39] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
     REIKI,
     SPIRAL,
     PURGATORY,
+    TELEPORT,
+    WATER_FORM,
+    STONE,
+    FROST_RING,
     METEORS,
     WHIRLWIND,
     CHAIN,
@@ -973,6 +1035,29 @@ mod tests {
     }
 
     #[test]
+    fn the_teleport_goes_along_its_line_to_the_last_point_he_may_stand_on() {
+        let open = |_: [f32; 2]| true;
+        // Toward a point 300 off, 90 points: it stops before passing it.
+        assert_eq!(
+            teleport([0.0, 0.0], [300.0, 0.0], 90, open, open),
+            [300.0, 0.0]
+        );
+        // Only 10 points: 90 at most.
+        assert_eq!(
+            teleport([0.0, 0.0], [300.0, 0.0], 10, open, open),
+            [90.0, 0.0]
+        );
+        // A wall at 150 stops it; a stretch he may not stand on before is passed over.
+        let wall = |p: [f32; 2]| p[0] < 150.0;
+        let ground = |p: [f32; 2]| !(100.0..130.0).contains(&p[0]);
+        assert_eq!(
+            teleport([0.0, 0.0], [300.0, 0.0], 90, wall, ground),
+            [140.0, 0.0]
+        );
+        assert_eq!(teleport([5.0, 5.0], [5.0, 5.0], 90, open, open), [5.0, 5.0]);
+    }
+
+    #[test]
     fn the_healing_heals_its_value_raised_by_the_magic_lore() {
         // 10 + 50·L, times 1.12 by the magic lore at level 1.
         let healing_record = record(7, &[], [10, 50], 0);
@@ -987,6 +1072,6 @@ mod tests {
         // At level 1, 160 a second for 2.5 s, some 400; held at 500 from level 35.
         assert_eq!((fireball_speed(1), fireball_life(1)), (160.0, 2.5));
         assert_eq!((fireball_speed(35), fireball_speed(60)), (500.0, 500.0));
-        assert!(made(FIREBALL) && made(REIKI) && !made(1));
+        assert!(made(FIREBALL) && made(REIKI) && !made(6));
     }
 }

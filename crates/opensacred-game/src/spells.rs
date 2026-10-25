@@ -133,6 +133,29 @@ struct Flame {
     cooldown: f32,
 }
 
+/// The hero in its water form, which no creature takes for its target (`0x54A6D0`; docs/re/
+/// arts.md, "The Mage's other spells"): the seconds until it starts, 1.6 over the cast's rate
+/// after the act (its system's action 6), and how long it lasts then.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct Unseen {
+    pub after: f32,
+    pub left: f32,
+}
+
+impl Unseen {
+    /// Whether it holds now.
+    pub fn holds(self) -> bool {
+        self.after <= 0.0
+    }
+}
+
+/// The hero teleporting: where to, and how long until it is put there.
+#[derive(Component, Debug, Clone, Copy)]
+struct Teleporting {
+    to: Vec3,
+    left: f32,
+}
+
 /// The dice of the spells' choices at random.
 #[derive(Resource)]
 struct Dice(crate::spawning::Rng);
@@ -256,7 +279,11 @@ fn act(
     places: Query<&GlobalTransform>,
     mut targets: Query<(&mut Health, Option<&ai::Mind>, Option<&fight::Ranked>)>,
     mut launches: MessageWriter<crate::bolts::Launch>,
-    (mut hits, mut dice): (MessageWriter<fight::Hit>, ResMut<Dice>),
+    (mut hits, mut dice, heights): (
+        MessageWriter<fight::Hit>,
+        ResMut<Dice>,
+        Res<crate::terrain::Heights>,
+    ),
     hearers: Query<
         (Entity, &GlobalTransform, &ai::Mind, Option<&Effects>),
         (Without<Body>, Without<Dies>),
@@ -340,6 +367,95 @@ fn act(
                                 spells::FEAR_REACH,
                                 2.0,
                                 spells::FEAR_REACH,
+                            ))
+                            .with_translation(Vec3::Y * 4.0),
+                        ));
+                    }
+                }
+            }
+            spells::TELEPORT => {
+                // Along the line to the point, the last point where he may stand, some 3.35 s
+                // over the cast's rate later (`0x522742`).
+                let level = body.level();
+                let passes = |[x, z]: [f32; 2]| {
+                    let cell = crate::paths::cell_of(x, z);
+                    heights.walkable_on(cell, level)
+                };
+                let stands = |[x, z]: [f32; 2]| heights.standing(x, z, level).is_some();
+                let [x, z] = spells::teleport(
+                    [here.x, here.z],
+                    [act.point.x, act.point.z],
+                    spells::value(record, 0, act.level),
+                    passes,
+                    stands,
+                );
+                let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |c| c.cast) / 100.0;
+                commands.entity(act.caster).insert(Teleporting {
+                    to: Vec3::new(x, here.y, z),
+                    left: spells::TELEPORT_TIME / rate.max(f32::EPSILON),
+                });
+            }
+            spells::WATER_FORM => {
+                let seconds = fight_seconds(spells::value(record, 0, act.level));
+                let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |c| c.cast) / 100.0;
+                commands.entity(act.caster).insert(Unseen {
+                    after: SHIELD_TIME / rate.max(f32::EPSILON),
+                    left: seconds + spells::WATER_AFTER,
+                });
+            }
+            spells::STONE => {
+                // A creature of no big type held for its value 0 (the effect 15, action 7).
+                let Ok((health, Some(mind), _)) = targets.get(act.target) else {
+                    continue;
+                };
+                if mind.big || health.current == 0 {
+                    continue;
+                }
+                let seconds = fight_seconds(spells::value(record, 0, act.level));
+                let effect = Effect {
+                    id: spells::HELD,
+                    whole: 0,
+                    value: 0.0,
+                    art: u32::from(act.spell),
+                    level: 0,
+                };
+                given.push((effect, seconds));
+                let mut held = commands.entity(act.target);
+                held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                held.entry::<ai::Mind>()
+                    .and_modify(move |mut mind| mind.stunned(seconds));
+            }
+            spells::FROST_RING => {
+                let damages = bolt_damages(record, level, multipliers);
+                for k in 0..8u8 {
+                    let angle = spells::FROST_ANGLE + spells::FROST_STEP * f32::from(k);
+                    let at = here + Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::FROST_FROM;
+                    let mut made = commands.spawn((
+                        Aura {
+                            caster: act.caster,
+                            follows: None,
+                            reach: spells::FROST_REACH,
+                            classes: &[],
+                            damages: Some(damages),
+                            gives: Vec::new(),
+                            key: act.spell,
+                            level: body.level(),
+                            left: spells::FROST_LIFE,
+                            cooldown: 0.0,
+                            strikes: Strikes::About,
+                        },
+                        Transform::from_translation(at),
+                        Visibility::Inherited,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                    if let Some(looks) = &looks {
+                        made.with_child((
+                            Mesh3d(looks.disc.clone()),
+                            MeshMaterial3d(looks.discs[1].clone()),
+                            Transform::from_scale(Vec3::new(
+                                spells::FROST_REACH,
+                                2.0,
+                                spells::FROST_REACH,
                             ))
                             .with_translation(Vec3::Y * 4.0),
                         ));
@@ -1506,6 +1622,45 @@ fn spiral(
     }
 }
 
+/// Puts each teleporting hero at its point once its time comes, and counts the water form down.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their components"
+)]
+fn teleport(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut heroes: Query<(
+        Entity,
+        &mut Transform,
+        &mut Body,
+        Option<&mut Teleporting>,
+        Option<&mut Unseen>,
+    )>,
+) {
+    let dt = time.delta_secs();
+    for (hero, mut transform, mut body, teleporting, unseen) in &mut heroes {
+        if let Some(mut teleporting) = teleporting {
+            teleporting.left -= dt;
+            if teleporting.left <= 0.0 {
+                debug!("spells: the hero teleports to {}", teleporting.to);
+                body.teleport(&mut transform, teleporting.to);
+                commands.entity(hero).remove::<Teleporting>();
+            }
+        }
+        if let Some(mut unseen) = unseen {
+            if unseen.after > 0.0 {
+                unseen.after -= dt;
+            } else {
+                unseen.left -= dt;
+                if unseen.left <= 0.0 {
+                    commands.entity(hero).remove::<Unseen>();
+                }
+            }
+        }
+    }
+}
+
 /// Takes each sight away after its time.
 fn fade(time: Res<Time>, mut commands: Commands, mut sights: Query<(Entity, &mut Fades)>) {
     for (entity, mut fades) in &mut sights {
@@ -1559,7 +1714,7 @@ impl Plugin for SpellsPlugin {
             .add_systems(
                 Update,
                 (
-                    act, shield, strike, mine, disk, meteor, chain, spiral, doom, fade,
+                    act, shield, strike, mine, disk, meteor, chain, spiral, teleport, doom, fade,
                 )
                     .chain()
                     .after(Step::Npcs)
