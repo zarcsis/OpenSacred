@@ -215,10 +215,10 @@ pub enum Style {
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
     Smite,
     /// Effects on its maker at a part of its clip, made where it stands ([`boon`]): the Dark
-    /// Elf's 1047 and 1048 and the Dwarf's 1089, of the launch type 5 (`ECF_ONMEMYSELFANDI`,
-    /// whose target `0x51D840` makes the maker itself), and the Gladiator's 1015, of the type 2
-    /// (`ECF_ONFRIENDLY`), on a friend or on himself, whom the right button on him makes its
-    /// target (seen).
+    /// Elf's 1047 and 1048, the Dwarf's 1089 and the Seraphim's 1018, of the launch type 5
+    /// (`ECF_ONMEMYSELFANDI`, whose target `0x51D840` makes the maker itself), and the
+    /// Gladiator's 1015, of the type 2 (`ECF_ONFRIENDLY`), on a friend or on himself, whom the
+    /// right button on him makes its target (seen).
     Boon,
     /// As a boon, at its own clip: the Dwarf's 1082 (`gui_moves_abschlag`, `0x514790`), the effect
     /// [`FRENZY`] on himself ([`boon`]), with which his strikes quicken his attack
@@ -227,7 +227,16 @@ pub enum Style {
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
-const BOONS: [u16; 5] = [1015, 1047, 1048, 1089, 1094];
+const BOONS: [u16; 6] = [1015, 1018, 1047, 1048, 1089, 1094];
+
+/// The Seraphim's effect of 1018 (`GUI_MOVE_BFG`, `0x10`): while it holds, her hands hold the
+/// item [`BFG_ITEM`] alone, her own put away, which come back as it ends (the adder `0x582D50`
+/// and the taker `0x586D80`, docs/re/arts.md, "The Seraphim's"; seen).
+pub const BFG: u32 = 16;
+
+/// The item that [`BFG`] puts in the Seraphim's right hand (`SeraBFG.GRN`, a fixed item of
+/// `Weapon.pak`).
+pub const BFG_ITEM: u32 = 3809;
 
 /// The key of the Daemon's forms' effects of attack speed and defence (`0x4321`), beside the
 /// arts' own keys.
@@ -646,6 +655,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (9, Style::Form) => Some(plain(160)),
         // The Gladiator's 1015 the slot 151 (`0x4FF0B0` at `0x502C5A`; 169 mounted).
         (2, Style::Boon) => Some(plain(151)),
+        // The Seraphim's 1018 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
+        // `0x506017`; 154 mounted).
+        (1, Style::Boon) => Some(plain(149)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),
         (8, Style::Attacke) => Some(dwarfs(
             match class {
@@ -733,6 +745,8 @@ pub struct Boon {
     pub starts: Vec<(Effect, f32)>,
     /// The keys whose effects it takes off at its point, before it gives its own.
     pub replaces: Vec<u32>,
+    /// Whether it ends as it gives them, the rest of its clip cut (the Seraphim's 1018).
+    pub ends: bool,
 }
 
 /// The boon of the art `record` at its level in play `level` (docs/re/arts.md, "The special
@@ -744,6 +758,8 @@ pub struct Boon {
 ///   (`D`'s multiplier) of `a` and 12 (the regeneration) of `b`, each for `L·[+0x64] + [+0x60]`
 ///   seconds (`0x506770`);
 /// - the Gladiator's 1015 below 0.3 the effects 1 and 2 of `a` for `b` seconds (`0x4FF0B0`);
+/// - the Seraphim's 1018 below 0.5 the effect [`BFG`] of the whole value `L` for `b` seconds,
+///   and it ends (`0x5038F0`; seen: 30 s at the level 1);
 /// - the Dwarf's 1089 below 0.2 the effects 1 of `a` and 2 of `b` for `L·[+0x64] + [+0x60]`
 ///   hundredths of a second (`0x514790`; to the hero, whom `0x51D840` refuses it while they
 ///   hold; a friend's effects of it raised by `0x5904E0`, not followed);
@@ -780,6 +796,24 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
             clears: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
             starts: vec![(keyed(50, 0.0, art), 10.0)],
             replaces: Vec::new(),
+            ends: false,
+        });
+    }
+    if record.id == 1018 {
+        let bfg = Effect {
+            id: BFG,
+            whole: i32::try_from(level).unwrap_or(i32::MAX),
+            value: 0.0,
+            art: u32::from(record.id),
+            level: 0,
+        };
+        return Some(Boon {
+            point: 0.5,
+            effects: vec![(bfg, b)],
+            clears: Vec::new(),
+            starts: Vec::new(),
+            replaces: Vec::new(),
+            ends: true,
         });
     }
     // The Dwarf's 1082 below 0.9 its effect 47 of the whole value `b` and the value `[+0x60]`
@@ -798,6 +832,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
             clears: Vec::new(),
             starts: Vec::new(),
             replaces: Vec::new(),
+            ends: false,
         });
     }
     let (point, effects, seconds) = match record.id {
@@ -814,6 +849,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
         clears: Vec::new(),
         starts: Vec::new(),
         replaces: Vec::new(),
+        ends: false,
     })
 }
 
@@ -1199,6 +1235,7 @@ pub fn form(record: &WeaponArt, level: u32) -> Option<Boon> {
         clears: Vec::new(),
         starts: Vec::new(),
         replaces: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
+        ends: false,
     })
 }
 
@@ -1387,6 +1424,7 @@ pub fn ward(record: &WeaponArt, level: u32) -> Option<Boon> {
         clears: Vec::new(),
         starts: Vec::new(),
         replaces: Vec::new(),
+        ends: false,
     })
 }
 

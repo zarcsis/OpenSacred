@@ -4,6 +4,7 @@
 
 mod ai;
 mod arrows;
+mod arsenal;
 mod arts;
 mod atmosphere;
 mod attack;
@@ -246,6 +247,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         ai::AiPlugin,
         arrows::ArrowsPlugin,
+        arsenal::ArsenalPlugin,
         arts::ArtsPlugin,
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
@@ -258,9 +260,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         crowd::CrowdPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
-        drops::DropsPlugin,
     ))
     .add_plugins((
+        drops::DropsPlugin,
         effects::EffectsPlugin,
         fight::FightPlugin,
         forms::FormsPlugin,
@@ -275,9 +277,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         making::MakingPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
-        music::MusicPlugin,
     ))
     .add_plugins((
+        music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
@@ -292,8 +294,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
-        voices::VoicesPlugin,
     ))
+    .add_plugins((voices::VoicesPlugin,))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)

@@ -19,8 +19,8 @@ use clap::{Args, ValueEnum};
 use crate::files;
 use crate::tables::Tables;
 use crate::{
-    ai, arts, atmosphere, daynight, fight, forms, hero, iso, lines, making, motions, music, npcs,
-    sectors, sound, terrain,
+    ai, arsenal, arts, atmosphere, daynight, fight, forms, hero, iso, lines, making, motions,
+    music, npcs, sectors, sound, terrain,
 };
 
 /// Where the process is.
@@ -304,6 +304,7 @@ struct Loaded {
     rules: fight::Rules,
     arts: arts::HeroArts,
     forms: Option<forms::Forms>,
+    arsenal: Option<arsenal::Arsenal>,
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
 }
@@ -384,15 +385,19 @@ fn load(
         .as_ref()
         .map(|hero| hero.worn.clone())
         .unwrap_or_default();
-    let npcs = npcs::Npcs::read(
-        shared,
-        &tree,
-        &worn.iter().map(|worn| worn.item).collect::<Vec<_>>(),
-    )?;
+    // The Seraphim's 1018 puts an item of its own in her hand (#754).
+    let seraphim = class == Class::Seraphim && game.hero.is_none();
+    let items: Vec<u32> = worn
+        .iter()
+        .map(|worn| worn.item)
+        .chain(seraphim.then_some(opensacred_rules::arts::BFG_ITEM))
+        .collect();
+    let npcs = npcs::Npcs::read(shared, &tree, &items)?;
     let holding = fight::Holding(npcs.hero_holds(&worn));
     let (held_class, held) = npcs.hero_gear(&worn);
     bevy::log::debug!("game: the hero holds {held:?}, of the class {held_class}");
-    let (grn, [idle, walk, run], footsteps) = class.preset();
+    let (grn, presets, footsteps) = class.preset();
+    let [idle, walk, run] = presets;
     let model = match &game.hero {
         Some(model) => model.clone(),
         None => npcs::model_files(assets)?
@@ -447,6 +452,49 @@ fn load(
                 armed: true,
             };
             anyhow::Ok(forms::Forms::new(day, night, steps))
+        })
+        .transpose()?;
+    // The Seraphim's own arms and those of her 1018's effect: her template's items but those in
+    // her hands, and the item 3809 in her right hand, a fixed item of its record's values (#754).
+    let arsenal = seraphim
+        .then(|| {
+            let words = tables
+                .weapons()?
+                .iter()
+                .find(|weapon| weapon.id == opensacred_rules::arts::BFG_ITEM)
+                .map(|weapon| weapon.words_84.clone())
+                .ok_or_else(|| anyhow!("no weapon {}", opensacred_rules::arts::BFG_ITEM))?;
+            let mut bearing = npcs.hero_put_away(&worn);
+            bearing.push(opensacred_data::heroes::Worn {
+                id: 0,
+                item: opensacred_rules::arts::BFG_ITEM,
+                words,
+            });
+            let kind = class.creature();
+            let arms = |worn: &[opensacred_data::heroes::Worn], clips| {
+                let (held_class, held) = npcs.hero_gear(worn);
+                arsenal::Arms {
+                    form: forms::Form {
+                        creature: kind,
+                        model: model.clone(),
+                        clips,
+                        base: fight::Base::of(&record),
+                        speeds: record.speed,
+                        size: opensacred_rules::minds::size(kind, held_class != 0),
+                        armed: true,
+                    },
+                    held,
+                    holds: npcs.hero_holds(worn),
+                    armed: npcs.hero_armed(worn),
+                    blade: npcs.hero_blade(worn),
+                }
+            };
+            let (class_borne, _) = npcs.hero_gear(&bearing);
+            let borne = clips_of(assets, &model, presets, (kind, class_borne), &hits, &points);
+            anyhow::Ok(arsenal::Arsenal::new(
+                arms(&worn, clips.clone()),
+                arms(&bearing, borne),
+            ))
         })
         .transpose()?;
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
@@ -531,6 +579,7 @@ fn load(
         rules,
         arts,
         forms,
+        arsenal,
         zoom: game.zoom.unwrap_or(1.0),
         music,
     })
@@ -719,6 +768,10 @@ fn finish(
     match loaded.forms {
         Some(forms) => commands.insert_resource(forms),
         None => commands.remove_resource::<forms::Forms>(),
+    }
+    match loaded.arsenal {
+        Some(arsenal) => commands.insert_resource(arsenal),
+        None => commands.remove_resource::<arsenal::Arsenal>(),
     }
     commands.insert_resource(Zoom(loaded.zoom));
     if let Some((music, atmosphere)) = loaded.music {

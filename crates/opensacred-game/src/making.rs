@@ -1209,6 +1209,8 @@ fn make(
                                 .or_else(|| arts::ward(record, playing.level))
                                 .or_else(|| arts::form(record, playing.level))
                         });
+                    // The Seraphim's 1018 ends as it gives its effect (`0x5038F0`).
+                    let ends = boon.as_ref().is_some_and(|boon| boon.ends);
                     if let Some(boon) = boon {
                         info!("making: {} gives the hero {:?}", making.art, boon.effects);
                         commands
@@ -1223,6 +1225,9 @@ fn make(
                             });
                     }
                     arts.start(making.art);
+                    if ends {
+                        end(&mut commands);
+                    }
                 }
                 if finished {
                     end(&mut commands);

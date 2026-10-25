@@ -140,6 +140,9 @@ pub struct Hero {
     /// Whether [`spawn`] gives the body that stands its new model rather than a body of its own
     /// (`forms`).
     worn: bool,
+    /// Whether the form it puts on keeps its model, its clips and its items alone changing
+    /// (`arsenal`): the body keeps its scene, which spawns no anew.
+    kept: bool,
 }
 
 impl Hero {
@@ -169,6 +172,7 @@ impl Hero {
             gltf: None,
             spawned: false,
             worn: false,
+            kept: false,
         }
     }
 
@@ -176,6 +180,7 @@ impl Hero {
     /// hero's body in place of its own, and what it holds again on the new model where the form
     /// shows it.
     pub fn wear(&mut self, form: &crate::forms::Form, assets: &AssetServer) {
+        self.kept = self.model == form.model;
         self.creature = form.creature;
         self.size = form.size;
         self.model.clone_from(&form.model);
@@ -390,6 +395,7 @@ pub fn spawn(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     bodies: Query<Entity, With<Body>>,
     wielded: Query<(Entity, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
+    old: Option<Res<Clips>>,
 ) {
     if hero.spawned {
         return;
@@ -483,11 +489,23 @@ pub fn spawn(
     }
     if hero.worn {
         hero.worn = false;
+        // The same model keeps its scene: no instance is made anew to be ready, nor an animation
+        // player, which [`animate`] takes again with the new clips as it comes back.
+        let kept = hero.kept;
+        if kept && let Some(player) = old.as_ref().and_then(|old| old.player) {
+            commands
+                .entity(player)
+                .remove::<AnimationPlayer>()
+                .insert(AnimationPlayer::default());
+        }
         for body in &bodies {
             let mut body = commands.entity(body);
-            body.insert((WorldAssetRoot(scene.clone()), Size(hero.size)));
+            body.insert(Size(hero.size));
+            if !kept {
+                body.insert(WorldAssetRoot(scene.clone()));
+            }
             if let Some(equipment) = hero.equipment.take() {
-                body.insert(equipment);
+                body.insert(if kept { equipment.ready() } else { equipment });
             }
         }
         return;
