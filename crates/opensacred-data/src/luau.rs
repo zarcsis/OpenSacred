@@ -28,3 +28,7 @@ pub const INDEX: &str = "index.ron";
 
 /// The extension of a source's bytecode, which stage B compiles.
 pub const BYTECODE: &str = "luauc";
+
+/// The key of a record's operands that lists its markers' tags in their order, for a record of
+/// two markers or more (#993): the operands' table keeps no order of its keys.
+pub const MARKS: &str = "marks";
