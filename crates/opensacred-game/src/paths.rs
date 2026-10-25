@@ -64,6 +64,19 @@ pub enum Step<L> {
     Through(L),
 }
 
+/// Of the places `places` that a way's search may step onto, those where `stops` does not stop
+/// the walker, and the way's last cell `end` whoever stands in it: the hero that a creature
+/// comes on at stands in the cell its way heads for, and the walk itself stops short of it
+/// (#883).
+pub fn passable<L: Copy>(
+    mut places: Vec<(Cell, L)>,
+    end: Cell,
+    stops: impl Fn(Cell, L) -> bool,
+) -> Vec<(Cell, L)> {
+    places.retain(|&(cell, layer)| cell == end || !stops(cell, layer));
+    places
+}
+
 /// What the hero at `position` on `layer` does next on its way to `target`, on level `onto` when
 /// given: heads for the target itself when the straight line to it is clear on its layer and
 /// the target is on it, else for the farthest place of the way on its layer that it reaches in a
@@ -212,6 +225,24 @@ mod tests {
             |l| l,
         ) else {
             panic!("no way to the door");
+        };
+        assert_eq!(cell_of(point.x, point.z), (5, 6));
+        // A creature coming on at the hero inside, who stands in the cell its way heads for: the
+        // way still ends there, toward the door (#883); without it the search finds none.
+        let hero = (5, 4);
+        let stopped = |(cell, inside): (Cell, bool)| {
+            neighbours((cell, inside))
+                .into_iter()
+                .filter(|&(c, _)| c != hero)
+                .collect::<Vec<_>>()
+        };
+        let comes_on = |place| passable(neighbours(place), hero, |c, _| c == hero);
+        let from = at(5.5, 9.5);
+        let to = at(5.5, 4.5);
+        assert_eq!(next(from, false, to, None, walkable, stopped, |l| l), None);
+        let Some(Step::Toward(point)) = next(from, false, to, None, walkable, comes_on, |l| l)
+        else {
+            panic!("no way to the hero");
         };
         assert_eq!(cell_of(point.x, point.z), (5, 6));
         // Standing at the door outside, sent to it inside: through the door, not there already.
