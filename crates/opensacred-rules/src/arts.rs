@@ -234,9 +234,11 @@ pub enum Style {
     /// its clip is below [`BATS`] a bat of its type ([`bat`]) beside her as her follower, sent at
     /// its target, her bats of that type beyond [`bats_most`] dismissed.
     Bats,
-    /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: its curse
-    /// lands on its target at [`KISS_LANDS`] of its clip, its attack's and defence's multipliers
-    /// lowered by [`curse`] for [`CURSE_SECONDS`] (the effects 1 and 2; seen).
+    /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: once what is
+    /// left of its clip is below [`KISSES`] a skull leaves her neck and homes on its target
+    /// ([`SKULL_SPEED`], [`skull_life`]); each hostile creature it touches is cursed, its attack's
+    /// and defence's multipliers lowered by [`curse`] and bleeding ([`bleed_value`], [`bleed`]),
+    /// for [`CURSE_SECONDS`] (the effects 1, 2 and 23; seen).
     Kiss,
     /// One strike on its target and the same on every hostile creature nearer that target than
     /// the reach of it and the maker, at a part of its clip ([`SMITE_LEFT`], [`smitten`]): the
@@ -1455,8 +1457,47 @@ pub fn jump_points(kind: u32) -> [f32; 2] {
 /// The part of its clip at which the death's kiss's curse lands on its target (seen: 1.84 s into
 /// the 3.17 s of the slot 148 on a goblin two cells off; its missile, made below 0.6 left, and
 /// its flight are left out), and how long the curse holds (seen: 5 s at the levels 1 and 9).
-pub const KISS_LANDS: f32 = 0.58;
+pub const KISSES: f32 = 0.6;
 pub const CURSE_SECONDS: f32 = 5.0;
+/// The kiss's skull 905 (`FX_FLYINGSKULL`, `0x7A6370`, `0x5A6680`): its speed, how fast it turns
+/// toward its aim in radians a second, how near it touches a creature with the creature's size,
+/// how far it looks for a creature to home on (a squared 100,000) and for its next one (a squared
+/// 1,000,000).
+pub const SKULL_SPEED: f32 = 150.0;
+pub const SKULL_TURNS: f32 = 3.0;
+pub const SKULL_REACH: f32 = 20.0;
+pub const SKULL_LOOKS: f32 = 316.2;
+pub const SKULL_NEXT: f32 = 1_000.0;
+/// The effect of the kiss's bleeding (`0x560340`).
+pub const BLEEDS: u32 = 23;
+
+/// How long the kiss of `record` at the level in play `level` keeps its skull flying
+/// (`0x7A6370`): `[+0x58] + [+0x5C]·L` seconds, 8 + 0.5·L.
+pub fn skull_life(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.value_58.map(f64::from);
+    narrow(f64::from(level).mul_add(step, base))
+}
+
+/// The value of the effect 23 that the kiss of `record` at the level in play `level` gives
+/// (`0x5ABD80` at `0x5AF091`): ten times its factor, `10·(1 + 0.1·L)`, 10 + L (seen: 11 at the
+/// level 1, 19 at 9).
+pub fn bleed_value(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    narrow(10.0 * f64::from(level).mul_add(step, base))
+}
+
+/// A step of `dt` seconds of the bleeding of the value `value` whose gathered whole is `whole`
+/// (`0x560340`): `whole` grows by `⌊100·v·dt⌋`, and once it is 100 or more and above `99·v` it
+/// strikes for `⌊whole/100⌋` physical and keeps the rest of 100; the new whole and the strike.
+pub fn bleed(whole: i32, value: f32, dt: f32) -> (i32, Option<u32>) {
+    let grown = f64::from(whole) + (100.0 * f64::from(value) * f64::from(dt)).trunc();
+    let whole = i32::try_from(whole_units(grown)).unwrap_or(i32::MAX);
+    if whole >= 100 && f64::from(whole) > 99.0 * f64::from(value) {
+        (whole % 100, u32::try_from(whole / 100).ok())
+    } else {
+        (whole, None)
+    }
+}
 
 /// The value of the effects 1 and 2 that the death's kiss of `record` at the level in play
 /// `level` gives its target (`0x50E6C0`): `−1/(L·[+0x54] + [+0x50])`, `−1/(1 + 0.1·L)` (seen:

@@ -1067,6 +1067,35 @@ fn the_traps_are_thrown_of_their_spells_records() {
 }
 
 #[test]
+fn the_kiss_sends_a_skull_whose_curse_bleeds_its_value_about_once_a_second() {
+    let kiss = WeaponArt {
+        factor: [1.0, 0.1],
+        value_58: [8.0, 0.5],
+        ..weapon_art(1033, [12.0, 8.0], 32)
+    };
+    assert_eq!(skull_life(&kiss, 1), 8.5);
+    // Seen: the effect 23 of 11 at the level 1 and 19 at 9.
+    assert!((bleed_value(&kiss, 1) - 11.0).abs() < 1e-4);
+    assert!((bleed_value(&kiss, 9) - 19.0).abs() < 1e-4);
+    // At 60 frames a second the first strike comes after about 1 s, of v − 1 or v.
+    let (mut whole, mut struck) = (0, Vec::new());
+    for frame in 1..=180 {
+        let (next, strike) = bleed(whole, 19.0, 1.0 / 60.0);
+        whole = next;
+        if let Some(damage) = strike {
+            struck.push((frame, damage));
+        }
+    }
+    assert_eq!(struck.first().map(|&(frame, _)| frame), Some(61));
+    assert!(
+        struck
+            .iter()
+            .all(|&(_, damage)| (18..=19).contains(&damage))
+    );
+    assert_eq!(struck.len(), 3);
+}
+
+#[test]
 fn the_master_bite_turns_a_weak_creature_over_for_its_seconds() {
     assert_eq!(style(1031), Some(Style::MasterBite));
     assert_eq!(

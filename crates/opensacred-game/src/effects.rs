@@ -77,6 +77,21 @@ impl Effects {
         self.0.iter().map(|timed| timed.effect).collect()
     }
 
+    /// A step of `seconds` of each bleeding (the effect 23, `opensacred_rules::arts::bleed`): the
+    /// physical damage its strikes take in all.
+    fn bleed(&mut self, seconds: f32) -> u32 {
+        let mut struck = 0;
+        for timed in &mut self.0 {
+            if timed.effect.id == opensacred_rules::arts::BLEEDS {
+                let (whole, strike) =
+                    opensacred_rules::arts::bleed(timed.effect.whole, timed.effect.value, seconds);
+                timed.effect.whole = whole;
+                struck += strike.unwrap_or(0);
+            }
+        }
+        struck
+    }
+
     /// Takes `seconds` off each effect's time, and those whose time is out off the list: whether
     /// one went.
     fn wear(&mut self, seconds: f32) -> bool {
@@ -124,6 +139,49 @@ fn wear(
                 }
                 commands.entity(entity).insert(npcs::Dies::by_creature(0));
             }
+        }
+    }
+}
+
+/// The most of a tick's time that the bleeding takes (`0x5375C0`).
+const BLEEDS_AT_MOST: f32 = 0.3;
+
+/// Each NPC's bleeding at each tick of the world (the creature's update `0x5375C0` at
+/// `0x537F07`, `0x560340`): each strike sends it the strike of its physical damage from the hero,
+/// the death's kiss's giver, which rolls no hit (the event 5 with fixed damage).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn bleed(
+    tick: Res<WorldTick>,
+    mut hits: MessageWriter<fight::Hit>,
+    heroes: Query<Entity, With<Body>>,
+    mut creatures: Query<(Entity, &mut Effects), (Without<Body>, Without<npcs::Dies>)>,
+) {
+    let (Some(seconds), Some(hero)) = (tick.seconds, heroes.iter().next()) else {
+        return;
+    };
+    for (entity, mut effects) in &mut creatures {
+        let struck = effects
+            .bypass_change_detection()
+            .bleed(seconds.min(BLEEDS_AT_MOST));
+        if struck > 0 {
+            debug!("effects: {entity} bleeds {struck}");
+            hits.write(fight::Hit {
+                attacker: hero,
+                target: entity,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some([
+                    f32::from(u16::try_from(struck).unwrap_or(u16::MAX)),
+                    0.0,
+                    0.0,
+                    0.0,
+                ]),
+                sure: true,
+            });
         }
     }
 }
@@ -218,7 +276,12 @@ impl Plugin for EffectsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (wear.run_if(crate::frame::ticked), refit_hero, refit_npcs)
+            (
+                wear.run_if(crate::frame::ticked),
+                bleed.run_if(crate::frame::ticked),
+                refit_hero,
+                refit_npcs,
+            )
                 .chain()
                 .in_set(crate::frame::Unpaused)
                 .in_set(Step::Crowd),

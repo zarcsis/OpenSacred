@@ -29,7 +29,7 @@ use crate::{ai, iso, models, paths};
 /// The bones an arrow leaves from and flies toward: the shooter's left hand (`0x44CA30`) and
 /// the target's bone of kind 3, its neck, else its root (the table of bones at `0x8E7200`).
 const HAND: &str = "Bip01 L Hand";
-const NECK: &str = "Bip01 Neck";
+pub const NECK: &str = "Bip01 Neck";
 /// How high over its feet an arrow leaves a shooter whose model has no left hand, in world
 /// units (**hypothesis**: about a hand's height).
 const HAND_HEIGHT: f32 = 80.0;

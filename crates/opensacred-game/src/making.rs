@@ -945,41 +945,31 @@ fn make(
                 }
             }
             Style::Kiss => {
-                // At its point its curse lands on its target: its attack's and defence's
-                // multipliers lowered for 5 s (the effects 1 and 2 keyed by 1033); then it ends
-                // (`0x50E6C0`).
-                if !due(arts::KISS_LANDS, done) {
+                // Below 0.6 left of its clip a skull leaves her neck and homes on its target,
+                // cursing each hostile creature it touches (`0x51042C`, `spells::kiss`); its
+                // regeneration starts; then it ends.
+                if !due(1.0 - arts::KISSES, done) {
                     if finished {
                         end(&mut commands);
                     }
                     continue;
                 }
-                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
-                if let (Some(record), Ok((_, _, mind, health))) =
-                    (record, creatures.get(playing.target))
-                    && mind.hostile()
-                    && health.current > 0
-                {
-                    let value = arts::curse(record, playing.level);
-                    let cursed = |id| opensacred_rules::fight::Effect {
-                        art: u32::from(making.art),
-                        level: 1,
-                        ..opensacred_rules::fight::Effect::new(id, value)
-                    };
-                    let (attack, defence) = (
-                        cursed(opensacred_rules::fight::effects::ATTACK),
-                        cursed(opensacred_rules::fight::effects::DEFENCE),
+                if let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) {
+                    let neck = bone(hero, &[crate::arrows::NECK], &children, &bones)
+                        .unwrap_or(here + Vec3::Y * 100.0);
+                    crate::spells::kiss(
+                        &mut commands,
+                        (hero, playing.target),
+                        neck,
+                        (
+                            arts::curse(record, playing.level),
+                            arts::bleed_value(record, playing.level),
+                        ),
+                        arts::skull_life(record, playing.level),
+                        body.level(),
                     );
-                    commands
-                        .entity(playing.target)
-                        .entry::<crate::effects::Effects>()
-                        .or_default()
-                        .and_modify(move |mut effects| {
-                            effects.add(defence, arts::CURSE_SECONDS);
-                            effects.add(attack, arts::CURSE_SECONDS);
-                        });
                     info!(
-                        "making: {} curses {} by {value}",
+                        "making: {} sends its skull at {}",
                         making.art, playing.target
                     );
                 }
