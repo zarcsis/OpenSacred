@@ -4700,6 +4700,7 @@ version = "0.0.0"
 dependencies = [
  "opensacred-data",
  "opensacred-formats",
+ "postcard",
  "serde",
  "serde_json",
 ]
