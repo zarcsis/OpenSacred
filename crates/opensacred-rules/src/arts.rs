@@ -257,6 +257,11 @@ pub enum Style {
     /// weapon alone: once, at its clip's first hit point, its target and every hostile creature
     /// about it ([`sweep_reaches`]), those at a part of its factor ([`sweep_factor`]).
     Sweep,
+    /// The Dwarf's 1083 (`gui_moves_wucht`, `0x514790` at `0x517EE2`), with a two-handed weapon
+    /// alone: once, at its clip's first hit point, its target thrown along the line from him
+    /// ([`hurl_speed`], [`Flight`]), held ([`hurl_hold`]) and struck ([`hurl_factor`]); as it
+    /// flies it knocks over the creatures it meets ([`bowled`]).
+    Hurl,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -546,6 +551,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1084 {
         return Some(Style::Sweep);
+    }
+    if art == 1083 {
+        return Some(Style::Hurl);
     }
     if art == 1012 {
         return Some(Style::Smite);
@@ -937,6 +945,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // His 1084 the slot 144 at the blend 0.5 and the rate 1.0 (`0x518BF5`), which the order
         // refuses unless what his right hand holds is of the class 2 or 3 (`0x51D840`).
         (8, Style::Sweep) if matches!(class, 2 | 3) => Some(plain(144)),
+        // His 1083 the slot 201 so (`0x518E07`), refused so too.
+        (8, Style::Hurl) if matches!(class, 2 | 3) => Some(plain(201)),
         // His 1082 the slot 157 at the rate 1.0 (`0x514790` at `0x518600`).
         (8, Style::Frenzy) => Some(plain(157)),
         // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
@@ -2021,6 +2031,114 @@ pub fn cannon_damages(
         }
     };
     [part(physical), part(fire), 0.0, 0.0]
+}
+
+/// The part of its velocity by which a thrown object moves, and by which its velocity falls, each
+/// second (`0x44DFE0`).
+pub const THROW_DRAG: f32 = 0.1;
+/// How fast a thrown object falls faster each second (`0x44DFE0`).
+pub const THROW_GRAVITY: f32 = 290.81;
+/// How fast the Dwarf's 1083 throws its target up (`0x44DED0`'s third argument).
+pub const THROW_RISE: f32 = 80.0;
+/// The part of a flyer's speed that a creature it knocks over flies on at, and that it keeps
+/// (`0x44DFE0`'s blows).
+pub const BOWL_KEEPS: f32 = 0.9;
+/// How long a creature that a flyer knocks over is held, in seconds.
+pub const BOWL_HOLD: f32 = 2.0;
+
+/// The flight of a thrown object (`0x44DED0` in its throw mode, its step `0x44DFE0`): its
+/// velocity on the ground, its rise and its height over the ground.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Flight {
+    pub velocity: [f32; 2],
+    pub rise: f32,
+    pub height: f32,
+}
+
+impl Flight {
+    /// A flight of the velocity `velocity` on the ground and the rise `rise`, from the ground.
+    pub fn new(velocity: [f32; 2], rise: f32) -> Self {
+        Self {
+            velocity,
+            rise,
+            height: 0.0,
+        }
+    }
+
+    /// Moves it on by `dt` seconds: its place on the ground by [`THROW_DRAG`] of its velocity, its
+    /// height by its rise; its velocity falls by that part of itself, its rise by
+    /// [`THROW_GRAVITY`]; the step on the ground it took.
+    pub fn step(&mut self, dt: f32) -> [f32; 2] {
+        let moved = self.velocity.map(|v| THROW_DRAG * v * dt);
+        self.velocity = self.velocity.map(|v| v - THROW_DRAG * v * dt);
+        self.height += self.rise * dt;
+        self.rise -= THROW_GRAVITY * dt;
+        moved
+    }
+
+    /// Whether it has come down to the ground, its flight over.
+    pub fn landed(&self) -> bool {
+        self.height <= 0.0 && self.rise < 0.0
+    }
+
+    /// Its speed on the ground.
+    pub fn speed(&self) -> f32 {
+        self.velocity[0].hypot(self.velocity[1])
+    }
+}
+
+/// The speed at which the Dwarf's 1083 `record` at the level in play `level` throws a creature of
+/// type `creature` and level `target` (`0x514790`, `0x4D2160`): `35·s`, `s` its `[+0x50]` (400)
+/// times `min(1, L/M)`, `[+0x50]·[+0x54]` (120) for a big type (`big`, `0x426CB0`) and 0 for the
+/// type 52.
+pub fn hurl_speed(
+    record: &WeaponArt,
+    level: u32,
+    (creature, target): (u32, u32),
+    big: bool,
+) -> f32 {
+    let strength = f64::from(record.factor[0]);
+    let s = if creature == 52 {
+        0.0
+    } else if big {
+        strength * f64::from(record.factor[1])
+    } else {
+        strength * (f64::from(level) / f64::from(target.max(1))).min(1.0)
+    };
+    narrow(35.0 * s)
+}
+
+/// How long the Dwarf's 1083 at the level in play `level` holds its target of level `target`, in
+/// seconds: `max(2, 2·L + 3 − M)`.
+pub fn hurl_hold(level: u32, target: u32) -> f32 {
+    narrow((2.0 * f64::from(level) + 3.0 - f64::from(target)).max(2.0))
+}
+
+/// The factor of the Dwarf's 1083's strike at its target, `record` at the level in play
+/// `level`: `L·[+0x5C] + [+0x58]` (0.9 + 0.1·L).
+pub fn hurl_factor(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.value_58.map(f64::from);
+    narrow(f64::from(level).mul_add(step, base))
+}
+
+/// The flight of a creature that a flyer of the velocity `velocity` knocks over, the line from the
+/// flyer to it `to_it` (`0x44DFE0`'s blows): along the sum of the flyer's heading and that line,
+/// made a unit, at [`BOWL_KEEPS`] of the flyer's speed, its rise `0.9·|v|·90/3500`.
+pub fn bowled(velocity: [f32; 2], to_it: [f32; 2]) -> Flight {
+    let unit = |[x, y]: [f32; 2]| {
+        let length = x.hypot(y);
+        if length > f32::EPSILON {
+            [x / length, y / length]
+        } else {
+            [0.0, 0.0]
+        }
+    };
+    let speed = velocity[0].hypot(velocity[1]);
+    let [hx, hy] = unit(velocity);
+    let [lx, ly] = unit(to_it);
+    let [dx, dy] = unit([hx + lx, hy + ly]);
+    let keeps = BOWL_KEEPS * speed;
+    Flight::new([dx * keeps, dy * keeps], keeps * 90.0 / 3500.0)
 }
 
 /// How long the Daemon's blast lives, in seconds, and until when its radius grows (its particle
