@@ -77,6 +77,12 @@ The list at `0xAD3CE4` is the hero's, not the standing creature's: the distances
 
 So every standing NPC whose model has the stance's slot for what it holds takes its fight stance while a hostile creature is within about 10 cells of the hero, wherever the NPC stands, and the hero takes its own within 350 (or 1,000 with a bow).
 By the code, the NPCs also take it at the start of the process, before the hero has seen a hostile, and keep it after the hero kills the last hostile near it until another is found; not checked in the game.
+**Seen** 2026-10-25 (#227, check 4), the slot traced at `0x5467A0` for one creature:
+- a peaceful Amazon (316, whose model has the slots 14 to 26) with empty hands stood in slot 1 and took slot 14 within 0.6 s of a goblin spawned within 550 of the hero;
+- with that goblin killed, the next hostile the hero's look found lay at 990, and she went back to slot 1 within 0.6 s;
+- at the Wood Elf's start, the dark elf 693 (319, holding class 1) stood in slot 2 with the nearest wolf at 653, and took slot 15 as a goblin was spawned near;
+- the soldiers' model has only the slot 21 of the stances, so the guards holding class 1 keep their standing slot (the guard 23: slot 1, its attacks 84).
+The start of the process, when the first value is 0, and a kill that leaves no other hostile in the look's range were not caught: the hero's first look fills the list within 0.3 s, and the start's sectors have hostiles in range.
 
 ## In `opensacred-game`
 

@@ -93,6 +93,7 @@ In one case of four an NPC whose target attacks plays another clip instead (**hy
 
 `0x4DBFC0` keeps an archer 300 to 800 from its target: within 300, up to ten times a fight, it backs off; beyond 800 it comes on, stopping within 450; between, without a straight line, it moves to a point near the target, turned −30° to +30°; else it shoots (the action 5, "The archers" below), its `+0x210` ramping between 250 and 650.
 It gives up farther than 2,000, and goes back to melee without a ranged weapon.
+A shot ends in the AI's state 0, and the idle handler takes a target up again only within 800 along a straight line ("Who fights" below), so an archer gives up a target gone beyond 800 at its next decision and seldom comes on: **seen** 2026-10-25 (#227, check 26), a thief 308 of 50,41 that shot at the hero from about 630 dropped its target and went back to its idle steps as the hero walked out to about 875, and again to about 940 (#972).
 
 Its sub-states, read 2026-10-21 (#391), **confirmed** by code unless marked otherwise:
 
@@ -125,6 +126,11 @@ The event 7 takes the AI's state 1 (`0x53A170`) with the door as its target:
 
 The door turns (`0x44BCD0`): one not barred opens when closed (its clip `0xAA`, the trigger's bit 0 set) and closes when open (`0xAB`); a barred one only closes; and the event from a creature that is no hero leaves open a door that a hero marked.
 So the creature opens the door, and its idle state (`0x542B20`) finds its target again, the door's cells now walkable (docs/re/movement.md: a door's cell may be walked on while its trigger's bit 0 is set).
+**Seen** 2026-10-25 (#227, check 28) at the merchant's door of 50,40, the hero inside on the building's floor and a goblin warrior outside:
+- with the door closed and unmarked, as it starts, the goblin searched every 0.3 s and found none, staying idle;
+- with the door opened and closed again by the hero, the goblin walked to its outer point (the AI's state 1, the door its target) and the door opened;
+- it then stayed outside, since no straight line leads from the ground to a hero on the building's floor, and an open door is no candidate.
+The hero's door, open, stayed open for two minutes at dusk while the townsfolk inside walked through its cell, where an unmarked door that a passer-by had opened was closed again within 0.5 s.
 `0x4D4800` is called in three places: the idle state's choice when no straight line leads to the target (`0x5442E8`; without a door the creature stays idle); the melee's sub-state 2 when the target is beyond the band, no straight line leads to it and the way ends farther than `R + 80` from it (`0x4E4931`; without a door the AI's state 0); and the move (`0x4F4770`, at `0x4F5652`) in the AI's state 4 when it finds no way to its point twice, the second time after a jitter of up to 50 along each axis, while the local hero is alive and hostile to it (`0x549000`).
 **Hypothesis**: the hero's left click on a door takes the same way, since `0x6172C0` sends the hero the event 7 with the object under the cursor (`0x626C50`) and the state 1 handles a door for any creature; that would answer #372, which found no door opening on the hero's side.
 
@@ -335,7 +341,11 @@ From 4,096 on, the accumulator gives `acc >> 12` health, at most up to the most,
 So a tick's step above 1,024 loses its overshoot's 1,024s: the Seraphim of level 30 alone (170 · 128 a second, about 2,200 to 2,500 a tick) regained 4.55 a second in the original, where 5.31 would be gathered (#616).
 
 The hero's death, **seen** 2026-10-25 in the original (#227, the driver of #448: a new game of the Seraphim on bronze at level 2, killed by goblin warriors of level 40 beside her, her state read every half second): she rises about 5 s after she falls (4.8 s in three deaths), at the start's place, the chapel's ground floor at (3236, 2511) of 50,39, whether she fell there or 45 cells off in 51,39, with her health full, her level and her experience; the creatures that killed her stay where they were.
-What sets the place (the start, or a point the hero passed later) and what a death costs beyond the state (gold, items) are not read.
+The place is the hero's home (`+0x2B9`: a sector's word, the position's x and y at `+0x2BD` and `+0x2C1`, the floor at `+0x2C5`), to which the rise teleports it (`sdk_ENGINE_TP` at `0x5413ED`), as an animal strolls about its home and a guard keeps its post (docs/re/ai.md); **confirmed** 2026-10-25 (#227): with the home set to (3255, 2600) on the ground by a second session, the hero killed in 51,39 rose there.
+`cEngine::cEngine` (`0x60DAF3`) and `StartPosition` (45, `0x491B30`, in a game of one player) copy the hero's position into its home, and `SetNPCState`'s `0x4D` naming the hero sets it (docs/re/netscript.md): the Seraphim's start script has one `StartPosition`, at (3236, 2511) on floor 1, and her tree gives the hero a home in 7 records, of quests 22, 44, 61 and 73 and of `OMO_leave_rg`.
+As it rises, the hero pays a share of its gold (`0x53E4A8` to `0x53E53C`, through the gold's handler `0x57FD80`, docs/re/items.md): by the difficulty (`0x182EE44`), 1/20 on bronze, 1/10 on silver, 1/7 on gold, 1/5 on platinum and 1/2 on niobium, truncated, nothing where that is 0; **confirmed** on bronze (#227): 18 gold kept 18, 500 became 475 and then 452.
+Its level, experience, stats and the 19 slots of what it holds and wears stay.
+`opensacred-game` rises at the game's start (#974) and has no gold yet (#976).
 
 ## Open
 
