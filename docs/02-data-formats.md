@@ -806,6 +806,11 @@ Each of the other 21 chests of that object in those start scripts has one patch,
 The Sacred campaign trees do not have that chest.
 Repaired 2026-10-25 (#723, [docs/decisions/2026-10-25-chest-cell.md](decisions/2026-10-25-chest-cell.md)): `opensacred-convert netscript` gives the truncated `0x2A` the cell of the chest after it, so the chest's cell is closed like the other chests' (`script_repairs`).
 `opensacred_formats` still reads the record as it is, with a truncated operand.
+The quests' defects of #356 whose repairs are in the data are mended there too, each the maintainer's decision of 2026-10-25 (docs/re/netscript.md, "The community's quest defects").
+`script_repairs`' edits change the functions of one name in every tree that holds them, and its renames make the records that name a function no tree defines name the one meant; a function whose records are not what its repair expects is left as it is, with a warning.
+- Quest 10260's item named `res:4609`, in 20 trees ([2026-10-25-riddle-item-name](decisions/2026-10-25-riddle-item-name.md)).
+- Quests 1202's and 1803's timers for the days that their givers state, in 11 trees ([2026-10-25-quest-timers](decisions/2026-10-25-quest-timers.md)).
+- The functions `attack1401`, `schmugler1402` and `ablehnen5000` renamed to the defined `attacke1401`, `schmuggler1402` and `ablehnen5003`, in 11, 11 and 20 trees; quest 602's knight named `res:17136` where `ok1_602` and `ritterweg_602` swap his digits, in 11 ([2026-10-25-script-names](decisions/2026-10-25-script-names.md)).
 There are no jumps by offset: branching goes by names and indices (`Vectoren.bin`), state is quest flags, variables, triggers.
 Terminology: in this document "opcode" = record type (u16), corresponding to sacred-sdk's "tag"; the operand marker is called "tag" by openheilig and "opcode" by sacred-sdk.
 

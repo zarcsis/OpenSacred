@@ -2,6 +2,7 @@
 //! under `<out>/netscript/` (docs/02 §7; the format is [`opensacred_data::netscript`]) and, on request,
 //! a readable listing of each tree next to it.
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,6 +32,8 @@ pub struct Summary {
     /// The trees and the cells that the repairs gave (`script_repairs`).
     pub repaired_trees: usize,
     pub repaired_cells: usize,
+    /// The repairs of functions made, by what they mend, and the trees each was made in.
+    pub repairs: BTreeMap<&'static str, usize>,
     pub warnings: Vec<String>,
 }
 
@@ -375,6 +378,12 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
         .map(|source| {
             let mut tree = tree(game_dir, source)?;
             let outcome = script_repairs::apply(&script_repairs::CELLS, source, &mut tree.start);
+            let report = script_repairs::repair(
+                &script_repairs::EDITS,
+                &script_repairs::RENAMES,
+                source,
+                &mut tree,
+            );
             let file = file_name(source);
             let bytes = tree
                 .encode()
@@ -415,13 +424,14 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 entry,
                 u64::try_from(bytes.len()).unwrap_or(u64::MAX),
                 outcome,
+                report,
             ))
         })
         .collect::<Result<Vec<_>>>()?;
 
     let mut summary = Summary::default();
     let mut trees = Vec::with_capacity(entries.len());
-    for (entry, bytes, outcome) in entries {
+    for (entry, bytes, outcome, report) in entries {
         match outcome {
             Outcome::None => {}
             Outcome::Repaired(cells) => {
@@ -430,6 +440,10 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
             }
             Outcome::Mismatch(warning) => summary.warnings.push(warning),
         }
+        for what in report.made {
+            *summary.repairs.entry(what).or_default() += 1;
+        }
+        summary.warnings.extend(report.warnings);
         summary.trees += 1;
         summary.records += entry.records;
         summary.functions += entry.functions;
@@ -513,6 +527,20 @@ mod tests {
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
         assert_eq!((summary.repaired_trees, summary.repaired_cells), (11, 11));
+        // The quests' repairs, each in every tree that holds its quest.
+        assert_eq!(
+            summary.repairs,
+            BTreeMap::from([
+                ("quest 10260's item named (#957)", 20),
+                ("quest 1202's four days (#931)", 11),
+                ("quest 1401's soldier's death function (#944)", 11),
+                ("quest 1402's smugglers' function (#944)", 11),
+                ("quest 1803's three days (#932)", 11),
+                ("quest 5003's seeker's decline (#955)", 20),
+                ("quest 602's knight's id (#949)", 11),
+                ("quest 602's knight's id, removed (#949)", 11),
+            ])
+        );
         assert_eq!(summary.warnings, Vec::<String>::new());
         let index: NetScript =
             ron::from_str(&fs::read_to_string(output_dir(&out).join(INDEX)).unwrap()).unwrap();
