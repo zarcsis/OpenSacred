@@ -1734,6 +1734,46 @@ fn the_dwarfs_guns_burn_shell_and_shoot() {
 }
 
 #[test]
+fn the_dwarfs_momentum_throws_holds_and_strikes_its_target() {
+    // GOG 2.28's 1083: `[+0x50]` 400 and 0.3, `[+0x58]` 0.9 + 0.1·L.
+    assert_eq!(style(1083), Some(Style::Hurl));
+    assert_eq!(
+        action(8, Style::Hurl, 3).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(201), 1.0, true))
+    );
+    assert_eq!(action(8, Style::Hurl, 1), None);
+    let hurl = WeaponArt {
+        factor: [400.0, 0.3],
+        value_58: [0.9, 0.1],
+        distance: 130,
+        ..weapon_art(1083, [0.0; 2], 0x40_0000)
+    };
+    // At the level 1 on a creature of level 1, 35·400; of level 4, a quarter; big, 35·120.
+    assert_eq!(hurl_speed(&hurl, 1, (76, 1), false), 14_000.0);
+    assert_eq!(hurl_speed(&hurl, 1, (76, 4), false), 3_500.0);
+    assert!((hurl_speed(&hurl, 1, (76, 1), true) - 4_200.0).abs() < 0.01);
+    assert_eq!(hurl_speed(&hurl, 1, (52, 1), false), 0.0);
+    assert_eq!((hurl_hold(1, 1), hurl_hold(4, 2)), (4.0, 9.0));
+    assert_eq!(hurl_hold(1, 10), 2.0);
+    assert!((hurl_factor(&hurl, 1) - 1.0).abs() < 1e-6);
+    // The flight: about 0.55 s in the air and some 750 on the ground at the full strength.
+    let mut flight = Flight::new([14_000.0, 0.0], THROW_RISE);
+    let (mut time, mut gone) = (0.0, 0.0);
+    while !flight.landed() {
+        gone += flight.step(1.0 / 60.0)[0];
+        time += 1.0 / 60.0;
+    }
+    assert!((0.53..0.6).contains(&time), "{time}");
+    assert!((700.0..800.0).contains(&gone), "{gone}");
+    // A creature knocked over flies along the flyer's heading and the line to it.
+    let bowl = bowled([10_000.0, 0.0], [0.0, 1.0]);
+    let speed = bowl.speed();
+    assert!((speed - 9_000.0).abs() < 0.5, "{speed}");
+    assert!((bowl.velocity[0] - bowl.velocity[1]).abs() < 0.5);
+    assert!((bowl.rise - 9_000.0 * 90.0 / 3_500.0).abs() < 0.01);
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));

@@ -446,6 +446,7 @@ fn fly(
                     from: from.translation(),
                     left: f32::from(u16::try_from(left).unwrap_or(u16::MAX)),
                     held: 0.0,
+                    throw: None,
                 });
         }
         hits.write(fight::Hit {

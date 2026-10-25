@@ -98,6 +98,7 @@ pub fn clips(
         Style::Mortar,
         Style::Cannon,
         Style::Sweep,
+        Style::Hurl,
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -1078,6 +1079,7 @@ fn make(
                                         from: here,
                                         left,
                                         held,
+                                        throw: None,
                                     });
                             }
                         }
@@ -1088,6 +1090,56 @@ fn make(
                 if finished {
                     end(&mut commands);
                 }
+            }
+            Style::Hurl => {
+                // Once what is left of its clip is below its first hit point, once: its target
+                // thrown along the line from the hero, held where it lives and struck; then its
+                // regeneration starts, with a target or without, and it ends (`0x514790` at
+                // `0x517EE2`).
+                let Some(&point) = playing.points.first() else {
+                    end(&mut commands);
+                    continue;
+                };
+                if !due(point, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                if let (Some(record), Ok((_, at, mind, health))) =
+                    (record, creatures.get(playing.target))
+                    && health.current > 0
+                {
+                    let speed = arts::hurl_speed(
+                        record,
+                        playing.level,
+                        (mind.creature, mind.level),
+                        mind.big,
+                    );
+                    let along = (at.translation() - here).xz().normalize_or_zero() * speed;
+                    let hold = arts::hurl_hold(playing.level, mind.level);
+                    info!(
+                        "making: {} throws {} at {speed:.0}, held {hold:.1} s",
+                        making.art, playing.target
+                    );
+                    commands
+                        .entity(playing.target)
+                        .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                        .insert(Knocked {
+                            by: hero,
+                            from: here,
+                            left: 0.0,
+                            held: hold,
+                            throw: Some(arts::Flight::new(along.into(), arts::THROW_RISE)),
+                        });
+                    hits.write(fight::Hit {
+                        share: arts::hurl_factor(record, playing.level),
+                        ..hit(playing.target, &playing)
+                    });
+                }
+                arts.start(making.art);
+                end(&mut commands);
             }
             Style::Sweep => {
                 // Once what is left of its clip is below its first hit point: its target alive and
@@ -1311,6 +1363,7 @@ fn make(
                                         from: here,
                                         left: arts::CANNON_KNOCK,
                                         held: 0.0,
+                                        throw: None,
                                     });
                             }
                         }
@@ -1745,6 +1798,7 @@ fn make(
                                     from: here,
                                     left: to_f32(left),
                                     held: 0.0,
+                                    throw: None,
                                 });
                         }
                     }
@@ -1825,6 +1879,7 @@ fn make(
                                 from: here,
                                 left: to_f32(arts::whirl_knockback(record, playing.level)),
                                 held: 0.0,
+                                throw: None,
                             });
                     }
                 }
@@ -1986,15 +2041,17 @@ fn leap(
 /// A creature that a kick knocks back (`0x594D12`, the flag `0x20000` of `+0x200`): it slides
 /// away from its kicker `by`, from its place `from` where it is gone, at
 /// `arts::KNOCKBACK_SPEED` until it has gone `left` (`+0x24D`), doing nothing else; its walk
-/// and strike are ended as it is knocked.
+/// and strike are ended as it is knocked. One thrown (`throw`, the Dwarf's 1083) flies its flight
+/// instead, striking what it meets, and is held as a stunned creature is.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Knocked {
     pub by: Entity,
     pub from: Vec3,
     pub left: f32,
     /// How long it is held at least beyond the event's own 3 s (the roar's,
-    /// `opensacred_rules::minds::Mind::knocked`), 0 for the others.
+    /// `opensacred_rules::minds::Mind::knocked`), 0 for the others; a thrown one's whole hold.
     pub held: f32,
+    pub throw: Option<arts::Flight>,
 }
 
 /// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
@@ -2004,6 +2061,10 @@ const BOSS: u32 = 0x80000;
 /// `arts::KNOCKBACK_SPEED` times the frame's time, at most `arts::KNOCKBACK_STEP` of it, taken
 /// from what is left; the step moves it where it may stand on its level, else it stays; with
 /// nothing left it is free again.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
 fn knock(
     mut commands: Commands,
     time: Res<Time>,
@@ -2014,10 +2075,73 @@ fn knock(
         &mut Transform,
         &mut Knocked,
         &crate::crowd::InTheWay,
+        Option<&crate::arrows::Size>,
     )>,
+    others: Query<(Entity, &Transform, &Mind, &Health), (Without<Knocked>, Without<Dies>)>,
+    mut hits: MessageWriter<fight::Hit>,
 ) {
     let dt = time.delta_secs().min(arts::KNOCKBACK_STEP);
-    for (entity, mut transform, mut knock, way) in &mut knocked {
+    for (entity, mut transform, mut knock, way, size) in &mut knocked {
+        if let Some(mut flight) = knock.throw {
+            // A thrown creature flies its flight; a cell it may not enter stops it, the ground
+            // ends its flight (`0x44DFE0`).
+            let [dx, dz] = flight.step(time.delta_secs());
+            let to = transform.translation + Vec3::new(dx, 0.0, dz);
+            if heights.walkable_on(crate::paths::cell_of(to.x, to.z), way.level) {
+                transform.translation.x = to.x;
+                transform.translation.z = to.z;
+            } else {
+                flight.velocity = [0.0, 0.0];
+            }
+            let ground = heights
+                .standing(transform.translation.x, transform.translation.z, way.level)
+                .unwrap_or(transform.translation.y);
+            transform.translation.y = ground
+                + crate::iso::height(flight.height.max(0.0) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
+            // The first creature it meets, alive, not big, not flying, nearer than the two
+            // sizes: struck by its thrower, thrown on along its way, held 2 s; it keeps 0.9 of
+            // its speed (`0x44DFE0`'s blows).
+            let own = size.map_or(crate::arrows::size(0), |size| size.0);
+            let here = transform.translation.xz();
+            if let Some((other, at)) = others
+                .iter()
+                .filter(|&(e, _, mind, health)| {
+                    e != entity && e != knock.by && !mind.big && health.current > 0
+                })
+                .map(|(e, at, ..)| (e, at.translation))
+                .find(|(_, at)| (at.xz() - here).length() < own + crate::arrows::size(0))
+            {
+                let to_it = (at.xz() - here).into();
+                debug!("making: {entity} thrown knocks {other} over");
+                hits.write(fight::Hit {
+                    attacker: knock.by,
+                    target: other,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: None,
+                    sure: false,
+                });
+                commands
+                    .entity(other)
+                    .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                    .insert(Knocked {
+                        by: knock.by,
+                        from: knock.from,
+                        left: 0.0,
+                        held: arts::BOWL_HOLD,
+                        throw: Some(arts::bowled(flight.velocity, to_it)),
+                    });
+                flight.velocity = flight.velocity.map(|v| v * arts::BOWL_KEEPS);
+            }
+            if flight.landed() {
+                transform.translation.y = ground;
+                commands.entity(entity).remove::<Knocked>();
+            } else {
+                knock.throw = Some(flight);
+            }
+            continue;
+        }
         if knock.left <= 0.0 {
             commands.entity(entity).remove::<Knocked>();
             continue;
@@ -2043,7 +2167,11 @@ fn knock(
 /// over (`0x531AF7`, `opensacred_rules::minds::Mind::knocked`), at each knockback.
 fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
     if let Ok((mut mind, knock)) = minds.get_mut(knocked.entity) {
-        mind.knocked(knock.held);
+        if knock.throw.is_some() {
+            mind.stunned(knock.held);
+        } else {
+            mind.knocked(knock.held);
+        }
     }
 }
 
