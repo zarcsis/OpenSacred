@@ -5,9 +5,10 @@
 //!   names whose start script lacks such a record is left as it is, with a warning.
 //! - The quests' defects that the community reports (#356; docs/re/netscript.md, "The community's
 //!   quest defects"), the maintainer's decisions of 2026-10-25: an [`Edit`] changes the functions
-//!   of one name in every tree that holds them, and a [`Rename`] makes every record that names a
-//!   function no tree defines name the one meant. A function whose records are not what its
-//!   repair expects is left as it is, with a warning.
+//!   of one name in every tree that holds them, a [`Rename`] makes every record that names a
+//!   function no tree defines name the one meant, and an [`Addition`] adds a function beside
+//!   another. A function whose records are not what its repair expects is left as it is, with a
+//!   warning.
 
 use opensacred_data::netscript::{Body, Function, Operand, Record, Tree, Value};
 
@@ -17,6 +18,16 @@ const TRIGGER_PATCH: u16 = 50;
 const CREATE_OBJ: u16 = 8;
 /// `SetTimer`.
 const SET_TIMER: u16 = 56;
+/// `SetNPCState`, `TriggerQuest`, `QuestBook`, `LoseQuest`, `IF`, `ELSE`, `NOP` and
+/// `QuestKompassObj`.
+const SET_NPC_STATE: u16 = 3;
+const TRIGGER_QUEST: u16 = 20;
+const QUEST_BOOK: u16 = 53;
+const LOSE_QUEST: u16 = 54;
+const IF: u16 = 58;
+const ELSE: u16 = 59;
+const NOP: u16 = 62;
+const QUEST_KOMPASS_OBJ: u16 = 64;
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
 /// client reads it from whatever follows the record (docs/re/netscript.md, "Truncated operands"),
@@ -155,8 +166,19 @@ pub struct Rename {
     pub to: &'static str,
 }
 
+/// A function that a repair adds, with `records`, to every tree that holds the function `beside`
+/// and lacks one of its name, with `beside`'s quest and region.
+#[derive(Debug, Clone, Copy)]
+pub struct Addition {
+    /// What the repair mends, with its issue, for the summary and the warnings.
+    pub what: &'static str,
+    pub name: &'static str,
+    pub beside: &'static str,
+    pub records: fn() -> Vec<Record>,
+}
+
 /// The repairs of functions that `netscript` makes.
-pub const EDITS: [Edit; 5] = [
+pub const EDITS: [Edit; 14] = [
     Edit {
         what: "quest 10260's item named (#957)",
         function: "fillchest_chestQJ_03",
@@ -182,7 +204,60 @@ pub const EDITS: [Edit; 5] = [
         function: "ritterweg_602",
         edit: |records| knight(records, 1),
     },
+    Edit {
+        what: "quest 2203's win entering it (#936)",
+        function: "tot2203",
+        edit: pure_water,
+    },
+    Edit {
+        what: "quest 1303's goods after the failure (#937)",
+        function: "zeit1303",
+        edit: goods_late,
+    },
+    Edit {
+        what: "quest 7619's follower after the win (#938)",
+        function: "od_7619",
+        edit: |records| follower_won(records),
+    },
+    Edit {
+        what: "quest 5005's loss on its last leg (#939)",
+        function: "losepe",
+        edit: pony_lost,
+    },
+    Edit {
+        what: "quest 10255's restart (#940)",
+        function: "btn_accept_10255_REstart",
+        edit: spiders_again,
+    },
+    Edit {
+        what: "quest 1401's day (#941)",
+        function: "zeit1401",
+        edit: snow_day,
+    },
+    Edit {
+        what: "quest 1001's start (#942)",
+        function: "QIS_OnEnter1001",
+        edit: |records| pigface(records),
+    },
+    Edit {
+        what: "quest 670's Glubba dying (#950)",
+        function: "lose670",
+        edit: glubba_dies,
+    },
+    Edit {
+        what: "quest 670's loss (#950)",
+        function: "QIS_OnLose670",
+        edit: |records| glubba_lost(records),
+    },
 ];
+
+/// The functions that `netscript` adds.
+pub const ADDITIONS: [Addition; 1] = [Addition {
+    what: "quest 7619's follower's death after the win (#938)",
+    name: FOLLOWER_WON,
+    beside: "od_7619",
+    records: Vec::new,
+}];
 
 /// The repairs of names that `netscript` makes.
 pub const RENAMES: [Rename; 3] = [
@@ -211,8 +286,14 @@ pub struct Report {
     pub warnings: Vec<String>,
 }
 
-/// Applies the repairs `edits` and `renames` to the tree `source`.
-pub fn repair(edits: &[Edit], renames: &[Rename], source: &str, tree: &mut Tree) -> Report {
+/// Applies the repairs `edits`, `renames` and `additions` to the tree `source`.
+pub fn repair(
+    edits: &[Edit],
+    renames: &[Rename],
+    additions: &[Addition],
+    source: &str,
+    tree: &mut Tree,
+) -> Report {
     let mut report = Report::default();
     for edit in edits {
         let mut made = false;
@@ -273,6 +354,26 @@ pub fn repair(edits: &[Edit], renames: &[Rename], source: &str, tree: &mut Tree)
         }
         report.made.push(rename.what);
     }
+    for addition in additions {
+        let Some(beside) = tree.functions.iter().find(|f| f.name == addition.beside) else {
+            continue;
+        };
+        if tree.functions.iter().any(|f| f.name == addition.name) {
+            report.warnings.push(format!(
+                "{source} defines {} already, which the repair of {} adds; left as it is",
+                addition.name, addition.what
+            ));
+            continue;
+        }
+        let function = Function {
+            name: addition.name.to_owned(),
+            quest: beside.quest,
+            region: beside.region,
+            records: (addition.records)(),
+        };
+        tree.functions.push(function);
+        report.made.push(addition.what);
+    }
     report
 }
 
@@ -325,6 +426,45 @@ fn text(s: &str) -> Value {
     Value::Str(s.to_owned())
 }
 
+/// The `IF` operand of the bit `n` of the variable `variable`.
+fn bit(n: i32, variable: &str) -> Value {
+    Value::NumStr {
+        number: n,
+        text: variable.to_owned(),
+        expression: None,
+    }
+}
+
+fn op(tag: u8, value: Value) -> Operand {
+    Operand { tag, value }
+}
+
+fn new(kind: u16, operands: Vec<Operand>) -> Record {
+    Record {
+        kind,
+        body: Body::Operands(operands),
+    }
+}
+
+/// The `QuestBook` record of a line `line` in the quest `quest`'s log.
+fn log_line(quest: i32, line: &str) -> Record {
+    new(
+        QUEST_BOOK,
+        vec![
+            op(0x0B, Value::I32(quest)),
+            op(0x0B, Value::I32(1)),
+            op(0x01, text(line)),
+        ],
+    )
+}
+
+/// The index of the one `QuestBook` of `records` that writes `line`.
+fn the_line(records: &[Record], line: &str) -> Result<usize, String> {
+    the(records, &format!("QuestBook of {line}"), QUEST_BOOK, |r| {
+        has(r, 0x01, &text(line))
+    })
+}
+
 /// The index of the one record of `records` of `kind` that `test` takes; `what` names it.
 fn the(
     records: &[Record],
@@ -373,6 +513,130 @@ fn timer(records: &mut [Record], function: &str, from: i32, to: i32) -> Result<(
             o.value = Value::I32(to);
         }
     }
+    Ok(())
+}
+
+/// 2203's six objects count whatever the quest's state, and `tot2203`'s first branch offers the
+/// win with the quest never entered: the branch enters it first.
+fn pure_water(records: &mut Vec<Record>) -> Result<(), String> {
+    if the(records, "IF of bit 3 of 2203a", IF, |r| {
+        has(r, 0x49, &bit(3, "2203a"))
+    })? != 0
+    {
+        return Err("its IF of bit 3 of 2203a first".to_owned());
+    }
+    records.insert(1, new(TRIGGER_QUEST, vec![op(0x0B, Value::I32(2203))]));
+    Ok(())
+}
+
+/// 1303's timer writes the failure, then the generic completion line, and its target's dialogue,
+/// which tests nothing, still takes the goods: the completion line goes, and the target's
+/// dialogue is taken away, as `Dialog:ziel1303` takes it at the delivery.
+fn goods_late(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the_line(records, "res:NQ_Log_Qend")?;
+    records.remove(i);
+    records.push(new(
+        SET_NPC_STATE,
+        vec![
+            op(0x01, text("res:17177")),
+            op(0x0A, Value::U16(0)),
+            op(0x6B, Value::U16(0)),
+            op(0x0E, Value::Marker),
+        ],
+    ));
+    Ok(())
+}
+
+/// The function with no records that 7619's follower dies with once the quest is won.
+const FOLLOWER_WON: &str = "od_threepwood_7619_sieg";
+
+/// 7619's follower keeps the death function that loses the quest after the win: as the group's
+/// death gives him his last dialogue, it gives him [`FOLLOWER_WON`] to die with.
+fn follower_won(records: &mut [Record]) -> Result<(), String> {
+    let i = the(
+        records,
+        "SetNPCState of the follower's last dialogue",
+        SET_NPC_STATE,
+        |r| {
+            has(r, 0x01, &text("res:19545"))
+                && has(r, 0x09, &text("dlg_threepwood_7619_c"))
+                && !operands(r).iter().any(|o| o.tag == 0x05)
+        },
+    )?;
+    if let Body::Operands(ops) = &mut records[i].body {
+        ops.push(op(0x05, text(FOLLOWER_WON)));
+    }
+    Ok(())
+}
+
+/// 5005's loss on its last leg leaves the mage the dialogue of the win: he gets his own back
+/// before the quest is lost, as `exitpe` gives it.
+fn pony_lost(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(records, "LoseQuest", LOSE_QUEST, |_| true)?;
+    records.insert(
+        i,
+        new(
+            SET_NPC_STATE,
+            vec![
+                op(0x01, text("res:17277")),
+                op(0x09, text("NPC_Dialog_Magician")),
+            ],
+        ),
+    );
+    Ok(())
+}
+
+/// 10255's restart writes no line, so its log ends on the failure's: it writes the task again.
+fn spiders_again(records: &mut Vec<Record>) -> Result<(), String> {
+    if records.iter().any(|r| r.kind == QUEST_BOOK) {
+        return Err("a body without a QuestBook".to_owned());
+    }
+    records.push(log_line(10255, "res:DQ_10255_LOG_HEADER"));
+    Ok(())
+}
+
+/// 1401's one-day timer writes the generic completion line alone, while the quest stays open: the
+/// line goes, and the timer runs nothing.
+fn snow_day(records: &mut Vec<Record>) -> Result<(), String> {
+    the_line(records, "res:NQ_Log_Qend")?;
+    if records.len() != 1 {
+        return Err("a body of that line alone".to_owned());
+    }
+    records.clear();
+    Ok(())
+}
+
+/// 1001's start writes the line of the kill in its `THEN`, the usual way while the target lives:
+/// the line takes the place of the `ELSE`'s `NOP`, the branch where the target's item was taken
+/// first, and the `NOP` its place.
+fn pigface(records: &mut [Record]) -> Result<(), String> {
+    let i = the(records, "IF of bit 20 of 1001 clear", IF, |r| {
+        has(r, 0x4A, &bit(20, "1001"))
+    })?;
+    let kinds: Option<Vec<u16>> = records
+        .get(i + 1..i + 5)
+        .map(|after| after.iter().map(|r| r.kind).collect());
+    if kinds.as_deref() != Some(&[QUEST_BOOK, QUEST_KOMPASS_OBJ, ELSE, NOP]) {
+        return Err("a QuestBook, a QuestKompassObj, an ELSE and a NOP after its IF".to_owned());
+    }
+    records.swap(i + 1, i + 4);
+    Ok(())
+}
+
+/// Glubba's death function is empty, so his death leaves 670 open with no way to finish it: it
+/// loses its quest, as `tot301` loses 301.
+fn glubba_dies(records: &mut Vec<Record>) -> Result<(), String> {
+    if !records.is_empty() {
+        return Err("an empty body".to_owned());
+    }
+    records.push(new(LOSE_QUEST, Vec::new()));
+    Ok(())
+}
+
+/// 670's loss writes the generic completion line: it writes the failure line, as 301's death does.
+fn glubba_lost(records: &mut [Record]) -> Result<(), String> {
+    let i = the_line(records, "Res:NQ_Log_Qend")?;
+    rename_in(&mut records[i..=i], "Res:NQ_Log_Qend", "Res:NQ_Log_QFAIL");
     Ok(())
 }
 
@@ -493,13 +757,13 @@ mod tests {
             function("fillchest_chestQJ_03", vec![vase(None)]),
             function("fillchest_chestQJ_02", vec![vase(None)]),
         ]);
-        let report = repair(&EDITS, &[], "bin/NetScript", &mut tree);
+        let report = repair(&EDITS, &[], &[], "bin/NetScript", &mut tree);
         assert_eq!(report.made, ["quest 10260's item named (#957)"]);
         assert!(report.warnings.is_empty());
         assert_eq!(tree.functions[0].records, [vase(Some("res:4609"))]);
         assert_eq!(tree.functions[1].records, [vase(None)]);
         // Once named, the record is not what the repair expects: left as it is, with a warning.
-        let report = repair(&EDITS, &[], "bin/NetScript", &mut tree);
+        let report = repair(&EDITS, &[], &[], "bin/NetScript", &mut tree);
         assert!(report.made.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert_eq!(tree.functions[0].records, [vase(Some("res:4609"))]);
@@ -555,13 +819,13 @@ mod tests {
             function("attacke1401", Vec::new()),
         ]);
         good.start = vec![death("attack1401")];
-        let report = repair(&[], &rename, "bin/NetScript", &mut good);
+        let report = repair(&[], &rename, &[], "bin/NetScript", &mut good);
         assert_eq!(report.made, ["a test"]);
         assert_eq!(good.start, [death("attacke1401")]);
         assert_eq!(good.functions[0].records, [death("attacke1401")]);
         // Nothing named: nothing made, no warning.
         assert_eq!(
-            repair(&[], &rename, "bin/NetScript", &mut good),
+            repair(&[], &rename, &[], "bin/NetScript", &mut good),
             Report::default()
         );
         // The function meant not defined, or the misspelt one defined: a warning.
@@ -570,10 +834,130 @@ mod tests {
                 function("Region13Init", vec![death("attack1401")]),
                 function(defined, Vec::new()),
             ]);
-            let report = repair(&[], &rename, "bin/NetScript", &mut bad);
+            let report = repair(&[], &rename, &[], "bin/NetScript", &mut bad);
             assert!(report.made.is_empty());
             assert_eq!(report.warnings.len(), 1, "{defined}");
             assert_eq!(bad.functions[0].records, [death("attack1401")]);
         }
+    }
+
+    #[test]
+    fn an_addition_joins_the_trees_that_hold_its_neighbour() {
+        let mut tree = tree(vec![Function {
+            quest: 7619,
+            ..function("od_7619", Vec::new())
+        }]);
+        let report = repair(&[], &[], &ADDITIONS, "bin/NetScript", &mut tree);
+        assert_eq!(
+            report.made,
+            ["quest 7619's follower's death after the win (#938)"]
+        );
+        assert_eq!(
+            tree.functions[1],
+            Function {
+                quest: 7619,
+                ..function(FOLLOWER_WON, Vec::new())
+            }
+        );
+        // Defined already: a warning, nothing added.
+        let report = repair(&[], &[], &ADDITIONS, "bin/NetScript", &mut tree);
+        assert_eq!(report.warnings.len(), 1);
+        assert_eq!(tree.functions.len(), 2);
+    }
+
+    #[test]
+    fn an_addition_skips_a_tree_without_its_neighbour() {
+        let mut other = tree(Vec::new());
+        assert_eq!(
+            repair(&[], &[], &ADDITIONS, "bin/NetScript", &mut other),
+            Report::default()
+        );
+    }
+
+    fn line(quest: i32, line: &str) -> Record {
+        log_line(quest, line)
+    }
+
+    #[test]
+    fn the_logs_lose_the_lines_that_contradict_them() {
+        // 1303's timer: the completion line goes, the target's dialogue goes away.
+        let mut records = vec![
+            line(1303, "res:R13NQ03_Log_Qfail01"),
+            line(1303, "res:NQ_Log_Qend"),
+        ];
+        goods_late(&mut records).unwrap();
+        assert_eq!(records[0], line(1303, "res:R13NQ03_Log_Qfail01"));
+        assert_eq!(records[1].kind, SET_NPC_STATE);
+        assert_eq!(records.len(), 2);
+        // 1401's timer: nothing left.
+        let mut records = vec![line(1401, "res:NQ_Log_Qend")];
+        snow_day(&mut records).unwrap();
+        assert!(records.is_empty());
+        assert!(snow_day(&mut records).is_err());
+        // 10255's restart: the task again, once.
+        let mut records = Vec::new();
+        spiders_again(&mut records).unwrap();
+        assert_eq!(records, [line(10255, "res:DQ_10255_LOG_HEADER")]);
+        assert!(spiders_again(&mut records).is_err());
+        // 670's loss: the failure line.
+        let mut records = vec![line(670, "Res:NQ_Log_Qend")];
+        glubba_lost(&mut records).unwrap();
+        assert_eq!(records, [line(670, "Res:NQ_Log_QFAIL")]);
+    }
+
+    #[test]
+    fn pigfaces_kill_line_takes_the_else() {
+        let start = |first: Record, last: Record| {
+            vec![
+                new(IF, vec![op(0x4A, bit(20, "1001"))]),
+                first,
+                new(QUEST_KOMPASS_OBJ, vec![op(0x01, text("Res:17041"))]),
+                new(ELSE, Vec::new()),
+                last,
+            ]
+        };
+        let kill = line(1001, "Res:R10NQ01_Log_Qziel01");
+        let nop = new(NOP, Vec::new());
+        let mut records = start(kill.clone(), nop.clone());
+        pigface(&mut records).unwrap();
+        assert_eq!(records, start(nop, kill));
+        assert!(pigface(&mut records).is_err());
+    }
+
+    #[test]
+    fn the_quests_states_follow_their_ends() {
+        // 2203's win enters the quest first.
+        let test = new(IF, vec![op(0x49, bit(3, "2203a"))]);
+        let mut records = vec![test.clone(), new(NOP, Vec::new())];
+        pure_water(&mut records).unwrap();
+        assert_eq!(
+            records[1],
+            new(TRIGGER_QUEST, vec![op(0x0B, Value::I32(2203))])
+        );
+        // 7619's follower dies with the empty function once the group is dead.
+        let dialogue = |extra: Option<&str>| {
+            let mut ops = vec![
+                op(0x01, text("res:19545")),
+                op(0x09, text("dlg_threepwood_7619_c")),
+                op(0x39, Value::Marker),
+            ];
+            ops.extend(extra.map(|f| op(0x05, text(f))));
+            new(SET_NPC_STATE, ops)
+        };
+        let mut records = vec![dialogue(None)];
+        follower_won(&mut records).unwrap();
+        assert_eq!(records, [dialogue(Some(FOLLOWER_WON))]);
+        assert!(follower_won(&mut records).is_err());
+        // 5005's mage gets his dialogue back before the loss.
+        let mut records = vec![new(LOSE_QUEST, Vec::new())];
+        pony_lost(&mut records).unwrap();
+        assert_eq!(records[0].kind, SET_NPC_STATE);
+        assert!(has(&records[0], 0x09, &text("NPC_Dialog_Magician")));
+        assert_eq!(records[1].kind, LOSE_QUEST);
+        // Glubba's death loses 670.
+        let mut records = Vec::new();
+        glubba_dies(&mut records).unwrap();
+        assert_eq!(records, [new(LOSE_QUEST, Vec::new())]);
+        assert!(glubba_dies(&mut records).is_err());
     }
 }
