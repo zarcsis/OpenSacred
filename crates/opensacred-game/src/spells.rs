@@ -52,18 +52,49 @@ struct Shielding {
 
 /// An object that strikes about itself once a [`BEAT`] for its time (`opensacred_rules::spells::
 /// area`): its caster, the bearer it follows, if any, its reach, the classes it strikes alone,
-/// its damages, the level it strikes on, its time left and its cooldown.
+/// its damages, if any, the effects it gives a creature it strikes that holds none keyed by its
+/// spell `key` (the Daemon's fear's), the level it strikes on, its time left and its cooldown.
 #[derive(Component, Debug, Clone)]
 struct Aura {
     caster: Entity,
     follows: Option<Entity>,
     reach: f32,
     classes: &'static [u8],
+    damages: Option<[f32; 4]>,
+    gives: Vec<(Effect, f32)>,
+    key: u16,
+    level: Level,
+    left: f32,
+    cooldown: f32,
+    /// Whom it strikes: about itself, the creature it follows alone (the choir's), or one
+    /// creature at random by the hellfire's choice.
+    strikes: Strikes,
+}
+
+/// Whom an [`Aura`] strikes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Strikes {
+    About,
+    Bearer,
+    OneAtRandom,
+}
+
+/// The Daemon's hell disk: its caster, the creature it homes on, the one it struck last, its
+/// damages, its level, its time left and its cooldown.
+#[derive(Component, Debug, Clone)]
+struct Disk {
+    caster: Entity,
+    target: Option<Entity>,
+    last: Option<Entity>,
     damages: [f32; 4],
     level: Level,
     left: f32,
     cooldown: f32,
 }
+
+/// The dice of the spells' choices at random.
+#[derive(Resource)]
+struct Dice(crate::spawning::Rng);
 
 /// A sight that goes after its time.
 #[derive(Component, Debug, Clone, Copy)]
@@ -90,17 +121,22 @@ struct Mine {
 }
 
 /// The stand-ins' meshes and materials: a disc of radius 1 and the holy light's, the blades of
-/// light's, the light's, the fire skin's and the gust's; a column of light and the lightning's;
+/// light's, the light's, the fire skin's, the gust's, the fear's and a tentacle's; a column of
+/// light and the lightning's;
 /// a mine and its blast.
 #[derive(Resource)]
 struct Looks {
     disc: Handle<Mesh>,
-    discs: [Handle<StandardMaterial>; 5],
+    discs: [Handle<StandardMaterial>; 7],
     column: Handle<Mesh>,
     lightning: Handle<StandardMaterial>,
     mine: (Handle<Mesh>, Handle<StandardMaterial>),
     blast: (Handle<Mesh>, Handle<StandardMaterial>),
+    disk: (Handle<Mesh>, Handle<StandardMaterial>),
 }
+
+/// How high over the ground the hell disk flies (**estimate**: a hand's height, as the bolts').
+const DISK_HEIGHT: f32 = 80.0;
 
 /// Makes the stand-ins' looks (**estimate**: the colours of their glows).
 fn make_looks(
@@ -125,6 +161,8 @@ fn make_looks(
         glow(Color::srgba(1.0, 1.0, 0.75, 0.2)),
         glow(Color::srgba(1.0, 0.45, 0.1, 0.3)),
         glow(Color::srgba(0.85, 0.9, 0.85, 0.25)),
+        glow(Color::srgba(0.45, 0.1, 0.5, 0.25)),
+        glow(Color::srgba(0.3, 0.5, 0.2, 0.35)),
     ];
     let lightning = glow(Color::srgba(0.8, 0.9, 1.0, 0.8));
     let mine = (
@@ -135,7 +173,12 @@ fn make_looks(
         meshes.add(Sphere::new(spells::BLAST_REACH)),
         glow(Color::srgba(1.0, 0.6, 0.2, 0.45)),
     );
+    let disk = (
+        meshes.add(Cylinder::new(18.0, 4.0)),
+        glow(Color::srgba(1.0, 0.3, 0.1, 0.9)),
+    );
     commands.insert_resource(Looks {
+        disk,
         disc: meshes.add(Cylinder::new(1.0, 1.0)),
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
@@ -167,6 +210,10 @@ fn act(
     mut targets: Query<(&mut Health, Option<&ai::Mind>, Option<&fight::Ranked>)>,
     mut launches: MessageWriter<crate::bolts::Launch>,
     mut hits: MessageWriter<fight::Hit>,
+    hearers: Query<
+        (Entity, &GlobalTransform, &ai::Mind, Option<&Effects>),
+        (Without<Body>, Without<Dies>),
+    >,
 ) {
     let Some(arts) = arts else {
         acts.clear();
@@ -210,6 +257,147 @@ fn act(
                 });
             }
             REIKI | SPRING => given.extend(spells::effects(record, act.level)),
+            // The Daemon's: the call of death's, the force of hell's and the tentacles' effects
+            // on him; the fear's five objects about him.
+            spells::DOOM | spells::FORCE | spells::TENTACLES => {
+                given.extend(spells::daemons(record, act.level));
+            }
+            spells::FEAR => {
+                let fear = spells::fear(record, act.level);
+                for k in 0..5u8 {
+                    let angle = spells::FEAR_ANGLE + spells::FEAR_STEP * f32::from(k);
+                    let at = here + Vec3::new(angle.cos(), 0.0, angle.sin()) * spells::FEAR_FROM;
+                    let mut made = commands.spawn((
+                        Aura {
+                            caster: act.caster,
+                            follows: None,
+                            reach: spells::FEAR_REACH,
+                            classes: &[],
+                            damages: None,
+                            gives: fear.clone(),
+                            key: act.spell,
+                            level: body.level(),
+                            left: spells::FEAR_LIFE,
+                            cooldown: 0.0,
+                            strikes: Strikes::About,
+                        },
+                        Transform::from_translation(at),
+                        Visibility::Inherited,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                    if let Some(looks) = &looks {
+                        made.with_child((
+                            Mesh3d(looks.disc.clone()),
+                            MeshMaterial3d(looks.discs[5].clone()),
+                            Transform::from_scale(Vec3::new(
+                                spells::FEAR_REACH,
+                                2.0,
+                                spells::FEAR_REACH,
+                            ))
+                            .with_translation(Vec3::Y * 4.0),
+                        ));
+                    }
+                }
+            }
+            spells::DISK => {
+                let damages = bolt_damages(record, level, multipliers);
+                let mut made = commands.spawn((
+                    Disk {
+                        caster: act.caster,
+                        target: None,
+                        last: None,
+                        damages,
+                        level: body.level(),
+                        left: fight_seconds(spells::value(record, 0, act.level)),
+                        cooldown: 0.0,
+                    },
+                    Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(looks) = &looks {
+                    made.with_child((
+                        Mesh3d(looks.disk.0.clone()),
+                        MeshMaterial3d(looks.disk.1.clone()),
+                    ));
+                }
+            }
+            spells::HELLFIRE => {
+                let mut made = commands.spawn((
+                    Aura {
+                        caster: act.caster,
+                        follows: None,
+                        reach: spells::HELLFIRE_NEAR,
+                        classes: &[],
+                        damages: Some(bolt_damages(record, level, multipliers)),
+                        gives: Vec::new(),
+                        key: act.spell,
+                        level: body.level(),
+                        left: fight_seconds(spells::value(record, 0, act.level)),
+                        cooldown: 0.0,
+                        strikes: Strikes::OneAtRandom,
+                    },
+                    Transform::from_translation(act.point),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(looks) = &looks {
+                    made.with_child((
+                        Mesh3d(looks.disc.clone()),
+                        MeshMaterial3d(looks.discs[3].clone()),
+                        Transform::from_scale(Vec3::new(60.0, 2.0, 60.0))
+                            .with_translation(Vec3::Y * 4.0),
+                    ));
+                }
+            }
+            spells::CHOIR => {
+                // The first 20 creatures hostile to the hero, alive, within its reach, of no
+                // big type and without its effect: each with a choir following it, striking it
+                // once a second, and the effect 35 keyed by the spell.
+                let seconds = fight_seconds(spells::value(record, 0, act.level));
+                let damages = bolt_damages(record, level, multipliers);
+                let taken: Vec<Entity> = hearers
+                    .iter()
+                    .filter(|(hearer, at, mind, effects)| {
+                        mind.hostile()
+                            && targets
+                                .get(*hearer)
+                                .is_ok_and(|(health, ..)| health.current > 0)
+                            && !mind.big
+                            && !effects.is_some_and(|e| e.holds_any(&[act.spell]))
+                            && (at.translation() - here).xz().length() < spells::CHOIR_REACH
+                    })
+                    .map(|(entity, ..)| entity)
+                    .take(spells::CHOIR_MOST)
+                    .collect();
+                for hearer in taken {
+                    let effect = Effect {
+                        id: BORNE,
+                        whole: 0,
+                        value: 0.0,
+                        art: u32::from(act.spell),
+                        level: 0,
+                    };
+                    give(&mut commands, hearer, vec![(effect, seconds)]);
+                    commands.spawn((
+                        Aura {
+                            caster: act.caster,
+                            follows: Some(hearer),
+                            reach: 0.0,
+                            classes: &[],
+                            damages: Some(damages),
+                            gives: Vec::new(),
+                            key: act.spell,
+                            level: body.level(),
+                            left: seconds,
+                            cooldown: 0.0,
+                            strikes: Strikes::Bearer,
+                        },
+                        Transform::from_translation(here),
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                }
+            }
             spells::MINES => {
                 // His sign, with the mines' count of its values' ratio; their damages by his
                 // weapons' multipliers, the second array (`0x528995`).
@@ -365,10 +553,13 @@ fn act(
                     follows,
                     reach: area.reach,
                     classes: area.classes,
-                    damages,
+                    damages: Some(damages),
+                    gives: Vec::new(),
+                    key: spell,
                     level: body.level(),
                     left: seconds,
                     cooldown: 0.0,
+                    strikes: Strikes::About,
                 };
                 let mut made = commands.spawn((
                     aura,
@@ -421,15 +612,19 @@ fn fight_seconds(seconds: u32) -> f32 {
 /// Runs each object that strikes about itself: it goes with its bearer, ends with its time or
 /// its bearer, and once its cooldown is over strikes the creatures on its level that are
 /// hostile to the hero, alive, of its classes where it names some, and nearer it than its reach
-/// and their size, each with the fight's sure strike of its damages, then waits a [`BEAT`]
-/// (`0x5A85A8`, `0x5AB490`, `0x5ABD80`).
+/// and their size, each with the fight's sure strike of its damages or its effects, then waits a
+/// [`BEAT`] (`0x5A85A8`, `0x5AB490`, `0x5ABD80`); the choir's strikes the creature it follows
+/// alone, and the hellfire one creature at random ([`Strikes`]).
 #[expect(
+    clippy::too_many_arguments,
     clippy::type_complexity,
-    reason = "a Bevy system takes its queries with their filters"
+    reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 fn strike(
     mut commands: Commands,
     time: Res<Time>,
+    mut dice: ResMut<Dice>,
+    heroes: Query<&GlobalTransform, (With<Body>, Without<Aura>)>,
     mut auras: Query<(Entity, &mut Aura, &mut Transform)>,
     bearers: Query<&GlobalTransform, (Without<Aura>, Without<Dies>)>,
     creatures: Query<
@@ -440,12 +635,16 @@ fn strike(
             &ai::Mind,
             &Health,
             Option<&arrows::Size>,
+            Option<&Effects>,
         ),
         (Without<Body>, Without<Aura>, Without<Dies>),
     >,
     mut hits: MessageWriter<fight::Hit>,
 ) {
     let dt = time.delta_secs();
+    // The creatures given an effect keyed by a spell in this frame, which the adder would find
+    // holding it for the next object.
+    let mut given: Vec<(Entity, u16)> = Vec::new();
     for (entity, mut aura, mut transform) in &mut auras {
         aura.left -= dt;
         let bearer = aura.follows.map(|bearer| bearers.get(bearer));
@@ -461,33 +660,119 @@ fn strike(
             continue;
         }
         let centre = transform.translation.xz();
-        let struck: Vec<Entity> = creatures
-            .iter()
-            .filter(|(_, at, way, mind, health, size)| {
+        let hero = heroes.iter().next().map(|at| at.translation().xz());
+        if aura.strikes == Strikes::OneAtRandom {
+            // The hellfire: one creature at random among those near the hero and it, weighed
+            // by a ranged weapon, else among those within its reach (`0x5AFF86`).
+            let alive = |(_, at, way, mind, health, ..): &(
+                Entity,
+                &GlobalTransform,
+                &InTheWay,
+                &ai::Mind,
+                &Health,
+                Option<&arrows::Size>,
+                Option<&Effects>,
+            )| {
                 way.creature
                     && way.level == aura.level
                     && mind.hostile()
                     && health.current > 0
+                    && at.translation().y.is_finite()
+            };
+            let mut weighed: Vec<(Entity, u32)> = creatures
+                .iter()
+                .filter(|c| alive(c))
+                .filter(|(_, at, ..)| {
+                    let d = at.translation().xz() - centre;
+                    hero.is_some_and(|hero| {
+                        (at.translation().xz() - hero).length() <= spells::HELLFIRE_HERO
+                    }) && d.x.abs() <= spells::HELLFIRE_BOX
+                        && d.y.abs() <= spells::HELLFIRE_BOX
+                })
+                .map(|(target, _, _, mind, ..)| (target, if mind.ranged { 4 } else { 1 }))
+                .collect();
+            if weighed.is_empty() {
+                weighed = creatures
+                    .iter()
+                    .filter(|c| alive(c))
+                    .filter(|(_, at, .., size, _)| {
+                        (at.translation().xz() - centre).length()
+                            < aura.reach + size.map_or(arrows::size(0), |size| size.0)
+                    })
+                    .map(|(target, ..)| (target, 1))
+                    .collect();
+            }
+            let total: u32 = weighed.iter().map(|&(_, w)| w).sum();
+            if total == 0 {
+                continue;
+            }
+            let mut roll = dice.0.below(total);
+            let picked = weighed.iter().find(|&&(_, w)| {
+                let here = roll < w;
+                roll = roll.saturating_sub(w);
+                here
+            });
+            if let (Some(&(target, _)), Some(damages)) = (picked, aura.damages) {
+                debug!("spells: the hellfire strikes {target} for {damages:?}");
+                hits.write(fight::Hit {
+                    attacker: aura.caster,
+                    target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(damages),
+                    sure: true,
+                });
+            }
+            aura.cooldown = BEAT;
+            continue;
+        }
+        let only = (aura.strikes == Strikes::Bearer)
+            .then_some(aura.follows)
+            .flatten();
+        let struck: Vec<Entity> = creatures
+            .iter()
+            .filter(|(target, at, way, mind, health, size, _)| {
+                only.is_none_or(|only| only == *target)
+                    && way.creature
+                    && way.level == aura.level
+                    && mind.hostile()
+                    && health.current > 0
                     && (aura.classes.is_empty() || aura.classes.contains(&mind.class))
-                    && (at.translation().xz() - centre).length()
-                        < aura.reach + size.map_or(arrows::size(0), |size| size.0)
+                    && (only.is_some()
+                        || (at.translation().xz() - centre).length()
+                            < aura.reach + size.map_or(arrows::size(0), |size| size.0))
             })
-            .map(|(target, ..)| target)
+            .map(|(target, .., effects)| {
+                (target, effects.is_some_and(|e| e.holds_any(&[aura.key])))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter_map(|(target, keyed)| {
+                let keyed = keyed || given.contains(&(target, aura.key));
+                (aura.damages.is_some() || !keyed).then_some(target)
+            })
             .collect();
         if struck.is_empty() {
             continue;
         }
         for target in struck {
-            debug!("spells: {entity} strikes {target} for {:?}", aura.damages);
-            hits.write(fight::Hit {
-                attacker: aura.caster,
-                target,
-                share: 1.0,
-                ranged: false,
-                art: None,
-                fixed: Some(aura.damages),
-                sure: true,
-            });
+            if let Some(damages) = aura.damages {
+                debug!("spells: {entity} strikes {target} for {damages:?}");
+                hits.write(fight::Hit {
+                    attacker: aura.caster,
+                    target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(damages),
+                    sure: true,
+                });
+            }
+            if !aura.gives.is_empty() && !given.contains(&(target, aura.key)) {
+                give(&mut commands, target, aura.gives.clone());
+                given.push((target, aura.key));
+            }
         }
         aura.cooldown = BEAT;
     }
@@ -615,6 +900,208 @@ fn mine(
     }
 }
 
+/// Each creature that the hero kills (its fall not a creature's) while the hero holds the
+/// tentacles' effect raises a tentacle at its corpse, which strikes about itself once a second for
+/// the record's value 1, 10 s (`0x533818`); while it holds the call of death's, it raises its
+/// value (`0x5339F3`).
+fn killed(
+    died: On<Insert<Dies>>,
+    mut commands: Commands,
+    arts: Option<Res<crate::arts::HeroArts>>,
+    looks: Option<Res<Looks>>,
+    dead: Query<(&Dies, &GlobalTransform, Option<&InTheWay>), Without<Body>>,
+    mut heroes: Query<(Entity, &mut Effects, Option<&Combat>), With<Body>>,
+) {
+    let Ok((dies, at, way)) = dead.get(died.entity) else {
+        return;
+    };
+    if dies.by_creature {
+        return;
+    }
+    let Some((hero, mut effects, combat)) = heroes.iter_mut().next() else {
+        return;
+    };
+    effects.change(spells::DOOMED, |doom| {
+        doom.value = spells::doom_kills(doom.value, doom.level);
+    });
+    let tentacles = effects
+        .timed()
+        .iter()
+        .find(|timed| timed.effect.id == spells::TENTACLED)
+        .map(|timed| u32::try_from(timed.effect.whole).unwrap_or(1));
+    let (Some(level), Some(arts)) = (tentacles, arts) else {
+        return;
+    };
+    let Some(record) = arts
+        .tables
+        .spells
+        .iter()
+        .find(|s| s.id == spells::TENTACLES)
+    else {
+        return;
+    };
+    let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+    let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers);
+    let mut made = commands.spawn((
+        Aura {
+            caster: hero,
+            follows: None,
+            reach: spells::TENTACLE_REACH,
+            classes: &[],
+            damages: Some(damages),
+            gives: Vec::new(),
+            key: spells::TENTACLES,
+            level: way.and_then(|way| way.level),
+            left: fight_seconds(spells::value(record, 1, level)),
+            cooldown: 0.0,
+            strikes: Strikes::About,
+        },
+        Transform::from_translation(at.translation()),
+        Visibility::Inherited,
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(looks) = &looks {
+        made.with_child((
+            Mesh3d(looks.disc.clone()),
+            MeshMaterial3d(looks.discs[6].clone()),
+            Transform::from_scale(Vec3::new(
+                spells::TENTACLE_REACH,
+                2.0,
+                spells::TENTACLE_REACH,
+            ))
+            .with_translation(Vec3::Y * 4.0),
+        ));
+    }
+    debug!(
+        "spells: a tentacle rises at {} for {damages:?}",
+        died.entity
+    );
+}
+
+/// The call of death's value falls with the time to no less than 1 (`0x56373E`); the effects'
+/// recomputation does not take it, so its change is not one of theirs.
+fn doom(time: Res<Time>, mut heroes: Query<&mut Effects, With<Body>>) {
+    let dt = time.delta_secs();
+    for mut effects in &mut heroes {
+        effects
+            .bypass_change_detection()
+            .change(spells::DOOMED, |doom| {
+                doom.value = spells::doom_fades(doom.value, doom.whole, dt);
+            });
+    }
+}
+
+/// Flies each hell disk on its target at its speed, the nearest hostile creature within its
+/// look else, hovering by its caster with none; once a second it strikes the first creature it
+/// touches and turns to the nearest other, else the same (`0x5A7DE0`, `0x5AF93F`). The cells it
+/// may not enter, which turn it back, are not tested.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn disk(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut disks: Query<(Entity, &mut Disk, &mut Transform)>,
+    casters: Query<&GlobalTransform, (With<Body>, Without<Disk>)>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Disk>, Without<Dies>),
+    >,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut disk, mut transform) in &mut disks {
+        disk.left -= dt;
+        disk.cooldown = (disk.cooldown - dt).max(0.0);
+        if disk.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let here = transform.translation.xz();
+        let level = disk.level;
+        let live = |target: Entity| {
+            creatures
+                .get(target)
+                .ok()
+                .filter(|(_, _, way, mind, health, _)| {
+                    way.creature && way.level == level && mind.hostile() && health.current > 0
+                })
+        };
+        let nearest = |not: Option<Entity>| {
+            creatures
+                .iter()
+                .filter(|(target, at, way, mind, health, _)| {
+                    Some(*target) != not
+                        && way.creature
+                        && way.level == level
+                        && mind.hostile()
+                        && health.current > 0
+                        && (at.translation().xz() - here).length() < spells::DISK_LOOKS
+                })
+                .min_by(|a, b| {
+                    let d = |at: &GlobalTransform| (at.translation().xz() - here).length();
+                    d(a.1).total_cmp(&d(b.1))
+                })
+                .map(|(target, ..)| target)
+        };
+        if disk.target.and_then(live).is_none() {
+            disk.target = nearest(None);
+        }
+        let toward = match disk.target.and_then(live) {
+            Some((_, at, ..)) => Some(at.translation().xz()),
+            None => casters
+                .get(disk.caster)
+                .ok()
+                .map(|at| at.translation().xz()),
+        };
+        if let Some(toward) = toward {
+            let to = toward - here;
+            let step = (spells::DISK_SPEED * dt).min(to.length());
+            let next = here + to.normalize_or_zero() * step;
+            transform.translation = Vec3::new(next.x, transform.translation.y, next.y);
+        }
+        if disk.cooldown > 0.0 {
+            continue;
+        }
+        let here = transform.translation.xz();
+        let touched = creatures.iter().find(|(_, at, way, mind, health, size)| {
+            way.creature
+                && way.level == level
+                && mind.hostile()
+                && health.current > 0
+                && (at.translation().xz() - here).length()
+                    < spells::DISK_REACH + size.map_or(arrows::size(0), |size| size.0)
+        });
+        let Some((struck, ..)) = touched else {
+            continue;
+        };
+        debug!(
+            "spells: the hell disk strikes {struck} for {:?}",
+            disk.damages
+        );
+        hits.write(fight::Hit {
+            attacker: disk.caster,
+            target: struck,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some(disk.damages),
+            sure: true,
+        });
+        disk.cooldown = BEAT;
+        disk.last = Some(struck);
+        disk.target = nearest(Some(struck)).or(Some(struck));
+    }
+}
+
 /// Takes each sight away after its time.
 fn fade(time: Res<Time>, mut commands: Commands, mut sights: Query<(Entity, &mut Fades)>) {
     for (entity, mut fades) in &mut sights {
@@ -630,7 +1117,7 @@ fn give(commands: &mut Commands, bearer: Entity, given: Vec<(Effect, f32)>) {
     if given.is_empty() {
         return;
     }
-    info!("spells: {bearer} takes {given:?}");
+    debug!("spells: {bearer} takes {given:?}");
     commands
         .entity(bearer)
         .entry::<Effects>()
@@ -662,10 +1149,12 @@ pub struct SpellsPlugin;
 impl Plugin for SpellsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Acts>()
+            .add_observer(killed)
+            .insert_resource(Dice(crate::spawning::Rng::of(0, 0, 64)))
             .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
-                (act, shield, strike, mine, fade)
+                (act, shield, strike, mine, disk, doom, fade)
                     .chain()
                     .after(Step::Npcs)
                     .in_set(Playing),

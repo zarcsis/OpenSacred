@@ -255,6 +255,18 @@ pub(crate) fn resolve(
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
+        // The Daemon's call of death: his strike's damage times its value while above 1
+        // (`0x56D1EC`).
+        let doom = effects.get(hit.attacker).ok().and_then(|held| {
+            held.timed()
+                .iter()
+                .find(|timed| timed.effect.id == opensacred_rules::spells::DOOMED)
+                .map(|timed| timed.effect.value)
+        });
+        let damage = match doom.filter(|&value| value > 1.0) {
+            Some(value) => whole_damage(damage, value),
+            None => damage,
+        };
         // The Vampiress's strike in her night form raises her bloodlust, by day sets it to 0
         // (the sectors of `0x63D180` that keep it by day are left out), and draws more health by
         // it (`0x56DB08`).
@@ -350,6 +362,16 @@ pub(crate) fn resolve(
             );
         }
     }
+}
+
+/// `damage` times `factor`, taken whole.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a strike's damage, whole and not negative, far below the integers' range"
+)]
+fn whole_damage(damage: u32, factor: f32) -> u32 {
+    (f64::from(damage) * f64::from(factor)).max(0.0) as u32
 }
 
 /// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the

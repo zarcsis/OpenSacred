@@ -41,6 +41,17 @@ impl Effects {
             .any(|timed| arts.iter().any(|&art| timed.effect.art == u32::from(art)))
     }
 
+    /// The first effect of `id` that holds, changed by `change`; whether one holds.
+    pub fn change(&mut self, id: u32, change: impl FnOnce(&mut Effect)) -> bool {
+        match self.0.iter_mut().find(|timed| timed.effect.id == id) {
+            Some(timed) => {
+                change(&mut timed.effect);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Whether an effect of `id` holds.
     pub fn holds(&self, id: u32) -> bool {
         self.0.iter().any(|timed| timed.effect.id == id)
