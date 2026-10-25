@@ -893,6 +893,19 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
 3. The walker's control flow read off the client (#722), then the record types' semantics from its code in Ghidra, starting with the most frequent: 45 types give 95% of campaign records, 68 give 99%.
    For each type, a test on real records.
 4. The translator in `opensacred-convert` (#723): each tree into Luau sources, a file per quest, sector, region and start script, with their bytecode; a record becomes a call of the scripts' API, the control flow Luau's `if`, `elseif` and `else`; what it does not understand fails the conversion.
+   The sources: done 2026-10-24 (`opensacred-convert`'s `luau`, by its `flow`, §7.4).
+   `netscript` writes each tree's sources into a directory next to its tree file, the masters of stage A:
+   - `start.luau`, the start script and the quest flags;
+   - `sectors/<n>.luau`, a sector's `Init` and `Enter`;
+   - `regions/<n>.luau`, a region's `Init`;
+   - `quests/<id>.luau`, a quest's functions;
+   - `functions/<shape>.luau`, the other functions of one name's shape;
+   - `index.ron`, every function's file and key.
+
+   Each file returns a table of its functions.
+   The 20 trees give 131,277 sources of 199 MB, each of which the Luau compiler takes.
+   A name that several functions share (142 names of 1,986 functions in a campaign tree, mostly the quests' `ToDo:-1.<n>`) keeps every one of them in the index.
+   The bytecode in stage B and the run against the walker are still to come.
 5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726); the 28 types absent from the release are not implemented.
 6. Estimate: converter and IR 15–30 agent-hours (M1); the translator, the runtime and the semantics 25–50 agent-hours (M4).
 
