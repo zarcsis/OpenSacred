@@ -51,11 +51,13 @@ enum Make {
     Sound(bool),
     /// A cutscene's FFV1 and FLAC master, encoded into AV1 and Opus WebM.
     Video,
+    /// A script's Luau source, compiled into Luau's bytecode (#723).
+    Luau,
 }
 
 impl Make {
     /// Every way.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Copy,
         Self::Texture(Use::Read),
         Self::Texture(Use::Sampled),
@@ -64,6 +66,7 @@ impl Make {
         Self::Sound(false),
         Self::Sound(true),
         Self::Video,
+        Self::Luau,
     ];
 
     /// The way's name in the manifest and its version, raised when the converter makes its
@@ -79,6 +82,7 @@ impl Make {
             Self::WorldIndex => ("world-index", 1),
             Self::Sound(_) => ("sound", 1),
             Self::Video => ("video", 0),
+            Self::Luau => ("luau", 1),
         }
     }
 }
@@ -104,6 +108,11 @@ fn make(path: &str, read: &HashSet<String>) -> (String, Make) {
     }
     if path.starts_with("models/") && path.ends_with(".glb") {
         return (path.to_owned(), Make::Model);
+    }
+    if let Some(stem) = path.strip_suffix(".luau")
+        && path.starts_with("netscript/")
+    {
+        return (format!("{stem}.{}", crate::luau::BYTECODE), Make::Luau);
     }
     let sprite = path.starts_with(&format!("world/{}/", opensacred_data::world::SPRITES_DIR));
     if let Some(stem) = path.strip_suffix(".png")
@@ -258,6 +267,10 @@ fn output(src: &Path, staging: &Path, planned: &Planned) -> Result<Vec<u8>> {
         Make::Sound(music) => {
             let flac = fs::read(&from).with_context(what)?;
             crate::sound::encode_opus(&flac, music, &planned.master.path).with_context(what)
+        }
+        Make::Luau => {
+            let source = fs::read_to_string(&from).with_context(what)?;
+            crate::luau::compile(&source).with_context(what)
         }
         Make::Video => {
             let target = staging.join(&planned.path);
@@ -568,6 +581,36 @@ mod tests {
             make("models/models/0661-seraphim.glb"),
             ("models/models/0661-seraphim.glb".to_owned(), Make::Model)
         );
+        assert_eq!(
+            make("netscript/type_npc_seraphim/sectors/3250511.luau"),
+            (
+                "netscript/type_npc_seraphim/sectors/3250511.luauc".to_owned(),
+                Make::Luau
+            )
+        );
+        assert_eq!(
+            make("netscript/type_npc_seraphim/index.ron"),
+            (
+                "netscript/type_npc_seraphim/index.ron".to_owned(),
+                Make::Copy
+            )
+        );
+        // The bytecode of a source, Luau's own; a source that does not compile fails.
+        let bytecode = crate::luau::compile(
+            "local F = {}
+F[\"f\"] = function()
+    return true
+end
+return F
+",
+        )
+        .unwrap();
+        assert!(
+            bytecode
+                .first()
+                .is_some_and(|&version| (3..=11).contains(&version))
+        );
+        assert!(crate::luau::compile("F[").is_err());
         assert_eq!(
             make("textures/texture/00001-dwarf.png"),
             (

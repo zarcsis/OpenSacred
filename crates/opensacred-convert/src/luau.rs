@@ -55,6 +55,17 @@ pub struct Entry {
 /// The index's file in a tree's directory.
 pub const INDEX: &str = "index.ron";
 
+/// The extension of a source's bytecode, which stage B compiles (`build`).
+pub const BYTECODE: &str = "luauc";
+
+/// The Luau bytecode of `source` (`mlua`'s compiler, Luau's own); an error where it does not
+/// compile.
+pub fn compile(source: &str) -> Result<Vec<u8>> {
+    mlua::chunk::Compiler::new()
+        .compile(source)
+        .map_err(|e| anyhow::anyhow!("compiling Luau: {e}"))
+}
+
 /// The name of the start script and of the starting quest flags among a tree's functions.
 pub const START: &str = "StartCode";
 pub const QUEST_FLAGS: &str = "QuestCode";
@@ -436,9 +447,219 @@ pub fn translate(source: &str, tree: &Tree) -> Result<(BTreeMap<String, String>,
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use opensacred_data::netscript::Function;
 
     use super::*;
+    use crate::flow::tests::{Dice, Event, walk};
+
+    /// The calls that test and so take an outcome.
+    const TESTS: [&str; 8] = [
+        "test",
+        "block",
+        "group_is_dead",
+        "del_dlg",
+        "quest_done",
+        "quest_not_done",
+        "quest_in_progress",
+        "quest_not_in_progress",
+    ];
+
+    /// What a run made: its calls' names and its return.
+    type Run = (Vec<String>, String);
+
+    /// A Luau state whose every global it lacks records its calls and, for a test, answers the
+    /// next outcome; `var` and `truncated` answer 0 and nil unrecorded.
+    struct Recorder {
+        lua: mlua::Lua,
+        calls: Rc<RefCell<Vec<String>>>,
+        outcomes: Rc<RefCell<Vec<bool>>>,
+    }
+
+    impl Recorder {
+        fn new() -> Self {
+            let lua = mlua::Lua::new();
+            let calls = Rc::new(RefCell::new(Vec::new()));
+            let outcomes = Rc::new(RefCell::new(Vec::new()));
+            let (c, o) = (Rc::clone(&calls), Rc::clone(&outcomes));
+            let index = lua
+                .create_function(move |lua, (_, name): (mlua::Table, String)| {
+                    let (calls, outcomes) = (Rc::clone(&c), Rc::clone(&o));
+                    lua.create_function(move |_, _: mlua::MultiValue| {
+                        Ok(match name.as_str() {
+                            "var" => mlua::Value::Integer(0),
+                            "truncated" => mlua::Value::Nil,
+                            name => {
+                                calls.borrow_mut().push(name.to_owned());
+                                if TESTS.contains(&name) {
+                                    let next = outcomes.borrow_mut().pop().unwrap_or(false);
+                                    mlua::Value::Boolean(next)
+                                } else {
+                                    mlua::Value::Nil
+                                }
+                            }
+                        })
+                    })
+                })
+                .unwrap();
+            let meta = lua.create_table().unwrap();
+            meta.set("__index", index).unwrap();
+            lua.globals().set_metatable(Some(meta)).unwrap();
+            Self {
+                lua,
+                calls,
+                outcomes,
+            }
+        }
+
+        /// The table of functions of the source `text`.
+        fn load(&self, text: &str) -> mlua::Table {
+            self.lua.load(text).eval().unwrap()
+        }
+
+        /// Runs `table`'s function `key` with `outcomes`, the first first.
+        fn run(&self, table: &mlua::Table, key: &str, outcomes: &[bool]) -> Run {
+            self.calls.borrow_mut().clear();
+            *self.outcomes.borrow_mut() = outcomes.iter().rev().copied().collect();
+            let function: mlua::Function = table.get(key).unwrap();
+            let ended: mlua::Value = function.call(()).unwrap();
+            let ended = match ended {
+                mlua::Value::Boolean(b) => b.to_string(),
+                mlua::Value::String(s) => s.to_str().unwrap().to_string(),
+                other => format!("{other:?}"),
+            };
+            (self.calls.borrow().clone(), ended)
+        }
+    }
+
+    /// What the walker makes of `records` with `outcomes`, named as the translation calls.
+    fn walked(records: &[Record], outcomes: &[bool]) -> Run {
+        let mut next = outcomes.iter().copied();
+        let events = walk(records, &mut || next.next().unwrap_or(false));
+        let name = |i: usize| match &records[i].body {
+            Body::Operands(ops)
+                if records[i].kind == CALL
+                    && matches!(
+                        ops.first(),
+                        Some(Operand {
+                            value: Value::Str(_),
+                            ..
+                        })
+                    ) =>
+            {
+                "call".to_owned()
+            }
+            Body::Block(_) => "block".to_owned(),
+            _ => call_name(records[i].kind).unwrap_or_default(),
+        };
+        let mut calls = Vec::new();
+        let mut ended = String::new();
+        for event in events {
+            match event {
+                Event::Run(i) => calls.push(name(i)),
+                Event::Test(Test::Condition(_), _) => calls.push("test".to_owned()),
+                Event::Test(Test::Guard(i) | Test::Block(i), _) => calls.push(name(i)),
+                Event::End(end) => {
+                    ended = match end {
+                        Ending::Ran => "true",
+                        Ending::Stopped => "false",
+                        Ending::Done => "done",
+                        Ending::Again => "again",
+                    }
+                    .to_owned();
+                }
+            }
+        }
+        (calls, ended)
+    }
+
+    /// Whether every function of `tree` from `source` runs in Luau as the walker runs it, for
+    /// `tries` sets of outcomes each; the functions run.
+    fn runs_as_walked(source: &str, tree: &Tree, tries: u32) -> usize {
+        let (files, index) = translate(source, tree).unwrap();
+        let recorder = Recorder::new();
+        let tables: BTreeMap<&str, mlua::Table> = files
+            .iter()
+            .map(|(file, text)| (file.as_str(), recorder.load(text)))
+            .collect();
+        let named = [(START, &tree.start), (QUEST_FLAGS, &tree.quest)]
+            .into_iter()
+            .chain(tree.functions.iter().map(|f| (f.name.as_str(), &f.records)));
+        let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+        let mut dice = Dice::new(7);
+        let mut runs = 0;
+        for (name, records) in named {
+            let n = seen.entry(name).or_default();
+            let entry = &index.functions[name][*n];
+            *n += 1;
+            let table = &tables[entry.file.as_str()];
+            for _ in 0..tries {
+                let outcomes: Vec<bool> = (0..64).map(|_| dice.below(2) == 1).collect();
+                let expected = walked(records, &outcomes);
+                let got = recorder.run(table, &entry.key, &outcomes);
+                assert_eq!(got, expected, "{source} {name} with {outcomes:?}");
+                runs += 1;
+            }
+        }
+        runs
+    }
+
+    #[test]
+    fn the_translation_runs_as_the_walker_runs_it() {
+        let tree = Tree {
+            start: vec![
+                record(1, vec![op(0x9F, Value::Variable("x".into()))]),
+                record(IF, vec![op(0x52, Value::Str("a".into()))]),
+                record(21, Vec::new()),
+                record(ELSEIF, Vec::new()),
+                record(IF, Vec::new()),
+                record(2, Vec::new()),
+                record(ELSE, Vec::new()),
+                record(3, Vec::new()),
+                record(24, Vec::new()),
+                record(CALL, vec![op(0x01, Value::Str("f".into()))]),
+                record(111, Vec::new()),
+            ],
+            quest: Vec::new(),
+            functions: vec![Function {
+                name: "f".into(),
+                quest: -1,
+                region: 0,
+                records: vec![
+                    Record {
+                        kind: BLOCK,
+                        body: Body::Block(2),
+                    },
+                    record(5, Vec::new()),
+                    record(BLOCK_END, Vec::new()),
+                    record(14, Vec::new()),
+                ],
+            }],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        assert_eq!(runs_as_walked("bin/Test", &tree, 64), 3 * 64);
+    }
+
+    /// Every function and script of the 20 trees runs in Luau as the walker runs it, for two
+    /// sets of outcomes each.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn every_translated_function_runs_as_the_walker_runs_it() {
+        use rayon::prelude::*;
+        let game = crate::testing::repo_root().join("OriginalGame");
+        let runs: usize = crate::netscript::trees()
+            .unwrap()
+            .par_iter()
+            .map(|source| {
+                let tree = crate::netscript::tree(&game, source).unwrap();
+                runs_as_walked(source, &tree, 2)
+            })
+            .sum();
+        assert_eq!(runs, 2 * 403_900);
+    }
 
     fn record(kind: u16, operands: Vec<Operand>) -> Record {
         Record {

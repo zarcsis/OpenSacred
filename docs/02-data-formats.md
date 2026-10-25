@@ -905,7 +905,8 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
    Each file returns a table of its functions.
    The 20 trees give 131,277 sources of 199 MB, each of which the Luau compiler takes.
    A name that several functions share (142 names of 1,986 functions in a campaign tree, mostly the quests' `ToDo:-1.<n>`) keeps every one of them in the index.
-   The bytecode in stage B and the run against the walker are still to come.
+   Stage B compiles each source into Luau's bytecode (`<file>.luauc`, the converter's `build`), and every function and script of the 20 trees, run in Luau with a recording stand-in for the API, makes the same calls, tests and end as the walker for the same outcomes of its tests (807,800 runs, two each).
+   `luau0-src` is held at Luau 740, whose bytecode version 9 `mlua-sys` 0.13.0 knows, where Luau 744's 13 is not (#869).
 5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726); the 28 types absent from the release are not implemented.
 6. Estimate: converter and IR 15–30 agent-hours (M1); the translator, the runtime and the semantics 25–50 agent-hours (M4).
 

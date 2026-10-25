@@ -319,20 +319,20 @@ pub fn structure(records: &[Record]) -> Result<Vec<Stmt>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use opensacred_data::netscript::Operand;
 
     use super::*;
 
     /// The tests' dice, a xorshift.
-    struct Dice(u64);
+    pub(crate) struct Dice(u64);
 
     impl Dice {
-        fn new(seed: u32) -> Self {
+        pub(crate) fn new(seed: u32) -> Self {
             Self(u64::from(seed).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
         }
 
-        fn below(&mut self, n: u32) -> u32 {
+        pub(crate) fn below(&mut self, n: u32) -> u32 {
             self.0 ^= self.0 << 13;
             self.0 ^= self.0 >> 7;
             self.0 ^= self.0 << 17;
@@ -342,7 +342,7 @@ mod tests {
 
     /// What the walker or the structured flow did, in order.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum Event {
+    pub(crate) enum Event {
         Run(usize),
         Test(Test, bool),
         End(Ending),
@@ -350,7 +350,7 @@ mod tests {
 
     /// The walker itself, record by record, as docs/re/netscript.md tells it, with the outcomes
     /// of its tests from `outcome`: the reference that [`structure`] must follow.
-    fn walk(records: &[Record], outcome: &mut impl FnMut() -> bool) -> Vec<Event> {
+    pub(crate) fn walk(records: &[Record], outcome: &mut impl FnMut() -> bool) -> Vec<Event> {
         let mut events = Vec::new();
         let n = records.len();
         let kind = |i: usize| records[i].kind;
