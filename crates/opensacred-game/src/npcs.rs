@@ -338,6 +338,27 @@ fn class_of(holding: &[InHand]) -> u8 {
     )
 }
 
+/// The skill whose level lessens the shortfall of a creature's weapon's level, by the class of
+/// what it holds `class` and its items in their hands with their values, left hand first
+/// (`opensacred_rules::fight::weapon_skill`, `0x578ED0`; #844).
+fn skill_of(class: u8, holding: &[(InHand, Option<fight::ItemValues>)]) -> u8 {
+    let family = |held: &(InHand, Option<fight::ItemValues>)| held.1.map_or(0, |v| v.family);
+    let right = holding
+        .iter()
+        .find(|held| held.0.hand == Hand::Right)
+        .map(family);
+    let mut weapons: Vec<&(InHand, Option<fight::ItemValues>)> = holding
+        .iter()
+        .filter(|held| held.0.category == WEAPON)
+        .collect();
+    weapons.sort_by_key(|held| held.0.hand != Hand::Left);
+    let weapons: Vec<(u8, u8)> = weapons
+        .into_iter()
+        .map(|held| (family(held), held.0.kind.unwrap_or(0)))
+        .collect();
+    opensacred_rules::fight::weapon_skill(class, right, &weapons)
+}
+
 /// Whether an NPC holds a ranged weapon, its items in their hands ([`ranged`]).
 fn ranged_of(holding: &[InHand]) -> bool {
     holding
@@ -1973,6 +1994,18 @@ impl Npcs {
     pub fn hero_holds(&self, worn: &[Worn]) -> fight::Holds {
         let holding = self.hero_holding(worn);
         let class = class_of(&holding);
+        let values = |worn: &Worn| fight::ItemValues {
+            class: self.gear.get(&worn.item).map_or(0, |gear| gear.category),
+            scale: self.items.scale(worn.item),
+            ..fight::ItemValues::of_record(&worn.words)
+        };
+        let in_hands: Vec<(InHand, Option<fight::ItemValues>)> = holding
+            .iter()
+            .map(|&held| {
+                let worn = worn.iter().find(|worn| worn.item == held.item);
+                (held, worn.map(values))
+            })
+            .collect();
         fight::Holds {
             weapon: class != 0 || holding.iter().any(|held| held.hand == Hand::Right),
             shield: holding
@@ -1982,8 +2015,9 @@ impl Npcs {
             items: worn
                 .iter()
                 .filter(|worn| self.gear.get(&worn.item).is_none_or(|gear| gear.counts))
-                .map(|worn| fight::ItemValues::of_record(&worn.words))
+                .map(values)
                 .collect(),
+            skill: skill_of(class, &in_hands),
         }
     }
 
@@ -4204,8 +4238,14 @@ impl Arms {
             items: self
                 .holding
                 .iter()
-                .filter_map(|&(_, values)| values)
+                .filter_map(|&(held, values)| {
+                    values.map(|values| fight::ItemValues {
+                        class: held.category,
+                        ..values
+                    })
+                })
                 .collect(),
+            skill: skill_of(class, &self.holding),
         };
         let skills = fight::skills(&self.base, grade, self.plain);
         let mut values =

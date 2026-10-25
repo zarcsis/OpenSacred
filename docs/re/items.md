@@ -76,6 +76,23 @@ After an item's damage, resistances, `A` and `D`, each of its bonus slots counts
 
 Seen in the original's new games (#448's driver, the stats read): the Seraphim's attack speed 154, 140 and her weapon's 811 of 14, her `+0x40` 132; the Gladiator's physical ends 25.63 and 31.63, his sword's 22 and 28 and its 801 of 11 times his `a0` of 33 over 100.
 
+## The level an item asks (`0x5D3AB0`)
+
+Read 2026-10-24 (#844; **confirmed** by code unless marked otherwise).
+The byte `+0x19` of an item's record is the level it asks of its holder, and the byte `+0x14` the least level its maker gives it; neither comes from the file as it is.
+As the client loads the item types (`0x425AEB`, which logs `makeSpawnInfo`, gated by the byte `0x949909`, 1 in the image with no store to it; `0x42C370` from `0x433E72` makes the same pass), it clears bit 31 of each record's `+0x04` and calls `0x5D3AB0(record, 0, 0)`, which, the bit clear, works both out anew from the record's values and sets the bit:
+
+- the damage's worth `D`, the mean of the four kinds' least and most summed (`+0x1C` to `+0x2A`), or their most summed where every least is 0 (`0x5D40C8`);
+- `T = max(D + Σ resistances (+0x32 to +0x38), 1)`, and with a template (`0x42CA70`, after the chain of parents) `T = 100·T/S`, `S` its word 6;
+- `x = max(T − SpawnWeaponMin, 1)·100/(SpawnWeaponMax − SpawnWeaponMin)` (25 and 275), and the level `⌊x + 0.5⌋`, at most 255 (`0x890908`), 0 becoming 1 (`0x5D47E2` to `0x5D4815`);
+- with sockets, at least the highest of its sockets' items' levels (a call of itself at `0x5D409A`);
+- then `+0x14 = ⌊max((level + 9)·MinLevelFactor − 8.5, 1)⌋` (0.8 at `0xAD55AC`, 8.5 at `0x890CA0`, `0x5D4973` to `0x5D49AB`), and its price `+0x08` anew.
+
+The item maker writes the level it makes an item at into the item (`0x5D55FE`), but no flags it gives carry bit 31, so that its call of `0x5D3AB0` (`0x5D56FA`) replaces it by the estimate from the damage and the resistances it made; the level it was made at reaches only the bonuses and the quality pass (`0x42BF40` at `0x5D5601`), which run before (**hypothesis**: so a ring without damage or resistances asks the level 1, as 7511 below).
+The sockets' code (`0x5C0430`) takes the level back from `+0x14` the other way, `⌊(+0x14 + 9)/0.8 − 8.5⌋`.
+For example the Seraphim's staff 3809 of 1018 (35 to 42 physical and 8 to 15 magic, its template's scale 113) is worth 50, `100·50/113` 44.25, `(44.25 − 25)·100/250` 7.7, the level 8, and `+0x14` `⌊17·0.8 − 8.5⌋` 5, as #448's driver read in the running original where the file has 10 and 6, which follow the same rule for `+0x14`.
+`opensacred_rules::fight::item_level` works it out so, its sockets left out (#844).
+
 ## A creature's items
 
 A fill (`FillSector`, `0x47C610`) makes all its creatures' items at one level: the hero's within the sector's bounds and jittered, as the creatures' (docs/re/spawning.md), raised by a tenth of a curve of the minutes of a counter (**hypothesis**: the time played) through `0x552230`, which is the level itself on bronze, at most 300; every item of its `MakeGroup` rule is made at it with the quality key 0.
