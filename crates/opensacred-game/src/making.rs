@@ -130,6 +130,7 @@ pub fn clips(
         Style::Dominate,
         Style::Summon,
         Style::Raise,
+        Style::MasterBite,
         Style::Kiss,
     ]
     .into_iter()
@@ -1021,6 +1022,56 @@ fn make(
                         .and_modify(move |mut effects| effects.add(effect, seconds));
                     info!(
                         "making: {} dominates {} for {seconds} s",
+                        making.art, playing.target
+                    );
+                }
+                end(&mut commands);
+            }
+            Style::MasterBite => {
+                // Below 0.6 left of its clip its target, of none of the classes 9 and 10 nor a
+                // big type and below her bound, takes the effect 14 for 12 + 3·L s, which turns
+                // its sides over, so that it fights its old friends (seen); then it ends
+                // (`0x50E6C0`).
+                if !due(1.0 - arts::MASTER_BITES, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                let boss = ranks
+                    .get(playing.target)
+                    .is_ok_and(|rank| rank.0 == opensacred_rules::fight::Rank::Boss);
+                if let (Some(record), Ok((_, _, mind, health))) =
+                    (record, creatures.get(playing.target))
+                    && mind.hostile()
+                    && health.current > 0
+                    && arts::master_bites(
+                        mind.class,
+                        mind.big,
+                        health.level,
+                        boss,
+                        experience.level,
+                        playing.level,
+                    )
+                {
+                    let seconds = arts::master_bite_seconds(record, playing.level);
+                    let effect = opensacred_rules::fight::Effect {
+                        whole: 1,
+                        art: u32::from(making.art),
+                        ..opensacred_rules::fight::Effect::new(
+                            opensacred_rules::spells::CONVERTED,
+                            0.0,
+                        )
+                    };
+                    let mut bitten = commands.entity(playing.target);
+                    bitten.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                    bitten
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| effects.add(effect, seconds));
+                    info!(
+                        "making: {} turns {} over for {seconds} s",
                         making.art, playing.target
                     );
                 }

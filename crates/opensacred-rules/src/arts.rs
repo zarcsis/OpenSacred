@@ -216,6 +216,10 @@ pub enum Style {
     /// dead creature, `0x50E6C0`): once what is left of its clip is below [`RAISES`] the dead
     /// creature rises as her follower for [`raised_seconds`], at [`raised_level`].
     Raise,
+    /// The Vampiress's master's bite 1031 (`GUI_MOVE_MEISTERBISS`, `0x50E6C0`), by night: once
+    /// what is left of its clip is below [`MASTER_BITES`] its target, if [`master_bites`] takes
+    /// it, takes the effect 14, which turns its sides over, for [`master_bite_seconds`] (seen).
+    MasterBite,
     /// The Vampiress's death's kiss 1033 (`GUI_MOVE_TODESKUSS`, `0x50E6C0`), by night: its curse
     /// lands on its target at [`KISS_LANDS`] of its clip, its attack's and defence's multipliers
     /// lowered by [`curse`] for [`CURSE_SECONDS`] (the effects 1 and 2; seen).
@@ -636,6 +640,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1034 {
         return Some(Style::Raise);
     }
+    if art == 1031 {
+        return Some(Style::MasterBite);
+    }
     if art == 1033 {
         return Some(Style::Kiss);
     }
@@ -945,6 +952,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (6 | 7, Style::Summon) => Some(plain(147)),
         // Her awakening by night: the slot 150 at the blend 0.5 and the rate 1.0 (`0x513868`).
         (7, Style::Raise) => Some(plain(150)),
+        // Her master's bite by night: the slot 154 at the rate 1.0 (seen).
+        (7, Style::MasterBite) => Some(plain(154)),
         // Her death's kiss by night: the slot 148 at the rate 1.0 (seen).
         (7, Style::Kiss) => Some(plain(148)),
         // The Gladiator's 1014 the slot 149 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
@@ -1444,6 +1453,41 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
     } else {
         narrow(seconds)
     }
+}
+
+/// What is left of its clip, as a part of it, below which the master's bite takes its target
+/// (`0x50E6C0`; seen: 0.85 s into the slot 154), and a boss's level's factor in its test.
+pub const MASTER_BITES: f32 = 0.6;
+const MASTER_BITE_BOSS: f64 = 1.3;
+
+/// Whether the master's bite at the level in play `level` of the Vampiress of level `hero` takes
+/// a creature of `Creature.pak` class `class`, of a big type or not, of the level `creature`, a
+/// boss or not (`0x50E6C0`): of none of the classes 10 and 9 nor a big type (`0x426B70`,
+/// `0x426B20`, `0x426CB0`), its level, a boss's times 1.3, below `0.4·l + 5·L`.
+pub fn master_bites(
+    class: u8,
+    big: bool,
+    creature: u32,
+    boss: bool,
+    hero: u32,
+    level: u32,
+) -> bool {
+    let creature = if boss {
+        f64::from(creature) * MASTER_BITE_BOSS
+    } else {
+        f64::from(creature)
+    };
+    !matches!(class, 9 | 10)
+        && !big
+        && creature < 0.4f64.mul_add(f64::from(hero), 5.0 * f64::from(level))
+}
+
+/// How long the master's bite of `record` at the level in play `level` turns its target over:
+/// `[+0x58] + [+0x5C]·L` seconds, 12 + 3·L (seen: 15 s at level 1, the effect 14 of the whole
+/// value 1 keyed by 1031 on the target).
+pub fn master_bite_seconds(record: &WeaponArt, level: u32) -> f32 {
+    let [base, step] = record.value_58.map(f64::from);
+    narrow(f64::from(level).mul_add(step, base))
 }
 
 /// What is left of its clip, as a part of it, below which the awakening raises its target
