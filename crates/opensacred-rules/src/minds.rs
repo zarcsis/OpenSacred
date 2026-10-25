@@ -547,6 +547,10 @@ pub struct Mind {
     /// Whether its type is big (`Creature.pak` flags bit `0x02`, `0x426CB0`), which a kick knocks
     /// back less often (`arts::knockback_chance`).
     pub big: bool,
+    /// Whether its sides are turned over (`+0x1F4` bit `0x40000`, which the effect 14 sets, the
+    /// Seraphim's conversion's): every answer of hostility between it and another, the hero
+    /// among them, is the other way about (`0x423580` at `0x4238C6`).
+    pub turned: bool,
     /// Whether it fights (the AI's state 4, `0x4E0300`, or 8), the hero or a creature, and whether
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
@@ -634,6 +638,7 @@ impl Mind {
             ranged: false,
             armed: false,
             big: false,
+            turned: false,
             fighting: false,
             fled: false,
             placing: None,
@@ -667,9 +672,10 @@ impl Mind {
     }
 
     /// Whether it is hostile to the hero, by its side and its type (`0x548F60`,
-    /// [`hostile_to_heroes`]), not by its flags.
+    /// [`hostile_to_heroes`]), not by its flags, the other way about while its sides are turned
+    /// over ([`Self::turned`]).
     pub fn hostile(&self) -> bool {
-        hostile_to_heroes(self.side, self.creature)
+        hostile_to_heroes(self.side, self.creature) != self.turned
     }
 
     /// Whether it is awake (`sdk_WAKE`): a dormant creature does not look for the hero.

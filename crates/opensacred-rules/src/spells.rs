@@ -29,8 +29,19 @@ pub const LIGHT: u16 = 20;
 pub const CRUSADERS_STRENGTH: u16 = 21;
 pub const HOLY_SHIELD: u16 = 22;
 
+/// The Seraphim's holding spells: the irritation, `IRRITATION`, and the conversion,
+/// `BEKEHRUNG`.
+pub const IRRITATION: u16 = 18;
+pub const CONVERSION: u16 = 19;
+
+/// The effects by which they hold their target (the action 7, `0x5B5BB3`): 13, under which a
+/// creature leaves the hero alone (`+0x1F4` bit `0x20000`; `crate::arts::DOMINATED`), and 14,
+/// which turns its sides over (`+0x1F4` bit `0x40000`, `crate::minds::Mind::turned`).
+pub const IRRITATED: u32 = 13;
+pub const CONVERTED: u32 = 14;
+
 /// The spells that the game makes.
-pub const MADE: [u16; 10] = [
+pub const MADE: [u16; 12] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -41,6 +52,8 @@ pub const MADE: [u16; 10] = [
     LIGHT,
     CRUSADERS_STRENGTH,
     HOLY_SHIELD,
+    IRRITATION,
+    CONVERSION,
 ];
 
 /// How long the crusader's strength's object runs before it gives its effects, in seconds
@@ -257,6 +270,45 @@ pub fn holy_shield(spell: &Spell, level: u32) -> (Effect, f32) {
     (effect, to_f32(value(spell, 0, level)))
 }
 
+/// What the holding spell `spell` gives its target of the level `target`, cast at the level `level`
+/// by a caster of the level `caster` (the action 7, `0x5B5BB3` and `0x5B5EE2`): the effect
+/// [`IRRITATED`] for the irritation, [`CONVERTED`] for the conversion, of the whole value the
+/// caster's level, keyed by the spell, for `trunc(v₀·f)·min(1, 5L/M)` seconds, `v₀` the value 0
+/// at its level, `M` the target's level and `f` the irritation's factor `1/(t − c)` where the
+/// caster's level `c` is below the target's `t` (`0x524196`; **hypothesis**: `t` the target's
+/// level), else 1; none for another spell.
+pub fn holding(spell: &Spell, level: u32, caster: u32, target: u32) -> Option<(Effect, f32)> {
+    let id = match spell.id {
+        IRRITATION => IRRITATED,
+        CONVERSION => CONVERTED,
+        _ => return None,
+    };
+    let factor = if spell.id == IRRITATION && caster < target {
+        1.0 / f64::from(target - caster)
+    } else {
+        1.0
+    };
+    let whole = (f64::from(value(spell, 0, level)) * factor).trunc();
+    let share = (5.0 * f64::from(level) / f64::from(target.max(1))).min(1.0);
+    let effect = Effect {
+        id,
+        whole: i32::try_from(caster).unwrap_or(i32::MAX),
+        value: 0.0,
+        art: u32::from(spell.id),
+        level: 0,
+    };
+    Some((effect, narrow(whole * share)))
+}
+
+/// A number of seconds as the float the effects keep.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "an effect's seconds, a few hundred at most"
+)]
+fn narrow(seconds: f64) -> f32 {
+    seconds as f32
+}
+
 /// The health that the healing's action 3 gives its target (`0x5B2600`): its value 0, 10 + 50·L,
 /// times `1 + v/100`, `v` the caster's magic lore's per cent ([`crate::fight::magic_lore`]),
 /// taken whole (**hypothesis**: the health added, as the record's label says).
@@ -388,6 +440,26 @@ mod tests {
         );
         assert_eq!(holy_shield(&shield, 60).1, 120.0);
         assert!(lasts(CRUSADERS_STRENGTH) && lasts(HOLY_SHIELD));
+    }
+
+    #[test]
+    fn the_irritation_and_the_conversion_hold_their_target_by_the_levels() {
+        // GOG 2.28's 18 and 19: the value 0 14 + L, at most 30 and 25.
+        let irritation = record(IRRITATION, &[], [14, 1], 30);
+        // Seen: the Seraphim of level 1 on a goblin of level 5, the effect 13 of the whole
+        // value 1 for 3 s, trunc(15/4).
+        let (effect, seconds) = holding(&irritation, 1, 1, 5).unwrap();
+        assert_eq!(
+            (effect.id, effect.whole, effect.art, seconds),
+            (13, 1, 18, 3.0)
+        );
+        // A caster of the target's level or above takes the whole value 0, by 5L/M at most 1.
+        assert_eq!(holding(&irritation, 1, 10, 10).unwrap().1, 7.5);
+        assert_eq!(holding(&irritation, 2, 10, 5).unwrap().1, 16.0);
+        let conversion = record(CONVERSION, &[], [14, 1], 25);
+        let (effect, seconds) = holding(&conversion, 1, 1, 5).unwrap();
+        assert_eq!((effect.id, seconds), (14, 15.0));
+        assert!(holding(&record(HOLY_SHIELD, &[], [43, 2], 120), 1, 1, 1).is_none());
     }
 
     #[test]

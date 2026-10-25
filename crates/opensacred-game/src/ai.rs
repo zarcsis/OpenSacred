@@ -140,6 +140,8 @@ struct Other {
     level: u32,
     /// Its size, of which and another's the reach is the mean (`minds::size`).
     size: u32,
+    /// Whether its sides are turned over (`minds::Mind::turned`).
+    turned: bool,
 }
 
 impl Other {
@@ -151,12 +153,15 @@ impl Other {
             creature: mind.creature,
             level: mind.level,
             size: mind.size(),
+            turned: mind.turned,
         }
     }
 
-    /// Whether `mind` is hostile to it (`0x549000`).
+    /// Whether `mind` is hostile to it (`0x549000`), the other way about where either's sides
+    /// are turned over (`0x423580` at `0x4238C6`).
     fn hated_by(&self, mind: &Mind) -> bool {
         minds::hostile(mind.side, mind.creature, self.side, self.creature)
+            != (self.turned || mind.turned)
     }
 }
 
@@ -470,12 +475,13 @@ fn think(
         let (x, y) = sector(here);
         // The creatures of its sector that fight, of another side, hostile to it, which an idle
         // hostile creature may take for its foe, and whether it takes each on by its level.
-        let candidates: Vec<&Other> = if mind.hostile() && !mind.fighting() {
+        // One whose sides are turned over takes its old friends so, its own side among them.
+        let candidates: Vec<&Other> = if (mind.hostile() || mind.turned) && !mind.fighting() {
             fighters
                 .iter()
                 .filter(|other| {
                     other.entity != entity
-                        && other.side != mind.side
+                        && (other.side != mind.side || other.turned || mind.turned)
                         && sector(other.at) == (x, y)
                         && other.hated_by(&mind)
                 })
@@ -714,10 +720,12 @@ fn pursue(
         }
         let here = transform.translation;
         // Its target: its foe, a creature, or the hero. A foe dead or gone it leaves; the hero it
-        // leaves alone while she dominates it (the effect 13).
+        // leaves alone while she dominates it (the effect 13), or while its sides are turned over
+        // (the effect 14).
         let foe = mind.foe();
         if foe.is_none()
-            && effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED))
+            && (mind.turned
+                || effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::DOMINATED)))
         {
             continue;
         }
@@ -1150,6 +1158,7 @@ fn behave(
             creature: 0,
             level: 0,
             size: minds::SIZE,
+            turned: false,
         }))
         .collect();
     // Whether the hero stands on a settlement's ground, where the children gather about it.
@@ -1843,6 +1852,7 @@ mod tests {
             creature,
             level: 11,
             size: 130,
+            turned: false,
         };
         let me = Entity::from_raw_u32(1).unwrap();
         let side = crate::iso::CELL * 64.0;

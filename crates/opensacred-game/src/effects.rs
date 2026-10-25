@@ -147,6 +147,16 @@ fn refit_npcs(
     for (effects, arms, health, rank, mut mind, mut combat, mut npc, mut regenerates) in
         &mut creatures
     {
+        // The effect 14 turns its sides over while it holds (its adder sets `+0x1F4` bit
+        // `0x40000`, its taker clears it).
+        let turned = effects.holds(opensacred_rules::spells::CONVERTED);
+        if mind.turned != turned {
+            mind.turned = turned;
+            // Its fight with the hero, a friend now, it leaves (**hypothesis**).
+            if turned && mind.fighting() && mind.foe().is_none() {
+                mind.loses_foe();
+            }
+        }
         let rank = rank.map_or_else(fight::Rank::default, |rank| rank.0);
         regenerates.value = npcs::refit(
             arms,
