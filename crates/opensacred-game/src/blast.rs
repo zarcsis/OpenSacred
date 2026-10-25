@@ -2,8 +2,8 @@
 //! docs/re/arts.md, "The objects 1168 and 842"): about where he landed, for 3 s, its radius grows
 //! with its time to three quarters of its most and then falls (`opensacred_rules::arts::Blast`).
 //! At each frame each hostile creature alive on its level nearer it than its size and the radius,
-//! once, takes the Daemon's strike of the share by his distance from it, while he lives
-//! (`Blast::share`), and then, by the kicks' roll of the charge's level (**hypothesis**: the
+//! once, takes the Daemon's strike of the charge's art and the share by his distance from it,
+//! while he lives (`Blast::share`; seen, #856), and then, by the kicks' roll of the charge's level (**hypothesis**: the
 //! object's level word, which the original leaves as it finds it), is knocked back by the blast's
 //! strength (`making::Knocked`). A ring of one colour stands in for its particle system
 //! (docs/decisions/2026-10-24-daemons-blast.md).
@@ -171,7 +171,7 @@ fn spread(
                     target,
                     share,
                     ranged: false,
-                    art: None,
+                    art: Some(blasting.art_level),
                     fixed: None,
                     sure: false,
                 });
