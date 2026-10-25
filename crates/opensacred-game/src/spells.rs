@@ -3,8 +3,9 @@
 //! clip still to play falls below the spell's, sends [`Acts`]. The fireball leaves for its
 //! target's place as a bolt (`bolts`); the regeneration gives its bearer its record's effects
 //! (`opensacred_rules::spells::effects`) at once, and the stone skin as its shield's clock passes
-//! [`SHIELD_TIME`] at the cast's rate; the healing adds its health to its bearer's, its most at
-//! most. A spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
+//! [`SHIELD_TIME`] at the cast's rate, and the crusader's strength after [`STRENGTH_TIME`]; the
+//! holy shield turns arrows aside (`arrows`); the healing adds its health to its bearer's, its
+//! most at most. A spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
 //! lightning strikes its target at once; her holy light stands at its point, and her blades of
 //! light and her light go with their bearer, each striking about itself once a second for its
 //! time ([`Aura`]). Their particle systems are stood in for by a flash and translucent discs
@@ -14,8 +15,8 @@ use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::spells::{
-    self, BEAT, BORNE, FIREBALL, HEALING, LIGHTNING, LIGHTNING_SHOWS, REIKI, SHIELD_TIME,
-    STONE_SKIN,
+    self, BEAT, BORNE, CRUSADERS_STRENGTH, FIREBALL, HEALING, HOLY_SHIELD, LIGHTNING,
+    LIGHTNING_SHOWS, REIKI, SHIELD_TIME, STONE_SKIN, STRENGTH_TIME,
 };
 
 use crate::crowd::InTheWay;
@@ -39,8 +40,8 @@ pub struct Acts {
     pub level: u32,
 }
 
-/// The stone skin's effects waiting for its shield's clock: what is left of it in the world's
-/// seconds.
+/// A spell's effects waiting for its object's clock, the stone skin's or the crusader's
+/// strength's: what is left of it in the world's seconds.
 #[derive(Component, Debug, Clone)]
 struct Shielding {
     left: f32,
@@ -170,6 +171,13 @@ fn act(
                 });
             }
             REIKI => given.extend(spells::effects(record, act.level)),
+            HOLY_SHIELD => given.push(spells::holy_shield(record, act.level)),
+            CRUSADERS_STRENGTH => {
+                commands.entity(act.target).insert(Shielding {
+                    left: STRENGTH_TIME,
+                    effects: spells::effects(record, act.level),
+                });
+            }
             STONE_SKIN => {
                 // The shield's clock runs at the cast's rate (`+0x3E`).
                 let rate = combat.map_or(opensacred_rules::fight::CAST_SPEED, |c| c.cast) / 100.0;
