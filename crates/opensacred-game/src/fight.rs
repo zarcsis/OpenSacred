@@ -126,6 +126,7 @@ pub struct Points(pub u64);
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Kill {
     pub killer: Entity,
+    pub victim: Entity,
     pub worth: Worth,
     pub level: u32,
     pub rank: Rank,
@@ -347,6 +348,7 @@ pub(crate) fn resolve(
             if let Some(&worth) = worth.filter(|_| by_creature) {
                 kills.write(Kill {
                     killer: hit.attacker,
+                    victim: hit.target,
                     worth,
                     level: health.level,
                     rank: rank.map_or(Rank::Common, |rank| rank.0),

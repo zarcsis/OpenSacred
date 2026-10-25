@@ -176,13 +176,57 @@ const RAISED: u32 = 0x200_0000;
 /// Raises the dead creature `corpse` as `master`'s follower (the Vampiress's awakening 1034,
 /// `0x511088`): a creature of its type of `level` where it lies, hired, of the flags' bit
 /// `0x2000000`, given the effect 29 for `seconds`, at whose going it dies (`effects::LIFETIME`);
-/// its value, its most health over the art's factor, is read by nothing (**hypothesis**).
-pub fn raise(commands: &mut Commands, master: Entity, corpse: Entity, level: u32, seconds: f32) {
+/// its value, its most health over the art's factor, is read by nothing (**hypothesis**). One
+/// that a raised dead creature's kill raises has no time (`0x52F4CD`).
+pub fn raise(
+    commands: &mut Commands,
+    master: Entity,
+    corpse: Entity,
+    level: u32,
+    seconds: Option<f32>,
+) {
     commands.queue(move |world: &mut World| raise_dead(world, master, corpse, level, seconds));
 }
 
+/// A creature that a raised dead follower of `master` killed, which rises at `level` once it
+/// lies dead ([`chain`]).
+#[derive(Component, Clone, Copy, Debug)]
+struct Rising {
+    master: Entity,
+    level: u32,
+}
+
+/// Each kill of a raised dead follower raises its victim as the same master's follower in one
+/// case of two (`0x52F4CD`, `0x443B20(0, 1)`): at the killer's level less 1, without the effect
+/// 29, so that the raising chains; it rises once it lies dead.
+fn chain(
+    mut commands: Commands,
+    mut kills: MessageReader<crate::fight::Kill>,
+    mut dice: ResMut<Dice>,
+    killers: Query<(&Follower, &Mind)>,
+    rising: Query<(Entity, &Rising), With<crate::npcs::Corpse>>,
+) {
+    for kill in kills.read() {
+        let Ok((follower, mind)) = killers.get(kill.killer) else {
+            continue;
+        };
+        if mind.flags & RAISED == 0 || dice.0.below(2) != 0 {
+            continue;
+        }
+        debug!("followers: {}'s kill of {} rises", kill.killer, kill.victim);
+        commands.entity(kill.victim).insert(Rising {
+            master: follower.master,
+            level: mind.level.saturating_sub(1).max(1),
+        });
+    }
+    for (corpse, rises) in &rising {
+        commands.entity(corpse).remove::<Rising>();
+        raise(&mut commands, rises.master, corpse, rises.level, None);
+    }
+}
+
 /// Raises a dead creature ([`raise`]): the corpse goes and a creature of its type stands there.
-fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, seconds: f32) {
+fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, seconds: Option<f32>) {
     let (Some(at), Some(dead)) = (
         world.get::<Transform>(corpse).map(|at| at.translation),
         world.get::<crate::npcs::Corpse>(corpse).copied(),
@@ -222,7 +266,7 @@ fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, sec
         }
     };
     for entity in made {
-        info!("followers: {corpse} rises as {entity} of level {level} for {seconds} s");
+        info!("followers: {corpse} rises as {entity} of level {level} for {seconds:?} s");
         hire(world, entity, master);
         let Ok(mut raised) = world.get_entity_mut(entity) else {
             continue;
@@ -230,12 +274,14 @@ fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, sec
         if let Some(mut mind) = raised.get_mut::<Mind>() {
             mind.flags |= RAISED;
         }
-        let mut effects = crate::effects::Effects::default();
-        effects.add(
-            opensacred_rules::fight::Effect::new(crate::effects::LIFETIME, 0.0),
-            seconds,
-        );
-        raised.insert(effects);
+        if let Some(seconds) = seconds {
+            let mut effects = crate::effects::Effects::default();
+            effects.add(
+                opensacred_rules::fight::Effect::new(crate::effects::LIFETIME, 0.0),
+                seconds,
+            );
+            raised.insert(effects);
+        }
     }
 }
 
@@ -550,7 +596,12 @@ pub struct FollowersPlugin;
 impl Plugin for FollowersPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>()
-            .add_systems(Update, make.in_set(crate::frame::Playing))
+            .add_systems(
+                Update,
+                (make, chain)
+                    .after(Step::Npcs)
+                    .in_set(crate::frame::Playing),
+            )
             .add_systems(
                 Update,
                 keep.after(crate::ai::Thinks)
