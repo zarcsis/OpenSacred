@@ -1520,6 +1520,49 @@ fn the_gladiators_glance_gives_a_whole_value_by_his_skill_and_strength() {
 }
 
 #[test]
+fn the_daemons_charge_flies_to_its_target_and_blasts_about_him() {
+    // GOG 2.28's 1091: `[+0x50]` 1.35 + 0.15·L, `[+0x58]` 150 + 2·L, `[+0x60]` 400 and 20.
+    assert_eq!(style(1091), Some(Style::Charge));
+    assert_eq!(
+        action(9, Style::Charge, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(148), 1.0, true))
+    );
+    // Seen: 0.096 s and 13.4 for a goblin 134 off.
+    let (time, peak) = charge_flight(134.0);
+    assert!(
+        (time - 0.0957).abs() < 1e-4 && (peak - 13.4).abs() < 1e-4,
+        "{time} {peak}"
+    );
+    assert!((arc(13.4, 0.5) - 13.4).abs() < 1e-6 && arc(13.4, 1.0) == 0.0);
+    assert!((jump_height(120.0, 0.5) - 10.0).abs() < 1e-6);
+    let charge = WeaponArt {
+        factor: [1.35, 0.15],
+        value_58: [150.0, 2.0],
+        value_60: [400, 20],
+        distance: 0,
+        ..weapon_art(1091, [0.0; 2], 9)
+    };
+    let blast = Blast::of(&charge, 1);
+    assert_eq!((blast.most, blast.strength), (152.0, 20.0));
+    assert!((blast.factor - 1.5).abs() < 1e-6);
+    // Held at 400 from the level 126.
+    assert_eq!(Blast::of(&charge, 200).most, 400.0);
+    // Its radius grows to 0.75·R, taken whole, then falls by quarters.
+    assert_eq!(blast.radius(0.0, 0.0), 0.0);
+    assert_eq!(blast.radius(0.5, 0.0), 76.0);
+    assert_eq!(blast.radius(0.8, 113.0), 84.0);
+    assert_eq!(blast.radius(0.9, 1.0), 0.0);
+    // Its strikes by the Daemon's distance: whole beside him, half at R/2, none beyond R; the
+    // factor's half from the level 5.
+    assert_eq!(blast.share(0), Some(1.0));
+    assert_eq!(blast.share(76), Some(0.5));
+    assert_eq!(blast.share(152), Some(0.0));
+    assert_eq!(blast.share(153), None);
+    let strong = Blast::of(&charge, 9);
+    assert!((strong.share(0).unwrap() - 1.35).abs() < 1e-6);
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));

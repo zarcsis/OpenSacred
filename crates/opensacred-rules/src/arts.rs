@@ -231,6 +231,10 @@ pub enum Style {
     /// the effect [`GLANCE`] on a friend or himself ([`glance`]), with which he strikes a
     /// hostile creature about him about once a second ([`glance_due`]).
     Glance,
+    /// The Daemon's charge 1091 (`gui_moves_hardhit_demon`, `0x5192E0` at `0x519BD0`): at its
+    /// run after its first he flies to his target ([`charge_flight`], [`jump_landing`]), and once
+    /// landed he strikes it within the reach, makes his blast about him ([`Blast`]) and ends.
+    Charge,
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
@@ -447,6 +451,9 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1016 {
         return Some(Style::Glance);
+    }
+    if art == 1091 {
+        return Some(Style::Charge);
     }
     if art == 1012 {
         return Some(Style::Smite);
@@ -824,8 +831,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // His 1082 the slot 157 at the rate 1.0 (`0x514790` at `0x518600`).
         (8, Style::Frenzy) => Some(plain(157)),
         // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
-        // `0x51BC63`).
+        // `0x51BC63`), and his charge 1091 the slot 148 so (seen).
         (9, Style::Boon) => Some(plain(150)),
+        (9, Style::Charge) => Some(plain(148)),
         // The Daemon's forms the slot 160 at the blend 0.2 and the rate 1.0 on himself
         // (`0x5192E0` at `0x51BEF5`; 197 at the attack's rate otherwise, not followed).
         (9, Style::Form) => Some(plain(160)),
@@ -1663,11 +1671,79 @@ pub fn roar_hold(record: &WeaponArt, level: u32) -> f32 {
 }
 
 /// How high a jump of the length `distance` flies at the part `t` of its flight, in units of the
-/// models' height (`0x44DED0`, `0x44DFE0`): `distance / 12` at its middle, on a parabola from the
-/// ground to the ground.
+/// models' height (`0x44DED0`, `0x44DFE0`): `distance / 12` at its middle ([`arc`]).
 pub fn jump_height(distance: f32, t: f32) -> f32 {
+    arc(distance / 12.0, t)
+}
+
+/// How high a flight whose middle is `peak` high flies at the part `t` of it, in units of the
+/// models' height (`0x44DFE0`): on a parabola from the ground to the ground.
+pub fn arc(peak: f32, t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
-    distance / 12.0 * (1.0 - 4.0 * (t - 0.5) * (t - 0.5))
+    peak * (1.0 - 4.0 * (t - 0.5) * (t - 0.5))
+}
+
+/// The flight of the Daemon's charge to a target `distance` away (`0x5192E0` at `0x519CA6`): its
+/// time in seconds, the distance times the float 1/1400 (`0x8910DC`), and how high its middle
+/// flies ([`arc`]), a tenth of it (`0x890D9C`; seen: 0.096 s and 13.4 for 134).
+pub fn charge_flight(distance: f32) -> (f32, f32) {
+    (distance * f32::from_bits(0x3A3B_3EE7), distance * 0.1)
+}
+
+/// How long the Daemon's blast lives, in seconds, and until when its radius grows (its particle
+/// system's `0x7C1790` and `0x7C1890`).
+pub const BLAST_LIFE: f32 = 3.0;
+pub const BLAST_GROWS: f32 = 0.75;
+
+/// The Daemon's blast as his charge lands, the object 1168 (`FX_KAMIKAZE`; docs/re/arts.md, "The
+/// objects 1168 and 842"): its most radius `R`, `[+0x58] + [+0x5C]·L` at most `[+0x60]` taken
+/// whole (150 + 2·L at most 400), the factor of its strikes, `[+0x50] + [+0x54]·L` ([`factor`],
+/// 1.35 + 0.15·L), and its knockback's strength `[+0x64]` (20; the FX event `0x92`, `0x51A231`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Blast {
+    pub most: f32,
+    pub factor: f32,
+    pub strength: f32,
+}
+
+impl Blast {
+    /// The blast of the charge `record` at the level in play `level`.
+    pub fn of(record: &WeaponArt, level: u32) -> Self {
+        let [base, step] = record.value_58.map(f64::from);
+        let most = f64::from(level)
+            .mul_add(step, base)
+            .min(f64::from(record.value_60[0]));
+        Self {
+            most: narrow(f64::from(
+                i32::try_from(whole_units(most)).unwrap_or(i32::MAX),
+            )),
+            factor: factor(record, level),
+            strength: narrow(f64::from(record.value_60[1])),
+        }
+    }
+
+    /// Its radius at its time `t` in seconds, its last `last` (set as it is drawn, `0x7C1890`):
+    /// `R·t` taken whole below [`BLAST_GROWS`], then three quarters of the last taken whole, so
+    /// that it falls to nothing within a few frames.
+    pub fn radius(&self, t: f32, last: f32) -> f32 {
+        let radius = if t < BLAST_GROWS {
+            f64::from(self.most) * f64::from(t)
+        } else {
+            f64::from(last) * 0.75
+        };
+        narrow(f64::from(i32::try_from(whole_units(radius)).unwrap_or(0)))
+    }
+
+    /// The share of the Daemon's strike at a creature `distance` from him (`0x5ABD80` at
+    /// `0x5B1EB1`): `(R − d)/R · max(1, f/2)`; none beyond `R`, where the original takes `R − d`
+    /// as an unsigned number, a factor of some four thousand million over `R`
+    /// (docs/decisions/2026-10-24-daemons-blast.md).
+    pub fn share(&self, distance: u32) -> Option<f32> {
+        let most = f64::from(self.most);
+        let distance = f64::from(distance);
+        (distance <= most && most > 0.0)
+            .then(|| narrow((most - distance) / most * f64::from((self.factor * 0.5).max(1.0))))
+    }
 }
 
 /// The table an art is of.

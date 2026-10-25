@@ -90,6 +90,7 @@ pub fn clips(
         Style::Frenzy,
         Style::Bolts,
         Style::Glance,
+        Style::Charge,
         Style::Smite,
         Style::Blades,
         Style::Whirl,
@@ -363,7 +364,7 @@ fn bone(
     clippy::cast_sign_loss,
     reason = "a distance on the ground, whole and positive, far below the integers' range"
 )]
-fn whole_distance(a: Vec3, b: Vec3) -> u32 {
+pub(crate) fn whole_distance(a: Vec3, b: Vec3) -> u32 {
     (a - b).xz().length().round() as u32
 }
 
@@ -414,10 +415,11 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries, ranks): (
+    (mut hits, mut cries, ranks, leaps): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
         Query<&fight::Ranked>,
+        Query<(), With<Leap>>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -944,11 +946,13 @@ fn make(
                 // Below 0.7 left of its clip it leaps to its point in half its clip's time, starts
                 // its regeneration and ends (`0x506770` at `0x507DAA`).
                 if due(1.0 - arts::PANTHER_LEAPS, done) {
+                    let to = Vec3::new(playing.point.x, here.y, playing.point.z);
                     commands.entity(hero).insert(Leap {
                         from: here,
-                        to: Vec3::new(playing.point.x, here.y, playing.point.z),
+                        to,
                         time: playing.seconds * arts::PANTHER_FLIGHT,
                         flown: 0.0,
+                        peak: arts::jump_height((to - here).xz().length(), 0.5),
                     });
                     arts.start(making.art);
                     end(&mut commands);
@@ -1051,6 +1055,73 @@ fn make(
                     end(&mut commands);
                 }
             }
+            Style::Charge => {
+                // At its run after its first, the world's next tick, he flies to his target short
+                // of half the two's reach, or to its point, in a flight of his own (`0x5192E0` at
+                // `0x519BD0`); landed, at the next tick, his rage's effects go (those keyed by 1094
+                // and `DAEMON_FORM`), its regeneration starts, he strikes his target within the
+                // reach, else the first of his hostiles within it, makes his blast about him and
+                // ends (at `0x519D41`).
+                if tick.seconds.is_none() {
+                    continue;
+                }
+                if playing.struck == 0 {
+                    playing.struck = 1;
+                    let target = creatures
+                        .get(playing.target)
+                        .ok()
+                        .filter(|(.., health)| health.current > 0);
+                    let to = target.map_or(playing.point, |(_, at, ..)| at.translation());
+                    let within = target.map(|(_, _, mind, _)| reach(mind));
+                    let [x, z] = arts::jump_landing(here.xz().into(), to.xz().into(), within);
+                    let (time, peak) = arts::charge_flight((to - here).xz().length());
+                    commands.entity(hero).insert(Leap {
+                        from: here,
+                        to: Vec3::new(x, here.y, z),
+                        time,
+                        flown: 0.0,
+                        peak,
+                    });
+                    continue;
+                }
+                if leaps.contains(hero) {
+                    continue;
+                }
+                commands
+                    .entity(hero)
+                    .entry::<crate::effects::Effects>()
+                    .or_default()
+                    .and_modify(|mut effects| effects.take_off(&[1094, arts::DAEMON_FORM]));
+                arts.start(making.art);
+                let near = |(_, at, _, health): &(Entity, &GlobalTransform, &Mind, &Health),
+                            within: u32| {
+                    health.current > 0 && whole_distance(at.translation(), here) <= within
+                };
+                let struck = creatures
+                    .get(playing.target)
+                    .ok()
+                    .filter(|target| near(target, reach(target.2)))
+                    .or_else(|| {
+                        let first = creatures.get(*nearest.hostiles.first()?).ok()?;
+                        near(&first, reach(first.2).saturating_sub(1)).then_some(first)
+                    })
+                    .filter(|(_, _, mind, _)| mind.hostile());
+                if let Some((entity, ..)) = struck {
+                    hits.write(hit(entity, &playing));
+                }
+                if let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) {
+                    let blast = arts::Blast::of(record, playing.level);
+                    info!("making: the hero's charge lands, its blast {blast:?}");
+                    commands.spawn(crate::blast::Blasting::new(
+                        hero,
+                        blast,
+                        body.level(),
+                        playing.level,
+                        here,
+                    ));
+                }
+                end(&mut commands);
+            }
             Style::Jump => {
                 // Once what is left of its clip is below its first point it flies to its target,
                 // short of it by half the two's reach, or to its point; below its second it lands:
@@ -1067,11 +1138,13 @@ fn make(
                     let to = target.map_or(playing.point, |(_, at, ..)| at.translation());
                     let within = target.map(|(_, _, mind, _)| reach(mind));
                     let [x, z] = arts::jump_landing(here.xz().into(), to.xz().into(), within);
+                    let to = Vec3::new(x, here.y, z);
                     commands.entity(hero).insert(Leap {
                         from: here,
-                        to: Vec3::new(x, here.y, z),
+                        to,
                         time: playing.seconds * arts::JUMP_FLIGHT,
                         flown: 0.0,
+                        peak: arts::jump_height((to - here).xz().length(), 0.5),
                     });
                     arts.start(making.art);
                 } else if playing.struck == 1 && due(1.0 - lands, done) {
@@ -1440,7 +1513,7 @@ pub(crate) fn may_knock(level: u32, mind: &minds::Mind) -> bool {
 
 /// Whether a kick's roll of 0 to 99, an art's of the level in play `level`, knocks back the
 /// creature of `mind` (`0x4FC9D0`, `arts::knockback_chance`).
-fn knocks_back(dice: &mut Rng, level: u32, mind: &Mind) -> bool {
+pub(crate) fn knocks_back(dice: &mut Rng, level: u32, mind: &Mind) -> bool {
     let chance = arts::knockback_chance(
         level,
         (mind.creature, mind.level),
@@ -1539,14 +1612,15 @@ fn blades(
 }
 
 /// A hero's flight of its jump (`0x44DED0`, `0x44DFE0`): from `from` to `to` on the ground in
-/// `time` seconds, `flown` of them gone, its height on the arc of `arts::jump_height` above the
-/// ground under it.
+/// `time` seconds, `flown` of them gone, its height on the arc of `arts::arc` of the height
+/// `peak` at its middle above the ground under it.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Leap {
     pub from: Vec3,
     pub to: Vec3,
     pub time: f32,
     pub flown: f32,
+    pub peak: f32,
 }
 
 /// Flies each hero in its jump (`0x44DFE0`): along the line to its landing in its flight's time,
@@ -1565,12 +1639,10 @@ fn leap(
             1.0
         };
         let ground = leap.from.lerp(leap.to, t);
-        let length = (leap.to - leap.from).xz().length();
         let y = heights
             .standing(ground.x, ground.z, body.level())
             .unwrap_or(ground.y);
-        let up =
-            crate::iso::height(arts::jump_height(length, t) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
+        let up = crate::iso::height(arts::arc(leap.peak, t) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
         transform.translation = Vec3::new(ground.x, y + up, ground.z);
         if t >= 1.0 {
             commands.entity(hero).remove::<Leap>();
