@@ -17,6 +17,7 @@ mod manifest;
 mod model_repairs;
 mod models;
 mod netscript;
+mod script_repairs;
 mod sound;
 mod tables;
 mod text;
@@ -590,6 +591,15 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.bytes as f64 / 1e6,
                 netscript::output_dir(&out).display(),
             );
+            if summary.repaired_cells > 0 {
+                println!(
+                    "  repaired: {} cells in {} trees (a chest's cell)",
+                    summary.repaired_cells, summary.repaired_trees,
+                );
+            }
+            for warning in &summary.warnings {
+                eprintln!("warning: {warning}");
+            }
             println!("done in {:.1} s", start.elapsed().as_secs_f64());
             Ok(ExitCode::SUCCESS)
         }

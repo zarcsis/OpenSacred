@@ -102,6 +102,7 @@ It moves the cursor past the name whether or not the name is found.
 A payload that runs past the record end is read from whatever follows the record in the copy buffer.
 In the release, 11 records of type 50 (`TriggerPatch`) end with tag 0x2A and no payload; each names `chestTrigger`, one in the `StartCode.bin` of each of the 9 Underworld trees and of both multiplayer trees.
 The handler of 0x2A reads 12 bytes past the record.
+The converter gives that payload the cell of the chest whose `CreateObj` follows the record (docs/02 §7.1, [docs/decisions/2026-10-25-chest-cell.md](../decisions/2026-10-25-chest-cell.md)).
 
 ## Keyword resolvers of the compiler
 
