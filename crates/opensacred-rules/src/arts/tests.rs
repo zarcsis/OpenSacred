@@ -1415,6 +1415,37 @@ fn the_hand_of_god_strikes_its_target_and_the_hostiles_within_the_reach() {
 }
 
 #[test]
+fn the_seraphims_bfg_gives_her_its_effect_halfway_through_its_clip() {
+    // GOG 2.28's 1018: `[+0x58]` 29.5 + 0.5·L, of the launch type 5.
+    assert_eq!(style(1018), Some(Style::Boon));
+    let bfg = WeaponArt {
+        value_58: [29.5, 0.5],
+        launch: 5,
+        distance: 0,
+        ..weapon_art(1018, [0.0; 2], 1)
+    };
+    // Seen at the level 1: the effect 16 of the whole value 1 for 30 s, keyed by 1018.
+    let given = boon(&bfg, 1).unwrap();
+    assert_eq!(given.point, 0.5);
+    assert_eq!(
+        given
+            .effects
+            .iter()
+            .map(|(e, s)| (e.id, e.whole, e.art, *s))
+            .collect::<Vec<_>>(),
+        [(BFG, 1, 1018, 30.0)]
+    );
+    assert_eq!(boon(&bfg, 7).unwrap().effects[0].0.whole, 7);
+    assert_eq!(boon(&bfg, 7).unwrap().effects[0].1, 33.0);
+    assert_eq!(
+        action(1, Style::Boon, 1).map(|a| (a.clip, a.rate, a.fixed)),
+        Some((ArtClip::Slot(149), 1.0, true))
+    );
+    // Refused while its effect or 1019's holds.
+    assert_eq!(refused_while(1018), [1018, 1019]);
+}
+
+#[test]
 fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
     // The Gladiator's 1015, of the launch type 2: `[+0x50]` 0.5 + 0.2·L, `[+0x58]` 39.5 + 0.5·L.
     assert_eq!(style(1015), Some(Style::Boon));

@@ -250,6 +250,11 @@ const INSTRUMENTS: [(u32, u16); 4] = [(5108, 183), (5109, 180), (5110, 182), (51
 /// The first of the jugglers' clips' slots; the bell's, which one without an instrument plays.
 const FUN: u16 = 180;
 
+/// `FX_OPAQUE.TGA`, the texture record 203: 16 × 16 texels of nothing, which the items that the
+/// original draws by their effects name (the Seraphim's 3809, its glow): such an item is drawn
+/// in its model's own material, its effect left out (#754).
+const FX_OPAQUE: u32 = 203;
+
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
 const WEAPON: u8 = 5;
 const SHIELD: u8 = 13;
@@ -1877,7 +1882,7 @@ impl Npcs {
                     kind: kinds.get(&slot).copied(),
                     model: models.get(&item.name.to_ascii_uppercase()).cloned(),
                     texture: match item.words_08[0] {
-                        0 => None,
+                        0 | FX_OPAQUE => None,
                         number => textures.get(&number).cloned(),
                     },
                     counts: item.byte_03 & 2 == 0,
@@ -1988,6 +1993,20 @@ impl Npcs {
             let gear = self.gear.get(&worn.item)?;
             Some((worn.item, gear.category, gear.kind))
         }))
+    }
+
+    /// The items of `worn`, the hero's template's, but those in its hands: what it wears while
+    /// its hands' items are put away (the Seraphim's 1018, `arsenal`).
+    pub fn hero_put_away(&self, worn: &[Worn]) -> Vec<Worn> {
+        let in_hands: Vec<u32> = self
+            .hero_holding(worn)
+            .iter()
+            .map(|held| held.item)
+            .collect();
+        worn.iter()
+            .filter(|worn| !in_hands.contains(&worn.item))
+            .cloned()
+            .collect()
     }
 
     /// What the hero holds of `worn`, its template's items, for its weapons' sounds
@@ -2888,6 +2907,17 @@ pub fn equipment(assets: &AssetServer, held: &[Held]) -> Equipment {
             })
             .collect(),
     )
+}
+
+impl Equipment {
+    /// The equipment ready to attach at once: its holder's scene is in place already, as a hero's
+    /// whose form keeps its model (`hero::Hero::wear`).
+    pub fn ready(mut self) -> Self {
+        for item in &mut self.0 {
+            item.ready = true;
+        }
+        self
+    }
 }
 
 pub fn equipment_ready(ready: On<WorldInstanceReady>, mut npcs: Query<&mut Equipment>) {
