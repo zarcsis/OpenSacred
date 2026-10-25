@@ -188,6 +188,57 @@ Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless 
 `opensacred-rules` keeps this state apart from Luau and from the engine (#724, `opensacred_rules::quests`): the quests' flags and the transitions above, each naming the section functions it runs for the scripts' runtime to run and taking its answer; the variables by name, kept to their first 31 bytes; and the dialogues' table below, its first entry doubled; all of it serializable for the saves (`quests::Scripts`).
 `opensacred-game` follows the quests' start in its own code until #726 moves it onto this (docs/decisions/2026-10-19-quest-npcs.md).
 
+## The community's quest defects
+
+Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.
+The quests are named by their numbers, the community's names beside them only to identify them; the day counts that their strings state were read on the English `global.res` and are given as numbers.
+
+### `SetDrop`'s one entry per creature
+
+- `SetDrop` (137, `0x4AFFF0`) keeps at most one entry per creature type in its list.
+  With two types, the creature is the one whose category (`+0x2E`) is 2, 3 or 32 (`0x426610`).
+  It finds the list's entry by the creature alone, and with a chance of 0 removes it, else overwrites its chance and its item; only where no entry names the creature does it append one, and a chance of 0 then appends an entry of chance 0, which drops nothing.
+- The quests' collecting lists (`SetOnCollect`, `+0x7620`, `0x4AAAE0`) are kept by item, so each quest still counts its own item; only the drop is shared.
+- Each quest of the pairs below gives, in its `QIS_OnEnter<n>`, a `SetOnCollect` for its item and a `SetDrop` of its creature and item, and in the function that its count runs (`ot_<n>` or `oc_<n>`) the same `SetDrop` with the chance 0.
+  So of two quests that name one creature type, the one entered later overwrites the earlier one's entry, whose item stops dropping; and as the later one reaches its count, its chance 0 removes the creature's entry, so the earlier one's item never drops again and that quest cannot be finished by drops.
+- Over all 20 trees exactly five creature types are named by `SetDrop`s of more than one quest, the five pairs that the community reports:
+
+| Quests | Creature types | Items and chances |
+|---|---|---|
+| 15015 (Stolen Iron Bars), 10259 (Collect Orc Rings) | 38 | 6005 at 75 %, 4931 at 65 % |
+| 15052 (Ornate Staff of Rituals), 15028 (Books of Faith) | 312 | 6025 at 75 %, 5162 at 75 % |
+| 15067 (Antidote), 15072 (Special Flavor) | 99 | 1355 at 75 %, 1331 at 75 % (the item named first, the types swapped by the handler) |
+| 7618 (A Brother in Need), 7620 (New Potions) | 178 to 181 | 5142 at 80 %, 1330 at 80 % (four records each) |
+| 15080 (The Epidemic), 7630 (Salvation of the Doomed) | 94 | 1366 at 75 %, 4937 at 50 % |
+
+The first three pairs are in all 20 trees, the fourth in the ten Underworld trees and `bin/NetScript`; quest 15080 is in both campaigns' trees and 7630 only in the Underworld's, so the last pair clashes there alone.
+- The defect is the scripts' data, two quests on one creature type, meeting the handler's one entry per creature, which the client makes so; whether the designers expected one quest at a time is a **hypothesis**.
+  No operand of the data keeps both items: a repair of the data could only make the drops come one after the other, and a list keyed by the creature and the item would be the VM's, a departure from the client.
+
+### `SetTimer`'s minutes and the calendar
+
+- `SetTimer` (56, `0x4982D0`; the walker's case at `0x475A2C`) takes a function's name (`01`), the timer's id (`0B`, at least 0) and a time above 0 (`38`), and stores the id, the time and the moment it is set, `((((year·12 + month)·30 + day)·24 + hour)·60 + minute)` of the clock; a timer of the same id is replaced, which starts it anew (`0x417710`).
+- At each minute that the clock completes (`0x416F00`; not at the minute that ends a day), the first timer whose time is at most the clock's count less its moment runs its function, unless the function's quest is finished (the flag 2), and every timer of its id is removed.
+  So `38` is in minutes of the game's clock: 1,440 a day, 4,320 three days, 10,080 seven (a day of the game an hour of play is docs/re/daynight.md's **hypothesis**).
+- The count takes months of 30 days and years of 12, but the date's carry (`0x416DA0`) makes eleven months of 29 days and the fifth of 34.
+  So the count leaps a day ahead at the end of each other month, falls four days behind at the end of the fifth, and 31 days ahead at the end of the year: a timer across such an end runs a day early, four days late, or at once (not yet seen in the running original).
+- The `IF` tags `0x49` and `0x4A` test that a variable's bit is set or clear, both false where the variable is missing (`0x4987B0`).
+
+The quests whose time the community reports:
+
+- **1202 (Magical Thistle)**: `QIS_OnEnter1202` sets `zeit1202` for 4,320, three days; it sets bit 4 of the variable `1202`, takes the target NPC's health to 0, writes the failure in the log and loses the quest, and the giver's dialogue at bit 2 deletes the timer.
+  The giver's start dialogue (`R12NQ02_NPC_Auftrag_Qstart`) states four days, the log's start (`R12NQ02_Log_Qstart`) and the giver's dialogue while the quest is open (`R12NQ02_NPC_Auftrag_Qoffen`) three: the timer agrees with two of the three, and the report is the start dialogue's number.
+  The same in the 11 trees that hold the quest.
+- **1803 (Kalim-Khor)**: `QIS_OnEnter1803` sets `zeitum1803` for 4,320 where bit 9 of `1803` is set, which `take1803` sets as the item 6068 is picked up before the quest is taken, and for 10,080, seven days, where it is clear, the usual way from the giver; `take1803` does not start it again once the quest is open, and `exit1803` deletes it.
+  Only the giver's start dialogue (`R18NQ03_NPC_Auftrag_Qstart`) states a number, three days, so the usual way lasts seven days where three are stated; the report's "about 8" being the seven read loosely, or the count's leap at a month's end, is a **hypothesis**.
+  The same in the 11 trees that hold the quest.
+- **1102 (Compromising Situation)**: `QIS_OnEnter1102` sets `Zeitum1102` for 1,440, one day, which writes the failure in the log, sets bit 3 and loses the quest; `extquest1102` deletes it.
+  The giver's start dialogue (`R11aNQ02_NPC_Auftrag_Qstart`) states one day, so the data does not explain a limit of three days never announced, nor can the count's drift, at most four days at the fifth month's end.
+  The quest beside it, 1101 (Blackrobes), has a limit that no string of it announces (`QIS_OnEnter1101`, `Zeitum1101` for 1,440); that the report confuses the two, or that a save and a load set the date back, is a **hypothesis**, and the original is to be checked: 1102 taken, the date noted, and `Zeitum1102` seen to run.
+
+Not read: whether a save keeps the date and the timers, the drift seen in the running original, and a test by which a repaired drop could know that its partner quest is open (these quests set no bits of their own).
+The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), and the calendar's drift (#933).
+
 ## `SetNPCState`
 
 Read 2026-10-23 (#578); **confirmed** by code unless marked otherwise.
