@@ -342,8 +342,33 @@ The quests:
 
 To check in the original: 2411's cave entered before the quest and the trigger 519's state; the same for 2201's dungeon before `change2201`; Zaphod killed on the veranda and his key's cell and layer; 5003's altar stepped on mounted.
 
+### The log's quest items (10260)
+
+Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code and on the scripts unless marked otherwise.
+
+- The local hero's inventory entry keeps a list of main quest items, pairs of an item type and a key of 8 bytes each, which only a reset (`0x5D8520`, from `0x55D260`) empties; `0x6B0E00` walks it and shows an entry of the key 0 or −1 by its item type's name (**hypothesis**: the log's page of quest items).
+- `cInventoryEntry::addMainQuestItem` (`0x5D8280`) appends a pair unless an entry already has its type, or any entry has the key 0, and otherwise only logs that the item is there already: once an entry of the key 0 is in the list, no later quest item is ever added (that the add meant to compare with the new key, as its sibling `0x5D8490` does, is a **hypothesis**).
+- Every caller but one passes the object's key from `sdk_REFKEY` (`0x44A1C0`), the key of its script name (`+0x3C`), else its item type's name key (`+0x20`, `0x428830`): the pickup of a quest item (`0x558080`, at `0x558267` and `0x55923C`) and the collecting lists (`0x4AAAE0`, at `0x4AAEFB`), each destroying the picked object after the add, so that a picked quest item lives only in the list.
+- The exception is `CreateObj` (8, `0x485C10`): with `0x61` or `0x62`, an item type and no `0x8E`, it makes no object and gives the item straight to the local hero's list (`0x4868F6`), with the key of the record's first `0x01` name, or 0 where it names none (`0x4868DB` to `0x4868EA`), never the type's name key.
+  With a `0x41` it then runs that function (the name kept behind the prefix `Take:`), unless it runs inside that very function, where it makes the object in the world instead; with `0x8E` it makes the object in the world, marked as a quest item (`+0x14` bit `0x800`); inside a function whose quest is finished or not set up it does nothing (the running function's index `0x94E07C`, which `0x46BA90` sets and resets).
+- `0x3A` (`0x4987B0`) holds where the hero's list holds the named key, where the name maps to an existing object whose type is in the list or any entry of the list has the key 0 (`0x498860`, `0x4988B4`), or where the creature's 256 slots hold an object of that key.
+- **10260 (The Riddle in the Desert)**: `CreateVasen_10260` makes six vases; the right one's function `fillchest_chestQJ_03` gives the item 4609 with `0x61` and no `0x01`, so the entry (4609, 0) enters the hero's list, and the other five lose the quest, so the entry comes with the win alone (that a chest's `0x41` runs as it is opened is a **hypothesis**).
+  From then on no quest item of any quest reaches the list, the community's "the log stops recording quest items" (#957).
+  The record is identical in all 20 trees and the only one of its kind: of the 1,982 `CreateObj`s of `0x61` or `0x62`, 42 name nothing, 20 of them this one and 22 those of 2501 and 502, which carry `0x8E` and so take their type's name key as they are picked up (that their types have a name key is a **hypothesis**).
+- The quests that break test their items with `0x3A`:
+  - **154 (Where is the Blacksmith?)**: `drop154` makes 17630 (item 1749, `0x41` `take154`, `0x61`, `0x8E`); picked up, `take154` runs, but the add is refused and the object destroyed, so `Dialog:ziel154` never holds `0x3A` of 17630 and the quest cannot be finished.
+  - **9011 (Jacquaire's Revenge)**: its giver waits for bit 5 of `154`, which only `exit154` sets, and its own item 17684 is refused the same way.
+  - **402 (Whispers in the Wind)** and **601 (The Painting)**: `take402` and `takeit601` give 6029 and 6033 with `0x61`, which never enter the list, so their givers' `0x3A` branches are never reached.
+  - **204 (The Book of Wisdom)**, which the community does not report, ends without its reward: `exit204` gives the class's item only where `0x3A` of 17640 holds.
+  - In the Seraphim's tree these four names are the only ones that a `0x61` record makes and `0x3A` tests; the quests and their dialogues are the same in the 11 trees that hold them.
+  - **9006 (The Unknown Warrior)** has no item of its own, and its successor 9007's items 17525 to 17528 are world objects counted by their own function; but with an entry of the key 0, `0x3A` of each holds while it merely lies in the world, so its giver's dialogue takes an item's branch early and deletes with `DelOBJ` an item never taken, which is then never counted (**hypothesis**: that this is the community's "last stage", which its guide does not tie to the riddle, and that `DelOBJ` destroys an object lying in the world).
+- Raven Rock 1.3b reports fixing it in the interpreter, the fix applying as an old save loads (**community-reported**); that the list is saved with the hero is a **hypothesis** that fits it.
+- So the defect is the interpreter's, set off by one record of the data: a repair of the data names the record (`res:4609`, as 402 and 601 name their items) in all 20 trees; a repair of the VM falls back to the type's name key on the `0x61` path, refuses only a repeated type or key, and keeps an entry of the key 0 from answering `0x3A`, which also mends a state that already holds one.
+
+Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy; to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
+
 Not read: whether a save keeps the date and the timers, the drift seen in the running original, and a test by which a repaired drop could know that its partner quest is open (these quests set no bits of their own).
-The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944, #946 to #955).
+The repairs each change a quest's course, so each is a `bug` whose decision waits for the maintainer: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944, #946 to #955, #957).
 
 ## `SetNPCState`
 
