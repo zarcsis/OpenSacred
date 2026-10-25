@@ -242,6 +242,17 @@ pub enum Style {
     /// The Daemon's 1103 (`0x5192E0` at `0x51AD88`): below 0.3 of its clip a fan of bolts toward
     /// his target ([`fan`], [`fan_magic`], [`EMPEROR_COURSE`]).
     Fan,
+    /// The Dwarf's flamethrower 1085 (`gui_spells_flammenwerfer`, `0x514790` at `0x516D45`):
+    /// while what is left of its clip lies within [`FLAMES`], every hostile creature along the
+    /// [`FLAMES_LENGTH`] before him burns ([`Burn`], [`gun_damage`]).
+    Flamer,
+    /// His mortar 1086 (`gui_spells_moerser`): at its clip's first hit point a shell to his
+    /// target's place at least [`MORTAR_LEAST`] off, which strikes about it [`MORTAR_DELAY`]
+    /// later ([`mortar_point`]).
+    Mortar,
+    /// His cannon 1087 (`gui_spells_kanone`): a shot along the line to his target once what is
+    /// left of its clip falls below [`cannon_left`], striking every hostile creature on it.
+    Cannon,
     /// The Dwarf's 1084 (`gui_moves_kriegsrausch`, `0x514790` at `0x517BB5`), with a two-handed
     /// weapon alone: once, at its clip's first hit point, its target and every hostile creature
     /// about it ([`sweep_reaches`]), those at a part of its factor ([`sweep_factor`]).
@@ -520,6 +531,15 @@ pub fn style(art: u16) -> Option<Style> {
     }
     if art == 1101 {
         return Some(Style::Ring);
+    }
+    if art == 1085 {
+        return Some(Style::Flamer);
+    }
+    if art == 1086 {
+        return Some(Style::Mortar);
+    }
+    if art == 1087 {
+        return Some(Style::Cannon);
     }
     if art == 1103 {
         return Some(Style::Fan);
@@ -900,6 +920,20 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             ..plain(148)
         }),
         (8, Style::Boon) => Some(plain(154)),
+        // His guns the slots 147 (1085), 145 (1086) and 146 (1087) at the blend 0.5 and the rate
+        // [`GUN_RATE`] (`0x518CF6`, `0x518C65`, `0x518D87`).
+        (8, Style::Flamer) => Some(ArtAction {
+            rate: GUN_RATE,
+            ..plain(147)
+        }),
+        (8, Style::Mortar) => Some(ArtAction {
+            rate: GUN_RATE,
+            ..plain(145)
+        }),
+        (8, Style::Cannon) => Some(ArtAction {
+            rate: GUN_RATE,
+            ..plain(146)
+        }),
         // His 1084 the slot 144 at the blend 0.5 and the rate 1.0 (`0x518BF5`), which the order
         // refuses unless what his right hand holds is of the class 2 or 3 (`0x51D840`).
         (8, Style::Sweep) if matches!(class, 2 | 3) => Some(plain(144)),
@@ -1895,6 +1929,99 @@ pub fn fan(aim: [f32; 2], n: u32) -> Vec<[f32; 2]> {
 /// The course of a bolt of the Daemon's 1103 (`cParticleSystem_emperor`): its speed, 500, less 300
 /// a second, for 1.14 s, some 375 units.
 pub const EMPEROR_COURSE: (f32, f32, f32) = (500.0, 300.0, 1.14);
+
+/// The rate of the Dwarf's guns' clips: the stats' `+0x3E` over 100, 1.2 for the 120 a hero has
+/// at the start (**hypothesis**: nothing raises it yet; docs/re/fight.md, "The values").
+pub const GUN_RATE: f32 = 1.2;
+
+/// The damage of a kind of the Dwarf's guns, its record's pair `[base, step]` at the level in play
+/// `level`, his multiplier of the kind `multiplier` and the gun's factor `gun` (`0x4D21C0`,
+/// [`crate::fight::Rules::glance_factor`] of his `a2`): `⌊⌊(base + step·L)·m⌋·g⌋`.
+pub fn gun_damage([base, step]: [f32; 2], level: u32, multiplier: f32, gun: f64) -> f32 {
+    let value = f64::from(level).mul_add(f64::from(step), f64::from(base));
+    let first = whole_units(value * f64::from(multiplier));
+    narrow(f64::from(
+        i32::try_from(whole_units(
+            f64::from(i32::try_from(first).unwrap_or(0)) * gun,
+        ))
+        .unwrap_or(0),
+    ))
+}
+
+/// What is left of the flamethrower's clip within which it burns (`0x516D45`): from 0.65 to 0.2.
+pub const FLAMES: [f32; 2] = [0.65, 0.2];
+/// How far before the Dwarf his flames reach (`0x44CDF0`).
+pub const FLAMES_LENGTH: f32 = 300.0;
+
+/// The seconds of the flamethrower's burns, of `record` at the level in play `level`:
+/// `max(2, ⌊([+0x60] + [+0x64]·L)/([+0x68] + [+0x6C]·L)⌋)` (3 at the level 1).
+pub fn flame_seconds(record: &WeaponArt, level: u32) -> u32 {
+    daemon_ratio(record, level).max(2)
+}
+
+/// How near the Dwarf a mortar's shell lands at least, how long after it leaves it strikes, and
+/// how far about its point (`0x5B40CD`, `0x5B05E3`; the impact 1020's size).
+pub const MORTAR_LEAST: f32 = 200.0;
+pub const MORTAR_DELAY: f32 = 0.775;
+pub const MORTAR_REACH: f32 = 150.0;
+
+/// Where the Dwarf's mortar shell lands, from `here` toward the point `aim` (his target's place,
+/// else the action's point): the point itself, or where it lies nearer than [`MORTAR_LEAST`],
+/// that far along the line to it, truncated; along `facing` where the point is within 20.
+pub fn mortar_point(here: [f32; 2], aim: [f32; 2], facing: [f32; 2]) -> [f32; 2] {
+    let [dx, dy] = [aim[0] - here[0], aim[1] - here[1]];
+    let distance = dx.hypot(dy);
+    if distance >= MORTAR_LEAST {
+        return aim;
+    }
+    let [ux, uy] = if distance > 20.0 {
+        [dx / distance, dy / distance]
+    } else {
+        facing
+    };
+    [
+        (here[0] + ux * MORTAR_LEAST).trunc(),
+        (here[1] + uy * MORTAR_LEAST).trunc(),
+    ]
+}
+
+/// What is left of the cannon's clip below which it shoots, its target `distance` off
+/// (`0x5174E7`): `0.5 − 0.0002·d`, `d` held to 100 to 1,000, later the farther.
+pub fn cannon_left(distance: f32) -> f32 {
+    0.5 - 0.0002 * distance.clamp(100.0, 1000.0)
+}
+
+/// The cannon's line: steps of 40 to the first cell that stops it, at most 25.
+pub const CANNON_STEP: f32 = 40.0;
+pub const CANNON_STEPS: u32 = 25;
+/// The part of each damage that the cannon's shot deals a creature other than its target, at
+/// least 1 each; and how far its knockback slides a creature.
+pub const CANNON_OTHERS: f32 = 0.1;
+pub const CANNON_KNOCK: f32 = 100.0;
+
+/// The damages of the cannon's shot of `record` at the level in play `level`, the Dwarf's
+/// multipliers `multipliers` and gun factor `gun`, on its target (`target`) or another: the
+/// physical of `[+0x50] + [+0x54]·L` times his fire multiplier, the fire of `[+0x58] +
+/// [+0x5C]·L` times his physical one (**hypothesis**: swapped by a defect, as the code reads),
+/// another creature a tenth of each, at least 1 each.
+pub fn cannon_damages(
+    record: &WeaponArt,
+    level: u32,
+    multipliers: [f32; 4],
+    gun: f64,
+    target: bool,
+) -> [f32; 4] {
+    let physical = gun_damage(record.factor, level, multipliers[1], gun);
+    let fire = gun_damage(record.value_58, level, multipliers[0], gun);
+    let part = |d: f32| {
+        if target {
+            d
+        } else {
+            (d * CANNON_OTHERS).trunc().max(1.0)
+        }
+    };
+    [part(physical), part(fire), 0.0, 0.0]
+}
 
 /// How long the Daemon's blast lives, in seconds, and until when its radius grows (its particle
 /// system's `0x7C1790` and `0x7C1890`).

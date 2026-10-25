@@ -1671,6 +1671,69 @@ fn the_daemons_ring_burns_and_his_emperor_fans_out() {
 }
 
 #[test]
+fn the_dwarfs_guns_burn_shell_and_shoot() {
+    // GOG 2.28's 1085: `[+0x58]` 12 + 12·L, `[+0x60]` 93 + 122·L, `[+0x68]` 50 + 20·L; 1086:
+    // 9 + 13.5·L both; 1087: `[+0x50]` 18 + 27·L.
+    assert_eq!(
+        [1085, 1086, 1087].map(style),
+        [
+            Some(Style::Flamer),
+            Some(Style::Mortar),
+            Some(Style::Cannon)
+        ]
+    );
+    assert_eq!(
+        [Style::Flamer, Style::Mortar, Style::Cannon]
+            .map(|s| action(8, s, 1).map(|a| (a.clip, a.rate))),
+        [
+            Some((ArtClip::Slot(147), GUN_RATE)),
+            Some((ArtClip::Slot(145), GUN_RATE)),
+            Some((ArtClip::Slot(146), GUN_RATE))
+        ]
+    );
+    // `⌊⌊24·1.3⌋·1.2⌋`: 31 then 37.
+    assert_eq!(gun_damage([12.0, 12.0], 1, 1.3, 1.2), 37.0);
+    let flamer = WeaponArt {
+        value_58: [12.0, 12.0],
+        value_60: [93, 122],
+        value_68: [50, 20],
+        ..weapon_art(1085, [0.0; 2], 0x40_0000)
+    };
+    assert_eq!(
+        (flame_seconds(&flamer, 1), flame_seconds(&flamer, 10)),
+        (3, 5)
+    );
+    // The shell at least 200 off, along the line or, too near, along his facing.
+    assert_eq!(
+        mortar_point([0.0, 0.0], [300.0, 0.0], [0.0, 1.0]),
+        [300.0, 0.0]
+    );
+    assert_eq!(
+        mortar_point([0.0, 0.0], [100.0, 0.0], [0.0, 1.0]),
+        [200.0, 0.0]
+    );
+    assert_eq!(
+        mortar_point([0.0, 0.0], [5.0, 0.0], [0.0, 1.0]),
+        [0.0, 200.0]
+    );
+    // The cannon's shot later the farther: 0.48 left at 100, 0.30 at 1,000.
+    assert!((cannon_left(50.0) - 0.48).abs() < 1e-6 && (cannon_left(2000.0) - 0.3).abs() < 1e-6);
+    let cannon = WeaponArt {
+        factor: [18.0, 27.0],
+        ..weapon_art(1087, [0.0; 2], 0x40_0000)
+    };
+    // 45 by the fire multiplier 1.5, on the target; a tenth, at least 1 each, on another.
+    assert_eq!(
+        cannon_damages(&cannon, 1, [1.2, 1.5, 1.0, 1.0], 1.0, true),
+        [67.0, 0.0, 0.0, 0.0]
+    );
+    assert_eq!(
+        cannon_damages(&cannon, 1, [1.2, 1.5, 1.0, 1.0], 1.0, false),
+        [6.0, 1.0, 0.0, 0.0]
+    );
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));

@@ -190,7 +190,7 @@ fn fire(
         let direction = (shot.toward - at.translation)
             .xz()
             .try_normalize()
-            .unwrap_or_else(|| (at.rotation * Vec3::Z).xz().normalize_or(Vec2::Y));
+            .unwrap_or_else(|| (at.rotation * Vec3::X).xz().normalize_or(Vec2::X));
         debug!(
             "bolts: {} fires {} {:?} of {damages:?}",
             shot.shooter,

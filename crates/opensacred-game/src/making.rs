@@ -94,6 +94,9 @@ pub fn clips(
         Style::Charge,
         Style::Ring,
         Style::Fan,
+        Style::Flamer,
+        Style::Mortar,
+        Style::Cannon,
         Style::Sweep,
         Style::Smite,
         Style::Blades,
@@ -374,6 +377,17 @@ fn bone(
         }
     }
     found.map(|(_, at)| at)
+}
+
+/// The distance of `point` from the segment from `from` to `to` (`0x6226B0`).
+fn segment_distance(point: Vec2, from: Vec2, to: Vec2) -> f32 {
+    let line = to - from;
+    let along = if line.length_squared() > f32::EPSILON {
+        ((point - from).dot(line) / line.length_squared()).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (from + line * along - point).length()
 }
 
 /// A whole distance on the ground, as the original's integer square root gives it.
@@ -1126,6 +1140,184 @@ fn make(
                 }
                 arts.start(making.art);
                 end(&mut commands);
+            }
+            Style::Flamer | Style::Mortar | Style::Cannon => {
+                // The Dwarf's guns (`0x514790`), their damages by his multipliers and his gun's
+                // factor, his `a2`'s and his skill 2's (`0x4D21C0`).
+                let Some(record) = arts
+                    .tables
+                    .weapon_arts
+                    .iter()
+                    .find(|a| a.id == making.art)
+                    .cloned()
+                else {
+                    end(&mut commands);
+                    continue;
+                };
+                let multipliers = combat.map_or([1.0; 4], |combat| combat.multipliers);
+                let gun = rules.glance_factor(
+                    &arts.skills,
+                    combat.map_or(0.0, |combat| combat.attributes[2]),
+                );
+                let facing = (transform.rotation * Vec3::X).xz().normalize_or(Vec2::X);
+                let target = creatures
+                    .get(playing.target)
+                    .ok()
+                    .filter(|(.., health)| health.current > 0)
+                    .map(|(_, at, ..)| at.translation());
+                let first = playing.points.first().copied().unwrap_or(0.5);
+                let hostile_near = |from: Vec2, to: Vec2| -> Vec<(Entity, &Mind)> {
+                    creatures
+                        .iter()
+                        .filter(|&(entity, at, mind, health)| {
+                            let size = sizes.get(entity).map_or(crate::arrows::size(0), |s| s.0);
+                            mind.hostile()
+                                && health.current > 0
+                                && segment_distance(at.translation().xz(), from, to)
+                                    < crate::arrows::size(0) + size
+                        })
+                        .map(|(entity, _, mind, _)| (entity, mind))
+                        .collect()
+                };
+                match playing.style {
+                    Style::Flamer => {
+                        // At its clip's first hit point its regeneration starts; while what is
+                        // left of its clip lies within the flames' part, every hostile creature
+                        // along the line before him burns, once a burn; below it, it ends
+                        // (`0x516D45`).
+                        if playing.struck == 0 && due(first, done) {
+                            playing.struck = 1;
+                            arts.start(making.art);
+                        }
+                        let left = 1.0 - done;
+                        if left < arts::FLAMES[1] || finished {
+                            end(&mut commands);
+                            continue;
+                        }
+                        if left < arts::FLAMES[0] {
+                            let fire = arts::gun_damage(
+                                record.value_58,
+                                playing.level,
+                                multipliers[1],
+                                gun,
+                            );
+                            let seconds = to_f32(arts::flame_seconds(&record, playing.level));
+                            let from = here.xz();
+                            let burned: Vec<Entity> =
+                                hostile_near(from, from + facing * arts::FLAMES_LENGTH)
+                                    .into_iter()
+                                    .map(|(entity, _)| entity)
+                                    .collect();
+                            if !burned.is_empty() {
+                                commands
+                                    .entity(hero)
+                                    .entry::<crate::burns::Burns>()
+                                    .or_default()
+                                    .and_modify(move |mut burns| {
+                                        for entity in burned {
+                                            if burns.add(entity, arts::Burn::new(fire, 1, seconds))
+                                            {
+                                                debug!("making: the flames burn {entity}");
+                                            }
+                                        }
+                                    });
+                            }
+                        }
+                    }
+                    Style::Mortar => {
+                        // At its clip's first hit point, a shell to its target's place, else
+                        // its point, at least 200 off, which strikes 0.775 s later; its
+                        // regeneration starts and it ends (`0x514790`, `0x5B40CD`).
+                        if !due(first, done) {
+                            if finished {
+                                end(&mut commands);
+                            }
+                            continue;
+                        }
+                        let aim = target.unwrap_or(playing.point);
+                        let at =
+                            arts::mortar_point(here.xz().into(), aim.xz().into(), facing.into());
+                        let damages = [
+                            arts::gun_damage(record.factor, playing.level, multipliers[0], gun),
+                            arts::gun_damage(record.value_58, playing.level, multipliers[1], gun),
+                            0.0,
+                            0.0,
+                        ];
+                        info!(
+                            "making: {} throws a shell to {at:?} of {damages:?}",
+                            making.art
+                        );
+                        commands.spawn(crate::guns::Shell::thrown(
+                            hero,
+                            Vec2::from(at),
+                            body.level(),
+                            damages,
+                        ));
+                        arts.start(making.art);
+                        end(&mut commands);
+                    }
+                    _ => {
+                        // While what is left of its clip lies above `0.5 − 0.0002·d` he turns to
+                        // his target; then the shot along the line to it, to the first cell
+                        // that stops it, strikes every hostile creature on it and may knock it
+                        // back; its regeneration starts and it ends (`0x5174E7`).
+                        let aim = target.unwrap_or(playing.point);
+                        let line = (aim - here).xz();
+                        if !due(1.0 - arts::cannon_left(line.length()), done) {
+                            if target.is_some() && line.length() > f32::EPSILON {
+                                transform.rotation = hero::facing(line.extend(0.0).xzy());
+                            }
+                            if finished {
+                                end(&mut commands);
+                            }
+                            continue;
+                        }
+                        let direction = line.try_normalize().unwrap_or(facing);
+                        let from = here.xz();
+                        let mut reach = 0.0;
+                        for step in 1..=arts::CANNON_STEPS {
+                            let at = from + direction * arts::CANNON_STEP * to_f32(step);
+                            if !heights.walkable_on(crate::paths::cell_of(at.x, at.y), body.level())
+                            {
+                                break;
+                            }
+                            reach = arts::CANNON_STEP * to_f32(step);
+                        }
+                        let struck = hostile_near(from, from + direction * reach);
+                        info!("making: {} shoots {} creatures", making.art, struck.len());
+                        for (entity, mind) in struck {
+                            let damages = arts::cannon_damages(
+                                &record,
+                                playing.level,
+                                multipliers,
+                                gun,
+                                entity == playing.target,
+                            );
+                            hits.write(fight::Hit {
+                                attacker: hero,
+                                target: entity,
+                                share: 1.0,
+                                ranged: false,
+                                art: None,
+                                fixed: Some(damages),
+                                sure: true,
+                            });
+                            if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
+                                commands
+                                    .entity(entity)
+                                    .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                                    .insert(Knocked {
+                                        by: hero,
+                                        from: here,
+                                        left: arts::CANNON_KNOCK,
+                                        held: 0.0,
+                                    });
+                            }
+                        }
+                        arts.start(making.art);
+                        end(&mut commands);
+                    }
+                }
             }
             Style::Ring | Style::Fan => {
                 // Below 0.3 of its clip, once: the ring of poison burns every hostile creature
