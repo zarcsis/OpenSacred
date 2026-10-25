@@ -528,10 +528,12 @@ mod tests {
         // win (11 trees), 5005's loss (20), 10255's restart (20), Glubba's death (9), 501's loss
         // (9) and 1702's target (9) gain one each, 1401's day (11) loses its one; 301's and 302's
         // losses gain two (9), 9009's win three (11), the 5.7.4 entrance two (20) and the air's
-        // compass three (9); 501's new loss holds two (11); Jacquaire moves.
+        // compass three (9); 501's new loss holds two (11); Jacquaire moves; 2303's dialogue (11)
+        // loses one.
         assert_eq!(
             summary.records,
             2_203_278 + 11 + 20 + 20 + 9 + 9 + 9 - 11 + 2 * 9 + 3 * 11 + 2 * 20 + 3 * 9 + 2 * 11
+                - 11
         );
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
@@ -553,8 +555,10 @@ mod tests {
                 ("quest 1702's target hostile again (#948)", 9),
                 ("quest 1803's three days (#932)", 11),
                 ("quest 2002's monsters once it is entered (#953)", 20),
+                ("quest 2203's count its own (#943)", 11),
                 ("quest 2203's win entering it (#936)", 11),
                 ("quest 501 lost at 55's end (#947)", 9),
+                ("quest 501's ghosts in a group of their own (#951)", 11),
                 ("quest 501's loss (#947)", 11),
                 ("quest 5003's seeker's decline (#955)", 20),
                 ("quest 5005's loss on its last leg (#939)", 20),

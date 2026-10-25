@@ -37,6 +37,8 @@ const QUEST_KOMPASS_POS: u16 = 63;
 const QUEST_KOMPASS_OBJ: u16 = 64;
 const ELSEIF: u16 = 66;
 const SET_GROUP_STATE: u16 = 73;
+/// `SetVarBit`.
+const SET_VAR_BIT: u16 = 68;
 const INFO_PLAYER: u16 = 132;
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
@@ -188,7 +190,7 @@ pub struct Addition {
 }
 
 /// The repairs of functions that `netscript` makes.
-pub const EDITS: [Edit; 23] = [
+pub const EDITS: [Edit; 25] = [
     Edit {
         what: "quest 10260's item named (#957)",
         function: "fillchest_chestQJ_03",
@@ -303,6 +305,16 @@ pub const EDITS: [Edit; 23] = [
         what: "Jacquaire not made by the box (#959)",
         function: "OMO9006rg6_goodie1_waldrand",
         edit: jacquaire_not_again,
+    },
+    Edit {
+        what: "quest 2203's count its own (#943)",
+        function: "Dialog:ziel2303",
+        edit: count_apart,
+    },
+    Edit {
+        what: "quest 501's ghosts in a group of their own (#951)",
+        function: "QIS_OnEnter501",
+        edit: |records| ghosts_apart(records),
     },
 ];
 
@@ -901,6 +913,42 @@ fn jacquaire_not_again(records: &mut Vec<Record>) -> Result<(), String> {
     Ok(())
 }
 
+/// 2303's dialogue of its win sets bit 2 of `2303a`, which nothing reads, while 2203's objects
+/// count in that variable (`obj2203`): ORed into a count below 4 (`0x49B840`), it makes 2203's
+/// count of six hold early or never. The write goes.
+fn count_apart(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(records, "SetVarBit of bit 2 of 2303a", SET_VAR_BIT, |r| {
+        has(r, 0x01, &text("2303a")) && has(r, 0x0B, &Value::I32(2))
+    })?;
+    records.remove(i);
+    Ok(())
+}
+
+/// The group that 501's 13 ghosts take, which no record of any tree names, beside 501's other
+/// groups 50012 and 50013.
+const GHOSTS: i32 = 50_014;
+
+/// 501's start makes 13 ghosts in the group 5001, which is 5002's camp too, the groups being
+/// global by their number (`0x4A9EF0`): 5002's test waits for them, its attacks go at them and
+/// its removal destroys them. They take a group of their own ([`GHOSTS`]), which nothing tests.
+fn ghosts_apart(records: &mut [Record]) -> Result<(), String> {
+    let camp = Value::I32(5001);
+    let ghosts: Vec<usize> = (0..records.len())
+        .filter(|&i| records[i].kind == CREATE_NPC && has(&records[i], 0x11, &camp))
+        .collect();
+    if ghosts.len() != 13 {
+        return Err("13 CreateNPCs of the group 5001".to_owned());
+    }
+    for i in ghosts {
+        if let Body::Operands(ops) = &mut records[i].body {
+            for o in ops.iter_mut().filter(|o| o.tag == 0x11 && o.value == camp) {
+                o.value = Value::I32(GHOSTS);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 602's knight 17136, whom `ok1_602` walks once, is named 17163 after, the two digits swapped:
 /// quest 1202's target, whom `ritterweg_602` would delete. The `count` operands become his.
 fn knight(records: &mut [Record], count: usize) -> Result<(), String> {
@@ -1293,6 +1341,39 @@ mod tests {
             ]
         );
         assert!(air_last(&mut records).is_err());
+    }
+
+    #[test]
+    fn quests_2203_and_501_keep_their_count_and_their_group() {
+        let set = |variable: &str, n| {
+            new(
+                SET_VAR_BIT,
+                vec![op(0x01, text(variable)), op(0x0B, Value::I32(n))],
+            )
+        };
+        let mut records = vec![set("2303", 2), set("2303a", 2), new(NOP, Vec::new())];
+        count_apart(&mut records).unwrap();
+        assert_eq!(records, [set("2303", 2), new(NOP, Vec::new())]);
+        assert!(count_apart(&mut records).is_err());
+        let ghost = |group| {
+            new(
+                CREATE_NPC,
+                vec![
+                    op(0x02, Value::I32(46)),
+                    op(0x04, Value::Name("pos_geist9-501".into())),
+                    op(0x11, Value::I32(group)),
+                    op(0x08, Value::Marker),
+                ],
+            )
+        };
+        let mut records = vec![ghost(551); 4];
+        records.extend(vec![ghost(5001); 13]);
+        records.push(ghost(50012));
+        ghosts_apart(&mut records).unwrap();
+        assert_eq!(records[..4], vec![ghost(551); 4]);
+        assert_eq!(records[4..17], vec![ghost(GHOSTS); 13]);
+        assert_eq!(records[17], ghost(50012));
+        assert!(ghosts_apart(&mut records).is_err());
     }
 
     #[test]
