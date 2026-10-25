@@ -679,6 +679,13 @@ pub struct Npc {
     pace: f32,
 }
 
+impl Npc {
+    /// The factor of its walk and run speeds and of their clips' rate ([`repace`]).
+    pub fn pace(&self) -> f32 {
+        self.pace
+    }
+}
+
 /// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
 #[derive(Clone)]
 struct Clips {
@@ -4212,6 +4219,14 @@ fn relevel(
     ))
 }
 
+/// Gives an NPC the pace `pace`, its walk and run speeds by it.
+pub(crate) fn repace(mind: &mut ai::Mind, npc: &mut Npc, pace: f32) {
+    let ratio = pace / npc.pace.max(f32::EPSILON);
+    mind.speed *= ratio;
+    mind.run *= ratio;
+    npc.pace = pace;
+}
+
 /// Makes an NPC's attack, defence, damage, resistances and pace anew at its level `grade` and of
 /// its rank `rank` with its effects `effects` (#763), its walk and run by its new pace, as
 /// [`rearm`] makes them with its weapons, and its hits' share; returns its regeneration's value
@@ -4227,10 +4242,7 @@ pub(crate) fn refit(
     let (values, share) = arms.fight_with(grade, rank, rules, effects);
     // Its pace times its time's factor, the effect 15's (`0x537160`).
     let pace = values.0.pace_factor() * opensacred_rules::fight::time_factor(effects);
-    let ratio = pace / npc.pace.max(f32::EPSILON);
-    mind.speed *= ratio;
-    mind.run *= ratio;
-    npc.pace = pace;
+    repace(mind, npc, pace);
     npc.share = share;
     *combat = values;
     let skills = fight::skills(&arms.base, grade, arms.plain);
@@ -4430,11 +4442,7 @@ fn rearm(
         }
         let (values, share) = arms.fight(grade, rank.0, &npcs.fight);
         // Its pace by what it holds now, and its walk and run by it.
-        let pace = values.0.pace_factor();
-        let ratio = pace / npc.pace.max(f32::EPSILON);
-        mind.speed *= ratio;
-        mind.run *= ratio;
-        npc.pace = pace;
+        repace(&mut mind, &mut npc, values.0.pace_factor());
         *combat = values;
         npc.share = share;
         let in_hands: Vec<InHand> = arms.holding.iter().map(|&(held, _)| held).collect();

@@ -679,6 +679,47 @@ fn keep(
     }
 }
 
+/// A follower of the hero walks and runs at the hero's pace, its walk's and run's clips with it
+/// (`0x585070`: a creature of the flags `0x104` whose master lists it, or a player's, takes its
+/// master's pace), times its own time's factor, the effect 15's (`0x537160`); the mounted, which
+/// keep their own, are not followers of the game.
+fn paces(
+    hero: Option<Res<crate::hero::Hero>>,
+    heroes: Query<(), With<Body>>,
+    mut followers: Query<
+        (
+            &Follower,
+            &mut Mind,
+            &mut crate::npcs::Npc,
+            Option<&crate::effects::Effects>,
+        ),
+        Without<Dies>,
+    >,
+) {
+    let Some(hero) = hero else {
+        return;
+    };
+    for (follower, mut mind, mut npc, effects) in &mut followers {
+        if !heroes.contains(follower.master) {
+            continue;
+        }
+        let time = effects.map_or(1.0, |effects| {
+            opensacred_rules::fight::time_factor(&effects.list())
+        });
+        let pace = hero.pace * time;
+        if (npc.pace() - pace).abs() > PACE_DIFFERS {
+            debug!(
+                "followers: {} keeps its master's pace {pace:.2}",
+                mind.creature
+            );
+            crate::npcs::repace(&mut mind, &mut npc, pace);
+        }
+    }
+}
+
+/// How far a follower's pace may stand off its master's before it takes it again.
+const PACE_DIFFERS: f32 = 1e-4;
+
 /// As the fallen hero rises, each follower of its takes its health back (`0x53E460`).
 fn risen(
     rose: On<Remove<Dies>>,
@@ -713,6 +754,7 @@ impl Plugin for FollowersPlugin {
                     .in_set(Step::Crowd)
                     .run_if(crate::frame::ticked),
             )
+            .add_systems(Update, paces.in_set(Step::Crowd))
             .add_observer(risen);
     }
 }
