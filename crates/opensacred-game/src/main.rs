@@ -13,6 +13,7 @@ mod blast;
 mod blended;
 mod bolts;
 mod buildings;
+mod burns;
 mod command;
 mod console;
 mod crowd;
@@ -261,11 +262,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         blended::BlendedPlugin,
         bolts::BoltsPlugin,
         buildings::BuildingsPlugin,
+        burns::BurnsPlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
-        crowd::CrowdPlugin,
     ))
     .add_plugins((
+        crowd::CrowdPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
         drops::DropsPlugin,
@@ -280,9 +282,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         hud::HudPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
-        liquids::LiquidsPlugin,
     ))
     .add_plugins((
+        liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
         models::ModelsPlugin,
@@ -297,9 +299,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-        souls::SoulsPlugin,
     ))
     .add_plugins((
+        souls::SoulsPlugin,
         sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
