@@ -525,9 +525,14 @@ mod tests {
         let summary = convert(&game, &out, false).unwrap();
         assert_eq!(summary.trees, 20);
         // The installation's records, and those that the quests' repairs add and take away: 2203's
-        // win (11 trees), 5005's loss (20), 10255's restart (20) and Glubba's death (9) gain one
-        // each, 1401's day (11) loses its one.
-        assert_eq!(summary.records, 2_203_278 + 11 + 20 + 20 + 9 - 11);
+        // win (11 trees), 5005's loss (20), 10255's restart (20), Glubba's death (9), 501's loss
+        // (9) and 1702's target (9) gain one each, 1401's day (11) loses its one; 301's and 302's
+        // losses gain two (9), 9009's win three (11), the 5.7.4 entrance two (20) and the air's
+        // compass three (9); 501's new loss holds two (11); Jacquaire moves.
+        assert_eq!(
+            summary.records,
+            2_203_278 + 11 + 20 + 20 + 9 + 9 + 9 - 11 + 2 * 9 + 3 * 11 + 2 * 20 + 3 * 9 + 2 * 11
+        );
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
         assert_eq!((summary.repaired_trees, summary.repaired_cells), (11, 11));
@@ -535,6 +540,8 @@ mod tests {
         assert_eq!(
             summary.repairs,
             BTreeMap::from([
+                ("Jacquaire made at 9006's end (#959)", 11),
+                ("Jacquaire not made by the box (#959)", 11),
                 ("quest 1001's start (#942)", 11),
                 ("quest 10255's restart (#940)", 20),
                 ("quest 10260's item named (#957)", 20),
@@ -543,16 +550,24 @@ mod tests {
                 ("quest 1401's day (#941)", 11),
                 ("quest 1401's soldier's death function (#944)", 11),
                 ("quest 1402's smugglers' function (#944)", 11),
+                ("quest 1702's target hostile again (#948)", 9),
                 ("quest 1803's three days (#932)", 11),
+                ("quest 2002's monsters once it is entered (#953)", 20),
                 ("quest 2203's win entering it (#936)", 11),
+                ("quest 501 lost at 55's end (#947)", 9),
+                ("quest 501's loss (#947)", 11),
                 ("quest 5003's seeker's decline (#955)", 20),
                 ("quest 5005's loss on its last leg (#939)", 20),
+                ("quest 61's compass after the four elements (#958)", 9),
+                ("quest 61's compass in the 5.7 dungeon (#958)", 20),
                 ("quest 602's knight's id (#949)", 11),
                 ("quest 602's knight's id, removed (#949)", 11),
                 ("quest 670's Glubba dying (#950)", 9),
                 ("quest 670's loss (#950)", 9),
                 ("quest 7619's follower after the win (#938)", 11),
                 ("quest 7619's follower's death after the win (#938)", 11),
+                ("quest 9009's win before 2203's barrel (#935)", 11),
+                ("quests 301 and 302 lost at 55's start (#946)", 9),
             ])
         );
         assert_eq!(summary.warnings, Vec::<String>::new());
@@ -563,7 +578,8 @@ mod tests {
             .iter()
             .find(|t| t.source == "bin/NetScriptCamp")
             .unwrap();
-        assert_eq!(camp.functions, 23_520);
+        // Its functions and 501's loss.
+        assert_eq!(camp.functions, 23_520 + 1);
         let tree = Tree::decode(&fs::read(output_dir(&out).join(&camp.file)).unwrap()).unwrap();
         assert_eq!(tree.records(), camp.records);
         assert_eq!(tree.regions.len(), 22);
