@@ -605,7 +605,7 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1005 {
         return Some(Style::Volley);
     }
-    if matches!(art, 1004 | 1007 | 1008) {
+    if matches!(art, 1004 | 1006 | 1007 | 1008) {
         return Some(Style::Arrow);
     }
     if art == 1043 {
@@ -1435,6 +1435,27 @@ pub fn domination_seconds(record: &WeaponArt, level: u32, target: u32) -> f32 {
     } else {
         narrow(seconds)
     }
+}
+
+/// The spiders that the spider arrow 1006 makes at its first hit (`0x5BB010`): their type, their
+/// side, a friend of the heroes', their flags word, the guards' (`0x4000`, docs/re/ai.md), and how
+/// long they live, the effect 29's time.
+pub const SPIDER: u32 = 71;
+pub const SPIDERS_SIDE: u8 = 7;
+pub const SPIDERS_FLAGS: u32 = 0x4000;
+pub const SPIDERS_LIVE: f32 = 15.0;
+
+/// How many spiders the spider arrow of `record` at the level in play `level` makes, and their
+/// level, the local hero of the level `hero` (`0x5BB010`): `⌊([+0x60] + [+0x64]·L) / ([+0x68] +
+/// [+0x6C]·L)⌋`, `⌊(10 + 130·L) / (50 + 20·L)⌋` in GOG 2.28, at least 1, each of the level
+/// `min(5·L, M)` (`0x564D60`).
+pub fn spiders(record: &WeaponArt, level: u32, hero: u32) -> (u32, u32) {
+    let value = |[base, step]: [i32; 2]| i64::from(base) + i64::from(step) * i64::from(level);
+    let below = value(record.value_68).max(1);
+    let count = u32::try_from(value(record.value_60) / below)
+        .unwrap_or(0)
+        .max(1);
+    (count, (5 * level).min(hero).max(1))
 }
 
 /// What is left of its clip, as a part of it, below which the call of the wolf makes its

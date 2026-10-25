@@ -170,6 +170,85 @@ fn hire(world: &mut World, entity: Entity, master: Entity) {
     info!("followers: {master} hires {entity}");
 }
 
+/// Makes `count` spiders of `level` about `target`, the spider arrow's (1006, `0x5BB010`): no
+/// followers, but of the side 7, a friend of the heroes', with the guards' flags, each sent at
+/// `target` and given the effect 29 for 15 s, at whose going it dies (`effects::LIFETIME`).
+pub fn spiders(commands: &mut Commands, target: Entity, count: u32, level: u32) {
+    commands.queue(move |world: &mut World| make_spiders(world, target, count, level));
+}
+
+/// Makes the spider arrow's spiders ([`spiders`]).
+fn make_spiders(world: &mut World, target: Entity, count: u32, level: u32) {
+    use opensacred_rules::arts::{SPIDER, SPIDERS_FLAGS, SPIDERS_LIVE, SPIDERS_SIDE};
+    let (Some(at), Some(way)) = (
+        world.get::<Transform>(target).map(|at| at.translation),
+        world.get::<InTheWay>(target).map(|way| way.level),
+    ) else {
+        return;
+    };
+    let mut heroes = world.query_filtered::<&Transform, With<Body>>();
+    let hero = heroes
+        .iter(world)
+        .next()
+        .map_or((i32::MIN, i32::MIN), |hero| {
+            crate::paths::cell_of(hero.translation.x, hero.translation.z)
+        });
+    let Some(heights) = world.get_resource::<Heights>() else {
+        return;
+    };
+    let floor = heights.floor(way).map_or(0, |(_, floor)| i32::from(floor));
+    let centre = crate::paths::cell_of(at.x, at.z);
+    let count = usize::try_from(count).unwrap_or(1);
+    let cells: Vec<(u32, u32)> = crate::debug::cells_about(heights, centre, way, count, hero)
+        .into_iter()
+        .filter_map(|(x, y)| Some((u32::try_from(x).ok()?, u32::try_from(y).ok()?)))
+        .collect();
+    let request = crate::npcs::Spawn {
+        creature: SPIDER,
+        cells,
+        floor,
+        level: Some(level),
+        rank: crate::fight::Rank::Common,
+        hostile: Some(false),
+        immortal: false,
+        roams: true,
+    };
+    let made = match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
+        Ok(Ok(made)) => made,
+        Ok(Err(e)) => {
+            warn!("followers: no spider is made: {e}");
+            return;
+        }
+        Err(e) => {
+            warn!("followers: no spider is made: {e}");
+            return;
+        }
+    };
+    info!(
+        "followers: {} spiders of level {level} at {target}",
+        made.len()
+    );
+    for entity in made {
+        let Ok(mut spider) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        if let Some(mut mind) = spider.get_mut::<Mind>() {
+            mind.flags = SPIDERS_FLAGS;
+            mind.side = SPIDERS_SIDE;
+            mind.send_at(target);
+        }
+        if let Some(mut way) = spider.get_mut::<InTheWay>() {
+            way.stands.hostile = false;
+        }
+        let mut effects = crate::effects::Effects::default();
+        effects.add(
+            opensacred_rules::fight::Effect::new(crate::effects::LIFETIME, 15.0),
+            SPIDERS_LIVE,
+        );
+        spider.insert(effects);
+    }
+}
+
 /// The heading of `transform`, of a model facing +X (`hero::facing`), in radians from the grid's
 /// x toward its y.
 fn heading(transform: &Transform) -> f32 {

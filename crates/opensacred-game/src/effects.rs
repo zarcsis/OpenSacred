@@ -89,15 +89,41 @@ impl Effects {
     }
 }
 
+/// The effect whose going kills an NPC: the raised dead's and the spiders' time (`0x586D80`).
+pub const LIFETIME: u32 = 29;
+
 /// Counts each creature's effects down by the tick's seconds; the list counts as changed only
-/// when one runs out, so that the values are made anew then.
-fn wear(tick: Res<WorldTick>, mut creatures: Query<&mut Effects>) {
+/// when one runs out, so that the values are made anew then. An NPC whose effect 29 goes dies,
+/// its health set to 0 (`0x586D80`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn wear(
+    mut commands: Commands,
+    tick: Res<WorldTick>,
+    mut creatures: Query<(
+        Entity,
+        &mut Effects,
+        Option<&mut fight::Health>,
+        Has<Body>,
+        Has<npcs::Dies>,
+    )>,
+) {
     let Some(seconds) = tick.seconds else {
         return;
     };
-    for mut effects in &mut creatures {
+    for (entity, mut effects, health, hero, dead) in &mut creatures {
+        let lived = effects.holds(LIFETIME);
         if effects.bypass_change_detection().wear(seconds) {
             effects.set_changed();
+            if lived && !effects.holds(LIFETIME) && !hero && !dead {
+                debug!("effects: {entity}'s time is out");
+                if let Some(mut health) = health {
+                    health.current = 0;
+                }
+                commands.entity(entity).insert(npcs::Dies::by_creature(0));
+            }
         }
     }
 }
