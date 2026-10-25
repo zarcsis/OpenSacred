@@ -22,6 +22,9 @@ import package::order;
 /// Each model's root (`shadows::Grounds`), by the mesh's tag: the plane of its shadow is at its
 /// height, as the original's is at the object's (`+0xF0`).
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var<storage, read> grounds: array<vec4<f32>>;
+/// Each model's floor (`models::Anchors`), by the mesh's tag, as the models' shader takes it: for
+/// a model under a liquid's surface, how far back its place lies, third.
+@group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> floors: array<vec4<f32>>;
 
 /// How far a point moves along X on the plane per unit of its height above it: the original's
 /// shadow takes a point `z` above it to `(x + z/2, y − z/2)` in its frame of the models, `x`
@@ -44,6 +47,8 @@ struct Flattened {
     @location(0) @interpolate(flat) anchor: vec4<f32>,
     /// The height of the shadow's plane.
     @location(1) @interpolate(flat) ground: f32,
+    /// How far back the model's place lies under a liquid's surface.
+    @location(2) @interpolate(flat) sunk: f32,
 };
 
 struct Shade {
@@ -96,6 +101,7 @@ fn vertex(vertex_no_morph: Vertex) -> Flattened {
     var out: Flattened;
     out.ground = grounds[tag].y;
     out.anchor = anchors[tag];
+    out.sunk = floors[tag].z;
     out.position = position_world_to_clip(flatten(world.xyz, out.ground));
     return out;
 }
@@ -103,8 +109,9 @@ fn vertex(vertex_no_morph: Vertex) -> Flattened {
 /// The depth of the plane at height `ground` in the pixel row `row`, from the row alone: every
 /// triangle of a shadow over a pixel gives it the same depth to the bit, and the first one drawn
 /// there keeps the others out, as the original's stencil does (`0x643470`, state `0x10000`).
-/// The model's own depth of that point, as the models' shader takes it, squeezed.
-fn plane_depth(row: f32, anchor: vec4<f32>, ground: f32) -> f32 {
+/// The model's own depth of that point, as the models' shader takes it, squeezed, at the model's
+/// place, `sunk` units further back under a liquid's surface.
+fn plane_depth(row: f32, anchor: vec4<f32>, ground: f32, sunk: f32) -> f32 {
     let up = view.world_from_view[1].xyz;
     let back = view.world_from_view[2].xyz;
     // The row's height in the view, in world units: the projection is orthographic.
@@ -114,7 +121,7 @@ fn plane_depth(row: f32, anchor: vec4<f32>, ground: f32) -> f32 {
     // is level, so the column does not matter.
     let ahead = (view.world_position.y + up.y * along - ground) / back.y;
     let own = dot(view.world_position - anchor.xyz, back) - ahead;
-    let place = vec4(anchor.x, 0.0, anchor.z, anchor.w);
+    let place = vec4(vec3(anchor.x, 0.0, anchor.z) - back * sunk, anchor.w);
     return order::depth(place, SQUEEZE * (own - BEHIND));
 }
 
@@ -122,6 +129,6 @@ fn plane_depth(row: f32, anchor: vec4<f32>, ground: f32) -> f32 {
 fn fragment(in: Flattened) -> Shade {
     var out: Shade;
     out.colour = vec4(0.0, 0.0, 0.0, DARKNESS);
-    out.depth = plane_depth(in.position.y, in.anchor, in.ground);
+    out.depth = plane_depth(in.position.y, in.anchor, in.ground, in.sunk);
     return out;
 }

@@ -7,7 +7,8 @@
 //! as the model is, in the shadows' layer (`blended::Layer::Shadows`), over what the
 //! original draws before the model and under the model and what it draws after; the depth test
 //! keeps a shadow's later triangles off the pixels its first ones darkened, where the original
-//! has the stencil (docs/decisions/2026-10-19-model-shadows.md).
+//! has the stencil (docs/decisions/2026-10-19-model-shadows.md). The shadow of a model under a
+//! liquid's surface (`models::Sunk`) lies with it, in the layer under the liquids.
 
 use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::camera::visibility::NoFrustumCulling;
@@ -23,7 +24,7 @@ use bevy::shader::ShaderRef;
 
 use crate::blended::{self, Layer};
 use crate::frame::Step;
-use crate::models::{Anchors, Fringe, ModelMaterial, Ordered, OrderedWith};
+use crate::models::{Anchors, Fringe, ModelMaterial, Ordered, OrderedWith, Sunk};
 
 /// The shader of [`ShadowMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/shadows.wesl";
@@ -38,14 +39,18 @@ pub struct Casts;
 #[derive(Component)]
 pub struct Shadow;
 
-/// The material of the shadows, which every one shares: the models' anchors, for their places,
-/// and their roots, for their planes.
+/// The material of the shadows, which every one of a layer shares: the models' anchors, for their
+/// places, their roots, for their planes, and their floors, for how far back the sunk ones lie.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct ShadowMaterial {
     #[storage(0, read_only)]
     anchors: Handle<ShaderBuffer>,
     #[storage(1, read_only)]
     grounds: Handle<ShaderBuffer>,
+    #[storage(2, read_only)]
+    floors: Handle<ShaderBuffer>,
+    /// The shadows' layer, or the one under the liquids for the sunk models'.
+    layer: Layer,
 }
 
 impl Material for ShadowMaterial {
@@ -62,7 +67,7 @@ impl Material for ShadowMaterial {
     }
 
     fn depth_bias(&self) -> f32 {
-        Layer::Shadows.bias()
+        self.layer.bias()
     }
 
     fn enable_prepass() -> bool {
@@ -114,9 +119,19 @@ impl FromWorld for Grounds {
     }
 }
 
-/// The shared [`ShadowMaterial`].
+/// The shared [`ShadowMaterial`]s: of the shadows' layer, and of the layer under the liquids.
 #[derive(Resource)]
-pub struct Shared(Handle<ShadowMaterial>);
+pub struct Shared {
+    dry: Handle<ShadowMaterial>,
+    wet: Handle<ShadowMaterial>,
+}
+
+impl Shared {
+    /// The material of a shadow whose model is sunk or not.
+    fn material(&self, sunk: bool) -> &Handle<ShadowMaterial> {
+        if sunk { &self.wet } else { &self.dry }
+    }
+}
 
 pub fn setup(
     mut commands: Commands,
@@ -124,10 +139,18 @@ pub fn setup(
     anchors: Res<Anchors>,
     grounds: Res<Grounds>,
 ) {
-    commands.insert_resource(Shared(materials.add(ShadowMaterial {
-        anchors: anchors.buffer().clone(),
-        grounds: grounds.buffer.clone(),
-    })));
+    let mut in_layer = |layer| {
+        materials.add(ShadowMaterial {
+            anchors: anchors.buffer().clone(),
+            grounds: grounds.buffer.clone(),
+            floors: anchors.floor_buffer().clone(),
+            layer,
+        })
+    };
+    commands.insert_resource(Shared {
+        dry: in_layer(Layer::Shadows),
+        wet: in_layer(Layer::UnderLiquids),
+    });
 }
 
 /// A model's root, of its own place or its holder's.
@@ -144,15 +167,15 @@ type ModelMesh = (
 
 /// Gives each mesh that has just taken its model material, of a model that casts a shadow, a
 /// copy beside it that draws the shadow: the same mesh, skinned to the same joints, tagged with
-/// the same slot, shown while the mesh is. A held model, an NPC's weapon, casts none, as the
-/// client flattens the creature's own model alone.
+/// the same slot, shown while the mesh is, in its model's layer. A held model, an NPC's weapon,
+/// casts none, as the client flattens the creature's own model alone.
 pub fn cast(
     mut commands: Commands,
     shared: Res<Shared>,
     meshes: Query<ModelMesh, (Added<MeshMaterial3d<ModelMaterial>>, Without<Fringe>)>,
     parents: Query<&ChildOf>,
     models: Query<(), Model>,
-    casters: Query<(), (With<Casts>, With<Ordered>)>,
+    casters: Query<Has<Sunk>, (With<Casts>, With<Ordered>)>,
 ) {
     for (entity, mesh, skinned, tag, transform, parent) in &meshes {
         let Some(root) = parents
@@ -161,12 +184,12 @@ pub fn cast(
         else {
             continue;
         };
-        if !casters.contains(root) {
+        let Ok(sunk) = casters.get(root) else {
             continue;
-        }
+        };
         let mut shadow = commands.spawn((
             Mesh3d(mesh.0.clone()),
-            MeshMaterial3d(shared.0.clone()),
+            MeshMaterial3d(shared.material(sunk).clone()),
             tag.clone(),
             *transform,
             ChildOf(parent.parent()),
@@ -176,6 +199,28 @@ pub fn cast(
         ));
         if let Some(skinned) = skinned {
             shadow.insert(skinned.clone());
+        }
+    }
+}
+
+/// Gives the shadow of each caster that has just sunk under a liquid's surface, or come out of
+/// one, the material of its layer.
+fn soak(
+    sunk: Query<Entity, (Added<Sunk>, With<Casts>)>,
+    mut dried: RemovedComponents<Sunk>,
+    wet: Query<(), With<Sunk>>,
+    shared: Res<Shared>,
+    children: Query<&Children>,
+    mut shadows: Query<&mut MeshMaterial3d<ShadowMaterial>, With<Shadow>>,
+) {
+    for root in sunk.iter().chain(dried.read()) {
+        let wanted = shared.material(wet.contains(root));
+        for entity in children.iter_descendants(root) {
+            if let Ok(mut material) = shadows.get_mut(entity)
+                && material.0 != *wanted
+            {
+                material.0 = wanted.clone();
+            }
         }
     }
 }
@@ -217,7 +262,7 @@ impl Plugin for ShadowsPlugin {
         app.add_plugins(MaterialPlugin::<ShadowMaterial>::default())
             .init_resource::<Grounds>()
             .add_systems(Startup, setup)
-            .add_systems(Update, (cast, ground).chain().in_set(Step::Shadows));
+            .add_systems(Update, (cast, soak, ground).chain().in_set(Step::Shadows));
     }
 }
 

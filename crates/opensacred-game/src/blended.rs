@@ -27,7 +27,8 @@ const STEP: f32 = 100_000.0;
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Layer {
     /// The miniatures of the liquid cells, which the original draws before the surfaces
-    /// (`0x62E410`).
+    /// (`0x62E410`), and the translucent texels and the shadows of the models it draws there
+    /// (`models::Sunk`).
     UnderLiquids,
     /// The clear waters' second layer, which the liquids' pass draws before the surfaces
     /// (`0x62DD00`).

@@ -25,7 +25,9 @@ import package::order;
 
 /// For each model standing on an upper storey's floor (`statics::Floor::under`), by the mesh's
 /// tag: the height of the floor's plane, how far behind the ground point under a point of the
-/// plane the model lies at most, and 1 last; zero for any other model.
+/// plane the model lies at most, and 1 last; for a model under a liquid's surface
+/// (`models::Sunk`), how far back along the line of sight its place lies, third; zero for any
+/// other model.
 @group(constants::MATERIAL_BIND_GROUP) @binding(101) var<storage, read> floors: array<vec4<f32>>;
 
 /// The part of a vertex's own depth from its model's anchor that it keeps: a model about 80 units
@@ -105,15 +107,15 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
 
     out.world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
     out.position = position_world_to_clip(out.world_position.xyz);
-    // The anchor's place, and the vertex's own depth from the anchor, squeezed; on a floor, no
-    // further back than its plane.
+    // The anchor's place, under a liquid's surface as far back as its sunk models lie, and the
+    // vertex's own depth from the anchor, squeezed; on a floor, no further back than its plane.
     let tag = mesh_functions::get_tag(vertex_no_morph.instance_index);
     let anchor = anchors[tag];
+    let floor = floors[tag];
     let back = view.world_from_view[2].xyz;
-    let place = vec4(anchor.x, 0.0, anchor.z, anchor.w);
+    let place = vec4(vec3(anchor.x, 0.0, anchor.z) - back * floor.z, anchor.w);
     let own = dot(out.world_position.xyz - anchor.xyz, back);
     out.position.z = order::depth(place, SQUEEZE * own);
-    let floor = floors[tag];
     if floor.w > 0.5 {
         out.position.z = max(out.position.z, on_floor(out.world_position.xyz, floor, own));
     }

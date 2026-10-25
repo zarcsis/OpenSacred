@@ -14,6 +14,10 @@
 //! (docs/decisions/2026-10-22-model-alpha.md): its opaque texels through the depth buffer, then,
 //! by a copy of the mesh ([`Fringe`]), the others that the original's alpha test keeps, blended by
 //! their alpha in the objects' layer of the blended things ([`Pass`]).
+//!
+//! A model that the original draws under a liquid's surface ([`Sinks`]) lies, while it stands in
+//! a liquid cell ([`Sunk`]), as far back as the liquid cells' miniatures, its translucent texels
+//! in their layer.
 
 use std::collections::HashMap;
 
@@ -39,7 +43,7 @@ use crate::frame::Step;
 use crate::hero::Body;
 use crate::npcs::Object;
 use crate::terrain::Heights;
-use crate::{blended, iso, statics};
+use crate::{blended, iso, paths, statics};
 
 /// The shader of [`ModelMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/models.wesl";
@@ -75,9 +79,10 @@ pub enum Pass {
     /// texels, which [`Pass::Fringe`] draws.
     Body,
     /// The translucent ones that the alpha test keeps, blended by their alpha over what lies
-    /// behind them, in the objects' layer of the blended things, as the original blends them;
-    /// their depth tested and written, as the original's (docs/re/drawing.md, "The models").
-    Fringe,
+    /// behind them, in the model's layer of the blended things (the objects', or under the
+    /// liquids for a [`Sunk`] model), as the original blends them; their depth tested and
+    /// written, as the original's (docs/re/drawing.md, "The models").
+    Fringe(Layer),
 }
 
 /// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
@@ -100,7 +105,7 @@ pub struct InOrderKey {
 impl From<&InOrder> for InOrderKey {
     fn from(extension: &InOrder) -> Self {
         Self {
-            fringe: extension.pass == Pass::Fringe,
+            fringe: matches!(extension.pass, Pass::Fringe(_)),
         }
     }
 }
@@ -140,7 +145,8 @@ impl MaterialExtension for InOrder {
 /// centre of the model's cell at the cell's height, from which the model's own depth is measured,
 /// and the place in the cell. The place in the order is that centre at height 0, as the sprites'
 /// (#112). And the floor that the model stands on, if it stands on an upper storey's
-/// ([`statics::Floor::under`]), zero for any other.
+/// ([`statics::Floor::under`]), zero for any other; but for a [`Sunk`] model, how far back along
+/// the line of sight its place lies, in the third coordinate.
 #[derive(Resource)]
 pub struct Anchors {
     buffer: Handle<ShaderBuffer>,
@@ -155,6 +161,11 @@ impl Anchors {
     /// The shader's buffer of the anchors, by slot.
     pub fn buffer(&self) -> &Handle<ShaderBuffer> {
         &self.buffer
+    }
+
+    /// The shader's buffer of the floors and of how far back the sunk models' places lie, by slot.
+    pub fn floor_buffer(&self) -> &Handle<ShaderBuffer> {
+        &self.floor_buffer
     }
 }
 
@@ -190,13 +201,28 @@ impl Ordered {
     }
 }
 
+/// The root of a model that the original draws under a liquid's surface while it lies in a
+/// liquid cell: the row walk sends a world object of such a cell whose type passes `0x434070`, of
+/// the category `0x20` (the waters' crab and fish) or an item of a `Weapon.pak` record, to the
+/// liquid cells' objects rather than to the lists, unless it is a chest's (`0x62AE90` at
+/// `0x62CB04`), and `0x62E410` draws those before the surfaces (docs/re/drawing.md, "The liquid
+/// cells").
+#[derive(Component)]
+pub struct Sinks;
+
+/// The root of a [`Sinks`] model that stands in a liquid cell: its place in the order lies as far
+/// back as the liquid cells' miniatures ([`statics::UNDER_LIQUIDS_BACK`]), under the surfaces,
+/// and its translucent texels and its shadow are drawn in their layer ([`Layer::UnderLiquids`]).
+#[derive(Component)]
+pub struct Sunk;
+
 /// The model material of `base` that draws its texels of `pass`: a mesh of it, tagged with a
 /// model's slot of the `anchors`, is drawn at that model's place in the order.
 pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelMaterial {
     let (alpha_mode, depth_bias) = match pass {
         Pass::Tested => (AlphaMode::Mask(CUTOFF), base.depth_bias),
         Pass::Body => (AlphaMode::Mask(OPAQUE), base.depth_bias),
-        Pass::Fringe => (AlphaMode::Blend, Layer::Objects.bias()),
+        Pass::Fringe(layer) => (AlphaMode::Blend, layer.bias()),
     };
     ModelMaterial {
         base: StandardMaterial {
@@ -257,16 +283,27 @@ pub struct OrderedWith(pub Entity);
 pub struct Unplaced;
 
 /// The copy of a model's mesh that draws the translucent texels of its material
-/// ([`Pass::Fringe`]), a child of the mesh.
-#[derive(Component)]
-pub struct Fringe;
+/// ([`Pass::Fringe`]), a child of the mesh: its material in the objects' layer, and in the layer
+/// under the liquids, which it takes while its model is [`Sunk`].
+#[derive(Component, Clone)]
+pub struct Fringe {
+    dry: Handle<ModelMaterial>,
+    wet: Handle<ModelMaterial>,
+}
+
+impl Fringe {
+    /// The material of a fringe whose model is sunk or not.
+    fn material(&self, sunk: bool) -> &Handle<ModelMaterial> {
+        if sunk { &self.wet } else { &self.dry }
+    }
+}
 
 /// The model materials made of a glTF material: of its meshes, and of their [`Fringe`] copies if
 /// it has translucent texels.
 #[derive(Clone)]
 struct Made {
     mesh: Handle<ModelMaterial>,
-    fringe: Option<Handle<ModelMaterial>>,
+    fringe: Option<Fringe>,
 }
 
 /// The model materials made of the glTF ones, by the glTF material.
@@ -286,7 +323,7 @@ impl Plugin for ModelsPlugin {
             .add_observer(hold)
             .add_observer(release)
             .add_observer(ready)
-            .add_systems(Update, (convert, place).chain().in_set(Step::Models));
+            .add_systems(Update, (convert, place, soak).chain().in_set(Step::Models));
     }
 }
 
@@ -361,8 +398,8 @@ type ModelMesh = (
 /// Gives the meshes of each model that has just spawned the model materials of their glTF
 /// materials (after `npcs::retexture` has given them their item's texture) and their root's
 /// slot of the anchors for a tag; and each mesh whose material has translucent texels a
-/// [`Fringe`] copy, the same mesh skinned to the same joints, tagged with the same slot. A model
-/// waits for the images of its materials, whose alpha says which have them.
+/// [`Fringe`] copy, the same mesh skinned to the same joints, tagged with the same slot, in its
+/// root's layer. A model waits for the images of its materials, whose alpha says which have them.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources as arguments"
@@ -370,7 +407,7 @@ type ModelMesh = (
 pub fn convert(
     mut commands: Commands,
     models: Query<(Entity, Option<&OrderedWith>), With<Unplaced>>,
-    roots: Query<&Ordered>,
+    roots: Query<(&Ordered, Has<Sunk>)>,
     children: Query<&Children>,
     meshes: Query<ModelMesh>,
     standard: Res<Assets<StandardMaterial>>,
@@ -382,7 +419,7 @@ pub fn convert(
 ) {
     'models: for (model, with) in &models {
         let root = with.map_or(model, |with| with.0);
-        let Ok(Ordered(Some(slot))) = roots.get(root) else {
+        let Ok((Ordered(Some(slot)), sunk)) = roots.get(root) else {
             commands.entity(model).remove::<Unplaced>();
             continue;
         };
@@ -402,9 +439,15 @@ pub fn convert(
                 continue 'models;
             };
             let both = if translucent {
+                let mut in_layer =
+                    |layer| materials.add(in_order(base.clone(), &anchors, Pass::Fringe(layer)));
+                let fringe = Fringe {
+                    dry: in_layer(Layer::Objects),
+                    wet: in_layer(Layer::UnderLiquids),
+                };
                 Made {
                     mesh: materials.add(in_order(base.clone(), &anchors, Pass::Body)),
-                    fringe: Some(materials.add(in_order(base.clone(), &anchors, Pass::Fringe))),
+                    fringe: Some(fringe),
                 }
             } else {
                 Made {
@@ -428,10 +471,10 @@ pub fn convert(
             };
             let mut copy = commands.spawn((
                 Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(fringe),
+                MeshMaterial3d(fringe.material(sunk).clone()),
                 MeshTag::new(*slot),
                 ChildOf(entity),
-                Fringe,
+                fringe,
             ));
             if let Some(skinned) = skinned {
                 copy.insert(skinned.clone());
@@ -473,24 +516,34 @@ fn storey(
     Some((building, 1u8.checked_shl(u32::from(floor))?))
 }
 
-/// A model's root as [`place`] reads it: where it stands, its slot, its layer, the hero's body and
-/// a script's object.
+/// A model's root as [`place`] reads it: where it stands, its slot, its layer, the hero's body, a
+/// script's object, and whether it sinks under a liquid's surface and is sunk now.
 type Root = (
+    Entity,
     &'static Transform,
     &'static Ordered,
     Option<&'static Layered>,
     Option<&'static Body>,
     Option<&'static Object>,
+    (Has<Sinks>, Has<Sunk>),
 );
 
-/// Keeps each model's anchor at the cell its root stands in, and the floor it stands on, and the
-/// shader's buffers with them. A script's object takes its own cell's place, its logical
-/// position's, wherever its model stands: the client chains the object into the list of the cell
-/// at its position on its layer (`0x5FCCB0`), which the row walk draws after the cell's statics
-/// (`0x62AE90`), while it draws the model at the floats `+0xCC…+0xD4` (docs/re/drawing.md, "The
-/// models"); so the leaf of an upper storey's door, whose model stands in the cell before its
-/// own, is drawn over the back wall's sprites of its cell (#459).
+/// Whether a model that [`Sinks`] whose root stands at `root` lies under a liquid's surface: in a
+/// liquid cell, of the natures `WATERA` and `WATERB` (`0x62AE90`).
+fn sunk(heights: &Heights, root: Vec3) -> bool {
+    heights.liquid_bed(paths::cell_of(root.x, root.z)).is_some()
+}
+
+/// Keeps each model's anchor at the cell its root stands in, and the floor it stands on, or how
+/// far back it lies under a liquid's surface ([`Sunk`]), and the shader's buffers with them. A
+/// script's object takes its own cell's place, its logical position's, wherever its model stands:
+/// the client chains the object into the list of the cell at its position on its layer
+/// (`0x5FCCB0`), which the row walk draws after the cell's statics (`0x62AE90`), while it draws
+/// the model at the floats `+0xCC…+0xD4` (docs/re/drawing.md, "The models"); so the leaf of an
+/// upper storey's door, whose model stands in the cell before its own, is drawn over the back
+/// wall's sprites of its cell (#459).
 pub fn place(
+    mut commands: Commands,
     heights: Res<Heights>,
     roots: Query<Root>,
     floors: Query<&statics::Floor>,
@@ -499,15 +552,27 @@ pub fn place(
 ) {
     let floors: HashMap<(buildings::Anchor, u8), &statics::Floor> =
         floors.iter().map(|floor| (floor.part, floor)).collect();
-    for (transform, ordered, layered, body, object) in &roots {
+    for (entity, transform, ordered, layered, body, object, (sinks, was)) in &roots {
         let Some(slot) = ordered.0.and_then(|slot| usize::try_from(slot).ok()) else {
             continue;
         };
         let root = object.map_or(transform.translation, |object| object.at);
         let at = anchor(&heights, root);
-        let on = storey(&heights, layered, body)
-            .and_then(|part| floors.get(&part))
-            .map_or(Vec4::ZERO, |floor| floor.under(place_of(root)));
+        let under = sinks && sunk(&heights, root);
+        if under != was {
+            if under {
+                commands.entity(entity).insert(Sunk);
+            } else {
+                commands.entity(entity).remove::<Sunk>();
+            }
+        }
+        let on = if under {
+            Vec4::new(0.0, 0.0, statics::UNDER_LIQUIDS_BACK, 0.0)
+        } else {
+            storey(&heights, layered, body)
+                .and_then(|part| floors.get(&part))
+                .map_or(Vec4::ZERO, |floor| floor.under(place_of(root)))
+        };
         let anchors = &mut *anchors;
         if let (Some(anchor), Some(floor)) =
             (anchors.anchors.get_mut(slot), anchors.floors.get_mut(slot))
@@ -526,6 +591,28 @@ pub fn place(
             let data: Vec<[f32; 4]> = values.iter().map(|a| a.to_array()).collect();
             if let Some(mut buffer) = buffers.get_mut(handle) {
                 *buffer = ShaderBuffer::new(data, RenderAssetUsages::default());
+            }
+        }
+    }
+}
+
+/// Gives the [`Fringe`] copies of each model that has just sunk under a liquid's surface, or come
+/// out of one, the material of its layer.
+fn soak(
+    sunk: Query<Entity, Added<Sunk>>,
+    mut dried: RemovedComponents<Sunk>,
+    wet: Query<(), With<Sunk>>,
+    children: Query<&Children>,
+    mut fringes: Query<(&Fringe, &mut MeshMaterial3d<ModelMaterial>)>,
+) {
+    for root in sunk.iter().chain(dried.read()) {
+        let under = wet.contains(root);
+        for entity in children.iter_descendants(root) {
+            if let Ok((fringe, mut material)) = fringes.get_mut(entity) {
+                let wanted = fringe.material(under);
+                if material.0 != *wanted {
+                    material.0 = wanted.clone();
+                }
             }
         }
     }
@@ -589,9 +676,12 @@ mod tests {
         // keeps blended in the objects' layer: the fringe's shader keeps those of alpha 65 to 254.
         let body = in_order(material.clone(), &anchors(), Pass::Body);
         assert_eq!(mask(&body), 255);
-        let fringe = in_order(material, &anchors(), Pass::Fringe);
+        let fringe = in_order(material.clone(), &anchors(), Pass::Fringe(Layer::Objects));
         assert_eq!(fringe.base.alpha_mode, AlphaMode::Blend);
         assert_eq!(fringe.base.depth_bias, Layer::Objects.bias());
+        // A sunk model's, under the liquids' surfaces.
+        let wet = in_order(material, &anchors(), Pass::Fringe(Layer::UnderLiquids));
+        assert_eq!(wet.base.depth_bias, Layer::UnderLiquids.bias());
         let shader = include_str!("standard.wesl");
         let kept = |alpha: u8| {
             let alpha = f32::from(alpha) / 255.0;
@@ -718,5 +808,71 @@ mod tests {
             anchor(&heights, inside),
             Vec4::new(centre.x, 7.0, centre.z, PLACE)
         );
+    }
+
+    #[test]
+    fn a_sinking_model_lies_under_the_surface_in_a_liquid_cell() {
+        use bevy::ecs::system::RunSystemOnce;
+        use opensacred_data::world::{Cell, SIDE};
+
+        // A sector whose cell (3, 0) lies under the water of its first slot, over a bed of −10.
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [-10; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let mut cells = vec![cell(0x40); SIDE * SIDE];
+        cells[3] = cell(0x92);
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [1, 0],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let (wet, dry) = (iso::ground(3.5, 0.5), iso::ground(4.5, 0.5));
+        assert!(sunk(&heights, wet) && !sunk(&heights, dry));
+
+        let mut world = World::new();
+        world.init_resource::<Assets<ShaderBuffer>>();
+        world.insert_resource(heights);
+        world.init_resource::<Anchors>();
+        world.add_observer(hold);
+        // A fish in the water, and a model that does not sink beside it.
+        let root = |world: &mut World, at: Vec3| {
+            world
+                .spawn((Transform::from_translation(at), Ordered::default()))
+                .id()
+        };
+        let fish = root(&mut world, wet);
+        world.entity_mut(fish).insert(Sinks);
+        let other = root(&mut world, wet);
+        world.run_system_once(place).unwrap();
+        let floor = |world: &World, entity: Entity| {
+            let slot = world.get::<Ordered>(entity).unwrap().slot().unwrap();
+            world.resource::<Anchors>().floors[usize::try_from(slot).unwrap()]
+        };
+        assert!(world.entity(fish).contains::<Sunk>());
+        assert_eq!(
+            floor(&world, fish),
+            Vec4::new(0.0, 0.0, statics::UNDER_LIQUIDS_BACK, 0.0)
+        );
+        assert!(!world.entity(other).contains::<Sunk>());
+        assert_eq!(floor(&world, other), Vec4::ZERO);
+        // Out of the water, it lies among the lists again.
+        world.get_mut::<Transform>(fish).unwrap().translation = dry;
+        world.run_system_once(place).unwrap();
+        assert!(!world.entity(fish).contains::<Sunk>());
+        assert_eq!(floor(&world, fish), Vec4::ZERO);
     }
 }
