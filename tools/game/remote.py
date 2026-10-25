@@ -96,11 +96,12 @@ def lines(snapshot):
             out.append(f'nearest creature  health {current}/{most}  level {level}')
         if snapshot.get('experience'):
             level, experience = snapshot['experience']
+            gold = f"  gold {snapshot['gold']}" if snapshot.get('gold') is not None else ''
             if snapshot.get('health'):
                 current, most = snapshot['health']
-                out.append(f'hero level {level}  health {current}/{most}  experience {experience}')
+                out.append(f'hero level {level}  health {current}/{most}  experience {experience}{gold}')
             else:
-                out.append(f'hero level {level}  experience {experience}')
+                out.append(f'hero level {level}  experience {experience}{gold}')
     return out
 
 

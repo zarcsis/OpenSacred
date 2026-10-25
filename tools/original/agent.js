@@ -801,6 +801,13 @@ const WORLD = {
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
   addEffect: ptr('0x582d50'),        // the stats: thiscall (stats, id, whole, value, seconds, art, 0, 0, 0), an effect
+  addGold: ptr('0x57fd80'),          // the stats: thiscall (stats, amount), the gold's handler: adds the amount (less
+                                     // than 0 too) when the integrity test 0x590730 passes, else kills the hero for
+                                     // good, so the gold is never written directly
+  makeObject: ptr('0x5fb530'),       // the object manager: thiscall (manager, type), an object of the type, its id
+  slotOf: ptr('0x54acc0'),           // cCreature: thiscall (creature, type), the slot an item of the type goes in
+  putInSlot: ptr('0x555e00'),        // cCreature: thiscall (creature, slot, object's id, 1), the object put there, as a
+                                     // juggler's roll of 9 takes its instrument (0x4F2A47, docs/re/ai.md)
   // The cells (docs/re/movement.md, "Positions and layers"): a position is 16 bytes, the sector's number (u16, 0 to
   // look it up), x and y (i32, cells or world units) and the floor (u8 at +0x0C); a layer is 0 for the ground, else
   // the Static.PAK record of a building's floor.
@@ -821,7 +828,14 @@ const CREATURE = {
   id: 0x0c, type: 0x10, x: 0x1c, y: 0x20, floor: 0x24, layer: 0x2c, ai: 0xfc, aiSub: 0xfe, target: 0x104,
   action: 0x150, actionSub: 0x152, gait: 0x1f8, dialogue: 0x245, experience: 0x3b4, level: 0x3fe, most: 0x4d4,
   health: 0x4d8,
+  // Its 19 equipment slots, an object's id each (docs/re/equipment.md).
+  slots: 0x1a4,
+  // Its home, a position of 13 bytes (the sector's word, x and y in world units, the floor), where an animal strolls
+  // and a guard keeps its post, and where the hero rises after its death (0x5413ED): StartPosition (0x491B30) and
+  // cEngine::cEngine copy the hero's position into it, SetNPCState's 0x4D sets it (docs/re/netscript.md).
+  home: 0x2b9, homeX: 0x2bd, homeY: 0x2c1, homeFloor: 0x2c5,
 };
+const SLOTS = 19;
 const CLOCK = { dayRate: 0x10, nightRate: 0x14, hours: 0x20, minutes: 0x22, seconds: 0x24, fraction: 0x28 };
 // A creature's stats at +0x3A8 (docs/re/fight.md, docs/re/items.md, "The bonus slots in the values").
 const STATS = 0x3a8;
@@ -829,7 +843,10 @@ const STAT = {
   speeds: 0x3c, attributes: 0x10, base: 0x4a, level: 0x56, attack: 0x5a, defence: 0x5e, resistances: 0x66,
   most: 0x76, least: 0x86, itemMultipliers: 0x96, multipliers: 0xa6, other: 0xb6, resistanceMultipliers: 0xd6,
   attackMultiplier: 0xe6, defenceMultiplier: 0xea, mostHealth: 0x12c, health: 0x130,
+  // The gold, which the gold's handler 0x57FD80 adds to and holds below 0x7FFFFFFF.
+  gold: 0x46,
 };
+const MOST_GOLD = 0x7ffffffe;
 const VIEW_ZOOM = 0xb60;
 const VIEW_SCREEN_TO_WORLD = 6;      // the view's virtual function: thiscall (view, x, y, position*)
 
@@ -848,6 +865,10 @@ const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint3
 const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float', 'uint32', 'uint32'], 'thiscall');
 const addEffect = new NativeFunction(WORLD.addEffect, 'void',
   ['pointer', 'uint32', 'int32', 'float', 'float', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
+const addGold = new NativeFunction(WORLD.addGold, 'void', ['pointer', 'int32'], 'thiscall');
+const makeObject = new NativeFunction(WORLD.makeObject, 'uint32', ['pointer', 'uint32'], 'thiscall');
+const slotOf = new NativeFunction(WORLD.slotOf, 'int32', ['pointer', 'uint32'], 'thiscall');
+const putInSlot = new NativeFunction(WORLD.putInSlot, 'void', ['pointer', 'uint32', 'uint32', 'uint32'], 'thiscall');
 // A creature's combat arts (docs/re/arts.md, "A creature's arts"): entries of 22 bytes between the pointers at
 // +0x102 and +0x106 of its stats.
 const ART = { list: 0x102, end: 0x106, size: 22, table: 0, id: 4, level: 6, bonus: 7, flags: 8, time: 10, factor: 14,
@@ -1081,7 +1102,7 @@ function snapshot(engine) {
   const out = { objects: objectCount(), creatures: all.length, clock: readClock(), zoom: view(engine).add(VIEW_ZOOM).readFloat() };
   if (h !== null) {
     const me = readCreature(h);
-    out.hero = me;
+    out.hero = { ...me, gold: h.add(STATS + STAT.gold).readS32() };
     let nearest = null;
     let best = Infinity;
     for (const object of all) {
@@ -1411,6 +1432,73 @@ const COMMANDS = {
     }
     const made = madeBy(() => dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32()));
     return { made: made.map(describeMade).filter((m) => m !== null) };
+  },
+  // The hero's gold (#973), or brought to `to` through the gold's handler, as a pile picked up or a price paid
+  // changes it: written directly, it fails the handler's integrity test, which then kills the hero for good.
+  gold: (engine, { to }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    const gold = h.add(STATS + STAT.gold);
+    if (to !== null && to !== undefined) {
+      addGold(h.add(STATS), Math.min(to, MOST_GOLD) - gold.readS32());
+    }
+    return gold.readS32();
+  },
+  // The hero's home, where it rises after its death (#973), or set to a cell's centre on a floor, its sector's number
+  // filled in as a position's is.
+  home: (engine, { x, y, floor }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    if (x !== null && x !== undefined) {
+      const theWorld = WORLD.objects.readPointer().readPointer();
+      const position = cellPosition(x, y, floor);
+      if (theWorld.isNull() || sectorOfCell(theWorld, position) === 0) {
+        throw new Error(`${x},${y} lies in no sector of the world`);
+      }
+      h.add(CREATURE.home).writeU16(position.readU16());
+      h.add(CREATURE.homeX).writeS32(Math.floor((x + 0.5) * CELL));
+      h.add(CREATURE.homeY).writeS32(Math.floor((y + 0.5) * CELL));
+      h.add(CREATURE.homeFloor).writeU8(floor);
+    }
+    return {
+      sector: h.add(CREATURE.home).readU16(),
+      cell: [Math.floor(h.add(CREATURE.homeX).readS32() / CELL), Math.floor(h.add(CREATURE.homeY).readS32() / CELL)],
+      floor: h.add(CREATURE.homeFloor).readU8(),
+    };
+  },
+  // What the hero holds and wears, by its 19 slots (#973); with a type, an item of it made and put into the hero's
+  // slot for it, or into `slot`, as a juggler takes its instrument: what the slot held is put aside.
+  wear: (engine, { type, slot }) => {
+    const h = hero();
+    if (h === null) {
+      throw new Error('no hero');
+    }
+    let put = null;
+    if (type !== null && type !== undefined) {
+      const into = slot ?? slotOf(h, type);
+      if (into < 0 || into >= SLOTS) {
+        throw new Error(`an item of type ${type} goes in no slot of the hero: give --slot`);
+      }
+      const id = makeObject(WORLD.objects.readPointer(), type);
+      if (id === 0 || objectById(id) === null) {
+        throw new Error(`no object of type ${type} was made`);
+      }
+      putInSlot(h, into, id, 1);
+      put = { slot: into, id };
+    }
+    const slots = [];
+    for (let i = 0; i < SLOTS; i += 1) {
+      const id = h.add(CREATURE.slots + 4 * i).readU32();
+      const object = id > 0 ? objectById(id) : null;
+      if (object !== null) {
+        slots.push({ slot: i, id, type: object.add(CREATURE.type).readU32() });
+      }
+    }
+    return { put, slots };
   },
   // What a cell is, the hero's by default (#568): on the ground, on each floor of the building there and on the
   // hero's own layer, its cell's bytes, whether it may be walked on, whether the hero may stand there (as the
