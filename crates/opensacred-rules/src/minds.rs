@@ -561,10 +561,12 @@ pub struct Mind {
     /// Whether it goes for a door in its way (the AI's state 1 with the door its target,
     /// `0x4D4800`).
     to_door: bool,
-    /// At range: whether it decides (the sub-state 0) rather than moves to its band (1), how many
-    /// times it has backed off since it last decided (`+0x12B`), whether it moves at a run
-    /// (`+0x1F8`), and the chain of its shots (`+0x210`).
+    /// At range: whether it decides (the sub-state 0) rather than moves to its band (1), whether
+    /// that decision follows a shot, which ends in the AI's state 0 (`0x4DBFC0`), how many times
+    /// it has backed off since it last decided (`+0x12B`), whether it moves at a run (`+0x1F8`),
+    /// and the chain of its shots (`+0x210`).
     deciding: bool,
+    shot: bool,
     backs: u8,
     runs_at_range: bool,
     shots: Chain,
@@ -644,6 +646,7 @@ impl Mind {
             placing: None,
             to_door: false,
             deciding: true,
+            shot: false,
             backs: 0,
             runs_at_range: false,
             shots: Chain::default(),
@@ -1047,6 +1050,7 @@ impl Mind {
         self.fighting = false;
         self.fled = false;
         self.placing = None;
+        self.shot = false;
     }
 
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
@@ -1069,7 +1073,7 @@ impl Mind {
     pub fn pursue(
         &mut self,
         sight: &Pursuit,
-        clear: impl FnOnce() -> bool,
+        clear: impl FnMut() -> bool,
         rng: &mut Rng,
     ) -> Option<Pursues> {
         if !self.fighting {
@@ -1199,7 +1203,11 @@ impl Mind {
     /// straight line, it goes round once it stands to its place turned about the hero by −30° to
     /// +30°, stopping within 25; else it shoots, whether it walks or not. A shot is one of its
     /// attack's clips (one of five), each 0.1 faster than the last up to 1.7 times (`+0x210`,
-    /// which no other action of the game's archers breaks), and it decides again after it.
+    /// which no other action of the game's archers breaks), and it decides again after it: a shot
+    /// ends in the AI's state 0, from which the idle handler takes the creature into the state 8
+    /// again only for a target within 800 along a straight line of walkable cells (`0x542B20`),
+    /// so that it leaves the fight for one gone farther or out of its line, and takes its idle
+    /// action again (#972). A follower, whose idle handler is its master's, keeps fighting.
     ///
     /// It goes to melee (`0x4D4B70`, [`melee_switch`]) when the hero attacks it (`targeted`) from
     /// within 1.5 times the reach, in one case of two, as it decides not to shoot and as it would
@@ -1211,7 +1219,7 @@ impl Mind {
     fn at_range(
         &mut self,
         sight: &Pursuit,
-        clear: impl FnOnce() -> bool,
+        mut clear: impl FnMut() -> bool,
         rng: &mut Rng,
     ) -> Option<Pursues> {
         let Pursuit {
@@ -1234,6 +1242,13 @@ impl Mind {
         }
         if self.deciding {
             self.backs = 0;
+            if std::mem::take(&mut self.shot)
+                && self.flags & FOLLOWS == 0
+                && !(d < ATTACKS_WITHIN && clear())
+            {
+                self.leaves_fight();
+                return Some(Pursues::GivesUp);
+            }
             if (SHOOTS.0..=SHOOTS.1).contains(&d) {
                 return Some(self.shoot(rng));
             }
@@ -1288,6 +1303,7 @@ impl Mind {
     /// speed by its chain; it decides again after it.
     fn shoot(&mut self, rng: &mut Rng) -> Pursues {
         self.deciding = true;
+        self.shot = true;
         self.backs = 0;
         Pursues::Shoots {
             choice: rng.below(5),
@@ -2686,6 +2702,53 @@ mod tests {
             bandit.pursue(&at_range(400.0, None), || true, &mut rng),
             None
         );
+    }
+
+    #[test]
+    fn an_archer_gives_up_after_its_shot_a_hero_gone_beyond_800_or_out_of_its_line() {
+        let mut rng = Rng::of(48, 38, 4);
+        // A shot from 630, the hero then at `d`, with a straight line or not.
+        let after_shot = |d: f32, line: bool, rng: &mut Rng| {
+            let mut bandit = archer();
+            let shot = bandit.pursue(&at_range(630.0, None), || true, rng);
+            assert!(matches!(shot, Some(Pursues::Shoots { .. })), "{shot:?}");
+            let next = bandit.pursue(&at_range(d, None), || line, rng);
+            (next, bandit.fighting)
+        };
+        // Seen in the original: the thief of 50,41 dropped its target at 875 and 940 (#972).
+        for d in [875.0, 940.0] {
+            assert_eq!(
+                after_shot(d, true, &mut rng),
+                (Some(Pursues::GivesUp), false)
+            );
+        }
+        assert_eq!(
+            after_shot(500.0, false, &mut rng),
+            (Some(Pursues::GivesUp), false)
+        );
+        // Within 800 along its line, it decides again: it shoots, or moves to its band.
+        assert!(matches!(
+            after_shot(630.0, true, &mut rng),
+            (Some(Pursues::Shoots { .. }), true)
+        ));
+        assert!(matches!(
+            after_shot(750.0, true, &mut rng),
+            (Some(Pursues::Shoots { .. }), true)
+        ));
+        // Before any shot, as its fight starts, it comes on from beyond 800.
+        let mut bandit = archer();
+        assert!(matches!(
+            bandit.pursue(&at_range(875.0, None), || true, &mut rng),
+            Some(Pursues::ComesOn { .. })
+        ));
+        // A follower keeps its foe.
+        let mut follower = archer();
+        follower.flags |= FOLLOWS;
+        follower.pursue(&at_range(630.0, None), || true, &mut rng);
+        assert!(matches!(
+            follower.pursue(&at_range(875.0, None), || true, &mut rng),
+            Some(Pursues::ComesOn { .. })
+        ));
     }
 
     /// The rolls of `rolls` in turn, each checked against the bound asked for: a scripted
