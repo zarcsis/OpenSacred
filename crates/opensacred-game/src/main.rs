@@ -54,6 +54,7 @@ mod settings;
 mod sfx;
 mod shaders;
 mod shadows;
+mod souls;
 mod sound;
 mod srgb;
 mod statics;
@@ -296,9 +297,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-        sound::SoundPlugin,
+        souls::SoulsPlugin,
     ))
     .add_plugins((
+        sound::SoundPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,

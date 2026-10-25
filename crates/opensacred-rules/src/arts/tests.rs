@@ -1589,6 +1589,33 @@ fn the_dwarfs_war_frenzy_strikes_about_its_target_with_a_two_handed_weapon() {
 }
 
 #[test]
+fn the_soulcatcher_gives_its_effect_for_its_spells_time_and_its_souls_heal() {
+    // GOG 2.28's spell 47: the value 0 39 + L at most 90, the value 1 10 + 30·L.
+    assert_eq!(style(1044), Some(Style::Boon));
+    assert_eq!(refused_while(1044), [1044]);
+    let mut catcher = spell(47, [0, 0], 0);
+    catcher.values = [[39, 1], [10, 30], [0, 0]];
+    catcher.caps = [90, 0, 0];
+    let given = soulcatcher(&catcher, 1);
+    assert_eq!((given.point, given.ends), (0.0, true));
+    assert_eq!(
+        given
+            .effects
+            .iter()
+            .map(|(e, s)| (e.id, e.art, *s))
+            .collect::<Vec<_>>(),
+        [(SOULCATCHER, 1044, 40.0)]
+    );
+    assert_eq!(soulcatcher(&catcher, 70).effects[0].1, 90.0);
+    assert_eq!(soul_heals(&catcher, 1), 40);
+    assert_eq!(soul_heals(&catcher, 3), 100);
+    assert_eq!(
+        (soul_speed(0.05), soul_speed(1.0), soul_speed(2.55)),
+        (0.0, 10.0, 25.0)
+    );
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));

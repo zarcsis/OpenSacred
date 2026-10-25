@@ -242,7 +242,7 @@ pub enum Style {
 }
 
 /// The arts that give their maker effects ([`Style::Boon`]).
-const BOONS: [u16; 6] = [1015, 1018, 1047, 1048, 1089, 1094];
+const BOONS: [u16; 7] = [1015, 1018, 1044, 1047, 1048, 1089, 1094];
 
 /// The Seraphim's effect of 1018 (`GUI_MOVE_BFG`, `0x10`): while it holds, her hands hold the
 /// item [`BFG_ITEM`] alone, her own put away, which come back as it ends (the adder `0x582D50`
@@ -315,6 +315,58 @@ pub fn glance(record: &WeaponArt, level: u32, factor: f64) -> Option<Boon> {
         replaces: Vec::new(),
         ends: false,
     })
+}
+
+/// The Dark Elf's effect of 1044 (`GUI_MOVE_SOULCATCHER`, `0x23`), which his object 869 gives
+/// him for its life: while it holds, each creature that dies within [`SOUL_REACH`] of him sends
+/// him a soul that heals him ([`soul_speed`], [`soul_heals`]; docs/re/arts.md, "The Dark Elf's").
+pub const SOULCATCHER: u32 = 35;
+
+/// How near the Dark Elf a creature dies whose soul his 1044 catches: the sum of the sizes of the
+/// objects 869 and 780, 500 and 50 (`0x5FF7C0`).
+pub const SOUL_REACH: f32 = 550.0;
+
+/// How much nearer than his size a soul reaches the Dark Elf (`0x5ABD80`'s case `0x30C`): its
+/// own size, 50.
+pub const SOUL_SIZE: f32 = 50.0;
+
+/// The speed of a soul of the age `age` in seconds toward the Dark Elf, in units a second
+/// (`0x5A7BB2`, `0x76C9D0`): `⌊10·t⌋`.
+pub fn soul_speed(age: f32) -> f32 {
+    (10.0 * age).floor()
+}
+
+/// What the Dark Elf's 1044 gives him (`0x506770` at `0x507E82`, the object 869's start
+/// `0x76AA40`): at once the effect [`SOULCATCHER`] for the first table's record 47's value 0 at
+/// the level `level`, `39 + L` at most 90 taken whole (`spell`), keyed by 1044; and it ends.
+pub fn soulcatcher(spell: &Spell, level: u32) -> Boon {
+    let [base, step] = spell.values[0].map(u32::from);
+    let mut seconds = base + step * level;
+    if spell.caps[0] > 0 {
+        seconds = seconds.min(u32::from(spell.caps[0]));
+    }
+    let effect = Effect {
+        id: SOULCATCHER,
+        whole: 0,
+        value: 0.0,
+        art: 1044,
+        level: 0,
+    };
+    Boon {
+        point: 0.0,
+        effects: vec![(effect, narrow(f64::from(seconds)))],
+        clears: Vec::new(),
+        starts: Vec::new(),
+        replaces: Vec::new(),
+        ends: true,
+    }
+}
+
+/// The health a soul of the Dark Elf's 1044 gives him (`0x5ABD80`'s case `0x30C`, the event 6):
+/// the record 47's value 1 at his art's level in play `level`, `10 + 30·L` (`spell`).
+pub fn soul_heals(spell: &Spell, level: u32) -> u32 {
+    let [base, step] = spell.values[1].map(u32::from);
+    base + step * level
 }
 
 /// How far her target lies beyond which a creature with the effect [`BFG`] shoots (`0x53A170` at

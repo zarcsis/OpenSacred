@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bevy::prelude::*;
+use opensacred_data::tables::WeaponArt;
 use opensacred_rules::arts::{
     self, ArtClip, Candidate, Creature, Style, attacke_target, due, hardhit_point, held_factor,
     made_from, rundum_radius, rundum_target,
@@ -145,6 +146,20 @@ pub fn clips(
         })
     })
     .collect()
+}
+
+/// What a boon of `record` gives at the level in play `level` ([`Style::Boon`] and its kin): the
+/// effects of `arts::boon`, `ward`, `form` or `glance` (by the factor `glance`), or the Dark
+/// Elf's 1044's by the first table's record 47 (`arts::soulcatcher`).
+fn boon_of(arts: &HeroArts, record: &WeaponArt, level: u32, glance: f64) -> Option<arts::Boon> {
+    arts::boon(record, level)
+        .or_else(|| arts::ward(record, level))
+        .or_else(|| arts::form(record, level))
+        .or_else(|| arts::glance(record, level, glance))
+        .or_else(|| {
+            let spell = arts.tables.spells.iter().find(|spell| spell.id == 47)?;
+            (record.id == 1044).then(|| arts::soulcatcher(spell, level))
+        })
 }
 
 /// At a new game, the hero's first art whose action is read is the right button's.
@@ -678,10 +693,7 @@ fn make(
                     | Style::Ward
                     | Style::Form
             ) {
-                let boon = arts::boon(record, level)
-                    .or_else(|| arts::ward(record, level))
-                    .or_else(|| arts::form(record, level))
-                    .or_else(|| arts::glance(record, level, 1.0));
+                let boon = boon_of(arts, record, level, 1.0);
                 points = boon
                     .as_ref()
                     .map(|boon| vec![boon.point])
@@ -1367,10 +1379,7 @@ fn make(
                                 &arts.skills,
                                 combat.map_or(0.0, |combat| combat.attributes[0]),
                             );
-                            arts::boon(record, playing.level)
-                                .or_else(|| arts::ward(record, playing.level))
-                                .or_else(|| arts::form(record, playing.level))
-                                .or_else(|| arts::glance(record, playing.level, glance))
+                            boon_of(arts, record, playing.level, glance)
                         });
                     // The Seraphim's 1018 and 1019 end as they give their effects (`0x5038F0`).
                     let ends = boon.as_ref().is_some_and(|boon| boon.ends);
