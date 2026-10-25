@@ -4225,7 +4225,8 @@ pub(crate) fn refit(
     (mind, combat, npc): (&mut ai::Mind, &mut fight::Combat, &mut Npc),
 ) -> f32 {
     let (values, share) = arms.fight_with(grade, rank, rules, effects);
-    let pace = values.0.pace_factor();
+    // Its pace times its time's factor, the effect 15's (`0x537160`).
+    let pace = values.0.pace_factor() * opensacred_rules::fight::time_factor(effects);
     let ratio = pace / npc.pace.max(f32::EPSILON);
     mind.speed *= ratio;
     mind.run *= ratio;

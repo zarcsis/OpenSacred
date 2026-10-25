@@ -107,6 +107,16 @@ struct Banishing {
     left: f32,
 }
 
+/// A zone of the ring of frost (the kind 3, `0xAD2530`): its cell, its level, the ring's level
+/// in play, and its time left.
+#[derive(Component, Debug, Clone)]
+struct Frosting {
+    cell: (i32, i32),
+    level: Level,
+    spell: u32,
+    left: f32,
+}
+
 /// A creature that a banishing circle about `from` sends away (`0x539F60`).
 #[derive(Component, Clone, Copy, Debug)]
 struct Banished {
@@ -644,6 +654,16 @@ fn act(
                 }
             }
             spells::FROST_RING => {
+                // And its zone, 5 cells along each axis about his cell for 25 s (`0x52555A`).
+                commands.spawn((
+                    Frosting {
+                        cell: crate::paths::cell_of(here.x, here.z),
+                        level: body.level(),
+                        spell: act.level,
+                        left: spells::FROST_LIFE,
+                    },
+                    DespawnOnExit(AppState::InGame),
+                ));
                 let damages = bolt_damages(record, level, multipliers);
                 for k in 0..8u8 {
                     let angle = spells::FROST_ANGLE + spells::FROST_STEP * f32::from(k);
@@ -1914,6 +1934,61 @@ fn banish(
     }
 }
 
+/// Counts each ring of frost's zone down, and gives each hostile creature on its level that stands
+/// in it the effect 15 keyed by the ring for 1 s, again while it stays, whose value is its time's
+/// factor (`0x59F960`, `0x5941A0`, `opensacred_rules::spells::frost_slow`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn frost(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut zones: Query<(Entity, &mut Frosting)>,
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&fight::Ranked>,
+            Option<&Effects>,
+        ),
+        (Without<Body>, Without<Dies>),
+    >,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut zone) in &mut zones {
+        zone.left -= dt;
+        if zone.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        for (creature, at, way, mind, health, rank, effects) in &creatures {
+            let (x, y) = crate::paths::cell_of(at.translation.x, at.translation.z);
+            let inside = (x - zone.cell.0).abs() <= spells::ZONE_REACH
+                && (y - zone.cell.1).abs() <= spells::ZONE_REACH;
+            let slowed = effects.is_some_and(|effects| effects.holds_any(&[spells::FROST_RING]));
+            if !inside || slowed || way.level != zone.level || !mind.hostile() {
+                continue;
+            }
+            let boss = rank.is_some_and(|rank| rank.0 == fight::Rank::Boss);
+            let value = spells::frost_slow(zone.spell, health.level, boss, mind.class == 10);
+            let effect = Effect {
+                art: u32::from(spells::FROST_RING),
+                ..Effect::new(opensacred_rules::fight::TIME, value)
+            };
+            debug!("spells: the frost slows {creature} to {value:.2}");
+            commands
+                .entity(creature)
+                .entry::<Effects>()
+                .or_default()
+                .and_modify(move |mut effects| effects.add(effect, spells::FROST_SLOWS_FOR));
+        }
+    }
+}
+
 /// Puts each teleporting hero at its point once its time comes, and counts the water form down.
 #[expect(
     clippy::type_complexity,
@@ -2006,8 +2081,8 @@ impl Plugin for SpellsPlugin {
             .add_systems(
                 Update,
                 (
-                    act, shield, strike, mine, disk, meteor, chain, spiral, banish, teleport, doom,
-                    fade,
+                    act, shield, strike, mine, disk, meteor, chain, spiral, banish, frost,
+                    teleport, doom, fade,
                 )
                     .chain()
                     .after(Step::Npcs)

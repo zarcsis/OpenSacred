@@ -103,6 +103,24 @@ pub const FROST_ANGLE: f32 = std::f32::consts::PI - 0.5;
 pub const FROST_STEP: f32 = std::f32::consts::FRAC_PI_4;
 pub const FROST_REACH: f32 = 60.0;
 pub const FROST_LIFE: f32 = 25.0;
+/// How long the ring of frost's zone slows a creature that stands in it, given again while it
+/// stays (`0x59F960`, `0x5941A0`).
+pub const FROST_SLOWS_FOR: f32 = 1.0;
+
+/// The time's factor that the ring of frost's zone at the level `level` gives a creature of the
+/// level `creature`, a boss or not, of the class 10 or not (`0x59F960`, the effect 15):
+/// `clamp(M/(15·L), 0.3, 0.8)`, `M` doubled for a boss and again for the class 10 (**hypothesis**:
+/// the doubling is the level's, before the clamp).
+pub fn frost_slow(level: u32, creature: u32, boss: bool, class10: bool) -> f32 {
+    let mut m = to_f32(creature);
+    if boss {
+        m *= 2.0;
+    }
+    if class10 {
+        m *= 2.0;
+    }
+    (m / (15.0 * to_f32(level.max(1)))).clamp(0.3, 0.8)
+}
 pub const METEORS: u16 = 26;
 pub const WHIRLWIND: u16 = 29;
 pub const CHAIN: u16 = 33;
@@ -1157,6 +1175,19 @@ mod tests {
             [140.0, 0.0]
         );
         assert_eq!(teleport([5.0, 5.0], [5.0, 5.0], 90, open, open), [5.0, 5.0]);
+    }
+
+    #[test]
+    fn the_ring_of_frost_slows_a_creature_by_its_level_over_the_rings() {
+        assert_eq!(frost_slow(1, 1, false, false), 0.3);
+        assert_eq!(frost_slow(1, 9, false, false), 0.6);
+        assert_eq!(frost_slow(1, 30, false, false), 0.8);
+        assert_eq!(frost_slow(2, 9, true, false), 0.6);
+        assert_eq!(frost_slow(3, 9, true, true), 0.8);
+        let held = |value| Effect::new(15, value);
+        assert_eq!(crate::fight::time_factor(&[]), 1.0);
+        assert_eq!(crate::fight::time_factor(&[held(0.5), held(0.3)]), 0.3);
+        assert_eq!(crate::fight::time_factor(&[held(0.0)]), 1e-4);
     }
 
     #[test]
