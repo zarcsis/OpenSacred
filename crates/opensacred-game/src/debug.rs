@@ -353,12 +353,31 @@ pub fn heal(world: &mut World, id: Option<Entity>, to: Option<u32>) -> Result<St
     })
 }
 
-/// How far about a cell, in cells along each axis, `spawn` looks for cells to stand creatures on.
+/// How far about a cell, in cells along each axis, a summons looks for cells to stand its
+/// creatures on.
 const SPAWN_REACH: i32 = 16;
 
-/// Up to `count` cells for creatures about `centre` on `level` (`spawn`): `centre` first where a
-/// creature may step into it, then the nearest others ring by ring within [`SPAWN_REACH`], never
-/// the hero's cell `hero`; `centre` alone where none may be stepped into.
+/// `count` cells for the console's `spawn` about `centre`, as the original's driver takes them
+/// (`cellsAbout`, `tools/original/agent.js`), so that both games make a type on the same cells:
+/// `centre` first, then ring by ring, each row by row, whatever the cells are, a liquid's or a
+/// wall's too; but never the hero's cell `hero`.
+pub fn rings(centre: (i32, i32), count: usize, hero: (i32, i32)) -> Vec<(i32, i32)> {
+    (0..)
+        .flat_map(|ring: i32| {
+            (-ring..=ring).flat_map(move |dy| {
+                (-ring..=ring)
+                    .filter(move |dx: &i32| dx.abs().max(dy.abs()) == ring)
+                    .map(move |dx| (centre.0 + dx, centre.1 + dy))
+            })
+        })
+        .filter(|&cell| cell != hero)
+        .take(count)
+        .collect()
+}
+
+/// Up to `count` cells for creatures about `centre` on `level` (a summons): `centre` first where
+/// a creature may step into it, then the nearest others ring by ring within [`SPAWN_REACH`],
+/// never the hero's cell `hero`; `centre` alone where none may be stepped into.
 pub fn cells_about(
     heights: &Heights,
     centre: (i32, i32),
@@ -539,6 +558,16 @@ mod tests {
         let mut heights = Heights::default();
         heights.add(&sector(vec![cell(0x92); SIDE * SIDE]));
         assert_eq!(cells_about(&heights, (5, 5), None, 4, (0, 0)), [(5, 5)]);
+    }
+
+    #[test]
+    fn the_consoles_spawn_takes_the_drivers_cells() {
+        // The centre, then its ring row by row, whatever the cells are.
+        assert_eq!(rings((5, 5), 4, (0, 0)), [(5, 5), (4, 4), (5, 4), (6, 4)]);
+        // Never the hero's cell, the centre by default.
+        assert_eq!(rings((5, 5), 2, (5, 5)), [(4, 4), (5, 4)]);
+        assert_eq!(rings((5, 5), 9, (5, 5)).len(), 8 + 1);
+        assert!(rings((5, 5), 0, (0, 0)).is_empty());
     }
 
     #[test]
