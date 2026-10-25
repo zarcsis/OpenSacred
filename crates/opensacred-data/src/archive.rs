@@ -3,8 +3,9 @@
 //! and 7-Zip open them and a modder can see and replace a file. The converter's `build` writes
 //! them reproducibly: the entries in the order given, a fixed date, the data of a stored entry
 //! aligned to [`ALIGNMENT`] bytes by a padding field of Android's `zipalign` (`0xD935`) and no
-//! other extra field. Neither ZIP64 nor encryption: an archive stays below 4 GiB and 65,535
-//! entries.
+//! other extra field. No encryption, and ZIP64 only for the count of the entries (#962): an
+//! archive stays below 4 GiB, and one of 65,535 entries or more counts them in ZIP64's end
+//! records, which 7-Zip and Python's `zipfile` read.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -19,9 +20,11 @@ pub const EXTENSION: &str = "zip";
 /// without a copy.
 pub const ALIGNMENT: u64 = 16;
 
-/// ZIP's signatures: the end of the central directory, a central directory's entry and a local
-/// header.
+/// ZIP's signatures: the end of the central directory, ZIP64's end and its locator, a central
+/// directory's entry and a local header.
 const END: u32 = 0x0605_4B50;
+const END64: u32 = 0x0606_4B50;
+const LOCATOR64: u32 = 0x0706_4B50;
 const CENTRAL: u32 = 0x0201_4B50;
 const LOCAL: u32 = 0x0403_4B50;
 /// The compression methods the archives use.
@@ -29,6 +32,14 @@ const STORED: u16 = 0;
 const DEFLATED: u16 = 8;
 /// ZIP 2.0, the version that deflate needs.
 const VERSION: u16 = 20;
+/// ZIP 4.5, the version that ZIP64's end records need.
+const VERSION64: u16 = 45;
+/// The end record's count that sends a reader to ZIP64's end record, and the most that it holds.
+const MANY: u16 = 0xFFFF;
+/// The sizes of the end record, ZIP64's end record and its locator.
+const END_SIZE: u64 = 22;
+const END64_SIZE: u64 = 56;
+const LOCATOR64_SIZE: u64 = 20;
 /// The general purpose flags: the names in UTF-8.
 const UTF8: u16 = 0x0800;
 /// 1980-01-01 00:00, the earliest MS-DOS date, for every entry.
@@ -47,6 +58,13 @@ fn u16_at(data: &[u8], at: usize) -> io::Result<u16> {
 fn u32_at(data: &[u8], at: usize) -> io::Result<u32> {
     data.get(at..at + 4)
         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .ok_or_else(|| invalid("a ZIP record cut short"))
+}
+
+fn u64_at(data: &[u8], at: usize) -> io::Result<u64> {
+    data.get(at..at + 8)
+        .and_then(|b| b.try_into().ok())
+        .map(u64::from_le_bytes)
         .ok_or_else(|| invalid("a ZIP record cut short"))
 }
 
@@ -106,13 +124,36 @@ impl Archive {
             .rev()
             .find(|&at| u32_at(&end, at).is_ok_and(|s| s == END))
             .ok_or_else(|| invalid("no end of a ZIP's central directory"))?;
-        let count = u16_at(&end, at + 10)?;
-        let size = u32_at(&end, at + 12)?;
-        let offset = u32_at(&end, at + 16)?;
-        file.seek(SeekFrom::Start(u64::from(offset)))?;
-        let mut directory = vec![0; usize_of(u64::from(size))?];
+        let mut count = u64::from(u16_at(&end, at + 10)?);
+        let mut size = u64::from(u32_at(&end, at + 12)?);
+        let mut offset = u64::from(u32_at(&end, at + 16)?);
+        if count == u64::from(MANY) || size == u64::from(u32::MAX) || offset == u64::from(u32::MAX)
+        {
+            // ZIP64's end record, which its locator just before the end record points at.
+            let end_at = length - tail + u64::try_from(at).map_err(|_| too_large())?;
+            let locator_at = end_at
+                .checked_sub(LOCATOR64_SIZE)
+                .ok_or_else(|| invalid("no ZIP64 end locator before a ZIP's end"))?;
+            let mut locator = [0; 20];
+            file.seek(SeekFrom::Start(locator_at))?;
+            file.read_exact(&mut locator)?;
+            if u32_at(&locator, 0)? != LOCATOR64 {
+                return Err(invalid("no ZIP64 end locator before a ZIP's end"));
+            }
+            let mut end64 = [0; 56];
+            file.seek(SeekFrom::Start(u64_at(&locator, 8)?))?;
+            file.read_exact(&mut end64)?;
+            if u32_at(&end64, 0)? != END64 {
+                return Err(invalid("a ZIP64 end record without its signature"));
+            }
+            count = u64_at(&end64, 32)?;
+            size = u64_at(&end64, 40)?;
+            offset = u64_at(&end64, 48)?;
+        }
+        file.seek(SeekFrom::Start(offset))?;
+        let mut directory = vec![0; usize_of(size)?];
         file.read_exact(&mut directory)?;
-        let mut entries = HashMap::with_capacity(usize::from(count));
+        let mut entries = HashMap::with_capacity(usize_of(count)?);
         let mut at = 0;
         for _ in 0..count {
             if u32_at(&directory, at)? != CENTRAL {
@@ -226,11 +267,11 @@ pub struct Writer {
     file: BufWriter<File>,
     offset: u64,
     central: Vec<u8>,
-    count: u16,
+    count: u64,
 }
 
 fn too_large() -> io::Error {
-    invalid("an archive beyond ZIP's 4 GiB or 65,535 entries")
+    invalid("an archive beyond 4 GiB")
 }
 
 fn u32_of(value: u64) -> io::Result<u32> {
@@ -323,20 +364,44 @@ impl Writer {
         self.central.extend_from_slice(&[0; 12]);
         self.central.extend_from_slice(&header.to_le_bytes());
         self.central.extend_from_slice(name.as_bytes());
-        self.count = self.count.checked_add(1).ok_or_else(too_large)?;
+        self.count += 1;
         Ok(())
     }
 
-    /// Writes the central directory and closes the archive.
+    /// Writes the central directory and closes the archive: an archive of 65,535 entries or more
+    /// counts them in ZIP64's end record and its locator before the end record, which holds the
+    /// count 65,535.
     pub fn finish(mut self) -> io::Result<()> {
         let size = u32_of(u64::try_from(self.central.len()).map_err(|_| too_large())?)?;
         let offset = u32_of(self.offset)?;
-        u32_of(self.offset + u64::from(size) + 22)?;
+        let many = self.count >= u64::from(MANY);
+        let ends = END_SIZE + if many { END64_SIZE + LOCATOR64_SIZE } else { 0 };
+        u32_of(self.offset + u64::from(size) + ends)?;
         self.file.write_all(&self.central)?;
+        if many {
+            let end64 = self.offset + u64::from(size);
+            self.file.write_all(&END64.to_le_bytes())?;
+            // The size of the record after this field, the versions, its disk and the
+            // directory's.
+            self.file.write_all(&(END64_SIZE - 12).to_le_bytes())?;
+            self.file.write_all(&VERSION64.to_le_bytes())?;
+            self.file.write_all(&VERSION64.to_le_bytes())?;
+            self.file.write_all(&[0; 8])?;
+            self.file.write_all(&self.count.to_le_bytes())?;
+            self.file.write_all(&self.count.to_le_bytes())?;
+            self.file.write_all(&u64::from(size).to_le_bytes())?;
+            self.file.write_all(&u64::from(offset).to_le_bytes())?;
+            // The locator: the disk of ZIP64's end record, where it starts, the disks in all.
+            self.file.write_all(&LOCATOR64.to_le_bytes())?;
+            self.file.write_all(&[0; 4])?;
+            self.file.write_all(&end64.to_le_bytes())?;
+            self.file.write_all(&1u32.to_le_bytes())?;
+        }
+        let count = u16::try_from(self.count).unwrap_or(MANY);
         self.file.write_all(&END.to_le_bytes())?;
         self.file.write_all(&[0; 4])?;
-        self.file.write_all(&self.count.to_le_bytes())?;
-        self.file.write_all(&self.count.to_le_bytes())?;
+        self.file.write_all(&count.to_le_bytes())?;
+        self.file.write_all(&count.to_le_bytes())?;
         self.file.write_all(&size.to_le_bytes())?;
         self.file.write_all(&offset.to_le_bytes())?;
         self.file.write_all(&[0, 0])?;
@@ -398,6 +463,58 @@ mod tests {
         }
         copy.finish().unwrap();
         assert_eq!(std::fs::read(dir.join("c.zip")).unwrap(), a);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Adds `count` stored entries, `netscript/<n>.luauc` holding `n`.
+    fn many(writer: &mut Writer, count: u32) {
+        for n in 0..count {
+            writer
+                .add(&format!("netscript/{n}.luauc"), &n.to_le_bytes(), false)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn an_archive_of_65535_entries_or_more_counts_them_in_zip64s_end_records() {
+        let dir = scratch("zip64");
+        for (count, zip64) in [(65_534, false), (65_535, true), (70_000, true)] {
+            let path = dir.join(format!("{count}.zip"));
+            let mut writer = Writer::create(&path).unwrap();
+            many(&mut writer, count);
+            writer.finish().unwrap();
+            let data = std::fs::read(&path).unwrap();
+            let end = data.len() - 22;
+            assert_eq!(u32_at(&data, end).unwrap(), END);
+            let locator = end - 20;
+            assert_eq!(
+                u32_at(&data, locator).unwrap() == LOCATOR64,
+                zip64,
+                "{count}"
+            );
+            let expected = if zip64 {
+                MANY
+            } else {
+                u16::try_from(count).unwrap()
+            };
+            assert_eq!(u16_at(&data, end + 10).unwrap(), expected);
+            if zip64 {
+                let end64 = usize::try_from(u64_at(&data, locator + 8).unwrap()).unwrap();
+                assert_eq!(end64, locator - 56);
+                assert_eq!(u32_at(&data, end64).unwrap(), END64);
+                assert_eq!(u64_at(&data, end64 + 32).unwrap(), u64::from(count));
+            }
+            let archive = Archive::open(&path).unwrap();
+            assert_eq!(archive.names().count(), usize::try_from(count).unwrap());
+            let last = count - 1;
+            assert_eq!(
+                archive
+                    .read(&format!("netscript/{last}.luauc"))
+                    .unwrap()
+                    .unwrap(),
+                last.to_le_bytes()
+            );
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
