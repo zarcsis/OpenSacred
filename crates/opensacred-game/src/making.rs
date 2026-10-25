@@ -129,6 +129,7 @@ pub fn clips(
         Style::Bite,
         Style::Dominate,
         Style::Summon,
+        Style::Raise,
         Style::Kiss,
     ]
     .into_iter()
@@ -257,7 +258,10 @@ fn aim(
     camera: Single<(&Camera, &GlobalTransform)>,
     selected: Res<Selected>,
     arts: Option<Res<HeroArts>>,
-    creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
+    (creatures, corpses): (
+        Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
+        Query<(Entity, &GlobalTransform), With<crate::npcs::Corpse>>,
+    ),
     mut heroes: Query<
         (
             Entity,
@@ -295,6 +299,15 @@ fn aim(
         })
         .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
         .min_by(|a, b| a.2.total_cmp(&b.2));
+    // The dead creature under the cursor, an art of the launch type 4's (`0x51D840`, case 4).
+    let dead = corpses
+        .iter()
+        .map(|(entity, at)| {
+            let at = at.translation();
+            (entity, at, crate::attack::from_line(ray, at))
+        })
+        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
+        .min_by(|a, b| a.2.total_cmp(&b.2));
     let selected = art;
     for (hero, at, mut body, playing, effects) in &mut heroes {
         if playing {
@@ -318,6 +331,13 @@ fn aim(
         let ground = ray.origin + ray.direction.as_vec3() * along;
         let (target, place) = match (launch, on_hero, picked) {
             (Some(3), ..) => (hero, ground),
+            (Some(4), ..) => match dead {
+                Some((corpse, place, _)) => (corpse, place),
+                None => {
+                    info!("making: {art} wants a dead creature under the cursor");
+                    continue;
+                }
+            },
             // A spell of the launch type 5 takes its caster for its target, whatever the cursor
             // is on (`0x51D840`).
             (Some(5), ..) if spell => (hero, at.translation()),
@@ -477,7 +497,7 @@ fn make(
     children: Query<&Children>,
     bones: Query<(&Name, &GlobalTransform)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts): (
+    (mut hits, mut cries, ranks, leaps, sizes, mut launches, mut acts, corpses): (
         MessageWriter<fight::Hit>,
         MessageWriter<crate::voices::BattleCry>,
         Query<&fight::Ranked>,
@@ -485,6 +505,7 @@ fn make(
         Query<&crate::arrows::Size>,
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::spells::Acts>,
+        Query<(&GlobalTransform, &crate::npcs::Corpse)>,
     ),
     nearest: Res<crate::crowd::Nearest>,
     heights: Res<crate::terrain::Heights>,
@@ -580,9 +601,28 @@ fn make(
                 end(&mut commands);
                 continue;
             };
+            // The awakening takes a dead creature that it may raise within 400, with a straight
+            // way to it, else it ends without its regeneration (`0x513868`).
+            let raises = arts::style(making.art) == Some(Style::Raise);
+            if raises {
+                let level = body.level();
+                let takes = corpses.get(making.target).is_ok_and(|(at, corpse)| {
+                    let at = at.translation();
+                    arts::raises(corpse.class, corpse.creature, corpse.dialogue, false)
+                        && (at - here).xz().length() <= arts::RAISES_WITHIN
+                        && crate::paths::clear(here.xz(), at.xz(), |cell| {
+                            heights.walkable_on(cell, level)
+                        })
+                });
+                if !takes {
+                    info!("making: {} finds no dead creature to raise", making.art);
+                    end(&mut commands);
+                    continue;
+                }
+            }
             // A boon is made where the hero stands, on itself; any other art on its target alive,
             // within its distance.
-            if making.target != hero {
+            if making.target != hero && !raises {
                 let Some((target, target_reach)) = creatures
                     .get(making.target)
                     .ok()
@@ -982,6 +1022,31 @@ fn make(
                     info!(
                         "making: {} dominates {} for {seconds} s",
                         making.art, playing.target
+                    );
+                }
+                end(&mut commands);
+            }
+            Style::Raise => {
+                // Below 0.6 left of its clip its dead creature rises as her follower, its level
+                // `⌊3·L + 0.4·l⌋`, for twice its factor in seconds (the effect 29); its
+                // regeneration starts; then it ends (`0x511088`).
+                if !due(1.0 - arts::RAISES, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                arts.start(making.art);
+                let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                if let Some(record) = record
+                    && corpses.contains(playing.target)
+                {
+                    crate::followers::raise(
+                        &mut commands,
+                        hero,
+                        playing.target,
+                        arts::raised_level(experience.level, playing.level),
+                        arts::raised_seconds(record, playing.level),
                     );
                 }
                 end(&mut commands);

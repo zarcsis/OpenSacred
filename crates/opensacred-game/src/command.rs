@@ -476,6 +476,26 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
             });
         return Ok(format!("the hero makes {art} on itself"));
     }
+    // An art of the launch type 4 is made on the nearest dead creature (`0x51D840`, case 4).
+    if launch == Some(4) {
+        let mut corpses = world.query_filtered::<(Entity, &GlobalTransform), With<npcs::Corpse>>();
+        let (corpse, distance) = corpses
+            .iter(world)
+            .map(|(entity, place)| (entity, (place.translation() - at).xz().length()))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .ok_or("no dead creature is about")?;
+        world
+            .entity_mut(hero)
+            .remove::<(crate::attack::Attack, crate::attack::Striking)>()
+            .insert(crate::making::Making {
+                art,
+                target: corpse,
+                point: None,
+            });
+        return Ok(format!(
+            "the hero makes {art} on the dead {corpse} at {distance:.0}"
+        ));
+    }
     let mut creatures = world.query_filtered::<
         (Entity, &GlobalTransform, &ai::Mind, &fight::Health),
         Without<npcs::Dies>,

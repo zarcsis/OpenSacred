@@ -170,6 +170,75 @@ fn hire(world: &mut World, entity: Entity, master: Entity) {
     info!("followers: {master} hires {entity}");
 }
 
+/// The flags word's bit of a raised dead creature (`+0x1F4` bit `0x2000000`, `0x511088`).
+const RAISED: u32 = 0x200_0000;
+
+/// Raises the dead creature `corpse` as `master`'s follower (the Vampiress's awakening 1034,
+/// `0x511088`): a creature of its type of `level` where it lies, hired, of the flags' bit
+/// `0x2000000`, given the effect 29 for `seconds`, at whose going it dies (`effects::LIFETIME`);
+/// its value, its most health over the art's factor, is read by nothing (**hypothesis**).
+pub fn raise(commands: &mut Commands, master: Entity, corpse: Entity, level: u32, seconds: f32) {
+    commands.queue(move |world: &mut World| raise_dead(world, master, corpse, level, seconds));
+}
+
+/// Raises a dead creature ([`raise`]): the corpse goes and a creature of its type stands there.
+fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, seconds: f32) {
+    let (Some(at), Some(dead)) = (
+        world.get::<Transform>(corpse).map(|at| at.translation),
+        world.get::<crate::npcs::Corpse>(corpse).copied(),
+    ) else {
+        return;
+    };
+    let Some(heights) = world.get_resource::<Heights>() else {
+        return;
+    };
+    let floor = heights
+        .floor(dead.level)
+        .map_or(0, |(_, floor)| i32::from(floor));
+    let (x, y) = crate::paths::cell_of(at.x, at.z);
+    let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+        return;
+    };
+    world.entity_mut(corpse).despawn();
+    let request = crate::npcs::Spawn {
+        creature: dead.creature,
+        cells: vec![(x, y)],
+        floor,
+        level: Some(level.clamp(1, MOST_LEVEL)),
+        rank: crate::fight::Rank::Common,
+        hostile: Some(false),
+        immortal: false,
+        roams: true,
+    };
+    let made = match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
+        Ok(Ok(made)) => made,
+        Ok(Err(e)) => {
+            warn!("followers: {corpse} does not rise: {e}");
+            return;
+        }
+        Err(e) => {
+            warn!("followers: {corpse} does not rise: {e}");
+            return;
+        }
+    };
+    for entity in made {
+        info!("followers: {corpse} rises as {entity} of level {level} for {seconds} s");
+        hire(world, entity, master);
+        let Ok(mut raised) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        if let Some(mut mind) = raised.get_mut::<Mind>() {
+            mind.flags |= RAISED;
+        }
+        let mut effects = crate::effects::Effects::default();
+        effects.add(
+            opensacred_rules::fight::Effect::new(crate::effects::LIFETIME, 0.0),
+            seconds,
+        );
+        raised.insert(effects);
+    }
+}
+
 /// Makes `count` spiders of `level` about `target`, the spider arrow's (1006, `0x5BB010`): no
 /// followers, but of the side 7, a friend of the heroes', with the guards' flags, each sent at
 /// `target` and given the effect 29 for 15 s, at whose going it dies (`effects::LIFETIME`).
