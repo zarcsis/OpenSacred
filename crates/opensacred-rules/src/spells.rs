@@ -34,6 +34,74 @@ pub const HOLY_SHIELD: u16 = 22;
 pub const IRRITATION: u16 = 18;
 pub const CONVERSION: u16 = 19;
 
+/// The Mage's attacking spells: the fire spiral, `FEUERSPIRALE`; the purgatory, `FEGEFEUER`; the
+/// hail of meteors, `METEORITENHAGEL`; the whirlwind, `WIRBELWIND`; the chain lightning,
+/// `BLITZSCHLAG`; and the ice splinters, `EISSPLITTER`.
+pub const SPIRAL: u16 = 11;
+pub const PURGATORY: u16 = 23;
+pub const METEORS: u16 = 26;
+pub const WHIRLWIND: u16 = 29;
+pub const CHAIN: u16 = 33;
+pub const SPLINTERS: u16 = 34;
+
+/// The fire spiral's five flames (`0x523EDA`, `0x5A6B1E`): their angle's speed in radians a
+/// second, how fast their radius's growth `v` rises to its most, and their reach with the
+/// creature's size.
+pub const SPIRAL_FLAMES: u8 = 5;
+pub const SPIRAL_TURNS: f32 = 3.054;
+pub const SPIRAL_GROWS: f32 = 150.0;
+pub const SPIRAL_MOST: f32 = 175.0;
+pub const SPIRAL_REACH: f32 = 50.0;
+/// The purgatory's speed and how far it looks for a creature (`0x5A780B`).
+pub const PURGATORY_SPEED: f32 = 40.0;
+/// The meteors (`0x524A83`, `0x7866C0`): how far from the point each lands along each axis, its
+/// most wait in seconds, its fall's time, and its reach with the creature's size.
+pub const METEOR_SCATTER: i32 = 120;
+pub const METEOR_WAIT: u32 = 800;
+pub const METEOR_FALLS: f32 = 0.625;
+pub const METEOR_REACH: f32 = 65.0;
+/// The whirlwinds' speed and time, and the splinters' (`0x78A170`, `0x78D640`), with their
+/// reaches.
+pub const WHIRLWIND_COURSE: (f32, f32, f32) = (200.0, 2.0, 50.0);
+pub const SPLINTERS_COURSE: (f32, f32, f32) = (150.0, 3.0, 40.0);
+/// How long the chain lightning waits before it leaps on, and how far it looks (`0x77E2A0`,
+/// `0x5B46CA`).
+pub const CHAIN_LEAPS: f32 = 0.2;
+pub const CHAIN_LOOKS: f32 = 316.2;
+
+/// The fire spiral's flame's radius about its centre, `v` its growth and `angle` its angle
+/// (`0x5A6B1E`): `(v/175)·(80 + 40·cos a)`.
+pub fn spiral_radius(v: f32, angle: f32) -> f32 {
+    v / SPIRAL_MOST * (80.0 + 40.0 * angle.cos())
+}
+
+/// How many objects of `spell` at the level `level` (`0x4D26E0`, the factor 1): the meteors' and
+/// the splinters' ratio of their values 0 and 1, the whirlwind's value 0, each from 1 to 20.
+pub fn count(spell: &Spell, level: u32) -> u32 {
+    let n = match spell.id {
+        METEORS | SPLINTERS => ratio(spell, 0, 1, level),
+        _ => value(spell, 0, level),
+    };
+    n.clamp(1, 20)
+}
+
+/// The angles off the line to the aim of the `n` whirlwinds (`0x524EA2`): `−0.05·n + 0.1·i` for
+/// `i` from 1 to `n`; and of the `n` splinters at the distance `d` to the aim, held from 50 to
+/// 300 (`0x5258B5`): `(15/d)·(i − n/2)` for `i` from 0.
+pub fn fan(spell: u16, n: u32, distance: f32) -> Vec<f32> {
+    match spell {
+        WHIRLWIND => (1..=n)
+            .map(|i| -0.05 * to_f32(n) + 0.1 * to_f32(i))
+            .collect(),
+        _ => {
+            let step = 15.0 / distance.clamp(50.0, 300.0);
+            (0..n)
+                .map(|i| step * (to_f32(i) - to_f32(n) / 2.0))
+                .collect()
+        }
+    }
+}
+
 /// The Mage's skins and shields: the fire skin, `FLAMMENHAUT`; the quickening, `KATARAKT`; the
 /// gust, `WINDBOE`; the shield wall, `SCHILDWALL`; and the mana's spring, `AUE`.
 pub const FIRE_SKIN: u16 = 24;
@@ -118,11 +186,17 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 29] = [
+pub const MADE: [u16; 35] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
     REIKI,
+    SPIRAL,
+    PURGATORY,
+    METEORS,
+    WHIRLWIND,
+    CHAIN,
+    SPLINTERS,
     LIGHTNING,
     HOLY_LIGHT,
     BLADES_OF_LIGHT,
@@ -873,6 +947,29 @@ mod tests {
         let given = fear(&terror, 1);
         assert_eq!(given.len(), 2);
         assert!((given[0].0.value + 1.0 / 6.0).abs() < 1e-6 && given[1].1 == 1.0);
+    }
+
+    #[test]
+    fn the_mages_meteors_splinters_and_whirlwinds_come_by_their_values() {
+        // GOG 2.28's 26: 201 + 100·L over 93 + 7·L, at most 16; 34: 325 + 108·L over 103 + 5·L,
+        // at most 21; 29: 6 + L at most 20.
+        let mut meteors = record(METEORS, &[(0, [15, 9]), (1, [3, 2])], [201, 100], 16);
+        meteors.values[1] = [93, 7];
+        assert_eq!([1, 10, 20].map(|l| count(&meteors, l)), [3, 7, 9]);
+        let mut splinters = record(SPLINTERS, &[(0, [2, 3]), (2, [2, 3])], [325, 108], 21);
+        splinters.values[1] = [103, 5];
+        assert_eq!([1, 10, 20].map(|l| count(&splinters, l)), [4, 9, 12]);
+        let whirlwind = record(WHIRLWIND, &[(3, [6, 4])], [6, 1], 20);
+        assert_eq!(count(&whirlwind, 1), 7);
+        let winds = fan(WHIRLWIND, 7, 0.0);
+        assert!((winds[0] + 0.25).abs() < 1e-6 && (winds[6] - 0.35).abs() < 1e-6);
+        // Four splinters at 100: 0.15 apart, from −0.3.
+        let shards = fan(SPLINTERS, 4, 100.0);
+        assert!((shards[0] + 0.3).abs() < 1e-6 && (shards[3] - 0.15).abs() < 1e-6);
+        assert!((fan(SPLINTERS, 2, 20.0)[0] + 0.3).abs() < 1e-6);
+        // The spiral's flame at its full growth, 40 to 120.
+        assert!((spiral_radius(175.0, 0.0) - 120.0).abs() < 1e-4);
+        assert!((spiral_radius(175.0, std::f32::consts::PI) - 40.0).abs() < 1e-4);
     }
 
     #[test]
