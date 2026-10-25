@@ -893,6 +893,20 @@ pub fn run(
                 if sent_to_stair(body.target, cell) {
                     body.target = None;
                 }
+                // A landing it may not walk on, a bad stair's (#978): it steps out at once onto
+                // the first neighbour it may walk on, as the original's hero did.
+                if !heights.walkable_on(to, level)
+                    && let Some(out) = step_out(
+                        to,
+                        |cell| heights.walkable_on(cell, level),
+                        |cell| heights.on_stairs(cell, level),
+                    )
+                {
+                    let point = paths::centre(out);
+                    body.target = Some(Vec3::new(point.x, here.y, point.y));
+                    body.onto = None;
+                    body.course = None;
+                }
             }
             let level = body.level;
             if let Some(target) = body.target {
@@ -1031,6 +1045,22 @@ pub fn run(
 /// away again, round and round (#373).
 fn sent_to_stair(target: Option<Vec3>, cell: (i32, i32)) -> bool {
     target.is_some_and(|t| paths::cell_of(t.x, t.z) == cell)
+}
+
+/// Where a hero that a stair landed on `cell`, a cell it may not walk on, steps out to: the
+/// first neighbour it may walk on (`walkable`) and that is no stair (`stair`), in the order of the
+/// way's steps, the sides first (`opensacred_rules::ways::STEPS`). Seen in the original
+/// (2026-10-25, #227's check 24, #978): landed in the wall at (1135, 747) on floor 3 of 17,11's
+/// tower, it stood at (1136, 747) 0.16 s later; what moves it is not read.
+fn step_out(
+    cell: (i32, i32),
+    walkable: impl Fn((i32, i32)) -> bool,
+    stair: impl Fn((i32, i32)) -> bool,
+) -> Option<(i32, i32)> {
+    opensacred_rules::ways::STEPS
+        .iter()
+        .map(|&(dx, dy)| (cell.0 + dx, cell.1 + dy))
+        .find(|&next| walkable(next) && !stair(next))
 }
 
 /// How long the hero lies dead before it rises again, in seconds.
@@ -1199,6 +1229,28 @@ mod tests {
         assert!(sent_to_stair(Some(centre(stair)), stair));
         assert!(!sent_to_stair(Some(centre((1110, 999))), stair));
         assert!(!sent_to_stair(None, stair));
+    }
+
+    #[test]
+    fn a_hero_landed_in_a_wall_steps_out_to_its_first_walkable_neighbour() {
+        // Floor 3 of 17,11's tower about the landing (1135, 747), as the original's `cell-info`
+        // read it: the stair down at (1134, 747), the row above closed, the row below open.
+        let open = [
+            (1136, 747),
+            (1137, 747),
+            (1134, 748),
+            (1135, 748),
+            (1136, 748),
+        ];
+        let walkable = |cell| open.contains(&cell) || cell == (1134, 747);
+        let stair = |cell| cell == (1134, 747);
+        // The original's hero stood at (1136, 747) 0.16 s later.
+        assert_eq!(step_out((1135, 747), walkable, stair), Some((1136, 747)));
+        // Never onto a stair, which would take it away again.
+        assert_eq!(
+            step_out((1135, 747), |cell| cell == (1134, 747), stair),
+            None
+        );
     }
 
     /// Whether a hero whose model's scene holds an animation player (`player`), where the hero has
