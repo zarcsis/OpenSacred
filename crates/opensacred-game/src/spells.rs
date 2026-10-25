@@ -107,6 +107,22 @@ struct Banishing {
     left: f32,
 }
 
+/// A creature that the Wood Elf's changeling changed into an animal (the effect 20's adder,
+/// `0x5848A8`): hidden, its mind and its place in the way kept for its change back.
+#[derive(Component, Clone, Debug)]
+struct Changed {
+    mind: Box<ai::Mind>,
+    way: InTheWay,
+}
+
+/// The animal that a changed creature, `original`, is for its time left (the effect 20 keyed by
+/// 36, `0x795E20`).
+#[derive(Component, Clone, Copy, Debug)]
+struct Changeling {
+    original: Entity,
+    left: f32,
+}
+
 /// A zone of the ring of frost (the kind 3, `0xAD2530`): its cell, its level, the ring's level
 /// in play, and its time left.
 #[derive(Component, Debug, Clone)]
@@ -606,6 +622,42 @@ fn act(
                 held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
                 held.entry::<ai::Mind>()
                     .and_modify(move |mut mind| mind.stunned(seconds));
+            }
+            spells::CHANGELING => {
+                // The first 20 hostile creatures within about 179 of her that it may change, the
+                // nearest first, each into an animal at random (`0x525C8C`, `0x795E20`).
+                let mut changed: Vec<(Entity, f32, bool)> = hearers
+                    .iter()
+                    .filter(|(_, _, mind, _)| mind.hostile())
+                    .filter_map(|(entity, at, mind, _)| {
+                        let d = (at.translation() - here).xz().length();
+                        let boss = targets
+                            .get(entity)
+                            .ok()
+                            .and_then(|(.., rank)| rank)
+                            .is_some_and(|rank| rank.0 == fight::Rank::Boss);
+                        (d < spells::CHANGES_WITHIN
+                            && spells::changes(
+                                mind.class,
+                                mind.big,
+                                mind.level,
+                                boss,
+                                experience.level,
+                                act.level,
+                            ))
+                        .then_some((entity, d, boss))
+                    })
+                    .collect();
+                changed.sort_by(|a, b| a.1.total_cmp(&b.1));
+                changed.truncate(spells::CHANGES_MOST);
+                for (entity, _, boss) in changed {
+                    let roll = dice
+                        .0
+                        .below(u32::try_from(spells::ANIMALS.len()).unwrap_or(1));
+                    let animal = spells::ANIMALS[usize::try_from(roll).unwrap_or(0)];
+                    let seconds = spells::changed_seconds(record, act.level, boss);
+                    commands.queue(move |world: &mut World| change(world, entity, animal, seconds));
+                }
             }
             spells::BANISHING => {
                 // Eight runes at 200 about him, and a zone of 5 cells along each axis about his
@@ -1934,6 +1986,120 @@ fn banish(
     }
 }
 
+/// Changes `original` into an `animal` for `seconds` (the effect 20's adder, `0x5848A8`): an
+/// animal of its level and health where it stands, it hidden, its mind and its place in the way
+/// kept.
+fn change(world: &mut World, original: Entity, animal: u32, seconds: f32) {
+    let (Some(at), Some(mind), Some(way), Some(health)) = (
+        world.get::<Transform>(original).map(|at| at.translation),
+        world.get::<ai::Mind>(original).cloned(),
+        world.get::<InTheWay>(original).copied(),
+        world.get::<Health>(original).copied(),
+    ) else {
+        return;
+    };
+    let Some(heights) = world.get_resource::<crate::terrain::Heights>() else {
+        return;
+    };
+    let floor = heights
+        .floor(way.level)
+        .map_or(0, |(_, floor)| i32::from(floor));
+    let (x, y) = crate::paths::cell_of(at.x, at.z);
+    let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+        return;
+    };
+    let request = crate::npcs::Spawn {
+        creature: animal,
+        cells: vec![(x, y)],
+        floor,
+        level: Some(health.level),
+        rank: fight::Rank::Common,
+        hostile: Some(false),
+        immortal: false,
+        roams: true,
+    };
+    let made = match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
+        Ok(Ok(made)) => made,
+        Ok(Err(e)) => {
+            warn!("spells: {original} is not changed: {e}");
+            return;
+        }
+        Err(e) => {
+            warn!("spells: {original} is not changed: {e}");
+            return;
+        }
+    };
+    let Some(&made) = made.first() else {
+        return;
+    };
+    info!("spells: {original} changes into {made}, a {animal}, for {seconds} s");
+    world.entity_mut(made).insert((
+        health,
+        Changeling {
+            original,
+            left: seconds,
+        },
+    ));
+    world
+        .entity_mut(original)
+        .remove::<(ai::Mind, InTheWay, crate::npcs::Walk, crate::npcs::Strikes)>()
+        .insert((
+            Visibility::Hidden,
+            Changed {
+                mind: Box::new(mind),
+                way,
+            },
+        ));
+}
+
+/// Changes each changeling's creature back once its time is out, where the animal stands with
+/// the animal's health, the animal gone; one whose animal died dies there (the effect 20's
+/// taker, `0x587F6A`).
+fn changelings(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut animals: Query<(Entity, &mut Changeling, &Transform, &Health, Has<Dies>)>,
+) {
+    let dt = time.delta_secs();
+    for (animal, mut changeling, at, health, dead) in &mut animals {
+        changeling.left -= dt;
+        if !dead && changeling.left > 0.0 {
+            continue;
+        }
+        let (original, place, health) = (changeling.original, at.translation, *health);
+        commands.entity(animal).remove::<Changeling>();
+        if !dead {
+            commands.entity(animal).despawn();
+        }
+        commands.queue(move |world: &mut World| {
+            let Ok(mut entity) = world.get_entity_mut(original) else {
+                return;
+            };
+            let Some(changed) = entity.take::<Changed>() else {
+                return;
+            };
+            info!("spells: {original} changes back, dead {dead}");
+            let level = changed.way.level;
+            entity.insert((
+                *changed.mind,
+                changed.way,
+                Visibility::Inherited,
+                crate::npcs::PutAt { at: place, level },
+            ));
+            if let Some(mut kept) = entity.get_mut::<Health>() {
+                kept.current = if dead {
+                    0
+                } else {
+                    health.current.min(kept.most)
+                };
+            }
+            if dead {
+                entity.insert(Dies::new(0));
+            }
+        });
+    }
+}
+
 /// Counts each ring of frost's zone down, and gives each hostile creature on its level that stands
 /// in it the effect 15 keyed by the ring for 1 s, again while it stays, whose value is its time's
 /// factor (`0x59F960`, `0x5941A0`, `opensacred_rules::spells::frost_slow`).
@@ -2081,8 +2247,20 @@ impl Plugin for SpellsPlugin {
             .add_systems(
                 Update,
                 (
-                    act, shield, strike, mine, disk, meteor, chain, spiral, banish, frost,
-                    teleport, doom, fade,
+                    act,
+                    shield,
+                    strike,
+                    mine,
+                    disk,
+                    meteor,
+                    chain,
+                    spiral,
+                    banish,
+                    frost,
+                    changelings,
+                    teleport,
+                    doom,
+                    fade,
                 )
                     .chain()
                     .after(Step::Npcs)
