@@ -943,11 +943,12 @@ impl Mind {
         thought
     }
 
-    /// The step of a group's member whose fellow, one of an `Enter` function, stepped by `step`:
-    /// the same step from `here`, within 50 more along each axis, its home moving with it.
+    /// The step of a group's member, the stepper among them, whose fellow of an `Enter` function
+    /// stepped by `step` (`0x54F2AE` to `0x54F725`): the same step from `here`, within 50 more
+    /// along each axis, and its home within 50 more of that, a walking member sent anew.
     pub fn fellow_steps(&mut self, here: Spot, step: Spot, rng: &mut Rng) -> Spot {
         let target = about(here + step, FELLOW, rng);
-        self.home = target;
+        self.home = about(target, FELLOW, rng);
         target
     }
 
@@ -2351,6 +2352,18 @@ mod tests {
 
     fn at(x: f32, y: f32) -> Spot {
         Spot::new(x, y)
+    }
+
+    #[test]
+    fn a_group_steps_by_its_fellows_step_each_and_its_home_within_50() {
+        let mut thief = Mind::new(at(0.0, 0.0), 0x1, (true, false), Some(3), SPEEDS, (307, 14));
+        let mut rng = Rng::of(48, 38, 0);
+        for _ in 0..20 {
+            let target = thief.fellow_steps(at(100.0, 100.0), at(300.0, -40.0), &mut rng);
+            assert!((target.x - 400.0).abs() <= 50.0 && (target.y - 60.0).abs() <= 50.0);
+            let home = thief.home - target;
+            assert!(home.x.abs() <= 50.0 && home.y.abs() <= 50.0);
+        }
     }
 
     #[test]
