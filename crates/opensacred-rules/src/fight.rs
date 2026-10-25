@@ -1430,6 +1430,21 @@ impl Combat {
     }
 }
 
+/// The effect whose value is an NPC's time's factor (`0x537160`, its float `+0x2C9`), which the
+/// remover sets back to 1.0 (`0x586D80`).
+pub const TIME: u32 = 15;
+
+/// An NPC's time's factor by its effects `effects` (`0x537160`): the value of the last effect 15
+/// that holds, 0 made 1e-4 so that 0 all but freezes it, else 1.0; its walk and run and their
+/// clips go at its pace times it (`Combat::pace_factor`).
+pub fn time_factor(effects: &[Effect]) -> f32 {
+    effects
+        .iter()
+        .rev()
+        .find(|effect| effect.id == TIME)
+        .map_or(1.0, |effect| effect.value.max(1e-4))
+}
+
 /// The attack speed of a creature of type `id` (`0x5796A0`, `0x584FE0`): 140 for every type but
 /// the 5th's (the Wood Elf's), 100; no items, weapon skills or effects yet (#294).
 pub fn attack_speed(id: u32) -> f32 {
