@@ -456,6 +456,7 @@ class Host:
             }
             fields['health'] = [hero['health'], hero['most']]
             fields['experience'] = [hero['level'], hero['experience']]
+            fields['gold'] = hero['gold']
             fields['hero_state'] = {'id': hero['id'], 'type': hero['type'], 'ai': hero['ai'], 'action': hero['action']}
         nearest = world.get('nearest')
         if nearest:
@@ -534,6 +535,11 @@ class Host:
                 'drop [TIMES] [--id ID]: the nearest hostile creature (or ID) drops as its death makes it drop, '
                 'the hero its killer, TIMES times',
                 'item TYPE: an item of that type, as a drop forced to it makes it at the hero\'s place and level',
+                "gold [N]: the hero's gold, or set to N",
+                "home [X,Y [FLOOR]]: the hero's home, where it rises after its death, or set to that cell on the "
+                'ground or a floor',
+                "wear [TYPE] [--slot S]: what the hero holds and wears, by its slots; with TYPE, an item of it made "
+                "and put into its slot (or S), what the slot held put aside; then the hero's stats",
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
                 '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
                 'out-float; the first argument is ECX for thiscall and fastcall); ADDRESS --stack '
@@ -1165,6 +1171,40 @@ class Host:
         made = self.world('item', {'type': int(rest)})['made']
         return [f"made {'; '.join(self.describe_made(m) for m in made) or 'nothing'}"]
 
+    def command_gold(self, rest):
+        if rest and not rest.isdigit():
+            raise ValueError('gold [N]')
+        return [f"gold {self.world('gold', {'to': int(rest) if rest else None})}"]
+
+    def command_home(self, rest):
+        words = rest.split()
+        params = {'x': None, 'y': None, 'floor': 0}
+        if words:
+            if len(words) > 2 or (len(words) == 2 and not words[1].isdigit()):
+                raise ValueError('home [X,Y [FLOOR]]')
+            params['x'], params['y'] = self.target_cell(words[0], relative_to_hero=True)
+            params['floor'] = int(words[1]) if len(words) == 2 else 0
+        home = self.world('home', params)
+        return [f"home {home['cell'][0]},{home['cell'][1]} floor {home['floor']} (sector {home['sector']})"]
+
+    def command_wear(self, rest):
+        parser = argparse.ArgumentParser(prog='wear', add_help=False, exit_on_error=False)
+        parser.add_argument('type', type=int, nargs='?')
+        parser.add_argument('--slot', type=int)
+        options = parser.parse_args(rest.split())
+        if options.slot is not None and not 0 <= options.slot < 19:
+            raise ValueError('wear: --slot 0 to 18')
+        if options.slot is not None and options.type is None:
+            raise ValueError('wear: --slot with a TYPE')
+        worn = self.world('wear', {'type': options.type, 'slot': options.slot})
+        lines = []
+        if worn['put']:
+            lines.append(f"put {worn['put']['id']} type {options.type} into slot {worn['put']['slot']}")
+        lines += [f"slot {s['slot']}: {s['id']} type {s['type']}" for s in worn['slots']] or ['nothing worn']
+        if worn['put']:
+            lines += self.command_stats('')
+        return lines
+
     def quit_later(self):
         if not self.ended.wait(15):
             self.journal.push('WARN', 'host', 'the game is still running 15 s after its window was closed: ended')
@@ -1184,6 +1224,7 @@ WORLD_COMMANDS = {
     'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause, 'arts': Host.command_arts, 'level': Host.command_level,
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
+    'gold': Host.command_gold, 'home': Host.command_home, 'wear': Host.command_wear,
 }
 
 
