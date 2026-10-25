@@ -80,6 +80,9 @@ intel_tex_2 = "0.5.0"
 kira = { version = "0.12.5", default-features = false }
 # The reader of the KTX2 textures, Bevy's own, which the tests check the writer against (#700).
 ktx2 = "0.5.0"
+# The scripts in Luau (#720): the converter compiles its translation of the NetScript (#723), the
+# game runs it; Luau's sources are built in, MIT like mlua.
+mlua = { version = "0.12.2", features = ["luau"] }
 # Direct rather than through flate2: inflate with an output limit is exactly what TEX needs.
 miniz_oxide = { version = "0.9.1", features = ["simd"] }
 png = "0.18.1"

@@ -375,6 +375,22 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 .with_context(|| format!("encoding {source}"))?;
             let path = dir.join(&file);
             fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
+            // Its Luau sources, in a directory of its own (#723).
+            let (sources, index) = crate::luau::translate(source, &tree)?;
+            let luau = path.with_extension("");
+            for (name, text) in &sources {
+                let target = luau.join(name);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("creating {}", parent.display()))?;
+                }
+                fs::write(&target, text)
+                    .with_context(|| format!("writing {}", target.display()))?;
+            }
+            let index = ron::ser::to_string_pretty(&index, crate::utf8::pretty())
+                .with_context(|| format!("writing {source}'s index"))?;
+            let target = luau.join(crate::luau::INDEX);
+            fs::write(&target, index).with_context(|| format!("writing {}", target.display()))?;
             if listing_too {
                 let text = path.with_extension("txt");
                 fs::write(&text, listing(source, &tree))
