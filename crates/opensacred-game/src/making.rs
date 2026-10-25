@@ -121,6 +121,7 @@ pub fn clips(
         Style::Roar,
         Style::Viper,
         Style::Ward,
+        Style::WardSpells,
         Style::Form,
         Style::Panther,
         Style::Changeling,
@@ -849,6 +850,7 @@ fn make(
                     | Style::Bolts
                     | Style::Glance
                     | Style::Ward
+                    | Style::WardSpells
                     | Style::Form
             ) {
                 let boon = boon_of(arts, record, level, 1.0);
@@ -1984,6 +1986,7 @@ fn make(
             | Style::Bolts
             | Style::Glance
             | Style::Ward
+            | Style::WardSpells
             | Style::Form => {
                 // Its effects on the hero at its point (`0x506770`), and its regeneration.
                 if playing.struck == 0
