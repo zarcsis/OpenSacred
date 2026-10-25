@@ -920,6 +920,7 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
    - `index.ron`, every function's file and key.
 
    Each file returns a table of its functions.
+   A record's operands are a table by their tags, `_01`, `_2A`, a tag that repeats a list of its values in their order; a table keeps no order of its keys, so a record of two markers or more also lists their tags in their order, `marks = { 0x0E, 0x46, 0x13 }` (#993), for `CreateNPC` and `SetNPCState`, which take the last of their mode's and their hostility's markers (the start's captain `hauptmann3`'s `0E 46 13` is mode 2, not `0x4000`).
    The 20 trees give 131,277 sources of 199 MB, each of which the Luau compiler takes.
    A name that several functions share (142 names of 1,986 functions in a campaign tree, mostly the quests' `ToDo:-1.<n>`) keeps every one of them in the index.
    Stage B compiles each source into Luau's bytecode (`<file>.luauc`, the converter's `build`), and every function and script of the 20 trees, run in Luau with a recording stand-in for the API, makes the same calls, tests and end as the walker for the same outcomes of its tests (807,800 runs, two each).

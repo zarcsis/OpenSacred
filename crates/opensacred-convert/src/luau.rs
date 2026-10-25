@@ -16,7 +16,8 @@
 //! `return "again"`. Every other record is a call named by its type's keyword in snake case
 //! (`CreateNPC` → `create_npc`; `type39`, `type47` and `dialog_entry` for the types without one),
 //! its operands a table keyed by their tags (`_01`, `_2A`), a tag that repeats a list of its
-//! values in their order; `CallFunktion` is `call("name", { … })` where it names one. A value is a
+//! values in their order, and a record of two markers or more `marks`, their tags in their order
+//! (#993); `CallFunktion` is `call("name", { … })` where it names one. A value is a
 //! number, a string,
 //! `true` for a marker, a list for a tuple, `var("name")` for a variable, and a number's
 //! expression (`A+VAR(B)`), whose value the client looks up in the variables, `var("A" ..
@@ -34,7 +35,7 @@ use opensacred_formats::netscript as original;
 
 use crate::flow::{Ending, Stmt, Test, structure};
 
-pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index};
+pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index, MARKS};
 
 /// The Luau bytecode of `source` (`mlua`'s compiler, Luau's own); an error where it does not
 /// compile.
@@ -177,7 +178,10 @@ fn value(value: &Value) -> Result<String> {
     })
 }
 
-/// The table of `operands`, keyed by their tags, a tag that repeats a list of its values.
+/// The table of `operands`, keyed by their tags, a tag that repeats a list of its values; and, for
+/// a record of two markers or more, `marks`, the markers' tags in their order (#993): the table's
+/// keys keep none, and `CreateNPC` and `SetNPCState` take the last of their mode's and their
+/// hostility's markers (`0x482510`, `0x4839F6`).
 fn operands_table(operands: &[Operand]) -> Result<String> {
     let mut by_tag: BTreeMap<u8, Vec<String>> = BTreeMap::new();
     for operand in operands {
@@ -189,13 +193,21 @@ fn operands_table(operands: &[Operand]) -> Result<String> {
     if by_tag.is_empty() {
         return Ok("{}".to_owned());
     }
-    let fields: Vec<String> = by_tag
+    let mut fields: Vec<String> = by_tag
         .into_iter()
         .map(|(tag, values)| match <[String; 1]>::try_from(values) {
             Ok([one]) => format!("_{tag:02X} = {one}"),
             Err(values) => format!("_{tag:02X} = {{ {} }}", values.join(", ")),
         })
         .collect();
+    let marks: Vec<String> = operands
+        .iter()
+        .filter(|operand| operand.value == Value::Marker)
+        .map(|operand| format!("0x{:02X}", operand.tag))
+        .collect();
+    if marks.len() > 1 {
+        fields.push(format!("{MARKS} = {{ {} }}", marks.join(", ")));
+    }
     Ok(format!("{{ {} }}", fields.join(", ")))
 }
 
@@ -689,6 +701,21 @@ mod tests {
             "create_npc { _01 = \"res:1\", _04 = { 1098, 905, 0 }, _0E = true, \
              _19 = { { 76, 100, 1 }, { 77, 50, 1 } }, \
              _48 = { var(\"MaxVerstecke_r\" .. var(\"RNr\")), \"Q\" }, _9F = var(\"dq_level\") }"
+        );
+        // The markers' order beside the keys: the start's captain's `0E 46 13` (#993).
+        let captain = record(
+            1,
+            vec![
+                op(0x04, Value::Str("hauptmann3".into())),
+                op(0x0E, Value::Marker),
+                op(0x46, Value::Marker),
+                op(0x13, Value::Marker),
+            ],
+        );
+        assert_eq!(
+            call(&captain).unwrap(),
+            "create_npc { _04 = \"hauptmann3\", _0E = true, _13 = true, _46 = true, \
+             marks = { 0x0E, 0x46, 0x13 } }"
         );
         let called = record(
             CALL,
