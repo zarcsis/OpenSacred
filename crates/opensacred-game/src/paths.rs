@@ -24,7 +24,7 @@ pub fn cell_of(x: f32, z: f32) -> Cell {
 }
 
 /// The world point at the centre of `cell`, on the ground plane.
-fn centre(cell: Cell) -> Vec2 {
+pub fn centre(cell: Cell) -> Vec2 {
     let point = iso::ground(cell.0 as f32 + 0.5, cell.1 as f32 + 0.5);
     Vec2::new(point.x, point.z)
 }

@@ -57,6 +57,25 @@ impl Effects {
         self.0.iter().any(|timed| timed.effect.id == id)
     }
 
+    /// The seconds the first effect of `id` still holds.
+    pub fn left(&self, id: u32) -> Option<f32> {
+        self.0
+            .iter()
+            .find(|timed| timed.effect.id == id)
+            .map(|timed| timed.left)
+    }
+
+    /// Gives the first effect of `id` `seconds` more; whether one holds.
+    pub fn prolong(&mut self, id: u32, seconds: f32) -> bool {
+        match self.0.iter_mut().find(|timed| timed.effect.id == id) {
+            Some(timed) => {
+                timed.left += seconds;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Takes off every effect of `id`.
     pub fn remove(&mut self, id: u32) {
         self.0.retain(|timed| timed.effect.id != id);
@@ -65,6 +84,16 @@ impl Effects {
     /// Takes off every effect keyed by one of `arts` (`0x5888F0`).
     pub fn take_off(&mut self, arts: &[u32]) {
         self.0.retain(|timed| !arts.contains(&timed.effect.art));
+    }
+
+    /// Ends every effect keyed by one of `arts` at the tick's wear, its seconds set to 0, as
+    /// `0x5888F0` does, so that what its end does follows (the Daemon's form's, `daemon`).
+    pub fn end(&mut self, arts: &[u32]) {
+        for timed in &mut self.0 {
+            if arts.contains(&timed.effect.art) {
+                timed.left = 0.0;
+            }
+        }
     }
 
     /// The effects and their seconds, in their order.
@@ -269,6 +298,11 @@ fn refit_npcs(
     }
 }
 
+/// The tick's wear of the effects, which a system that sees an effect's end before it goes runs
+/// before.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Wears;
+
 /// The creatures' effects.
 pub struct EffectsPlugin;
 
@@ -277,7 +311,7 @@ impl Plugin for EffectsPlugin {
         app.add_systems(
             Update,
             (
-                wear.run_if(crate::frame::ticked),
+                wear.run_if(crate::frame::ticked).in_set(Wears),
                 bleed.run_if(crate::frame::ticked),
                 refit_hero,
                 refit_npcs,

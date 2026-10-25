@@ -67,24 +67,58 @@ fn parse(ftl: &str) -> HashMap<u32, String> {
         .collect()
 }
 
-/// A line a creature shows over itself: the name of its text, its colour, how long it still
-/// shows, and its label once it has one.
+/// A line a creature shows over itself: its text, its colour, how long it still shows, and its
+/// label once it has one. A new line in its place takes its label away ([`replaced`]).
 #[derive(Component)]
 pub struct Says {
-    name: String,
+    line: Line,
     color: Color,
     left: f32,
     label: Option<Entity>,
+}
+
+/// A line's text: one of the game's texts by its name, or a text of its own (a number).
+enum Line {
+    Named(String),
+    Own(String),
 }
 
 impl Says {
     /// The line of the text named `name`, in `color`.
     pub fn new(name: impl Into<String>, color: Color) -> Self {
         Self {
-            name: name.into(),
+            line: Line::Named(name.into()),
             color,
             left: SHOWS,
             label: None,
+        }
+    }
+
+    /// The line of `text` itself, in `color`: the Daemon's form's countdown (`0x5635BB`).
+    pub fn own(text: impl Into<String>, color: Color) -> Self {
+        Self {
+            line: Line::Own(text.into()),
+            ..Self::new(String::new(), color)
+        }
+    }
+}
+
+/// A line's label goes with it, at its end or as another takes its place.
+fn replaced(replaced: On<Discard<Says>>, mut commands: Commands, speakers: Query<&Says>) {
+    if let Some(label) = speakers
+        .get(replaced.entity)
+        .ok()
+        .and_then(|says| says.label)
+    {
+        commands.entity(label).try_despawn();
+    }
+}
+
+impl Line {
+    /// The text's name, or the text itself.
+    fn name(&self) -> &str {
+        match self {
+            Self::Named(text) | Self::Own(text) => text,
         }
     }
 }
@@ -109,11 +143,14 @@ fn show(
     };
     for (entity, at, mut says) in &mut speakers {
         says.left -= time.delta_secs();
-        let text = texts.as_ref().and_then(|texts| texts.named(&says.name));
+        let text = match &says.line {
+            Line::Named(name) => texts
+                .as_ref()
+                .and_then(|texts| texts.named(name))
+                .map(str::to_owned),
+            Line::Own(text) => Some(text.clone()),
+        };
         if says.left <= 0.0 || text.is_none() {
-            if let Some(label) = says.label {
-                commands.entity(label).despawn();
-            }
             commands.entity(entity).remove::<Says>();
             continue;
         }
@@ -150,7 +187,7 @@ fn show(
                         DespawnOnExit(AppState::InGame),
                     ))
                     .id();
-                debug!("lines: {entity} says {}", says.name);
+                debug!("lines: {entity} says {}", says.line.name());
                 says.label = Some(label);
             }
         }
@@ -162,7 +199,8 @@ pub struct LinesPlugin;
 
 impl Plugin for LinesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, show.in_set(Step::Npcs));
+        app.add_systems(Update, show.in_set(Step::Npcs))
+            .add_observer(replaced);
     }
 }
 
