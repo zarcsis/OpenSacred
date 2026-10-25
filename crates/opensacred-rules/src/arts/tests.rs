@@ -586,7 +586,7 @@ fn the_classes_own_arts_strike_by_their_style() {
     assert_eq!(style(1069), Some(Style::Rundum));
     assert_eq!(style(1058), Some(Style::Hardhit));
     assert_eq!(style(1070), Some(Style::Hardhit));
-    assert_eq!((style(1013), style(18)), (None, None));
+    assert_eq!((style(1013), style(1)), (None, None));
 }
 
 #[test]

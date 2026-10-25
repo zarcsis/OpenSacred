@@ -1046,7 +1046,16 @@ Read 2026-10-25 (#672) for her spells 13 and 15 to 22; **confirmed** by code unl
 The blades of light and the light give the hero the effect 35 for their time, which does nothing yet; the light's light is not made.
 The Seraphim of a new game, whose spells' multipliers are 1.4187, strikes the goblin warrior of level 30 with the holy light for 21 of the magic each second, as the original's.
 It makes 21 and 22 on the hero too (#875): the crusader's strength gives the effect `0x22` at its act and the effect 1 of 0.75 for 45 s at level 1 1.6 s later (**hypothesis**: at the world's time; the stone skin's clock runs at the cast's rate), which takes her `A` from 28.5 to 49; the holy shield gives the effects `0x22` and `0x19` of her level, which the arrows' rule reads (docs/re/fight.md), for 43 + 2·L seconds.
-`IRRITATION` (18) and `BEKEHRUNG` (19) wait for what the effects 13 and 14 do to a creature: whose flags word `0x423580` turns its answer over by, and what the bit `0x20000` holds back in the idle step and the fight at range.
+`IRRITATION` (18) and `BEKEHRUNG` (19) it makes too: each gives a hostile creature alive, no boss nor champion, and for the conversion of no big type, its effect for `trunc(v₀·f)·min(1, 5L/M)` seconds, the whole value the Seraphim's level; the irritation's 13, under which the creature leaves the hero alone as under the Vampiress's domination, lasts 3 s on a goblin of level 5 at level 1, as the original's.
+The effect 14 turns the creature's sides over while it holds (`opensacred_rules::minds::Mind::turned`): it is no longer hostile to the hero, and it and the others take each other the other way about.
+The effect's refusal of `+0x2B8` bit `0x40` is not followed.
+
+Read 2026-10-25 (#875) by byte scans and the disassembly:
+- `0x423580` turns its answer over when either of its two creatures carries `+0x1F4` bit `0x40000` (`0x4238C6` to `0x4238FF`); `0x533C0F`, `0x5433C6`, `0x5435A3`, `0x5472FB` and `0x61269F` test the bit too (not read).
+- The bit `0x20000` is tested in the idle action, which it passes over whole (`0x54EA6E`, and `0x54F436` within it), in the fight at range (`0x4DC293`) and in the melee (`0x4E0509`), where it skips the block from `0x4E0515` to `0x4E05C5`; the bit `0x40000` skips that block only against a target of an id up to 16.
+  The block asks `0x549000` about the local player's hero and `0x4D4DA0` about it and the creature (not read further; **hypothesis**: where a fighting creature turns to the hero).
+
+In the game a converted creature leaves its fight with the hero (**hypothesis**); how the original's then picks its old friends for its foes is not read, and the game's does not yet.
 
 The effect `0x22` (`0x539E70`), of the whole value and the value 0, lasts the spell's value 0 at the caster's level of the art, keyed by the spell; of the spells read here, 2, 17, 21, 22 and 32 give it.
 What the effect 35 does, the event `0x109`, and the rest of what the effect 13 does are not read.

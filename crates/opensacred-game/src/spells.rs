@@ -4,8 +4,9 @@
 //! target's place as a bolt (`bolts`); the regeneration gives its bearer its record's effects
 //! (`opensacred_rules::spells::effects`) at once, and the stone skin as its shield's clock passes
 //! [`SHIELD_TIME`] at the cast's rate, and the crusader's strength after [`STRENGTH_TIME`]; the
-//! holy shield turns arrows aside (`arrows`); the healing adds its health to its bearer's, its
-//! most at most. A spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
+//! holy shield turns arrows aside (`arrows`); the irritation and the conversion hold a hostile
+//! creature with the effect 13, under which it leaves the hero alone (`ai`), and 14, which turns
+//! its sides over (`effects`); the healing adds its health to its bearer's, its most at most. A spell that lasts on its bearer gives it the effect `0x22` too. The Seraphim's
 //! lightning strikes its target at once; her holy light stands at its point, and her blades of
 //! light and her light go with their bearer, each striking about itself once a second for its
 //! time ([`Aura`]). Their particle systems are stood in for by a flash and translucent discs
@@ -15,8 +16,8 @@ use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::spells::{
-    self, BEAT, BORNE, CRUSADERS_STRENGTH, FIREBALL, HEALING, HOLY_SHIELD, LIGHTNING,
-    LIGHTNING_SHOWS, REIKI, SHIELD_TIME, STONE_SKIN, STRENGTH_TIME,
+    self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIREBALL, HEALING, HOLY_SHIELD, IRRITATION,
+    LIGHTNING, LIGHTNING_SHOWS, REIKI, SHIELD_TIME, STONE_SKIN, STRENGTH_TIME,
 };
 
 use crate::crowd::InTheWay;
@@ -112,20 +113,22 @@ fn make_looks(
 #[expect(
     clippy::too_many_arguments,
     clippy::too_many_lines,
-    reason = "a Bevy system takes its resources and queries as arguments; the spells read best \
-              together"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, its resources grouped; \
+              the spells read best together"
 )]
 fn act(
     mut commands: Commands,
     mut acts: MessageReader<Acts>,
-    (arts, rules, looks): (
+    (arts, rules, looks, experience): (
         Option<Res<crate::arts::HeroArts>>,
         Res<crate::fight::Rules>,
         Option<Res<Looks>>,
+        Res<fight::Experience>,
     ),
     casters: Query<(&Transform, &Body, Option<&Combat>)>,
     places: Query<&GlobalTransform>,
-    mut healths: Query<&mut Health>,
+    mut targets: Query<(&mut Health, Option<&ai::Mind>, Option<&fight::Ranked>)>,
     mut launches: MessageWriter<crate::bolts::Launch>,
     mut hits: MessageWriter<fight::Hit>,
 ) {
@@ -172,6 +175,36 @@ fn act(
             }
             REIKI => given.extend(spells::effects(record, act.level)),
             HOLY_SHIELD => given.push(spells::holy_shield(record, act.level)),
+            IRRITATION | CONVERSION => {
+                // On a hostile creature alive, no boss nor champion, nor of a big type for the
+                // conversion (`0x524196`, `0x5242D3`, the action 7); the effect's own refusal of
+                // `+0x2B8` bit `0x40` is not followed.
+                let Ok((health, Some(mind), rank)) = targets.get(act.target) else {
+                    continue;
+                };
+                let ranked = rank.map(|rank| rank.0);
+                let held = !matches!(
+                    ranked,
+                    Some(
+                        opensacred_rules::fight::Rank::Boss
+                            | opensacred_rules::fight::Rank::Champion
+                    )
+                );
+                if !mind.hostile()
+                    || health.current == 0
+                    || !held
+                    || (act.spell == CONVERSION && mind.big)
+                {
+                    info!("spells: {} does not hold {}", act.spell, act.target);
+                    continue;
+                }
+                given.extend(spells::holding(
+                    record,
+                    act.level,
+                    experience.level,
+                    health.level,
+                ));
+            }
             CRUSADERS_STRENGTH => {
                 commands.entity(act.target).insert(Shielding {
                     left: STRENGTH_TIME,
@@ -189,7 +222,7 @@ fn act(
             HEALING => {
                 let lore = opensacred_rules::fight::magic_lore(&arts.skills, &rules);
                 let health = spells::healing(record, act.level, lore);
-                if let Ok(mut bearer) = healths.get_mut(act.target) {
+                if let Ok((mut bearer, ..)) = targets.get_mut(act.target) {
                     bearer.current = bearer.current.saturating_add(health).min(bearer.most);
                     info!("spells: the healing gives {health}, to {}", bearer.current);
                 }
