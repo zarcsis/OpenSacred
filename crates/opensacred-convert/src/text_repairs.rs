@@ -53,7 +53,8 @@ const GOBLIN_GOD: Word = Word {
 /// A string that the file lacks, added under the hash of its name.
 #[derive(Debug, Clone, Copy)]
 pub struct Added {
-    /// The string's name, whose hash is its id: a creature type's number in decimal (docs/02 §6.2).
+    /// The string's name, whose hash is its id: a creature type's number in decimal (docs/02 §6.2),
+    /// or a key that the scripts name whole.
     pub name: &'static str,
     /// The project's own text.
     pub text: &'static str,
@@ -67,10 +68,12 @@ impl Added {
 
 /// The strings that `text` adds: the names of the waters' shoals of fish, the only creatures of a
 /// type without a name that the scripts or the sectors' runner make (#684,
-/// docs/decisions/2026-10-23-fish-names.md). The runner makes them without a script
+/// docs/decisions/2026-10-23-fish-names.md), and the lines of the four quest-log keys that the
+/// scripts' `QuestBook` records name and the file lacks (#687,
+/// docs/decisions/2026-10-25-quest-log-lines.md). The runner makes the fish without a script
 /// (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every creature of
 /// the other such types that they make a name of its own.
-pub const ADDED: [Added; 2] = [
+pub const ADDED: [Added; 6] = [
     // `fisc_01.grn`: three small fish and a middle-sized one.
     Added {
         name: "164",
@@ -80,6 +83,28 @@ pub const ADDED: [Added; 2] = [
     Added {
         name: "165",
         text: "Shoal of Small Fish",
+    },
+    // The main quest 61's element of the air, taken before the quest asks for it, as its siblings
+    // of fire, earth and water note theirs.
+    Added {
+        name: "HQ_6_2_1_Log_preQuest",
+        text: "An odd element, light and restless as a gust of wind!",
+    },
+    // The heading of the quest 7607, the last of three insects to kill, as its siblings 7605 and
+    // 7606 have theirs.
+    Added {
+        name: "NQ_7607_LOG_HEADER",
+        text: "The Last of the Brood",
+    },
+    // The quests 9009 and 9010 lost, beside the generic lines of a quest completed and failed.
+    Added {
+        name: "NQ_LOG_QLOSE",
+        text: "Quest lost.",
+    },
+    // The quest 901 won: the abducted women brought home.
+    Added {
+        name: "R09NQ01_Log_Qsieg",
+        text: "The women are home again, safe in their village.",
     },
 ];
 
