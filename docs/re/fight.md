@@ -334,6 +334,9 @@ The value times the rate (a whole number: `RegInFight`, `RegEnemyNear`, `RegNoEn
 From 4,096 on, the accumulator gives `acc >> 12` health, at most up to the most, and keeps `acc & 0x3FF`, its low ten bits, not twelve (a quirk).
 So a tick's step above 1,024 loses its overshoot's 1,024s: the Seraphim of level 30 alone (170 · 128 a second, about 2,200 to 2,500 a tick) regained 4.55 a second in the original, where 5.31 would be gathered (#616).
 
+The hero's death, **seen** 2026-10-25 in the original (#227, the driver of #448: a new game of the Seraphim on bronze at level 2, killed by goblin warriors of level 40 beside her, her state read every half second): she rises about 5 s after she falls (4.8 s in three deaths), at the start's place, the chapel's ground floor at (3236, 2511) of 50,39, whether she fell there or 45 cells off in 51,39, with her health full, her level and her experience; the creatures that killed her stay where they were.
+What sets the place (the start, or a point the hero passed later) and what a death costs beyond the state (gold, items) are not read.
+
 ## Open
 
 The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 6 on; the projectiles 3068, 3069 and 3079, the arrows' deflection (`0x561090`), and `FernAll` and `RuestAll`, which no code found uses; whether the hero's click opens a door (#372, "Doors in the way"); the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5); what sets a creature's `+0x200` bit `0x10000000` and its list, and `+0x1F4` bit `0x40000` ("Sides").
