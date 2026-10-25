@@ -2099,8 +2099,9 @@ fn knock(
             transform.translation.y = ground
                 + crate::iso::height(flight.height.max(0.0) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
             // The first creature it meets, alive, not big, not flying, nearer than the two
-            // sizes: struck by its thrower, thrown on along its way, held 2 s; it keeps 0.9 of
-            // its speed (`0x44DFE0`'s blows).
+            // sizes: struck by its thrower, his ordinary strike, which lands without a roll as his
+            // art has ended (`0x56B130`), thrown on along its way, held 2 s; it keeps 0.9 of its
+            // speed (`0x44DFE0`'s blows).
             let own = size.map_or(crate::arrows::size(0), |size| size.0);
             let here = transform.translation.xz();
             if let Some((other, at)) = others
@@ -2120,7 +2121,7 @@ fn knock(
                     ranged: false,
                     art: None,
                     fixed: None,
-                    sure: false,
+                    sure: true,
                 });
                 commands
                     .entity(other)
