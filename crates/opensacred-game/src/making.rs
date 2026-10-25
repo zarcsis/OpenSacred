@@ -1046,7 +1046,7 @@ fn make(
                         hero,
                         playing.target,
                         arts::raised_level(experience.level, playing.level),
-                        arts::raised_seconds(record, playing.level),
+                        Some(arts::raised_seconds(record, playing.level)),
                     );
                 }
                 end(&mut commands);
