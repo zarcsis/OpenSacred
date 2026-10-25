@@ -712,6 +712,43 @@ impl Mind {
         true
     }
 
+    /// A follower sent at a foe by the event `0x100` (`0x52FA63`): it takes the AI's state 4, or 8
+    /// with a ranged weapon, as any creature does, unless it fights already; whether it does.
+    pub fn sent_at(&mut self) -> bool {
+        if self.fighting {
+            return false;
+        }
+        self.fighting = true;
+        self.deciding = true;
+        self.active = false;
+        true
+    }
+
+    /// Whether it follows a master ([`FOLLOWS`]).
+    pub fn follows(&self) -> bool {
+        self.flags & FOLLOWS != 0
+    }
+
+    /// The foe a follower standing at its master's side takes while the master at `master` fights
+    /// `target` (`0x4F4044` to `0x4F4248`): the second nearest of the hero's hostiles, `second`,
+    /// where it stands within 350 of the master, else the master's target; none while the master
+    /// fights none, nor for a follower of the heroes' class 1 (`0x426650`).
+    pub fn helps<T: Copy>(
+        &self,
+        master: Spot,
+        target: Option<T>,
+        second: Option<(T, Spot)>,
+    ) -> Option<T> {
+        if self.class == HEROES {
+            return None;
+        }
+        target?;
+        match second {
+            Some((foe, at)) if (at - master).length() < HELPS_WITHIN => Some(foe),
+            _ => target,
+        }
+    }
+
     /// Its foe, a creature, is dead or gone: it leaves the fight, and decides again once its timer
     /// or the hero's look wakes it (**hypothesis**: as it gives up, the AI's state 0).
     pub fn loses_foe(&mut self) {
@@ -1111,8 +1148,10 @@ impl Mind {
                 within,
             }),
             None if d < lo => Some(steps_back()),
-            // In the band at full health and far from home, it goes home (the leash).
+            // In the band at full health and far from home, it goes home (the leash); a follower
+            // never (`0x4E0300`'s case 2 wants no master).
             None if health.is_some_and(|(current, most)| current >= most)
+                && self.flags & FOLLOWS == 0
                 && (here - self.home).length() > LEASH =>
             {
                 self.leaves_fight();
@@ -1855,6 +1894,138 @@ pub fn steps_off(partner: Spot, rng: &mut Rng, mut free: impl FnMut(Spot) -> boo
         .find(|&to| free(to))
 }
 
+/// The behaviour of a follower (`+0x1F4` bit `0x100`, `0x4EF150` at `0x4F3E65`; docs/re/ai.md,
+/// "Followers"), which a hiring gives a creature with its master (`+0x251`): it keeps near the
+/// master and fights for it ([`keeps`], [`Mind::helps`], [`defends`]).
+pub const FOLLOWS: u32 = 0x100;
+/// How far from its master a follower standing is put near it (`0x5370B0`), walks to it and
+/// stands, how near it a follower's walk to it stops (`+0x176`), and how far a follower steps off
+/// to.
+const PUT_NEAR: f32 = 1_500.0;
+/// How far from its master a follower is put near it, fighting or not (`0x545E0E`).
+const PULLED: f32 = 2_000.0;
+const WALKS_TO: f32 = 240.0;
+pub const FOLLOWER_STOPS: f32 = 200.0;
+const STANDS_FROM: f32 = 150.0;
+const STEPS_TO: f32 = 195.0;
+/// The turns of a follower's points to step off to from its master's heading: the other way and
+/// either side (`0x4F3E65`).
+#[expect(
+    clippy::approx_constant,
+    reason = "the original's own constant, 3.1415, not π"
+)]
+const OTHER_WAY: f32 = 3.1415;
+const ASIDE_TURN: f32 = 1.51;
+/// On its way to its master: how far from it a follower heads for its place again, and how near
+/// it stops (`0x4F4770`).
+const HEADS_AGAIN: f32 = 270.0;
+const ARRIVES: f32 = 170.0;
+/// How near its master a creature that comes at the master sends a follower at it, at range
+/// farther (`0x4E0010`), and how near the master the second of the hero's hostiles takes a
+/// follower's help (`0x4F4044`).
+const DEFENDS: f32 = 350.0;
+const DEFENDS_AT_RANGE: f32 = 600.0;
+const HELPS_WITHIN: f32 = 350.0;
+/// The radius about its master, at the camera's zoom 1, at which a follower far from it is put,
+/// by 0.1 radians from behind the master, in 63 tries (`0x4EBF20`, `0x611400`).
+const PUT_AT: f32 = 1_024.0;
+const PUT_STEP: f32 = 0.1;
+const PUT_TRIES: u16 = 63;
+
+/// What a follower standing does about its master ([`keeps`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Keeps {
+    /// Farther than 1,500, it is put near the master ([`put_near`]).
+    PutNear,
+    /// Farther than 240, it walks or runs to the master as the master goes, stopping within
+    /// [`FOLLOWER_STOPS`].
+    Walks,
+    /// From 150 to 240, it stands.
+    Stands,
+    /// Nearer than 150, it steps off to 195 from the master ([`stepping_off`]).
+    StepsOff,
+}
+
+/// What a follower standing at `here` does about its master at `master`, the distance rounded up
+/// (`0x4F3E65`).
+pub fn keeps(here: Spot, master: Spot) -> Keeps {
+    let d = (master - here).length().ceil();
+    if d > PUT_NEAR {
+        Keeps::PutNear
+    } else if d > WALKS_TO {
+        Keeps::Walks
+    } else if d >= STANDS_FROM {
+        Keeps::Stands
+    } else {
+        Keeps::StepsOff
+    }
+}
+
+/// The points a follower near its master at `master`, of the heading `heading` (radians from the
+/// grid's x toward its y), steps off to, in the order it tries them, the first with a way to it
+/// taken, else the last (`0x4F3E65`, `0x4F7710`): 195 from the master along its heading, the
+/// other way, then to either side, each turned by `(U[0, 100] − 50)/60` radians (`0x450680`).
+pub fn stepping_off(master: Spot, heading: f32, rng: &mut Rng) -> [Spot; 4] {
+    [0.0, OTHER_WAY, ASIDE_TURN, -ASIDE_TURN].map(|turn| {
+        let jitter = (f32::from(u16::try_from(rng.below(101)).unwrap_or(50)) - 50.0) / 60.0;
+        let angle = heading + turn + jitter;
+        master + Spot::new(angle.cos(), angle.sin()) * STEPS_TO
+    })
+}
+
+/// What a follower walking at `here` does on its way about its master at `master` (`0x4F4770`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnTheWay {
+    /// Farther than 1,500 from it, it is put near it ([`put_near`], `0x4F5EE7`).
+    PutNear,
+    /// Farther than 270 from it, one walking to it heads for its place again.
+    HeadsAgain,
+    /// Within 170 of it, one walking to it stops.
+    Stops,
+}
+
+/// What a follower walking at `here` does about its master at `master`, unless it steps off
+/// from it (the walk's mode 3, `0x4F4770`).
+pub fn on_the_way(here: Spot, master: Spot, stepping_off: bool) -> Option<OnTheWay> {
+    let d = (master - here).length();
+    if d > PUT_NEAR {
+        Some(OnTheWay::PutNear)
+    } else if stepping_off {
+        None
+    } else if d < ARRIVES {
+        Some(OnTheWay::Stops)
+    } else if d > HEADS_AGAIN {
+        Some(OnTheWay::HeadsAgain)
+    } else {
+        None
+    }
+}
+
+/// The points about its master at `master`, of the heading `heading`, that a follower far from
+/// it is put at, in the order tried, the first it may stand on with a way to the master taken
+/// (`0x4EBF20`): `1024/zoom` from the master, from behind it round by 0.1 radians, 63 of them.
+pub fn put_near(master: Spot, heading: f32, zoom: f32) -> impl Iterator<Item = Spot> {
+    let radius = PUT_AT / zoom.max(f32::EPSILON);
+    (0..PUT_TRIES).map(move |i| {
+        let angle = heading + std::f32::consts::PI + PUT_STEP * f32::from(i);
+        master + Spot::new(angle.cos(), angle.sin()) * radius
+    })
+}
+
+/// Whether a follower at `here` is put near its master at `master` whatever it does, fighting
+/// or not: farther than 2,000, as its master stands (`0x545E0E` to `0x546007`, for a master of
+/// `+0x200` bit `0x40`; **hypothesis**: the heroes').
+pub fn pulled(here: Spot, master: Spot) -> bool {
+    (master - here).length() > PULLED
+}
+
+/// Whether a creature at `foe` that comes at a follower's master at `master` sends the follower
+/// at it (`0x4E0010`): within 350 of the master, 600 for one at range.
+pub fn defends(master: Spot, foe: Spot, ranged: bool) -> bool {
+    let within = if ranged { DEFENDS_AT_RANGE } else { DEFENDS };
+    (foe - master).length() < within
+}
+
 /// What a child does by its roll of 20 (`0x4F2AD7`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Child {
@@ -2180,6 +2351,83 @@ mod tests {
 
     fn at(x: f32, y: f32) -> Spot {
         Spot::new(x, y)
+    }
+
+    #[test]
+    fn a_follower_keeps_the_band_of_150_to_240_about_its_master() {
+        let master = at(1000.0, 1000.0);
+        let off = |d: f32| keeps(at(1000.0 + d, 1000.0), master);
+        assert_eq!(off(1_500.5), Keeps::PutNear);
+        assert_eq!(off(1_499.0), Keeps::Walks);
+        assert_eq!(off(240.5), Keeps::Walks);
+        assert_eq!([240.0, 200.0, 149.5].map(off), [Keeps::Stands; 3]);
+        assert_eq!(off(149.0), Keeps::StepsOff);
+        // On its way to the master it heads again from beyond 270 and stops within 170; stepping
+        // off it does neither.
+        let way = |d: f32, off| on_the_way(at(1000.0 + d, 1000.0), master, off);
+        assert_eq!(way(300.0, false), Some(OnTheWay::HeadsAgain));
+        assert_eq!(way(200.0, false), None);
+        assert_eq!(way(160.0, false), Some(OnTheWay::Stops));
+        assert_eq!(way(100.0, true), None);
+        assert_eq!(way(1_600.0, true), Some(OnTheWay::PutNear));
+        // Farther than 2,000 it is put near the master whatever it does.
+        assert!(pulled(at(3_001.0, 1000.0), master));
+        assert!(!pulled(at(2_999.0, 1000.0), master));
+    }
+
+    #[test]
+    fn a_follower_steps_off_ahead_of_its_master_then_behind_and_aside() {
+        let mut rng = Rng::of(51, 39, 0);
+        let points = stepping_off(at(0.0, 0.0), 0.0, &mut rng);
+        for point in points {
+            assert!((point.length() - 195.0).abs() < 0.01);
+        }
+        // Ahead within 50/60 radians of its heading, then the other way, then either side.
+        let angle = |p: Spot| p.y.atan2(p.x);
+        assert!(angle(points[0]).abs() <= 50.0 / 60.0 + 1e-4);
+        assert!((angle(points[1]).abs() - std::f32::consts::PI).abs() <= 50.0 / 60.0 + 1e-3);
+        assert!((angle(points[2]) - 1.51).abs() <= 50.0 / 60.0 + 1e-4);
+        assert!((angle(points[3]) + 1.51).abs() <= 50.0 / 60.0 + 1e-4);
+    }
+
+    #[test]
+    fn a_follower_far_away_is_put_behind_its_master_first() {
+        let points: Vec<Spot> = put_near(at(0.0, 0.0), 0.0, 1.0).collect();
+        assert_eq!(points.len(), 63);
+        assert!((points[0].x + 1024.0).abs() < 0.01 && points[0].y.abs() < 0.01);
+        let near: Vec<Spot> = put_near(at(0.0, 0.0), 0.0, 2.0).take(1).collect();
+        assert!((near[0].length() - 512.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_follower_takes_the_second_hostile_near_its_master_else_the_masters_target() {
+        let wolf = Mind::new(
+            Spot::default(),
+            FOLLOWS,
+            (false, true),
+            None,
+            SPEEDS,
+            (588, 6),
+        );
+        let master = at(0.0, 0.0);
+        assert_eq!(
+            wolf.helps(master, Some(1), Some((2, at(300.0, 0.0)))),
+            Some(2)
+        );
+        assert_eq!(
+            wolf.helps(master, Some(1), Some((2, at(400.0, 0.0)))),
+            Some(1)
+        );
+        assert_eq!(wolf.helps(master, Some(1), None), Some(1));
+        assert_eq!(wolf.helps(master, None, Some((2, at(10.0, 0.0)))), None);
+        // A creature that comes at the master sends it within 350, at range 600.
+        assert!(defends(master, at(340.0, 0.0), false));
+        assert!(!defends(master, at(360.0, 0.0), false));
+        assert!(defends(master, at(590.0, 0.0), true));
+        // Sent at a foe it fights, but not twice, and no leash takes it home.
+        let mut wolf = wolf;
+        assert!(wolf.follows() && wolf.sent_at() && wolf.fighting());
+        assert!(!wolf.sent_at());
     }
 
     #[test]

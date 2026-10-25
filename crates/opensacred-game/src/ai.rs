@@ -127,6 +127,22 @@ impl Mind {
     pub fn foe(&self) -> Option<Entity> {
         self.foe.filter(|_| self.fighting())
     }
+
+    /// A follower called off its fight, its foe forgotten, to be put near its master
+    /// (`followers`).
+    pub fn called_off(&mut self) {
+        self.thinks.loses_foe();
+        self.foe = None;
+    }
+
+    /// A follower sent at `foe` (`minds::Mind::sent_at`, the event `0x100`); whether it goes.
+    pub fn send_at(&mut self, foe: Entity) -> bool {
+        let goes = self.thinks.sent_at();
+        if goes {
+            self.foe = Some(foe);
+        }
+        goes
+    }
 }
 
 /// A creature as another sees it for the fights between them (#630): its entity, where it
@@ -363,7 +379,7 @@ fn go_for_door(
 /// (`opensacred_rules::ways::path_onto`, `0x4F7710`): to a cell brought nearer along the line
 /// where `to` lies farther than 25 cells along an axis (`opensacred_rules::ways::nearer`,
 /// `0x4FABE0`).
-fn way_to(here: Vec3, level: Level, to: Spot, heights: &Heights) -> bool {
+pub(crate) fn way_to(here: Vec3, level: Level, to: Spot, heights: &Heights) -> bool {
     let from = paths::cell_of(here.x, here.z);
     let Some(to) = opensacred_rules::ways::nearer(from, paths::cell_of(to.x, to.y), |cell| {
         heights.walkable_on(cell, level)
@@ -1151,6 +1167,7 @@ fn behave(
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
+    followers: Query<(), With<crate::followers::Follower>>,
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
         return;
@@ -1258,6 +1275,10 @@ fn behave(
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
     for (entity, transform, way, mut mind, walk) in &mut creatures {
+        // A follower keeps by its master instead (`followers`).
+        if followers.contains(entity) {
+            continue;
+        }
         let here = transform.translation;
         // A guard awake, walking or standing, attacks the nearest creature of the 3 × 3 sectors
         // about it that it is hostile to, within 500 (`0x4EF150`, `0x4EEE40`, the event `0x100`).
@@ -1818,6 +1839,11 @@ fn nearest_foe(entity: Entity, here: Vec3, mind: &Mind, others: &[Other]) -> Opt
         .copied()
 }
 
+/// The creatures' thoughts, behaviours and fights at a tick of the world, after which the
+/// followers keep by their masters (`followers`).
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Thinks;
+
 /// The creatures' idle life.
 pub struct AiPlugin;
 
@@ -1830,6 +1856,7 @@ impl Plugin for AiPlugin {
                 Update,
                 (open, think, aside, behave, pursue)
                     .chain()
+                    .in_set(Thinks)
                     .after(crate::crowd::gather)
                     .after(crate::crowd::look)
                     .in_set(Step::Crowd)

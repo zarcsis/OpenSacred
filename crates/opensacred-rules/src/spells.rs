@@ -46,6 +46,20 @@ pub const WATER_FORM: u16 = 4;
 pub const STONE: u16 = 25;
 pub const FROST_RING: u16 = 35;
 
+/// The Wood Elf's summoning of her unicorn (`SUMMONBEAR`, `0x523413`), at most at the level 250
+/// (`0x564D60`).
+pub const SUMMON: u16 = 3;
+
+/// The creature type that a summoning makes for a caster of type `kind` (`0x426F60`): the
+/// unicorn 72 for the Wood Elf (5), the wolf 588 for the Vampiress (6 and 7), else 545.
+pub fn summoned(kind: u32) -> u32 {
+    match kind {
+        5 => 72,
+        6 | 7 => 588,
+        _ => 545,
+    }
+}
+
 /// The Wood Elf's spells: the speed, the bubble, the thorns, the plant cage, the lost souls and
 /// the plants' healing.
 pub const SPEED: u16 = 37;
@@ -273,7 +287,7 @@ pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 
 /// The spells that the game makes.
-pub const MADE: [u16; 45] = [
+pub const MADE: [u16; 46] = [
     STONE_SKIN,
     FIREBALL,
     HEALING,
@@ -284,6 +298,7 @@ pub const MADE: [u16; 45] = [
     WATER_FORM,
     STONE,
     FROST_RING,
+    SUMMON,
     SPEED,
     BUBBLE,
     THORNS,

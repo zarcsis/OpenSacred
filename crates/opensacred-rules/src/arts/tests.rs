@@ -1018,6 +1018,32 @@ fn the_domination_holds_its_target_by_its_level() {
 }
 
 #[test]
+fn the_call_of_the_wolf_summons_near_its_point_a_wolf_of_her_level() {
+    assert_eq!(style(1026), Some(Style::Summon));
+    assert_eq!(style(1027), Some(Style::Summon));
+    assert_eq!(
+        action(VAMPIRESS_BY_DAY, Style::Summon, 1).map(|a| (a.clip, a.rate)),
+        Some((ArtClip::Slot(147), 1.0))
+    );
+    // ⌊0.4·l + ⌊k·L⌋⌋: 2.5 by day, 3.0 by night.
+    assert_eq!(wolf_level(1, 1, false), 2);
+    assert_eq!(wolf_level(1, 1, true), 3);
+    assert_eq!(wolf_level(10, 3, false), 11);
+    assert_eq!(wolf_level(10, 3, true), 13);
+    // The first radius that a way reaches, its point within r/2 of the call's along each axis.
+    let mut rng = Rng::of(51, 39, 0);
+    let mut radii = Vec::new();
+    let at = summoning_point([1000.0, 1000.0], &mut rng, |[x, y]| {
+        radii.push(((x - 1000.0).abs(), (y - 1000.0).abs()));
+        radii.len() == 3
+    });
+    let [x, y] = at.expect("the third radius is reached");
+    assert!((x - 1000.0).abs() <= 30.0 && (y - 1000.0).abs() <= 30.0);
+    assert!(radii[0].0 <= 10.0 && radii[0].1 <= 10.0);
+    assert_eq!(summoning_point([0.0, 0.0], &mut rng, |_| false), None);
+}
+
+#[test]
 fn the_blood_bite_drains_its_factor_from_its_target() {
     assert_eq!(style(1030), Some(Style::Bite));
     assert_eq!(

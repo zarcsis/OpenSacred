@@ -261,3 +261,16 @@ The jugglers (#253): a juggler's roll of 9 (`npcs::Plays`) gives it, both hands 
 The Daemon (#269): with the hero the Daemon (`ai::Daemon`) within 500 of a townsperson, which has solved no quest yet, the townsperson takes the evening's way at any hour, into a house or wandering, and a child runs 700 away from it; the Vampiress is not a class of the game.
 The lines over the creatures (#270, `lines::Says`): a child near the hero within a building, in one case of nine, turns to it and shows one of its 35 lines at random in green; a townsperson before the Daemon, in one case of three of its looks, shows one of `DaeAh1` to `6` in red; a line shows for 3 s over the creature, centred, from the game's texts by its name (`opensacred_data::text::sacred_hash`; **hypothesis** for the time, the place and the green).
 The quests' NPCs that a script sends somewhere walk there first (docs/decisions/2026-10-19-quest-npcs.md).
+The followers (#895, `followers`, `minds::keeps`, `minds::on_the_way`, `minds::stepping_off`, `minds::put_near`, `minds::Mind::helps`, `minds::defends`): the Wood Elf's summoning (the spell 3) and the Vampiress's call of the wolf (1026 and 1027) make their creature some 1.5 s later and hire it, its master's follower of that type dying first.
+- The hiring gives it the flags word `0x100` alone and the side 3 where it was 6 or hostile to the hero, and takes it out of the hero's hostiles; no sector keeps it (`npcs::Spawn::roams`).
+- At each tick of the world, not fighting, it keeps by its master:
+  - put near it from farther than 1,500, walking or standing, at the first point of `put_near` where it may stand with a way to the master, and from farther than 2,000 even fighting, leaving its fight (**hypothesis**: the master's `+0x200` bit `0x40` is the heroes');
+  - walking or running to it as the hero goes from farther than 240, stopping within 200, and on its way heading for the master again from farther than 270 and stopping within 170;
+  - standing from 150 to 240;
+  - stepping off from nearer than 150 to the first of the four points 195 from it with a way to it, else the last.
+- It is sent at a creature that fights the hero within 350 of it (600 at range), one follower each; standing, while the hero attacks or makes an art on a creature, at the second of the hero's hostiles where it stands within 350 of the hero, else at the hero's target.
+  It fights as a creature fights another, and no leash takes it home (`minds::Mind::pursue`).
+- As the hero rises, its followers take their health back.
+
+Not followed: the summoned's flags bit 0 or 1, which in the game would make it one of the hero's hostiles; the master's pace (`0x585070`); the layer of the step off's point; the healers, the raised dead, the bats and the scripts' hirings (#657, #758).
+In the game, the Vampiress's wolf (a 588 of level 5 at her level 1 and the call's 2) went at a goblin that came at her; with her put 50 cells off, it was put near her and ran up to her; as she attacked one of two goblins beside her, it went at the other.
