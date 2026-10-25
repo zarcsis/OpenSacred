@@ -79,13 +79,54 @@ enum Strikes {
     OneAtRandom,
 }
 
-/// The Daemon's hell disk: its caster, the creature it homes on, the one it struck last, its
-/// damages, its level, its time left and its cooldown.
+/// The Daemon's hell disk, or the Mage's purgatory: its caster, the creature it homes on, the one
+/// it struck last, its damages, its level, its time left, its cooldown, its speed, and whether it
+/// strikes every creature within its reach rather than the first it touches (the purgatory's).
 #[derive(Component, Debug, Clone)]
 struct Disk {
     caster: Entity,
     target: Option<Entity>,
     last: Option<Entity>,
+    damages: [f32; 4],
+    level: Level,
+    left: f32,
+    cooldown: f32,
+    speed: f32,
+    all: bool,
+}
+
+/// A meteor of the Mage's hail: its caster, where it lands, its damages, its level, and how long
+/// until it lands.
+#[derive(Component, Debug, Clone)]
+struct Meteor {
+    caster: Entity,
+    at: Vec3,
+    damages: [f32; 4],
+    level: Level,
+    lands: f32,
+}
+
+/// The Mage's chain lightning: its caster, the creature it struck last, the strikes left, its
+/// damages, its level, and how long until it leaps on.
+#[derive(Component, Debug, Clone)]
+struct Chain {
+    caster: Entity,
+    last: Entity,
+    left: u32,
+    damages: [f32; 4],
+    level: Level,
+    leaps: f32,
+}
+
+/// A flame of the Mage's fire spiral: its caster, its centre, its index, its angle and growth,
+/// its damages, its level, its time left and its cooldown.
+#[derive(Component, Debug, Clone)]
+struct Flame {
+    caster: Entity,
+    centre: Vec3,
+    index: u8,
+    angle: f32,
+    grows: f32,
     damages: [f32; 4],
     level: Level,
     left: f32,
@@ -133,6 +174,7 @@ struct Looks {
     mine: (Handle<Mesh>, Handle<StandardMaterial>),
     blast: (Handle<Mesh>, Handle<StandardMaterial>),
     disk: (Handle<Mesh>, Handle<StandardMaterial>),
+    flame: (Handle<Mesh>, Handle<StandardMaterial>),
 }
 
 /// How high over the ground the hell disk flies (**estimate**: a hand's height, as the bolts').
@@ -177,8 +219,13 @@ fn make_looks(
         meshes.add(Cylinder::new(18.0, 4.0)),
         glow(Color::srgba(1.0, 0.3, 0.1, 0.9)),
     );
+    let flame = (
+        meshes.add(Sphere::new(20.0)),
+        glow(Color::srgba(1.0, 0.5, 0.1, 0.85)),
+    );
     commands.insert_resource(Looks {
         disk,
+        flame,
         disc: meshes.add(Cylinder::new(1.0, 1.0)),
         discs,
         column: meshes.add(Cylinder::new(8.0, 400.0)),
@@ -209,7 +256,7 @@ fn act(
     places: Query<&GlobalTransform>,
     mut targets: Query<(&mut Health, Option<&ai::Mind>, Option<&fight::Ranked>)>,
     mut launches: MessageWriter<crate::bolts::Launch>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut dice): (MessageWriter<fight::Hit>, ResMut<Dice>),
     hearers: Query<
         (Entity, &GlobalTransform, &ai::Mind, Option<&Effects>),
         (Without<Body>, Without<Dies>),
@@ -299,6 +346,147 @@ fn act(
                     }
                 }
             }
+            spells::WHIRLWIND | spells::SPLINTERS => {
+                // A fan of bolts along the line to the target's place, or the point, passing
+                // through what they strike once a second (`0x524EA2`, `0x5258B5`).
+                let toward = places
+                    .get(act.target)
+                    .ok()
+                    .filter(|_| act.target != act.caster)
+                    .map_or(act.point, GlobalTransform::translation);
+                let line = (toward - here).xz();
+                let base = line
+                    .try_normalize()
+                    .unwrap_or_else(|| (at.rotation * Vec3::X).xz().normalize_or(Vec2::X));
+                let n = spells::count(record, act.level);
+                let (course, look) = if act.spell == spells::WHIRLWIND {
+                    (spells::WHIRLWIND_COURSE, 4)
+                } else {
+                    (spells::SPLINTERS_COURSE, 5)
+                };
+                let damages = bolt_damages(record, level, multipliers);
+                for angle in spells::fan(act.spell, n, line.length()) {
+                    launches.write(crate::bolts::Launch {
+                        shooter: act.caster,
+                        direction: Vec2::from_angle(angle).rotate(base),
+                        course: crate::bolts::Course::passing(course, look),
+                        damages,
+                        wait: 0.0,
+                    });
+                }
+            }
+            spells::METEORS => {
+                // Each about the point, falling after a wait at random (`0x524A83`).
+                let damages = bolt_damages(record, level, multipliers);
+                for _ in 0..spells::count(record, act.level) {
+                    let mut off = || {
+                        let span = u32::try_from(2 * spells::METEOR_SCATTER + 1).unwrap_or(1);
+                        let roll = i32::try_from(dice.0.below(span)).unwrap_or(0);
+                        f32::from(i16::try_from(spells::METEOR_SCATTER - roll).unwrap_or(0))
+                    };
+                    let (dx, dz) = (off(), off());
+                    let wait = fight_seconds(dice.0.below(spells::METEOR_WAIT + 1)) / 1000.0;
+                    commands.spawn((
+                        Meteor {
+                            caster: act.caster,
+                            at: act.point + Vec3::new(dx, 0.0, dz),
+                            damages,
+                            level: body.level(),
+                            lands: wait + spells::METEOR_FALLS,
+                        },
+                        Transform::from_translation(act.point + Vec3::new(dx, 500.0, dz)),
+                        Visibility::Hidden,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                }
+            }
+            spells::CHAIN => {
+                // Its first strike on its target at once, then its leaps (`0x526CAA`).
+                if act.target == act.caster || places.get(act.target).is_err() {
+                    continue;
+                }
+                let damages = bolt_damages(record, level, multipliers);
+                hits.write(fight::Hit {
+                    attacker: act.caster,
+                    target: act.target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(damages),
+                    sure: true,
+                });
+                if let (Some(looks), Ok(place)) = (&looks, places.get(act.target)) {
+                    commands.spawn((
+                        Mesh3d(looks.column.clone()),
+                        MeshMaterial3d(looks.lightning.clone()),
+                        Transform::from_translation(place.translation() + Vec3::Y * 200.0),
+                        Fades(LIGHTNING_SHOWS),
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                }
+                commands.spawn((
+                    Chain {
+                        caster: act.caster,
+                        last: act.target,
+                        left: spells::value(record, 0, act.level).saturating_sub(1),
+                        damages,
+                        level: body.level(),
+                        leaps: spells::CHAIN_LEAPS,
+                    },
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+            spells::SPIRAL => {
+                let damages = bolt_damages(record, level, multipliers);
+                for index in 0..spells::SPIRAL_FLAMES {
+                    let mut made = commands.spawn((
+                        Flame {
+                            caster: act.caster,
+                            centre: here,
+                            index,
+                            angle: 0.0,
+                            grows: 0.0,
+                            damages,
+                            level: body.level(),
+                            left: fight_seconds(spells::value(record, 0, act.level)),
+                            cooldown: 0.0,
+                        },
+                        Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
+                        Visibility::Inherited,
+                        DespawnOnExit(AppState::InGame),
+                    ));
+                    if let Some(looks) = &looks {
+                        made.with_child((
+                            Mesh3d(looks.flame.0.clone()),
+                            MeshMaterial3d(looks.flame.1.clone()),
+                        ));
+                    }
+                }
+            }
+            spells::PURGATORY => {
+                let mut made = commands.spawn((
+                    Disk {
+                        caster: act.caster,
+                        target: None,
+                        last: None,
+                        damages: bolt_damages(record, level, multipliers),
+                        level: body.level(),
+                        left: fight_seconds(spells::value(record, 0, act.level)),
+                        cooldown: 0.0,
+                        speed: spells::PURGATORY_SPEED,
+                        all: true,
+                    },
+                    Transform::from_translation(act.point + Vec3::Y * DISK_HEIGHT),
+                    Visibility::Inherited,
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(looks) = &looks {
+                    made.with_child((
+                        Mesh3d(looks.flame.0.clone()),
+                        MeshMaterial3d(looks.flame.1.clone()),
+                    ));
+                }
+            }
             spells::DISK => {
                 let damages = bolt_damages(record, level, multipliers);
                 let mut made = commands.spawn((
@@ -310,6 +498,8 @@ fn act(
                         level: body.level(),
                         left: fight_seconds(spells::value(record, 0, act.level)),
                         cooldown: 0.0,
+                        speed: spells::DISK_SPEED,
+                        all: false,
                     },
                     Transform::from_translation(here + Vec3::Y * DISK_HEIGHT),
                     Visibility::Inherited,
@@ -1064,7 +1254,7 @@ fn disk(
         };
         if let Some(toward) = toward {
             let to = toward - here;
-            let step = (spells::DISK_SPEED * dt).min(to.length());
+            let step = (disk.speed * dt).min(to.length());
             let next = here + to.normalize_or_zero() * step;
             transform.translation = Vec3::new(next.x, transform.translation.y, next.y);
         }
@@ -1072,33 +1262,247 @@ fn disk(
             continue;
         }
         let here = transform.translation.xz();
-        let touched = creatures.iter().find(|(_, at, way, mind, health, size)| {
-            way.creature
-                && way.level == level
-                && mind.hostile()
-                && health.current > 0
-                && (at.translation().xz() - here).length()
-                    < spells::DISK_REACH + size.map_or(arrows::size(0), |size| size.0)
-        });
-        let Some((struck, ..)) = touched else {
+        let touched: Vec<Entity> = creatures
+            .iter()
+            .filter(|(_, at, way, mind, health, size)| {
+                way.creature
+                    && way.level == level
+                    && mind.hostile()
+                    && health.current > 0
+                    && (at.translation().xz() - here).length()
+                        < spells::DISK_REACH + size.map_or(arrows::size(0), |size| size.0)
+            })
+            .map(|(target, ..)| target)
+            .take(if disk.all { usize::MAX } else { 1 })
+            .collect();
+        let Some(&struck) = touched.first() else {
             continue;
         };
-        debug!(
-            "spells: the hell disk strikes {struck} for {:?}",
-            disk.damages
-        );
-        hits.write(fight::Hit {
-            attacker: disk.caster,
-            target: struck,
-            share: 1.0,
-            ranged: false,
-            art: None,
-            fixed: Some(disk.damages),
-            sure: true,
-        });
+        for &target in &touched {
+            debug!("spells: {entity} strikes {target} for {:?}", disk.damages);
+            hits.write(fight::Hit {
+                attacker: disk.caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(disk.damages),
+                sure: true,
+            });
+        }
         disk.cooldown = BEAT;
         disk.last = Some(struck);
         disk.target = nearest(Some(struck)).or(Some(struck));
+    }
+}
+
+/// Lands each meteor after its wait, striking once the creatures within its reach and their
+/// size (`0x5ACDC6`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn meteor(
+    mut commands: Commands,
+    time: Res<Time>,
+    looks: Option<Res<Looks>>,
+    mut meteors: Query<(Entity, &mut Meteor, &mut Transform, &mut Visibility)>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Meteor>, Without<Dies>),
+    >,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut meteor, mut transform, mut visibility) in &mut meteors {
+        meteor.lands -= dt;
+        if meteor.lands > spells::METEOR_FALLS {
+            continue;
+        }
+        if meteor.lands > 0.0 {
+            // Falling from 500 at 800 a second.
+            *visibility = Visibility::Inherited;
+            transform.translation =
+                meteor.at + Vec3::Y * (meteor.lands / spells::METEOR_FALLS * 500.0);
+            continue;
+        }
+        let centre = meteor.at.xz();
+        for (target, at, way, mind, health, size) in &creatures {
+            if way.creature
+                && way.level == meteor.level
+                && mind.hostile()
+                && health.current > 0
+                && (at.translation().xz() - centre).length()
+                    < spells::METEOR_REACH + size.map_or(arrows::size(0), |size| size.0)
+            {
+                hits.write(fight::Hit {
+                    attacker: meteor.caster,
+                    target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(meteor.damages),
+                    sure: true,
+                });
+            }
+        }
+        if let Some(looks) = &looks {
+            commands.spawn((
+                Mesh3d(looks.blast.0.clone()),
+                MeshMaterial3d(looks.blast.1.clone()),
+                Transform::from_translation(meteor.at).with_scale(Vec3::splat(0.8)),
+                Fades(0.3),
+                DespawnOnExit(AppState::InGame),
+            ));
+        }
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Leaps each chain lightning on, after its wait, to the nearest creature hostile to the hero
+/// within its look of the last it struck, the last aside, striking it, while strikes are left
+/// (`0x5B46CA`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn chain(
+    mut commands: Commands,
+    time: Res<Time>,
+    looks: Option<Res<Looks>>,
+    mut chains: Query<(Entity, &mut Chain)>,
+    creatures: Query<
+        (Entity, &GlobalTransform, &InTheWay, &ai::Mind, &Health),
+        (Without<Body>, Without<Dies>),
+    >,
+    places: Query<&GlobalTransform>,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut chain) in &mut chains {
+        chain.leaps -= dt;
+        if chain.leaps > 0.0 {
+            continue;
+        }
+        let Ok(from) = places.get(chain.last).map(GlobalTransform::translation) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let next = creatures
+            .iter()
+            .filter(|(target, at, way, mind, health)| {
+                *target != chain.last
+                    && way.creature
+                    && way.level == chain.level
+                    && mind.hostile()
+                    && health.current > 0
+                    && (at.translation() - from).xz().length() < spells::CHAIN_LOOKS
+            })
+            .min_by(|a, b| {
+                let d = |at: &GlobalTransform| (at.translation() - from).xz().length();
+                d(a.1).total_cmp(&d(b.1))
+            });
+        let Some((target, at, ..)) = (chain.left > 0).then_some(next).flatten() else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        debug!("spells: the chain lightning leaps to {target}");
+        hits.write(fight::Hit {
+            attacker: chain.caster,
+            target,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some(chain.damages),
+            sure: true,
+        });
+        if let Some(looks) = &looks {
+            commands.spawn((
+                Mesh3d(looks.column.clone()),
+                MeshMaterial3d(looks.lightning.clone()),
+                Transform::from_translation(at.translation() + Vec3::Y * 200.0),
+                Fades(LIGHTNING_SHOWS),
+                DespawnOnExit(AppState::InGame),
+            ));
+        }
+        chain.last = target;
+        chain.left -= 1;
+        chain.leaps = spells::CHAIN_LEAPS;
+    }
+}
+
+/// Turns each flame of the fire spiral about its centre, its radius growing, and strikes the
+/// creatures it touches once a second (`0x5A6B1E`, `0x5ACB9C`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn spiral(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut flames: Query<(Entity, &mut Flame, &mut Transform)>,
+    creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &InTheWay,
+            &ai::Mind,
+            &Health,
+            Option<&arrows::Size>,
+        ),
+        (Without<Body>, Without<Flame>, Without<Dies>),
+    >,
+    mut hits: MessageWriter<fight::Hit>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut flame, mut transform) in &mut flames {
+        flame.left -= dt;
+        if flame.left <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        flame.angle += spells::SPIRAL_TURNS * dt;
+        flame.grows = (flame.grows + spells::SPIRAL_GROWS * dt).min(spells::SPIRAL_MOST);
+        let radius = spells::spiral_radius(flame.grows, flame.angle);
+        let at = flame.angle
+            + std::f32::consts::TAU * f32::from(flame.index) / f32::from(spells::SPIRAL_FLAMES);
+        let place = flame.centre + Vec3::new(at.cos(), 0.0, at.sin()) * radius;
+        transform.translation = place.with_y(transform.translation.y);
+        flame.cooldown = (flame.cooldown - dt).max(0.0);
+        if flame.cooldown > 0.0 {
+            continue;
+        }
+        let mut struck = false;
+        for (target, at, way, mind, health, size) in &creatures {
+            if way.creature
+                && way.level == flame.level
+                && mind.hostile()
+                && health.current > 0
+                && (at.translation() - place).xz().length()
+                    < spells::SPIRAL_REACH + size.map_or(arrows::size(0), |size| size.0)
+            {
+                hits.write(fight::Hit {
+                    attacker: flame.caster,
+                    target,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(flame.damages),
+                    sure: true,
+                });
+                struck = true;
+            }
+        }
+        if struck {
+            flame.cooldown = BEAT;
+        }
     }
 }
 
@@ -1154,7 +1558,9 @@ impl Plugin for SpellsPlugin {
             .add_systems(Startup, make_looks)
             .add_systems(
                 Update,
-                (act, shield, strike, mine, disk, doom, fade)
+                (
+                    act, shield, strike, mine, disk, meteor, chain, spiral, doom, fade,
+                )
                     .chain()
                     .after(Step::Npcs)
                     .in_set(Playing),

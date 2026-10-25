@@ -47,6 +47,9 @@ pub enum Strikes {
     FirstContact,
     /// The first creature it finds alone, and it goes (the Daemon's 1103's).
     First,
+    /// Every creature it touches, once a second, flying on through them (the Mage's whirlwinds
+    /// and splinters).
+    Passing,
 }
 
 /// How a bolt flies and strikes, and its look: its speed in units a second, how much slower it
@@ -58,6 +61,9 @@ pub struct Course {
     pub life: f32,
     pub strikes: Strikes,
     pub look: usize,
+    /// How near it strikes a creature, with the creature's size: its own size (`items.pak
+    /// +0x14`, 50 for 0).
+    pub reach: f32,
 }
 
 impl Course {
@@ -75,6 +81,20 @@ impl Course {
             life,
             strikes,
             look,
+            reach: arrows::size(0),
+        }
+    }
+
+    /// The course of the Mage's whirlwinds and ice splinters, of their speed, time and reach
+    /// (`opensacred_rules::spells::WHIRLWIND_COURSE`, `SPLINTERS_COURSE`).
+    pub fn passing((speed, life, reach): (f32, f32, f32), look: usize) -> Self {
+        Self {
+            speed,
+            slows: 0.0,
+            life,
+            strikes: Strikes::Passing,
+            look,
+            reach,
         }
     }
 
@@ -87,6 +107,7 @@ impl Course {
             life: opensacred_rules::spells::fireball_life(level),
             strikes: Strikes::All,
             look: 3,
+            reach: arrows::size(0),
         }
     }
 
@@ -99,6 +120,7 @@ impl Course {
             life,
             strikes: Strikes::First,
             look: 2,
+            reach: arrows::size(0),
         }
     }
 }
@@ -127,10 +149,12 @@ struct Flying {
     wait: f32,
     flown: f32,
     spent: bool,
+    /// How long until it strikes again, one passing through (`+0x11C`).
+    cooldown: f32,
 }
 
-/// The stand-ins' meshes and materials: the railgun's, the BFG's, the Daemon's and the
-/// fireball's.
+/// The stand-ins' meshes and materials: the railgun's, the BFG's, the Daemon's, the fireball's,
+/// the whirlwind's and the ice splinter's.
 #[derive(Resource)]
 struct Looks(Vec<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
@@ -160,6 +184,8 @@ fn make_looks(
         look(22.0, Color::srgb(0.55, 1.0, 0.45)),
         look(14.0, Color::srgb(0.75, 0.45, 1.0)),
         look(18.0, Color::srgb(1.0, 0.55, 0.15)),
+        look(16.0, Color::srgb(0.8, 0.85, 0.75)),
+        look(8.0, Color::srgb(0.7, 0.9, 1.0)),
     ]));
 }
 
@@ -261,6 +287,7 @@ fn launch(
                 wait: launched.wait,
                 flown: 0.0,
                 spent: false,
+                cooldown: 0.0,
             },
             DespawnOnExit(AppState::InGame),
         ));
@@ -322,11 +349,12 @@ fn fly(
             .standing(ground.x, ground.y, bolt.level)
             .unwrap_or(transform.translation.y - HEIGHT);
         transform.translation = Vec3::new(ground.x, height + HEIGHT, ground.y);
-        if bolt.spent {
+        bolt.cooldown = (bolt.cooldown - dt).max(0.0);
+        if bolt.spent || bolt.cooldown > 0.0 {
             continue;
         }
         // The creatures on its level, alive and hostile to the hero, nearer than the two sizes.
-        let own = arrows::size(0);
+        let own = course.reach;
         let mut struck: Vec<Entity> = creatures
             .iter()
             .filter(|(_, at, way, mind, health, size)| {
@@ -360,10 +388,10 @@ fn fly(
                 sure: true,
             });
         }
-        if course.strikes == Strikes::FirstContact {
-            bolt.spent = true;
-        } else {
-            commands.entity(entity).despawn();
+        match course.strikes {
+            Strikes::FirstContact => bolt.spent = true,
+            Strikes::Passing => bolt.cooldown = 1.0,
+            Strikes::All | Strikes::First => commands.entity(entity).despawn(),
         }
     }
 }
