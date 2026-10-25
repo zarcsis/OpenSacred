@@ -801,6 +801,9 @@ const WORLD = {
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   recompute: ptr('0x5796a0'),        // the stats' recomputation: thiscall (stats, ...), A, D and their multipliers
   addEffect: ptr('0x582d50'),        // the stats: thiscall (stats, id, whole, value, seconds, art, 0, 0, 0), an effect
+  addGold: ptr('0x57fd80'),          // the stats: thiscall (stats, amount), the gold's handler: adds the amount (less
+                                     // than 0 too) when the integrity test 0x590730 passes, else kills the hero for
+                                     // good, so the gold is never written directly
   makeObject: ptr('0x5fb530'),       // the object manager: thiscall (manager, type), an object of the type, its id
   slotOf: ptr('0x54acc0'),           // cCreature: thiscall (creature, type), the slot an item of the type goes in
   putInSlot: ptr('0x555e00'),        // cCreature: thiscall (creature, slot, object's id, 1), the object put there, as a
@@ -862,6 +865,7 @@ const raiseArt = new NativeFunction(WORLD.raiseArt, 'uint32', ['pointer', 'uint3
 const startArt = new NativeFunction(WORLD.startArt, 'void', ['pointer', 'float', 'uint32', 'uint32'], 'thiscall');
 const addEffect = new NativeFunction(WORLD.addEffect, 'void',
   ['pointer', 'uint32', 'int32', 'float', 'float', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
+const addGold = new NativeFunction(WORLD.addGold, 'void', ['pointer', 'int32'], 'thiscall');
 const makeObject = new NativeFunction(WORLD.makeObject, 'uint32', ['pointer', 'uint32'], 'thiscall');
 const slotOf = new NativeFunction(WORLD.slotOf, 'int32', ['pointer', 'uint32'], 'thiscall');
 const putInSlot = new NativeFunction(WORLD.putInSlot, 'void', ['pointer', 'uint32', 'uint32', 'uint32'], 'thiscall');
@@ -1429,7 +1433,8 @@ const COMMANDS = {
     const made = madeBy(() => dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32()));
     return { made: made.map(describeMade).filter((m) => m !== null) };
   },
-  // The hero's gold (#973), or set to `to`.
+  // The hero's gold (#973), or brought to `to` through the gold's handler, as a pile picked up or a price paid
+  // changes it: written directly, it fails the handler's integrity test, which then kills the hero for good.
   gold: (engine, { to }) => {
     const h = hero();
     if (h === null) {
@@ -1437,7 +1442,7 @@ const COMMANDS = {
     }
     const gold = h.add(STATS + STAT.gold);
     if (to !== null && to !== undefined) {
-      gold.writeS32(Math.min(to, MOST_GOLD));
+      addGold(h.add(STATS), Math.min(to, MOST_GOLD) - gold.readS32());
     }
     return gold.readS32();
   },
