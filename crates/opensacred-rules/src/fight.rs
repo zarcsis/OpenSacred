@@ -1281,6 +1281,16 @@ fn per_cent([off, steps, most]: [f32; 3], level: u32) -> f64 {
     x + x + off
 }
 
+/// The caster's magic lore's per cent (the skill 14, `MK…`) at its level among `skills`, which
+/// raises the healing (`0x565D70`) and every kind of its spells' multipliers.
+pub fn magic_lore(skills: &[(u8, u32)], rules: &Rules) -> f32 {
+    skills
+        .iter()
+        .filter(|&&(skill, _)| skill == 14)
+        .map(|&(_, at)| curve(rules.curves.magic, at))
+        .sum()
+}
+
 /// The balance's triples of the skills' curves (`0x566070`): the damages' (2, `WK…`), the
 /// attack's and the defence's (8, `W…AW`, `W…VW`), the regeneration's and the most health's (10,
 /// `HR…AW`, `HP…VW`), the

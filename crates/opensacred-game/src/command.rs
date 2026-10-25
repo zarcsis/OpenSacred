@@ -448,15 +448,13 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .next()
         .map(|(hero, transform)| (hero, transform.translation))
         .ok_or("the hero is not in the world yet")?;
+    // An art under way keeps its order, as the right button leaves it (`making::aim`).
+    if world.get::<crate::making::Playing>(hero).is_some() {
+        return Err("the hero is still making an art".into());
+    }
     // A boon and the changeling are made on the hero, as is an art on a friend without one (the
     // launch type 2).
-    let launch = world
-        .resource::<crate::arts::HeroArts>()
-        .tables
-        .weapon_arts
-        .iter()
-        .find(|a| a.id == art)
-        .map(|a| a.launch);
+    let launch = crate::making::launch(world.resource::<crate::arts::HeroArts>(), art);
     if matches!(
         opensacred_rules::arts::style(art),
         Some(

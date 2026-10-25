@@ -59,6 +59,7 @@ mod shaders;
 mod shadows;
 mod souls;
 mod sound;
+mod spells;
 mod srgb;
 mod statics;
 mod tables;
@@ -307,6 +308,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows::ShadowsPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
+        spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         terrain::GroundPlugin,
