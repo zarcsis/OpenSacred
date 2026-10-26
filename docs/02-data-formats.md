@@ -984,6 +984,8 @@ A named string without such a span is left as it is, with a warning, so a repair
 Implemented since #683: the goblins' god's name, 14 words in the ten strings above (docs/decisions/2026-10-23-text-repairs.md).
 A string the file lacks is added under the hash of its name, after the file's strings, unless the file holds it; since #684, the names of the fish 164 and 165 (docs/decisions/2026-10-23-fish-names.md).
 The items' missing names (#685), the gameboxes' names (#686) and the scripts' keys that resolve to nothing (#687) are sub-issues of #403.
+Since #685, the 300 nameless `Weapon.pak` records with an `items.pak` slot that the drops' lists of a category a drop asks for hold are named, each by the class it is made for, the word of its family of models and its piece (`crates/opensacred-convert/src/item_names.rs`, docs/decisions/2026-10-26-item-names.md); the original shows them with no name, a worn one's tooltip beginning with its class's line (seen 2026-10-26).
+The other 62 listed and the 86 of a slot but in no list wait for the reading of the scripts' items, the traders and the templates (#685).
 The sources that were weighed, in the order of preference:
 
 1. **The same file**: a string takes another id's string whole, or a span of it (id, offset and length in UTF-16 units) replaces a span of its own.

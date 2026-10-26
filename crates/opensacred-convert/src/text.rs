@@ -72,16 +72,15 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
             }
         }
         let mut added = String::new();
-        for string in &text_repairs::ADDED {
-            let id = string.id();
+        for (name, text) in text_repairs::added() {
+            let id = text_repairs::id_of(&name);
             if res.get(id).is_some() {
                 summary.warnings.push(format!(
-                    "{source}: string {} ({id}), which a repair adds, is in the file; left as it is",
-                    string.name
+                    "{source}: string {name} ({id}), which a repair adds, is in the file; left as it is"
                 ));
                 continue;
             }
-            let _ = writeln!(added, "id-{id} = {}", pattern(string.text));
+            let _ = writeln!(added, "id-{id} = {}", pattern(text));
             summary.added_strings += 1;
         }
         if !added.is_empty() {
@@ -205,15 +204,21 @@ mod tests {
         // docs/02 §8: the goblins' god's name 14 times in ten strings, and the gameboxes' word
         // once in each of their eleven.
         assert_eq!((summary.repaired_strings, summary.repaired_words), (21, 25));
-        assert_eq!(summary.added_strings, text_repairs::ADDED.len());
+        // The six of `ADDED` and the 300 items' names (#685).
+        assert_eq!(summary.added_strings, 306);
         let ftl = fs::read_to_string(output_dir(&out).join("en-US/global.ftl")).unwrap();
         let back = read_back(&ftl);
         let data = read_game_file(&game.join(LANGUAGES[0].0)).unwrap();
         let res = GlobalRes::parse(&data).unwrap();
         let (strings, added) = back.split_at(res.entries().len());
-        let expected: Vec<(String, String)> = text_repairs::ADDED
-            .iter()
-            .map(|string| (format!("id-{}", string.id()), string.text.to_owned()))
+        let expected: Vec<(String, String)> = text_repairs::added()
+            .into_iter()
+            .map(|(name, text)| {
+                (
+                    format!("id-{}", text_repairs::id_of(&name)),
+                    text.to_owned(),
+                )
+            })
             .collect();
         assert_eq!(added, expected.as_slice());
         for ((id, text), entry) in strings.iter().zip(res.entries()) {
