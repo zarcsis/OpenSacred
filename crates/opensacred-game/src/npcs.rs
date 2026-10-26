@@ -729,6 +729,7 @@ impl Kept {
             return Entered { back, fill: false };
         }
         if self.last != Some(region) {
+            bevy::log::debug!("npcs: the region {region} fills after {:?}", self.last);
             self.filled.retain(|&sector, _| region_of(sector) == region);
             self.times.retain(|&sector| region_of(sector) == region);
             self.last = Some(region);
@@ -3359,6 +3360,11 @@ pub fn place(
         let entered = npcs.kept.enter(at, filling, |sector| {
             quests::region(streamer.area(sector).unwrap_or(0))
         });
+        bevy::log::debug!(
+            "npcs: {at:?} comes in, {} of its fills back, filling {}",
+            entered.back.len(),
+            if entered.fill { "anew" } else { "nothing" }
+        );
         // The crabs and fish of its waters where none comes back (`0x4939F0`), once the sectors
         // about it are in.
         if entered.back.is_empty() && !npcs.waters.contains(&at) {
