@@ -1205,6 +1205,11 @@ impl Material for GroundMaterial {
         SHADER.into()
     }
 
+    /// The depth prepass holds the models' depths alone (`models`).
+    fn enable_prepass() -> bool {
+        false
+    }
+
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,

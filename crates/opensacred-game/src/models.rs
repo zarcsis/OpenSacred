@@ -10,6 +10,13 @@
 //! holder, whose slot its meshes take. A model standing on an upper storey's floor lies no
 //! further back than the floor's plane, as the sprites standing on it do ([`statics::Floor`]).
 //!
+//! Among themselves the client's models are ordered by their true depths: it draws each with the
+//! depth test and the depth write on, and the sprites with neither, so its depth buffer holds the
+//! models' depths alone. The camera's depth prepass draws the models alone, at their true depths
+//! (`prepass.wesl`), and over each sample a model's main pass keeps its fragment only if no model's
+//! texel lies nearer there (`nearest.wesl`, `standard.wesl`): the nearest model then takes its
+//! place among the sprites (#998).
+//!
 //! A mesh whose texture has translucent texels is drawn twice, as the sprites are
 //! (docs/decisions/2026-10-22-model-alpha.md): its opaque texels through the depth buffer, then,
 //! by a copy of the mesh ([`Fringe`]), the others that the original's alpha test keeps, blended by
@@ -34,7 +41,7 @@ use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureFormat,
 };
 use bevy::render::storage::ShaderBuffer;
-use bevy::shader::ShaderRef;
+use bevy::shader::{ShaderDefVal, ShaderRef};
 use bevy::world_serialization::WorldInstanceReady;
 
 use crate::blended::Layer;
@@ -47,6 +54,8 @@ use crate::{blended, iso, paths, statics};
 
 /// The shader of [`ModelMaterial`], embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/models.wesl";
+/// The vertex stage of the prepass of [`ModelMaterial`], embedded in the binary.
+const PREPASS: &str = "embedded://opensacred_game/prepass.wesl";
 
 /// A model's place in its cell (`order.wesl`): after the statics of the cell's chain, which take
 /// the places from 0, short of the next cell of the diagonal, at 33.8. The model's own depth
@@ -120,8 +129,21 @@ impl MaterialExtension for InOrder {
         crate::shaders::STANDARD.into()
     }
 
+    /// The models' true depths, which Bevy's own prepass fragment stage tests by their alpha as the
+    /// main pass does.
+    fn prepass_vertex_shader() -> ShaderRef {
+        PREPASS.into()
+    }
+
+    /// None: the game's light casts no shadows, the models' own are drawn by `shadows`, and the
+    /// prepass's vertex stage, which Bevy's shadow passes would take, squeezes the depth.
+    fn enable_shadows() -> bool {
+        false
+    }
+
     /// The depth as the vertex shader puts it: a blended material's `depth_bias` is its layer of
-    /// the blended things. The fringe's fragments keep the texels it draws, and write their depth.
+    /// the blended things. In the main pass, a model's fragments take only the samples over which
+    /// no model's texel lies nearer; the fringe's keep the texels it draws, and write their depth.
     fn specialize(
         _pipeline: &MaterialExtensionPipeline,
         descriptor: &mut RenderPipelineDescriptor,
@@ -129,13 +151,23 @@ impl MaterialExtension for InOrder {
         key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         blended::unbias(descriptor);
-        if key.bind_group_data.fringe {
-            if let Some(fragment) = descriptor.fragment.as_mut() {
+        if descriptor
+            .vertex
+            .shader_defs
+            .contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+        {
+            return Ok(());
+        }
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("NEAREST".into());
+            if key.bind_group_data.fringe {
                 fragment.shader_defs.push("FRINGE".into());
             }
-            if let Some(depth) = descriptor.depth_stencil.as_mut() {
-                depth.depth_write_enabled = Some(true);
-            }
+        }
+        if key.bind_group_data.fringe
+            && let Some(depth) = descriptor.depth_stencil.as_mut()
+        {
+            depth.depth_write_enabled = Some(true);
         }
         Ok(())
     }
@@ -316,6 +348,7 @@ pub struct ModelsPlugin;
 impl Plugin for ModelsPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "models.wesl");
+        embedded_asset!(app, "prepass.wesl");
         crate::shaders::embed_standard(app);
         app.add_plugins(MaterialPlugin::<ModelMaterial>::default())
             .init_resource::<Anchors>()
@@ -645,6 +678,26 @@ mod tests {
         // Its parts a tenth of a unit apart stay a step of the depth buffer (a thousandth of a
         // unit, docs/05 §3.6) apart.
         assert!(squeeze * 0.1 >= 0.001);
+    }
+
+    #[test]
+    fn the_models_true_depths_lie_behind_all_that_is_drawn() {
+        let mut world = World::new();
+        let camera = world.spawn(iso::camera(Vec3::ZERO, 1.0)).id();
+        let Some(Projection::Orthographic(ortho)) = world.get::<Projection>(camera) else {
+            panic!("the camera's projection is not orthographic");
+        };
+        // The reversed depth of a point so far from the camera.
+        let reversed = |distance: f32| (ortho.far - distance) / (ortho.far - ortho.near);
+        let nearest = include_str!("nearest.wesl");
+        let part = shader_constant(nearest, "PART");
+        // The prepass's depths of the models lie behind the ground, the farthest of what the main
+        // pass draws, with 2,000 units to spare for the ground's heights about the point looked at.
+        assert!(part < reversed(iso::DISTANCE + iso::GROUND_BEHIND + 2_000.0));
+        // The tolerance, half a unit of the world, spans a hundred of the depth buffer's steps
+        // there, and a step is a few thousandths of a unit.
+        let tolerance = shader_constant(nearest, "TOLERANCE") * part / (ortho.far - ortho.near);
+        assert!(tolerance > 100.0 * part * f32::EPSILON);
     }
 
     /// The anchors of a world of their own.
