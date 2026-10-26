@@ -2044,6 +2044,44 @@ pub fn stepping_off(
     })
 }
 
+/// How many points a follower of the flag 4 tries as it steps off from its master, how far from
+/// it, and how near the hero's nearest hostile puts the hero in danger and how far from it its
+/// master leaves such a follower standing then (`0x4EF150` with the flag 4; #1061).
+const ESCORT_STEP_TRIES: usize = 10;
+const ESCORT_STEPS_TO: f32 = 220.0;
+const ESCORT_DANGER: f32 = 300.0;
+const ESCORT_STANDS_BEYOND: f32 = 500.0;
+
+/// The points that a follower of the flag 4 (the scripts' `0x37` and `0x71`) nearer than 150 to
+/// its master at `master` steps off to, each with its floor, in the order it tries them, the
+/// first with a way to it taken, none standing (`0x4EF150`, `0x4FCC80`): 220 from the master at
+/// an angle of `rand() % 361` taken as radians, its floor rolled as [`stepping_off`]'s.
+pub fn escort_stepping_off(
+    master: Spot,
+    floor: u8,
+    dice: &mut impl crate::spawning::Dice,
+) -> [(Spot, u8); ESCORT_STEP_TRIES] {
+    std::array::from_fn(|_| {
+        let on = match floor {
+            0 => 0,
+            f => u8::try_from(dice.below(u32::from(f) + 1)).unwrap_or(f),
+        };
+        let angle = f32::from(u16::try_from(dice.below(361)).unwrap_or(0));
+        (
+            master + Spot::new(angle.cos(), angle.sin()) * ESCORT_STEPS_TO,
+            on,
+        )
+    })
+}
+
+/// Whether a follower of the flag 4 at `here` stands rather than keeps by its master at
+/// `master` (`0x4EF150`, `0x4F363D`): while the hero is in danger, its nearest hostile at
+/// `nearest` nearer than 300 or its master fighting, and the master farther than 500 from it.
+pub fn escort_stands(here: Spot, master: Spot, nearest: Option<f32>, fighting: bool) -> bool {
+    let danger = fighting || nearest.is_some_and(|d| d < ESCORT_DANGER);
+    danger && (master - here).length() > ESCORT_STANDS_BEYOND
+}
+
 /// What a follower walking at `here` does on its way about its master at `master` (`0x4F4770`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OnTheWay {
@@ -2456,6 +2494,29 @@ mod tests {
         // Farther than 2,000 it is put near the master whatever it does.
         assert!(pulled(at(3_001.0, 1000.0), master));
         assert!(!pulled(at(2_999.0, 1000.0), master));
+    }
+
+    #[test]
+    fn an_escort_steps_off_220_at_random_and_stands_far_from_a_fight() {
+        let mut dice = crate::spawning::Rng::of(50, 39, 0);
+        let master = Spot::new(1_000.0, 2_000.0);
+        let points = escort_stepping_off(master, 0, &mut dice);
+        assert_eq!(points.len(), 10);
+        for (point, on) in points {
+            assert!(((point - master).length() - 220.0).abs() < 0.01);
+            assert_eq!(on, 0);
+        }
+        let here = Spot::new(1_000.0, 1_400.0);
+        // 600 from its master: it stands while a hostile is near the hero or the master fights.
+        assert!(escort_stands(here, master, Some(250.0), false));
+        assert!(escort_stands(here, master, None, true));
+        assert!(!escort_stands(here, master, Some(350.0), false));
+        assert!(!escort_stands(
+            Spot::new(1_000.0, 1_600.0),
+            master,
+            Some(250.0),
+            true
+        ));
     }
 
     #[test]

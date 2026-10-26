@@ -767,6 +767,16 @@ fn keep(
             continue;
         }
         follower.stepping_off = false;
+        // One of the flag 4 stands while the hero is in danger far from it (`0x4F363D`).
+        let fighting = attack.and_then(crate::attack::Attack::target).is_some()
+            || playing.is_some()
+            || making.is_some();
+        let nearest_hostile = (!nearest.hostiles.is_empty()).then_some(nearest.distance);
+        if follower.escorted
+            && minds::escort_stands(spot(here), spot(master), nearest_hostile, fighting)
+        {
+            continue;
+        }
         match minds::keeps(spot(here), spot(master)) {
             Keeps::PutNear => {
                 put_near(&mut commands);
@@ -796,19 +806,27 @@ fn keep(
                         heights.floor_level(building, usize::from(on)).or(way.level)
                     }
                 };
-                let points = minds::stepping_off(
-                    spot(master),
-                    heading(master_at),
-                    floor.map_or(0, |(_, floor)| floor),
-                    &mut dice.0,
-                );
-                let (to, on) = points
-                    .iter()
-                    .copied()
-                    .find(|&(to, on)| {
-                        crate::ai::way_onto(here, way.level, (to, Some(onto(on))), &heights)
-                    })
-                    .unwrap_or(points[3]);
+                let on_floor = floor.map_or(0, |(_, floor)| floor);
+                let reaches = |&(to, on): &(minds::Spot, u8)| {
+                    crate::ai::way_onto(here, way.level, (to, Some(onto(on))), &heights)
+                };
+                // One of the flag 4 tries its ten points 220 off at random, and stands where it
+                // reaches none (`0x4FCC80`).
+                let (to, on) = if follower.escorted {
+                    let points = minds::escort_stepping_off(spot(master), on_floor, &mut dice.0);
+                    match points.iter().copied().find(reaches) {
+                        Some(point) => point,
+                        None => continue,
+                    }
+                } else {
+                    let points = minds::stepping_off(
+                        spot(master),
+                        heading(master_at),
+                        on_floor,
+                        &mut dice.0,
+                    );
+                    points.iter().copied().find(reaches).unwrap_or(points[3])
+                };
                 debug!("followers: {entity} steps off to {to:?} on floor {on}");
                 follower.stepping_off = true;
                 let to = Vec3::new(to.x, here.y, to.y);
