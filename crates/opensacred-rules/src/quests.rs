@@ -13,6 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::spawning::Fill;
+
 /// A quest's flags (`+0x120` of its record of 0x124 bytes, `0xAABF18`): set up, finished,
 /// entered, and while it is being set up.
 pub const SET_UP: u32 = 1;
@@ -739,6 +741,71 @@ impl Counts {
     }
 }
 
+/// An entry of `ReplaceSpawn` (96, `0x4A79D0`; docs/re/netscript.md, "`ReplaceSpawn` and
+/// `RegionChange`"): the fills of an area that it changes, its pairs of types, each a type
+/// replaced and its replacement, and the side it gives the runs it changes, hostile with `0x08`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Replacement {
+    pub area: u8,
+    pub pairs: Vec<(u32, u32)>,
+    pub hostile: bool,
+}
+
+/// The entries of the scripts' `ReplaceSpawn`s, in order (the interpreter's vector `+0x394`),
+/// which the fills of the sectors read as they come in (#55). Nothing takes one out.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Replacements(Vec<Replacement>);
+
+impl Replacements {
+    /// Adds `entry`, as `0x4A79D0` does: every entry of its area and its types first takes its
+    /// place, and it is appended all the same.
+    pub fn add(&mut self, entry: Replacement) {
+        let types = |entry: &Replacement| {
+            entry
+                .pairs
+                .iter()
+                .map(|&(from, _)| from)
+                .collect::<Vec<_>>()
+        };
+        let replaced = types(&entry);
+        for kept in &mut self.0 {
+            if kept.area == entry.area && types(kept) == replaced {
+                *kept = entry.clone();
+            }
+        }
+        self.0.push(entry);
+    }
+
+    /// The fill `fill` of a sector of the area `area` as the entries change it, in their order
+    /// (`0x47C610`, while an `Enter` runs): each line of a type that an entry of the area replaces
+    /// takes the new type, its weight and hostility kept, and a run of such a line takes the
+    /// entry's side for all its lines (**hypothesis**: only a run where a line was replaced).
+    pub fn fill(&self, area: u8, fill: &Fill) -> Fill {
+        let mut fill = fill.clone();
+        for entry in self.0.iter().filter(|entry| entry.area == area) {
+            let mut changed = false;
+            for line in &mut fill.entries {
+                if let Some(&(_, to)) = entry.pairs.iter().find(|&&(from, _)| from == line.creature)
+                {
+                    line.creature = to;
+                    changed = true;
+                }
+            }
+            if changed {
+                for line in &mut fill.entries {
+                    line.hostile = entry.hostile;
+                }
+            }
+        }
+        fill
+    }
+
+    /// Whether there are none.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -750,6 +817,8 @@ pub struct Scripts {
     pub triggers: Triggers,
     pub timers: Timers,
     pub drops: Drops,
+    /// The fills' replacements of the `ReplaceSpawn`s (#55).
+    pub replacements: Replacements,
     /// The kills counted (`SetOnKill`) and the items collected (`SetOnCollect`).
     pub kills: Counts,
     pub collecting: Counts,
@@ -851,6 +920,53 @@ mod tests {
         variables.set(&long, 1);
         assert_eq!(variables.get(&"a".repeat(31)), Some(1));
         assert_eq!(variables.get(&"a".repeat(35)), Some(1));
+    }
+
+    #[test]
+    fn a_replace_spawn_swaps_the_types_of_its_areas_fills() {
+        use crate::spawning::Entry;
+        let line = |creature, hostile| Entry {
+            creature,
+            weight: 100,
+            hostile,
+        };
+        let fill = Fill {
+            per_area: (1, 2, 100),
+            entries: vec![line(279, false), line(35, false)],
+        };
+        let mut replacements = Replacements::default();
+        // `Init58`'s: the soldier 279 becomes the skeleton warrior 32, hostile, in area 1.
+        replacements.add(Replacement {
+            area: 1,
+            pairs: vec![(279, 32)],
+            hostile: true,
+        });
+        let changed = replacements.fill(1, &fill);
+        assert_eq!(changed.entries, [line(32, true), line(35, true)]);
+        // Another area's fill, and a fill of none of its types, stay.
+        assert_eq!(replacements.fill(2, &fill), fill);
+        let other = Fill {
+            per_area: (1, 2, 100),
+            entries: vec![line(35, false)],
+        };
+        assert_eq!(replacements.fill(1, &other), other);
+        // A later entry swaps back; the same types again take the first's place and append.
+        replacements.add(Replacement {
+            area: 1,
+            pairs: vec![(32, 279)],
+            hostile: false,
+        });
+        assert_eq!(
+            replacements.fill(1, &fill).entries,
+            [line(279, false), line(35, false)]
+        );
+        replacements.add(Replacement {
+            area: 1,
+            pairs: vec![(279, 33)],
+            hostile: true,
+        });
+        assert_eq!(replacements.0.len(), 3);
+        assert_eq!(replacements.0[0].pairs, [(279, 33)]);
     }
 
     #[test]

@@ -88,6 +88,11 @@ pub struct Started {
 #[derive(Resource, Default)]
 pub struct ScriptDrops(pub quests::Drops);
 
+/// The scripts' `ReplaceSpawn`s as the scripts last left them, which the sectors' fills take as
+/// they come in (#55, `npcs::place`).
+#[derive(Resource, Default)]
+pub struct ScriptReplacements(pub quests::Replacements);
+
 /// A `SetObjState` (2, `0x48AE90`) of the object named `name` (its ASCII lower-cased, as `npcs`
 /// keeps the objects' names): its trigger's bar (`0x8000`; `0x06` sets it, `0x07` clears it) and
 /// open bit (bit 0; `0x0F` sets it, `0x10` clears it), each where the record gives it.
@@ -1017,6 +1022,26 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
+            // A pair of types for the fills of an area (`0x4A79D0`, #55): exactly two `0x02`s
+            // and no `0x19`, its area `0x69`'s number, hostile with `0x08`; any other record
+            // stores nothing (`0x4A7BC8`).
+            "replace_spawn" => {
+                if let ([from, to], Some(area)) = (
+                    tags.numbers("_02").as_slice(),
+                    tags.texts("_69")
+                        .first()
+                        .and_then(|area| area.trim().parse::<u8>().ok()),
+                ) && tags.values("_19").is_empty()
+                    && let (Ok(from), Ok(to)) = (u32::try_from(*from), u32::try_from(*to))
+                {
+                    self.state.replacements.add(quests::Replacement {
+                        area,
+                        pairs: vec![(from, to)],
+                        hostile: !tags.values("_08").is_empty(),
+                    });
+                }
+                Handled::Done
+            }
             "set_drop" => {
                 // The two types, the creature first: the one of a creature's category
                 // (`0x426610`) where the other is not (`0x4AFFF0`).
@@ -1211,6 +1236,7 @@ fn begin(world: &mut World) {
     };
     world.insert_resource(HeroHome::default());
     world.insert_resource(ScriptDrops(started.state.drops.clone()));
+    world.insert_resource(ScriptReplacements(started.state.replacements.clone()));
     match runtime(&started.assets, &started.tree, started.index.clone()) {
         Ok(runtime) => world.insert_non_send(Live::new(runtime, started)),
         Err(e) => bevy::log::warn!("scripts: {e:#}; the scripts do not run on"),
@@ -1221,14 +1247,28 @@ fn begin(world: &mut World) {
 fn end(world: &mut World) {
     world.remove_non_send::<Live>();
     world.remove_resource::<ScriptDrops>();
+    world.remove_resource::<ScriptReplacements>();
 }
 
-/// Hands the scripts' drops to the deaths' drops as the scripts change them.
-fn share(live: Option<NonSendMut<Live>>, shared: Option<ResMut<ScriptDrops>>) {
-    if let (Some(live), Some(mut shared)) = (live, shared)
+/// Hands the scripts' drops to the deaths' drops, and their replacements to the fills, as the
+/// scripts change them.
+fn share(
+    live: Option<NonSendMut<Live>>,
+    shared: Option<ResMut<ScriptDrops>>,
+    replacements: Option<ResMut<ScriptReplacements>>,
+) {
+    let Some(live) = live else {
+        return;
+    };
+    if let Some(mut shared) = shared
         && shared.0 != live.state.drops
     {
         shared.0 = live.state.drops.clone();
+    }
+    if let Some(mut shared) = replacements
+        && shared.0 != live.state.replacements
+    {
+        shared.0 = live.state.replacements.clone();
     }
 }
 

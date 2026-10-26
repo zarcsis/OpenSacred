@@ -3030,7 +3030,10 @@ pub fn place(
     dungeons: Res<daynight::Dungeons>,
     assets: Res<AssetServer>,
     experience: Res<fight::Experience>,
-    played: Res<drops::Played>,
+    (played, replacements): (
+        Res<drops::Played>,
+        Option<Res<crate::scripts::ScriptReplacements>>,
+    ),
 ) {
     let npcs = &mut *npcs;
     let hero = experience.level;
@@ -3104,6 +3107,15 @@ pub fn place(
         // on, the same ones each time the sector comes in (`spawning`).
         let Some(fills) = npcs.fills.get(&at) else {
             continue;
+        };
+        // As the scripts' `ReplaceSpawn`s of its area change them (#55).
+        let area = streamer.area(at).unwrap_or(0);
+        let fills: Vec<spawning::Fill> = match &replacements {
+            Some(replacements) if !replacements.0.is_empty() => fills
+                .iter()
+                .map(|fill| replacements.0.fill(area, fill))
+                .collect(),
+            _ => fills.clone(),
         };
         let values = npcs.values.get(&at).copied().unwrap_or_default();
         let (Ok(x0), Ok(y0)) = (i32::try_from(at.0 * 64), i32::try_from(at.1 * 64)) else {
