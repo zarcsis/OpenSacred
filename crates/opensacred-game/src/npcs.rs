@@ -105,6 +105,8 @@ pub(crate) const SCRIPT_GROUP: u32 = 0x8000_0000;
 /// `0x60`, which also sets the flags word's bit `0x400000` (its reader not read, not followed).
 const ON_DEATH: u8 = 0x05;
 const ON_DEATH_TOO: u8 = 0x60;
+/// The tag of the trader whose stock of horses a `SetNPCState`'s creature joins (#658).
+const STOCK: u8 = 0x63;
 /// The operand of a `CreateNPC` that gives its creature's level, or makes it a boss
 /// (`0x482510`, `fight::tagged_level`).
 const LEVEL: u8 = 0x1F;
@@ -1324,6 +1326,12 @@ struct State {
     /// Its death's functions, in their order: each `0x05`'s (`true`), which replaces those the
     /// creature has, and `0x60`'s, which adds one (`0x461FBC`, `0x46204B`; #656).
     deaths: Vec<(bool, String)>,
+    /// Its heading in degrees (`0x03`), turned as `CreateNPC` turns it (`0x44DDC0`); its group
+    /// (`0x11`, `+0x249`, `0x4A9EF0`; [`script_group`]); and whether it joins a trader's stock
+    /// of horses (`0x63`, the list at `+0x79E8`), which takes its dialogue away (#658).
+    heading: Option<f32>,
+    group: Option<u32>,
+    stocked: bool,
 }
 
 impl State {
@@ -1337,6 +1345,7 @@ impl State {
         let mut state = Self {
             level: level_tag(ops),
             word: ways::state_word(markers),
+            group: script_group(ops),
             ..Self::default()
         };
         for op in ops {
@@ -1359,10 +1368,33 @@ impl State {
                 }
                 (ON_DEATH, Value::Str(name)) => state.deaths.push((true, name.clone())),
                 (ON_DEATH_TOO, Value::Str(name)) => state.deaths.push((false, name.clone())),
+                (0x03, Value::U16(degrees)) => state.heading = Some(f32::from(*degrees)),
+                (STOCK, Value::Str(_)) => state.stocked = true,
                 _ => {}
             }
         }
         state
+    }
+
+    /// Whether it gives a creature made before what the game follows on one (#656, #658): its
+    /// death's functions, its heading, its group or a trader's stock.
+    fn restates(&self) -> bool {
+        !self.deaths.is_empty() || self.heading.is_some() || self.group.is_some() || self.stocked
+    }
+
+    /// Gives `placement` its death's functions, its heading, its group and, joining a stock, no
+    /// dialogue ([`Self::restates`]).
+    fn restate_placement(&self, placement: &mut Placement) {
+        self.restate(&mut placement.on_death);
+        if let Some(heading) = self.heading {
+            placement.heading = heading;
+        }
+        if self.group.is_some() {
+            placement.group = self.group;
+        }
+        if self.stocked {
+            placement.dialogue = false;
+        }
     }
 
     /// Gives `functions` its death's functions ([`Self::deaths`]).
@@ -1404,7 +1436,7 @@ impl State {
         }
         placement.trader |= self.trader;
         placement.dialogue |= self.stamped;
-        self.restate(&mut placement.on_death);
+        self.restate_placement(placement);
     }
 }
 
@@ -3887,10 +3919,10 @@ impl Npcs {
         Ok(made.len())
     }
 
-    /// The death's functions that the play's `SetNPCState`s give the creatures made before them
-    /// (#656): each record's name and its state, given to the placements of that name here, and
-    /// to the creatures in the world by [`script_records`]. The records' other tags on such
-    /// creatures are #657's and #658's.
+    /// What the play's `SetNPCState`s give the creatures made before them (#656, #658): each
+    /// record's name and its state, given to the placements of that name here, and to the
+    /// creatures in the world by [`script_records`] ([`State::restates`]). The records' other
+    /// tags on such creatures are not followed yet (#657).
     fn restate(&mut self, records: &[Record]) -> Vec<(String, State)> {
         let made: HashSet<String> = records
             .iter()
@@ -3909,12 +3941,12 @@ impl Npcs {
                 continue;
             };
             let state = State::of(ops, &[]);
-            if state.deaths.is_empty() {
+            if !state.restates() {
                 continue;
             }
             for placement in &mut self.placements {
                 if placement.name.as_ref() == Some(&name) {
-                    state.restate(&mut placement.on_death);
+                    state.restate_placement(placement);
                 }
             }
             stated.push((name, state));
@@ -4185,11 +4217,24 @@ pub(crate) fn script_healths(
 
 /// Places the records of the world that the scripts ran during the play (#1014,
 /// [`Npcs::add`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    mut creatures: Query<(Entity, &ScriptName, Option<&mut OnDeath>), Without<Dies>>,
+    mut creatures: Query<
+        (
+            Entity,
+            &ScriptName,
+            Option<&mut OnDeath>,
+            &mut Transform,
+            Option<&mut ai::Mind>,
+        ),
+        Without<Dies>,
+    >,
 ) {
     let Some(mut records) = records else {
         return;
@@ -4204,16 +4249,31 @@ fn script_records(
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
     for (name, state) in npcs.restate(&records) {
-        for (entity, _, on_death) in creatures.iter_mut().filter(|(_, named, _)| named.0 == name) {
+        for (entity, _, on_death, mut transform, mind) in creatures
+            .iter_mut()
+            .filter(|(_, named, ..)| named.0 == name)
+        {
             match on_death {
                 Some(mut on_death) => state.restate(&mut on_death.0),
+                None if state.deaths.is_empty() => {}
                 None => {
                     let mut functions = DeathFunctions::default();
                     state.restate(&mut functions);
                     commands.entity(entity).insert(OnDeath(functions));
                 }
             }
-            bevy::log::info!("npcs: the scripts give {name} its death's functions");
+            if let Some(degrees) = state.heading {
+                transform.rotation = hero::facing(heading(degrees));
+            }
+            if let Some(mut mind) = mind {
+                if state.group.is_some() {
+                    mind.group = state.group;
+                }
+                if state.stocked {
+                    mind.dialogue = false;
+                }
+            }
+            bevy::log::info!("npcs: the scripts set {name}'s state");
         }
     }
 }
@@ -5420,6 +5480,33 @@ mod tests {
                 (1000, fight::Rank::Boss),
             ]
         );
+    }
+
+    #[test]
+    fn a_set_npc_state_turns_the_creature_groups_it_and_stocks_a_horse() {
+        let op = |tag, value| Operand { tag, value };
+        let mut placement = Placement {
+            dialogue: true,
+            heading: 10.0,
+            ..Placement::default()
+        };
+        let state = State::of(
+            &[
+                op(0x01, Value::Str("Res:18104".into())),
+                op(0x03, Value::U16(45)),
+                op(GROUP, Value::I32(2404)),
+                op(STOCK, Value::Str("res:17466".into())),
+            ],
+            &[],
+        );
+        assert!(state.restates());
+        state.apply(&mut placement);
+        assert_eq!(placement.heading, 45.0);
+        assert_eq!(placement.group, Some(SCRIPT_GROUP | 2404));
+        assert!(!placement.dialogue);
+        // Its level alone restates nothing of a creature made before.
+        let level = State::of(&[op(LEVEL, Value::I32(7))], &[]);
+        assert!(!level.restates());
     }
 
     #[test]
