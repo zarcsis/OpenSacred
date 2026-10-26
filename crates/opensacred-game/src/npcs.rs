@@ -84,6 +84,9 @@ const SET_HP: u16 = 52;
 const DEL_NPC: u16 = 55;
 const SET_GROUP_STATE: u16 = 73;
 const SET_RGN_DIALOG: u16 = 106;
+const TELEPORT: u16 = 46;
+/// The prefix of a position that names a creature's place (`CPOS:HERO`, `CPOS:res:17190`).
+const CREATURE_POSITION: &str = "cpos:";
 /// The operand of a `SetGroupState` that removes its group's living creatures (`0x49E760`).
 const REMOVES: u8 = 0x51;
 /// The operand of a `CreateNPC` or a `SetNPCState` that names its dialogue, and that of a
@@ -1623,6 +1626,44 @@ impl GroupState {
             functions.set(death);
         }
     }
+}
+
+/// Where the play's `NPC_Goto` or `Teleport` sends a creature (#1035): a global cell and its floor,
+/// or the place of a creature, `None` the hero's (`CPOS:<name>`).
+#[derive(Clone, Debug, PartialEq)]
+enum Whither {
+    Cell((i32, i32, i32)),
+    Creature(Option<String>),
+}
+
+/// A creature that the play's `NPC_Goto` sends walking (`walks`) or its `Teleport` puts somewhere
+/// ([`Npcs::moves`]).
+#[derive(Clone, Debug, PartialEq)]
+struct Moved {
+    name: String,
+    whither: Whither,
+    walks: bool,
+}
+
+/// Where a record's position of the tag `tag` sends a creature: a cell of its own, a `DefPos`'s
+/// name, or a creature's place.
+fn whither(
+    ops: &[opensacred_data::netscript::Operand],
+    tag: u8,
+    named: &HashMap<String, (i32, i32)>,
+) -> Option<Whither> {
+    ops.iter().find_map(|o| match (o.tag, &o.value) {
+        (t, Value::I32x3([x, y, layer])) if t == tag => Some(Whither::Cell((*x, *y, *layer))),
+        (t, Value::Name(name) | Value::Str(name)) if t == tag => {
+            let name = name.to_ascii_lowercase();
+            match name.strip_prefix(CREATURE_POSITION) {
+                Some("hero") => Some(Whither::Creature(None)),
+                Some(creature) => Some(Whither::Creature(Some(creature.to_owned()))),
+                None => named.get(&name).map(|&(x, y)| Whither::Cell((x, y, 0))),
+            }
+        }
+        _ => None,
+    })
 }
 
 /// What the play's `SetGroupState`s and `DelNPC`s do to the creatures in the world
@@ -4130,6 +4171,49 @@ impl Npcs {
         Ok(made.len())
     }
 
+    /// The creatures that the play's `NPC_Goto`s send walking and its `Teleport`s put somewhere,
+    /// the hero's teleports left to `scripts` (#1035): their placements away from the world moved
+    /// to a cell they go to, the moves returned in order for the creatures in the world
+    /// ([`script_records`]).
+    fn moves(&mut self, records: &[Record]) -> Vec<Moved> {
+        let mut moves = Vec::new();
+        for record in records {
+            let Body::Operands(ops) = &record.body else {
+                continue;
+            };
+            let walks = match record.kind {
+                NPC_GOTO => true,
+                TELEPORT => false,
+                _ => continue,
+            };
+            let Some(name) = name_of(ops).filter(|name| name != "hero") else {
+                continue;
+            };
+            let Some(whither) = [0x04, 0x0C, 0x0D]
+                .into_iter()
+                .find_map(|tag| whither(ops, tag, &self.places))
+            else {
+                continue;
+            };
+            if let Whither::Cell((x, y, layer)) = whither
+                && let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y))
+            {
+                for (index, placement) in self.placements.iter_mut().enumerate() {
+                    if placement.name.as_ref() == Some(&name) && !self.kept.out.contains(&index) {
+                        placement.cell = (x, y);
+                        placement.layer = layer;
+                    }
+                }
+            }
+            moves.push(Moved {
+                name,
+                whither,
+                walks,
+            });
+        }
+        moves
+    }
+
     /// The dialogue that the start's `SetRgnDialog`s give the creature type `creature`.
     pub fn region_talk(&self, creature: u32) -> Option<&str> {
         self.region_talks.get(&creature).map(String::as_str)
@@ -4495,6 +4579,7 @@ fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
+    (heights, heroes): (Res<Heights>, Query<&Transform, With<hero::Body>>),
     mut creatures: Query<
         (
             Entity,
@@ -4505,8 +4590,9 @@ fn script_records(
             Option<&mut crowd::InTheWay>,
             Option<&mut fight::Health>,
             Option<&Talk>,
+            Option<&mut buildings::Layered>,
         ),
-        Without<Dies>,
+        (Without<Dies>, Without<hero::Body>),
     >,
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
@@ -4531,7 +4617,7 @@ fn script_records(
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
     for (name, state) in npcs.restate(&records) {
-        for (entity, _, on_death, mut transform, mut mind, _, _, talk) in creatures
+        for (entity, _, on_death, mut transform, mut mind, _, _, talk, _) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
         {
@@ -4566,7 +4652,7 @@ fn script_records(
         }
     }
     for change in npcs.regroup(&records) {
-        for (entity, named, on_death, _, mind, way, health, _) in &mut creatures {
+        for (entity, named, on_death, _, mind, way, health, ..) in &mut creatures {
             let member = match &change {
                 Regrouped::Group(state) => {
                     mind.as_ref().is_some_and(|mind| mind.group == state.group)
@@ -4607,6 +4693,61 @@ fn script_records(
             ),
             Regrouped::Removed(name) => bevy::log::info!("npcs: the scripts remove {name}"),
         }
+    }
+    for moved in npcs.moves(&records) {
+        // A creature's place: the hero's, or the first creature's of the name.
+        let spot = match &moved.whither {
+            Whither::Cell((x, y, layer)) => {
+                let floor = usize::try_from(*layer).ok().filter(|&f| f > 0);
+                let level = floor.and_then(|floor| {
+                    let building = heights.building_on_floor((*x, *y), floor)?;
+                    heights.floor_level(building, floor)
+                });
+                Some((iso::ground(*x as f32 + 0.5, *y as f32 + 0.5), level, *layer))
+            }
+            Whither::Creature(None) => heroes.iter().next().map(|at| (at.translation, None, 0)),
+            Whither::Creature(Some(name)) => creatures
+                .iter()
+                .find(|(_, named, ..)| named.is_some_and(|named| &named.0 == name))
+                .map(|(_, _, _, at, _, way, ..)| {
+                    (at.translation, way.and_then(|way| way.level), 0)
+                }),
+        };
+        let Some((to, level, _)) = spot else {
+            continue;
+        };
+        for (entity, _, _, mut transform, mind, way, _, _, layered) in creatures
+            .iter_mut()
+            .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+        {
+            if moved.walks {
+                // At its walk speed, as the start's `NPC_Goto`s walk theirs (#132).
+                let speed = mind.as_ref().map_or(0.0, |mind| mind.speed);
+                let from = way.as_ref().and_then(|way| way.level);
+                commands
+                    .entity(entity)
+                    .insert(Walk::to(to, from, speed).onto(level).idle());
+            } else {
+                let mut at = to;
+                if let Some(y) = heights.standing(at.x, at.z, level) {
+                    at.y = y;
+                }
+                transform.translation = at;
+                if let Some(mut way) = way {
+                    way.level = level;
+                }
+                if let Some(mut layered) = layered {
+                    *layered = buildings::Layered::at(&heights, at.x, at.z, level);
+                }
+                commands.entity(entity).remove::<Walk>();
+            }
+        }
+        bevy::log::info!(
+            "npcs: the scripts {} {} to {:?}",
+            if moved.walks { "send" } else { "put" },
+            moved.name,
+            moved.whither
+        );
     }
 }
 
@@ -5824,6 +5965,40 @@ mod tests {
                 (0, fight::Rank::Common),
                 (1000, fight::Rank::Boss),
             ]
+        );
+    }
+
+    #[test]
+    fn a_goto_or_a_teleport_sends_its_creature_to_a_cell_a_place_or_a_creature() {
+        let op = |tag, value| Operand { tag, value };
+        let named = HashMap::from([("novizin1".to_owned(), (3237, 2514))]);
+        assert_eq!(
+            whither(&[op(0x04, Value::I32x3([3237, 2519, 1]))], 0x04, &named),
+            Some(Whither::Cell((3237, 2519, 1)))
+        );
+        assert_eq!(
+            whither(&[op(0x04, Value::Name("Novizin1".into()))], 0x04, &named),
+            Some(Whither::Cell((3237, 2514, 0)))
+        );
+        assert_eq!(
+            whither(&[op(0x04, Value::Str("CPOS:HERO".into()))], 0x04, &named),
+            Some(Whither::Creature(None))
+        );
+        assert_eq!(
+            whither(
+                &[op(0x04, Value::Str("CPOS:res:17190".into()))],
+                0x04,
+                &named
+            ),
+            Some(Whither::Creature(Some("res:17190".into())))
+        );
+        assert_eq!(
+            whither(&[op(0x04, Value::Name("nowhere".into()))], 0x04, &named),
+            None
+        );
+        assert_eq!(
+            whither(&[op(0x0C, Value::I32x3([1, 2, 0]))], 0x04, &named),
+            None
         );
     }
 
