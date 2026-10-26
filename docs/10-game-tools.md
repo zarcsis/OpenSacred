@@ -62,7 +62,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * Before #171, `main.rs` read the world, the hero, the start script and the first sector before Bevy started.
   For a menu, the game must start and end inside one process.
 * States `AppState { Menu, Loading, InGame }`.
-  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`), as a `clap::Args` struct that the command `new-game` reuses (§6).
+  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`, the hero's `--name` and the `--difficulty`, #1086), as a `clap::Args` struct that the command `new-game` reuses (§6).
   The command line's `--zoom` and `--no-music`, which say how a game shows, hold for every game of the run: a `new-game` of a script, the console or remote control takes them from a resource `Shows` unless its own line sets them (#831).
 * What every game shares (the world's index, the sprites, the tables) is read once; the tables that the start and the loads read (`items`, `weapons`, `creatures`, `motions`, `balance`) are parsed when first asked for and kept in `sectors::Shared` (`tables`, #830).
   `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.

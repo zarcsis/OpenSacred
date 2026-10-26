@@ -9,14 +9,11 @@ use std::collections::HashMap;
 use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
 use crate::arts;
+use crate::drops::Difficulty;
 use crate::spawning::{Dice, Rng, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
 pub const HERO_LEVEL: u32 = 1;
-/// The balance's row of a difficulty's values that the game plays: bronze, the row's sixth
-/// value (docs/re/fight.md).
-const BRONZE: usize = 5;
-
 /// The kinds of damage: physical, fire, magic and poison.
 pub const KINDS: usize = 4;
 
@@ -271,7 +268,7 @@ impl Rank {
 }
 
 /// The balance's values of the bosses and the champions: the chance in 1,001 of a champion
-/// (`HarteSau`), the levels above the hero's (`LevelUpBoss`, `LevelUpChamp`), bronze's
+/// (`HarteSau`), the levels above the hero's (`LevelUpBoss`, `LevelUpChamp`), the difficulty's
 /// `OffLevel` and `LevelKap` by its column, and the factors of the health (`HPFak…`) and of the
 /// attack and the defence (`AWFak…`, `VWFak…`), the boss's first.
 #[derive(Clone, Debug, PartialEq)]
@@ -299,7 +296,7 @@ impl Default for Ranks {
 }
 
 impl Ranks {
-    fn of(b: &Balance) -> Self {
+    fn of(b: &Balance, column: usize) -> Self {
         let default = Self::default();
         let f = |name: &str, or: f32| b.f32(name).unwrap_or(or);
         let u = |name: &str, or: u32| {
@@ -308,7 +305,7 @@ impl Ranks {
                 .unwrap_or(or)
         };
         let row = |name: &str, or: u32| {
-            b.row_i32(name, BRONZE)
+            b.row_i32(name, column)
                 .and_then(|v| u32::try_from(v).ok())
                 .unwrap_or(or)
         };
@@ -395,6 +392,7 @@ impl Bands {
 /// the killer, bosses or champions yet (docs/decisions/2026-10-20-levels.md).
 pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
     let [share, anteil, voll, upper] = rules.experience;
+    let level = rules.on_bronze(level);
     let (e, h) = (to_f32(level), to_f32(hero));
     let mut x = (f32::from(a) + e * f32::from(b)) * share;
     let cap = rules.level_cap;
@@ -548,9 +546,10 @@ impl Rules {
 /// of the level's factor of the attributes (`BalStatOff`), the divisors of each kind's damage
 /// and resistance multipliers (`BalChar*D`, `BalChar*R`) and of the resistances
 /// (`BalanceRes*`), and the factors of all damages and resistances (`BalanceDmg`, `BalanceRes`);
-/// the experience's factor of bronze (`ProzExp`) and the levels' (`UnterExpAnteil`,
-/// `UnterExpVoll`, `ObereEXPVoll`); bronze's factors of the strikes between the hero and the
-/// creatures (`ProzAW`, `ProzDmg`, `ProzRes`); the hero's rates of regeneration fighting, with a
+/// the experience's factor of the difficulty (`ProzExp`) and the levels' (`UnterExpAnteil`,
+/// `UnterExpVoll`, `ObereEXPVoll`); the difficulty's factors of the strikes between the hero and
+/// the creatures (`ProzAW`, `ProzDmg`, `ProzRes`) and its scaling of the creatures' levels
+/// (`BaseOffLevel`, `OffLevelProz`), each the balance's row's value of its column; the hero's rates of regeneration fighting, with a
 /// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); the distances and the
 /// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); the
 /// bands of the factor of a creature's strike at the hero by its level (`WaffenAll`,
@@ -569,6 +568,7 @@ pub struct Rules {
     balance: [f32; 2],
     experience: [f32; 4],
     difficulty: [f32; 3],
+    scale: [f32; 2],
     regeneration: [f32; 3],
     curves: Curves,
     level_cap: f32,
@@ -595,6 +595,7 @@ impl Default for Rules {
             balance: [1.0, 1.0],
             experience: [1.0, 0.85, 1.0, 1.1],
             difficulty: [0.65, 0.9, 1.0],
+            scale: [0.0, 0.0],
             regeneration: [36.0, 48.0, 128.0],
             curves: Curves::default(),
             level_cap: 50.0,
@@ -611,13 +612,57 @@ impl Default for Rules {
 }
 
 impl Rules {
-    /// The rules of the balance `balance`, the original's values where it lacks them (the
-    /// health's factors 1).
+    /// The rules of the balance `balance` on bronze, the original's values where it lacks them
+    /// (the health's factors 1).
     pub fn of(balance: Option<&Balance>) -> Self {
+        Self::at(balance, Difficulty::Bronze)
+    }
+
+    /// A sector's levels `values` raised by the difficulty's additions, as `CreateNPC` and
+    /// `FillSector` take them (`0x48440E`, `0x47CEEF`, docs/re/spawning.md): the lowest by
+    /// `OffLevel` and the highest by `LevelKap` of its column, both 0 on bronze; a bound of 0, which
+    /// a sector without levels has, stays.
+    pub fn raised(&self, values: &SpawnValues) -> SpawnValues {
+        let raise = |bound: u32, by: u32| {
+            if bound > 0 {
+                bound.saturating_add(by)
+            } else {
+                0
+            }
+        };
+        SpawnValues {
+            lowest: raise(values.lowest, self.ranks.off),
+            highest: raise(values.highest, self.ranks.cap),
+            ..*values
+        }
+    }
+
+    /// The level `E` of a creature of level `level` on bronze's scale, the inverse of the
+    /// difficulty's scaling of the levels (`0x5522D0`, docs/re/fight.md, "Who fights"): 1 up to
+    /// the difficulty's `BaseOffLevel`, else `(L − BaseOffLevel)/(1 + OffLevelProz/100)`, rounded,
+    /// at least 1; `L` itself on bronze.
+    pub fn on_bronze(&self, level: u32) -> u32 {
+        let [offset, per_cent] = self.scale.map(f64::from);
+        let level = f64::from(level);
+        if level <= offset {
+            return 1;
+        }
+        whole_f64(
+            ((level - offset) / (per_cent / 100.0 + 1.0) + 0.5)
+                .trunc()
+                .max(1.0),
+        )
+    }
+
+    /// The rules of the balance `balance` on `difficulty`: the values of its rows of six by the
+    /// difficulty's column (`0x94E7C8`, docs/re/fight.md), the cap of the experience by the
+    /// difficulty itself; the original's bronze values where the balance lacks them.
+    pub fn at(balance: Option<&Balance>, difficulty: Difficulty) -> Self {
         let default = Self::default();
         let Some(b) = balance else {
             return default;
         };
+        let column = difficulty.column();
         let points = (1..=5)
             .map(|i| Some((b.f32(&format!("HP_s{i}"))?, b.f32(&format!("HP_w{i}"))?)))
             .collect::<Option<Vec<_>>>()
@@ -631,7 +676,7 @@ impl Rules {
         };
         Self {
             points,
-            factor: b.row_f32("ProzHP", BRONZE).unwrap_or(1.0),
+            factor: b.row_f32("ProzHP", column).unwrap_or(1.0),
             stat_offset: b.f32("BalStatOff").unwrap_or(default.stat_offset),
             damage_divisors: named(
                 ["BalCharPD", "BalCharFD", "BalCharMD", "BalCharGD"],
@@ -655,16 +700,21 @@ impl Rules {
                 b.f32("BalanceRes").unwrap_or(1.0),
             ],
             experience: [
-                b.row_f32("ProzExp", BRONZE).unwrap_or(1.0),
+                b.row_f32("ProzExp", column).unwrap_or(1.0),
                 b.f32("UnterExpAnteil").unwrap_or(0.85),
                 b.f32("UnterExpVoll").unwrap_or(1.0),
                 b.f32("ObereEXPVoll").unwrap_or(1.1),
             ],
             difficulty: [
-                b.row_f32("ProzAW", BRONZE).unwrap_or(0.65),
-                b.row_f32("ProzDmg", BRONZE).unwrap_or(0.9),
-                b.row_f32("ProzRes", BRONZE).unwrap_or(1.0),
+                b.row_f32("ProzAW", column).unwrap_or(0.65),
+                b.row_f32("ProzDmg", column).unwrap_or(0.9),
+                b.row_f32("ProzRes", column).unwrap_or(1.0),
             ],
+            scale: ["BaseOffLevel", "OffLevelProz"].map(|name| {
+                b.row_i32(name, column)
+                    .and_then(|v| i16::try_from(v).ok())
+                    .map_or(0.0, f32::from)
+            }),
             regeneration: {
                 let mut rates = default.regeneration;
                 for (rate, name) in
@@ -679,11 +729,15 @@ impl Rules {
                 rates
             },
             curves: Curves::of(b),
-            // The cap and the start levels by the difficulty itself, bronze's first.
-            level_cap: b
-                .row_i32("LevelKap", 0)
-                .and_then(|v| i16::try_from(v).ok())
-                .map_or(default.level_cap, f32::from),
+            // The cap by the difficulty itself, bronze's first, none above gold's (0); the start
+            // levels of the fade, bronze's.
+            level_cap: match difficulty.index() {
+                index @ 0..=2 => b
+                    .row_i32("LevelKap", index)
+                    .and_then(|v| i16::try_from(v).ok())
+                    .map_or(default.level_cap, f32::from),
+                _ => 0.0,
+            },
             start_levels: [1, 2].map(|i| {
                 b.row_i32("StartLevMulti", i)
                     .and_then(|v| i16::try_from(v).ok())
@@ -701,7 +755,7 @@ impl Rules {
                 }
                 levels
             },
-            ranks: Ranks::of(b),
+            ranks: Ranks::of(b, column),
             range: {
                 let [least, most, share] = default.range;
                 let distance = |name, or| {
@@ -770,7 +824,7 @@ impl Rules {
 }
 
 /// Whether a creature of level `level` takes on a hero of level `hero` (`0x542B20`, docs/re/fight.md,
-/// "Who fights"): its level on bronze's scale, `E` (the game plays bronze), against the hero's,
+/// "Who fights"): its level on bronze's scale, `E` ([`Rules::on_bronze`]), against the hero's,
 /// `r = (E + 9)/(H + 9)` above the threshold `t` (`(H + 6)/(H + 9)` up to level 10, `(H − 6)/(H + 9)`
 /// from 92, else `anteil`), by more than 0.04 of `voll − t`: when the hero would earn more than the
 /// least experience from it.
@@ -2316,7 +2370,14 @@ const FILLS_MOST: u32 = 300;
 /// and `(r % 10 + r % 10)/2 − 3` below 250, none from 250; then raised by the time played,
 /// `minutes`, through the difficulty's scaling of the levels (`0x552230`, as `CreateNPC`'s), at
 /// most 300. Each creature takes it through [`filled_level`].
-pub fn fill_level(values: &SpawnValues, hero: u32, minutes: u32, dice: &mut impl Dice) -> u32 {
+pub fn fill_level(
+    values: &SpawnValues,
+    hero: u32,
+    minutes: u32,
+    rules: &Rules,
+    dice: &mut impl Dice,
+) -> u32 {
+    let values = &rules.raised(values);
     let level = if hero >= values.lowest {
         hero
     } else {
@@ -2329,7 +2390,7 @@ pub fn fill_level(values: &SpawnValues, hero: u32, minutes: u32, dice: &mut impl
         90..250 => (level + averaged(10, dice)).saturating_sub(3),
         _ => level,
     };
-    played_level(moved, minutes).min(FILLS_MOST)
+    played_level(moved, minutes, rules).min(FILLS_MOST)
 }
 
 /// Two rolls below `n` averaged, whole (`(rand() % n + rand() % n)/2`).
@@ -2385,7 +2446,11 @@ pub fn scripted_level(
     rules: &Rules,
     dice: &mut impl Dice,
 ) -> u32 {
-    let level = match values.filter(|values| values.lowest > 0 && values.highest > 0) {
+    let raised = values.map(|values| rules.raised(values));
+    let level = match raised
+        .as_ref()
+        .filter(|values| values.lowest > 0 && values.highest > 0)
+    {
         Some(values) if hero < values.lowest => values.lowest,
         Some(values) if hero > values.highest => values.highest,
         Some(_) => hero + dice.below(2),
@@ -2393,9 +2458,13 @@ pub fn scripted_level(
     };
     match raise {
         Raise::Horse { riding } => held_level(level + riding / 8, values, creature, true, rules),
-        Raise::Played { minutes } => {
-            held_level(played_level(level, minutes), values, creature, false, rules)
-        }
+        Raise::Played { minutes } => held_level(
+            played_level(level, minutes, rules),
+            values,
+            creature,
+            false,
+            rules,
+        ),
     }
 }
 
@@ -2446,8 +2515,9 @@ fn most_level(values: Option<&SpawnValues>, creature: u32, rules: &Rules) -> u32
 /// none for 0, a record without one, whose creature takes [`scripted_level`]'s. For
 /// [`BOSS_TAG`], a boss's marker level 1 ([`Rank::of_tag`]), which [`Rank::level`] then levels
 /// as a fill's boss. For any other, that level as the level's setter takes it, without the
-/// hero's, the sector's lowest or the time played: through the difficulty's scaling of the
-/// levels, which keeps it on bronze, then held ([`held_level`]).
+/// hero's, the sector's lowest or the time played: raised by the difficulty's `OffLevel`, through
+/// its scaling of the levels with no time played, both of which keep it on bronze, then held
+/// ([`held_level`], `0x564D60`).
 pub fn tagged_level(
     tag: u32,
     values: Option<&SpawnValues>,
@@ -2458,25 +2528,32 @@ pub fn tagged_level(
     match tag {
         0 => None,
         BOSS_TAG => Some(1),
-        level => Some(held_level(level, values, creature, horse, rules)),
+        level => Some(held_level(
+            played_level(level + rules.ranks.off, 0, rules),
+            values,
+            creature,
+            horse,
+            rules,
+        )),
     }
 }
 
-/// A level `level` scaled by the difficulty and raised by the time played (`0x552230`), bronze's:
-/// `⌊L·(1 + x/100) + 0.5⌋`, at least 1, with `x` the tenth of the curve of the minutes `m`
-/// (`0x565D70`) `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated, 0 to 9: one more
-/// per cent of the level from 15 minutes on, five from 121 minutes. A hero wearing six
+/// A level `level` scaled by the difficulty and raised by the time played (`0x552230`, docs/re/
+/// spawning.md): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the difficulty's
+/// `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze) and `x` the tenth of the curve of the
+/// minutes `m` (`0x565D70`) `100·(1 − 1/(1 + (m − 1)/120))` from a minute on, truncated, 0 to 9:
+/// one more per cent of the level from 15 minutes on, five from 121 minutes. A hero wearing six
 /// or more of one count of `+0x4F8` (its byte `0x1C`; **hypothesis**: the pieces of a set) adds
-/// 1 to 2.34 to `x` by the difficulty; not followed. The difficulty's own per cent and offset
-/// (`OffLevelProz`, `BaseOffLevel`) are 0 on bronze.
-fn played_level(level: u32, minutes: u32) -> u32 {
+/// 1 to 2.34 to `x` by the difficulty; not followed.
+fn played_level(level: u32, minutes: u32, rules: &Rules) -> u32 {
     let curve = if minutes >= 1 {
         100.0 * (1.0 - 1.0 / (1.0 + f64::from(minutes - 1) / 120.0))
     } else {
         0.0
     };
+    let [offset, per_cent] = rules.scale.map(f64::from);
     let x = (curve * f64::from(0.1_f32)).trunc();
-    let scaled = f64::from(level) * (1.0 + x * f64::from(0.01_f32)) + 0.5;
+    let scaled = f64::from(level) * (1.0 + (per_cent + x) * f64::from(0.01_f32)) + offset + 0.5;
     whole_f64(scaled.max(1.0))
 }
 
@@ -3540,6 +3617,72 @@ mod tests {
     }
 
     #[test]
+    fn the_difficulty_takes_its_column_of_the_rows_and_scales_the_levels() {
+        let row = |name: &str, offset: u16| BalanceVariable {
+            name: name.to_owned(),
+            offset,
+            value: BalanceValue::F32(0.0),
+        };
+        let mut image = vec![0_u32; 40];
+        // `ProzAW` for silver to niobium, then bronze, as the original orders a row of six.
+        for (i, value) in [0.8_f32, 0.9, 1.0, 1.1, 0.0, 0.65].into_iter().enumerate() {
+            image[i] = value.to_bits();
+        }
+        let ints = |image: &mut Vec<u32>, at: usize, values: [i32; 6]| {
+            for (i, value) in values.into_iter().enumerate() {
+                image[at + i] = u32::from_ne_bytes(value.to_ne_bytes());
+            }
+        };
+        ints(&mut image, 6, [10, 20, 30, 40, 0, 0]);
+        ints(&mut image, 12, [25, 50, 75, 100, 0, 0]);
+        ints(&mut image, 18, [50, 120, 190, 0, 0, 0]);
+        ints(&mut image, 24, [0, 35, 70, 128, 0, 0]);
+        let balance = Balance {
+            variables: vec![
+                row("ProzAW", 0),
+                row("BaseOffLevel", 24),
+                row("OffLevelProz", 48),
+                row("LevelKap", 72),
+                row("OffLevel", 96),
+            ],
+            image,
+            ..Balance::default()
+        };
+        let bronze = Rules::at(Some(&balance), Difficulty::Bronze);
+        let gold = Rules::at(Some(&balance), Difficulty::Gold);
+        assert_eq!(bronze.difficulty[0], 0.65);
+        assert_eq!(gold.difficulty[0], 0.9);
+        // The cap of the experience by the difficulty itself, none above gold.
+        assert_eq!(bronze.level_cap, 50.0);
+        assert_eq!(gold.level_cap, 190.0);
+        assert_eq!(
+            Rules::at(Some(&balance), Difficulty::Platinum).level_cap,
+            0.0
+        );
+        // Gold makes a level 10 creature of `⌊10·1.5 + 20 + 0.5⌋` 35, and brings it back to 10.
+        assert_eq!(played_level(10, 0, &bronze), 10);
+        assert_eq!(played_level(10, 0, &gold), 35);
+        assert_eq!(gold.on_bronze(35), 10);
+        assert_eq!(gold.on_bronze(20), 1);
+        assert_eq!(bronze.on_bronze(35), 35);
+        // A sector's levels raised by gold's `OffLevel` and `LevelKap`, a bound of 0 kept.
+        let values = SpawnValues {
+            density: 50,
+            lowest: 2,
+            highest: 6,
+        };
+        assert_eq!(bronze.raised(&values), values);
+        let raised = gold.raised(&values);
+        assert_eq!((raised.lowest, raised.highest), (37, 126));
+        let none = SpawnValues {
+            lowest: 0,
+            highest: 0,
+            ..values
+        };
+        assert_eq!(gold.raised(&none), none);
+    }
+
+    #[test]
     fn the_bands_of_the_levels_are_the_balances_rows() {
         let row = |name: &str, offset: u16| BalanceVariable {
             name: name.to_owned(),
@@ -4228,7 +4371,7 @@ mod tests {
         }
         fn fill(values: &SpawnValues, hero: u32, minutes: u32, rolls: &[u32]) -> u32 {
             let mut dice = Rolls(rolls.to_vec());
-            let level = fill_level(values, hero, minutes, &mut dice);
+            let level = fill_level(values, hero, minutes, &Rules::default(), &mut dice);
             assert!(dice.0.is_empty(), "rolls left: {:?}", dice.0);
             level
         }

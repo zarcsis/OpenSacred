@@ -2554,7 +2554,12 @@ struct Arming {
 impl Npcs {
     /// Reads the records of the scripts that ran, `tree` (`scripts::run`), and the tables, and
     /// what of them the hero's template's items `worn` are ([`Self::hero_holds`]).
-    pub fn read(shared: &sectors::Shared, tree: &Tree, worn: &[u32]) -> Result<Self> {
+    pub fn read(
+        shared: &sectors::Shared,
+        tree: &Tree,
+        worn: &[u32],
+        difficulty: opensacred_rules::drops::Difficulty,
+    ) -> Result<Self> {
         let assets = &shared.assets;
         let tables = &shared.tables;
         let items: HashMap<u32, &Item> = tables.items()?.iter().map(|i| (i.slot, i)).collect();
@@ -2799,7 +2804,7 @@ impl Npcs {
             types,
             classes,
             factors: factors(balance),
-            fight: fight::Rules::of(balance),
+            fight: fight::Rules::at(balance, difficulty),
             items: fight::Templates::new(&modifiers, weapons),
             rules: rules(tree),
             pools,
@@ -3471,7 +3476,7 @@ pub fn place(
             };
             let count = spawning::count(fill, values, hero, factor, &mut rng);
             // One level for all the creatures of the run, before they are made (`0x47D187`, #582).
-            let shared = fight::fill_level(&values, hero, minutes, &mut rng);
+            let shared = fight::fill_level(&values, hero, minutes, &npcs.fight, &mut rng);
             let ground = spawning::Ground {
                 origin: (x0, y0),
                 dungeon: dungeons.sector(at),
@@ -7135,7 +7140,7 @@ mod tests {
         };
         assert!(!trader.changes());
         // A creature's health keeps its share as its most is made anew.
-        let rules = fight::Rules::of(None);
+        let rules = fight::Rules::default();
         let kept = health_kept(
             fight::Health {
                 current: 50,

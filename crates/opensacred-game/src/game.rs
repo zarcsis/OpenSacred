@@ -199,6 +199,26 @@ pub struct NewGame {
     /// The hero's name (by default the class's own, as the choice of the hero gives it)
     #[arg(long)]
     pub name: Option<String>,
+    /// The difficulty: bronze (by default), silver, gold, platinum or niobium
+    #[arg(long, value_parser = parse_difficulty)]
+    pub difficulty: Option<opensacred_rules::drops::Difficulty>,
+}
+
+/// The game's difficulty (`0x182EE44`, docs/re/fight.md, "The difficulty"), which its rules take
+/// (#1086): bronze unless the game started on another.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Difficulty(pub opensacred_rules::drops::Difficulty);
+
+/// The names of the difficulties on the command line, bronze's first.
+pub const DIFFICULTIES: [&str; 5] = ["bronze", "silver", "gold", "platinum", "niobium"];
+
+/// A difficulty by its name.
+fn parse_difficulty(text: &str) -> Result<opensacred_rules::drops::Difficulty, String> {
+    DIFFICULTIES
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case(text.trim()))
+        .map(|index| opensacred_rules::drops::Difficulty::ALL[index])
+        .ok_or_else(|| format!("{text}: not one of {}", DIFFICULTIES.join(", ")))
 }
 
 impl NewGame {
@@ -291,6 +311,7 @@ struct Loaded {
     hero_light: daynight::HeroLight,
     daemon: ai::Daemon,
     texts: lines::Texts,
+    difficulty: Difficulty,
     rules: fight::Rules,
     arts: arts::HeroArts,
     forms: Option<forms::Forms>,
@@ -415,7 +436,8 @@ fn load(
         .map(|worn| worn.item)
         .chain(seraphim.then_some(opensacred_rules::arts::BFG_ITEM))
         .collect();
-    let npcs = npcs::Npcs::read(shared, &scripts, &items)?;
+    let difficulty = game.difficulty.unwrap_or_default();
+    let npcs = npcs::Npcs::read(shared, &scripts, &items, difficulty)?;
     let holding = fight::Holding(npcs.hero_holds(&worn));
     let (held_class, held) = npcs.hero_gear(&worn);
     bevy::log::debug!("game: the hero holds {held:?}, of the class {held_class}");
@@ -452,7 +474,7 @@ fn load(
     // The balance's values of the fight, and the hero's own by its type's record and its
     // template's items (#486).
     let balance = tables.balance().ok();
-    let rules = fight::Rules::of(balance);
+    let rules = fight::Rules::at(balance, difficulty);
     let record = record(tables, game.creature.unwrap_or(class.creature()))?;
     // The Vampiress's other form, her night's (#758).
     let forms = (class == Class::Vampiress && game.hero.is_none())
@@ -631,6 +653,7 @@ fn load(
         },
         daemon: ai::Daemon(class == Class::Daemon),
         texts: lines::Texts::read(assets),
+        difficulty: Difficulty(difficulty),
         rules,
         arts,
         forms,
@@ -819,6 +842,7 @@ fn finish(
     commands.insert_resource(loaded.hero_light);
     commands.insert_resource(loaded.daemon);
     commands.insert_resource(loaded.texts);
+    commands.insert_resource(loaded.difficulty);
     commands.insert_resource(loaded.rules);
     commands.insert_resource(loaded.arts);
     match loaded.forms {

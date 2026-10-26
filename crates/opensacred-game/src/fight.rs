@@ -56,9 +56,10 @@ pub struct Experience(pub opensacred_rules::fight::Experience);
 pub struct Rules(pub opensacred_rules::fight::Rules);
 
 impl Rules {
-    /// The rules of the balance `balance`, the original's values where it lacks them.
-    pub fn of(balance: Option<&Balance>) -> Self {
-        Self(opensacred_rules::fight::Rules::of(balance))
+    /// The rules of the balance `balance` on `difficulty` (#1086), the original's values where it
+    /// lacks them.
+    pub fn at(balance: Option<&Balance>, difficulty: opensacred_rules::drops::Difficulty) -> Self {
+        Self(opensacred_rules::fight::Rules::at(balance, difficulty))
     }
 }
 

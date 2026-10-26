@@ -136,9 +136,29 @@ impl Difficulty {
         gold / share
     }
 
+    /// The difficulties, bronze first.
+    pub const ALL: [Self; 5] = [
+        Self::Bronze,
+        Self::Silver,
+        Self::Gold,
+        Self::Platinum,
+        Self::Niobium,
+    ];
+
+    /// Its number, the int `0x182EE44`: 0 for bronze to 4 for niobium.
+    pub fn index(self) -> usize {
+        match self {
+            Self::Bronze => 0,
+            Self::Silver => 1,
+            Self::Gold => 2,
+            Self::Platinum => 3,
+            Self::Niobium => 4,
+        }
+    }
+
     /// Its column of the balance's rows of six (`0x94E7C8`): bronze the sixth, silver the first,
     /// gold the second and so on.
-    fn column(self) -> usize {
+    pub fn column(self) -> usize {
         match self {
             Self::Bronze => 5,
             Self::Silver => 0,

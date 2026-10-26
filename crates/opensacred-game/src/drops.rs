@@ -188,7 +188,7 @@ fn treasure(
 }
 
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
-/// the time played and its greed's `s`, on bronze.
+/// the time played and its greed's `s`, on the game's difficulty.
 fn death(
     entity: Entity,
     mind: &ai::Mind,
@@ -196,7 +196,7 @@ fn death(
     rank: fight::Rank,
     worth: &fight::Worth,
     hero: Hero,
-    (played, treasure): (f32, u32),
+    (played, treasure, difficulty): (f32, u32, drops::Difficulty),
 ) -> Death {
     Death {
         dead: Dead {
@@ -213,7 +213,7 @@ fn death(
             treasure,
             ..Kill::default()
         },
-        difficulty: drops::Difficulty::Bronze,
+        difficulty,
     }
 }
 
@@ -286,7 +286,7 @@ fn dies(
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
     mut last: ResMut<LastJewel>,
-    played: Res<Played>,
+    (played, difficulty): (Res<Played>, Option<Res<crate::game::Difficulty>>),
     experience: Res<fight::Experience>,
     assets: Res<AssetServer>,
     creatures: Query<(
@@ -342,7 +342,11 @@ fn dies(
         rank.0,
         worth,
         hero,
-        (played.0, treasure),
+        (
+            played.0,
+            treasure,
+            difficulty.map_or_else(Default::default, |difficulty| difficulty.0),
+        ),
     );
     // The scripts' drops of its type (`SetDrop`, #930).
     let scripted: Vec<(u32, u32)> = scripted
@@ -550,7 +554,7 @@ fn make_nearest(
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
     mut last: ResMut<LastJewel>,
-    played: Res<Played>,
+    (played, difficulty): (Res<Played>, Option<Res<crate::game::Difficulty>>),
     experience: Res<fight::Experience>,
     assets: Res<AssetServer>,
     creatures: Query<
@@ -582,7 +586,16 @@ fn make_nearest(
         return Ok(format!("creature {} drops nothing: {why}", mind.creature));
     }
     let hero = hero.ok_or("the hero is dead")?;
-    let death = death(entity, mind, health, rank.0, worth, hero, (played.0, 0));
+    let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
+    let death = death(
+        entity,
+        mind,
+        health,
+        rank.0,
+        worth,
+        hero,
+        (played.0, 0, difficulty),
+    );
     let mut made = Vec::new();
     for _ in 0..times.0 {
         made.extend(drops::drops(

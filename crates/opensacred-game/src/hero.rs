@@ -1083,7 +1083,7 @@ pub struct Fallen(f32);
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
 /// its dying clips once and lies there; after five seconds it rises at the game's start with its
 /// health full (docs/decisions/2026-10-20-hero-health.md), paying a share of its gold by the
-/// difficulty, bronze's (`0x53E4A8`, #976), at its home where the scripts gave it one, on its
+/// difficulty, the game's (`0x53E4A8`, #976, #1086), at its home where the scripts gave it one, on its
 /// floor (`sdk_ENGINE_TP` at `0x5413ED`, #974), else at the game's start.
 #[expect(
     clippy::type_complexity,
@@ -1094,10 +1094,11 @@ pub fn fall(
     time: Res<Time>,
     hero: Res<Hero>,
     clips: Option<Res<Clips>>,
-    (speed, mut pack, home): (
+    (speed, mut pack, home, difficulty): (
         Res<GameSpeed>,
         Option<ResMut<crate::pickup::Pack>>,
         Option<Res<crate::scripts::HeroHome>>,
+        Option<Res<crate::game::Difficulty>>,
     ),
     mut bodies: Query<(
         Entity,
@@ -1161,7 +1162,8 @@ pub fn fall(
             health.current = health.most;
         }
         if let Some(pack) = pack.as_deref_mut() {
-            let toll = opensacred_rules::drops::Difficulty::Bronze.death_toll(pack.gold);
+            let difficulty = difficulty.as_deref().copied().unwrap_or_default();
+            let toll = difficulty.0.death_toll(pack.gold);
             pack.gold -= toll;
             if toll > 0 {
                 info!("hero: the hero pays {toll} gold as it rises");
