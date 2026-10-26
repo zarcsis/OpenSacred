@@ -230,7 +230,7 @@ In the campaign's trees (`NetScriptCamp`, the heroes' `type_npc_*`; the listings
 
 - the start script sets both to 0, so the game starts with no override but the regions';
 - quest functions set bits of `RegionChange` (`SetVarBit`), a region's siege each: the quest 50's the bits 7, 8, 13 and 15, the quest 55's 3 and 5, 57's 2 and 4, 58's 1 and 6, 61's 9–12, 16 and 17, 67's 18, 71's 14;
-- `GoodToBad`, called by the quest 45, sets bit 1 of `Globalchange1` and changes the creatures of 13 places (the scripts' commands `RegionChange` and `ReplaceSpawn`, of a number, 4–8, 10, 11, 20–24 or 31, whether an area or a region not read, and pairs of creature or item types: the soldiers of one type become another's); `BadToGood`, called by the quest 72, changes them back, clears the bit and sets `RegionChange` to 0.
+- `GoodToBad`, called by the quest 45, sets bit 1 of `Globalchange1` and changes the creatures of 13 places (the scripts' commands `RegionChange` and `ReplaceSpawn`, of an area, 4–8, 10, 11, 20–24 or 31, docs/re/netscript.md, "`ReplaceSpawn` and `RegionChange`", and pairs of creature or item types: the soldiers of one type become another's); `BadToGood`, called by the quest 72, changes them back, clears the bit and sets `RegionChange` to 0.
 
 The variables `atmos_rg<N>` (above, the atmosphere) are others.
 So the sieges' and the world changes' music follows the campaign's quests, which the game has not (M4).

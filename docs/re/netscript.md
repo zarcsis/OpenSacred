@@ -452,6 +452,36 @@ The engine keeps a system of dynamic quests, offered by givers that it picks at 
 
 Not read: the headers' `+8` (**hypothesis**: a level) and the bytes `+6` and `+7` of a template's header; what becomes of the givers not picked (`0x46F240`); `0x45FC60`; whether `0x45A370` is reached through a pointer that Ghidra did not mark.
 
+## `ReplaceSpawn` and `RegionChange`: the world's changes
+
+Read 2026-10-26 (#55) by the static reading of `Sacred.exe` (a subagent of the session) and on the Seraphim's tree; **confirmed** by code unless marked otherwise, none of it seen in the running original yet.
+In both records `0x69`'s number is an area (a sector's `+0xD7`, keyx `+0x2C0`), not a region.
+
+### `ReplaceSpawn`: the fills of an area
+
+- `ReplaceSpawn` (96, the walker's case `0x475BA4`, `0x4A79D0`) appends an entry of `0x3C` bytes to a vector of the interpreter (`+0x394`): a sector by `0x04` (`+0`, `+2`), `0x69`'s area (`+4`, a string read as a number), up to four `0x02` types replaced (`+8`), up to four `0x19` replacements (a type, a weight and a hostile flag, `+0x18`, `+0x28`, `+0x30`), the flags word of the same tags as `RegionChange`'s, `0x46` giving `0x4000` (`+0x34`), and the side, 1 with `0x08`, else 0 (`+0x38`).
+  A record of exactly two `0x02`s and no `0x19` is a pair, the first type replaced by the second, keeping the line's weight and hostile flag; any other record without a `0x19` stores nothing (`0x4A7BC8`).
+- Before it appends, it overwrites every entry of the same sector or area with the same types, and then appends all the same, so that a function run twice leaves its entries twice.
+  It changes no creature that exists.
+- Its one reader is the fill (`FillRegion` 35 and `FillSector` 51, `0x47C610`), and only while an `Enter` runs (the interpreter's byte `+0x12`, `0x47CF39`): an entry applies where its sector is the fill's or its area the fill's sector's, in the entries' order, each of the fill's `0x19` lines of a listed type taking the entry's type, its weight and hostile flag where the entry gives them, and the run its side and flags word (docs/re/spawning.md); a later entry can swap back what an earlier one swapped.
+
+### `RegionChange`: the creatures of an area, and its later ones
+
+- `RegionChange` (116, `0x4ABB60`) changes the existing creatures of its area ("The NPCs that later events remove" below), and its applier (`0x4ABFE0`, the areas 0 to 49) also keeps its pairs in a table of 50 lists of `0xAC` bytes (`+0x1048`), the flags word in each new type's high half.
+  Within one function a later record of an area replaces the earlier one's list; one that follows a `call` (the runner sets the running function's index −1 as any function ends, `0x46BDAD`, `0x46BF20`) adds its pairs to it, with no bound on the list's 20 slots.
+- Its one reader is `CreateNPC` (`0x482F41`), for a record that makes no trader and has no `0x6B` other than 0: a creature of a type that the list of its cell's area holds takes the first pair's new type, and the pair's flags word where it is not 0; it keeps the record's side.
+- Neither reader reads the other's list; both are saved with the game (`0x465690`), and only the interpreter's reset empties them (`0x461040`): no record removes an entry, and `BadToGood`'s `RegionChange` variable set to 0 is the music's (docs/re/sound.md), not this table.
+
+### In the Seraphim's tree
+
+- 351 `ReplaceSpawn`s in 15 functions, 327 of them pairs; 24 of one type store nothing (`GoodToBad`'s five of area 6, `belohnung2411`'s and `belohnung2412`'s seven each, `untote_goodie_wueste`'s five), none carries `0x04` or `0x19`, and two have no tag (`Dialog:DlgHologram50`'s and `ElementAbfrage`'s), which make their runs peaceful with the flags word 0 (**hypothesis**: slips of the scripts, their siblings carrying `0x08` and `0x46`).
+- 34 `RegionChange`s in 7 functions: `GoodToBad` 14 over 13 areas (4 to 8, 10, 11, 20 to 24, 31), `BadToGood` 13 over the same, `Init55` 3 in area 3, `Init45`, `WillbursTot45`, `feuerrune61` (whose pairs keep each type and only make the creatures hostile) and `untote_goodie_wueste`.
+- `GoodToBad` (from `WillbursTot45`, quest 45) turns the soldiers 279, 286, 288, 295 and 297 of its 13 areas into the hostile 276, 277, 278, 287 and 296, and their later `CreateNPC`s too, and swaps the same types in the fills of the areas 2, 4, 5, 7, 11 and 24; `BadToGood` (quest 72) turns them back and reverses the lists and the fills of the areas 4 to 7, 11 and 24, so that the area 2's fills stay swapped and the area 6's hostile soldiers turn good though `GoodToBad` never swapped them there (the original's behaviour).
+- `Init58` (quest 58) makes the fills of the areas 1 and 10 the hostile undead (the skeleton warrior 32 and the types 33, 34, 44, 48, 64, 66, 80 and 81, in place of 23 types) in the guards' mode, for good.
+- `opensacred-game` follows none of it yet (#55).
+
+Not read: what `0x182EBEC` is, by which `ReplaceSpawn` posts its entry over the network (`0x1CF`); whether a fill's bare `0x02` lines are replaced; whether `RegionChange` reaches the creatures kept for the sectors beyond the 3 × 3 about the hero (`+0x5A0`, **hypothesis**: they come back unchanged).
+
 ## The community's quest defects
 
 Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.
@@ -668,7 +698,7 @@ Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engi
 Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code and on the scripts unless marked otherwise.
 
 - `CreateNPC` (`0x482510`) fails and logs where the record has no creature or no cell (`0x485A35`); for a name of its `0x01` that the map of names holds (`0x464BD0`, at `0x4830E4`) it makes nothing new, logs the name as given twice and teleports that creature to the record's cell, making a new one only where that creature is gone or has `+0x14` bits `0x30`.
-  Into a sector not loaded (its `+0x30` bit 16 clear) it makes the creature with no place (`sdk_OBJ_CREATE_NPOS`) and then places it (`0x5FEE50`); during an `Enter` an unnamed creature that is not hostile is made only where the byte `0x182EE78` is set (`0x482DF0`); a new creature's type is replaced through a list per area at `+0x1050` (0xAC bytes each, `0x482F41`; **hypothesis**: filled by `ReplaceSpawn` or `RegionChange`); and the creature 86 at (3275, 4108) on layer 2 loses the hostility of its `0x08` (just after `0x482DA2`).
+  Into a sector not loaded (its `+0x30` bit 16 clear) it makes the creature with no place (`sdk_OBJ_CREATE_NPOS`) and then places it (`0x5FEE50`); during an `Enter` an unnamed creature that is not hostile is made only where the byte `0x182EE78` is set (`0x482DF0`); a new creature's type is replaced through a list per area at `+0x1050` (0xAC bytes each, `0x482F41`; the lists that `RegionChange` keeps, "`ReplaceSpawn` and `RegionChange`" above); and the creature 86 at (3275, 4108) on layer 2 loses the hostility of its `0x08` (just after `0x482DA2`).
 - `CreateObj` handles a name already held the other way round: it logs a warning, destroys the older object (`0x4860E7`) and makes the new one.
 - `RndVar` (105, `0x49D450`) sets its variable to `rand() % (high − low + 1) + low`; `DefPos` (23, `0x478780`) keeps the name and up to four numbers, the first two x and y, a name defined again replacing its entry; `SetBaseTrigger` (4, `0x4819A0`) orders the two corners itself, takes the layer from the third number of `0x0C` (0 to 16, else 0), and makes a box of one cell without `0x0D`.
 - `GroupIsDead` (24, `0x48C860`) answers dead for a group it does not find, skips members gone or out of the group, and answers alive at the first living member wherever it stands, keeping the nearest within 25,000 at `+0x7704` (its use not read).
