@@ -25,7 +25,8 @@
 //! which the deaths' drops take ([`ScriptDrops`], `drops`). `SetObjState` bars, unbars, opens
 //! and closes the trigger of the object it names ([`ObjStates`], which `npcs` carries out), the
 //! state kept by the trigger while the object is gone (#952,
-//! docs/decisions/2026-10-25-stale-object-names.md).
+//! docs/decisions/2026-10-25-stale-object-names.md). `SetHP` sets a creature's health to a share
+//! of its most ([`Healths`], #1001).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -98,18 +99,32 @@ pub struct ObjState {
 #[derive(Resource, Default)]
 pub struct ObjStates(pub Vec<ObjState>);
 
+/// A `SetHP` (52, `0x48E280`): the creature named `name` (its ASCII lower-cased), the hero for
+/// none or `hero`, takes `share` per cent (0 to 100) of its most health, truncated.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetHealth {
+    pub name: Option<String>,
+    pub share: u32,
+}
+
+/// The `SetHP`s that the scripts ran, in order, which `npcs` carries out on the creatures.
+#[derive(Resource, Default)]
+pub struct Healths(pub Vec<SetHealth>);
+
 /// What a run of the scripts did to the world beyond their state: the hero's teleports and the
 /// objects' states, in order.
 #[derive(Debug, Default, PartialEq)]
 pub struct Effects {
     pub teleports: Vec<Teleport>,
     pub states: Vec<ObjState>,
+    pub healths: Vec<SetHealth>,
 }
 
 impl Effects {
     fn extend(&mut self, other: Effects) {
         self.teleports.extend(other.teleports);
         self.states.extend(other.states);
+        self.healths.extend(other.healths);
     }
 }
 
@@ -322,6 +337,7 @@ impl Live {
         let effects = Effects {
             teleports: recorder.teleports,
             states: recorder.states,
+            healths: recorder.healths,
         };
         (effects, outcome)
     }
@@ -451,6 +467,7 @@ struct Recorder<'a> {
     records: Vec<Record>,
     teleports: Vec<Teleport>,
     states: Vec<ObjState>,
+    healths: Vec<SetHealth>,
 }
 
 impl<'a> Recorder<'a> {
@@ -467,6 +484,7 @@ impl<'a> Recorder<'a> {
             records: Vec::new(),
             teleports: Vec::new(),
             states: Vec::new(),
+            healths: Vec::new(),
         }
     }
 }
@@ -653,6 +671,21 @@ impl Host for Recorder<'_> {
                         name: name.to_ascii_lowercase(),
                         barred,
                         open,
+                    });
+                }
+                Handled::Done
+            }
+            "set_hp" => {
+                // Its last name and number, the number held to 0..100 (`0x48E280`).
+                let name = tags
+                    .texts("_01")
+                    .last()
+                    .filter(|name| !name.eq_ignore_ascii_case("hero"))
+                    .map(|name| name.to_ascii_lowercase());
+                if let Some(&share) = tags.numbers("_0B").last() {
+                    self.healths.push(SetHealth {
+                        name,
+                        share: u32::try_from(share.clamp(0, 100)).unwrap_or(0),
                     });
                 }
                 Handled::Done
@@ -878,7 +911,7 @@ fn step_on(
     live: Option<NonSendMut<Live>>,
     heights: Option<Res<Heights>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    mut states: ResMut<ObjStates>,
+    (mut states, mut healths): (ResMut<ObjStates>, ResMut<Healths>),
 ) {
     let (Some(mut live), Some(heights)) = (live, heights) else {
         return;
@@ -897,6 +930,7 @@ fn step_on(
     let effects = live.step_on(cell, layer);
     put(&mut live, &effects.teleports, &mut transform, &mut body);
     states.0.extend(effects.states);
+    healths.0.extend(effects.healths);
 }
 
 /// Counts the clock's minutes on the timers, which run their functions as they are due, and
@@ -905,7 +939,7 @@ fn timers(
     live: Option<NonSendMut<Live>>,
     clock: Option<Res<Clock>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    mut states: ResMut<ObjStates>,
+    (mut states, mut healths): (ResMut<ObjStates>, ResMut<Healths>),
 ) {
     let (Some(mut live), Some(clock)) = (live, clock) else {
         return;
@@ -915,6 +949,7 @@ fn timers(
         put(&mut live, &effects.teleports, &mut transform, &mut body);
     }
     states.0.extend(effects.states);
+    healths.0.extend(effects.healths);
 }
 
 /// Runs the function `function` of the hero's tree as the scripts run one (`Live::run`, the
@@ -966,7 +1001,15 @@ fn carry_out(
     world: &mut World,
     run: impl FnOnce(&mut Live) -> Result<(Effects, String), String>,
 ) -> Result<Vec<String>, String> {
-    let (Effects { teleports, states }, first, timers) = {
+    let (
+        Effects {
+            teleports,
+            states,
+            healths,
+        },
+        first,
+        timers,
+    ) = {
         let mut live = world
             .get_non_send_mut::<Live>()
             .ok_or("the scripts do not run")?;
@@ -985,6 +1028,7 @@ fn carry_out(
         (effects, first, timers)
     };
     world.resource_mut::<ObjStates>().0.extend(states);
+    world.resource_mut::<Healths>().0.extend(healths);
     let mut lines = vec![first];
     if let Some(&Teleport {
         cell: (x, y),
@@ -1031,6 +1075,7 @@ pub struct ScriptsPlugin;
 impl Plugin for ScriptsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ObjStates>()
+            .init_resource::<Healths>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -1207,6 +1252,33 @@ mod tests {
             .collect();
         assert_eq!(named, ["a", "b", "d", "g"]);
         assert_eq!(runtime.unknown(), ["test"]);
+    }
+
+    #[test]
+    fn a_set_hp_names_its_creature_or_the_hero() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"tot1202\"] = function()\n\
+             set_hp { _01 = \"Res:17163\", _0B = 0 }\n\
+             set_hp { _01 = \"HERO\", _0B = 150 }\n\
+             set_hp { _0B = 25 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let set = |name: Option<&str>, share| SetHealth {
+            name: name.map(str::to_owned),
+            share,
+        };
+        assert_eq!(
+            live.run("tot1202", 0).healths,
+            [set(Some("res:17163"), 0), set(None, 100), set(None, 25)]
+        );
     }
 
     #[test]
