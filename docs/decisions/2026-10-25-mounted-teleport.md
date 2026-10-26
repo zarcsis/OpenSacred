@@ -12,6 +12,7 @@ Quest 5003's altar deletes its trigger and then teleports the hero into the dung
 ## Ours
 
 The runtime's `Teleport` of a hero who rides dismounts the hero first, leaving the horse where it stands, and then places the hero as for one on foot.
+The game's hero does not ride yet: since #1002 the runtime's `Teleport` places the hero itself, and the dismount comes with the riding.
 
 ## Why
 

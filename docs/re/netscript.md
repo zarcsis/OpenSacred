@@ -209,6 +209,28 @@ Read off the client with Ghidra 2026-10-25 (#943, #951) by a subagent of the ses
 
 Not read: `DecVar` (76, `0x49CEC0`); whether destroying a creature runs its death function; when the map of groups is emptied, and whether a save keeps it.
 
+## Base triggers
+
+Read off the client with Ghidra and capstone 2026-10-25 (#1002), **confirmed** by code unless marked otherwise.
+
+- `SetBaseTrigger` (4, `0x4819A0`) takes the trigger's name (`01`), a corner (`0C`, or `04` in 6 records: a cell or a `DefPos` name, its third number the layer, held to 0..16) and the other corner (`0D`), a box of one cell without it; the corners are ordered.
+  `0x63C970` splits the box at the sectors' edges and appends each part to its sector's list (`+0x204`, entries of 0x4C bytes: `x0`, `y0`, the layer, `x1` and `y1` as `u16`, the name from `+0xC`; `0x622E80`).
+- `DelBaseTrigger` (5, `0x4817F0`) with the name alone takes that name's boxes out of every sector, and with corners out of the sector of the lower corner and its eight neighbours (`0x63CB10`); each box goes as the sector's last box is moved into its place, the names compared without regard to case (`0x622FA0`).
+- The trigger of a cell (`0x6230C0`) is the first box of the cell's sector that holds it on its layer, the layers 0 and 1 counted as 0.
+- Type 39 (`0x4918B0`), which has no keyword, names a trigger (`01`) and the index of a function (`0B`), which it adds to the cache of the triggers' functions (`0xAB44AC`, `0x4636C0`), sent to the clients in a game of the network.
+  The start script of every tree holds them, 656 in the Seraphim's; in each of the 20 trees each name they give has the one function `OMO<quest><name>` (the compiler's `OMO%d%s`, `0x45C192`), whatever the case, two of them where the function's name is written twice (`rg24g3_start` of the Seraphim's).
+- As a creature's cell changes in its update (`0x5941A0`, at `0x597E2C`) and it is the local player's hero, or a horse whose rider it is, the trigger of its new cell and layer runs: each function of the cache's entry of its name in order, the quests' hook `0x471790` called with the event 5 first for a function of a quest, then the function by the runner `0x46BA90`, which runs a function of a quest only while the quest is set up; a name without an entry runs `OMO-1<name>`, and without that a function `OMO`, which no tree defines.
+  Seen in the original 2026-10-26 with #448's driver: a walk of the Seraphim's over 3086, 3085 and 3084 of the row 2549 looked each cell up (`0x6230C0`), and on 3084,2549 `OMO-1tpreinR16_MH_1` ran and teleported her to (3619, 5076); the driver's `cell` onto 3047,2892 and 3084,2549, triggers' cells, looked nothing up, so a teleport runs no trigger.
+- `Teleport` (46, `0x491D40`) takes the creature (`01`; `hero`, or none, the local player's hero), a heading (`03`), and a cell (`04`, `0C` or `0D`: a cell or a `DefPos` name, its third number the layer) or a world point (`20`).
+  `sdk_ENGINE_TP` (`0x54D9D0`) puts it there; where that fails, it tries 15 cells at random within 3 cells on the layer, then 25 within 6 on the layer and the two above it; then it sets the creature's flag `0x40000000` and turns it to the heading.
+  A mounted hero's branch is in "Order traps" below.
+- The hero's step onto a cell of a trigger that has functions ends its motion right after a teleport (`0x593CE0`, with the flag `0x40000000`).
+
+Not read: the quests' hook of the event 5, and what the hero's list at `+0x39C` holds there.
+
+`opensacred-game` runs them since #1002 (`scripts`): the scripts' state keeps the places of `DefPos` and the boxes, the runtime lives on through the play, and as the hero's cell changes on its way (not by a teleport) the trigger of its cell runs its functions, found by their names; their `Teleport`s of the hero put it on the cell and layer they name, and their other records of the world are not followed yet (docs/decisions/2026-10-26-script-teleports.md).
+In the Seraphim's tree the hero so goes into the caves and the dungeons by their entrances and out by their exits: into 2.3 by 3047,2892 to 4086,83 and out by 4083,83 to 3042,2892.
+
 ## The community's quest defects
 
 Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.

@@ -1,8 +1,10 @@
 //! The scripts' state (#724, part of #720; docs/re/netscript.md, "Quests" and "`SetNPCState`"),
 //! apart from Luau and from the engine: the quests' flags and the transitions of `SetUpQuest`,
 //! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, the
-//! dialogues' table that the start script's records of type 40 fill, and the regions that have
-//! run their `Region<n>Init`, each of a sector's area ([`region`]). A transition names the
+//! dialogues' table that the start script's records of type 40 fill, the regions that have run
+//! their `Region<n>Init`, each of a sector's area ([`region`]), the places that `DefPos` names
+//! and the base triggers' boxes, which run their functions as the hero steps on them (#1002). A
+//! transition names the
 //! section functions it runs for its caller, the scripts' runtime, to run, and takes each one's
 //! answer, whether its body ran to its end (`0x46BA90`); all of it serializes, for the saves.
 
@@ -308,6 +310,133 @@ impl Regions {
     }
 }
 
+/// The places that the scripts name (`DefPos`, 23, `0x478780`): a name and up to four numbers,
+/// the first two a global cell, the third the layer where a record takes the place as a cell
+/// (`SetBaseTrigger`, `Teleport`); a name defined again replaces its entry. The names are kept
+/// lower-cased, as `opensacred-game` looks them up.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Positions(BTreeMap<String, Vec<i32>>);
+
+impl Positions {
+    /// `DefPos`: the place `name` at the first four of `numbers`.
+    pub fn define(&mut self, name: &str, numbers: &[i32]) {
+        let numbers = numbers.iter().take(4).copied().collect();
+        self.0.insert(name.to_lowercase(), numbers);
+    }
+
+    /// The numbers of the place `name`, whatever its case.
+    pub fn get(&self, name: &str) -> Option<&[i32]> {
+        self.0.get(&name.to_lowercase()).map(Vec::as_slice)
+    }
+}
+
+/// The cells of a sector's side, by which the client splits a base trigger's box (`>> 6`).
+const SIDE: i32 = 64;
+
+/// A part of a base trigger's box within one sector (`0x622E80`: an entry of 0x4C bytes of the
+/// sector's list at `+0x204`): its name, its layer, and its corners, the lower first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TriggerBox {
+    pub name: String,
+    pub layer: u8,
+    pub from: (i32, i32),
+    pub to: (i32, i32),
+}
+
+/// The layer as a base trigger's lookup takes it: the layers 0 and 1, the ground and a
+/// building's ground floor, alike (`0x6230C0`).
+fn trigger_layer(layer: u8) -> u8 {
+    if layer < 2 { 0 } else { layer }
+}
+
+/// The base triggers (`SetBaseTrigger`, 4, `0x4819A0`), each sector's parts of their boxes in the
+/// order they were set (`0x63C970`, `0x622E80`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Triggers(BTreeMap<(i32, i32), Vec<TriggerBox>>);
+
+impl Triggers {
+    /// `SetBaseTrigger`: the trigger `name` on the box from the corner `first`, a global cell and
+    /// a layer, to the cell `second`, one cell where it is missing; the corners ordered, the
+    /// layer held to 0..16, and the box split at the sectors' edges, each sector's part appended
+    /// to its list.
+    pub fn set(&mut self, name: &str, first: (i32, i32, i32), second: Option<(i32, i32)>) {
+        let (x0, y0, layer) = first;
+        let (x1, y1) = second.unwrap_or((x0, y0));
+        let layer = u8::try_from(layer).ok().filter(|&l| l <= 16).unwrap_or(0);
+        let (left, right) = (x0.min(x1), x0.max(x1));
+        let (top, bottom) = (y0.min(y1), y0.max(y1));
+        for sx in left.div_euclid(SIDE)..=right.div_euclid(SIDE) {
+            for sy in top.div_euclid(SIDE)..=bottom.div_euclid(SIDE) {
+                let from = (left.max(sx * SIDE), top.max(sy * SIDE));
+                let to = (
+                    right.min(sx * SIDE + SIDE - 1),
+                    bottom.min(sy * SIDE + SIDE - 1),
+                );
+                self.0.entry((sx, sy)).or_default().push(TriggerBox {
+                    name: name.to_owned(),
+                    layer,
+                    from,
+                    to,
+                });
+            }
+        }
+    }
+
+    /// `DelBaseTrigger` (5, `0x4817F0`, `0x63CB10`): the boxes of the trigger `name`, whatever its
+    /// case, taken out of every sector, or with a corner `about` (the lower of its record's two)
+    /// out of that corner's sector and its eight neighbours; each taken out as the client takes
+    /// it, the sector's last box moved into its place (`0x622FA0`).
+    pub fn delete(&mut self, name: &str, about: Option<(i32, i32)>) {
+        let sectors: Vec<(i32, i32)> = match about {
+            None => self.0.keys().copied().collect(),
+            Some((x, y)) => {
+                let (sx, sy) = (x.div_euclid(SIDE), y.div_euclid(SIDE));
+                (sx - 1..=sx + 1)
+                    .flat_map(|x| (sy - 1..=sy + 1).map(move |y| (x, y)))
+                    .collect()
+            }
+        };
+        for sector in sectors {
+            if let Some(boxes) = self.0.get_mut(&sector) {
+                while let Some(at) = boxes.iter().position(|b| b.name.eq_ignore_ascii_case(name)) {
+                    boxes.swap_remove(at);
+                }
+            }
+        }
+    }
+
+    /// The trigger of the global cell `cell` on the layer `layer`: the first of its sector's
+    /// boxes that holds it on its layer, the layers 0 and 1 alike (`0x6230C0`).
+    pub fn at(&self, (x, y): (i32, i32), layer: u8) -> Option<&str> {
+        let layer = trigger_layer(layer);
+        self.0
+            .get(&(x.div_euclid(SIDE), y.div_euclid(SIDE)))?
+            .iter()
+            .find(|b| {
+                trigger_layer(b.layer) == layer
+                    && (b.from.0..=b.to.0).contains(&x)
+                    && (b.from.1..=b.to.1).contains(&y)
+            })
+            .map(|b| b.name.as_str())
+    }
+}
+
+/// The quest and the trigger of a base trigger's function (`OMO<quest><name>`, the compiler's
+/// `OMO%d%s` at `0x45C192`): the quest −1 for none.
+pub fn trigger_function(name: &str) -> Option<(i32, &str)> {
+    let rest = name.strip_prefix("OMO")?;
+    let digits = rest.strip_prefix('-').unwrap_or(rest);
+    let end = digits
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(digits.len());
+    if end == 0 {
+        return None;
+    }
+    let split = rest.len() - digits.len() + end;
+    let quest = rest[..split].parse().ok()?;
+    Some((quest, &rest[split..]))
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -315,6 +444,8 @@ pub struct Scripts {
     pub variables: Variables,
     pub dialogues: Dialogues,
     pub regions: Regions,
+    pub positions: Positions,
+    pub triggers: Triggers,
 }
 
 #[cfg(test)]
@@ -446,6 +577,82 @@ mod tests {
     }
 
     #[test]
+    fn a_base_trigger_holds_its_box_split_at_the_sectors_edges() {
+        let mut triggers = Triggers::default();
+        // Quest 201's line of cells by the wolves, and a box across four sectors.
+        triggers.set("Wolfattack", (3205, 2902, 0), Some((3205, 2916)));
+        triggers.set("wide", (130, 130, 3), Some((126, 126)));
+        assert_eq!(triggers.at((3205, 2910), 0), Some("Wolfattack"));
+        // The ground's floor 1 is the ground's to a trigger, floor 2 another layer.
+        assert_eq!(triggers.at((3205, 2910), 1), Some("Wolfattack"));
+        assert_eq!(triggers.at((3205, 2910), 2), None);
+        assert_eq!(triggers.at((3206, 2910), 0), None);
+        for cell in [(126, 126), (127, 128), (128, 127), (130, 130)] {
+            assert_eq!(triggers.at(cell, 3), Some("wide"), "{cell:?}");
+        }
+        assert_eq!(triggers.0.len(), 5);
+        // One cell without a second corner; a layer past 16 is the ground's.
+        triggers.set("one", (10, 20, 40), None);
+        assert_eq!(triggers.at((10, 20), 0), Some("one"));
+        assert_eq!(triggers.at((10, 21), 0), None);
+    }
+
+    #[test]
+    fn a_base_trigger_removed_by_name_goes_from_every_sector_or_about_a_corner() {
+        let mut triggers = Triggers::default();
+        triggers.set("a", (10, 10, 0), Some((12, 12)));
+        triggers.set("b", (11, 11, 0), None);
+        triggers.set("A", (200, 200, 0), None);
+        triggers.set("c", (10, 10, 0), None);
+        // The first set holds the cell.
+        assert_eq!(triggers.at((11, 11), 0), Some("a"));
+        // About a far corner, the near boxes stay.
+        triggers.delete("a", Some((1000, 1000)));
+        assert_eq!(triggers.at((11, 11), 0), Some("a"));
+        triggers.delete("a", Some((70, 70)));
+        assert_eq!(triggers.at((11, 11), 0), Some("b"));
+        assert_eq!(triggers.at((200, 200), 0), Some("A"));
+        // The last box moved into the place of the one taken out comes before the others.
+        let mut swapped = Triggers::default();
+        for name in ["x", "y", "z"] {
+            swapped.set(name, (5, 5, 0), None);
+        }
+        swapped.delete("X", None);
+        assert_eq!(swapped.at((5, 5), 0), Some("z"));
+        triggers.delete("a", None);
+        assert_eq!(triggers.at((200, 200), 0), None);
+    }
+
+    #[test]
+    fn a_base_triggers_function_names_its_quest_and_its_trigger() {
+        assert_eq!(
+            trigger_function("OMO201Wolfattack"),
+            Some((201, "Wolfattack"))
+        );
+        assert_eq!(
+            trigger_function("OMO-1tpreinHQ_5.7.4"),
+            Some((-1, "tpreinHQ_5.7.4"))
+        );
+        assert_eq!(trigger_function("OMO-1"), Some((-1, "")));
+        assert_eq!(trigger_function("OMO"), None);
+        assert_eq!(trigger_function("QIS_OnEnter1"), None);
+    }
+
+    #[test]
+    fn a_place_defined_again_replaces_its_numbers() {
+        let mut positions = Positions::default();
+        positions.define("pos_posTochter", &[3244, 2928]);
+        positions.define("tpreinzHQ_5.7.4", &[5536, 2291, 0, 7, 9]);
+        positions.define("POS_POSTOCHTER", &[1, 2, 3]);
+        assert_eq!(positions.get("pos_postochter"), Some(&[1, 2, 3][..]));
+        assert_eq!(
+            positions.get("tpreinzhq_5.7.4"),
+            Some(&[5536, 2291, 0, 7][..])
+        );
+        assert_eq!(positions.get("nowhere"), None);
+    }
+
+    #[test]
     fn the_scripts_state_round_trips() {
         let mut scripts = Scripts::default();
         let mut ran = Vec::new();
@@ -454,6 +661,10 @@ mod tests {
         scripts.variables.set("quest1_done", 1);
         scripts.dialogues.add("first", -1);
         scripts.regions.init(2);
+        scripts.positions.define("novizin1", &[3237, 2514]);
+        scripts
+            .triggers
+            .set("Wolfattack", (3205, 2902, 0), Some((3205, 2916)));
         let bytes = postcard::to_allocvec(&scripts).expect("the state serializes");
         let back: Scripts = postcard::from_bytes(&bytes).expect("the state reads back");
         assert_eq!(back, scripts);

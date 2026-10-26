@@ -304,9 +304,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         screenshot::ScreenshotPlugin,
-        sectors::SectorsPlugin,
+        scripts::ScriptsPlugin,
     ))
     .add_plugins((
+        sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,

@@ -10,18 +10,35 @@
 //! and groups"), and the quests' flags, whose transitions `SetUpQuest` and `TriggerQuest` run
 //! their sections in their middle, as the client's do (`0x48F7F0`, `0x48F030`). A condition of
 //! anything else fails, an action the readers do not take passes.
+//!
+//! The scripts run on through the play (#1002): the load leaves their state ([`Started`]), which
+//! a runtime of the tree on the main thread takes on as the game starts ([`Live`], mlua's Luau
+//! being no `Send`), with the places of `DefPos` and the base triggers of `SetBaseTrigger` and
+//! `DelBaseTrigger`. As the hero's cell changes, the base trigger of its cell and level runs its
+//! functions, `OMO<quest><name>`, each of a quest only while that quest is set up (`0x5941A0`,
+//! `0x46BA90`), and their `Teleport`s of the hero put it where they name (`0x491D40`); their
+//! other records of the world are not followed yet.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use bevy::prelude::{
+    App, IntoScheduleConfigs, NonSendMut, OnEnter, OnExit, Plugin, Query, Res, Resource, Transform,
+    Update, World,
+};
 use opensacred_data::luau::{BYTECODE, INDEX, Index};
 use opensacred_data::netscript::{Function, Record, Tree};
 use opensacred_rules::quests::{self, Transition};
 use opensacred_rules::spawning::Rng;
 use opensacred_scripts::{Handled, Host, Operand, Runtime};
 
-use crate::{files, npcs};
+use crate::frame::{Playing, Step, Unpaused};
+use crate::game::AppState;
+use crate::hero::{Arrival, Body};
+use crate::terrain::Heights;
+use crate::{files, iso, npcs, paths};
 
 /// The start script's function in a tree (`opensacred-convert`'s `luau::START`).
 const START: &str = "StartCode";
@@ -29,11 +46,30 @@ const START: &str = "StartCode";
 /// The seed of the scripts' `rand()` in a new game, which `RndVar` draws from.
 const SEED: usize = 0x5C;
 
+/// What the scripts ran as a new game loads ([`run`]): their records, which `npcs` places, and
+/// the state they left, which the play takes on.
+pub struct Ran {
+    pub tree: Tree,
+    pub started: Started,
+}
+
+/// The scripts as the load leaves them, which [`Live`] takes on as the play starts: the tree, its
+/// index, the scripts' state, the functions marked done and the scripts' `rand()`.
+#[derive(Resource)]
+pub struct Started {
+    assets: PathBuf,
+    tree: String,
+    index: Index,
+    state: quests::Scripts,
+    done: Vec<String>,
+    rng: Rng,
+}
+
 /// What the scripts ran: the tree's start script's records, with those of the quests' sections
 /// that its transitions ran in their middle, and each sector function's records and each region
-/// function's (`Region<n>Init`) before the first sector of its region, as a tree; `area` the area
-/// of a sector of the world (`world.ron`), which makes its region.
-pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -> Result<Tree> {
+/// function's (`Region<n>Init`) before the first sector of its region, as a tree, and the state
+/// they left; `area` the area of a sector of the world (`world.ron`), which makes its region.
+pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -> Result<Ran> {
     let started = Instant::now();
     let dir = assets.join("netscript").join(tree);
     let index_path = dir.join(INDEX);
@@ -53,11 +89,7 @@ pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -
         })
         .collect();
     sectors.sort();
-    let runtime = Runtime::new(tree, index, move |file| {
-        let stem = file.strip_suffix(".luau").unwrap_or(file);
-        files::read(dir.join(format!("{stem}.{BYTECODE}"))).ok()
-    })
-    .with_context(|| format!("starting the scripts of {tree}"))?;
+    let runtime = runtime(assets, tree, index)?;
     let mut state = quests::Scripts::default();
     let mut rng = Rng::of(0, 0, SEED);
     let start = records(&runtime, tree, START, 0, &mut state, &mut rng);
@@ -96,13 +128,129 @@ pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -
         runtime.files(),
         runtime.unknown().join(" "),
     );
-    Ok(Tree {
-        start,
-        quest: Vec::new(),
-        functions,
-        quests: Vec::new(),
-        regions: Vec::new(),
+    Ok(Ran {
+        tree: Tree {
+            start,
+            quest: Vec::new(),
+            functions,
+            quests: Vec::new(),
+            regions: Vec::new(),
+        },
+        started: Started {
+            assets: assets.to_owned(),
+            tree: tree.to_owned(),
+            index: runtime.index().clone(),
+            state,
+            done: runtime.done(),
+            rng,
+        },
     })
+}
+
+/// The runtime of the tree `tree` of the index `index`, which loads its files' bytecode from
+/// `assets` (`netscript/<tree>/`).
+fn runtime(assets: &Path, tree: &str, index: Index) -> Result<Runtime> {
+    let dir = assets.join("netscript").join(tree);
+    Runtime::new(tree, index, move |file| {
+        let stem = file.strip_suffix(".luau").unwrap_or(file);
+        files::read(dir.join(format!("{stem}.{BYTECODE}"))).ok()
+    })
+    .with_context(|| format!("starting the scripts of {tree}"))
+}
+
+/// The scripts through the play: the runtime of the hero's tree, the scripts' state, their
+/// `rand()`, the base triggers' functions by their triggers' names, and the hero's cell as last
+/// seen.
+pub struct Live {
+    runtime: Runtime,
+    tree: String,
+    state: quests::Scripts,
+    rng: Rng,
+    /// Each base trigger's functions and their quests, by the trigger's name lower-cased: the
+    /// functions `OMO<quest><name>` of the tree, which the client's cache of the triggers'
+    /// functions names (the start script's records of type 39, `0x4918B0`; in every tree each of
+    /// their names has the one function of that name, two in one where it is written twice).
+    triggered: HashMap<String, Vec<(String, i32)>>,
+    at: Option<paths::Cell>,
+}
+
+/// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Teleport {
+    pub cell: (i32, i32),
+    pub layer: u8,
+}
+
+impl Live {
+    /// The scripts of `runtime` taking on the state `started` left.
+    fn new(runtime: Runtime, started: Started) -> Self {
+        runtime.mark_done(started.done);
+        let mut triggered: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+        for name in runtime.index().functions.keys() {
+            if let Some((quest, trigger)) = quests::trigger_function(name) {
+                triggered
+                    .entry(trigger.to_lowercase())
+                    .or_default()
+                    .push((name.clone(), quest));
+            }
+        }
+        Self {
+            runtime,
+            tree: started.tree,
+            state: started.state,
+            rng: started.rng,
+            triggered,
+            at: None,
+        }
+    }
+
+    /// The hero steps onto the global cell `cell` on the layer `layer` (`0x5941A0`, at
+    /// `0x597E2C`): the base trigger that holds it runs its functions in order, each of a quest
+    /// only while the quest is set up and each of a name written again as often (`0x46BA90`);
+    /// the teleports of the hero they made, in order.
+    pub fn step_on(&mut self, cell: (i32, i32), layer: u8) -> Vec<Teleport> {
+        let Some(trigger) = self.state.triggers.at(cell, layer).map(str::to_owned) else {
+            return Vec::new();
+        };
+        let functions = self
+            .triggered
+            .get(&trigger.to_lowercase())
+            .cloned()
+            .unwrap_or_default();
+        let mut teleports = Vec::new();
+        for (function, quest) in functions {
+            if let Ok(quest) = u32::try_from(quest)
+                && self.state.quests.flags(quest) & quests::SET_UP == 0
+            {
+                bevy::log::debug!(
+                    "scripts: the hero steps on {trigger} at {},{}; {function} waits for its \
+                     quest",
+                    cell.0,
+                    cell.1
+                );
+                continue;
+            }
+            bevy::log::info!(
+                "scripts: the hero steps on {trigger} at {},{}: {function} runs",
+                cell.0,
+                cell.1
+            );
+            for entry in 0..self.runtime.entries(&function) {
+                let mut recorder = Recorder::new(&self.tree, &mut self.state, &mut self.rng);
+                if let Err(e) = self.runtime.call_entry(&function, entry, &mut recorder) {
+                    bevy::log::warn!("scripts: {e}");
+                }
+                if !recorder.records.is_empty() {
+                    bevy::log::debug!(
+                        "scripts: {function}: {} records of the world not followed yet",
+                        recorder.records.len()
+                    );
+                }
+                teleports.extend(recorder.teleports);
+            }
+        }
+        teleports
+    }
 }
 
 /// Which of the functions of a region's `Init`, `entries` of one name, run, in their order: of a
@@ -127,25 +275,33 @@ fn records(
     state: &mut quests::Scripts,
     rng: &mut Rng,
 ) -> Vec<Record> {
-    let mut recorder = Recorder {
-        tree,
-        state,
-        rng,
-        records: Vec::new(),
-    };
+    let mut recorder = Recorder::new(tree, state, rng);
     if let Err(e) = runtime.call_entry(function, entry, &mut recorder) {
         bevy::log::warn!("scripts: {e}");
     }
     recorder.records
 }
 
-/// The host of a run: the hero's tree, the scripts' state, their `rand()`, and the records in
-/// the order run.
+/// The host of a run: the hero's tree, the scripts' state, their `rand()`, the records in the
+/// order run and the hero's teleports.
 struct Recorder<'a> {
     tree: &'a str,
     state: &'a mut quests::Scripts,
     rng: &'a mut Rng,
     records: Vec<Record>,
+    teleports: Vec<Teleport>,
+}
+
+impl<'a> Recorder<'a> {
+    fn new(tree: &'a str, state: &'a mut quests::Scripts, rng: &'a mut Rng) -> Self {
+        Self {
+            tree,
+            state,
+            rng,
+            records: Vec::new(),
+            teleports: Vec::new(),
+        }
+    }
 }
 
 impl Host for Recorder<'_> {
@@ -238,6 +394,57 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
+            "def_pos" => {
+                if let Some(name) = tags.texts("_01").first() {
+                    self.state.positions.define(name, &tags.numbers("_0B"));
+                }
+                Handled::Done
+            }
+            "set_base_trigger" => {
+                let positions = &self.state.positions;
+                let first = tags
+                    .spot("_0C", positions)
+                    .or_else(|| tags.spot("_04", positions));
+                let second = tags.spot("_0D", positions).map(|(x, y, _)| (x, y));
+                if let (Some(name), Some(first)) = (tags.texts("_01").first(), first) {
+                    self.state.triggers.set(name, first, second);
+                }
+                Handled::Done
+            }
+            "del_base_trigger" => {
+                let positions = &self.state.positions;
+                // The lower of the corners given (`0x4817F0`).
+                let about = [tags.spot("_0C", positions), tags.spot("_0D", positions)]
+                    .into_iter()
+                    .flatten()
+                    .map(|(x, y, _)| (x, y))
+                    .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)));
+                if let Some(name) = tags.texts("_01").first() {
+                    self.state.triggers.delete(name, about);
+                }
+                Handled::Done
+            }
+            "teleport" => {
+                // The hero, named `hero` or not at all; another creature is not followed yet.
+                let hero = tags
+                    .texts("_01")
+                    .first()
+                    .is_none_or(|name| name.eq_ignore_ascii_case("hero"));
+                let positions = &self.state.positions;
+                let spot = ["_04", "_0C", "_0D"]
+                    .iter()
+                    .find_map(|key| tags.spot(key, positions));
+                match spot {
+                    Some((x, y, layer)) if hero => {
+                        self.teleports.push(Teleport {
+                            cell: (x, y),
+                            layer: u8::try_from(layer).unwrap_or(0),
+                        });
+                        Handled::Done
+                    }
+                    _ => Handled::Unknown,
+                }
+            }
             "rnd_var" => {
                 if let (Some(name), [low, high, ..]) = (
                     tags.names("_01", variables).first(),
@@ -295,6 +502,22 @@ impl Tags<'_> {
             .into_iter()
             .map(|name| expand(name, variables))
             .collect()
+    }
+
+    /// The cell of the tag `key`: its numbers `(x, y)` or `(x, y, layer)`, or the first three of
+    /// the place its `DefPos` name names, as the operand reader gives a cell (`+0xA860` to
+    /// `+0xA868`), the layer 0 where it is missing.
+    fn spot(&self, key: &str, positions: &quests::Positions) -> Option<(i32, i32, i32)> {
+        let numbers = match (self.numbers(key).as_slice(), self.texts(key).as_slice()) {
+            (numbers @ [_, _, ..], _) => numbers.to_vec(),
+            ([], [name]) => positions.get(name)?.to_vec(),
+            _ => return None,
+        };
+        match numbers[..] {
+            [x, y] => Some((x, y, 0)),
+            [x, y, layer, ..] => Some((x, y, layer)),
+            _ => None,
+        }
     }
 
     /// The texts of the tag `key`.
@@ -388,6 +611,78 @@ fn expand(name: &str, variables: &quests::Variables) -> String {
 )]
 fn int(n: f64) -> Option<i32> {
     (n.fract() == 0.0 && n >= f64::from(i32::MIN) && n <= f64::from(i32::MAX)).then_some(n as i32)
+}
+
+/// Takes on the scripts' state that the load left, on the main thread, as the play starts.
+fn begin(world: &mut World) {
+    let Some(started) = world.remove_resource::<Started>() else {
+        return;
+    };
+    match runtime(&started.assets, &started.tree, started.index.clone()) {
+        Ok(runtime) => world.insert_non_send(Live::new(runtime, started)),
+        Err(e) => bevy::log::warn!("scripts: {e:#}; the scripts do not run on"),
+    }
+}
+
+/// Drops the scripts of the game left.
+fn end(world: &mut World) {
+    world.remove_non_send::<Live>();
+}
+
+/// Runs the base trigger of the hero's cell as the cell changes on its way, not by a teleport,
+/// and puts the hero where its functions teleport it, on its level (`Arrival::On`, as the command
+/// `cell` does, as the scripts' `Teleport` puts a player).
+fn step_on(
+    live: Option<NonSendMut<Live>>,
+    heights: Option<Res<Heights>>,
+    mut heroes: Query<(&mut Transform, &mut Body)>,
+) {
+    let (Some(mut live), Some(heights)) = (live, heights) else {
+        return;
+    };
+    let Ok((mut transform, mut body)) = heroes.single_mut() else {
+        return;
+    };
+    let cell = paths::cell_of(transform.translation.x, transform.translation.z);
+    let before = live.at.replace(cell);
+    // A teleport onto a trigger's cell runs nothing (seen: the original's `cell` onto one called
+    // no lookup of `0x6230C0`, which every step of a walk calls).
+    if body.landing() || before.is_none_or(|before| before == cell) {
+        return;
+    }
+    let layer = heights.floor(body.level()).map_or(0, |(_, floor)| floor);
+    let teleports = live.step_on(cell, layer);
+    if let Some(&Teleport {
+        cell: (x, y),
+        layer,
+    }) = teleports.last()
+    {
+        bevy::log::info!("scripts: the hero teleports to {x},{y} on layer {layer}");
+        body.put(
+            &mut transform,
+            iso::ground(x as f32 + 0.5, y as f32 + 0.5),
+            Arrival::On(Some(layer)),
+        );
+        live.at = Some((x, y));
+    }
+}
+
+/// The scripts through the play.
+pub struct ScriptsPlugin;
+
+impl Plugin for ScriptsPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(OnEnter(AppState::InGame), begin)
+            .add_systems(OnExit(AppState::InGame), end)
+            .add_systems(
+                Update,
+                step_on
+                    .after(Step::HeroMove)
+                    .before(Step::Follow)
+                    .in_set(Playing)
+                    .in_set(Unpaused),
+            );
+    }
 }
 
 #[cfg(test)]
@@ -545,6 +840,72 @@ mod tests {
             .collect();
         assert_eq!(named, ["a", "b", "d", "g"]);
         assert_eq!(runtime.unknown(), ["test"]);
+    }
+
+    #[test]
+    fn the_hero_on_a_base_trigger_runs_its_functions_and_is_teleported() {
+        let runtime = runtime(&[
+            (
+                "start.luau",
+                "local F = {}\n\
+                 F[\"StartCode\"] = function()\n\
+                 def_pos { _01 = \"tpreinz2.3\", _0B = { 4083, 83 } }\n\
+                 set_base_trigger { _01 = \"tprein2.3\", _0C = { 3046, 2892, 0 }, _0D = { 3047, 2893, 0 } }\n\
+                 set_base_trigger { _01 = \"Wolfattack\", _0C = { 3205, 2902, 0 }, _0D = { 3205, 2916, 0 } }\n\
+                 set_base_trigger { _01 = \"gone\", _0C = \"tpreinz2.3\" }\n\
+                 del_base_trigger { _01 = \"GONE\" }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "triggers.luau",
+                "local F = {}\n\
+                 F[\"OMO-1tprein2.3\"] = function()\n\
+                 teleport { _03 = 45, _04 = \"tpreinz2.3\" }\n\
+                 return true\n\
+                 end\n\
+                 F[\"OMO201Wolfattack\"] = function()\n\
+                 set_var { _01 = \"wolves\", _0B = 1 }\n\
+                 teleport { _01 = \"res:18008\", _04 = { 3205, 2910, 0 } }\n\
+                 return true\n\
+                 end\n\
+                 F[\"OMO-1gone\"] = function()\n\
+                 teleport { _04 = { 1, 1, 0 } }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+        ]);
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        records(&runtime, "TEST", START, 0, &mut state, &mut rng);
+        let started = Started {
+            assets: PathBuf::new(),
+            tree: "TEST".into(),
+            index: runtime.index().clone(),
+            state,
+            done: runtime.done(),
+            rng,
+        };
+        let mut live = Live::new(runtime, started);
+        // The cave's entrance puts the hero at its target, on the ground.
+        assert_eq!(
+            live.step_on((3047, 2893), 1),
+            [Teleport {
+                cell: (4083, 83),
+                layer: 0
+            }]
+        );
+        // Quest 201's function waits for its quest; another creature's teleport is not followed.
+        assert!(live.step_on((3205, 2910), 0).is_empty());
+        assert_eq!(live.state.variables.get("wolves"), None);
+        live.state.quests.set_up(201, &mut |_| true);
+        assert!(live.step_on((3205, 2910), 0).is_empty());
+        assert_eq!(live.state.variables.get("wolves"), Some(1));
+        // A trigger taken out runs nothing, and a cell of none neither.
+        assert!(live.step_on((4083, 83), 0).is_empty());
+        assert!(live.step_on((3048, 2893), 0).is_empty());
     }
 
     #[test]
