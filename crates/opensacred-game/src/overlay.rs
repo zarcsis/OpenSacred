@@ -118,6 +118,8 @@ pub struct Snapshot {
     /// The hero's level and experience (`fight::Experience`), and its health and most.
     pub experience: Option<(u32, u64)>,
     pub health: Option<(u32, u32)>,
+    /// The hero's gold (`pickup::Pack`), shown as the original's driver shows it.
+    pub gold: Option<u32>,
     /// The drops nearest the hero (`drops`): what each is, its item, its amount, how far it is
     /// and whether it lies on the ground.
     pub drops: Vec<(String, u32, u32, f32, bool)>,
@@ -208,12 +210,16 @@ impl Snapshot {
                     "nearest creature  health {current}/{most}  level {level}"
                 ));
             }
+            let gold = self
+                .gold
+                .map(|gold| format!("  gold {gold}"))
+                .unwrap_or_default();
             match (self.health, self.experience) {
                 (Some((current, most)), Some((level, experience))) => lines.push(format!(
-                    "hero level {level}  health {current}/{most}  experience {experience}"
+                    "hero level {level}  health {current}/{most}  experience {experience}{gold}"
                 )),
                 (None, Some((level, experience))) => {
-                    lines.push(format!("hero level {level}  experience {experience}"));
+                    lines.push(format!("hero level {level}  experience {experience}{gold}"));
                 }
                 _ => {}
             }
@@ -272,6 +278,7 @@ pub struct Probe<'w, 's> {
     npcs: Query<'w, 's, (), With<Npc>>,
     healths: Query<'w, 's, (&'static Transform, &'static Health), Without<Body>>,
     experience: Option<Res<'w, Experience>>,
+    pack: Option<Res<'w, crate::pickup::Pack>>,
     hero_health: Query<'w, 's, &'static Health, With<Body>>,
     objects: Query<'w, 's, (), With<Object>>,
     entities: Query<'w, 's, ()>,
@@ -386,6 +393,7 @@ impl Probe<'_, '_> {
                 .iter()
                 .next()
                 .map(|health| (health.current, health.most)),
+            gold: self.pack.as_deref().map(|pack| pack.gold),
             drops: self
                 .bodies
                 .iter()

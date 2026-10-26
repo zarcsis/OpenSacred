@@ -50,6 +50,7 @@ mod overlay;
 mod paths;
 mod pause;
 mod pick;
+mod pickup;
 mod remote;
 #[cfg(test)]
 mod scene_tests;
@@ -303,10 +304,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
+        pickup::PickupPlugin,
         screenshot::ScreenshotPlugin,
-        scripts::ScriptsPlugin,
     ))
     .add_plugins((
+        scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
