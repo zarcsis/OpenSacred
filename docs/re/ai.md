@@ -363,6 +363,11 @@ The followers (#895, `followers`, `minds::keeps`, `minds::on_the_way`, `minds::s
 - It walks and runs at the hero's pace, its walk's and run's clips with it, times its own time's factor, the effect 15's (`0x585070`).
 
 The awakening's raised dead follow, and their kills raise their victims, and the bats follow, never stepping off (docs/re/arts.md, 1034 to 1037).
-Not followed: the healers and the scripts' hirings (#657).
+Since #657 the scripts hire too (`followers::Hired`, `npcs::hire_of`): a `CreateNPC` or `SetNPCState` of `0x4B` hires its creature as above, and one of `0x37` or `0x71` as a follower of the flag 4, which keeps by the hero alike but never fights and, standing within 400 of the hero, runs 700 from it along the line between them as a creature comes at the hero (`0x539F60`).
+- A `SetNPCState`'s hire reaches a creature made before it, or its placement, whose creature is hired as it is made; once hired, no sector keeps it (`sectors::Streamer::disown`).
+- `0x39` and `0x65` let it go: it leaves the hero's list and stops, its side and home kept.
+- In the game, `QIS_OnEnter15002` made quest 15002's escort and `Dialog:od_15002` hired it (`script`, the console): it followed the hero, and `btn_ok_dq_15002` let it go, where it stayed.
+
+Not followed: the healers; the hire's levels; the flag 4's stand in danger far from the hero and its step off 220 from it at a random angle (it steps off as the others do); `0x71`'s mark in its quest, a quest's release and the quests' hook of the letting go (#1020).
 In the game, the Vampiress's wolf (a 588 of level 5 at her level 1 and the call's 2) went at a goblin that came at her; with her put 50 cells off, it was put near her and ran up to her; as she attacked one of two goblins beside her, it went at the other.
 Called on floor 2 of her start's building (#1013), it stepped off to a point on floor 1 and went down the stairs beside her.

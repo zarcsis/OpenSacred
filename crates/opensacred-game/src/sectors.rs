@@ -107,6 +107,14 @@ impl Streamer {
         self.loaded.entry(at).or_default().push(entity);
     }
 
+    /// Takes `entity` from its sector, which no longer despawns it: a creature that the scripts
+    /// hire goes with the hero wherever it goes (#657).
+    pub fn disown(&mut self, entity: Entity) {
+        for entities in self.loaded.values_mut() {
+            entities.retain(|&kept| kept != entity);
+        }
+    }
+
     /// Whether every sector near world point `hero` is in place, spawned or known to be missing,
     /// and nothing more is building. Right after a teleport the sectors of the new place are not
     /// asked for yet, so empty queues alone do not tell (#202).
