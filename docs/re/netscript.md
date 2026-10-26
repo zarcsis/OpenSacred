@@ -263,7 +263,7 @@ Read 2026-10-26 (#656) by the static reading of `Sacred.exe`; **confirmed** by c
   - the first entry of the creature's id whose name has none of the items' prefixes (`0x4A71F0` with an empty name), else nothing;
   - the creature's entries of no `:` or of `See:` taken out, but those starting with `wegw` (`0x464330(id, 1, 1)`), the second and later logged as an `OnDeath` twice;
   - the function of that name, its length from 1 to 63, found in the functions' table by its name case aside (`0x46BF40`, `0x859690`) and run by the runner (`0x46BA90`), a quest's function only while its quest is set up ("Quests" above);
-  - then, the creature's health above 0, it rises (`0x53E460(1)`) and no more is done; else the quests' hook takes the death (`0x471790` with the event 4, #1020).
+  - then, the creature's health above 0, it rises (`0x53E460(1)`) and no more is done; else the quests' hook takes the death (`0x471790` with the event 4), which serves only the dynamic quests and so does nothing in the release ("The dynamic quests").
 - The run comes after the creature's drops and its killer's experience, which its events' handler gives as it dies (docs/re/items.md, "Drops"; docs/re/fight.md).
   The death's `GroupIsDead` finds the creature dead already, its health 0 (`0x549080`), so a group's function runs on at its last member's death.
 - In the Seraphim's tree, 32 of the functions so named give their own creature health again (`SetHP` above 0: a target beaten rather than killed, quest 2203's `tot2203` at 50, a hireling's `rg2_nachhause` at 100 after its `Teleport` home), and so it rises.
@@ -326,7 +326,7 @@ Read 2026-10-26 (#1024) by the static reading of `Sacred.exe` (a subagent of the
   A creature alive, hostile to the hero (`0x548F30`) and of no talk is attacked instead, so that a hostile one with a dialogue is talked to.
   A hostile creature alive within the two creatures' reach and 15 of the first of the hero's hostiles (`0xAD3CE0`) leaves the hero idle instead (**hypothesis**: that `0xAD3CE4` is its distance).
 - The state 10's first step: farther than 1.5 times the two creatures' reach (`0x4DBC60`, the mean of their sizes) the hero walks to the creature's place, stopping within the reach, and the creature ends what it does (`0x54E6D0`) and has its AI's timer put back 5 s (`+0x208`), so that it waits; nearer, or once the walk ends, the hero takes the talk's action 7 (`0x52AB70`) toward it; a trader without a talk opens its windows instead (`UI_WND_BLACKSMITH`, `UI_WND_MERCHANT`, `UI_WND_MASTER` for `0x1000`, `0x2000`, `0x4000`).
-- The hero's action 7: on foot it plays its model's slot 177 (`*_TALK_A`, the blend 0.25), or its standing clip without it, turns to the creature and calls the quests' hook (`0x471790(hero, creature, 1, 0)`, #1020); unless the creature is in a dialogue already (`+0x200` bit `0x80`) it posts it the event `0x10C`, and sets its own `+0x200` bit `0x10`.
+- The hero's action 7: on foot it plays its model's slot 177 (`*_TALK_A`, the blend 0.25), or its standing clip without it, turns to the creature and calls the quests' hook (`0x471790(hero, creature, 1, 0)`, "The dynamic quests"); unless the creature is in a dialogue already (`+0x200` bit `0x80`) it posts it the event `0x10C`, and sets its own `+0x200` bit `0x10`.
 - The event `0x10C` (`0x52E590`, at `0x5304EE`) gives the creature the AI's state 10 toward the hero: within 1.5 times the reach it takes its own action 7, the same clip and a turn to the hero; farther, once it stands, it drops the talk, so that it never walks to the hero.
   Its action 7 runs the dialogue for a talk from 1 to 200,000, and opens the trade windows for a talk of 0 or above 200,000; its idle AI waits while the talk lasts.
 - A creature in a talk (`+0x200` bit `0x10`) shows no dialogue cursor (`MOUSE_DIALOG04.TGA`, `cEngine_updateWorldCursor` at `0x612685`, which wants a talk above 0, no `+0x1F4` bit `0x40000` and an id above 16), and a strike at a talking creature is ignored (`0x56B130`).
@@ -388,7 +388,7 @@ The game follows the talks since #1028 (`npcs::Talk`, `scripts::Live::talk`, `ta
 - Since #1039 a creature of a dialogue or a trade shows its icon over its head (`icons`, `opensacred_rules::quests::icon`, below); the townsfolk's icons under Alt are not followed.
 - Since #1037 an `NPC_TalkTo` whose second name is the hero gives the creature of its first the dialogue, and the hero speaks to it as a click on it does (`scripts::Begins::With`, `talk::popups`); a talk between two creatures is not followed.
   In the game, quest 2002's `nein2002` sent the hero to its giver, whose window opened.
-- `Dialog` waits for #1037; the trade windows are not followed.
+- `Dialog` runs only in the dynamic quests' `ToDo`s, which the release never runs ("The dynamic quests" below), and the game follows it as the release does, doing nothing; the trade windows are not followed.
 
 In the game the Seraphim's start's novice showed her text and her button, as the original's, and the button ran `exit01`, which gave her her next dialogue, the one the next talk showed, and showed the first act's title over the scene as the original's does.
 Since #1039 her "?!" pulses over her head as the original's does.
@@ -404,6 +404,52 @@ Read 2026-10-26 (#1039) by the static reading of `Sacred.exe`; **confirmed** by 
 - `0x4090D0` draws nothing for 8, 13 and 126, and else picks the image by a switch: 0, 1, 4 and 5 `NPC_DIALOG_01`, `02`, `05` and `07`, tinted `0xFFFFFF00`, 10, 11, 14 and 15 the same, tinted `0xFF3F3F3F`, `0x20` to `0x23` `npc_dialog_smith`, `trader`, `combo` and `trader`, the townsfolk's `sim_*` from `0x40` to `0x5A` and from `0x80` to `0x83`, and any other `NPC_DIALOG_02` tinted `0xFFFF0000`.
   It draws a square from −10 to 10 across and from 20 to 40 up, in the models' units, in the frame of the display's matrix (`+0x250`) at the creature's bone `Bip01 Head`, twice: the image with the tint, then the image again, added in a grey of `(sin(t · 0.005) + 1) · 127` at `t` milliseconds and 100 more for each of the creature's ids.
 - **Seen**: the start's novice (her `auftrag10`, the icon 0) and the townsperson of `auftrag210` (the icon 10) south of the chapel both showed a "?!" whose highlights went from about a third of the image's values to its full values and back in about 1.3 s, with no yellow and no dimming; so the tints do not show (**hypothesis**: the device's lighting takes the vertices' colours' place and lights the square, which has no normals, by its ambient alone), and the game draws the image at a third of its values (**estimate**) and the pulse over it.
+
+## The dynamic quests
+
+Read 2026-10-26 (#1020, #1037) by the static reading of `Sacred.exe` (two subagents of the session); **confirmed** by code unless marked otherwise, none of it seen in the running original yet.
+The engine keeps a system of dynamic quests, offered by givers that it picks at random among a region's creatures, and in the release none of it ever runs.
+
+### The templates and the table
+
+- A quest's template, a "pool", is an entry of 136 bytes at `0xAAC738`: a number at `+0`, a name at `+4`, the most quests open at `+0x4C` and the count open at `+0x50`, headers of 36 bytes at `+0x58`, and lists of functions: the `ToDo`s at `+0x64`, the successes at `+0x70` and the failures at `+0x7C`.
+- Only the script compiler's `QuestPool:` (`0x45A370`, which nothing but itself calls) and a save's load (`0x46772A`) fill the templates, and every tree's `QuestPoolCode.bin` is empty, so the release has none.
+  The walker passes over `MaxOffen`, `Rettungsmission`, `ToDoBloecke`, `Schatzsuche`, `Toete_NPC` and `Begleite` (27, 29, 30, 34, 101, 102) as doing nothing.
+- The quests made from them stand in the script manager's table at `+0x31C`, records of 52 bytes:
+  - `+0` the kind, from the header's `+0xC` (**hypothesis** by the flows below: 1 bring items, 2 bring a creature to the giver, 5 kill, 6 take a hired creature to a trigger);
+  - `+1` to `+3` the pool, the header and the `ToDo`;
+  - `+4` and `+5` the success's and the failure's functions (`Belohnungen`, 32, `0x490BE0`; `Strafen`, 123, `0x491090`), `+8` the count needed, `+9` 1 where the quest is reported to its giver and 0 where it is solved on the spot;
+  - `+0x10` the state: 1 offered, 2 taken, 4 solved, 8 failed, `0x10` failing while the giver's talk runs, `0x20` closed, `0x40` all its targets dead, `0x80` its items in hand;
+  - `+0x14` not 0 while it runs, `+0x18` its time limit (`SolveTime`, 122), `+0x1C` its list of entries, `+0x28` the `ToDo`s that `HideTmpToDo` (33, `0x4630A0`) hides.
+- An entry of the list (44 bytes) holds an object's id at `+0`, its flags at `+4`, the record's index at `+8`, and 8 words that `SetClientVars` and `GetClientVars` (118, 119) keep.
+  Its flags: 1 the giver; 4 a creature to bring (`CreateNPC`'s `0x1A`); 8 an item (`CreateObj`); `0x10` that creature joined; `0x20` the one to report to (`0x70`); `0x40` a hired creature (`0x71`, `SetNPCState`'s `0x71` too, `0x462AC2`); `0x80` a target to kill with every member of its group (`0x72`).
+  A creature belongs to its record by its `+0x94`, which is −1 for none (`0x44A40B`); its quest's number, which `SetNPCState`'s `0x75` writes at `+0x96` (`0x450E20`), is compared where a trigger reports.
+
+### The maker and the `ToDo`s
+
+- `CheckForQuestPool` (25, `0x490A30`) names a template by its `0x01` name or its `0x0B` number and calls `0x46EDD0`, which first destroys the givers of the quests offered and never taken (**hypothesis**), and then, while the count open is below the most, picks givers at random by weight among the template's creatures alive and in no quest (`+0x200` without the bit `0x200`).
+  A template's creatures are those that `CreateNPC`'s `0x15` (the pool, a low and a high, a weight) registered under it (the map `+0x340`, `0x483B16`).
+- For each giver, `0x46DFC0` picks a header of the giver's range and a `ToDo` not hidden, adds a record with the giver's entry (flags `0x21`), joins the giver to it, logs `CreateDynamicQuest`, and runs the `ToDo` with the giver for its creature (`0x46E7E0`); the giver takes the bit `0x200` where the `ToDo` ran to its end, and for the kinds 1, 2 and 5 the `ToDo` runs again while it adds no entry.
+- A `ToDo` is named `ToDo:-1.<m>` by the compiler (`0x45BA71`), `<m>` its block's number in `ToDoBloecke:`; the runner finds it through the template, not by its name.
+  It gives its giver the offer's dialogue with `Dialog` (31, `0x48F9E0`), which wants the function's creature (the walker's fourth argument, `0x4756BB`) and does nothing without one:
+  by a name (`0x01`, `0x16`) it takes the first entry of the dialogues' table of that name, case aside, and by a number (`0x0B`) the first entry of that number; the creature's former entry loses it, the found entry (above 0) takes its id, its talk becomes the entry (`sdk_STAMP_IDX`) and its `+0x14` bit `0x80000` is set, or cleared for the index 0; a name or number not found is logged and clears the bit alone.
+
+### The hook and the end
+
+- The quests' hook `0x471790(actor, id, event, arg)` takes the creature's record by its `+0x94` and returns at once for −1.
+  Its events: 0 a talk's end on its first button (`0x52C631`), 1 a talk's start (`0x52BDB7`), 2 an item taken into the inventory or a follower let go (`0x462BD9`), 3 the hero's AI, which changes nothing, 4 a death (`0x52F7D7`, `0x53E95F`), 5 a base trigger, once for each of the hero's followers with the function's quest (`0x598106`), 6 a creature's timer (`0x41717B`).
+- By its entries' flags and the record's kind it moves the state: a target's death passes the entry to the next living member of its group and, with none left, marks `0x40`, solving a quest of `+9` 0; an item taken solves a quest of kind 1, or marks `0x80`; a creature to bring that joins at a talk's end takes the state 2; a hired creature's trigger with its quest's number solves the kind 6; at the talk's start with the one to report to, the kind 2 with enough of its creatures in the party releases them to the giver and is solved, the kind 1 with enough items takes them and is solved, the kind 5 with `0x40` is solved; an offer's talk's end starts its time limit (1,440 to 4,320), and its timer's end runs the giver's talk with the state `0x10` and fails the quest.
+- Its end (`0x471000`) runs the success's function, or the reward `0x4AC940` without one, or the failure's, and closes the record (`0x20`): the giver loses its talk and its `+0x94`, and takes `+0x200` bit `0x20000000` for the bit `0x200`.
+- The table's other readers: the blocks of type 41 (`0x477C10`), `ExitQuest` and `LoseQuest` (`0x46CBE0`), the hero's AI state 1 (`0x53AE9A`), `0x46A910`, which joins again the items and creatures of the quests in progress, the saves (`sdk_SAVELOAD_SERIAL`) and the network's handlers; the quest log and the compass read none of it.
+
+### None of it runs in the release
+
+- With no template, `CheckForQuestPool` finds nothing; besides, all 22 of the Seraphim's tree stand in `DQStartRegion<n>`, and the givers (`DQ<n>_AUFTRAGGEBER1` to `4`) are made only by `DQTrgRegion<n>`, the functions that the runner refuses by their names ("Control flow", #1051).
+- So the table stays empty, every creature's `+0x94` stays −1, the hook returns at once, and no `ToDo` and no `Dialog` ever runs (**hypothesis** to see in the original: the count of the table's records, `([0xAAD2A0] − [0xAAD29C]) / 0x34`, stays 0 through the play, and the log never shows `CreateDynamicQuest`).
+- The Seraphim's tree holds them all the same: 1,870 `ToDo` functions (85 blocks, one copy per each of the 22 pools), each with one `Dialog` by `0x16` naming one of 110 offers of five kinds (`DQ<pool>_BRINGE_NPC`, `_BRINGE_ITEM`, `_TOETE_NPC`, `_TOETE_ITEM`, `_ESCORT_NPC`), 748 `CreateNPC`s of `0x72` and 506 of `0x1A` in them, and in the quests 2600 to 3056, which name the givers, 704 `SetNPCState`s of `0x75` and 88 of `0x71`.
+- `opensacred-game` follows none of it, as the release runs none of it: `Dialog` and `CheckForQuestPool` do nothing, the table and the hook are not kept, and `SetNPCState`'s `0x75` is left out.
+
+Not read: the headers' `+8` (**hypothesis**: a level) and the bytes `+6` and `+7` of a template's header; what becomes of the givers not picked (`0x46F240`); `0x45FC60`; whether `0x45A370` is reached through a pointer that Ghidra did not mark.
 
 ## The community's quest defects
 
@@ -682,7 +728,7 @@ In `opensacred-game`, `npcs::set_states` gives the creature that a `SetNPCState`
 Its death's functions are followed since #656 ("The deaths' functions"), and since #658 its heading (`0x03`, turned as `CreateNPC`'s), its group (`0x11`, which `GroupIsDead` then counts it in) and a horse's joining a trader's stock (`0x63`), which takes its dialogue away.
 Since #657 its `0x37`, `0x4B` and `0x71` hire the creature as the hero's follower and its `0x39` and `0x65` let it go, as `CreateNPC`'s `0x37`, `0x4B` and `0x71` hire too (docs/re/ai.md, "The scripts' hired followers" and "In `opensacred-game`").
 The play's `SetNPCState`s give these to a creature made before them too, its placement and the creature in the world (`npcs::Npcs::restate`).
-Its quest (`0x75`) waits for the quests' table of creatures (#1020); `0x6B`, by which a dead follower rises, and `0x67`'s healer are not followed.
+Its quest (`0x75`) serves only the dynamic quests' table, which the release never fills ("The dynamic quests"), and is left out; `0x6B`, by which a dead follower rises, and `0x67`'s healer are not followed.
 Not followed, and why: the stock itself, for the game has no trade yet; `0x36`, which serves nothing; `0x73`'s mark of 64, the game taking a creature's mark by its type (`opensacred_rules::minds::marked`), and no `SetNPCState` of the Seraphim's tree carrying it; `0x90`'s byte `+0x400` and `0xA1`'s `+0x14` bit `0x200000`, whose readers are not read; `0x7F`, `0x80`, `0x84`, `0x8C` and `0x85`'s effect, not read.
 In the Seraphim's tree the `SetNPCState`s carry `0x03` 4 times, `0x11` 3 times and `0x63` 59 times (the stables' horses, of no dialogue already).
 
