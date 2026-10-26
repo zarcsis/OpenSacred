@@ -9,6 +9,7 @@
 use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_6, SQRT_2};
 
 use bevy::camera::ScalingMode;
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 
@@ -103,6 +104,8 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
         DebandDither::Disabled,
         // What is drawn blends with the frame's sRGB values as they are, as in the original.
         crate::srgb::Frame,
+        // The models' true depths, by which they are ordered among themselves (`models`).
+        DepthPrepass,
         Projection::Orthographic(projection),
         view_of(target),
     )
