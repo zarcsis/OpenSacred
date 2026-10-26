@@ -498,6 +498,11 @@ pub struct Npcs {
     /// The trigger of each object that the scripts name (`CreateObj`'s `0x01` and `0x29`), by
     /// the object's name lower-cased, which `SetObjState` sets (#952).
     named: HashMap<String, String>,
+    /// What the scripts' records are placed with, the places that their `DefPos`s name, and the
+    /// placements that the play's records made whose sectors were in the world (#1014).
+    makers: Makers,
+    places: HashMap<String, (i32, i32)>,
+    pending: Vec<usize>,
     /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
@@ -1590,6 +1595,233 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
     Ok(files)
 }
 
+/// What the scripts' records are placed with, at the load and during the play ([`Npcs::read`],
+/// [`Npcs::add`]): the asset directory, the items by slot, the weapons' kinds, the models and the
+/// textures, and each creature type's speeds, class, fight values, flags and shadow.
+struct Makers {
+    assets: std::path::PathBuf,
+    items: HashMap<u32, Item>,
+    kinds: HashMap<u32, u8>,
+    models: HashMap<String, String>,
+    textures: HashMap<u32, String>,
+    speeds: HashMap<u32, [u16; 2]>,
+    classes: HashMap<u32, u8>,
+    bases: HashMap<u32, fight::Base>,
+    record_flags: HashMap<u32, u8>,
+    shadowless: HashSet<u32>,
+}
+
+/// The places that the scripts' `DefPos`s name, by their names lower-cased: a global cell.
+type Places = HashMap<String, (i32, i32)>;
+
+/// Where a record ran: in a sector's `Enter`, whose creatures and objects are made again at each
+/// coming, and in the start, whose creatures take their levels as the game starts.
+#[derive(Clone, Copy, Debug, Default)]
+struct Origin {
+    enter: bool,
+    started: bool,
+}
+
+impl Makers {
+    /// The placement of the `CreateNPC` or `CreateObj` `record` of the operands `ops`, run where
+    /// `origin` tells: its position by the places `named` and the walks' targets `targets`, its
+    /// model's clips read into `model_slots`; none where it names no creature, no cell, or a type
+    /// without an item or a model.
+    fn placement(
+        &self,
+        record: &Record,
+        ops: &[opensacred_data::netscript::Operand],
+        origin: Origin,
+        (named, targets): (&Places, &HashMap<String, Spot>),
+        model_slots: &mut HashMap<String, motions::Slots>,
+    ) -> Result<Option<Placement>> {
+        let mut items_named = ops.iter().filter_map(|o| match (o.tag, &o.value) {
+            (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
+            _ => None,
+        });
+        let creature = items_named.next();
+        let equipped: Vec<&Item> = items_named
+            .filter_map(|slot| self.items.get(&slot))
+            .collect();
+        let categories: Vec<(u8, Option<u8>)> = equipped
+            .iter()
+            .map(|item| (category(item), self.kinds.get(&item.slot).copied()))
+            .collect();
+        let equipment: Vec<Held> = equipped
+            .iter()
+            .zip(hands(&categories))
+            .filter_map(|(item, hand)| {
+                let model = self.models.get(&item.name.to_ascii_uppercase())?;
+                let texture = match item.words_08[0] {
+                    0 => None,
+                    number => self.textures.get(&number).cloned(),
+                };
+                Some(Held {
+                    model: model.clone(),
+                    texture,
+                    hand: hand?,
+                    shield: category(item) == SHIELD,
+                })
+            })
+            .collect();
+        // The items in its hands, whose values it fights with.
+        let holding = InHand::of(equipped.iter().map(|item| {
+            (
+                item.slot,
+                category(item),
+                self.kinds.get(&item.slot).copied(),
+            )
+        }));
+        // An NPC sent somewhere at the start walks there from where it was made.
+        let target = name_of(ops).and_then(|name| targets.get(&name).copied());
+        let cell = position(ops, named).or(target);
+        let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
+            (0x03, Value::U16(v)) => Some(f32::from(*v)),
+            _ => None,
+        });
+        let (Some(creature), Some((x, y, layer))) = (creature, cell) else {
+            return Ok(None);
+        };
+        let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+            return Ok(None);
+        };
+        let Some(item) = self.items.get(&creature) else {
+            return Ok(None);
+        };
+        let Some(model) = self.models.get(&item.name.to_ascii_uppercase()) else {
+            return Ok(None);
+        };
+        let texture = match item.words_08[0] {
+            0 => None,
+            number => self.textures.get(&number).cloned(),
+        };
+        // An NPC's clips standing and walking, by the class of what it holds; walking at a
+        // run where its walk is a run.
+        let (clips, gait) = if record.kind == CREATE_NPC {
+            if !model_slots.contains_key(model) {
+                let slots = motions::Slots::read(&self.assets.join(model))?;
+                model_slots.insert(model.clone(), slots);
+            }
+            let slots = &model_slots[model];
+            let class = held_class(&categories);
+            let walk = slots.clip(motions::Action::Walk, class);
+            (ClipNames::of(slots, class), walk.map(|(_, gait)| gait))
+        } else {
+            (ClipNames::default(), None)
+        };
+        let walk = target
+            .filter(|_| record.kind == CREATE_NPC)
+            .and_then(|(tx, ty, _)| Some((u32::try_from(tx).ok()?, u32::try_from(ty).ok()?)))
+            .filter(|&to| to != (x, y))
+            .map(|to| {
+                let [walking, running] = self.speeds.get(&creature).copied().unwrap_or_default();
+                let speed = if gait == Some(motions::Action::Run) {
+                    running
+                } else {
+                    walking
+                };
+                (to, f32::from(speed))
+            });
+        let [walking, running] = self.speeds.get(&creature).copied().unwrap_or_default();
+        let tag = if record.kind == CREATE_NPC {
+            level_tag(ops)
+        } else {
+            0
+        };
+        // Its flags word and its side by its operand-less tags: its mode, and whether it is
+        // hostile or peaceful (`0x08`, `0x0E`; #580).
+        let markers = || {
+            ops.iter()
+                .filter(|o| matches!(o.value, Value::Marker))
+                .map(|o| o.tag)
+        };
+        let word = crowd::flags_word(markers());
+        let class = self.classes.get(&creature).copied().unwrap_or_default();
+        let side = minds::created_side(class, creature, word, minds::created_hostility(markers()));
+        Ok(Some(Placement {
+            model: model.clone(),
+            cell: (x, y),
+            drawn: if record.kind == CREATE_OBJ {
+                drawn_at(ops)
+            } else {
+                None
+            },
+            home: None,
+            walk,
+            speed: [walking, running].map(f32::from),
+            class,
+            base: self.bases.get(&creature).copied().unwrap_or_default(),
+            held: if record.kind == CREATE_NPC {
+                held_class(&categories)
+            } else {
+                held_class(&[])
+            },
+            ranged: record.kind == CREATE_NPC && ranged(&categories),
+            size: arrows::size(item.words_14[0]),
+            made: (origin.enter, true),
+            started: origin.started,
+            dialogue: record.kind == CREATE_NPC
+                && ops.iter().any(|o| {
+                    o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
+                }),
+            trader: record.kind == CREATE_NPC
+                && ops
+                    .iter()
+                    .any(|o| TRADES.contains(&o.tag) && matches!(o.value, Value::Marker)),
+            kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
+            group: if record.kind == CREATE_NPC {
+                script_group(ops)
+            } else {
+                None
+            },
+            heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
+            object: record.kind == CREATE_OBJ,
+            casts: if record.kind == CREATE_OBJ {
+                category(item) == CHEST
+            } else {
+                !self.shadowless.contains(&creature)
+            },
+            blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
+            door: record.kind == CREATE_OBJ && category(item) == DOOR,
+            trigger: (record.kind == CREATE_OBJ && category(item) == DOOR)
+                .then(|| {
+                    ops.iter().find_map(|o| match (o.tag, &o.value) {
+                        (TRIGGER, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+                        _ => None,
+                    })
+                })
+                .flatten(),
+            creature: (
+                creature,
+                self.record_flags
+                    .get(&creature)
+                    .copied()
+                    .unwrap_or_default(),
+                word,
+            ),
+            side,
+            texture,
+            layer,
+            equipment: if record.kind == CREATE_NPC {
+                equipment
+            } else {
+                Vec::new()
+            },
+            holding: if record.kind == CREATE_NPC {
+                holding
+            } else {
+                Vec::new()
+            },
+            rank: fight::Rank::of_tag(tag),
+            tag,
+            clips,
+            plain: false,
+            name: (record.kind == CREATE_NPC).then(|| name_of(ops)).flatten(),
+            health_share: None,
+        }))
+    }
+}
+
 impl Npcs {
     /// Reads the records of the scripts that ran, `tree` (`scripts::run`), and the tables, and
     /// what of them the hero's template's items `worn` are ([`Self::hero_holds`]).
@@ -1634,6 +1866,21 @@ impl Npcs {
         let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
+        let makers = Makers {
+            assets: assets.clone(),
+            items: items
+                .iter()
+                .map(|(&slot, &item)| (slot, item.clone()))
+                .collect(),
+            kinds: kinds.clone(),
+            models: models.clone(),
+            textures: textures.clone(),
+            speeds: speeds.clone(),
+            classes: classes.clone(),
+            bases: bases.clone(),
+            record_flags: record_flags.clone(),
+            shadowless: shadowless.clone(),
+        };
         let records = start_records(tree);
         // The records of the sectors' and the regions' functions, which the start does not run,
         // and those of the sectors' `Enter` functions, whose creatures step otherwise.
@@ -1651,7 +1898,7 @@ impl Npcs {
             .flat_map(|f| &f.records)
             .map(std::ptr::from_ref)
             .collect();
-        let named = positions(records.iter().copied());
+        let positions = positions(records.iter().copied());
         let targets = goto_targets(&records);
         // The NPCs' models' clips by their slots, each model read once.
         let mut model_slots: HashMap<String, motions::Slots> = HashMap::new();
@@ -1665,187 +1912,20 @@ impl Npcs {
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
-            let mut items_named = ops.iter().filter_map(|o| match (o.tag, &o.value) {
-                (0x02, Value::I32(v)) => u32::try_from(*v).ok(),
-                _ => None,
-            });
-            let creature = items_named.next();
-            let equipped: Vec<&Item> = items_named
-                .filter_map(|slot| items.get(&slot).copied())
-                .collect();
-            let categories: Vec<(u8, Option<u8>)> = equipped
-                .iter()
-                .map(|item| (category(item), kinds.get(&item.slot).copied()))
-                .collect();
-            let equipment: Vec<Held> = equipped
-                .iter()
-                .zip(hands(&categories))
-                .filter_map(|(item, hand)| {
-                    let model = models.get(&item.name.to_ascii_uppercase())?;
-                    let texture = match item.words_08[0] {
-                        0 => None,
-                        number => textures.get(&number).cloned(),
-                    };
-                    Some(Held {
-                        model: model.clone(),
-                        texture,
-                        hand: hand?,
-                        shield: category(item) == SHIELD,
-                    })
-                })
-                .collect();
-            // The items in its hands, whose values it fights with.
-            let holding = InHand::of(
-                equipped
-                    .iter()
-                    .map(|item| (item.slot, category(item), kinds.get(&item.slot).copied())),
-            );
-            // An NPC sent somewhere at the start walks there from where it was made.
-            let target = name_of(ops).and_then(|name| targets.get(&name).copied());
-            let cell = position(ops, &named).or(target);
-            let heading = ops.iter().find_map(|o| match (o.tag, &o.value) {
-                (0x03, Value::U16(v)) => Some(f32::from(*v)),
-                _ => None,
-            });
-            let (Some(creature), Some((x, y, layer))) = (creature, cell) else {
-                continue;
-            };
-            let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
-                continue;
-            };
-            let Some(item) = items.get(&creature) else {
-                continue;
-            };
-            let Some(model) = models.get(&item.name.to_ascii_uppercase()) else {
-                continue;
-            };
-            let texture = match item.words_08[0] {
-                0 => None,
-                number => textures.get(&number).cloned(),
-            };
-            // An NPC's clips standing and walking, by the class of what it holds; walking at a
-            // run where its walk is a run.
-            let (clips, gait) = if record.kind == CREATE_NPC {
-                if !model_slots.contains_key(model) {
-                    let slots = motions::Slots::read(&assets.join(model))?;
-                    model_slots.insert(model.clone(), slots);
-                }
-                let slots = &model_slots[model];
-                let class = held_class(&categories);
-                let walk = slots.clip(motions::Action::Walk, class);
-                (ClipNames::of(slots, class), walk.map(|(_, gait)| gait))
-            } else {
-                (ClipNames::default(), None)
-            };
-            let walk = target
-                .filter(|_| record.kind == CREATE_NPC)
-                .and_then(|(tx, ty, _)| Some((u32::try_from(tx).ok()?, u32::try_from(ty).ok()?)))
-                .filter(|&to| to != (x, y))
-                .map(|to| {
-                    let [walking, running] = speeds.get(&creature).copied().unwrap_or_default();
-                    let speed = if gait == Some(motions::Action::Run) {
-                        running
-                    } else {
-                        walking
-                    };
-                    (to, f32::from(speed))
-                });
-            let [walking, running] = speeds.get(&creature).copied().unwrap_or_default();
-            let tag = if record.kind == CREATE_NPC {
-                level_tag(ops)
-            } else {
-                0
-            };
-            // Its flags word and its side by its operand-less tags: its mode, and whether it is
-            // hostile or peaceful (`0x08`, `0x0E`; #580).
-            let markers = || {
-                ops.iter()
-                    .filter(|o| matches!(o.value, Value::Marker))
-                    .map(|o| o.tag)
-            };
-            let word = crowd::flags_word(markers());
-            let class = classes.get(&creature).copied().unwrap_or_default();
-            let side =
-                minds::created_side(class, creature, word, minds::created_hostility(markers()));
-            placements.push(Placement {
-                model: model.clone(),
-                cell: (x, y),
-                drawn: if record.kind == CREATE_OBJ {
-                    drawn_at(ops)
-                } else {
-                    None
-                },
-                home: None,
-                walk,
-                speed: [walking, running].map(f32::from),
-                class,
-                base: bases.get(&creature).copied().unwrap_or_default(),
-                held: if record.kind == CREATE_NPC {
-                    held_class(&categories)
-                } else {
-                    held_class(&[])
-                },
-                ranged: record.kind == CREATE_NPC && ranged(&categories),
-                size: arrows::size(item.words_14[0]),
-                made: (enter.contains(&std::ptr::from_ref(*record)), true),
+            let origin = Origin {
+                enter: enter.contains(&std::ptr::from_ref(*record)),
                 started: !in_sectors.contains(&std::ptr::from_ref(*record)),
-                dialogue: record.kind == CREATE_NPC
-                    && ops.iter().any(|o| {
-                        o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
-                    }),
-                trader: record.kind == CREATE_NPC
-                    && ops
-                        .iter()
-                        .any(|o| TRADES.contains(&o.tag) && matches!(o.value, Value::Marker)),
-                kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
-                group: if record.kind == CREATE_NPC {
-                    script_group(ops)
-                } else {
-                    None
-                },
-                heading: facing_degrees(record.kind == CREATE_OBJ, heading, item.angle()),
-                object: record.kind == CREATE_OBJ,
-                casts: if record.kind == CREATE_OBJ {
-                    category(item) == CHEST
-                } else {
-                    !shadowless.contains(&creature)
-                },
-                blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
-                door: record.kind == CREATE_OBJ && category(item) == DOOR,
-                trigger: (record.kind == CREATE_OBJ && category(item) == DOOR)
-                    .then(|| {
-                        ops.iter().find_map(|o| match (o.tag, &o.value) {
-                            (TRIGGER, Value::Str(name)) => Some(name.to_ascii_lowercase()),
-                            _ => None,
-                        })
-                    })
-                    .flatten(),
-                creature: (
-                    creature,
-                    record_flags.get(&creature).copied().unwrap_or_default(),
-                    word,
-                ),
-                side,
-                texture,
-                layer,
-                equipment: if record.kind == CREATE_NPC {
-                    equipment
-                } else {
-                    Vec::new()
-                },
-                holding: if record.kind == CREATE_NPC {
-                    holding
-                } else {
-                    Vec::new()
-                },
-                rank: fight::Rank::of_tag(tag),
-                tag,
-                clips,
-                plain: false,
-                name: (record.kind == CREATE_NPC).then(|| name_of(ops)).flatten(),
-                health_share: None,
-            });
-            made.insert(std::ptr::from_ref(*record), placements.len() - 1);
+            };
+            if let Some(placement) = makers.placement(
+                record,
+                ops,
+                origin,
+                (&positions, &targets),
+                &mut model_slots,
+            )? {
+                placements.push(placement);
+                made.insert(std::ptr::from_ref(*record), placements.len() - 1);
+            }
         }
         set_states(&records, &made, &mut placements);
         // What each creature type that has a model is made of, and what each type that the
@@ -1997,6 +2077,9 @@ impl Npcs {
             marked: HashSet::new(),
             locked,
             named,
+            makers,
+            places: positions,
+            pending: Vec::new(),
             values,
             fills,
             templates,
@@ -2373,6 +2456,75 @@ pub fn spawn_creatures(
     Ok(made)
 }
 
+/// Places the placement `index` of the sector `at` as it comes in: a kept one anew the first time,
+/// where it stood after and never once killed, the others anew each time.
+fn place_index(
+    commands: &mut Commands,
+    npcs: &mut Npcs,
+    (index, at): (usize, (u32, u32)),
+    (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
+    (hero, minutes): (u32, u32),
+    streamer: &mut Streamer,
+) {
+    let placement = &npcs.placements[index];
+    // The start's and the `Init`s' creatures persist; the `Enter`s' are made again.
+    let kept = !placement.object && !placement.made.0;
+    let again = if kept {
+        npcs.kept.again(index)
+    } else {
+        Again::Anew
+    };
+    let entity = match again {
+        Again::Not => return,
+        Again::Anew => {
+            // The start's creature as the game starts, with the hero of its first level
+            // and no time played; a sector's as its function runs; a script's boss then
+            // at the hero's level now and more, as a fill's (`0x550E50`).
+            let level = if placement.started {
+                npcs.scripted_level(placement, fight::HERO_LEVEL, 0)
+            } else {
+                npcs.scripted_level(placement, hero, minutes)
+            };
+            let values = npcs.values.get(&at).copied().unwrap_or_default();
+            let big = placement.creature.1 & crowd::BIG != 0;
+            let level = placement.rank.level(level, hero, &values, big, &npcs.fight);
+            spawn(
+                commands,
+                placement,
+                heights,
+                states,
+                assets,
+                (level, &npcs.fight, &npcs.items),
+            )
+        }
+        Again::AtStood(stood) => respawn(
+            commands,
+            placement,
+            stood,
+            (heights, states, assets),
+            (&npcs.fight, &npcs.items),
+        ),
+    };
+    // A door whose trigger is open, as it was left or as the scripts set it while it was
+    // gone, opens as it comes (#952).
+    if placement
+        .trigger
+        .as_ref()
+        .is_some_and(|trigger| npcs.opened.contains(trigger))
+    {
+        commands.entity(entity).insert(Swing::by_script(true));
+    }
+    if kept {
+        let placed = Placed {
+            at,
+            source: Source::Kept(index),
+        };
+        npcs.kept.spawned(&placed);
+        commands.entity(entity).insert(placed);
+    }
+    streamer.adopt(at, entity);
+}
+
 /// Places the NPCs of every sector that came in, as entities of that sector, and marks the cells
 /// that its objects take.
 #[expect(
@@ -2394,6 +2546,18 @@ pub fn place(
     let hero = experience.level;
     let minutes = played.minutes();
     let side = u32::try_from(SIDE).unwrap_or(64);
+    // The placements that the play's scripts made in the sectors in the world (#1014).
+    for index in std::mem::take(&mut npcs.pending) {
+        let (x, y) = npcs.placements[index].cell;
+        place_index(
+            &mut commands,
+            npcs,
+            (index, (x / side, y / side)),
+            (&heights, &states, &assets),
+            (hero, minutes),
+            &mut streamer,
+        );
+    }
     let loaded: Vec<(u32, u32)> = streamer.sectors().collect();
     for &at in &loaded {
         if npcs.spawned.contains(&at) {
@@ -2409,69 +2573,16 @@ pub fn place(
                 }
             }
         }
-        for &index in npcs
-            .by_sector
-            .get(&at)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-        {
-            let placement = &npcs.placements[index];
-            // The start's and the `Init`s' creatures persist; the `Enter`s' are made again.
-            let kept = !placement.object && !placement.made.0;
-            let again = if kept {
-                npcs.kept.again(index)
-            } else {
-                Again::Anew
-            };
-            let entity = match again {
-                Again::Not => continue,
-                Again::Anew => {
-                    // The start's creature as the game starts, with the hero of its first level
-                    // and no time played; a sector's as its function runs; a script's boss then
-                    // at the hero's level now and more, as a fill's (`0x550E50`).
-                    let level = if placement.started {
-                        npcs.scripted_level(placement, fight::HERO_LEVEL, 0)
-                    } else {
-                        npcs.scripted_level(placement, hero, minutes)
-                    };
-                    let values = npcs.values.get(&at).copied().unwrap_or_default();
-                    let big = placement.creature.1 & crowd::BIG != 0;
-                    let level = placement.rank.level(level, hero, &values, big, &npcs.fight);
-                    spawn(
-                        &mut commands,
-                        placement,
-                        &heights,
-                        &states,
-                        &assets,
-                        (level, &npcs.fight, &npcs.items),
-                    )
-                }
-                Again::AtStood(stood) => respawn(
-                    &mut commands,
-                    placement,
-                    stood,
-                    (&heights, &states, &assets),
-                    (&npcs.fight, &npcs.items),
-                ),
-            };
-            // A door whose trigger is open, as it was left or as the scripts set it while it was
-            // gone, opens as it comes (#952).
-            if placement
-                .trigger
-                .as_ref()
-                .is_some_and(|trigger| npcs.opened.contains(trigger))
-            {
-                commands.entity(entity).insert(Swing::by_script(true));
-            }
-            if kept {
-                let placed = Placed {
-                    at,
-                    source: Source::Kept(index),
-                };
-                npcs.kept.spawned(&placed);
-                commands.entity(entity).insert(placed);
-            }
-            streamer.adopt(at, entity);
+        let indices = npcs.by_sector.get(&at).cloned().unwrap_or_default();
+        for index in indices {
+            place_index(
+                &mut commands,
+                npcs,
+                (index, at),
+                (&heights, &states, &assets),
+                (hero, minutes),
+                &mut streamer,
+            );
         }
         // The fills' creatures that live: those that went with the sector come back where they
         // stood, and the sector fills anew only when none lives (`0x4939F0`).
@@ -3649,6 +3760,53 @@ impl Npcs {
             .is_some_and(|name| self.marked.contains(name))
     }
 
+    /// Places the records of the world that the scripts ran during the play (#1014): the places
+    /// of their `DefPos`s, and the creatures and objects of their `CreateNPC`s and `CreateObj`s,
+    /// kept as an `Init`'s and taking their levels as they are made, at once where their sectors
+    /// are in the world ([`place`]), else as they come in; their `SetNPCState`s on the creatures
+    /// they make. How many they placed.
+    pub fn add(&mut self, records: &[Record]) -> Result<usize> {
+        let records: Vec<&Record> = records.iter().collect();
+        self.places.extend(positions(records.iter().copied()));
+        let targets = goto_targets(&records);
+        let side = u32::try_from(SIDE)?;
+        let mut made: HashMap<*const Record, usize> = HashMap::new();
+        for &record in &records {
+            let Body::Operands(ops) = &record.body else {
+                continue;
+            };
+            if record.kind != CREATE_NPC && record.kind != CREATE_OBJ {
+                continue;
+            }
+            let Some(placement) = self.makers.placement(
+                record,
+                ops,
+                Origin::default(),
+                (&self.places, &targets),
+                &mut self.slots,
+            )?
+            else {
+                continue;
+            };
+            let index = self.placements.len();
+            let (x, y) = placement.cell;
+            let at = (x / side, y / side);
+            if record.kind == CREATE_OBJ
+                && let (Some(name), Some(trigger)) = (name_of(ops), placement.trigger.clone())
+            {
+                self.named.insert(name, trigger);
+            }
+            self.by_sector.entry(at).or_default().push(index);
+            self.placements.push(placement);
+            made.insert(std::ptr::from_ref(record), index);
+            if self.spawned.contains(&at) {
+                self.pending.push(index);
+            }
+        }
+        set_states(&records, &made, &mut self.placements);
+        Ok(made.len())
+    }
+
     /// Whether `door`'s trigger is locked (#1006): it opens to nobody (`0x44BCD0`).
     pub fn locked(&self, door: &Door) -> bool {
         door.trigger
@@ -3879,6 +4037,23 @@ fn script_healths(
                 commands.entity(entity).insert(Dies::by_creature(0));
             }
         }
+    }
+}
+
+/// Places the records of the world that the scripts ran during the play (#1014,
+/// [`Npcs::add`]).
+fn script_records(records: Option<ResMut<crate::scripts::WorldRecords>>, mut npcs: ResMut<Npcs>) {
+    let Some(mut records) = records else {
+        return;
+    };
+    let records = std::mem::take(&mut records.0);
+    if records.is_empty() {
+        return;
+    }
+    match npcs.add(&records) {
+        Ok(0) => {}
+        Ok(placed) => bevy::log::info!("npcs: the scripts place {placed} creatures and objects"),
+        Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
 }
 
@@ -4794,6 +4969,7 @@ impl Plugin for NpcsPlugin {
             .add_systems(
                 Update,
                 (
+                    script_records,
                     script_states,
                     script_healths,
                     place,
