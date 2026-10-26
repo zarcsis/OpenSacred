@@ -789,6 +789,13 @@ A value by the level `L` is a pair `(a, b)`, `a + L·b`.
 What each case does lies in its code, not in data: `opensacred-convert tables` holds the 118 cases' values as a table and writes the types' voices into `tables/voices.ron` (`opensacred_data::tables::Voices`).
 The creatures' idle noises (#714) lie in code too, two switches by the type in the sound manager's update (docs/re/sound.md, "The idle noises"): `opensacred-convert tables` holds their cases and writes `tables/idle_noises.ron` (`opensacred_data::tables::IdleNoises`), 311 types as hostile to the hero and 241 as not.
 
+### 6.7 The creatures' portraits in Sacred.exe
+
+**Confirmed** by code 2026-10-26 (#1032; docs/re/netscript.md, "Dialogues"): the function at VA `0x4345C0` gives each creature type the index of its portrait among the interface's images, a switch over two jump tables, the types 1 to 9's at `0x435264` and the types `0x21` to `0x2CA`'s at `0x435288`, with the types `0x20` and `0x17E2` compared alone; every case, its default at `0x43525A` too, is `mov eax, imm32; ret 4`.
+467 types have a case of their own; the others take the default's image 900.
+The interface's images' table at VA `0x9ECEB0` has entries of 0x54 bytes: the index (`u32`, the entry's own), a `u32`, the TGA's name (`char[36]` from `+8`), and from `+0x2C` the rectangle as four `f32`, the left, top, right and bottom pixels, the last two included: the type 1's image 964 is the part (96, 0)–(191, 127) of `GUI_portraitX34.TGA`, whose texture is `texture.pak`'s `gui_portraitx34`.
+`opensacred-convert tables` writes them into `tables/portraits.ron` (`opensacred_data::tables::Portraits`): each type's texture by its name lower-cased and its part's left, top, width and height, and the default's.
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding

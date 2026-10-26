@@ -13,11 +13,13 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::FontSize;
 use bevy_kira_audio::prelude::{Audio, AudioControl};
+use opensacred_data::tables::PORTRAITS;
 use opensacred_rules::minds;
 
 use crate::ai::Mind;
 use crate::attack::{self, Aim};
 use crate::fight::Health;
+use crate::files;
 use crate::frame::{Control, Playing, Step, Unpaused};
 use crate::game::{AppState, FONT};
 use crate::hero::{self, Body, Size};
@@ -70,6 +72,56 @@ pub struct Talking {
     /// How many times the hero has stopped short of the creature.
     stops: u8,
 }
+
+/// The creatures' portraits of the dialogues' window (#1032): the table of `tables/portraits.ron`
+/// and its textures' files by their names; none without the table (assets converted before it).
+#[derive(Resource, Default)]
+pub struct Portraits {
+    table: Option<opensacred_data::tables::Portraits>,
+    files: std::collections::HashMap<String, String>,
+}
+
+impl Portraits {
+    /// Reads `tables/portraits.ron` of `assets` and finds its textures.
+    pub fn read(assets: &std::path::Path) -> anyhow::Result<Self> {
+        let path = assets.join("tables").join(PORTRAITS);
+        if !files::exists(&path) {
+            return Ok(Self::default());
+        }
+        let text = files::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+        let table: opensacred_data::tables::Portraits =
+            ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+        let mut names: Vec<&str> = table
+            .creatures
+            .iter()
+            .map(|c| c.portrait.texture.as_str())
+            .chain([table.default.texture.as_str()])
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        let found = crate::hud::find_textures(assets, &names);
+        let files = names
+            .into_iter()
+            .zip(found)
+            .filter_map(|(name, file)| Some((name.to_owned(), file?)))
+            .collect();
+        Ok(Self {
+            table: Some(table),
+            files,
+        })
+    }
+
+    /// The texture's file of the creature type `creature`'s portrait, and its part: its left,
+    /// top, width and height.
+    fn of(&self, creature: u32) -> Option<(&str, [u16; 4])> {
+        let portrait = self.table.as_ref()?.of(creature);
+        Some((self.files.get(&portrait.texture)?.as_str(), portrait.rect))
+    }
+}
+
+/// A portrait in the window: its texture, and its part, its left, top, width and height.
+type Portrait = (Handle<Image>, [u16; 4]);
 
 /// The dialogue's window while it shows: its root, the creature, and its buttons' functions.
 #[derive(Resource, Clone, Debug)]
@@ -301,12 +353,24 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
     );
     voice(world, &window.sounds);
     let font: Handle<Font> = world.resource::<AssetServer>().load(FONT);
+    // Its portrait by its type (`0x4345C0`, #1032); the hero's own talk shows none.
+    let portrait = world
+        .get::<Mind>(creature)
+        .map(|mind| mind.creature)
+        .and_then(|kind| {
+            let (file, rect) = world.get_resource::<Portraits>()?.of(kind)?;
+            Some((file.to_owned(), rect))
+        })
+        .map(|(file, rect)| {
+            let image = crate::hud::image(world.resource::<AssetServer>(), file);
+            (image, rect)
+        });
     let functions = buttons.iter().map(|(_, f)| f.clone()).collect();
     let text = lines.join("\n");
     let root = spawn_window(
         &mut world.commands(),
         &font,
-        name.as_deref(),
+        (name.as_deref(), portrait),
         &text,
         &buttons,
     );
@@ -378,7 +442,7 @@ fn voice(world: &mut World, sounds: &[String]) {
 fn spawn_window(
     commands: &mut Commands,
     font: &Handle<Font>,
-    name: Option<&str>,
+    (name, portrait): (Option<&str>, Option<Portrait>),
     text: &str,
     buttons: &[(String, String)],
 ) -> Entity {
@@ -406,9 +470,9 @@ fn spawn_window(
                     Node {
                         width: Val::Percent(76.0),
                         max_width: Val::Px(900.0),
-                        flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(12.0),
-                        padding: UiRect::all(Val::Px(18.0)),
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(16.0),
+                        padding: UiRect::all(Val::Px(8.0)),
                         border: UiRect::all(Val::Px(2.0)),
                         ..default()
                     },
@@ -416,16 +480,42 @@ fn spawn_window(
                     BorderColor::all(FRAME),
                 ))
                 .with_children(|panel| {
-                    if let Some(name) = name {
-                        panel.spawn((Text::new(name), words(FONT_SIZE), TextColor(NAME)));
+                    // The portrait, 8 pixels in from the corner (`0x6E76C0`).
+                    if let Some((image, [x, y, w, h])) = portrait {
+                        let (x, y, w, h) = (f32::from(x), f32::from(y), f32::from(w), f32::from(h));
+                        panel.spawn((
+                            ImageNode {
+                                image,
+                                rect: Some(Rect::new(x, y, x + w, y + h)),
+                                ..default()
+                            },
+                            Node {
+                                width: Val::Px(w),
+                                height: Val::Px(h),
+                                flex_shrink: 0.0,
+                                ..default()
+                            },
+                        ));
                     }
-                    panel.spawn((
-                        Text::new(text),
-                        words(FONT_SIZE),
-                        TextColor(WORDS),
-                        TextLayout::justify(Justify::Justified),
-                    ));
                     panel
+                        .spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            flex_grow: 1.0,
+                            row_gap: Val::Px(12.0),
+                            padding: UiRect::all(Val::Px(10.0)),
+                            ..default()
+                        })
+                        .with_children(|panel| {
+                            if let Some(name) = name {
+                                panel.spawn((Text::new(name), words(FONT_SIZE), TextColor(NAME)));
+                            }
+                            panel.spawn((
+                                Text::new(text),
+                                words(FONT_SIZE),
+                                TextColor(WORDS),
+                                TextLayout::justify(Justify::Justified),
+                            ));
+                            panel
                         .spawn(Node {
                             flex_direction: FlexDirection::Row,
                             justify_content: JustifyContent::SpaceEvenly,
@@ -444,6 +534,7 @@ fn spawn_window(
                                         },
                                     );
                             }
+                        });
                         });
                 });
         })

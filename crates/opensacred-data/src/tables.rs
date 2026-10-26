@@ -27,6 +27,7 @@ pub const START_POINTS: &str = "start_points.ron";
 pub const ARTS: &str = "arts.ron";
 pub const VOICES: &str = "voices.ron";
 pub const IDLE_NOISES: &str = "idle_noises.ron";
+pub const PORTRAITS: &str = "portraits.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,6 +150,40 @@ impl Voice {
             7 => self.rolls[3],
             _ => 0,
         }
+    }
+}
+
+/// The creatures' portraits in the dialogues' window, `portraits.ron` (#1032; docs/re/netscript.md,
+/// "Dialogues"): each type's part of a texture of the interface by `Sacred.exe`'s function
+/// `0x4345C0` and its images' table `0x9ECEB0`, and the default's of a type without one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Portraits {
+    pub default: Portrait,
+    pub creatures: Vec<CreaturePortrait>,
+}
+
+/// A creature type's portrait.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreaturePortrait {
+    pub creature: u16,
+    pub portrait: Portrait,
+}
+
+/// A portrait: the texture of `texture.pak` it is a part of, by its name lower-cased
+/// (`gui_portraitx34`), and its part, its left, top, width and height in pixels.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Portrait {
+    pub texture: String,
+    pub rect: [u16; 4],
+}
+
+impl Portraits {
+    /// The portrait of the creature type `creature`, its own or the default.
+    pub fn of(&self, creature: u32) -> &Portrait {
+        self.creatures
+            .iter()
+            .find(|c| u32::from(c.creature) == creature)
+            .map_or(&self.default, |c| &c.portrait)
     }
 }
 

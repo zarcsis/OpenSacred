@@ -338,6 +338,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(ClearColor(Color::BLACK))
     .insert_resource(liquids::Liquids::read(&assets)?)
     .insert_resource(voices::Voices::read(&assets)?)
+    .insert_resource(talk::Portraits::read(&assets)?)
     .insert_resource(sfx::Sfx::new(&sound_index.0))
     .insert_resource(sound_index)
     .insert_resource(hud::Hud {
