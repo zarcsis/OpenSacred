@@ -2,25 +2,22 @@
 //! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles, the column of its
 //! items in Carolingia, gold, lit under the cursor with a glow and fading in as a menu replaces
 //! another, and the Multiplayer and Extras submenus; the items whose screens the game does not
-//! have yet stand greyed (docs/decisions/2026-10-19-menus.md). The choice of the hero is the eight
-//! classes of `--class` with their portraits until #1119; in a paused game (`pause`), Continue,
-//! Main menu and Quit over the frame dimmed. The mouse chooses by pointing and clicking, the
-//! keyboard with the arrows and Enter; Esc goes back a screen. A hero starts a game with the
-//! command line's other options (`game::Request`).
+//! have yet stand greyed (docs/decisions/2026-10-19-menus.md). The Ancaria campaign opens the
+//! choice of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and Quit over
+//! the frame dimmed. The mouse chooses by pointing and clicking, the keyboard with the arrows and
+//! Enter; Esc goes back a screen.
 
 use std::collections::HashMap;
 use std::path::Path;
 
+use crate::game::{AppState, FONT, GOLD};
+use crate::hud;
+use crate::lines::Texts;
+use crate::pause::Play;
 use bevy::picking::events::{PointerClick, PointerEnter};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::FontSize;
-use clap::ValueEnum;
-
-use crate::game::{AppState, Class, FONT, GOLD, Request};
-use crate::hud;
-use crate::lines::Texts;
-use crate::pause::Play;
 
 /// The menu's screen.
 #[derive(SubStates, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -50,7 +47,6 @@ pub enum Item {
     Intro,
     UnderworldIntro,
     Back,
-    Hero(Class),
     Continue,
     MainMenu,
 }
@@ -74,7 +70,7 @@ impl Item {
             Self::Intro => ("UI_MAIN_INTRO", "Intro"),
             Self::UnderworldIntro => ("UI_MAIN_INTRO_UW", "Underworld Intro"),
             Self::Back => ("UI_NET_BACK", "Back"),
-            Self::Hero(_) | Self::Continue | Self::MainMenu => ("", ""),
+            Self::Continue | Self::MainMenu => ("", ""),
         }
     }
 
@@ -150,25 +146,21 @@ pub struct Images {
     /// The main menu's water: its bed, and the portal reflected in it.
     bed: Option<String>,
     reflection: Option<String>,
-    portraits: Vec<Option<String>>,
 }
 
 impl Images {
-    /// Finds the main menu's tiles and water and the portraits among the converted textures.
+    /// Finds the main menu's tiles and water among the converted textures.
     pub fn find(assets: &Path) -> Self {
         let tiles: Vec<String> = (1..=TILES).map(|n| format!("gui_uw_option{n}")).collect();
         let mut names: Vec<&str> = tiles.iter().map(String::as_str).collect();
         names.extend(["ui_uw_main_center", "ui_uw_main_ref"]);
-        names.extend(classes().iter().map(|class| class.portrait()));
         let mut found = hud::find_textures(assets, &names);
-        let portraits = found.split_off(tiles.len() + 2);
         let reflection = found.pop().flatten();
         let bed = found.pop().flatten();
         Self {
             main: found,
             bed,
             reflection,
-            portraits,
         }
     }
 }
@@ -178,12 +170,13 @@ impl Images {
 pub struct Words(HashMap<&'static str, String>);
 
 impl Words {
-    /// The words of the menus' items among the texts of `assets`.
+    /// The words of the menus' items and of the choice of the hero among the texts of `assets`.
     pub fn read(assets: &Path) -> Self {
         let texts = Texts::read(assets);
         let names = [Screen::Main, Screen::Multiplayer, Screen::Extras]
             .into_iter()
-            .flat_map(|screen| rows(screen).iter().map(|&(item, _)| item.text().0));
+            .flat_map(|screen| rows(screen).iter().map(|&(item, _)| item.text().0))
+            .chain(crate::choice::names());
         Self(
             names
                 .filter_map(|name| Some((name, texts.named(name)?.to_owned())))
@@ -194,24 +187,40 @@ impl Words {
     /// What `item` says.
     fn of(&self, item: Item) -> &str {
         let (name, word) = item.text();
-        self.0.get(name).map_or(word, String::as_str)
+        self.get(name).unwrap_or(word)
+    }
+
+    /// The text named `name`, if the game's texts have it.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.get(name).map(String::as_str)
     }
 }
 
 /// The tiles of the main menu's picture, and their side.
 const TILES: usize = 12;
 const TILE: f32 = 256.0;
-/// The original's screen, which the main menu's picture fills.
-const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
-/// The main menu's water: the band at the picture's foot that shows it, the rows of the bed's and
-/// the reflection's textures of 1024 × 1024 squeezed into it, the reflection's opacity and the
-/// veil over both, matched by eye to the original's frames.
-const WATER: f32 = 128.0;
+/// The original's screen, which the menus' pictures fill.
+pub const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
+/// How a menu's water shows: the row where its band at the picture's foot starts, the rows of
+/// the bed's and the reflection's textures of 1024 × 1024 squeezed into it, the reflection's
+/// opacity and the veil over both, matched by eye to the original's frames.
+pub struct Water {
+    pub top: f32,
+    pub bed: (f32, f32),
+    pub reflection: (f32, f32),
+    pub reflection_alpha: f32,
+    pub veil: Color,
+}
+
+/// The main menu's water.
+const MAIN_WATER: Water = Water {
+    top: 640.0,
+    bed: (634.0, 914.0),
+    reflection: (560.0, 1024.0),
+    reflection_alpha: 0.65,
+    veil: Color::linear_rgba(0.78, 0.84, 0.84, 0.08),
+};
 const WATER_TEXTURE: f32 = 1024.0;
-const BED: (f32, f32) = (634.0, 914.0);
-const REFLECTION: (f32, f32) = (560.0, 1024.0);
-const REFLECTION_ALPHA: f32 = 0.65;
-const VEIL: Color = Color::linear_rgba(0.78, 0.84, 0.84, 0.08);
 /// The main menu's row 0's centre, the rows' pitch, and the items' size in Carolingia.
 const FIRST_ROW: f32 = 287.0;
 const ROW: f32 = 32.0;
@@ -234,21 +243,12 @@ const FADE: f32 = 0.25;
 const VERSION_SIZE: f32 = 12.0;
 const VERSION: Color = Color::linear_rgb(0.85, 0.85, 0.85);
 
-/// The size of the hero choice's text on the original's 768-pixel-high screen (`hud`).
+/// The size of the pause's items on the original's 768-pixel-high screen (`hud`), and their
+/// colour not chosen, in the frame's sRGB values.
 const TITLE: f32 = 40.0;
-const NAME: f32 = 18.0;
-/// The portraits' side.
-const PORTRAIT: f32 = 112.0;
-/// The colour of the heroes not chosen and of the pause's items, in the frame's sRGB values.
 const DIM: Color = Color::linear_rgb(0.5, 0.42, 0.27);
-const FRAME: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.0);
 /// What the pause's menu lays over the frame.
 const SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.6);
-
-/// The classes in the order of the screen: `--class`'s.
-fn classes() -> &'static [Class] {
-    Class::value_variants()
-}
 
 /// An item's node, chosen when the mouse enters it and done when it is clicked, if it does
 /// anything yet.
@@ -310,24 +310,13 @@ fn main_screen(
                 ..default()
             })
             .with_children(|picture| {
-                water(picture, &images, &assets);
-                let places = (0..3u8).flat_map(|row| (0..4u8).map(move |column| (column, row)));
-                for (tile, (column, row)) in images.main.iter().zip(places) {
-                    let Some(tile) = tile else {
-                        continue;
-                    };
-                    picture.spawn((
-                        ImageNode::new(hud::image(&assets, tile.clone())),
-                        Node {
-                            position_type: PositionType::Absolute,
-                            left: Val::Px(TILE * f32::from(column)),
-                            top: Val::Px(TILE * f32::from(row)),
-                            width: Val::Px(TILE),
-                            height: Val::Px(TILE),
-                            ..default()
-                        },
-                    ));
-                }
+                water(
+                    picture,
+                    [&images.bed, &images.reflection],
+                    &assets,
+                    &MAIN_WATER,
+                );
+                tiles(picture, &images.main, &assets);
                 for (place, &(entry, row)) in items.iter().enumerate() {
                     picture
                         .spawn(Node {
@@ -392,21 +381,48 @@ fn main_screen(
         });
 }
 
-/// The main menu's water under the bottom tiles, which leave it clear below the row 652: its bed,
-/// the portal reflected over it and a pale veil, still, as the original's plane of water looks
-/// from the screen (`ui_uw_main_center`, `ui_uw_main_ref`; docs/decisions/2026-10-19-menus.md).
-fn water(picture: &mut ChildSpawnerCommands, images: &Images, assets: &AssetServer) {
+/// A picture of 12 tiles, four to a row from the top left.
+pub fn tiles(picture: &mut ChildSpawnerCommands, tiles: &[Option<String>], assets: &AssetServer) {
+    let places = (0..3u8).flat_map(|row| (0..4u8).map(move |column| (column, row)));
+    for (tile, (column, row)) in tiles.iter().zip(places) {
+        let Some(tile) = tile else {
+            continue;
+        };
+        picture.spawn((
+            ImageNode::new(hud::image(assets, tile.clone())),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(TILE * f32::from(column)),
+                top: Val::Px(TILE * f32::from(row)),
+                width: Val::Px(TILE),
+                height: Val::Px(TILE),
+                ..default()
+            },
+        ));
+    }
+}
+
+/// A menu's water under the bottom tiles, which leave the main menu's clear below the row 652:
+/// its bed, what stands over it reflected and a pale veil, still, as the original's plane of water
+/// looks from the screen (`ui_uw_main_center`, `ui_uw_main_ref` and the choice of the hero's;
+/// docs/decisions/2026-10-19-menus.md).
+pub fn water(
+    picture: &mut ChildSpawnerCommands,
+    [bed, reflection]: [&Option<String>; 2],
+    assets: &AssetServer,
+    water: &Water,
+) {
     let band = Node {
         position_type: PositionType::Absolute,
         left: Val::Px(0.0),
-        top: Val::Px(SCREEN.y - WATER),
+        top: Val::Px(water.top),
         width: Val::Px(SCREEN.x),
-        height: Val::Px(WATER),
+        height: Val::Px(SCREEN.y - water.top),
         ..default()
     };
     for (texture, rows, alpha) in [
-        (&images.bed, BED, 1.0),
-        (&images.reflection, REFLECTION, REFLECTION_ALPHA),
+        (bed, water.bed, 1.0),
+        (reflection, water.reflection, water.reflection_alpha),
     ] {
         if let Some(texture) = texture {
             let mut image = ImageNode::new(hud::image(assets, texture.clone()))
@@ -416,7 +432,7 @@ fn water(picture: &mut ChildSpawnerCommands, images: &Images, assets: &AssetServ
             picture.spawn((image, band.clone()));
         }
     }
-    picture.spawn((BackgroundColor(VEIL), band));
+    picture.spawn((BackgroundColor(water.veil), band));
 }
 
 /// Items of a word each, in order.
@@ -478,92 +494,9 @@ fn pause_screen(
         });
 }
 
-fn heroes_screen(
-    mut commands: Commands,
-    images: Res<Images>,
-    assets: Res<AssetServer>,
-    mut chosen: ResMut<Chosen>,
-) {
-    chosen.0 = 0;
-    let font: Handle<Font> = assets.load(FONT);
-    commands
-        .spawn((
-            DespawnOnExit(Screen::Heroes),
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                row_gap: Val::Px(32.0),
-                ..default()
-            },
-        ))
-        .with_children(|column| {
-            column.spawn((
-                Text::new("Choose your hero"),
-                TextFont {
-                    font: font.clone().into(),
-                    font_size: FontSize::Px(TITLE),
-                    ..default()
-                },
-                TextColor(GOLD),
-            ));
-            column
-                .spawn(Node {
-                    flex_direction: FlexDirection::Row,
-                    column_gap: Val::Px(12.0),
-                    ..default()
-                })
-                .with_children(|row| {
-                    for (place, class) in classes().iter().enumerate() {
-                        let portrait = images.portraits.get(place).cloned().flatten();
-                        item(
-                            row,
-                            Item::Hero(*class),
-                            place,
-                            (
-                                Node {
-                                    flex_direction: FlexDirection::Column,
-                                    align_items: AlignItems::Center,
-                                    padding: UiRect::all(Val::Px(4.0)),
-                                    border: UiRect::all(Val::Px(3.0)),
-                                    row_gap: Val::Px(6.0),
-                                    ..default()
-                                },
-                                BorderColor::all(FRAME),
-                            ),
-                        )
-                        .with_children(|card| {
-                            if let Some(portrait) = portrait {
-                                card.spawn((
-                                    ImageNode::new(hud::image(&assets, portrait)),
-                                    Node {
-                                        width: Val::Px(PORTRAIT),
-                                        height: Val::Px(PORTRAIT),
-                                        ..default()
-                                    },
-                                ));
-                            }
-                            card.spawn((
-                                Text::new(class.name()),
-                                TextFont {
-                                    font: font.clone().into(),
-                                    font_size: FontSize::Px(NAME),
-                                    ..default()
-                                },
-                                TextColor(DIM),
-                            ));
-                        });
-                    }
-                });
-        });
-}
-
 /// Does what `item` does; an item that does nothing yet does nothing.
 fn act(
     In(item): In<Item>,
-    mut request: ResMut<Request>,
     mut screen: ResMut<NextState<Screen>>,
     mut state: ResMut<NextState<AppState>>,
     play: Option<ResMut<NextState<Play>>>,
@@ -576,10 +509,6 @@ fn act(
         Item::Back => screen.set(Screen::Main),
         Item::Quit => {
             exit.write(AppExit::Success);
-        }
-        Item::Hero(class) => {
-            request.0.class = Some(class);
-            state.set(AppState::Loading);
         }
         Item::Continue => {
             if let Some(mut play) = play {
@@ -609,6 +538,11 @@ fn keys(
     mut chosen: ResMut<Chosen>,
     items: Query<(&Item, &Place)>,
 ) {
+    let pressed = |codes: &[KeyCode]| keys.any_just_pressed(codes.iter().copied());
+    if pressed(&[KeyCode::Escape]) && screen.is_some_and(|screen| *screen.get() != Screen::Main) {
+        next.set(Screen::Main);
+        return;
+    }
     let mut places: Vec<usize> = items
         .iter()
         .filter(|(item, _)| item.works())
@@ -618,7 +552,6 @@ fn keys(
         return;
     }
     places.sort_unstable();
-    let pressed = |codes: &[KeyCode]| keys.any_just_pressed(codes.iter().copied());
     let at = places.iter().position(|&place| place == chosen.0);
     let count = places.len();
     if pressed(&[KeyCode::ArrowDown, KeyCode::ArrowRight]) {
@@ -634,19 +567,10 @@ fn keys(
     {
         commands.run_system_cached_with(act, *item);
     }
-    if pressed(&[KeyCode::Escape]) && screen.is_some_and(|screen| *screen.get() != Screen::Main) {
-        next.set(Screen::Main);
-    }
 }
 
-/// An item's place, its children, and its text or frame.
-type Lit = (
-    &'static Item,
-    &'static Place,
-    Option<&'static Children>,
-    Option<&'static mut TextColor>,
-    Option<&'static mut BorderColor>,
-);
+/// A pause's item, and its text.
+type Lit = (&'static Item, &'static Place, &'static mut TextColor);
 
 /// A main menu's item, its text's outline and its glow.
 type Gilt = (
@@ -658,15 +582,14 @@ type Gilt = (
 );
 
 /// Lights the item chosen: a main menu's in near white with a glow behind it, the others gold
-/// and the ones that do nothing yet grey, all fading in as their screen shows; a hero's frame and
-/// name, or a pause's item, in gold.
+/// and the ones that do nothing yet grey, all fading in as their screen shows; a pause's item in
+/// gold.
 fn light(
     time: Res<Time>,
     chosen: Res<Chosen>,
     mut shown: ResMut<Shown>,
     mut gilded: Query<Gilt, With<Gilded>>,
     items: Query<Lit, Without<Gilded>>,
-    mut texts: Query<&mut TextColor, (Without<Item>, Without<Gilded>)>,
 ) {
     shown.0 += time.delta_secs();
     let alpha = (shown.0 / FADE).clamp(0.0, 1.0);
@@ -689,20 +612,8 @@ fn light(
             };
         }
     }
-    for (_, place, children, text, border) in items {
-        let on = place.0 == chosen.0;
-        let colour = if on { GOLD } else { DIM };
-        if let Some(mut text) = text {
-            text.0 = colour;
-        }
-        if let Some(mut border) = border {
-            *border = BorderColor::all(if on { GOLD } else { FRAME });
-        }
-        for child in children.into_iter().flatten() {
-            if let Ok(mut text) = texts.get_mut(*child) {
-                text.0 = colour;
-            }
-        }
+    for (_, place, mut text) in items {
+        text.0 = if place.0 == chosen.0 { GOLD } else { DIM };
     }
 }
 
@@ -712,7 +623,7 @@ fn shown(app: Option<Res<State<AppState>>>, play: Option<Res<State<Play>>>) -> b
         || play.is_some_and(|play| *play.get() == Play::Paused)
 }
 
-/// The main menu, its submenus, the choice of the hero, the pause's menu and their keys.
+/// The main menu, its submenus, the pause's menu and their keys.
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
@@ -725,7 +636,6 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(Screen::Main), main_screen)
             .add_systems(OnEnter(Screen::Multiplayer), main_screen)
             .add_systems(OnEnter(Screen::Extras), main_screen)
-            .add_systems(OnEnter(Screen::Heroes), heroes_screen)
             .add_systems(OnEnter(Play::Paused), pause_screen)
             .add_systems(
                 Update,
@@ -739,6 +649,7 @@ impl Plugin for MenuPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::Request;
 
     fn press(app: &mut App, key: KeyCode) {
         app.world_mut()
@@ -784,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn the_campaign_then_a_hero_loads_a_game_of_that_class_and_esc_goes_back() {
+    fn the_campaign_opens_the_choice_of_the_hero_and_esc_goes_back() {
         let mut app = menu_app();
         assert_eq!(screen(&app), Screen::Main);
         assert_eq!(
@@ -801,21 +712,8 @@ mod tests {
         );
         press(&mut app, KeyCode::Enter);
         assert_eq!(screen(&app), Screen::Heroes);
-        assert_eq!(items(&mut app).len(), 8);
         press(&mut app, KeyCode::Escape);
         assert_eq!(screen(&app), Screen::Main);
-        press(&mut app, KeyCode::Enter);
-        // Left of the first hero is the last, the Vampiress; three right of it, the Mage.
-        press(&mut app, KeyCode::ArrowLeft);
-        for _ in 0..3 {
-            press(&mut app, KeyCode::ArrowRight);
-        }
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(
-            *app.world().resource::<State<AppState>>().get(),
-            AppState::Loading
-        );
-        assert_eq!(app.world().resource::<Request>().0.class, Some(Class::Mage));
     }
 
     #[test]

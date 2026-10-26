@@ -2712,41 +2712,19 @@ impl Npcs {
             );
         }
         let pools = pools(&records);
-        // A fixed item, a record of `Weapon.pak` without an `items.pak` slot of its own, as the
-        // heroes' templates' are, takes its parent's (`+0x24`), its model and its category, as the
-        // client copies the parent's definition into the child (docs/02 §6.2; #488).
-        let parents: HashMap<u32, u32> = weapons.iter().map(|w| (w.id, w.parent)).collect();
-        let record = |slot: u32| {
-            std::iter::successors(Some(slot), |slot| {
-                parents.get(slot).copied().filter(|&parent| parent != 0)
-            })
-            .take(8)
-            .find_map(|slot| items.get(&slot).copied())
-        };
         // The pools' items, the weapons that an archer takes to melee and back (#396), and the
         // hero's (#486).
-        let gear = pools
-            .values()
-            .flatten()
-            .chain(&opensacred_rules::minds::SWITCHED)
-            .chain(worn)
-            .filter_map(|&slot| {
-                let item = record(slot)?;
-                let gear = Gear {
-                    category: category(item),
-                    kind: kinds.get(&slot).copied(),
-                    model: models.get(&item.name.to_ascii_uppercase()).cloned(),
-                    texture: match item.words_08[0] {
-                        0 | FX_OPAQUE => None,
-                        number => textures.get(&number).cloned(),
-                    },
-                    counts: item.byte_03 & 2 == 0,
-                    sound: items.get(&slot).map_or(0, |own| own.sound()),
-                    size: arrows::size(item.words_14[0]),
-                };
-                Some((slot, gear))
-            })
-            .collect();
+        let gear = gear_table(
+            &items,
+            weapons,
+            &kinds,
+            (&models, &textures),
+            pools
+                .values()
+                .flatten()
+                .chain(&opensacred_rules::minds::SWITCHED)
+                .chain(worn),
+        );
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
         for (index, placement) in placements.iter().enumerate() {
@@ -3016,6 +2994,79 @@ impl Npcs {
             .count();
         (self.placements.len() - objects, objects, closed)
     }
+}
+
+/// The gear of the items of the types `slots`, which are their `items.pak` slots: a fixed item,
+/// a record of `Weapon.pak` without an `items.pak` slot of its own, as the heroes' templates' are,
+/// takes its parent's (`+0x24`), its model and its category, as the client copies the parent's
+/// definition into the child (docs/02 §6.2; #488).
+fn gear_table<'a>(
+    items: &HashMap<u32, &Item>,
+    weapons: &[opensacred_data::tables::Weapon],
+    kinds: &HashMap<u32, u8>,
+    (models, textures): (&HashMap<String, String>, &HashMap<u32, String>),
+    slots: impl IntoIterator<Item = &'a u32>,
+) -> HashMap<u32, Gear> {
+    let parents: HashMap<u32, u32> = weapons.iter().map(|w| (w.id, w.parent)).collect();
+    let record = |slot: u32| {
+        std::iter::successors(Some(slot), |slot| {
+            parents.get(slot).copied().filter(|&parent| parent != 0)
+        })
+        .take(8)
+        .find_map(|slot| items.get(&slot).copied())
+    };
+    slots
+        .into_iter()
+        .filter_map(|&slot| {
+            let item = record(slot)?;
+            let gear = Gear {
+                category: category(item),
+                kind: kinds.get(&slot).copied(),
+                model: models.get(&item.name.to_ascii_uppercase()).cloned(),
+                texture: match item.words_08[0] {
+                    0 | FX_OPAQUE => None,
+                    number => textures.get(&number).cloned(),
+                },
+                counts: item.byte_03 & 2 == 0,
+                sound: items.get(&slot).map_or(0, |own| own.sound()),
+                size: arrows::size(item.words_14[0]),
+            };
+            Some((slot, gear))
+        })
+        .collect()
+}
+
+/// What a hero of the items `worn`, its template's, holds as a figure of the choice of the hero
+/// (`choice`, #1119): the class of what is in its hands, and their models and hands, as
+/// [`Npcs::hero_gear`] gives the hero's in a game, without the rest that a game reads; `files`
+/// are the models' and the textures' ([`model_files`], [`texture_files`]).
+pub fn figure_gear(
+    tables: &crate::tables::Tables,
+    files: (&HashMap<String, String>, &HashMap<u32, String>),
+    worn: &[Worn],
+) -> Result<(u8, Vec<Held>)> {
+    let items: HashMap<u32, &Item> = tables.items()?.iter().map(|i| (i.slot, i)).collect();
+    let weapons = tables.weapons()?;
+    let kinds: HashMap<u32, u8> = weapons.iter().map(|w| (w.id, w.bytes_1c[2])).collect();
+    let slots: Vec<u32> = worn.iter().map(|worn| worn.item).collect();
+    let gear = gear_table(&items, weapons, &kinds, files, &slots);
+    let holding = InHand::of(worn.iter().filter_map(|worn| {
+        let gear = gear.get(&worn.item)?;
+        Some((worn.item, gear.category, gear.kind))
+    }));
+    let held = holding
+        .iter()
+        .filter_map(|held| {
+            let gear = gear.get(&held.item)?;
+            Some(Held {
+                model: gear.model.clone()?,
+                texture: gear.texture.clone(),
+                hand: held.hand,
+                shield: held.category == SHIELD,
+            })
+        })
+        .collect();
+    Ok((class_of(&holding), held))
 }
 
 /// The horses' `Creature.pak` class, whose level `CreateNPC` raises by the hero's riding

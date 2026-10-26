@@ -65,20 +65,6 @@ impl Class {
         }
     }
 
-    /// The texture of the class's portrait: `gui_qbp_<class>` of `texture.pak`.
-    pub fn portrait(self) -> &'static str {
-        match self {
-            Class::Seraphim => "gui_qbp_sera",
-            Class::Gladiator => "gui_qbp_glad",
-            Class::Mage => "gui_qbp_mage",
-            Class::WoodElf => "gui_qbp_welf",
-            Class::DarkElf => "gui_qbp_delf",
-            Class::Daemon => "gui_qbp_dae",
-            Class::Dwarf => "gui_qbp_dwa",
-            Class::Vampiress => "gui_qbp_vamp",
-        }
-    }
-
     /// The hero's script tree (`netscript/<tree>.nsc`), whose start script places the hero and
     /// whose scripts the NPCs and the objects (`npcs`).
     fn tree(self) -> &'static str {
@@ -112,7 +98,7 @@ impl Class {
     }
 
     /// The model's `.GRN` name, the idle, walk and run clips and the footstep profile.
-    fn preset(self) -> (&'static str, [&'static str; 3], &'static str) {
+    pub fn preset(self) -> (&'static str, [&'static str; 3], &'static str) {
         const FEMALE: &str = "footsteps_hero_female";
         const MALE: &str = "footsteps_hero_male";
         match self {
@@ -210,6 +196,9 @@ pub struct NewGame {
     /// The time of day at the start, as HH:MM (08:00, as in the original)
     #[arg(long, value_parser = daynight::parse_time)]
     pub time: Option<daynight::Clock>,
+    /// The hero's name (by default the class's own, as the choice of the hero gives it)
+    #[arg(long)]
+    pub name: Option<String>,
 }
 
 impl NewGame {
@@ -338,7 +327,7 @@ fn creature_types(tables: &Tables) -> Result<std::collections::HashSet<u32>> {
 
 /// The template of the hero of `class` (`heroes.ron`, docs/02 §9): the items it wears and holds
 /// at the start and its combat arts; none where the index or the class's template is lacking.
-fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
+pub fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
     files::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
         .ok()
         .and_then(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text).ok())

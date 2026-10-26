@@ -15,6 +15,7 @@ mod bolts;
 mod breath;
 mod buildings;
 mod burns;
+mod choice;
 mod command;
 mod console;
 mod crowd;
@@ -275,9 +276,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
-        command::CommandPlugin,
+        choice::ChoicePlugin,
     ))
     .add_plugins((
+        command::CommandPlugin,
         console::ConsolePlugin,
         crowd::CrowdPlugin,
         daemon::DaemonPlugin,
@@ -292,9 +294,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         game::GamePlugin,
         glance::GlancePlugin,
         guns::GunsPlugin,
-        help::HelpPlugin,
     ))
     .add_plugins((
+        help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
@@ -309,9 +311,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
-        pause::PausePlugin,
     ))
     .add_plugins((
+        pause::PausePlugin,
         pickup::PickupPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
@@ -326,8 +328,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         talk::TalkPlugin,
-        terrain::GroundPlugin,
     ))
+    .add_plugins((terrain::GroundPlugin,))
     .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
@@ -351,6 +353,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     })
     .insert_resource(menu::Images::find(&assets))
     .insert_resource(menu::Words::read(&assets))
+    .insert_resource(choice::Images::find(&assets))
     .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(
         Update,
