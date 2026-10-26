@@ -231,6 +231,15 @@ Not read: the quests' hook of the event 5, and what the hero's list at `+0x39C` 
 `opensacred-game` runs them since #1002 (`scripts`): the scripts' state keeps the places of `DefPos` and the boxes, the runtime lives on through the play, and as the hero's cell changes on its way (not by a teleport) the trigger of its cell runs its functions, found by their names; their `Teleport`s of the hero put it on the cell and layer they name, and their other records of the world are not followed yet (docs/decisions/2026-10-26-script-teleports.md).
 In the Seraphim's tree the hero so goes into the caves and the dungeons by their entrances and out by their exits: into 2.3 by 3047,2892 to 4086,83 and out by 4083,83 to 3042,2892.
 
+## `SetHP`
+
+Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless marked otherwise.
+
+- `SetHP` (52, the walker's case `0x4758F7`, `0x48E280`) takes a creature's name (its last `01`; `hero`, without regard to case, or none the local player's hero) and a number (its last `0B`), held to 0..100.
+- Where the creature's most health is below 1 it is first set to `(level + 1)·100`; its health then becomes `most·n/100`, truncated, and a creature that has health and is not alive (`0x549080`) stops its motion; its byte `+0x4CF` is set (not read).
+- So quest 201's horse 18007 (creature 551, `Region2Init`'s `SetHP` of 50) stands at 37 of its 75, as the original's driver showed (#585), and a `SetHP` of 0 leaves a creature without health: the quests kill their targets so (1202's `QIS_OnEnter1202` and its timer).
+- `opensacred-game` follows it since #1001 (`scripts`, `npcs`): the start's, the regions' and the sectors' `SetHP`s give the placement they name its share as it is made, and those of the play the creatures of that name in the world, or the hero, a creature left without health dying as by no player's hand (it drops nothing; that the original's drops nothing is a **hypothesis**).
+
 ## The community's quest defects
 
 Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.

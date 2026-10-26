@@ -79,6 +79,7 @@ use crate::{
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
 const SET_NPC_STATE: u16 = 3;
+const SET_HP: u16 = 52;
 /// The operand of a `CreateNPC` or a `SetNPCState` that names its dialogue, and that of a
 /// `SetNPCState` that gives its number (`0x48BB40`).
 const DIALOGUE: u8 = 0x09;
@@ -202,6 +203,10 @@ struct Placement {
     plain: bool,
     /// The clips an NPC plays.
     clips: ClipNames,
+    /// An NPC's name in the scripts (`CreateNPC`'s `0x01`, lower-cased), by which their records
+    /// name it, and the share of its most health that a `SetHP` gave it, in per cent (#1001).
+    name: Option<String>,
+    health_share: Option<u32>,
 }
 
 /// The clips an NPC plays, by name (`motions`): standing, walking where a script sends it,
@@ -471,6 +476,8 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         tag: 0,
         clips: ClipNames::of(slots, held_class(&[])),
         plain: false,
+        name: None,
+        health_share: None,
     }
 }
 
@@ -1393,6 +1400,24 @@ fn set_states(
                     }
                 }
             }
+            // A share of its most health, the last `0B` held to 0..100 (`0x48E280`, #1001).
+            SET_HP => {
+                let Some(indices) = name_of(ops).and_then(|name| named.get(&name)) else {
+                    continue;
+                };
+                let share = ops
+                    .iter()
+                    .filter_map(|o| match (o.tag, &o.value) {
+                        (0x0B, Value::I32(v)) => u32::try_from((*v).clamp(0, 100)).ok(),
+                        _ => None,
+                    })
+                    .next_back();
+                for &index in indices {
+                    if let Some(placement) = placements.get_mut(index) {
+                        placement.health_share = share;
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1817,6 +1842,8 @@ impl Npcs {
                 tag,
                 clips,
                 plain: false,
+                name: (record.kind == CREATE_NPC).then(|| name_of(ops)).flatten(),
+                health_share: None,
             });
             made.insert(std::ptr::from_ref(*record), placements.len() - 1);
         }
@@ -2857,11 +2884,18 @@ fn spawn(
         } else {
             fight::most_health(placement.base.attributes, grade, &skills, rank, rules)
         };
+        // A `SetHP`'s share of it (`0x48E280`, #1001), truncated.
+        let current = placement
+            .health_share
+            .map_or(most, |share| most * share / 100);
         entity.insert(fight::Health {
-            current: most,
+            current,
             most,
             level: grade,
         });
+        if let Some(name) = &placement.name {
+            entity.insert(ScriptName(name.clone()));
+        }
         // Its attack, defence, damage and resistances with the values of its items, made at its
         // level (`0x5D5080`), the same each time it is made, its hits' share, and its
         // regeneration.
@@ -3782,6 +3816,48 @@ fn open_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str, open: bool) 
     }
 }
 
+/// An NPC's name in the scripts, by which their records name it (`CreateNPC`'s `0x01`,
+/// lower-cased).
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct ScriptName(pub String);
+
+/// Carries out the scripts' `SetHP`s (`0x48E280`, #1001): the creatures of the name, the hero for
+/// none, take the share of their most health, truncated; a creature of none dies, as by no
+/// player's hand (it drops nothing).
+fn script_healths(
+    mut commands: Commands,
+    healths: Option<ResMut<crate::scripts::Healths>>,
+    mut creatures: Query<(Entity, &ScriptName, &mut fight::Health), Without<Dies>>,
+    mut heroes: Query<&mut fight::Health, (With<hero::Body>, Without<ScriptName>)>,
+) {
+    let Some(mut healths) = healths else {
+        return;
+    };
+    for set in std::mem::take(&mut healths.0) {
+        let Some(name) = &set.name else {
+            for mut health in &mut heroes {
+                health.current = health.most * set.share / 100;
+            }
+            bevy::log::info!("npcs: the scripts set the hero's health to {} %", set.share);
+            continue;
+        };
+        for (entity, named, mut health) in &mut creatures {
+            if &named.0 != name {
+                continue;
+            }
+            health.current = health.most * set.share / 100;
+            bevy::log::info!(
+                "npcs: the scripts set {name}'s health to {}/{}",
+                health.current,
+                health.most
+            );
+            if health.current == 0 {
+                commands.entity(entity).insert(Dies::by_creature(0));
+            }
+        }
+    }
+}
+
 /// Carries out the scripts' `SetObjState`s (`0x48AE90`, #952): each names an object, whose
 /// trigger it bars or unbars and opens or closes, its doors in the world turning with it. The
 /// state goes to the trigger by the object's name whether the object is in the world or gone
@@ -4695,6 +4771,7 @@ impl Plugin for NpcsPlugin {
                 Update,
                 (
                     script_states,
+                    script_healths,
                     place,
                     rearm,
                     animate,
@@ -5340,6 +5417,55 @@ mod tests {
         assert_eq!(position(ops, &named), Some((3370, 2524, 0)));
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
+    }
+
+    #[test]
+    fn a_set_hp_gives_its_creature_a_share_of_its_most_health() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        // Quest 201's horse in `Region2Init` (#1001), and a share past 100 held to it.
+        let records = [
+            record(
+                CREATE_NPC,
+                vec![
+                    op(0x01, Value::Str("Res:18007".into())),
+                    op(0x02, Value::I32(551)),
+                ],
+            ),
+            record(
+                SET_HP,
+                vec![
+                    op(0x01, Value::Str("res:18007".into())),
+                    op(0x0B, Value::I32(50)),
+                ],
+            ),
+            record(
+                CREATE_NPC,
+                vec![
+                    op(0x01, Value::Str("strong".into())),
+                    op(0x02, Value::I32(551)),
+                ],
+            ),
+            record(
+                SET_HP,
+                vec![
+                    op(0x01, Value::Str("strong".into())),
+                    op(0x0B, Value::I32(250)),
+                ],
+            ),
+        ];
+        let made = HashMap::from([
+            (std::ptr::from_ref(&records[0]), 0),
+            (std::ptr::from_ref(&records[2]), 1),
+        ]);
+        let records: Vec<&Record> = records.iter().collect();
+        let mut placements = vec![Placement::default(), Placement::default()];
+        set_states(&records, &made, &mut placements);
+        assert_eq!(placements[0].health_share, Some(50));
+        assert_eq!(placements[1].health_share, Some(100));
     }
 
     #[test]
