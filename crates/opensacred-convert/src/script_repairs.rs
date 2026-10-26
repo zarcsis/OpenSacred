@@ -39,6 +39,8 @@ const ELSEIF: u16 = 66;
 const SET_GROUP_STATE: u16 = 73;
 /// `SetVarBit`.
 const SET_VAR_BIT: u16 = 68;
+/// `ReplaceSpawn`.
+const REPLACE_SPAWN: u16 = 96;
 const INFO_PLAYER: u16 = 132;
 
 /// A start script's `TriggerPatch` whose last cell (`0x2A`) runs past its record's end, so that the
@@ -190,7 +192,7 @@ pub struct Addition {
 }
 
 /// The repairs of functions that `netscript` makes.
-pub const EDITS: [Edit; 25] = [
+pub const EDITS: [Edit; 28] = [
     Edit {
         what: "quest 10260's item named (#957)",
         function: "fillchest_chestQJ_03",
@@ -315,6 +317,21 @@ pub const EDITS: [Edit; 25] = [
         what: "quest 501's ghosts in a group of their own (#951)",
         function: "QIS_OnEnter501",
         edit: |records| ghosts_apart(records),
+    },
+    Edit {
+        what: "area 2's fills turned back by quest 72 (#1068)",
+        function: "BadToGood",
+        edit: area_two_back,
+    },
+    Edit {
+        what: "quest 50's undead of area 8 hostile (#1068)",
+        function: "Dialog:DlgHologram50",
+        edit: |records| sided(records, [35, 48], "8"),
+    },
+    Edit {
+        what: "quest 61's skeleton warriors of area 9 hostile (#1068)",
+        function: "ElementAbfrage",
+        edit: |records| sided(records, [257, 32], "9"),
     },
 ];
 
@@ -812,6 +829,75 @@ fn baron(records: &mut Vec<Record>) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether `record` is a `ReplaceSpawn` of the area `area` (`0x69`).
+fn spawn_of(record: &Record, area: &str) -> bool {
+    record.kind == REPLACE_SPAWN && has(record, 0x69, &text(area))
+}
+
+/// 45's `GoodToBad` swaps the soldiers for the hostile ones in the fills of the areas 2, 4, 5, 7,
+/// 11 and 24, and 72's `BadToGood` swaps them back in the areas 4 to 7, 11 and 24, not in 2, so
+/// that area 2's fills keep the hostile soldiers for good: `BadToGood` swaps area 2's back as it
+/// does area 4's, its five `ReplaceSpawn`s of area 4 written again for area 2 before them.
+fn area_two_back(records: &mut Vec<Record>) -> Result<(), String> {
+    if records.iter().any(|r| spawn_of(r, "2")) {
+        return Err("no ReplaceSpawn of area 2".to_owned());
+    }
+    let first = records
+        .iter()
+        .position(|r| spawn_of(r, "4"))
+        .ok_or_else(|| "the ReplaceSpawns of area 4".to_owned())?;
+    let twos: Vec<Record> = records
+        .iter()
+        .filter(|r| spawn_of(r, "4"))
+        .cloned()
+        .map(|mut record| {
+            if let Body::Operands(ops) = &mut record.body {
+                for o in ops.iter_mut().filter(|o| o.tag == 0x69) {
+                    o.value = text("2");
+                }
+            }
+            record
+        })
+        .collect();
+    if twos.len() != 5 {
+        return Err(format!("five ReplaceSpawns of area 4, not {}", twos.len()));
+    }
+    records.splice(first..first, twos);
+    Ok(())
+}
+
+/// A `ReplaceSpawn` of the pair `pair` in the area `area` that carries neither a side (`0x08`,
+/// `0x0E`) nor the guards' mode (`0x46`), which every other `ReplaceSpawn` of its function
+/// carries, so that the run it changes takes the side 0 and the flags word 0 (**hypothesis**:
+/// peaceful): it takes its siblings' `0x08` and `0x46`.
+fn sided(records: &mut [Record], pair: [i32; 2], area: &str) -> Result<(), String> {
+    let i = the(
+        records,
+        &format!(
+            "ReplaceSpawn of {} to {} in area {area} without a side",
+            pair[0], pair[1]
+        ),
+        REPLACE_SPAWN,
+        |r| {
+            let types: Vec<&Value> = operands(r)
+                .iter()
+                .filter(|o| o.tag == 0x02)
+                .map(|o| &o.value)
+                .collect();
+            types == [&Value::I32(pair[0]), &Value::I32(pair[1])]
+                && spawn_of(r, area)
+                && ![0x08, 0x0E, 0x46]
+                    .iter()
+                    .any(|&tag| has(r, tag, &Value::Marker))
+        },
+    )?;
+    if let Body::Operands(ops) = &mut records[i].body {
+        ops.push(op(0x08, Value::Marker));
+        ops.push(op(0x46, Value::Marker));
+    }
+    Ok(())
+}
+
 /// The arena's exit runs `monster2002` where bit 0 of `2002` is set, which the start script sets,
 /// and clears it, testing nothing of the quest, so that leaving before the quest is taken leaves
 /// it never offered: the branch needs the quest entered too (bit 1).
@@ -1298,6 +1384,42 @@ mod tests {
         assert!(
             has(&records[1], 0x01, &text("res:17215")) && has(&records[1], 0x08, &Value::Marker)
         );
+    }
+
+    #[test]
+    fn the_fills_of_area_2_turn_back_and_the_undead_take_their_side() {
+        let spawn = |from, to, area: &str, marks: &[u8]| {
+            let mut ops = vec![op(0x02, Value::I32(from)), op(0x02, Value::I32(to))];
+            ops.extend(marks.iter().map(|&tag| op(tag, Value::Marker)));
+            ops.push(op(0x69, text(area)));
+            new(REPLACE_SPAWN, ops)
+        };
+        // `BadToGood`'s fills of area 4 and 5, area 2 left out.
+        let back = |area| {
+            [(276, 279), (277, 286), (278, 288), (287, 295), (296, 297)]
+                .map(|(from, to)| spawn(from, to, area, &[0x0E, 0x46]))
+        };
+        let mut records: Vec<Record> = back("4").into_iter().chain(back("5")).collect();
+        area_two_back(&mut records).unwrap();
+        let expected: Vec<Record> = back("2")
+            .into_iter()
+            .chain(back("4"))
+            .chain(back("5"))
+            .collect();
+        assert_eq!(records, expected);
+        assert!(area_two_back(&mut records).is_err());
+        // `ElementAbfrage`'s pair without a side takes its siblings' tags.
+        let mut records = vec![spawn(256, 32, "9", &[0x08, 0x46]), spawn(257, 32, "9", &[])];
+        sided(&mut records, [257, 32], "9").unwrap();
+        assert_eq!(records[1], {
+            let mut sided = spawn(257, 32, "9", &[]);
+            if let Body::Operands(ops) = &mut sided.body {
+                ops.push(op(0x08, Value::Marker));
+                ops.push(op(0x46, Value::Marker));
+            }
+            sided
+        });
+        assert!(sided(&mut records, [257, 32], "9").is_err());
     }
 
     #[test]

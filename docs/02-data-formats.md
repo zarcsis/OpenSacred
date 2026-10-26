@@ -823,6 +823,7 @@ The quests' defects of #356 whose repairs are in the data are mended there too, 
 - Quests 9009, 301 and 302, 501, 1702 and 2002 no longer taken away by others, in 11, 9, 9 and 11, 9 and 20 trees, with the function `QIS_OnLose501` added beside `QIS_OnEnter501` ([2026-10-25-quests-crossing](decisions/2026-10-25-quests-crossing.md)).
 - Quest 61's compass in the 5.7 dungeon and after the four elements, in 20 and 9 trees, and Jacquaire made at 9006's end, in 11 ([2026-10-25-quest-markers](decisions/2026-10-25-quest-markers.md)).
 - Quest 2203's count and quest 501's ghosts kept apart from quests 2303's and 5002's names, in 11 trees ([2026-10-25-shared-names](decisions/2026-10-25-shared-names.md)).
+- Area 2's fills turned back by quest 72's `BadToGood` with the others', in 11 trees, and the `ReplaceSpawn`s of quest 50's `Dialog:DlgHologram50` and quest 61's `ElementAbfrage` that carry no side given their siblings' `0x08` and `0x46`, in 9 trees each, the maintainer's decision of 2026-10-26 (#1068, [2026-10-26-world-change-fills](decisions/2026-10-26-world-change-fills.md)).
 There are no jumps by offset: branching goes by names and indices (`Vectoren.bin`), state is quest flags, variables, triggers.
 Terminology: in this document "opcode" = record type (u16), corresponding to sacred-sdk's "tag"; the operand marker is called "tag" by openheilig and "opcode" by sacred-sdk.
 

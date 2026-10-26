@@ -534,11 +534,12 @@ mod tests {
         // (9) and 1702's target (9) gain one each, 1401's day (11) loses its one; 301's and 302's
         // losses gain two (9), 9009's win three (11), the 5.7.4 entrance two (20) and the air's
         // compass three (9); 501's new loss holds two (11); Jacquaire moves; 2303's dialogue (11)
-        // loses one.
+        // loses one; `BadToGood`'s fills of area 2 gain five (11).
         assert_eq!(
             summary.records,
             2_203_278 + 11 + 20 + 20 + 9 + 9 + 9 - 11 + 2 * 9 + 3 * 11 + 2 * 20 + 3 * 9 + 2 * 11
                 - 11
+                + 5 * 11
         );
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
@@ -549,6 +550,7 @@ mod tests {
             BTreeMap::from([
                 ("Jacquaire made at 9006's end (#959)", 11),
                 ("Jacquaire not made by the box (#959)", 11),
+                ("area 2's fills turned back by quest 72 (#1068)", 11),
                 ("quest 1001's start (#942)", 11),
                 ("quest 10255's restart (#940)", 20),
                 ("quest 10260's item named (#957)", 20),
@@ -567,8 +569,10 @@ mod tests {
                 ("quest 501's loss (#947)", 11),
                 ("quest 5003's seeker's decline (#955)", 20),
                 ("quest 5005's loss on its last leg (#939)", 20),
+                ("quest 50's undead of area 8 hostile (#1068)", 9),
                 ("quest 61's compass after the four elements (#958)", 9),
                 ("quest 61's compass in the 5.7 dungeon (#958)", 20),
+                ("quest 61's skeleton warriors of area 9 hostile (#1068)", 9),
                 ("quest 602's knight's id (#949)", 11),
                 ("quest 602's knight's id, removed (#949)", 11),
                 ("quest 670's Glubba dying (#950)", 9),
