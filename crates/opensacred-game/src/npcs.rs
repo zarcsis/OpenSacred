@@ -47,7 +47,7 @@ use std::time::Duration;
 use anyhow::Result;
 use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
-use bevy::math::{Affine3A, Quat};
+use bevy::math::{Affine3A, Quat, Vec3Swizzles};
 use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
@@ -3316,8 +3316,8 @@ pub fn walk(
             );
             (leg, course)
         };
-        let follow = |planned: &Option<(Vec3, paths::Course<_>)>| {
-            planned.as_ref().and_then(|(leg, course)| {
+        let follow = |planned: &mut Option<(Vec3, paths::Course<_>)>| {
+            planned.as_mut().and_then(|(leg, course)| {
                 paths::follow(
                     course,
                     here,
@@ -3339,32 +3339,32 @@ pub fn walk(
                 (_, None) => None,
             };
         }
-        let mut step = follow(&walk.course);
+        let mut step = follow(&mut walk.course);
         if step.is_none() && walk.course.is_some() {
             walk.course = match plan(here) {
                 (leg, Some(course)) => Some((leg, course)),
                 (_, None) => None,
             };
-            step = follow(&walk.course);
+            step = follow(&mut walk.course);
         }
-        let toward = match step {
+        let (from, toward) = match step {
             Some(paths::Step::Through((next, _))) => {
                 walk.level = next;
                 continue;
             }
-            Some(paths::Step::Toward(point)) => point,
+            Some(paths::Step::Toward(from, point)) => (from, point),
             // Its way's next step no longer clear: it stands, as at a creature in its way.
-            Some(paths::Step::Blocked) => here,
-            None => target,
+            Some(paths::Step::Blocked) => (here.xz(), here),
+            None => (here.xz(), target),
         };
         let to = (toward - here).with_y(0.0);
         let distance = to.length();
         let left = (target - here).with_y(0.0).length();
-        let step = (walk.speed * speed.0 * time.delta_secs()).min(distance);
-        let mut position = here + to / distance.max(f32::EPSILON) * step;
-        let (from, into) = (cell, paths::cell_of(position.x, position.z));
+        let mut position =
+            paths::advance(from, toward, here, walk.speed * speed.0 * time.delta_secs());
+        let into = paths::cell_of(position.x, position.z);
         let blocked =
-            into != from && !free(into, walk.level) && heights.walkable_on(from, walk.level);
+            into != cell && !free(into, walk.level) && heights.walkable_on(cell, walk.level);
         if left <= walk.within || blocked || distance <= f32::EPSILON {
             // There, or as near as it gets: it stands; held from its first step, a while.
             if walk.moved || left <= walk.within {

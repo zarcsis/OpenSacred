@@ -938,8 +938,8 @@ pub fn run(
                         |(at, _)| at,
                     )
                 };
-                let follow = |course: &Option<paths::Course<_>>| {
-                    course.as_ref().and_then(|course| {
+                let follow = |course: &mut Option<paths::Course<_>>| {
+                    course.as_mut().and_then(|course| {
                         paths::follow(
                             course,
                             here,
@@ -953,23 +953,23 @@ pub fn run(
                 if body.course.is_none() {
                     body.course = plan(here);
                 }
-                let mut step = follow(&body.course);
+                let mut step = follow(&mut body.course);
                 if step.is_none() && body.course.is_some() {
                     body.course = plan(here);
-                    step = follow(&body.course);
+                    step = follow(&mut body.course);
                 }
-                let (toward, reachable) = match step {
+                let ((from, toward), reachable) = match step {
                     Some(paths::Step::Through((next, _))) => {
                         body.level = next;
-                        (here, true)
+                        ((here.xz(), here), true)
                     }
-                    Some(paths::Step::Toward(point)) => (point, true),
+                    Some(paths::Step::Toward(from, point)) => ((from, point), true),
                     // Its way's next step no longer clear: it stops, running in place a while.
                     Some(paths::Step::Blocked) => {
                         body.arrives();
-                        (here, true)
+                        ((here.xz(), here), true)
                     }
-                    None => (target, false),
+                    None => ((here.xz(), target), false),
                 };
                 let to = (toward - here).with_y(0.0);
                 let distance = to.length();
@@ -982,8 +982,8 @@ pub fn run(
                     // Through a door: on, the next frame.
                     moving = body.moving;
                 } else {
-                    let step = (hero.speed() * time.delta_secs()).min(distance);
-                    let mut position = here + to / distance * step;
+                    let mut position =
+                        paths::advance(from, toward, here, hero.speed() * time.delta_secs());
                     // A step into a cell it may not walk on, out of one it may, is not taken.
                     let (from, into) = (
                         paths::cell_of(here.x, here.z),
