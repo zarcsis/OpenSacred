@@ -28,8 +28,8 @@
 //! gone (#952, docs/decisions/2026-10-25-stale-object-names.md). `SetHP` sets a creature's health
 //! to a share of its most ([`Healths`], #1001). `RegionChange` keeps its pairs of types by area,
 //! a record replacing its area's list while a function runs and adding to it once a function it
-//! called has ended (`0x4ABFE0`), which the later `CreateNPC`s of the area take
-//! (`npcs::AREA_TURN`, [`ScriptAreaTypes`], #1063).
+//! called has ended (`0x4ABFE0`), which the later `CreateNPC`s of the area that carry `0x6B` of 0
+//! take (`npcs::AREA_TURN`, [`ScriptAreaTypes`], #1063, #1102).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

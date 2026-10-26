@@ -836,7 +836,8 @@ impl Turn {
 
 /// The lists of `RegionChange` (116, `0x4ABB60`; docs/re/netscript.md, "`ReplaceSpawn` and
 /// `RegionChange`"), one by area (`+0x1048`), which a later `CreateNPC` of a cell of the area
-/// reads (`0x482F41`, #1063). Only the interpreter's reset empties them (`0x461040`).
+/// reads where it carries `0x6B` of 0 (`0x482F41`, #1063, #1102). Only the interpreter's reset
+/// empties them (`0x461040`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AreaTypes(BTreeMap<u8, Vec<Turn>>);
 

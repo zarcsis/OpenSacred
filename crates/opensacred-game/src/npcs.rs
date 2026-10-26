@@ -110,8 +110,8 @@ const TRADES: [(u8, u32); 4] = [
 /// The tag of a trader whose dialogue `CreateNPC` stamps (`0x4843AF`).
 const STAMPED: u8 = 0x64;
 /// The tag of `CreateNPC` and `SetNPCState` whose number above 0 lets a dead follower rise
-/// (`+0x2B7` bit `0x08`), and one other than 0 keeps a `CreateNPC`'s type from its area's
-/// `RegionChange` list (`0x482F41`).
+/// (`+0x2B7` bit `0x08`), and whose 0 alone lets a `CreateNPC`'s type take its area's
+/// `RegionChange` list, the value −1 where the record has no such tag (`0x482F41`, #1102).
 const RISES: u8 = 0x6B;
 /// The operand that `scripts` adds to a `CreateNPC` of the play for each area whose
 /// `RegionChange` list turns its type as it runs (#1063): the area, the new type and the pair's
@@ -211,9 +211,11 @@ struct Placement {
     /// (`opensacred_rules::minds::hostile_to_heroes`; #580).
     side: u8,
     /// Whether its `CreateNPC` carries a `0x6B` other than 0 ([`RISES`]), which keeps it from
-    /// `RegionChange` ([`Placement::turns`], [`Placement::changes`]), and its record's hostility
+    /// `RegionChange` ([`Placement::changes`]), whether it carries one of 0, which lets the list
+    /// of its area turn its type ([`Placement::turns`]), and its record's hostility
     /// (`minds::created_hostility`), by which a turned type takes its side ([`Makers::retype`]).
     rises: bool,
+    listed: bool,
     hostility: Option<bool>,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
@@ -268,9 +270,10 @@ struct Placement {
 
 impl Placement {
     /// Whether a `RegionChange` list may turn an NPC's type as its `CreateNPC` runs: one that
-    /// makes no trader and carries no `0x6B` other than 0 (`0x482F41`, #1063).
+    /// makes no trader and carries a `0x6B` of 0, which a record without the tag does not, its
+    /// value then −1 (`0x482F41`, #1063, seen in the original, #1102).
     fn turns(&self) -> bool {
-        self.made.1 && !self.object && self.trades == 0 && !self.rises
+        self.made.1 && !self.object && self.trades == 0 && self.listed
     }
 
     /// Whether a `RegionChange` may change the creature, a fill's or a `CreateNPC`'s: no trader
@@ -542,6 +545,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         creature: (creature, kind.flags, 0),
         side: kind.class,
         rises: false,
+        listed: false,
         hostility: None,
         texture: kind.texture.clone(),
         layer: 0,
@@ -1563,6 +1567,17 @@ fn rises(ops: &[opensacred_data::netscript::Operand]) -> bool {
     })
 }
 
+/// Whether the operands `ops` carry a `0x6B` of 0 ([`RISES`]).
+fn listed(ops: &[opensacred_data::netscript::Operand]) -> bool {
+    ops.iter().any(|op| {
+        op.tag == RISES
+            && matches!(
+                op.value,
+                Value::I32(0) | Value::U16(0) | Value::U8(0) | Value::Marker
+            )
+    })
+}
+
 /// The pair of the area `area`'s `RegionChange` list that a play's `CreateNPC` of the operands
 /// `ops` took as it ran, as `scripts` marks it ([`AREA_TURN`]; #1063), none where it took none.
 fn area_turn(ops: &[opensacred_data::netscript::Operand], area: u8) -> Option<quests::Turn> {
@@ -2313,6 +2328,7 @@ impl Makers {
             ),
             side,
             rises: record.kind == CREATE_NPC && rises(ops),
+            listed: record.kind == CREATE_NPC && listed(ops),
             hostility,
             texture,
             layer,
@@ -6919,11 +6935,14 @@ mod tests {
                 .expect("made")
                 .expect("placed")
         };
-        // An `Enter`'s soldier in the guards' mode (`_46`), peaceful.
-        let soldier = made(&[op(0x46, Value::Marker)]);
+        // An `Enter`'s soldier in the guards' mode (`_46`), peaceful, keeps its type: its record
+        // has no `0x6B`, as the original's soldiers came again after `GoodToBad` (#1102).
+        assert!(!made(&[op(0x46, Value::Marker)]).turns());
+        // One of a `0x6B` of 0 takes `GoodToBad`'s pair of area 4, which turns it into 276 in the
+        // mode of `0x12`, hostile.
+        let soldier = made(&[op(0x46, Value::Marker), op(RISES, Value::I32(0))]);
         assert!(soldier.turns());
         assert!(!minds::hostile_to_heroes(soldier.side, 279));
-        // `GoodToBad`'s pair of area 4 turns it into 276 in the mode of `0x12`, hostile.
         let mut lists = quests::AreaTypes::default();
         lists.add(
             4,
@@ -6942,11 +6961,11 @@ mod tests {
         assert_eq!(turned.speed, [110.0, 220.0]);
         assert_eq!(turned.cell, soldier.cell);
         // Its record's hostility none and its new mode 1, it takes the class 7, a friend of the
-        // heroes, as an `Enter`'s soldiers came after `GoodToBad` in the game.
+        // heroes.
         assert_eq!(turned.side, 7);
         assert!(!minds::hostile_to_heroes(turned.side, 276));
         // A trader, and one of a `0x6B` above 0, keep their types.
-        assert!(!made(&[op(0x24, Value::Marker)]).turns());
+        assert!(!made(&[op(0x24, Value::Marker), op(RISES, Value::I32(0))]).turns());
         assert!(!made(&[op(RISES, Value::I32(1))]).turns());
         assert!(made(&[op(RISES, Value::I32(0))]).turns());
         // A play's `CreateNPC` takes the pair of its cell's area that `scripts` marked it with.
