@@ -1073,25 +1073,18 @@ impl Host for Recorder<'_> {
                 Handled::Done
             }
             // The pairs of types of an area for its later `CreateNPC`s (`0x4ABB60`,
-            // `0x4ABFE0`; #1063): the area `0x69`'s number, 0 without one; its flags word by its
-            // tags, which each add their bit.
+            // `0x4ABFE0`; #1063); its change of the creatures that exist is `npcs`' (#1064).
             "region_change" => {
-                let area = tags
-                    .texts("_69")
-                    .first()
-                    .map_or(0, |area| area.trim().parse::<i32>().unwrap_or(0));
-                let types: Vec<u32> = tags
-                    .numbers("_02")
-                    .into_iter()
-                    .filter_map(|creature| u32::try_from(creature).ok())
-                    .collect();
-                let word = quests::region_change_word(
-                    tags.numbers("marks")
-                        .into_iter()
-                        .filter_map(|tag| u8::try_from(tag).ok()),
-                );
-                if let Ok(area) = u8::try_from(area) {
-                    self.state.area_types.add(area, &types, word, self.between);
+                if let Some(record) = opensacred_scripts::record(name, operands)
+                    && let netscript::Body::Operands(ops) = &record.body
+                    && let Some(change) = quests::AreaChange::of(ops)
+                {
+                    self.state.area_types.add(
+                        change.area,
+                        &change.types,
+                        change.word,
+                        self.between,
+                    );
                 }
                 Handled::Done
             }
