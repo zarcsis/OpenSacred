@@ -18,7 +18,7 @@ pub const HERO_LEVEL: u32 = 1;
 const BRONZE: usize = 5;
 
 /// The kinds of damage: physical, fire, magic and poison.
-const KINDS: usize = 4;
+pub const KINDS: usize = 4;
 
 /// The rows of the table of `A` and `D` at `0x956C80`, all alike: the per cent of the attributes
 /// `a0` and `a2` that the attack takes, and of an item's `A`, and the same of the defence

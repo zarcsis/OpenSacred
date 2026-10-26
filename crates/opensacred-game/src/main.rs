@@ -35,6 +35,7 @@ mod guns;
 mod help;
 mod hero;
 mod hud;
+mod hurled;
 mod iso;
 mod journal;
 mod lines;
@@ -293,6 +294,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         hero::HeroPlugin,
         hud::HudPlugin,
+        hurled::HurledPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
@@ -305,9 +307,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
-        screenshot::ScreenshotPlugin,
     ))
     .add_plugins((
+        screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,

@@ -132,6 +132,10 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
 fn take(
     mut commands: Commands,
     mut pack: ResMut<Pack>,
+    (arsenal, mut throws): (
+        Option<Res<crate::arsenal::Arsenal>>,
+        MessageWriter<crate::arsenal::Throws>,
+    ),
     heights: Res<Heights>,
     items: Query<(&GlobalTransform, &Lying)>,
     heroes: Query<(Entity, &Transform, &Body, &Picks)>,
@@ -156,7 +160,15 @@ fn take(
             "pickup: the hero takes {:?} {} x{}",
             lying.dropped.kind, lying.dropped.item, lying.dropped.amount
         );
-        pack.take(lying.dropped);
+        // The weapon the hero hurled goes back into its empty hand (`0x54ACC0`, #755).
+        if arsenal
+            .as_deref()
+            .is_some_and(|arsenal| arsenal.takes_back(&lying.dropped))
+        {
+            throws.write(crate::arsenal::Throws(false));
+        } else {
+            pack.take(lying.dropped);
+        }
         commands.entity(picks.0).despawn();
     }
 }
