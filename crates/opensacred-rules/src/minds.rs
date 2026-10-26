@@ -1996,23 +1996,33 @@ pub fn keeps(here: Spot, master: Spot) -> Keeps {
     }
 }
 
-/// The points a follower near its master at `master`, of the heading `heading` (radians from the
-/// grid's x toward its y), steps off to, in the order it tries them, the first with a way to it
-/// taken, else the last (`0x4F3E65`, `0x4F7710`): 195 from the master along its heading, the
-/// other way, then to either side, each axis turned by a roll of its own, `(U[0, 100] − 50)/60`
-/// radians, the y's first (`0x4F431D` to `0x4F4380`: the sine of the first, the cosine of the
-/// second), so that a point lies within 195 of the master along each axis rather than on its
-/// circle.
+/// The points a follower on floor `floor` (0 the ground, 1 a building's ground floor) near its
+/// master at `master`, of the heading `heading` (radians from the grid's x toward its y), steps
+/// off to, each with its floor, in the order it tries them, the first with a way to it taken,
+/// else the last (`0x4F3E65`, `0x4F7710`): 195 from the master along its heading, the other way,
+/// then to either side, each axis turned by a roll of its own, `(U[0, 100] − 50)/60` radians, the
+/// y's first (`0x4F431D` to `0x4F4380`: the sine of the first, the cosine of the second), so that
+/// a point lies within 195 of the master along each axis rather than on its circle. Each point's
+/// floor is rolled before it: the ground for a follower on the ground, else one from the ground
+/// to its own floor (`rand() % (f + 1)`, at `0x4F42E1` and before each later point).
 pub fn stepping_off(
     master: Spot,
     heading: f32,
+    floor: u8,
     dice: &mut impl crate::spawning::Dice,
-) -> [Spot; 4] {
+) -> [(Spot, u8); 4] {
     [0.0, OTHER_WAY, ASIDE_TURN, -ASIDE_TURN].map(|turn| {
+        let on = match floor {
+            0 => 0,
+            f => u8::try_from(dice.below(u32::from(f) + 1)).unwrap_or(f),
+        };
         let mut jitter = || (f32::from(u16::try_from(dice.below(101)).unwrap_or(50)) - 50.0) / 60.0;
         let along_y = heading + turn + jitter();
         let along_x = heading + turn + jitter();
-        master + Spot::new(along_x.cos(), along_y.sin()) * STEPS_TO
+        (
+            master + Spot::new(along_x.cos(), along_y.sin()) * STEPS_TO,
+            on,
+        )
     })
 }
 
@@ -2440,7 +2450,11 @@ mod tests {
             }
         }
         let mut rolls = Rolls(vec![0, 100, 50, 50, 50, 50, 50, 50]);
-        let points = stepping_off(at(0.0, 0.0), 0.0, &mut rolls);
+        let points = stepping_off(at(0.0, 0.0), 0.0, 0, &mut rolls).map(|(point, floor)| {
+            // On the ground, on the ground.
+            assert_eq!(floor, 0);
+            point
+        });
         let turn = 50.0_f32 / 60.0;
         let near = |p: Spot, x: f32, y: f32| (p.x - x).abs() < 0.01 && (p.y - y).abs() < 0.01;
         assert!(
@@ -2460,6 +2474,28 @@ mod tests {
             195.0 * 1.51_f32.cos(),
             -195.0 * 1.51_f32.sin()
         ));
+    }
+
+    #[test]
+    fn a_follower_on_a_floor_rolls_each_points_floor_before_it() {
+        struct Rolls(Vec<(u32, u32)>);
+        impl crate::spawning::Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let (wanted, roll) = self.0.remove(0);
+                assert_eq!(n, wanted);
+                roll
+            }
+        }
+        // On floor 2: a floor of 0 to 2, then the point's two axes, for each point.
+        let mut rolls = Rolls(
+            [0, 2, 1, 2]
+                .into_iter()
+                .flat_map(|floor| [(3, floor), (101, 50), (101, 50)])
+                .collect(),
+        );
+        let points = stepping_off(at(0.0, 0.0), 0.0, 2, &mut rolls);
+        assert_eq!(points.map(|(_, floor)| floor), [0, 2, 1, 2]);
+        assert!(points[0].0.x > 194.9 && points[1].0.x < -194.9);
     }
 
     #[test]
