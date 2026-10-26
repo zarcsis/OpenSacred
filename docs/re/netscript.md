@@ -358,7 +358,7 @@ Read 2026-10-26 (#1024) by the static reading of `Sacred.exe` (a subagent of the
 - `Popup` (95, `0x4A7760`) gives the local hero the named dialogue and a talk with itself (`0x54CBB0(hero, 2)`): its function runs with the hero, the window showing no name and the image of the entry's `+0x48` (the fixed images `0x400` to `0x42A`, `0x457` the hero's class's portrait); then the hero's dialogue is taken away (241 functions, none a `Dialog:`).
 - `NPC_TalkTo` (71, `0x49DCF0`) gives its first `0x01` the dialogue `0x09` and a talk toward its second (`HERO` the local hero), which takes its action 7 toward the first (4 records).
   It wants both names and a dialogue of the table: of the Seraphim's 4 records, the 3 of one name do nothing, and the fourth, quest 2002's `nein2002`, its giver's "no", has its giver begin the talk again (read 2026-10-26, #1037).
-  The creature's last dialogue's entry loses it (`+0x4C` 0), and the hero, not on a horse, stops and turns to it (`0x44C320`, the vtable's `+0x28` and `+0x2C`).
+  The creature's last dialogue's entry loses it (`+0x4C` 0) and the dialogue's entry takes it, as a stamp does.
 - `Dialog` (31, `0x48F9E0`) gives the function's creature a dialogue by its `0x16` or `0x01` name or its `0x0B` number (1,870 records, in the dynamic quests' `ToDo` functions).
 - `SetIcon` (86, `0x4A1A50`) writes the entry's `+0x48`, of the first entry of its `0x01` name, case aside, or, without one, of the running dialogue (`+0xA458`), its `0x0B` number; a name the table does not hold is logged.
   The unnamed ones stand in the `Dialog:` functions (213 of the 214 in the Seraphim's tree).
