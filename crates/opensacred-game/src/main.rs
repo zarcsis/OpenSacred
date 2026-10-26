@@ -36,6 +36,7 @@ mod help;
 mod hero;
 mod hud;
 mod hurled;
+mod icons;
 mod iso;
 mod journal;
 mod lines;
@@ -296,6 +297,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
+        icons::IconsPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
@@ -307,9 +309,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
-        pickup::PickupPlugin,
     ))
     .add_plugins((
+        pickup::PickupPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
@@ -324,8 +326,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
-        voices::VoicesPlugin,
     ))
+    .add_plugins(voices::VoicesPlugin)
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
@@ -339,6 +341,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(liquids::Liquids::read(&assets)?)
     .insert_resource(voices::Voices::read(&assets)?)
     .insert_resource(talk::Portraits::read(&assets)?)
+    .insert_resource(icons::Files::find(&assets))
     .insert_resource(sfx::Sfx::new(&sound_index.0))
     .insert_resource(sound_index)
     .insert_resource(hud::Hud {

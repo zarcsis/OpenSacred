@@ -39,7 +39,7 @@ use bevy::prelude::{
     Plugin, Query, Res, ResMut, Resource, Transform, Update, With, Without, World,
 };
 use opensacred_data::luau::{BYTECODE, INDEX, Index};
-use opensacred_data::netscript::{Function, Record, Tree};
+use opensacred_data::netscript::{self, Function, Record, Tree, Value};
 use opensacred_rules::quests::{self, Counted, Transition};
 use opensacred_rules::spawning::Rng;
 use opensacred_scripts::{Handled, Host, Operand, Outcome, Runtime};
@@ -150,6 +150,9 @@ pub struct Window {
 /// How many buttons a dialogue keeps (`+0x9A00`); the window shows the first [`SHOWN`].
 const BUTTONS: usize = 5;
 pub const SHOWN: usize = 4;
+
+/// The record kind of `SetIcon` (86, `0x4A1A50`).
+const SET_ICON: u16 = 86;
 
 /// What a run of the scripts did to the world beyond their state: the hero's teleports and the
 /// objects' states, in order.
@@ -386,7 +389,21 @@ impl Live {
         let function = self
             .named(&format!("Dialog:{dialogue}"))
             .or_else(|| self.named(dialogue))?;
-        Some(self.run(&function, 0))
+        let mut effects = self.run(&function, 0);
+        // A `SetIcon` without a name changes the running dialogue's icon (`+0xA458`,
+        // `0x4A1A50`; #1039), which `npcs` finds by its name.
+        for record in &mut effects.records {
+            if record.kind == SET_ICON
+                && let netscript::Body::Operands(ops) = &mut record.body
+                && !ops.iter().any(|o| o.tag == 0x01)
+            {
+                ops.push(netscript::Operand {
+                    tag: 0x01,
+                    value: Value::Str(dialogue.to_owned()),
+                });
+            }
+        }
+        Some(effects)
     }
 
     /// Counts a kill of a creature of the type `creature` (`SetOnKill`, `0x4AA630`; #1021): the
