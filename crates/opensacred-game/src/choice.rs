@@ -1,0 +1,1186 @@
+//! The Ancaria campaign's choice of the hero, as the original's (docs/re/menus.md, "The choice
+//! of the hero", #1119): its picture of 12 tiles over its water, the eight classes as 3D figures
+//! standing on the pedestals and idling, dark until the cursor is on one or it is chosen, and
+//! under them a panel of the hero's name, starting as the class's own, the difficulty, Import,
+//! Back and Start Game, which shows a class's description while the cursor is on its figure.
+//!
+//! The figures stand in their own scene ([`FIGURES`]), which their camera draws into a texture of
+//! the picture's size; the interface lays that texture between the picture and the panel, in the
+//! frame's sRGB values (`figures.wesl`). A figure is its class's model in its template's items
+//! (`npcs::figure_gear`), its idle clip by what it holds, and copies of its materials, which its
+//! light darkens or brightens alone.
+//!
+//! The mouse chooses a figure by pointing and clicking, the arrows choose the next or the one
+//! before, a key types the name, Enter starts the game and Esc goes back (`menu`).
+
+use bevy::asset::embedded_asset;
+use bevy::camera::visibility::RenderLayers;
+use bevy::camera::{RenderTarget, ScalingMode};
+use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
+use bevy::picking::pointer::PointerButton;
+use bevy::prelude::*;
+use bevy::render::render_resource::{AsBindGroup, TextureFormat};
+use bevy::shader::ShaderRef;
+use bevy::text::FontSize;
+use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
+use bevy::window::PrimaryWindow;
+
+use crate::game::{AppState, Class, Data, FONT, Request};
+use crate::menu::{self, Screen, Words};
+use crate::{game, hud, motions, npcs};
+
+/// The figures' scene, which the main camera does not see.
+const FIGURES: usize = 1;
+/// The shader that lays the figures on the interface, embedded in the binary.
+const SHADER: &str = "embedded://opensacred_game/figures.wesl";
+
+/// A figure's place in the picture: its class, where its feet stand, how high it stands in the
+/// picture's pixels and in its model's units, and how far it turns from the camera to the
+/// screen's right, in degrees; matched by eye to the original's frames (docs/re/menus.md).
+struct Spot {
+    class: Class,
+    feet: Vec2,
+    height: f32,
+    units: f32,
+    turn: f32,
+}
+
+/// The figures in the screen's order, left to right, as the original stands them.
+const SPOTS: [Spot; 8] = [
+    Spot {
+        class: Class::Gladiator,
+        feet: Vec2::new(100.0, 662.0),
+        height: 335.0,
+        units: 80.0,
+        turn: 15.0,
+    },
+    Spot {
+        class: Class::Seraphim,
+        feet: Vec2::new(222.0, 500.0),
+        height: 265.0,
+        units: 74.0,
+        turn: 5.0,
+    },
+    Spot {
+        class: Class::Daemon,
+        feet: Vec2::new(350.0, 532.0),
+        height: 345.0,
+        units: 85.0,
+        turn: 20.0,
+    },
+    Spot {
+        class: Class::Dwarf,
+        feet: Vec2::new(535.0, 525.0),
+        height: 205.0,
+        units: 54.0,
+        turn: 25.0,
+    },
+    Spot {
+        class: Class::WoodElf,
+        feet: Vec2::new(625.0, 455.0),
+        height: 217.0,
+        units: 72.0,
+        turn: 0.0,
+    },
+    Spot {
+        class: Class::Mage,
+        feet: Vec2::new(735.0, 540.0),
+        height: 265.0,
+        units: 72.0,
+        turn: -20.0,
+    },
+    Spot {
+        class: Class::DarkElf,
+        feet: Vec2::new(807.0, 472.0),
+        height: 215.0,
+        units: 74.0,
+        turn: -20.0,
+    },
+    Spot {
+        class: Class::Vampiress,
+        feet: Vec2::new(900.0, 672.0),
+        height: 332.0,
+        units: 73.0,
+        turn: -25.0,
+    },
+];
+
+/// The name of each class's text in the game's texts: its own name, which the hero's starts as,
+/// and its description (docs/re/menus.md).
+fn texts(class: Class) -> (&'static str, &'static str) {
+    match class {
+        Class::Seraphim => ("UI_DEFAULT_SERAPHIM", "1061"),
+        Class::Gladiator => ("UI_DEFAULT_GLADIATOR", "1060"),
+        Class::Mage => ("UI_DEFAULT_KAMPFMAGIER", "1064"),
+        Class::WoodElf => ("UI_DEFAULT_WALDELFIN", "1063"),
+        Class::DarkElf => ("UI_DEFAULT_DUNKELELF", "1062"),
+        Class::Daemon => ("UI_DEFAULT_DAEMONIN", "UI_DEFAULT_DAEMONIN_INFO"),
+        Class::Dwarf => ("UI_DEFAULT_ZWERG", "UI_DEFAULT_ZWERG_INFO"),
+        Class::Vampiress => ("UI_DEFAULT_VAMPIRIN", "1065"),
+    }
+}
+
+/// The names of the texts this screen shows (`menu::Words`).
+pub fn names() -> impl Iterator<Item = &'static str> {
+    SPOTS
+        .iter()
+        .flat_map(|spot| {
+            let (name, description) = texts(spot.class);
+            [name, description]
+        })
+        .chain([IMPORT, START, BACK, BRONZE])
+}
+
+/// The texts of the panel's buttons and of the first difficulty.
+const IMPORT: &str = "UI_IMPORT";
+const START: &str = "1029";
+const BACK: &str = "UI_NET_BACK";
+const BRONZE: &str = "UI_DIFFICULTY_BRONZE";
+
+/// The longest name the field takes (**hypothesis**: the driver clears the original's with 24
+/// backspaces).
+const NAME_LENGTH: usize = 24;
+
+/// What the screen holds: the hero chosen, the figure under the cursor and the name typed.
+#[derive(Resource, Default)]
+struct Choice {
+    chosen: Option<Class>,
+    hovered: Option<Class>,
+    name: String,
+}
+
+/// The figures' models, their idle clips and what they hold, once read.
+#[derive(Resource, Default)]
+struct Figures(Vec<Option<Look>>);
+
+struct Look {
+    model: String,
+    idle: String,
+    held: Vec<npcs::Held>,
+}
+
+/// A figure, of its class; its glTF until its scene is in place.
+#[derive(Component)]
+struct Figure {
+    class: Class,
+    gltf: Option<Handle<Gltf>>,
+    idle: String,
+}
+
+/// A figure's own copies of its meshes' materials with their colours and reflectances lit, which
+/// its light changes alone, and whether it stands lit.
+#[derive(Component, Default)]
+struct Shades {
+    materials: Vec<(Handle<StandardMaterial>, Color, f32)>,
+    lit: Option<bool>,
+}
+
+/// A mesh of a figure whose material is the figure's own.
+#[derive(Component)]
+struct Owned;
+
+/// The panel's parts that change.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// The name's field and the difficulty's row, which show once a hero is chosen, and Import,
+    /// which a description hides.
+    Controls,
+    Import,
+    Name,
+    Description,
+    Start,
+}
+
+/// The material that lays the figures' texture on the interface.
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+struct Layer {
+    #[texture(0)]
+    #[sampler(1)]
+    figures: Handle<Image>,
+}
+
+impl UiMaterial for Layer {
+    fn fragment_shader() -> ShaderRef {
+        SHADER.into()
+    }
+}
+
+/// The picture's tiles and water, and the panel's atlas, relative to the asset directory.
+#[derive(Resource, Default)]
+pub struct Images {
+    tiles: Vec<Option<String>>,
+    bed: Option<String>,
+    reflection: Option<String>,
+    atlas: Option<String>,
+}
+
+impl Images {
+    /// Finds the screen's textures among the converted ones.
+    pub fn find(assets: &std::path::Path) -> Self {
+        let tiles: Vec<String> = (1..=12).map(|n| format!("gui_uw_char_{n:02}")).collect();
+        let mut names: Vec<&str> = tiles.iter().map(String::as_str).collect();
+        names.extend(["ui_uw_char_center", "ui_uw_char_ref", "gui_main_12"]);
+        let mut found = hud::find_textures(assets, &names);
+        let atlas = found.pop().flatten();
+        let reflection = found.pop().flatten();
+        let bed = found.pop().flatten();
+        Self {
+            tiles: found,
+            bed,
+            reflection,
+            atlas,
+        }
+    }
+}
+
+/// The pieces of `gui_main_12` that the panel takes, in its pixels: a button with a jewel at each
+/// end, the field's bar, the arrows to the left and to the right, and a corner's ornament.
+const BUTTON: Rect = Rect::from_corners(Vec2::new(30.0, 144.0), Vec2::new(146.0, 181.0));
+const FIELD: Rect = Rect::from_corners(Vec2::new(30.0, 124.0), Vec2::new(128.0, 140.0));
+const LEFT: Rect = Rect::from_corners(Vec2::new(110.0, 78.0), Vec2::new(146.0, 114.0));
+const RIGHT: Rect = Rect::from_corners(Vec2::new(73.0, 78.0), Vec2::new(109.0, 114.0));
+const CORNER: Rect = Rect::from_corners(Vec2::new(148.0, 58.0), Vec2::new(188.0, 98.0));
+/// The ornamented strips of the frame's edges: along it, and up and down its sides.
+const STRIP: Rect = Rect::from_corners(Vec2::new(152.0, 23.0), Vec2::new(216.0, 32.0));
+const SIDE: Rect = Rect::from_corners(Vec2::new(157.0, 145.0), Vec2::new(165.0, 178.0));
+/// The ends of a button and of the field, which keep their size as the middle stretches.
+const BUTTON_ENDS: f32 = 34.0;
+const FIELD_ENDS: f32 = 8.0;
+
+/// The panel's frame in the picture, and its parts' centres and sizes (docs/re/menus.md).
+const PANEL: Rect = Rect::from_corners(Vec2::new(285.0, 547.0), Vec2::new(740.0, 748.0));
+const NAME_AT: Vec2 = Vec2::new(510.0, 586.0);
+const NAME_SIZE: Vec2 = Vec2::new(320.0, 22.0);
+const DIFFICULTY_AT: Vec2 = Vec2::new(510.0, 621.0);
+const DIFFICULTY_SIZE: Vec2 = Vec2::new(130.0, 22.0);
+const ARROWS: [f32; 2] = [428.0, 593.0];
+const ARROW: f32 = 28.0;
+const IMPORT_AT: Vec2 = Vec2::new(510.0, 663.0);
+const IMPORT_SIZE: Vec2 = Vec2::new(210.0, 28.0);
+const BACK_AT: Vec2 = Vec2::new(415.0, 714.0);
+const START_AT: Vec2 = Vec2::new(607.0, 714.0);
+const BUTTON_SIZE: Vec2 = Vec2::new(176.0, 28.0);
+/// The row of the strip over the buttons, and where a description stands.
+const SEPARATOR: f32 = 690.0;
+const DESCRIPTION: Rect = Rect::from_corners(Vec2::new(305.0, 560.0), Vec2::new(720.0, 686.0));
+/// The panel's fill and its edge, and the texts' sizes and colours, in the frame's sRGB values
+/// (`hud`).
+const FILL: Color = Color::linear_rgba(0.02, 0.02, 0.03, 0.62);
+const EDGE: Color = Color::linear_rgb(0.42, 0.42, 0.45);
+const TEXT_SIZE: f32 = 17.0;
+const DESCRIPTION_SIZE: f32 = 16.0;
+const TEXT: Color = Color::linear_rgb(0.93, 0.93, 0.93);
+const TEXT_GREY: Color = Color::linear_rgb(0.45, 0.45, 0.45);
+const PLAIN: Color = Color::linear_rgb(0.80, 0.80, 0.80);
+const MARKED: Color = Color::WHITE;
+/// The water under the clear middle of the bottom tiles: the river's bed under a pale mist, its
+/// reflection's texture holding nothing.
+const WATER: menu::Water = menu::Water {
+    top: 512.0,
+    bed: (0.0, 1024.0),
+    reflection: (0.0, 1024.0),
+    reflection_alpha: 0.0,
+    veil: Color::linear_rgba(0.80, 0.88, 0.90, 0.38),
+};
+/// The figures' light: a figure dark is all but a shape, the light from the top left and the
+/// ambient light of their scene, and how far their tops lean away from the camera.
+const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
+const LIGHT: f32 = 4000.0;
+const AMBIENT: f32 = 600.0;
+const LEAN: f32 = -0.12;
+
+/// The figure of the arrows' next choice from `chosen`, `step` figures on in the screen's order.
+fn step(chosen: Option<Class>, step: isize) -> Class {
+    let count = SPOTS.len();
+    let index = match chosen.and_then(|class| SPOTS.iter().position(|spot| spot.class == class)) {
+        Some(at) => {
+            let signed = isize::try_from(at).unwrap_or(0) + step;
+            usize::try_from(signed.rem_euclid(isize::try_from(count).unwrap_or(1))).unwrap_or(0)
+        }
+        None if step < 0 => count - 1,
+        None => 0,
+    };
+    SPOTS[index].class
+}
+
+/// Chooses `class`: its figure lit, the name its own.
+fn choose(choice: &mut Choice, words: &Words, class: Class) {
+    choice.chosen = Some(class);
+    choice.name = words.get(texts(class).0).unwrap_or(class.name()).to_owned();
+}
+
+/// Reads the figures' models, idle clips and items from the game's data, once.
+fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
+    let Some(data) = data else {
+        return;
+    };
+    if !figures.0.is_empty() {
+        return;
+    }
+    let shared = &data.0;
+    let assets = &shared.assets;
+    let files = match (npcs::model_files(assets), npcs::texture_files(assets)) {
+        (Ok(models), Ok(textures)) => (models, textures),
+        (Err(e), _) | (_, Err(e)) => {
+            warn!("choice: no figures: {e:#}");
+            figures.0 = SPOTS.iter().map(|_| None).collect();
+            return;
+        }
+    };
+    figures.0 = SPOTS
+        .iter()
+        .map(|spot| {
+            let worn = game::template(assets, spot.class)
+                .map(|hero| hero.worn)
+                .unwrap_or_default();
+            let (held_class, held) =
+                match npcs::figure_gear(&shared.tables, (&files.0, &files.1), &worn) {
+                    Ok(gear) => gear,
+                    Err(e) => {
+                        warn!("choice: {}: no items: {e:#}", spot.class.name());
+                        (0, Vec::new())
+                    }
+                };
+            let (grn, [idle, ..], _) = spot.class.preset();
+            let model = files.0.get(grn)?.clone();
+            let idle = motions::Slots::read(&assets.join(&model))
+                .ok()
+                .and_then(|slots| {
+                    slots
+                        .clip(motions::Action::Stand, held_class)
+                        .map(|(name, _)| name.to_owned())
+                })
+                .unwrap_or_else(|| idle.to_owned());
+            Some(Look { model, idle, held })
+        })
+        .collect();
+}
+
+/// The screen: the picture and its water, the figures' layer, the figures' spots and the panel;
+/// the figures' camera, light and models.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources one by one"
+)]
+fn screen(
+    mut commands: Commands,
+    images: Res<Images>,
+    words: Res<Words>,
+    figures: Res<Figures>,
+    assets: Res<AssetServer>,
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    mut targets: ResMut<Assets<Image>>,
+    mut layers: ResMut<Assets<Layer>>,
+    mut choice: ResMut<Choice>,
+) {
+    *choice = Choice::default();
+    let scale = window.map_or(1.0, |window| window.height() / menu::SCREEN.y);
+    let size = (menu::SCREEN * scale.max(1.0)).round().as_uvec2();
+    let target = targets.add(Image::new_target_texture(
+        size.x,
+        size.y,
+        TextureFormat::Rgba8UnormSrgb,
+        None,
+    ));
+    // The figures' camera, looking at the picture's plane from the front, a unit a pixel.
+    commands.spawn((
+        DespawnOnExit(Screen::Heroes),
+        Camera3d::default(),
+        Camera {
+            order: -1,
+            clear_color: ClearColorConfig::Custom(Color::NONE),
+            ..default()
+        },
+        RenderTarget::from(target.clone()),
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::Fixed {
+                width: menu::SCREEN.x,
+                height: menu::SCREEN.y,
+            },
+            near: -4000.0,
+            far: 4000.0,
+            ..OrthographicProjection::default_3d()
+        }),
+        Transform::from_xyz(0.0, 0.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Tonemapping::None,
+        AmbientLight {
+            color: Color::WHITE,
+            brightness: AMBIENT,
+            affects_lightmapped_meshes: true,
+        },
+        RenderLayers::layer(FIGURES),
+    ));
+    commands.spawn((
+        DespawnOnExit(Screen::Heroes),
+        DirectionalLight {
+            illuminance: LIGHT,
+            shadow_maps_enabled: false,
+            ..default()
+        },
+        Transform::from_xyz(-1.0, 1.2, 1.5).looking_at(Vec3::ZERO, Vec3::Y),
+        RenderLayers::layer(FIGURES),
+    ));
+    for (spot, look) in SPOTS.iter().zip(&figures.0) {
+        let Some(look) = look else {
+            continue;
+        };
+        let turn = spot.turn.to_radians();
+        let rotation = Quat::from_rotation_x(LEAN)
+            * crate::hero::facing(Vec3::new(turn.sin(), 0.0, turn.cos()));
+        commands.spawn((
+            DespawnOnExit(Screen::Heroes),
+            Figure {
+                class: spot.class,
+                gltf: Some(assets.load(look.model.clone())),
+                idle: look.idle.clone(),
+            },
+            Shades::default(),
+            npcs::equipment(&assets, &look.held),
+            Transform::from_translation(Vec3::new(
+                spot.feet.x - menu::SCREEN.x / 2.0,
+                menu::SCREEN.y / 2.0 - spot.feet.y,
+                spot.feet.y,
+            ))
+            .with_rotation(rotation)
+            .with_scale(Vec3::splat(spot.height / spot.units)),
+            Visibility::default(),
+            RenderLayers::layer(FIGURES),
+        ));
+    }
+    let font: Handle<Font> = assets.load(FONT);
+    let layer = layers.add(Layer { figures: target });
+    commands
+        .spawn((
+            DespawnOnExit(Screen::Heroes),
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .with_children(|root| {
+            root.spawn(Node {
+                width: Val::Px(menu::SCREEN.x),
+                height: Val::Px(menu::SCREEN.y),
+                flex_shrink: 0.0,
+                ..default()
+            })
+            .with_children(|picture| {
+                menu::water(picture, [&images.bed, &images.reflection], &assets, &WATER);
+                menu::tiles(picture, &images.tiles, &assets);
+                picture.spawn((
+                    MaterialNode(layer),
+                    place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+                ));
+                for spot in &SPOTS {
+                    spotted(picture, spot);
+                }
+                panel(picture, &images, &words, &font, &assets);
+            });
+        });
+}
+
+/// The node of the picture's rectangle `rect`.
+fn place(rect: Rect) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(rect.min.x),
+        top: Val::Px(rect.min.y),
+        width: Val::Px(rect.width()),
+        height: Val::Px(rect.height()),
+        ..default()
+    }
+}
+
+/// The rectangle of size `size` about `centre`.
+fn about(centre: Vec2, size: Vec2) -> Rect {
+    Rect::from_center_size(centre, size)
+}
+
+/// A figure's spot, the cursor over it lighting it and a click choosing it.
+fn spotted(picture: &mut ChildSpawnerCommands, spot: &Spot) {
+    let width = spot.height * 0.4;
+    let class = spot.class;
+    picture
+        .spawn((place(Rect::from_corners(
+            Vec2::new(spot.feet.x - width / 2.0, spot.feet.y - spot.height),
+            Vec2::new(spot.feet.x + width / 2.0, spot.feet.y),
+        )),))
+        .observe(move |_: On<PointerOver>, mut choice: ResMut<Choice>| {
+            choice.hovered = Some(class);
+        })
+        .observe(move |_: On<PointerOut>, mut choice: ResMut<Choice>| {
+            if choice.hovered == Some(class) {
+                choice.hovered = None;
+            }
+        })
+        .observe(
+            move |click: On<PointerClick>, mut choice: ResMut<Choice>, words: Res<Words>| {
+                if click.button == PointerButton::Primary {
+                    choose(&mut choice, &words, class);
+                }
+            },
+        );
+}
+
+/// A piece of the panel's atlas in the picture's rectangle `rect`, its ends `ends` wide kept
+/// as its middle stretches.
+fn piece(
+    parent: &mut ChildSpawnerCommands,
+    atlas: Option<&String>,
+    assets: &AssetServer,
+    (source, ends): (Rect, f32),
+    rect: Rect,
+) -> Option<Entity> {
+    let atlas = atlas?;
+    let mut image = ImageNode::new(hud::image(assets, atlas.clone()));
+    image.rect = Some(source);
+    image.image_mode = if ends > 0.0 {
+        NodeImageMode::Sliced(TextureSlicer {
+            border: BorderRect {
+                min_inset: Vec2::new(ends, 0.0),
+                max_inset: Vec2::new(ends, 0.0),
+            },
+            center_scale_mode: SliceScaleMode::Stretch,
+            sides_scale_mode: SliceScaleMode::Stretch,
+            max_corner_scale: 1.0,
+        })
+    } else {
+        NodeImageMode::Stretch
+    };
+    Some(parent.spawn((image, place(rect))).id())
+}
+
+/// A piece of the panel's atlas repeated along the picture's rectangle `rect`.
+fn tiled(
+    parent: &mut ChildSpawnerCommands,
+    atlas: Option<&String>,
+    assets: &AssetServer,
+    source: Rect,
+    rect: Rect,
+) {
+    let Some(atlas) = atlas else {
+        return;
+    };
+    let mut image = ImageNode::new(hud::image(assets, atlas.clone()));
+    image.rect = Some(source);
+    image.image_mode = NodeImageMode::Tiled {
+        tile_x: rect.width() > rect.height(),
+        tile_y: rect.height() >= rect.width(),
+        stretch_value: 1.0,
+    };
+    parent.spawn((image, Pickable::IGNORE, place(rect)));
+}
+
+/// A text centred in the picture's rectangle `rect`.
+fn label(
+    parent: &mut ChildSpawnerCommands,
+    text: &str,
+    font: &Handle<Font>,
+    rect: Rect,
+    colour: Color,
+) -> Entity {
+    parent
+        .spawn((
+            Node {
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..place(rect)
+            },
+            children![(
+                Text::new(text),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(TEXT_SIZE),
+                    ..default()
+                },
+                TextColor(colour),
+            )],
+        ))
+        .id()
+}
+
+/// A button: its piece, its word, and what a click on it does.
+fn button(
+    parent: &mut ChildSpawnerCommands,
+    (atlas, assets): (Option<&String>, &AssetServer),
+    (word, font): (&str, &Handle<Font>),
+    (centre, size): (Vec2, Vec2),
+    act: fn(&mut Commands),
+) -> Entity {
+    let rect = about(centre, size);
+    piece(parent, atlas, assets, (BUTTON, BUTTON_ENDS), rect);
+    let label = label(parent, word, font, rect, TEXT);
+    parent.commands().entity(label).observe(
+        move |click: On<PointerClick>, mut commands: Commands| {
+            if click.button == PointerButton::Primary {
+                act(&mut commands);
+            }
+        },
+    );
+    label
+}
+
+/// The panel under the figures.
+fn panel(
+    picture: &mut ChildSpawnerCommands,
+    images: &Images,
+    words: &Words,
+    font: &Handle<Font>,
+    assets: &AssetServer,
+) {
+    let atlas = images.atlas.as_ref();
+    picture.spawn((
+        place(PANEL),
+        BackgroundColor(FILL),
+        Outline::new(Val::Px(2.0), Val::ZERO, EDGE),
+    ));
+    // The corners' ornaments, the top left's turned about for the others.
+    for (corner, flip) in [
+        (PANEL.min, Vec2::ONE),
+        (
+            Vec2::new(PANEL.max.x - 40.0, PANEL.min.y),
+            Vec2::new(-1.0, 1.0),
+        ),
+        (
+            Vec2::new(PANEL.min.x, PANEL.max.y - 40.0),
+            Vec2::new(1.0, -1.0),
+        ),
+        (PANEL.max - 40.0, Vec2::NEG_ONE),
+    ] {
+        if let Some(corner) = piece(
+            picture,
+            atlas,
+            assets,
+            (CORNER, 0.0),
+            Rect::from_corners(corner - 6.0, corner + 34.0),
+        ) {
+            picture
+                .commands()
+                .entity(corner)
+                .insert(UiTransform::from_scale(flip));
+        }
+    }
+    for (source, rect) in [
+        (
+            STRIP,
+            Rect::from_corners(
+                PANEL.min - Vec2::new(0.0, 4.0),
+                Vec2::new(PANEL.max.x, PANEL.min.y + 5.0),
+            ),
+        ),
+        (
+            STRIP,
+            Rect::from_corners(
+                Vec2::new(PANEL.min.x, PANEL.max.y - 5.0),
+                PANEL.max + Vec2::new(0.0, 4.0),
+            ),
+        ),
+        (
+            STRIP,
+            Rect::from_corners(
+                Vec2::new(PANEL.min.x + 12.0, SEPARATOR - 4.0),
+                Vec2::new(PANEL.max.x - 12.0, SEPARATOR + 5.0),
+            ),
+        ),
+        (
+            SIDE,
+            Rect::from_corners(
+                PANEL.min - Vec2::new(4.0, 0.0),
+                Vec2::new(PANEL.min.x + 4.0, PANEL.max.y),
+            ),
+        ),
+        (
+            SIDE,
+            Rect::from_corners(
+                Vec2::new(PANEL.max.x - 4.0, PANEL.min.y),
+                PANEL.max + Vec2::new(4.0, 0.0),
+            ),
+        ),
+    ] {
+        tiled(picture, atlas, assets, source, rect);
+    }
+    // The name, the difficulty and Import, hidden while a description shows.
+    picture
+        .spawn((
+            Part::Controls,
+            Pickable::IGNORE,
+            place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+        ))
+        .with_children(|controls| {
+            let field = about(NAME_AT, NAME_SIZE);
+            piece(controls, atlas, assets, (FIELD, FIELD_ENDS), field);
+            controls.spawn((
+                Part::Name,
+                Node {
+                    padding: UiRect::left(Val::Px(12.0)),
+                    align_items: AlignItems::Center,
+                    ..place(field)
+                },
+                Text::new(""),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(TEXT_SIZE),
+                    ..default()
+                },
+                TextColor(TEXT),
+            ));
+            let row = about(DIFFICULTY_AT, DIFFICULTY_SIZE);
+            piece(controls, atlas, assets, (FIELD, FIELD_ENDS), row);
+            label(
+                controls,
+                words.get(BRONZE).unwrap_or("Bronze"),
+                font,
+                row,
+                TEXT,
+            );
+            for (x, arrow) in ARROWS.into_iter().zip([LEFT, RIGHT]) {
+                piece(
+                    controls,
+                    atlas,
+                    assets,
+                    (arrow, 0.0),
+                    about(Vec2::new(x, DIFFICULTY_AT.y), Vec2::splat(ARROW)),
+                );
+            }
+        });
+    picture
+        .spawn((
+            Part::Import,
+            Pickable::IGNORE,
+            place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+        ))
+        .with_children(|import| {
+            let rect = about(IMPORT_AT, IMPORT_SIZE);
+            piece(import, atlas, assets, (BUTTON, BUTTON_ENDS), rect);
+            label(
+                import,
+                words.get(IMPORT).unwrap_or("Import"),
+                font,
+                rect,
+                TEXT_GREY,
+            );
+        });
+    picture.spawn((
+        Part::Description,
+        Pickable::IGNORE,
+        Visibility::Hidden,
+        place(DESCRIPTION),
+        Text::default(),
+        TextFont {
+            font: font.clone().into(),
+            font_size: FontSize::Px(DESCRIPTION_SIZE),
+            ..default()
+        },
+        TextColor(PLAIN),
+    ));
+    button(
+        picture,
+        (atlas, assets),
+        (words.get(BACK).unwrap_or("Back"), font),
+        (BACK_AT, BUTTON_SIZE),
+        |commands| commands.run_system_cached(back),
+    );
+    let start = button(
+        picture,
+        (atlas, assets),
+        (words.get(START).unwrap_or("Start Game"), font),
+        (START_AT, BUTTON_SIZE),
+        |commands| commands.run_system_cached(start),
+    );
+    picture.commands().entity(start).insert(Part::Start);
+}
+
+/// Back to the main menu.
+fn back(mut screen: ResMut<NextState<Screen>>) {
+    screen.set(Screen::Main);
+}
+
+/// Starts a game of the hero chosen, of its name, if one is.
+fn start(
+    choice: Res<Choice>,
+    mut request: ResMut<Request>,
+    mut state: ResMut<NextState<AppState>>,
+) {
+    let Some(class) = choice.chosen else {
+        return;
+    };
+    info!("choice: a {} named {}", class.name(), choice.name);
+    request.0.class = Some(class);
+    request.0.name = Some(choice.name.clone());
+    state.set(AppState::Loading);
+}
+
+/// The arrows choose the next figure or the one before, a key types the chosen hero's name and
+/// Backspace takes its last character back, and Enter starts the game.
+fn keys(
+    mut commands: Commands,
+    mut input: MessageReader<KeyboardInput>,
+    mut choice: ResMut<Choice>,
+    words: Res<Words>,
+) {
+    for input in input.read() {
+        if !input.state.is_pressed() {
+            continue;
+        }
+        match &input.logical_key {
+            Key::ArrowRight | Key::ArrowDown => {
+                let class = step(choice.chosen, 1);
+                choose(&mut choice, &words, class);
+            }
+            Key::ArrowLeft | Key::ArrowUp => {
+                let class = step(choice.chosen, -1);
+                choose(&mut choice, &words, class);
+            }
+            Key::Enter => commands.run_system_cached(start),
+            Key::Backspace if choice.chosen.is_some() => {
+                choice.name.pop();
+            }
+            _ => {
+                if choice.chosen.is_some()
+                    && let Some(text) = &input.text
+                {
+                    for character in text.chars().filter(|c| !c.is_control()) {
+                        if choice.name.chars().count() < NAME_LENGTH {
+                            choice.name.push(character);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The panel as the choice stands: the name with the cursor after it, Start Game greyed until a
+/// hero is chosen, and a figure's description in place of the controls while the cursor is on it.
+fn show(
+    choice: Res<Choice>,
+    words: Res<Words>,
+    mut parts: Query<(&Part, &mut Visibility, Option<&mut Text>, Option<&Children>)>,
+    mut colours: Query<&mut TextColor>,
+    mut commands: Commands,
+) {
+    if !choice.is_changed() {
+        return;
+    }
+    let description = choice.hovered.map(|class| texts(class).1);
+    for (part, mut visibility, text, children) in &mut parts {
+        match part {
+            Part::Controls => {
+                *visibility = if description.is_some() || choice.chosen.is_none() {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                };
+            }
+            Part::Import => {
+                *visibility = if description.is_some() {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                };
+            }
+            Part::Name => {
+                if let Some(mut text) = text {
+                    text.0 = format!("{}_", choice.name);
+                }
+            }
+            Part::Description => {
+                *visibility = if description.is_some() {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
+            }
+            Part::Start => {
+                for child in children.into_iter().flatten() {
+                    if let Ok(mut colour) = colours.get_mut(*child) {
+                        colour.0 = if choice.chosen.is_some() {
+                            TEXT
+                        } else {
+                            TEXT_GREY
+                        };
+                    }
+                }
+            }
+        }
+    }
+    // A description's words, those its marks single out in their colour.
+    if let Some(name) = description {
+        let text = words.get(name).unwrap_or_default();
+        commands.run_system_cached_with(describe, spans(text));
+    }
+}
+
+/// Writes a description's spans into its text.
+fn describe(
+    In(spans): In<Vec<(String, bool)>>,
+    mut commands: Commands,
+    descriptions: Query<(Entity, &Part, &TextFont, Option<&Children>)>,
+) {
+    for (entity, part, font, children) in &descriptions {
+        if *part != Part::Description {
+            continue;
+        }
+        for child in children.into_iter().flatten() {
+            commands.entity(*child).despawn();
+        }
+        let mut node = commands.entity(entity);
+        node.insert(Text::default());
+        node.with_children(|text| {
+            for (words, marked) in spans.iter().cloned() {
+                text.spawn((
+                    TextSpan::new(words),
+                    font.clone(),
+                    TextColor(if marked { MARKED } else { PLAIN }),
+                ));
+            }
+        });
+    }
+}
+
+/// A text's spans, each marked where a `<colorw=…>` before it singles its first word out, the
+/// other tags left out.
+fn spans(text: &str) -> Vec<(String, bool)> {
+    let mut spans = Vec::new();
+    let mut rest = text;
+    let mut marked = false;
+    while !rest.is_empty() {
+        let Some(open) = rest.find('<') else {
+            push(&mut spans, rest, marked);
+            break;
+        };
+        push(&mut spans, &rest[..open], marked);
+        let Some(close) = rest[open..].find('>') else {
+            break;
+        };
+        marked = rest[open..open + close].starts_with("<colorw=");
+        rest = &rest[open + close + 1..];
+    }
+    spans
+}
+
+/// Pushes `text`, its first word marked where `marked`.
+fn push(spans: &mut Vec<(String, bool)>, text: &str, marked: bool) {
+    if text.is_empty() {
+        return;
+    }
+    if marked {
+        let end = text.find(char::is_whitespace).unwrap_or(text.len());
+        spans.push((text[..end].to_owned(), true));
+        if end < text.len() {
+            spans.push((text[end..].to_owned(), false));
+        }
+    } else {
+        spans.push((text.to_owned(), false));
+    }
+}
+
+/// Gives a figure its model's scene once its glTF is loaded.
+fn dress(
+    mut commands: Commands,
+    mut figures: Query<(Entity, &mut Figure)>,
+    gltfs: Res<Assets<Gltf>>,
+) {
+    for (entity, mut figure) in &mut figures {
+        let Some(gltf) = figure.gltf.as_ref().and_then(|handle| gltfs.get(handle)) else {
+            continue;
+        };
+        if let Some(scene) = gltf.scenes.first().cloned() {
+            commands.entity(entity).insert(WorldAssetRoot(scene));
+        }
+        let idle = gltf.named_animations.get(figure.idle.as_str()).cloned();
+        figure.gltf = None;
+        if let Some(idle) = idle {
+            commands.entity(entity).insert(Idle(idle));
+        }
+    }
+}
+
+/// A figure's idle clip, which its animation player plays once it is made.
+#[derive(Component)]
+struct Idle(Handle<AnimationClip>);
+
+/// Puts the figures' scene's entities into the figures' scene, plays a figure's idle clip as its
+/// player comes, and gives its meshes copies of their materials of its own.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its queries and resources one by one"
+)]
+fn settle(
+    mut commands: Commands,
+    mut figures: Query<(Entity, Option<&Idle>, &mut Shades), With<Figure>>,
+    children: Query<&Children>,
+    layered: Query<(), With<RenderLayers>>,
+    mut players: Query<&mut AnimationPlayer, Without<AnimationGraphHandle>>,
+    meshes: Query<&MeshMaterial3d<StandardMaterial>, Without<Owned>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+) {
+    for (figure, idle, mut shades) in &mut figures {
+        for entity in children.iter_descendants(figure) {
+            if !layered.contains(entity) {
+                commands.entity(entity).insert(RenderLayers::layer(FIGURES));
+            }
+            if let (Some(idle), Ok(mut player)) = (idle, players.get_mut(entity)) {
+                let (graph, node) = AnimationGraph::from_clip(idle.0.clone());
+                player.play(node).repeat();
+                commands
+                    .entity(entity)
+                    .insert(AnimationGraphHandle(graphs.add(graph)));
+            }
+            if let Ok(material) = meshes.get(entity)
+                && let Some(own) = materials.get(&material.0).cloned()
+            {
+                let (colour, reflectance) = (own.base_color, own.reflectance);
+                let own = materials.add(own);
+                shades.materials.push((own.clone(), colour, reflectance));
+                shades.lit = None;
+                commands.entity(entity).insert((MeshMaterial3d(own), Owned));
+            }
+        }
+    }
+}
+
+/// Lights the figure under the cursor and the one chosen, the others dark.
+fn shade(
+    choice: Res<Choice>,
+    mut figures: Query<(&Figure, &mut Shades)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (figure, mut shades) in &mut figures {
+        let lit = choice.hovered == Some(figure.class) || choice.chosen == Some(figure.class);
+        if shades.lit == Some(lit) {
+            continue;
+        }
+        shades.lit = Some(lit);
+        // A dark figure reflects no light either, which would leave it grey.
+        for (handle, colour, reflectance) in &shades.materials {
+            if let Some(mut material) = materials.get_mut(handle) {
+                (material.base_color, material.reflectance) = if lit {
+                    (*colour, *reflectance)
+                } else {
+                    (DARK, 0.0)
+                };
+            }
+        }
+    }
+}
+
+/// The Ancaria campaign's choice of the hero.
+pub struct ChoicePlugin;
+
+impl Plugin for ChoicePlugin {
+    fn build(&self, app: &mut App) {
+        embedded_asset!(app, "figures.wesl");
+        app.add_plugins(UiMaterialPlugin::<Layer>::default())
+            .init_resource::<Choice>()
+            .init_resource::<Figures>()
+            .init_resource::<Images>()
+            .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
+            .add_systems(
+                Update,
+                (
+                    (keys.in_set(crate::frame::Control), show),
+                    // The figures, where the game draws models.
+                    (dress, settle, shade, npcs::equip)
+                        .chain()
+                        .run_if(resource_exists::<Assets<Gltf>>),
+                )
+                    .chain()
+                    .run_if(in_state(Screen::Heroes)),
+            );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_arrows_choose_the_figures_in_the_screens_order() {
+        assert_eq!(step(None, 1), Class::Gladiator);
+        assert_eq!(step(None, -1), Class::Vampiress);
+        assert_eq!(step(Some(Class::Gladiator), 1), Class::Seraphim);
+        assert_eq!(step(Some(Class::Gladiator), -1), Class::Vampiress);
+        assert_eq!(step(Some(Class::Vampiress), 1), Class::Gladiator);
+        assert_eq!(step(Some(Class::Dwarf), 1), Class::WoodElf);
+    }
+
+    #[test]
+    fn the_arrows_choose_a_hero_whose_name_the_keys_type_and_enter_starts_it() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::state::app::StatesPlugin,
+            AssetPlugin::default(),
+        ))
+        .init_asset::<Font>()
+        .init_asset::<Image>()
+        .init_asset::<bevy::shader::Shader>()
+        .init_state::<AppState>()
+        .add_message::<KeyboardInput>()
+        .add_plugins((menu::MenuPlugin, ChoicePlugin))
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<Request>();
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<Screen>>()
+            .set(Screen::Heroes);
+        app.update();
+        let typed = |app: &mut App, key: Key, text: Option<&str>| {
+            app.world_mut().write_message(KeyboardInput {
+                key_code: KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified),
+                logical_key: key,
+                state: bevy::input::ButtonState::Pressed,
+                text: text.map(Into::into),
+                repeat: false,
+                window: Entity::PLACEHOLDER,
+            });
+            app.update();
+        };
+        // Enter starts nothing before a hero is chosen.
+        typed(&mut app, Key::Enter, None);
+        assert_eq!(
+            *app.world().resource::<State<AppState>>().get(),
+            AppState::Menu
+        );
+        // Left of no choice is the last figure, the Vampiress; right twice, the Seraphim.
+        typed(&mut app, Key::ArrowLeft, None);
+        typed(&mut app, Key::ArrowRight, None);
+        typed(&mut app, Key::ArrowRight, None);
+        typed(&mut app, Key::Character("x".into()), Some("x"));
+        typed(&mut app, Key::Character("y".into()), Some("y"));
+        typed(&mut app, Key::Backspace, None);
+        typed(&mut app, Key::Enter, None);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<AppState>>().get(),
+            AppState::Loading
+        );
+        let request = &app.world().resource::<Request>().0;
+        assert_eq!(request.class, Some(Class::Seraphim));
+        assert_eq!(request.name.as_deref(), Some("Seraphimx"));
+    }
+
+    #[test]
+    fn a_description_singles_out_the_words_its_marks_name() {
+        assert_eq!(
+            spans("The <colorw=FFFFFF80>Dark <colorw=FFFFFF80>Elf comes <sigh>here"),
+            [
+                ("The ".to_owned(), false),
+                ("Dark".to_owned(), true),
+                (" ".to_owned(), false),
+                ("Elf".to_owned(), true),
+                (" comes ".to_owned(), false),
+                ("here".to_owned(), false),
+            ]
+        );
+        assert_eq!(spans("plain"), [("plain".to_owned(), false)]);
+    }
+}
