@@ -692,9 +692,32 @@ fn popups(
     let Some(hero) = heroes.iter().next() else {
         return;
     };
-    let dialogue = popups.0.remove(0);
-    info!("talk: the hero's own talk of {dialogue}");
-    commands.queue(move |world: &mut World| open(world, hero, hero, &dialogue));
+    match popups.0.remove(0) {
+        scripts::Begins::Own(dialogue) => {
+            info!("talk: the hero's own talk of {dialogue}");
+            commands.queue(move |world: &mut World| open(world, hero, hero, &dialogue));
+        }
+        // The creature takes the dialogue, and the hero speaks to it as a click on it does
+        // (`0x49DCF0`: the hero's talk's action toward it).
+        scripts::Begins::With { creature, dialogue } => {
+            commands.queue(move |world: &mut World| {
+                let mut named = world.query::<(Entity, &crate::npcs::ScriptName)>();
+                let found = named
+                    .iter(world)
+                    .find(|(_, name)| name.0 == creature)
+                    .map(|(entity, _)| entity);
+                let Some(entity) = found else {
+                    info!("talk: no {creature} in the world to speak {dialogue}");
+                    return;
+                };
+                world.entity_mut(entity).insert(Talk(dialogue.clone()));
+                match talk_to(world, Some(entity)) {
+                    Ok(line) => info!("talk: {creature} takes {dialogue}: {line}"),
+                    Err(e) => info!("talk: {creature} takes {dialogue}: {e}"),
+                }
+            });
+        }
+    }
 }
 
 /// Sends the hero to speak to `creature`, or to the creature of a dialogue nearest it (the

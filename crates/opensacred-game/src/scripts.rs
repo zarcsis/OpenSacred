@@ -120,10 +120,18 @@ pub struct Healths(pub Vec<SetHealth>);
 #[derive(Resource, Default)]
 pub struct Infos(pub Vec<(i32, String)>);
 
-/// The dialogues that the scripts' `Popup`s give the hero to speak to itself (95, `0x4A7760`;
-/// #1033), in order, which `talk` runs.
+/// The talks that the scripts begin, in order, which `talk` runs.
 #[derive(Resource, Default)]
-pub struct Popups(pub Vec<String>);
+pub struct Popups(pub Vec<Begins>);
+
+/// A talk that a script begins: the hero's own, of a dialogue that a `Popup` gives it (95,
+/// `0x4A7760`; #1033), or the hero's with the creature of a script's name, which an
+/// `NPC_TalkTo` gives a dialogue (71, `0x49DCF0`; #1037).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Begins {
+    Own(String),
+    With { creature: String, dialogue: String },
+}
 
 /// The hero's home, where it rises after its death (`+0x2BD` to `+0x2C5`, #974): the cell and the
 /// floor that the play's `SetNPCState`s of the tag `0x4D` naming the hero and its `StartPosition`s
@@ -166,9 +174,9 @@ pub struct Effects {
     pub home: Option<Teleport>,
     /// What a dialogue's records gave its window.
     pub window: Window,
-    /// The texts its `InfoPlayer`s show and the dialogues its `Popup`s begin.
+    /// The texts its `InfoPlayer`s show and the talks its `Popup`s and `NPC_TalkTo`s begin.
     pub infos: Vec<(i32, String)>,
-    pub popups: Vec<String>,
+    pub popups: Vec<Begins>,
 }
 
 impl Effects {
@@ -635,7 +643,7 @@ struct Recorder<'a> {
     living: Option<&'a HashSet<u32>>,
     window: Window,
     infos: Vec<(i32, String)>,
-    popups: Vec<String>,
+    popups: Vec<Begins>,
 }
 
 impl<'a> Recorder<'a> {
@@ -970,7 +978,22 @@ impl Host for Recorder<'_> {
             // The hero's own talk of the named dialogue (`0x4A7760`, #1033).
             "popup" => {
                 if let Some(dialogue) = tags.texts("_01").first() {
-                    self.popups.push((*dialogue).to_owned());
+                    self.popups.push(Begins::Own((*dialogue).to_owned()));
+                }
+                Handled::Done
+            }
+            // A creature's talk with the hero, the creature taking the dialogue (`0x49DCF0`,
+            // #1037): its first name the creature's, its second `HERO`; a record without both
+            // names does nothing, and a talk between two creatures is not followed.
+            "npc_talk_to" => {
+                if let ([creature, partner, ..], Some(dialogue)) =
+                    (tags.texts("_01").as_slice(), tags.texts("_09").first())
+                    && partner.eq_ignore_ascii_case("hero")
+                {
+                    self.popups.push(Begins::With {
+                        creature: creature.to_ascii_lowercase(),
+                        dialogue: (*dialogue).to_owned(),
+                    });
                 }
                 Handled::Done
             }
@@ -1906,6 +1929,8 @@ mod tests {
              info_player { _01 = \"res:17631\", _0B = 1 }\n\
              info_player { _0B = 5 }\n\
              popup { _01 = \"Dialog_Stein\" }\n\
+             npc_talk_to { _01 = { \"res:17240\", \"HERO\" }, _09 = \"auftrag2002\" }\n\
+             npc_talk_to { _01 = \"res:17267\", _09 = \"ziel2303\" }\n\
              return true\n\
              end\n\
              return F",
@@ -1913,7 +1938,17 @@ mod tests {
         let mut live = live(runtime);
         let effects = live.run_named("exit01");
         assert_eq!(effects.infos, [(1, "res:17631".to_owned())]);
-        assert_eq!(effects.popups, ["Dialog_Stein"]);
+        // An `NPC_TalkTo` of one name begins nothing.
+        assert_eq!(
+            effects.popups,
+            [
+                Begins::Own("Dialog_Stein".into()),
+                Begins::With {
+                    creature: "res:17240".into(),
+                    dialogue: "auftrag2002".into()
+                }
+            ]
+        );
     }
 
     #[test]
