@@ -6,8 +6,8 @@ An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, 
 
 OpenSacred contains none of the game's files. You need your own copy of Sacred Gold from GOG:
 
-- an offline converter reads your installation once and turns its assets into open formats (PNG and KTX2, glTF, FLAC and Ogg Opus, AV1/Opus WebM, RON, Fluent);
-- the engine reads only those formats;
+- an offline converter reads your installation once and turns its assets into open formats in two stages: the masters (PNG, glTF, FLAC, FFV1 video, RON and postcard, Fluent, the scripts translated into Luau), then the game's assets made from them (KTX2, Ogg Opus, AV1/Opus WebM, Luau bytecode) and packed into ZIP archives;
+- the engine reads only the game's assets;
 - the game's rules are reimplemented from documented behavior ([docs/re/](docs/re/)); deliberate deviations from the original are recorded in [docs/decisions/](docs/decisions/).
 
 Multiplayer comes after version 1.0; until then there is no networking. Original save files are not loaded. The full rationale is in [PLAN.md](PLAN.md).
@@ -19,17 +19,20 @@ Multiplayer comes after version 1.0; until then there is no networking. Original
 | M0 Foundation: Cargo workspace, CI, the SHA-256 manifest of the reference installation | done |
 | M1 Converter: textures, Granny models and animations → glTF, world sectors, sound, texts, videos, interface, tables, hero templates, scripts | done |
 | M2 Vertical slice: streamed sectors with ground, water and objects, the hero walking and running, the start script's NPCs, footsteps, music and ambience, day and night, the buildings' insides, the original's cursor; menus, settings, a console and remote control | done |
-| M3 Rules: the Ghidra project; the world's creatures spawned and living as in the original; the fight of the creatures and the hero, health, death, experience and levels | in progress |
-| M4 Quests and world: the townsfolk's day, the doors | started |
-| M5–M6: the full interface, version 1.0 for Windows 11 | planned |
+| M3 Rules: the Ghidra project and an emulator that runs the original's own formulas to check ours against; the converter's two stages and the game's packed assets; the world's creatures spawned and living as in the original, the followers and the summonings; the fight of the creatures and the hero (health, death, experience and levels, the combat arts and the spells); what the killed drop, and picking it up | done |
+| M4 Quests and world: the scripts translated into Luau and run through the play (the quests, the triggers, the timers, the teleports, the world's changes), the dialogues and the icons over the creatures, the townsfolk's day, the weather's choice | done |
+| M5 UI and effects: the original's main menu and choice of the hero, the difficulty levels, the interface over the world, the inventory, the character's sheet, the trade and the blacksmith, the quest log and the maps, the effects, the weather drawn, the sound by the profiles, the movies | in progress |
+| M6 Version 1.0 for Windows 11: saves, the settings' menu, the gamepad, 4K and HiDPI, the campaigns played through | planned |
+| M7–M9: HD assets, Linux and possibly Android, multiplayer | after version 1.0 |
 
-It is not a game you can play through yet. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10.
+It is not a game you can play through yet: there is no inventory, no trade and no saving. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
 
 ## Requirements
 
 - **The game:** your own copy of Sacred Gold 2.28 (English) from GOG. The converter checks it against the embedded SHA-256 manifest ([docs/manifest-gog-2.28.txt](docs/manifest-gog-2.28.txt)); other builds are not supported.
 - **Rust:** [rustup](https://rustup.rs/); the exact toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml) and installs automatically.
 - **Windows:** Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK. The workspace links with `rust-lld` ([.cargo/config.toml](.cargo/config.toml)).
+- **CMake** in `PATH`: the game's build compiles libopus with it.
 - **FFmpeg** in `PATH`: the converter runs it for the sound, the videos and a few textures.
 - **Cargo tools** for development: `cargo install cargo-nextest cargo-deny`.
 - **Python 3.15** (optional): only for the research scripts in [tools/](tools/README.md) and the tests that cross-check against them; `pip install -r tools/requirements.txt`.
@@ -44,11 +47,13 @@ cd OpenSacred
 # Copy or link your GOG installation of Sacred Gold to OriginalGame/ (ignored by Git),
 # or pass --game-dir <path> to every converter command.
 cargo run --release -p opensacred-convert -- verify   # check the installation against the manifest
-cargo run --release -p opensacred-convert -- all      # convert everything into assets/ (ignored by Git)
-cargo run --release -p opensacred-game                # the game, from its menu: the left button moves and attacks, R walks/runs, the wheel zooms, Esc pauses, F1 lists the keys
+cargo run --release -p opensacred-convert -- all      # extract everything into assets-src/, then build the game's assets/ (both ignored by Git)
+cargo run --release -p opensacred-game                # the game, from its menu
 ```
 
-The converter's commands: `verify`, `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes`, `netscript`, `all` (every conversion in order, skipping those whose output is up to date; `--force` runs them all) and `coverage` (what becomes of each file of the installation). `--help` describes each. The game takes `--class` (a game at once, skipping the menu), `--sector X,Y`, `--zoom`, `--time HH:MM`, `--windowed`/`--borderless`, `--width`/`--height`, `--no-music`, `--screenshot`, `--exec` and `--remote`; its `--help` lists the rest.
+In the game the left button moves, speaks to a creature that has something to say and attacks a hostile one (with Ctrl it strikes at once), the right button makes the selected combat art, R switches walking and running, the wheel zooms, Esc pauses, F1 lists the keys, F3 shows the debug overlay, F4 the log, F11 switches between borderless full screen and a window, and the key under Esc opens the console.
+
+The converter works in two stages. The extractions `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes` and `netscript` write the masters into `assets-src/`; `build` makes the game's `assets/` from them, packed into ZIP archives by kind, and remakes only those whose masters changed. `all` runs every extraction in order, skipping those whose output is up to date (`--force` runs them all), then `build`; `verify` checks the installation and `coverage` tells what becomes of each of its files. `--help` describes each. The game takes `--class` (a game at once, skipping the menu), `--sector X,Y`, `--zoom`, `--time HH:MM`, `--windowed`/`--borderless`, `--width`/`--height`, `--no-music`, `--settings`, `--log-file`, `--screenshot`, `--benchmark`, `--exec` and `--remote`; its `--help` lists the rest.
 
 The converted assets are made from your copy of the game. Keep them for yourself: do not publish or share them (see [docs/08-risks-legal.md](docs/08-risks-legal.md)).
 
@@ -57,17 +62,23 @@ The converted assets are made from your copy of the game. Keep them for yourself
 | Path | Contents |
 |---|---|
 | `crates/opensacred-formats` | readers of the original formats (PAK, TEX, GRN, sectors, NetScript, `global.res`, AMH); parsing only |
-| `crates/opensacred-data` | open-format types shared by the converter and the game |
+| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds, the drops, the quests' state, the spells and the weather |
+| `crates/opensacred-scripts` | the runtime of the scripts translated into Luau, sandboxed |
+| `crates/opensacred-data` | open-format types shared by the converter and the game, the game's ZIP archives and KTX2 textures |
 | `crates/opensacred-convert` | the converter CLI |
 | `crates/opensacred-game` | the game on Bevy |
-| `docs/` | design documents, format descriptions, recovered behavior |
-| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, and the process scripts (usage, stacked pull requests) |
+| `crates/opensacred-oracle` | development only: the developer's own `Sacred.exe` in the Unicorn emulator, running the original's fight formulas to record the vectors the rules' tests compare with |
+| `docs/` | design documents, format descriptions, recovered behavior, decisions |
+| `tools/` | research scripts (the reference prototypes for the Rust readers), the Ghidra project's scripts, the game's remote-control client, the original's driver under Frida, and the process scripts (usage, stacked pull requests) |
+| `.claude/skills/` | the project skills of Claude Code: running and driving the game and the original |
 
 ## Tests
 
 ```bash
 cargo nextest run --workspace                       # without the game files, as in CI
 cargo nextest run --workspace --run-ignored all     # plus the tests on OriginalGame/, the Python prototypes and the GPU
+cargo run --release -p opensacred-oracle --features emulator                  # record the original's fight formulas (docs/03 §3.4)
+cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'   # the rules' formulas against them
 cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check                                    # licenses, advisories, sources
 ```
@@ -81,7 +92,11 @@ Tests that need the game files are marked `#[ignore]`: CI does not have them. Cr
 | [PLAN.md](PLAN.md) | the main plan: goals, decisions, architecture, estimates, risks |
 | [docs/02-data-formats.md](docs/02-data-formats.md) | the original data formats and their conversion targets |
 | [docs/03-toolchain.md](docs/03-toolchain.md) | tools, workstation setup, CI, the workflow with Claude Code |
+| [docs/re/](docs/re/) | the original's behavior, recovered and described by subsystem |
+| [docs/decisions/](docs/decisions/) | the deliberate deviations from the original, a decision each |
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | the legal policy: what the project publishes and what it never does |
+| [docs/10-game-tools.md](docs/10-game-tools.md) | the game's commands, scripts and remote control |
+| [docs/usage.md](docs/usage.md) | how the Claude Code usage of each pull request is counted |
 | [tools/README.md](tools/README.md) | the research scripts and how to run them |
 | [CLAUDE.md](CLAUDE.md) | conventions for development with Claude Code |
 
