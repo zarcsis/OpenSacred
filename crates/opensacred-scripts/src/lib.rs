@@ -282,6 +282,22 @@ impl Runtime {
         }
     }
 
+    /// The functions marked done, never to run again, by their keys: part of the scripts' state,
+    /// which a runtime made anew takes on ([`Self::mark_done`]).
+    pub fn done(&self) -> Vec<String> {
+        self.inner.done.borrow().iter().cloned().collect()
+    }
+
+    /// Marks the functions of the keys `keys` done, as another runtime of the tree left them.
+    pub fn mark_done(&self, keys: impl IntoIterator<Item = String>) {
+        self.inner.done.borrow_mut().extend(keys);
+    }
+
+    /// The index of the tree's functions.
+    pub fn index(&self) -> &Index {
+        &self.inner.index
+    }
+
     /// The records that had no meaning, each reported once.
     pub fn unknown(&self) -> Vec<String> {
         self.inner.unknown.borrow().iter().cloned().collect()
@@ -627,15 +643,20 @@ mod tests {
         assert_eq!(runtime.files(), 2);
     }
 
+    /// A runtime of a region's `Init` written twice, the first marking itself done.
+    fn runtime_of_region() -> (Runtime, Rc<RefCell<BTreeMap<String, u32>>>) {
+        runtime(&[(
+            "regions/2.luau",
+            "local t = {}\n\
+             t[\"Region2Init\"] = function() first({}) return \"done\" end\n\
+             t[\"Region2Init#2\"] = function() second({}) return true end\n\
+             return t",
+        )])
+    }
+
     #[test]
     fn a_name_written_again_calls_each_of_its_functions_by_its_place() {
-        let (runtime, _) = runtime(&[(
-            "regions/2.luau",
-            "local t = {}
-             t[\"Region2Init\"] = function() first({}) return \"done\" end
-             t[\"Region2Init#2\"] = function() second({}) return true end
-             return t",
-        )]);
+        let (runtime, _) = runtime_of_region();
         let mut host = Recorder::default();
         assert_eq!(runtime.entries("Region2Init"), 2);
         assert_eq!(runtime.entries("Region3Init"), 0);
@@ -659,6 +680,14 @@ mod tests {
         let names: Vec<&str> = host.records.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["second", "first", "second"]);
         assert!(runtime.call_entry("Region2Init", 2, &mut host).is_err());
+        // A runtime made anew takes on the functions marked done.
+        assert_eq!(runtime.done(), ["Region2Init"]);
+        let (again, _) = runtime_of_region();
+        again.mark_done(runtime.done());
+        assert_eq!(
+            again.call("Region2Init", &mut host).ok(),
+            Some(Outcome::Done)
+        );
     }
 
     #[test]

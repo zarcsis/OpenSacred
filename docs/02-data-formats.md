@@ -1201,8 +1201,8 @@ Closed and not in the list: where the screen resolution is stored (nowhere: it i
 2. The meaning of the Static.PAK flags other than those of §5.5 and §6.1 (`0x10`, `0x20`, `0x40`, `0x80`, `0x290`, `0x400`, `0x800`) and of its bytes `+0x16` and `+0x34…+0x3F`.
    Closed on 2026-10-17: the position (screen pixels at `+0x0E`/`+0x12`, community-reported; the "`z`" was the high half of `x`) and how Floor.PAK and Static.PAK attach to the sectors (the cells' chains, §5.5).
 3. Granny animation blending parameters (ADSR envelopes, period, the events of the MotionDesc float table other than the attack's hit fractions, §4.1); needed only for the approximate transfer into the Bevy animation graph.
-4. Semantics of the NetScript record types without a keyword (39; the fields `a`, `b` of type 40; the five cases of type 41; 42), the single unresolvable reference `res:174242`.
-   Closed on 2026-10-17: the operand tag widths of the Windows build and the names of 43, 44, 111, 122, 123 (§7.1, §7.3).
+4. Semantics of the NetScript record types without a keyword (the fields `a`, `b` of type 40; the five cases of type 41; 42), the single unresolvable reference `res:174242`.
+   Closed on 2026-10-17: the operand tag widths of the Windows build and the names of 43, 44, 111, 122, 123 (§7.1, §7.3); on 2026-10-26, type 39, a base trigger's name and the index of its function (docs/re/netscript.md, "Base triggers").
 5. Hero template fields (section 0xC7) to the extent needed for the starting presets.
    Closed on 2026-10-22: the inventory's blocks of section 0xC8, the items the hero wears and holds (§9, #486).
 6. The meaning of the X fields in the TEX (9,406/27,100), MDL (13,268 in `models.pak`, also in the `Models.tmp` and `MOTIONS.PAK` headers; 19,897 in `models03.pak`), CIF (0x3C3D5) and WPN (0x1A3717) headers; probably CRCs/timestamps.

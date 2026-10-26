@@ -297,6 +297,7 @@ struct Loaded {
     hero: hero::Hero,
     footsteps: sound::Footsteps,
     npcs: npcs::Npcs,
+    scripts: scripts::Started,
     clock: daynight::Clock,
     hero_light: daynight::HeroLight,
     daemon: ai::Daemon,
@@ -359,7 +360,10 @@ fn load(
         .iter()
         .map(|entry| ((entry.x, entry.y), entry.area))
         .collect();
-    let scripts = scripts::run(assets, &tree, |at| areas.get(&at).copied())?;
+    let scripts::Ran {
+        tree: scripts,
+        started,
+    } = scripts::run(assets, &tree, |at| areas.get(&at).copied())?;
     let side = u32::try_from(opensacred_data::world::SIDE)?;
     // The sector given, at its centre, or the start script's start cell.
     let start = match game.sector {
@@ -573,6 +577,7 @@ fn load(
     };
     Ok(Loaded {
         npcs,
+        scripts: started,
         tree,
         at,
         first,
@@ -768,6 +773,7 @@ fn finish(
     commands.insert_resource(loaded.hero);
     commands.insert_resource(loaded.footsteps);
     commands.insert_resource(loaded.npcs);
+    commands.insert_resource(loaded.scripts);
     commands.insert_resource(loaded.clock);
     commands.insert_resource(loaded.hero_light);
     commands.insert_resource(loaded.daemon);
