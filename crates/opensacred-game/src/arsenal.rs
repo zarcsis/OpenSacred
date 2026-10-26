@@ -1,11 +1,15 @@
-//! The Seraphim's 1018 (#754; docs/re/arts.md, "The Seraphim's"): while her effect
-//! [`arts::BFG`] holds, her hands hold the item [`arts::BFG_ITEM`] alone, with its values, its
-//! model and the clips of its class, her own items put away (the adder `0x582D50`); as it ends the
-//! item goes and her own come back (the taker `0x586D80`; seen 2026-10-24: her sword back in her
-//! hand and her values as before, 30 s after the art at the level 1).
+//! The arms that the heroes' arts change. The Seraphim's 1018 (#754; docs/re/arts.md, "The
+//! Seraphim's"): while her effect [`arts::BFG`] holds, her hands hold the item [`arts::BFG_ITEM`]
+//! alone, with its values, its model and the clips of its class, her own items put away (the
+//! adder `0x582D50`); as it ends the item goes and her own come back (the taker `0x586D80`; seen
+//! 2026-10-24: her sword back in her hand and her values as before, 30 s after the art at the
+//! level 1). The Gladiator's 1013 (#755; docs/re/arts.md, "The Gladiator's"): the item it hurls
+//! leaves his hand (`0x556A30`), and his arms are those without it until he picks it up again
+//! (`pickup`), the weapon going back into his empty hand (`0x54ACC0`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts;
+use opensacred_rules::drops::Dropped;
 use opensacred_rules::fight::{combat_with, regeneration_with};
 
 use crate::effects::Effects;
@@ -25,27 +29,137 @@ pub struct Arms {
     pub blade: Option<crate::making::Blade>,
 }
 
-/// The Seraphim's own arms and those of her effect [`arts::BFG`], and which she bears.
+/// The item that the Gladiator's 1013 hurls (#755): his arms without it, the item as it lies
+/// once it falls, and its model and texture in flight.
+#[derive(Clone, Debug)]
+pub struct Hurled {
+    pub arms: Arms,
+    pub item: Dropped,
+    pub held: crate::npcs::Held,
+}
+
+/// The hero's own arms, those of the Seraphim's effect [`arts::BFG`], the Gladiator's without the
+/// item he hurls, and which it bears.
 #[derive(Resource)]
 pub struct Arsenal {
     own: Arms,
-    bfg: Arms,
+    bfg: Option<Arms>,
+    hurled: Option<Hurled>,
     bearing: bool,
+    thrown: bool,
 }
 
 impl Arsenal {
-    pub fn new(own: Arms, bfg: Arms) -> Self {
+    pub fn new(own: Arms) -> Self {
         Self {
             own,
-            bfg,
+            bfg: None,
+            hurled: None,
             bearing: false,
+            thrown: false,
         }
+    }
+
+    /// The Seraphim's, with the arms of her effect [`arts::BFG`].
+    pub fn with_bfg(self, bfg: Arms) -> Self {
+        Self {
+            bfg: Some(bfg),
+            ..self
+        }
+    }
+
+    /// The Gladiator's, with the item his 1013 hurls.
+    pub fn with_hurled(self, hurled: Hurled) -> Self {
+        Self {
+            hurled: Some(hurled),
+            ..self
+        }
+    }
+
+    /// The item that the hero hurls, while it holds it.
+    pub fn hurls(&self) -> Option<&Hurled> {
+        self.hurled.as_ref().filter(|_| !self.thrown)
+    }
+
+    /// The item that the hero hurls, as it lies once it falls.
+    pub fn hurled_item(&self) -> Option<&Dropped> {
+        self.hurled.as_ref().map(|hurled| &hurled.item)
+    }
+
+    /// Whether `item`, which the hero picks up, is the item it hurled, which goes back into its
+    /// empty hand.
+    pub fn takes_back(&self, item: &Dropped) -> bool {
+        self.thrown
+            && self
+                .hurled
+                .as_ref()
+                .is_some_and(|hurled| hurled.item.item == item.item)
     }
 }
 
+/// The hero's item hurled out of its hand (`true`), or picked up into it again (`false`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Throws(pub bool);
+
+/// What of the hero its arms change.
+type Wearer<'a> = (
+    Entity,
+    &'a Base,
+    &'a Effects,
+    Mut<'a, Combat>,
+    Mut<'a, Regenerates>,
+    Option<Mut<'a, hero::Size>>,
+);
+
+/// Gives the hero `arms`: its items' models and clips, the values of what it holds, its size,
+/// and its values made anew with them, its pace and speeds with them.
+fn wear(
+    arms: Arms,
+    commands: &mut Commands,
+    hero: &mut Hero,
+    assets: &AssetServer,
+    (experience, rules, speed): (&Experience, &Rules, &GameSpeed),
+    (body, base, effects, mut combat, mut regenerates, size): Wearer,
+) {
+    debug!("arsenal: the hero holds {:?}", arms.held);
+    hero.held = arms.held;
+    hero.armed = arms.armed;
+    hero.blade = arms.blade;
+    // The blade of the hurled blades, which the hero's body carries (`hero::spawn`).
+    match arms.blade {
+        Some(blade) => {
+            commands.entity(body).insert(blade);
+        }
+        None => {
+            commands.entity(body).remove::<crate::making::Blade>();
+        }
+    }
+    hero.wear(&arms.form, assets);
+    match size {
+        Some(mut size) => size.0 = arms.form.size,
+        None => {
+            commands.entity(body).insert(hero::Size(arms.form.size));
+        }
+    }
+    let level = experience.level;
+    let skills = fight::skills(base, level, true);
+    let list = effects.list();
+    *combat = Combat(combat_with(
+        base,
+        level,
+        arms.holds.clone(),
+        &skills,
+        &list,
+        rules,
+    ));
+    regenerates.value = regeneration_with(base, level, &skills, &list, rules);
+    commands.entity(body).insert(Holding(arms.holds));
+    hero.pace = combat.pace_factor();
+    hero.speeds = arms.form.speeds.map(|s| f32::from(s) * hero.pace * speed.0);
+}
+
 /// Gives the hero the arms of its effect [`arts::BFG`] as the effect comes, and its own back as
-/// it goes: its items' models and clips, the values of what it holds, its size, and its values
-/// made anew with them, its pace and speeds with them.
+/// it goes.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -71,57 +185,89 @@ fn bear(
     let Some(mut arsenal) = arsenal else {
         return;
     };
-    for (body, base, effects, mut combat, mut regenerates, size) in &mut bodies {
-        let bearing = effects.holds(arts::BFG);
+    for wearer in &mut bodies {
+        let Some(bfg) = arsenal.bfg.clone() else {
+            return;
+        };
+        let bearing = wearer.2.holds(arts::BFG);
         if bearing == arsenal.bearing {
             continue;
         }
         arsenal.bearing = bearing;
-        let arms = if bearing {
-            arsenal.bfg.clone()
-        } else {
-            arsenal.own.clone()
-        };
+        let arms = if bearing { bfg } else { arsenal.own.clone() };
         info!(
             "arsenal: the hero {} the item {}",
             if bearing { "takes" } else { "puts away" },
             arts::BFG_ITEM
         );
-        debug!("arsenal: the hero holds {:?}", arms.held);
-        hero.held = arms.held;
-        hero.armed = arms.armed;
-        hero.blade = arms.blade;
-        // The blade of the hurled blades, which the hero's body carries (`hero::spawn`).
-        match arms.blade {
-            Some(blade) => {
-                commands.entity(body).insert(blade);
-            }
-            None => {
-                commands.entity(body).remove::<crate::making::Blade>();
-            }
+        wear(
+            arms,
+            &mut commands,
+            &mut hero,
+            &assets,
+            (&experience, &rules, &speed),
+            wearer,
+        );
+    }
+}
+
+/// Gives the hero its arms without the item it hurled as it hurls it, and its own back as it
+/// picks the item up again (#755).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn throw(
+    mut commands: Commands,
+    mut throws: MessageReader<Throws>,
+    arsenal: Option<ResMut<Arsenal>>,
+    mut hero: ResMut<Hero>,
+    assets: Res<AssetServer>,
+    (experience, rules, speed): (Res<Experience>, Res<Rules>, Res<GameSpeed>),
+    mut bodies: Query<
+        (
+            Entity,
+            &Base,
+            &Effects,
+            &mut Combat,
+            &mut Regenerates,
+            Option<&mut hero::Size>,
+        ),
+        With<Body>,
+    >,
+) {
+    let Some(mut arsenal) = arsenal else {
+        throws.clear();
+        return;
+    };
+    for &Throws(thrown) in throws.read() {
+        let Some(hurled) = arsenal.hurled.clone() else {
+            continue;
+        };
+        if thrown == arsenal.thrown {
+            continue;
         }
-        hero.wear(&arms.form, &assets);
-        match size {
-            Some(mut size) => size.0 = arms.form.size,
-            None => {
-                commands.entity(body).insert(hero::Size(arms.form.size));
-            }
+        arsenal.thrown = thrown;
+        let arms = if thrown {
+            hurled.arms
+        } else {
+            arsenal.own.clone()
+        };
+        info!(
+            "arsenal: the hero {} the item {}",
+            if thrown { "hurls" } else { "takes back" },
+            hurled.item.item
+        );
+        for wearer in &mut bodies {
+            wear(
+                arms.clone(),
+                &mut commands,
+                &mut hero,
+                &assets,
+                (&experience, &rules, &speed),
+                wearer,
+            );
         }
-        let level = experience.level;
-        let skills = fight::skills(base, level, true);
-        let list = effects.list();
-        *combat = Combat(combat_with(
-            base,
-            level,
-            arms.holds.clone(),
-            &skills,
-            &list,
-            &rules,
-        ));
-        regenerates.value = regeneration_with(base, level, &skills, &list, &rules);
-        commands.entity(body).insert(Holding(arms.holds));
-        hero.pace = combat.pace_factor();
-        hero.speeds = arms.form.speeds.map(|s| f32::from(s) * hero.pace * speed.0);
     }
 }
 
@@ -134,7 +280,11 @@ pub struct ArsenalPlugin;
 
 impl Plugin for ArsenalPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, bear.in_set(crate::frame::Step::HeroSpawn))
+        app.add_message::<Throws>()
+            .add_systems(
+                Update,
+                (bear, throw).chain().in_set(crate::frame::Step::HeroSpawn),
+            )
             .add_systems(OnExit(AppState::InGame), leave);
     }
 }

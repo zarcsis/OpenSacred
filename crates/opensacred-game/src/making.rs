@@ -116,6 +116,7 @@ pub fn clips(
         Style::Cast(163),
         Style::Smite,
         Style::Blades,
+        Style::Throw,
         Style::Whirl,
         Style::Jump,
         Style::Roar,
@@ -839,9 +840,12 @@ fn make(
                 held.entry::<Mind>()
                     .and_modify(move |mut mind| mind.stunned(seconds));
             }
-            // A smite strikes at its own point of its clip.
+            // A smite strikes at its own point of its clip, the hurled blades throw at theirs.
             if style == Style::Smite {
                 points = vec![1.0 - arts::SMITE_LEFT];
+            }
+            if style == Style::Throw {
+                points = vec![1.0 - arts::THROW_LEFT];
             }
             // A boon gives its effects at its own point of its clip.
             if matches!(
@@ -1441,6 +1445,29 @@ fn make(
                         ..hit(playing.target, &playing)
                     });
                 }
+                arts.start(making.art);
+                end(&mut commands);
+            }
+            Style::Throw => {
+                // Once what is left of its clip is below 0.6, once: the weapon leaves the hero's
+                // hand toward where its target stands (`hurled`), its regeneration starts, and
+                // the art ends at the throw (`0x501D39`, `0x50226D`).
+                let point = playing.points.first().copied().unwrap_or(0.4);
+                if !due(point, done) {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                let at = creatures.get(playing.target).map_or_else(
+                    |_| here + transform.rotation * Vec3::X,
+                    |(_, at, ..)| at.translation(),
+                );
+                commands.entity(hero).insert(crate::hurled::Hurls {
+                    at,
+                    level: playing.level,
+                    factor: playing.factor,
+                });
                 arts.start(making.art);
                 end(&mut commands);
             }

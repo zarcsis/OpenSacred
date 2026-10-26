@@ -587,7 +587,8 @@ fn the_classes_own_arts_strike_by_their_style() {
     assert_eq!(style(1069), Some(Style::Rundum));
     assert_eq!(style(1058), Some(Style::Hardhit));
     assert_eq!(style(1070), Some(Style::Hardhit));
-    assert_eq!((style(1013), style(6)), (None, None));
+    assert_eq!(style(1013), Some(Style::Throw));
+    assert_eq!(style(6), None);
 }
 
 #[test]
@@ -2114,4 +2115,45 @@ fn the_form_ends_on_the_first_ring_that_holds_dry_ground() {
     // Beyond 5 cells he drowns, a tenth of his health and 1 every 0.5 s.
     assert_eq!(landing((10, 10), dry(&[(16, 10)]), &mut First), None);
     assert_eq!(drowning(250), 26);
+}
+
+#[test]
+fn the_gladiators_hurled_weapon_flies_beyond_its_target_on_an_arc() {
+    assert_eq!(style(1013), Some(Style::Throw));
+    // The slot 147 with a weapon in hand, none without (#755).
+    assert!(action(2, Style::Throw, 2).is_some());
+    assert!(action(2, Style::Throw, 0).is_none());
+    // 300 to the target: the arc ends 200 beyond it, in 0.3 s, 80 high for a player.
+    let (end, d) = throw_end([1000.0, 1000.0], [1000.0, 1300.0], true);
+    assert_eq!((end, d), ([1000.0, 1500.0], 300.0));
+    assert!((throw_time(d) - 0.3).abs() < 1e-6);
+    assert_eq!(throw_height(true), 80.0);
+    assert_eq!(throw_height(false), 55.0);
+    // Another creature's flies 750 whatever its target's distance, and a target on the
+    // thrower's place counts 1.
+    let (far, _) = throw_end([0.0, 0.0], [10.0, 0.0], false);
+    assert_eq!(far, [750.0, 0.0]);
+    assert_eq!(throw_end([5.0, 5.0], [5.0, 5.0], true).1, 1.0);
+    // Its height peaks halfway and is 0 at its ends.
+    let (start, low) = throw_point([0.0, 0.0], [100.0, 0.0], 0.0, 80.0);
+    let (middle, high) = throw_point([0.0, 0.0], [100.0, 0.0], 0.5, 80.0);
+    assert_eq!((start, low), ([0.0, 0.0], 0.0));
+    assert_eq!((middle, high), ([50.0, 0.0], 80.0));
+}
+
+#[test]
+fn a_hurled_weapons_damages_are_rolled_at_the_hundredth_and_raised() {
+    /// Dice that give their numbers in turn.
+    struct Given(Vec<u32>);
+    impl crate::spawning::Dice for Given {
+        fn below(&mut self, n: u32) -> u32 {
+            let next = self.0.remove(0);
+            assert!(next < n.max(1), "{next} not below {n}");
+            next
+        }
+    }
+    // 10 to 14 physical rolled 2.5 above the least, no fire, 1 to 1 magic; times 1.5.
+    let damage = [[10.0, 14.0], [0.0, 0.0], [1.0, 1.0], [0.0, 0.0]];
+    let made = thrown_damage(&damage, 1.5, &mut Given(vec![250, 0, 0, 0]));
+    assert_eq!(made, [18.75, 0.0, 1.5, 0.0]);
 }

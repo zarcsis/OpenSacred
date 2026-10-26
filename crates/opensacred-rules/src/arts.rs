@@ -144,6 +144,12 @@ pub enum Style {
     /// its hand touches first ([`blade_touches`]), unless that is the one it struck last: the
     /// Seraphim's 1054 (`GUI_MOVE_SCHLEUDERKLINGEN`, `0x5038F0`).
     Blades,
+    /// The Gladiator's 1013 (`GUI_MOVE_SCHLEUDERKLINGEN`, `0x4FF0B0` at `0x501CF5`): below
+    /// [`THROW_LEFT`] of its clip the item in his hand leaves it and flies on an arc to beyond
+    /// his target ([`throw_end`], [`throw_height`], [`throw_time`], [`throw_point`]), strikes the
+    /// first creature it touches with its own damages and the art's factor, and falls there, or
+    /// at its end, an item to pick up again; the art ends at the throw.
+    Throw,
     /// Her `Rundum`'s strikes, each creature struck knocked back by a kick's roll
     /// ([`knockback_chance`], [`whirl_knockback`]): the Seraphim's 1020
     /// (`GUI_MOVE_WIRBELSCHLAG`, `0x5038F0`, which runs it as her 1069).
@@ -695,6 +701,9 @@ pub fn style(art: u16) -> Option<Style> {
     if art == 1054 {
         return Some(Style::Blades);
     }
+    if art == 1013 {
+        return Some(Style::Throw);
+    }
     if art == 1020 {
         return Some(Style::Whirl);
     }
@@ -978,6 +987,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             8 => 207,
             _ => 202,
         })),
+        // The hurled blades 1013 the slot 147 at the blend 0.5 and the rate 1.0 (`0x50325C`),
+        // which need an item in a hand (`0x5031C6`; **hypothesis**: the class 0 holds none).
+        (2, Style::Throw) if class != 0 => Some(plain(147)),
         // The backbreaker: his `Hardhit`'s slot at the rate 1.0 (seen: 202 with a one-handed
         // weapon; the others' **hypothesis**).
         (2, Style::Backbreaker) => Some(plain(match class {
@@ -2573,6 +2585,79 @@ pub fn hurl_hold(level: u32, target: u32) -> f32 {
 pub fn hurl_factor(record: &WeaponArt, level: u32) -> f32 {
     let [base, step] = record.value_58.map(f64::from);
     narrow(f64::from(level).mul_add(step, base))
+}
+
+/// What is left of the Gladiator's 1013's clip as the item leaves his hand (`0x501D39`).
+pub const THROW_LEFT: f32 = 0.6;
+
+/// How far beyond its target a hurled item flies, and how far one of a creature that is no player
+/// flies in all (`0x501D39`).
+const THROWN_BEYOND: f32 = 200.0;
+const THROWN_FAR: f32 = 750.0;
+
+/// Where an item that a thrower at `from` hurls at a target at `to` ends (`0x501D39`): `d + 200`
+/// along the line from it, `d` the ground distance (at least 1), or 750 for a thrower that is no
+/// player; and `d`.
+pub fn throw_end(from: [f32; 2], to: [f32; 2], player: bool) -> ([f32; 2], f32) {
+    let line = [to[0] - from[0], to[1] - from[1]];
+    let d = line[0].hypot(line[1]).max(1.0);
+    let far = if player {
+        d + THROWN_BEYOND
+    } else {
+        THROWN_FAR
+    };
+    let end = [from[0] + line[0] / d * far, from[1] + line[1] / d * far];
+    (end, d)
+}
+
+/// The height of a hurled item's arc: 80 for a player's (an id up to 16), 55 for another's
+/// (`0x501F7F`).
+pub fn throw_height(player: bool) -> f32 {
+    if player { 80.0 } else { 55.0 }
+}
+
+/// The seconds a hurled item flies, the ground distance `d` to its target over 1,000
+/// (`0x501D39`).
+pub fn throw_time(d: f32) -> f32 {
+    d / 1000.0
+}
+
+/// The point of a hurled item's arc from `from` to `to` at the share `s` of its flight
+/// (`0x44DFE0`'s arc branch): along the line, and its height above the ground,
+/// `height·(1 − 4(s − 0.5)²)`.
+pub fn throw_point(from: [f32; 2], to: [f32; 2], s: f32, height: f32) -> ([f32; 2], f32) {
+    let s = s.clamp(0.0, 1.0);
+    let at = [
+        from[0] + (to[0] - from[0]) * s,
+        from[1] + (to[1] - from[1]) * s,
+    ];
+    let rise = (s - 0.5).powi(2).mul_add(-4.0, 1.0) * height;
+    (at, rise)
+}
+
+/// The damages of an item that the Gladiator's 1013 hurls (`0x56B130` at `0x56BC81`,
+/// `0x56ACD0`): each kind's least and most (`damage`), rolled at the hundredth, times `times`,
+/// `1 + c(s₂)/100 + a0/BalanceGeschick` as 1016's (`crate::fight::Rules::glance_factor`).
+pub fn thrown_damage(
+    damage: &[[f32; 2]; crate::fight::KINDS],
+    times: f64,
+    dice: &mut impl crate::spawning::Dice,
+) -> [f32; crate::fight::KINDS] {
+    damage.map(|[least, most]| {
+        let span = hundredths(most - least);
+        let rolled = f64::from(least) + f64::from(dice.below(span + 1)) / 100.0;
+        narrow(rolled * times)
+    })
+}
+
+/// A span of damage in whole hundredths, none below 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a span of an item's damage, a few hundred at most, in hundredths"
+)]
+fn hundredths(span: f32) -> u32 {
+    (span.max(0.0) * 100.0).round() as u32
 }
 
 /// The flight of a creature that a flyer of the velocity `velocity` knocks over, the line from the

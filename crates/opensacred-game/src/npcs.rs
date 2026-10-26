@@ -296,9 +296,9 @@ enum Hand {
 #[derive(Clone, Debug)]
 pub struct Held {
     /// The model, relative to the asset directory.
-    model: String,
+    pub(crate) model: String,
     /// The texture its item names (`+0x08`).
-    texture: Option<String>,
+    pub(crate) texture: Option<String>,
     hand: Hand,
     /// A shield, held on the forearm rather than in the hand.
     shield: bool,
@@ -2095,6 +2095,30 @@ impl Npcs {
             .filter(|worn| !in_hands.contains(&worn.item))
             .cloned()
             .collect()
+    }
+
+    /// The item of `worn`, its template's items, that the Gladiator's 1013 hurls (`0x501D39`):
+    /// the weapon in its left hand, else the one in its right (`0x427A40` admits the category
+    /// 5 alone), its record and its model; and the rest of `worn`.
+    pub fn hero_hurls(&self, worn: &[Worn]) -> Option<(Worn, Held, Vec<Worn>)> {
+        let holding = self.hero_holding(worn);
+        let weapon = |hand| {
+            holding
+                .iter()
+                .find(|held| held.hand == hand && held.category == WEAPON)
+        };
+        let held = weapon(Hand::Left).or_else(|| weapon(Hand::Right))?;
+        let gear = self.gear.get(&held.item)?;
+        let model = Held {
+            model: gear.model.clone()?,
+            texture: gear.texture.clone(),
+            hand: held.hand,
+            shield: false,
+        };
+        let at = worn.iter().position(|worn| worn.item == held.item)?;
+        let mut rest = worn.to_vec();
+        let thrown = rest.remove(at);
+        Some((thrown, model, rest))
     }
 
     /// What the hero holds of `worn`, its template's items, for its weapons' sounds

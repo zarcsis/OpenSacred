@@ -482,9 +482,29 @@ fn load(
             anyhow::Ok(forms::Forms::new(day, night, steps))
         })
         .transpose()?;
+    // The arms that the heroes' arts change (`arsenal`).
+    let kind = class.creature();
+    let arms = |worn: &[opensacred_data::heroes::Worn], clips| {
+        let (held_class, held) = npcs.hero_gear(worn);
+        arsenal::Arms {
+            form: forms::Form {
+                creature: kind,
+                model: model.clone(),
+                clips,
+                base: fight::Base::of(&record),
+                speeds: record.speed,
+                size: opensacred_rules::minds::size(kind, held_class != 0),
+                armed: true,
+            },
+            held,
+            holds: npcs.hero_holds(worn),
+            armed: npcs.hero_armed(worn),
+            blade: npcs.hero_blade(worn),
+        }
+    };
     // The Seraphim's own arms and those of her 1018's effect: her template's items but those in
     // her hands, and the item 3809 in her right hand, a fixed item of its record's values (#754).
-    let arsenal = seraphim
+    let bfg = seraphim
         .then(|| {
             let words = tables
                 .weapons()?
@@ -498,33 +518,43 @@ fn load(
                 item: opensacred_rules::arts::BFG_ITEM,
                 words,
             });
-            let kind = class.creature();
-            let arms = |worn: &[opensacred_data::heroes::Worn], clips| {
-                let (held_class, held) = npcs.hero_gear(worn);
-                arsenal::Arms {
-                    form: forms::Form {
-                        creature: kind,
-                        model: model.clone(),
-                        clips,
-                        base: fight::Base::of(&record),
-                        speeds: record.speed,
-                        size: opensacred_rules::minds::size(kind, held_class != 0),
-                        armed: true,
-                    },
-                    held,
-                    holds: npcs.hero_holds(worn),
-                    armed: npcs.hero_armed(worn),
-                    blade: npcs.hero_blade(worn),
-                }
-            };
             let (class_borne, _) = npcs.hero_gear(&bearing);
             let borne = clips_of(assets, &model, presets, (kind, class_borne), &hits, &points);
-            anyhow::Ok(arsenal::Arsenal::new(
-                arms(&worn, clips.clone()),
-                arms(&bearing, borne),
-            ))
+            anyhow::Ok(arms(&bearing, borne))
         })
         .transpose()?;
+    // The Gladiator's arms without the weapon his 1013 hurls, and the weapon as it lies, of its
+    // template's values (#755).
+    let hurled = (class == Class::Gladiator && game.hero.is_none())
+        .then(|| npcs.hero_hurls(&worn))
+        .flatten()
+        .map(|(thrown, held, rest)| {
+            let (class_rest, _) = npcs.hero_gear(&rest);
+            let bare = clips_of(assets, &model, presets, (kind, class_rest), &hits, &points);
+            arsenal::Hurled {
+                arms: arms(&rest, bare),
+                item: opensacred_rules::drops::Dropped {
+                    kind: opensacred_rules::drops::Kind::Weapon,
+                    item: thrown.item,
+                    level: 1,
+                    key: 16,
+                    quality: 0,
+                    amount: 1,
+                    values: Some(fight::ItemValues::of_record(&thrown.words)),
+                },
+                held,
+            }
+        });
+    let arsenal = (bfg.is_some() || hurled.is_some()).then(|| {
+        let mut arsenal = arsenal::Arsenal::new(arms(&worn, clips.clone()));
+        if let Some(bfg) = bfg {
+            arsenal = arsenal.with_bfg(bfg);
+        }
+        if let Some(hurled) = hurled {
+            arsenal = arsenal.with_hurled(hurled);
+        }
+        arsenal
+    });
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.stance = clips.stance;
     hero.attacks = clips.attacks;
