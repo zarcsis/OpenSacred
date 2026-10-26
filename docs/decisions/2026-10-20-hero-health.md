@@ -12,7 +12,7 @@ At 0 the hero dies, and about 5 s later it rises at the start's place with its h
 
 The hero's most health, its values and its regeneration are its type's record's at its level (docs/decisions/2026-10-20-levels.md), with its skills (docs/decisions/2026-10-20-skills.md) and without items (#294); the strikes are weighed by bronze's factors and the exponent, without the caps of a hit on a player.
 It counts as fighting, for its regeneration, in its fight stance, the nearest hostile within 350, as the original's (#474); until #474 it did while it attacked.
-At 0 it plays one of its dying clips, the creatures stop coming at it, and five seconds later it rises at the game's start with its health full; the overlay shows its health, and the HUD's health bar does not come back yet.
+At 0 it plays one of its dying clips, the creatures stop coming at it, and five seconds later it rises at the game's start with its health full, paying bronze's share of its gold as the original's does (#976); the overlay shows its health, and the HUD's health bar does not come back yet.
 
 ## Why
 
