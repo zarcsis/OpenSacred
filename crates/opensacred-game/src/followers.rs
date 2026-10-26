@@ -8,6 +8,12 @@
 //! fights another (`ai::pursue`, #630), and no leash sends it home. No sector keeps it
 //! (`npcs::Spawn::roams`); it stays by a fallen hero and takes its health back as the hero rises
 //! (`0x53E460`). The decisions are `opensacred_rules::minds`'.
+//!
+//! The scripts hire too (#657, docs/re/ai.md, "The scripts' hired followers"): a `CreateNPC` or
+//! a `SetNPCState` of the tag `0x4B` a follower as above, of `0x37` or `0x71` one of the flag 4,
+//! which never fights and runs from a creature that comes at its master, and `0x39` and `0x65`
+//! let it go. The hire's levels, the flag 4's stand in danger far from its master, `0x71`'s mark
+//! in its quest and the quests' hook of the letting go are not followed.
 
 use bevy::prelude::*;
 use opensacred_rules::minds::{self, Keeps, OnTheWay, Spot};
@@ -22,13 +28,38 @@ use crate::npcs::{Dies, PutAt, Walk};
 use crate::spawning::Rng;
 use crate::terrain::Heights;
 
-/// A creature hired by its master, the hero, and whether it steps off from it (the walk's mode
-/// 3, `+0x164`).
+/// A creature hired by its master, the hero, whether it steps off from it (the walk's mode 3,
+/// `+0x164`), and whether it is of the flag 4, which never fights (the scripts' `0x37` and
+/// `0x71`).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Follower {
     pub master: Entity,
     stepping_off: bool,
+    escorted: bool,
 }
+
+/// What a script's `CreateNPC` or `SetNPCState` does to its creature (#657): hires it as the
+/// hero's follower (`0x4B`), or as one of the flag 4 (`0x37`, `0x71`), or lets it go (`0x39`,
+/// `0x65`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hire {
+    Fights,
+    Escorts,
+    LetsGo,
+}
+
+/// A creature that a script hires or lets go, which [`take_hires`] carries out.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Hired(pub Hire);
+
+/// How near its master a follower of the flag 4 runs from a creature that comes at the master,
+/// and how far beyond its own place, along the line from the master; with the master nearer than
+/// 10 or farther than 1,000, it runs to a point within 400 of itself along each axis
+/// (`0x4E0010`, `0x539F60`).
+const RUNS_WITHIN: f32 = 400.0;
+const RUNS_BEYOND: f32 = 700.0;
+const RUNS_ALONG: (f32, f32) = (10.0, 1_000.0);
+const RUNS_ABOUT: u32 = 400;
 
 /// A summoning (the object 777, `FX_BIGSUMMON`, `cParticleSystem_bigsummon`): its master, the
 /// creature it makes and its level, and the time until it makes it.
@@ -183,8 +214,56 @@ fn hire(world: &mut World, entity: Entity, master: Entity) {
     creature.insert(Follower {
         master,
         stepping_off: false,
+        escorted: false,
     });
     info!("followers: {master} hires {entity}");
+}
+
+/// Carries out the scripts' hires and lettings go (#657): a hire by the local hero
+/// (`sdk_HIRE`, [`hire`]), of the flag 4 for `0x37` and `0x71` (`0x462A99`); a letting go
+/// (`0x462BB9`, the event `0x10B` without a master): out of the hero's list, its master −1, the
+/// flags word's bits 4 and `0x100` cleared, stopped (`0x54E6D0`), its side and home kept.
+fn take_hires(world: &mut World) {
+    let hires: Vec<(Entity, Hire)> = world
+        .query::<(Entity, &Hired)>()
+        .iter(world)
+        .map(|(entity, hired)| (entity, hired.0))
+        .collect();
+    let hero = world
+        .query_filtered::<Entity, With<Body>>()
+        .iter(world)
+        .next();
+    for (entity, hire_of) in hires {
+        let Ok(mut creature) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        creature.remove::<Hired>();
+        match (hire_of, hero) {
+            (Hire::LetsGo, _) => {
+                if creature.take::<Follower>().is_some() {
+                    creature.remove::<Walk>();
+                    if let Some(mut mind) = creature.get_mut::<Mind>() {
+                        mind.flags &= !(minds::FOLLOWS | 4);
+                    }
+                    info!("followers: {entity} is let go");
+                }
+            }
+            (_, Some(hero)) => {
+                // No sector keeps it any longer: it goes with the hero, and with the game alone.
+                creature.insert(DespawnOnExit(AppState::InGame));
+                if let Some(mut streamer) = world.get_resource_mut::<crate::sectors::Streamer>() {
+                    streamer.disown(entity);
+                }
+                hire(world, entity, hero);
+                if hire_of == Hire::Escorts
+                    && let Some(mut follower) = world.get_mut::<Follower>(entity)
+                {
+                    follower.escorted = true;
+                }
+            }
+            (_, None) => {}
+        }
+    }
 }
 
 /// The bats' types, which never step off from their master (`0x4F3E65`).
@@ -601,6 +680,32 @@ fn keep(
         if mind.fighting() {
             continue;
         }
+        // One of the flag 4 never fights: within 400 of its master and standing, it runs from a
+        // creature that comes at the master (`0x4E0010`, `0x539F60`).
+        if follower.escorted {
+            let comes = attackers
+                .iter()
+                .any(|&(_, at, ranged)| minds::defends(spot(master), spot(at), ranged));
+            let from = (here - master).xz();
+            if comes && walk.is_none() && from.length() <= RUNS_WITHIN {
+                let to = if (RUNS_ALONG.0..=RUNS_ALONG.1).contains(&from.length()) {
+                    here.xz() + from.normalize() * RUNS_BEYOND
+                } else {
+                    let mut about = || {
+                        f32::from(u16::try_from(dice.0.below(2 * RUNS_ABOUT + 1)).unwrap_or(0))
+                            - f32::from(u16::try_from(RUNS_ABOUT).unwrap_or(0))
+                    };
+                    here.xz() + Vec2::new(about(), about())
+                };
+                debug!("followers: {entity} runs from the fight to {to:?}");
+                commands.entity(entity).insert(Walk::run(
+                    Vec3::new(to.x, here.y, to.y),
+                    way.level,
+                    mind.run,
+                ));
+                continue;
+            }
+        }
         // A creature that comes at the master sends the first follower not fighting at it,
         // unless one fights it already (`0x4E0010`).
         let defends = attackers.iter().find(|&&(foe, at, ranged)| {
@@ -618,11 +723,14 @@ fn keep(
             .get(1)
             .and_then(|&second| others.get(second).ok())
             .map(|(second, at, _)| (second, spot(at.translation())));
-        let foe = defends.map(|&(foe, ..)| foe).or_else(|| {
-            walk.is_none()
-                .then(|| mind.helps(spot(master), target, second))
-                .flatten()
-        });
+        let foe = defends
+            .map(|&(foe, ..)| foe)
+            .or_else(|| {
+                walk.is_none()
+                    .then(|| mind.helps(spot(master), target, second))
+                    .flatten()
+            })
+            .filter(|_| !follower.escorted);
         if let Some(foe) = foe
             && mind.send_at(foe)
         {
@@ -783,6 +891,12 @@ impl Plugin for FollowersPlugin {
                 (make, chain)
                     .after(Step::Npcs)
                     .in_set(crate::frame::Playing),
+            )
+            .add_systems(
+                Update,
+                take_hires
+                    .after(Step::Npcs)
+                    .run_if(any_with_component::<Hired>),
             )
             .add_systems(
                 Update,

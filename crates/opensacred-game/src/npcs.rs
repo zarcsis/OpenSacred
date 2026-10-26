@@ -121,6 +121,16 @@ pub(crate) const SCRIPT_GROUP: u32 = 0x8000_0000;
 /// word's bit `0x400000` (its reader not read, not followed).
 const ON_DEATH: u8 = 0x05;
 const ON_SIGHT: u8 = 0x60;
+/// The tags of `CreateNPC` and `SetNPCState` that hire their creature as the hero's follower or
+/// let it go, and the bits of their record's that each sets and clears, which add up (the reader
+/// `0x48BB40`; #657): `0x100` hires, `0x200` keeps the follower fighting, `0x400` lets it go.
+const HIRES: [(u8, u32, u32); 5] = [
+    (0x37, 0x100, 0),
+    (0x4B, 0x300, 0),
+    (0x71, 0x900, 0),
+    (0x39, 0x400, 0x300),
+    (0x65, 0x400, 0x200),
+];
 /// The tag of the trader whose stock of horses a `SetNPCState`'s creature joins (#658).
 const STOCK: u8 = 0x63;
 /// The operand of a `CreateNPC` that gives its creature's level, or makes it a boss
@@ -213,6 +223,8 @@ struct Placement {
     trades: u32,
     kept: bool,
     group: Option<u32>,
+    /// Whether the scripts hire it as the hero's follower, or let it go ([`hire_of`]; #657).
+    hire: Option<crate::followers::Hire>,
     /// The cell whose centre an NPC goes home to, where a `SetNPCState` gives one, else where it
     /// was made (`0x4D`, `+0x2B9`; [`set_states`]).
     home: Option<(u32, u32)>,
@@ -489,6 +501,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         trades: 0,
         kept: false,
         group: None,
+        hire: None,
         heading: 0.0,
         object: false,
         casts: kind.casts,
@@ -1363,6 +1376,8 @@ struct State {
     heading: Option<f32>,
     group: Option<u32>,
     stocked: bool,
+    /// Whether it hires its creature as the hero's follower, or lets it go ([`hire_of`]; #657).
+    hire: Option<crate::followers::Hire>,
 }
 
 impl State {
@@ -1377,6 +1392,7 @@ impl State {
             level: level_tag(ops),
             word: ways::state_word(markers),
             group: script_group(ops),
+            hire: hire_of(ops),
             ..Self::default()
         };
         for op in ops {
@@ -1420,6 +1436,7 @@ impl State {
             || self.group.is_some()
             || self.stocked
             || self.talk.is_some()
+            || self.hire.is_some()
     }
 
     /// The dialogue it leaves a creature that had `talk`: its own, or none for a horse it stocks.
@@ -1486,6 +1503,9 @@ impl State {
         }
         placement.trades |= self.trades;
         placement.dialogue |= self.stamped;
+        if self.hire.is_some() {
+            placement.hire = self.hire;
+        }
         self.restate_placement(placement);
     }
 }
@@ -1496,6 +1516,31 @@ fn trade(tag: u8) -> u32 {
         .iter()
         .find(|(traded, _)| *traded == tag)
         .map_or(0, |&(_, bit)| bit)
+}
+
+/// What the tags of a `CreateNPC` or a `SetNPCState` of operands `ops` do about the hero's
+/// followers (#657, [`HIRES`]): the bit `0x100` hires, keeping it fighting with `0x200` (`0x4B`)
+/// and else of the flag 4 (`0x37`, `0x71`; `0x462A99`); without it, `0x400` lets it go
+/// (`0x462BB9`).
+fn hire_of(ops: &[opensacred_data::netscript::Operand]) -> Option<crate::followers::Hire> {
+    use crate::followers::Hire;
+    let bits = ops.iter().fold(0, |bits, op| {
+        match HIRES.iter().find(|(tag, ..)| *tag == op.tag) {
+            Some(&(_, sets, clears)) => bits & !clears | sets,
+            None => bits,
+        }
+    });
+    if bits & 0x100 != 0 {
+        Some(if bits & 0x200 != 0 {
+            Hire::Fights
+        } else {
+            Hire::Escorts
+        })
+    } else if bits & 0x400 != 0 {
+        Some(Hire::LetsGo)
+    } else {
+        None
+    }
 }
 
 /// The dialogues' table of `records` by name, as their entries of type 40 fill it, the first
@@ -2161,6 +2206,10 @@ impl Makers {
                 0
             },
             kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
+            hire: (record.kind == CREATE_NPC)
+                .then(|| hire_of(ops))
+                .flatten()
+                .filter(|&hire| hire != crate::followers::Hire::LetsGo),
             group: if record.kind == CREATE_NPC {
                 script_group(ops)
             } else {
@@ -3414,6 +3463,9 @@ fn spawn(
         mind.hold(placement.dialogue, placement.trades != 0, placement.kept);
         if placement.trades != 0 {
             entity.insert(Trades(placement.trades));
+        }
+        if let Some(hire) = placement.hire {
+            entity.insert(crate::followers::Hired(hire));
         }
         mind.side = placement.side;
         // The category `0x20`'s, which the original draws under the water too (`0x434070`).
@@ -4709,6 +4761,11 @@ fn script_records(
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
         {
+            if let Some(hire) = state.hire {
+                commands
+                    .entity(entity)
+                    .insert(crate::followers::Hired(hire));
+            }
             if state.talk.is_some() || state.stocked {
                 let talk = state.talk_of(talk.map(|talk| talk.0.clone()));
                 if let Some(mind) = mind.as_mut() {
@@ -6202,6 +6259,30 @@ mod tests {
         reicon(&dialogues, &mut icons, set_icons(&records));
         assert_eq!(icons, [10, 10, 13, 11]);
         assert_eq!(dialogues[2], "auftrag10");
+    }
+
+    #[test]
+    fn the_hires_tags_add_up() {
+        use crate::followers::Hire;
+        let op = |tag| Operand {
+            tag,
+            value: Value::I32(0),
+        };
+        let marker = |tag| Operand {
+            tag,
+            value: Value::Marker,
+        };
+        assert_eq!(hire_of(&[op(0x01)]), None);
+        assert_eq!(hire_of(&[op(0x4B)]), Some(Hire::Fights));
+        assert_eq!(hire_of(&[op(0x37)]), Some(Hire::Escorts));
+        assert_eq!(hire_of(&[op(0x71)]), Some(Hire::Escorts));
+        // A `0x37` with a `0x4B` hires as `0x4B`; a `0x65` after a `0x37` leaves the hire.
+        assert_eq!(hire_of(&[op(0x37), op(0x4B)]), Some(Hire::Fights));
+        assert_eq!(hire_of(&[op(0x37), marker(0x65)]), Some(Hire::Escorts));
+        assert_eq!(hire_of(&[marker(0x39)]), Some(Hire::LetsGo));
+        assert_eq!(hire_of(&[op(0x4B), marker(0x39)]), Some(Hire::LetsGo));
+        // A `SetNPCState` of a hire restates a creature made before it.
+        assert!(State::of(&[op(0x37)], &[]).restates());
     }
 
     #[test]
