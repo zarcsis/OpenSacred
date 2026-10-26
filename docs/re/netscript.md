@@ -104,6 +104,13 @@ In the release, 11 records of type 50 (`TriggerPatch`) end with tag 0x2A and no 
 The handler of 0x2A reads 12 bytes past the record.
 The converter gives that payload the cell of the chest whose `CreateObj` follows the record (docs/02 §7.1, [docs/decisions/2026-10-25-chest-cell.md](../decisions/2026-10-25-chest-cell.md)).
 
+**A creature's place.**
+Read 2026-10-26 (#1046): a position's name that begins with `CPOS:` the reader resolves as it reads the record (`0x474222`, `0x474295`), case aside.
+`CPOS:hero` takes the local player's hero's cell and floor (`+0x1C`, `+0x20`, `+0x24`), which `0x45FF80` moves, for a hero on the ground, to a free point about it where another object stands on it or no way leads there.
+`CPOS:RES:<key>` takes the cell and floor of the creature that the scripts' map of names holds for that key (`0x464BD0`), and another `CPOS:` name an object's; a creature gone leaves the position as it was.
+In the Seraphim's tree 774 records of `CreateNPC` and `CreateObj` are placed so, 654 in the quests' functions.
+`opensacred-game` puts such a record on that creature's cell and floor as it runs, the hero's for `CPOS:hero` (`npcs::locate`); the free point about the hero is not followed.
+
 ## Keyword resolvers of the compiler
 
 The script compiler built into the client maps keywords to record types in five functions.
