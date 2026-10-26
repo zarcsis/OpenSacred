@@ -171,6 +171,9 @@ enum Command {
     /// comes into its band and strikes once, or shoots with a bow or a crossbow; ID as
     /// `creatures` prints it
     Attack { id: Option<String> },
+    /// The hero goes to take the item lying nearest it, as a left click on it does, and takes
+    /// it once it stands within its reach
+    Take,
     /// A creature's health to its most, or to N (1 to its most), the hero's by default; ID as
     /// `creatures` prints it
     Heal {
@@ -1216,6 +1219,10 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             in_game(world)?;
             let id = id.map(|id| debug::creature(world, &id)).transpose()?;
             Ok(Outcome::say(attack(world, id)?))
+        }
+        Command::Take => {
+            in_game(world)?;
+            Ok(Outcome::say(crate::pickup::take_nearest(world)?))
         }
         Command::Heal { id, to } => {
             in_game(world)?;

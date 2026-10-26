@@ -27,7 +27,7 @@ pub struct Opens(Entity);
 /// On a press of the left button that went to no attack, the door whose model is nearest the
 /// cursor's line of sight, if one is near it, becomes the hero's to turn; any press ends the last
 /// such order.
-fn pick(
+pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<Pointer>,

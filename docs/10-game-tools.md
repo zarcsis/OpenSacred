@@ -142,6 +142,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `heal` | the hero's health to its most (#526) | |
 | `god [on\|off]` | the hero takes no damage (`fight::Immortal`): a hit lands and shows, the health stays (#526) | |
 | `fly [on\|off]` | the hero goes straight where it is sent, through walls and buildings and over water, on the ground's level, through no door and up no stair (`hero::Flies`, #526) | |
+| `take` | sends the hero to take the item lying nearest it, as a left click on it does: it walks to the item and takes it once it stands within its reach, gold into its purse, which `state` shows, and the rest into its pack (#911) | |
 | `drop [TIMES]` | makes the hostile creature nearest the hero drop as if the hero killed it, TIMES deaths' worth, and lists what fell (#415) | |
 | `script FUNCTION` | runs the function FUNCTION of the hero's tree (`QIS_OnEnter1202`, `OMO-1tprein2.3`) as the scripts run one, a function of a quest only while the quest is set up, the hero put where it teleports it; then lists the scripts' timers, each one's id, function and minutes still to run (#933); it says where the function waits for its quest | |
 | `quest set-up\|trigger QUEST` | sets the quest up, or triggers it and enters it where its trigger runs through, as the scripts' `SetUpQuest` and `TriggerQuest` do, its sections run in turn and the hero put where they teleport it; then the quest's flags and the timers (#952) | |

@@ -363,7 +363,8 @@ The scripts' drops are followed since #930 (`opensacred_rules::quests::Drops`, `
 
 The game makes them (#415, `drops`): as an NPC dies (the component `npcs::Dies` added), a creature hostile to the living hero, not of the types 71 or 75, drops on bronze, the hero's type, level and skills taken for its class and what it can wear, the time played that of the game since it started, the luck 100; each drop is its item's model with its texture (`items.pak +0x70`, `+0x08`), a derived type's its root's, thrown from the creature's place at the height 60 and flown by `opensacred_rules::drops::Flight` (`0x44DFE0`) over the heights a creature stands at (`terrain::Heights::standing`), its velocity along the ground turning back at every frame as the original's (#478), so that it rises and falls within a unit of the creature's place, the gold piles and the runes upright, until it rests, where it lies.
 The command `state` lists the five drops nearest the hero, and `drop [TIMES]` makes the hostile creature nearest the hero drop as if killed (docs/10).
-The pick-up, the labels on Alt, the drops' sounds and how long they lie are not followed (docs/decisions/2026-10-21-drops-in-game.md).
+The labels on Alt, the drops' sounds and how long they lie are not followed (docs/decisions/2026-10-21-drops-in-game.md).
+The hero picks the drops up since #911 (`pickup`): a press of the left button that goes to no attack, on an item lying under the cursor, before a door, sends the hero to the item's point and 25 along both axes; standing within 100 of the item, with a straight line of walkable cells to it, the hero takes it, gold into its purse and every other item into its pack, else it gives up; the clip, the hands and the slots, the quests' items, the inventory's grid and the jump without room are not followed (docs/decisions/2026-10-26-pickup.md).
 
 ## Defects the community reports
 
