@@ -32,7 +32,7 @@ use bevy::remote::builtin_methods::{
 use bevy::remote::http::{HostPort, RemoteHttpPlugin};
 use bevy::remote::{BrpError, BrpResult, RemotePlugin, error_codes};
 use bevy::render::RenderApp;
-use bevy::window::PrimaryWindow;
+use bevy::window::{PrimaryWindow, WindowEvent};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -375,13 +375,16 @@ fn input(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
     Ok(json!({ "messages": count }))
 }
 
-/// Sends the input whose frame has come, before Bevy reads the frame's input.
+/// Sends the input whose frame has come, before Bevy reads the frame's input: the mouse's as the
+/// window's events too, which Bevy's picking reads alone, so that the interface's nodes see it
+/// (`bevy_picking::input::mouse_pick_events`, #1121).
 fn send(
     mut pending: ResMut<Pending>,
     mut keys: MessageWriter<KeyboardInput>,
     mut buttons: MessageWriter<MouseButtonInput>,
     mut moves: MessageWriter<CursorMoved>,
     mut wheels: MessageWriter<MouseWheel>,
+    mut events: MessageWriter<WindowEvent>,
 ) {
     let mut later = VecDeque::new();
     for (frames, message) in pending.0.drain(..) {
@@ -394,12 +397,15 @@ fn send(
                 keys.write(key);
             }
             Message::Button(button) => {
+                events.write(WindowEvent::MouseButtonInput(button));
                 buttons.write(button);
             }
             Message::Moved(moved) => {
+                events.write(WindowEvent::CursorMoved(moved.clone()));
                 moves.write(moved);
             }
             Message::Wheel(wheel) => {
+                events.write(WindowEvent::MouseWheel(wheel));
                 wheels.write(wheel);
             }
         }
@@ -445,6 +451,51 @@ mod tests {
 
     use super::*;
     use crate::game::AppState;
+
+    #[test]
+    fn the_mouse_reaches_the_window_events_that_the_picking_reads() {
+        let mut app = App::new();
+        app.add_message::<KeyboardInput>()
+            .add_message::<MouseButtonInput>()
+            .add_message::<CursorMoved>()
+            .add_message::<MouseWheel>()
+            .add_message::<WindowEvent>()
+            .init_resource::<Pending>()
+            .add_systems(Update, send);
+        let window = Entity::PLACEHOLDER;
+        app.world_mut().resource_mut::<Pending>().0.extend([
+            (
+                0,
+                Message::Moved(CursorMoved {
+                    window,
+                    position: Vec2::new(512.0, 287.0),
+                    delta: None,
+                }),
+            ),
+            (
+                1,
+                Message::Button(MouseButtonInput {
+                    button: MouseButton::Left,
+                    state: ButtonState::Pressed,
+                    window,
+                }),
+            ),
+        ]);
+        let events = |app: &mut App| {
+            app.update();
+            let messages = app.world().resource::<Messages<WindowEvent>>();
+            messages
+                .iter_current_update_messages()
+                .map(|event| match event {
+                    WindowEvent::CursorMoved(moved) => format!("moved {}", moved.position),
+                    WindowEvent::MouseButtonInput(button) => format!("{:?}", button.state),
+                    _ => "other".to_owned(),
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(events(&mut app), ["moved [512, 287]"]);
+        assert_eq!(events(&mut app), ["Pressed"]);
+    }
 
     #[test]
     fn keys_are_named_by_their_place() {
@@ -534,6 +585,7 @@ mod tests {
         .insert_resource(journal)
         .add_plugins(bevy::input::InputPlugin)
         .add_message::<CursorMoved>()
+        .add_message::<WindowEvent>()
         .add_plugins(RemoteControlPlugin { port });
         let (file, settings) = crate::settings::SettingsFile::read(Some(
             std::env::temp_dir().join(format!("opensacred-game-remote-{port}.toml")),
