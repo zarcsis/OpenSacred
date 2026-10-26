@@ -256,6 +256,7 @@ The quests are named by their numbers, the community's names beside them only to
 
 The first three pairs are in all 20 trees, the fourth in the ten Underworld trees and `bin/NetScript`; quest 15080 is in both campaigns' trees and 7630 only in the Underworld's, so the last pair clashes there alone.
 - The defect is the scripts' data, two quests on one creature type, meeting the handler's one entry per creature, which the client makes so; whether the designers expected one quest at a time is a **hypothesis**.
+- `opensacred-game` keeps the scripts' drops by the creature and the item since #930 (docs/decisions/2026-10-25-script-drops.md): with 15015 and 10259 entered, the creatures of the type 38 drop 6005 and 4931 each at its own chance, both from some.
   No operand of the data keeps both items: a repair of the data could only make the drops come one after the other, and a list keyed by the creature and the item would be the VM's, a departure from the client.
 
 ### `SetTimer`'s minutes and the calendar

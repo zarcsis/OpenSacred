@@ -326,6 +326,16 @@ pub fn record(tables: &Tables, id: u32) -> Result<opensacred_data::tables::Creat
         })
 }
 
+/// The types of the creatures, the `items.pak` slots of the categories 2, 3 and 32 (`0x426610`).
+fn creature_types(tables: &Tables) -> Result<std::collections::HashSet<u32>> {
+    Ok(tables
+        .items()?
+        .iter()
+        .filter(|item| matches!(item.category(), 2 | 3 | 32))
+        .map(|item| item.slot)
+        .collect())
+}
+
 /// The template of the hero of `class` (`heroes.ron`, docs/02 §9): the items it wears and holds
 /// at the start and its combat arts; none where the index or the class's template is lacking.
 fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
@@ -363,7 +373,12 @@ fn load(
     let scripts::Ran {
         tree: scripts,
         started,
-    } = scripts::run(assets, &tree, |at| areas.get(&at).copied())?;
+    } = scripts::run(
+        assets,
+        &tree,
+        |at| areas.get(&at).copied(),
+        creature_types(tables)?,
+    )?;
     let side = u32::try_from(opensacred_data::world::SIDE)?;
     // The sector given, at its centre, or the start script's start cell.
     let start = match game.sector {
