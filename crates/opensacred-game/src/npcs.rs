@@ -63,7 +63,7 @@ use opensacred_data::tables::{Creature, Item};
 use opensacred_data::world::SIDE;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::quests::DeathFunctions;
-use opensacred_rules::{minds, ways};
+use opensacred_rules::{minds, quests, ways};
 
 use crate::files;
 use crate::frame::{Step, WorldTick};
@@ -83,6 +83,7 @@ const SET_NPC_STATE: u16 = 3;
 const SET_HP: u16 = 52;
 const DEL_NPC: u16 = 55;
 const SET_GROUP_STATE: u16 = 73;
+const SET_ICON: u16 = 86;
 const SET_RGN_DIALOG: u16 = 106;
 const TELEPORT: u16 = 46;
 /// The prefix of a position that names a creature's place (`CPOS:HERO`, `CPOS:res:17190`).
@@ -96,9 +97,15 @@ const DIALOGUE_NUMBER: u8 = 0x0A;
 /// The operand of a `SetNPCState` that gives its creature's home, a global cell and its floor
 /// (`0x461540`, `+0x2B9`).
 const HOME: u8 = 0x4D;
-/// The tags of `CreateNPC` that make a trader (`+0x200`): the smiths, the merchants, the wizards
-/// and one with a dialogue stamped (`0x484326`…; docs/re/ai.md, "The roll").
-const TRADES: [u8; 4] = [0x23, 0x24, 0x25, 0x64];
+/// The tags of `CreateNPC` that make a trader, and its bits of `+0x200`: the smiths, the
+/// merchants, the wizards and one with a dialogue stamped (`0x484326`…; docs/re/ai.md, "The
+/// roll").
+const TRADES: [(u8, u32); 4] = [
+    (0x23, quests::SMITH),
+    (0x24, quests::MERCHANT),
+    (0x25, quests::WIZARD),
+    (0x64, quests::TRADER),
+];
 /// The tag of a trader whose dialogue `CreateNPC` stamps (`0x4843AF`).
 const STAMPED: u8 = 0x64;
 /// The tags of `CreateNPC` that set `+0x200` bit `0x200` (`0x482510`), which keeps a creature
@@ -201,9 +208,9 @@ struct Placement {
     /// function: its creature takes its level as the game starts ([`place`]).
     started: bool,
     dialogue: bool,
-    /// Whether it is a trader, by its tags (`opensacred_rules::minds::Mind::trader`), and whether
+    /// Its trades, by its tags ([`TRADES`]; `opensacred_rules::minds::Mind::trader`), and whether
     /// its tags keep it out of its first update's flags ([`KEEPS`]).
-    trader: bool,
+    trades: u32,
     kept: bool,
     group: Option<u32>,
     /// The cell whose centre an NPC goes home to, where a `SetNPCState` gives one, else where it
@@ -479,7 +486,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         made: (true, false),
         started: false,
         dialogue: false,
-        trader: false,
+        trades: 0,
         kept: false,
         group: None,
         heading: 0.0,
@@ -531,8 +538,10 @@ pub struct Npcs {
     /// ([`Self::living_groups`]).
     played: HashSet<usize>,
     /// The dialogues' table by name, as the start's records fill it, its first entry twice
-    /// (`0x476A05`), which the play's `SetGroupState`s look their dialogues up in (#1021).
+    /// (`0x476A05`), which the play's `SetGroupState`s look their dialogues up in (#1021), and
+    /// each entry's icon, as the scripts' `SetIcon`s leave it (#1039).
     dialogues: Vec<String>,
+    icons: Vec<i32>,
     /// The dialogue of each creature type that the start's `SetRgnDialog`s give, all of the
     /// region 0 (`0x465280`, #1028).
     region_talks: HashMap<u32, String>,
@@ -1335,10 +1344,9 @@ struct State {
     word: u32,
     /// The last of `0x08` (hostile) and `0x0E` (peaceful).
     hostile: Option<bool>,
-    /// Whether one of the tags `0x23`, `0x24`, `0x25` or `0x64` makes it a trader (`+0x200`
-    /// bits `0x1000`, `0x2000`, `0x4000` or `0x4000000`), and whether `0x64` stamps its
-    /// trader's dialogue.
-    trader: bool,
+    /// The trades that its tags `0x23`, `0x24`, `0x25` and `0x64` give it ([`TRADES`]), and
+    /// whether `0x64` stamps its trader's dialogue.
+    trades: u32,
     stamped: bool,
     /// Its home (`0x4D`, `+0x2B9`): the cell whose centre it goes home to.
     home: Option<(u32, u32)>,
@@ -1385,8 +1393,8 @@ impl State {
                 }
                 (0x08, Value::Marker) => state.hostile = Some(true),
                 (0x0E, Value::Marker) => state.hostile = Some(false),
-                (tag, Value::Marker) if TRADES.contains(&tag) => {
-                    state.trader = true;
+                (tag, Value::Marker) if trade(tag) != 0 => {
+                    state.trades |= trade(tag);
                     state.stamped |= tag == STAMPED;
                 }
                 (HOME, Value::I32x3([x, y, _])) => {
@@ -1456,9 +1464,9 @@ impl State {
     fn apply(&self, placement: &mut Placement) {
         let (creature, _, word) = &mut placement.creature;
         let mut stated = self.word;
-        if stated & 0x800 != 0 && placement.trader {
+        if stated & 0x800 != 0 && placement.trades != 0 {
             stated &= !0x800;
-            placement.trader = false;
+            placement.trades = 0;
         }
         *word = ways::stated_word(*word, stated);
         if self.home.is_some() {
@@ -1476,25 +1484,77 @@ impl State {
                 placement.rank = fight::Rank::Boss;
             }
         }
-        placement.trader |= self.trader;
+        placement.trades |= self.trades;
         placement.dialogue |= self.stamped;
         self.restate_placement(placement);
     }
 }
 
+/// The bits of `+0x200` of the trade that the tag `tag` gives ([`TRADES`]), 0 for none.
+fn trade(tag: u8) -> u32 {
+    TRADES
+        .iter()
+        .find(|(traded, _)| *traded == tag)
+        .map_or(0, |&(_, bit)| bit)
+}
+
 /// The dialogues' table of `records` by name, as their entries of type 40 fill it, the first
-/// twice (`0x476A05`).
-fn dialogue_table(records: &[&Record]) -> Vec<String> {
-    let mut table = Vec::new();
+/// twice (`0x476A05`), and each entry's icon, its body's second value (`+0x48`, #1039).
+fn dialogue_table(records: &[&Record]) -> (Vec<String>, Vec<i32>) {
+    let mut table = (Vec::new(), Vec::new());
     for record in records {
-        if let Body::Dialog { name, .. } = &record.body {
-            if table.is_empty() {
-                table.push(name.clone());
+        if let Body::Dialog { name, values } = &record.body {
+            if table.0.is_empty() {
+                table.0.push(name.clone());
+                table.1.push(values[1]);
             }
-            table.push(name.clone());
+            table.0.push(name.clone());
+            table.1.push(values[1]);
         }
     }
     table
+}
+
+/// Gives the first entry of `dialogues` of each name of `changes`, case aside, its icon in
+/// `icons`, in order (`0x4A1A50`); a name the table does not hold changes none.
+fn reicon(dialogues: &[String], icons: &mut [i32], changes: Vec<(String, i32)>) {
+    for (name, icon) in changes {
+        match dialogues.iter().position(|d| d.eq_ignore_ascii_case(&name)) {
+            Some(index) => {
+                if let Some(entry) = icons.get_mut(index) {
+                    *entry = icon;
+                }
+            }
+            None => bevy::log::debug!("npcs: SetIcon of a dialogue {name} not in the table"),
+        }
+    }
+}
+
+/// Each `SetIcon` of `records` (86, `0x4A1A50`; #1039), in order: its dialogue's name (`0x01`)
+/// and its icon (`0x0B`). One without a name changes the running dialogue's, which `scripts`
+/// names for it.
+fn set_icons<'a>(records: impl IntoIterator<Item = &'a Record>) -> Vec<(String, i32)> {
+    let mut icons = Vec::new();
+    for record in records {
+        let Body::Operands(ops) = &record.body else {
+            continue;
+        };
+        if record.kind != SET_ICON {
+            continue;
+        }
+        let name = ops.iter().find_map(|o| match (o.tag, &o.value) {
+            (0x01, Value::Str(name)) => Some(name.clone()),
+            _ => None,
+        });
+        let icon = ops.iter().find_map(|o| match (o.tag, &o.value) {
+            (0x0B, Value::I32(icon)) => Some(*icon),
+            _ => None,
+        });
+        if let (Some(name), Some(icon)) = (name, icon) {
+            icons.push((name, icon));
+        }
+    }
+    icons
 }
 
 /// The dialogue of each creature type that `records`' `SetRgnDialog`s give (106, `0x465280`): its
@@ -2093,10 +2153,13 @@ impl Makers {
                 && ops.iter().any(|o| {
                     o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
                 }),
-            trader: record.kind == CREATE_NPC
-                && ops
-                    .iter()
-                    .any(|o| TRADES.contains(&o.tag) && matches!(o.value, Value::Marker)),
+            trades: if record.kind == CREATE_NPC {
+                ops.iter()
+                    .filter(|o| matches!(o.value, Value::Marker))
+                    .fold(0, |trades, o| trades | trade(o.tag))
+            } else {
+                0
+            },
             kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
             group: if record.kind == CREATE_NPC {
                 script_group(ops)
@@ -2396,6 +2459,8 @@ impl Npcs {
                 _ => None,
             })
             .collect();
+        let (dialogues, mut icons) = dialogue_table(&records);
+        reicon(&dialogues, &mut icons, set_icons(records.iter().copied()));
         let mut closed: HashMap<(u32, u32), Vec<(String, Spot)>> = HashMap::new();
         let mut triggers: HashMap<String, Vec<Spot>> = HashMap::new();
         for (name, (x, y, floor)) in trigger_cells(&records) {
@@ -2423,7 +2488,8 @@ impl Npcs {
             places: positions,
             pending: Vec::new(),
             played: HashSet::new(),
-            dialogues: dialogue_table(&records),
+            dialogues,
+            icons,
             region_talks: region_talks(&records),
             values,
             fills,
@@ -3345,7 +3411,10 @@ fn spawn(
             placement.speed,
             (creature, placement.class),
         );
-        mind.hold(placement.dialogue, placement.trader, placement.kept);
+        mind.hold(placement.dialogue, placement.trades != 0, placement.kept);
+        if placement.trades != 0 {
+            entity.insert(Trades(placement.trades));
+        }
         mind.side = placement.side;
         // The category `0x20`'s, which the original draws under the water too (`0x434070`).
         if minds::still(creature) {
@@ -4219,6 +4288,16 @@ impl Npcs {
         self.region_talks.get(&creature).map(String::as_str)
     }
 
+    /// The icon of the dialogue `talk`'s entry, the first of its name case aside (`+0x48`,
+    /// #1039), none for a dialogue the table does not hold.
+    pub fn icon(&self, talk: &str) -> Option<i32> {
+        let index = self
+            .dialogues
+            .iter()
+            .position(|name| name.eq_ignore_ascii_case(talk))?;
+        self.icons.get(index).copied()
+    }
+
     /// What the play's `SetNPCState`s give the creatures made before them (#656, #658): each
     /// record's name and its state, given to the placements of that name here, and to the
     /// creatures in the world by [`script_records`] ([`State::restates`]). The records' other
@@ -4527,6 +4606,12 @@ pub struct ScriptName(pub String);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Talk(pub String);
 
+/// An NPC's trades (`+0x200` bits, `opensacred_rules::quests::SMITH` and the others), as its
+/// `CreateNPC`'s and the start's `SetNPCState`s' tags give them ([`TRADES`]), by which it shows
+/// its icon (#1039).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Trades(pub u32);
+
 /// An NPC's death's functions (#656, docs/re/netscript.md, "The deaths' functions"), of which its
 /// death runs one (`scripts`).
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
@@ -4616,6 +4701,9 @@ fn script_records(
         Ok(placed) => bevy::log::info!("npcs: the scripts place {placed} creatures and objects"),
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
+    let icons = set_icons(&records);
+    let npcs = &mut *npcs;
+    reicon(&npcs.dialogues, &mut npcs.icons, icons);
     for (name, state) in npcs.restate(&records) {
         for (entity, _, on_death, mut transform, mut mind, _, _, talk, _) in creatures
             .iter_mut()
@@ -6080,6 +6168,43 @@ mod tests {
     }
 
     #[test]
+    fn set_icon_changes_the_first_entry_of_its_dialogue() {
+        let op = |tag, value| Operand { tag, value };
+        let dialog = |name: &str, icon| Record {
+            kind: 40,
+            body: Body::Dialog {
+                name: name.into(),
+                values: [11547, icon],
+            },
+        };
+        let set_icon = |ops: Vec<Operand>| Record {
+            kind: SET_ICON,
+            body: Body::Operands(ops),
+        };
+        let records = [
+            dialog("first", 10),
+            dialog("auftrag10", 0),
+            dialog("auftrag10", 11),
+            // The second `auftrag10` keeps its own; one of no name changes nothing here.
+            set_icon(vec![
+                op(0x01, Value::Str("AUFTRAG10".into())),
+                op(0x0B, Value::I32(13)),
+            ]),
+            set_icon(vec![op(0x0B, Value::I32(8))]),
+            set_icon(vec![
+                op(0x01, Value::Str("nowhere".into())),
+                op(0x0B, Value::I32(1)),
+            ]),
+        ];
+        let refs: Vec<&Record> = records.iter().collect();
+        let (dialogues, mut icons) = dialogue_table(&refs);
+        assert_eq!(icons, [10, 10, 0, 11]);
+        reicon(&dialogues, &mut icons, set_icons(&records));
+        assert_eq!(icons, [10, 10, 13, 11]);
+        assert_eq!(dialogues[2], "auftrag10");
+    }
+
+    #[test]
     fn a_set_npc_state_gives_the_creature_its_dialogue_side_flags_home_and_trade() {
         let op = |tag, value| Operand { tag, value };
         let marker = |tag| op(tag, Value::Marker);
@@ -6145,7 +6270,7 @@ mod tests {
         placements[0].side = 7;
         placements[1].creature = (640, 0, ways::flags_word([0x2B]));
         placements[1].side = 3;
-        placements[2].trader = true;
+        placements[2].trades = quests::MERCHANT;
         placements[2].dialogue = true;
         placements[2].creature.2 = ways::flags_word([0x24]);
         placements[3].creature.2 = ways::flags_word([0x42]);
@@ -6173,10 +6298,10 @@ mod tests {
         assert_eq!(placements[1].home, Some((3230, 2766)));
         // The trader no more, its mode as it was, its dialogue gone; the other a trader that
         // talks.
-        assert!(!placements[2].trader);
+        assert_eq!(placements[2].trades, 0);
         assert!(!placements[2].dialogue);
         assert_eq!(placements[2].creature.2, ways::flags_word([0x24]));
-        assert!(placements[3].trader);
+        assert_eq!(placements[3].trades, quests::TRADER);
         assert!(placements[3].dialogue);
         assert_eq!(placements[3].creature.2, 0x400);
     }

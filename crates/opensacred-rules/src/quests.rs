@@ -3,7 +3,7 @@
 //! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, the
 //! dialogues' table that the start script's records of type 40 fill, the regions that have run
 //! their `Region<n>Init`, each of a sector's area ([`region`]), the places that `DefPos` names,
-//! the base triggers' boxes, which run their functions as the hero steps on them (#1002), the
+//! the icons over the creatures of a dialogue or a trade ([`icon`]), the base triggers' boxes, which run their functions as the hero steps on them (#1002), the
 //! timers, which run theirs as the game's minutes pass (#933), and the scripts' drops of the
 //! creatures' types (#930). A transition names the
 //! section functions it runs for its caller, the scripts' runtime, to run, and takes each one's
@@ -272,6 +272,36 @@ impl Dialogues {
     /// Whether the table holds none.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+
+/// The trades of a creature (`+0x200`, docs/re/ai.md, "The roll"): a smith (`CreateNPC`'s tag
+/// `0x23`), a merchant (`0x24`), a wizard (`0x25`) and the trader of the tag `0x64`, whose talk
+/// the tag stamps [`TRADER_TALK`] (`0x4843AF`, `SetNPCState`'s `0x462487`).
+pub const SMITH: u32 = 0x1000;
+pub const MERCHANT: u32 = 0x2000;
+pub const WIZARD: u32 = 0x4000;
+pub const TRADER: u32 = 0x400_0000;
+pub const TRADER_TALK: u32 = 180_000;
+
+/// The icon over a creature of a talk `talk` (`+0x245`, a dialogue's index or a stamp), of the
+/// trades `trades`, whose dialogue's entry holds the icon `entry` (`+0x48`, the type-40 body's
+/// second value, as `SetIcon` changes it), `0x499E90`: 4 for a stamp of 160,000 or more (the
+/// trader of the tag `0x64`, the scripts' hires), else a trade's own (`0x20` to `0x23`), else the
+/// entry's, else 0.
+pub fn icon(talk: u32, trades: u32, entry: Option<i32>) -> i32 {
+    if talk >= 160_000 {
+        return 4;
+    }
+    let traded = [
+        (SMITH, 0x20),
+        (MERCHANT, 0x21),
+        (WIZARD, 0x22),
+        (TRADER, 0x23),
+    ];
+    match traded.iter().find(|(bit, _)| trades & bit != 0) {
+        Some(&(_, icon)) => icon,
+        None => entry.unwrap_or(0),
     }
 }
 
@@ -833,6 +863,19 @@ mod tests {
         // Every entry's number is −1, so a number of 0 finds none.
         assert_eq!(dialogues.stamp(dialogues.by_number(0), 38), None);
         assert_eq!(dialogues.stamp(dialogues.by_name("nowhere"), 38), None);
+    }
+
+    #[test]
+    fn a_creatures_icon_is_its_stamps_its_trades_or_its_dialogues() {
+        // The novice's dialogue's icon, 0, and one that `SetIcon` made 13.
+        assert_eq!(icon(5, 0, Some(0)), 0);
+        assert_eq!(icon(5, 0, Some(13)), 13);
+        assert_eq!(icon(0, 0, None), 0);
+        // A smith with a dialogue shows the smith's; the trader of `0x64` its stamp's 4.
+        assert_eq!(icon(5, SMITH, Some(10)), 0x20);
+        assert_eq!(icon(0, MERCHANT | WIZARD, None), 0x21);
+        assert_eq!(icon(TRADER_TALK, TRADER, Some(0)), 4);
+        assert_eq!(icon(0, TRADER, None), 0x23);
     }
 
     #[test]
