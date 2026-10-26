@@ -217,11 +217,13 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   The form sets the type's label; a repository of a personal account has no native issue types, so the types are labels, one per issue: `bug`, `deps`, `feature`, `research`, `infra`, `docs`.
   A milestone's work carries its milestone (M2–M9, PLAN.md §9.2); a large feature is an issue with sub-issues, one pull request per sub-issue.
   GitHub's default labels are removed: "duplicate" and "not planned" are close reasons.
+  Since 2026-10-26 an issue taken into work is assigned to whoever takes it (`gh issue edit <N> --add-assignee @me`), so that the open issues show which are held and by whom when several sessions work at once (#1049).
 * **Branches.**
   `<type>/<issue>-<slug>` from a fresh `main` (`feature/3-roofs`); without an issue, `<type>/<slug>`.
 * **Pull requests.**
   The template (`.github/pull_request_template.md`) asks for `Closes #N`, what and why, the checks run locally (CI cannot run the tests on the game files), the documents updated, and the rules of docs/08 §3.
   The pull request takes its issue's label; its title, which becomes the squash commit's, keeps the history's `Scope: what` style, and the commits' messages become the body.
+  It is assigned to its author as it is opened (`gh pr create --assignee @me`, #1049).
 * **Merging.**
   Squash merge only, the branch deleted on merge.
   Claude Code merges with `gh pr merge --squash --auto`, which waits for the checks.
