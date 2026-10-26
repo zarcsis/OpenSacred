@@ -350,6 +350,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         cursor: hud::cursor_file(&assets),
     })
     .insert_resource(menu::Images::find(&assets))
+    .insert_resource(menu::Words::read(&assets))
     .insert_resource(game::LoadingScreen::find(&assets))
     .add_systems(
         Update,
