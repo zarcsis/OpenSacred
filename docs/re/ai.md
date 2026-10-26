@@ -75,7 +75,7 @@ Its distances to the hero and to the others are straight lines (`0x5370B0`, whic
   A fish made by the waters takes the loose farm animals' flag `0x20` at its first update all the same (the flags word 32, seen at `0x4EE030`); its moving action ran now and then and never reached the step's tests (`0x4EBCA0`, `0x4F7E10`) or the way's search (`0x4FABE0`).
 - the townsfolk (`0x8`, `0x400`): below, "The townsfolk".
 
-A creature's dialogue is `+0x245`, a number that `sdk_STAMP_IDX` (`0x5498F0`) writes, from `CreateNPC` and the scripts, and that `0x549920` gives as its talk (or, without one, a line of the generic townsfolk's in one case of three); a creature with one is held by its talk: a guard does not stroll, a townsperson keeps still, a crowded creature does not part.
+A creature's dialogue is `+0x245`, a number that `sdk_STAMP_IDX` (`0x5498F0`) writes, from `CreateNPC` and the scripts, and that `0x549920` gives as its talk (or, without one, its type's dialogue of `SetRgnDialog` for a creature of the townsfolk's classes, and in the regions 50 to 69 a generic line; docs/re/netscript.md, "Dialogues"); a creature with one is held by its talk: a guard does not stroll, a townsperson keeps still, a crowded creature does not part.
 
 A creature that stands idle (AI 0, the standing action `0x544890`) and shares its cell with another, in one tick of six, parts: it walks to a point within 100 of its home or of itself.
 The cell's test (`0x54FCB0`) counts every other creature in it, the types of the categories 2, 3 and `0x20` (`0x426610`), the hero among them, and, for a flyer or a model wider than 60 or deeper than 110, in the eight cells about it too.
