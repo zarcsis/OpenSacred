@@ -111,6 +111,12 @@ pub struct SetHealth {
 #[derive(Resource, Default)]
 pub struct Healths(pub Vec<SetHealth>);
 
+/// The hero's home, where it rises after its death (`+0x2BD` to `+0x2C5`, #974): the cell and the
+/// floor that the play's `SetNPCState`s of the tag `0x4D` naming the hero and its `StartPosition`s
+/// give, none before, the game's start then.
+#[derive(Resource, Default)]
+pub struct HeroHome(pub Option<Teleport>);
+
 /// The records of the world that the scripts ran during the play, in order, which `npcs` places
 /// (`CreateNPC`, `CreateObj` and the `DefPos`s and `SetNPCState`s with them, #1014).
 #[derive(Resource, Default)]
@@ -124,6 +130,8 @@ pub struct Effects {
     pub states: Vec<ObjState>,
     pub healths: Vec<SetHealth>,
     pub records: Vec<Record>,
+    /// The hero's home, as the last record that sets it gives it.
+    pub home: Option<Teleport>,
 }
 
 impl Effects {
@@ -132,6 +140,7 @@ impl Effects {
         self.states.extend(other.states);
         self.healths.extend(other.healths);
         self.records.extend(other.records);
+        self.home = other.home.or(self.home);
     }
 }
 
@@ -340,6 +349,7 @@ impl Live {
             states: recorder.states,
             healths: recorder.healths,
             records: recorder.records,
+            home: recorder.home,
         };
         (effects, outcome)
     }
@@ -470,6 +480,7 @@ struct Recorder<'a> {
     teleports: Vec<Teleport>,
     states: Vec<ObjState>,
     healths: Vec<SetHealth>,
+    home: Option<Teleport>,
 }
 
 impl<'a> Recorder<'a> {
@@ -487,6 +498,7 @@ impl<'a> Recorder<'a> {
             teleports: Vec::new(),
             states: Vec::new(),
             healths: Vec::new(),
+            home: None,
         }
     }
 }
@@ -674,6 +686,40 @@ impl Host for Recorder<'_> {
                         barred,
                         open,
                     });
+                }
+                Handled::Done
+            }
+            // The hero's home: a `SetNPCState` of the tag `0x4D` naming the hero (`0x461540`,
+            // `+0x2B9`), and a `StartPosition`, which teleports the hero in a game of one player
+            // and copies its position into its home (45, `0x491B30`; #974).
+            "set_npc_state" => {
+                if tags
+                    .texts("_01")
+                    .first()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("hero"))
+                    && let [x, y, rest @ ..] = tags.numbers("_4D").as_slice()
+                {
+                    self.home = Some(Teleport {
+                        cell: (*x, *y),
+                        layer: rest
+                            .first()
+                            .and_then(|&l| u8::try_from(l).ok())
+                            .unwrap_or(0),
+                    });
+                }
+                Handled::Done
+            }
+            "start_position" => {
+                if let [x, y, rest @ ..] = tags.numbers("_0B").as_slice() {
+                    let spot = Teleport {
+                        cell: (*x, *y),
+                        layer: rest
+                            .first()
+                            .and_then(|&l| u8::try_from(l).ok())
+                            .unwrap_or(0),
+                    };
+                    self.teleports.push(spot);
+                    self.home = Some(spot);
                 }
                 Handled::Done
             }
@@ -884,6 +930,7 @@ fn begin(world: &mut World) {
     let Some(started) = world.remove_resource::<Started>() else {
         return;
     };
+    world.insert_resource(HeroHome::default());
     world.insert_resource(ScriptDrops(started.state.drops.clone()));
     match runtime(&started.assets, &started.tree, started.index.clone()) {
         Ok(runtime) => world.insert_non_send(Live::new(runtime, started)),
@@ -913,10 +960,11 @@ fn step_on(
     live: Option<NonSendMut<Live>>,
     heights: Option<Res<Heights>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    (mut states, mut healths, mut world): (
+    (mut states, mut healths, mut world, mut home): (
         ResMut<ObjStates>,
         ResMut<Healths>,
         ResMut<WorldRecords>,
+        ResMut<HeroHome>,
     ),
 ) {
     let (Some(mut live), Some(heights)) = (live, heights) else {
@@ -938,6 +986,9 @@ fn step_on(
     states.0.extend(effects.states);
     healths.0.extend(effects.healths);
     world.0.extend(effects.records);
+    if let Some(spot) = effects.home {
+        home.0 = Some(spot);
+    }
 }
 
 /// Counts the clock's minutes on the timers, which run their functions as they are due, and
@@ -946,10 +997,11 @@ fn timers(
     live: Option<NonSendMut<Live>>,
     clock: Option<Res<Clock>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    (mut states, mut healths, mut world): (
+    (mut states, mut healths, mut world, mut home): (
         ResMut<ObjStates>,
         ResMut<Healths>,
         ResMut<WorldRecords>,
+        ResMut<HeroHome>,
     ),
 ) {
     let (Some(mut live), Some(clock)) = (live, clock) else {
@@ -962,6 +1014,9 @@ fn timers(
     states.0.extend(effects.states);
     healths.0.extend(effects.healths);
     world.0.extend(effects.records);
+    if let Some(spot) = effects.home {
+        home.0 = Some(spot);
+    }
 }
 
 /// Runs the function `function` of the hero's tree as the scripts run one (`Live::run`, the
@@ -1019,6 +1074,7 @@ fn carry_out(
             states,
             healths,
             records,
+            home,
         },
         first,
         timers,
@@ -1043,6 +1099,9 @@ fn carry_out(
     world.resource_mut::<ObjStates>().0.extend(states);
     world.resource_mut::<Healths>().0.extend(healths);
     world.resource_mut::<WorldRecords>().0.extend(records);
+    if let Some(spot) = home {
+        world.resource_mut::<HeroHome>().0 = Some(spot);
+    }
     let mut lines = vec![first];
     if let Some(&Teleport {
         cell: (x, y),
@@ -1091,6 +1150,7 @@ impl Plugin for ScriptsPlugin {
         app.init_resource::<ObjStates>()
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
+            .init_resource::<HeroHome>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -1267,6 +1327,46 @@ mod tests {
             .collect();
         assert_eq!(named, ["a", "b", "d", "g"]);
         assert_eq!(runtime.unknown(), ["test"]);
+    }
+
+    #[test]
+    fn the_scripts_move_the_heros_home() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"OMO-1leave_rg1\"] = function()\n\
+             set_npc_state { _01 = \"res:17459\", _39 = true, _4D = { 3230, 2766, 0 } }\n\
+             set_npc_state { _01 = \"HERO\", _4D = { 3230, 2769, 0 } }\n\
+             return true\n\
+             end\n\
+             F[\"start_again\"] = function()\n\
+             start_position { _0B = { 3236, 2511, 1 } }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        // Another creature's home is not the hero's.
+        assert_eq!(
+            live.run("OMO-1leave_rg1", 0).home,
+            Some(Teleport {
+                cell: (3230, 2769),
+                layer: 0
+            })
+        );
+        // A `StartPosition` puts the hero there and makes it its home.
+        let start = Teleport {
+            cell: (3236, 2511),
+            layer: 1,
+        };
+        let effects = live.run("start_again", 0);
+        assert_eq!(
+            (effects.teleports, effects.home),
+            (vec![start], Some(start))
+        );
     }
 
     #[test]
