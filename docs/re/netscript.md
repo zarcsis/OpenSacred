@@ -207,7 +207,8 @@ Read off the client with Ghidra 2026-10-25 (#943, #951) by a subagent of the ses
 - `SetGroupState` (73, `0x49E760`) takes out of the group the members of `+0x14` bit `0x10`; with `0x51` it makes an object of type `0x30C` at each other creature's place, posts it the event `0xC` (**hypothesis**: the vanishing effect) and destroys the creature where it lives, wherever it is.
 - `Attack` (92, `0x4A2B40`) looks both of its groups up in the same map.
 
-Not read: `DecVar` (76, `0x49CEC0`); whether destroying a creature runs its death function; when the map of groups is emptied, and whether a save keeps it.
+Not read: `DecVar` (76, `0x49CEC0`); when the map of groups is emptied, and whether a save keeps it.
+Destroying a creature runs no death's function ("The deaths' functions" below).
 
 ## Base triggers
 
@@ -240,6 +241,29 @@ Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless
 - Where the creature's most health is below 1 it is first set to `(level + 1)·100`; its health then becomes `most·n/100`, truncated, and a creature that has health and is not alive (`0x549080`) stops its motion; its byte `+0x4CF` is set (not read).
 - So quest 201's horse 18007 (creature 551, `Region2Init`'s `SetHP` of 50) stands at 37 of its 75, as the original's driver showed (#585), and a `SetHP` of 0 leaves a creature without health: the quests kill their targets so (1202's `QIS_OnEnter1202` and its timer).
 - `opensacred-game` follows it since #1001 (`scripts`, `npcs`): the start's, the regions' and the sectors' `SetHP`s give the placement they name its share as it is made, and those of the play the creatures of that name in the world, or the hero, a creature left without health dying as by no player's hand (it drops nothing; that the original's drops nothing is a **hypothesis**).
+
+## The deaths' functions
+
+Read 2026-10-26 (#656) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise.
+
+- The script manager (`0xAACF80`) keeps one list at `+0x358` of entries of 68 bytes, a creature's id and a function's name of 64 bytes, at most 60,000 (`0x464330` logs a broken list beyond).
+  Its names of the prefixes `Take:`, `Use:` and `See:` are an item's taking, use and sight (the items' handlers `0x558080`); the others are the creatures' death's functions.
+- `CreateNPC` adds its `0x05`'s name and its `0x60`'s, each with the creature's id (`0x4B9740`), and the `0x60` sets `+0x1F4` bit `0x400000` (its reader not read).
+- `SetNPCState`'s `0x05` first takes out the creature's entries that a death takes out (below; `0x464330(id, 0, 1)` at `0x461FBC`), then adds its name; its `0x60` adds one and sets `+0x1F4` bit `0x400000` (`0x46204B`).
+  The `0x05`s and `0x60`s of the Seraphim's tree: 757 and 17 in `CreateNPC`s, 371 and 2 in `SetNPCState`s, and 12 in `SetGroupState`s, 13 in `SetOnKill`s and one in a `SetOnCollect` (#1021); three of the functions they name are defined by no tree (`Zombies_OnSee`, `Zombies_OnSee2`, `tot1602`), none differs only by its case.
+- A death runs one of them, at the AI's state 9 (`0x53E7C0`, at `0x53E915`) and in the creature's events' handler (at `0x52F769`), which run the same steps:
+  - the first entry of the creature's id whose name has none of the items' prefixes (`0x4A71F0` with an empty name), else nothing;
+  - the creature's entries of no `:` or of `See:` taken out, but those starting with `wegw` (`0x464330(id, 1, 1)`), the second and later logged as an `OnDeath` twice;
+  - the function of that name, its length from 1 to 63, found in the functions' table by its name case aside (`0x46BF40`, `0x859690`) and run by the runner (`0x46BA90`), a quest's function only while its quest is set up ("Quests" above);
+  - then, the creature's health above 0, it rises (`0x53E460(1)`) and no more is done; else the quests' hook takes the death (`0x471790` with the event 4, #1020).
+- The run comes after the creature's drops and its killer's experience, which its events' handler gives as it dies (docs/re/items.md, "Drops"; docs/re/fight.md).
+  The death's `GroupIsDead` finds the creature dead already, its health 0 (`0x549080`), so a group's function runs on at its last member's death.
+- In the Seraphim's tree, 32 of the functions so named give their own creature health again (`SetHP` above 0: a target beaten rather than killed, quest 2203's `tot2203` at 50, a hireling's `rg2_nachhause` at 100 after its `Teleport` home), and so it rises.
+- A creature destroyed, by `SetGroupState`'s `0x51` (`0x49E760`, at `0x49F741`) or as it is removed (`0x463A70`), has its entries taken out without their functions run: neither calls the runner `0x46BF40`, whose callers are the timers (`0x416F00`), the deaths above, the items' handlers, the AI's state 1 (`0x53A170`), `sdk_WAKE` and a few of the engine's events.
+
+`opensacred-game` follows it since #656 (`opensacred_rules::quests::DeathFunctions`, `npcs::OnDeath`, `scripts::deaths`): the start's, the sectors' and the play's `CreateNPC`s and `SetNPCState`s give the creature they name its functions, kept with its placement as it goes with its sector; a death, at any hand, runs the first through the scripts' runner by its name case aside, the world's effects of the run carried out, and a creature that its function gives health rises at that health before it is laid down.
+`GroupIsDead` answers in the play (`scripts::living_groups`): a group lives while a creature of it lives in the world, but the raised dead, or away from it, made by the start or the play, or gone with its sector alive (`npcs::Npcs::living_groups`); a sector's `Init` makes its creatures only as its sector comes in, and at the start, before the world, the test is not answered, as before.
+In the game the Seraphim's start's monsters of the group 10 each run quest 9's `tot1` as they fall, and the seventh's sets its timer `Tutorial09`.
 
 ## The community's quest defects
 
@@ -357,17 +381,17 @@ Not read: how the log window shows a quest as completed or failed, by its lines 
 Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of the 20 trees, their bodies compared across the trees, and the handlers below); **confirmed** by code and on the scripts unless marked otherwise.
 
 - `SetGroupState` (73, `0x49E760`; the walker's case at `0x475ADB`) with `0x51` destroys every living creature of the group that its `0x11` names, wherever it is ("Variables and groups"); `DelNPC` (55, `0x497F80`) destroys the creature that its `0x01` names and takes the name out.
-  Whether either runs the creature's death functions (`0x05`) is not read.
+  Neither runs the creature's death's functions ("The deaths' functions", #656).
 - `RegionChange` (116, `0x4ABB60`, applied by `0x4ABFE0`) takes pairs of types (`0x02`, from and to) and a number 0 to 49 (`0x69`), which it compares with the byte `+0xD7` of the creature's sector (`0x622D50`), the area (keyx `+0x2C0`, docs/re/sound.md's **hypothesis**).
   It skips an object of another area, a trader (`+0x200` bits `0x4007000`), or one of `+0x2B7` bit `0x08`, which `0x6B` above 0 sets; the others take the pair's second type, the record's flags word (keeping `0x2000`), and with `0x08` a hostile side (2, or 14 where `+0x1F0` is 7) or with `0x0E` a peaceful one (3, or 7 with the guards' mode `0x4000`), their items of the pairs' types swapped too.
   It reads no `0x6B` of its own, so the `6B:0` of quest 55's three records does nothing.
 - **301 (Orcs!)**: `Region3Init` creates its farmer 17033 and his daughter 17032 with four cows in the group 3012, in area 3, whose dialogues hold the win once its orcs (the group 301) are dead.
   `Init55`, the start of quest 55 (the button of `Dialog:DlgPrinzValor55`), removes the groups 3012 and 301 with `SetGroupState` `0x51`, testing nothing of 301: an open 301 whose orcs are beaten but whose farmers are not yet spoken to stays entered and cannot be won; with its orcs alive its timer still loses it (#946).
   Repaired: `Init55` loses 301 and 302 first (docs/decisions/2026-10-25-quests-crossing.md).
-  It removes quest 302's cattle (the group 302) and robbers (3021) too, but not its giver 17029, and 302's ending runs through its death functions `tot302` and `tot2_302`, so an open 302 stays entered unless the removal runs them (**hypothesis**, not read).
+  It removes quest 302's cattle (the group 302) and robbers (3021) too, but not its giver 17029, and 302's ending runs through its death functions `tot302` and `tot2_302`, so an open 302 stays entered, for the removal runs none of them (#656).
   That the community's "start of act 2" means quest 55's start is a **hypothesis**.
 - **501 (Nucquam Astralis)**: `Region5Init` creates its Lady 17070 and Lord 17071 in the group 501, in area 11, through whom both its wins go.
-  `NimmtDaemonenhorn`, the end of quest 55 (`Dialog:Cinematic2`), removes the groups 501, 551 and 50013, testing nothing of 501; its ghost 17069 stays, but offers the win only once the group 501 is dead (`tot501`), so an open 501 cannot be won after quest 55 unless the removal runs `tot501` (#947; not read).
+  `NimmtDaemonenhorn`, the end of quest 55 (`Dialog:Cinematic2`), removes the groups 501, 551 and 50013, testing nothing of 501; its ghost 17069 stays, but offers the win only once the group 501 is dead (`tot501`), so an open 501 cannot be won after quest 55, for the removal runs no `tot501` (#947, #656).
   Repaired: `NimmtDaemonenhorn` loses 501 first, and a new `QIS_OnLose501` writes the failure (docs/decisions/2026-10-25-quests-crossing.md).
 - **1702 (Robber Baron)**: `Region17Init` creates its target 17215 hostile (creature 296, with the death function `tot1702`, which drops the item 6065 that the win needs), in area 31.
   `BadToGood`, which only quest 72's `ScriptAnimShareef` calls (The Forge of the Ancestors), has a `RegionChange` of area 31 with the pair (296, 297) and `0x0E`, which makes him a creature 297 of the peaceful side, testing nothing of 1702, so that the item can no longer be won by fighting him (#948).
@@ -386,7 +410,8 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   `QIS_OnEnter501` also creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
   Repaired: the 13 ghosts take the group 50014 of their own (docs/decisions/2026-10-25-shared-names.md).
 
-Not read: whether a removal or a `DelNPC` runs the death functions, what `0x549080` and the event `0xC` do; none of this was seen in the running original.
+Not read: what `0x549080` and the event `0xC` do; none of this was seen in the running original.
+A removal runs no death's function (#656); that a `DelNPC` runs none either is a **hypothesis** (it destroys the creature, `0x463A70`).
 
 ### Order traps
 
@@ -500,7 +525,7 @@ In the order of `0x461540`:
   An index above 0 becomes the creature's dialogue (`+0x245`, `sdk_STAMP_IDX`), the entry's `+0x4C` taking the creature's id; a name not found yet, the index 0 or a number not found take the creature's dialogue away.
   The entries' `+0` is −1 in every one, and every `0x0A` of the scripts is `0A:0` (11,121 records): `0x0A` takes the dialogue away.
 - `0x73` writes `+0x25F` (the mark, docs/re/fight.md), `0x67` `+0x2B6` and `+0x261`, and `0x6B` clears `+0x2B7` bit `0x08` for 0 and sets it above 0 (the strikes' resolution and the deaths read it with `+0x251`, not read further).
-- `0x05` keeps a function's name for the creature in the script manager's list at `+0x358` (`0x464330` takes its old ones out first), as `CreateNPC`'s `0x05` does: the function its death runs (**hypothesis**, by the scripts' names: `od_5002`, the escorts' `…_LOSE_…`); `0x60` adds one too and sets `+0x1F4` bit `0x400000`.
+- `0x05` keeps a function's name for the creature in the script manager's list at `+0x358`, its old death's functions taken out first, and `0x60` adds one too and sets `+0x1F4` bit `0x400000`: the functions its death runs ("The deaths' functions", **confirmed** by code 2026-10-26).
 - `0x1F` is its level, 1000 a boss (docs/re/spawning.md, "`SetNPCState`'s level"); `0x36` writes `+0x255`, which serves nothing (docs/re/ai.md).
 - `0x23`, `0x24` and `0x25` make it a trader (`+0x200` bits `0x1000`, `0x2000` and `0x4000`), each in the script manager's list of traders, and `0x64` too (`0x4000000`) with a dialogue stamped (`0x2BF20`).
 - `0x63` names a trader whose stock of horses the creature joins (the list at `+0x79E8`, up to six horses each, at their levels), its dialogue taken away.
@@ -514,7 +539,7 @@ In the Seraphim's tree, of the records that `opensacred-game` runs (the start sc
 **Confirmed** in the original (2026-10-23, the Seraphim's start under the driver of #448): the captain's dialogue is 958, the place from 1 of `auftrag22` among the start script's dialogues, which the table's doubled first entry gives.
 
 In `opensacred-game`, `npcs::set_states` gives the creature that a `SetNPCState` names after its `CreateNPC` the record's level, its dialogue by the table as it stands then, its flags word, its side by its hostility (`opensacred_rules::minds::stated_side`), its trades and its home (#578); the captain lists with its dialogue as in the original.
-Its quest, its death's functions and `0x6B` are #656, the followers #657, the horses' trader and the rest #658.
+Its death's functions are followed since #656 ("The deaths' functions"); its quest (`0x75`) waits for the quests' table of creatures (#1020), `0x6B` and the followers for #657, the horses' trader and the rest for #658.
 
 ## Differences from the openheilig table
 

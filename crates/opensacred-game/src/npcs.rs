@@ -62,6 +62,7 @@ use opensacred_data::netscript::{Body, Record, Tree, Value};
 use opensacred_data::tables::{Creature, Item};
 use opensacred_data::world::SIDE;
 use opensacred_rules::fight::Effect;
+use opensacred_rules::quests::DeathFunctions;
 use opensacred_rules::{minds, ways};
 
 use crate::files;
@@ -99,7 +100,11 @@ const KEEPS: [u8; 4] = [0x1A, 0x70, 0x71, 0x72];
 /// `0x4A9EF0`, at `0x483A46`), and the bit that keeps the scripts' groups apart from the fills'
 /// packs' numbers ([`script_group`]).
 const GROUP: u8 = 0x11;
-const SCRIPT_GROUP: u32 = 0x8000_0000;
+pub(crate) const SCRIPT_GROUP: u32 = 0x8000_0000;
+/// The tags of a creature's death's functions (`CreateNPC`, `SetNPCState`; #656): `0x05`, and
+/// `0x60`, which also sets the flags word's bit `0x400000` (its reader not read, not followed).
+const ON_DEATH: u8 = 0x05;
+const ON_DEATH_TOO: u8 = 0x60;
 /// The operand of a `CreateNPC` that gives its creature's level, or makes it a boss
 /// (`0x482510`, `fight::tagged_level`).
 const LEVEL: u8 = 0x1F;
@@ -207,6 +212,9 @@ struct Placement {
     /// name it, and the share of its most health that a `SetHP` gave it, in per cent (#1001).
     name: Option<String>,
     health_share: Option<u32>,
+    /// An NPC's functions of the script manager's list, of which its death runs one (#656):
+    /// its `CreateNPC`'s and its `SetNPCState`s' `0x05` and `0x60`.
+    on_death: DeathFunctions,
 }
 
 /// The clips an NPC plays, by name (`motions`): standing, walking where a script sends it,
@@ -478,6 +486,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         plain: false,
         name: None,
         health_share: None,
+        on_death: DeathFunctions::default(),
     }
 }
 
@@ -503,6 +512,9 @@ pub struct Npcs {
     makers: Makers,
     places: HashMap<String, (i32, i32)>,
     pending: Vec<usize>,
+    /// The placements that the play's records made, which live wherever they stand from then on
+    /// ([`Self::living_groups`]).
+    played: HashSet<usize>,
     /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
@@ -1309,6 +1321,9 @@ struct State {
     stamped: bool,
     /// Its home (`0x4D`, `+0x2B9`): the cell whose centre it goes home to.
     home: Option<(u32, u32)>,
+    /// Its death's functions, in their order: each `0x05`'s (`true`), which replaces those the
+    /// creature has, and `0x60`'s, which adds one (`0x461FBC`, `0x46204B`; #656).
+    deaths: Vec<(bool, String)>,
 }
 
 impl State {
@@ -1342,10 +1357,23 @@ impl State {
                         state.home = Some((x, y));
                     }
                 }
+                (ON_DEATH, Value::Str(name)) => state.deaths.push((true, name.clone())),
+                (ON_DEATH_TOO, Value::Str(name)) => state.deaths.push((false, name.clone())),
                 _ => {}
             }
         }
         state
+    }
+
+    /// Gives `functions` its death's functions ([`Self::deaths`]).
+    fn restate(&self, functions: &mut DeathFunctions) {
+        for (replaces, name) in &self.deaths {
+            if *replaces {
+                functions.set(name);
+            } else {
+                functions.add(name);
+            }
+        }
     }
 
     /// Applies it to `placement`, in the order of `0x461540`: the flags word, which takes a
@@ -1376,7 +1404,20 @@ impl State {
         }
         placement.trader |= self.trader;
         placement.dialogue |= self.stamped;
+        self.restate(&mut placement.on_death);
     }
+}
+
+/// The death's functions of a `CreateNPC` of the operands `ops`: its `0x05`'s and its `0x60`'s,
+/// in their order, each added (`0x483970`, `0x4839CF`; #656).
+fn death_functions(ops: &[opensacred_data::netscript::Operand]) -> DeathFunctions {
+    let mut functions = DeathFunctions::default();
+    for op in ops {
+        if let (ON_DEATH | ON_DEATH_TOO, Value::Str(name)) = (op.tag, &op.value) {
+            functions.add(name);
+        }
+    }
+    functions
 }
 
 /// Gives the creatures that `records`' `SetNPCState`s name what those change of them
@@ -1835,6 +1876,11 @@ impl Makers {
             plain: false,
             name: (record.kind == CREATE_NPC).then(|| name_of(ops)).flatten(),
             health_share: None,
+            on_death: if record.kind == CREATE_NPC {
+                death_functions(ops)
+            } else {
+                DeathFunctions::default()
+            },
         }))
     }
 }
@@ -2097,6 +2143,7 @@ impl Npcs {
             makers,
             places: positions,
             pending: Vec::new(),
+            played: HashSet::new(),
             values,
             fills,
             templates,
@@ -2864,8 +2911,8 @@ fn respawn(
 }
 
 /// Notes what a placed creature leaves as it goes with its sector, or with the game (#329): a
-/// kept one's place, floor and health, or that it was killed; a fill's living one, with its
-/// sector.
+/// kept one's place, floor and health, or that it was killed, and the death's functions it still
+/// has (#656); a fill's living one, with its sector.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -2878,15 +2925,23 @@ fn keep(
         &crowd::InTheWay,
         Option<&fight::Health>,
         Has<Dies>,
+        Option<&OnDeath>,
     )>,
     heights: Option<Res<Heights>>,
     npcs: Option<ResMut<Npcs>>,
 ) {
-    let (Ok((placed, transform, way, health, dies)), Some(mut npcs)) =
+    let (Ok((placed, transform, way, health, dies, on_death)), Some(mut npcs)) =
         (creatures.get(removed.entity), npcs)
     else {
         return;
     };
+    if let Source::Kept(index) = placed.source
+        && let Some(placement) = npcs.placements.get_mut(index)
+    {
+        placement.on_death = on_death
+            .map(|on_death| on_death.0.clone())
+            .unwrap_or_default();
+    }
     let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
     let layer = heights
         .as_deref()
@@ -3047,6 +3102,9 @@ fn spawn(
         });
         if let Some(name) = &placement.name {
             entity.insert(ScriptName(name.clone()));
+        }
+        if !placement.on_death.is_empty() {
+            entity.insert(OnDeath(placement.on_death.clone()));
         }
         // Its attack, defence, damage and resistances with the values of its items, made at its
         // level (`0x5D5080`), the same each time it is made, its hits' share, and its
@@ -3819,6 +3877,7 @@ impl Npcs {
             }
             self.by_sector.entry(at).or_default().push(index);
             self.placements.push(placement);
+            self.played.insert(index);
             made.insert(std::ptr::from_ref(record), index);
             if self.spawned.contains(&at) {
                 self.pending.push(index);
@@ -3826,6 +3885,64 @@ impl Npcs {
         }
         set_states(&records, &made, &mut self.placements);
         Ok(made.len())
+    }
+
+    /// The death's functions that the play's `SetNPCState`s give the creatures made before them
+    /// (#656): each record's name and its state, given to the placements of that name here, and
+    /// to the creatures in the world by [`script_records`]. The records' other tags on such
+    /// creatures are #657's and #658's.
+    fn restate(&mut self, records: &[Record]) -> Vec<(String, State)> {
+        let made: HashSet<String> = records
+            .iter()
+            .filter(|record| record.kind == CREATE_NPC)
+            .filter_map(|record| match &record.body {
+                Body::Operands(ops) => name_of(ops),
+                _ => None,
+            })
+            .collect();
+        let mut stated = Vec::new();
+        for record in records.iter().filter(|record| record.kind == SET_NPC_STATE) {
+            let Body::Operands(ops) = &record.body else {
+                continue;
+            };
+            let Some(name) = name_of(ops).filter(|name| !made.contains(name)) else {
+                continue;
+            };
+            let state = State::of(ops, &[]);
+            if state.deaths.is_empty() {
+                continue;
+            }
+            for placement in &mut self.placements {
+                if placement.name.as_ref() == Some(&name) {
+                    state.restate(&mut placement.on_death);
+                }
+            }
+            stated.push((name, state));
+        }
+        stated
+    }
+
+    /// The scripts' groups that hold a creature living away from the world, wherever it stands,
+    /// as `GroupIsDead` asks of each member (`0x48C860`): a placement not in the world now, not
+    /// an `Enter`'s, made by the start or the play and never killed, or gone with its sector
+    /// alive. A sector's `Init` makes its creatures only as it comes near; the world's creatures
+    /// are the caller's.
+    pub fn living_groups(&self) -> HashSet<u32> {
+        self.placements
+            .iter()
+            .enumerate()
+            .filter_map(|(index, placement)| {
+                let group = placement.group?;
+                if placement.object || placement.made.0 || self.kept.out.contains(&index) {
+                    return None;
+                }
+                let lives = match self.kept.went.get(&index) {
+                    Some(stood) => stood.is_some(),
+                    None => placement.started || self.played.contains(&index),
+                };
+                lives.then_some(group)
+            })
+            .collect()
     }
 
     /// Whether `door`'s trigger is locked (#1006): it opens to nobody (`0x44BCD0`).
@@ -4024,10 +4141,15 @@ fn open_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str, open: bool) 
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct ScriptName(pub String);
 
+/// An NPC's death's functions (#656, docs/re/netscript.md, "The deaths' functions"), of which its
+/// death runs one (`scripts`).
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
+pub struct OnDeath(pub DeathFunctions);
+
 /// Carries out the scripts' `SetHP`s (`0x48E280`, #1001): the creatures of the name, the hero for
 /// none, take the share of their most health, truncated; a creature of none dies, as by no
 /// player's hand (it drops nothing).
-fn script_healths(
+pub(crate) fn script_healths(
     mut commands: Commands,
     healths: Option<ResMut<crate::scripts::Healths>>,
     mut creatures: Query<(Entity, &ScriptName, &mut fight::Health), Without<Dies>>,
@@ -4063,7 +4185,12 @@ fn script_healths(
 
 /// Places the records of the world that the scripts ran during the play (#1014,
 /// [`Npcs::add`]).
-fn script_records(records: Option<ResMut<crate::scripts::WorldRecords>>, mut npcs: ResMut<Npcs>) {
+fn script_records(
+    mut commands: Commands,
+    records: Option<ResMut<crate::scripts::WorldRecords>>,
+    mut npcs: ResMut<Npcs>,
+    mut creatures: Query<(Entity, &ScriptName, Option<&mut OnDeath>), Without<Dies>>,
+) {
     let Some(mut records) = records else {
         return;
     };
@@ -4075,6 +4202,19 @@ fn script_records(records: Option<ResMut<crate::scripts::WorldRecords>>, mut npc
         Ok(0) => {}
         Ok(placed) => bevy::log::info!("npcs: the scripts place {placed} creatures and objects"),
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
+    }
+    for (name, state) in npcs.restate(&records) {
+        for (entity, _, on_death) in creatures.iter_mut().filter(|(_, named, _)| named.0 == name) {
+            match on_death {
+                Some(mut on_death) => state.restate(&mut on_death.0),
+                None => {
+                    let mut functions = DeathFunctions::default();
+                    state.restate(&mut functions);
+                    commands.entity(entity).insert(OnDeath(functions));
+                }
+            }
+            bevy::log::info!("npcs: the scripts give {name} its death's functions");
+        }
     }
 }
 
@@ -4209,7 +4349,7 @@ pub struct Corpse {
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
 )]
-fn die(
+pub(crate) fn die(
     mut commands: Commands,
     mut dying: Query<(
         Entity,
@@ -5638,6 +5778,32 @@ mod tests {
         assert_eq!(position(ops, &named), Some((3370, 2524, 0)));
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
+    }
+
+    #[test]
+    fn a_createnpc_and_its_setnpcstates_give_the_creature_its_deaths_functions() {
+        let op = |tag, value| Operand { tag, value };
+        let text = |tag, name: &str| op(tag, Value::Str(name.into()));
+        // `CreateNPC`'s `0x05` and `0x60`, each added in its order.
+        let mut functions = death_functions(&[
+            text(0x01, "res:17260"),
+            text(ON_DEATH, "tot2203"),
+            text(ON_DEATH_TOO, "schmuggler1402"),
+        ]);
+        let mut copy = functions.clone();
+        assert_eq!(copy.take().as_deref(), Some("tot2203"));
+        // A `SetNPCState`'s `0x05` replaces them, its `0x60` adds one after.
+        let state = State::of(
+            &[
+                text(0x01, "res:17260"),
+                text(ON_DEATH, "lose670"),
+                text(ON_DEATH_TOO, "od_5002"),
+            ],
+            &[],
+        );
+        state.restate(&mut functions);
+        assert_eq!(functions.take().as_deref(), Some("lose670"));
+        assert!(functions.is_empty());
     }
 
     #[test]
