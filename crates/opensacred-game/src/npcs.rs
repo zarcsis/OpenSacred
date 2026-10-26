@@ -1733,6 +1733,36 @@ impl GroupState {
     }
 }
 
+/// Puts the play's `CreateNPC`s and `CreateObj`s placed at a creature's place (`0x04` of
+/// `CPOS:HERO` or `CPOS:<name>`, the field reader at `0x474222`, `0x474295`; #1046) on that
+/// creature's cell and floor as the records run, as `at` finds them by the creature's name, the
+/// hero's for none; one whose creature is not found keeps its name, which places nothing. The
+/// original moves a place at the hero on the ground to a free point about it where another object
+/// stands on it or no way leads there (`0x45FF80`), which is not followed.
+fn locate(records: &mut [Record], at: impl Fn(Option<&str>) -> Option<(i32, i32, i32)>) {
+    for record in records
+        .iter_mut()
+        .filter(|record| record.kind == CREATE_NPC || record.kind == CREATE_OBJ)
+    {
+        let Body::Operands(ops) = &mut record.body else {
+            continue;
+        };
+        for op in ops.iter_mut().filter(|op| op.tag == 0x04) {
+            let (Value::Name(name) | Value::Str(name)) = &op.value else {
+                continue;
+            };
+            let lower = name.to_ascii_lowercase();
+            let Some(creature) = lower.strip_prefix(CREATURE_POSITION) else {
+                continue;
+            };
+            let found = at((creature != "hero").then_some(creature));
+            if let Some((x, y, floor)) = found {
+                op.value = Value::I32x3([x, y, floor]);
+            }
+        }
+    }
+}
+
 /// Where the play's `NPC_Goto` or `Teleport` sends a creature (#1035): a global cell and its floor,
 /// or the place of a creature, `None` the hero's (`CPOS:<name>`).
 #[derive(Clone, Debug, PartialEq)]
@@ -4715,7 +4745,11 @@ fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    (heights, heroes): (Res<Heights>, Query<&Transform, With<hero::Body>>),
+    (heights, heroes, bodies): (
+        Res<Heights>,
+        Query<&Transform, With<hero::Body>>,
+        Query<&hero::Body>,
+    ),
     mut creatures: Query<
         (
             Entity,
@@ -4743,10 +4777,36 @@ fn script_records(
     let Some(mut records) = records else {
         return;
     };
-    let records = std::mem::take(&mut records.0);
+    let mut records = std::mem::take(&mut records.0);
     if records.is_empty() {
         return;
     }
+    // The places of the creatures that the records name (`CPOS:`), the hero's for none, as they
+    // stand now: their cells and floors (#1046).
+    let floor_of = |level| {
+        heights
+            .floor(level)
+            .map_or(0, |(_, floor)| i32::from(floor))
+    };
+    let cell_at = |at: Vec3, floor: i32| {
+        let (x, y) = crate::paths::cell_of(at.x, at.z);
+        (x, y, floor)
+    };
+    locate(&mut records, |name| match name {
+        None => heroes.iter().next().map(|at| {
+            let floor = bodies
+                .iter()
+                .next()
+                .map_or(0, |body| floor_of(body.level()));
+            cell_at(at.translation, floor)
+        }),
+        Some(name) => creatures
+            .iter()
+            .find(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
+            .map(|(_, _, _, at, _, way, ..)| {
+                cell_at(at.translation, way.map_or(0, |way| floor_of(way.level)))
+            }),
+    });
     match npcs.add(&records) {
         Ok(0) => {}
         Ok(placed) => bevy::log::info!("npcs: the scripts place {placed} creatures and objects"),
@@ -6282,6 +6342,38 @@ mod tests {
         assert_eq!(hire_of(&[op(0x4B), marker(0x39)]), Some(Hire::LetsGo));
         // A `SetNPCState` of a hire restates a creature made before it.
         assert!(State::of(&[op(0x37)], &[]).restates());
+    }
+
+    #[test]
+    fn a_creature_or_an_object_made_at_a_creature_takes_its_place() {
+        let op = |tag, value| Operand { tag, value };
+        let made = |kind, at: &str| Record {
+            kind,
+            body: Body::Operands(vec![
+                op(0x02, Value::I32(697)),
+                op(0x04, Value::Name(at.into())),
+            ]),
+        };
+        let mut records = [
+            made(CREATE_NPC, "CPOS:HERO"),
+            made(CREATE_OBJ, "CPOS:RES:17190"),
+            made(CREATE_NPC, "CPOS:res:404"),
+            made(CREATE_NPC, "posAhnen"),
+        ];
+        locate(&mut records, |name| match name {
+            None => Some((3218, 2514, 1)),
+            Some("res:17190") => Some((3240, 2520, 0)),
+            Some(_) => None,
+        });
+        let at = |record: &Record| match &record.body {
+            Body::Operands(ops) => ops[1].value.clone(),
+            _ => unreachable!("made with operands"),
+        };
+        assert_eq!(at(&records[0]), Value::I32x3([3218, 2514, 1]));
+        assert_eq!(at(&records[1]), Value::I32x3([3240, 2520, 0]));
+        // A creature gone, and a `DefPos`'s name, keep theirs.
+        assert_eq!(at(&records[2]), Value::Name("CPOS:res:404".into()));
+        assert_eq!(at(&records[3]), Value::Name("posAhnen".into()));
     }
 
     #[test]
