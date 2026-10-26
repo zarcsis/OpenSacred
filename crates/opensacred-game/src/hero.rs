@@ -123,6 +123,10 @@ pub struct Hero {
     /// The model's dying clips, the slots 173 and 174 (`npcs`).
     pub dying: Vec<String>,
     pub position: Vec3,
+    /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
+    /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
+    /// scripts give it a home; else it lands as on any cell.
+    pub floor: Option<u8>,
     /// Where to go first, if anywhere.
     pub target: Option<Vec3>,
     pub gait: Gait,
@@ -163,6 +167,7 @@ impl Hero {
             vitals: None,
             dying: Vec::new(),
             position,
+            floor: None,
             target: None,
             gait: Gait::Run,
             size: opensacred_rules::minds::SIZE,
@@ -531,7 +536,12 @@ pub fn spawn(
             moving: None,
             stopping: None,
             unplaced: false,
-            landing: None,
+            landing: hero.floor.map(|floor| {
+                (
+                    paths::cell_of(hero.position.x, hero.position.z),
+                    Arrival::On(Some(floor)),
+                )
+            }),
             pinned: None,
             course: None,
         },
@@ -1142,7 +1152,10 @@ pub fn fall(
                     Arrival::On(Some(layer)),
                 );
             }
-            None => body.teleport(&mut transform, hero.position),
+            None => match hero.floor {
+                Some(floor) => body.put(&mut transform, hero.position, Arrival::On(Some(floor))),
+                None => body.teleport(&mut transform, hero.position),
+            },
         }
         if let Some(mut health) = health {
             health.current = health.most;

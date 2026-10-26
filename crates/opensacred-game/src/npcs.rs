@@ -913,7 +913,7 @@ fn model_position(at: Vec3, drawn: Option<Vec2>) -> Vec3 {
 
 /// The hero's start: the global cell of the `StartPosition` record that `tree`'s start script
 /// ran (`StartPosition 0B:x 0B:y`), if it ran one.
-pub fn start_position(tree: &Tree) -> Option<(u32, u32)> {
+pub fn start_position(tree: &Tree) -> Option<((u32, u32), Option<u8>)> {
     tree.start
         .iter()
         .filter(|r| r.kind == START_POSITION)
@@ -923,7 +923,12 @@ pub fn start_position(tree: &Tree) -> Option<(u32, u32)> {
             };
             let x = u32::try_from(value_i32(&ops.first()?.value)?).ok()?;
             let y = u32::try_from(value_i32(&ops.get(1)?.value)?).ok()?;
-            Some((x, y))
+            // Its floor, where it names one: the Vampiress's 2 (#1017).
+            let floor = ops
+                .get(2)
+                .and_then(|op| value_i32(&op.value))
+                .and_then(|floor| u8::try_from(floor).ok());
+            Some(((x, y), floor))
         })
 }
 
@@ -5633,6 +5638,27 @@ mod tests {
         assert_eq!(position(ops, &named), Some((3370, 2524, 0)));
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
+    }
+
+    #[test]
+    fn the_start_position_gives_its_cell_and_its_floor_where_it_names_one() {
+        let op = |tag, value| Operand { tag, value };
+        let tree = |ops: Vec<Operand>| Tree {
+            start: vec![Record {
+                kind: START_POSITION,
+                body: Body::Operands(ops),
+            }],
+            quest: Vec::new(),
+            functions: Vec::new(),
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        let cell = |v| op(0x0B, Value::I32(v));
+        // The Vampiress's, on floor 2; the Gladiator's, of no floor.
+        let vampiress = tree(vec![cell(3500), cell(2477), cell(2)]);
+        assert_eq!(start_position(&vampiress), Some(((3500, 2477), Some(2))));
+        let gladiator = tree(vec![cell(3790), cell(349)]);
+        assert_eq!(start_position(&gladiator), Some(((3790, 349), None)));
     }
 
     #[test]

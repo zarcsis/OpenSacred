@@ -384,10 +384,16 @@ fn load(
     let start = match game.sector {
         Some(sector) => Err(sector),
         None => match npcs::start_position(&scripts) {
-            Some(cell) => Ok(cell),
+            Some((cell, _)) => Ok(cell),
             None => Err((50, 39)),
         },
     };
+    // The start's floor, where the start script's `StartPosition` names one (#1017).
+    let floor = game
+        .sector
+        .is_none()
+        .then(|| npcs::start_position(&scripts).and_then(|(_, floor)| floor))
+        .flatten();
     let at = match start {
         Ok((x, y)) => (x / side, y / side),
         Err(sector) => sector,
@@ -556,6 +562,7 @@ fn load(
         arsenal
     });
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
+    hero.floor = floor;
     hero.stance = clips.stance;
     hero.attacks = clips.attacks;
     hero.arts = clips.arts;
