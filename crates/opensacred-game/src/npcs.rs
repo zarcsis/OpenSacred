@@ -109,10 +109,12 @@ const FILL_SECTOR: u16 = 51;
 const SPAWN_VALUES: u16 = 100;
 const WAFFENPOOL: u16 = 114;
 const MAKE_GROUP: u16 = 115;
-/// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit
-/// (`0x496520`).
+/// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit, and
+/// that lock it, clearing bit 0 and setting `0x8000`, and unlock it (`0x496520`).
 const OPEN: u8 = 0x26;
 const CLOSED: u8 = 0x27;
+const LOCKED: u8 = 0x2C;
+const UNLOCKED: u8 = 0x2D;
 /// `CreateObj`'s operand that names its trigger.
 const TRIGGER: u8 = 0x29;
 /// `CreateObj`'s operand of the object's world position, `(x, y, layer)` (`0x485C10`).
@@ -483,6 +485,8 @@ pub struct Npcs {
     triggers: HashMap<String, Vec<Spot>>,
     opened: HashSet<String>,
     marked: HashSet<String>,
+    /// The triggers locked (`0x8000` of their state, #1006), whose doors open to nobody.
+    locked: HashSet<String>,
     /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
@@ -1426,17 +1430,10 @@ fn closed_cells(records: &[&Record]) -> Vec<(String, Spot)> {
                 _ => None,
             })
     };
-    let closed: HashSet<String> = ops(CREATE_TRIGGER)
-        .filter(|ops| {
-            ops.iter()
-                .filter_map(|o| match (o.tag, &o.value) {
-                    (OPEN | CLOSED, Value::Marker) => Some(o.tag == CLOSED),
-                    _ => None,
-                })
-                .next_back()
-                .unwrap_or(false)
-        })
-        .filter_map(|ops| name_of(ops))
+    let closed: HashSet<String> = trigger_states(records)
+        .into_iter()
+        .filter(|(_, (open, _))| !open)
+        .map(|(name, _)| name)
         .collect();
     ops(TRIGGER_PATCH)
         .filter_map(|ops| {
@@ -1449,6 +1446,36 @@ fn closed_cells(records: &[&Record]) -> Vec<(String, Spot)> {
                 (0x2A, Value::I32x3([x, y, floor])) => Some((name.clone(), (*x, *y, *floor))),
                 _ => None,
             })
+        })
+        .collect()
+}
+
+/// The state of each trigger that `records`' `CreateTrigger`s make, by its name lower-cased: open
+/// (bit 0) and locked (`0x8000`), as the handler takes its markers in order (`0x496520`); a
+/// trigger made again takes its new state.
+fn trigger_states(records: &[&Record]) -> HashMap<String, (bool, bool)> {
+    records
+        .iter()
+        .filter(|r| r.kind == CREATE_TRIGGER)
+        .filter_map(|r| match &r.body {
+            Body::Operands(ops) => Some(ops),
+            _ => None,
+        })
+        .filter_map(|ops| {
+            let state = ops
+                .iter()
+                .filter(|o| matches!(o.value, Value::Marker))
+                .fold(None, |state, o| {
+                    let (open, locked) = state.unwrap_or((false, false));
+                    match o.tag {
+                        OPEN => Some((true, locked)),
+                        CLOSED => Some((false, locked)),
+                        LOCKED => Some((false, true)),
+                        UNLOCKED => Some((open, false)),
+                        _ => state,
+                    }
+                })?;
+            Some((name_of(ops)?, state))
         })
         .collect()
 }
@@ -1893,6 +1920,11 @@ impl Npcs {
                 .or_default()
                 .push(index);
         }
+        let locked: HashSet<String> = trigger_states(&records)
+            .into_iter()
+            .filter(|(_, (_, locked))| *locked)
+            .map(|(name, _)| name)
+            .collect();
         let mut closed: HashMap<(u32, u32), Vec<(String, Spot)>> = HashMap::new();
         let mut triggers: HashMap<String, Vec<Spot>> = HashMap::new();
         for (name, (x, y, floor)) in closed_cells(&records) {
@@ -1914,6 +1946,7 @@ impl Npcs {
             triggers,
             opened: HashSet::new(),
             marked: HashSet::new(),
+            locked,
             values,
             fills,
             templates,
@@ -3520,6 +3553,13 @@ impl Npcs {
             .as_ref()
             .is_some_and(|name| self.marked.contains(name))
     }
+
+    /// Whether `door`'s trigger is locked (#1006): it opens to nobody (`0x44BCD0`).
+    pub fn locked(&self, door: &Door) -> bool {
+        door.trigger
+            .as_ref()
+            .is_some_and(|name| self.locked.contains(name))
+    }
 }
 
 /// A door that `ai` or the hero (`doors`) opens or closes, as the event `0x21` turns it
@@ -3627,6 +3667,12 @@ fn swing(
 ) {
     for (entity, mut door, swing) in &mut doors {
         if !swing.open && !swing.by_hero && npcs.marked(&door) {
+            commands.entity(entity).remove::<Swing>();
+            continue;
+        }
+        // A locked door opens to nobody, and closes as an unlocked one does (`0x44BCD0`).
+        if swing.open && !door.open && npcs.locked(&door) {
+            bevy::log::debug!("npcs: {entity} is locked");
             commands.entity(entity).remove::<Swing>();
             continue;
         }
@@ -5193,10 +5239,13 @@ mod tests {
             record(TRIGGER_PATCH, ops)
         };
         let records = [
-            // The chests' trigger, closed; a door's, closed then opened; one of neither.
+            // The chests' trigger, closed; a door's, closed then opened; one of neither, which the
+            // client does not make; a locked door's, closed (#1006); an unlocked one's, open.
             create("chestTrigger", &[CLOSED]),
             create("door", &[CLOSED, OPEN]),
             create("plain", &[]),
+            create("R24NQ11_Tuer", &[LOCKED]),
+            create("unlocked", &[OPEN, LOCKED, UNLOCKED, OPEN]),
             // A wide chest's three cells on floor 1, and a patch of each other trigger.
             patch(
                 "chestTrigger",
@@ -5205,6 +5254,8 @@ mod tests {
             patch("door", &[[3300, 2500, 0]]),
             patch("plain", &[[3301, 2500, 0]]),
             patch("CHESTTRIGGER", &[[3200, 2490, 0]]),
+            patch("R24NQ11_Tuer", &[[2400, 3000, 0]]),
+            patch("unlocked", &[[2401, 3000, 0]]),
         ];
         let records: Vec<&Record> = records.iter().collect();
         let chest = |x, y, floor| ("chesttrigger".to_owned(), (x, y, floor));
@@ -5214,9 +5265,15 @@ mod tests {
                 chest(3341, 2512, 1),
                 chest(3342, 2512, 1),
                 chest(3343, 2512, 1),
-                chest(3200, 2490, 0)
+                chest(3200, 2490, 0),
+                ("r24nq11_tuer".to_owned(), (2400, 3000, 0)),
             ]
         );
+        let states = trigger_states(&records);
+        assert_eq!(states["r24nq11_tuer"], (false, true));
+        assert_eq!(states["unlocked"], (true, false));
+        assert_eq!(states["door"], (true, false));
+        assert!(!states.contains_key("plain"));
     }
 
     #[test]
