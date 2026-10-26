@@ -924,7 +924,7 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
    - `sectors/<n>.luau`, a sector's `Init` and `Enter`;
    - `regions/<n>.luau`, a region's `Init`;
    - `quests/<id>.luau`, a quest's functions;
-   - `functions/<shape>.luau`, the other functions of one name's shape;
+   - `functions/<shape>.luau`, the other functions of one name's shape, the shapes that differ in case alone in the first's file (`Help45` and `help46` in `Help.luau`), which a file system blind to case would otherwise write over one another (#1043);
    - `index.ron`, every function's file and key.
 
    Each file returns a table of its functions.

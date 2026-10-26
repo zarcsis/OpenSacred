@@ -391,9 +391,14 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
                 .with_context(|| format!("encoding {source}"))?;
             let path = dir.join(&file);
             fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
-            // Its Luau sources, in a directory of its own (#723).
+            // Its Luau sources, in a directory of its own (#723), emptied first, so that no
+            // file of an earlier layout stays and none keeps an earlier name's case (#1043).
             let (sources, index) = crate::luau::translate(source, &tree)?;
             let luau = path.with_extension("");
+            if luau.exists() {
+                fs::remove_dir_all(&luau)
+                    .with_context(|| format!("emptying {}", luau.display()))?;
+            }
             for (name, text) in &sources {
                 let target = luau.join(name);
                 if let Some(parent) = target.parent() {
