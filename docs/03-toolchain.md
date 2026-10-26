@@ -467,6 +467,7 @@ Scope estimate: of the ≈5,900 game functions, on the order of 2,000–3,000 ne
   The code writes LF itself where a platform's default differs: `ron`'s `PrettyConfig::default()` and Python's text mode write CRLF on Windows (#835).
 * CI on GitHub Actions (`.github/workflows/ci.yml`), on every pull request and every push to `main`: a Linux job (fmt, clippy, tests without the game files, the screenshot test), a Windows job (the target platform: the build with `rust-lld` and the tests; no clippy, since the workspace has no Windows-only code, and no screenshot test, since the runner has no GPU) and `cargo deny`.
   The dependencies' build is cached by `Swatinem/rust-cache` and saved only on `main`, which pull requests restore: caches of every branch would push `main`'s out of the repository's 10 GB.
+  The Linux job's system packages that the runner image lacks are cached likewise, as their `.deb` files under the image's version (`ImageOS`, `ImageVersion`), and installed with `dpkg`, so the Ubuntu mirror, minutes slow in some runs, is reached once an image (#1109).
   Standard GitHub-hosted runners are free for a public repository, so CI minutes do not limit the checks; the tests on the game files run locally, because CI has none.
 * The Release workflow (`.github/workflows/release.yml`) runs on every push to `main` and versions the merged pull requests (§3.6).
 * The screenshot test runs in the Linux job on Mesa's software Vulkan (lavapipe), which is enough for it; the Windows job skips it, as its runner has no GPU.

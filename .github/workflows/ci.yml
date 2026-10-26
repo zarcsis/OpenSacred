@@ -42,15 +42,34 @@ jobs:
         with:
           tool: cargo-nextest
       # opensacred-game (Bevy): gamepad support (gilrs) links libudev, sound (Kira through cpal) ALSA; X11
-      # and Vulkan load at run time.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev libudev-dev pkg-config
+      # and Vulkan load at run time, the screenshot test's on Mesa's software Vulkan (lavapipe). The
+      # packages that the image lacks are cached by the image's version, so the Ubuntu mirror, minutes
+      # slow in some runs, is reached once an image (#1109); only main saves, as for the build above.
+      - id: image
+        run: echo "apt=apt-$ImageOS-$ImageVersion-1" >> "$GITHUB_OUTPUT"
+      - id: apt
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/apt
+          key: ${{ steps.image.outputs.apt }}
+      - if: steps.apt.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends --download-only libasound2-dev libudev-dev pkg-config libvulkan1 mesa-vulkan-drivers
+          mkdir -p ~/apt
+          find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp {} ~/apt/ \;
+      - if: steps.apt.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/apt
+          key: ${{ steps.image.outputs.apt }}
+      - run: if ls ~/apt/*.deb > /dev/null 2>&1; then sudo dpkg -i ~/apt/*.deb; fi
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo nextest run --workspace
       # The screenshot test of opensacred-game's scene renders a synthetic world without a window, on
       # Mesa's software Vulkan (lavapipe). It runs over the whole workspace, as the step above:
       # `-p opensacred-game` alone unifies the dependencies' features differently and rebuilds Bevy.
-      - run: sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
       - run: cargo nextest run --workspace --run-ignored only -E 'test(the_scene_matches_its_screenshot)'
 
   # The target platform: the build (rust-lld, .cargo/config.toml) and the tests. No clippy: the
