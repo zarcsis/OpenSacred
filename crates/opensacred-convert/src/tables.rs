@@ -1,6 +1,7 @@
 //! `tables` subcommand: `Creature.pak`, `Weapon.pak`, `Items.pak` with the overlay
 //! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK`, the data tables of `bin/`, and the combat arts'
-//! tables and the creatures' voices of `Sacred.exe` → one RON file each under `<out>/tables/`
+//! tables, the creatures' voices and portraits and the weather's rolls of `Sacred.exe` → one RON
+//! file each under `<out>/tables/`
 //! (docs/02 §6; the format is [`opensacred_data::tables`]).
 
 use std::fs;
@@ -12,8 +13,8 @@ use opensacred_data::tables::{
     BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, IDLE_NOISES, ITEM_SETS,
     ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS,
     Portrait, Portraits, QualityPass, QualityWeight, STAIRS, START_POINTS, STATIC_REMAP, Spell,
-    StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX,
-    WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
+    StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS,
+    WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -215,6 +216,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     write(&dir, VOICES, &voices)?;
     let portraits = portraits(&exe)?;
     write(&dir, PORTRAITS, &portraits)?;
+    write(&dir, WEATHER_ROLLS, &weather_rolls(&exe)?)?;
     let idle_noises = crate::idle_noises::idle_noises();
     write(&dir, IDLE_NOISES, &idle_noises)?;
 
@@ -231,6 +233,17 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         idle_noises: (idle_noises.hostile.len(), idle_noises.peaceful.len()),
         portraits: portraits.creatures.len(),
     })
+}
+
+/// Where `Sacred.exe` holds the weather's rolls (#1072, docs/re/weather.md).
+const WEATHER_ROLLS_ADDRESS: u32 = 0x95_FA84;
+
+/// The 256 bytes of `Sacred.exe` from which the weather's choice rolls its times and its
+/// intensities (`0x625290`, #1072).
+fn weather_rolls(exe: &[u8]) -> Result<Vec<u8>> {
+    let image = opensacred_formats::pe::Image::parse(exe)?;
+    let mut rolls = image.at(WEATHER_ROLLS_ADDRESS, 256, "the weather's rolls")?;
+    Ok(rolls.bytes(256, "the weather's rolls")?.to_vec())
 }
 
 /// The creatures' portraits of `Sacred.exe` (#1032): each type's image of the interface by the

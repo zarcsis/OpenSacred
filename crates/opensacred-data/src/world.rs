@@ -58,6 +58,29 @@ pub struct SectorEntry {
     /// Whether the sector is a dungeon, lit by a grey ramp at any hour (docs/re/daynight.md).
     #[serde(default)]
     pub dungeon: bool,
+    /// The sector's weather, its entries in order (docs/re/weather.md), none for most sectors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub weather: Vec<SectorWeather>,
+}
+
+/// A kind of a sector's weather (`sectors.keyx +0x1EE`'s types 0, 1, 2 and 5; docs/02 §5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum WeatherKind {
+    Rain,
+    Fog,
+    Snow,
+    Butterflies,
+}
+
+/// An entry of a sector's weather: its kind, the shortest and the longest time off and on, in
+/// seconds, and the least and the most intensity (docs/re/weather.md, "How the weather is
+/// chosen").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SectorWeather {
+    pub kind: WeatherKind,
+    pub off: [u32; 2],
+    pub on: [u32; 2],
+    pub intensity: [u8; 2],
 }
 
 /// A sector: 64 × 64 cells and the static objects placed on them.

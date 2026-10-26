@@ -1,0 +1,136 @@
+//! The world's weather (#1072, docs/re/weather.md): the rain, the fog and the snow that the sector
+//! the hero is in chooses by its weather entries (`world.ron`), on timers of real time that every
+//! sector shares, and their levels moving toward what the choice wants as the game runs
+//! (`opensacred_rules::weather`), the rolls `Sacred.exe`'s (`tables/weather_rolls.ron`). Nothing is
+//! drawn or heard of it yet (#1073); the overlay (F3) and `state` show it, and the console's
+//! `setrain`, `setfog` and `setsnow` set it, as the original's do (`0x614230`).
+
+use std::collections::HashMap;
+use std::path::Path;
+
+use bevy::prelude::{
+    App, IntoScheduleConfigs, OnEnter, OnExit, Plugin, Query, Real, Res, ResMut, Resource, Time,
+    Transform, Update, With, World,
+};
+use opensacred_data::tables::WEATHER_ROLLS;
+use opensacred_data::world::{SIDE, SectorWeather};
+use opensacred_rules::spawning::Rng;
+use opensacred_rules::weather::{self, Event};
+
+use crate::frame::Playing;
+use crate::game::{AppState, Data};
+use crate::{files, hero, paths};
+
+/// The seed of the storm's lightning's `rand()` (**estimate**: any).
+const SEED: usize = 0x5C;
+
+/// The rolls of `tables/weather_rolls.ron`, none for assets converted before it (#1072): every
+/// time is then infinite, so that no weather comes.
+#[derive(Resource, Default)]
+pub struct Rolls(Vec<u8>);
+
+impl Rolls {
+    /// Reads `tables/weather_rolls.ron` of `assets`.
+    pub fn read(assets: &Path) -> anyhow::Result<Self> {
+        let path = assets.join("tables").join(WEATHER_ROLLS);
+        if !files::exists(&path) {
+            bevy::log::warn!("weather: no {}; no weather comes", path.display());
+            return Ok(Self::default());
+        }
+        let text = files::read_to_string(&path)
+            .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
+        let rolls: Vec<u8> =
+            ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+        Ok(Self(rolls))
+    }
+}
+
+/// The weather of a game played: the renderer's state of it, the sectors' entries by their
+/// places and ids, and the lightning's dice.
+#[derive(Resource)]
+pub struct Weather {
+    pub state: weather::Weather,
+    sectors: HashMap<(u32, u32), (u32, Vec<SectorWeather>)>,
+    dice: Rng,
+}
+
+impl Weather {
+    /// The weather of a new game in the world `world`, of no weather yet.
+    pub fn new(world: &opensacred_data::world::World) -> Self {
+        Self {
+            state: weather::Weather::default(),
+            sectors: world
+                .sectors
+                .iter()
+                .map(|entry| ((entry.x, entry.y), (entry.id, entry.weather.clone())))
+                .collect(),
+            dice: Rng::of(0, 0, SEED),
+        }
+    }
+
+    /// The console's `setrain`, `setfog` and `setsnow` (`0x614230`): their kinds' events of the
+    /// value `value`, at most 100.
+    pub fn set(&mut self, event: Event) {
+        self.state.event(event, &mut self.dice);
+    }
+
+    /// What the overlay shows of it: the rain's drops, the fog's alpha and the snow's flakes now,
+    /// none while no kind is on.
+    pub fn levels(&self) -> Option<(u32, u32, u32)> {
+        let state = &self.state;
+        (state.flags != 0).then_some((state.rain.now, state.fog.now, state.snow.now))
+    }
+}
+
+/// The weather's choice and its levels, at each frame of a game (`0x625290`, `0x41A4F0`): the
+/// sector the hero is in chooses by its entries at the time of real time, which runs on in the
+/// pause, and the levels move by the game's time, which the pause holds.
+fn choose(
+    real: Res<Time<Real>>,
+    time: Res<Time>,
+    rolls: Res<Rolls>,
+    weather: Option<ResMut<Weather>>,
+    heroes: Query<&Transform, With<hero::Body>>,
+) {
+    let (Some(mut weather), Some(at)) = (weather, heroes.iter().next()) else {
+        return;
+    };
+    let weather = &mut *weather;
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    let (x, y) = paths::cell_of(at.translation.x, at.translation.z);
+    if let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y))
+        && let Some((id, entries)) = weather.sectors.get(&(x / side, y / side))
+    {
+        let now = real.elapsed_secs_f64() * 1_000.0;
+        weather
+            .state
+            .choose(now, *id, entries, &rolls.0, &mut weather.dice);
+    }
+    let lightnings = weather.state.update(time.delta_secs(), &mut weather.dice);
+    if lightnings > 0 {
+        bevy::log::debug!("weather: a lightning, drawn by #1073");
+    }
+}
+
+/// A new game's weather, of none yet.
+fn begin(world: &mut World) {
+    let Some(data) = world.get_resource::<Data>() else {
+        return;
+    };
+    let weather = Weather::new(&data.0.world);
+    world.insert_resource(weather);
+}
+
+fn end(world: &mut World) {
+    world.remove_resource::<Weather>();
+}
+
+pub struct WeatherPlugin;
+
+impl Plugin for WeatherPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(OnEnter(AppState::InGame), begin)
+            .add_systems(OnExit(AppState::InGame), end)
+            .add_systems(Update, choose.in_set(Playing));
+    }
+}

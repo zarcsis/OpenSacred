@@ -72,6 +72,7 @@ mod tables;
 mod talk;
 mod terrain;
 mod voices;
+mod weather;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -327,7 +328,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         talk::TalkPlugin,
         terrain::GroundPlugin,
     ))
-    .add_plugins(voices::VoicesPlugin)
+    .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
@@ -341,6 +342,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(liquids::Liquids::read(&assets)?)
     .insert_resource(voices::Voices::read(&assets)?)
     .insert_resource(talk::Portraits::read(&assets)?)
+    .insert_resource(weather::Rolls::read(&assets)?)
     .insert_resource(icons::Files::find(&assets))
     .insert_resource(sfx::Sfx::new(&sound_index.0))
     .insert_resource(sound_index)

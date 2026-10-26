@@ -14,6 +14,7 @@ use std::time::Duration;
 use bevy::prelude::*;
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use opensacred_rules::weather::Event;
 
 use crate::benchmark::Benchmark;
 use crate::console::Console;
@@ -86,6 +87,12 @@ enum Command {
         #[arg(value_parser = daynight::parse_time)]
         time: Clock,
     },
+    /// Start the rain of intensity N, 1 to 100, or stop it with 0, as the original's `setrain`
+    Setrain { value: u32 },
+    /// Start the fog of intensity N, 1 to 100, or stop it with 0, as `setfog`
+    Setfog { value: u32 },
+    /// Start the snow of intensity N, 1 to 100, or stop it with 0, as `setsnow`
+    Setsnow { value: u32 },
     /// The music and the ambient loops
     Music { on: Switch },
     /// Pause the game without the pause's menu, for a still frame, or go on
@@ -416,6 +423,17 @@ fn in_game(world: &World) -> Result<(), String> {
         Some(AppState::InGame) => Ok(()),
         _ => Err("no game is played".into()),
     }
+}
+
+/// The console's `setrain`, `setfog` and `setsnow` (`0x614230`, #1072): the weather takes the
+/// event of their kind and value, at most 100.
+fn set_weather(world: &mut World, event: Event) -> Result<Outcome, String> {
+    in_game(world)?;
+    let mut weather = world
+        .get_resource_mut::<crate::weather::Weather>()
+        .ok_or("no weather in this game")?;
+    weather.set(event);
+    Ok(Outcome::say(format!("the weather takes {event:?}")))
 }
 
 fn set_state(world: &mut World, state: AppState) {
@@ -990,6 +1008,9 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             world.insert_resource(time);
             Ok(Outcome::say("the clock is set"))
         }
+        Command::Setrain { value } => set_weather(world, Event::Rain(value)),
+        Command::Setfog { value } => set_weather(world, Event::Fog(value)),
+        Command::Setsnow { value } => set_weather(world, Event::Snow(value)),
         Command::Music { on } => {
             in_game(world)?;
             match on {
@@ -1678,7 +1699,17 @@ mod tests {
         assert_eq!(complete("zo"), ["zoom"]);
         assert_eq!(
             complete("s"),
-            ["screenshot", "script", "sector", "spawn", "state", "stats"]
+            [
+                "screenshot",
+                "script",
+                "sector",
+                "setfog",
+                "setrain",
+                "setsnow",
+                "spawn",
+                "state",
+                "stats"
+            ]
         );
         assert_eq!(complete("gait "), ["run", "walk"]);
         assert_eq!(complete("music o"), ["off", "on"]);

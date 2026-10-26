@@ -122,7 +122,8 @@ So no script sets the weather, and the sectors' `Enter`s only make the butterfli
 
 ## In `opensacred-game`
 
-None of it is followed yet: the world's weather, the entries in the world's data, the timers and the levels, the fade at a change of sector and the dungeons, is #1072 (M4), and its drawing and sounds, the rain, the fog, the snow, the storm, the shakes, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds, are #1073 (M5).
+The world's weather is followed (#1072): `opensacred-convert world` writes each sector's entries of rain, fog, snow and butterflies into `world.ron` (`weather`) and `tables` the rolls of `0x95FA84` (`tables/weather_rolls.ron`), and the game chooses and ramps it as above, by the sector the hero is in, at the time of real time and by the game's time (`opensacred_rules::weather`, `weather`), the two slips followed as they are; the overlay (F3) and `state` show its levels, and the console's `setrain`, `setfog` and `setsnow` set it.
+Its drawing and sounds, the rain, the fog, the snow, the storm, the shakes, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds, are #1073 (M5).
 
 ## To see in the original
 
