@@ -243,6 +243,24 @@ pub fn stated_side(side: u8, creature: u32, word: u32, hostile: bool) -> u8 {
     }
 }
 
+/// The side that a `SetGroupState` with a hostility tag gives a member of side `side` and type
+/// `creature` (`0x49E760`, #1021): as [`stated_side`], but for the animals' case, which it does
+/// not have: `0x08` puts a member not hostile to the hero on the side 2, or 14 where the record's
+/// word `word` has the guards' mode `0x4000` or its side is 7; `0x0E` puts a hostile one on the
+/// side 3, or 7 so.
+pub fn grouped_side(side: u8, creature: u32, word: u32, hostile: bool) -> u8 {
+    let against = hostile_to_heroes(side, creature);
+    let guarding = word & 0x4000 != 0 || side == 7;
+    match (hostile, guarding) {
+        (true, _) if against => side,
+        (true, true) => 14,
+        (true, false) => 2,
+        (false, _) if !against => side,
+        (false, true) => 7,
+        (false, false) => 3,
+    }
+}
+
 /// The behaviours' flags: the wild animals, the farm animals, the guards, the townsfolk
 /// (`0x4EF150`); those that the game follows.
 const WILD: u32 = 0x40;

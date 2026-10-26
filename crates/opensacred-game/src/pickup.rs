@@ -33,7 +33,14 @@ pub struct Picks(Entity);
 pub struct Pack {
     pub gold: u32,
     pub items: Vec<Dropped>,
+    /// The main quest's items, which the scripts' collecting keeps (`SetOnCollect`, #1021).
+    pub quest: Vec<Dropped>,
 }
+
+/// An item that the hero took into its pack, its type, which the scripts' collecting counts
+/// (`cCreature::pickupItem` at `0x558175`, `scripts`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Taken(pub u32);
 
 impl Pack {
     /// Takes `dropped`: gold into the purse, held below `0x7FFFFFFF` (`0x57FD80`), any other item
@@ -44,6 +51,14 @@ impl Pack {
                 self.gold = self.gold.saturating_add(dropped.amount).min(0x7FFF_FFFE);
             }
             _ => self.items.push(dropped),
+        }
+    }
+
+    /// Moves the last item of the type `item` of the pack among the main quest's items.
+    pub fn keep_for_quest(&mut self, item: u32) {
+        if let Some(at) = self.items.iter().rposition(|dropped| dropped.item == item) {
+            let kept = self.items.remove(at);
+            self.quest.push(kept);
         }
     }
 }
@@ -129,9 +144,10 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
 
 /// The hero that stands, once its way to an item it was sent to ends: within its reach of the
 /// item, with a straight line of walkable cells to it, it takes it, else it gives up.
-fn take(
+pub(crate) fn take(
     mut commands: Commands,
     mut pack: ResMut<Pack>,
+    mut taken: MessageWriter<Taken>,
     (arsenal, mut throws): (
         Option<Res<crate::arsenal::Arsenal>>,
         MessageWriter<crate::arsenal::Throws>,
@@ -167,6 +183,9 @@ fn take(
         {
             throws.write(crate::arsenal::Throws(false));
         } else {
+            if lying.dropped.kind != Kind::Gold {
+                taken.write(Taken(lying.dropped.item));
+            }
             pack.take(lying.dropped);
         }
         commands.entity(picks.0).despawn();
@@ -190,6 +209,7 @@ pub struct PickupPlugin;
 impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Pack>()
+            .add_message::<Taken>()
             .add_systems(OnEnter(AppState::InGame), empty)
             .add_systems(
                 Update,

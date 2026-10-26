@@ -266,6 +266,48 @@ Read 2026-10-26 (#656) by the static reading of `Sacred.exe`; **confirmed** by c
 `GroupIsDead` answers in the play (`scripts::living_groups`): a group lives while a creature of it lives in the world, but the raised dead, or away from it, made by the start or the play, or gone with its sector alive (`npcs::Npcs::living_groups`); a sector's `Init` makes its creatures only as its sector comes in, and at the start, before the world, the test is not answered, as before.
 In the game the Seraphim's start's monsters of the group 10 each run quest 9's `tot1` as they fall, and the seventh's sets its timer `Tutorial09`.
 
+## `SetGroupState`, `DelNPC`, `SetOnKill` and `SetOnCollect`
+
+Read 2026-10-26 (#1021) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise; none of it seen in the running original yet.
+
+**`SetGroupState`** (73, `0x49E760`):
+
+- Its tags (the switch at `0x49E82D`; a tag without a case, such as quest 9010's `0x37` and `0x39`, is skipped): `0x11` the group; `0x08` and `0x0E` hostile and peaceful; `0x05` a death's function; `0x60` a sight function, kept as `See:` and the name; `0x09` a dialogue by name and `0x0A` by number, looked up at once in the dialogues' table as `SetNPCState`'s are; `0x1F` the level; `0x36` a value for `+0x255`; `0x6B` the `+0x2B7` bit 8; `0x75` the quest word; `0x01` a key; `0x51` the removal.
+- The flags tags build one word from 0 as `SetNPCState`'s do (`opensacred_rules::ways::state_word`), without `0x45`.
+- With a group above 0 it walks the group's ids from the first (a list of more than 1,000 is emptied instead, `0x49FB11`); an id that is no creature in the world is passed over and stays in the group (**hypothesis**: a creature of a sector not loaded); outside `0x51` a dead member is changed like a living one.
+- A member destroyed already (`+0x14` bit `0x10`) is taken out of the group, and the handler then takes the list's last id out too (`0x49ED0F` to `0x49ED35`), which keeps its `+0x249` and is not changed.
+- With `0x51`, at each other member an object 780 (`FX_PUZZLE_SOLVED`) is made and sent the FX event `0xC`, and a member alive (`0x549080`) is destroyed (`sdk_DESTROY(id, 1, 0, 1)`, at `0x49FAF0`), which takes it out of the group, the walk starting again; a dead one keeps its body; no other tag applies and no function runs.
+- Without `0x51`, for each member in this order:
+  - a word other than 0 replaces `+0x1F4` but for its bits `0x6682304`, and the word so written is kept for the next member (`0x49F0ED`), so that each later member also takes the kept bits of the members before it;
+  - `0x01`'s number becomes the key `+0x3C` of a member whose `sdk_REFKEY` answers its type (**hypothesis**; two records in the Seraphim's tree);
+  - `0x08` puts a member not hostile to its controlling player on the side 2, or 14 where the word has the guards' mode `0x4000` or its side is 7, and `0x0E` a hostile one on the side 3, or 7 so, with no animals' case (`0x52E420`); a side changed makes an object 856 (`FX_GENERIC`) at the member, sent the FX event `0x50` with a colour (**hypothesis**: a flash), and either tag clears `+0x200` bit `0x40`;
+  - `0x60` adds its `See:` entry and sets `0x400000` in the kept word, not the member's, so that the bit reaches only the later members (the one record, 1401's `schmuggler1402` for the group 14011);
+  - `0x75` sets the quest word;
+  - the dialogue is always written: an index above 0 by `0x09` or `0x0A` becomes the member's (`sdk_STAMP_IDX`), and with neither, a name not found or `0A:0` it is taken away, so that 64 of the Seraphim's tree's 98 `SetGroupState`s take their members' dialogues away;
+  - `0x1F` 1000 makes it a boss (`+0x1F4` bit `0x80000`, `0x549500(1, 0)`), another level above 0 goes to `0x564D60(L, 0, 0)`; `0x36` writes `+0x255`, `0x6B` the `+0x2B7` bit 8;
+  - `0x05` takes out the member's death's and sight functions, but those starting with `wegw` (`0x464330(id, 1, 1)`, at `0x49F741`), and adds its name;
+  - last a network event in a network game; it wakes no member, adds none to a group, and runs no function.
+
+**`DelNPC`** (55, `0x497F80`): each `0x01`, its number or its name resolved, is looked up in the map of names, which gives at most one object; a creature in an art's action (`+0xFC` 10) is stopped and marked vanishing, an item held is taken out of the hero's slots or inventory, and any other object is destroyed where its name (the resource name of its key, `0x44A200`) equals the record's string case aside, or its key lies within 8,500 to 8,700 (**hypothesis** for which of the tree's 311 `DelNPC`s pass the test); then the name is erased from the map; it makes no effect object, and the destruction runs no function (`0x463A70`).
+
+**`SetOnKill`** (135, `0x4AF190`) and **`SetOnCollect`** (136, `0x4AF8C0`):
+
+- Each reads a type (`0x02`), a function's name (`0x05` or `0x41`, at most 64 bytes) and a count (`0x0B`), the first of each, and does nothing without a type and a count; their lists of 76-byte entries (the type, the count left, the count asked, the name) are at `+0x7614` and `+0x7620`.
+- A type already listed takes the new count as both counts and the new name if any; a count of 0 takes it out; a new type is listed only with a name.
+- A kill counts the dead creature's type (`0x4AA630`) in its events' handler at its death after its drops (`0x534795`), whoever killed it, the hero, a follower or a creature, but not a death without a killer (`0x534F60`) nor one of class 5 whose most health is not 0 (`0x5337AB`, **hypothesis** on its intent; no `SetOnKill` of the Seraphim's tree names a type of class 5), and at a sudden death with a killer (`0x52F453`), and by the hero's look's kill (`0x5475F0`, not read further).
+- The type's first entry counts down; above 0 the engine's event `0xB` carries a line of the type's name and the counts (**hypothesis**: shown on the screen); at 0 the function, found by its name case aside (`0x460590`), runs through the runner (`0x46BA90`, a quest's only while it is set up) and the entry is taken out.
+- A pickup counts the item's type (`0x4AAAE0`, from `cCreature::pickupItem` at `0x558175`), but an item of `+0x14` bit `0x4000`: first every entry whose type is a creature's takes the item of that creature's `SetDrop` (`+0x762C`), then the item's entry counts down as a kill's does, and an item counted is kept among the main quest's items and destroyed (docs/re/items.md, "What becomes of the item").
+- The Seraphim's tree has 13 `SetOnKill`s and 17 `SetOnCollect`s.
+
+`opensacred-game` follows them since #1021:
+
+- `SetGroupState` (`npcs::Npcs::regroup`, `npcs::GroupState`): `0x51` removes the group's living creatures in the world, nothing dropped and no function run, and keeps those away from it from being placed again; else each member, in the world and away from it, takes the word (`opensacred_rules::ways::grouped_word`), the side (`opensacred_rules::minds::grouped_side`), the dialogue, the sight and death's functions, and away from the world the level.
+  Not followed: the kept bits carried from member to member, `0x60`'s bit and the list's second id taken out (docs/decisions/2026-10-26-group-states.md); the objects 780 and 856 and their events; the key, the quest word, `+0x255`, `+0x2B7` and `+0x200` bit `0x40`; the level of a member in the world.
+- `DelNPC`: the creatures of the name, in the world and away from it, removed as `0x51` removes them, whatever their resource name; the objects of the name are not followed.
+- `SetOnKill` and `SetOnCollect` (`opensacred_rules::quests::Counts`, `scripts::Live::kill`, `scripts::Live::collect`): a death that is a kill counts its type, but a creature's that its death's function raises, a death at nobody's hands (a `SetHP` of 0, a summoned follower replaced, a lifetime's end: `npcs::Dies::unkilled`) and one of class 5; an item the hero takes counts its type, and one counted goes from the pack among the main quest's items (`pickup::Pack::quest`); the engine's lines of the counts are not followed.
+
+In the game, quest 9's `trigger1`, the novice's button, made the start's group 10 hostile and awake again (`npcs: the scripts set the group 10`).
+
 ## The community's quest defects
 
 Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.

@@ -449,6 +449,27 @@ pub fn state_word(tags: impl IntoIterator<Item = u8>) -> u32 {
 /// (`0x461540`): `0x2000` and the boss's `0x80000` among them.
 const KEPT_BY_STATE: u32 = 0x668_2304;
 
+/// The bits of a member's flags word that a `SetGroupState`'s word leaves as they were
+/// (`0x49F0ED`): the boss's `0x80000`, the raised dead's `0x2000000` and others.
+const KEPT_BY_GROUP: u32 = 0x668_2304;
+
+/// A member's flags word `old` after a `SetGroupState` whose tags make `word` ([`state_word`],
+/// `0x49E760`, #1021): the record's word with the old one's [`KEPT_BY_GROUP`] bits, or the old
+/// word where the record makes none. The original carries each member's kept bits on to the
+/// members after it, which the game does not follow (docs/re/netscript.md, "`SetGroupState`").
+pub fn grouped_word(old: u32, word: u32) -> u32 {
+    if word == 0 {
+        old
+    } else {
+        word | (old & KEPT_BY_GROUP)
+    }
+}
+
+/// Whether a flags word `word` has a creature stop the hero's steps ([`STOPS_THE_HERO`]).
+pub fn stops_the_hero(word: u32) -> bool {
+    word & STOPS_THE_HERO != 0
+}
+
 /// A creature's flags word `old` after a `SetNPCState` whose tags make `word` ([`state_word`])
 /// (`0x461540`): the record's word with the old one's [`KEPT_BY_STATE`] bits, or the old word
 /// where the record makes none.
