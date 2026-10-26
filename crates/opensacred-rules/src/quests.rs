@@ -177,18 +177,19 @@ impl Quests {
 pub const VARIABLE_NAME: usize = 31;
 
 /// The scripts' variables by name (`this+0x7550`, records of `{char name[32]; i32 value}`,
-/// docs/re/netscript.md, "Variable references"), a name kept to its first 31 bytes.
+/// docs/re/netscript.md, "Variable references"), a name kept to its first 31 bytes and found
+/// without regard to case (`0x859690`, #1054).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Variables(BTreeMap<String, i32>);
 
 impl Variables {
-    /// The name as its record keeps it.
+    /// The name as its record keeps it, lower-cased, as it is found case aside.
     fn key(name: &str) -> String {
         let mut end = name.len().min(VARIABLE_NAME);
         while !name.is_char_boundary(end) {
             end -= 1;
         }
-        name[..end].to_owned()
+        name[..end].to_ascii_lowercase()
     }
 
     /// The value of the variable `name`, if one was set (**hypothesis**: a condition on a
@@ -840,6 +841,11 @@ mod tests {
         assert_eq!((variables.get("gold"), variables.value("gold")), (None, 0));
         variables.set("gold", 5);
         variables.set("gold", 7);
+        // One variable whatever the case of its name: the start's `Regionchange` and the
+        // quests' `RegionChange`.
+        variables.set("Regionchange", 0);
+        variables.set("RegionChange", 128);
+        assert_eq!(variables.get("REGIONCHANGE"), Some(128));
         assert_eq!(variables.value("gold"), 7);
         let long = "a".repeat(40);
         variables.set(&long, 1);
