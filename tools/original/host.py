@@ -72,6 +72,13 @@ def single(value):
             return text
     return repr(value)
 
+
+def entered(marks):
+    """A creature's marks of a sector's Enter (#1103): `enter fill` for FillSector's maker's, which the exit handler
+    keeps while the creature lives, `enter` for the object's alone, which it destroys; nothing for none."""
+    maker, object_mark = marks
+    return ' enter fill' if maker else ' enter' if object_mark else ''
+
 # The world's commands (#451). A cell that the scripts' Teleport takes for the end of the game (sdk_ENGINE_TP) is
 # refused; the interface's bar covers the window's bottom, where a click would not reach the ground.
 FINAL_CELL = (0x189C, 0x591)
@@ -881,7 +888,8 @@ class Host:
                          + (f" target {c['target']}" if c['target'] else '')
                          + (f" dialogue {c['dialogue']}" if c['dialogue'] > 0 else '')
                          + f" side {c['side']} flags 0x{c['flags']:X}"
-                         + (f" master {c['master']}" if c['master'] > 0 else ''))
+                         + (f" master {c['master']}" if c['master'] > 0 else '')
+                         + entered(c['entered']))
         return lines
 
     def command_stats(self, rest):

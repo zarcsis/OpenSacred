@@ -832,6 +832,10 @@ const CREATURE = {
   health: 0x4d8,
   // Its side, its flags word and its master's id, -1 or 0 for none (docs/re/ai.md, "Followers").
   side: 0x1f0, flags: 0x1f4, master: 0x251,
+  // The marks of a creature made during a sector's Enter (docs/re/spawning.md, #1103): the object's (+0x14 bit 31),
+  // which CreateNPC (0x482510) and FillSector's creature maker (0x480D40) set, and by which the sector's exit handler
+  // destroys it, and the maker's alone (+0x2B8 bit 0x80), by which the exit handler keeps it to put back.
+  objectFlags: 0x14, marks: 0x2b8,
   // Its 19 equipment slots, an object's id each (docs/re/equipment.md).
   slots: 0x1a4,
   // Its home, a position of 13 bytes (the sector's word, x and y in world units, the floor), where an animal strolls
@@ -1033,6 +1037,10 @@ function readCreature(object) {
     side: object.add(CREATURE.side).readU8(),
     flags: object.add(CREATURE.flags).readU32(),
     master: object.add(CREATURE.master).readS32(),
+    entered: [
+      (object.add(CREATURE.marks).readU8() & 0x80) !== 0,
+      (object.add(CREATURE.objectFlags).readU32() >>> 31) === 1,
+    ],
     target: target > 0 && target < objectCount() && objectById(target) !== null ? target : null,
   };
 }
