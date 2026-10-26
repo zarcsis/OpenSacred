@@ -11,6 +11,7 @@ mod flow;
 mod gltf;
 mod heroes;
 mod idle_noises;
+mod item_names;
 mod ktx;
 mod luau;
 mod manifest;
