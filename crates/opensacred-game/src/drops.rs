@@ -307,6 +307,7 @@ fn dies(
         (With<Body>, Without<Dies>),
     >,
     hero_arts: Option<Res<crate::arts::HeroArts>>,
+    scripted: Option<Res<crate::scripts::ScriptDrops>>,
 ) {
     let Ok((mind, health, rank, worth, transform, way, dies)) = creatures.get(died.entity) else {
         return;
@@ -343,11 +344,14 @@ fn dies(
         hero,
         (played.0, treasure),
     );
+    // The scripts' drops of its type (`SetDrop`, #930).
+    let scripted: Vec<(u32, u32)> = scripted
+        .map(|scripted| scripted.0.of(mind.creature).collect())
+        .unwrap_or_default();
     let made = drops::drops(
         &death,
-        &tables.rules,
-        &tables.catalogue,
-        &tables.templates,
+        (&tables.rules, &tables.catalogue, &tables.templates),
+        &scripted,
         &mut last.0,
         &mut dice.0,
     );
@@ -583,9 +587,8 @@ fn make_nearest(
     for _ in 0..times.0 {
         made.extend(drops::drops(
             &death,
-            &tables.rules,
-            &tables.catalogue,
-            &tables.templates,
+            (&tables.rules, &tables.catalogue, &tables.templates),
+            &[],
             &mut last.0,
             &mut dice.0,
         ));

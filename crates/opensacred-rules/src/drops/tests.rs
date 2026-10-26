@@ -585,9 +585,8 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
         let mut dice = script(rolls);
         let made = drops(
             &death,
-            &rules,
-            &catalogue,
-            &templates,
+            (&rules, &catalogue, &templates),
+            &[],
             &mut LastJewel::default(),
             &mut dice,
         );
@@ -628,9 +627,8 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
     assert!(
         drops(
             &a_hero,
-            &rules,
-            &catalogue,
-            &templates,
+            (&rules, &catalogue, &templates),
+            &[],
             &mut LastJewel::default(),
             &mut script(&[])
         )
@@ -669,6 +667,52 @@ fn an_item_is_made_by_its_key_between_lo_and_hi() {
 }
 
 #[test]
+fn the_scripts_drops_of_a_type_each_make_their_item_in_their_share_of_the_deaths() {
+    let rules = Rules::default();
+    let (catalogue, templates) = (unlisted(), Templates::default());
+    let death = death(dead(3, 5, Rank::Common), 5);
+    let mut rng = Rng::of(51, 39, 0);
+    // Quests 15015 and 10259 on one type (#930): each item at its own chance, both in some
+    // deaths, the random drops only where neither comes.
+    let scripted = [(6005, 75), (4931, 65)];
+    let deaths = 20_000_u32;
+    let (mut first, mut second, mut both, mut random) = (0_u32, 0_u32, 0_u32, 0_u32);
+    for _ in 0..deaths {
+        let made = drops(
+            &death,
+            (&rules, &catalogue, &templates),
+            &scripted,
+            &mut LastJewel::default(),
+            &mut rng,
+        );
+        let has = |item| made.iter().any(|d| d.item == item && d.kind == Kind::Other);
+        first += u32::from(has(6005));
+        second += u32::from(has(4931));
+        both += u32::from(has(6005) && has(4931));
+        random += u32::from(!has(6005) && !has(4931) && !made.is_empty());
+        assert!(
+            made.iter()
+                .filter(|d| d.kind == Kind::Other)
+                .all(|d| d.amount == 1)
+        );
+    }
+    let per_cent = |n: u32| f64::from(n) * 100.0 / f64::from(deaths);
+    assert!((per_cent(first) - 75.0).abs() < 1.0, "{}", per_cent(first));
+    assert!(
+        (per_cent(second) - 65.0).abs() < 1.0,
+        "{}",
+        per_cent(second)
+    );
+    assert!((per_cent(both) - 48.75).abs() < 1.0, "{}", per_cent(both));
+    // Neither in 8.75 % of the deaths, which drop at random in 35 % of theirs.
+    assert!(
+        (per_cent(random) - 3.06).abs() < 0.5,
+        "{}",
+        per_cent(random)
+    );
+}
+
+#[test]
 fn an_ordinary_creature_drops_in_35_per_cent_of_its_deaths_by_the_kinds_shares() {
     let rules = Rules::default();
     let (catalogue, templates) = (unlisted(), Templates::default());
@@ -680,9 +724,8 @@ fn an_ordinary_creature_drops_in_35_per_cent_of_its_deaths_by_the_kinds_shares()
     for _ in 0..deaths {
         let made = drops(
             &death,
-            &rules,
-            &catalogue,
-            &templates,
+            (&rules, &catalogue, &templates),
+            &[],
             &mut LastJewel::default(),
             &mut rng,
         );
@@ -743,7 +786,15 @@ fn a_creature_makes_one_jewel_over_its_deaths_until_another_makes_one() {
     // the dagger wherever a later pass comes to the jewel (#610).
     let mut last = LastJewel::default();
     let made: Vec<Dropped> = (0..5000)
-        .flat_map(|_| drops(&goblin, &rules, &catalogue, &templates, &mut last, &mut rng))
+        .flat_map(|_| {
+            drops(
+                &goblin,
+                (&rules, &catalogue, &templates),
+                &[],
+                &mut last,
+                &mut rng,
+            )
+        })
         .collect();
     assert_eq!(jewels(&made), 1);
     assert!(
@@ -752,13 +803,21 @@ fn a_creature_makes_one_jewel_over_its_deaths_until_another_makes_one() {
     );
     // Another creature's jewel lets the first make one again.
     while jewels(&drops(
-        &other, &rules, &catalogue, &templates, &mut last, &mut rng,
+        &other,
+        (&rules, &catalogue, &templates),
+        &[],
+        &mut last,
+        &mut rng,
     )) == 0
     {}
     let again = (0..5000)
         .map(|_| {
             jewels(&drops(
-                &goblin, &rules, &catalogue, &templates, &mut last, &mut rng,
+                &goblin,
+                (&rules, &catalogue, &templates),
+                &[],
+                &mut last,
+                &mut rng,
             ))
         })
         .sum::<usize>();
@@ -768,9 +827,8 @@ fn a_creature_makes_one_jewel_over_its_deaths_until_another_makes_one() {
         .map(|_| {
             let made = drops(
                 &goblin,
-                &rules,
-                &catalogue,
-                &templates,
+                (&rules, &catalogue, &templates),
+                &[],
                 &mut LastJewel::default(),
                 &mut rng,
             );
@@ -791,9 +849,8 @@ fn a_bosss_calls_each_drop_in_70_per_cent() {
         .map(|_| {
             drops(
                 &death,
-                &rules,
-                &catalogue,
-                &templates,
+                (&rules, &catalogue, &templates),
+                &[],
                 &mut LastJewel::default(),
                 &mut rng,
             )

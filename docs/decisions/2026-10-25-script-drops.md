@@ -11,6 +11,7 @@ Five pairs of quests give one creature type a drop each, and the community repor
 
 The runtime keeps the scripts' drops by the creature type and the item.
 A `SetDrop` sets the chance of its own type and item, a chance of 0 removes that pair alone, and a kill rolls every entry of its type, each with its own chance, in the order in which they were set.
+`opensacred-game` follows it since #930: at each call of a death's drop, each entry that comes makes its item in place of the call's random drops.
 
 ## Why
 

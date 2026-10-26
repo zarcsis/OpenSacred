@@ -84,6 +84,8 @@ pub enum Kind {
     Weapon,
     Armour,
     Jewel,
+    /// An item of no drop's kind, a quest's or another, which only the scripts' drops make.
+    Other,
 }
 
 /// An item that a death drops.
@@ -817,9 +819,8 @@ pub struct LastJewel(Option<u64>);
 /// `last` is the creature that made the last jewel, which a jewel made here becomes.
 pub fn drops<D: Dice>(
     death: &Death,
-    rules: &Rules,
-    catalogue: &Catalogue,
-    templates: &Templates,
+    (rules, catalogue, templates): (&Rules, &Catalogue, &Templates),
+    scripted: &[(u32, u32)],
     last: &mut LastJewel,
     dice: &mut D,
 ) -> Vec<Dropped> {
@@ -837,9 +838,23 @@ pub fn drops<D: Dice>(
     let chance = i64::from(rules.chance(death.dead.rank, death.kill.treasure));
     let mut out = Vec::new();
     for _ in 0..calls.count {
+        // The scripts' drops of the dead's type (`0x4B06D0`): the client's one entry makes its
+        // item when `rand() % 100 + 1` is at most its chance, ours each entry so (#930); the
+        // items made so are the call's type at each of its passes, in place of its random ones.
+        let forced: Vec<u32> = scripted
+            .iter()
+            .filter(|&&(_, chance)| dice.below(100) < chance)
+            .map(|&(item, _)| item)
+            .collect();
         let (mut bonus, mut misses, mut p) = (calls.bonus, 0, chance);
         while p > 0 {
-            out.extend(dropping.pass(p, &mut bonus, &mut misses, dice));
+            if forced.is_empty() {
+                out.extend(dropping.pass(p, &mut bonus, &mut misses, dice));
+            } else {
+                for &item in &forced {
+                    out.push(dropping.forced(item, &mut bonus, dice));
+                }
+            }
             p -= 1000;
         }
     }
@@ -898,6 +913,25 @@ impl Dropping<'_> {
             }
         }
         None
+    }
+
+    /// A pass of a call whose type is forced (`0x559BF0` with `T` given): no chance to miss, the
+    /// bonus taken on and a key drawn as a pass draws them, the item of the type made at its key
+    /// as a drop's is, a potion or another kind's at its plain keys.
+    fn forced(&mut self, item: u32, bonus: &mut u32, dice: &mut impl Dice) -> Dropped {
+        let dead = self.death.dead;
+        let hero = self.death.hero.level;
+        let e = self.rules.bronze(dead.level, self.death.difficulty);
+        let g = self.rules.throw_factor(e, hero);
+        *bonus = self.rules.compound(*bonus, dead.creature, dead.worth);
+        let key = self.rules.key(*bonus, g, dice);
+        let kind = self.catalogue.kind(item).unwrap_or(Kind::Other);
+        let key = if matches!(kind, Kind::Potion | Kind::Gold | Kind::Other) {
+            key.max(16)
+        } else {
+            key
+        };
+        self.make(kind, item, key, dice)
     }
 
     /// What a pass makes, in order (`0x559BF0`): a potion in `DropSaft` ‰; gold in `DropGold` ‰,
@@ -1057,7 +1091,7 @@ pub fn thrown(
     };
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
-        Kind::Potion => {}
+        Kind::Potion | Kind::Other => {}
         Kind::Weapon | Kind::Armour | Kind::Jewel => {
             drop.quality = match drop.key {
                 0 => 14,

@@ -20,16 +20,18 @@
 //! other records of the world are not followed yet. The timers of `SetTimer` and `DelTimer` count
 //! the game's minutes (#933, docs/decisions/2026-10-25-script-timers.md): at each minute of the
 //! clock but the one that ends a day the timers due run their functions in turn, but those of a
-//! finished quest, as the client's calendar runs them (`0x416F00`).
+//! finished quest, as the client's calendar runs them (`0x416F00`). `SetDrop` keeps the scripts'
+//! drops by the creature type and the item (#930, docs/decisions/2026-10-25-script-drops.md),
+//! which the deaths' drops take ([`ScriptDrops`], `drops`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
 use bevy::prelude::{
-    App, IntoScheduleConfigs, NonSendMut, OnEnter, OnExit, Plugin, Query, Res, Resource, Transform,
-    Update, World,
+    App, IntoScheduleConfigs, NonSendMut, OnEnter, OnExit, Plugin, Query, Res, ResMut, Resource,
+    Transform, Update, World,
 };
 use opensacred_data::luau::{BYTECODE, INDEX, Index};
 use opensacred_data::netscript::{Function, Record, Tree};
@@ -61,7 +63,8 @@ pub struct Ran {
 }
 
 /// The scripts as the load leaves them, which [`Live`] takes on as the play starts: the tree, its
-/// index, the scripts' state, the functions marked done and the scripts' `rand()`.
+/// index, the scripts' state, the functions marked done, the scripts' `rand()` and the creatures'
+/// types.
 #[derive(Resource)]
 pub struct Started {
     assets: PathBuf,
@@ -70,13 +73,25 @@ pub struct Started {
     state: quests::Scripts,
     done: Vec<String>,
     rng: Rng,
+    creatures: HashSet<u32>,
 }
+
+/// The scripts' drops as the scripts last left them, which a death's drops take (`drops`).
+#[derive(Resource, Default)]
+pub struct ScriptDrops(pub quests::Drops);
 
 /// What the scripts ran: the tree's start script's records, with those of the quests' sections
 /// that its transitions ran in their middle, and each sector function's records and each region
 /// function's (`Region<n>Init`) before the first sector of its region, as a tree, and the state
-/// they left; `area` the area of a sector of the world (`world.ron`), which makes its region.
-pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -> Result<Ran> {
+/// they left; `area` the area of a sector of the world (`world.ron`), which makes its region, and
+/// `creatures` the types of the creatures, the `items.pak` slots of the categories 2, 3 and 32
+/// (`0x426610`), by which `SetDrop` tells its creature from its item.
+pub fn run(
+    assets: &Path,
+    tree: &str,
+    area: impl Fn((u32, u32)) -> Option<u8>,
+    creatures: HashSet<u32>,
+) -> Result<Ran> {
     let started = Instant::now();
     let dir = assets.join("netscript").join(tree);
     let index_path = dir.join(INDEX);
@@ -99,7 +114,7 @@ pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -
     let runtime = runtime(assets, tree, index)?;
     let mut state = quests::Scripts::default();
     let mut rng = Rng::of(0, 0, SEED);
-    let start = records(&runtime, tree, START, 0, &mut state, &mut rng);
+    let start = records(&runtime, (tree, &creatures), START, 0, &mut state, &mut rng);
     let mut functions = Vec::new();
     let mut regions = 0;
     for (sector, enter, name) in sectors {
@@ -110,7 +125,14 @@ pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -
             bevy::log::debug!("scripts: initRegion({region}) before {name}");
             let mut made = Vec::new();
             for entry in region_entries(entries) {
-                made.extend(records(&runtime, tree, &init, entry, &mut state, &mut rng));
+                made.extend(records(
+                    &runtime,
+                    (tree, &creatures),
+                    &init,
+                    entry,
+                    &mut state,
+                    &mut rng,
+                ));
             }
             functions.push(Function {
                 name: init,
@@ -121,7 +143,7 @@ pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -
             regions += 1;
         }
         functions.push(Function {
-            records: records(&runtime, tree, &name, 0, &mut state, &mut rng),
+            records: records(&runtime, (tree, &creatures), &name, 0, &mut state, &mut rng),
             name,
             quest: -1,
             region: 0,
@@ -150,6 +172,7 @@ pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -
             state,
             done: runtime.done(),
             rng,
+            creatures,
         },
     })
 }
@@ -181,6 +204,7 @@ pub struct Live {
     at: Option<paths::Cell>,
     /// The minute of the clock's day last seen.
     minute: Option<u16>,
+    creatures: HashSet<u32>,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
@@ -211,6 +235,7 @@ impl Live {
             triggered,
             at: None,
             minute: None,
+            creatures: started.creatures,
         }
     }
 
@@ -237,7 +262,11 @@ impl Live {
             bevy::log::debug!("scripts: {function} waits for its quest {quest}");
             return Vec::new();
         }
-        let mut recorder = Recorder::new(&self.tree, &mut self.state, &mut self.rng);
+        let mut recorder = Recorder::new(
+            (&self.tree, &self.creatures),
+            &mut self.state,
+            &mut self.rng,
+        );
         if let Err(e) = self.runtime.call_entry(function, entry, &mut recorder) {
             bevy::log::warn!("scripts: {e}");
         }
@@ -335,23 +364,24 @@ fn region_entries(entries: usize) -> Vec<usize> {
 /// runs, the scripts' state `state` with it; none where it fails, which the log tells.
 fn records(
     runtime: &Runtime,
-    tree: &str,
+    of: (&str, &HashSet<u32>),
     function: &str,
     entry: usize,
     state: &mut quests::Scripts,
     rng: &mut Rng,
 ) -> Vec<Record> {
-    let mut recorder = Recorder::new(tree, state, rng);
+    let mut recorder = Recorder::new(of, state, rng);
     if let Err(e) = runtime.call_entry(function, entry, &mut recorder) {
         bevy::log::warn!("scripts: {e}");
     }
     recorder.records
 }
 
-/// The host of a run: the hero's tree, the scripts' state, their `rand()`, the records in the
-/// order run and the hero's teleports.
+/// The host of a run: the hero's tree, the creatures' types, the scripts' state, their `rand()`,
+/// the records in the order run and the hero's teleports.
 struct Recorder<'a> {
     tree: &'a str,
+    creatures: &'a HashSet<u32>,
     state: &'a mut quests::Scripts,
     rng: &'a mut Rng,
     records: Vec<Record>,
@@ -359,9 +389,14 @@ struct Recorder<'a> {
 }
 
 impl<'a> Recorder<'a> {
-    fn new(tree: &'a str, state: &'a mut quests::Scripts, rng: &'a mut Rng) -> Self {
+    fn new(
+        (tree, creatures): (&'a str, &'a HashSet<u32>),
+        state: &'a mut quests::Scripts,
+        rng: &'a mut Rng,
+    ) -> Self {
         Self {
             tree,
+            creatures,
             state,
             rng,
             records: Vec::new(),
@@ -526,6 +561,25 @@ impl Host for Recorder<'_> {
             "del_timer" => {
                 if let Some(&id) = tags.numbers("_0B").last() {
                     self.state.timers.delete(id);
+                }
+                Handled::Done
+            }
+            "set_drop" => {
+                // The two types, the creature first: the one of a creature's category
+                // (`0x426610`) where the other is not (`0x4AFFF0`).
+                if let ([a, b, ..], Some(&chance)) =
+                    (tags.numbers("_02").as_slice(), tags.numbers("_0B").first())
+                    && let (Ok(a), Ok(b)) = (u32::try_from(*a), u32::try_from(*b))
+                {
+                    let (creature, item) =
+                        if self.creatures.contains(&b) && !self.creatures.contains(&a) {
+                            (b, a)
+                        } else {
+                            (a, b)
+                        };
+                    self.state
+                        .drops
+                        .set(creature, item, u32::try_from(chance).unwrap_or(0));
                 }
                 Handled::Done
             }
@@ -702,6 +756,7 @@ fn begin(world: &mut World) {
     let Some(started) = world.remove_resource::<Started>() else {
         return;
     };
+    world.insert_resource(ScriptDrops(started.state.drops.clone()));
     match runtime(&started.assets, &started.tree, started.index.clone()) {
         Ok(runtime) => world.insert_non_send(Live::new(runtime, started)),
         Err(e) => bevy::log::warn!("scripts: {e:#}; the scripts do not run on"),
@@ -711,6 +766,16 @@ fn begin(world: &mut World) {
 /// Drops the scripts of the game left.
 fn end(world: &mut World) {
     world.remove_non_send::<Live>();
+    world.remove_resource::<ScriptDrops>();
+}
+
+/// Hands the scripts' drops to the deaths' drops as the scripts change them.
+fn share(live: Option<NonSendMut<Live>>, shared: Option<ResMut<ScriptDrops>>) {
+    if let (Some(live), Some(mut shared)) = (live, shared)
+        && shared.0 != live.state.drops
+    {
+        shared.0 = live.state.drops.clone();
+    }
 }
 
 /// Runs the base trigger of the hero's cell as the cell changes on its way, not by a teleport,
@@ -829,7 +894,7 @@ impl Plugin for ScriptsPlugin {
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
                 Update,
-                (step_on, timers)
+                (step_on, timers, share)
                     .chain()
                     .after(Step::HeroMove)
                     .before(Step::Follow)
@@ -925,7 +990,14 @@ mod tests {
         ]);
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        let records = records(&runtime, "TEST", START, 0, &mut state, &mut rng);
+        let records = records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
         // Quest 15004's giver after its first set-up alone; quest 1, set up and triggered, its
         // trigger through, entered with its novice; quest 2, never set up, not.
         assert_eq!(kinds(&records), [23, 21, 1, 21, 21, 21, 20, 1, 20]);
@@ -968,7 +1040,7 @@ mod tests {
         let mut rng = Rng::of(0, 0, SEED);
         let records = records(
             &runtime,
-            "TYPE_NPC_GLADIATOR",
+            ("TYPE_NPC_GLADIATOR", &HashSet::new()),
             START,
             0,
             &mut state,
@@ -1038,7 +1110,14 @@ mod tests {
         ]);
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        records(&runtime, "TEST", START, 0, &mut state, &mut rng);
+        records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
         let started = Started {
             assets: PathBuf::new(),
             tree: "TEST".into(),
@@ -1046,6 +1125,7 @@ mod tests {
             state,
             done: runtime.done(),
             rng,
+            creatures: HashSet::new(),
         };
         let mut live = Live::new(runtime, started);
         // The cave's entrance puts the hero at its target, on the ground.
@@ -1071,7 +1151,14 @@ mod tests {
     fn live(runtime: Runtime) -> Live {
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        records(&runtime, "TEST", START, 0, &mut state, &mut rng);
+        records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
         let started = Started {
             assets: PathBuf::new(),
             tree: "TEST".into(),
@@ -1079,6 +1166,7 @@ mod tests {
             state,
             done: runtime.done(),
             rng,
+            creatures: HashSet::new(),
         };
         Live::new(runtime, started)
     }
@@ -1183,6 +1271,36 @@ mod tests {
     }
 
     #[test]
+    fn the_scripts_drops_take_their_creature_by_its_category() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}
+             F[\"StartCode\"] = function()
+             set_drop { _02 = { 38, 6005 }, _0B = 75 }
+             set_drop { _02 = { 38, 4931 }, _0B = 65 }
+             set_drop { _02 = { 1355, 99 }, _0B = 75 }
+             set_drop { _02 = { 38, 4931 }, _0B = 0 }
+             return true
+             end
+             return F",
+        )]);
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        // Quest 15067's antidote names its item first (docs/re/netscript.md).
+        let creatures = HashSet::from([38, 99]);
+        records(
+            &runtime,
+            ("TEST", &creatures),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
+        assert_eq!(state.drops.of(38).collect::<Vec<_>>(), [(6005, 75)]);
+        assert_eq!(state.drops.of(99).collect::<Vec<_>>(), [(1355, 75)]);
+    }
+
+    #[test]
     fn a_loop_of_the_start_runs_through_its_names_built_as_it_runs() {
         // `grabsteindialogvars` of the start scripts: 194 variables, each named by the loop's.
         let runtime = runtime(&[(
@@ -1206,7 +1324,14 @@ mod tests {
         )]);
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        records(&runtime, "TEST", START, 0, &mut state, &mut rng);
+        records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
         assert_eq!(state.variables.get("grvarNr"), Some(194));
         assert_eq!(state.variables.get("grabstein_dialog_0"), Some(7));
         assert_eq!(state.variables.get("grabstein_dialog_193"), Some(7));

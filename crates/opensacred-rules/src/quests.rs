@@ -3,8 +3,9 @@
 //! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, the
 //! dialogues' table that the start script's records of type 40 fill, the regions that have run
 //! their `Region<n>Init`, each of a sector's area ([`region`]), the places that `DefPos` names,
-//! the base triggers' boxes, which run their functions as the hero steps on them (#1002), and the
-//! timers, which run theirs as the game's minutes pass (#933). A transition names the
+//! the base triggers' boxes, which run their functions as the hero steps on them (#1002), the
+//! timers, which run theirs as the game's minutes pass (#933), and the scripts' drops of the
+//! creatures' types (#930). A transition names the
 //! section functions it runs for its caller, the scripts' runtime, to run, and takes each one's
 //! answer, whether its body ran to its end (`0x46BA90`); all of it serializes, for the saves.
 
@@ -516,6 +517,52 @@ impl Timers {
     }
 }
 
+/// A scripts' drop (`SetDrop`): the creature type that drops the item, and its chance in per
+/// cent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptDrop {
+    pub creature: u32,
+    pub item: u32,
+    pub chance: u32,
+}
+
+/// The scripts' drops (`SetDrop`, 137, `0x4AFFF0`; docs/re/items.md, "The scripts' drops"), kept
+/// by the creature type and the item in the order they were set, where the client keeps one
+/// entry per creature type (docs/decisions/2026-10-25-script-drops.md, #930).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Drops(Vec<ScriptDrop>);
+
+impl Drops {
+    /// `SetDrop`: the creature type `creature` drops the item `item` at `chance` per cent; a pair
+    /// set again takes its new chance in its place, and a chance of 0 takes the pair out.
+    pub fn set(&mut self, creature: u32, item: u32, chance: u32) {
+        let at = self
+            .0
+            .iter()
+            .position(|d| d.creature == creature && d.item == item);
+        match (at, chance) {
+            (Some(at), 0) => {
+                self.0.remove(at);
+            }
+            (Some(at), chance) => self.0[at].chance = chance,
+            (None, 0) => {}
+            (None, chance) => self.0.push(ScriptDrop {
+                creature,
+                item,
+                chance,
+            }),
+        }
+    }
+
+    /// The items that the creature type `creature` drops and their chances, in their order.
+    pub fn of(&self, creature: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.0
+            .iter()
+            .filter(move |d| d.creature == creature)
+            .map(|d| (d.item, d.chance))
+    }
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -526,6 +573,7 @@ pub struct Scripts {
     pub positions: Positions,
     pub triggers: Triggers,
     pub timers: Timers,
+    pub drops: Drops,
 }
 
 #[cfg(test)]
@@ -789,6 +837,24 @@ mod tests {
     }
 
     #[test]
+    fn two_quests_drops_of_one_creature_type_stand_side_by_side() {
+        let mut drops = Drops::default();
+        // Quests 15015 and 10259 on the creature type 38 (docs/re/netscript.md).
+        drops.set(38, 6005, 75);
+        drops.set(38, 4931, 65);
+        drops.set(99, 1355, 75);
+        assert_eq!(drops.of(38).collect::<Vec<_>>(), [(6005, 75), (4931, 65)]);
+        // The later quest counted, its chance 0 takes its own pair out alone.
+        drops.set(38, 4931, 0);
+        assert_eq!(drops.of(38).collect::<Vec<_>>(), [(6005, 75)]);
+        drops.set(38, 6005, 50);
+        assert_eq!(drops.of(38).collect::<Vec<_>>(), [(6005, 50)]);
+        drops.set(40, 1, 0);
+        assert_eq!(drops.of(40).count(), 0);
+        assert_eq!(drops.of(99).collect::<Vec<_>>(), [(1355, 75)]);
+    }
+
+    #[test]
     fn the_scripts_state_round_trips() {
         let mut scripts = Scripts::default();
         let mut ran = Vec::new();
@@ -802,6 +868,7 @@ mod tests {
             .triggers
             .set("Wolfattack", (3205, 2902, 0), Some((3205, 2916)));
         scripts.timers.set(1202, "zeit1202", 4_320);
+        scripts.drops.set(38, 6005, 75);
         let bytes = postcard::to_allocvec(&scripts).expect("the state serializes");
         let back: Scripts = postcard::from_bytes(&bytes).expect("the state reads back");
         assert_eq!(back, scripts);
