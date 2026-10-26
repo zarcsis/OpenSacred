@@ -46,25 +46,46 @@ impl Texts {
     }
 }
 
-/// The messages `id-N = text` of a Fluent file as the converter writes it, their string
-/// literals (`{ " " }`, which keep the spaces at a text's ends) undone.
+/// The messages `id-N = text` of a Fluent file as the converter writes it
+/// (`opensacred_convert::text::pattern`), their string literals (`{" "}`, which keep the spaces
+/// at a line's ends, the braces and an empty line) undone, and a message's continued lines
+/// (`\n    `) joined by their line breaks (#1030).
 fn parse(ftl: &str) -> HashMap<u32, String> {
-    ftl.lines()
-        .filter_map(|line| {
-            let (id, value) = line.strip_prefix("id-")?.split_once(" = ")?;
-            let mut text = String::new();
-            let mut rest = value;
-            while let Some(start) = rest.find("{ \"") {
-                text.push_str(&rest[..start]);
-                let after = &rest[start + 3..];
-                let end = after.find("\" }")?;
-                text.push_str(&after[..end]);
-                rest = &after[end + 3..];
-            }
-            text.push_str(rest);
-            Some((id.parse().ok()?, text))
-        })
-        .collect()
+    let mut texts = HashMap::new();
+    let mut current: Option<(u32, String)> = None;
+    for line in ftl.lines() {
+        if let Some(continued) = line.strip_prefix("    ")
+            && let Some((_, text)) = current.as_mut()
+        {
+            text.push('\n');
+            text.push_str(&unquote(continued));
+            continue;
+        }
+        texts.extend(current.take());
+        current = line
+            .strip_prefix("id-")
+            .and_then(|rest| rest.split_once(" = "))
+            .and_then(|(id, value)| Some((id.parse().ok()?, unquote(value))));
+    }
+    texts.extend(current);
+    texts
+}
+
+/// A line of a Fluent pattern with its string literals (`{"…"}`) undone.
+fn unquote(value: &str) -> String {
+    let mut text = String::new();
+    let mut rest = value;
+    while let Some(start) = rest.find("{\"") {
+        text.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("\"}") else {
+            break;
+        };
+        text.push_str(&after[..end]);
+        rest = &after[end + 2..];
+    }
+    text.push_str(rest);
+    text
 }
 
 /// A line a creature shows over itself: its text, its colour, how long it still shows, and its
@@ -211,11 +232,13 @@ mod tests {
     #[test]
     fn a_message_reads_back_with_its_spaces() {
         let texts = parse(
-            "# a comment\n\nid-49 = Seraphim\nid-50 = { \" \" }two words{ \"  \" }\nnot a message\n",
+            "# a comment\n\nid-49 = Seraphim\nid-50 = {\" \"}two {\"{\"}words{\"  \"}\nnot a message\n\
+             id-51 = first\n    {\"\"}\n    {\" \"}third\n",
         );
         assert_eq!(texts.get(&49).map(String::as_str), Some("Seraphim"));
-        assert_eq!(texts.get(&50).map(String::as_str), Some(" two words  "));
-        assert_eq!(texts.len(), 2);
+        assert_eq!(texts.get(&50).map(String::as_str), Some(" two {words  "));
+        assert_eq!(texts.get(&51).map(String::as_str), Some("first\n\n third"));
+        assert_eq!(texts.len(), 3);
         let texts = Texts(texts);
         assert_eq!(texts.named("1"), Some("Seraphim"));
     }
