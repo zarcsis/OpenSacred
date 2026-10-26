@@ -21,7 +21,7 @@ The pieces of one model share their name: 23 types are the Daemon's Plain Armour
 One more reaches the player through the scripts and is named: the lung 1331, which the creatures 99 drop for quest 15072 (its `SetDrop`).
 
 The other 147 nameless types with a slot stay nameless, read on the Seraphim's tree:
-- 24 doors and a dwarven chest, which the scripts make and the original never names on the screen;
+- 24 doors and a dwarven chest, which the scripts make (**hypothesis**: the original names no door or chest on the screen);
 - five quest items (bones, a waterskin, innards), whose `CreateObj`s give them a name of their own (`res:ZIELOBJEKT_…`);
 - seven weapons and shields of the guards (`Garde_*`), which only the scripts' weapons' pools hold;
 - six rabbit outfits (`rab_*`), which only `hasenoutfit` makes, and no record calls it;
