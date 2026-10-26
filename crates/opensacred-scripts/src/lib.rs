@@ -39,6 +39,8 @@ pub enum Outcome {
     Stopped,
     /// It is marked done, never to run again (`return "done"`, `DeleteFunktionBlock`).
     Done,
+    /// The runner refuses it by its name ([`refused`]), so that it never runs.
+    Refused,
 }
 
 impl Outcome {
@@ -368,10 +370,28 @@ fn dispatch(
     }
 }
 
+/// Whether the runner refuses the function `name` (`0x46BA90`, at `0x46BB72` to `0x46BC0A`;
+/// #1051): a name that begins with `InitRg`, case aside, and holds `Pools` or `(DQ_Quest)`, and
+/// one that begins with `DQTrgRegion` or `DQStartRegion`, case aside, the functions that would
+/// start the dynamic quests, which never run in the release.
+pub fn refused(name: &str) -> bool {
+    let begins = |prefix: &str| {
+        name.get(..prefix.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+    };
+    (begins("InitRg") && (name.contains("Pools") || name.contains("(DQ_Quest)")))
+        || begins("DQTrgRegion")
+        || begins("DQStartRegion")
+}
+
 /// Runs the `nth` function of the name `function` of the tree: its file loaded as it is first
-/// called, a function marked done not run, one that starts again run again. Each is marked done
-/// by its key in its file, the name itself for the first of its name.
+/// called, a function marked done not run, one that starts again run again, one of a name that
+/// the runner refuses never. Each is marked done by its key in its file, the name itself for the
+/// first of its name.
 fn run(lua: &Lua, inner: &Inner, function: &str, nth: usize) -> Result<Outcome, Error> {
+    if refused(function) {
+        return Ok(Outcome::Refused);
+    }
     let entry = inner
         .index
         .functions
@@ -794,5 +814,38 @@ mod tests {
         assert_eq!(runtime.call("Asks", &mut host).ok(), Some(Outcome::Stopped));
         assert_eq!(runtime.unknown(), ["mystery"]);
         assert!(runtime.call("Missing", &mut host).is_err());
+    }
+
+    #[test]
+    fn the_runner_refuses_the_dynamic_quests_functions() {
+        let (runtime, _) = runtime(&[(
+            "dq.luau",
+            "local t = {}\n\
+             t.DQStartRegion1 = function() touch({}) return true end\n\
+             t.InitRg01Pools = function() touch({}) return true end\n\
+             t.Region1Enter = function() if call(\"dqtrgregion1\") then touch({}) end return true end\n\
+             return t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(
+            runtime.call("DQStartRegion1", &mut host).ok(),
+            Some(Outcome::Refused)
+        );
+        assert_eq!(
+            runtime.call("InitRg01Pools", &mut host).ok(),
+            Some(Outcome::Refused)
+        );
+        // A call of one, missing or not, answers that it did not run.
+        assert_eq!(
+            runtime.call("Region1Enter", &mut host).ok(),
+            Some(Outcome::Ran)
+        );
+        assert!(host.records.is_empty());
+        assert!(refused("InitRg+VAR(DQ_Quest)+ZielEskortiereNPC"));
+        assert!(refused("initrg5Pools"));
+        // `Pools` and `(DQ_Quest)` are found as they are written.
+        assert!(!refused("InitRg5pools"));
+        assert!(!refused("InitRg12"));
+        assert!(!refused("Region1Init"));
     }
 }
