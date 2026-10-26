@@ -72,8 +72,8 @@ fn in_cells(p: Vec2) -> (f32, f32) {
 /// What the hero does next on its way to its target.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Step<L> {
-    /// Heads for this point on its layer.
-    Toward(Vec3),
+    /// Heads for the second point on its layer, along the line to it from the first ([`advance`]).
+    Toward(Vec2, Vec3),
     /// Goes onto another layer, through the door it stands on.
     Through(L),
     /// Stops: the next step of its way, from the centre of its cell, is no longer clear (a
@@ -103,10 +103,19 @@ pub fn passable<L: Copy>(
 /// original's hero kept off a barrel's cell that its step's test let it onto (#981, #989).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Course<L> {
-    /// Straight to the target.
-    Straight,
-    /// Along these places, the walker's own first.
-    Way(Vec<(Cell, L)>),
+    /// Straight to the target, from where the walker stood.
+    Straight(Vec2),
+    /// Along these places, the walker's own first, and what it heads for on them since it took it.
+    Way(Vec<(Cell, L)>, Option<Aim>),
+}
+
+/// What a walker heads for on its way ([`follow`]): the place of index `to`, the places' count for
+/// the target itself, which it took at the place of index `from`, standing at `at`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Aim {
+    to: usize,
+    from: usize,
+    at: Vec2,
 }
 
 /// The course of a walker at `position` on `layer` ordered to `target`, on level `onto` when
@@ -132,7 +141,7 @@ pub fn course<L: Copy + Eq + Hash, K: PartialEq>(
     let on = |cell| walkable(cell, layer);
     let centres = (centre(cell_of(from.x, from.y)), centre(cell_of(to.x, to.y)));
     if arrives(layer) && clear(from, to, on) && clear(centres.0, centres.1, on) {
-        return Some(Course::Straight);
+        return Some(Course::Straight(from));
     }
     path_onto(
         (cell_of(from.x, from.y), layer),
@@ -140,63 +149,138 @@ pub fn course<L: Copy + Eq + Hash, K: PartialEq>(
         arrives,
         neighbours,
     )
-    .map(Course::Way)
+    .map(|way| Course::Way(way, None))
 }
 
 /// What a walker at `position` on `layer` does next on its `course` to `target`: straight on;
 /// or along its way, through the door it stands on onto the way's next layer, else for the
 /// farthest place of the way on its layer that it reaches in a straight line over the way's own
 /// cells, past corners between cells it may step on (`walkable`), and for the target itself once
-/// that is the way's last place; with none, for the centre of its own cell, from which the next
-/// is a step of the way, or, there, it stops ([`Step::Blocked`]). `None` when it stands off its
-/// way, on no place of it on its layer.
+/// the line to it is clear; with none, for the centre of its own cell, from which the next is a
+/// step of the way, or, there, it stops ([`Step::Blocked`]). `None` when it stands off its way,
+/// on no place of it on its layer.
+///
+/// What it heads for it keeps while the line to it from where it took it stays clear, for a
+/// creature may step in, and takes a farther place once the line to that clears from where it
+/// stands. Tested from where it stands at every frame, the line to what it headed for moved with
+/// the rounding of its position, and a line that cleared at a corner's tolerance as it took it
+/// failed a few frames on: it turned back to its cell's centre, and from there took it again, or
+/// it headed for the target, whose line it had not tested, back and forth every frame. It walks
+/// along the line it took ([`advance`]); one put off it (a leap) takes its next anew, or, going
+/// straight, has its course found anew (`None`).
 pub fn follow<L: Copy, K: PartialEq>(
-    course: &Course<L>,
+    course: &mut Course<L>,
     position: Vec3,
     layer: L,
     target: Vec3,
     walkable: impl Fn(Cell, L) -> bool,
     level: impl Fn(L) -> K,
 ) -> Option<Step<L>> {
-    let Course::Way(way) = course else {
-        return Some(Step::Toward(target));
-    };
     let from = position.xz();
+    let (way, aim) = match course {
+        &mut Course::Straight(start) => {
+            return (off(start, target.xz(), from) <= ON_LINE)
+                .then_some(Step::Toward(start, target));
+        }
+        Course::Way(way, aim) => (way, aim),
+    };
     let here = cell_of(from.x, from.y);
     let at = way
         .iter()
         .rposition(|&(cell, place)| cell == here && level(place) == level(layer))?;
-    let rest = &way[at..];
     // The way on this layer, up to its first door.
-    let door = rest.windows(2).position(|w| level(w[0].1) != level(w[1].1));
+    let door = way[at..]
+        .windows(2)
+        .position(|w| level(w[0].1) != level(w[1].1));
     if door == Some(0) {
-        return rest.get(1).map(|&(_, next)| Step::Through(next));
+        return way.get(at + 1).map(|&(_, next)| Step::Through(next));
     }
-    let stretch = &rest[..door.map_or(rest.len(), |at| at + 1)];
-    let cells: HashSet<Cell> = stretch.iter().map(|&(cell, _)| cell).collect();
-    let along = |cell| cells.contains(&cell);
-    let beside = |cell| walkable(cell, layer);
-    let last = door.is_none().then(|| stretch.len() - 1);
-    let farthest = (1..stretch.len())
-        .rev()
-        .find(|&i| clear_by(from, centre(stretch[i].0), along, beside));
-    let point = |i: usize| {
-        let point = centre(stretch[i].0);
-        Vec3::new(point.x, position.y, point.y)
+    let end = door.map_or(way.len(), |door| at + door + 1);
+    // What it may head for, by its index on the way: its places, and past the last the target
+    // itself where the stretch ends the way.
+    let last = if door.is_none() { way.len() } else { end - 1 };
+    let point = |i: usize| match way.get(i) {
+        Some(&(cell, _)) => {
+            let point = centre(cell);
+            Vec3::new(point.x, position.y, point.y)
+        }
+        None => target,
     };
-    Some(match farthest {
-        Some(i) if Some(i) != last => Step::Toward(point(i)),
-        Some(_) => Step::Toward(target),
-        None if Some(0) == last => Step::Toward(target),
+    let beside = |cell| walkable(cell, layer);
+    // The way's cells on this layer from the place of index `first`.
+    let cells =
+        |first: usize| -> HashSet<Cell> { way[first..end].iter().map(|&(cell, _)| cell).collect() };
+    // Kept while ahead of it on this layer, the line from where it took it clear and the walker
+    // on it.
+    let kept = aim.filter(|aim| {
+        if aim.from > at || !(at + 1..=last).contains(&aim.to) {
+            return false;
+        }
+        let (along, to) = (cells(aim.from), point(aim.to).xz());
+        off(aim.at, to, from) <= ON_LINE && clear_by(aim.at, to, |c| along.contains(&c), beside)
+    });
+    // At its cell's centre, from the centre itself, which the rounding of where it stands does
+    // not move: the step of the way to the next place, along a diagonal, passes the corner there.
+    let on_centre = (centre(here) - from).length() <= ON_CENTRE;
+    let start = if on_centre { centre(here) } else { from };
+    let along = cells(at);
+    let farther = (kept.map_or(at + 1, |aim| aim.to + 1)..=last)
+        .rev()
+        .find(|&to| clear_by(start, point(to).xz(), |c| along.contains(&c), beside))
+        .map(|to| Aim {
+            to,
+            from: at,
+            at: start,
+        });
+    *aim = farther.or(kept);
+    Some(match *aim {
+        Some(aim) => Step::Toward(aim.at, point(aim.to)),
         // Off its cell's centre, to the centre first, from which the next place is a step; there,
         // that step no longer clear, it stops.
-        None if (centre(here) - from).length() > ON_CENTRE => Step::Toward(point(0)),
+        None if !on_centre => Step::Toward(from, point(at)),
         None => Step::Blocked,
     })
 }
 
-/// How near its cell's centre, in world units, a walker stands at it.
-const ON_CENTRE: f32 = 0.5;
+/// How far, in world units, `p` stands off the line through `from` and `to`.
+fn off(from: Vec2, to: Vec2, p: Vec2) -> f32 {
+    (to - from)
+        .try_normalize()
+        .map_or((p - from).length(), |along| along.perp_dot(p - from).abs())
+}
+
+/// How far, in world units, a walker may stand off the line of its step before it takes another:
+/// one that something put elsewhere (a leap), not one that its walk's rounding moved.
+const ON_LINE: f32 = 1.0;
+
+/// Where a walker at `here` stands `length` further along its line from `from` to `to`, at its
+/// own height, at `to` once it gets there: on the line itself, however the rounding of its
+/// position moved it off it. At the world's coordinates of some 300,000 units a position rounds
+/// to 0.03 along each axis; a walker that stepped from where it stood toward where it heads, along
+/// a line nearly along an axis, gained a rounding of the same sign at every frame, and wandered
+/// tenths of a unit off its line, into the closed cell beside a corner that the line passed clear.
+pub fn advance(from: Vec2, to: Vec3, here: Vec3, length: f32) -> Vec3 {
+    let line = to.xz() - from;
+    let left = line.length();
+    let point = match line.try_normalize() {
+        Some(along) => {
+            let on = (here.xz() - from).dot(along) + length;
+            if on >= left {
+                to.xz()
+            } else {
+                from + along * on
+            }
+        }
+        None => to.xz(),
+    };
+    Vec3::new(point.x, here.y, point.y)
+}
+
+/// How near its cell's centre, in world units, a walker stands at it: where a step toward the
+/// centre lands, rounded at the world's coordinates of some 300,000 units to 0.03 along each
+/// axis. Half a unit stopped a walker that a step brought that near the centre short of it, the
+/// line from where it stood to the next place along a diagonal passing beside the corner.
+const ON_CENTRE: f32 = 0.1;
 
 #[cfg(test)]
 mod tests {
@@ -226,8 +310,8 @@ mod tests {
         neighbours: impl Fn((Cell, L)) -> Vec<(Cell, L)>,
         level: impl Fn(L) -> K,
     ) -> Option<Step<L>> {
-        let course = course(position, layer, target, onto, &walkable, neighbours, &level)?;
-        follow(&course, position, layer, target, walkable, level)
+        let mut course = course(position, layer, target, onto, &walkable, neighbours, &level)?;
+        follow(&mut course, position, layer, target, walkable, level)
     }
 
     /// The cells a walker ordered from `from` to `target` on one layer stands on as it follows
@@ -239,7 +323,7 @@ mod tests {
     ) -> (Vec<Cell>, Vec<(Vec3, Vec3)>) {
         let neighbours =
             |(cell, layer): (Cell, ())| around(cell, walkable).map(|c| (c, layer)).collect();
-        let course = course(
+        let mut course = course(
             from,
             (),
             target,
@@ -251,8 +335,8 @@ mod tests {
         .expect("a course");
         let (mut here, mut cells, mut legs) = (from, vec![cell_of(from.x, from.z)], Vec::new());
         for _ in 0..30 {
-            let Some(Step::Toward(point)) =
-                follow(&course, here, (), target, |c, ()| walkable(c), |l| l)
+            let Some(Step::Toward(_, point)) =
+                follow(&mut course, here, (), target, |c, ()| walkable(c), |l| l)
             else {
                 panic!("off the course at {:?}", cell_of(here.x, here.z));
             };
@@ -293,12 +377,12 @@ mod tests {
         };
         assert_eq!(
             next(at(2.5, 4.5), (), at(8.5, 4.5), None, open, all, |l| l),
-            Some(Step::Toward(at(8.5, 4.5)))
+            Some(Step::Toward(at(2.5, 4.5).xz(), at(8.5, 4.5)))
         );
         assert!(!clear(at(2.5, 4.5).xz(), at(8.5, 4.5).xz(), wall));
         // Behind the wall: to the farthest cell of the way it reaches straight over the way's own
         // cells, toward the wall's end; and on, a stretch at a time, round it to the target.
-        let Some(Step::Toward(corner)) = next(
+        let Some(Step::Toward(_, corner)) = next(
             at(2.5, 4.5),
             (),
             at(8.5, 4.5),
@@ -381,7 +465,7 @@ mod tests {
             ),
             Some(Step::Through(true))
         );
-        let Some(Step::Toward(point)) = next(
+        let Some(Step::Toward(_, point)) = next(
             at(5.5, 9.5),
             false,
             at(5.5, 4.5),
@@ -406,7 +490,7 @@ mod tests {
         let from = at(5.5, 9.5);
         let to = at(5.5, 4.5);
         assert_eq!(next(from, false, to, None, walkable, stopped, |l| l), None);
-        let Some(Step::Toward(point)) = next(from, false, to, None, walkable, comes_on, |l| l)
+        let Some(Step::Toward(_, point)) = next(from, false, to, None, walkable, comes_on, |l| l)
         else {
             panic!("no way to the hero");
         };
@@ -424,5 +508,172 @@ mod tests {
             ),
             Some(Step::Through(true))
         );
+    }
+
+    /// How a walker on `course` to `target` on one layer walks frame by frame from `from`, as
+    /// `hero::run` walks, `length` a frame, a course found anew off its way, until it arrives,
+    /// stops or 2,000 frames pass.
+    fn frames(
+        mut course: Course<()>,
+        from: Vec3,
+        target: Vec3,
+        walkable: impl Fn(Cell) -> bool + Copy,
+        length: f32,
+    ) -> Walked {
+        let neighbours =
+            |(cell, layer): (Cell, ())| around(cell, walkable).map(|c| (c, layer)).collect();
+        let mut here = from;
+        let mut walked = Walked::default();
+        let mut last: Option<(Cell, Vec3)> = None;
+        for _ in 0..2000 {
+            let mut step = follow(&mut course, here, (), target, |c, ()| walkable(c), |l| l);
+            if step.is_none() {
+                course = super::course(
+                    here,
+                    (),
+                    target,
+                    None::<()>,
+                    |c, ()| walkable(c),
+                    neighbours,
+                    |l| l,
+                )
+                .expect("a course");
+                step = follow(&mut course, here, (), target, |c, ()| walkable(c), |l| l);
+            }
+            let Some(Step::Toward(line, toward)) = step else {
+                walked.blocked = true;
+                return walked;
+            };
+            if (target - here).xz().length() <= crate::hero::ARRIVED {
+                walked.arrived = true;
+                return walked;
+            }
+            let cell = cell_of(here.x, here.z);
+            let own = |point: Vec3| (point.xz() - centre(cell)).length() < 1e-3;
+            if last.is_some_and(|(was, before)| was == cell && !own(before)) && own(toward) {
+                walked.turned += 1;
+            }
+            last = Some((cell, toward));
+            let next = advance(line, toward, here, length);
+            let into = cell_of(next.x, next.z);
+            if into != cell && !walkable(into) {
+                walked.walled = true;
+                return walked;
+            }
+            here = next;
+        }
+        walked
+    }
+
+    /// How a walk of [`frames`] ended, and how often the walker turned back to its cell's centre
+    /// from heading elsewhere.
+    #[derive(Debug, Default)]
+    struct Walked {
+        arrived: bool,
+        blocked: bool,
+        walled: bool,
+        turned: usize,
+    }
+
+    #[test]
+    fn a_way_that_ends_in_a_diagonal_step_is_walked_to_the_target() {
+        // From the centre of (0, 0) the last step of its way, the diagonal onto (1, 1), clears
+        // through the corner; the line to the target, off (1, 1)'s centre toward (0, 1), does not.
+        // Heading for the target from there, it had turned back to (0, 0)'s centre at the next
+        // frame, and so round at every frame (#996).
+        let open = |_: Cell| true;
+        let course = Course::Way(vec![((0, 0), ()), ((1, 1), ())], None);
+        let (from, target) = (at(0.5, 0.5), at(1.58, 1.77));
+        let Some(Step::Toward(_, first)) = follow(
+            &mut course.clone(),
+            from,
+            (),
+            target,
+            |c, ()| open(c),
+            |l| l,
+        ) else {
+            panic!("no step");
+        };
+        assert_eq!(cell_of(first.x, first.z), (1, 1));
+        assert!((first.xz() - centre((1, 1))).length() < 1e-3, "{first}");
+        let walked = frames(course, from, target, open, 3.0);
+        assert!(walked.arrived && walked.turned == 0, "{walked:?}");
+    }
+
+    #[test]
+    fn walkers_at_the_worlds_coordinates_do_not_turn_round_on_their_ways() {
+        // Random ways round random closed cells far out in the world, where a position rounds
+        // to 0.03 of a unit, at a slow walk and a run: every walker that has a way gets to its
+        // target, never turning back to its cell's centre and never stopping with nothing in its
+        // way (#996).
+        let mut seed = 0x2545_F491_4F6C_DD1D_u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let origin = 5600;
+        let (mut walks, mut arrived) = (0, 0);
+        for _ in 0..40 {
+            let closed: HashSet<Cell> = (origin..origin + 16)
+                .flat_map(|x| (origin..origin + 16).map(move |y| (x, y)))
+                .filter(|_| next() % 100 < 30)
+                .collect();
+            let range = origin..origin + 16;
+            let open = |cell: Cell| {
+                range.contains(&cell.0) && range.contains(&cell.1) && !closed.contains(&cell)
+            };
+            let neighbours =
+                |(cell, layer): (Cell, ())| around(cell, open).map(|c| (c, layer)).collect();
+            for _ in 0..20 {
+                let point = |r: u64| {
+                    let (x, y) = (r % 1600, r / 1600 % 1600);
+                    let o = origin as f32;
+                    at(
+                        o + f32::from(u16::try_from(x).unwrap()) / 100.0 + 0.003,
+                        o + f32::from(u16::try_from(y).unwrap()) / 100.0 + 0.007,
+                    )
+                };
+                let (from, target) = (point(next()), point(next()));
+                let length = if next() % 2 == 0 { 1.5 } else { 5.5 };
+                let Some(course) = course(
+                    from,
+                    (),
+                    target,
+                    None::<()>,
+                    |c, ()| open(c),
+                    neighbours,
+                    |l| l,
+                ) else {
+                    continue;
+                };
+                if !open(cell_of(from.x, from.z)) {
+                    continue;
+                }
+                walks += 1;
+                let walked = frames(course, from, target, open, length);
+                assert!(!walked.blocked && walked.turned == 0, "{walked:?}");
+                arrived += usize::from(walked.arrived);
+            }
+        }
+        assert_eq!(arrived, walks);
+    }
+
+    #[test]
+    fn a_walker_keeps_to_the_line_of_its_step() {
+        let (from, to) = (at(5600.5, 5600.5), at(5603.5, 5601.5));
+        // Off the line by a rounding, it comes back onto it, a step further along it.
+        let off = from + Vec3::new(0.0, 0.0, 0.03);
+        let next = advance(from.xz(), to, off, 2.0);
+        let along = (to - from).normalize();
+        assert!(
+            ((next - from).xz().perp_dot(along.xz())).abs() < 0.04,
+            "{next}"
+        );
+        assert!(((next - from).dot(along) - 2.0).abs() < 0.05, "{next}");
+        // At its end, there.
+        assert_eq!(advance(from.xz(), to, to - along, 2.0), to);
+        assert_eq!(advance(to.xz(), to, to, 2.0), to);
     }
 }
