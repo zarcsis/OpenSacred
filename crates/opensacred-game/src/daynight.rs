@@ -98,6 +98,16 @@ impl Clock {
         (self.seconds / 60.0).floor()
     }
 
+    /// The minute of the day, 0 to 1439 (`minutes`).
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the minutes of a day are whole, from 0 to 1439"
+    )]
+    pub fn minute(&self) -> u16 {
+        self.minutes() as u16
+    }
+
     pub fn phase(&self) -> Phase {
         phase(self.minutes())
     }

@@ -2,9 +2,9 @@
 //! apart from Luau and from the engine: the quests' flags and the transitions of `SetUpQuest`,
 //! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, the
 //! dialogues' table that the start script's records of type 40 fill, the regions that have run
-//! their `Region<n>Init`, each of a sector's area ([`region`]), the places that `DefPos` names
-//! and the base triggers' boxes, which run their functions as the hero steps on them (#1002). A
-//! transition names the
+//! their `Region<n>Init`, each of a sector's area ([`region`]), the places that `DefPos` names,
+//! the base triggers' boxes, which run their functions as the hero steps on them (#1002), and the
+//! timers, which run theirs as the game's minutes pass (#933). A transition names the
 //! section functions it runs for its caller, the scripts' runtime, to run, and takes each one's
 //! answer, whether its body ran to its end (`0x46BA90`); all of it serializes, for the saves.
 
@@ -437,6 +437,85 @@ pub fn trigger_function(name: &str) -> Option<(i32, &str)> {
     Some((quest, &rest[split..]))
 }
 
+/// A scripts' timer (`SetTimer`, 56, `0x4982D0`; an entry of 0x4C bytes of the calendar's list):
+/// its id, the function it runs, its time in the game's minutes, and the minute it was set, of
+/// the game's minutes elapsed since the new game (docs/decisions/2026-10-25-script-timers.md).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Timer {
+    pub id: i32,
+    pub function: String,
+    pub time: i32,
+    pub set: u64,
+}
+
+/// The scripts' timers in their order, and the game's minutes elapsed since the new game, which
+/// they count by (the client counts by its calendar, whose months drift, #933).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Timers {
+    list: Vec<Timer>,
+    minutes: u64,
+}
+
+impl Timers {
+    /// `SetTimer`: the timer `id` (0 or more) runs `function` (a name) after `time` minutes
+    /// (above 0), counted from now; a timer of that id already set takes the new function, time
+    /// and moment in its place, which starts it anew (`0x417710`), and the others are appended.
+    pub fn set(&mut self, id: i32, function: &str, time: i32) {
+        if id < 0 || time <= 0 || function.is_empty() {
+            return;
+        }
+        let timer = Timer {
+            id,
+            function: function.to_owned(),
+            time,
+            set: self.minutes,
+        };
+        match self.list.iter_mut().find(|t| t.id == id) {
+            Some(old) => *old = timer,
+            None => self.list.push(timer),
+        }
+    }
+
+    /// `DelTimer` (57, `0x4985E0`, `0x4177E0`): the first timer of the id `id` taken out, the
+    /// list's last moved into its place.
+    pub fn delete(&mut self, id: i32) {
+        if let Some(at) = self.list.iter().position(|t| t.id == id) {
+            self.list.swap_remove(at);
+        }
+    }
+
+    /// A minute of the game's clock completed.
+    pub fn tick(&mut self) {
+        self.minutes += 1;
+    }
+
+    /// The game's minutes elapsed since the new game.
+    pub fn minutes(&self) -> u64 {
+        self.minutes
+    }
+
+    /// The first timer of the list whose time has passed since it was set (`0x416F00`), which
+    /// runs its function; [`Self::ran`] takes it out after.
+    pub fn due(&self) -> Option<&Timer> {
+        self.list.iter().find(|t| {
+            u64::try_from(t.time).is_ok_and(|time| t.set.saturating_add(time) <= self.minutes)
+        })
+    }
+
+    /// Every timer of the id `id` taken out, as one of it has run, each as the list's last
+    /// moved into its place (`0x4171B0`).
+    pub fn ran(&mut self, id: i32) {
+        while let Some(at) = self.list.iter().position(|t| t.id == id) {
+            self.list.swap_remove(at);
+        }
+    }
+
+    /// The timers in their order.
+    pub fn list(&self) -> &[Timer] {
+        &self.list
+    }
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -446,6 +525,7 @@ pub struct Scripts {
     pub regions: Regions,
     pub positions: Positions,
     pub triggers: Triggers,
+    pub timers: Timers,
 }
 
 #[cfg(test)]
@@ -653,6 +733,62 @@ mod tests {
     }
 
     #[test]
+    fn a_timer_runs_its_time_in_minutes_after_it_is_set_whatever_the_date() {
+        let mut timers = Timers::default();
+        // Quest 1202's three days, and a timer that a day's end does not hurry.
+        timers.set(1202, "zeit1202", 4_320);
+        for _ in 0..100 {
+            timers.tick();
+        }
+        timers.set(7, "seven", 1_440);
+        // Neither a negative id, nor a time of 0, nor a function without a name.
+        timers.set(-1, "never", 1);
+        timers.set(8, "never", 0);
+        timers.set(9, "", 1);
+        assert_eq!(timers.list().len(), 2);
+        let mut run = Vec::new();
+        for _ in 100..4_320 + 100 {
+            timers.tick();
+            while let Some(timer) = timers.due().cloned() {
+                run.push((timers.minutes(), timer.function.clone()));
+                timers.ran(timer.id);
+            }
+        }
+        assert_eq!(
+            run,
+            [(1_540, "seven".to_owned()), (4_320, "zeit1202".to_owned())]
+        );
+        assert!(timers.list().is_empty());
+    }
+
+    #[test]
+    fn a_timer_set_again_starts_anew_in_its_place_and_one_deleted_goes() {
+        let mut timers = Timers::default();
+        timers.set(1, "a", 10);
+        timers.set(2, "b", 10);
+        timers.set(3, "c", 10);
+        for _ in 0..5 {
+            timers.tick();
+        }
+        // Set again, the first takes the new function and starts anew where it stands.
+        timers.set(1, "a2", 10);
+        let functions = |t: &Timers| {
+            t.list()
+                .iter()
+                .map(|t| t.function.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(functions(&timers), ["a2", "b", "c"]);
+        // Deleted, the last takes the first's place.
+        timers.delete(1);
+        assert_eq!(functions(&timers), ["c", "b"]);
+        for _ in 0..5 {
+            timers.tick();
+        }
+        assert_eq!(timers.due().map(|t| t.function.as_str()), Some("c"));
+    }
+
+    #[test]
     fn the_scripts_state_round_trips() {
         let mut scripts = Scripts::default();
         let mut ran = Vec::new();
@@ -665,6 +801,7 @@ mod tests {
         scripts
             .triggers
             .set("Wolfattack", (3205, 2902, 0), Some((3205, 2916)));
+        scripts.timers.set(1202, "zeit1202", 4_320);
         let bytes = postcard::to_allocvec(&scripts).expect("the state serializes");
         let back: Scripts = postcard::from_bytes(&bytes).expect("the state reads back");
         assert_eq!(back, scripts);

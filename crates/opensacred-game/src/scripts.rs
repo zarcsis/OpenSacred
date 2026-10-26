@@ -17,7 +17,10 @@
 //! `DelBaseTrigger`. As the hero's cell changes, the base trigger of its cell and level runs its
 //! functions, `OMO<quest><name>`, each of a quest only while that quest is set up (`0x5941A0`,
 //! `0x46BA90`), and their `Teleport`s of the hero put it where they name (`0x491D40`); their
-//! other records of the world are not followed yet.
+//! other records of the world are not followed yet. The timers of `SetTimer` and `DelTimer` count
+//! the game's minutes (#933, docs/decisions/2026-10-25-script-timers.md): at each minute of the
+//! clock but the one that ends a day the timers due run their functions in turn, but those of a
+//! finished quest, as the client's calendar runs them (`0x416F00`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -34,11 +37,15 @@ use opensacred_rules::quests::{self, Transition};
 use opensacred_rules::spawning::Rng;
 use opensacred_scripts::{Handled, Host, Operand, Runtime};
 
+use crate::daynight::Clock;
 use crate::frame::{Playing, Step, Unpaused};
 use crate::game::AppState;
 use crate::hero::{Arrival, Body};
 use crate::terrain::Heights;
 use crate::{files, iso, npcs, paths};
+
+/// The minutes of a day of the game's clock.
+const DAY: u16 = 1_440;
 
 /// The start script's function in a tree (`opensacred-convert`'s `luau::START`).
 const START: &str = "StartCode";
@@ -166,12 +173,14 @@ pub struct Live {
     tree: String,
     state: quests::Scripts,
     rng: Rng,
-    /// Each base trigger's functions and their quests, by the trigger's name lower-cased: the
-    /// functions `OMO<quest><name>` of the tree, which the client's cache of the triggers'
-    /// functions names (the start script's records of type 39, `0x4918B0`; in every tree each of
-    /// their names has the one function of that name, two in one where it is written twice).
-    triggered: HashMap<String, Vec<(String, i32)>>,
+    /// Each base trigger's functions, by the trigger's name lower-cased: the functions
+    /// `OMO<quest><name>` of the tree, which the client's cache of the triggers' functions names
+    /// (the start script's records of type 39, `0x4918B0`; in every tree each of their names has
+    /// the one function of that name, two in one where it is written twice).
+    triggered: HashMap<String, Vec<String>>,
     at: Option<paths::Cell>,
+    /// The minute of the clock's day last seen.
+    minute: Option<u16>,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
@@ -185,13 +194,13 @@ impl Live {
     /// The scripts of `runtime` taking on the state `started` left.
     fn new(runtime: Runtime, started: Started) -> Self {
         runtime.mark_done(started.done);
-        let mut triggered: HashMap<String, Vec<(String, i32)>> = HashMap::new();
+        let mut triggered: HashMap<String, Vec<String>> = HashMap::new();
         for name in runtime.index().functions.keys() {
-            if let Some((quest, trigger)) = quests::trigger_function(name) {
+            if let Some((_, trigger)) = quests::trigger_function(name) {
                 triggered
                     .entry(trigger.to_lowercase())
                     .or_default()
-                    .push((name.clone(), quest));
+                    .push(name.clone());
             }
         }
         Self {
@@ -201,7 +210,85 @@ impl Live {
             rng: started.rng,
             triggered,
             at: None,
+            minute: None,
         }
+    }
+
+    /// The quest of the function `function`, the first of its name: the quest whose file of the
+    /// tree holds it (`quests/<n>.luau`, the function's quest of `Vectoren.bin`), none for
+    /// another.
+    fn quest_of(&self, function: &str) -> Option<u32> {
+        let entry = self.runtime.index().functions.get(function)?.first()?;
+        entry
+            .file
+            .strip_prefix("quests/")?
+            .strip_suffix(".luau")?
+            .parse()
+            .ok()
+    }
+
+    /// Runs the `entry`-th function of the name `function` as the client's runner does
+    /// (`0x46BA90`), a function of a quest only while the quest is set up: the hero's teleports
+    /// it made.
+    fn run(&mut self, function: &str, entry: usize) -> Vec<Teleport> {
+        if let Some(quest) = self.quest_of(function)
+            && self.state.quests.flags(quest) & quests::SET_UP == 0
+        {
+            bevy::log::debug!("scripts: {function} waits for its quest {quest}");
+            return Vec::new();
+        }
+        let mut recorder = Recorder::new(&self.tree, &mut self.state, &mut self.rng);
+        if let Err(e) = self.runtime.call_entry(function, entry, &mut recorder) {
+            bevy::log::warn!("scripts: {e}");
+        }
+        if !recorder.records.is_empty() {
+            bevy::log::debug!(
+                "scripts: {function}: {} records of the world not followed yet",
+                recorder.records.len()
+            );
+        }
+        recorder.teleports
+    }
+
+    /// The game's clock at the minute `now` of its day (`0x416F00`): each minute completed since
+    /// it was last seen counts on the timers, and at each but the one that ends a day the timers
+    /// due run in turn, each the first due of the list as it stands, its function run unless the
+    /// function's quest is finished (`0x41715F`), and every timer of its id taken out after; the
+    /// hero's teleports they made.
+    pub fn clock(&mut self, now: u16) -> Vec<Teleport> {
+        let Some(last) = self.minute.replace(now) else {
+            return Vec::new();
+        };
+        let passed = (now + DAY - last % DAY) % DAY;
+        let mut teleports = Vec::new();
+        for minute in 1..=passed {
+            self.state.timers.tick();
+            if (last + minute) % DAY == 0 {
+                continue;
+            }
+            while let Some(timer) = self.state.timers.due().cloned() {
+                let finished = self
+                    .quest_of(&timer.function)
+                    .is_some_and(|quest| self.state.quests.flags(quest) & quests::FINISHED != 0);
+                if finished {
+                    bevy::log::debug!(
+                        "scripts: the timer {} of {}, its quest finished, runs nothing",
+                        timer.id,
+                        timer.function
+                    );
+                } else {
+                    bevy::log::info!(
+                        "scripts: the timer {} runs {} after {} minutes",
+                        timer.id,
+                        timer.function,
+                        timer.time
+                    );
+                    teleports.extend(self.run(&timer.function, 0));
+                }
+                self.state.timers.ran(timer.id);
+            }
+        }
+        teleports
     }
 
     /// The hero steps onto the global cell `cell` on the layer `layer` (`0x5941A0`, at
@@ -218,35 +305,14 @@ impl Live {
             .cloned()
             .unwrap_or_default();
         let mut teleports = Vec::new();
-        for (function, quest) in functions {
-            if let Ok(quest) = u32::try_from(quest)
-                && self.state.quests.flags(quest) & quests::SET_UP == 0
-            {
-                bevy::log::debug!(
-                    "scripts: the hero steps on {trigger} at {},{}; {function} waits for its \
-                     quest",
-                    cell.0,
-                    cell.1
-                );
-                continue;
-            }
+        for function in functions {
             bevy::log::info!(
-                "scripts: the hero steps on {trigger} at {},{}: {function} runs",
+                "scripts: the hero steps on {trigger} at {},{}: {function}",
                 cell.0,
                 cell.1
             );
             for entry in 0..self.runtime.entries(&function) {
-                let mut recorder = Recorder::new(&self.tree, &mut self.state, &mut self.rng);
-                if let Err(e) = self.runtime.call_entry(&function, entry, &mut recorder) {
-                    bevy::log::warn!("scripts: {e}");
-                }
-                if !recorder.records.is_empty() {
-                    bevy::log::debug!(
-                        "scripts: {function}: {} records of the world not followed yet",
-                        recorder.records.len()
-                    );
-                }
-                teleports.extend(recorder.teleports);
+                teleports.extend(self.run(&function, entry));
             }
         }
         teleports
@@ -444,6 +510,24 @@ impl Host for Recorder<'_> {
                     }
                     _ => Handled::Unknown,
                 }
+            }
+            "set_timer" => {
+                // Its id the last `0B`; a record without its time, `38`, makes none (the
+                // client's carries whatever its stack held, docs/re/netscript.md).
+                if let (Some(function), Some(&id), Some(&time)) = (
+                    tags.texts("_01").first(),
+                    tags.numbers("_0B").last(),
+                    tags.numbers("_38").last(),
+                ) {
+                    self.state.timers.set(id, function, time);
+                }
+                Handled::Done
+            }
+            "del_timer" => {
+                if let Some(&id) = tags.numbers("_0B").last() {
+                    self.state.timers.delete(id);
+                }
+                Handled::Done
             }
             "rnd_var" => {
                 if let (Some(name), [low, high, ..]) = (
@@ -652,6 +736,75 @@ fn step_on(
     }
     let layer = heights.floor(body.level()).map_or(0, |(_, floor)| floor);
     let teleports = live.step_on(cell, layer);
+    put(&mut live, &teleports, &mut transform, &mut body);
+}
+
+/// Counts the clock's minutes on the timers, which run their functions as they are due, and
+/// puts the hero where they teleport it.
+fn timers(
+    live: Option<NonSendMut<Live>>,
+    clock: Option<Res<Clock>>,
+    mut heroes: Query<(&mut Transform, &mut Body)>,
+) {
+    let (Some(mut live), Some(clock)) = (live, clock) else {
+        return;
+    };
+    let teleports = live.clock(clock.minute());
+    if let Ok((mut transform, mut body)) = heroes.single_mut() {
+        put(&mut live, &teleports, &mut transform, &mut body);
+    }
+}
+
+/// Runs the function `function` of the hero's tree as the scripts run one (`Live::run`, the
+/// command `script`), the hero put where it teleports it: a line of what it did, and one of each
+/// timer, its id, its function and the minutes it has still to run.
+pub fn run_function(world: &mut World, function: &str) -> Result<Vec<String>, String> {
+    let (teleports, timers) = {
+        let mut live = world
+            .get_non_send_mut::<Live>()
+            .ok_or("the scripts do not run")?;
+        if live.runtime.entries(function) == 0 {
+            return Err(format!("no function {function} in {}", live.tree));
+        }
+        let teleports = live.run(function, 0);
+        let now = live.state.timers.minutes();
+        let timers: Vec<String> = live
+            .state
+            .timers
+            .list()
+            .iter()
+            .map(|t| {
+                let due = (t.set + u64::try_from(t.time).unwrap_or(0)).saturating_sub(now);
+                format!("timer {} runs {} in {due} minutes", t.id, t.function)
+            })
+            .collect();
+        (teleports, timers)
+    };
+    let mut lines = vec![format!("{function} ran")];
+    if let Some(&Teleport {
+        cell: (x, y),
+        layer,
+    }) = teleports.last()
+    {
+        let mut heroes = world.query::<(&mut Transform, &mut Body)>();
+        if let Some((mut transform, mut body)) = heroes.iter_mut(world).next() {
+            body.put(
+                &mut transform,
+                iso::ground(x as f32 + 0.5, y as f32 + 0.5),
+                Arrival::On(Some(layer)),
+            );
+            lines.push(format!("the hero teleports to {x},{y} on layer {layer}"));
+        }
+        if let Some(mut live) = world.get_non_send_mut::<Live>() {
+            live.at = Some((x, y));
+        }
+    }
+    lines.extend(timers);
+    Ok(lines)
+}
+
+/// Puts the hero where the last of `teleports` names, on its level.
+fn put(live: &mut Live, teleports: &[Teleport], transform: &mut Transform, body: &mut Body) {
     if let Some(&Teleport {
         cell: (x, y),
         layer,
@@ -659,7 +812,7 @@ fn step_on(
     {
         bevy::log::info!("scripts: the hero teleports to {x},{y} on layer {layer}");
         body.put(
-            &mut transform,
+            transform,
             iso::ground(x as f32 + 0.5, y as f32 + 0.5),
             Arrival::On(Some(layer)),
         );
@@ -676,7 +829,8 @@ impl Plugin for ScriptsPlugin {
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
                 Update,
-                step_on
+                (step_on, timers)
+                    .chain()
                     .after(Step::HeroMove)
                     .before(Step::Follow)
                     .in_set(Playing)
@@ -865,13 +1019,18 @@ mod tests {
                  teleport { _03 = 45, _04 = \"tpreinz2.3\" }\n\
                  return true\n\
                  end\n\
+                 F[\"OMO-1gone\"] = function()\n\
+                 teleport { _04 = { 1, 1, 0 } }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/201.luau",
+                "local F = {}\n\
                  F[\"OMO201Wolfattack\"] = function()\n\
                  set_var { _01 = \"wolves\", _0B = 1 }\n\
                  teleport { _01 = \"res:18008\", _04 = { 3205, 2910, 0 } }\n\
-                 return true\n\
-                 end\n\
-                 F[\"OMO-1gone\"] = function()\n\
-                 teleport { _04 = { 1, 1, 0 } }\n\
                  return true\n\
                  end\n\
                  return F",
@@ -906,6 +1065,121 @@ mod tests {
         // A trigger taken out runs nothing, and a cell of none neither.
         assert!(live.step_on((4083, 83), 0).is_empty());
         assert!(live.step_on((3048, 2893), 0).is_empty());
+    }
+
+    /// The scripts of `runtime` as they go on after its start script ran.
+    fn live(runtime: Runtime) -> Live {
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        records(&runtime, "TEST", START, 0, &mut state, &mut rng);
+        let started = Started {
+            assets: PathBuf::new(),
+            tree: "TEST".into(),
+            index: runtime.index().clone(),
+            state,
+            done: runtime.done(),
+            rng,
+        };
+        Live::new(runtime, started)
+    }
+
+    #[test]
+    fn the_timers_run_their_functions_as_the_clocks_minutes_pass() {
+        let runtime = runtime(&[
+            (
+                "start.luau",
+                "local F = {}\n\
+                 F[\"StartCode\"] = function()\n\
+                 set_up_quest { _0B = 1202 }\n\
+                 set_timer { _01 = \"zeit1202\", _0B = 1202, _38 = 4320 }\n\
+                 set_timer { _01 = \"tick\", _0B = 1, _38 = 1 }\n\
+                 set_timer { _01 = \"gone\", _0B = 2, _38 = 1 }\n\
+                 del_timer { _0B = 2 }\n\
+                 set_timer { _01 = \"no time\", _0B = { 1401, 4320 } }\n\
+                 return true\n\
+                 end\n\
+                 F[\"tick\"] = function()\n\
+                 inc_var { _01 = \"ticks\", _0B = 1 }\n\
+                 set_timer { _01 = \"tick\", _0B = 1, _38 = 1 }\n\
+                 return true\n\
+                 end\n\
+                 F[\"gone\"] = function()\n\
+                 set_var { _01 = \"gone\", _0B = 1 }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/1202.luau",
+                "local F = {}\n\
+                 F[\"zeit1202\"] = function()\n\
+                 set_var { _01 = \"late\", _0B = 1 }\n\
+                 teleport { _04 = { 3236, 2511, 1 } }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+        ]);
+        let mut live = live(runtime);
+        assert_eq!(live.state.timers.list().len(), 2);
+        // The first sight of the clock counts nothing.
+        assert!(live.clock(23 * 60 + 58).is_empty());
+        // 23:59: the timer of one minute runs its function, which sets it again, and then every
+        // timer of its id is taken out, the one set again with them (`0x4171B0`).
+        live.clock(23 * 60 + 59);
+        assert_eq!(live.state.variables.get("ticks"), Some(1));
+        assert_eq!(live.state.timers.list().len(), 1);
+        // 00:00 ends a day and runs nothing; 00:01 neither, nothing being due.
+        live.state.timers.set(1, "tick", 1);
+        live.clock(0);
+        assert_eq!(live.state.variables.get("ticks"), Some(1));
+        live.clock(1);
+        assert_eq!(live.state.variables.get("ticks"), Some(2));
+        assert_eq!(live.state.timers.minutes(), 3);
+        assert_eq!(live.state.variables.get("gone"), None);
+        // Three days on, quest 1202's timer runs its function, which teleports the hero: 4,320
+        // minutes after the start, at 23:58 again, the hour by hour of the clock between.
+        let mut now = 1;
+        while live.state.timers.minutes() + 60 < 4_320 {
+            now = (now + 60) % DAY;
+            assert!(live.clock(now).is_empty());
+        }
+        let left = u16::try_from(4_320 - 1 - live.state.timers.minutes()).expect("an hour");
+        assert!(live.clock((now + left) % DAY).is_empty());
+        assert_eq!(
+            live.clock((now + left + 1) % DAY),
+            [Teleport {
+                cell: (3236, 2511),
+                layer: 1
+            }]
+        );
+        assert_eq!(live.state.variables.get("late"), Some(1));
+        assert!(live.state.timers.list().is_empty());
+    }
+
+    #[test]
+    fn a_timer_of_a_finished_quest_runs_nothing() {
+        let runtime = runtime(&[(
+            "quests/7.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"late7\"] = function()\n\
+             set_var { _01 = \"late\", _0B = 1 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        live.state.quests.set_up(7, &mut |_| true);
+        live.state.quests.trigger(7, &mut |_| true);
+        live.state.timers.set(7, "late7", 1);
+        live.state.quests.exit(7, &mut |_| true);
+        live.clock(600);
+        live.clock(601);
+        assert_eq!(live.state.variables.get("late"), None);
+        assert!(live.state.timers.list().is_empty());
     }
 
     #[test]

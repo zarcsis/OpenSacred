@@ -14,8 +14,10 @@ So a timer that runs across the end of a month runs a day early, across the fift
 The runtime stores a timer's moment as the game's minutes elapsed since the new game, and a timer of a time `t` runs `t` minutes later, whatever the date.
 The rest is the original's:
 - a timer of the same id replaces the earlier one;
-- at each minute that the clock completes, the first timer that is due runs its function, unless the function's quest is finished;
-- every timer of that id is then removed.
+- at each minute that the clock completes, but the one that ends a day, the timers that are due run their functions in turn, each the first due of the list as it stands, but those whose quest is finished;
+- every timer of that id is removed after its function ran.
+
+`opensacred-game` follows it since #933 (`scripts`).
 
 ## Why
 

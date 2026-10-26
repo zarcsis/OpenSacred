@@ -206,6 +206,10 @@ enum Command {
     Fly { on: Option<Switch> },
     /// Make the hostile creature nearest the hero drop, as if the hero killed it, TIMES times
     Drop { times: Option<u32> },
+    /// Run the function FUNCTION of the hero's tree as the scripts run one, a function of a quest
+    /// only while the quest is set up, the hero put where it teleports it; then list the
+    /// scripts' timers
+    Script { function: String },
     /// The hero's combat arts, as the original's driver lists them: each one's table, id, level
     /// and bonus, whether a rune taught it, its time, its factor and what is still to run, which
     /// runs down as they regenerate
@@ -1251,6 +1255,13 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             let line = crate::drops::drop_nearest(world, times.unwrap_or(1))?;
             Ok(Outcome::say(line))
         }
+        Command::Script { function } => {
+            in_game(world)?;
+            Ok(Outcome {
+                lines: crate::scripts::run_function(world, &function)?,
+                wait: None,
+            })
+        }
         Command::Arts { action } => {
             in_game(world)?;
             let mut first = Vec::new();
@@ -1624,7 +1635,7 @@ mod tests {
         assert_eq!(complete("zo"), ["zoom"]);
         assert_eq!(
             complete("s"),
-            ["screenshot", "sector", "spawn", "state", "stats"]
+            ["screenshot", "script", "sector", "spawn", "state", "stats"]
         );
         assert_eq!(complete("gait "), ["run", "walk"]);
         assert_eq!(complete("music o"), ["off", "on"]);
@@ -1800,6 +1811,11 @@ mod tests {
             );
         }
         assert!(run(world, "nearest 5,5").unwrap_err().contains("no world"));
+        assert!(
+            run(world, "script StartCode")
+                .unwrap_err()
+                .contains("scripts do not run")
+        );
         let help = run(world, "help").unwrap();
         assert!(help.lines.iter().any(|line| line.contains("new-game")));
         let state = run(world, "state").unwrap();
