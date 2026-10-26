@@ -33,13 +33,14 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::{
-    Added, App, Commands, Entity, IntoScheduleConfigs, NonSendMut, OnEnter, OnExit, Plugin, Query,
-    Res, ResMut, Resource, Transform, Update, With, Without, World,
+    Added, App, Commands, Entity, IntoScheduleConfigs, MessageReader, NonSendMut, OnEnter, OnExit,
+    Plugin, Query, Res, ResMut, Resource, Transform, Update, With, Without, World,
 };
 use opensacred_data::luau::{BYTECODE, INDEX, Index};
 use opensacred_data::netscript::{Function, Record, Tree};
-use opensacred_rules::quests::{self, Transition};
+use opensacred_rules::quests::{self, Counted, Transition};
 use opensacred_rules::spawning::Rng;
 use opensacred_scripts::{Handled, Host, Operand, Outcome, Runtime};
 
@@ -328,15 +329,59 @@ impl Live {
             .cloned()
     }
 
-    /// Runs the death's function `function` of a creature (`0x46BF40`, then `0x46BA90`), found
-    /// by its name case aside, a quest's only while the quest is set up: what it did to the
-    /// world, nothing where the tree has no such function.
-    pub fn die(&mut self, function: &str) -> Effects {
+    /// Runs the function `function` found by its name case aside (`0x46BF40`, `0x460590`), as
+    /// the runner runs one (`0x46BA90`), a quest's only while the quest is set up: a creature's
+    /// death's function, a count's: what it did to the world, nothing where the tree has no such
+    /// function.
+    pub fn run_named(&mut self, function: &str) -> Effects {
         match self.named(function) {
             Some(name) => self.run(&name, 0),
             None => {
-                bevy::log::warn!("scripts: no death's function {function} in {}", self.tree);
+                bevy::log::warn!("scripts: no function {function} in {}", self.tree);
                 Effects::default()
+            }
+        }
+    }
+
+    /// Counts a kill of a creature of the type `creature` (`SetOnKill`, `0x4AA630`; #1021): the
+    /// function of its count once done, what it did to the world.
+    pub fn kill(&mut self, creature: u32) -> Effects {
+        match self.state.kills.count(creature) {
+            Some(Counted::Done(function)) => {
+                bevy::log::info!("scripts: the kills of {creature} are done and run {function}");
+                self.run_named(&function)
+            }
+            Some(Counted::Goes { counted, asked }) => {
+                bevy::log::info!("scripts: {counted} of {asked} kills of {creature}");
+                Effects::default()
+            }
+            None => Effects::default(),
+        }
+    }
+
+    /// Counts an item of the type `item` that the hero picks up (`SetOnCollect`, `0x4AAAE0`;
+    /// #1021), the counts of a creature's type first taking the item of its `SetDrop`: what the
+    /// count's function did to the world where one counts it, which keeps the item among the
+    /// quest's, none where none counts it.
+    pub fn collect(&mut self, item: u32) -> Option<Effects> {
+        let quests::Scripts {
+            collecting, drops, ..
+        } = &mut self.state;
+        let creatures = &self.creatures;
+        collecting.retype(|kind| {
+            creatures
+                .contains(&kind)
+                .then(|| drops.of(kind).next().map(|(item, _)| item))
+                .flatten()
+        });
+        match self.state.collecting.count(item)? {
+            Counted::Done(function) => {
+                bevy::log::info!("scripts: the items {item} are collected and run {function}");
+                Some(self.run_named(&function))
+            }
+            Counted::Goes { counted, asked } => {
+                bevy::log::info!("scripts: {counted} of {asked} items {item} collected");
+                Some(Effects::default())
             }
         }
     }
@@ -777,6 +822,34 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
+            // The counts of the kills and of the items collected (`0x4AF190`, `0x4AF8C0`; #1021):
+            // their first type and count, and their function.
+            "set_on_kill" | "set_on_collect" => {
+                let kind = tags
+                    .numbers("_02")
+                    .first()
+                    .and_then(|&k| u32::try_from(k).ok());
+                let count = tags
+                    .numbers("_0B")
+                    .first()
+                    .and_then(|&c| u32::try_from(c).ok());
+                let function = tags
+                    .texts("_05")
+                    .first()
+                    .or(tags.texts("_41").first())
+                    .copied();
+                if let (Some(kind), Some(count)) = (kind, count) {
+                    let counts = if name == "set_on_kill" {
+                        &mut self.state.kills
+                    } else {
+                        &mut self.state.collecting
+                    };
+                    counts.set(kind, count, function);
+                }
+                Handled::Done
+            }
+            // The groups' changes and the removals, which `npcs` carries out (#1021).
+            "set_group_state" | "del_npc" => Handled::Done,
             "set_hp" => {
                 // Its last name and number, the number held to 0..100 (`0x48E280`).
                 let name = tags
@@ -1191,6 +1264,28 @@ fn carry_out(
     Ok(lines)
 }
 
+/// The queues that hand what the scripts did to the world on to the modules that carry it out:
+/// the objects' states, the healths, the records of the world and the hero's home.
+#[derive(SystemParam)]
+struct Queues<'w> {
+    states: ResMut<'w, ObjStates>,
+    healths: ResMut<'w, Healths>,
+    world: ResMut<'w, WorldRecords>,
+    home: ResMut<'w, HeroHome>,
+}
+
+impl Queues<'_> {
+    /// Hands `effects` on, but the hero's teleports, which the caller carries out.
+    fn hand(&mut self, effects: Effects) {
+        self.states.0.extend(effects.states);
+        self.healths.0.extend(effects.healths);
+        self.world.0.extend(effects.records);
+        if let Some(spot) = effects.home {
+            self.home.0 = Some(spot);
+        }
+    }
+}
+
 /// The scripts' groups that hold a living creature, wherever it stands (`GroupIsDead`,
 /// `0x48C860`): the world's creatures alive, but the raised dead (`+0x1F4` bit `0x2000000`), and
 /// those that live away from it (`npcs::Npcs::living_groups`).
@@ -1220,33 +1315,50 @@ fn living_groups<'a>(
 fn deaths(
     mut commands: Commands,
     live: Option<NonSendMut<Live>>,
-    mut dying: Query<(Entity, &mut OnDeath, Option<&ScriptName>, &mut Health), Added<Dies>>,
-    mut heroes: Query<(&mut Transform, &mut Body), (With<Body>, Without<OnDeath>)>,
-    (mut states, mut healths, mut world, mut home): (
-        ResMut<ObjStates>,
-        ResMut<Healths>,
-        ResMut<WorldRecords>,
-        ResMut<HeroHome>,
-    ),
+    mut dying: Query<
+        (
+            Entity,
+            Option<&mut OnDeath>,
+            Option<&ScriptName>,
+            &mut Health,
+            &Dies,
+            Option<&Mind>,
+        ),
+        Added<Dies>,
+    >,
+    mut heroes: Query<(&mut Transform, &mut Body), With<Body>>,
+    mut queues: Queues,
     (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
     let Some(mut live) = live else {
         return;
     };
     let mut taken = false;
-    for (entity, mut on_death, name, mut health) in &mut dying {
-        let Some(function) = on_death.0.take() else {
-            continue;
-        };
+    for (entity, on_death, name, mut health, dies, mind) in &mut dying {
         if !taken {
             live.living = living_groups(npcs.as_deref(), minds.iter());
             taken = true;
         }
+        // A kill of a type that a `SetOnKill` counts, whoever killed it, but not a death at
+        // nobody's hands nor one of class 5 (`0x534795`, `0x534F60`, `0x5337AB`; #1021).
+        let kill = mind
+            .filter(|mind| dies.killed && mind.class != 5)
+            .map(|mind| mind.creature);
+        let Some(function) = on_death.and_then(|mut on_death| on_death.0.take()) else {
+            if let Some(creature) = kill {
+                let effects = live.kill(creature);
+                if let Ok((mut transform, mut body)) = heroes.single_mut() {
+                    put(&mut live, &effects.teleports, &mut transform, &mut body);
+                }
+                queues.hand(effects);
+            }
+            continue;
+        };
         bevy::log::info!(
             "scripts: {} dies and runs {function}",
             name.map_or("a creature", |name| name.0.as_str())
         );
-        let effects = live.die(&function);
+        let mut effects = live.run_named(&function);
         // The last `SetHP` of its own name decides its health (`0x53E93C`).
         let rises = name
             .and_then(|name| {
@@ -1266,16 +1378,43 @@ fn deaths(
                 health.current,
                 health.most
             );
+        } else if let Some(creature) = kill {
+            // One that rises is no kill: its event's handler ends there (`0x52F7A8`).
+            let counted = live.kill(creature);
+            effects.extend(counted);
         }
         if let Ok((mut transform, mut body)) = heroes.single_mut() {
             put(&mut live, &effects.teleports, &mut transform, &mut body);
         }
-        states.0.extend(effects.states);
-        healths.0.extend(effects.healths);
-        world.0.extend(effects.records);
-        if let Some(spot) = effects.home {
-            home.0 = Some(spot);
+        queues.hand(effects);
+    }
+}
+
+/// Counts each item that the hero picks up on the scripts' collecting (`SetOnCollect`,
+/// `0x4AAAE0`; #1021): one that a count counts goes from its pack among the main quest's items
+/// (docs/re/items.md, "What becomes of the item"), and a count done runs its function.
+fn collect(
+    live: Option<NonSendMut<Live>>,
+    mut taken: MessageReader<crate::pickup::Taken>,
+    mut pack: ResMut<crate::pickup::Pack>,
+    mut heroes: Query<(&mut Transform, &mut Body)>,
+    mut queues: Queues,
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
+) {
+    let Some(mut live) = live else {
+        taken.clear();
+        return;
+    };
+    for &crate::pickup::Taken(item) in taken.read() {
+        live.living = living_groups(npcs.as_deref(), minds.iter());
+        let Some(effects) = live.collect(item) else {
+            continue;
+        };
+        pack.keep_for_quest(item);
+        if let Ok((mut transform, mut body)) = heroes.single_mut() {
+            put(&mut live, &effects.teleports, &mut transform, &mut body);
         }
+        queues.hand(effects);
     }
 }
 
@@ -1323,6 +1462,13 @@ impl Plugin for ScriptsPlugin {
                     .after(npcs::script_healths)
                     .before(npcs::die)
                     .in_set(Playing),
+            )
+            .add_systems(
+                Update,
+                collect
+                    .after(crate::pickup::take)
+                    .in_set(Playing)
+                    .in_set(Unpaused),
             );
     }
 }
@@ -1511,10 +1657,10 @@ mod tests {
         let mut live = live(runtime);
         // Another of the group lives, somewhere: the function stops at its guard.
         live.living = HashSet::from([npcs::SCRIPT_GROUP | 1201]);
-        assert!(live.die("TOT1201").healths.is_empty());
+        assert!(live.run_named("TOT1201").healths.is_empty());
         // The last of it dies: the function runs on, found by its name case aside.
         live.living = HashSet::new();
-        let effects = live.die("TOT1201");
+        let effects = live.run_named("TOT1201");
         assert_eq!(
             effects.healths,
             [SetHealth {
@@ -1522,7 +1668,46 @@ mod tests {
                 share: 50
             }]
         );
-        assert!(live.die("no_such_function").healths.is_empty());
+        assert!(live.run_named("no_such_function").healths.is_empty());
+    }
+
+    #[test]
+    fn the_kills_and_the_items_collected_run_their_functions_once_counted() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"bounty\"] = function()\n\
+             set_on_kill { _02 = 691, _05 = \"ok_10252\", _0B = 2 }\n\
+             set_drop { _02 = { 38, 6005 }, _0B = 75 }\n\
+             set_on_collect { _02 = 38, _0B = 1, _41 = \"oc_10250\" }\n\
+             return true\n\
+             end\n\
+             F[\"OK_10252\"] = function()\n\
+             set_hp { _0B = 100 }\n\
+             return true\n\
+             end\n\
+             F[\"oc_10250\"] = function()\n\
+             set_hp { _0B = 50 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        live.creatures = HashSet::from([38, 691]);
+        live.run_named("bounty");
+        // The first kill counts, the second runs the function by its name case aside.
+        assert!(live.kill(691).healths.is_empty());
+        assert!(live.kill(190).healths.is_empty());
+        assert_eq!(live.kill(691).healths.len(), 1);
+        assert!(live.kill(691).healths.is_empty());
+        // The drop of the creature 38 counts as its item is picked up; another item does not.
+        assert!(live.collect(1).is_none());
+        let collected = live.collect(6005).expect("6005 is counted");
+        assert_eq!(collected.healths.len(), 1);
+        assert!(live.collect(6005).is_none());
     }
 
     #[test]

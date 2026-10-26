@@ -628,6 +628,86 @@ impl DeathFunctions {
     }
 }
 
+/// A count of the scripts (`SetOnKill`, `SetOnCollect`; entries of 76 bytes): a creature's or an
+/// item's type, the count left and the count asked, and the function that runs once it is done.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Count {
+    pub kind: u32,
+    pub left: u32,
+    pub asked: u32,
+    pub function: String,
+}
+
+/// What a count does as a type is counted ([`Counts::count`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Counted {
+    /// Its count goes on: so many counted of so many asked (the engine's event `0xB` with the
+    /// line of the type's name and the counts, not followed).
+    Goes { counted: u32, asked: u32 },
+    /// It is done: its function runs, the entry taken out.
+    Done(String),
+}
+
+/// The scripts' counts by type (`SetOnKill`, 135, `0x4AF190`, at `+0x7614`; `SetOnCollect`, 136,
+/// `0x4AF8C0`, at `+0x7620`; docs/re/netscript.md, "`SetOnKill` and `SetOnCollect`"), in the order
+/// set.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Counts(Vec<Count>);
+
+impl Counts {
+    /// A record's count of `count` for the type `kind`, with the function `function` where it
+    /// names one: a type counted already starts again at the new count, and takes the new
+    /// function if any; a count of 0 takes it out; a new type is kept only with a function.
+    pub fn set(&mut self, kind: u32, count: u32, function: Option<&str>) {
+        let at = self.0.iter().position(|c| c.kind == kind);
+        match (at, count, function) {
+            (Some(at), 0, _) => {
+                self.0.remove(at);
+            }
+            (Some(at), count, function) => {
+                let entry = &mut self.0[at];
+                entry.left = count;
+                entry.asked = count;
+                if let Some(function) = function {
+                    function.clone_into(&mut entry.function);
+                }
+            }
+            (None, 0, _) | (None, _, None) => {}
+            (None, count, Some(function)) => self.0.push(Count {
+                kind,
+                left: count,
+                asked: count,
+                function: function.to_owned(),
+            }),
+        }
+    }
+
+    /// Counts one of the type `kind` on the first entry of that type (`0x4AA630`, `0x4AAAE0`);
+    /// none where no entry counts it.
+    pub fn count(&mut self, kind: u32) -> Option<Counted> {
+        let at = self.0.iter().position(|c| c.kind == kind)?;
+        let entry = &mut self.0[at];
+        entry.left = entry.left.saturating_sub(1);
+        if entry.left > 0 {
+            return Some(Counted::Goes {
+                counted: entry.asked - entry.left,
+                asked: entry.asked,
+            });
+        }
+        Some(Counted::Done(self.0.remove(at).function))
+    }
+
+    /// Gives each entry whose type `item` maps its item's type in its place: `SetOnCollect`'s
+    /// entries of a creature's type count the item of its `SetDrop` (`0x4AAAE0`).
+    pub fn retype(&mut self, item: impl Fn(u32) -> Option<u32>) {
+        for entry in &mut self.0 {
+            if let Some(item) = item(entry.kind) {
+                entry.kind = item;
+            }
+        }
+    }
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -639,6 +719,9 @@ pub struct Scripts {
     pub triggers: Triggers,
     pub timers: Timers,
     pub drops: Drops,
+    /// The kills counted (`SetOnKill`) and the items collected (`SetOnCollect`).
+    pub kills: Counts,
+    pub collecting: Counts,
 }
 
 #[cfg(test)]
@@ -949,6 +1032,46 @@ mod tests {
         deaths.see("second");
         assert_eq!(deaths.take().as_deref(), Some("lose670"));
         assert_eq!(deaths.take(), None);
+    }
+
+    #[test]
+    fn a_count_runs_its_function_once_done_and_starts_again_when_set_again() {
+        let mut kills = Counts::default();
+        // A new type is kept only with a function, and a count of 0 takes one out.
+        kills.set(691, 3, None);
+        assert_eq!(kills.count(691), None);
+        kills.set(691, 2, Some("ok_10252"));
+        assert_eq!(
+            kills.count(691),
+            Some(Counted::Goes {
+                counted: 1,
+                asked: 2
+            })
+        );
+        // Set again, it starts again at its new count.
+        kills.set(691, 3, None);
+        assert_eq!(
+            kills.count(691),
+            Some(Counted::Goes {
+                counted: 1,
+                asked: 3
+            })
+        );
+        kills.count(691);
+        assert_eq!(kills.count(691), Some(Counted::Done("ok_10252".into())));
+        assert_eq!(kills.count(691), None);
+        kills.set(190, 5, Some("ok_10253"));
+        kills.set(190, 0, None);
+        assert_eq!(kills.count(190), None);
+        // A creature's type counts the item of its drop.
+        let mut collecting = Counts::default();
+        collecting.set(38, 1, Some("oc_10250"));
+        collecting.retype(|kind| (kind == 38).then_some(6005));
+        assert_eq!(collecting.count(38), None);
+        assert_eq!(
+            collecting.count(6005),
+            Some(Counted::Done("oc_10250".into()))
+        );
     }
 
     #[test]

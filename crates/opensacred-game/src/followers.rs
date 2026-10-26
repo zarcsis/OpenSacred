@@ -109,7 +109,7 @@ fn hire_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
         .collect();
     for entity in gone {
         info!("followers: {entity} goes for the new one");
-        world.entity_mut(entity).insert(Dies::by_creature(0));
+        world.entity_mut(entity).insert(Dies::unkilled());
     }
     let level = world.get::<Body>(summoning.master).map(Body::level);
     let floor = world

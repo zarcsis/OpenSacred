@@ -81,6 +81,10 @@ const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
 const SET_NPC_STATE: u16 = 3;
 const SET_HP: u16 = 52;
+const DEL_NPC: u16 = 55;
+const SET_GROUP_STATE: u16 = 73;
+/// The operand of a `SetGroupState` that removes its group's living creatures (`0x49E760`).
+const REMOVES: u8 = 0x51;
 /// The operand of a `CreateNPC` or a `SetNPCState` that names its dialogue, and that of a
 /// `SetNPCState` that gives its number (`0x48BB40`).
 const DIALOGUE: u8 = 0x09;
@@ -518,6 +522,9 @@ pub struct Npcs {
     /// The placements that the play's records made, which live wherever they stand from then on
     /// ([`Self::living_groups`]).
     played: HashSet<usize>,
+    /// The dialogues' table by name, as the start's records fill it, its first entry twice
+    /// (`0x476A05`), which the play's `SetGroupState`s look their dialogues up in (#1021).
+    dialogues: Vec<String>,
     /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
@@ -1442,6 +1449,130 @@ impl State {
     }
 }
 
+/// The dialogues' table of `records` by name, as their entries of type 40 fill it, the first
+/// twice (`0x476A05`).
+fn dialogue_table(records: &[&Record]) -> Vec<String> {
+    let mut table = Vec::new();
+    for record in records {
+        if let Body::Dialog { name, .. } = &record.body {
+            if table.is_empty() {
+                table.push(name.clone());
+            }
+            table.push(name.clone());
+        }
+    }
+    table
+}
+
+/// A `SetGroupState`'s change of its group's creatures (73, `0x49E760`; #1021,
+/// docs/re/netscript.md, "`SetGroupState`"): its group, whether it removes its living members
+/// (`0x51`), and else the flags word of its operand-less tags ([`ways::state_word`]), its
+/// hostility, whether it gives a dialogue (an index above 0 by its `0x09`'s name; none, or a
+/// `0x0A`, takes the members' away), its death's and sight functions and its level.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct GroupState {
+    group: Option<u32>,
+    removes: bool,
+    word: u32,
+    hostile: Option<bool>,
+    dialogue: bool,
+    death: Option<String>,
+    sight: Option<String>,
+    level: u32,
+}
+
+impl GroupState {
+    /// The change of a `SetGroupState` of operands `ops`, its dialogue looked up in the
+    /// dialogues' table `dialogues`.
+    fn of(ops: &[opensacred_data::netscript::Operand], dialogues: &[String]) -> Self {
+        let markers = ops
+            .iter()
+            .filter(|o| matches!(o.value, Value::Marker))
+            .map(|o| o.tag);
+        let mut state = Self {
+            group: script_group(ops),
+            word: ways::state_word(markers),
+            level: level_tag(ops),
+            ..Self::default()
+        };
+        for op in ops {
+            match (op.tag, &op.value) {
+                (REMOVES, Value::Marker) => state.removes = true,
+                (0x08, Value::Marker) => state.hostile = Some(true),
+                (0x0E, Value::Marker) => state.hostile = Some(false),
+                (ON_DEATH, Value::Str(name)) => state.death = Some(name.clone()),
+                (ON_SIGHT, Value::Str(name)) => state.sight = Some(name.clone()),
+                (DIALOGUE, Value::Str(name)) => {
+                    state.dialogue = dialogues
+                        .iter()
+                        .position(|entry| entry.eq_ignore_ascii_case(name))
+                        .is_some_and(|index| index > 0);
+                }
+                (DIALOGUE_NUMBER, _) => state.dialogue = false,
+                _ => {}
+            }
+        }
+        state
+    }
+
+    /// Gives a member's placement the change, in the order of `0x49E760`: the flags word, the
+    /// side, the sight function, the dialogue, the level, the death's function.
+    fn apply(&self, placement: &mut Placement) {
+        let (creature, _, word) = &mut placement.creature;
+        *word = ways::grouped_word(*word, self.word);
+        if let Some(hostile) = self.hostile {
+            placement.side = minds::grouped_side(placement.side, *creature, self.word, hostile);
+        }
+        if let Some(sight) = &self.sight {
+            placement.on_death.see(sight);
+        }
+        placement.dialogue = self.dialogue;
+        if self.level > 0 {
+            placement.tag = self.level;
+            if self.level == fight::BOSS_TAG {
+                placement.rank = fight::Rank::Boss;
+            }
+        }
+        if let Some(death) = &self.death {
+            placement.on_death.set(death);
+        }
+    }
+
+    /// Gives a member in the world the change: its mind's flags word, side and dialogue, how it
+    /// stands in the hero's way, and its functions; its level is not changed in the world.
+    fn apply_to(
+        &self,
+        mind: &mut ai::Mind,
+        way: Option<&mut crowd::InTheWay>,
+        functions: &mut DeathFunctions,
+    ) {
+        mind.flags = ways::grouped_word(mind.flags, self.word);
+        if let Some(hostile) = self.hostile {
+            mind.side = minds::grouped_side(mind.side, mind.creature, self.word, hostile);
+        }
+        mind.dialogue = self.dialogue;
+        if let Some(way) = way {
+            way.stands.hostile = ways::stops_the_hero(mind.flags);
+        }
+        if let Some(sight) = &self.sight {
+            functions.see(sight);
+        }
+        if let Some(death) = &self.death {
+            functions.set(death);
+        }
+    }
+}
+
+/// What the play's `SetGroupState`s and `DelNPC`s do to the creatures in the world
+/// ([`Npcs::regroup`]).
+#[derive(Clone, Debug, PartialEq)]
+enum Regrouped {
+    /// A group's change ([`GroupState`]).
+    Group(GroupState),
+    /// The creatures of a name removed (`DelNPC`, 55, `0x497F80`).
+    Removed(String),
+}
+
 /// The death's and sight functions of a `CreateNPC` of the operands `ops`: its `0x05`'s and its
 /// `0x60`'s, the latter as `See:` and its name, in their order (`0x483970`, `0x4839CF`; #656,
 /// #1025).
@@ -2181,6 +2312,7 @@ impl Npcs {
             places: positions,
             pending: Vec::new(),
             played: HashSet::new(),
+            dialogues: dialogue_table(&records),
             values,
             fills,
             templates,
@@ -3959,6 +4091,55 @@ impl Npcs {
         stated
     }
 
+    /// What the play's `SetGroupState`s and `DelNPC`s do (#1021): each given to the placements
+    /// of its group or name here, a removal keeping them from being placed again, and returned,
+    /// in order, for the creatures in the world ([`script_records`]).
+    fn regroup(&mut self, records: &[Record]) -> Vec<Regrouped> {
+        let mut regrouped = Vec::new();
+        for record in records {
+            let Body::Operands(ops) = &record.body else {
+                continue;
+            };
+            let change = match record.kind {
+                SET_GROUP_STATE => {
+                    let state = GroupState::of(ops, &self.dialogues);
+                    if state.group.is_none() {
+                        continue;
+                    }
+                    Regrouped::Group(state)
+                }
+                DEL_NPC => match name_of(ops) {
+                    Some(name) => Regrouped::Removed(name),
+                    None => continue,
+                },
+                _ => continue,
+            };
+            for index in 0..self.placements.len() {
+                let placement = &self.placements[index];
+                let member = match &change {
+                    Regrouped::Group(state) => placement.group == state.group,
+                    Regrouped::Removed(name) => placement.name.as_ref() == Some(name),
+                };
+                if !member || placement.object {
+                    continue;
+                }
+                match &change {
+                    Regrouped::Group(state) if !state.removes => {
+                        state.apply(&mut self.placements[index]);
+                    }
+                    // Removed where it is not in the world, its `Enter`'s made again as theirs
+                    // come in (`sdk_DESTROY`).
+                    _ if !placement.made.0 && !self.kept.out.contains(&index) => {
+                        self.kept.went.insert(index, None);
+                    }
+                    _ => {}
+                }
+            }
+            regrouped.push(change);
+        }
+        regrouped
+    }
+
     /// The scripts' groups that hold a creature living away from the world, wherever it stands,
     /// as `GroupIsDead` asks of each member (`0x48C860`): a placement not in the world now, not
     /// an `Enter`'s, made by the start or the play and never killed, or gone with its sector
@@ -4214,7 +4395,7 @@ pub(crate) fn script_healths(
                 health.most
             );
             if health.current == 0 {
-                commands.entity(entity).insert(Dies::by_creature(0));
+                commands.entity(entity).insert(Dies::unkilled());
             }
         }
     }
@@ -4233,10 +4414,12 @@ fn script_records(
     mut creatures: Query<
         (
             Entity,
-            &ScriptName,
+            Option<&ScriptName>,
             Option<&mut OnDeath>,
             &mut Transform,
             Option<&mut ai::Mind>,
+            Option<&mut crowd::InTheWay>,
+            Option<&mut fight::Health>,
         ),
         Without<Dies>,
     >,
@@ -4254,9 +4437,9 @@ fn script_records(
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
     for (name, state) in npcs.restate(&records) {
-        for (entity, _, on_death, mut transform, mind) in creatures
+        for (entity, _, on_death, mut transform, mind, ..) in creatures
             .iter_mut()
-            .filter(|(_, named, ..)| named.0 == name)
+            .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
         {
             match on_death {
                 Some(mut on_death) => state.restate(&mut on_death.0),
@@ -4279,6 +4462,48 @@ fn script_records(
                 }
             }
             bevy::log::info!("npcs: the scripts set {name}'s state");
+        }
+    }
+    for change in npcs.regroup(&records) {
+        for (entity, named, on_death, _, mind, way, health) in &mut creatures {
+            let member = match &change {
+                Regrouped::Group(state) => {
+                    mind.as_ref().is_some_and(|mind| mind.group == state.group)
+                }
+                Regrouped::Removed(name) => named.is_some_and(|named| &named.0 == name),
+            };
+            if !member {
+                continue;
+            }
+            match (&change, mind) {
+                (Regrouped::Group(state), Some(mut mind)) if !state.removes => {
+                    let mut functions = on_death.as_ref().map(|d| d.0.clone()).unwrap_or_default();
+                    state.apply_to(&mut mind, way.map(|way| way.into_inner()), &mut functions);
+                    match on_death {
+                        Some(mut on_death) => on_death.0 = functions,
+                        None if functions.is_empty() => {}
+                        None => {
+                            commands.entity(entity).insert(OnDeath(functions));
+                        }
+                    }
+                }
+                // Removed without a death, its function not run, nothing dropped: kept from
+                // coming back as it goes (`sdk_DESTROY(id, 1, 0, 1)`, `0x463A70`).
+                _ => {
+                    if let Some(mut health) = health {
+                        health.current = 0;
+                    }
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+        match change {
+            Regrouped::Group(state) => bevy::log::info!(
+                "npcs: the scripts {} the group {}",
+                if state.removes { "remove" } else { "set" },
+                state.group.map_or(0, |group| group & !SCRIPT_GROUP)
+            ),
+            Regrouped::Removed(name) => bevy::log::info!("npcs: the scripts remove {name}"),
         }
     }
 }
@@ -4378,6 +4603,9 @@ pub struct Dies {
     played: bool,
     /// Whether a creature killed it, not the hero: it drops nothing (`0x533BA8`, #630).
     pub by_creature: bool,
+    /// Whether anyone killed it: a `SetHP` of 0, a summoned follower replaced or a lifetime's
+    /// end kills nobody's, which the scripts' kills do not count (`0x534F60`, #1021).
+    pub killed: bool,
 }
 
 impl Dies {
@@ -4386,6 +4614,16 @@ impl Dies {
             choice,
             played: false,
             by_creature: false,
+            killed: true,
+        }
+    }
+
+    /// A death at nobody's hands, which drops nothing (#1021).
+    pub fn unkilled() -> Self {
+        Self {
+            by_creature: true,
+            killed: false,
+            ..Self::new(0)
         }
     }
 
@@ -5485,6 +5723,56 @@ mod tests {
                 (1000, fight::Rank::Boss),
             ]
         );
+    }
+
+    #[test]
+    fn a_set_group_state_changes_its_members_or_removes_them() {
+        let op = |tag, value| Operand { tag, value };
+        let dialogues = [
+            "first".to_owned(),
+            "first".to_owned(),
+            "Priester".to_owned(),
+        ];
+        // Quest 1101's priests made hostile, awake, with a death's function and no dialogue.
+        let state = GroupState::of(
+            &[
+                op(ON_DEATH, Value::Str("Priesterweg1101".into())),
+                op(0x08, Value::Marker),
+                op(GROUP, Value::I32(11012)),
+                op(0x12, Value::Marker),
+            ],
+            &dialogues,
+        );
+        assert_eq!(state.group, Some(SCRIPT_GROUP | 11012));
+        assert!(!state.removes && !state.dialogue);
+        let mut priest = Placement {
+            dialogue: true,
+            side: 3,
+            creature: (677, 0, 0x8_0400),
+            ..Placement::default()
+        };
+        state.apply(&mut priest);
+        assert_eq!(priest.creature.2, 0x8_0001);
+        assert_eq!(priest.side, 2);
+        assert!(!priest.dialogue);
+        assert_eq!(
+            priest.on_death.clone().take().as_deref(),
+            Some("Priesterweg1101")
+        );
+        // A dialogue found gives one; a removal is only that.
+        let talks = GroupState::of(
+            &[
+                op(GROUP, Value::I32(5)),
+                op(DIALOGUE, Value::Str("priester".into())),
+            ],
+            &dialogues,
+        );
+        assert!(talks.dialogue);
+        let removes = GroupState::of(
+            &[op(GROUP, Value::I32(10)), op(REMOVES, Value::Marker)],
+            &[],
+        );
+        assert!(removes.removes);
     }
 
     #[test]

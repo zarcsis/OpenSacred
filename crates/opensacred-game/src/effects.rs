@@ -166,7 +166,7 @@ fn wear(
                 if let Some(mut health) = health {
                     health.current = 0;
                 }
-                commands.entity(entity).insert(npcs::Dies::by_creature(0));
+                commands.entity(entity).insert(npcs::Dies::unkilled());
             }
         }
     }
