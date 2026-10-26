@@ -627,8 +627,8 @@ pub struct Npcs {
     spawned: HashSet<(u32, u32)>,
     /// What became of the creatures that went with their sectors ([`Kept`]).
     kept: Kept,
-    /// The sectors come in anew whose waters' crabs and fish wait for the sectors about them
-    /// ([`swimmers`]).
+    /// The sectors come in with no creatures kept whose waters' crabs and fish wait for the
+    /// sectors about them ([`swimmers`]).
     waters: Vec<(u32, u32)>,
 }
 
@@ -649,7 +649,8 @@ enum Source {
     /// placed once, it keeps where it stands and its health, and a killed one does not come back.
     Kept(usize),
     /// A creature that a sector's fill made: the sector keeps it while it lives, and puts it back
-    /// at its next coming in rather than filling anew (`0x4954C0`, `0x4939F0`).
+    /// at its next coming in while the region that filled last is its own (`0x4954C0`,
+    /// `0x4939F0`, [`Kept::enter`]).
     Filled(Box<Placement>),
 }
 
@@ -670,8 +671,18 @@ struct Kept {
     out: HashSet<usize>,
     /// The living creatures of each sector's fills that went with it.
     filled: HashMap<(u32, u32), Vec<(Placement, Stood)>>,
-    /// How many creatures of each sector's fills are spawned, living somewhere.
-    filled_out: HashMap<(u32, u32), usize>,
+    /// The sectors that kept a time, keeping a fill's living creature as they went (`+0x59C`).
+    times: HashSet<(u32, u32)>,
+    /// The region whose sector filled last (`0x94E080`).
+    last: Option<u16>,
+}
+
+/// What a sector that comes in does with its fills ([`Kept::enter`]).
+struct Entered {
+    /// The fills' living creatures that went with it, put back where they stood.
+    back: Vec<(Placement, Stood)>,
+    /// Whether its fills make their creatures anew.
+    fill: bool,
 }
 
 /// What a sector that comes in does with a kept placement.
@@ -698,21 +709,40 @@ impl Kept {
         }
     }
 
-    /// The fills' living creatures that sector `at` puts back, and whether it fills anew: only
-    /// when none of them lives, neither kept nor somewhere still.
-    fn back(&mut self, at: (u32, u32)) -> (Vec<(Placement, Stood)>, bool) {
+    /// What sector `at` does with its fills as it comes in, `filling` its region where it has
+    /// fills, `region_of` another sector's (`FillSector`, `0x47CCEC`…`0x47CDEF`, docs/re/
+    /// spawning.md): where it kept a time and its region filled last, the creatures it kept come
+    /// back, none where it kept none, and it fills nothing; else it fills anew, dropping what it
+    /// kept, and a region other than the last drops what every sector of another region kept,
+    /// and its time. A sector of no fills puts back what it kept (`0x4939F0`).
+    fn enter(
+        &mut self,
+        at: (u32, u32),
+        filling: Option<u16>,
+        region_of: impl Fn((u32, u32)) -> u16,
+    ) -> Entered {
         let back = self.filled.remove(&at).unwrap_or_default();
-        let anew = back.is_empty() && self.filled_out.get(&at).copied().unwrap_or(0) == 0;
-        (back, anew)
+        let Some(region) = filling else {
+            return Entered { back, fill: false };
+        };
+        if self.times.contains(&at) && self.last == Some(region) {
+            return Entered { back, fill: false };
+        }
+        if self.last != Some(region) {
+            self.filled.retain(|&sector, _| region_of(sector) == region);
+            self.times.retain(|&sector| region_of(sector) == region);
+            self.last = Some(region);
+        }
+        Entered {
+            back: Vec::new(),
+            fill: true,
+        }
     }
 
     /// Notes that a placed creature is spawned.
     fn spawned(&mut self, placed: &Placed) {
-        match placed.source {
-            Source::Kept(index) => {
-                self.out.insert(index);
-            }
-            Source::Filled(_) => *self.filled_out.entry(placed.at).or_default() += 1,
+        if let Source::Kept(index) = placed.source {
+            self.out.insert(index);
         }
     }
 
@@ -724,14 +754,13 @@ impl Kept {
                 self.went.insert(*index, stood);
             }
             Source::Filled(placement) => {
-                if let Some(count) = self.filled_out.get_mut(&placed.at) {
-                    *count = count.saturating_sub(1);
-                }
+                // Kept with its sector, which keeps a time then (`0x4954C0`).
                 if let Some(stood) = stood {
                     self.filled
                         .entry(placed.at)
                         .or_default()
                         .push(((**placement).clone(), stood));
+                    self.times.insert(placed.at);
                 }
             }
         }
@@ -3320,10 +3349,22 @@ pub fn place(
                 &mut streamer,
             );
         }
-        // The fills' creatures that live: those that went with the sector come back where they
-        // stood, and the sector fills anew only when none lives (`0x4939F0`).
-        let (back, anew) = npcs.kept.back(at);
-        for (placement, stood) in back {
+        // The fills' creatures that went with the sector come back where they stood, or it fills
+        // anew, by the region that filled last (#1107).
+        let filling = npcs
+            .fills
+            .get(&at)
+            .is_some_and(|fills| !fills.is_empty())
+            .then(|| quests::region(streamer.area(at).unwrap_or(0)));
+        let entered = npcs.kept.enter(at, filling, |sector| {
+            quests::region(streamer.area(sector).unwrap_or(0))
+        });
+        // The crabs and fish of its waters where none comes back (`0x4939F0`), once the sectors
+        // about it are in.
+        if entered.back.is_empty() && !npcs.waters.contains(&at) {
+            npcs.waters.push(at);
+        }
+        for (placement, stood) in entered.back {
             let entity = respawn(
                 &mut commands,
                 &placement,
@@ -3339,12 +3380,8 @@ pub fn place(
             commands.entity(entity).insert(placed);
             streamer.adopt(at, entity);
         }
-        if !anew {
+        if !entered.fill {
             continue;
-        }
-        // The crabs and fish of its waters (`0x4939F0`), once the sectors about it are in.
-        if !npcs.waters.contains(&at) {
-            npcs.waters.push(at);
         }
         // The creatures that the sector's fills make, on cells at random that they may stand
         // on, the same ones each time the sector comes in (`spawning`).
@@ -3497,8 +3534,8 @@ const PLAIN_LEVEL: u32 = 1;
 /// Their most health, the stats' own (seen in the original, #575).
 const PLAIN_HEALTH: u32 = 100;
 
-/// Spawns the crabs and fish of the waters of sector `at`, come in anew (`0x4939F0`,
-/// `spawning::swimmers`): of its liquid materials, its area and whether it is a dungeon, the
+/// Spawns the crabs and fish of the waters of sector `at`, come in with no creatures kept
+/// (`0x4939F0`, `spawning::swimmers`): of its liquid materials, its area and whether it is a dungeon, the
 /// cells of the loaded sectors alone, each at level 1, peaceful, facing its way. A crab, which
 /// no `Creature.pak` record describes, the game has no template of, and makes none.
 fn swimmers(
@@ -3556,12 +3593,8 @@ fn swimmers(
             assets,
             (PLAIN_LEVEL, &npcs.fight, &npcs.items),
         );
-        let placed = Placed {
-            at,
-            source: Source::Filled(Box::new(placement)),
-        };
-        npcs.kept.spawned(&placed);
-        commands.entity(entity).insert(placed);
+        // Not kept as it goes, lacking the fills' mark (`+0x2B8` bit `0x80`): made again at the
+        // next coming in where none comes back.
         streamer.adopt(at, entity);
     }
 }
@@ -7273,30 +7306,63 @@ mod tests {
         kept.spawned(&goblin);
         kept.gone(&goblin, None);
         assert_eq!(kept.again(7), Again::Not);
-        // A sector's fills: anew at first; back the living ones that went, and not anew while
-        // one lives somewhere still; anew once none lives.
-        let at = (49, 39);
-        let rabbit = || Placed {
+    }
+
+    #[test]
+    fn a_sector_fills_anew_once_another_region_filled() {
+        let stood = |x| Stood {
+            cell: (x, 2518),
+            layer: 0,
+            health: fight::Health {
+                current: 30,
+                most: 30,
+                level: 2,
+            },
+        };
+        let rabbit = |at| Placed {
             at,
             source: Source::Filled(Box::new(Placement {
                 model: "rabbit".to_owned(),
                 ..Placement::default()
             })),
         };
-        assert!(kept.back(at).1);
-        let (first, second) = (rabbit(), rabbit());
-        kept.spawned(&first);
-        kept.spawned(&second);
-        kept.gone(&first, Some(stood(3150, 72)));
-        let (back, anew) = kept.back(at);
-        assert_eq!((back.len(), anew), (1, false));
-        assert_eq!(back[0].0.model, "rabbit");
-        assert_eq!(back[0].1, stood(3150, 72));
-        // The other still lives somewhere: nothing back, and no fill anew.
-        let (back, anew) = kept.back(at);
-        assert!(back.is_empty() && !anew);
-        kept.gone(&second, None);
-        assert!(kept.back(at).1);
+        // The sectors of x 49 and more are of the region 2, the others of the region 3.
+        let region_of = |(x, _): (u32, u32)| if x >= 49 { 2 } else { 3 };
+        // How many creatures come back, and whether the sector fills anew.
+        let enter = |kept: &mut Kept, at: (u32, u32)| {
+            let entered = kept.enter(at, Some(region_of(at)), region_of);
+            (entered.back.len(), entered.fill)
+        };
+        let (here, there) = ((49, 39), (47, 39));
+        let mut kept = Kept::default();
+        // Filled at first; a sector of no fills fills nothing.
+        assert_eq!(enter(&mut kept, here), (0, true));
+        assert!(!kept.enter((50, 39), None, region_of).fill);
+        // One of its fills went living: it comes back where it stood, and the sector fills
+        // nothing.
+        kept.gone(&rabbit(here), Some(stood(3150)));
+        let entered = kept.enter(here, Some(2), region_of);
+        assert!(!entered.fill);
+        assert_eq!(entered.back.len(), 1);
+        assert_eq!(entered.back[0].1, stood(3150));
+        // Killed: the sector stays without its fills while its region filled last.
+        kept.gone(&rabbit(here), None);
+        assert_eq!(enter(&mut kept, here), (0, false));
+        assert_eq!(enter(&mut kept, here), (0, false));
+        // Another region's sector fills, dropping what the region 2 kept and its time; back in
+        // the region 2, the sector fills anew, and so does one whose creature had been kept.
+        let near = (50, 40);
+        kept.gone(&rabbit(near), Some(stood(3205)));
+        assert_eq!(enter(&mut kept, there), (0, true));
+        assert_eq!(enter(&mut kept, here), (0, true));
+        assert_eq!(enter(&mut kept, near), (0, true));
+        // A sector of the region filled last that never kept a time fills anew at each coming;
+        // one of the region 3 that kept a creature while the region 2 filled last fills anew as
+        // it comes back, dropping it.
+        kept.gone(&rabbit(there), Some(stood(3010)));
+        assert_eq!(enter(&mut kept, (49, 41)), (0, true));
+        assert_eq!(enter(&mut kept, (49, 41)), (0, true));
+        assert_eq!(enter(&mut kept, there), (0, true));
     }
 
     #[test]
