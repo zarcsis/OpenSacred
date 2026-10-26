@@ -6,8 +6,10 @@
 //! starting quest flags (`StartCode`, `QuestCode`); `sectors/<n>.luau` a sector's `Sector<n>Init`
 //! and `…Enter`; `regions/<n>.luau` a region's `Region<n>Init`; `quests/<id>.luau` the functions
 //! of a quest; `functions/<shape>.luau` the other functions of one name's shape, the name with its
-//! numbers taken out (`fillchest_chestR.luau` for every `fillchest_chestR<n>_<m>`). Each file
-//! returns a table of its functions by their names, and `index.ron` names the file of every
+//! numbers taken out (`fillchest_chestR.luau` for every `fillchest_chestR<n>_<m>`), shapes that
+//! differ in case alone sharing the first's file (`Help45` and `help46` in `Help.luau`, #1043),
+//! which a file system blind to case would otherwise make one. Each file returns a table of its
+//! functions by their names, and `index.ron` names the file of every
 //! function, by which the engine loads a function as it is first called.
 //!
 //! A function's flow is structured as the walker runs it (`flow`): its conditions and guards
@@ -352,6 +354,8 @@ fn file_of(name: &str, quest: i32) -> String {
 /// index; an error names the function and the record that do not translate.
 pub fn translate(source: &str, tree: &Tree) -> Result<(BTreeMap<String, String>, Index)> {
     let mut groups: BTreeMap<String, Vec<(String, &[Record])>> = BTreeMap::new();
+    // Each file by its name lower-cased, the first spelling kept for the later ones (#1043).
+    let mut spelt: BTreeMap<String, String> = BTreeMap::new();
     let mut index = Index::default();
     let named = [(START, -1, &tree.start), (QUEST_FLAGS, -1, &tree.quest)]
         .into_iter()
@@ -366,6 +370,10 @@ pub fn translate(source: &str, tree: &Tree) -> Result<(BTreeMap<String, String>,
         } else {
             file_of(name, quest)
         };
+        let file = spelt
+            .entry(file.to_ascii_lowercase())
+            .or_insert(file)
+            .clone();
         let group = groups.entry(file.clone()).or_default();
         let same = group
             .iter()
@@ -784,6 +792,13 @@ mod tests {
                     region: 0,
                     records: vec![record(111, Vec::new())],
                 },
+                // Two shapes that differ in case alone share one file (#1043).
+                Function {
+                    name: "FillChest_chestR7".into(),
+                    quest: -1,
+                    region: 0,
+                    records: vec![record(111, Vec::new())],
+                },
             ],
             quests: Vec::new(),
             regions: Vec::new(),
@@ -802,6 +817,13 @@ mod tests {
             [Entry {
                 file: "functions/fillchest_chestR.luau".into(),
                 key: "fillchest_chestR1_2".into()
+            }]
+        );
+        assert_eq!(
+            index.functions["FillChest_chestR7"],
+            [Entry {
+                file: "functions/fillchest_chestR.luau".into(),
+                key: "FillChest_chestR7".into()
             }]
         );
         let start = &files["start.luau"];
