@@ -101,10 +101,11 @@ const KEEPS: [u8; 4] = [0x1A, 0x70, 0x71, 0x72];
 /// packs' numbers ([`script_group`]).
 const GROUP: u8 = 0x11;
 pub(crate) const SCRIPT_GROUP: u32 = 0x8000_0000;
-/// The tags of a creature's death's functions (`CreateNPC`, `SetNPCState`; #656): `0x05`, and
-/// `0x60`, which also sets the flags word's bit `0x400000` (its reader not read, not followed).
+/// The tags of a creature's death's function (`CreateNPC`, `SetNPCState`; #656), `0x05`, and of
+/// its sight function, `0x60`, kept as `See:` and its name (#1025), which also sets the flags
+/// word's bit `0x400000` (its reader not read, not followed).
 const ON_DEATH: u8 = 0x05;
-const ON_DEATH_TOO: u8 = 0x60;
+const ON_SIGHT: u8 = 0x60;
 /// The tag of the trader whose stock of horses a `SetNPCState`'s creature joins (#658).
 const STOCK: u8 = 0x63;
 /// The operand of a `CreateNPC` that gives its creature's level, or makes it a boss
@@ -1323,8 +1324,9 @@ struct State {
     stamped: bool,
     /// Its home (`0x4D`, `+0x2B9`): the cell whose centre it goes home to.
     home: Option<(u32, u32)>,
-    /// Its death's functions, in their order: each `0x05`'s (`true`), which replaces those the
-    /// creature has, and `0x60`'s, which adds one (`0x461FBC`, `0x46204B`; #656).
+    /// Its death's and sight functions, in their order: each `0x05`'s (`true`), which replaces
+    /// those the creature has, and `0x60`'s, which adds a sight function (`0x461FBC`, `0x46204B`;
+    /// #656, #1025).
     deaths: Vec<(bool, String)>,
     /// Its heading in degrees (`0x03`), turned as `CreateNPC` turns it (`0x44DDC0`); its group
     /// (`0x11`, `+0x249`, `0x4A9EF0`; [`script_group`]); and whether it joins a trader's stock
@@ -1367,7 +1369,7 @@ impl State {
                     }
                 }
                 (ON_DEATH, Value::Str(name)) => state.deaths.push((true, name.clone())),
-                (ON_DEATH_TOO, Value::Str(name)) => state.deaths.push((false, name.clone())),
+                (ON_SIGHT, Value::Str(name)) => state.deaths.push((false, name.clone())),
                 (0x03, Value::U16(degrees)) => state.heading = Some(f32::from(*degrees)),
                 (STOCK, Value::Str(_)) => state.stocked = true,
                 _ => {}
@@ -1403,7 +1405,7 @@ impl State {
             if *replaces {
                 functions.set(name);
             } else {
-                functions.add(name);
+                functions.see(name);
             }
         }
     }
@@ -1440,13 +1442,16 @@ impl State {
     }
 }
 
-/// The death's functions of a `CreateNPC` of the operands `ops`: its `0x05`'s and its `0x60`'s,
-/// in their order, each added (`0x483970`, `0x4839CF`; #656).
+/// The death's and sight functions of a `CreateNPC` of the operands `ops`: its `0x05`'s and its
+/// `0x60`'s, the latter as `See:` and its name, in their order (`0x483970`, `0x4839CF`; #656,
+/// #1025).
 fn death_functions(ops: &[opensacred_data::netscript::Operand]) -> DeathFunctions {
     let mut functions = DeathFunctions::default();
     for op in ops {
-        if let (ON_DEATH | ON_DEATH_TOO, Value::Str(name)) = (op.tag, &op.value) {
-            functions.add(name);
+        match (op.tag, &op.value) {
+            (ON_DEATH, Value::Str(name)) => functions.add(name),
+            (ON_SIGHT, Value::Str(name)) => functions.see(name),
+            _ => {}
         }
     }
     functions
@@ -5875,7 +5880,7 @@ mod tests {
         let mut functions = death_functions(&[
             text(0x01, "res:17260"),
             text(ON_DEATH, "tot2203"),
-            text(ON_DEATH_TOO, "schmuggler1402"),
+            text(ON_SIGHT, "schmuggler1402"),
         ]);
         let mut copy = functions.clone();
         assert_eq!(copy.take().as_deref(), Some("tot2203"));
@@ -5884,7 +5889,7 @@ mod tests {
             &[
                 text(0x01, "res:17260"),
                 text(ON_DEATH, "lose670"),
-                text(ON_DEATH_TOO, "od_5002"),
+                text(ON_SIGHT, "od_5002"),
             ],
             &[],
         );

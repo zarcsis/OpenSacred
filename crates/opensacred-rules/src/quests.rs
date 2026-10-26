@@ -564,22 +564,32 @@ impl Drops {
 }
 
 /// The prefixes of the names in the script manager's list (`+0x358`) that are no creature's death
-/// function: an item's taking, use and sight (`0x4A71F0`, `0x94E1CC`, `0x94E1C4`, `0x94E1D4`).
-const NOT_DEATHS: [&str; 3] = ["Take:", "Use:", "See:"];
+/// function: an item's taking and use, and a sight (`0x4A71F0`, `0x94E1CC`, `0x94E1C4`,
+/// `0x94E1D4`).
+const NOT_DEATHS: [&str; 3] = ["Take:", "Use:", SIGHT];
+/// The prefix of a sight function's entry, which `CreateNPC`'s, `SetNPCState`'s and
+/// `SetGroupState`'s `0x60` keep (`0x94E1D4`, #1025).
+const SIGHT: &str = "See:";
 /// The prefix of the names that a death or a `SetNPCState` leaves in the list (`0x94E1BC`).
 const KEPT: &str = "wegw";
 
 /// A creature's functions in the script manager's list (`+0x358`, entries of its id and a name
 /// of 64 bytes; docs/re/netscript.md, "The deaths' functions"), in their order: those of its
-/// `CreateNPC`'s and its `SetNPCState`s' tags `0x05` and `0x60`, of which its death runs one.
+/// `CreateNPC`'s and its `SetNPCState`s' tags `0x05`, of which its death runs one, and its sight
+/// functions of their `0x60`, which it does not.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeathFunctions(Vec<String>);
 
 impl DeathFunctions {
-    /// `CreateNPC`'s `0x05` and `0x60` and `SetNPCState`'s `0x60`: the function `name` added
-    /// (`0x4B9740`).
+    /// `CreateNPC`'s `0x05`: the death's function `name` added (`0x4B9740`).
     pub fn add(&mut self, name: &str) {
         self.0.push(name.to_owned());
+    }
+
+    /// `CreateNPC`'s and `SetNPCState`'s `0x60`: the sight function `name` added, its entry's
+    /// name prefixed `See:` (`0x94E1D4`), so that no death runs it (#1025).
+    pub fn see(&mut self, name: &str) {
+        self.0.push(format!("{SIGHT}{name}"));
     }
 
     /// `SetNPCState`'s `0x05`: the entries that a death takes out taken out first
@@ -607,7 +617,7 @@ impl DeathFunctions {
     /// fourth argument 1).
     fn take_out(&mut self) {
         self.0.retain(|name| {
-            let taken = !name.contains(':') || name.starts_with("See:");
+            let taken = !name.contains(':') || name.starts_with(SIGHT);
             !taken || name.starts_with(KEPT)
         });
     }
@@ -913,11 +923,16 @@ mod tests {
     fn a_death_runs_its_first_function_and_takes_the_others_out() {
         let mut deaths = DeathFunctions::default();
         assert_eq!(deaths.take(), None);
-        // `CreateNPC`'s `0x05` and `0x60`, in their order.
+        // `CreateNPC`'s `0x05` and `0x60`, in their order; a sight function runs at no death, and
+        // the death takes it out.
         deaths.add("tot2203");
-        deaths.add("schmuggler1402");
+        deaths.see("schmuggler1402");
         assert_eq!(deaths.take().as_deref(), Some("tot2203"));
         assert!(deaths.is_empty());
+        let mut sights = DeathFunctions::default();
+        sights.see("schmugler1402");
+        assert_eq!(sights.take(), None);
+        assert!(!sights.is_empty());
         // An item's entries are no death's, and stay; a `wegw` entry runs and stays.
         let mut deaths = DeathFunctions::default();
         deaths.add("Take:take1404");
@@ -925,12 +940,13 @@ mod tests {
         deaths.add("od_5002");
         assert_eq!(deaths.take().as_deref(), Some("wegweiser"));
         assert_eq!(deaths.take().as_deref(), Some("wegweiser"));
-        // `SetNPCState`'s `0x05` replaces the deaths' functions, its `0x60` adds one.
+        // `SetNPCState`'s `0x05` replaces the deaths' and the sight functions, its `0x60` adds a
+        // sight function.
         let mut deaths = DeathFunctions::default();
         deaths.add("first");
-        deaths.add("See:look");
+        deaths.see("look");
         deaths.set("lose670");
-        deaths.add("second");
+        deaths.see("second");
         assert_eq!(deaths.take().as_deref(), Some("lose670"));
         assert_eq!(deaths.take(), None);
     }
