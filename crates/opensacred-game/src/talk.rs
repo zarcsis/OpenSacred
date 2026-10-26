@@ -47,6 +47,19 @@ const BUTTON: Color = Color::srgb(0.25, 0.9, 0.25);
 const PANEL: Color = Color::srgba(0.04, 0.04, 0.05, 0.78);
 const FRAME: Color = Color::srgb(0.45, 0.42, 0.36);
 const FONT_SIZE: f32 = 18.0;
+/// An `InfoPlayer`'s text: its colour, as the chapters' titles show, how long it shows, in
+/// seconds, and how far down the screen (**hypothesis**: the engine's event `0x10` of the kind 3
+/// is not read).
+const NOTICE: Color = Color::srgb(1.0, 0.55, 0.12);
+const NOTICE_SECONDS: f32 = 5.0;
+const NOTICE_TOP: f32 = 22.0;
+/// The modes of an `InfoPlayer` that show its text (`0x4AE350`): 0 and 1 with the interface's
+/// sounds 200 and 201, 2 with the jingle `0x1B61` too, 3 with the sound 7000.
+const SHOWS: [i32; 4] = [0, 1, 2, 3];
+
+/// An `InfoPlayer`'s text on the screen, and how long it still shows.
+#[derive(Component)]
+struct Notice(f32);
 
 /// The hero speaking to `creature`, its dialogue `dialogue`: going to it until the talk opens.
 #[derive(Component, Clone, Debug)]
@@ -261,7 +274,7 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
     let lines: Vec<String> = window
         .texts
         .iter()
-        .filter_map(|key| texts.and_then(|texts| texts.named(key)).map(shown))
+        .filter_map(|key| texts.and_then(|texts| texts.named(key)).map(shown_text))
         .collect();
     if lines.is_empty() {
         info!("talk: {dialogue} shows no text");
@@ -310,7 +323,7 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
 /// A text of `global.res` as the window shows it: its line breaks (`<n>`, 3,760 of them in the
 /// English texts) broken, its colours' tags (`<color=…>`, `<colorw=…>`) left out, and any other
 /// tag, a speaker's sigh or groan, kept as it stands.
-fn shown(text: &str) -> String {
+fn shown_text(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(start) = rest.find('<') {
@@ -483,8 +496,8 @@ fn dismiss(
     shown: Option<Res<Shown>>,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
-    heroes: Query<&Transform, With<Talking>>,
-    creatures: Query<&Transform, (Without<Talking>, Without<Dies>)>,
+    heroes: Query<&Transform, With<Body>>,
+    creatures: Query<&Transform, Without<Dies>>,
 ) {
     let Some(shown) = shown else {
         return;
@@ -500,6 +513,97 @@ fn dismiss(
     if pressed || apart {
         commands.queue(close);
     }
+}
+
+/// Shows the scripts' `InfoPlayer`s' texts (#1033): of a mode that shows one, the last of the
+/// frame's, in place of the one before, across the screen's upper part, for 5 s; the other modes
+/// (an image, an event, the interface's states) are not followed.
+fn notices(
+    mut commands: Commands,
+    mut infos: ResMut<scripts::Infos>,
+    texts: Option<Res<Texts>>,
+    assets: Res<AssetServer>,
+    shown: Query<Entity, With<Notice>>,
+) {
+    let mut last = None;
+    for (mode, key) in infos.0.drain(..) {
+        if !SHOWS.contains(&mode) {
+            debug!("talk: an InfoPlayer of the mode {mode} ({key}) is not followed");
+            continue;
+        }
+        match texts
+            .as_deref()
+            .and_then(|texts| texts.named(resource(&key)))
+        {
+            Some(text) => last = Some(shown_text(text)),
+            None => debug!("talk: no text {key}"),
+        }
+    }
+    let Some(text) = last else {
+        return;
+    };
+    info!(
+        "talk: the player is shown {}",
+        text.lines().next().unwrap_or_default()
+    );
+    for old in &shown {
+        commands.entity(old).despawn();
+    }
+    let font: Handle<Font> = assets.load(FONT);
+    commands
+        .spawn((
+            DespawnOnExit(AppState::InGame),
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Percent(NOTICE_TOP),
+                width: Val::Percent(100.0),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            Pickable::IGNORE,
+            Notice(NOTICE_SECONDS),
+        ))
+        .with_children(|row| {
+            row.spawn((
+                Text::new(text),
+                TextFont {
+                    font: font.into(),
+                    font_size: FontSize::Px(FONT_SIZE * 1.4),
+                    ..default()
+                },
+                TextColor(NOTICE),
+                TextLayout::justify(Justify::Center),
+            ));
+        });
+}
+
+/// Takes an `InfoPlayer`'s text away once its time is over.
+fn fade(mut commands: Commands, time: Res<Time>, mut notices: Query<(Entity, &mut Notice)>) {
+    for (entity, mut notice) in &mut notices {
+        notice.0 -= time.delta_secs();
+        if notice.0 <= 0.0 {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Begins the hero's own talk of each dialogue the scripts' `Popup`s give it (`0x4A7760`,
+/// `0x54CBB0`; #1033), one at a time, once no window shows: its window without a name.
+fn popups(
+    mut commands: Commands,
+    mut popups: ResMut<scripts::Popups>,
+    shown: Option<Res<Shown>>,
+    heroes: Query<Entity, With<Body>>,
+) {
+    if shown.is_some() || popups.0.is_empty() {
+        return;
+    }
+    let Some(hero) = heroes.iter().next() else {
+        return;
+    };
+    let dialogue = popups.0.remove(0);
+    info!("talk: the hero's own talk of {dialogue}");
+    commands.queue(move |world: &mut World| open(world, hero, hero, &dialogue));
 }
 
 /// Sends the hero to speak to `creature`, or to the creature of a dialogue nearest it (the
@@ -615,7 +719,7 @@ impl Plugin for TalkPlugin {
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
             )
-            .add_systems(Update, dismiss.in_set(Playing));
+            .add_systems(Update, (dismiss, notices, fade, popups).in_set(Playing));
     }
 }
 
@@ -657,9 +761,12 @@ mod tests {
 
     #[test]
     fn a_text_breaks_its_lines_and_leaves_its_colours_out() {
-        assert_eq!(shown("one.<n><n>two"), "one.\n\ntwo");
-        assert_eq!(shown("<colorw=FFFFFF80>name <sigh> on"), "name <sigh> on");
-        assert_eq!(shown("open <n"), "open <n");
+        assert_eq!(shown_text("one.<n><n>two"), "one.\n\ntwo");
+        assert_eq!(
+            shown_text("<colorw=FFFFFF80>name <sigh> on"),
+            "name <sigh> on"
+        );
+        assert_eq!(shown_text("open <n"), "open <n");
     }
 
     #[test]

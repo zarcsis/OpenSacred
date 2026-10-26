@@ -115,6 +115,16 @@ pub struct SetHealth {
 #[derive(Resource, Default)]
 pub struct Healths(pub Vec<SetHealth>);
 
+/// The texts that the scripts' `InfoPlayer`s show the player (132, `0x4AE350`; #1033), by their
+/// mode and their text's name, in order, which `talk` shows.
+#[derive(Resource, Default)]
+pub struct Infos(pub Vec<(i32, String)>);
+
+/// The dialogues that the scripts' `Popup`s give the hero to speak to itself (95, `0x4A7760`;
+/// #1033), in order, which `talk` runs.
+#[derive(Resource, Default)]
+pub struct Popups(pub Vec<String>);
+
 /// The hero's home, where it rises after its death (`+0x2BD` to `+0x2C5`, #974): the cell and the
 /// floor that the play's `SetNPCState`s of the tag `0x4D` naming the hero and its `StartPosition`s
 /// give, none before, the game's start then.
@@ -153,6 +163,9 @@ pub struct Effects {
     pub home: Option<Teleport>,
     /// What a dialogue's records gave its window.
     pub window: Window,
+    /// The texts its `InfoPlayer`s show and the dialogues its `Popup`s begin.
+    pub infos: Vec<(i32, String)>,
+    pub popups: Vec<String>,
 }
 
 impl Effects {
@@ -166,6 +179,8 @@ impl Effects {
         self.window.buttons.extend(other.window.buttons);
         self.window.sounds.extend(other.window.sounds);
         self.window.untalks |= other.window.untalks;
+        self.infos.extend(other.infos);
+        self.popups.extend(other.popups);
     }
 }
 
@@ -466,6 +481,8 @@ impl Live {
             records: recorder.records,
             home: recorder.home,
             window: recorder.window,
+            infos: recorder.infos,
+            popups: recorder.popups,
         };
         (effects, outcome)
     }
@@ -600,6 +617,8 @@ struct Recorder<'a> {
     /// The scripts' groups that hold a living creature, in the play; at the start, none known.
     living: Option<&'a HashSet<u32>>,
     window: Window,
+    infos: Vec<(i32, String)>,
+    popups: Vec<String>,
 }
 
 impl<'a> Recorder<'a> {
@@ -620,6 +639,8 @@ impl<'a> Recorder<'a> {
             home: None,
             living: None,
             window: Window::default(),
+            infos: Vec::new(),
+            popups: Vec::new(),
         }
     }
 }
@@ -919,6 +940,23 @@ impl Host for Recorder<'_> {
                 Handled::Answer(false)
             }
             "exit_dlg" => Handled::Done,
+            // A text shown to the player: its mode, its first `0x0B`, and its text's name, its
+            // first `0x01` (`0x4AE350`, #1033).
+            "info_player" => {
+                if let (Some(&mode), Some(text)) =
+                    (tags.numbers("_0B").first(), tags.texts("_01").first())
+                {
+                    self.infos.push((mode, (*text).to_owned()));
+                }
+                Handled::Done
+            }
+            // The hero's own talk of the named dialogue (`0x4A7760`, #1033).
+            "popup" => {
+                if let Some(dialogue) = tags.texts("_01").first() {
+                    self.popups.push((*dialogue).to_owned());
+                }
+                Handled::Done
+            }
             "set_hp" => {
                 // Its last name and number, the number held to 0..100 (`0x48E280`).
                 let name = tags
@@ -1312,8 +1350,12 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         healths,
         records,
         home,
+        infos,
+        popups,
         ..
     } = effects;
+    world.resource_mut::<Infos>().0.extend(infos);
+    world.resource_mut::<Popups>().0.extend(popups);
     world.resource_mut::<ObjStates>().0.extend(states);
     world.resource_mut::<Healths>().0.extend(healths);
     world.resource_mut::<WorldRecords>().0.extend(records);
@@ -1379,6 +1421,8 @@ struct Queues<'w> {
     healths: ResMut<'w, Healths>,
     world: ResMut<'w, WorldRecords>,
     home: ResMut<'w, HeroHome>,
+    infos: ResMut<'w, Infos>,
+    popups: ResMut<'w, Popups>,
 }
 
 impl Queues<'_> {
@@ -1390,6 +1434,8 @@ impl Queues<'_> {
         if let Some(spot) = effects.home {
             self.home.0 = Some(spot);
         }
+        self.infos.0.extend(effects.infos);
+        self.popups.0.extend(effects.popups);
     }
 }
 
@@ -1551,6 +1597,8 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
             .init_resource::<HeroHome>()
+            .init_resource::<Infos>()
+            .init_resource::<Popups>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -1830,6 +1878,28 @@ mod tests {
     }
 
     #[test]
+    fn a_function_shows_the_player_its_texts_and_begins_the_heros_own_talks() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"exit01\"] = function()\n\
+             info_player { _01 = \"res:17631\", _0B = 1 }\n\
+             info_player { _0B = 5 }\n\
+             popup { _01 = \"Dialog_Stein\" }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run_named("exit01");
+        assert_eq!(effects.infos, [(1, "res:17631".to_owned())]);
+        assert_eq!(effects.popups, ["Dialog_Stein"]);
+    }
+
+    #[test]
     fn the_kills_and_the_items_collected_run_their_functions_once_counted() {
         let runtime = runtime(&[(
             "start.luau",
@@ -1892,6 +1962,8 @@ mod tests {
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
             .init_resource::<HeroHome>()
+            .init_resource::<Infos>()
+            .init_resource::<Popups>()
             .add_systems(Update, deaths);
         let dying = |app: &mut App, function: &str| {
             let mut functions = quests::DeathFunctions::default();
