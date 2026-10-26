@@ -83,6 +83,7 @@ const SET_NPC_STATE: u16 = 3;
 const SET_HP: u16 = 52;
 const DEL_NPC: u16 = 55;
 const SET_GROUP_STATE: u16 = 73;
+const SET_RGN_DIALOG: u16 = 106;
 /// The operand of a `SetGroupState` that removes its group's living creatures (`0x49E760`).
 const REMOVES: u8 = 0x51;
 /// The operand of a `CreateNPC` or a `SetNPCState` that names its dialogue, and that of a
@@ -219,6 +220,9 @@ struct Placement {
     /// name it, and the share of its most health that a `SetHP` gave it, in per cent (#1001).
     name: Option<String>,
     health_share: Option<u32>,
+    /// An NPC's dialogue, its name in the dialogues' table, which the hero speaks to it by (`+0x245`,
+    /// #1028): its `CreateNPC`'s `0x09`, as its `SetNPCState`s and `SetGroupState`s change it.
+    talk: Option<String>,
     /// An NPC's functions of the script manager's list, of which its death runs one (#656):
     /// its `CreateNPC`'s and its `SetNPCState`s' `0x05` and `0x60`.
     on_death: DeathFunctions,
@@ -493,6 +497,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         plain: false,
         name: None,
         health_share: None,
+        talk: None,
         on_death: DeathFunctions::default(),
     }
 }
@@ -525,6 +530,9 @@ pub struct Npcs {
     /// The dialogues' table by name, as the start's records fill it, its first entry twice
     /// (`0x476A05`), which the play's `SetGroupState`s look their dialogues up in (#1021).
     dialogues: Vec<String>,
+    /// The dialogue of each creature type that the start's `SetRgnDialog`s give, all of the
+    /// region 0 (`0x465280`, #1028).
+    region_talks: HashMap<u32, String>,
     /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
@@ -1331,6 +1339,9 @@ struct State {
     stamped: bool,
     /// Its home (`0x4D`, `+0x2B9`): the cell whose centre it goes home to.
     home: Option<(u32, u32)>,
+    /// The dialogue it gives the creature, by its name, or none where it takes its dialogue away
+    /// ([`Self::dialogue`]; #1028).
+    talk: Option<Option<String>>,
     /// Its death's and sight functions, in their order: each `0x05`'s (`true`), which replaces
     /// those the creature has, and `0x60`'s, which adds a sight function (`0x461FBC`, `0x46204B`;
     /// #656, #1025).
@@ -1361,9 +1372,14 @@ impl State {
             match (op.tag, &op.value) {
                 (DIALOGUE, Value::Str(name)) => {
                     let index = dialogues.iter().position(|d| d.eq_ignore_ascii_case(name));
-                    state.dialogue = Some(index.is_some_and(|i| i > 0));
+                    let found = index.filter(|&i| i > 0).and_then(|i| dialogues.get(i));
+                    state.dialogue = Some(found.is_some());
+                    state.talk = Some(found.cloned());
                 }
-                (DIALOGUE_NUMBER, _) => state.dialogue = Some(false),
+                (DIALOGUE_NUMBER, _) => {
+                    state.dialogue = Some(false);
+                    state.talk = Some(None);
+                }
                 (0x08, Value::Marker) => state.hostile = Some(true),
                 (0x0E, Value::Marker) => state.hostile = Some(false),
                 (tag, Value::Marker) if TRADES.contains(&tag) => {
@@ -1388,7 +1404,17 @@ impl State {
     /// Whether it gives a creature made before what the game follows on one (#656, #658): its
     /// death's functions, its heading, its group or a trader's stock.
     fn restates(&self) -> bool {
-        !self.deaths.is_empty() || self.heading.is_some() || self.group.is_some() || self.stocked
+        !self.deaths.is_empty()
+            || self.heading.is_some()
+            || self.group.is_some()
+            || self.stocked
+            || self.talk.is_some()
+    }
+
+    /// The dialogue it leaves a creature that had `talk`: its own, or none for a horse it stocks.
+    fn talk_of(&self, talk: Option<String>) -> Option<String> {
+        let talk = self.talk.clone().unwrap_or(talk);
+        talk.filter(|_| !self.stocked)
     }
 
     /// Gives `placement` its death's functions, its heading, its group and, joining a stock, no
@@ -1403,6 +1429,10 @@ impl State {
         }
         if self.stocked {
             placement.dialogue = false;
+        }
+        placement.talk = self.talk_of(placement.talk.take());
+        if let Some(talk) = &self.talk {
+            placement.dialogue = talk.is_some() && !self.stocked;
         }
     }
 
@@ -1464,6 +1494,29 @@ fn dialogue_table(records: &[&Record]) -> Vec<String> {
     table
 }
 
+/// The dialogue of each creature type that `records`' `SetRgnDialog`s give (106, `0x465280`): its
+/// `0x02`'s type and its `0x09`'s name, a later one of the type replacing an earlier.
+fn region_talks(records: &[&Record]) -> HashMap<u32, String> {
+    let mut talks = HashMap::new();
+    for record in records.iter().filter(|r| r.kind == SET_RGN_DIALOG) {
+        let Body::Operands(ops) = &record.body else {
+            continue;
+        };
+        let creature = ops.iter().find_map(|o| match (o.tag, &o.value) {
+            (0x02, Value::I32(t)) => u32::try_from(*t).ok(),
+            _ => None,
+        });
+        let name = ops.iter().find_map(|o| match (o.tag, &o.value) {
+            (DIALOGUE, Value::Str(name)) => Some(name.clone()),
+            _ => None,
+        });
+        if let (Some(creature), Some(name)) = (creature, name) {
+            talks.insert(creature, name);
+        }
+    }
+    talks
+}
+
 /// A `SetGroupState`'s change of its group's creatures (73, `0x49E760`; #1021,
 /// docs/re/netscript.md, "`SetGroupState`"): its group, whether it removes its living members
 /// (`0x51`), and else the flags word of its operand-less tags ([`ways::state_word`]), its
@@ -1476,6 +1529,8 @@ struct GroupState {
     word: u32,
     hostile: Option<bool>,
     dialogue: bool,
+    /// The dialogue it gives, by its name (#1028).
+    talk: Option<String>,
     death: Option<String>,
     sight: Option<String>,
     level: u32,
@@ -1503,12 +1558,18 @@ impl GroupState {
                 (ON_DEATH, Value::Str(name)) => state.death = Some(name.clone()),
                 (ON_SIGHT, Value::Str(name)) => state.sight = Some(name.clone()),
                 (DIALOGUE, Value::Str(name)) => {
-                    state.dialogue = dialogues
+                    state.talk = dialogues
                         .iter()
                         .position(|entry| entry.eq_ignore_ascii_case(name))
-                        .is_some_and(|index| index > 0);
+                        .filter(|&index| index > 0)
+                        .and_then(|index| dialogues.get(index))
+                        .cloned();
+                    state.dialogue = state.talk.is_some();
                 }
-                (DIALOGUE_NUMBER, _) => state.dialogue = false,
+                (DIALOGUE_NUMBER, _) => {
+                    state.dialogue = false;
+                    state.talk = None;
+                }
                 _ => {}
             }
         }
@@ -1527,6 +1588,7 @@ impl GroupState {
             placement.on_death.see(sight);
         }
         placement.dialogue = self.dialogue;
+        placement.talk.clone_from(&self.talk);
         if self.level > 0 {
             placement.tag = self.level;
             if self.level == fight::BOSS_TAG {
@@ -2044,6 +2106,14 @@ impl Makers {
             plain: false,
             name: (record.kind == CREATE_NPC).then(|| name_of(ops)).flatten(),
             health_share: None,
+            talk: (record.kind == CREATE_NPC)
+                .then(|| {
+                    ops.iter().find_map(|o| match (o.tag, &o.value) {
+                        (DIALOGUE, Value::Str(name)) => Some(name.clone()),
+                        _ => None,
+                    })
+                })
+                .flatten(),
             on_death: if record.kind == CREATE_NPC {
                 death_functions(ops)
             } else {
@@ -2313,6 +2383,7 @@ impl Npcs {
             pending: Vec::new(),
             played: HashSet::new(),
             dialogues: dialogue_table(&records),
+            region_talks: region_talks(&records),
             values,
             fills,
             templates,
@@ -3275,6 +3346,9 @@ fn spawn(
         if !placement.on_death.is_empty() {
             entity.insert(OnDeath(placement.on_death.clone()));
         }
+        if let Some(talk) = &placement.talk {
+            entity.insert(Talk(talk.clone()));
+        }
         // Its attack, defence, damage and resistances with the values of its items, made at its
         // level (`0x5D5080`), the same each time it is made, its hits' share, and its
         // regeneration.
@@ -4056,6 +4130,11 @@ impl Npcs {
         Ok(made.len())
     }
 
+    /// The dialogue that the start's `SetRgnDialog`s give the creature type `creature`.
+    pub fn region_talk(&self, creature: u32) -> Option<&str> {
+        self.region_talks.get(&creature).map(String::as_str)
+    }
+
     /// What the play's `SetNPCState`s give the creatures made before them (#656, #658): each
     /// record's name and its state, given to the placements of that name here, and to the
     /// creatures in the world by [`script_records`] ([`State::restates`]). The records' other
@@ -4077,7 +4156,7 @@ impl Npcs {
             let Some(name) = name_of(ops).filter(|name| !made.contains(name)) else {
                 continue;
             };
-            let state = State::of(ops, &[]);
+            let state = State::of(ops, &self.dialogues);
             if !state.restates() {
                 continue;
             }
@@ -4359,6 +4438,11 @@ fn open_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str, open: bool) 
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct ScriptName(pub String);
 
+/// An NPC's dialogue (`+0x245`, #1028): its name in the dialogues' table, whose function
+/// `Dialog:<name>` runs as the hero speaks to it (`talk`).
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct Talk(pub String);
+
 /// An NPC's death's functions (#656, docs/re/netscript.md, "The deaths' functions"), of which its
 /// death runs one (`scripts`).
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
@@ -4420,10 +4504,20 @@ fn script_records(
             Option<&mut ai::Mind>,
             Option<&mut crowd::InTheWay>,
             Option<&mut fight::Health>,
+            Option<&Talk>,
         ),
         Without<Dies>,
     >,
 ) {
+    // A creature's dialogue as a change leaves it, its mind's flag with it.
+    let talk_to = |commands: &mut Commands, entity: Entity, talk: Option<String>| match talk {
+        Some(talk) => {
+            commands.entity(entity).insert(Talk(talk));
+        }
+        None => {
+            commands.entity(entity).remove::<Talk>();
+        }
+    };
     let Some(mut records) = records else {
         return;
     };
@@ -4437,10 +4531,17 @@ fn script_records(
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
     for (name, state) in npcs.restate(&records) {
-        for (entity, _, on_death, mut transform, mind, ..) in creatures
+        for (entity, _, on_death, mut transform, mut mind, _, _, talk) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
         {
+            if state.talk.is_some() || state.stocked {
+                let talk = state.talk_of(talk.map(|talk| talk.0.clone()));
+                if let Some(mind) = mind.as_mut() {
+                    mind.dialogue = talk.is_some();
+                }
+                talk_to(&mut commands, entity, talk);
+            }
             match on_death {
                 Some(mut on_death) => state.restate(&mut on_death.0),
                 None if state.deaths.is_empty() => {}
@@ -4465,7 +4566,7 @@ fn script_records(
         }
     }
     for change in npcs.regroup(&records) {
-        for (entity, named, on_death, _, mind, way, health) in &mut creatures {
+        for (entity, named, on_death, _, mind, way, health, _) in &mut creatures {
             let member = match &change {
                 Regrouped::Group(state) => {
                     mind.as_ref().is_some_and(|mind| mind.group == state.group)
@@ -4479,6 +4580,7 @@ fn script_records(
                 (Regrouped::Group(state), Some(mut mind)) if !state.removes => {
                     let mut functions = on_death.as_ref().map(|d| d.0.clone()).unwrap_or_default();
                     state.apply_to(&mut mind, way.map(|way| way.into_inner()), &mut functions);
+                    talk_to(&mut commands, entity, state.talk.clone());
                     match on_death {
                         Some(mut on_death) => on_death.0 = functions,
                         None if functions.is_empty() => {}

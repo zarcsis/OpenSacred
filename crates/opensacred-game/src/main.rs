@@ -68,6 +68,7 @@ mod spells;
 mod srgb;
 mod statics;
 mod tables;
+mod talk;
 mod terrain;
 mod voices;
 
@@ -321,6 +322,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
+        talk::TalkPlugin,
         terrain::GroundPlugin,
         voices::VoicesPlugin,
     ))

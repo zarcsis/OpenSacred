@@ -67,7 +67,7 @@ impl Pack {
 /// line of sight, if one is near it, becomes the hero's to take, before a door (the pick's
 /// classes, `0x626C50`: the items 2, the doors 3), and the hero walks to it; any press ends the
 /// last such order.
-fn pick(
+pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<Pointer>,
