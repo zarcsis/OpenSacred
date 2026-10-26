@@ -21,8 +21,9 @@ const BLOCK_END: u16 = 42;
 const EXIT_DLG: u16 = 43;
 const DELETE_FUNCTION_BLOCK: u16 = 14;
 const TO_BEGIN: u16 = 111;
-/// The guards: `QuestDone` to `QuestNotInProgress` (none in the release), `GroupIsDead` and
-/// `DelDlg`, whose false result stops the function.
+/// The guards, whose false result stops the function: `QuestDone` to `QuestNotInProgress` (none in
+/// the release), `GroupIsDead`, and `DelDlg`, which takes the creature's dialogue away and is
+/// always false (`0x477CA7`).
 const GUARDS: [u16; 6] = [10, 11, 12, 13, 24, 44];
 /// The operand tag by which `DeleteFunktionBlock` names the function running.
 const THIS_FUNCTION: u8 = 0x0B;

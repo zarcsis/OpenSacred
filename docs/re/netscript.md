@@ -34,7 +34,7 @@ Read 2026-10-24 (#722) in the walker and the function runner `FUN_0046BA90`, **c
 - **Blocks, 41 and 42.** Type 41 sets the walker's skip (`0xAB7898`); while it is set every record is passed over but 42, which clears it.
   41 clears it again at once where its selector's flag holds: of the entry of the interpreter's quest table (`this+0x31C`, entries of `0x34` bytes, the flags at `+0x10`) that the creature's `+0x94` names, without its flag `0x20`, the selector 1 to 5 tests the flag 1, 2, 4, 8 or `0x10`; for 1 and 2, where the creature is in the list `+0x39C` of `0x603E30`'s object and the flag holds, the flag first becomes 4 (**hypothesis**: a quest given and taken by the speaker).
   So a block runs by the state of the creature's quest, as a dialogue's section.
-- **The guards.** `GroupIsDead` (24) and `DelDlg` (44) answer 0 on a false result, `ExitDlg` (43) and a record of type 0 always, so that the function stops; `QuestDone` to `QuestNotInProgress` (10 to 13) do too, but none of them occurs in the release.
+- **The guards.** `GroupIsDead` (24) answers 0 on a false result, `ExitDlg` (43), `DelDlg` (44, after it takes the creature's dialogue away; "Dialogues" below) and a record of type 0 always, so that the function stops; `QuestDone` to `QuestNotInProgress` (10 to 13) do too, but none of them occurs in the release.
   `DeleteFunktionBlock` (14) marks done each function that its string operands name, or with the operand `0x0B` the function running, and answers 0; without such an operand it answers 2, the function done.
   `ToBegin` (111) answers 3.
 - **The forms in the release** (the census, 2026-10-24): every `IF` (31,463) reaches an `ELSE` but 2, a chain of `ELSEIF`s in 20,015 of them, and every `ELSEIF` reaches an `ELSE`; the 2 are `IF`s at the end of the function `OMO-1teleportTrigger13_rg1` of two trees, before one record, so that a false condition answers 0 (a guard).
@@ -307,6 +307,62 @@ Read 2026-10-26 (#1021) by the static reading of `Sacred.exe`; **confirmed** by 
 - `SetOnKill` and `SetOnCollect` (`opensacred_rules::quests::Counts`, `scripts::Live::kill`, `scripts::Live::collect`): a death that is a kill counts its type, but a creature's that its death's function raises, a death at nobody's hands (a `SetHP` of 0, a summoned follower replaced, a lifetime's end: `npcs::Dies::unkilled`) and one of class 5; an item the hero takes counts its type, and one counted goes from the pack among the main quest's items (`pickup::Pack::quest`); the engine's lines of the counts are not followed.
 
 In the game, quest 9's `trigger1`, the novice's button, made the start's group 10 hostile and awake again (`npcs: the scripts set the group 10`).
+
+## Dialogues
+
+Read 2026-10-26 (#1024) by the static reading of `Sacred.exe` (a subagent of the session); **confirmed** by code unless marked otherwise, the counts on the Seraphim's tree.
+**Seen** the same day in the running original (the driver of #448, the Seraphim's start): a left click on the novice of the chapel, and on a sister indoors from 7 cells off, sent the hero running to stand about 2 cells from her, where a window opened at the screen's middle with her portrait at its left, her name in light yellow at its top, her text's paragraphs and her buttons in green at its bottom, one centred, two apart; a button closed it at once, and the novice's started quest 1 (a chapter's title shown, the novice walking off).
+
+### The talk's start
+
+- The hero's AI state 1 (`0x53A170`, the left click's event 7) takes the talk for a creature of the type categories 2 or 3 (`0x426220`) whose talk (`0x549920`, below) is above 0 or which trades (`+0x200 & 0x7000`): the AI's state 10 (`0x529C60`), the creature at `+0x100`.
+  A creature alive, hostile to the hero (`0x548F30`) and of no talk is attacked instead, so that a hostile one with a dialogue is talked to.
+  A hostile creature alive within the two creatures' reach and 15 of the first of the hero's hostiles (`0xAD3CE0`) leaves the hero idle instead (**hypothesis**: that `0xAD3CE4` is its distance).
+- The state 10's first step: farther than 1.5 times the two creatures' reach (`0x4DBC60`, the mean of their sizes) the hero walks to the creature's place, stopping within the reach, and the creature ends what it does (`0x54E6D0`) and has its AI's timer put back 5 s (`+0x208`), so that it waits; nearer, or once the walk ends, the hero takes the talk's action 7 (`0x52AB70`) toward it; a trader without a talk opens its windows instead (`UI_WND_BLACKSMITH`, `UI_WND_MERCHANT`, `UI_WND_MASTER` for `0x1000`, `0x2000`, `0x4000`).
+- The hero's action 7: on foot it plays its model's slot 177 (`*_TALK_A`, the blend 0.25), or its standing clip without it, turns to the creature and calls the quests' hook (`0x471790(hero, creature, 1, 0)`, #1020); unless the creature is in a dialogue already (`+0x200` bit `0x80`) it posts it the event `0x10C`, and sets its own `+0x200` bit `0x10`.
+- The event `0x10C` (`0x52E590`, at `0x5304EE`) gives the creature the AI's state 10 toward the hero: within 1.5 times the reach it takes its own action 7, the same clip and a turn to the hero; farther, once it stands, it drops the talk, so that it never walks to the hero.
+  Its action 7 runs the dialogue for a talk from 1 to 200,000, and opens the trade windows for a talk of 0 or above 200,000; its idle AI waits while the talk lasts.
+- A creature in a talk (`+0x200` bit `0x10`) shows no dialogue cursor (`MOUSE_DIALOG04.TGA`, `cEngine_updateWorldCursor` at `0x612685`, which wants a talk above 0, no `+0x1F4` bit `0x40000` and an id above 16), and a strike at a talking creature is ignored (`0x56B130`).
+
+### The dialogue's run
+
+- The creature sets `+0x200` bit `0x80` and finds its function (`0x46B480`): `Dialog:<name>` of its talk's entry among the functions, case aside (`0x859690`), else `<name>`, else the entry's `+0x44` (the type-40 body's first value, **hypothesis**: a function's index).
+- It becomes the speaker (`0x465590`: the script manager's `+0x75C0`, which the operand name `DLGNPC` names), and the five button slots are emptied (`+0x9A00`, `+0x9A14`); the function runs through the runner (`0x46BA90(function, creature, 0)`), its records collecting the window's contents.
+- `Text` (26): its `0x1E` key names the `global.res` string of its `sacred_hash` (`0x80EAA0`), pushed on the list of texts (`+0x99F4`), the creature's `+0x200` bit `0x400` set.
+  Without `0x7C` the record first empties the list, so that a `Text` replaces the text; with `0x7C` (902 of the 4,303 `Text`s, before the key in the bytecode) it adds to it; no `Dialog:` function's first `Text` has it.
+  Nothing stands between two texts: the paragraphs are the strings' own line breaks; a string's `<sound=…/>` tag would name a sound for the window's opening, and no string of the release has one.
+- `SetButton` (60, `0x499BA0`): its first `0x01` is the label, its second the function's name; a label of `res:<digits>` (case aside; 3,194 of the 3,201) keeps its number, whose string is `sacred_hash` of its decimal, so that `res:1024` is the string of `"1024"`; one of fewer than 2 characters adds nothing.
+  It fills the first of five slots, a sixth dropped, and the window shows the first four (`0x6E7260`), each with the function found by its name case aside as the window is made (`0x460590`); a number of 0 shows no button.
+- `PlaySound` (104, `0x4A9730`) plays the sound its `0x01` names at once (the client's table `0x964870`), so as the window opens: the dialogues' voice-overs, under their texts' keys (`sound.pak`'s `SOUND_FX_<key>` samples).
+- `ExitDlg` (43) only stops the function (`0x476387`), and the window shows what came before it.
+- `DelDlg` (44, `0x477CA7`) takes the creature's talk away (its entry's `+0x4C` cleared, `sdk_STAMP_IDX(0, 1)`, `+0x14` bit `0x80000` cleared) and stops the function, whatever came before; what came before still shows.
+- `ToBegin` (111) runs the function again from its start without emptying the buttons; no `Dialog:` function holds it (91 other functions do).
+- After the run, with a text, the creature makes the window (`cUI_Manager` at `0x756F40`, a `cUI_Tooltip` `UI_WND_TOOLTIP`, `0x75AF90`) at the point (512, 384) of the 1,024 × 768 screen with the size 640 × 512 (**hypothesis**: the point is its centre, as seen); without a text the talk ends, the function's records having run all the same.
+
+### The window and its buttons
+
+- The name is the string of the creature's key, `CreateNPC`'s `0x01` (`sdk_REFKEY`, `0x44A1C0`: `res:17095` the string of `"17095"`), else its type's name; drawn first in the colour `0xFFFFFF80`, then two line breaks and the texts in their order (`0x6E70D0`).
+- The portrait is an image of the interface chosen by the creature's type through a table of the client (`0x4345C0`, the type 1 the image 964), an index into the interface's images (`0x9ECEB0`, entries of 0x54 bytes: the index, a TGA's name and a rectangle, as 964's 96 × 128 of `GUI_portraitX34.TGA`), drawn 8 pixels in from the window's corner (`0x6E76C0`).
+- A click on a button (`0x6E74E0`) hides the window, plays the interface's sound `0x5D`, and `0x499DA0` ends the talk of every player's hero (the event `0x10C` of the end) before it runs the button's function with no creature (`0x46BA90(index, 0, 0)`), the speaker still the dialogue's.
+  So the function's own `Text`s and `SetButton`s open no window: a conversation goes on only where the function begins another talk (`Popup`, `NPC_TalkTo`) or gives the creature its next dialogue for the next click (`SetNPCState`'s `0x09`), as the novice's does.
+- Without buttons the window closes at the talk's next tick on Enter or a mouse button held (`0x655920`); two other methods of the window run the first or the second button's function (**hypothesis**: keys).
+- The talk's end clears the bits `0x80` and `0x10` and destroys the window; the hero, the first button chosen, calls the quests' hook (`0x471790(hero, creature, 0, 0)`).
+
+### The talk's own end, and the world meanwhile
+
+- The creature's talk ends once its partner leaves the talk or stands farther than 1,500 (`0x5370B0`), and after 31 ticks where it opened no window; the hero's ends once the creature's window is gone or the creature leaves the talk.
+- Nothing pauses: the talk's steps are the creatures' ticks of the world (**hypothesis**, to see in the original: the world runs on, and a click beside the window reaches the hero's orders, ending the talk).
+
+### Other records
+
+- `Popup` (95, `0x4A7760`) gives the local hero the named dialogue and a talk with itself (`0x54CBB0(hero, 2)`): its function runs with the hero, the window showing no name and the image of the entry's `+0x48` (the fixed images `0x400` to `0x42A`, `0x457` the hero's class's portrait); then the hero's dialogue is taken away (241 functions, none a `Dialog:`).
+- `NPC_TalkTo` (71, `0x49DCF0`) gives its first `0x01` the dialogue `0x09` and a talk toward its second (`HERO` the local hero), which takes its action 7 toward the first (4 records).
+- `Dialog` (31, `0x48F9E0`) gives the function's creature a dialogue by its `0x16` or `0x01` name or its `0x0B` number (1,870 records, in the dynamic quests' `ToDo` functions).
+- `SetIcon` (86, `0x4A1A50`) writes the entry's `+0x48`, of the named dialogue or of the running one, which `0x499E90` gives as the creature's icon over it (`cCreature_render`, `0x599F9B`).
+- `InfoPlayer` (132, `0x4AE350`) shows its text to the player outside the window (not read further).
+- `SetRgnDialog` (106, `0x465280`) keeps a creature type (`0x02`), a dialogue by name (`0x09`) or number (`0x0A`) and a region (`0x0B`, 0 for none) in the list `+0x7568`, replacing one of the same type and region; the Seraphim's start script holds all 128, none with a region.
+  A creature's talk (`0x549920`) is its `+0x245` where that is above 0; else, alive, without `+0x200` bit `0x40`, of the class `+0x1F0` 3, 7, 8, 12, 14 or 15, with a bit of `+0x1F4 & 0x1006DCF8` and not `0x40000`, and hostile neither way with its controlling player, it is the first entry of its type whose region is its place's (`0x602290`) or 0, found anew at each query.
+  In the regions 50 to 69 a creature of neither gets a generic line (`NPCUWR_…`) at random at each query by its type and the chapter's flags, its talk 54,321 running `Dialog:NPC_UW_DLG`, the line in place of its first text.
 
 ## The community's quest defects
 
