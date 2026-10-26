@@ -13,6 +13,11 @@
 //! switches to the others is not read yet. By night no track starts (the client plays none, its
 //! phase of the day at `+0xA34` being 2, docs/re/daynight.md); the one playing plays to its end.
 //!
+//! The campaign's sieges and its world's change override a sector's music (`0x67A7A0`, #55,
+//! [`music_of`]): the scripts' variables `RegionChange`, a bit for each sieged region, and
+//! `Globalchange1`, whose bit 1 the evil's turn of the quest 45 sets, give the villages' and
+//! Mascarell's music the military siege's, and any music of a sieged region the undead siege's.
+//!
 //! The hero's death plays `MUSIC_DEATH` once (`0x694FE0`, #734): the track playing stops at once,
 //! the death's music starts without fading, by day or by night, and plays to its end whatever
 //! sector the hero rises in. Then the music is silent until the hero enters a sector of other
@@ -23,8 +28,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bevy::log::debug;
 use bevy::prelude::{
-    Added, App, AssetServer, Handle, IntoScheduleConfigs, OnExit, Plugin, Query, Res, ResMut,
-    Resource, Time, Transform, Update, With, resource_exists,
+    Added, App, AssetServer, Handle, IntoScheduleConfigs, NonSend, OnExit, Plugin, Query, Res,
+    ResMut, Resource, Time, Transform, Update, With, resource_exists,
 };
 use bevy_kira_audio::prelude::{
     AudioChannel, AudioControl, AudioInstance, AudioSource, Decibels, PlaybackState,
@@ -41,6 +46,16 @@ use bevy_kira_audio::AudioApp;
 const PROFILE: &str = "music";
 /// `MUSIC_DEATH`, the music of the hero's death.
 const DEATH: u32 = 0x1969;
+/// `MUSIC_VILLAGE01` and `MUSIC_MASCARELL`, and the sieges' music that takes their place,
+/// `MUSIC_VILLAGE_SIEGE_MILITARY` and `MUSIC_VILLAGE_SIEGE_UNDEAD` (`0x67A7A0`).
+const VILLAGE: u32 = 0x1996;
+const MASCARELL: u32 = 0x1990;
+const SIEGE_MILITARY: u32 = 0x1997;
+const SIEGE_UNDEAD: u32 = 0x1998;
+/// The scripts' variables of the sieges and of the world's change, found case aside
+/// (`0x6263B0`).
+const SIEGES: &str = "RegionChange";
+const CHANGES: &str = "Globalchange1";
 /// The `PEACE` group of the profile.
 const PEACE: usize = 0;
 const FADE_IN: Duration = Duration::from_secs(2);
@@ -61,8 +76,9 @@ pub struct Music {
     /// The tracks of the `PEACE` group, relative to the asset directory.
     files: Vec<String>,
     next: usize,
-    /// The track of each sector's music, by the sector.
-    sectors: HashMap<(u32, u32), String>,
+    /// Each sector's music and area, by the sector, and the track of each music.
+    sectors: HashMap<(u32, u32), (u32, u8)>,
+    tracks: HashMap<u32, String>,
     /// The track of the hero's death, if the sound has it.
     death: Option<String>,
     playing: Option<Playing>,
@@ -132,7 +148,12 @@ impl Music {
             .sectors
             .iter()
             .filter(|s| s.music != 0)
-            .filter_map(|s| Some(((s.x, s.y), track(s.music)?)))
+            .map(|s| ((s.x, s.y), (s.music, s.area)))
+            .collect();
+        let tracks = sound
+            .music
+            .iter()
+            .filter_map(|m| Some((m.id?, crate::sound::music_file(m))))
             .collect();
         let death = track(DEATH);
         // A random first track, by the clock.
@@ -143,11 +164,35 @@ impl Music {
             files,
             next: usize::try_from(next).unwrap_or(0),
             sectors,
+            tracks,
             death,
             playing: None,
             hushed: None,
         }
     }
+}
+
+/// The music that a sector of the music `id` in the area `area` plays while the scripts' sieges
+/// are `sieges` and their world's change `changes` (`0x67A7A0`): the villages' and Mascarell's
+/// the military siege's in the regions 8 to 10 and `0x6F`, and with the change's bit 1 in the
+/// regions 2, 4 to 10, 12 to 17, `0x6E` and `0x6F`; any music the undead siege's in a region
+/// whose bit the sieges hold, the bit 11 for the region `0x6E`.
+fn music_of(id: u32, area: u8, sieges: u32, changes: u32) -> u32 {
+    let region = opensacred_rules::quests::region(area);
+    let mut music = id;
+    if id == VILLAGE || id == MASCARELL {
+        if matches!(region, 8..=10 | 0x6F) {
+            music = SIEGE_MILITARY;
+        }
+        if changes & 2 != 0 && matches!(region, 2 | 4..=10 | 12..=17 | 0x6E | 0x6F) {
+            music = SIEGE_MILITARY;
+        }
+    }
+    let bit = if region == 0x6E { 11 } else { region };
+    if sieges & (1 << (bit & 31)) != 0 {
+        music = SIEGE_UNDEAD;
+    }
+    music
 }
 
 /// The sector of world `(x, z)`.
@@ -171,7 +216,7 @@ pub fn play(
     time: Res<Time>,
     bodies: Query<&Transform, With<hero::Body>>,
     falling: Query<(), (With<hero::Body>, Added<Dies>)>,
-    clock: Res<Clock>,
+    (clock, scripts): (Res<Clock>, Option<NonSend<crate::scripts::Live>>),
 ) {
     // Nothing before the hero is in the world: its sector chooses.
     let Some(hero) = bodies.iter().next() else {
@@ -198,9 +243,15 @@ pub fn play(
         music.hushed = None;
         return;
     }
+    let bits = |name: &str| {
+        let value = scripts.as_ref().map_or(0, |scripts| scripts.variable(name));
+        u32::from_le_bytes(value.to_le_bytes())
+    };
     let region = music
         .sectors
         .get(&sector_of(hero.translation.x, hero.translation.z))
+        .map(|&(id, area)| music_of(id, area, bits(SIEGES), bits(CHANGES)))
+        .and_then(|id| music.tracks.get(&id))
         .cloned();
     if let Some(hushed) = &music.hushed {
         if !hushed.switches_to(region.as_ref()) {
@@ -314,6 +365,21 @@ mod tests {
         assert!(!hushed.switches_to(Some(&wood)));
         assert!(!hushed.switches_to(None));
         assert!(hushed.switches_to(Some(&desert)));
+    }
+
+    #[test]
+    fn the_sieges_and_the_worlds_change_take_the_villages_music() {
+        // The start's area 1 is the region 1; the area 8 the region 9, the area 24 `0x6E`.
+        assert_eq!(music_of(0x1980, 1, 0, 0), 0x1980);
+        assert_eq!(music_of(VILLAGE, 1, 0, 0), VILLAGE);
+        assert_eq!(music_of(VILLAGE, 8, 0, 0), SIEGE_MILITARY);
+        // The evil's turn: the villages of the region 2 too, but not of the region 1.
+        assert_eq!(music_of(MASCARELL, 2, 0, 2), SIEGE_MILITARY);
+        assert_eq!(music_of(VILLAGE, 1, 0, 2), VILLAGE);
+        // A sieged region: any music, the region `0x6E` by the bit 11.
+        assert_eq!(music_of(0x1980, 1, 1 << 1, 0), SIEGE_UNDEAD);
+        assert_eq!(music_of(VILLAGE, 24, 1 << 11, 2), SIEGE_UNDEAD);
+        assert_eq!(music_of(0x1980, 1, 1 << 2, 0), 0x1980);
     }
 
     #[test]

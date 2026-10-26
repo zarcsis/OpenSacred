@@ -376,6 +376,11 @@ impl Live {
             .cloned()
     }
 
+    /// The value of the scripts' variable `name`, 0 for one never set (`this+0x7550`).
+    pub fn variable(&self, name: &str) -> i32 {
+        self.state.variables.value(name)
+    }
+
     /// Runs the function `function` found by its name case aside (`0x46BF40`, `0x460590`), as
     /// the runner runs one (`0x46BA90`), a quest's only while the quest is set up: a creature's
     /// death's function, a count's: what it did to the world, nothing where the tree has no such

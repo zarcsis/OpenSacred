@@ -237,4 +237,6 @@ So the sieges' and the world changes' music follows the campaign's quests, which
 
 `opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`): entering a sector of another music switches to it at once, the one playing fading out (**hypothesis**: what `cMSS::playMusic` does with the track playing is not read); a track that ends plays again; out of a sector with music into one without, the track plays to its end, then `PEACE`.
 By night no track starts, and the one playing plays to its end, without the jingle (#5).
-Not in the game: the sieges and the world changes, which wait for the quests (#55), and the fights' music (docs/decisions/2026-10-17-region-music.md).
+Since #55 the sieges' and the world change's music follow the scripts' variables `RegionChange` and `Globalchange1` as the handler overrides it (`music::music_of`), whenever the hero's sector's music is chosen, so that a quest's siege changes the music of the sector the hero stands in at once (**hypothesis**: the original's pass posts the music at each of its runs).
+In the game, the quest 58's `Init58` (the console's `quest set-up 58`, `script Init58`), which sets the bits 1 and 6, gave the start's sector `MUSIC_VILLAGE_SIEGE_UNDEAD`.
+Not in the game: the world changes' creatures (`RegionChange` and `ReplaceSpawn`, #55) and the fights' music (docs/decisions/2026-10-17-region-music.md).
