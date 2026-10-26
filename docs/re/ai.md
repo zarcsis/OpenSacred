@@ -368,6 +368,6 @@ Since #657 the scripts hire too (`followers::Hired`, `npcs::hire_of`): a `Create
 - `0x39` and `0x65` let it go: it leaves the hero's list and stops, its side and home kept.
 - In the game, `QIS_OnEnter15002` made quest 15002's escort and `Dialog:od_15002` hired it (`script`, the console): it followed the hero, and `btn_ok_dq_15002` let it go, where it stayed.
 
-Not followed: the healers; the hire's levels; the flag 4's stand in danger far from the hero and its step off 220 from it at a random angle (it steps off as the others do); `0x71`'s mark in its quest, a quest's release and the quests' hook of the letting go (#1020).
+Not followed: the healers; the hire's levels; the flag 4's stand in danger far from the hero and its step off 220 from it at a random angle (it steps off as the others do); `0x71`'s mark in its quest, a quest's release and the quests' hook of the letting go, which serve only the dynamic quests that the release never runs (docs/re/netscript.md, "The dynamic quests").
 In the game, the Vampiress's wolf (a 588 of level 5 at her level 1 and the call's 2) went at a goblin that came at her; with her put 50 cells off, it was put near her and ran up to her; as she attacked one of two goblins beside her, it went at the other.
 Called on floor 2 of her start's building (#1013), it stepped off to a point on floor 1 and went down the stairs beside her.

@@ -841,6 +841,7 @@ Auxiliary files, **confirmed 2026-10-17** on the client's loader (`0x46FBxx`–`
 Other auxiliary files: `QuestCode.bin`: 1–3 records of starting flags (the Sacred campaign and the MP trees), empty in the 9 Underworld trees (`bin/Addon/NetScriptCamp`, `bin/Addon/TYPE_NPC_*`); `QuestPoolCode.bin` is empty in all 20 directories.
 
 Empty quest files: 29 files (9 `QuestCode.bin` + 20 `QuestPoolCode.bin`) in the GOG release are 0 B in size; the converter treats them as sections without records.
+The empty `QuestPoolCode.bin`s leave the dynamic quests without a template, so that the release makes none (**confirmed** by code 2026-10-26, docs/re/netscript.md, "The dynamic quests").
 
 ### 7.2 Twenty directories
 
