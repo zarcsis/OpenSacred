@@ -539,7 +539,11 @@ In the Seraphim's tree, of the records that `opensacred-game` runs (the start sc
 **Confirmed** in the original (2026-10-23, the Seraphim's start under the driver of #448): the captain's dialogue is 958, the place from 1 of `auftrag22` among the start script's dialogues, which the table's doubled first entry gives.
 
 In `opensacred-game`, `npcs::set_states` gives the creature that a `SetNPCState` names after its `CreateNPC` the record's level, its dialogue by the table as it stands then, its flags word, its side by its hostility (`opensacred_rules::minds::stated_side`), its trades and its home (#578); the captain lists with its dialogue as in the original.
-Its death's functions are followed since #656 ("The deaths' functions"); its quest (`0x75`) waits for the quests' table of creatures (#1020), `0x6B` and the followers for #657, the horses' trader and the rest for #658.
+Its death's functions are followed since #656 ("The deaths' functions"), and since #658 its heading (`0x03`, turned as `CreateNPC`'s), its group (`0x11`, which `GroupIsDead` then counts it in) and a horse's joining a trader's stock (`0x63`), which takes its dialogue away.
+The play's `SetNPCState`s give these to a creature made before them too, its placement and the creature in the world (`npcs::Npcs::restate`); its other tags on such a creature wait for #657.
+Its quest (`0x75`) waits for the quests' table of creatures (#1020), `0x6B` and the followers for #657, and `0x67`'s healer for #657 too.
+Not followed, and why: the stock itself, for the game has no trade yet; `0x36`, which serves nothing; `0x73`'s mark of 64, the game taking a creature's mark by its type (`opensacred_rules::minds::marked`), and no `SetNPCState` of the Seraphim's tree carrying it; `0x90`'s byte `+0x400` and `0xA1`'s `+0x14` bit `0x200000`, whose readers are not read; `0x7F`, `0x80`, `0x84`, `0x8C` and `0x85`'s effect, not read.
+In the Seraphim's tree the `SetNPCState`s carry `0x03` 4 times, `0x11` 3 times and `0x63` 59 times (the stables' horses, of no dialogue already).
 
 ## Differences from the openheilig table
 
