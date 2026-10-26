@@ -15,7 +15,9 @@
 //! fails. `call("name", …)` runs another function of the tree, `var("name")` reads a variable of
 //! the host, and `truncated()` stands for a payload past its record's end. A call answers how its
 //! function ended (`0x46BA90`, [`Outcome`]): run to its end, stopped, or marked done, never to
-//! run again; one that asks to start again (`ToBegin`) runs again.
+//! run again; one that asks to start again (`ToBegin`) runs again. The host hears each function
+//! that runs begin and end ([`Host::begins`], [`Host::ends`]), as the runner's index of the
+//! running function follows them (`0x94E07C`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -89,6 +91,13 @@ pub trait Host {
     fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled;
     /// The value of the variable `name` (`var("name")`).
     fn var(&mut self, name: &str) -> i32;
+    /// The function `function` begins to run, one neither done nor refused: the runner makes its
+    /// index the running function's (`0x94E07C`, at `0x46BD0D`).
+    fn begins(&mut self, _function: &str) {}
+    /// The function that began last ends, however it ends: the runner leaves no function running
+    /// (`0x94E07C` at −1, `0x46BDAD`, `0x46BF20`), until the next begins, though the function that
+    /// called it runs on.
+    fn ends(&mut self) {}
 }
 
 /// A call's failure, naming its tree, its file and its function.
@@ -269,7 +278,7 @@ impl Runtime {
                 dispatch(lua, inner, &host, &name, args)
             })?;
             inner.bridge.raw_set("call", reach)?;
-            let ran = run(&self.lua, inner, function, entry);
+            let ran = run(&self.lua, inner, &host, function, entry);
             inner.bridge.raw_set("call", Value::Nil)?;
             Ok(ran)
         });
@@ -331,7 +340,7 @@ fn dispatch(
                     )));
                 }
             };
-            let outcome = run(lua, inner, &callee, 0).map_err(mlua::Error::external)?;
+            let outcome = run(lua, inner, host, &callee, 0).map_err(mlua::Error::external)?;
             Ok(Value::Boolean(outcome.ran()))
         }
         "var" => {
@@ -352,7 +361,7 @@ fn dispatch(
                 match handled {
                     Handled::Run(function) => {
                         let through = inner.index.functions.contains_key(&function)
-                            && run(lua, inner, &function, 0)
+                            && run(lua, inner, host, &function, 0)
                                 .map_err(mlua::Error::external)?
                                 .ran();
                         ran.push(through);
@@ -387,8 +396,15 @@ pub fn refused(name: &str) -> bool {
 /// Runs the `nth` function of the name `function` of the tree: its file loaded as it is first
 /// called, a function marked done not run, one that starts again run again, one of a name that
 /// the runner refuses never. Each is marked done by its key in its file, the name itself for the
-/// first of its name.
-fn run(lua: &Lua, inner: &Inner, function: &str, nth: usize) -> Result<Outcome, Error> {
+/// first of its name. The host hears that a function that runs begins and ends
+/// ([`Host::begins`]).
+fn run(
+    lua: &Lua,
+    inner: &Inner,
+    host: &RefCell<&mut dyn Host>,
+    function: &str,
+    nth: usize,
+) -> Result<Outcome, Error> {
     if refused(function) {
         return Ok(Outcome::Refused);
     }
@@ -404,6 +420,19 @@ fn run(lua: &Lua, inner: &Inner, function: &str, nth: usize) -> Result<Outcome, 
     if inner.done.borrow().contains(&entry.key) {
         return Ok(Outcome::Done);
     }
+    host.borrow_mut().begins(function);
+    let outcome = run_entry(lua, inner, entry, function);
+    host.borrow_mut().ends();
+    outcome
+}
+
+/// Runs the function `function` of the index's entry `entry` ([`run`]).
+fn run_entry(
+    lua: &Lua,
+    inner: &Inner,
+    entry: &opensacred_data::luau::Entry,
+    function: &str,
+) -> Result<Outcome, Error> {
     let failed = |e: mlua::Error| {
         if inner.steps.get() > inner.budget.get() {
             Error::Interrupted {
@@ -504,6 +533,8 @@ mod tests {
         records: Vec<(String, Vec<Operand>)>,
         n: i32,
         answers: Vec<Vec<bool>>,
+        /// The records' names, and the functions' beginnings (`+Name`) and ends (`-`), in order.
+        events: Vec<String>,
     }
 
     impl Host for Recorder {
@@ -520,6 +551,7 @@ mod tests {
                 };
             }
             self.records.push((name.to_owned(), operands.to_vec()));
+            self.events.push(name.to_owned());
             match name {
                 "ok" => Handled::Answer(true),
                 "broken" => Handled::Failed("it broke".to_owned()),
@@ -533,6 +565,14 @@ mod tests {
                 self.n += 1;
             }
             self.n
+        }
+
+        fn begins(&mut self, function: &str) {
+            self.events.push(format!("+{function}"));
+        }
+
+        fn ends(&mut self) {
+            self.events.push("-".to_owned());
         }
     }
 
@@ -608,6 +648,27 @@ mod tests {
                 Operand::Number(0.0)
             ]))
         );
+    }
+
+    #[test]
+    fn the_host_hears_each_function_that_runs_begin_and_end() {
+        let (runtime, _) = runtime(&[(
+            "start.luau",
+            "local t = {}\n\
+             t.Outer = function()\n  before({})\n  call(\"Inner\")\n  after({})\n  return true\nend\n\
+             t.Inner = function()\n  inside({})\n  return \"done\"\nend\n\
+             return t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(runtime.call("Outer", &mut host).ok(), Some(Outcome::Ran));
+        assert_eq!(
+            host.events,
+            ["+Outer", "before", "+Inner", "inside", "-", "after", "-"]
+        );
+        // A function marked done neither begins nor ends.
+        host.events.clear();
+        assert_eq!(runtime.call("Inner", &mut host).ok(), Some(Outcome::Done));
+        assert!(host.events.is_empty());
     }
 
     #[test]

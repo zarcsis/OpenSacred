@@ -26,7 +26,10 @@
 //! `drops`). `SetObjState` bars, unbars, opens and closes the trigger of the object it names
 //! ([`ObjStates`], which `npcs` carries out), the state kept by the trigger while the object is
 //! gone (#952, docs/decisions/2026-10-25-stale-object-names.md). `SetHP` sets a creature's health
-//! to a share of its most ([`Healths`], #1001).
+//! to a share of its most ([`Healths`], #1001). `RegionChange` keeps its pairs of types by area,
+//! a record replacing its area's list while a function runs and adding to it once a function it
+//! called has ended (`0x4ABFE0`), which the later `CreateNPC`s of the area take
+//! (`npcs::AREA_TURN`, [`ScriptAreaTypes`], #1063).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -92,6 +95,11 @@ pub struct ScriptDrops(pub quests::Drops);
 /// they come in (#55, `npcs::place`).
 #[derive(Resource, Default)]
 pub struct ScriptReplacements(pub quests::Replacements);
+
+/// The scripts' `RegionChange` lists as the scripts last left them, which the creatures of the
+/// sectors' `Enter`s take as they come in (#1063, `npcs::place`).
+#[derive(Resource, Default)]
+pub struct ScriptAreaTypes(pub quests::AreaTypes);
 
 /// A `SetObjState` (2, `0x48AE90`) of the object named `name` (its ASCII lower-cased, as `npcs`
 /// keeps the objects' names): its trigger's bar (`0x8000`; `0x06` sets it, `0x07` clears it) and
@@ -654,6 +662,9 @@ struct Recorder<'a> {
     window: Window,
     infos: Vec<(i32, String)>,
     popups: Vec<Begins>,
+    /// Whether no function runs, the runner's index of the running function at −1 (`0x94E07C`):
+    /// before the first begins, and after any ends, until the next begins ([`Host::ends`]).
+    between: bool,
 }
 
 impl<'a> Recorder<'a> {
@@ -676,6 +687,7 @@ impl<'a> Recorder<'a> {
             window: Window::default(),
             infos: Vec::new(),
             popups: Vec::new(),
+            between: true,
         }
     }
 }
@@ -703,8 +715,26 @@ impl Host for Recorder<'_> {
             };
         }
         if ran.is_empty()
-            && let Some(record) = opensacred_scripts::record(name, operands)
+            && let Some(mut record) = opensacred_scripts::record(name, operands)
         {
+            // A `CreateNPC` takes the pair of its cell's area's `RegionChange` list as it runs
+            // (`0x482F41`, #1063): each area's that turns its type, which `npcs` picks by its
+            // cell.
+            if name == "create_npc"
+                && let Some(creature) = tags.numbers("_02").first()
+                && let Ok(creature) = u32::try_from(*creature)
+                && let netscript::Body::Operands(ops) = &mut record.body
+            {
+                for (area, turn) in self.state.area_types.turns(creature) {
+                    let Ok(to) = i32::try_from(turn.to) else {
+                        continue;
+                    };
+                    ops.push(netscript::Operand {
+                        tag: npcs::AREA_TURN,
+                        value: Value::I32x3([i32::from(area), to, i32::from(turn.flags)]),
+                    });
+                }
+            }
             self.records.push(record);
         }
         let variables = &mut self.state.variables;
@@ -1042,6 +1072,29 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
+            // The pairs of types of an area for its later `CreateNPC`s (`0x4ABB60`,
+            // `0x4ABFE0`; #1063): the area `0x69`'s number, 0 without one; its flags word by its
+            // tags, which each add their bit.
+            "region_change" => {
+                let area = tags
+                    .texts("_69")
+                    .first()
+                    .map_or(0, |area| area.trim().parse::<i32>().unwrap_or(0));
+                let types: Vec<u32> = tags
+                    .numbers("_02")
+                    .into_iter()
+                    .filter_map(|creature| u32::try_from(creature).ok())
+                    .collect();
+                let word = quests::region_change_word(
+                    tags.numbers("marks")
+                        .into_iter()
+                        .filter_map(|tag| u8::try_from(tag).ok()),
+                );
+                if let Ok(area) = u8::try_from(area) {
+                    self.state.area_types.add(area, &types, word, self.between);
+                }
+                Handled::Done
+            }
             "set_drop" => {
                 // The two types, the creature first: the one of a creature's category
                 // (`0x426610`) where the other is not (`0x4AFFF0`).
@@ -1079,6 +1132,14 @@ impl Host for Recorder<'_> {
 
     fn var(&mut self, name: &str) -> i32 {
         self.state.variables.value(name)
+    }
+
+    fn begins(&mut self, _function: &str) {
+        self.between = false;
+    }
+
+    fn ends(&mut self) {
+        self.between = true;
     }
 }
 
@@ -1237,6 +1298,7 @@ fn begin(world: &mut World) {
     world.insert_resource(HeroHome::default());
     world.insert_resource(ScriptDrops(started.state.drops.clone()));
     world.insert_resource(ScriptReplacements(started.state.replacements.clone()));
+    world.insert_resource(ScriptAreaTypes(started.state.area_types.clone()));
     match runtime(&started.assets, &started.tree, started.index.clone()) {
         Ok(runtime) => world.insert_non_send(Live::new(runtime, started)),
         Err(e) => bevy::log::warn!("scripts: {e:#}; the scripts do not run on"),
@@ -1248,14 +1310,18 @@ fn end(world: &mut World) {
     world.remove_non_send::<Live>();
     world.remove_resource::<ScriptDrops>();
     world.remove_resource::<ScriptReplacements>();
+    world.remove_resource::<ScriptAreaTypes>();
 }
 
-/// Hands the scripts' drops to the deaths' drops, and their replacements to the fills, as the
-/// scripts change them.
+/// Hands the scripts' drops to the deaths' drops, their replacements to the fills and their
+/// `RegionChange` lists to the `Enter`s' creatures, as the scripts change them.
 fn share(
     live: Option<NonSendMut<Live>>,
     shared: Option<ResMut<ScriptDrops>>,
-    replacements: Option<ResMut<ScriptReplacements>>,
+    (replacements, area_types): (
+        Option<ResMut<ScriptReplacements>>,
+        Option<ResMut<ScriptAreaTypes>>,
+    ),
 ) {
     let Some(live) = live else {
         return;
@@ -1269,6 +1335,11 @@ fn share(
         && shared.0 != live.state.replacements
     {
         shared.0 = live.state.replacements.clone();
+    }
+    if let Some(mut shared) = area_types
+        && shared.0 != live.state.area_types
+    {
+        shared.0 = live.state.area_types.clone();
     }
 }
 
@@ -2431,6 +2502,67 @@ mod tests {
         );
         assert_eq!(state.drops.of(38).collect::<Vec<_>>(), [(6005, 75)]);
         assert_eq!(state.drops.of(99).collect::<Vec<_>>(), [(1355, 75)]);
+    }
+
+    #[test]
+    fn a_region_change_keeps_its_areas_pairs_for_the_create_npcs_after_it() {
+        // `WillbursTot45`: soldiers made, `GoodToBad` called, a record of area 5 that adds to
+        // its list, and soldiers made again.
+        let runtime = runtime(&[(
+            "quests/45.luau",
+            "local F = {}
+             F[\"StartCode\"] = function()
+             create_npc { _02 = { 297, 1729 }, _04 = \"Scharmuetzel\", _0E = true, marks = { 0x0E } }
+             call(\"GoodToBad\")
+             region_change { _02 = { 281, 274 }, _69 = \"5\" }
+             create_npc { _02 = { 297, 1729 }, _04 = \"Scharmuetzel\", _0E = true, marks = { 0x0E } }
+             create_npc { _02 = { 281, 1210 }, _04 = \"Scharmuetzel\", _0E = true, marks = { 0x0E } }
+             return true
+             end
+             F[\"GoodToBad\"] = function()
+             region_change { _02 = { 297, 296 }, _08 = true, _12 = true, _69 = \"4\", marks = { 0x08, 0x12 } }
+             region_change { _02 = { 279, 276, 297, 296 }, _08 = true, _12 = true, _69 = \"5\", marks = { 0x08, 0x12 } }
+             region_change { _02 = { 1211, 1209 }, _69 = \"5\" }
+             return true
+             end
+             return F",
+        )]);
+        let mut state = quests::Scripts::default();
+        let mut rng = Rng::of(0, 0, SEED);
+        let made = records(
+            &runtime,
+            ("TEST", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
+        // `GoodToBad`'s second record of area 5 replaced its first; the one after the call added.
+        let lists = &state.area_types;
+        assert_eq!(lists.turn(5, 279), None);
+        assert_eq!(lists.turn(5, 1211).map(|turn| turn.to), Some(1209));
+        assert_eq!(
+            lists.turn(5, 281).map(|turn| (turn.to, turn.flags)),
+            Some((274, 0))
+        );
+        assert_eq!(
+            lists.turn(4, 297).map(|turn| (turn.to, turn.flags)),
+            Some((296, 1))
+        );
+        // Each `CreateNPC` carries the pairs of its type as the lists stood when it ran.
+        let turns = |record: &Record| match &record.body {
+            netscript::Body::Operands(ops) => ops
+                .iter()
+                .filter(|op| op.tag == npcs::AREA_TURN)
+                .map(|op| op.value.clone())
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        let created: Vec<&Record> = made.iter().filter(|r| r.kind == 1).collect();
+        assert_eq!(created.len(), 3);
+        assert!(turns(created[0]).is_empty());
+        assert_eq!(turns(created[1]), [Value::I32x3([4, 296, 1])]);
+        assert_eq!(turns(created[2]), [Value::I32x3([5, 274, 0])]);
     }
 
     #[test]

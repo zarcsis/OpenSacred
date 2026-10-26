@@ -99,12 +99,6 @@ pub struct Added {
     pub text: &'static str,
 }
 
-impl Added {
-    pub fn id(&self) -> u32 {
-        sacred_hash(self.name.as_bytes())
-    }
-}
-
 /// The strings that `text` adds: the names of the waters' shoals of fish, the only creatures of a
 /// type without a name that the scripts or the sectors' runner make (#684,
 /// docs/decisions/2026-10-23-fish-names.md), and the lines of the four quest-log keys that the
@@ -146,6 +140,25 @@ pub const ADDED: [Added; 6] = [
         text: "The women are home again, safe in their village.",
     },
 ];
+
+/// Every string that `text` adds, its name and its text: [`ADDED`], then the names of the items
+/// without one (`item_names`, #685).
+pub fn added() -> Vec<(String, &'static str)> {
+    ADDED
+        .iter()
+        .map(|string| (string.name.to_owned(), string.text))
+        .chain(
+            crate::item_names::ITEM_NAMES
+                .iter()
+                .map(|&(item, text)| (item.to_string(), text)),
+        )
+        .collect()
+}
+
+/// A string's id by its name: the hash of its name (docs/02 §8).
+pub fn id_of(name: &str) -> u32 {
+    sacred_hash(name.as_bytes())
+}
 
 /// What [`apply`] did to a string.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,16 +300,14 @@ mod tests {
 
     #[test]
     fn the_added_strings_are_named_once() {
-        let mut ids: Vec<u32> = ADDED.iter().map(Added::id).collect();
+        let added = added();
+        let mut ids: Vec<u32> = added.iter().map(|(name, _)| id_of(name)).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), ADDED.len());
+        assert_eq!(ids.len(), ADDED.len() + 301);
+        assert_eq!(ids.len(), added.len());
         // A creature type's name is the hash of its number (docs/02 §6.2): type 37 is id 5818.
-        let probe = Added {
-            name: "37",
-            text: "",
-        };
-        assert_eq!(probe.id(), 5818);
+        assert_eq!(id_of("37"), 5818);
     }
 
     #[test]

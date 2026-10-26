@@ -5,7 +5,15 @@ all-features = true
 
 [advisories]
 # RustSec database: vulnerabilities, yanked versions, unmaintained crates.
-ignore = []
+# Bevy 0.20's `zstd_c` pulls zstd 0.13 and zstd-safe 7, whose lines have no fix of these three;
+# bevy_image calls only `zstd::decode_all`, on the KTX2 levels that `opensacred-convert build`
+# compresses with zstd 0.14 and on Bevy's own tone-mapping tables (#1070). They go once Bevy
+# moves to zstd 0.14 (#826).
+ignore = [
+    { id = "RUSTSEC-2026-0391", reason = "zstd 0.13's `with_context`, which bevy_image does not call (#1070)" },
+    { id = "RUSTSEC-2026-0398", reason = "zstd-safe 7's `seekable`, a feature nothing enables (#1070)" },
+    { id = "RUSTSEC-2026-0403", reason = "a legacy zstd frame failing, and none is decoded: ours and Bevy's are zstd 1 frames (#1070)" },
+]
 
 [licenses]
 # Our crates are MIT OR Apache-2.0. GPL only under opensacred-oracle (Unicorn, GPL-2.0), a
