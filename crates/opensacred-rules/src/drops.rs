@@ -121,6 +121,21 @@ pub enum Difficulty {
 }
 
 impl Difficulty {
+    /// The gold that a hero of `gold` pays as it rises after its death (`0x53E4A8` to
+    /// `0x53E53C`, by the difficulty `0x182EE44`): a twentieth on bronze, a tenth on silver, a
+    /// seventh on gold, a fifth on platinum and a half on niobium, truncated (docs/re/fight.md;
+    /// seen on bronze, #976: 18 kept 18, 500 became 475 and then 452).
+    pub fn death_toll(self, gold: u32) -> u32 {
+        let share = match self {
+            Self::Bronze => 20,
+            Self::Silver => 10,
+            Self::Gold => 7,
+            Self::Platinum => 5,
+            Self::Niobium => 2,
+        };
+        gold / share
+    }
+
     /// Its column of the balance's rows of six (`0x94E7C8`): bronze the sixth, silver the first,
     /// gold the second and so on.
     fn column(self) -> usize {

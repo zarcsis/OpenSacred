@@ -667,6 +667,18 @@ fn an_item_is_made_by_its_key_between_lo_and_hi() {
 }
 
 #[test]
+fn a_hero_rising_pays_a_share_of_its_gold_by_the_difficulty() {
+    // Seen on bronze (#976): 18 kept 18, 500 became 475 and then 452.
+    assert_eq!(Difficulty::Bronze.death_toll(18), 0);
+    assert_eq!(Difficulty::Bronze.death_toll(500), 25);
+    assert_eq!(Difficulty::Bronze.death_toll(475), 23);
+    assert_eq!(Difficulty::Silver.death_toll(475), 47);
+    assert_eq!(Difficulty::Gold.death_toll(475), 67);
+    assert_eq!(Difficulty::Platinum.death_toll(475), 95);
+    assert_eq!(Difficulty::Niobium.death_toll(475), 237);
+}
+
+#[test]
 fn the_scripts_drops_of_a_type_each_make_their_item_in_their_share_of_the_deaths() {
     let rules = Rules::default();
     let (catalogue, templates) = (unlisted(), Templates::default());

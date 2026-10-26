@@ -1072,8 +1072,8 @@ pub struct Fallen(f32);
 
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
 /// its dying clips once and lies there; after five seconds it rises at the game's start with its
-/// health full (docs/decisions/2026-10-20-hero-health.md: the original's resurrection is not
-/// read).
+/// health full (docs/decisions/2026-10-20-hero-health.md), paying a share of its gold by the
+/// difficulty, bronze's (`0x53E4A8`, #976).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1083,7 +1083,7 @@ pub fn fall(
     time: Res<Time>,
     hero: Res<Hero>,
     clips: Option<Res<Clips>>,
-    speed: Res<GameSpeed>,
+    (speed, mut pack): (Res<GameSpeed>, Option<ResMut<crate::pickup::Pack>>),
     mut bodies: Query<(
         Entity,
         &mut Transform,
@@ -1128,6 +1128,13 @@ pub fn fall(
         body.teleport(&mut transform, hero.position);
         if let Some(mut health) = health {
             health.current = health.most;
+        }
+        if let Some(pack) = pack.as_deref_mut() {
+            let toll = opensacred_rules::drops::Difficulty::Bronze.death_toll(pack.gold);
+            pack.gold -= toll;
+            if toll > 0 {
+                info!("hero: the hero pays {toll} gold as it rises");
+            }
         }
         commands.entity(entity).remove::<(Dies, Fallen)>();
         if let Some((mut player, mut transitions)) = player {
