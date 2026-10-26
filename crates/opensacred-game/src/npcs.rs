@@ -86,6 +86,7 @@ const SET_GROUP_STATE: u16 = 73;
 const SET_ICON: u16 = 86;
 const SET_RGN_DIALOG: u16 = 106;
 const TELEPORT: u16 = 46;
+const REGION_CHANGE: u16 = 116;
 /// The prefix of a position that names a creature's place (`CPOS:HERO`, `CPOS:res:17190`).
 const CREATURE_POSITION: &str = "cpos:";
 /// The operand of a `SetGroupState` that removes its group's living creatures (`0x49E760`).
@@ -182,7 +183,9 @@ struct Placement {
     texture: Option<String>,
     /// The position's third number, the layer.
     layer: i32,
-    /// The items an NPC holds in its hands: their models, and the items themselves.
+    /// The items of an NPC's `CreateNPC`, their types in its order (its `0x02`s after its type),
+    /// and those it holds in its hands: their models, and the items themselves.
+    items: Vec<u32>,
     equipment: Vec<Held>,
     holding: Vec<InHand>,
     /// A fill's boss or champion, or a script's boss (`fight::Rank`).
@@ -207,10 +210,10 @@ struct Placement {
     /// An NPC's side (`+0x1F0`), by which it is hostile to the hero or not
     /// (`opensacred_rules::minds::hostile_to_heroes`; #580).
     side: u8,
-    /// Whether a `RegionChange` list may turn an NPC's type, its `CreateNPC` making no trader
-    /// and carrying no `0x6B` other than 0 (`0x482F41`, #1063), and its record's hostility
+    /// Whether its `CreateNPC` carries a `0x6B` other than 0 ([`RISES`]), which keeps it from
+    /// `RegionChange` ([`Placement::turns`], [`Placement::changes`]), and its record's hostility
     /// (`minds::created_hostility`), by which a turned type takes its side ([`Makers::retype`]).
-    turns: bool,
+    rises: bool,
     hostility: Option<bool>,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
@@ -261,6 +264,21 @@ struct Placement {
     /// An NPC's functions of the script manager's list, of which its death runs one (#656):
     /// its `CreateNPC`'s and its `SetNPCState`s' `0x05` and `0x60`.
     on_death: DeathFunctions,
+}
+
+impl Placement {
+    /// Whether a `RegionChange` list may turn an NPC's type as its `CreateNPC` runs: one that
+    /// makes no trader and carries no `0x6B` other than 0 (`0x482F41`, #1063).
+    fn turns(&self) -> bool {
+        self.made.1 && !self.object && self.trades == 0 && !self.rises
+    }
+
+    /// Whether a `RegionChange` may change the creature, a fill's or a `CreateNPC`'s: no trader
+    /// (`+0x200` bits `0x4007000`) and none whose `0x6B` above 0 set `+0x2B7` bit `0x08`
+    /// (`0x4ABFE0`, #1064).
+    fn changes(&self) -> bool {
+        !self.object && self.trades == 0 && !self.rises
+    }
 }
 
 /// The clips an NPC plays, by name (`motions`): standing, walking where a script sends it,
@@ -523,10 +541,11 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
-        turns: false,
+        rises: false,
         hostility: None,
         texture: kind.texture.clone(),
         layer: 0,
+        items: Vec::new(),
         equipment: Vec::new(),
         holding: Vec::new(),
         rank: fight::Rank::Common,
@@ -2123,6 +2142,13 @@ struct Makers {
 /// The places that the scripts' `DefPos`s name, by their names lower-cased: a global cell.
 type Places = HashMap<String, (i32, i32)>;
 
+/// What the play's records placed ([`Npcs::add`]): how many creatures and objects, and the
+/// `RegionChange`s that the creatures in the world take ([`region_changes`]).
+pub struct Added {
+    pub placed: usize,
+    pub changes: Vec<quests::AreaChange>,
+}
+
 /// Where a record ran: in a sector's `Enter`, whose creatures and objects are made again at each
 /// coming, and in the start, whose creatures take their levels as the game starts.
 #[derive(Clone, Copy, Debug, Default)]
@@ -2149,38 +2175,12 @@ impl Makers {
             _ => None,
         });
         let creature = items_named.next();
-        let equipped: Vec<&Item> = items_named
-            .filter_map(|slot| self.items.get(&slot))
-            .collect();
-        let categories: Vec<(u8, Option<u8>)> = equipped
-            .iter()
-            .map(|item| (category(item), self.kinds.get(&item.slot).copied()))
-            .collect();
-        let equipment: Vec<Held> = equipped
-            .iter()
-            .zip(hands(&categories))
-            .filter_map(|(item, hand)| {
-                let model = self.models.get(&item.name.to_ascii_uppercase())?;
-                let texture = match item.words_08[0] {
-                    0 => None,
-                    number => self.textures.get(&number).cloned(),
-                };
-                Some(Held {
-                    model: model.clone(),
-                    texture,
-                    hand: hand?,
-                    shield: category(item) == SHIELD,
-                })
-            })
-            .collect();
-        // The items in its hands, whose values it fights with.
-        let holding = InHand::of(equipped.iter().map(|item| {
-            (
-                item.slot,
-                category(item),
-                self.kinds.get(&item.slot).copied(),
-            )
-        }));
+        let items: Vec<u32> = if record.kind == CREATE_NPC {
+            items_named.collect()
+        } else {
+            Vec::new()
+        };
+        let arming = self.arming(&items);
         // An NPC sent somewhere at the start walks there from where it was made.
         let target = name_of(ops).and_then(|name| targets.get(&name).copied());
         let cell = position(ops, named).or(target);
@@ -2212,7 +2212,7 @@ impl Makers {
                 model_slots.insert(model.clone(), slots);
             }
             let slots = &model_slots[model];
-            let class = held_class(&categories);
+            let class = arming.class;
             let walk = slots.clip(motions::Action::Walk, class);
             (ClipNames::of(slots, class), walk.map(|(_, gait)| gait))
         } else {
@@ -2266,12 +2266,8 @@ impl Makers {
             speed: [walking, running].map(f32::from),
             class,
             base: self.bases.get(&creature).copied().unwrap_or_default(),
-            held: if record.kind == CREATE_NPC {
-                held_class(&categories)
-            } else {
-                held_class(&[])
-            },
-            ranged: record.kind == CREATE_NPC && ranged(&categories),
+            held: arming.class,
+            ranged: arming.ranged,
             size: arrows::size(item.words_14[0]),
             made: (origin.enter, true),
             started: origin.started,
@@ -2316,20 +2312,13 @@ impl Makers {
                 word,
             ),
             side,
-            turns: record.kind == CREATE_NPC && trades == 0 && !rises(ops),
+            rises: record.kind == CREATE_NPC && rises(ops),
             hostility,
             texture,
             layer,
-            equipment: if record.kind == CREATE_NPC {
-                equipment
-            } else {
-                Vec::new()
-            },
-            holding: if record.kind == CREATE_NPC {
-                holding
-            } else {
-                Vec::new()
-            },
+            items,
+            equipment: arming.equipment,
+            holding: arming.holding,
             rank: fight::Rank::of_tag(tag),
             tag,
             clips,
@@ -2353,10 +2342,10 @@ impl Makers {
     }
 
     /// The placement `placement` of an NPC whose `CreateNPC` takes the `RegionChange` pair `turn`
-    /// as it runs (`0x482F41`, #1063): of the pair's type, its model, texture, size, speeds,
-    /// `Creature.pak` values, class and clips, its flags word as the pair leaves it and its side
-    /// by them and its record's hostility, as the record makes a creature of that type; its
-    /// items, its place and the rest kept. None where the type has no item or no model.
+    /// as it runs (`0x482F41`, #1063): of the pair's type ([`Self::remade`]), its flags word as
+    /// the pair leaves it, and its side by them and its record's hostility, as the record makes a
+    /// creature of that type; its items, its place and the rest kept. None where the type has no
+    /// item or no model.
     fn retype(
         &self,
         placement: &Placement,
@@ -2364,6 +2353,53 @@ impl Makers {
         model_slots: &mut HashMap<String, motions::Slots>,
     ) -> Result<Option<Placement>> {
         let (creature, word) = turn.of(placement.creature.2);
+        let Some(mut turned) = self.remade(placement, creature, &placement.items, model_slots)?
+        else {
+            return Ok(None);
+        };
+        turned.creature.2 = word;
+        turned.side = minds::created_side(turned.class, creature, word, placement.hostility);
+        Ok(Some(turned))
+    }
+
+    /// The placement `placement` of a creature that a `RegionChange` of its area changes as it
+    /// runs (`0x4ABFE0`, #1064): of the type that its pairs turn its type into ([`Self::remade`]),
+    /// its items turned with it, the record's flags word and the side it gives; none where no
+    /// pair turns its type, or the type has no item or no model. Its values are made anew of the
+    /// new type (**hypothesis**: the original keeps the creature's until they are made again).
+    fn change(
+        &self,
+        placement: &Placement,
+        change: &quests::AreaChange,
+        model_slots: &mut HashMap<String, motions::Slots>,
+    ) -> Result<Option<Placement>> {
+        let Some((creature, times)) = change.creature(placement.creature.0) else {
+            return Ok(None);
+        };
+        let items: Vec<u32> = placement
+            .items
+            .iter()
+            .map(|&item| change.item(item, times))
+            .collect();
+        let Some(mut changed) = self.remade(placement, creature, &items, model_slots)? else {
+            return Ok(None);
+        };
+        changed.creature.2 = change.word(placement.creature.2);
+        changed.side = change.side(placement.side, creature);
+        Ok(Some(changed))
+    }
+
+    /// The placement `placement` of an NPC made of the type `creature` holding the items `items`:
+    /// its model, texture, size, speeds, `Creature.pak` values, class and flags, its shadow, what
+    /// it holds and its clips by them; its flags word, side, place and the rest kept. None where
+    /// the type has no item or no model.
+    fn remade(
+        &self,
+        placement: &Placement,
+        creature: u32,
+        items: &[u32],
+        model_slots: &mut HashMap<String, motions::Slots>,
+    ) -> Result<Option<Placement>> {
         let Some(item) = self.items.get(&creature) else {
             return Ok(None);
         };
@@ -2375,42 +2411,98 @@ impl Makers {
             model_slots.insert(model.clone(), slots);
         }
         let slots = &model_slots[model];
+        let arming = self.arming(items);
         let [walking, running] = self.speeds.get(&creature).copied().unwrap_or_default();
-        let class = self.classes.get(&creature).copied().unwrap_or_default();
         let gait = slots
-            .clip(motions::Action::Walk, placement.held)
+            .clip(motions::Action::Walk, arming.class)
             .map(|(_, gait)| gait);
-        let mut turned = placement.clone();
-        turned.model = model.clone();
-        turned.texture = match item.words_08[0] {
+        let mut remade = placement.clone();
+        remade.model = model.clone();
+        remade.texture = match item.words_08[0] {
             0 => None,
             number => self.textures.get(&number).cloned(),
         };
-        turned.size = arrows::size(item.words_14[0]);
-        turned.speed = [walking, running].map(f32::from);
-        if let Some((to, _)) = turned.walk {
+        remade.size = arrows::size(item.words_14[0]);
+        remade.speed = [walking, running].map(f32::from);
+        if let Some((to, _)) = remade.walk {
             let speed = if gait == Some(motions::Action::Run) {
                 running
             } else {
                 walking
             };
-            turned.walk = Some((to, f32::from(speed)));
+            remade.walk = Some((to, f32::from(speed)));
         }
-        turned.class = class;
-        turned.base = self.bases.get(&creature).copied().unwrap_or_default();
-        turned.casts = !self.shadowless.contains(&creature);
-        turned.clips = ClipNames::of(slots, placement.held);
-        turned.creature = (
+        remade.class = self.classes.get(&creature).copied().unwrap_or_default();
+        remade.base = self.bases.get(&creature).copied().unwrap_or_default();
+        remade.casts = !self.shadowless.contains(&creature);
+        remade.clips = ClipNames::of(slots, arming.class);
+        remade.held = arming.class;
+        remade.ranged = arming.ranged;
+        remade.items = items.to_vec();
+        remade.equipment = arming.equipment;
+        remade.holding = arming.holding;
+        remade.creature = (
             creature,
             self.record_flags
                 .get(&creature)
                 .copied()
                 .unwrap_or_default(),
-            word,
+            placement.creature.2,
         );
-        turned.side = minds::created_side(class, creature, word, placement.hostility);
-        Ok(Some(turned))
+        Ok(Some(remade))
     }
+
+    /// What an NPC holding the items `items` holds (`0x54ACC0`, `0x54B130`; [`hands`]): their
+    /// models in its hands, the items in its hands, whose values it fights with, the class of
+    /// what it holds, and whether that is a ranged weapon.
+    fn arming(&self, items: &[u32]) -> Arming {
+        let equipped: Vec<&Item> = items
+            .iter()
+            .filter_map(|slot| self.items.get(slot))
+            .collect();
+        let categories: Vec<(u8, Option<u8>)> = equipped
+            .iter()
+            .map(|item| (category(item), self.kinds.get(&item.slot).copied()))
+            .collect();
+        let equipment = equipped
+            .iter()
+            .zip(hands(&categories))
+            .filter_map(|(item, hand)| {
+                let model = self.models.get(&item.name.to_ascii_uppercase())?;
+                let texture = match item.words_08[0] {
+                    0 => None,
+                    number => self.textures.get(&number).cloned(),
+                };
+                Some(Held {
+                    model: model.clone(),
+                    texture,
+                    hand: hand?,
+                    shield: category(item) == SHIELD,
+                })
+            })
+            .collect();
+        let holding = InHand::of(equipped.iter().map(|item| {
+            (
+                item.slot,
+                category(item),
+                self.kinds.get(&item.slot).copied(),
+            )
+        }));
+        Arming {
+            equipment,
+            holding,
+            class: held_class(&categories),
+            ranged: ranged(&categories),
+        }
+    }
+}
+
+/// What an NPC holds ([`Makers::arming`]).
+struct Arming {
+    equipment: Vec<Held>,
+    holding: Vec<InHand>,
+    class: u8,
+    ranged: bool,
 }
 
 impl Npcs {
@@ -3066,7 +3158,7 @@ fn place_index(
     // An `Enter`'s creature, made again as its `CreateNPC` runs again, of the type that its
     // area's `RegionChange` list gives it now (`0x482F41`, #1063).
     let turn = area_types
-        .filter(|_| npcs.placements[index].made.0 && npcs.placements[index].turns)
+        .filter(|_| npcs.placements[index].made.0 && npcs.placements[index].turns())
         .zip(streamer.area(at))
         .and_then(|(lists, area)| lists.turn(area, npcs.placements[index].creature.0));
     let turned = match turn {
@@ -3122,6 +3214,12 @@ fn place_index(
             (&npcs.fight, &npcs.items),
         ),
     };
+    // An `Enter`'s creature keeps what it was made of, which a `RegionChange` changes (#1064).
+    if placement.made.0 && !placement.object {
+        commands
+            .entity(entity)
+            .insert(Remakes(Box::new(placement.clone())));
+    }
     // A door whose trigger is open, as it was left or as the scripts set it while it was
     // gone, opens as it comes (#952).
     if placement
@@ -3493,15 +3591,20 @@ fn keep(
         Option<&fight::Health>,
         Has<Dies>,
         Option<&OnDeath>,
+        Has<Remade>,
     )>,
     heights: Option<Res<Heights>>,
     npcs: Option<ResMut<Npcs>>,
 ) {
-    let (Ok((placed, transform, way, health, dies, on_death)), Some(mut npcs)) =
+    let (Ok((placed, transform, way, health, dies, on_death, remade)), Some(mut npcs)) =
         (creatures.get(removed.entity), npcs)
     else {
         return;
     };
+    // A creature made again by a `RegionChange` leaves its place to its new self (#1064).
+    if remade {
+        return;
+    }
     if let Source::Kept(index) = placed.source
         && let Some(placement) = npcs.placements.get_mut(index)
     {
@@ -3655,15 +3758,9 @@ fn spawn(
         mind.ranged = placement.ranged;
         mind.armed = placement.held != 0;
         mind.big = record_flags & BIG != 0;
-        // Its health, full, by its base, its level, its skill 10 and its rank (`0x5658F0`); a
-        // crab's or a fish's the stats' own.
+        // Its health, full ([`most_health`]).
         let skills = fight::skills(&placement.base, grade, placement.plain);
-        let rank = placement.rank.health(creature, placement.class, rules);
-        let most = if placement.plain {
-            PLAIN_HEALTH
-        } else {
-            fight::most_health(placement.base.attributes, grade, &skills, rank, rules)
-        };
+        let most = most_health(placement, grade, rules);
         // A `SetHP`'s share of it (`0x48E280`, #1001), truncated.
         let current = placement
             .health_share
@@ -3754,6 +3851,36 @@ fn spawn(
         }
     }
     entity.id()
+}
+
+/// The most health of a creature of `placement` at the level `grade`, by its base, its level, its
+/// skill 10 and its rank (`0x5658F0`); a crab's or a fish's the stats' own.
+fn most_health(placement: &Placement, grade: u32, rules: &fight::Rules) -> u32 {
+    if placement.plain {
+        return PLAIN_HEALTH;
+    }
+    let skills = fight::skills(&placement.base, grade, placement.plain);
+    let rank = placement
+        .rank
+        .health(placement.creature.0, placement.class, rules);
+    fight::most_health(placement.base.attributes, grade, &skills, rank, rules)
+}
+
+/// The health `health` as the share of it that a creature of `placement` keeps, its most made
+/// anew of its level ([`most_health`]): a changed creature's (#1064).
+fn health_kept(
+    health: fight::Health,
+    placement: &Placement,
+    rules: &fight::Rules,
+) -> fight::Health {
+    let most = most_health(placement, health.level, rules);
+    let current = u64::from(most) * u64::from(health.current.min(health.most))
+        / u64::from(health.most.max(1));
+    fight::Health {
+        current: u32::try_from(current).unwrap_or(most),
+        most,
+        level: health.level,
+    }
 }
 
 /// An item's texture, repeated, as a glTF texture without a sampler is: the models' texture
@@ -4420,21 +4547,32 @@ impl Npcs {
     /// kept as an `Init`'s and taking their levels as they are made, at once where their sectors
     /// are in the world ([`place`]), else as they come in, each `CreateNPC` of the type that its
     /// sector's area's `RegionChange` list gave it as it ran (`area` the area of a sector, #1063);
-    /// their `SetNPCState`s on the creatures they make. How many they placed.
+    /// their `RegionChange`s on the creatures kept away from the world that they reach, in order
+    /// among them (#1064, [`Self::change_kept`]); their `SetNPCState`s on the creatures they make.
+    /// How many they placed, and the `RegionChange`s for the creatures in the world
+    /// ([`region_changes`]).
     pub fn add(
         &mut self,
         records: &[Record],
         area: impl Fn((u32, u32)) -> Option<u8>,
-    ) -> Result<usize> {
+    ) -> Result<Added> {
         let records: Vec<&Record> = records.iter().collect();
         self.places.extend(positions(records.iter().copied()));
         let targets = goto_targets(&records);
         let side = u32::try_from(SIDE)?;
         let mut made: HashMap<*const Record, usize> = HashMap::new();
+        let mut changes = Vec::new();
         for &record in &records {
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
+            if record.kind == REGION_CHANGE
+                && let Some(change) = quests::AreaChange::of(ops)
+            {
+                self.change_kept(&change, &area)?;
+                changes.push(change);
+                continue;
+            }
             if record.kind != CREATE_NPC && record.kind != CREATE_OBJ {
                 continue;
             }
@@ -4450,7 +4588,7 @@ impl Npcs {
             };
             let (x, y) = placement.cell;
             let at = (x / side, y / side);
-            let placement = match area(at).filter(|_| placement.turns) {
+            let placement = match area(at).filter(|_| placement.turns()) {
                 Some(area) => match area_turn(ops, area) {
                     Some(turn) => match self.makers.retype(&placement, turn, &mut self.slots)? {
                         Some(turned) => turned,
@@ -4475,7 +4613,59 @@ impl Npcs {
             }
         }
         set_states(&records, &made, &mut self.placements);
-        Ok(made.len())
+        Ok(Added {
+            placed: made.len(),
+            changes,
+        })
+    }
+
+    /// Changes the creatures that the `RegionChange` `change` reaches away from the world
+    /// (`0x4ABFE0`, #1064), each of its area where it stands (`area` the area of a sector): the
+    /// start's, the `Init`s' and the play's placements that are not in the world, where they
+    /// went or were made, their health kept as its share ([`health_kept`]), and the fills' living
+    /// creatures that went with their sectors. An `Enter`'s, made again at each coming, takes the
+    /// lists then (#1063).
+    fn change_kept(
+        &mut self,
+        change: &quests::AreaChange,
+        area: &impl Fn((u32, u32)) -> Option<u8>,
+    ) -> Result<()> {
+        let side = u32::try_from(SIDE)?;
+        let reaches = |(x, y): (u32, u32)| area((x / side, y / side)) == Some(change.area);
+        for index in 0..self.placements.len() {
+            let placement = &self.placements[index];
+            if placement.made.0 || !placement.changes() || self.kept.out.contains(&index) {
+                continue;
+            }
+            let went = self.kept.went.get(&index).copied();
+            let cell = match went {
+                Some(Some(stood)) => stood.cell,
+                Some(None) => continue,
+                None => placement.cell,
+            };
+            if !reaches(cell) {
+                continue;
+            }
+            let Some(changed) = self.makers.change(placement, change, &mut self.slots)? else {
+                continue;
+            };
+            if let Some(Some(stood)) = self.kept.went.get_mut(&index) {
+                stood.health = health_kept(stood.health, &changed, &self.fight);
+            }
+            self.placements[index] = changed;
+        }
+        for gone in self.kept.filled.values_mut() {
+            for (placement, stood) in gone.iter_mut() {
+                if !placement.changes() || !reaches(stood.cell) {
+                    continue;
+                }
+                if let Some(changed) = self.makers.change(placement, change, &mut self.slots)? {
+                    stood.health = health_kept(stood.health, &changed, &self.fight);
+                    *placement = changed;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The creatures that the play's `NPC_Goto`s send walking and its `Teleport`s put somewhere,
@@ -4854,6 +5044,148 @@ pub struct Trades(pub u32);
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct OnDeath(pub DeathFunctions);
 
+/// The placement that an `Enter`'s creature was made of at its sector's coming, which a
+/// `RegionChange` changes it from (#1064, [`region_changes`]).
+#[derive(Component, Clone)]
+struct Remakes(Box<Placement>);
+
+/// A creature that a `RegionChange` made again (#1064): it goes, its new self in its place, and
+/// what it leaves is not kept ([`keep`]).
+#[derive(Component)]
+struct Remade;
+
+/// The play's `RegionChange`s, in order, that the creatures in the world take
+/// ([`region_changes`]).
+#[derive(Resource, Default)]
+pub struct AreaChanges(Vec<quests::AreaChange>);
+
+/// Carries out the play's `RegionChange`s on the creatures in the world (`0x4ABFE0`, #1064;
+/// [`Npcs::add`] those away from it): each creature of a placement that its area's change turns,
+/// where it stands now, is made again of the new type in its place, on its floor, with its share
+/// of health, its group, its dialogue and its death's functions, its sector's still; a kept one's
+/// placement changes with it. The hero's followers and the creatures of no placement (the
+/// console's, the summons) are not changed.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn region_changes(
+    mut commands: Commands,
+    mut changes: ResMut<AreaChanges>,
+    mut npcs: ResMut<Npcs>,
+    mut streamer: ResMut<Streamer>,
+    (heights, states, assets): (Res<Heights>, Res<buildings::Buildings>, Res<AssetServer>),
+    creatures: Query<
+        (
+            Entity,
+            &Transform,
+            &crowd::InTheWay,
+            &fight::Health,
+            &ai::Mind,
+            (
+                Option<&Placed>,
+                Option<&Remakes>,
+                Option<&OnDeath>,
+                Option<&Talk>,
+            ),
+        ),
+        (Without<Dies>, Without<crate::followers::Hired>),
+    >,
+) {
+    if changes.0.is_empty() {
+        return;
+    }
+    let changes = std::mem::take(&mut changes.0);
+    let npcs = &mut *npcs;
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    for (entity, at, way, health, mind, (placed, remakes, on_death, talk)) in &creatures {
+        let placement = match (placed.map(|placed| &placed.source), remakes) {
+            (Some(Source::Kept(index)), _) => npcs.placements.get(*index).cloned(),
+            (Some(Source::Filled(placement)), _) => Some((**placement).clone()),
+            (None, Some(remakes)) => Some((*remakes.0).clone()),
+            (None, None) => None,
+        };
+        let Some(mut placement) = placement else {
+            continue;
+        };
+        let (x, y) = paths::cell_of(at.translation.x, at.translation.z);
+        let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+            continue;
+        };
+        let sector = (x / side, y / side);
+        let area = streamer.area(sector);
+        let mut changed = false;
+        for change in changes.iter().filter(|change| Some(change.area) == area) {
+            if !placement.changes() {
+                break;
+            }
+            match npcs.makers.change(&placement, change, &mut npcs.slots) {
+                Ok(Some(new)) => {
+                    placement = new;
+                    changed = true;
+                }
+                Ok(None) => {}
+                Err(e) => bevy::log::warn!("npcs: {e:#}"),
+            }
+        }
+        if !changed {
+            continue;
+        }
+        bevy::log::info!(
+            "npcs: {entity}, a {}, is changed into a {} of side {} by its area's RegionChange",
+            mind.creature,
+            placement.creature.0,
+            placement.side
+        );
+        if let Some(Source::Kept(index)) = placed.map(|placed| &placed.source)
+            && let Some(kept) = npcs.placements.get_mut(*index)
+        {
+            *kept = placement.clone();
+        }
+        // Made again where it stands, with what the scripts gave it since.
+        let mut there = placement.clone();
+        there.cell = (x, y);
+        there.layer = heights
+            .floor(way.level)
+            .map_or(0, |(_, floor)| i32::from(floor));
+        there.walk = None;
+        there.health_share = None;
+        there.group = mind.group;
+        there.on_death = on_death
+            .map(|on_death| on_death.0.clone())
+            .unwrap_or_default();
+        there.talk = talk.map(|talk| talk.0.clone());
+        let kept = health_kept(*health, &there, &npcs.fight);
+        let made = spawn(
+            &mut commands,
+            &there,
+            &heights,
+            &states,
+            &assets,
+            (health.level, &npcs.fight, &npcs.items),
+        );
+        commands.entity(made).insert(kept);
+        match placed {
+            Some(placed) => {
+                let source = match &placed.source {
+                    Source::Kept(index) => Source::Kept(*index),
+                    Source::Filled(_) => Source::Filled(Box::new(placement)),
+                };
+                commands.entity(made).insert(Placed {
+                    at: placed.at,
+                    source,
+                });
+            }
+            None => {
+                commands.entity(made).insert(Remakes(Box::new(placement)));
+            }
+        }
+        commands.entity(entity).insert(Remade).despawn();
+        streamer.disown(entity);
+        streamer.adopt(sector, made);
+    }
+}
+
 /// Carries out the scripts' `SetHP`s (`0x48E280`, #1001): the creatures of the name, the hero for
 /// none, take the share of their most health, truncated; a creature of none dies, as by no
 /// player's hand (it drops nothing).
@@ -4901,11 +5233,12 @@ fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    (heights, heroes, bodies, streamer): (
+    (heights, heroes, bodies, streamer, mut changes): (
         Res<Heights>,
         Query<&Transform, With<hero::Body>>,
         Query<&hero::Body>,
         Res<Streamer>,
+        ResMut<AreaChanges>,
     ),
     mut creatures: Query<
         (
@@ -4965,8 +5298,15 @@ fn script_records(
             }),
     });
     match npcs.add(&records, |at| streamer.area(at)) {
-        Ok(0) => {}
-        Ok(placed) => bevy::log::info!("npcs: the scripts place {placed} creatures and objects"),
+        Ok(added) => {
+            if added.placed > 0 {
+                bevy::log::info!(
+                    "npcs: the scripts place {} creatures and objects",
+                    added.placed
+                );
+            }
+            changes.0.extend(added.changes);
+        }
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
     }
     let icons = set_icons(&records);
@@ -6031,6 +6371,7 @@ pub struct NpcsPlugin;
 impl Plugin for NpcsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Retextured>()
+            .init_resource::<AreaChanges>()
             .add_observer(retexture)
             .add_observer(equipment_ready)
             .add_observer(keep)
@@ -6038,6 +6379,7 @@ impl Plugin for NpcsPlugin {
                 Update,
                 (
                     script_records,
+                    region_changes,
                     script_states,
                     script_healths,
                     place,
@@ -6501,9 +6843,10 @@ mod tests {
         assert!(State::of(&[op(0x37)], &[]).restates());
     }
 
-    #[test]
-    fn a_create_npc_of_a_turned_area_makes_the_lists_type() {
-        let item = |slot, name: &str| Item {
+    /// What two soldiers' types are made of: 279 of the class 3, holding the shield 1211, and 276
+    /// of the class 7, with the shields 1211 and 1209, and their models' clips.
+    fn soldiers() -> (Makers, HashMap<String, motions::Slots>) {
+        let item = |slot, name: &str, category: u8| Item {
             slot,
             kind: 2,
             class: 0,
@@ -6513,7 +6856,7 @@ mod tests {
             sprite: 0,
             byte_03: 0,
             words_08: [0; 2],
-            words_14: [0; 8],
+            words_14: [0, 0, 0, 0, 0, 0, u32::from(category) << 16, 0],
             bytes_34: [0; 3],
             byte_57: 0,
             words_58: [0; 10],
@@ -6521,17 +6864,21 @@ mod tests {
         let makers = Makers {
             assets: std::path::PathBuf::new(),
             items: HashMap::from([
-                (279, item(279, "soldier.grn")),
-                (276, item(276, "renegade.grn")),
+                (279, item(279, "soldier.grn", 0)),
+                (276, item(276, "renegade.grn", 0)),
+                (1211, item(1211, "shield_a.grn", SHIELD)),
+                (1209, item(1209, "shield_b.grn", SHIELD)),
             ]),
             kinds: HashMap::new(),
             models: HashMap::from([
                 ("SOLDIER.GRN".to_owned(), "models/soldier.glb".to_owned()),
                 ("RENEGADE.GRN".to_owned(), "models/renegade.glb".to_owned()),
+                ("SHIELD_A.GRN".to_owned(), "models/shield_a.glb".to_owned()),
+                ("SHIELD_B.GRN".to_owned(), "models/shield_b.glb".to_owned()),
             ]),
             textures: HashMap::new(),
             speeds: HashMap::from([(279, [100, 200]), (276, [110, 220])]),
-            classes: HashMap::from([(279, 3), (276, 2)]),
+            classes: HashMap::from([(279, 3), (276, 7)]),
             bases: HashMap::new(),
             record_flags: HashMap::new(),
             shadowless: HashSet::new(),
@@ -6540,6 +6887,12 @@ mod tests {
             ("models/soldier.glb".to_owned(), motions::Slots::default()),
             ("models/renegade.glb".to_owned(), motions::Slots::default()),
         ]);
+        (makers, slots)
+    }
+
+    #[test]
+    fn a_create_npc_of_a_turned_area_makes_the_lists_type() {
+        let (makers, slots) = soldiers();
         let op = |tag, value| Operand { tag, value };
         let made = |rest: &[Operand]| {
             let mut ops = vec![
@@ -6568,7 +6921,7 @@ mod tests {
         };
         // An `Enter`'s soldier in the guards' mode (`_46`), peaceful.
         let soldier = made(&[op(0x46, Value::Marker)]);
-        assert!(soldier.turns);
+        assert!(soldier.turns());
         assert!(!minds::hostile_to_heroes(soldier.side, 279));
         // `GoodToBad`'s pair of area 4 turns it into 276 in the mode of `0x12`, hostile.
         let mut lists = quests::AreaTypes::default();
@@ -6588,11 +6941,14 @@ mod tests {
         assert_eq!(turned.creature.2, 0x1);
         assert_eq!(turned.speed, [110.0, 220.0]);
         assert_eq!(turned.cell, soldier.cell);
-        assert!(minds::hostile_to_heroes(turned.side, 276));
+        // Its record's hostility none and its new mode 1, it takes the class 7, a friend of the
+        // heroes, as an `Enter`'s soldiers came after `GoodToBad` in the game.
+        assert_eq!(turned.side, 7);
+        assert!(!minds::hostile_to_heroes(turned.side, 276));
         // A trader, and one of a `0x6B` above 0, keep their types.
-        assert!(!made(&[op(0x24, Value::Marker)]).turns);
-        assert!(!made(&[op(RISES, Value::I32(1))]).turns);
-        assert!(made(&[op(RISES, Value::I32(0))]).turns);
+        assert!(!made(&[op(0x24, Value::Marker)]).turns());
+        assert!(!made(&[op(RISES, Value::I32(1))]).turns());
+        assert!(made(&[op(RISES, Value::I32(0))]).turns());
         // A play's `CreateNPC` takes the pair of its cell's area that `scripts` marked it with.
         let marked = [
             op(0x02, Value::I32(279)),
@@ -6609,6 +6965,79 @@ mod tests {
         );
         assert_eq!(area_turn(&marked, 5).map(|turn| turn.to), Some(296));
         assert_eq!(area_turn(&marked, 6), None);
+    }
+
+    #[test]
+    fn a_region_change_makes_its_areas_soldier_hostile_of_the_new_type_with_its_items() {
+        let (makers, mut slots) = soldiers();
+        let op = |tag, value| Operand { tag, value };
+        let ops = vec![
+            op(0x01, Value::Str("NON_UNIQUE".into())),
+            op(0x02, Value::I32(279)),
+            op(0x02, Value::I32(1211)),
+            op(0x04, Value::I32x3([3200, 2500, 0])),
+            op(0x46, Value::Marker),
+        ];
+        let record = Record {
+            kind: CREATE_NPC,
+            body: Body::Operands(ops.clone()),
+        };
+        let soldier = makers
+            .placement(
+                &record,
+                &ops,
+                Origin::default(),
+                (&HashMap::new(), &HashMap::new()),
+                &mut slots,
+            )
+            .expect("made")
+            .expect("placed");
+        assert_eq!(soldier.items, [1211]);
+        assert_eq!(soldier.equipment[0].model, "models/shield_a.glb");
+        assert!(soldier.changes());
+        // `GoodToBad`'s record of area 4: the soldier, its shield, its word and its side.
+        let change = quests::AreaChange {
+            area: 4,
+            types: vec![279, 276, 1211, 1209],
+            word: quests::region_change_word([0x08, 0x12]),
+            hostile: Some(true),
+        };
+        let changed = makers
+            .change(&soldier, &change, &mut slots)
+            .expect("its clips")
+            .expect("turned");
+        assert_eq!(changed.creature.0, 276);
+        assert_eq!(changed.model, "models/renegade.glb");
+        assert_eq!(changed.items, [1209]);
+        assert_eq!(changed.equipment[0].model, "models/shield_b.glb");
+        assert_eq!(changed.creature.2, 0x1);
+        assert_eq!(changed.side, 2);
+        assert!(minds::hostile_to_heroes(changed.side, 276));
+        // A type of none of its pairs, and a trader, are not changed.
+        assert!(
+            makers
+                .change(&changed, &change, &mut slots)
+                .expect("read")
+                .is_none()
+        );
+        let trader = Placement {
+            trades: quests::MERCHANT,
+            ..soldier.clone()
+        };
+        assert!(!trader.changes());
+        // A creature's health keeps its share as its most is made anew.
+        let rules = fight::Rules::of(None);
+        let kept = health_kept(
+            fight::Health {
+                current: 50,
+                most: 200,
+                level: 5,
+            },
+            &changed,
+            &rules,
+        );
+        assert_eq!(kept.level, 5);
+        assert_eq!(kept.current, kept.most / 4);
     }
 
     #[test]

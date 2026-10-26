@@ -912,6 +912,128 @@ pub fn region_change_word(tags: impl IntoIterator<Item = u8>) -> u32 {
     })
 }
 
+/// A `RegionChange` (116, `0x4ABB60`) as its record reads: its area (`0x69`'s number, 0 without
+/// one), its types (`0x02`), its flags word ([`region_change_word`]) and its side, hostile with
+/// `0x08` and peaceful with `0x0E`, the last of them, else neither. It changes the creatures that
+/// exist in its area (`0x4ABFE0`, #1064; docs/re/netscript.md, "The NPCs that later events
+/// remove") and keeps its pairs for the later `CreateNPC`s ([`AreaTypes`], #1063).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AreaChange {
+    pub area: u8,
+    pub types: Vec<u32>,
+    pub word: u32,
+    pub hostile: Option<bool>,
+}
+
+impl AreaChange {
+    /// The `RegionChange` of the operands `ops`, none where its area is not one of the 50
+    /// ([`AREAS`]): the applier then does nothing.
+    pub fn of(ops: &[opensacred_data::netscript::Operand]) -> Option<Self> {
+        use opensacred_data::netscript::Value;
+        let mut area = 0;
+        let mut types = Vec::new();
+        let mut marks = Vec::new();
+        let mut hostile = None;
+        for op in ops {
+            match (op.tag, &op.value) {
+                (0x02, Value::I32(creature)) => types.extend(u32::try_from(*creature).ok()),
+                // The number of its text, as the C library reads one, 0 for none.
+                (0x69, Value::Str(text) | Value::Name(text)) => {
+                    area = text.trim().parse::<i32>().unwrap_or(0);
+                }
+                (0x69, Value::I32(number)) => area = *number,
+                (tag, Value::Marker) => {
+                    match tag {
+                        0x08 => hostile = Some(true),
+                        0x0E => hostile = Some(false),
+                        _ => {}
+                    }
+                    marks.push(tag);
+                }
+                _ => {}
+            }
+        }
+        let area = u8::try_from(area).ok().filter(|&area| area < AREAS)?;
+        Some(Self {
+            area,
+            types,
+            word: region_change_word(marks),
+            hostile,
+        })
+    }
+
+    /// Its pairs of types, an odd last one left.
+    pub fn pairs(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.types
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[from, to]| (from, to))
+    }
+
+    /// The type that a creature of the type `creature` takes (`0x4AC1A0` to `0x4AC2B5`): each
+    /// pair in order whose new type is not 0 turns the type it has then, and how many turned it;
+    /// none where none did.
+    pub fn creature(&self, creature: u32) -> Option<(u32, usize)> {
+        let (mut now, mut turned) = (creature, 0);
+        for (from, to) in self.pairs() {
+            if to & 0xFFFF != 0 && from == now {
+                now = to & 0xFFFF;
+                turned += 1;
+            }
+        }
+        (turned > 0).then_some((now, turned))
+    }
+
+    /// The type that an item of the type `item` of a creature turned `times` times takes: at each
+    /// turn, each pair in order turns the type it has then (`0x4AC2D0` to `0x4AC3CB`).
+    pub fn item(&self, item: u32, times: usize) -> u32 {
+        let mut now = item;
+        for _ in 0..times {
+            for (from, to) in self.pairs() {
+                if now == from {
+                    now = to & 0xFFFF;
+                }
+            }
+        }
+        now
+    }
+
+    /// The flags word that a turned creature of the word `word` takes: the record's, the old
+    /// word's `0x2000` kept, where the record's is not 0.
+    pub fn word(&self, word: u32) -> u32 {
+        match self.word {
+            0 => word,
+            changed => word & 0x2000 | changed,
+        }
+    }
+
+    /// The side that a turned creature of the side `side` and the new type `creature` takes
+    /// (`sdk_STANCE`): a hostile record's makes one not hostile to the heroes hostile, 2, or 14
+    /// of the side 7; a peaceful record's makes a hostile one peaceful, 3, or 7 where the
+    /// record's word has the guards' mode `0x4000`; any other keeps its side.
+    pub fn side(&self, side: u8, creature: u32) -> u8 {
+        let against = crate::minds::hostile_to_heroes(side, creature);
+        match self.hostile {
+            Some(true) if !against => {
+                if side == 7 {
+                    14
+                } else {
+                    2
+                }
+            }
+            Some(false) if against => {
+                if self.word & 0x4000 != 0 {
+                    7
+                } else {
+                    3
+                }
+            }
+            _ => side,
+        }
+    }
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -1108,6 +1230,62 @@ mod tests {
         // An area above 49 keeps nothing.
         lists.add(50, &[1, 2], 0, false);
         assert_eq!(lists.turn(50, 1), None);
+    }
+
+    #[test]
+    fn a_region_change_turns_a_creature_its_items_its_word_and_its_side() {
+        use opensacred_data::netscript::{Operand, Value};
+        let op = |tag, value| Operand { tag, value };
+        let marker = |tag| op(tag, Value::Marker);
+        // `GoodToBad`'s record of area 4: hostile, mode 1; `BadToGood`'s, peaceful.
+        let good_to_bad = AreaChange::of(&[
+            op(0x02, Value::I32(279)),
+            op(0x02, Value::I32(276)),
+            op(0x02, Value::I32(1211)),
+            op(0x02, Value::I32(1209)),
+            marker(0x08),
+            marker(0x12),
+            op(0x69, Value::Str("4".into())),
+        ])
+        .expect("an area of the 50");
+        assert_eq!(good_to_bad.area, 4);
+        assert_eq!(good_to_bad.word, 0x1);
+        assert_eq!(good_to_bad.hostile, Some(true));
+        assert_eq!(good_to_bad.creature(279), Some((276, 1)));
+        assert_eq!(good_to_bad.creature(286), None);
+        assert_eq!(good_to_bad.item(1211, 1), 1209);
+        assert_eq!(good_to_bad.item(1729, 1), 1729);
+        // The word replaced but its `0x2000`; a record of no tags keeps it.
+        assert_eq!(good_to_bad.word(0x4000 | 0x2000), 0x2001);
+        let bare =
+            AreaChange::of(&[op(0x02, Value::I32(1)), op(0x02, Value::I32(2))]).expect("area 0");
+        assert_eq!((bare.area, bare.word, bare.hostile), (0, 0, None));
+        assert_eq!(bare.word(0x4000), 0x4000);
+        // A guard of side 7, a friend of the heroes, turns hostile as 14; another as 2.
+        assert_eq!(good_to_bad.side(7, 276), 14);
+        assert_eq!(good_to_bad.side(3, 276), 2);
+        // A hostile record leaves a hostile one; a peaceful one turns it back, 7 in the guards'
+        // mode.
+        assert_eq!(good_to_bad.side(14, 276), 14);
+        let bad_to_good = AreaChange {
+            area: 4,
+            types: vec![276, 279],
+            word: region_change_word([0x0E, 0x46]),
+            hostile: Some(false),
+        };
+        assert_eq!(bad_to_good.side(14, 279), 7);
+        assert_eq!(bad_to_good.side(7, 279), 7);
+        // Each pair in order turns the type it has then; a pair whose new type is 0 none.
+        let chain = AreaChange {
+            area: 0,
+            types: vec![1, 2, 2, 3, 3, 0],
+            word: 0,
+            hostile: None,
+        };
+        assert_eq!(chain.creature(1), Some((3, 2)));
+        assert_eq!(chain.item(1, 2), 0);
+        // An area above 49 changes nothing.
+        assert_eq!(AreaChange::of(&[op(0x69, Value::Str("50".into()))]), None);
     }
 
     #[test]
