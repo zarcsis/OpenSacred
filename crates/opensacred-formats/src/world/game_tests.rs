@@ -12,6 +12,44 @@ use super::*;
 use crate::testing::{game_file, repo_root, run_python, scratch_dir};
 
 /// The 32 bytes of a cell, rebuilt from its fields: the fields cover the whole record.
+/// A sector's weather entries as `world_dump.py` prints them: each as
+/// `type:offmin-offmax:onmin-onmax:low-high`, joined by commas, `-` for none.
+fn weather(entries: &[Option<WeatherEntry>; 4]) -> String {
+    let entries: Vec<String> = entries
+        .iter()
+        .flatten()
+        .map(|e| {
+            format!(
+                "{}:{}-{}:{}-{}:{}-{}",
+                e.kind, e.off[0], e.off[1], e.on[0], e.on[1], e.intensity[0], e.intensity[1]
+            )
+        })
+        .collect();
+    if entries.is_empty() {
+        "-".to_owned()
+    } else {
+        entries.join(",")
+    }
+}
+
+/// The sectors' weather entries by their types, as docs/02 §5.1 counts them (docs/re/weather.md).
+#[test]
+#[ignore = "needs the game files in OriginalGame/"]
+fn the_sectors_weather_entries_count_by_their_types() {
+    let keyx = Keyx::parse(&game_file("World/sectors.keyx")).unwrap();
+    let mut kinds = [0; 6];
+    for entry in keyx
+        .sectors
+        .iter()
+        .flat_map(|key| key.weather.iter().flatten())
+    {
+        kinds[usize::from(entry.kind)] += 1;
+    }
+    assert_eq!(kinds, [307, 1_031, 46, 10, 2_428, 37]);
+    let dungeons = keyx.sectors.iter().filter(|key| key.dungeon).count();
+    assert_eq!(dungeons, 2_428);
+}
+
 fn cell_bytes(cell: &Cell) -> [u8; 32] {
     let mut out = [0; 32];
     for (k, word) in [cell.tile, cell.first_static, 0, cell.first_floor]
@@ -75,6 +113,7 @@ fn sectors_and_chains_match_world_dump_py() {
             "area",
             "music",
             "dungeon",
+            "weather",
             "buildings",
             "buildings_crc"
         ]
@@ -171,6 +210,7 @@ fn sectors_and_chains_match_world_dump_py() {
             key.area.to_string(),
             key.music.to_string(),
             u8::from(key.dungeon).to_string(),
+            weather(&key.weather),
             buildings.to_string(),
             buildings_crc.finalize().to_string(),
         ];

@@ -28,6 +28,10 @@ pub const ARTS: &str = "arts.ron";
 pub const VOICES: &str = "voices.ron";
 pub const IDLE_NOISES: &str = "idle_noises.ron";
 pub const PORTRAITS: &str = "portraits.ron";
+/// The 256 bytes of `Sacred.exe` from which the weather's choice rolls its times and its
+/// intensities, by a rolling index (`0x95FA84`, `0x625290`; docs/re/weather.md), as a list of
+/// numbers.
+pub const WEATHER_ROLLS: &str = "weather_rolls.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

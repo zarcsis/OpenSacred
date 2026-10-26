@@ -80,13 +80,15 @@ CELL_CHUNK = CELL_SIZE * CELLS
 # CRC-32 over the inside layers in order of u32 x, u32 y, u16 width, u16 height and the layer's cells as stored;
 # area: keyx +0x2C0; music: keyx +0x2D8, the sound id of the sector's music (0 none); dungeon: 1 when one of the four
 # entries of 28 B from keyx +0x1EE whose bit is set in the mask at +0x1ED starts with the word 4, else 0;
+# weather: those of the four entries whose bit is set, in order, each as type:offmin-offmax:onmin-onmax:low-high (the
+# u16 type, the four u32 times in seconds from +2 and the two u8 intensities from +0x12), joined by commas, - for none;
 # buildings: the cells whose chain holds a static of flag 0x10 (the first such is the building); buildings_crc: CRC-32
 # over those cells in order of u32 LE cell index, u32 LE the number of the building's children (its floors), then
 # each child's +0x2D (u8, the index from 1 of the inside layer holding its grid) and +0x33 (u8, the floor's height
 # in steps of 28 units of the models' height, 0 for floor 1).
 RECORD_COLUMNS = ('index', 'x', 'y', 'id', 'inflated', 'tail', 'liquids', 'cells_crc', 'tail_crc', 'statics',
                   'static_crc', 'floors', 'floor_crc', 'layers', 'layers_crc', 'area', 'music', 'dungeon',
-                  'buildings', 'buildings_crc')
+                  'weather', 'buildings', 'buildings_crc')
 LAYER_HEADER, LAYER_KIND, LAYER_TRAILER = 36, 6, 256
 
 
@@ -231,6 +233,8 @@ def main():
         dungeon = int(any(r[0x1ED] >> k & 1 and struct.unpack_from('<H', r, 0x1EE + 28 * k)[0] == 4
                           for k in range(4)))
         stats['dungeons'] += dungeon
+        entries = [struct.unpack_from('<H4I2B', r, 0x1EE + 28 * k) for k in range(4) if r[0x1ED] >> k & 1]
+        weather = ','.join(f'{t}:{a}-{b}:{p}-{q}:{lo}-{hi}' for t, a, b, p, q, lo, hi in entries) or '-'
         c('keyx: liquid materials 0..13', max(liquids) <= 13, where)
         d = zlib.decompress(wldx[off:off + csize])
         name = d[:32].split(b'\0')[0]
@@ -306,7 +310,7 @@ def main():
         rows.append(dict(index=key, x=x, y=y, id=sector_id, inflated=inflated, tail=len(tail),
                          liquids=f'{liquids[0]},{liquids[1]}', cells_crc=zlib.crc32(cell_bytes),
                          tail_crc=zlib.crc32(tail), statics=n_statics, static_crc=static_crc, floors=n_floors,
-                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc, area=area, music=music, dungeon=dungeon,
+                         floor_crc=floor_crc, layers=max(n_layers - 1, 0), layers_crc=layers_crc, area=area, music=music, dungeon=dungeon, weather=weather,
                          buildings=n_buildings, buildings_crc=buildings_crc))
 
     static_heads = np.concatenate(all_static_heads)

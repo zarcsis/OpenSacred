@@ -126,6 +126,9 @@ pub struct Snapshot {
     /// The hero's combat arts and what is still to run of each, in seconds (`arts::HeroArts`,
     /// #509).
     pub arts: Vec<(u16, f32)>,
+    /// The weather's rain drops, fog alpha and snow flakes now, while one is on (`weather`,
+    /// #1072).
+    pub weather: Option<(u32, u32, u32)>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -239,6 +242,9 @@ impl Snapshot {
                     .collect();
                 lines.push(format!("drops {}", drops.join(", ")));
             }
+            if let Some((rain, fog, snow)) = self.weather {
+                lines.push(format!("weather  rain {rain}  fog {fog}  snow {snow}"));
+            }
             if !self.arts.is_empty() {
                 let arts: Vec<String> = self
                     .arts
@@ -284,6 +290,7 @@ pub struct Probe<'w, 's> {
     entities: Query<'w, 's, ()>,
     drops: Query<'w, 's, (&'static Transform, &'static crate::drops::Lying)>,
     arts: Option<Res<'w, crate::arts::HeroArts>>,
+    weather: Option<Res<'w, crate::weather::Weather>>,
 }
 
 impl Probe<'_, '_> {
@@ -419,6 +426,10 @@ impl Probe<'_, '_> {
                         .collect()
                 })
                 .unwrap_or_default(),
+            weather: self
+                .weather
+                .as_deref()
+                .and_then(crate::weather::Weather::levels),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies

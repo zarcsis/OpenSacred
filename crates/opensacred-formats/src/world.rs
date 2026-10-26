@@ -66,6 +66,21 @@ pub struct SectorKey {
     /// Whether the sector is a dungeon: of the four entries of 28 bytes from `+0x1EE`, one whose
     /// bit is set in the mask at `+0x1ED` starts with the word 4 (`0x622E20`, docs/re/daynight.md).
     pub dungeon: bool,
+    /// The four entries of the sector's weather from `+0x1EE`, each whose bit is set in the mask
+    /// at `+0x1ED` (`0x625290`, docs/re/weather.md).
+    pub weather: [Option<WeatherEntry>; 4],
+}
+
+/// An entry of a sector's weather (`sectors.keyx +0x1EE`, 28 bytes; docs/02 §5.1): its type (0
+/// rain, 1 fog, 2 snow, 3 read by nothing, 4 a dungeon, 5 butterflies), the shortest and the
+/// longest time off and on in seconds (`+2`, `+6`, `+0xA`, `+0xE`), and the least and the most
+/// intensity (`+0x12`, `+0x13`); the rest is not read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WeatherEntry {
+    pub kind: u16,
+    pub off: [u32; 2],
+    pub on: [u32; 2],
+    pub intensity: [u8; 2],
 }
 
 impl Keyx {
@@ -111,12 +126,23 @@ impl Keyx {
             let inflated = r.u32()?;
             skip_to(&mut r, start, 0x1ED)?;
             let mask = r.u8()?;
-            let mut dungeon = false;
-            for entry in 0..4 {
-                let code = r.u16()?;
-                dungeon |= mask & (1 << entry) != 0 && code == 4;
-                r.bytes(26, "keyx sector entry")?;
+            let mut weather = [None; 4];
+            for (entry, slot) in weather.iter_mut().enumerate() {
+                let kind = r.u16()?;
+                let off = [r.u32()?, r.u32()?];
+                let on = [r.u32()?, r.u32()?];
+                let intensity = [r.u8()?, r.u8()?];
+                r.bytes(8, "keyx sector entry")?;
+                if mask & (1 << entry) != 0 {
+                    *slot = Some(WeatherEntry {
+                        kind,
+                        off,
+                        on,
+                        intensity,
+                    });
+                }
             }
+            let dungeon = weather.iter().flatten().any(|entry| entry.kind == 4);
             skip_to(&mut r, start, 0x2C0)?;
             let area = r.u8()?;
             skip_to(&mut r, start, 0x2D8)?;
@@ -135,6 +161,7 @@ impl Keyx {
                 area,
                 music,
                 dungeon,
+                weather,
             });
         }
         Ok(Self { sectors })

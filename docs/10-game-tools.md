@@ -126,6 +126,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `gait walk\|run` | as R | `--walking` |
 | `zoom Z` | the camera's zoom, 0.5 to 2 as in the original, 2 the widest view | `--zoom` |
 | `time HH:MM` | sets the clock | `--time` |
+| `setrain N`, `setfog N`, `setsnow N` | starts the rain, the fog or the snow of the intensity N (1 to 100), or stops it with 0, as the original's console (docs/re/weather.md) | |
 | `music on\|off` | the music and the ambient loops | `--no-music` |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
 | `record DIR N` | saves N frames | `--record`, `--record-frames` |

@@ -25,12 +25,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use opensacred_data::world::{
     Building, Cell, INDEX, Layer, LayerCell, Miniature, Overlay, SPRITES_DIR, SPRITES_FILE, Sector,
-    SectorEntry, Shadow, Sprite, Sprites, StaticObject, World, sprite_image,
+    SectorEntry, SectorWeather, Shadow, Sprite, Sprites, StaticObject, WeatherKind, World,
+    sprite_image,
 };
 use opensacred_formats::items::Items;
 use opensacred_formats::mixed::Sprites as MixedPak;
 use opensacred_formats::tex::{TexPak, Texture};
-use opensacred_formats::world::{Floors, Keyx, SectorKey, Statics, Tiles};
+use opensacred_formats::world::{Floors, Keyx, SectorKey, Statics, Tiles, WeatherEntry};
 use rayon::prelude::*;
 
 use crate::textures;
@@ -262,6 +263,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
             music: k.music,
             area: k.area,
             dungeon: k.dungeon,
+            weather: weather(&k.weather),
         })
         .collect();
     entries.sort_by_key(|e| (e.y, e.x));
@@ -683,6 +685,30 @@ pub fn built_index(masters: &str) -> Result<String> {
     world.assembled_from.clear();
     ron::ser::to_string_pretty(&world, crate::utf8::pretty())
         .context("writing the game's world.ron")
+}
+
+/// A sector's weather entries of the types 0, 1, 2 and 5, in order (docs/re/weather.md): the
+/// dungeons' 4 are `dungeon`, and the type 3, which ten dungeons' entries hold, nothing reads.
+fn weather(entries: &[Option<WeatherEntry>; 4]) -> Vec<SectorWeather> {
+    entries
+        .iter()
+        .flatten()
+        .filter_map(|entry| {
+            let kind = match entry.kind {
+                0 => WeatherKind::Rain,
+                1 => WeatherKind::Fog,
+                2 => WeatherKind::Snow,
+                5 => WeatherKind::Butterflies,
+                _ => return None,
+            };
+            Some(SectorWeather {
+                kind,
+                off: entry.off,
+                on: entry.on,
+                intensity: entry.intensity,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

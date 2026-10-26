@@ -6,8 +6,8 @@
 //! ([`fight`]), the ways with the cells in the way ([`ways`]), the creatures' decisions with
 //! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
 //! drops ([`drops`]), a creature's combat arts with the runes that teach them ([`arts`]), the
-//! spells' cast ([`spells`]) and the scripts' state: the quests, the variables and the dialogues
-//! ([`quests`]).
+//! spells' cast ([`spells`]), the scripts' state: the quests, the variables and the dialogues
+//! ([`quests`]), and the weather ([`weather`]).
 
 pub mod arrows;
 pub mod arts;
@@ -18,6 +18,7 @@ pub mod quests;
 pub mod spawning;
 pub mod spells;
 pub mod ways;
+pub mod weather;
 
 /// A global cell of the world: `x` and `y`, 64 to a sector.
 pub type Cell = (i32, i32);
