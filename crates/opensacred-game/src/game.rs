@@ -351,8 +351,15 @@ fn load(
     let tables = &shared.tables;
     let class = game.class.unwrap_or_default();
     let tree = game.tree.clone().unwrap_or_else(|| class.tree().into());
-    // The tree's start script and its sectors' functions, run in Luau (#726).
-    let scripts = scripts::run(assets, &tree)?;
+    // The tree's start script and its sectors' and regions' functions, run in Luau (#726, #585),
+    // each region's by the areas of the world's sectors.
+    let areas: std::collections::HashMap<(u32, u32), u8> = shared
+        .world
+        .sectors
+        .iter()
+        .map(|entry| ((entry.x, entry.y), entry.area))
+        .collect();
+    let scripts = scripts::run(assets, &tree, |at| areas.get(&at).copied())?;
     let side = u32::try_from(opensacred_data::world::SIDE)?;
     // The sector given, at its centre, or the start script's start cell.
     let start = match game.sector {

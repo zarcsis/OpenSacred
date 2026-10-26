@@ -898,16 +898,12 @@ pub fn start_position(tree: &Tree) -> Option<(u32, u32)> {
 /// The records that place the world's NPCs and objects: the start script's as it ran, with
 /// those of the sections of the quests that its `SetUpQuest`s and `TriggerQuest`s ran in their
 /// middle, the givers of `OnSetUp` and the entered quests' `OnEnter` among them (`scripts`,
-/// `0x48F7F0`, `0x46C160`), then the sectors' `Init` and `Enter` functions', which the engine
-/// runs as their sectors come near (docs/re/spawning.md); each record's NPC or object is placed
-/// as the sector of its cell comes in.
+/// `0x48F7F0`, `0x46C160`), then the sectors' `Init` and `Enter` functions' and the regions'
+/// `Init` functions', which the engine runs as their sectors come near (docs/re/spawning.md,
+/// `0x492880`); each record's NPC or object is placed as the sector of its cell comes in.
 fn start_records(tree: &Tree) -> Vec<&Record> {
     let mut records: Vec<&Record> = tree.start.iter().collect();
-    for sector in tree
-        .functions
-        .iter()
-        .filter(|f| sector_function(&f.name).is_some())
-    {
+    for sector in tree.functions.iter().filter(|f| of_sectors(&f.name)) {
         records.extend(&sector.records);
     }
     records
@@ -1189,6 +1185,17 @@ fn factors(balance: Option<&opensacred_data::tables::Balance>) -> spawning::Fact
         animals: factor("SpawnAnimalsSP", 0.8),
         enemies: factor("SpawnEnemysSP", 1.2),
     }
+}
+
+/// Whether the function `name` runs as a sector comes near: a sector's `Init` or `Enter`
+/// ([`sector_function`]), or a region's `Init`, `Region<n>Init`, which runs before the first
+/// `Init` of a sector of its region (`0x492880`, `scripts`).
+fn of_sectors(name: &str) -> bool {
+    sector_function(name).is_some()
+        || name
+            .strip_prefix("Region")
+            .and_then(|rest| rest.strip_suffix("Init"))
+            .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// The sector of a function of the sectors', by its name, `Sector<x><yyy>Init` or `…Enter` as the
@@ -1576,12 +1583,12 @@ impl Npcs {
         let models = model_files(assets)?;
         let textures = texture_files(assets)?;
         let records = start_records(tree);
-        // The records of the sectors' functions, which the start does not run, and those of
-        // their `Enter` functions, whose creatures step otherwise.
+        // The records of the sectors' and the regions' functions, which the start does not run,
+        // and those of the sectors' `Enter` functions, whose creatures step otherwise.
         let in_sectors: HashSet<*const Record> = tree
             .functions
             .iter()
-            .filter(|f| sector_function(&f.name).is_some())
+            .filter(|f| of_sectors(&f.name))
             .flat_map(|f| &f.records)
             .map(std::ptr::from_ref)
             .collect();
@@ -5222,6 +5229,11 @@ mod tests {
         assert_eq!(sector_function("Sector28Enter"), None);
         assert_eq!(sector_function("Sector50039Exit"), None);
         assert_eq!(sector_function("QIS_OnEnter1"), None);
+        // The regions' `Init` functions run with the sectors' (#585).
+        assert!(of_sectors("Sector50039Enter") && of_sectors("Region2Init"));
+        assert!(of_sectors("Region111Init"));
+        assert!(!of_sectors("Region2Enter") && !of_sectors("RegionInit"));
+        assert!(!of_sectors("QIS_OnEnter1"));
     }
 
     #[test]
