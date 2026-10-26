@@ -108,6 +108,14 @@ const TRADES: [(u8, u32); 4] = [
 ];
 /// The tag of a trader whose dialogue `CreateNPC` stamps (`0x4843AF`).
 const STAMPED: u8 = 0x64;
+/// The tag of `CreateNPC` and `SetNPCState` whose number above 0 lets a dead follower rise
+/// (`+0x2B7` bit `0x08`), and one other than 0 keeps a `CreateNPC`'s type from its area's
+/// `RegionChange` list (`0x482F41`).
+const RISES: u8 = 0x6B;
+/// The operand that `scripts` adds to a `CreateNPC` of the play for each area whose
+/// `RegionChange` list turns its type as it runs (#1063): the area, the new type and the pair's
+/// flags (`quests::Turn`), as `I32x3`; past the scripts' last tag, `0xA0`.
+pub(crate) const AREA_TURN: u8 = 0xF0;
 /// The tags of `CreateNPC` that set `+0x200` bit `0x200` (`0x482510`), which keeps a creature
 /// out of its first update's flags (`opensacred_rules::minds::Mind::hold`).
 const KEEPS: [u8; 4] = [0x1A, 0x70, 0x71, 0x72];
@@ -199,6 +207,11 @@ struct Placement {
     /// An NPC's side (`+0x1F0`), by which it is hostile to the hero or not
     /// (`opensacred_rules::minds::hostile_to_heroes`; #580).
     side: u8,
+    /// Whether a `RegionChange` list may turn an NPC's type, its `CreateNPC` making no trader
+    /// and carrying no `0x6B` other than 0 (`0x482F41`, #1063), and its record's hostility
+    /// (`minds::created_hostility`), by which a turned type takes its side ([`Makers::retype`]).
+    turns: bool,
+    hostility: Option<bool>,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
@@ -510,6 +523,8 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
+        turns: false,
+        hostility: None,
         texture: kind.texture.clone(),
         layer: 0,
         equipment: Vec::new(),
@@ -1518,6 +1533,36 @@ fn trade(tag: u8) -> u32 {
         .map_or(0, |&(_, bit)| bit)
 }
 
+/// Whether the operands `ops` carry a `0x6B` other than 0 ([`RISES`]).
+fn rises(ops: &[opensacred_data::netscript::Operand]) -> bool {
+    ops.iter().any(|op| {
+        op.tag == RISES
+            && !matches!(
+                op.value,
+                Value::I32(0) | Value::U16(0) | Value::U8(0) | Value::Marker
+            )
+    })
+}
+
+/// The pair of the area `area`'s `RegionChange` list that a play's `CreateNPC` of the operands
+/// `ops` took as it ran, as `scripts` marks it ([`AREA_TURN`]; #1063), none where it took none.
+fn area_turn(ops: &[opensacred_data::netscript::Operand], area: u8) -> Option<quests::Turn> {
+    let from = ops.iter().find_map(|op| match (op.tag, &op.value) {
+        (0x02, Value::I32(creature)) => u32::try_from(*creature).ok(),
+        _ => None,
+    })?;
+    ops.iter().find_map(|op| match (op.tag, &op.value) {
+        (AREA_TURN, Value::I32x3([turned, to, flags])) if *turned == i32::from(area) => {
+            Some(quests::Turn {
+                from,
+                to: u32::try_from(*to).ok()?,
+                flags: u16::try_from(*flags).ok()?,
+            })
+        }
+        _ => None,
+    })
+}
+
 /// What the tags of a `CreateNPC` or a `SetNPCState` of operands `ops` do about the hero's
 /// followers (#657, [`HIRES`]): the bit `0x100` hires, keeping it fighting with `0x200` (`0x4B`)
 /// and else of the flag 4 (`0x37`, `0x71`; `0x462A99`); without it, `0x400` lets it go
@@ -2201,7 +2246,13 @@ impl Makers {
         };
         let word = crowd::flags_word(markers());
         let class = self.classes.get(&creature).copied().unwrap_or_default();
-        let side = minds::created_side(class, creature, word, minds::created_hostility(markers()));
+        let hostility = minds::created_hostility(markers());
+        let side = minds::created_side(class, creature, word, hostility);
+        let trades = if record.kind == CREATE_NPC {
+            markers().fold(0, |trades, tag| trades | trade(tag))
+        } else {
+            0
+        };
         Ok(Some(Placement {
             model: model.clone(),
             cell: (x, y),
@@ -2228,13 +2279,7 @@ impl Makers {
                 && ops.iter().any(|o| {
                     o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
                 }),
-            trades: if record.kind == CREATE_NPC {
-                ops.iter()
-                    .filter(|o| matches!(o.value, Value::Marker))
-                    .fold(0, |trades, o| trades | trade(o.tag))
-            } else {
-                0
-            },
+            trades,
             kept: record.kind == CREATE_NPC && ops.iter().any(|o| KEEPS.contains(&o.tag)),
             hire: (record.kind == CREATE_NPC)
                 .then(|| hire_of(ops))
@@ -2271,6 +2316,8 @@ impl Makers {
                 word,
             ),
             side,
+            turns: record.kind == CREATE_NPC && trades == 0 && !rises(ops),
+            hostility,
             texture,
             layer,
             equipment: if record.kind == CREATE_NPC {
@@ -2303,6 +2350,66 @@ impl Makers {
                 DeathFunctions::default()
             },
         }))
+    }
+
+    /// The placement `placement` of an NPC whose `CreateNPC` takes the `RegionChange` pair `turn`
+    /// as it runs (`0x482F41`, #1063): of the pair's type, its model, texture, size, speeds,
+    /// `Creature.pak` values, class and clips, its flags word as the pair leaves it and its side
+    /// by them and its record's hostility, as the record makes a creature of that type; its
+    /// items, its place and the rest kept. None where the type has no item or no model.
+    fn retype(
+        &self,
+        placement: &Placement,
+        turn: quests::Turn,
+        model_slots: &mut HashMap<String, motions::Slots>,
+    ) -> Result<Option<Placement>> {
+        let (creature, word) = turn.of(placement.creature.2);
+        let Some(item) = self.items.get(&creature) else {
+            return Ok(None);
+        };
+        let Some(model) = self.models.get(&item.name.to_ascii_uppercase()) else {
+            return Ok(None);
+        };
+        if !model_slots.contains_key(model) {
+            let slots = motions::Slots::read(&self.assets.join(model))?;
+            model_slots.insert(model.clone(), slots);
+        }
+        let slots = &model_slots[model];
+        let [walking, running] = self.speeds.get(&creature).copied().unwrap_or_default();
+        let class = self.classes.get(&creature).copied().unwrap_or_default();
+        let gait = slots
+            .clip(motions::Action::Walk, placement.held)
+            .map(|(_, gait)| gait);
+        let mut turned = placement.clone();
+        turned.model = model.clone();
+        turned.texture = match item.words_08[0] {
+            0 => None,
+            number => self.textures.get(&number).cloned(),
+        };
+        turned.size = arrows::size(item.words_14[0]);
+        turned.speed = [walking, running].map(f32::from);
+        if let Some((to, _)) = turned.walk {
+            let speed = if gait == Some(motions::Action::Run) {
+                running
+            } else {
+                walking
+            };
+            turned.walk = Some((to, f32::from(speed)));
+        }
+        turned.class = class;
+        turned.base = self.bases.get(&creature).copied().unwrap_or_default();
+        turned.casts = !self.shadowless.contains(&creature);
+        turned.clips = ClipNames::of(slots, placement.held);
+        turned.creature = (
+            creature,
+            self.record_flags
+                .get(&creature)
+                .copied()
+                .unwrap_or_default(),
+            word,
+        );
+        turned.side = minds::created_side(class, creature, word, placement.hostility);
+        Ok(Some(turned))
     }
 }
 
@@ -2953,10 +3060,30 @@ fn place_index(
     npcs: &mut Npcs,
     (index, at): (usize, (u32, u32)),
     (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
-    (hero, minutes): (u32, u32),
+    (hero, minutes, area_types): (u32, u32, Option<&quests::AreaTypes>),
     streamer: &mut Streamer,
 ) {
-    let placement = &npcs.placements[index];
+    // An `Enter`'s creature, made again as its `CreateNPC` runs again, of the type that its
+    // area's `RegionChange` list gives it now (`0x482F41`, #1063).
+    let turn = area_types
+        .filter(|_| npcs.placements[index].made.0 && npcs.placements[index].turns)
+        .zip(streamer.area(at))
+        .and_then(|(lists, area)| lists.turn(area, npcs.placements[index].creature.0));
+    let turned = match turn {
+        Some(turn) => match npcs
+            .makers
+            .retype(&npcs.placements[index], turn, &mut npcs.slots)
+        {
+            Ok(Some(turned)) => Some(turned),
+            Ok(None) => return,
+            Err(e) => {
+                bevy::log::warn!("npcs: {e:#}");
+                return;
+            }
+        },
+        None => None,
+    };
+    let placement = turned.as_ref().unwrap_or(&npcs.placements[index]);
     // The start's and the `Init`s' creatures persist; the `Enter`s' are made again.
     let kept = !placement.object && !placement.made.0;
     let again = if kept {
@@ -3030,14 +3157,16 @@ pub fn place(
     dungeons: Res<daynight::Dungeons>,
     assets: Res<AssetServer>,
     experience: Res<fight::Experience>,
-    (played, replacements): (
+    (played, replacements, area_types): (
         Res<drops::Played>,
         Option<Res<crate::scripts::ScriptReplacements>>,
+        Option<Res<crate::scripts::ScriptAreaTypes>>,
     ),
 ) {
     let npcs = &mut *npcs;
     let hero = experience.level;
     let minutes = played.minutes();
+    let area_types = area_types.as_ref().map(|lists| &lists.0);
     let side = u32::try_from(SIDE).unwrap_or(64);
     // The placements that the play's scripts made in the sectors in the world (#1014).
     for index in std::mem::take(&mut npcs.pending) {
@@ -3047,7 +3176,7 @@ pub fn place(
             npcs,
             (index, (x / side, y / side)),
             (&heights, &states, &assets),
-            (hero, minutes),
+            (hero, minutes, area_types),
             &mut streamer,
         );
     }
@@ -3073,7 +3202,7 @@ pub fn place(
                 npcs,
                 (index, at),
                 (&heights, &states, &assets),
-                (hero, minutes),
+                (hero, minutes, area_types),
                 &mut streamer,
             );
         }
@@ -4289,9 +4418,14 @@ impl Npcs {
     /// Places the records of the world that the scripts ran during the play (#1014): the places
     /// of their `DefPos`s, and the creatures and objects of their `CreateNPC`s and `CreateObj`s,
     /// kept as an `Init`'s and taking their levels as they are made, at once where their sectors
-    /// are in the world ([`place`]), else as they come in; their `SetNPCState`s on the creatures
-    /// they make. How many they placed.
-    pub fn add(&mut self, records: &[Record]) -> Result<usize> {
+    /// are in the world ([`place`]), else as they come in, each `CreateNPC` of the type that its
+    /// sector's area's `RegionChange` list gave it as it ran (`area` the area of a sector, #1063);
+    /// their `SetNPCState`s on the creatures they make. How many they placed.
+    pub fn add(
+        &mut self,
+        records: &[Record],
+        area: impl Fn((u32, u32)) -> Option<u8>,
+    ) -> Result<usize> {
         let records: Vec<&Record> = records.iter().collect();
         self.places.extend(positions(records.iter().copied()));
         let targets = goto_targets(&records);
@@ -4314,9 +4448,19 @@ impl Npcs {
             else {
                 continue;
             };
-            let index = self.placements.len();
             let (x, y) = placement.cell;
             let at = (x / side, y / side);
+            let placement = match area(at).filter(|_| placement.turns) {
+                Some(area) => match area_turn(ops, area) {
+                    Some(turn) => match self.makers.retype(&placement, turn, &mut self.slots)? {
+                        Some(turned) => turned,
+                        None => continue,
+                    },
+                    None => placement,
+                },
+                None => placement,
+            };
+            let index = self.placements.len();
             if record.kind == CREATE_OBJ
                 && let (Some(name), Some(trigger)) = (name_of(ops), placement.trigger.clone())
             {
@@ -4757,10 +4901,11 @@ fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    (heights, heroes, bodies): (
+    (heights, heroes, bodies, streamer): (
         Res<Heights>,
         Query<&Transform, With<hero::Body>>,
         Query<&hero::Body>,
+        Res<Streamer>,
     ),
     mut creatures: Query<
         (
@@ -4819,7 +4964,7 @@ fn script_records(
                 cell_at(at.translation, way.map_or(0, |way| floor_of(way.level)))
             }),
     });
-    match npcs.add(&records) {
+    match npcs.add(&records, |at| streamer.area(at)) {
         Ok(0) => {}
         Ok(placed) => bevy::log::info!("npcs: the scripts place {placed} creatures and objects"),
         Err(e) => bevy::log::warn!("npcs: the scripts' records: {e:#}"),
@@ -6354,6 +6499,116 @@ mod tests {
         assert_eq!(hire_of(&[op(0x4B), marker(0x39)]), Some(Hire::LetsGo));
         // A `SetNPCState` of a hire restates a creature made before it.
         assert!(State::of(&[op(0x37)], &[]).restates());
+    }
+
+    #[test]
+    fn a_create_npc_of_a_turned_area_makes_the_lists_type() {
+        let item = |slot, name: &str| Item {
+            slot,
+            kind: 2,
+            class: 0,
+            subclass: 0,
+            name: name.into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0; 8],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0; 10],
+        };
+        let makers = Makers {
+            assets: std::path::PathBuf::new(),
+            items: HashMap::from([
+                (279, item(279, "soldier.grn")),
+                (276, item(276, "renegade.grn")),
+            ]),
+            kinds: HashMap::new(),
+            models: HashMap::from([
+                ("SOLDIER.GRN".to_owned(), "models/soldier.glb".to_owned()),
+                ("RENEGADE.GRN".to_owned(), "models/renegade.glb".to_owned()),
+            ]),
+            textures: HashMap::new(),
+            speeds: HashMap::from([(279, [100, 200]), (276, [110, 220])]),
+            classes: HashMap::from([(279, 3), (276, 2)]),
+            bases: HashMap::new(),
+            record_flags: HashMap::new(),
+            shadowless: HashSet::new(),
+        };
+        let slots = HashMap::from([
+            ("models/soldier.glb".to_owned(), motions::Slots::default()),
+            ("models/renegade.glb".to_owned(), motions::Slots::default()),
+        ]);
+        let op = |tag, value| Operand { tag, value };
+        let made = |rest: &[Operand]| {
+            let mut ops = vec![
+                op(0x01, Value::Str("NON_UNIQUE".into())),
+                op(0x02, Value::I32(279)),
+                op(0x04, Value::I32x3([3200, 2500, 0])),
+            ];
+            ops.extend_from_slice(rest);
+            let record = Record {
+                kind: CREATE_NPC,
+                body: Body::Operands(ops.clone()),
+            };
+            makers
+                .placement(
+                    &record,
+                    &ops,
+                    Origin {
+                        enter: true,
+                        started: false,
+                    },
+                    (&HashMap::new(), &HashMap::new()),
+                    &mut slots.clone(),
+                )
+                .expect("made")
+                .expect("placed")
+        };
+        // An `Enter`'s soldier in the guards' mode (`_46`), peaceful.
+        let soldier = made(&[op(0x46, Value::Marker)]);
+        assert!(soldier.turns);
+        assert!(!minds::hostile_to_heroes(soldier.side, 279));
+        // `GoodToBad`'s pair of area 4 turns it into 276 in the mode of `0x12`, hostile.
+        let mut lists = quests::AreaTypes::default();
+        lists.add(
+            4,
+            &[279, 276],
+            quests::region_change_word([0x08, 0x12]),
+            false,
+        );
+        let turn = lists.turn(4, soldier.creature.0).expect("a pair of 279");
+        let turned = makers
+            .retype(&soldier, turn, &mut slots.clone())
+            .expect("its clips")
+            .expect("its model");
+        assert_eq!(turned.model, "models/renegade.glb");
+        assert_eq!(turned.creature.0, 276);
+        assert_eq!(turned.creature.2, 0x1);
+        assert_eq!(turned.speed, [110.0, 220.0]);
+        assert_eq!(turned.cell, soldier.cell);
+        assert!(minds::hostile_to_heroes(turned.side, 276));
+        // A trader, and one of a `0x6B` above 0, keep their types.
+        assert!(!made(&[op(0x24, Value::Marker)]).turns);
+        assert!(!made(&[op(RISES, Value::I32(1))]).turns);
+        assert!(made(&[op(RISES, Value::I32(0))]).turns);
+        // A play's `CreateNPC` takes the pair of its cell's area that `scripts` marked it with.
+        let marked = [
+            op(0x02, Value::I32(279)),
+            op(AREA_TURN, Value::I32x3([4, 276, 1])),
+            op(AREA_TURN, Value::I32x3([5, 296, 0])),
+        ];
+        assert_eq!(
+            area_turn(&marked, 4),
+            Some(quests::Turn {
+                from: 279,
+                to: 276,
+                flags: 1
+            })
+        );
+        assert_eq!(area_turn(&marked, 5).map(|turn| turn.to), Some(296));
+        assert_eq!(area_turn(&marked, 6), None);
     }
 
     #[test]

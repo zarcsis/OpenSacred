@@ -806,6 +806,112 @@ impl Replacements {
     }
 }
 
+/// The areas whose lists `RegionChange` keeps (`+0x1048`, 50 lists of `0xAC` bytes): 0 to 49.
+pub const AREAS: u8 = 50;
+
+/// A pair of a `RegionChange`'s list (`0x4ABFE0`): the type turned, its new type, and the low
+/// half of its record's flags word, which the list keeps in the new type's high half.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Turn {
+    pub from: u32,
+    pub to: u32,
+    pub flags: u16,
+}
+
+impl Turn {
+    /// The type and the flags word of a `CreateNPC` of the flags word `word` that the pair turns
+    /// (`0x482F41`): its new type, and where the pair's flags are not 0, the word's low half
+    /// replaced by them, their top bit spread over the high half (`SAR 0x10`).
+    pub fn of(self, word: u32) -> (u32, u32) {
+        let word = match self.flags {
+            0 => word,
+            flags => {
+                let spread = i32::from(i16::from_ne_bytes(flags.to_ne_bytes()));
+                word & 0xFFFF_0000 | u32::from_ne_bytes(spread.to_ne_bytes())
+            }
+        };
+        (self.to, word)
+    }
+}
+
+/// The lists of `RegionChange` (116, `0x4ABB60`; docs/re/netscript.md, "`ReplaceSpawn` and
+/// `RegionChange`"), one by area (`+0x1048`), which a later `CreateNPC` of a cell of the area
+/// reads (`0x482F41`, #1063). Only the interpreter's reset empties them (`0x461040`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AreaTypes(BTreeMap<u8, Vec<Turn>>);
+
+impl AreaTypes {
+    /// A `RegionChange` of the area `area`, its types `types` taken in pairs (an odd last one
+    /// left) and its flags word `word` (`0x4ABFE0`): while a function runs, its record replaces
+    /// the area's list; once a function that it called has ended, the runner's index of the
+    /// running function at −1 (`0x94E07C`; `appends`), it adds its pairs to the list, past the
+    /// list's 20 slots too, where the original writes on over the next area's list. An area
+    /// above 49 keeps nothing.
+    pub fn add(&mut self, area: u8, types: &[u32], word: u32, appends: bool) {
+        if area >= AREAS {
+            return;
+        }
+        let flags = u16::try_from(word & 0xFFFF).unwrap_or(0);
+        let pairs = types.as_chunks::<2>().0.iter().map(|&[from, to]| Turn {
+            from,
+            to: to & 0xFFFF,
+            flags,
+        });
+        let list = self.0.entry(area).or_default();
+        if !appends {
+            list.clear();
+        }
+        list.extend(pairs);
+    }
+
+    /// The pair of the area `area`'s list that turns a `CreateNPC` of the type `creature`, its
+    /// first of that type (`0x482F41`), none where the list holds none.
+    pub fn turn(&self, area: u8, creature: u32) -> Option<Turn> {
+        self.0
+            .get(&area)?
+            .iter()
+            .find(|turn| turn.from == creature)
+            .copied()
+    }
+
+    /// The areas whose lists turn the type `creature`, each with its pair ([`Self::turn`]).
+    pub fn turns(&self, creature: u32) -> impl Iterator<Item = (u8, Turn)> + '_ {
+        self.0
+            .keys()
+            .filter_map(move |&area| Some((area, self.turn(area, creature)?)))
+    }
+
+    /// Whether no list holds a pair.
+    pub fn is_empty(&self) -> bool {
+        self.0.values().all(Vec::is_empty)
+    }
+}
+
+/// The flags word of a `RegionChange`'s operand-less tags `tags`, in order (`0x4ABB60`): each
+/// tag adds its bit, unlike `CreateNPC`'s modes, and `0x14` clears the low half.
+pub fn region_change_word(tags: impl IntoIterator<Item = u8>) -> u32 {
+    tags.into_iter().fold(0, |word, tag| match tag {
+        0x12 => word | 0x1,
+        0x13 => word | 0x2,
+        0x14 => word & 0xFFFF_0000,
+        0x2B => word | 0x8,
+        0x2E => word | 0x10,
+        0x30 => word | 0x20,
+        0x2F | 0x31 => word | 0x40,
+        0x32 => word | 0x80,
+        0x42 => word | 0x400,
+        0x43 => word | 0x800,
+        0x44 => word | 0x1000,
+        0x45 => word | 0x2000,
+        0x46 => word | 0x4000,
+        0x4C => word | 0x8000,
+        0x50 => word | 0x1_0000,
+        0x74 => word | 0x800_0000,
+        0x85 => word | 0x200_0000,
+        _ => word,
+    })
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
@@ -819,6 +925,8 @@ pub struct Scripts {
     pub drops: Drops,
     /// The fills' replacements of the `ReplaceSpawn`s (#55).
     pub replacements: Replacements,
+    /// The lists of the `RegionChange`s, by area (#1063).
+    pub area_types: AreaTypes,
     /// The kills counted (`SetOnKill`) and the items collected (`SetOnCollect`).
     pub kills: Counts,
     pub collecting: Counts,
@@ -967,6 +1075,57 @@ mod tests {
         });
         assert_eq!(replacements.0.len(), 3);
         assert_eq!(replacements.0[0].pairs, [(279, 33)]);
+    }
+
+    #[test]
+    fn a_region_change_replaces_its_areas_list_within_a_function_and_adds_after_a_call() {
+        let mut lists = AreaTypes::default();
+        assert!(lists.is_empty());
+        // `GoodToBad`'s two records of area 5, in one function: the second replaces the first.
+        let hostile = region_change_word([0x08, 0x12]);
+        assert_eq!(hostile, 0x1);
+        lists.add(5, &[279, 276, 297, 296], hostile, false);
+        lists.add(5, &[1211, 1209, 1210, 1209], 0, false);
+        assert_eq!(lists.turn(5, 279), None);
+        assert_eq!(
+            lists.turn(5, 1210),
+            Some(Turn {
+                from: 1210,
+                to: 1209,
+                flags: 0
+            })
+        );
+        // `WillbursTot45`'s, after its `call("GoodToBad")`, adds to it; an odd last type is left.
+        lists.add(5, &[281, 274, 297, 296, 1208], 0, true);
+        assert_eq!(lists.turn(5, 297).map(|turn| turn.to), Some(296));
+        assert_eq!(lists.turn(5, 1208), None);
+        assert_eq!(lists.turn(4, 297), None);
+        // The first pair of a type counts, in every area that holds one.
+        lists.add(4, &[297, 296, 297, 279], hostile, false);
+        assert_eq!(lists.turn(4, 297).map(|turn| turn.to), Some(296));
+        let areas: Vec<u8> = lists.turns(297).map(|(area, _)| area).collect();
+        assert_eq!(areas, [4, 5]);
+        // An area above 49 keeps nothing.
+        lists.add(50, &[1, 2], 0, false);
+        assert_eq!(lists.turn(50, 1), None);
+    }
+
+    #[test]
+    fn a_turned_create_npc_takes_the_pairs_flags_in_its_words_low_half() {
+        let turn = |flags| Turn {
+            from: 279,
+            to: 276,
+            flags,
+        };
+        // No flags: the word stays.
+        assert_eq!(turn(0).of(0x0200_4000), (276, 0x0200_4000));
+        // `0x12`'s 1 replaces the mode, the high half kept.
+        assert_eq!(turn(0x1).of(0x0200_4000), (276, 0x0200_0001));
+        // `0x4C`'s top bit spreads over the high half.
+        assert_eq!(turn(0x8000).of(0x0200_4000), (276, 0xFFFF_8000));
+        // `0x14` clears the bits before it, not those after.
+        assert_eq!(region_change_word([0x12, 0x14, 0x46]), 0x4000);
+        assert_eq!(region_change_word([0x85, 0x14]), 0x200_0000);
     }
 
     #[test]
