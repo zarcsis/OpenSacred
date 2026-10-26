@@ -326,8 +326,8 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | M1 Converter | all formats from §7; tests and the manifest | 80–160 | 25–50 |
 | M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K | 30–60 | 15–30 |
 | M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23; the estimates stand until M3's re-estimation) | 120–240 | 40–80 |
-| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, trading, blacksmith, day and night, weather | 60–120 | 25–50 |
-| M5 UI and effects | full UI, 178 effects, profile-driven sound, movies | 50–100 | 20–40 |
+| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26) | 60–120 | 25–50 |
+| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies | 50–100 | 20–40 |
 | M6 Version 1.0 for Windows 11 | saves, settings, gamepad, 4K and HiDPI, polish, campaign playthroughs | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
 | M7 HD assets | upscaling, HD packs, built by stage B | 15–30 | 10–30 |
@@ -516,6 +516,15 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The maintainer's new rule: an issue taken into work and a pull request are assigned to oneself (#1049), and all the earlier ones were assigned.
     The tests on the game files passed on `main` in the morning, 828 of 828.
     Next: the rest of #55 (the world's changes, `RegionChange` and `ReplaceSpawn`), the trades and the blacksmith of M4, and the texts' repairs that wait for the maintainer (#403, #685).
+24. **2026-10-26: M4's end: the world's changes, the weather and the items' names.**
+    The maintainer moved the trade (#1066) and the blacksmith (#1067) to M5, where the inventory and its windows come, and kept the weather's choice in M4, its drawing going to M5 (#1072, #1073).
+    `RegionChange` was read again and followed (#1063, #1064): a record replaces its area's list while a function runs and adds to it once a function it called has ended, the later `CreateNPC`s of the area take the list's type and keep their records' side, and the creatures that exist take the new type, their items, the record's flags and its side, made again where they stand.
+    So after quest 45 the soldiers about the world turn hostile, while those that the sectors' `Enter`s make again come of the new types but peaceful, by their records (confirmed by code, not seen in the original).
+    Two slips of the world change's fills were repaired on the maintainer's word (#1068): area 2's fills turn back after quest 72, and the two `ReplaceSpawn`s without a side take their siblings' hostile guards' mode.
+    The weather was read (#1065, docs/re/weather.md): drawn and heard only, chosen by the camera's sector's `sectors.keyx` entries on timers of real time that every sector shares, carried with the screen's quakes, the lightning and the butterflies by one event; the game follows its choice and its levels (#1072).
+    The 301 nameless item types that reach the player take names of the project's own, 214 names (#685, closing #403); the original shows such an item with no name, its tooltip beginning with its class's line (seen).
+    Three advisories of Bevy's zstd 0.13 are ignored, none reached, until Bevy moves to zstd 0.14 (#1070, #1071).
+    Next: the breakdown of M5 and M6 into issues.
 
 ### 10.1 Priority queue
 
