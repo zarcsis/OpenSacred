@@ -18,7 +18,14 @@ Seen in the running original: such an item shows no name; worn, its tooltip begi
 - a weapon or a shield its model's look.
 
 The pieces of one model share their name: 23 types are the Daemon's Plain Armour, which their levels and values tell apart.
-The other 62 nameless types that the lists hold, of categories that no drop asks for, and the 86 with a slot that no list holds wait for the reading of the scripts' items, the traders and the templates (#685).
+One more reaches the player through the scripts and is named: the lung 1331, which the creatures 99 drop for quest 15072 (its `SetDrop`).
+
+The other 147 nameless types with a slot stay nameless, read on the Seraphim's tree:
+- 24 doors and a dwarven chest, which the scripts make and the original never names on the screen;
+- five quest items (bones, a waterskin, innards), whose `CreateObj`s give them a name of their own (`res:ZIELOBJEKT_…`);
+- seven weapons and shields of the guards (`Garde_*`), which only the scripts' weapons' pools hold;
+- six rabbit outfits (`rab_*`), which only `hasenoutfit` makes, and no record calls it;
+- 105 that no record names, which only a trader's stock or a hero's template could hand the player: they wait for the trade's reading (#1066).
 
 | Name | Types |
 |---|---|
@@ -188,6 +195,7 @@ The other 62 nameless types that the lists hold, of categories that no drop asks
 | Heavy Musket | 1854 |
 | Leather Shield | 3014 |
 | Long Musket | 1853 |
+| Lung | 1331 |
 | Many-Barrelled Pistol | 1855 |
 | Musket | 1849 |
 | Plate Shield | 3096 |

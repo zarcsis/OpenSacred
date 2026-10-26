@@ -204,8 +204,8 @@ mod tests {
         // docs/02 §8: the goblins' god's name 14 times in ten strings, and the gameboxes' word
         // once in each of their eleven.
         assert_eq!((summary.repaired_strings, summary.repaired_words), (21, 25));
-        // The six of `ADDED` and the 300 items' names (#685).
-        assert_eq!(summary.added_strings, 306);
+        // The six of `ADDED` and the 301 items' names (#685).
+        assert_eq!(summary.added_strings, 307);
         let ftl = fs::read_to_string(output_dir(&out).join("en-US/global.ftl")).unwrap();
         let back = read_back(&ftl);
         let data = read_game_file(&game.join(LANGUAGES[0].0)).unwrap();

@@ -304,7 +304,7 @@ mod tests {
         let mut ids: Vec<u32> = added.iter().map(|(name, _)| id_of(name)).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), ADDED.len() + 300);
+        assert_eq!(ids.len(), ADDED.len() + 301);
         assert_eq!(ids.len(), added.len());
         // A creature type's name is the hash of its number (docs/02 §6.2): type 37 is id 5818.
         assert_eq!(id_of("37"), 5818);

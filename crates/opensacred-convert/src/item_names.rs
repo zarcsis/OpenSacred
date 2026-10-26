@@ -5,8 +5,9 @@
 //! asks for (docs/re/items.md, "Drops"). The original shows such an item with no name, its
 //! tooltip beginning with its class's line (#685). A name is the class the item is made for, the
 //! word of its family of models and its piece by its category, one name for one model; the
-//! weapons and the shields by their models. `text` adds each under the hash of its type in
-//! decimal (docs/02 §6.2, §8), unless the file holds it.
+//! weapons and the shields by their models. And the one more that the scripts drop: the lung of
+//! quest 15072's `SetDrop`. `text` adds each under the hash of its type in decimal (docs/02 §6.2,
+//! §8), unless the file holds it.
 
 /// The types and their names, each with its model.
 pub const ITEM_NAMES: [(u32, &str); NAMES] = [
@@ -310,7 +311,9 @@ pub const ITEM_NAMES: [(u32, &str); NAMES] = [
     (3900, "Dwarf's Sturdy Pauldrons"),      // Dwarf_nl_Shoulder.grn
     (3901, "Dwarf's Sturdy Pauldrons"),      // Dwarf_nl_Shoulder.grn
     (3902, "Dwarf's Sturdy Pauldrons"),      // Dwarf_nl_Shoulder.grn
+    // Quest 15072's `SetDrop`, the creatures 99 dropping it.
+    (1331, "Lung"), // qi_gibs_lunge.grn
 ];
 
 /// How many names there are.
-const NAMES: usize = 300;
+const NAMES: usize = 301;
