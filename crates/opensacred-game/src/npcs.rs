@@ -1462,6 +1462,9 @@ impl State {
         if let Some(talk) = &self.talk {
             placement.dialogue = talk.is_some() && !self.stocked;
         }
+        if self.hire.is_some() {
+            placement.hire = self.hire;
+        }
     }
 
     /// Gives `functions` its death's functions ([`Self::deaths`]).
@@ -1503,9 +1506,6 @@ impl State {
         }
         placement.trades |= self.trades;
         placement.dialogue |= self.stamped;
-        if self.hire.is_some() {
-            placement.hire = self.hire;
-        }
         self.restate_placement(placement);
     }
 }
@@ -4350,10 +4350,9 @@ impl Npcs {
         self.icons.get(index).copied()
     }
 
-    /// What the play's `SetNPCState`s give the creatures made before them (#656, #658): each
-    /// record's name and its state, given to the placements of that name here, and to the
-    /// creatures in the world by [`script_records`] ([`State::restates`]). The records' other
-    /// tags on such creatures are not followed yet (#657).
+    /// What the play's `SetNPCState`s give the creatures made before them (#656, #658, #657):
+    /// each record's name and its state, given to the placements of that name here, and to the
+    /// creatures in the world by [`script_records`] ([`State::restates`]).
     fn restate(&mut self, records: &[Record]) -> Vec<(String, State)> {
         let made: HashSet<String> = records
             .iter()
