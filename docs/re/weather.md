@@ -1,0 +1,137 @@
+# The weather: rain, fog, snow, the storm, the shakes and the butterflies
+
+Recovered from the GOG `Sacred.exe` 2.28 with Ghidra on 2026-10-26 (#1065, a subagent of the session), and on `World/sectors.keyx` and the NetScript trees by scans of the files.
+Status: **confirmed** by code unless marked otherwise; none of it seen in the running original yet.
+
+The weather is drawn and heard only: no rule of the play reads it.
+The sector the camera looks at chooses it, by the weather entries of its `sectors.keyx` record, on timers of real time that every sector shares.
+One event, `cEventWeather`, carries the weather's changes, the screen's shakes, the lightning and the butterflies to one handler.
+No script sets a weather.
+
+## The weather's state
+
+The weather lives in the renderer (docs/re/daynight.md), a singleton of `0x12E6C` bytes that `0x417E70` makes and keeps at `0xAA4544` and `0x417F00` sets up; it holds the night's level `+0x12E54` and the phases' times too.
+
+- `+0x00`: on, set to 1 at the set-up.
+- `+0x10`: flags: 1 rain, 2 fog, 4 a storm (its lightning armed), `0x10` snow, `0x20` the night (docs/re/daynight.md), `0x80` a quake, `0x100` a lightning's flash, `0x200` a vertical jolt.
+- The rain: its drops now `+0x1C` and wanted `+0x20`.
+- The fog: its alpha wanted `+0x178` and now `+0x17C`, and four drifts at `+0x180` to `+0x18C`.
+- The lightning: its timer `+0x428` and its flash's frames `+0x430`.
+- The snow: 3,000 flakes at `+0x4B4` (a position and a size of 2 to 10 each), their count now `+0x9154` and wanted `+0x9158`.
+- The quake `+0x9DB8` and the jolt `+0x9DBC`, and the offsets of the screen they make, `+0x9DC0` and `+0x9DC4`.
+- `+0x9E0C`: the hero in a dungeon; `0x625290` sets it at each frame that the hero's sector is a dungeon (docs/re/daynight.md), and `0x418FB0` writes it too (**hypothesis**: it clears it at each frame).
+
+The renderer's handler of the events whose kind (the virtual `+8`) is `0x24` is `0x419A70`; its update of a frame is `0x41A4F0` and its drawing `0x4190D0`, both from `cEngine_renderThreadRun`.
+
+## How the weather is chosen
+
+At each frame `cWorldView0_render` calls `0x625290`, which reads the weather of the view's sector: its world record's `+0x17C`, which is `sectors.keyx +0x1E9` (docs/02 §5.1), a bit mask at `+4` and four entries of 28 bytes from `+5`.
+
+- An entry is a `u16` type, then four `u32` in seconds, the shortest and the longest time off and the shortest and the longest time on, then two `u8`, the least and the most intensity.
+- The type 0 is rain, 1 fog and 2 snow; 4 makes the sector a dungeon (docs/re/daynight.md); 5 is the butterflies (below); the code reads no other type.
+- An entry counts where its bit of the mask is set.
+
+Each of rain, fog and snow has one timer, shared by every sector: `0xAD77B4`, `0xAD77B0` and `0xAD77B8`.
+They count real milliseconds, by the performance counter (`0x6413E0`), not the game's clock.
+
+- A kind's timer is armed with a time off as a sector of that kind is first seen in the process (the bits of `0xAD77AC`, set once each).
+- When its timer passes while the kind is off, the kind starts at the intensity `least + b % (most − least + 1)` and its timer takes a time on; when it passes while the kind is on, the kind stops, at 0, and its timer takes a time off.
+  The log tells `cWorldView2::showWorld() RainStart`, `RainStop`, `FogStart` and `FogStop`.
+- `b` is the next byte of a table of 256 at `0x95FA84`, read by a rolling index (`0xAD77C0`).
+- A time is `shortest + (longest − shortest) / b`, with the constants 1.0 and 1000.0 (`0x89066C`, `0x890B54`), so nearly always the shortest; the table's byte 0 makes it infinite, so that its kind stays as it is for the rest of the run (**hypothesis**: a slip for a share of the span).
+- The snow is taken for on by the rain's flag (`0x625459` tests `& 1`), so that in a sector of snow the snow starts again, at an intensity rolled anew, at each time off's end and never stops (**hypothesis**: a slip for the snow's `0x10`).
+
+At each change of the view's sector (`0x6252F1`, the sector last seen at `0x95F930`) an event of kind 1 sets every wanted level to 0, so that the weather fades; it comes back only as its timer next passes.
+
+### The sectors' entries
+
+Counted on `sectors.keyx` (2026-10-26): the mask is 0 in 2,203 sectors, 1 in 3,835, 3 in 11 and 9 in one.
+The entries whose bit is set:
+
+| Type | What | Sectors |
+|---|---|---|
+| 0 | rain | 307 |
+| 1 | fog | 1,031 |
+| 2 | snow | 46 |
+| 3 | none the code reads | 10 |
+| 4 | a dungeon | 2,428 |
+| 5 | butterflies | 37 |
+
+- Rain, fog and snow nearly all take 480 to 600 s off, 480 to 600 s on and the intensity 20 to 40; one entry of snow takes 5 to 15 s, 10 to 30 s and 15 to 25.
+- 88 entries of rain have the byte `+0x14` at 1, which nothing reads.
+- The ten entries of the type 3 hold the intensities 50 to 75 and 75 to 100 (**hypothesis**: a storm left out), all in dungeons of the areas 25 and 37.
+- The start sector 50,39 has fog; the nearest rain falls in 51,43 and 52,43, the nearest snow in 51,19 and 51,17, and the butterflies fly in 54,42 and 55,41.
+
+The levels move by steps of about three a second (an accumulator `0xAA4548` grown by 3 · dt): the rain's drops by 10 a step, the snow's flakes by 20, the fog's alpha by 1, so that a rain of 20 to 40 (600 to 1,200 drops) takes 20 to 40 s to fall in full or to fade.
+
+## What is drawn and heard
+
+- **The rain**: lines without a texture (`WEATHER_RAIN01.TGA` is the shadows' texture, docs/re/drawing.md), each frame every drop at random on the screen, 5 to 20 pixels long, slanted by `L · [+0x74] · [+0x68]`, where `+0x68` is the cosine of the time of day (a turn in 1,440 minutes) and `+0x74` is `2 · |t/1439 − 0.5| + 0.2` (**hypothesis**: the shadows' vector, docs/re/drawing.md), each coloured by the light where it falls (`0x41B510`).
+  Its sound is a loop of the profile 101, the sample 205 `SOUND_FX_RAIN01`, at the volume of the drops' count over 3,000, stopped when the count reaches 0.
+- **The storm**: a rain above 75 arms a timer of 20 to 40 s, at whose every end an event of kind 9 flashes the screen white, a quad added over it for 3 to 8 frames, and plays one of the thunders, the samples 200 to 204 (`THUNDER01` to `05`), but not in a dungeon (`0x63D260`).
+  No entry reaches 75, so a storm comes only from the console (**hypothesis** for the play).
+- **The fog**: `WEATHER_FOG01.TGA` in two layers over the screen, their texture coordinates moved with the camera and drifting by (0.045, 0.028) and (0.079, 0.061) a second, at the fog's alpha, at most twice its intensity; white by day, and with the night's flag `0x20` of the colour `255 − 0.508 · N` in red and green and `255 − 0.273 · N` in blue (the constants at `0x890940`).
+- **The snow**: `PARTICLE_SPARK03.TGA` on quads lit by the light where they are, falling at 10 · size pixels a second, swaying by `cos(0.1 · y) · dt · size · 5`, drifting by `[+0x74] · [+0x68]` at each frame (not by the frame's time), wrapping round the screen's sides and made again past twice its height.
+- None of the three is drawn while `DETAILLEVEL` (`Settings.cfg`, 0 to 2, the byte `0x182EE78` that `0x814152` reads) is 0, nor in a dungeon.
+
+## `cEventWeather` and its kinds
+
+Its virtual table is `0x890928`; `+8` is its kind, `+0xC` its value, up to 100, and `+0x14` whether it stays on this machine; `+4`, `+0x10` and `+0x18` are always 0.
+It is made in place or by `0x51CB60`, which Ghidra names as an effect's constructor.
+`0x5FCB70`, which Ghidra puts under `cEventWeather`, is the object manager's move of an object from sector to sector.
+
+| Kind | What it does | Who sends it |
+|---|---|---|
+| 0 | every flag off at once | none found |
+| 1 | every wanted level to 0: the weather fades | the choice above, at each change of sector |
+| 2 | the rain, 30 · value drops | the choice; the console's `setrain`; the network's restore |
+| 3 | the fog, its alpha 2 · value | the choice; `setfog`; the restore |
+| 5 | the snow, 30 · value flakes, up to 3,000 | the choice; `setsnow`; the restore; the item set 39 |
+| 7 | a quake of the screen | the combat arts and the effects; `setquake`; the restore |
+| 8 | the night's level and its flag `0x20` | `0x41C2D0` (docs/re/daynight.md) |
+| 9 | a lightning, ended by its own event of value 0 | the storm's timer |
+| 10 | the butterflies of a sector made | a sector's `Enter` |
+| 11 | the butterflies of a sector taken out | a sector's going |
+| 12 | a vertical jolt of the screen | a creature's steps; `0x522480` |
+
+- The set 39 (docs/re/items.md) sends the snow at 100 or 0 as the stats are made anew (`0x57D362`), and again at 100 as the hero changes sector while its query `0x4E` answers (`0x5FCB70`; **hypothesis**: the set's bonus, a snow about its wearer).
+- The kinds 4 and 6 have no case; the fields `+0x210` and `+0x214` and 50 floats of speeds 0.003 to 0.025 at `+0x218` are set up and kept but never drawn (**hypothesis**: an effect taken out).
+- **The quake (kind 7)**, while `SCREEN_QUAKE` is on (`0x81DDE0`; 1 in `Settings.cfg`): an amplitude of value/3 pixels (`+0x9DB8`), falling by 10 a second, moves the screen by a random offset within it on both axes at each frame, which the view's matrix adds to the camera (`0x6284E0`), and plays the sample 209 `SOUND_FX_EARTHQUAKE_LOOP` (`0x697220`), at most once every 0.1 to 0.35 s; so 30 shakes it by 10 pixels for a second, 45 by 15 for a second and a half.
+  The arts' landings send 45 (`0x4FF0B0`, the jump 1003's `0x50E6C0`, `0x5192E0`; docs/re/arts.md, which took it for the ground's shaking), and the particle systems and spells 30, 24 or 21 (`0x7866C0`, `0x790340`, `0x79E730`, `0x7A7500`, `0x7AF550`, `0x7B70A0`, `0x7BAD70`, `0x7C1790`).
+- **The jolt (kind 12)**, under `SCREEN_QUAKE` too: a vertical offset of value/3 pixels, falling by 40 a second; a creature's step sends 18 (`0x639080`, for an object of the kind `0x5FE870` 0x35; **hypothesis**: a big creature's stomp), and so does `0x527716` in `0x522480` (not read).
+
+## The butterflies and the birds
+
+- As a sector's `Enter` runs (`0x6261A0`), the event of kind 10 makes, for each of its entries of the type 5, ten objects of the type 873 `FX_BUTTERFLY` (`sdk_CREATE` with the type `0x369`), each at a place at random that `0x638CD0` admits and sent the effect's event `0x61`, one in 31 with a flag of 1; it tests neither the hour nor the weather, whatever its log line says of good weather.
+  As the sector goes (`0x6262A0`), the kind 11 takes them out (`0x5FF160`).
+- Apart from the weather, `0x625290` sends, but by night, every 20 to 180 s, a creature of a pool of eight (`0x637060`) over the camera: the type 513 `CROW.GRN` where the sector's object has the byte `+0x2C` at `0x10`, the type 514 `BAT.GRN` where it has `0x80` (**hypothesis**: a flock flying over; where `+0x2C` comes from is not read).
+
+## The network, the console and the settings
+
+- An event whose `+0x14` is 0 goes over the network while `0x182EBEC` is set (**hypothesis**: on the host); the kinds 10 and 11 never go.
+  `0x41BBA0` writes the whole state: the host in `0x619BF0`, which logs `Weather`, and a client reads it in `0x61B6F0`, which logs `* Weather`; those two strings are the message's names, no setting and no command.
+  `0x41C0F0` restores it, called by `cEngine_ctor` from the game's state `+0x37D4` and `+0x37D8`, which the client's dispatcher of messages `0x7DC260` fills, and by that dispatcher; no code of the saves is known to keep it (**hypothesis**: the weather is not saved).
+- The console's commands (`0x614230`): `setrain N`, `setfog N`, `setsnow N` and `setquake N` send their kinds, staying on this machine, at most 100; `setdungeon N` sets the dungeon's byte to `N == 1`.
+- `Settings.cfg` has no key of the weather's own; `DETAILLEVEL` and `SCREEN_QUAKE` only hold its drawing and its shakes back.
+- `sim_talk_weather.tga` is one of seven icons of talk (the gamble, the war, the money, the politics, the weather, the music, the romance; `0x4090D0`; **hypothesis**: the townsfolk's), not of the weather.
+
+## The scripts
+
+The scripts' compiler knows a tag `Wetter:` (`0x6A`) beside `Region:` (`0x69`) and `Musik:` (`0x68`) (`0x454420`), but no record of any tree carries `0x6A` or `0x68`; `0x69` stands only in `ReplaceSpawn` (3,321 records) and `RegionChange` (360) (docs/re/netscript.md).
+So no script sets the weather, and the sectors' `Enter`s only make the butterflies.
+
+## In `opensacred-game`
+
+None of it is followed yet: the world's weather, the entries in the world's data, the timers and the levels, the fade at a change of sector and the dungeons, is #1072 (M4), and its drawing and sounds, the rain, the fog, the snow, the storm, the shakes, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds, are #1073 (M5).
+
+## To see in the original
+
+With the driver (docs/03 §3.8), `trace 0x419A70` and the kind at `[[esp+4]+8]`, and the game's log:
+
+1. A new game standing in 50,39: `FogStart` about 480 s in, `FogStop` about 480 s later, the times near the shortest; a step into 49,39 while the fog stands sends the kind 1, and the fog fades.
+2. In 51,43 or 52,43: `RainStart` and the sample 205.
+3. In 51,17: `RainStart` again and again, the snow starting anew, and no `RainStop`.
+4. In 54,42 at any hour: objects of the type 873 made through `0x5FBA40` as the sector comes into the 3 × 3 about the hero.
+5. `setrain 80`: a lightning and a thunder every 20 to 40 s, none in a dungeon; `setquake 30`: a shake of a second; `DETAILLEVEL 0`: no rain drawn.
+6. Over two hours or more, whether a kind's timer freezes as the table's index reaches its 0.
+7. By day in a sector whose `+0x2C` is `0x10`: crows over the camera every 20 to 180 s.
