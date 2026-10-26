@@ -34,8 +34,8 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use bevy::prelude::{
-    App, IntoScheduleConfigs, NonSendMut, OnEnter, OnExit, Plugin, Query, Res, ResMut, Resource,
-    Transform, Update, World,
+    Added, App, Commands, Entity, IntoScheduleConfigs, NonSendMut, OnEnter, OnExit, Plugin, Query,
+    Res, ResMut, Resource, Transform, Update, With, Without, World,
 };
 use opensacred_data::luau::{BYTECODE, INDEX, Index};
 use opensacred_data::netscript::{Function, Record, Tree};
@@ -43,10 +43,13 @@ use opensacred_rules::quests::{self, Transition};
 use opensacred_rules::spawning::Rng;
 use opensacred_scripts::{Handled, Host, Operand, Outcome, Runtime};
 
+use crate::ai::Mind;
 use crate::daynight::Clock;
+use crate::fight::Health;
 use crate::frame::{Playing, Step, Unpaused};
 use crate::game::AppState;
 use crate::hero::{Arrival, Body};
+use crate::npcs::{Dies, OnDeath, ScriptName};
 use crate::terrain::Heights;
 use crate::{files, iso, npcs, paths};
 
@@ -269,6 +272,9 @@ pub struct Live {
     /// The minute of the clock's day last seen.
     minute: Option<u16>,
     creatures: HashSet<u32>,
+    /// The scripts' groups that hold a living creature, wherever it stands, by which
+    /// `GroupIsDead` answers (`0x48C860`, [`living_groups`]), taken before each run.
+    living: HashSet<u32>,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
@@ -300,6 +306,38 @@ impl Live {
             at: None,
             minute: None,
             creatures: started.creatures,
+            living: HashSet::new(),
+        }
+    }
+
+    /// The function of the name `name` as the client's search of its table finds it by name
+    /// (`0x46BF40`): of a length from 1 to 63, the name itself, else the first of the same name
+    /// case aside (`0x859690`).
+    fn named(&self, name: &str) -> Option<String> {
+        if name.is_empty() || name.len() >= 64 {
+            return None;
+        }
+        if self.runtime.entries(name) > 0 {
+            return Some(name.to_owned());
+        }
+        self.runtime
+            .index()
+            .functions
+            .keys()
+            .find(|key| key.eq_ignore_ascii_case(name))
+            .cloned()
+    }
+
+    /// Runs the death's function `function` of a creature (`0x46BF40`, then `0x46BA90`), found
+    /// by its name case aside, a quest's only while the quest is set up: what it did to the
+    /// world, nothing where the tree has no such function.
+    pub fn die(&mut self, function: &str) -> Effects {
+        match self.named(function) {
+            Some(name) => self.run(&name, 0),
+            None => {
+                bevy::log::warn!("scripts: no death's function {function} in {}", self.tree);
+                Effects::default()
+            }
         }
     }
 
@@ -337,6 +375,7 @@ impl Live {
             &mut self.state,
             &mut self.rng,
         );
+        recorder.living = Some(&self.living);
         let outcome = match self.runtime.call_entry(function, entry, &mut recorder) {
             Ok(outcome) => Some(outcome),
             Err(e) => {
@@ -481,6 +520,8 @@ struct Recorder<'a> {
     states: Vec<ObjState>,
     healths: Vec<SetHealth>,
     home: Option<Teleport>,
+    /// The scripts' groups that hold a living creature, in the play; at the start, none known.
+    living: Option<&'a HashSet<u32>>,
 }
 
 impl<'a> Recorder<'a> {
@@ -499,6 +540,7 @@ impl<'a> Recorder<'a> {
             states: Vec::new(),
             healths: Vec::new(),
             home: None,
+            living: None,
         }
     }
 }
@@ -512,6 +554,18 @@ impl Host for Recorder<'_> {
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
             return tags.test(self.tree, &self.state.variables);
+        }
+        // A guard: whether no creature of the group lives, wherever it stands (`0x48C860`); a
+        // group never made is dead. At the start, before the world, not known.
+        if name == "group_is_dead" {
+            return match (self.living, tags.numbers("_0B").last()) {
+                (Some(living), Some(&group)) => Handled::Answer(
+                    u32::try_from(group)
+                        .ok()
+                        .is_none_or(|group| !living.contains(&(npcs::SCRIPT_GROUP | group))),
+                ),
+                _ => Handled::Unknown,
+            };
         }
         if ran.is_empty()
             && let Some(record) = opensacred_scripts::record(name, operands)
@@ -966,6 +1020,7 @@ fn step_on(
         ResMut<WorldRecords>,
         ResMut<HeroHome>,
     ),
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
     let (Some(mut live), Some(heights)) = (live, heights) else {
         return;
@@ -981,6 +1036,7 @@ fn step_on(
         return;
     }
     let layer = heights.floor(body.level()).map_or(0, |(_, floor)| floor);
+    live.living = living_groups(npcs.as_deref(), minds.iter());
     let effects = live.step_on(cell, layer);
     put(&mut live, &effects.teleports, &mut transform, &mut body);
     states.0.extend(effects.states);
@@ -1003,10 +1059,14 @@ fn timers(
         ResMut<WorldRecords>,
         ResMut<HeroHome>,
     ),
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
     let (Some(mut live), Some(clock)) = (live, clock) else {
         return;
     };
+    if live.minute != Some(clock.minute()) {
+        live.living = living_groups(npcs.as_deref(), minds.iter());
+    }
     let effects = live.clock(clock.minute());
     if let Ok((mut transform, mut body)) = heroes.single_mut() {
         put(&mut live, &effects.teleports, &mut transform, &mut body);
@@ -1079,9 +1139,15 @@ fn carry_out(
         first,
         timers,
     ) = {
+        let living = {
+            let mut minds = world.query_filtered::<&Mind, Without<Dies>>();
+            let minds: Vec<Mind> = minds.iter(world).cloned().collect();
+            living_groups(world.get_resource::<npcs::Npcs>(), minds.iter())
+        };
         let mut live = world
             .get_non_send_mut::<Live>()
             .ok_or("the scripts do not run")?;
+        live.living = living;
         let (effects, first) = run(&mut live)?;
         let now = live.state.timers.minutes();
         let timers: Vec<String> = live
@@ -1125,6 +1191,94 @@ fn carry_out(
     Ok(lines)
 }
 
+/// The scripts' groups that hold a living creature, wherever it stands (`GroupIsDead`,
+/// `0x48C860`): the world's creatures alive, but the raised dead (`+0x1F4` bit `0x2000000`), and
+/// those that live away from it (`npcs::Npcs::living_groups`).
+fn living_groups<'a>(
+    npcs: Option<&npcs::Npcs>,
+    minds: impl Iterator<Item = &'a Mind>,
+) -> HashSet<u32> {
+    let mut living = npcs.map(npcs::Npcs::living_groups).unwrap_or_default();
+    living.extend(
+        minds
+            .filter(|mind| mind.flags & crate::followers::RAISED == 0)
+            .filter_map(|mind| mind.group),
+    );
+    living
+}
+
+/// Runs the death's function of each creature that dies (the AI's state 9, `0x53E7C0`, and the
+/// death's event at `0x52F769`; #656): the first of its list's that is no item's, the others of
+/// its kind taken out ([`quests::DeathFunctions::take`]), by its name ([`Live::die`]), after its
+/// drops and its killer's experience, the hero put where it teleports it. A creature whose
+/// function gives it health back, its `SetHP` above 0, rises at that health (`0x53E460`) before
+/// it is laid down (`npcs::die`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn deaths(
+    mut commands: Commands,
+    live: Option<NonSendMut<Live>>,
+    mut dying: Query<(Entity, &mut OnDeath, Option<&ScriptName>, &mut Health), Added<Dies>>,
+    mut heroes: Query<(&mut Transform, &mut Body), (With<Body>, Without<OnDeath>)>,
+    (mut states, mut healths, mut world, mut home): (
+        ResMut<ObjStates>,
+        ResMut<Healths>,
+        ResMut<WorldRecords>,
+        ResMut<HeroHome>,
+    ),
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
+) {
+    let Some(mut live) = live else {
+        return;
+    };
+    let mut taken = false;
+    for (entity, mut on_death, name, mut health) in &mut dying {
+        let Some(function) = on_death.0.take() else {
+            continue;
+        };
+        if !taken {
+            live.living = living_groups(npcs.as_deref(), minds.iter());
+            taken = true;
+        }
+        bevy::log::info!(
+            "scripts: {} dies and runs {function}",
+            name.map_or("a creature", |name| name.0.as_str())
+        );
+        let effects = live.die(&function);
+        // The last `SetHP` of its own name decides its health (`0x53E93C`).
+        let rises = name
+            .and_then(|name| {
+                effects
+                    .healths
+                    .iter()
+                    .rev()
+                    .find(|set| set.name.as_deref() == Some(name.0.as_str()))
+            })
+            .filter(|set| set.share > 0);
+        if let Some(set) = rises {
+            health.current = (health.most * set.share / 100).max(1);
+            commands.entity(entity).remove::<Dies>();
+            bevy::log::info!(
+                "scripts: {} rises at {}/{}",
+                name.map_or("a creature", |name| name.0.as_str()),
+                health.current,
+                health.most
+            );
+        }
+        if let Ok((mut transform, mut body)) = heroes.single_mut() {
+            put(&mut live, &effects.teleports, &mut transform, &mut body);
+        }
+        states.0.extend(effects.states);
+        healths.0.extend(effects.healths);
+        world.0.extend(effects.records);
+        if let Some(spot) = effects.home {
+            home.0 = Some(spot);
+        }
+    }
+}
+
 /// Puts the hero where the last of `teleports` names, on its level.
 fn put(live: &mut Live, teleports: &[Teleport], transform: &mut Transform, body: &mut Body) {
     if let Some(&Teleport {
@@ -1161,6 +1315,14 @@ impl Plugin for ScriptsPlugin {
                     .before(Step::Follow)
                     .in_set(Playing)
                     .in_set(Unpaused),
+            )
+            .add_systems(
+                Update,
+                deaths
+                    .after(crate::fight::resolve)
+                    .after(npcs::script_healths)
+                    .before(npcs::die)
+                    .in_set(Playing),
             );
     }
 }
@@ -1327,6 +1489,94 @@ mod tests {
             .collect();
         assert_eq!(named, ["a", "b", "d", "g"]);
         assert_eq!(runtime.unknown(), ["test"]);
+    }
+
+    #[test]
+    fn a_death_runs_its_function_by_its_name_once_its_group_is_dead() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"tot1201\"] = function()\n\
+             if not group_is_dead { _0B = 1201 } then\n\
+             return false\n\
+             end\n\
+             set_hp { _01 = \"res:17631\", _0B = 50 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        // Another of the group lives, somewhere: the function stops at its guard.
+        live.living = HashSet::from([npcs::SCRIPT_GROUP | 1201]);
+        assert!(live.die("TOT1201").healths.is_empty());
+        // The last of it dies: the function runs on, found by its name case aside.
+        live.living = HashSet::new();
+        let effects = live.die("TOT1201");
+        assert_eq!(
+            effects.healths,
+            [SetHealth {
+                name: Some("res:17631".into()),
+                share: 50
+            }]
+        );
+        assert!(live.die("no_such_function").healths.is_empty());
+    }
+
+    #[test]
+    fn a_creature_that_its_deaths_function_heals_rises() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"tot2203\"] = function()\n\
+             set_hp { _01 = \"res:17260\", _0B = 50 }\n\
+             return true\n\
+             end\n\
+             F[\"tot2\"] = function()\n\
+             set_hp { _01 = \"res:17260\", _0B = 0 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut app = bevy::app::App::new();
+        app.world_mut().insert_non_send(live(runtime));
+        app.init_resource::<ObjStates>()
+            .init_resource::<Healths>()
+            .init_resource::<WorldRecords>()
+            .init_resource::<HeroHome>()
+            .add_systems(Update, deaths);
+        let dying = |app: &mut App, function: &str| {
+            let mut functions = quests::DeathFunctions::default();
+            functions.add(function);
+            app.world_mut()
+                .spawn((
+                    OnDeath(functions),
+                    ScriptName("res:17260".into()),
+                    Health {
+                        current: 0,
+                        most: 300,
+                        level: 10,
+                    },
+                    Dies::new(0),
+                ))
+                .id()
+        };
+        // Its function gives it half its health: it rises, its function spent.
+        let target = dying(&mut app, "tot2203");
+        // Its function leaves it at 0: it stays dead.
+        let other = dying(&mut app, "tot2");
+        app.update();
+        let world = app.world();
+        assert!(!world.entity(target).contains::<Dies>());
+        assert_eq!(world.get::<Health>(target).map(|h| h.current), Some(150));
+        assert!(world.get::<OnDeath>(target).is_some_and(|d| d.0.is_empty()));
+        assert!(world.entity(other).contains::<Dies>());
+        assert_eq!(world.resource::<Healths>().0.len(), 2);
     }
 
     #[test]
