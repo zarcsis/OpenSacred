@@ -166,7 +166,7 @@ So an ordinary townsperson: in 26 rolls one partner, one animal, one partner and
 ### Partners
 
 - A partner (`+0x251`) is the nearest creature of the 3 × 3 sectors, at any distance, of class 3 (`Creature.pak`), not of the heroes' kind, other than itself and its last partner (`+0x24D`; `0x4EE9C0`).
-- Following (the flag 4, while it stands): with the hero farther than 1,500 it goes dormant, but for a follower whose partner is the hero, which is put near it ("Followers" below); with a hostile within 300 of the hero, or its partner fighting, it flees 700 from the fight or stands; its partner farther than 900 it forgets; farther than 240 it walks to it at the partner's gait; within 149 it steps off to the first of 10 points 220 from it at a random angle that it can reach.
+- Following (the flag 4, while it stands): with the hero farther than 1,500 it goes dormant, but for a follower whose partner is the hero, which is put near it ("Followers" below); with a hostile within 300 of the hero, or its partner fighting, it stands where its partner is farther than 500, and is else ordered to flee 700 from the fight, which its follow overwrites (corrected 2026-10-26, "The scripts' hired followers" below); its partner farther than 900 it forgets; farther than 240 it walks to it at the partner's gait; within 149 it steps off to the first of 10 points 220 from it at a random angle that it can reach.
 - Between 80 and 200 from its partner it meets it (`0x4FC490`) and forgets it: in one case of two, the adult turns to it, and the partner, idle, alive and no trader, stops and turns back; it plays its `*_TALK_A` once, or, a woman's type (`_FEM`) at 100 to 140, in one case of 11, its attack's clip (**hypothesis**: a slap).
 
 ### Children and jugglers
@@ -222,12 +222,12 @@ Read 2026-10-25 (#885) by the static reading of `Sacred.exe`; **confirmed** by c
 **Seen** the same day in the running original (the driver of #448, the Vampiress of a new game by day, `arts learn 1027` and the right button on the ground 3 cells off): her wolf (588, of level 2, peaceful to her) stood 4 cells from her; it went at a goblin that came near and struck it (its action 3); as she ran 5 cells off it took the AI's state 2 and the moving action, ran after her and stopped 3 cells from her, within the band of 150 to 240.
 A follower is a creature in its master's list (`+0x39C`) with its master at `+0x251`, which `sdk_HIRE` (`0x54CF70`) makes so: hired by the scripts (`SetNPCState`'s and `CreateNPC`'s tags `0x37`, `0x4B` and `0x71`, docs/re/netscript.md), summoned (the Wood Elf's unicorn of the spell 3, the Vampiress's wolf of 1026 and 1027, both by `0x5B4680`), or raised (the Vampiress's 1034 and the raised dead's kills).
 
-- **The list.** Records of 9 bytes: the creature's id, a kind (0 hired, 1 the flag 4's) and a byte that keeps it at the engine's start (`0x60BAFC`, **hypothesis**: a load; the records without it, the summoned and the raised, have their creatures removed); duplicates are skipped, there is no limit, and a list of 100 or more reads as empty; the mercenaries' window shows at most 4 kept records.
+- **The list.** Records of 9 bytes: the creature's id, a kind (0 hired, by `SetNPCState` too, 1 the flag 4's of `CreateNPC`'s event `0x10B`, 100 a worn item) and a byte that keeps it at the engine's start (`0x60BAFC`, **hypothesis**: a load; the records without it, the summoned and the raised, have their creatures removed); duplicates are skipped, there is no limit, and a list of 100 or more reads as empty; the mercenaries' window shows at most 4 kept records.
   `sdk_HIRE` also keeps the hired creature's worn items in its own list, which its letting go puts back on (`0x54B200`, `0x5563D0`).
 - **Hiring by a hero** (`sdk_HIRE`): its level the greater of the hero's and the middle of its sector's range, set again for a kept one to `⌊L·(1 + P/100) + B + 0.5⌋` by the difficulty (**hypothesis**: `OffLevelProz` and `BaseOffLevel`); its master the hero, its flags word kept to the bits `0xEFF62000` with `0x100`, its side 3 where it was 6 or hostile to the hero, woken.
   A summoned creature takes the flags' bit 0 too, by which it is first tested against the hero as a hostile one is, and then follows.
   **Seen** 2026-10-26 (#1013, the driver's `creatures`): the Vampiress's wolf of the flags word `0x101`, the side 3 and her id for its master.
-  The scripts' `0x37` and `0x71` clear `0x100` and set 4 (`0x462A99`), and `0x39` and `0x65` let it go (the event `0x10B` without a master, `sdk_PARTY_REMOVE`, `0x551300`).
+  The scripts' `0x37` and `0x71` clear `0x100` and set 4 (`0x462A99`), and `0x39` and `0x65` let it go (the event `0x10B` without a master, `sdk_PARTY_REMOVE`, `0x551300`); below, "The scripts' hired followers".
 - **Its behaviour (the flag `0x100`)**, which the AI's state 2 passes it whatever its action (`0x4EE030`), after the first update gives a standing creature of the bits `0x104` the state 2 at every tick unless it stands 150 to 240 from its master (`0x542B20`, `0x5445E6`); it never goes dormant (`0x4EF150`, at `0x4F3E65`):
   - its master farther than 1,500, it is put near it (below);
   - its master in a fight, it takes the master's target (its `+0x104` in the AI's state 4 or 8, else its `+0x158` in the actions 3 or 5 or the states 11 or 6), or, where the hero's list of hostiles holds two or more and the second nearest stands within 350 of the master, that one (the event `0x100`, as a monster takes a foe); a follower of the heroes' class goes idle instead;
@@ -244,7 +244,77 @@ A follower is a creature in its master's list (`+0x39C`) with its master at `+0x
 - **A dead master.** A hero's followers stay, following its corpse's place, and its rising (`0x53E460`) fills every listed follower's health; a creature's (of an id above 16) are dismissed (`0x54D380`: its master −1, its record removed, stopped, its home moved to it beyond 600).
 - **The raised dead** (1034, `+0x1F4 |= 0x2000000`): its kill of a creature of an id above 16 raises the victim as the raiser's follower in one case of two (`0x52F4CD`), its level the killer's less 1, without the effect 29's timer, so that the raising chains.
 - **A healer** (`+0x2B6` 7, from `CreateNPC`'s tag `0x67`): its master within 350 at two thirds of its health or less, it casts `HEILKRAFT` (7) at the hero (the AI's state 6, `0x51CFD0`); it does not flee.
-- **The flag 4's** (the scripts' `0x37` and `0x71`) follow by the partners' rules ("The townsfolk" above), but with the hero for its partner it is put near it rather than going dormant beyond 1,500; it never fights, running 700 from its master when the master is struck, a hostile is within 300 of the hero or the master fights, or standing when the master is farther than 500.
+- **The flag 4's** (the scripts' `0x37` and `0x71`) follow by the partners' rules ("The townsfolk" above), but with the hero for its partner it is put near it rather than going dormant beyond 1,500; it never fights, and runs from the fight by its master's alert ("The scripts' hired followers" below).
+- **A dead hired follower** leaves the hero's list as it dies (`0x53FB40`, `0x54D380`), unless `SetNPCState`'s `0x6B` keeps it to rise 20 s later.
+
+### The scripts' hired followers
+
+Read 2026-10-26 (#657) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise.
+
+- **The tags** (`SetNPCState`'s reader `0x48BB40`): `0x37` sets the record's bit `0x100`, `0x4B` `0x300`, `0x71` `0x900`; `0x39` clears `0x300` and sets `0x400`, `0x65` clears `0x200` only and sets `0x400`.
+  The bits add up, so a record of `0x37` and `0x4B` hires as `0x4B`, and a `0x65` after a `0x37` leaves the hire standing.
+  The number 0 takes the local hero for the master (`0x603E30`); the applier takes the local hero too for a master left empty or the creature itself (`0x462A34`, `0x462A6A`; **hypothesis**: so another number also gives the hero).
+- **`SetNPCState`'s hire** (`0x462A1F` to `0x462AAC`, after the flags word, the group and the other tags, before the stats `0x5796A0`): `sdk_HIRE` (`0x54CF70`) by the hero, with the keep byte 1:
+  - its level is the greater of the hero's and the middle `lo + (hi − lo)/2` of the sector's range at the hero's place (1 where `hi` is below 2), through the setter without its scaling but with its hold (`0x564D60(L, 1, 0)`);
+  - then, kept, it is set again the same way to `max(1, ⌊H·(1 + P/100) + B + 0.5⌋)` of the hero's level `H` (`0x54D14C`, the tables `0xAD5648` and `0xAD5660` by the difficulty; the hero's level on bronze);
+  - its master `+0x251` is the hero's id, and its word becomes `(F & 0xEFF62000) | 0x100`: every bit of the low 16 but `0x2000` is gone, so its townsfolk's, guards' and animals' modes go, and so do the boss's `0x80000` and the juggler's `0x10000000`;
+  - its side becomes 3 where it was 6, or where it is alive and hostile to the hero (`0x548F30`);
+  - it is woken (`sdk_WAKE` `0x59F580`: the AI's state 0 takes the sub-state 1 where it was 0, 0);
+  - the record `(id, kind 0, keep 1)` goes into the hero's list (`0x54B200`, skipped if already there), and its worn items (19 slots at `+0x1A4`, those without `+0xB0` bit `0x10`) take `+0xB0` bit 8 and go into its own list as records of kind 100.
+- **The meaning of `0x200`**: it only keeps the word's `0x100`, so `0x4B` makes the fighting follower of "Followers"; `0x37` and `0x71` then clear `0x100` and set 4 (`0x462A99`), even when no hero was found.
+  `0x71`'s `0x800` marks it in the first quest of the table (`+0x31C`) whose creature list (records of `0x2C` at `+0x1C`) holds it: the quest's `+0x10` goes from bit 1 to bit 2, and the record's `+4` from `0x20` to `0x40` (`0x462AC2`).
+- **`CreateNPC`'s** differ (`0x484774`): `0x4B` calls `sdk_HIRE` the same way; `0x37` and `0x71` instead send the creature the event `0x10B` (`+0x14` 4, `+0x18` the given master's id or the local player's).
+  The handler (`0x52E7D2`, `0x52EB3E`) sets `+0x251`, adds 4 to its own word, which stays unmasked, wakes it and lists it as `(id, kind 1, keep 1)`; level and side stay as they were.
+- **When the flag 4's behaviour runs**: only standing.
+  The state 2 passes the flag 4 first, before `0x100`, while the action `+0x150` is 0, and puts a moving one back to the state 0 (`0x4EE030`).
+  The state 0's handler gives a standing one (`+0x152` below 100) the state 2 unless its master stands 150 to 240 from it (`0x5445E6`).
+  The hired word holds none of the bits `0x1006DCF8` that give the state 2 otherwise (`0x544303`; `0x20000` and `0x40000` would, if kept), so inside that band it does nothing, in danger or not.
+  The state 0's dormancy (`0x542CAE`, bits `0x1006DCFB`) passes it by.
+- **The behaviour** (`0x4EF150(4)`), with the local hero for its master, in order:
+  1. it sets `+0x261` to 1;
+  2. with the hero farther than 1,500, it is put near the hero (`0x4EBF20` at `0x4EF2E8`, with no setting's test) and goes on, its distance measured afterwards; a child of the types `0x43F670` goes dormant instead;
+  3. with its master gone, it takes the state 0 and its idle clip (`0x4F40A3`);
+  4. danger: the hero's count of near hostiles (`0xAD3BC8`) above 0 with the nearest (`0xAD3CE4`) below 300, or the master fighting (the AI's state 4 or 8 with `+0x104`, or the action 3 or 5 or the state 11 or 6 with `+0x158`):
+     - a healer (`+0x2B6` 7) skips this test;
+     - its master farther than 500, measured from the master, gives it the state 0 for the tick (`0x4F363D`), so it neither follows nor flees while the danger lasts;
+     - within 500 it is ordered to flee (`0x539F60`, below), but the follow overwrites that order unless no step-off point is found;
+  5. a healer within 350 of a master at two thirds of its health or less casts `HEILKRAFT` (7) at the local hero (the state 6);
+  6. the follow (`+0x152` below 100):
+     - nearer than 150, it steps off to the first of 10 points 220 from the master, at an angle of `rand() % 361` taken as radians, that its way reaches (`0x4FCC80`); the floor is the ground, or a random one up to its own; it goes at the master's gait `+0x1F8`, the move's mode 3; with no point found it takes the state 0, and a flight already ordered goes on;
+     - farther than 240, it walks to the master's place at the master's gait (mode 0);
+     - in between, it stands;
+  7. it never forgets the hero: the 900 holds only for partners of an id above 16 with a word of `0x1006DD08` (`0x4EF6AF`), and the meeting only for words of `0x8408` (`0x4EF72B`).
+- **Moving** (`0x4F4770`), for a follower of `0x104` not in the states 4, 8 or 1 and of a mode other than 3:
+  - with its master farther than 270, it is re-aimed at every tick at the master's place, to stop within 200 (`0x4F4F09`: `+0x174` 1, `+0x176` 200);
+  - a flag 4's is not re-aimed while the hero is in danger as above (`0x4F4F21`);
+  - when its way is recomputed, its gait becomes the master's, or 2 where that is 0 (`0x4F6100`);
+  - farther than 1,500 from a player it is put near only with `0x182EE3C` bit `0x10000` (**hypothesis**: a setting); the `0x100` behaviour's put-near beyond 1,500 wants that bit too.
+- **Its flight**: a creature coming at the master, within 350, or within 600 with a ranged weapon, a mark of `0x25` or a `+0x2B6`, raises the alert (`0x4E0010`).
+  Each flag 4's follower of the master's list within 400 of it and not moving then runs (`0x539F60`): the action 1 at the gait 2, to 700 beyond its own place along the line from the master, on the master's floor, its AI state kept.
+  Where the master is nearer than 10 or farther than 1,000, it runs instead to a random point within ±400 of itself along each axis.
+  A moving one, or one beyond 400, ends the alert for the rest of the list; the healer's exemption there reads the master's `+0x2B6` (sic, `0x4E0230`).
+  The run goes on while the hero is in danger; otherwise the move turns it back once it is farther than 270.
+  For a partner that is no hero, the source of `0x539F60` is the creature itself: it runs to a random point within ±400 of itself and takes the state 4 with the sub-state 3.
+- **Fights**: it never fights by its own decisions, and the alert gives an event `0x100` only to followers of `0x100`.
+  An idle hostile's look picks it only if it fights or holds `+0x1F4` bits `0x50000`, so it is no target of theirs; a hostile's guard behaviour (`0x4EEE40`) may take it as the nearest creature hostile to it within 500 (**hypothesis**).
+  Struck, it does not answer.
+- **Its death**: at the death's step (`0x53FB40`) its master dismisses it (`0x54D380`: master −1, `+0x1F4 &= 0xDFFFFEFB`, record removed, worn items put back), so a dead hired follower leaves the hero's list.
+  With `+0x2B7` bit 8 (`SetNPCState`'s `0x6B` above 0) and a player for its master, it stays and rises 20 s after its death (`0x53E460` at `0x53FBDC`).
+  With that bit and no player for its master, the strike's resolution skips its health's update (`0x56F859`; **hypothesis**: unharmed).
+- **The hero**:
+  - dead, its count of hostiles is 0, so there is no danger, and the follower keeps to the corpse's place;
+  - risen, the hero fills every listed creature's health (`0x53E460`'s loop);
+  - teleported (`sdk_ENGINE_TP` `0x54D9D0`), every listed follower takes the hero's new place for its home (`+0x2B9`), `+0x2B8` bit 2 and its timer, and is put near the hero, or on the hero's place where no point is found;
+  - no code relevels followers at a level-up (**hypothesis**: none among the callers of `0x564D60`).
+- **Letting go** (`0x462BB9`, the bit `0x400` without `0x100`):
+  1. it calls the quests' hook `0x471790(master, id, 2, +0x94)`: in a quest of the type 1 whose record of the creature has the flag 8, the quest takes `+0x10` bit `0x80`, or, its byte `+9` being 0, goes from the state 2 to 4 through `0x471000` (**hypothesis**: an escort delivered);
+  2. it then sends the creature, as controlled by the local player, the event `0x10B` with no master;
+  3. the handler (`0x52E702`, `0x52EA6E`) has the master's `sdk_PARTY_REMOVE` drop its record (the last moved into its place) and put its worn items back on (`0x5563D0`), rises it where it has `+0x2B7` bit 8, sets its master to −1 and clears `+0x1F4` bits 4 and `0x100`;
+  4. last, `0x54E6D0(1)` stops it if it acts or is out of the state 0 and is alive: the action 0, `+0x152` 1, the state 0 and the sub-state 0, and its idle clip;
+  5. its side, level and home stay (the home is moved by a teleport of the hero), and so does the word that the hire stripped: it stands idle unless a mode in the same record (applied before) or the scripts move it.
+- **A quest's release** (`0x471790` mode 1, `0x472300` to `0x47245E`): in a quest of the type 2 (`+9` 1, state bit 2) with enough of its creatures in the hero's list, each record of the flags 4 or `0x10` is let go: flag 4 cleared, master −1, removed from the list, `+0x200` bit `0x200` cleared, and an order (the event 4) to walk to the hook's creature's place (**hypothesis**: the quest's giver at its solution).
+
+Not read: what `0x182EE3C` bit `0x10000` is; what reads a record's kind (0, 1 or 100); `0x6B`'s clearing in the strike's resolution at `0x56B296`; the quests' hook beyond the branches above.
 
 ## Open
 
