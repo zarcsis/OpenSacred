@@ -828,6 +828,8 @@ const CREATURE = {
   id: 0x0c, type: 0x10, x: 0x1c, y: 0x20, floor: 0x24, layer: 0x2c, ai: 0xfc, aiSub: 0xfe, target: 0x104,
   action: 0x150, actionSub: 0x152, gait: 0x1f8, dialogue: 0x245, experience: 0x3b4, level: 0x3fe, most: 0x4d4,
   health: 0x4d8,
+  // Its side, its flags word and its master's id, -1 or 0 for none (docs/re/ai.md, "Followers").
+  side: 0x1f0, flags: 0x1f4, master: 0x251,
   // Its 19 equipment slots, an object's id each (docs/re/equipment.md).
   slots: 0x1a4,
   // Its home, a position of 13 bytes (the sector's word, x and y in world units, the floor), where an animal strolls
@@ -1024,6 +1026,9 @@ function readCreature(object) {
     gait: object.add(CREATURE.gait).readU8(),
     // Its dialogue's index in the scripts' table, which sdk_STAMP_IDX writes (docs/re/ai.md), 0 or below for none.
     dialogue: object.add(CREATURE.dialogue).readS32(),
+    side: object.add(CREATURE.side).readU8(),
+    flags: object.add(CREATURE.flags).readU32(),
+    master: object.add(CREATURE.master).readS32(),
     target: target > 0 && target < objectCount() && objectById(target) !== null ? target : null,
   };
 }

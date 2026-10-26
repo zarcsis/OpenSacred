@@ -763,6 +763,9 @@ pub struct Walk {
     /// (`paths::Course`, `0x4F7710`), so that a creature that steps into its way afterwards
     /// stops it rather than turns it round (#989).
     course: Option<(Vec3, paths::Course<(Level, bool)>)>,
+    /// The level it walks onto, where it is given (`0x4F7710`'s position's floor): a follower's
+    /// step off's (#1013); else any its way reaches the target's cell on.
+    onto: Option<Level>,
 }
 
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
@@ -793,6 +796,15 @@ impl Walk {
             comes_on: false,
             idle: false,
             course: None,
+            onto: None,
+        }
+    }
+
+    /// The walk onto the level `level`, its way to the target's cell on it.
+    pub fn onto(self, level: Level) -> Self {
+        Self {
+            onto: Some(level),
+            ..self
         }
     }
 
@@ -3538,6 +3550,7 @@ pub fn walk(
         way.level = walk.level;
         let level = walk.level;
         let target = walk.target;
+        let onto = walk.onto;
         // A cell it may step into: walkable, no object and no other creature in it (`0x4F7E10`:
         // an NPC, of an id above 16, is stopped by any).
         let free =
@@ -3551,7 +3564,7 @@ pub fn walk(
                 here,
                 (level, false),
                 leg,
-                None,
+                onto,
                 |cell, (at, _)| free(cell, at),
                 |place| {
                     paths::passable(heights.neighbours(place), end, |cell, (at, _)| {
@@ -3611,9 +3624,12 @@ pub fn walk(
         let into = paths::cell_of(position.x, position.z);
         let blocked =
             into != cell && !free(into, walk.level) && heights.walkable_on(cell, walk.level);
-        if left <= walk.within || blocked || distance <= f32::EPSILON {
+        // Within its target's reach, on the level it walks onto unless its way found none.
+        let there = left <= walk.within
+            && (onto.is_none_or(|onto| onto == walk.level) || walk.course.is_none());
+        if there || blocked || distance <= f32::EPSILON {
             // There, or as near as it gets: it stands; held from its first step, a while.
-            if walk.moved || left <= walk.within {
+            if walk.moved || there {
                 commands.entity(entity).remove::<Walk>();
             } else {
                 walk.balked = BALKS;

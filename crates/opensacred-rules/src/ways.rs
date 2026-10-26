@@ -340,6 +340,19 @@ impl InTheWay {
     }
 }
 
+/// The guards' mode of the flags word (`CreateNPC`'s tag `0x46`).
+const GUARDS_MODE: u32 = 0x4000;
+/// The soldiers' class (`Creature.pak +4`, `0x43ADC0`).
+const SOLDIERS: u8 = 7;
+
+/// Whether a follower in its master's list (`+0x39C`) stops its master's steps all the same
+/// (`0x4F7E10`): only where it is hostile to the master (`hostile`, `0x548F60`), of the soldiers'
+/// class 7 or of the guards' mode (its flags word `word`'s bit `0x4000`); else its master steps
+/// through it whatever its flags, a summoned one's bit 0 among them (#1013).
+pub fn stops_its_master(hostile: bool, class: u8, word: u32) -> bool {
+    hostile || class == SOLDIERS || word & GUARDS_MODE != 0
+}
+
 /// The bits that the constructor (`0x52DE40`) sets on the flags word of a creature of type
 /// `creature`, whose `Creature.pak` record has `record_flags`: [`CRITTER`] on the critters, some
 /// types by their numbers and the types whose record has [`CRITTER_RECORD`].
@@ -617,6 +630,17 @@ mod tests {
         // `CreateNPC`'s chicken, its word written from its tags, stops the others, not the hero.
         let chicken = InTheWay::of(0, flags_word([0x30]));
         assert!(chicken.stops_step(false) && !chicken.stops_step(true));
+    }
+
+    #[test]
+    fn a_follower_stops_its_master_only_hostile_a_soldier_or_a_guard() {
+        // The Vampiress's wolf, of class 6 and the flags `0x101`, would stop her by its bit 0,
+        // but not as her follower.
+        assert!(InTheWay::of(0, 0x101).stops_step(true));
+        assert!(!stops_its_master(false, 6, 0x101));
+        assert!(stops_its_master(true, 6, 0x101));
+        assert!(stops_its_master(false, SOLDIERS, 0x100));
+        assert!(stops_its_master(false, 3, flags_word([0x46])));
     }
 
     #[test]

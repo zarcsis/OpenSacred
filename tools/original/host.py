@@ -877,7 +877,9 @@ class Host:
                          + f" ai {c['ai'][0]}.{c['ai'][1]}"
                          f" action {c['action'][0]}.{c['action'][1]}"
                          + (f" target {c['target']}" if c['target'] else '')
-                         + (f" dialogue {c['dialogue']}" if c['dialogue'] > 0 else ''))
+                         + (f" dialogue {c['dialogue']}" if c['dialogue'] > 0 else '')
+                         + f" side {c['side']} flags 0x{c['flags']:X}"
+                         + (f" master {c['master']}" if c['master'] > 0 else ''))
         return lines
 
     def command_stats(self, rest):

@@ -31,7 +31,7 @@ use bevy::prelude::*;
 pub use opensacred_rules::minds::of_type;
 use opensacred_rules::minds::{
     self, AT_THE_DOOR, BEHAVES_WITHIN, Blocked, Child, Decision, DoorSeen, Evening, Foe, Pursues,
-    Pursuit, RANGE, Senses, Spot, Walking, Why, child, daemon_fear, daemon_near, door_in_the_way,
+    Pursuit, Senses, Spot, Walking, Why, child, daemon_fear, daemon_near, door_in_the_way,
     evening_way, follow, opens, runs_from, steps_off, townsperson, trader_for,
 };
 use opensacred_rules::ways::DoorPoints;
@@ -380,6 +380,16 @@ fn go_for_door(
 /// where `to` lies farther than 25 cells along an axis (`opensacred_rules::ways::nearer`,
 /// `0x4FABE0`).
 pub(crate) fn way_to(here: Vec3, level: Level, to: Spot, heights: &Heights) -> bool {
+    way_onto(here, level, (to, None), heights)
+}
+
+/// [`way_to`], onto the level `onto` where it is given: a follower's step off's floor (#1013).
+pub(crate) fn way_onto(
+    here: Vec3,
+    level: Level,
+    (to, onto): (Spot, Option<Level>),
+    heights: &Heights,
+) -> bool {
     let from = paths::cell_of(here.x, here.z);
     let Some(to) = opensacred_rules::ways::nearer(from, paths::cell_of(to.x, to.y), |cell| {
         heights.walkable_on(cell, level)
@@ -389,7 +399,7 @@ pub(crate) fn way_to(here: Vec3, level: Level, to: Spot, heights: &Heights) -> b
     paths::path_onto(
         (from, (level, false)),
         to,
-        |_| true,
+        |(at, _)| onto.is_none_or(|onto| at == onto),
         |place| heights.neighbours(place),
     )
     .is_some()
@@ -1240,17 +1250,13 @@ fn behave(
             ))
         })
         .collect();
-    // The hero's hostiles, which put the townsfolk near them in danger: the creatures of flag
-    // bit 0 that its look takes, in the 3 × 3 sectors about it within its range.
-    let (hx, hy) = sector(hero);
-    let hostiles: Vec<Vec3> = creatures
+    // The hero's hostiles, which put the townsfolk near them in danger: those its last look
+    // took (`0xAD3CE0`, `crowd::look`).
+    let hostiles: Vec<Vec3> = nearest
+        .hostiles
         .iter()
-        .filter(|(_, _, _, mind, _)| mind.flags & crate::crowd::HOSTILE != 0)
+        .filter_map(|&hostile| creatures.get(hostile).ok())
         .map(|(_, transform, ..)| transform.translation)
-        .filter(|&at| {
-            let (x, y) = sector(at);
-            (x - hx).abs() <= 1.0 && (y - hy).abs() <= 1.0 && (at - hero).xz().length() < RANGE
-        })
         .collect();
     // The doors at their logical positions, with their points, at the hero's looks.
     let doors: Vec<(Entity, Vec3, Option<DoorPoints>)> = if nearest.looked {

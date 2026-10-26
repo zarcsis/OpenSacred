@@ -11,7 +11,7 @@ use opensacred_rules::{minds, ways};
 
 use crate::frame::{Step, WorldTick};
 use crate::hero::Body;
-use crate::npcs::Object;
+use crate::npcs::{Dies, Object};
 use crate::paths::Cell;
 use crate::terrain::Level;
 
@@ -48,19 +48,32 @@ impl InTheWay {
     }
 }
 
+/// A creature standing in a cell: how it stands in the way, and the master whose steps it does
+/// not stop, its follower's ([`ways::stops_its_master`]).
+#[derive(Clone, Copy, Debug)]
+struct Standing {
+    entity: Entity,
+    way: InTheWay,
+    spares: Option<Entity>,
+}
+
 /// The creatures standing in each cell at each level, this frame.
 #[derive(Resource, Default)]
 pub struct Crowd {
-    cells: HashMap<(Cell, Level), Vec<(Entity, InTheWay)>>,
+    cells: HashMap<(Cell, Level), Vec<Standing>>,
 }
 
 impl Crowd {
     /// Whether a creature stops `stepper`'s step into `cell` at `level`: for the hero (`hero`),
-    /// a hostile one; for another, any that stops the others; never the stepper itself.
+    /// a hostile one; for another, any that stops the others; never the stepper itself, nor its
+    /// followers but those that stop it all the same.
     pub fn stops(&self, cell: Cell, level: Level, stepper: Entity, hero: bool) -> bool {
         self.cells.get(&(cell, level)).is_some_and(|here| {
-            here.iter()
-                .any(|&(entity, way)| entity != stepper && way.stops_step(hero))
+            here.iter().any(|standing| {
+                standing.entity != stepper
+                    && standing.spares != Some(stepper)
+                    && standing.way.stops_step(hero)
+            })
         })
     }
 
@@ -69,15 +82,25 @@ impl Crowd {
     pub fn crowded(&self, cell: Cell, level: Level, entity: Entity) -> bool {
         self.cells.get(&(cell, level)).is_some_and(|here| {
             here.iter()
-                .any(|&(other, way)| other != entity && way.creature)
+                .any(|standing| standing.entity != entity && standing.way.creature)
         })
     }
 
+    #[cfg(test)]
     fn add(&mut self, cell: Cell, entity: Entity, way: InTheWay) {
+        self.spare(cell, entity, way, None);
+    }
+
+    /// Adds a creature standing in `cell`, which does not stop `master`'s steps.
+    fn spare(&mut self, cell: Cell, entity: Entity, way: InTheWay, master: Option<Entity>) {
         self.cells
             .entry((cell, way.level))
             .or_default()
-            .push((entity, way));
+            .push(Standing {
+                entity,
+                way,
+                spares: master,
+            });
     }
 }
 
@@ -95,16 +118,22 @@ pub fn gather(
         &InTheWay,
         Option<&Body>,
         Option<&Object>,
+        Option<(&crate::followers::Follower, &crate::ai::Mind)>,
     )>,
 ) {
     crowd.cells.clear();
-    for (entity, transform, way, body, object) in &creatures {
+    for (entity, transform, way, body, object, follower) in &creatures {
         let mut way = *way;
         if let Some(body) = body {
             way.level = body.level();
         }
         let p = object.map_or(transform.translation, |object| object.at);
-        crowd.add(crate::paths::cell_of(p.x, p.z), entity, way);
+        // A follower does not stop its master's steps, its master the hero, unless it is hostile
+        // to it, a soldier or a guard.
+        let spares = follower
+            .filter(|(_, mind)| !ways::stops_its_master(mind.hostile(), mind.class, mind.flags))
+            .map(|(follower, _)| follower.master);
+        crowd.spare(crate::paths::cell_of(p.x, p.z), entity, way, spares);
     }
 }
 
@@ -137,14 +166,14 @@ const RANGE: f32 = 1_875.0;
 const LISTED: usize = 55;
 
 /// At a tick of the world whose time takes the look's timer above 0.3 s (`0x5375C0`, #617), looks
-/// for the hero's hostile creatures: those whose flags word has bit 0 or 1, in the 3 × 3 sectors
-/// about the hero and within [`RANGE`] (**hypothesis**: those bits for the client's hostility to
-/// the hero, `0x548F30`).
+/// for the hero's hostile creatures: those alive that are hostile to the hero by their sides and
+/// types (`0x548F30`, `ai::Mind::hostile`), in the 3 × 3 sectors about the hero and within
+/// [`RANGE`]; not by their flags word, whose bits 0 and 1 a summoned follower has too (#1013).
 pub(crate) fn look(
     tick: Res<WorldTick>,
     mut nearest: ResMut<Nearest>,
     hero: Query<&Transform, With<Body>>,
-    creatures: Query<(Entity, &Transform, &InTheWay), Without<Body>>,
+    creatures: Query<(Entity, &Transform, &crate::ai::Mind), Without<Dies>>,
 ) {
     let nearest = &mut *nearest;
     nearest.looked = nearest.look.looks(tick.seconds.unwrap_or_default());
@@ -161,7 +190,7 @@ pub(crate) fn look(
     let (sx, sy) = sector(hero.translation);
     let mut found: Vec<(f32, Entity)> = creatures
         .iter()
-        .filter(|(_, _, way)| way.hostile)
+        .filter(|(_, _, mind)| mind.hostile())
         .filter(|(_, t, _)| {
             let (x, y) = sector(t.translation);
             (x - sx).abs() <= 1.0 && (y - sy).abs() <= 1.0
@@ -222,6 +251,11 @@ mod tests {
         crowd.add((3, 3), rabbit, InTheWay::of(0, constructed(516, 0), None));
         crowd.add((4, 4), troll, InTheWay::of(BIG, flags_word([0x12]), None));
         crowd.add((5, 5), hero, InTheWay::of(0, 0, None));
+        // A summoned wolf, of bit 0, stops others, not its master.
+        let wolf = world.spawn_empty().id();
+        crowd.spare((7, 7), wolf, InTheWay::of(0, 0x101, None), Some(hero));
+        assert!(!crowd.stops((7, 7), None, hero, true));
+        assert!(crowd.stops((7, 7), None, guard, false));
         // The hero walks through the guard, not through the captain.
         assert!(!crowd.stops((1, 1), None, hero, true));
         assert!(crowd.stops((2, 2), None, hero, true));

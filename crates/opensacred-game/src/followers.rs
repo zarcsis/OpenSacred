@@ -144,6 +144,23 @@ fn hire_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
     };
     for entity in made {
         hire(world, entity, summoning.master);
+        summoned(world, entity);
+    }
+}
+
+/// A summoned follower's flags word takes bit 0 after its hiring (`0x5B4216`; seen in the
+/// original, #1013: the Vampiress's wolf of the flags `0x101`), so that it stops its master's
+/// steps as a hostile creature does (`0x4F7E10`, docs/re/movement.md, "The creatures in the
+/// way"); the hero's hostiles are taken by their sides (`crowd::look`), which it is not of.
+fn summoned(world: &mut World, entity: Entity) {
+    let Ok(mut creature) = world.get_entity_mut(entity) else {
+        return;
+    };
+    if let Some(mut mind) = creature.get_mut::<Mind>() {
+        mind.flags |= crate::crowd::HOSTILE;
+    }
+    if let Some(mut way) = creature.get_mut::<InTheWay>() {
+        way.stands.hostile = true;
     }
 }
 
@@ -660,20 +677,39 @@ fn keep(
             // The bats never step off.
             Keeps::StepsOff if BATS.contains(&mind.creature) => {}
             Keeps::StepsOff => {
-                // The first of its points with a way to it, else the last (`0x4F7710`).
-                let points = minds::stepping_off(spot(master), heading(master_at), &mut dice.0);
-                let to = points
+                // The first of its points with a way to it on its floor, else the last
+                // (`0x4F7710`): the ground, or a floor of its building up to its own; on an inside
+                // whose floors are not known, its own.
+                let floor = heights.floor(way.level);
+                let onto = |on: u8| match floor {
+                    None => way.level,
+                    Some(_) if on == 0 => None,
+                    Some((building, _)) => {
+                        heights.floor_level(building, usize::from(on)).or(way.level)
+                    }
+                };
+                let points = minds::stepping_off(
+                    spot(master),
+                    heading(master_at),
+                    floor.map_or(0, |(_, floor)| floor),
+                    &mut dice.0,
+                );
+                let (to, on) = points
                     .iter()
                     .copied()
-                    .find(|&to| crate::ai::way_to(here, way.level, to, &heights))
+                    .find(|&(to, on)| {
+                        crate::ai::way_onto(here, way.level, (to, Some(onto(on))), &heights)
+                    })
                     .unwrap_or(points[3]);
+                debug!("followers: {entity} steps off to {to:?} on floor {on}");
                 follower.stepping_off = true;
                 let to = Vec3::new(to.x, here.y, to.y);
-                commands.entity(entity).insert(if runs {
+                let walk = if runs {
                     Walk::run(to, way.level, mind.run)
                 } else {
                     Walk::to(to, way.level, mind.speed)
-                });
+                };
+                commands.entity(entity).insert(walk.onto(onto(on)));
             }
         }
     }
