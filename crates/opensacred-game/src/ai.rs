@@ -448,7 +448,7 @@ fn think(
     mut minds: ResMut<Minds>,
     nearest: Res<Nearest>,
     heights: Res<Heights>,
-    balance: Res<FightRules>,
+    (balance, rules): (Res<FightRules>, Option<Res<crate::fight::Rules>>),
     experience: Res<crate::fight::Experience>,
     doors: Doors,
     hero: Query<(
@@ -497,6 +497,8 @@ fn think(
     let mut alarms: Vec<u32> = Vec::new();
     let mut grouped: Vec<(u32, Vec3)> = Vec::new();
     let seen = doors.seen(&heights);
+    // A creature's level on bronze's scale, which it weighs against its foe's (`0x5522D0`).
+    let on_bronze = |level| rules.as_ref().map_or(level, |rules| rules.on_bronze(level));
     for (entity, transform, way, mut mind, walking, layered, sliding, effects) in &mut creatures {
         // A knocked creature thinks nothing while it slides, but for its timer while it is held
         // (`opensacred_rules::minds::Mind::knocked`).
@@ -525,7 +527,11 @@ fn think(
             .iter()
             .map(|other| Foe {
                 at: spot(other.at),
-                takes_on: crate::fight::takes_on(mind.level, other.level, balance.experience),
+                takes_on: crate::fight::takes_on(
+                    on_bronze(mind.level),
+                    other.level,
+                    balance.experience,
+                ),
                 size: other.size,
             })
             .collect();
@@ -539,7 +545,11 @@ fn think(
             here: spot(here),
             hero: spot(hero),
             hero_moves,
-            takes_on: crate::fight::takes_on(mind.level, experience.level, balance.experience),
+            takes_on: crate::fight::takes_on(
+                on_bronze(mind.level),
+                experience.level,
+                balance.experience,
+            ),
             walking,
             sliding,
             hero_size,

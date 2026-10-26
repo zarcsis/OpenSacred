@@ -130,14 +130,22 @@ pub fn names() -> impl Iterator<Item = &'static str> {
             let (name, description) = texts(spot.class);
             [name, description]
         })
-        .chain([IMPORT, START, BACK, BRONZE])
+        .chain([IMPORT, START, BACK])
+        .chain(DIFFICULTIES)
 }
 
 /// The texts of the panel's buttons and of the first difficulty.
 const IMPORT: &str = "UI_IMPORT";
 const START: &str = "1029";
 const BACK: &str = "UI_NET_BACK";
-const BRONZE: &str = "UI_DIFFICULTY_BRONZE";
+/// The difficulties' texts, bronze's first (`0x710190`).
+const DIFFICULTIES: [&str; 5] = [
+    "UI_DIFFICULTY_BRONZE",
+    "UI_DIFFICULTY_SILVER",
+    "UI_DIFFICULTY_GOLD",
+    "UI_DIFFICULTY_PLATINUM",
+    "UI_DIFFICULTY_NIOB",
+];
 
 /// The longest name the field takes (**hypothesis**: the driver clears the original's with 24
 /// backspaces).
@@ -370,7 +378,7 @@ fn screen(
     words: Res<Words>,
     figures: Res<Figures>,
     assets: Res<AssetServer>,
-    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    (window, request): (Option<Single<&Window, With<PrimaryWindow>>>, Res<Request>),
     mut targets: ResMut<Assets<Image>>,
     mut layers: ResMut<Assets<Layer>>,
     mut choice: ResMut<Choice>,
@@ -480,7 +488,8 @@ fn screen(
                 for spot in &SPOTS {
                     spotted(picture, spot);
                 }
-                panel(picture, &images, &words, &font, &assets);
+                let difficulty = request.0.difficulty.unwrap_or_default().index();
+                panel(picture, &images, (&words, difficulty), &font, &assets);
             });
         });
 }
@@ -630,7 +639,7 @@ fn button(
 fn panel(
     picture: &mut ChildSpawnerCommands,
     images: &Images,
-    words: &Words,
+    (words, difficulty): (&Words, usize),
     font: &Handle<Font>,
     assets: &AssetServer,
 ) {
@@ -732,9 +741,14 @@ fn panel(
             ));
             let row = about(DIFFICULTY_AT, DIFFICULTY_SIZE);
             piece(controls, atlas, assets, (FIELD, FIELD_ENDS), row);
+            // A new hero's difficulty is bronze alone, the arrows doing nothing, as the original
+            // offers it (`0x710190` with 0, docs/re/fight.md, "The difficulty"); one that the
+            // command line names stands in its place.
             label(
                 controls,
-                words.get(BRONZE).unwrap_or("Bronze"),
+                words
+                    .get(DIFFICULTIES[difficulty])
+                    .unwrap_or(crate::game::DIFFICULTIES[difficulty]),
                 font,
                 row,
                 TEXT,

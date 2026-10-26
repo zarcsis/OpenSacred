@@ -348,6 +348,54 @@ As it rises, the hero pays a share of its gold (`0x53E4A8` to `0x53E53C`, throug
 Its level, experience, stats and the 19 slots of what it holds and wears stay.
 `opensacred-game` rises at its home since #974 (`scripts::HeroHome`, `hero::fall`), on its floor, the home that the play's `SetNPCState`s of the tag `0x4D` naming the hero and its `StartPosition`s give, at the game's start before any, on the start's floor where the start script names one (#1017), and pays bronze's share of its gold as it rises since #976 (`opensacred_rules::drops::Difficulty::death_toll`, `hero::fall`), the gold that it picks up (#911).
 
+## The difficulty
+
+Read 2026-10-26 (#1086) in the code, every reference to the difficulty listed, and the choice of the hero seen with the driver of #448; **confirmed** by code unless marked otherwise.
+
+The difficulty is the int `0x182EE44`, 0 bronze, 1 silver, 2 gold, 3 platinum and 4 niobium.
+The choice of the hero sets it as Start Game or the import starts a game (`cUI_Character::executeAction`, `0x70D6E0`, its `SINGLE_GO` and `IMPORT_DO`), from the choice of its difficulty's box; the network's screens and messages set it too (`0x701280`, `0x6FAC30`, `0x71C600`, `0x61B6F0`, `0x7D8950`, the server's preconfigured level `NETWORK_PRECONFIG_LEVEL`); no code of the saves reads or writes it.
+
+### What opens the levels
+
+The box takes the levels from bronze up to a highest `n`, at most niobium (`0x710190`), and lets none be chosen but bronze where `n` is 0.
+The Ancaria campaign's new hero has `n` 0, bronze alone: the box shows Bronze and its arrows change nothing (**seen** 2026-10-26).
+A hero of the saves, as the Underworld campaign offers them, has one more than the highest difficulty it won (`0x6F4F20` over its bytes `+0x3E9`…`+0x3EE`), so silver at least.
+A path of the choice that the single player's campaigns do not take (the modes 0 and 1 of the screen's `+0x390`; **hypothesis**: the network's) offers bronze and silver to a new hero.
+A hero's bytes of the difficulties are raised by `0x424CF0` with the difficulty, which the console's `win` calls and one of the modes of the scripts' `InfoPlayer` (**hypothesis**: the campaign won on that difficulty).
+
+### What the difficulty changes
+
+A balance row of six takes its sixth value on bronze, else the value `d − 1` (`0x553D70`, and copies of it in the code that also store the column at `0x94E7C8`, which nothing reads); some rows of five take the value `d` itself.
+Many readers scale a value by a factor `f` of 1.0, 1.34, 1.67, 2.0 and 2.34 from bronze to niobium (`0x51CEF0`; `0x55E070` takes `⌊n·f⌋` and `0x55E0F0` `x·f`).
+The rows that the fight takes, bronze to niobium in `Balance.bin`: `ProzAW` 0.65, 1.0, 1.5, 2.5 and 4.5; `ProzHP` 1.0, 1.1, 1.25, 1.4 and 1.5; `ProzDmg` 0.9, then 1; `ProzRes` 1.0, 2.5, 5, 7.5 and 15; `ProzExp` 1.0, 1.35, 1.77, 2.26 and 2.83; `OffLevel` 0, 0, 35, 70 and 128; `LevelKap` 0, 50, 120, 190 and 250; `OffLevelProz` 0, 9, 14, 19 and 25; `BaseOffLevel` 0, 1, 3, 5 and 8.
+
+The fight and the stats:
+
+- the strike's resolution (`0x56B130`): `ProzAW`, `ProzDmg` and `ProzRes` (above, "A strike's resolution"); a defender's damping of `Creature.pak +0x42`, five bytes a kind of damage, by `d` itself; the whole damage times `f` for an attacker of the flags `0x7C2` (docs/re/items.md);
+- in it too, a player struck by a creature takes at most `⌊(6·(E + 9))^1.5 · 0.32258 · m + 0.5⌋` damage, `E` the attacker's level on bronze's scale (`0x5522D0`) and `m` 0.5, 0.625, 0.75, 0.875 and 1.0 from bronze to niobium (`0x56DA51`): 75 on bronze and 150 on niobium for an attacker of level 1;
+- and an attacker's flag `0x8000000` of `+0x4F0` cuts a resistance of its defender to `max(0, 1 − 0.4·f)`; the effect 841's value is times 0.8, 0.7, 0.6 or 0.5 above bronze (**hypothesis**: a leech of the damage); the sets' bonuses against kinds of defenders and their chances of specials take `f` (the counts of `+0x4F8`, **hypothesis**: a set's pieces worn);
+- the getters of `A` and `D` of an NPC times `ProzAW` (`0x56AA10`, `0x56AA90`); the most health by `ProzHP` (`0x5658F0`, "Health");
+- the stats' recomputation (`0x5796A0`): a creature hostile to the hero on platinum and niobium has its attack speed 170 and 200, its pace 160 and 190, its `b3` 1.5 and 2 times, and its regeneration value 1.5 and 1 times `a3`, in place of 2 times;
+- the hero's luck (`0x564A60`) by the sets' `1 + 0.2·f`; the effect 852's threshold of terror (`0x5903F0`), `⌊v + SchreckenBase/f + 0.5⌋` per cent of the hero's level, under which the hero's look kills a hostile creature at once that is no boss, champion or big type (`0x547070`); the Daemon's and the Vampiress's arts' times by `1 + 0.4·f` and `1.4·f` (docs/re/arts.md); an art 1103 of the flag `0x20000000` in `⌊15·f⌋` cases of a hundred.
+
+The levels:
+
+- the scaling of the levels and its inverse by `OffLevelProz` and `BaseOffLevel` (`0x552230`, `0x5522D0`, "Who fights"; docs/re/spawning.md);
+- the sectors' lowest raised by `OffLevel` and their highest by `LevelKap`, which `CreateNPC`, `FillSector`, the level's setter, the first fight's levelling of a boss or champion, a quest's reward and the objects made at the hero's sector's level take (`sdk_CREATENPC`, `0x47C610`, `0x564D60`, `0x550E50`, `0x4AC940`, `0x5D57C0`, `0x537270`); the boss's new level goes through the scaling with the time played too;
+- the hires' kept level (`sdk_HIRE`, docs/re/ai.md).
+
+The experience: the kill's by `ProzExp`, its cap `LevelKap` by `d` itself, 50, 120 and 190 on bronze, silver and gold and none above (`0x57D860`), and the dead creature's level on bronze's scale in the weighing (`0x551530`); a quest's reward of experience times 1, 2, 10, 20 or 30, and of items times 1.0, 1.4, 1.9, 2.9 or 4.2 (`0x4AC940`).
+
+The items and the drops: the magic bonus times `f` and the term of the damage's shares (docs/re/items.md); the quality pass's sockets, `t + ⌊(rand() % 251)/100⌋` held to 1 to 3 with `t` 0, 1 and 2 from gold on (`0x5D2E40`), and its raise of a bonus times about `1/f` (`0x5D1370`); the potions' sizes in the drops, the scripts' `CreateObj` and a stock (`0x43B1A0`); a healing potion's per cent, `HealingPotion` 120, 200 or 300 over `PotionDiv` 1 to 5, at most 100 (`0x5CA9E0`), and the combos' times (`0x562470`); every value of the sets' bonuses times `f` (`0x571710`); the item's flags hold `d + 1`; the death's toll of gold (`0x53E4A8`, above).
+
+The AI: the test of the levels by the creature's level on bronze's scale (`0x542B20`); the marked creatures' specials, their chances times 20, 60, 80, 100 or 130 per cent (`0x4D4E50`); three chances of the melee state by `f` and a test of the target's level plus `2·d + 2` (`0x4E0300`).
+
+The scripts: the `IF` tags `0x96` to `0x9A` hold on bronze to niobium, and `0x9B` and `0x9C` test the hero's quest bit of the current difficulty, which `HeroQBit` sets and clears (`0x4987B0`, `0x49B840`, `0x49C160`).
+
+The interface shows the difficulty's name (`0x6C6C50`); a sound of a fight (6569, **hypothesis**) starts at once on bronze, else above a measure of 15, 20, 25 or 30 (`0x68BEA0`).
+
+Open: the constants of nine chances of the sets in the strike's resolution (`0x56E9C7`…`0x56EDD6`), the effects 841, 842, 852 and 866, and which mode of `InfoPlayer` marks a difficulty won.
+
 ## Open
 
 The weapon skills' predicates and the combat arts; the special behaviours of `+0x25F` and the bosses (`0x4D4E50`); the AI's state 4 from sub-state 6 on; the projectiles 3068, 3069 and 3079, the arrows' deflection (`0x561090`), and `FernAll` and `RuestAll`, which no code found uses; whether the hero's click opens a door (#372, "Doors in the way"); the criticals and the skills' specials; whether a hit makes a creature that failed the test of the levels fight back (**hypothesis**: yes, by the event 5); what sets a creature's `+0x200` bit `0x10000000` and its list, and `+0x1F4` bit `0x40000` ("Sides").
@@ -357,6 +405,7 @@ The weapon skills' predicates and the combat arts; the special behaviours of `+0
 The fight follows in #285 and its sub-issues, of which #284 is still open; what the game follows of it is below.
 The formulas named below as `fight::…` live in `opensacred-rules` (`opensacred_rules::fight`, #360); `opensacred-game`'s `fight` keeps `fight::Hit`, the components and the resources that hold their values, and the systems that call them (`fight::resolve`, `fight::level_up`).
 The balance's rows of six by the difficulty are named in `tables/balance.ron` (#277; `Balance::row_f32`).
+A game has a difficulty since #1086 (`game::Difficulty`, `new-game --difficulty`), bronze for a hero of the choice as the original's new hero (docs/decisions/2026-10-26-difficulty.md): the fight takes its rows by its column (`fight::Rules::at`: `ProzHP`, `ProzExp`, `ProzAW`, `ProzDmg`, `ProzRes`, `OffLevel`, `LevelKap`, `BaseOffLevel`, `OffLevelProz`) and the experience's cap by the difficulty itself; the levels of the fills and of `CreateNPC` take the sectors' bounds raised by `OffLevel` and `LevelKap` (`fight::Rules::raised`) and the scaling `0x552230`, a level tag `OffLevel` and the scaling; the kills' experience and the creatures' test of the levels weigh their levels on bronze's scale (`fight::Rules::on_bronze`); the drops and the death's toll take the difficulty.
 Every NPC has a health (#278, `fight::Health`), full when it is made: its level the hero's when it is made, raised to its sector's lowest and jittered once for all the creatures of a fill's run (`fight::fill_level`, #582), a script's by `CreateNPC`'s rule (#530, `fight::scripted_level`, docs/re/spawning.md, "`CreateNPC`'s level"), then held at its sector's highest by the level's setter (#562, `fight::held_level`); its most by `0x5658F0` from its base and its level, with the level's factor and bronze's `ProzHP` (`fight::most_health`; docs/decisions/2026-10-20-health.md); the overlay and the `state` command show the nearest creature's.
 The hostile creatures come at the hero (#279, `opensacred_rules::minds::Mind::pursue`): awake, one that takes on the hero (`fight::takes_on`, by the hero's level) or has it within its reach comes at a hero within 800 to whom a straight line of walkable cells leads, its group's members with it in one case of two; it keeps the band of its reach with the hero about it (the mean of their sizes, #642), coming on at a run in 7 cases of 11 and after the hero as it moves, stepping back when nearer, turned to the hero in the band, and gives up farther than 2,000 (docs/decisions/2026-10-20-pursuit.md).
 In the band it strikes (#280, `npcs::Strikes`): one of its model's attack clips (`motions::Slots::attacks`) at random, once, at its attack speed (#306: 140 %, the Wood Elf's 100 %; `fight::attack_speed`), which hits at the clip's fractions from `tables/motions.ron` (0.5 for a first of 0; a second where there is one) when the hero is then within three times the reach of the two (by their sizes, #677), sending a `fight::Hit` of a share of 1, or 0.5 for a creature with two weapons (#295); as the clip ends, its next strike chains, but for a creature of class 1, which never chains, and one of a marked type, which chains in one case of four; one that does not chain waits 0.2 s, two of the AI's steps, standing turned to the hero in the band (#466, `opensacred_rules::minds::Mind::ends_strike`).
