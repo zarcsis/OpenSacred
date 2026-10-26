@@ -645,8 +645,7 @@ fn execute(command: Command) -> Result<ExitCode> {
             );
             if summary.repaired_strings + summary.added_strings > 0 {
                 println!(
-                    "  repaired: {} words in {} strings (the goblins' god's name); added: {} \
-                     strings (the fish's names)",
+                    "  repaired: {} words in {} strings; added: {} strings (docs/02 §8)",
                     summary.repaired_words, summary.repaired_strings, summary.added_strings,
                 );
             }
