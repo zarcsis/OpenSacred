@@ -929,6 +929,7 @@ const SPARED_HEALTH = 0x3fffffff;    // the health a spared defender shows its s
 const BOSS = 0x80000;                // a boss: +0x1F4 (docs/re/fight.md, "Bosses and champions")
 const CHAMPION = 0x40;               // a champion: +0x2B8, with +0xB0 bit 0x400, a champion's levelling
 const CHAMPION_LEVELLING = 0x400;
+const DESTROYED = 0x10;              // an object destroyed: +0x14, until its slot is taken again (0x5FBDB0)
 const KILL_TRIES = 30;               // the strikes `kill` sends a creature before it gives up
 const MOST_LEVEL = 216;              // the highest level of an experience (0x57F8D0, docs/re/fight.md)
 
@@ -1036,12 +1037,14 @@ function readCreature(object) {
   };
 }
 
+// The creatures in the world: not those that cObjectManager::destroy (0x5FBDB0) marked destroyed, +0x14 bit 0x10,
+// which stay in the table until a new object takes their slot (#1105).
 function creatures() {
   const found = [];
   const count = objectCount();
   for (let id = 1; id < count; id += 1) {
     const object = objectById(id);
-    if (object !== null && isCreature(object)) {
+    if (object !== null && (object.add(0x14).readU32() & DESTROYED) === 0 && isCreature(object)) {
       found.push(object);
     }
   }
