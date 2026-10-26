@@ -4,7 +4,7 @@ Scripts (`opensacred-game`'s `scripts`), 2026-10-26 (#1002).
 
 ## The original
 
-`Teleport` (46, `0x491D40`) puts the creature on its cell through `sdk_ENGINE_TP` (`0x54D9D0`).
+`Teleport` (46, `0x491D40`) puts the creature on its cell through `sdk_ENGINE_TP` (`0x54D9D0`); the game follows a creature's other than the hero's since #1035, on the record's cell and floor without the handler's search of cells about it.
 Where the cell cannot take it, the handler tries 15 cells at random within 3 cells on the same layer, then 25 within 6 on that layer and the two above it, and turns the creature to the record's heading (`03`) (docs/re/netscript.md, "Base triggers").
 
 ## Ours
