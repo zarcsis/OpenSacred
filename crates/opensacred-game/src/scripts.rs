@@ -22,7 +22,10 @@
 //! clock but the one that ends a day the timers due run their functions in turn, but those of a
 //! finished quest, as the client's calendar runs them (`0x416F00`). `SetDrop` keeps the scripts'
 //! drops by the creature type and the item (#930, docs/decisions/2026-10-25-script-drops.md),
-//! which the deaths' drops take ([`ScriptDrops`], `drops`).
+//! which the deaths' drops take ([`ScriptDrops`], `drops`). `SetObjState` bars, unbars, opens
+//! and closes the trigger of the object it names ([`ObjStates`], which `npcs` carries out), the
+//! state kept by the trigger while the object is gone (#952,
+//! docs/decisions/2026-10-25-stale-object-names.md).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -37,7 +40,7 @@ use opensacred_data::luau::{BYTECODE, INDEX, Index};
 use opensacred_data::netscript::{Function, Record, Tree};
 use opensacred_rules::quests::{self, Transition};
 use opensacred_rules::spawning::Rng;
-use opensacred_scripts::{Handled, Host, Operand, Runtime};
+use opensacred_scripts::{Handled, Host, Operand, Outcome, Runtime};
 
 use crate::daynight::Clock;
 use crate::frame::{Playing, Step, Unpaused};
@@ -79,6 +82,36 @@ pub struct Started {
 /// The scripts' drops as the scripts last left them, which a death's drops take (`drops`).
 #[derive(Resource, Default)]
 pub struct ScriptDrops(pub quests::Drops);
+
+/// A `SetObjState` (2, `0x48AE90`) of the object named `name` (its ASCII lower-cased, as `npcs`
+/// keeps the objects' names): its trigger's bar (`0x8000`; `0x06` sets it, `0x07` clears it) and
+/// open bit (bit 0; `0x0F` sets it, `0x10` clears it), each where the record gives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjState {
+    pub name: String,
+    pub barred: Option<bool>,
+    pub open: Option<bool>,
+}
+
+/// The `SetObjState`s that the scripts ran, in order, which `npcs` carries out on the objects'
+/// triggers.
+#[derive(Resource, Default)]
+pub struct ObjStates(pub Vec<ObjState>);
+
+/// What a run of the scripts did to the world beyond their state: the hero's teleports and the
+/// objects' states, in order.
+#[derive(Debug, Default, PartialEq)]
+pub struct Effects {
+    pub teleports: Vec<Teleport>,
+    pub states: Vec<ObjState>,
+}
+
+impl Effects {
+    fn extend(&mut self, other: Effects) {
+        self.teleports.extend(other.teleports);
+        self.states.extend(other.states);
+    }
+}
 
 /// What the scripts ran: the tree's start script's records, with those of the quests' sections
 /// that its transitions ran in their middle, and each sector function's records and each region
@@ -253,43 +286,74 @@ impl Live {
     }
 
     /// Runs the `entry`-th function of the name `function` as the client's runner does
-    /// (`0x46BA90`), a function of a quest only while the quest is set up: the hero's teleports
-    /// it made.
-    fn run(&mut self, function: &str, entry: usize) -> Vec<Teleport> {
+    /// (`0x46BA90`), a function of a quest only while the quest is set up: what it did to the
+    /// world.
+    fn run(&mut self, function: &str, entry: usize) -> Effects {
+        self.call(function, entry).0
+    }
+
+    /// Runs the `entry`-th function of the name `function` as [`Self::run`] does: what it did to
+    /// the world and how it ended, none where its quest is not set up.
+    fn call(&mut self, function: &str, entry: usize) -> (Effects, Option<Outcome>) {
         if let Some(quest) = self.quest_of(function)
             && self.state.quests.flags(quest) & quests::SET_UP == 0
         {
             bevy::log::debug!("scripts: {function} waits for its quest {quest}");
-            return Vec::new();
+            return (Effects::default(), None);
         }
         let mut recorder = Recorder::new(
             (&self.tree, &self.creatures),
             &mut self.state,
             &mut self.rng,
         );
-        if let Err(e) = self.runtime.call_entry(function, entry, &mut recorder) {
-            bevy::log::warn!("scripts: {e}");
-        }
+        let outcome = match self.runtime.call_entry(function, entry, &mut recorder) {
+            Ok(outcome) => Some(outcome),
+            Err(e) => {
+                bevy::log::warn!("scripts: {e}");
+                Some(Outcome::Stopped)
+            }
+        };
         if !recorder.records.is_empty() {
             bevy::log::debug!(
                 "scripts: {function}: {} records of the world not followed yet",
                 recorder.records.len()
             );
         }
-        recorder.teleports
+        let effects = Effects {
+            teleports: recorder.teleports,
+            states: recorder.states,
+        };
+        (effects, outcome)
+    }
+
+    /// A quest's transition, as its record runs it (`SetUpQuest`, `TriggerQuest`;
+    /// `quests::Quests::step`), its sections run in turn: what they did to the world.
+    pub fn transition(&mut self, transition: Transition, quest: u32) -> Effects {
+        let mut ran = Vec::new();
+        let mut effects = Effects::default();
+        while let Some(section) = self.state.quests.step(transition, quest, &ran) {
+            let function = section.function(quest);
+            let through = self.runtime.entries(&function) > 0 && {
+                let (done, outcome) = self.call(&function, 0);
+                effects.extend(done);
+                outcome.is_some_and(Outcome::ran)
+            };
+            ran.push(through);
+        }
+        effects
     }
 
     /// The game's clock at the minute `now` of its day (`0x416F00`): each minute completed since
     /// it was last seen counts on the timers, and at each but the one that ends a day the timers
     /// due run in turn, each the first due of the list as it stands, its function run unless the
-    /// function's quest is finished (`0x41715F`), and every timer of its id taken out after; the
-    /// hero's teleports they made.
-    pub fn clock(&mut self, now: u16) -> Vec<Teleport> {
+    /// function's quest is finished (`0x41715F`), and every timer of its id taken out after;
+    /// what they did to the world.
+    pub fn clock(&mut self, now: u16) -> Effects {
         let Some(last) = self.minute.replace(now) else {
-            return Vec::new();
+            return Effects::default();
         };
         let passed = (now + DAY - last % DAY) % DAY;
-        let mut teleports = Vec::new();
+        let mut effects = Effects::default();
         for minute in 1..=passed {
             self.state.timers.tick();
             if (last + minute) % DAY == 0 {
@@ -312,28 +376,28 @@ impl Live {
                         timer.function,
                         timer.time
                     );
-                    teleports.extend(self.run(&timer.function, 0));
+                    effects.extend(self.run(&timer.function, 0));
                 }
                 self.state.timers.ran(timer.id);
             }
         }
-        teleports
+        effects
     }
 
     /// The hero steps onto the global cell `cell` on the layer `layer` (`0x5941A0`, at
     /// `0x597E2C`): the base trigger that holds it runs its functions in order, each of a quest
     /// only while the quest is set up and each of a name written again as often (`0x46BA90`);
     /// the teleports of the hero they made, in order.
-    pub fn step_on(&mut self, cell: (i32, i32), layer: u8) -> Vec<Teleport> {
+    pub fn step_on(&mut self, cell: (i32, i32), layer: u8) -> Effects {
         let Some(trigger) = self.state.triggers.at(cell, layer).map(str::to_owned) else {
-            return Vec::new();
+            return Effects::default();
         };
         let functions = self
             .triggered
             .get(&trigger.to_lowercase())
             .cloned()
             .unwrap_or_default();
-        let mut teleports = Vec::new();
+        let mut effects = Effects::default();
         for function in functions {
             bevy::log::info!(
                 "scripts: the hero steps on {trigger} at {},{}: {function}",
@@ -341,10 +405,10 @@ impl Live {
                 cell.1
             );
             for entry in 0..self.runtime.entries(&function) {
-                teleports.extend(self.run(&function, entry));
+                effects.extend(self.run(&function, entry));
             }
         }
-        teleports
+        effects
     }
 }
 
@@ -378,7 +442,7 @@ fn records(
 }
 
 /// The host of a run: the hero's tree, the creatures' types, the scripts' state, their `rand()`,
-/// the records in the order run and the hero's teleports.
+/// the records in the order run, the hero's teleports and the objects' states.
 struct Recorder<'a> {
     tree: &'a str,
     creatures: &'a HashSet<u32>,
@@ -386,6 +450,7 @@ struct Recorder<'a> {
     rng: &'a mut Rng,
     records: Vec<Record>,
     teleports: Vec<Teleport>,
+    states: Vec<ObjState>,
 }
 
 impl<'a> Recorder<'a> {
@@ -401,6 +466,7 @@ impl<'a> Recorder<'a> {
             rng,
             records: Vec::new(),
             teleports: Vec::new(),
+            states: Vec::new(),
         }
     }
 }
@@ -561,6 +627,33 @@ impl Host for Recorder<'_> {
             "del_timer" => {
                 if let Some(&id) = tags.numbers("_0B").last() {
                     self.state.timers.delete(id);
+                }
+                Handled::Done
+            }
+            "set_obj_state" => {
+                let has = |key: &str| matches!(tags.values(key).first(), Some(Operand::Bool(true)));
+                let barred = if has("_06") {
+                    Some(true)
+                } else if has("_07") {
+                    Some(false)
+                } else {
+                    None
+                };
+                let open = if has("_0F") {
+                    Some(true)
+                } else if has("_10") {
+                    Some(false)
+                } else {
+                    None
+                };
+                if let Some(name) = tags.texts("_01").first()
+                    && (barred.is_some() || open.is_some())
+                {
+                    self.states.push(ObjState {
+                        name: name.to_ascii_lowercase(),
+                        barred,
+                        open,
+                    });
                 }
                 Handled::Done
             }
@@ -785,6 +878,7 @@ fn step_on(
     live: Option<NonSendMut<Live>>,
     heights: Option<Res<Heights>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
+    mut states: ResMut<ObjStates>,
 ) {
     let (Some(mut live), Some(heights)) = (live, heights) else {
         return;
@@ -800,8 +894,9 @@ fn step_on(
         return;
     }
     let layer = heights.floor(body.level()).map_or(0, |(_, floor)| floor);
-    let teleports = live.step_on(cell, layer);
-    put(&mut live, &teleports, &mut transform, &mut body);
+    let effects = live.step_on(cell, layer);
+    put(&mut live, &effects.teleports, &mut transform, &mut body);
+    states.0.extend(effects.states);
 }
 
 /// Counts the clock's minutes on the timers, which run their functions as they are due, and
@@ -810,28 +905,72 @@ fn timers(
     live: Option<NonSendMut<Live>>,
     clock: Option<Res<Clock>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
+    mut states: ResMut<ObjStates>,
 ) {
     let (Some(mut live), Some(clock)) = (live, clock) else {
         return;
     };
-    let teleports = live.clock(clock.minute());
+    let effects = live.clock(clock.minute());
     if let Ok((mut transform, mut body)) = heroes.single_mut() {
-        put(&mut live, &teleports, &mut transform, &mut body);
+        put(&mut live, &effects.teleports, &mut transform, &mut body);
     }
+    states.0.extend(effects.states);
 }
 
 /// Runs the function `function` of the hero's tree as the scripts run one (`Live::run`, the
 /// command `script`), the hero put where it teleports it: a line of what it did, and one of each
 /// timer, its id, its function and the minutes it has still to run.
 pub fn run_function(world: &mut World, function: &str) -> Result<Vec<String>, String> {
-    let (teleports, timers) = {
-        let mut live = world
-            .get_non_send_mut::<Live>()
-            .ok_or("the scripts do not run")?;
+    let run = |live: &mut Live| {
         if live.runtime.entries(function) == 0 {
             return Err(format!("no function {function} in {}", live.tree));
         }
-        let teleports = live.run(function, 0);
+        let (effects, outcome) = live.call(function, 0);
+        let line = match (outcome, live.quest_of(function)) {
+            (Some(outcome), _) => format!("{function} ran: {outcome:?}"),
+            (None, Some(quest)) => format!("{function} waits for its quest {quest}, not set up"),
+            (None, None) => format!("{function} did not run"),
+        };
+        Ok((effects, line))
+    };
+    carry_out(world, run)
+}
+
+/// Sets the quest `quest` up or triggers it, as its records do, its sections run in turn (the
+/// command `quest`): lines as [`run_function`] gives them, the quest's flags first.
+pub fn run_transition(
+    world: &mut World,
+    transition: Transition,
+    quest: u32,
+) -> Result<Vec<String>, String> {
+    let run = |live: &mut Live| {
+        let effects = live.transition(transition, quest);
+        let flags = live.state.quests.flags(quest);
+        let line = format!(
+            "quest {quest}: flags {flags:#x}{}",
+            if live.state.quests.in_log(quest) {
+                ", in the log"
+            } else {
+                ""
+            }
+        );
+        Ok((effects, line))
+    };
+    carry_out(world, run)
+}
+
+/// Runs `run` on the scripts, the hero put where it teleports it and the objects' states handed
+/// to `npcs`: its line, the hero's teleport, and a line of each timer, its id, its function and
+/// the minutes it has still to run.
+fn carry_out(
+    world: &mut World,
+    run: impl FnOnce(&mut Live) -> Result<(Effects, String), String>,
+) -> Result<Vec<String>, String> {
+    let (Effects { teleports, states }, first, timers) = {
+        let mut live = world
+            .get_non_send_mut::<Live>()
+            .ok_or("the scripts do not run")?;
+        let (effects, first) = run(&mut live)?;
         let now = live.state.timers.minutes();
         let timers: Vec<String> = live
             .state
@@ -843,9 +982,10 @@ pub fn run_function(world: &mut World, function: &str) -> Result<Vec<String>, St
                 format!("timer {} runs {} in {due} minutes", t.id, t.function)
             })
             .collect();
-        (teleports, timers)
+        (effects, first, timers)
     };
-    let mut lines = vec![format!("{function} ran")];
+    world.resource_mut::<ObjStates>().0.extend(states);
+    let mut lines = vec![first];
     if let Some(&Teleport {
         cell: (x, y),
         layer,
@@ -890,7 +1030,8 @@ pub struct ScriptsPlugin;
 
 impl Plugin for ScriptsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), begin)
+        app.init_resource::<ObjStates>()
+            .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
                 Update,
@@ -1069,6 +1210,49 @@ mod tests {
     }
 
     #[test]
+    fn a_quests_transitions_run_its_sections_and_their_objects_states() {
+        let runtime = runtime(&[(
+            "quests/2411.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"QIS_Trigger2411\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"QIS_OnEnter2411\"] = function()\n\
+             set_obj_state { _01 = \"R24NQ11_Tür\", _07 = true }\n\
+             set_obj_state { _01 = \"gate\", _06 = true, _10 = true, marks = { 0x06, 0x10 } }\n\
+             set_obj_state { _01 = \"well\", _41 = \"take\", _75 = 1 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        // Not set up, a trigger enters nothing.
+        assert_eq!(
+            live.transition(Transition::Trigger, 2411),
+            Effects::default()
+        );
+        assert_eq!(live.transition(Transition::SetUp, 2411), Effects::default());
+        let entered = live.transition(Transition::Trigger, 2411);
+        assert!(live.state.quests.in_log(2411));
+        let state = |name: &str, barred, open| ObjState {
+            name: name.into(),
+            barred,
+            open,
+        };
+        // The bar and the open bit alone; a record of neither sets nothing of them.
+        assert_eq!(
+            entered.states,
+            [
+                state("r24nq11_tür", Some(false), None),
+                state("gate", Some(true), Some(false))
+            ]
+        );
+    }
+
+    #[test]
     fn the_hero_on_a_base_trigger_runs_its_functions_and_is_teleported() {
         let runtime = runtime(&[
             (
@@ -1130,21 +1314,21 @@ mod tests {
         let mut live = Live::new(runtime, started);
         // The cave's entrance puts the hero at its target, on the ground.
         assert_eq!(
-            live.step_on((3047, 2893), 1),
+            live.step_on((3047, 2893), 1).teleports,
             [Teleport {
                 cell: (4083, 83),
                 layer: 0
             }]
         );
         // Quest 201's function waits for its quest; another creature's teleport is not followed.
-        assert!(live.step_on((3205, 2910), 0).is_empty());
+        assert!(live.step_on((3205, 2910), 0).teleports.is_empty());
         assert_eq!(live.state.variables.get("wolves"), None);
         live.state.quests.set_up(201, &mut |_| true);
-        assert!(live.step_on((3205, 2910), 0).is_empty());
+        assert!(live.step_on((3205, 2910), 0).teleports.is_empty());
         assert_eq!(live.state.variables.get("wolves"), Some(1));
         // A trigger taken out runs nothing, and a cell of none neither.
-        assert!(live.step_on((4083, 83), 0).is_empty());
-        assert!(live.step_on((3048, 2893), 0).is_empty());
+        assert!(live.step_on((4083, 83), 0).teleports.is_empty());
+        assert!(live.step_on((3048, 2893), 0).teleports.is_empty());
     }
 
     /// The scripts of `runtime` as they go on after its start script ran.
@@ -1211,7 +1395,7 @@ mod tests {
         let mut live = live(runtime);
         assert_eq!(live.state.timers.list().len(), 2);
         // The first sight of the clock counts nothing.
-        assert!(live.clock(23 * 60 + 58).is_empty());
+        assert!(live.clock(23 * 60 + 58).teleports.is_empty());
         // 23:59: the timer of one minute runs its function, which sets it again, and then every
         // timer of its id is taken out, the one set again with them (`0x4171B0`).
         live.clock(23 * 60 + 59);
@@ -1230,12 +1414,12 @@ mod tests {
         let mut now = 1;
         while live.state.timers.minutes() + 60 < 4_320 {
             now = (now + 60) % DAY;
-            assert!(live.clock(now).is_empty());
+            assert!(live.clock(now).teleports.is_empty());
         }
         let left = u16::try_from(4_320 - 1 - live.state.timers.minutes()).expect("an hour");
-        assert!(live.clock((now + left) % DAY).is_empty());
+        assert!(live.clock((now + left) % DAY).teleports.is_empty());
         assert_eq!(
-            live.clock((now + left + 1) % DAY),
+            live.clock((now + left + 1) % DAY).teleports,
             [Teleport {
                 cell: (3236, 2511),
                 layer: 1

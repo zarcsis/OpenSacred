@@ -478,15 +478,19 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
 pub struct Npcs {
     placements: Vec<Placement>,
     by_sector: HashMap<(u32, u32), Vec<usize>>,
-    /// The cells of the closed triggers ([`closed_cells`]), by sector, and by trigger; the
-    /// triggers that a door has opened since (#372), whose cells a sector that comes in leaves
-    /// free, and those that a hero has turned, whose doors no townsperson closes.
+    /// The cells of the triggers ([`trigger_cells`]), by sector, and by trigger; the triggers
+    /// open, those made open and those that a door or the scripts have opened since (#372,
+    /// #952), whose cells a sector that comes in leaves free, the others' closed; and those that
+    /// a hero has turned, whose doors no townsperson closes.
     closed: HashMap<(u32, u32), Vec<(String, Spot)>>,
     triggers: HashMap<String, Vec<Spot>>,
     opened: HashSet<String>,
     marked: HashSet<String>,
     /// The triggers locked (`0x8000` of their state, #1006), whose doors open to nobody.
     locked: HashSet<String>,
+    /// The trigger of each object that the scripts name (`CreateObj`'s `0x01` and `0x29`), by
+    /// the object's name lower-cased, which `SetObjState` sets (#952).
+    named: HashMap<String, String>,
     /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
@@ -1420,7 +1424,7 @@ fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
 /// cell to every creature, the chests' and the barrels' among them (docs/re/movement.md, "The
 /// chests' cells"); no script of the start opens them, but a door that names its trigger does
 /// as it opens (#372). Each with its trigger's name, lower case.
-fn closed_cells(records: &[&Record]) -> Vec<(String, Spot)> {
+fn trigger_cells(records: &[&Record]) -> Vec<(String, Spot)> {
     let ops = |kind| {
         records
             .iter()
@@ -1430,15 +1434,11 @@ fn closed_cells(records: &[&Record]) -> Vec<(String, Spot)> {
                 _ => None,
             })
     };
-    let closed: HashSet<String> = trigger_states(records)
-        .into_iter()
-        .filter(|(_, (open, _))| !open)
-        .map(|(name, _)| name)
-        .collect();
+    let made = trigger_states(records);
     ops(TRIGGER_PATCH)
         .filter_map(|ops| {
             name_of(ops)
-                .filter(|name| closed.contains(name))
+                .filter(|name| made.contains_key(name))
                 .map(|name| (name, ops))
         })
         .flat_map(|(name, ops)| {
@@ -1920,14 +1920,36 @@ impl Npcs {
                 .or_default()
                 .push(index);
         }
-        let locked: HashSet<String> = trigger_states(&records)
-            .into_iter()
+        let states = trigger_states(&records);
+        let locked: HashSet<String> = states
+            .iter()
             .filter(|(_, (_, locked))| *locked)
-            .map(|(name, _)| name)
+            .map(|(name, _)| name.clone())
+            .collect();
+        let opened: HashSet<String> = states
+            .iter()
+            .filter(|(_, (open, _))| *open)
+            .map(|(name, _)| name.clone())
+            .collect();
+        // The objects' names and their triggers, the last object of a name's (`0x485C10`
+        // destroys the older object of a name made again).
+        let named: HashMap<String, String> = records
+            .iter()
+            .filter(|r| r.kind == CREATE_OBJ)
+            .filter_map(|r| match &r.body {
+                Body::Operands(ops) => {
+                    let trigger = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                        (TRIGGER, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+                        _ => None,
+                    })?;
+                    Some((name_of(ops)?, trigger))
+                }
+                _ => None,
+            })
             .collect();
         let mut closed: HashMap<(u32, u32), Vec<(String, Spot)>> = HashMap::new();
         let mut triggers: HashMap<String, Vec<Spot>> = HashMap::new();
-        for (name, (x, y, floor)) in closed_cells(&records) {
+        for (name, (x, y, floor)) in trigger_cells(&records) {
             triggers
                 .entry(name.clone())
                 .or_default()
@@ -1944,9 +1966,10 @@ impl Npcs {
             by_sector,
             closed,
             triggers,
-            opened: HashSet::new(),
+            opened,
             marked: HashSet::new(),
             locked,
+            named,
             values,
             fills,
             templates,
@@ -2116,7 +2139,12 @@ impl Npcs {
     /// The NPCs and the objects to place, and the cells of the closed triggers.
     pub fn counts(&self) -> (usize, usize, usize) {
         let objects = self.placements.iter().filter(|p| p.object).count();
-        let closed = self.closed.values().map(Vec::len).sum();
+        let closed = self
+            .closed
+            .values()
+            .flatten()
+            .filter(|(name, _)| !self.opened.contains(name))
+            .count();
         (self.placements.len() - objects, objects, closed)
     }
 }
@@ -2375,6 +2403,15 @@ pub fn place(
                     (&npcs.fight, &npcs.items),
                 ),
             };
+            // A door whose trigger is open, as it was left or as the scripts set it while it was
+            // gone, opens as it comes (#952).
+            if placement
+                .trigger
+                .as_ref()
+                .is_some_and(|trigger| npcs.opened.contains(trigger))
+            {
+                commands.entity(entity).insert(Swing::by_script(true));
+            }
             if kept {
                 let placed = Placed {
                     at,
@@ -3569,6 +3606,9 @@ impl Npcs {
 pub struct Swing {
     pub open: bool,
     by_hero: bool,
+    /// The scripts' setting of its trigger's bit (`SetObjState`, `0x415F00`, `0x416280`), which
+    /// turns it whatever its bar and its mark (#952).
+    scripted: bool,
 }
 
 impl Swing {
@@ -3577,6 +3617,7 @@ impl Swing {
         Self {
             open,
             by_hero: false,
+            scripted: false,
         }
     }
 
@@ -3585,6 +3626,16 @@ impl Swing {
         Self {
             open,
             by_hero: true,
+            scripted: false,
+        }
+    }
+
+    /// The scripts'.
+    pub fn by_script(open: bool) -> Self {
+        Self {
+            open,
+            by_hero: false,
+            scripted: true,
         }
     }
 }
@@ -3666,12 +3717,12 @@ fn swing(
     speed: Res<hero::GameSpeed>,
 ) {
     for (entity, mut door, swing) in &mut doors {
-        if !swing.open && !swing.by_hero && npcs.marked(&door) {
+        if !swing.open && !swing.by_hero && !swing.scripted && npcs.marked(&door) {
             commands.entity(entity).remove::<Swing>();
             continue;
         }
         // A locked door opens to nobody, and closes as an unlocked one does (`0x44BCD0`).
-        if swing.open && !door.open && npcs.locked(&door) {
+        if swing.open && !swing.scripted && !door.open && npcs.locked(&door) {
             bevy::log::debug!("npcs: {entity} is locked");
             commands.entity(entity).remove::<Swing>();
             continue;
@@ -3708,19 +3759,79 @@ fn turn_trigger(npcs: &mut Npcs, heights: &mut Heights, door: &Door, swing: &Swi
     if swing.by_hero {
         npcs.marked.insert(name.clone());
     }
+    open_trigger(npcs, heights, name, swing.open);
+}
+
+/// Opens or closes the cells of the trigger `name`, bit 0 of its state, and keeps the state for
+/// the sectors that come in.
+fn open_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str, open: bool) {
     let spots = npcs.triggers.get(name).cloned().unwrap_or_default();
-    if swing.open {
-        npcs.opened.insert(name.clone());
+    if open {
+        npcs.opened.insert(name.to_owned());
     } else {
         npcs.opened.remove(name);
     }
     for spot in spots {
         for (cell, level) in spot_levels(heights, spot) {
-            if swing.open {
+            if open {
                 heights.free(cell, level);
             } else {
                 heights.occupy(cell, level);
             }
+        }
+    }
+}
+
+/// Carries out the scripts' `SetObjState`s (`0x48AE90`, #952): each names an object, whose
+/// trigger it bars or unbars and opens or closes, its doors in the world turning with it. The
+/// state goes to the trigger by the object's name whether the object is in the world or gone
+/// with its sector, and the next object made under that name takes it
+/// (docs/decisions/2026-10-25-stale-object-names.md).
+fn script_states(
+    mut commands: Commands,
+    states: Option<ResMut<crate::scripts::ObjStates>>,
+    mut npcs: ResMut<Npcs>,
+    mut heights: ResMut<Heights>,
+    doors: Query<(Entity, &Door)>,
+) {
+    let Some(mut states) = states else {
+        return;
+    };
+    for state in std::mem::take(&mut states.0) {
+        let Some(trigger) = npcs.named.get(&state.name).cloned() else {
+            bevy::log::debug!(
+                "npcs: SetObjState of {}, which names no object with a trigger",
+                state.name
+            );
+            continue;
+        };
+        bevy::log::info!(
+            "npcs: the scripts set {}'s trigger {trigger}: barred {:?}, open {:?}",
+            state.name,
+            state.barred,
+            state.open
+        );
+        match state.barred {
+            Some(true) => {
+                npcs.locked.insert(trigger.clone());
+            }
+            Some(false) => {
+                npcs.locked.remove(&trigger);
+            }
+            None => {}
+        }
+        let Some(open) = state.open else {
+            continue;
+        };
+        let mut turned = false;
+        for (entity, door) in &doors {
+            if door.trigger.as_deref() == Some(trigger.as_str()) {
+                commands.entity(entity).insert(Swing::by_script(open));
+                turned = true;
+            }
+        }
+        if !turned {
+            open_trigger(&mut npcs, &mut heights, &trigger, open);
         }
     }
 }
@@ -4583,8 +4694,19 @@ impl Plugin for NpcsPlugin {
             .add_systems(
                 Update,
                 (
-                    place, rearm, animate, door_clips, walk, put, swing, instrument, strike, die,
-                    stance, equip,
+                    script_states,
+                    place,
+                    rearm,
+                    animate,
+                    door_clips,
+                    walk,
+                    put,
+                    swing,
+                    instrument,
+                    strike,
+                    die,
+                    stance,
+                    equip,
                 )
                     .chain()
                     .in_set(Step::Npcs),
@@ -5259,8 +5381,13 @@ mod tests {
         ];
         let records: Vec<&Record> = records.iter().collect();
         let chest = |x, y, floor| ("chesttrigger".to_owned(), (x, y, floor));
+        let states = trigger_states(&records);
+        let closed: Vec<(String, Spot)> = trigger_cells(&records)
+            .into_iter()
+            .filter(|(name, _)| !states[name].0)
+            .collect();
         assert_eq!(
-            closed_cells(&records),
+            closed,
             [
                 chest(3341, 2512, 1),
                 chest(3342, 2512, 1),
@@ -5269,7 +5396,6 @@ mod tests {
                 ("r24nq11_tuer".to_owned(), (2400, 3000, 0)),
             ]
         );
-        let states = trigger_states(&records);
         assert_eq!(states["r24nq11_tuer"], (false, true));
         assert_eq!(states["unlocked"], (true, false));
         assert_eq!(states["door"], (true, false));
