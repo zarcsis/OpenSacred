@@ -14,6 +14,7 @@ So a state set by name after the sector was entered and left is neither applied 
 ## Ours
 
 In the runtime, a name whose object is gone counts as a name never seen.
+`opensacred-game` follows it since #952 by keeping the state with the object's trigger, which the object's name finds among the scripts' `CreateObj`s whether the object is in the world or not.
 `SetObjState` keeps the state for it, and the next object made under that name takes the state.
 
 ## Why
