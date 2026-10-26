@@ -1,32 +1,32 @@
 //! The scripts run in Luau (#726, part of #720; ADR-13): the hero's tree's start script, its
-//! sectors' `Init` and `Enter` functions, each sector's `Init` before its `Enter`, and its
-//! regions' `Init` functions, each before the first `Init` of a sector of its region (#585,
-//! `0x492880`), as the converter translates them
-//! (`netscript/<tree>/`), run by `opensacred_scripts`, their records handed back as the records
-//! they were (`opensacred_scripts::record`) to the readers of `npcs`, which place what they make
-//! as before. The game keeps the scripts' state (`opensacred_rules::quests::Scripts`): the
-//! variables that `SetVar`, `SetVarBit`, `UnsetVarBit`, `IncVar` and `RndVar` set, which an
-//! `IF`'s tests read (`0x48`, `0x49`, `0x4A`, `0x6D`, `0x6E`; docs/re/netscript.md, "Variables
-//! and groups"), and the quests' flags, whose transitions `SetUpQuest` and `TriggerQuest` run
-//! their sections in their middle, as the client's do (`0x48F7F0`, `0x48F030`). A condition of
-//! anything else fails, an action the readers do not take passes.
+//! sectors' `Init` and `Enter` functions, each sector's `Init` before its `Enter`, and its regions'
+//! `Init` functions, each before the first `Init` of a sector of its region (#585, `0x492880`), as
+//! the converter translates them (`netscript/<tree>/`), run by `opensacred_scripts`, their records
+//! handed back as the records they were (`opensacred_scripts::record`) to the readers of `npcs`,
+//! which place what they make as before. The game keeps the scripts' state
+//! (`opensacred_rules::quests::Scripts`): the variables that `SetVar`, `SetVarBit`, `UnsetVarBit`,
+//! `IncVar` and `RndVar` set, which an `IF`'s tests read (`0x48`, `0x49`, `0x4A`, `0x6D`, `0x6E`;
+//! docs/re/netscript.md, "Variables and groups"), and the quests' flags, whose transitions
+//! `SetUpQuest` and `TriggerQuest` run their sections in their middle, as the client's do
+//! (`0x48F7F0`, `0x48F030`). A condition of anything else fails, an action the readers do not take
+//! passes.
 //!
-//! The scripts run on through the play (#1002): the load leaves their state ([`Started`]), which
-//! a runtime of the tree on the main thread takes on as the game starts ([`Live`], mlua's Luau
-//! being no `Send`), with the places of `DefPos` and the base triggers of `SetBaseTrigger` and
+//! The scripts run on through the play (#1002): the load leaves their state ([`Started`]), which a
+//! runtime of the tree on the main thread takes on as the game starts ([`Live`], mlua's Luau being
+//! no `Send`), with the places of `DefPos` and the base triggers of `SetBaseTrigger` and
 //! `DelBaseTrigger`. As the hero's cell changes, the base trigger of its cell and level runs its
 //! functions, `OMO<quest><name>`, each of a quest only while that quest is set up (`0x5941A0`,
 //! `0x46BA90`), and their `Teleport`s of the hero put it where they name (`0x491D40`); their
-//! other records of the world are not followed yet. The timers of `SetTimer` and `DelTimer` count
-//! the game's minutes (#933, docs/decisions/2026-10-25-script-timers.md): at each minute of the
-//! clock but the one that ends a day the timers due run their functions in turn, but those of a
-//! finished quest, as the client's calendar runs them (`0x416F00`). `SetDrop` keeps the scripts'
-//! drops by the creature type and the item (#930, docs/decisions/2026-10-25-script-drops.md),
-//! which the deaths' drops take ([`ScriptDrops`], `drops`). `SetObjState` bars, unbars, opens
-//! and closes the trigger of the object it names ([`ObjStates`], which `npcs` carries out), the
-//! state kept by the trigger while the object is gone (#952,
-//! docs/decisions/2026-10-25-stale-object-names.md). `SetHP` sets a creature's health to a share
-//! of its most ([`Healths`], #1001).
+//! `CreateNPC`s and `CreateObj`s go to `npcs` ([`WorldRecords`], #1014). The timers of `SetTimer`
+//! and `DelTimer` count the game's minutes (#933, docs/decisions/2026-10-25-script-timers.md): at
+//! each minute of the clock but the one that ends a day the timers due run their functions in turn,
+//! but those of a finished quest, as the client's calendar runs them (`0x416F00`). `SetDrop` keeps
+//! the scripts' drops by the creature type and the item (#930,
+//! docs/decisions/2026-10-25-script-drops.md), which the deaths' drops take ([`ScriptDrops`],
+//! `drops`). `SetObjState` bars, unbars, opens and closes the trigger of the object it names
+//! ([`ObjStates`], which `npcs` carries out), the state kept by the trigger while the object is
+//! gone (#952, docs/decisions/2026-10-25-stale-object-names.md). `SetHP` sets a creature's health
+//! to a share of its most ([`Healths`], #1001).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -111,6 +111,11 @@ pub struct SetHealth {
 #[derive(Resource, Default)]
 pub struct Healths(pub Vec<SetHealth>);
 
+/// The records of the world that the scripts ran during the play, in order, which `npcs` places
+/// (`CreateNPC`, `CreateObj` and the `DefPos`s and `SetNPCState`s with them, #1014).
+#[derive(Resource, Default)]
+pub struct WorldRecords(pub Vec<Record>);
+
 /// What a run of the scripts did to the world beyond their state: the hero's teleports and the
 /// objects' states, in order.
 #[derive(Debug, Default, PartialEq)]
@@ -118,6 +123,7 @@ pub struct Effects {
     pub teleports: Vec<Teleport>,
     pub states: Vec<ObjState>,
     pub healths: Vec<SetHealth>,
+    pub records: Vec<Record>,
 }
 
 impl Effects {
@@ -125,6 +131,7 @@ impl Effects {
         self.teleports.extend(other.teleports);
         self.states.extend(other.states);
         self.healths.extend(other.healths);
+        self.records.extend(other.records);
     }
 }
 
@@ -328,16 +335,11 @@ impl Live {
                 Some(Outcome::Stopped)
             }
         };
-        if !recorder.records.is_empty() {
-            bevy::log::debug!(
-                "scripts: {function}: {} records of the world not followed yet",
-                recorder.records.len()
-            );
-        }
         let effects = Effects {
             teleports: recorder.teleports,
             states: recorder.states,
             healths: recorder.healths,
+            records: recorder.records,
         };
         (effects, outcome)
     }
@@ -911,7 +913,11 @@ fn step_on(
     live: Option<NonSendMut<Live>>,
     heights: Option<Res<Heights>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    (mut states, mut healths): (ResMut<ObjStates>, ResMut<Healths>),
+    (mut states, mut healths, mut world): (
+        ResMut<ObjStates>,
+        ResMut<Healths>,
+        ResMut<WorldRecords>,
+    ),
 ) {
     let (Some(mut live), Some(heights)) = (live, heights) else {
         return;
@@ -931,6 +937,7 @@ fn step_on(
     put(&mut live, &effects.teleports, &mut transform, &mut body);
     states.0.extend(effects.states);
     healths.0.extend(effects.healths);
+    world.0.extend(effects.records);
 }
 
 /// Counts the clock's minutes on the timers, which run their functions as they are due, and
@@ -939,7 +946,11 @@ fn timers(
     live: Option<NonSendMut<Live>>,
     clock: Option<Res<Clock>>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
-    (mut states, mut healths): (ResMut<ObjStates>, ResMut<Healths>),
+    (mut states, mut healths, mut world): (
+        ResMut<ObjStates>,
+        ResMut<Healths>,
+        ResMut<WorldRecords>,
+    ),
 ) {
     let (Some(mut live), Some(clock)) = (live, clock) else {
         return;
@@ -950,6 +961,7 @@ fn timers(
     }
     states.0.extend(effects.states);
     healths.0.extend(effects.healths);
+    world.0.extend(effects.records);
 }
 
 /// Runs the function `function` of the hero's tree as the scripts run one (`Live::run`, the
@@ -1006,6 +1018,7 @@ fn carry_out(
             teleports,
             states,
             healths,
+            records,
         },
         first,
         timers,
@@ -1029,6 +1042,7 @@ fn carry_out(
     };
     world.resource_mut::<ObjStates>().0.extend(states);
     world.resource_mut::<Healths>().0.extend(healths);
+    world.resource_mut::<WorldRecords>().0.extend(records);
     let mut lines = vec![first];
     if let Some(&Teleport {
         cell: (x, y),
@@ -1076,6 +1090,7 @@ impl Plugin for ScriptsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ObjStates>()
             .init_resource::<Healths>()
+            .init_resource::<WorldRecords>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(

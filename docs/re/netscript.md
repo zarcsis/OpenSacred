@@ -228,7 +228,8 @@ Read off the client with Ghidra and capstone 2026-10-25 (#1002), **confirmed** b
 
 Not read: the quests' hook of the event 5, and what the hero's list at `+0x39C` holds there.
 
-`opensacred-game` runs them since #1002 (`scripts`): the scripts' state keeps the places of `DefPos` and the boxes, the runtime lives on through the play, and as the hero's cell changes on its way (not by a teleport) the trigger of its cell runs its functions, found by their names; their `Teleport`s of the hero put it on the cell and layer they name, and their other records of the world are not followed yet (docs/decisions/2026-10-26-script-teleports.md).
+`opensacred-game` runs them since #1002 (`scripts`): the scripts' state keeps the places of `DefPos` and the boxes, the runtime lives on through the play, and as the hero's cell changes on its way (not by a teleport) the trigger of its cell runs its functions, found by their names; their `Teleport`s of the hero put it on the cell and layer they name (docs/decisions/2026-10-26-script-teleports.md).
+Since #1014 the `CreateNPC`s and `CreateObj`s that the play's functions run (these, the timers' and the quests' sections) place their creatures and objects as the start's are placed, with the places of their `DefPos`s and their `SetNPCState`s on the creatures they make: at once where their sectors are in the world, else as they come in, kept as an `Init`'s, a creature taking its level as it is made; walking into quest 52's box by (2738, 4290) makes its zombies and its bottle at once, as the original's did (#960).
 In the Seraphim's tree the hero so goes into the caves and the dungeons by their entrances and out by their exits: into 2.3 by 3047,2892 to 4086,83 and out by 4083,83 to 3042,2892.
 
 ## `SetHP`
