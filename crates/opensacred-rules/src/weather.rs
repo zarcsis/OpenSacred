@@ -4,10 +4,11 @@
 //! as the renderer's events set them (`0x419A70`). It is drawn and heard only: no rule of the
 //! play reads it.
 //!
-//! The choice follows the original's code as it is, two points that look like slips among it
-//! (docs/re/weather.md): a time is `shortest + (longest − shortest) / b` for the roll `b`, so
-//! nearly always the shortest and infinite for a roll of 0, and the snow is taken for on by the
-//! rain's flag.
+//! Two slips of the original's choice are repaired (#1083,
+//! docs/decisions/2026-10-26-weather-timers.md): its time is `shortest + (longest − shortest) / b`
+//! for the roll `b`, nearly always the shortest and infinite for a roll of 0, where ours is
+//! `shortest + (longest − shortest) · b / 255`; and it takes the snow for on by the rain's flag,
+//! where ours takes the snow's own.
 
 use opensacred_data::world::{SectorWeather, WeatherKind};
 
@@ -106,10 +107,12 @@ fn timed(kind: WeatherKind) -> Option<usize> {
 }
 
 /// A time of the range `range` in seconds for the roll `roll`, in milliseconds:
-/// `shortest + (longest − shortest) / roll`, infinite for a roll of 0.
+/// `shortest + (longest − shortest) · roll / 255`, from the shortest for a roll of 0 to the
+/// longest for 255 (#1083; the original's `(longest − shortest) / roll` is nearly always the
+/// shortest and infinite for 0).
 fn period(range: [u32; 2], roll: u8) -> f64 {
     let [shortest, longest] = range.map(|seconds| f64::from(seconds) * 1_000.0);
-    (longest - shortest) * (1.0 / f64::from(roll)) + shortest
+    shortest + (longest - shortest) * f64::from(roll) / 255.0
 }
 
 impl Weather {
@@ -149,9 +152,11 @@ impl Weather {
                     deadline
                 }
             };
-            // The snow taken for on by the rain's flag (`0x625459`).
+            // Each kind on by its own flag (#1083; the original's `0x625459` takes the snow's
+            // from the rain's).
             let on = match entry.kind {
                 WeatherKind::Fog => self.flags & FOG != 0,
+                WeatherKind::Snow => self.flags & SNOW != 0,
                 _ => self.flags & RAIN != 0,
             };
             if deadline >= now {
@@ -313,28 +318,29 @@ mod tests {
         let mut dice = Rolls(vec![0]);
         // The rolls: the first arms the time off, the second the intensity, the third the time on.
         let mut rolls = vec![1_u8; 256];
-        rolls[1] = 120;
+        rolls[1] = 255;
         rolls[2] = 7;
-        rolls[3] = 120;
+        rolls[3] = 0;
         let mut weather = Weather::default();
         weather.choose(0.0, 2579, &[rain()], &rolls, &mut dice);
-        // Armed: 480 s + 120 s / 120 off.
-        assert_eq!(weather.deadlines[0], Some(481_000.0));
+        // Armed: 480 s + 120 s · 255 / 255 off, the longest.
+        assert_eq!(weather.deadlines[0], Some(600_000.0));
         assert_eq!(weather.flags, 0);
-        weather.choose(481_000.0, 2579, &[rain()], &rolls, &mut dice);
+        weather.choose(600_000.0, 2579, &[rain()], &rolls, &mut dice);
         assert_eq!(weather.flags, 0);
-        // Its end passed: the rain starts at 20 + 7 % 21, 27, 810 drops wanted, for 481 s.
-        weather.choose(481_001.0, 2579, &[rain()], &rolls, &mut dice);
+        // Its end passed: the rain starts at 20 + 7 % 21, 27, 810 drops wanted, for the shortest
+        // 480 s of a roll of 0.
+        weather.choose(600_001.0, 2579, &[rain()], &rolls, &mut dice);
         assert_eq!(weather.flags, RAIN);
         assert_eq!(weather.rain.wanted, 810);
-        assert_eq!(weather.deadlines[0], Some(481_001.0 + 481_000.0));
+        assert_eq!(weather.deadlines[0], Some(600_001.0 + 480_000.0));
         // About three steps a second, of 10 drops each: none in the first quarter.
         for _ in 0..4 {
             weather.update(0.25, &mut dice);
         }
         assert_eq!(weather.rain.now, 30);
         // The time on passes: the rain stops, and fades to nothing, its flag off.
-        weather.choose(962_002.0, 2579, &[rain()], &rolls, &mut dice);
+        weather.choose(1_080_002.0, 2579, &[rain()], &rolls, &mut dice);
         assert_eq!(weather.rain.wanted, 0);
         assert_eq!(weather.flags, RAIN);
         for _ in 0..5 {
@@ -345,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn a_change_of_sector_fades_the_weather_and_a_roll_of_0_freezes_its_kind() {
+    fn a_change_of_sector_fades_the_weather_and_a_roll_of_0_takes_the_shortest_time() {
         let mut dice = Rolls(vec![0]);
         let mut weather = Weather::default();
         weather.event(Event::Fog(30), &mut dice);
@@ -353,19 +359,18 @@ mod tests {
         weather.choose(0.0, 1, &[], &[], &mut dice);
         assert_eq!(weather.fog.wanted, 0);
         assert_eq!(weather.flags, FOG);
-        // A roll of 0 makes a time infinite.
+        // A roll of 0 takes the shortest time, where the original's is infinite (#1083).
         let fog = SectorWeather {
             kind: WeatherKind::Fog,
             ..rain()
         };
-        let mut rolls = vec![0_u8; 256];
-        rolls[1] = 0;
+        let rolls = vec![0_u8; 256];
         weather.choose(10.0, 1, &[fog], &rolls, &mut dice);
-        assert_eq!(weather.deadlines[1], Some(f64::INFINITY));
+        assert_eq!(weather.deadlines[1], Some(480_010.0));
     }
 
     #[test]
-    fn the_snow_is_taken_for_on_by_the_rains_flag() {
+    fn the_snow_starts_and_stops_by_its_own_flag() {
         let mut dice = Rolls(vec![0]);
         let snow = SectorWeather {
             kind: WeatherKind::Snow,
@@ -378,10 +383,11 @@ mod tests {
         assert_eq!(weather.flags, SNOW);
         let wanted = weather.snow.wanted;
         assert!(wanted > 0);
-        // Its time on passes without the rain: it starts again rather than stopping.
+        // Its time on passes: it stops, where the original's, taken for on by the rain's flag,
+        // starts again (#1083).
         weather.choose(1_400_000.0, 7, &[snow], &rolls, &mut dice);
         assert_eq!(weather.flags, SNOW);
-        assert!(weather.snow.wanted > 0);
+        assert_eq!(weather.snow.wanted, 0);
     }
 
     #[test]
