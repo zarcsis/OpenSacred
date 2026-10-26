@@ -174,6 +174,12 @@ enum Command {
     /// The hero goes to take the item lying nearest it, as a left click on it does, and takes
     /// it once it stands within its reach
     Take,
+    /// The hero goes to speak to the creature ID, or to the nearest of a dialogue, as a left click
+    /// on it does; ID as `creatures` prints it
+    Talk { id: Option<String> },
+    /// The dialogue's window shown: its button N (from 1) chosen, as a click on it does, or its
+    /// lines without N
+    Answer { button: Option<usize> },
     /// A creature's health to its most, or to N (1 to its most), the hero's by default; ID as
     /// `creatures` prints it
     Heal {
@@ -1223,6 +1229,15 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Take => {
             in_game(world)?;
             Ok(Outcome::say(crate::pickup::take_nearest(world)?))
+        }
+        Command::Talk { id } => {
+            in_game(world)?;
+            let id = id.map(|id| debug::creature(world, &id)).transpose()?;
+            Ok(Outcome::say(crate::talk::talk_to(world, id)?))
+        }
+        Command::Answer { button } => {
+            in_game(world)?;
+            Ok(Outcome::say(crate::talk::answer(world, button)?))
         }
         Command::Heal { id, to } => {
             in_game(world)?;

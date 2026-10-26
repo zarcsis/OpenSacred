@@ -1631,7 +1631,7 @@ pub fn reach(size: u32, other: u32) -> u32 {
 }
 
 /// The reach of two creatures of the sizes `size` and `other` ([`reach`]) as a distance.
-fn reach_f32(size: u32, other: u32) -> f32 {
+pub fn reach_f32(size: u32, other: u32) -> f32 {
     units(reach(size, other))
 }
 

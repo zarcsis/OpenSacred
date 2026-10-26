@@ -126,6 +126,21 @@ pub struct HeroHome(pub Option<Teleport>);
 #[derive(Resource, Default)]
 pub struct WorldRecords(pub Vec<Record>);
 
+/// What a dialogue's function gives its window (#1028, docs/re/netscript.md, "Dialogues"): its
+/// texts' keys in order, its buttons' labels and functions, the sounds it plays, and whether it
+/// takes its speaker's dialogue away (`DelDlg`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Window {
+    pub texts: Vec<String>,
+    pub buttons: Vec<(String, String)>,
+    pub sounds: Vec<String>,
+    pub untalks: bool,
+}
+
+/// How many buttons a dialogue keeps (`+0x9A00`); the window shows the first [`SHOWN`].
+const BUTTONS: usize = 5;
+pub const SHOWN: usize = 4;
+
 /// What a run of the scripts did to the world beyond their state: the hero's teleports and the
 /// objects' states, in order.
 #[derive(Debug, Default, PartialEq)]
@@ -136,6 +151,8 @@ pub struct Effects {
     pub records: Vec<Record>,
     /// The hero's home, as the last record that sets it gives it.
     pub home: Option<Teleport>,
+    /// What a dialogue's records gave its window.
+    pub window: Window,
 }
 
 impl Effects {
@@ -145,6 +162,10 @@ impl Effects {
         self.healths.extend(other.healths);
         self.records.extend(other.records);
         self.home = other.home.or(self.home);
+        self.window.texts.extend(other.window.texts);
+        self.window.buttons.extend(other.window.buttons);
+        self.window.sounds.extend(other.window.sounds);
+        self.window.untalks |= other.window.untalks;
     }
 }
 
@@ -343,6 +364,16 @@ impl Live {
         }
     }
 
+    /// Runs the dialogue `dialogue`'s function as a creature's talk runs it (`0x46B480`,
+    /// `0x46BA90`; #1028): `Dialog:<name>`, else the name itself, found case aside; what it did,
+    /// its window's contents among it; none where the tree has no such function.
+    pub fn talk(&mut self, dialogue: &str) -> Option<Effects> {
+        let function = self
+            .named(&format!("Dialog:{dialogue}"))
+            .or_else(|| self.named(dialogue))?;
+        Some(self.run(&function, 0))
+    }
+
     /// Counts a kill of a creature of the type `creature` (`SetOnKill`, `0x4AA630`; #1021): the
     /// function of its count once done, what it did to the world.
     pub fn kill(&mut self, creature: u32) -> Effects {
@@ -434,6 +465,7 @@ impl Live {
             healths: recorder.healths,
             records: recorder.records,
             home: recorder.home,
+            window: recorder.window,
         };
         (effects, outcome)
     }
@@ -567,6 +599,7 @@ struct Recorder<'a> {
     home: Option<Teleport>,
     /// The scripts' groups that hold a living creature, in the play; at the start, none known.
     living: Option<&'a HashSet<u32>>,
+    window: Window,
 }
 
 impl<'a> Recorder<'a> {
@@ -586,6 +619,7 @@ impl<'a> Recorder<'a> {
             healths: Vec::new(),
             home: None,
             living: None,
+            window: Window::default(),
         }
     }
 }
@@ -850,6 +884,41 @@ impl Host for Recorder<'_> {
             }
             // The groups' changes and the removals, which `npcs` carries out (#1021).
             "set_group_state" | "del_npc" => Handled::Done,
+            // A dialogue's window (#1028): a text replaces the window's, or with `0x7C` adds to
+            // it (`0x80EAA0`); a button its label and function, five kept (`0x499BA0`); a sound
+            // played as the window opens (`0x4A9730`).
+            "text" => {
+                if let Some(key) = tags.texts("_1E").first() {
+                    if tags.values("_7C").is_empty() {
+                        self.window.texts.clear();
+                    }
+                    self.window.texts.push((*key).to_owned());
+                }
+                Handled::Done
+            }
+            "set_button" => {
+                if let [label, function, ..] = tags.texts("_01").as_slice()
+                    && label.len() >= 2
+                    && self.window.buttons.len() < BUTTONS
+                {
+                    self.window
+                        .buttons
+                        .push(((*label).to_owned(), (*function).to_owned()));
+                }
+                Handled::Done
+            }
+            "play_sound" => {
+                if let Some(sound) = tags.texts("_01").first() {
+                    self.window.sounds.push((*sound).to_owned());
+                }
+                Handled::Done
+            }
+            // The speaker's dialogue taken away, and the function stopped (`0x477CA7`).
+            "del_dlg" => {
+                self.window.untalks = true;
+                Handled::Answer(false)
+            }
+            "exit_dlg" => Handled::Done,
             "set_hp" => {
                 // Its last name and number, the number held to 0..100 (`0x48E280`).
                 let name = tags
@@ -1201,22 +1270,8 @@ fn carry_out(
     world: &mut World,
     run: impl FnOnce(&mut Live) -> Result<(Effects, String), String>,
 ) -> Result<Vec<String>, String> {
-    let (
-        Effects {
-            teleports,
-            states,
-            healths,
-            records,
-            home,
-        },
-        first,
-        timers,
-    ) = {
-        let living = {
-            let mut minds = world.query_filtered::<&Mind, Without<Dies>>();
-            let minds: Vec<Mind> = minds.iter(world).cloned().collect();
-            living_groups(world.get_resource::<npcs::Npcs>(), minds.iter())
-        };
+    let (effects, first, timers) = {
+        let living = living_in(world);
         let mut live = world
             .get_non_send_mut::<Live>()
             .ok_or("the scripts do not run")?;
@@ -1235,33 +1290,85 @@ fn carry_out(
             .collect();
         (effects, first, timers)
     };
+    let mut lines = vec![first];
+    lines.extend(hand_world(world, effects));
+    lines.extend(timers);
+    Ok(lines)
+}
+
+/// The scripts' groups that hold a living creature, of the world `world` ([`living_groups`]).
+fn living_in(world: &mut World) -> HashSet<u32> {
+    let mut minds = world.query_filtered::<&Mind, Without<Dies>>();
+    let minds: Vec<Mind> = minds.iter(world).cloned().collect();
+    living_groups(world.get_resource::<npcs::Npcs>(), minds.iter())
+}
+
+/// Hands `effects` on to the modules that carry them out, the hero put where the last teleport
+/// names: a line of the teleport, if any.
+fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
+    let Effects {
+        teleports,
+        states,
+        healths,
+        records,
+        home,
+        ..
+    } = effects;
     world.resource_mut::<ObjStates>().0.extend(states);
     world.resource_mut::<Healths>().0.extend(healths);
     world.resource_mut::<WorldRecords>().0.extend(records);
     if let Some(spot) = home {
         world.resource_mut::<HeroHome>().0 = Some(spot);
     }
-    let mut lines = vec![first];
-    if let Some(&Teleport {
+    let &Teleport {
         cell: (x, y),
         layer,
-    }) = teleports.last()
-    {
-        let mut heroes = world.query::<(&mut Transform, &mut Body)>();
-        if let Some((mut transform, mut body)) = heroes.iter_mut(world).next() {
+    } = teleports.last()?;
+    let mut heroes = world.query::<(&mut Transform, &mut Body)>();
+    let line = heroes
+        .iter_mut(world)
+        .next()
+        .map(|(mut transform, mut body)| {
             body.put(
                 &mut transform,
                 iso::ground(x as f32 + 0.5, y as f32 + 0.5),
                 Arrival::On(Some(layer)),
             );
-            lines.push(format!("the hero teleports to {x},{y} on layer {layer}"));
-        }
-        if let Some(mut live) = world.get_non_send_mut::<Live>() {
-            live.at = Some((x, y));
-        }
+            format!("the hero teleports to {x},{y} on layer {layer}")
+        });
+    if let Some(mut live) = world.get_non_send_mut::<Live>() {
+        live.at = Some((x, y));
     }
-    lines.extend(timers);
-    Ok(lines)
+    line
+}
+
+/// Runs the dialogue `dialogue`'s function for a talk (#1028, [`Live::talk`]), what it did to the
+/// world carried out: its window's contents, none where the scripts do not run or have no such
+/// function.
+pub fn speak(world: &mut World, dialogue: &str) -> Option<Window> {
+    let living = living_in(world);
+    let effects = {
+        let mut live = world.get_non_send_mut::<Live>()?;
+        live.living = living;
+        live.talk(dialogue)?
+    };
+    let window = effects.window.clone();
+    hand_world(world, effects);
+    Some(window)
+}
+
+/// Runs a dialogue's button's function `function`, found by its name case aside, with no
+/// creature (`0x499DA0`, `0x46BA90(index, 0, 0)`; #1028), what it did to the world carried out.
+pub fn answer(world: &mut World, function: &str) {
+    let living = living_in(world);
+    let effects = {
+        let Some(mut live) = world.get_non_send_mut::<Live>() else {
+            return;
+        };
+        live.living = living;
+        live.run_named(function)
+    };
+    hand_world(world, effects);
 }
 
 /// The queues that hand what the scripts did to the world on to the modules that carry it out:
@@ -1669,6 +1776,57 @@ mod tests {
             }]
         );
         assert!(live.run_named("no_such_function").healths.is_empty());
+    }
+
+    #[test]
+    fn a_dialogue_gives_its_window_its_texts_buttons_and_sounds() {
+        let runtime = runtime(&[
+            (
+                "quests/22.luau",
+                "local F = {}\n\
+             F[\"Dialog:auftrag22\"] = function()\n\
+             text { _1E = \"first\" }\n\
+             text { _1E = \"replaced\" }\n\
+             text { _1E = \"added\", _7C = true }\n\
+             play_sound { _01 = \"replaced\" }\n\
+             set_button { _01 = { \"Res:1024\", \"trigger22\" } }\n\
+             set_button { _01 = { \"x\", \"nothing\" } }\n\
+             return true\n\
+             end\n\
+             F[\"Dialog:notmage\"] = function()\n\
+             if not del_dlg {} then\n\
+             return false\n\
+             end\n\
+             text { _1E = \"never\" }\n\
+             return true\n\
+             end\n\
+             return F",
+            ),
+            (
+                "start.luau",
+                "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             return F",
+            ),
+        ]);
+        let mut live = live(runtime);
+        // A quest's dialogue waits for its quest.
+        assert!(
+            live.talk("auftrag22")
+                .is_some_and(|e| e.window.texts.is_empty())
+        );
+        live.state.quests.set_up(22, &mut |_| true);
+        let window = live.talk("AUFTRAG22").expect("the dialogue runs").window;
+        assert_eq!(window.texts, ["replaced", "added"]);
+        assert_eq!(window.sounds, ["replaced"]);
+        assert_eq!(window.buttons, [("Res:1024".into(), "trigger22".into())]);
+        assert!(!window.untalks);
+        // `DelDlg` takes the dialogue away and stops the function.
+        let window = live.talk("notmage").expect("the dialogue runs").window;
+        assert!(window.untalks && window.texts.is_empty());
+        assert!(live.talk("no_such").is_none());
     }
 
     #[test]

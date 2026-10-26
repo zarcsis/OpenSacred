@@ -143,7 +143,11 @@ pub(crate) fn aim(
     pointer: Res<crate::hud::Pointer>,
     camera: Single<(&Camera, &GlobalTransform)>,
     mut aim: ResMut<Aim>,
-    creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
+    // A creature of a dialogue is spoken to, hostile or not (`0x53A170`, `crate::talk`).
+    creatures: Query<
+        (Entity, &GlobalTransform, &Mind, &Health),
+        (Without<Dies>, Without<crate::npcs::Talk>),
+    >,
     mut heroes: Query<(Entity, &Transform, Option<&mut Attack>), (With<Body>, Without<Dies>)>,
 ) {
     if !buttons.pressed(MouseButton::Left) {

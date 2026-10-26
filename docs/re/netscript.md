@@ -364,6 +364,18 @@ Read 2026-10-26 (#1024) by the static reading of `Sacred.exe` (a subagent of the
   A creature's talk (`0x549920`) is its `+0x245` where that is above 0; else, alive, without `+0x200` bit `0x40`, of the class `+0x1F0` 3, 7, 8, 12, 14 or 15, with a bit of `+0x1F4 & 0x1006DCF8` and not `0x40000`, and hostile neither way with its controlling player, it is the first entry of its type whose region is its place's (`0x602290`) or 0, found anew at each query.
   In the regions 50 to 69 a creature of neither gets a generic line (`NPCUWR_…`) at random at each query by its type and the chapter's flags, its talk 54,321 running `Dialog:NPC_UW_DLG`, the line in place of its first text.
 
+### In `opensacred-game`
+
+The game follows the talks since #1028 (`npcs::Talk`, `scripts::Live::talk`, `talk`):
+
+- A creature's dialogue is its `CreateNPC`'s `0x09`, as its `SetNPCState`s' and `SetGroupState`s' change it (#658, #1021) and a dialogue's `DelDlg` takes it away; without one, its type's of `SetRgnDialog` where it is of the sides and flags above and hostile neither way, found anew at each click (`npcs::Npcs::region_talk`); `Dialog` and the Underworld's generic lines are not followed.
+- A left click on a creature of a dialogue alive near the cursor's line of sight, hostile or not, sends the hero to it on its level, heading for it again as it moves, and the hero's attack passes it over; within 1.5 times their reach the hero stops, both turn to each other and the creature plays its talk (`npcs::Talks`) and stands still while the talk lasts.
+- Its `Dialog:<name>` runs as the runner runs a function, a quest's only while the quest is set up: its `Text`s replace or, with `0x7C`, add to the window's texts, its `SetButton`s give five buttons, its `PlaySound`s play the voice-overs as the window opens, `ExitDlg` and `DelDlg` stop it.
+- A window at the screen's middle shows the creature's name (its key's string), its texts, their `<n>` breaking their lines and their colours' tags left out, and its first four buttons; a button closes it, ends the talk and runs its function, found by its name case aside; one without buttons closes on Enter or a click; and the talk ends where the two stand farther than 1,500 apart or the creature is gone; a dialogue without a text shows no window (docs/decisions/2026-10-26-dialogue-window.md).
+- The portraits and the icons are #1032, `Popup`, `NPC_TalkTo`, `Dialog` and `InfoPlayer` #1033; the trade windows are not followed.
+
+In the game the Seraphim's start's novice showed her text and her button, as the original's, and the button ran `exit01`, which gave her her next dialogue, the one the next talk showed.
+
 ## The community's quest defects
 
 Read 2026-10-25 (#356) by a subagent of the session on the converter's Luau of every tree and four handlers of the client; **confirmed** by code and on the scripts unless marked otherwise.
