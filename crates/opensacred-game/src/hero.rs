@@ -1073,7 +1073,8 @@ pub struct Fallen(f32);
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
 /// its dying clips once and lies there; after five seconds it rises at the game's start with its
 /// health full (docs/decisions/2026-10-20-hero-health.md), paying a share of its gold by the
-/// difficulty, bronze's (`0x53E4A8`, #976).
+/// difficulty, bronze's (`0x53E4A8`, #976), at its home where the scripts gave it one, on its
+/// floor (`sdk_ENGINE_TP` at `0x5413ED`, #974), else at the game's start.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1083,7 +1084,11 @@ pub fn fall(
     time: Res<Time>,
     hero: Res<Hero>,
     clips: Option<Res<Clips>>,
-    (speed, mut pack): (Res<GameSpeed>, Option<ResMut<crate::pickup::Pack>>),
+    (speed, mut pack, home): (
+        Res<GameSpeed>,
+        Option<ResMut<crate::pickup::Pack>>,
+        Option<Res<crate::scripts::HeroHome>>,
+    ),
     mut bodies: Query<(
         Entity,
         &mut Transform,
@@ -1125,7 +1130,20 @@ pub fn fall(
         if fallen.0 < LIES {
             continue;
         }
-        body.teleport(&mut transform, hero.position);
+        match home.as_ref().and_then(|home| home.0) {
+            Some(crate::scripts::Teleport {
+                cell: (x, y),
+                layer,
+            }) => {
+                info!("hero: the hero rises at its home, {x},{y} on floor {layer}");
+                body.put(
+                    &mut transform,
+                    crate::iso::ground(x as f32 + 0.5, y as f32 + 0.5),
+                    Arrival::On(Some(layer)),
+                );
+            }
+            None => body.teleport(&mut transform, hero.position),
+        }
         if let Some(mut health) = health {
             health.current = health.most;
         }
