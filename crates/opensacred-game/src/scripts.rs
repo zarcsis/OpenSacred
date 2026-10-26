@@ -1,5 +1,7 @@
-//! The scripts run in Luau (#726, part of #720; ADR-13): the hero's tree's start script and its
-//! sectors' `Init` and `Enter` functions, as the converter translates them
+//! The scripts run in Luau (#726, part of #720; ADR-13): the hero's tree's start script, its
+//! sectors' `Init` and `Enter` functions, each sector's `Init` before its `Enter`, and its
+//! regions' `Init` functions, each before the first `Init` of a sector of its region (#585,
+//! `0x492880`), as the converter translates them
 //! (`netscript/<tree>/`), run by `opensacred_scripts`, their records handed back as the records
 //! they were (`opensacred_scripts::record`) to the readers of `npcs`, which place what they make
 //! as before. The game keeps the scripts' state (`opensacred_rules::quests::Scripts`): the
@@ -28,8 +30,10 @@ const START: &str = "StartCode";
 const SEED: usize = 0x5C;
 
 /// What the scripts ran: the tree's start script's records, with those of the quests' sections
-/// that its transitions ran in their middle, and each sector function's records, as a tree.
-pub fn run(assets: &Path, tree: &str) -> Result<Tree> {
+/// that its transitions ran in their middle, and each sector function's records and each region
+/// function's (`Region<n>Init`) before the first sector of its region, as a tree; `area` the area
+/// of a sector of the world (`world.ron`), which makes its region.
+pub fn run(assets: &Path, tree: &str, area: impl Fn((u32, u32)) -> Option<u8>) -> Result<Tree> {
     let started = Instant::now();
     let dir = assets.join("netscript").join(tree);
     let index_path = dir.join(INDEX);
@@ -38,12 +42,17 @@ pub fn run(assets: &Path, tree: &str) -> Result<Tree> {
             .with_context(|| format!("reading {}", index_path.display()))?,
     )
     .with_context(|| format!("reading {}", index_path.display()))?;
-    let sectors: Vec<String> = index
+    // Each sector's `Init`, then its `Enter`, as a sector that first comes near runs them
+    // (docs/re/spawning.md).
+    let mut sectors: Vec<((u32, u32), bool, String)> = index
         .functions
         .keys()
-        .filter(|name| npcs::sector_function(name).is_some())
-        .cloned()
+        .filter_map(|name| {
+            let sector = npcs::sector_function(name)?;
+            Some((sector, name.ends_with("Enter"), name.clone()))
+        })
         .collect();
+    sectors.sort();
     let runtime = Runtime::new(tree, index, move |file| {
         let stem = file.strip_suffix(".luau").unwrap_or(file);
         files::read(dir.join(format!("{stem}.{BYTECODE}"))).ok()
@@ -51,20 +60,38 @@ pub fn run(assets: &Path, tree: &str) -> Result<Tree> {
     .with_context(|| format!("starting the scripts of {tree}"))?;
     let mut state = quests::Scripts::default();
     let mut rng = Rng::of(0, 0, SEED);
-    let start = records(&runtime, tree, START, &mut state, &mut rng);
-    let functions: Vec<Function> = sectors
-        .into_iter()
-        .map(|name| Function {
-            records: records(&runtime, tree, &name, &mut state, &mut rng),
+    let start = records(&runtime, tree, START, 0, &mut state, &mut rng);
+    let mut functions = Vec::new();
+    let mut regions = 0;
+    for (sector, enter, name) in sectors {
+        let region = quests::region(area(sector).unwrap_or(0));
+        let init = format!("Region{region}Init");
+        let entries = runtime.entries(&init);
+        if !enter && entries > 0 && state.regions.init(region) {
+            bevy::log::debug!("scripts: initRegion({region}) before {name}");
+            let mut made = Vec::new();
+            for entry in region_entries(entries) {
+                made.extend(records(&runtime, tree, &init, entry, &mut state, &mut rng));
+            }
+            functions.push(Function {
+                name: init,
+                records: made,
+                quest: -1,
+                region: 0,
+            });
+            regions += 1;
+        }
+        functions.push(Function {
+            records: records(&runtime, tree, &name, 0, &mut state, &mut rng),
             name,
             quest: -1,
             region: 0,
-        })
-        .collect();
+        });
+    }
     bevy::log::info!(
-        "scripts: {tree}'s start and {} sector functions ran in {:.2} s, {} files loaded; the \
-         records without a meaning yet: {}",
-        functions.len(),
+        "scripts: {tree}'s start, {regions} region and {} sector functions ran in {:.2} s, {} \
+         files loaded; the records without a meaning yet: {}",
+        functions.len() - regions,
         started.elapsed().as_secs_f64(),
         runtime.files(),
         runtime.unknown().join(" "),
@@ -78,12 +105,25 @@ pub fn run(assets: &Path, tree: &str) -> Result<Tree> {
     })
 }
 
-/// The records of the function `function` of the tree `tree` as it runs, the scripts' state
-/// `state` with it; none where it fails, which the log tells.
+/// Which of the functions of a region's `Init`, `entries` of one name, run, in their order: of a
+/// name written again, the last and then the first, the two that the client's cache of the
+/// sectors' and the regions' names keeps (`0x46A5C3`: the first index in its low word, each later
+/// one in its high), which the region's runner runs high word first (`0x492BFB`).
+fn region_entries(entries: usize) -> Vec<usize> {
+    match entries {
+        0 => Vec::new(),
+        1 => vec![0],
+        _ => vec![entries - 1, 0],
+    }
+}
+
+/// The records of the function `function` of the tree `tree`, the `entry`-th of its name, as it
+/// runs, the scripts' state `state` with it; none where it fails, which the log tells.
 fn records(
     runtime: &Runtime,
     tree: &str,
     function: &str,
+    entry: usize,
     state: &mut quests::Scripts,
     rng: &mut Rng,
 ) -> Vec<Record> {
@@ -93,7 +133,7 @@ fn records(
         rng,
         records: Vec::new(),
     };
-    if let Err(e) = runtime.call(function, &mut recorder) {
+    if let Err(e) = runtime.call_entry(function, entry, &mut recorder) {
         bevy::log::warn!("scripts: {e}");
     }
     recorder.records
@@ -436,7 +476,7 @@ mod tests {
         ]);
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        let records = records(&runtime, "TEST", START, &mut state, &mut rng);
+        let records = records(&runtime, "TEST", START, 0, &mut state, &mut rng);
         // Quest 15004's giver after its first set-up alone; quest 1, set up and triggered, its
         // trigger through, entered with its novice; quest 2, never set up, not.
         assert_eq!(kinds(&records), [23, 21, 1, 21, 21, 21, 20, 1, 20]);
@@ -477,7 +517,14 @@ mod tests {
         )]);
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        let records = records(&runtime, "TYPE_NPC_GLADIATOR", START, &mut state, &mut rng);
+        let records = records(
+            &runtime,
+            "TYPE_NPC_GLADIATOR",
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
         let variables = &state.variables;
         assert_eq!(variables.get("bits"), Some(8));
         // A negative step that would lower it keeps the old value (`0x49C930`).
@@ -524,7 +571,7 @@ mod tests {
         )]);
         let mut state = quests::Scripts::default();
         let mut rng = Rng::of(0, 0, SEED);
-        records(&runtime, "TEST", START, &mut state, &mut rng);
+        records(&runtime, "TEST", START, 0, &mut state, &mut rng);
         assert_eq!(state.variables.get("grvarNr"), Some(194));
         assert_eq!(state.variables.get("grabstein_dialog_0"), Some(7));
         assert_eq!(state.variables.get("grabstein_dialog_193"), Some(7));

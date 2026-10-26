@@ -241,6 +241,24 @@ impl Runtime {
 
     /// Runs the function `function`, its records reaching `host`: how it ended.
     pub fn call(&self, function: &str, host: &mut dyn Host) -> Result<Outcome, Error> {
+        self.call_entry(function, 0, host)
+    }
+
+    /// How many functions of the name `function` the tree holds, in their order: more than one
+    /// where the compiler wrote a name again (`Region2Init` and `Region2Init#2`), 0 for none.
+    pub fn entries(&self, function: &str) -> usize {
+        self.inner.index.functions.get(function).map_or(0, Vec::len)
+    }
+
+    /// Runs the function of the name `function` that stands `entry`-th of those of its name
+    /// ([`Self::entries`]), its records reaching `host`: how it ended. A call by the name alone
+    /// runs the first, as the client's search of its table finds it (`0x859690`).
+    pub fn call_entry(
+        &self,
+        function: &str,
+        entry: usize,
+        host: &mut dyn Host,
+    ) -> Result<Outcome, Error> {
         let inner = &self.inner;
         inner.steps.set(0);
         let host = RefCell::new(host);
@@ -249,7 +267,7 @@ impl Runtime {
                 dispatch(lua, inner, &host, &name, args)
             })?;
             inner.bridge.raw_set("call", reach)?;
-            let ran = run(&self.lua, inner, function);
+            let ran = run(&self.lua, inner, function, entry);
             inner.bridge.raw_set("call", Value::Nil)?;
             Ok(ran)
         });
@@ -295,7 +313,7 @@ fn dispatch(
                     )));
                 }
             };
-            let outcome = run(lua, inner, &callee).map_err(mlua::Error::external)?;
+            let outcome = run(lua, inner, &callee, 0).map_err(mlua::Error::external)?;
             Ok(Value::Boolean(outcome.ran()))
         }
         "var" => {
@@ -316,7 +334,7 @@ fn dispatch(
                 match handled {
                     Handled::Run(function) => {
                         let through = inner.index.functions.contains_key(&function)
-                            && run(lua, inner, &function)
+                            && run(lua, inner, &function, 0)
                                 .map_err(mlua::Error::external)?
                                 .ran();
                         ran.push(through);
@@ -334,21 +352,22 @@ fn dispatch(
     }
 }
 
-/// Runs `function` of the tree: its file loaded as it is first called, a function marked done
-/// not run, one that starts again run again.
-fn run(lua: &Lua, inner: &Inner, function: &str) -> Result<Outcome, Error> {
-    if inner.done.borrow().contains(function) {
-        return Ok(Outcome::Done);
-    }
+/// Runs the `nth` function of the name `function` of the tree: its file loaded as it is first
+/// called, a function marked done not run, one that starts again run again. Each is marked done
+/// by its key in its file, the name itself for the first of its name.
+fn run(lua: &Lua, inner: &Inner, function: &str, nth: usize) -> Result<Outcome, Error> {
     let entry = inner
         .index
         .functions
         .get(function)
-        .and_then(|entries| entries.first())
+        .and_then(|entries| entries.get(nth))
         .ok_or_else(|| Error::NoFunction {
             tree: inner.tree.clone(),
             function: function.to_owned(),
         })?;
+    if inner.done.borrow().contains(&entry.key) {
+        return Ok(Outcome::Done);
+    }
     let failed = |e: mlua::Error| {
         if inner.steps.get() > inner.budget.get() {
             Error::Interrupted {
@@ -372,7 +391,7 @@ fn run(lua: &Lua, inner: &Inner, function: &str) -> Result<Outcome, Error> {
         match code.call::<Value>(()).map_err(failed)? {
             Value::Boolean(false) => return Ok(Outcome::Stopped),
             Value::String(end) if end.to_string_lossy() == "done" => {
-                inner.done.borrow_mut().insert(function.to_owned());
+                inner.done.borrow_mut().insert(entry.key.clone());
                 return Ok(Outcome::Done);
             }
             Value::String(end) if end.to_string_lossy() == "again" => {}
@@ -481,8 +500,9 @@ mod tests {
         }
     }
 
-    /// A runtime of the files `sources` (name, Luau), each function indexed by its key, and how
-    /// many times each file was loaded.
+    /// A runtime of the files `sources` (name, Luau), each function indexed by its key (`t.Name`
+    /// or `t["Name#2"]`, filed under its name before the `#`), and how many times each file was
+    /// loaded.
     fn runtime(sources: &[(&str, &str)]) -> (Runtime, Rc<RefCell<BTreeMap<String, u32>>>) {
         let mut index = Index::default();
         let mut bytecode = BTreeMap::new();
@@ -493,14 +513,20 @@ mod tests {
                     .compile(source)
                     .expect("the test's source compiles"),
             );
-            for key in source
-                .lines()
-                .filter_map(|line| line.trim().strip_prefix("t."))
-                .filter_map(|rest| rest.split_once(" =").map(|(key, _)| key.trim()))
-            {
+            for key in source.lines().filter_map(|line| {
+                let line = line.trim();
+                match line.strip_prefix("t[\"") {
+                    Some(rest) => rest.split_once('"').map(|(key, _)| key),
+                    None => line
+                        .strip_prefix("t.")
+                        .and_then(|rest| rest.split_once(" ="))
+                        .map(|(key, _)| key.trim()),
+                }
+            }) {
+                let name = key.split_once('#').map_or(key, |(name, _)| name);
                 index
                     .functions
-                    .entry(key.to_owned())
+                    .entry(name.to_owned())
                     .or_default()
                     .push(Entry {
                         file: file.to_owned(),
@@ -599,6 +625,40 @@ mod tests {
         assert_eq!(host.records.len(), 3);
         assert_eq!(loads.borrow().get("b.luau"), Some(&1));
         assert_eq!(runtime.files(), 2);
+    }
+
+    #[test]
+    fn a_name_written_again_calls_each_of_its_functions_by_its_place() {
+        let (runtime, _) = runtime(&[(
+            "regions/2.luau",
+            "local t = {}
+             t[\"Region2Init\"] = function() first({}) return \"done\" end
+             t[\"Region2Init#2\"] = function() second({}) return true end
+             return t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(runtime.entries("Region2Init"), 2);
+        assert_eq!(runtime.entries("Region3Init"), 0);
+        assert_eq!(
+            runtime.call_entry("Region2Init", 1, &mut host).ok(),
+            Some(Outcome::Ran)
+        );
+        assert_eq!(
+            runtime.call("Region2Init", &mut host).ok(),
+            Some(Outcome::Done)
+        );
+        // The first marked done, the second still runs.
+        assert_eq!(
+            runtime.call("Region2Init", &mut host).ok(),
+            Some(Outcome::Done)
+        );
+        assert_eq!(
+            runtime.call_entry("Region2Init", 1, &mut host).ok(),
+            Some(Outcome::Ran)
+        );
+        let names: Vec<&str> = host.records.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["second", "first", "second"]);
+        assert!(runtime.call_entry("Region2Init", 2, &mut host).is_err());
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! The scripts' state (#724, part of #720; docs/re/netscript.md, "Quests" and "`SetNPCState`"),
 //! apart from Luau and from the engine: the quests' flags and the transitions of `SetUpQuest`,
-//! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, and the
-//! dialogues' table that the start script's records of type 40 fill. A transition names the
+//! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, the
+//! dialogues' table that the start script's records of type 40 fill, and the regions that have
+//! run their `Region<n>Init`, each of a sector's area ([`region`]). A transition names the
 //! section functions it runs for its caller, the scripts' runtime, to run, and takes each one's
 //! answer, whether its body ran to its end (`0x46BA90`); all of it serializes, for the saves.
 
@@ -271,12 +272,49 @@ impl Dialogues {
     }
 }
 
+/// The region of each area, the table of 69 signed bytes at `0x95CBFC`, constant data of the
+/// client: the areas 0 to 49 by the list, 50 to 68 the regions 51 to 69 (docs/re/sound.md, "The
+/// region's music").
+const REGIONS: [u8; 69] = [
+    0, 1, 2, 3, 4, 7, 10, 9, 8, 111, 6, 5, 0, 25, 26, 24, 24, 24, 24, 0, 15, 12, 13, 0, 110, 0, 0,
+    25, 0, 0, 13, 17, 16, 18, 19, 0, 19, 20, 21, 23, 0, 0, 22, 22, 25, 27, 14, 28, 20, 26, 51, 52,
+    53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+];
+
+/// The region of a sector of the area `area` (the world record's `+0x2C0`, `world.ron`'s `area`),
+/// as `0x602250` turns one into the other; 0, no region, past the table, which the client reads
+/// on without a bound (no area of the world is past it).
+pub fn region(area: u8) -> u16 {
+    REGIONS.get(usize::from(area)).copied().map_or(0, u16::from)
+}
+
+/// The regions whose `Region<n>Init` has run (the interpreter's tree at `+0x350`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Regions(BTreeSet<u16>);
+
+impl Regions {
+    /// Whether the `Init` of the region `region`, which the tree holds, runs as a sector of the
+    /// region runs its own `Init` (`0x492880`, which the sector's runner `0x493680` calls before
+    /// it): the first time alone, the region marked run then. In a game of one player a region
+    /// runs its `Init` once, whichever of its areas' sectors comes first; a region whose function
+    /// the tree lacks is never marked.
+    pub fn init(&mut self, region: u16) -> bool {
+        self.0.insert(region)
+    }
+
+    /// Whether the region `region` has run its `Init`.
+    pub fn ran(&self, region: u16) -> bool {
+        self.0.contains(&region)
+    }
+}
+
 /// The scripts' whole state, as a save keeps it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Scripts {
     pub quests: Quests,
     pub variables: Variables,
     pub dialogues: Dialogues,
+    pub regions: Regions,
 }
 
 #[cfg(test)]
@@ -391,6 +429,23 @@ mod tests {
     }
 
     #[test]
+    fn a_region_runs_its_init_once_whichever_of_its_areas_comes_first() {
+        // The starting sector 50,39 is of the area 1, Adelina's 50,45 of the area 2; the areas
+        // 15 to 18 all make the region 24, and 50 to 68 the regions 51 to 69 (`0x95CBFC`).
+        assert_eq!(region(1), 1);
+        assert_eq!(region(2), 2);
+        assert_eq!(region(9), 111);
+        assert_eq!([15, 16, 17, 18].map(region), [24; 4]);
+        assert_eq!(region(50), 51);
+        assert_eq!(region(68), 69);
+        assert_eq!(region(69), 0);
+        let mut regions = Regions::default();
+        assert!(regions.init(region(15)));
+        assert!(!regions.init(region(16)));
+        assert!(regions.ran(24) && !regions.ran(2));
+    }
+
+    #[test]
     fn the_scripts_state_round_trips() {
         let mut scripts = Scripts::default();
         let mut ran = Vec::new();
@@ -398,6 +453,7 @@ mod tests {
         scripts.quests.trigger(1, &mut runtime(&mut ran, true));
         scripts.variables.set("quest1_done", 1);
         scripts.dialogues.add("first", -1);
+        scripts.regions.init(2);
         let bytes = postcard::to_allocvec(&scripts).expect("the state serializes");
         let back: Scripts = postcard::from_bytes(&bytes).expect("the state reads back");
         assert_eq!(back, scripts);

@@ -334,7 +334,7 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   Repaired: `NimmtDaemonenhorn` loses 501 first, and a new `QIS_OnLose501` writes the failure (docs/decisions/2026-10-25-quests-crossing.md).
 - **1702 (Robber Baron)**: `Region17Init` creates its target 17215 hostile (creature 296, with the death function `tot1702`, which drops the item 6065 that the win needs), in area 31.
   `BadToGood`, which only quest 72's `ScriptAnimShareef` calls (The Forge of the Ancestors), has a `RegionChange` of area 31 with the pair (296, 297) and `0x0E`, which makes him a creature 297 of the peaceful side, testing nothing of 1702, so that the item can no longer be won by fighting him (#948).
-  This holds where `Region17Init` ran before the forge (when a region's `Init` runs is not read); of the named `CreateNPC`s of the Seraphim's tree he is the only quest target of area 31 so changed, and `BadToGood` makes the bounty targets 18708 and 18712 of `Kopfgeldauswahl` peaceful too (that it blocks an open bounty is a **hypothesis**).
+  This holds where `Region17Init` ran before the forge, as the first sector of the region 17 came near (docs/re/spawning.md, "When the sectors are filled"); of the named `CreateNPC`s of the Seraphim's tree he is the only quest target of area 31 so changed, and `BadToGood` makes the bounty targets 18708 and 18712 of `Kopfgeldauswahl` peaceful too (that it blocks an open bounty is a **hypothesis**).
   Repaired: after `BadToGood`, 17215 takes back his hostile side (docs/decisions/2026-10-25-quests-crossing.md).
 - **670 (Glubba-Jar)**: `Init81` takes the dialogue of Glubba 18308 away and his health to 0 only where bit 1 of `670` is clear, which only `QIS_OnEnter670` sets, so he dies only where 670 was never entered: the data leaves no quest taken unfinishable, and the report fits a quest declined or never offered (**hypothesis**).
   But `QIS_OnEnter670` gives him the death function `lose670`, which is empty, so his death as a follower leaves 670 entered with no way to finish (**hypothesis**: that `0x6B` 0 lets him die), and `QIS_OnLose670` writes the completion line on a loss (#950).
@@ -349,7 +349,7 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   `QIS_OnEnter501` also creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
   Repaired: the 13 ghosts take the group 50014 of their own (docs/decisions/2026-10-25-shared-names.md).
 
-Not read: when a region's `Init` runs, whether a removal or a `DelNPC` runs the death functions, what `0x549080` and the event `0xC` do; none of this was seen in the running original.
+Not read: whether a removal or a `DelNPC` runs the death functions, what `0x549080` and the event `0xC` do; none of this was seen in the running original.
 
 ### Order traps
 
