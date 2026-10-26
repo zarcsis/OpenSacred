@@ -261,7 +261,11 @@ The first three pairs are in all 20 trees, the fourth in the ten Underworld tree
 ### `SetTimer`'s minutes and the calendar
 
 - `SetTimer` (56, `0x4982D0`; the walker's case at `0x475A2C`) takes a function's name (`01`), the timer's id (`0B`, at least 0) and a time above 0 (`38`), and stores the id, the time and the moment it is set, `((((year·12 + month)·30 + day)·24 + hour)·60 + minute)` of the clock; a timer of the same id is replaced, which starts it anew (`0x417710`).
-- At each minute that the clock completes (`0x416F00`; not at the minute that ends a day), the first timer whose time is at most the clock's count less its moment runs its function, unless the function's quest is finished (the flag 2), and every timer of its id is removed.
+- At each minute that the clock completes (`0x416F00`; not at the minute that ends a day), the first timer whose time is at most the clock's count less its moment runs its function, unless the function's quest is finished (the flag 2), and every timer of its id is removed after it ran, so that a function that sets its own timer again loses it.
+  The scan then starts again from the list's first, so every timer due runs in that minute (read again 2026-10-26, #933).
+  The function runs by its name (`0x46BF40`), so only while its quest is set up (`0x46BA90`); an id of `0x10000000` or more names a creature, with which the function runs, after the quests' hook `0x471790` with the event 6.
+- `DelTimer` (57, `0x4985E0`, `0x4177E0`) takes the first timer of its id (`0B`) out, the list's last moved into its place.
+- `opensacred-game` keeps the timers since #933 (`scripts`, `opensacred_rules::quests::Timers`), counting the game's minutes elapsed since the new game rather than the calendar (docs/decisions/2026-10-25-script-timers.md), the rest as above; a `SetTimer` without its time makes no timer.
   So `38` is in minutes of the game's clock: 1,440 a day, 4,320 three days, 10,080 seven (a day of the game an hour of play is docs/re/daynight.md's **hypothesis**).
 - The count takes months of 30 days and years of 12, but the date's carry (`0x416DA0`) makes eleven months of 29 days and the fifth of 34.
   So the count leaps a day ahead at the end of each other month, falls four days behind at the end of the fifth, and 31 days ahead at the end of the year: a timer across such an end runs a day early, four days late, or at once (not yet seen in the running original).
