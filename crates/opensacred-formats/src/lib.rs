@@ -18,6 +18,7 @@ pub mod mixed;
 pub mod netscript;
 pub mod pak;
 pub mod pe;
+pub mod portraits;
 pub mod reader;
 pub mod sound;
 pub mod tables;

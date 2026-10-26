@@ -374,7 +374,8 @@ The game follows the talks since #1028 (`npcs::Talk`, `scripts::Live::talk`, `ta
 - Its `Dialog:<name>` runs as the runner runs a function, a quest's only while the quest is set up: its `Text`s replace or, with `0x7C`, add to the window's texts, its `SetButton`s give five buttons, its `PlaySound`s play the voice-overs as the window opens, `ExitDlg` and `DelDlg` stop it.
 - A window at the screen's middle shows the creature's name (its key's string), its texts, their `<n>` breaking their lines and their colours' tags left out, and its first four buttons; a button closes it, ends the talk and runs its function, found by its name case aside; one without buttons closes on Enter or a click; and the talk ends where the two stand farther than 1,500 apart or the creature is gone; a dialogue without a text shows no window (docs/decisions/2026-10-26-dialogue-window.md).
 - Since #1033 a `Popup` begins the hero's own talk of its dialogue, its window without a name, once no window shows (`talk::popups`), and an `InfoPlayer` of the modes 0 to 3 shows its text in orange across the screen's upper part for 5 s, in place of the one before (`talk::notices`; **hypothesis** for the place and the time, the engine's event not read); its sounds and its other modes are not followed.
-- The portraits and the icons are #1032, `NPC_TalkTo` and `Dialog` #1037; the trade windows are not followed.
+- Since #1032 the window shows the creature's portrait at its left, its type's part of a texture of the interface (`tables/portraits.ron`, docs/02 §6.7, `talk::Portraits`); the hero's own talk shows none.
+- The icons over the creatures are #1039, `NPC_TalkTo` and `Dialog` #1037; the trade windows are not followed.
 
 In the game the Seraphim's start's novice showed her text and her button, as the original's, and the button ran `exit01`, which gave her her next dialogue, the one the next talk showed, and showed the first act's title over the scene as the original's does.
 

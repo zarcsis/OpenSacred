@@ -9,11 +9,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
     ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
-    BalanceVariable, CREATURES, Creature, EffectChance, IDLE_NOISES, ITEM_SETS, ITEMS, Item,
-    ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, QualityPass,
-    QualityWeight, STAIRS, START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger,
-    VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt,
-    WeaponModifier,
+    BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, IDLE_NOISES, ITEM_SETS,
+    ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS,
+    Portrait, Portraits, QualityPass, QualityWeight, STAIRS, START_POINTS, STATIC_REMAP, Spell,
+    StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WORLD_INDEX,
+    WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -47,6 +47,8 @@ pub struct Summary {
     pub voices: usize,
     /// The creature types that make an idle noise, hostile and not.
     pub idle_noises: (usize, usize),
+    /// The creature types with a portrait of their own.
+    pub portraits: usize,
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -208,8 +210,11 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     let bin_tables = convert_bin_tables(game_dir, &dir)?;
     let arts = arts(game_dir)?;
     write(&dir, ARTS, &arts)?;
-    let voices = crate::voices::voices(&read_reference_file(game_dir, "Sacred.exe")?)?;
+    let exe = read_reference_file(game_dir, "Sacred.exe")?;
+    let voices = crate::voices::voices(&exe)?;
     write(&dir, VOICES, &voices)?;
+    let portraits = portraits(&exe)?;
+    write(&dir, PORTRAITS, &portraits)?;
     let idle_noises = crate::idle_noises::idle_noises();
     write(&dir, IDLE_NOISES, &idle_noises)?;
 
@@ -224,7 +229,63 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         weapon_arts: arts.weapon_arts.len(),
         voices: voices.voices.len(),
         idle_noises: (idle_noises.hostile.len(), idle_noises.peaceful.len()),
+        portraits: portraits.creatures.len(),
     })
+}
+
+/// The creatures' portraits of `Sacred.exe` (#1032): each type's image of the interface by the
+/// function `0x4345C0`, its texture's name lower-cased without its `.tga` and its rectangle as
+/// its left, top, width and height, and the default's.
+fn portraits(exe: &[u8]) -> Result<Portraits> {
+    use opensacred_formats::portraits::{creature_images, interface_images};
+    let (default, images) = creature_images(exe)?;
+    let mut indices: Vec<u32> = images.iter().map(|&(_, image)| image).collect();
+    indices.push(default);
+    indices.sort_unstable();
+    indices.dedup();
+    let found: std::collections::HashMap<u32, _> = interface_images(exe, indices)?
+        .into_iter()
+        .map(|image| (image.index, image))
+        .collect();
+    let portrait = |index: u32| -> Result<Portrait> {
+        let image = found
+            .get(&index)
+            .with_context(|| format!("no interface's image {index}"))?;
+        let name = image.file.to_ascii_lowercase();
+        let texture = name.strip_suffix(".tga").unwrap_or(&name).to_owned();
+        let [x0, y0, x1, y1] = image.rect.map(pixel);
+        Ok(Portrait {
+            texture,
+            rect: [
+                x0,
+                y0,
+                x1.saturating_sub(x0).saturating_add(1),
+                y1.saturating_sub(y0).saturating_add(1),
+            ],
+        })
+    };
+    Ok(Portraits {
+        default: portrait(default)?,
+        creatures: images
+            .into_iter()
+            .map(|(creature, image)| {
+                Ok(CreaturePortrait {
+                    creature: u16::try_from(creature)?,
+                    portrait: portrait(image)?,
+                })
+            })
+            .collect::<Result<_>>()?,
+    })
+}
+
+/// A pixel's coordinate of an image's rectangle, held whole within a texture's size.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a rectangle's pixel, whole and within a texture of at most 4,096 pixels"
+)]
+fn pixel(value: f32) -> u16 {
+    value.round().clamp(0.0, 4_096.0) as u16
 }
 
 /// The `global.res` id of the text index `index`: the hash of the index in decimal (docs/02 §8).
@@ -469,10 +530,21 @@ mod tests {
                 weapon_arts: 94,
                 voices: 322,
                 idle_noises: (311, 241),
+                portraits: 467,
             }
         );
         let dir = output_dir(&out);
         let read = |file: &str| fs::read_to_string(dir.join(file)).unwrap();
+        // The human type 1's portrait, a part of `GUI_portraitX34.TGA`, and the default's (#1032).
+        let portraits: Portraits = ron::from_str(&read(PORTRAITS)).unwrap();
+        assert_eq!(
+            portraits.of(1),
+            &Portrait {
+                texture: "gui_portraitx34".into(),
+                rect: [96, 0, 96, 128],
+            }
+        );
+        assert_eq!(portraits.of(9_999), &portraits.default);
         let items: Vec<Item> = ron::from_str(&read(ITEMS)).unwrap();
         let overlay = items.iter().find(|i| i.slot == 3999).unwrap();
         assert_eq!(overlay.name, "Krombacher.grn");
