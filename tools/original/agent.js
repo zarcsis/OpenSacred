@@ -822,6 +822,8 @@ const WORLD = {
   record: ptr('0x635e50'),           // the world: thiscall (world, index), Static.PAK's record of 64 bytes, cached
   mayStand: ptr('0x4ebca0'),         // cCreature: thiscall (creature, cell position, layer, 1), its own test of a cell
   triggerCells: ptr('0xab44c8'),     // the root of the scripts' tree of the trigger cells (0x4BF460)
+  runScript: ptr('0x46bf40'),        // cdecl (name, object or 0, 0): runs the hero's tree's function of that name, found
+                                     // case aside (0x859690), through the runner 0x46BA90, as the calendar's timers do
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -857,6 +859,7 @@ const setZoom = new NativeFunction(WORLD.setZoom, 'uint32', ['pointer', 'float']
 const setLevel = new NativeFunction(WORLD.setLevel, 'void', ['pointer', 'int', 'int'], 'thiscall');
 const statsLevel = new NativeFunction(WORLD.statsLevel, 'void', ['pointer', 'int', 'int', 'int'], 'thiscall');
 const addExperience = new NativeFunction(WORLD.addExperience, 'void', ['pointer', 'int'], 'thiscall');
+const runScript = new NativeFunction(WORLD.runScript, 'uint32', ['pointer', 'pointer', 'uint32'], 'mscdecl');
 const makeCreature = new NativeFunction(WORLD.makeCreature, 'pointer',
   ['pointer', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'int', 'uint32', 'int'], 'thiscall');
 const addArt = new NativeFunction(WORLD.addArt, 'void',
@@ -1484,6 +1487,15 @@ const COMMANDS = {
     }
     const made = madeBy(() => dropOf(h, type, 0, 0, h.add(CREATURE.id).readU32()));
     return { made: made.map(describeMade).filter((m) => m !== null) };
+  },
+  // A function of the hero's script tree run by its name, as the calendar's timers run theirs (0x4171A8, #1100): its
+  // records act at once, and its answer is the runner's, 1 where the function ran to its end.
+  script: (engine, { name }) => {
+    if (typeof name !== 'string' || name.length === 0 || name.length >= 64) {
+      throw new Error('a name of 1 to 63 characters');
+    }
+    const ran = runScript(Memory.allocAnsiString(name), ptr(0), 0) & 0xff;
+    return { name, ran: ran !== 0 };
   },
   // The hero's gold (#973), or brought to `to` through the gold's handler, as a pile picked up or a price paid
   // changes it: written directly, it fails the handler's integrity test, which then kills the hero for good.

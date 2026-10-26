@@ -541,6 +541,8 @@ class Host:
                 'ground or a floor',
                 "wear [TYPE] [--slot S]: what the hero holds and wears, by its slots; with TYPE, an item of it made "
                 "and put into its slot (or S), what the slot held put aside; then the hero's stats",
+                "script NAME: a function of the hero's script tree run by its name, as the calendar's timers run "
+                'theirs; whether it ran to its end',
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
                 '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
                 'out-float; the first argument is ECX for thiscall and fastcall); ADDRESS --stack '
@@ -1208,6 +1210,13 @@ class Host:
             lines += self.command_stats('')
         return lines
 
+    def command_script(self, rest):
+        name = rest.strip()
+        if not name or len(name) >= 64 or ' ' in name:
+            raise ValueError('script NAME')
+        ran = self.world('script', {'name': name})
+        return [f"{ran['name']} ran: {'to its end' if ran['ran'] else 'not to its end'}"]
+
     def quit_later(self):
         if not self.ended.wait(15):
             self.journal.push('WARN', 'host', 'the game is still running 15 s after its window was closed: ended')
@@ -1228,6 +1237,7 @@ WORLD_COMMANDS = {
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
     'gold': Host.command_gold, 'home': Host.command_home, 'wear': Host.command_wear,
+    'script': Host.command_script,
 }
 
 
