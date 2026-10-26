@@ -501,6 +501,21 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The tests on the game files passed on `main` in the morning, 742 of 742.
     Waiting for the maintainer: the chest whose cell patch is cut short (#871).
     Next: the game running the scripts in Luau (#726, of #720), the hero picking up the items (#911) and with it the Gladiator's 1013 (#755), the rest of the followers (#895, #657), and the checks in the original still open (#227).
+22. **2026-10-25: the M3 bugs, and the scripts in Luau.**
+    The day's dependency update (#985), then six M3 bugs: the waters' crabs and fish drawn under their surface (#983), the console's spawn on the driver's cells and by the class's side (#984), an archer that gives up a hero gone beyond 800 or out of its line (#972), no stepping aside for a creature of the AI's state 0 (#977), a course found once at its order (#981, #989), and a hero landed in a wall by a bad stair stepping out (#978).
+    The translated scripts keep their markers' order (#993), and the game runs its scripts in Luau (#726, of #720): the hero's tree's `StartCode` and every sector's `Init` and `Enter` at a new game's load, through `opensacred-scripts`, the records handed back to `npcs`' readers.
+23. **The night of 2026-10-25 into 26: the scripts through the play, M3 closed, and the dialogues.**
+    The maintainer chose Luau before the rest of M3, and the scripts now live on through the play (`scripts::Live`): the regions' `Init`s (#585), the base triggers and the hero's teleports into the caves (#1002, closing #954), the timers (#933), `SetDrop` (#930), the barred triggers (#1006), `SetObjState` (#952) and `SetHP` (#1001), with the console's `script` and `quest`.
+    M3 was closed on the way: the hero picks up the items on the ground (#911), a death's gold (#976), the Gladiator's hurled weapon (#755, closing #511), the summoned followers' bit 0 and the step off's floor (#1013), and the Vampiress's start floor (#1017).
+    The play's records reach the world: `CreateNPC` and `CreateObj` (#1014), the hero's home (#974), the deaths' functions and `GroupIsDead` (#656), `SetNPCState`'s heading, group and stock (#658), a sight function (#1025), `SetGroupState`, `DelNPC`, `SetOnKill` and `SetOnCollect` (#1021), `NPC_Goto` and a creature's `Teleport` (#1035), and a place at a creature (`CPOS:`, #1046).
+    The dialogues, read in the original and its code (#1024): a click on a creature of a dialogue sends the hero to it, and its window shows its name, its portrait, its texts and its buttons, which run their functions (#1028, #1032); `Popup`, `InfoPlayer` (#1033) and `NPC_TalkTo` (#1037) begin talks and show texts; the icons over the creatures pulse as the original's, whose tints never show (#1039).
+    The scripts' hired followers were read and made: an escort follows the hero, never fights, runs from a fight and is let go (#657).
+    Read and found dead in the release: the dynamic quests, whose templates are empty and whose functions the runner refuses, so that their table, their hook, `Dialog` and the `ToDo`s never run (#1020, #1037, #1051).
+    Bugs found and fixed: Luau files whose names differ in case alone overwrote each other on Windows (#1043), the runner ran the functions that the original refuses (#1051), the scripts' variables told names that differ in case apart (#1054), the Fluent literals of the texts (#1030), and a `0x60` taken for a death function (#1025).
+    The sieges' and the world change's music follow the scripts' variables (#55, its music).
+    The maintainer's new rule: an issue taken into work and a pull request are assigned to oneself (#1049), and all the earlier ones were assigned.
+    The tests on the game files passed on `main` in the morning, 828 of 828.
+    Next: the rest of #55 (the world's changes, `RegionChange` and `ReplaceSpawn`), the trades and the blacksmith of M4, and the texts' repairs that wait for the maintainer (#403, #685).
 
 ### 10.1 Priority queue
 
