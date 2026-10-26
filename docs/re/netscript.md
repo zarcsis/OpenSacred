@@ -364,6 +364,8 @@ Read 2026-10-26 (#1024) by the static reading of `Sacred.exe` (a subagent of the
 
 - `Popup` (95, `0x4A7760`) gives the local hero the named dialogue and a talk with itself (`0x54CBB0(hero, 2)`): its function runs with the hero, the window showing no name and the image of the entry's `+0x48` (the fixed images `0x400` to `0x42A`, `0x457` the hero's class's portrait); then the hero's dialogue is taken away (241 functions, none a `Dialog:`).
 - `NPC_TalkTo` (71, `0x49DCF0`) gives its first `0x01` the dialogue `0x09` and a talk toward its second (`HERO` the local hero), which takes its action 7 toward the first (4 records).
+  It wants both names and a dialogue of the table: of the Seraphim's 4 records, the 3 of one name do nothing, and the fourth, quest 2002's `nein2002`, its giver's "no", has its giver begin the talk again (read 2026-10-26, #1037).
+  The creature's last dialogue's entry loses it (`+0x4C` 0) and the dialogue's entry takes it, as a stamp does.
 - `Dialog` (31, `0x48F9E0`) gives the function's creature a dialogue by its `0x16` or `0x01` name or its `0x0B` number (1,870 records, in the dynamic quests' `ToDo` functions).
 - `SetIcon` (86, `0x4A1A50`) writes the entry's `+0x48`, of the first entry of its `0x01` name, case aside, or, without one, of the running dialogue (`+0xA458`), its `0x0B` number; a name the table does not hold is logged.
   The unnamed ones stand in the `Dialog:` functions (213 of the 214 in the Seraphim's tree).
@@ -384,7 +386,9 @@ The game follows the talks since #1028 (`npcs::Talk`, `scripts::Live::talk`, `ta
 - Since #1033 a `Popup` begins the hero's own talk of its dialogue, its window without a name, once no window shows (`talk::popups`), and an `InfoPlayer` of the modes 0 to 3 shows its text in orange across the screen's upper part for 5 s, in place of the one before (`talk::notices`; **hypothesis** for the place and the time, the engine's event not read); its sounds and its other modes are not followed.
 - Since #1032 the window shows the creature's portrait at its left, its type's part of a texture of the interface (`tables/portraits.ron`, docs/02 §6.7, `talk::Portraits`); the hero's own talk shows none.
 - Since #1039 a creature of a dialogue or a trade shows its icon over its head (`icons`, `opensacred_rules::quests::icon`, below); the townsfolk's icons under Alt are not followed.
-- `NPC_TalkTo` and `Dialog` are #1037; the trade windows are not followed.
+- Since #1037 an `NPC_TalkTo` whose second name is the hero gives the creature of its first the dialogue, and the hero speaks to it as a click on it does (`scripts::Begins::With`, `talk::popups`); a talk between two creatures is not followed.
+  In the game, quest 2002's `nein2002` sent the hero to its giver, whose window opened.
+- `Dialog` waits for #1037; the trade windows are not followed.
 
 In the game the Seraphim's start's novice showed her text and her button, as the original's, and the button ran `exit01`, which gave her her next dialogue, the one the next talk showed, and showed the first act's title over the scene as the original's does.
 Since #1039 her "?!" pulses over her head as the original's does.
