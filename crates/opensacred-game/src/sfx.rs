@@ -48,6 +48,37 @@ const SHOOT: u8 = 3;
 const WOOSH: u8 = 5;
 /// The fist's profile, for a striker with bare hands.
 const FIST: u32 = 502;
+/// The weapons' group of a miss, which an animal takes (`0x532731`).
+const MISS: u8 = 0;
+/// The animals that take a weapon's miss where a strike does no damage, by their types (as
+/// compared at `0x53274E`–`0x532850`).
+fn misses(target: u32) -> bool {
+    matches!(target, 512 | 536 | 543 | 545 | 567..=570 | 573..=582 | 584..=588 | 591)
+}
+
+/// The weapons whose miss an animal hears: those whose type's name past `TYPE_WEAPON_` holds
+/// `SWORD`, `MACE`, `AXE` or `DAGGER` (the strings at `0x956024`–`0x956038`), by their types.
+#[derive(Resource, Default)]
+pub struct Missing(std::collections::HashSet<u32>);
+
+impl Missing {
+    /// The weapons of the types' names `names`.
+    pub fn of(names: &[opensacred_data::tables::TypeName]) -> Self {
+        Self(
+            names
+                .iter()
+                .filter(|n| {
+                    n.name.get(12..).is_some_and(|rest| {
+                        ["SWORD", "MACE", "AXE", "DAGGER"]
+                            .iter()
+                            .any(|part| rest.contains(part))
+                    })
+                })
+                .map(|n| n.kind)
+                .collect(),
+        )
+    }
+}
 
 /// The profiles' sample variants and the samples loaded, and the dice.
 #[derive(Resource)]
@@ -344,6 +375,8 @@ pub enum Roll {
 pub struct Armed {
     pub class: u8,
     pub weapon: Option<u32>,
+    /// The weapon's type, an `items.pak` slot.
+    pub kind: Option<u32>,
 }
 
 impl Armed {
@@ -398,7 +431,11 @@ fn blows(
     hero: Option<Res<hero::Hero>>,
     npcs: Option<Res<crate::npcs::Npcs>>,
     heroes: Query<(), With<Body>>,
-    arms: Query<&crate::npcs::Arms>,
+    (arms, minds, missing): (
+        Query<&crate::npcs::Arms>,
+        Query<&crate::ai::Mind>,
+        Option<Res<Missing>>,
+    ),
     places: Query<&GlobalTransform>,
     (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
     assets: Res<AssetServer>,
@@ -418,12 +455,28 @@ fn blows(
                 striker,
                 target,
                 landed,
-            } => (
-                target,
-                armed(striker).at_target(),
-                if landed { HIT } else { PARADE },
-                0.5,
-            ),
+            } => {
+                let armed = armed(striker);
+                // A strike that does no damage to an animal sounds the miss of a weapon of its
+                // kinds, else nothing (`0x532731`).
+                let animal = minds
+                    .get(target)
+                    .is_ok_and(|mind| misses(mind.thinks.creature));
+                let group = match (landed, animal) {
+                    (true, _) => HIT,
+                    (false, false) => PARADE,
+                    (false, true) => {
+                        let heard = armed.kind.is_some_and(|kind| {
+                            missing.as_ref().is_some_and(|m| m.0.contains(&kind))
+                        });
+                        if !heard {
+                            continue;
+                        }
+                        MISS
+                    }
+                };
+                (target, armed.at_target(), group, 0.5)
+            }
             Blow::Shot { shooter } => {
                 let Some(profile) = armed(shooter).weapon else {
                     continue;
@@ -525,6 +578,14 @@ fn burns_away(
     }
 }
 
+/// The weapons whose miss an animal hears, by the types' names of a new game's tables.
+fn missing(mut commands: bevy::prelude::Commands, data: Option<Res<crate::game::Data>>) {
+    let names = data
+        .as_ref()
+        .and_then(|data| data.0.tables.type_names().ok());
+    commands.insert_resource(names.map_or_else(Missing::default, Missing::of));
+}
+
 /// The weapons' sounds and the world's.
 pub struct SfxPlugin;
 
@@ -533,6 +594,10 @@ impl Plugin for SfxPlugin {
         app.add_message::<Blow>()
             .add_message::<Play>()
             .init_resource::<Listener>()
+            .add_systems(
+                bevy::prelude::OnEnter(crate::game::AppState::InGame),
+                missing,
+            )
             .add_systems(
                 Update,
                 (listen, (blows, burns_away, plays).in_set(Unpaused)).chain(),
@@ -611,13 +676,32 @@ mod tests {
         let sword = Armed {
             class: 1,
             weapon: Some(500),
+            kind: Some(1712),
         };
         assert_eq!(sword.at_target(), 500);
         // A starting weapon without a profile of its own is silent at the target.
         let starting = Armed {
             class: 1,
             weapon: Some(0),
+            kind: None,
         };
         assert_eq!(starting.at_target(), 0);
+    }
+
+    #[test]
+    fn an_animal_hears_the_miss_of_a_sword_a_mace_an_axe_or_a_dagger() {
+        let name = |kind: u32, name: &str| opensacred_data::tables::TypeName {
+            kind,
+            name: name.into(),
+        };
+        let missing = Missing::of(&[
+            name(1, "TYPE_WEAPON_SHORTSWORD"),
+            name(2, "TYPE_WEAPON_BATTLEAXE"),
+            name(3, "TYPE_WEAPON_STAFF"),
+            name(4, "TYPE_NPC_AXEMAN"),
+        ]);
+        assert!(missing.0.contains(&1) && missing.0.contains(&2));
+        assert!(!missing.0.contains(&3));
+        assert!(misses(536) && misses(591) && !misses(572));
     }
 }
