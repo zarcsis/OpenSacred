@@ -380,7 +380,10 @@ fn crackle(
             .looped()
             .with_volume(crate::sfx::decibels(0.0))
             .handle();
-        debug!("fx: the fires' loop starts at {fire}, {} playing", crackles.0.len() + 1);
+        debug!(
+            "fx: the fires' loop starts at {fire}, {} playing",
+            crackles.0.len() + 1
+        );
         crackles.0.push((fire, handle));
     }
     for (fire, handle) in &crackles.0 {
