@@ -167,6 +167,12 @@ const TRIGGER: u8 = 0x29;
 const WORLD_POSITION: u8 = 0x20;
 const START_POSITION: u16 = 45;
 const NPC_GOTO: u16 = 72;
+/// The records that turn the scripts' anim mode on and off (`SetAnimMode`, `SetCinemaMode`,
+/// `SetPlayMode`; the mode word `0xAB73DC`), under which a creature's walks and teleports wait
+/// their turns in its queue ([`ScriptQueue`], #1220).
+const SET_ANIM_MODE: u16 = 88;
+const SET_PLAY_MODE: u16 = 89;
+const SET_CINEMA_MODE: u16 = 134;
 
 /// An NPC or an object to place.
 #[derive(Clone, Default)]
@@ -1960,12 +1966,13 @@ enum Whither {
 }
 
 /// A creature that the play's `NPC_Goto` sends walking (`walks`) or its `Teleport` puts somewhere
-/// ([`Npcs::moves`]).
+/// ([`Npcs::moves`]), at once or in its turn of its queue under the anim mode (`queued`).
 #[derive(Clone, Debug, PartialEq)]
 struct Moved {
     name: String,
     whither: Whither,
     walks: bool,
+    queued: bool,
 }
 
 /// Where a record's position of the tag `tag` sends a creature: a cell of its own, a `DefPos`'s
@@ -5221,10 +5228,18 @@ impl Npcs {
     /// The creatures that the play's `NPC_Goto`s send walking and its `Teleport`s put somewhere,
     /// the hero's teleports left to `scripts` (#1035): their placements away from the world moved
     /// to a cell they go to, the moves returned in order for the creatures in the world
-    /// ([`script_records`]).
+    /// ([`script_records`]), those between a `SetAnimMode` or a `SetCinemaMode` and a
+    /// `SetPlayMode` queued (#1220; a `SetPlayMode` naming a creature, which ends the mode as
+    /// that creature's queue reaches it, ends it at once).
     fn moves(&mut self, records: &[Record]) -> Vec<Moved> {
         let mut moves = Vec::new();
+        let mut queued = false;
         for record in records {
+            match record.kind {
+                SET_ANIM_MODE | SET_CINEMA_MODE => queued = true,
+                SET_PLAY_MODE => queued = false,
+                _ => {}
+            }
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
@@ -5256,6 +5271,7 @@ impl Npcs {
                 name,
                 whither,
                 walks,
+                queued,
             });
         }
         moves
@@ -5792,6 +5808,130 @@ pub(crate) fn script_healths(
     }
 }
 
+/// The steps that the play's records give a creature under the scripts' anim mode (#1220;
+/// docs/re/netscript.md, "The anim mode and the creatures' queues"): its queue (`+0x588`), whose
+/// first step it takes at each tick of the world ([`take_steps`], `0x59A840`), its own idle
+/// behaviours left meanwhile (`ai`).
+#[derive(Component, Default, Debug)]
+pub struct ScriptQueue(std::collections::VecDeque<Queued>);
+
+/// A step of a creature's [`ScriptQueue`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Queued {
+    /// A run to `to` (`NPC_Goto`, the kind 1) onto the level `onto`, the creature's own as it
+    /// sets out where the record names no floor (**hypothesis** for when: the original takes the
+    /// creature's layer as the record runs, so that its walk after a teleport down never counts
+    /// as arrived and is dropped standing at its target); how many times it was ordered, and where
+    /// the creature stood as the count began.
+    Walk {
+        to: Vec3,
+        onto: Option<Level>,
+        orders: u8,
+        noted: Vec3,
+    },
+    /// A teleport to `to` on the level `level` (`Teleport`, the kind 9).
+    Put { to: Vec3, level: Level },
+}
+
+/// How near its target, along each axis, a creature stands for its queue's walk to end
+/// (`0x59A885`): less than a cell.
+const QUEUED_ARRIVES: f32 = 40.0;
+/// How many times a queue's walk is ordered before it is dropped where its creature has not
+/// moved (`0x59A885`), and how far it counts as having moved.
+const QUEUED_ORDERS: u8 = 5;
+const QUEUED_MOVED: f32 = 1.0;
+
+/// Takes the first step of each creature's [`ScriptQueue`] at each tick of the world
+/// (`0x5375C0` calling `0x59A840`): a walk runs to its target, waiting while the creature fights
+/// or moves, and ends once it stands within 40 of the target along each axis on the walk's
+/// level, or once it was ordered more than five times without the creature moving; a teleport
+/// puts the creature there at once. The queue goes once empty.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn take_steps(
+    mut commands: Commands,
+    tick: Res<WorldTick>,
+    heights: Res<Heights>,
+    mut creatures: Query<
+        (
+            Entity,
+            &mut ScriptQueue,
+            &mut Transform,
+            Option<&ai::Mind>,
+            Option<&mut crowd::InTheWay>,
+            Option<&mut buildings::Layered>,
+            Has<Walk>,
+        ),
+        Without<Dies>,
+    >,
+) {
+    if tick.seconds.is_none() {
+        return;
+    }
+    for (entity, mut queue, mut transform, mind, way, layered, walking) in &mut creatures {
+        let here = transform.translation;
+        let level = way.as_ref().and_then(|way| way.level);
+        let done = match queue.0.front_mut() {
+            None => true,
+            Some(Queued::Walk {
+                to,
+                onto,
+                orders,
+                noted,
+            }) => {
+                if walking || mind.is_some_and(|mind| mind.fighting()) {
+                    false
+                } else {
+                    let onto = *onto.get_or_insert(level);
+                    let arrived = (to.x - here.x).abs() < QUEUED_ARRIVES
+                        && (to.z - here.z).abs() < QUEUED_ARRIVES
+                        && onto == level;
+                    let dropped =
+                        *orders > QUEUED_ORDERS && (here - *noted).xz().length() < QUEUED_MOVED;
+                    if *orders > QUEUED_ORDERS {
+                        *orders = 0;
+                    }
+                    if !arrived && !dropped {
+                        if *orders == 0 {
+                            *noted = here;
+                        }
+                        *orders += 1;
+                        // At a run (`+0x1F8` 2, `0x59A8D9`).
+                        let speed = mind.map_or(0.0, |mind| mind.run);
+                        commands
+                            .entity(entity)
+                            .insert(Walk::run(*to, level, speed).onto(onto).idle());
+                    }
+                    arrived || dropped
+                }
+            }
+            Some(&mut Queued::Put { to, level }) => {
+                let mut at = to;
+                if let Some(y) = heights.standing(at.x, at.z, level) {
+                    at.y = y;
+                }
+                transform.translation = at;
+                if let Some(mut way) = way {
+                    way.level = level;
+                }
+                if let Some(mut layered) = layered {
+                    *layered = buildings::Layered::at(&heights, at.x, at.z, level);
+                }
+                commands.entity(entity).remove::<Walk>();
+                true
+            }
+        };
+        if done {
+            queue.0.pop_front();
+        }
+        if queue.0.is_empty() {
+            commands.entity(entity).remove::<ScriptQueue>();
+        }
+    }
+}
+
 /// Places the records of the world that the scripts ran during the play (#1014,
 /// [`Npcs::add`]).
 #[expect(
@@ -5823,6 +5963,7 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
+    mut queues: Query<&mut ScriptQueue>,
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
     let talk_to = |commands: &mut Commands, entity: Entity, talk: Option<String>| match talk {
@@ -5964,6 +6105,8 @@ pub(crate) fn script_records(
             Regrouped::Removed(name) => bevy::log::info!("npcs: the scripts remove {name}"),
         }
     }
+    // The steps queued in this run, for the creatures without a queue yet.
+    let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
     for moved in npcs.moves(&records) {
         // A creature's place: the hero's, or the first creature's of the name.
         let spot = match &moved.whither {
@@ -5975,21 +6118,41 @@ pub(crate) fn script_records(
                 });
                 Some((iso::ground(*x as f32 + 0.5, *y as f32 + 0.5), level, *layer))
             }
-            Whither::Creature(None) => heroes.iter().next().map(|at| (at.translation, None, 0)),
+            Whither::Creature(None) => heroes.iter().next().map(|at| (at.translation, None, 1)),
             Whither::Creature(Some(name)) => creatures
                 .iter()
                 .find(|(_, named, ..)| named.is_some_and(|named| &named.0 == name))
                 .map(|(_, _, _, at, _, way, ..)| {
-                    (at.translation, way.and_then(|way| way.level), 0)
+                    (at.translation, way.and_then(|way| way.level), 1)
                 }),
         };
-        let Some((to, level, _)) = spot else {
+        let Some((to, level, layer)) = spot else {
             continue;
         };
         for (entity, _, _, mut transform, mind, way, _, _, layered) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
         {
+            // Under the anim mode, a step of its queue, in its turn (#1220): a walk to a cell
+            // of no floor onto the creature's own level (`0x49E210`), a teleport's floor 0 the
+            // ground.
+            if moved.queued {
+                let step = if moved.walks {
+                    Queued::Walk {
+                        to,
+                        onto: (layer > 0).then_some(level),
+                        orders: 0,
+                        noted: transform.translation,
+                    }
+                } else {
+                    Queued::Put { to, level }
+                };
+                match queues.get_mut(entity) {
+                    Ok(mut queue) => queue.0.push_back(step),
+                    Err(_) => queued.entry(entity).or_default().push(step),
+                }
+                continue;
+            }
             if moved.walks {
                 // At its walk speed, as the start's `NPC_Goto`s walk theirs (#132).
                 let speed = mind.as_ref().map_or(0.0, |mind| mind.speed);
@@ -6013,11 +6176,15 @@ pub(crate) fn script_records(
             }
         }
         bevy::log::info!(
-            "npcs: the scripts {} {} to {:?}",
+            "npcs: the scripts {} {} to {:?}{}",
             if moved.walks { "send" } else { "put" },
             moved.name,
-            moved.whither
+            moved.whither,
+            if moved.queued { " in its turn" } else { "" }
         );
+    }
+    for (entity, steps) in queued {
+        commands.entity(entity).insert(ScriptQueue(steps.into()));
     }
 }
 
@@ -6967,6 +7134,7 @@ impl Plugin for NpcsPlugin {
                     rearm,
                     animate,
                     door_clips,
+                    take_steps,
                     walk,
                     put,
                     swing,
