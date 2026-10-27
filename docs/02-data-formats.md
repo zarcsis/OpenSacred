@@ -819,6 +819,12 @@ The `u32` at `+4` is 0 or 9, and the six `u32` from `+0x3C` are zero in most ent
 An entry holds the class (`u32`, the hero's creature type), eight item types (`u32` each, 0 for none), the figure's position (three `f32`) and its turn in degrees (`f32`), three `f32` that no code reads, and its window as four `f32`, the left, top, width and height in the pixels of 1024 × 768: the Gladiator's is the class 2, the items 1726 and 4054 in the first and third places, the position (−100, −82.5, −59), the turn −30 and the window (35, 320, 120, 320).
 `opensacred-convert tables` writes them into `tables/figures.ron` (`opensacred_data::tables::Figure`), every field as it is.
 
+### 6.9 The types' names in Sacred.exe
+
+**Confirmed** by code 2026-10-27 (#1171; docs/re/sound.md, "The sources"): entries of 0x44 bytes at VA `0x8EC328`, a type's number (`u32`, an `items.pak` slot) and its name (`char[64]`, `TYPE_NPC_SERAPHIM`), from the type 0 (`TYPE_INVALID`) on, 5,624 of them to the first entry whose name does not start with `TYPE_`; `0x43CED0` gives a type's name by its number through a map built from them.
+The client's code tests the names for parts: the footsteps of the creatures other than the hero (`0x68EB90`: `CROW`, `DRAGON`, `NATURE_HORSE`, `NPC_ORC_`, …) and the doors' sounds (`0x695800`: `TYPE_OBJECT_DOOR`); the secret door 5221 is `TYPE_OBJECT_S_DOOR`.
+`opensacred-convert tables` writes them into `tables/type_names.ron` (`opensacred_data::tables::TypeName`), in the table's order.
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding

@@ -38,6 +38,9 @@ pub const FIGURES: &str = "figures.ron";
 /// The interface's images that `Sacred.exe` holds (`0x9ECEB0`; #1087), which the interface's
 /// controls name by their indices, as a list of [`UiImage`]s in the order of the indices.
 pub const UI_IMAGES: &str = "ui_images.ron";
+/// The types' names that `Sacred.exe` holds (`0x8EC328`; #1171), by which the client's code
+/// sorts some types (the footsteps' sounds), as a list of [`TypeName`]s in the table's order.
+pub const TYPE_NAMES: &str = "type_names.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +188,13 @@ pub struct CreaturePortrait {
 pub struct Portrait {
     pub texture: String,
     pub rect: [u16; 4],
+}
+
+/// A type's name: the type's number (an `items.pak` slot) and its name (`TYPE_NPC_GOBLIN_WARRIOR`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TypeName {
+    pub kind: u32,
+    pub name: String,
 }
 
 /// An image of the interface: the texture of `texture.pak` it is a part of, by its name
