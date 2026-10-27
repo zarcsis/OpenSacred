@@ -612,7 +612,7 @@ fn execute(command: Command) -> Result<ExitCode> {
         Command::Tables { game_dir, out } => {
             let summary = tables::convert(&game_dir, &out)?;
             println!(
-                "tables: {} creatures, {} weapons, {} items, {} motions, {} triggers, {} files of bin/, {} spells, {} weapon arts, {} voices, {} and {} idle noises, {} portraits, {} figures -> {}",
+                "tables: {} creatures, {} weapons, {} items, {} motions, {} triggers, {} files of bin/, {} spells, {} weapon arts, {} voices, {} and {} idle noises, {} portraits, {} figures, {} images of the interface -> {}",
                 summary.creatures,
                 summary.weapons,
                 summary.items,
@@ -626,6 +626,7 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.idle_noises.1,
                 summary.portraits,
                 summary.figures,
+                summary.ui_images,
                 tables::output_dir(&out).display(),
             );
             Ok(ExitCode::SUCCESS)

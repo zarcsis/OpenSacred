@@ -13,9 +13,9 @@ use opensacred_data::tables::{
     BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, FIGURES, Figure,
     IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
     Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, STAIRS,
-    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS,
-    WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt,
-    WeaponModifier,
+    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, UI_IMAGES, UiImage, VOICES,
+    WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon,
+    WeaponArt, WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -53,6 +53,8 @@ pub struct Summary {
     pub portraits: usize,
     /// The figures of the choice of the hero.
     pub figures: usize,
+    /// The interface's images.
+    pub ui_images: usize,
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -229,6 +231,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     write(&dir, WEATHER_ROLLS, &weather_rolls(&exe)?)?;
     let figures = figures(&exe)?;
     write(&dir, FIGURES, &figures)?;
+    let ui_images = ui_images(&exe)?;
+    write(&dir, UI_IMAGES, &ui_images)?;
     let idle_noises = crate::idle_noises::idle_noises();
     write(&dir, IDLE_NOISES, &idle_noises)?;
 
@@ -245,6 +249,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         idle_noises: (idle_noises.hostile.len(), idle_noises.peaceful.len()),
         portraits: portraits.creatures.len(),
         figures: figures.len(),
+        ui_images: ui_images.len(),
     })
 }
 
@@ -291,6 +296,35 @@ fn figures(exe: &[u8]) -> Result<Vec<Figure>> {
             })
         })
         .collect()
+}
+
+/// The interface's images of `Sacred.exe`'s table (#1087), in the order of their indices: each
+/// one's texture by its name lower-cased without its `.tga`, and its part as its left, top, width
+/// and height.
+fn ui_images(exe: &[u8]) -> Result<Vec<UiImage>> {
+    Ok(opensacred_formats::portraits::all_interface_images(exe)?
+        .into_iter()
+        .map(|image| ui_image(&image))
+        .collect())
+}
+
+/// An image of the interface as the game takes it: its texture's name lower-cased without its
+/// `.tga`, and its part's left, top, width and height (its rectangle's last pixels included).
+fn ui_image(image: &opensacred_formats::portraits::InterfaceImage) -> UiImage {
+    let name = image.file.to_ascii_lowercase();
+    let texture = name.strip_suffix(".tga").unwrap_or(&name).to_owned();
+    let [x0, y0, x1, y1] = image.rect.map(pixel);
+    let size = |from: u16, to: u16| {
+        if to < from || image.rect == [0.0; 4] {
+            0
+        } else {
+            to.saturating_sub(from).saturating_add(1)
+        }
+    };
+    UiImage {
+        texture,
+        rect: [x0, y0, size(x0, x1), size(y0, y1)],
+    }
 }
 
 /// The creatures' portraits of `Sacred.exe` (#1032): each type's image of the interface by the
@@ -592,6 +626,7 @@ mod tests {
                 idle_noises: (311, 241),
                 portraits: 467,
                 figures: 8,
+                ui_images: 1_824,
             }
         );
         let dir = output_dir(&out);
@@ -606,6 +641,22 @@ mod tests {
             }
         );
         assert_eq!(portraits.of(9_999), &portraits.default);
+        // The interface's images by their indices: the entry 0 of no size, the first piece of
+        // `GUI_main_03.TGA`, and the type 1's portrait (#1087).
+        let ui_images: Vec<UiImage> = ron::from_str(&read(UI_IMAGES)).unwrap();
+        assert_eq!(ui_images.len(), 1_824);
+        assert_eq!(ui_images[0].rect, [0, 0, 0, 0]);
+        assert_eq!(
+            ui_images[1],
+            UiImage {
+                texture: "gui_main_03".into(),
+                rect: [0, 0, 64, 19],
+            }
+        );
+        assert_eq!(
+            (ui_images[964].texture.as_str(), ui_images[964].rect),
+            ("gui_portraitx34", [96, 0, 96, 128])
+        );
         // The figures in the screen's order, the Gladiator's first: a two-handed sword and his
         // belt, at his place and turn and in his window (docs/re/equipment.md; #1130).
         let figures: Vec<Figure> = ron::from_str(&read(FIGURES)).unwrap();
