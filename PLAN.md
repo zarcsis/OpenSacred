@@ -535,6 +535,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The effects were read (#1165) and the particle systems' machinery made with the world's fires, set beside the original's braziers (#1189), the chimneys' and the lavas' smokes (#1194) and the geysers (#1198).
     Subagents of the session read the code for the ambience, the footsteps, the hero's comments in the fight and the undead that rise again; one original ran at a time.
     Found on the way: the night's pass darkens the effects that the original leaves untinted (#1191), the runes left out of the drops (#1183) and the undead that rise again (#1199).
+    The tests on the game files passed on `main` in the morning, 892 of 892.
     Next: the hero's comments (#1175, #1176), the rest of the effects (#1092), the inventory and its windows (#1088), and the night's effects (#1191).
 
 ### 10.1 Priority queue
