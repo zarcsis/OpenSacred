@@ -216,7 +216,7 @@ impl Effects {
 /// (`0x426610`), by which `SetDrop` tells its creature from its item.
 pub fn run(
     assets: &Path,
-    tree: &str,
+    (tree, difficulty): (&str, u8),
     area: impl Fn((u32, u32)) -> Option<u8>,
     creatures: HashSet<u32>,
 ) -> Result<Ran> {
@@ -240,7 +240,10 @@ pub fn run(
         .collect();
     sectors.sort();
     let runtime = runtime(assets, tree, index)?;
-    let mut state = quests::Scripts::default();
+    let mut state = quests::Scripts {
+        difficulty,
+        ..quests::Scripts::default()
+    };
     let mut rng = Rng::of(0, 0, SEED);
     let start = records(&runtime, (tree, &creatures), START, 0, &mut state, &mut rng);
     let mut functions = Vec::new();
@@ -700,7 +703,7 @@ impl Host for Recorder<'_> {
         };
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
-            return tags.test(self.tree, &self.state.variables);
+            return tags.test(self.tree, &self.state.variables, self.state.difficulty);
         }
         // A guard: whether no creature of the group lives, wherever it stands (`0x48C860`); a
         // group never made is dead. At the start, before the world, not known.
@@ -1205,12 +1208,39 @@ impl Tags<'_> {
     /// number, `0x6D` greater, `0x6E` less, `0x49` its bit set and `0x4A` clear, each false for
     /// a missing variable; `0x52` the hero's tree, `tree`, named (**hypothesis**: the hero's
     /// type, by the name of its script, `TYPE_NPC_GLADIATOR`, which the quests' `OnEnter` ask
-    /// before they place a class's own NPCs); a test of any other tag has no meaning yet.
-    fn test(&self, tree: &str, variables: &quests::Variables) -> Handled {
+    /// before they place a class's own NPCs); `0x96` to `0x9A` the game on bronze to niobium,
+    /// `difficulty`, and `0x9B` and `0x9C` the hero's quest bit of the number set and clear, the
+    /// variable `HeroQBit` that `HeroQBit`'s records set and clear (the original keeps it per
+    /// difficulty with the hero, of which a game plays one; #1125); a test of any other tag has
+    /// no meaning yet.
+    fn test(&self, tree: &str, variables: &quests::Variables, difficulty: u8) -> Handled {
         let Some(tags) = self.0 else {
             return Handled::Unknown;
         };
         for (key, operand) in tags {
+            if let Some(on) = DIFFICULTY_TESTS.iter().position(|&tag| tag == key) {
+                if usize::from(difficulty) != on {
+                    return Handled::Answer(false);
+                }
+                continue;
+            }
+            if let Some(wanted) = [("_9B", true), ("_9C", false)]
+                .iter()
+                .find(|&&(tag, _)| tag == key)
+                .map(|&(_, set)| set)
+            {
+                let Operand::Number(n) = operand else {
+                    return Handled::Unknown;
+                };
+                let Some(n) = int(*n) else {
+                    return Handled::Unknown;
+                };
+                let bits = u32::from_ne_bytes(variables.value(QUEST_BITS).to_ne_bytes());
+                if (bits & (1_u32 << n.rem_euclid(32)) != 0) != wanted {
+                    return Handled::Answer(false);
+                }
+                continue;
+            }
             if key == "_52" {
                 match operand {
                     Operand::Text(name) if name.eq_ignore_ascii_case(tree) => continue,
@@ -1253,6 +1283,11 @@ impl Tags<'_> {
         Handled::Answer(true)
     }
 }
+
+/// The `IF`s' tags that hold on bronze to niobium (`0x4987B0`).
+const DIFFICULTY_TESTS: [&str; 5] = ["_96", "_97", "_98", "_99", "_9A"];
+/// The variable of the hero's quest bits of the difficulty played (`HeroQBit`).
+const QUEST_BITS: &str = "HeroQBit";
 
 /// A name as the engine expands it as it runs: each `+Var(NAME)` the value of the variable `NAME`
 /// (`grabstein_dialog_+Var(grvarNr)`, docs/02 §7.6).
@@ -1939,6 +1974,51 @@ mod tests {
             .collect();
         assert_eq!(named, ["a", "b", "d", "g"]);
         assert_eq!(runtime.unknown(), ["test"]);
+    }
+
+    #[test]
+    fn the_tests_read_the_difficulty_and_the_heros_quest_bits() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             set_var_bit { _01 = \"HeroQBit\", _0B = 4 }\n\
+             if test { _96 = true } then def_pos { _01 = \"bronze\", _0B = { 1, 1 } } end\n\
+             if test { _97 = true } then def_pos { _01 = \"silver\", _0B = { 1, 1 } } end\n\
+             if test { _9B = 4 } then def_pos { _01 = \"won\", _0B = { 1, 1 } } end\n\
+             if test { _9C = 4 } then def_pos { _01 = \"not_won\", _0B = { 1, 1 } } end\n\
+             if test { _9C = 5 } then def_pos { _01 = \"open\", _0B = { 1, 1 } } end\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        // On silver: `_97` holds, `_96` not; the bit 4 set, the bit 5 clear.
+        let mut state = quests::Scripts {
+            difficulty: 1,
+            ..quests::Scripts::default()
+        };
+        let mut rng = Rng::of(0, 0, SEED);
+        let records = records(
+            &runtime,
+            ("TYPE_NPC_GLADIATOR", &HashSet::new()),
+            START,
+            0,
+            &mut state,
+            &mut rng,
+        );
+        let named: Vec<String> = records
+            .iter()
+            .filter(|r| r.kind == 23)
+            .filter_map(|r| match &r.body {
+                Body::Operands(ops) => ops.iter().find_map(|o| match &o.value {
+                    opensacred_data::netscript::Value::Str(name) => Some(name.clone()),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(named, ["silver", "won", "open"]);
+        assert!(runtime.unknown().is_empty());
     }
 
     #[test]

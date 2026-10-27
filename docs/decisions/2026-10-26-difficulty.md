@@ -1,6 +1,6 @@
 # The difficulty
 
-The rules and the choice of the hero (`opensacred-game`, `opensacred-rules`), 2026-10-26 (#1086); changed 2026-10-27 (#1145).
+The rules and the choice of the hero (`opensacred-game`, `opensacred-rules`), 2026-10-26 (#1086); changed 2026-10-27 (#1145, #1125).
 
 ## The original
 
@@ -13,7 +13,8 @@ About seventy functions read the difficulty: the balance's rows by its column, a
 The choice of the hero offers its new hero bronze and silver in the original's drop-down list since #1145, bronze first.
 A game named by the command line, the console or a script may take another (`new-game --difficulty`), in place of a hero of the saves that won the difficulty below, which the game cannot load yet (#1095, #1117).
 The game follows the difficulty in the balance's rows of the fight by its column, the scaling of the creatures' levels and the sectors' bounds, the experience's factor and cap, the levels on bronze's scale that the experience and the creatures' test of the levels weigh, the drops and the death's toll of gold.
-It does not follow yet the other readers, which #1125 lists: the stats of a hostile creature on platinum and niobium, the potions' healing by `PotionDiv`, the quests' rewards and the scripts' tests of the difficulty, the items' sockets and sets, the specials' chances and the terror of the effect 852.
+Since #1125 it follows a hostile creature's stats on platinum and niobium (its attack speed, pace, attribute 3 and regeneration) and the scripts' tests of the difficulty and of the hero's quest bits, which it keeps in the variable `HeroQBit` of the one difficulty a game plays.
+It does not follow yet the other readers, which #1125 lists: the potions' healing by `PotionDiv`, the quests' rewards, the items' sockets and sets, the specials' chances and the terror of the effect 852.
 The cap of a creature's damage to a player follows the difficulty since #1124.
 
 ## Why
