@@ -142,7 +142,8 @@ The drops and the flakes are lit by the night's colour over the whole screen, no
 A quake (`opensacred_rules::weather::Event::Quake`) moves the camera after it follows the hero by a random offset within the amplitude, in the original's pixels at the zoom, at each frame but in a pause, and plays the earthquake's sound as it comes; the console's `setquake` and the Gladiator's jump send it, the Daemon's art and the spells not yet, and `SCREEN_QUAKE` has no setting.
 The crows and the bats fly over the camera as above (`fliers`, #1073): `opensacred-convert world` writes each sector's byte into `world.ron` (`fliers`), `opensacred_rules::weather` keeps the timer on the rolls the weather shares, and the camera's point is the hero's, which the camera follows; a flier is a model among the others, drawn at the cell under it (`models::Ordered`), lit as they are, its call in the middle.
 Seen 2026-10-27 in 51,51 at noon: a crow 134 s after the hero came, flying right and down over the screen, about 70 pixels across at zoom 1, and its call 13 s after it started; not yet set beside the original's.
-The jolts and the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) are still #1073 (M5).
+The butterflies fly (`butterflies`, #1073): as a sector of their entries comes in, ten swarms an entry at walkable places at random, as docs/re/effects.md ("The butterflies") reads them; they go with the sector.
+The jolts are still #1073 (M5).
 
 Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
 

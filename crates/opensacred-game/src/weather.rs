@@ -13,7 +13,7 @@ use bevy::prelude::{
     Resource, Time, Transform, Update, With, World,
 };
 use opensacred_data::tables::WEATHER_ROLLS;
-use opensacred_data::world::{SIDE, SectorWeather};
+use opensacred_data::world::{SIDE, SectorWeather, WeatherKind};
 use opensacred_rules::spawning::Rng;
 use opensacred_rules::weather::{self, Event};
 
@@ -87,6 +87,17 @@ impl Weather {
             self.quakes += 1;
         }
         self.state.event(event, &mut self.dice);
+    }
+
+    /// How many entries of the butterflies the sector at `at` has (`butterflies`).
+    pub fn butterflies(&self, at: (u32, u32)) -> u32 {
+        self.sectors.get(&at).map_or(0, |(_, entries, _)| {
+            let count = entries
+                .iter()
+                .filter(|entry| entry.kind == WeatherKind::Butterflies)
+                .count();
+            u32::try_from(count).unwrap_or(0)
+        })
     }
 
     /// What the overlay shows of it: the rain's drops, the fog's alpha and the snow's flakes now,

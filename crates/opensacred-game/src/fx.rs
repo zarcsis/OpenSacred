@@ -9,7 +9,7 @@
 //!
 //! Left out (docs/decisions/2026-10-24-bolts-look.md holds the spells' stand-ins): the wind that
 //! the smoke class writes into its layers (`+0x68` of the renderer, a **hypothesis**), the other
-//! classes, the torches' flames and the butterflies.
+//! classes and the torches' flames.
 
 use std::sync::Arc;
 
@@ -40,7 +40,7 @@ pub struct Burning {
 #[derive(Resource, Default)]
 struct Fires {
     variants: Vec<(u8, Arc<Fire>)>,
-    /// The texture of the particles, and a material a blend.
+    /// A material of the particles' texture a blend.
     add: Option<Handle<StandardMaterial>>,
     over: Option<Handle<StandardMaterial>>,
 }
@@ -66,17 +66,112 @@ pub fn spawn(
         .id()
 }
 
-/// The particles' texture of `name` (`textures/texture/<number>-<name>.<extension>`).
-fn texture(assets: &std::path::Path, name: &str) -> Option<String> {
+/// The particles' texture of `name` (`textures/texture/<number>-<name>.<extension>`), sampled
+/// without its smaller levels, as the original's textures have one: the quads are small, and the
+/// smaller levels' averaged alpha would dim what they add up to.
+pub(crate) fn particle_texture(
+    assets: &std::path::Path,
+    server: &AssetServer,
+    name: &str,
+) -> Option<Handle<Image>> {
     let dir = assets.join("textures").join("texture");
     let entries = crate::files::read_dir(&dir).ok()?;
-    entries.into_iter().find_map(|entry| {
+    let path = entries.into_iter().find_map(|entry| {
         let file = entry.file_name()?.to_string_lossy().into_owned();
         let (_, rest) = file.split_once('-')?;
         let (stem, _) = rest.rsplit_once('.')?;
         stem.eq_ignore_ascii_case(name)
             .then(|| format!("textures/texture/{file}"))
-    })
+    })?;
+    Some(
+        server
+            .load_builder()
+            .with_settings(|settings: &mut ImageLoaderSettings| {
+                settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    lod_max_clamp: 0.0,
+                    ..ImageSamplerDescriptor::linear()
+                });
+            })
+            .load::<Image>(path),
+    )
+}
+
+/// A particles' material of the texture `image`, unlit, added to the frame by its alpha or laid
+/// over it by its alpha.
+pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> StandardMaterial {
+    StandardMaterial {
+        base_color_texture: Some(image),
+        unlit: true,
+        alpha_mode,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    }
+}
+
+/// A mesh of no quads, which a system fills each frame.
+pub(crate) fn empty() -> Mesh {
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
+    mesh.insert_indices(Indices::U32(Vec::new()));
+    mesh
+}
+
+/// Quads facing the camera, as the original's billboards (`0x761B00`), each of a centre about
+/// its entity, a half side in world units, an angle in the screen's plane, a square of the texture
+/// (its corner and its side, in shares of the texture) and a colour of the frame's values: Bevy's
+/// own material writes them unchanged into the frame of sRGB values (`srgb`), as the original's
+/// device does.
+#[derive(Default)]
+pub(crate) struct Quads {
+    positions: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    colours: Vec<[f32; 4]>,
+    indices: Vec<u32>,
+}
+
+impl Quads {
+    pub(crate) fn push(
+        &mut self,
+        centre: Vec3,
+        size: f32,
+        angle: f32,
+        (corner, side): (Vec2, f32),
+        colour: [f32; 4],
+    ) {
+        let (right, up) = (iso::right(), iso::up());
+        let (sin, cos) = angle.sin_cos();
+        let (r, u) = (
+            (right * cos + up * sin) * size,
+            (up * cos - right * sin) * size,
+        );
+        let base = u32::try_from(self.positions.len()).unwrap_or(0);
+        for (offset, [s, t]) in [
+            (-r - u, [0.0, 1.0]),
+            (r - u, [1.0, 1.0]),
+            (r + u, [1.0, 0.0]),
+            (-r + u, [0.0, 0.0]),
+        ] {
+            self.positions.push((centre + offset).to_array());
+            self.uvs.push([corner.x + s * side, corner.y + t * side]);
+            self.colours.push(colour);
+        }
+        self.indices
+            .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+
+    /// Puts the quads into `mesh`.
+    pub(crate) fn into_mesh(self, mesh: &mut Mesh) {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colours);
+        mesh.insert_indices(Indices::U32(self.indices));
+    }
 }
 
 /// The fires' variants and their two materials, of the texture `PARTICLE_FIRE03`.
@@ -90,38 +185,17 @@ fn begin(
         .into_iter()
         .filter_map(|variant| Some((variant, Arc::new(fire(variant)?))))
         .collect();
-    let image = data
-        .and_then(|data| {
-            let name = variants.first()?.1.texture;
-            texture(&data.0.assets, name)
-        })
-        .map(|path| {
-            // Sampled without its smaller levels, as the original's textures have one: the quads are
-            // small, and the smaller levels' averaged alpha would dim the flames' sum.
-            assets
-                .load_builder()
-                .with_settings(|settings: &mut ImageLoaderSettings| {
-                    settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                        lod_max_clamp: 0.0,
-                        ..ImageSamplerDescriptor::linear()
-                    });
-                })
-                .load::<Image>(path)
-        });
+    let image = data.and_then(|data| {
+        let name = variants.first()?.1.texture;
+        particle_texture(&data.0.assets, &assets, name)
+    });
     if image.is_none() {
         warn!("fx: no particle texture; the fires are not drawn");
     }
     let mut material = |alpha_mode| {
-        image.clone().map(|image| {
-            materials.add(StandardMaterial {
-                base_color_texture: Some(image),
-                unlit: true,
-                alpha_mode,
-                double_sided: true,
-                cull_mode: None,
-                ..default()
-            })
-        })
+        image
+            .clone()
+            .map(|image| materials.add(particle_material(image, alpha_mode)))
     };
     let (add, over) = (material(AlphaMode::Add), material(AlphaMode::Blend));
     commands.insert_resource(Fires {
@@ -176,23 +250,9 @@ fn light(
     }
 }
 
-/// A mesh of no quads, which [`burn`] fills.
-fn empty() -> Mesh {
-    let mut mesh = Mesh::new(
-        PrimitiveTopology::TriangleList,
-        RenderAssetUsages::default(),
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
-    mesh.insert_indices(Indices::U32(Vec::new()));
-    mesh
-}
-
 /// Runs each fire's particles a frame on, and lays its layers' quads out facing the camera.
 fn burn(time: Res<Time>, mut fires: Query<&mut Burning>, mut meshes: ResMut<Assets<Mesh>>) {
     let dt = time.delta_secs().min(0.1);
-    let (right, up) = (iso::right(), iso::up());
     for mut burning in &mut fires {
         let burning = &mut *burning;
         let fire = burning.fire.clone();
@@ -205,45 +265,24 @@ fn burn(time: Res<Time>, mut fires: Query<&mut Burning>, mut meshes: ResMut<Asse
                 continue;
             };
             let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
-            let mut positions = Vec::new();
-            let mut uvs = Vec::new();
-            let mut colours = Vec::new();
-            let mut indices = Vec::new();
+            let mut quads = Quads::default();
             for particle in burning
                 .system
                 .particles
                 .iter()
                 .filter(|p| usize::from(p.layer) == layer)
             {
-                let [x, y, z] = particle.place;
                 // The models' frame, its third coordinate up, at the world's scale.
-                let centre = Vec3::new(x, z, y) * iso::MODEL_SCALE;
-                let size = particle.size * iso::MODEL_SCALE;
-                let (sin, cos) = particle.angle.sin_cos();
-                let (r, u) = (
-                    (right * cos + up * sin) * size,
-                    (up * cos - right * sin) * size,
+                let [x, y, z] = particle.place;
+                quads.push(
+                    Vec3::new(x, z, y) * iso::MODEL_SCALE,
+                    particle.size * iso::MODEL_SCALE,
+                    particle.angle,
+                    (Vec2::ZERO, 1.0),
+                    ramp.at(particle.life),
                 );
-                let base = u32::try_from(positions.len()).unwrap_or(0);
-                for (corner, uv) in [
-                    (-r - u, [0.0, 1.0]),
-                    (r - u, [1.0, 1.0]),
-                    (r + u, [1.0, 0.0]),
-                    (-r + u, [0.0, 0.0]),
-                ] {
-                    positions.push((centre + corner).to_array());
-                    uvs.push(uv);
-                    // The ramp's values as they are: Bevy's own material writes them unchanged
-                    // into the frame, which holds sRGB values (`srgb`), as the original's
-                    // device does.
-                    colours.push(ramp.at(particle.life));
-                }
-                indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
             }
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
-            mesh.insert_indices(Indices::U32(indices));
+            quads.into_mesh(&mut mesh);
         }
     }
 }
