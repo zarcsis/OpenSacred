@@ -7,11 +7,11 @@
 //! `MOUSE_HORSETRADER`, `MOUSE_DIALOG04`); the hand over an item lying on the ground and over a
 //! door (`mouse_action`), and over the stairs where a click sends the hero (`0x616AD0`); else,
 //! over the interface and outside a game, the arrow (`MOUSE_MAIN`). `hud` puts the picture on the
-//! window.
+//! window. Beside the hand over an item, the item's name.
 //!
-//! Not followed yet: the item's name beside the hand, the hand over the teleports and the scripts'
-//! spots, the glow of a right-button art that may be made, the enemy's panel, the hover's
-//! highlight, the horses' looks and the map's arrows.
+//! Not followed yet: the hand over the teleports and the scripts' spots, the glow of a right-button
+//! art that may be made, the enemy's panel, the hover's highlight, the horses' looks and the map's
+//! arrows; the name's red for some objects (`+0x14` bit `0x20`, not read).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
@@ -24,9 +24,10 @@ use crate::buildings::Buildings;
 use crate::drops::Lying;
 use crate::fight::{Health, Holding};
 use crate::forms::Forms;
-use crate::game::AppState;
+use crate::game::{AppState, FONT};
 use crate::hero::Body;
 use crate::hud::Pointer;
+use crate::lines::Texts;
 use crate::npcs::{Dies, Door, Npcs, Talk, Trades};
 use crate::terrain::Heights;
 use crate::{paths, pick};
@@ -99,6 +100,18 @@ impl Look {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shown(pub Look);
 
+/// The type of the item under the hand, whose name shows beside the cursor.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Named(Option<u32>);
+
+/// The item's name's place from the cursor, in the original's pixels, and its size.
+const NAME_OFFSET: Vec2 = Vec2::new(24.0, 16.0);
+const NAME_SIZE: f32 = 14.0;
+
+/// The node of the item's name beside the cursor.
+#[derive(Component)]
+struct NameTag;
+
 /// The cursor over a living foe, by what the hero holds: a gun in either hand the pistol
 /// (`0x54A340`), else a bow or a crossbow the bow (`0x54A2A0`), but in the Vampiress's night's
 /// form, else the sword.
@@ -138,7 +151,7 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
               filters"
 )]
 fn choose(
-    mut shown: ResMut<Shown>,
+    (mut shown, mut named): (ResMut<Shown>, ResMut<Named>),
     (state, window, pointer): (
         Option<Res<State<AppState>>>,
         Option<Res<crate::talk::Shown>>,
@@ -175,6 +188,7 @@ fn choose(
         .0
         .zip(cameras.single().ok())
         .and_then(|(cursor, (camera, view))| camera.viewport_to_world(view, cursor).ok());
+    let mut item = None;
     let look = match ray {
         Some(ray) if in_game && window.is_none() && !over_interface => {
             let near = |at: &GlobalTransform| {
@@ -211,13 +225,18 @@ fn choose(
                 }))
             })
             .or_else(|| {
-                nearest(&mut items.iter().filter_map(|(at, lying)| {
-                    lying
-                        .resting
-                        .then(|| near(at))
-                        .flatten()
-                        .map(|d| (d, Look::Hand))
-                }))
+                let (_, kind) = items
+                    .iter()
+                    .filter_map(|(at, lying)| {
+                        lying
+                            .resting
+                            .then(|| near(at))
+                            .flatten()
+                            .map(|d| (d, lying.dropped.item))
+                    })
+                    .min_by(|a, b| a.0.total_cmp(&b.0))?;
+                item = Some(kind);
+                Some(Look::Hand)
             })
             .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
             .or_else(|| {
@@ -233,6 +252,60 @@ fn choose(
         _ => Look::Arrow,
     };
     shown.set_if_neq(Shown(look));
+    named.set_if_neq(Named(item.filter(|_| look == Look::Hand)));
+}
+
+/// The item's name beside the cursor while the hand is over it (`0x611E70`, as it draws): its
+/// text of the game's texts by its type, white, 24 of the original's pixels right of the cursor
+/// and 16 down; none without a name.
+fn name_tag(
+    mut commands: Commands,
+    named: Res<Named>,
+    pointer: Res<Pointer>,
+    ui_scale: Res<UiScale>,
+    (texts, assets): (Option<Res<Texts>>, Res<AssetServer>),
+    mut tags: Query<(Entity, &mut Node, &mut Text), With<NameTag>>,
+) {
+    let name = named
+        .0
+        .zip(texts.as_deref())
+        .and_then(|(item, texts)| texts.named(&item.to_string()))
+        .filter(|name| !name.is_empty());
+    let (Some(name), Some(at)) = (name, pointer.0) else {
+        for (tag, ..) in &tags {
+            commands.entity(tag).despawn();
+        }
+        return;
+    };
+    // The window's pixels in the interface's, which `UiScale` scales (`hud::scale`).
+    let at = at / ui_scale.0 + NAME_OFFSET;
+    if let Ok((_, mut node, mut text)) = tags.single_mut() {
+        node.left = Val::Px(at.x);
+        node.top = Val::Px(at.y);
+        if text.0 != name {
+            name.clone_into(&mut text.0);
+        }
+        return;
+    }
+    commands.spawn((
+        NameTag,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(at.x),
+            top: Val::Px(at.y),
+            ..default()
+        },
+        Text::new(name),
+        TextFont {
+            font: assets.load(FONT).into(),
+            font_size: FontSize::Px(NAME_SIZE),
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        GlobalZIndex(10),
+        Pickable::IGNORE,
+        DespawnOnExit(AppState::InGame),
+    ));
 }
 
 /// The cursor's looks.
@@ -240,7 +313,9 @@ pub struct CursorsPlugin;
 
 impl Plugin for CursorsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Shown>().add_systems(Update, choose);
+        app.init_resource::<Shown>()
+            .init_resource::<Named>()
+            .add_systems(Update, (choose, name_tag).chain());
     }
 }
 
