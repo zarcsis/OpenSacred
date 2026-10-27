@@ -213,8 +213,11 @@ pub struct IdleNoise {
     pub sound: IdleSound,
     /// The seconds for which the sound id that played waits before it plays again.
     pub wait: f32,
-    /// Added to the voices' volume, 0.45 + (`rand() % 10`) / 90.
-    pub volume: f32,
+    /// Added to the voices' factor of the rate, 0.45 + (`rand() % 10`) / 90, which plays the
+    /// sample at its rate times the factor + 0.5 (`0x693510`, #1140); `volume` in the files
+    /// converted before.
+    #[serde(alias = "volume")]
+    pub rate: f32,
 }
 
 /// A figure of the choice of the hero, of the table that `Sacred.exe` holds at `0x9E3248`, in the

@@ -75,7 +75,7 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 - `BATTLECRY_nn_<class>` (10 a class) at the sound event 5 with an argument from 1003 to 1104 (**hypothesis**: a combat art), one in three, always for the arts that play their own ids 2098 to 2104;
 - `ENEMYKILLME_nn_<class>` (6 a class) at the hero's `DEATH`, with `MUSIC_DEATH` (6505, `0x694FE0`).
 
-`opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume above, lowered and panned by its place as the original does (below, "A sound's place", #731).
+`opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume of its place and panned by it as the original does (below, "A sound's place", #731), and at the rate above (`voices::rate`, #1140).
 It plays the weapons' sounds (`sfx`, #712): a strike's swing by the class of what the striker holds at its hit moment within reach or in the air; at the target the striker's weapon's `HIT` when the hit did damage, else its `PARADE`, by the sound profile of the weapon's own type, so that a starting weapon without a slot of its own is silent there as the original's, and the fist's for bare hands; a shot's group 3 by the bow's profile (**hypothesis**: `SHOOT`); at the original's volumes, placed as the voices.
 It plays the heroes' lines by name (`voices`, #713): a taunt when a creature takes a hit's line, one in five and 10 s after the last; a battle cry at the start of a combat art, one in three; the death's line at the hero's fall; one of the class's at random, as the hero's line.
 It plays `MUSIC_DEATH` at the hero's fall (`music`, #734; below, "A music played once").
@@ -115,7 +115,7 @@ Recovered 2026-10-23 (#714) from the sound manager's update (`0x69B770`) and its
   **Checked** at the start (the trace of `0x4261D0`, `sound-pick`): three pigs made 11 picks of 2011's group 0 in 64 s against 12.6 by these rolls, three thieves 38 of 2023 against about 30.
   `opensacred-convert tables` holds the cases as a table and writes `tables/idle_noises.ron` (`opensacred_data::tables::IdleNoises`).
 
-`opensacred-game` makes them so (`voices`, #714): at each world tick a creature within the hearing rolls one in 70, or one in 20 if it is hostile to the hero and does not fight, then its type's noise, docs/decisions/2026-10-23-idle-noises.md says what it leaves out.
+`opensacred-game` makes them so (`voices`, #714): at each world tick a creature within the hearing rolls one in 70, or one in 20 if it is hostile to the hero and does not fight, then its type's noise, at the volume of its place and the voices' rate with its case's value added (#1140); docs/decisions/2026-10-23-idle-noises.md says what it leaves out.
 
 ## Footsteps by the ground
 
