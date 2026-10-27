@@ -14,6 +14,12 @@ use crate::spawning::{Dice, Rng, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
 pub const HERO_LEVEL: u32 = 1;
+/// The share of the cap of a creature's damage to a player by the difficulty, bronze's first
+/// (the floats `0x890670`, `0x8912B0`, `0x89090C`, `0x8912B4`, and none on niobium), and the
+/// cap's factor (`0x8912B8`; [`Rules::player_cap`]).
+const CAPS: [f32; 5] = [0.5, 0.625, 0.75, 0.875, 1.0];
+const CAP_FACTOR: f32 = 0.32258;
+
 /// The kinds of damage: physical, fire, magic and poison.
 pub const KINDS: usize = 4;
 
@@ -569,6 +575,7 @@ pub struct Rules {
     experience: [f32; 4],
     difficulty: [f32; 3],
     scale: [f32; 2],
+    cap: f32,
     regeneration: [f32; 3],
     curves: Curves,
     level_cap: f32,
@@ -596,6 +603,7 @@ impl Default for Rules {
             experience: [1.0, 0.85, 1.0, 1.1],
             difficulty: [0.65, 0.9, 1.0],
             scale: [0.0, 0.0],
+            cap: CAPS[0],
             regeneration: [36.0, 48.0, 128.0],
             curves: Curves::default(),
             level_cap: 50.0,
@@ -635,6 +643,14 @@ impl Rules {
             highest: raise(values.highest, self.ranks.cap),
             ..*values
         }
+    }
+
+    /// The most damage that a creature of level `level` deals a player in a strike (`0x56B130`
+    /// at `0x56DA04`…`0x56DA9F`): `(6·(E + 9))^1.5 · 0.32258 · m`, `E` its level on bronze's scale
+    /// ([`Rules::on_bronze`]) and `m` the difficulty's share ([`CAPS`]), on the x87 unit.
+    pub fn player_cap(&self, level: u32) -> f64 {
+        let e = f64::from(self.on_bronze(level));
+        (6.0 * (e + 9.0)).powf(1.5) * f64::from(CAP_FACTOR) * f64::from(self.cap)
     }
 
     /// The level `E` of a creature of level `level` on bronze's scale, the inverse of the
@@ -710,6 +726,7 @@ impl Rules {
                 b.row_f32("ProzDmg", column).unwrap_or(0.9),
                 b.row_f32("ProzRes", column).unwrap_or(1.0),
             ],
+            cap: CAPS[difficulty.index()],
             scale: ["BaseOffLevel", "OffLevelProz"].map(|name| {
                 b.row_i32(name, column)
                     .and_then(|v| i16::try_from(v).ok())
@@ -2101,6 +2118,9 @@ pub struct Blow {
     pub rolled: f32,
     /// The factor of the sum by the attacker's level ([`weapons_factor`]).
     pub weapons: f64,
+    /// The most that the strike takes off a player's health: a creature's strike at the hero
+    /// ([`Rules::player_cap`]), none else.
+    pub cap: Option<f64>,
 }
 
 impl Default for Blow {
@@ -2111,6 +2131,7 @@ impl Default for Blow {
             k: 1.0,
             rolled: 1.0,
             weapons: 1.0,
+            cap: None,
         }
     }
 }
@@ -2122,9 +2143,9 @@ impl Default for Blow {
 /// hero striking a creature meets its defence times `ProzAW` and its resistances times
 /// `ProzRes`; between creatures (#630), as they are, with the exponent of the attacker's levels
 /// above its defender's, as the resolution takes it for any attacker that is no player's (an id
-/// above 16). `hero` tells which side is the hero's: the
-/// attacker's, the defender's or neither. The blow's share and factor of the levels are 1, which
-/// the strike sets.
+/// above 16), and a creature's damage to the hero held at [`Rules::player_cap`] of its level.
+/// `hero` tells which side is the hero's: the attacker's, the defender's or neither. The blow's
+/// share and factor of the levels are 1, which the strike sets.
 pub fn weighed(
     mut attacker: Combat,
     mut defender: Combat,
@@ -2139,6 +2160,7 @@ pub fn weighed(
             attacker.attack *= aw;
             blow.rolled = dmg;
             blow.k = exponent(levels.0.saturating_sub(levels.1));
+            blow.cap = Some(rules.player_cap(levels.0));
         }
         Some(Side::Attacker) => {
             defender.defence *= aw;
@@ -2283,7 +2305,8 @@ pub(crate) fn truncated(value: f64) -> i64 {
 /// 1,000 over 1,000; each kind's damage `d` rolled, then `d·(1 − 1/(1 + d/r)^k)` against the
 /// kind's resistance `r`, `d²/(d + r)` for the exponent `k` of 1, less the defender's damping
 /// of bronze; the sum, a float, times the factor of the attacker's level and the strike's factor
-/// ([`taken`]), at least 1, whole. `blow` holds those factors, `k` and the rolled damage's.
+/// ([`taken`]), at least 1, held at a player's cap, whole. `blow` holds those factors, `k`, the
+/// rolled damage's and the cap.
 pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Option<u32> {
     let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
@@ -2336,16 +2359,23 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u3
             dealt(d, r, blow.k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
         .sum();
-    taken(total, blow.share, blow.weapons)
+    taken(total, blow.share, blow.weapons, blow.cap)
 }
 
 /// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
 /// times the factor of the attacker's level `weapons` ([`weapons_factor`], at `0x56D05C`), the
 /// product on the x87 unit stored as a float, times the strike's factor `factor` ([`scaled`]),
-/// at least 1, whole (the skills' specials and the effects that follow are not read).
-fn taken(sum: f32, factor: f32, weapons: f64) -> u32 {
+/// at least 1; held at `cap` where that is below it (`0x56DA8E`), whole (the skills' specials and
+/// the effects between are not read; the resolution adds a half before it truncates, `0x56DAA1`,
+/// #1134).
+fn taken(sum: f32, factor: f32, weapons: f64, cap: Option<f64>) -> u32 {
     let sum = stored(weapons * f64::from(sum));
-    whole(scaled(sum, factor).max(1.0))
+    let damage = scaled(sum, factor).max(1.0);
+    let damage = match cap {
+        Some(cap) if cap < f64::from(damage) => stored(cap),
+        _ => damage,
+    };
+    whole(damage)
 }
 
 /// A strike's damage `total` times its factor `factor` (the event's `+0x1C`, `0x56B130`) where the
@@ -3728,13 +3758,37 @@ mod tests {
         for (rolled, through, health) in lost {
             let sum = dealt(rolled, resistance, 1.0);
             assert!((sum - through).abs() < 1e-4, "{rolled}: {sum}");
-            assert_eq!(taken(sum, 1.0, factor), health, "{rolled}");
+            assert_eq!(taken(sum, 1.0, factor, None), health, "{rolled}");
             // Without the factor, the 17, 15 and 15 the game took before.
-            assert!(taken(sum, 1.0, 1.0) >= 15);
+            assert!(taken(sum, 1.0, 1.0, None) >= 15);
         }
         // Half a strike, and at least 1.
-        assert_eq!(taken(15.384_771, 0.5, factor), 5);
-        assert_eq!(taken(0.4, 1.0, factor), 1);
+        assert_eq!(taken(15.384_771, 0.5, factor, None), 5);
+        assert_eq!(taken(0.4, 1.0, factor, None), 1);
+    }
+
+    #[test]
+    fn a_creatures_damage_to_the_hero_is_held_by_its_level_and_the_difficulty() {
+        let bronze = Rules::default();
+        // Level 1 on bronze: (6·10)^1.5 · 0.32258 · 0.5, about 74.96.
+        let cap = bronze.player_cap(1);
+        assert!((cap - 74.957).abs() < 1e-2, "{cap}");
+        // Twice that on niobium, the share 1.
+        let niobium = Rules {
+            cap: CAPS[4],
+            ..Rules::default()
+        };
+        assert!((niobium.player_cap(1) - 2.0 * cap).abs() < 1e-6);
+        // A strike above the cap takes the cap, one below it is kept, and none is held without it.
+        assert_eq!(taken(500.0, 1.0, 1.0, Some(cap)), 74);
+        assert_eq!(taken(60.0, 1.0, 1.0, Some(cap)), 60);
+        assert_eq!(taken(500.0, 1.0, 1.0, None), 500);
+        // The hero struck by a creature carries the cap; a creature struck by the hero none.
+        let combat = combat(&a_wolf(), 1, Holds::default(), &[], &bronze);
+        let (_, _, blow) = weighed(combat, combat, Some(Side::Defender), (1, 1), &bronze);
+        assert_eq!(blow.cap, Some(cap));
+        let (_, _, blow) = weighed(combat, combat, Some(Side::Attacker), (1, 1), &bronze);
+        assert_eq!(blow.cap, None);
     }
 
     #[test]
