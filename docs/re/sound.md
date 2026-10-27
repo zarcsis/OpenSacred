@@ -192,13 +192,15 @@ Recovered 2026-10-23 (#734).
   None of `+0x69C`, `+0x6B1`, `+0x89` is read.
 - **The track playing:** unless a track holds the stream (`0x679260`: Miles' `AIL_stream_status` 4, playing) and `force` is 0, the stream is paused (`AIL_pause_stream`), waited for up to 250 polls of a millisecond to report it stopped or done (`0x692790`: statuses 8 and 2), closed and forgotten (`0x678100`): the track stops at once, with no fade.
 - **In peace or with `+0xAF4A` set** it plays only when forced; then, with `force` 1 and a music other than `0x198D`–`0x198F`, it calls `0x697710` first when `+0xAF4A` is 1, and in peace (`+0x698` 3) sets the double at `+0xB7B8` to 200.
-  `+0xB7B8` is a time in seconds that `0x678F80`, the test of the fight's end, lowers to 120 once it passes 180 while `+0xAF4A` is set (**hypothesis**: the fight's music and its time; the fights' music is not in the game).
+  `+0xB7B8` is the timer of the peace stream's alternation, and 200 makes it switch to the ambient loop at the next frame ("The peace stream's alternation" below, #1211).
 - **The music:** its file by the sound id (`0x6761C0`), its id at `+0x68E` and `+0x610`, opened as a stream (`AIL_open_stream`) and started at once at the music's volume times a factor of the id (`0x697820`: a table of 64 pairs of an id and a float at `+0x6B4`, 1 for an id not in it; how it is filled is not read), played once (`AIL_set_stream_loop_count` 1).
   As a track holds the stream until it ends, a sector entered meanwhile does not switch the music (`0x67A7A0`).
 
 **Seen** (2026-10-23, the driver of #448, the Seraphim's new game, `trace stream` and `0x694FE0`): each of the hero's deaths at the start called `0x694FE0(6505, 1, 0)` and opened `MUSIC_DEATH.mp3` (17.8 s), the first while the `ATMO_WOOD` loop played on the stream; the hero rose at the start some 5 s later and the death's music went on.
 After it ended, in the start's building (sector 50,39, whose music is 6560), nothing was opened on the stream for over 7 minutes, neither the loop nor a music; moved to sector 52,39 (music 6550), the game logged `cMSS::playMusic (SOUND_FX_ATMO_WOOD)` at once.
 So the stream also carries the ambient loops there, and what restarts the music after a death is the sector's change, not the end of the track (**hypothesis**; `0x697710`'s part in it not read).
+Read again 2026-10-27 (#1211): the death's music plays on the once-stream `+0x60C`, while the peace music and the ambient loops share the pair of streams of `cMSS::playMusic` ("The peace stream's alternation" below); the hero's death sets the alternation's timer to 200 s, so that the peace stream turns to the ambient loop as the death's music plays, and the music should come back 180 s later by day.
+The 7 minutes without a stream opened contradict that unless it was dusk or night, the cemetery's spot loop held the cycle, or the trace watched the once-stream alone: to be checked with a trace of `0x694510` in the original.
 
 `opensacred-game` plays it at the hero's fall (`music`, #734): the track playing stops at once, `MUSIC_DEATH` plays once at the music's volume without fading in, by day or by night, and plays to its end in whatever sector the hero rises; then the music is silent until the hero enters a sector that another track would switch to, as above.
 Its ambient loops play apart (`atmosphere`, above) and go on.
@@ -216,7 +218,7 @@ Each sector names its music: `sectors.keyx +0x2D8` is a sound id, 0 in 1,892 sec
 - **The handler** (`0x67A7A0`, type 2, subtype 0) keeps the music at `+0x692` (the one before at `+0x694`, when the state at `+0x698` is 3) and the area's region at `+0xA40` (`0x602250`, the table of 69 bytes at `0x95CBFC`).
   It overrides the music: `MUSIC_VILLAGE01` (`0x1996`) and `MUSIC_MASCARELL` (`0x1990`) become `MUSIC_VILLAGE_SIEGE_MILITARY` (`0x1997`) in the regions 8–10 and `0x6F`, and, with bit 1 of `+0xA38`, in the regions 2, 4–10, 12–17, `0x6E` and `0x6F`; a region whose bit is set in `+0xA3C` (bit 11 for the region `0x6E`) takes `MUSIC_VILLAGE_SIEGE_UNDEAD` (`0x1998`).
   Then, in peace (`+0x698` 3) and when nothing else holds the music (`0x679260`), it plays `+0x692` at once (`cMSS::playMusic`, `0x694510`); `0x1968`, `0x196D` and `0x196C` take their own ways (`0x691310`, `0x695400`).
-- **When a track ends** (`0x697710`, above): with a music at `+0x692`, in peace and not at night (`+0xA34` other than 2) it plays it again; with none, a variant of `PEACE`; at night neither, but a jingle of group 6 and the ambient loop (`0x696A90`).
+- **When a fight ends** (`0x697710`; read 2026-10-27, #1211, it ends the fight's music, not a track, as the peace stream's tracks loop): with a music at `+0x692`, in the music's phase and not at night (`+0xA34` other than 2) it crossfades to it; with none, to a variant of `PEACE`; otherwise a jingle of group 6 (`JINGLE_FIGHT_OVER`, of the profile `rand() & 1`, whose 0 names none: **hypothesis**, silent half of the time) and a crossfade to the ambient loop (`0x696A90`).
 
 **The regions.**
 `0x602250` turns an area (keyx `+0x2C0`) into a region by the table of 69 signed bytes at `0x95CBFC`, constant data: the areas 0–49 become 0, 1, 2, 3, 4, 7, 10, 9, 8, `0x6F`, 6, 5, 0, 25, 26, 24, 24, 24, 24, 0, 15, 12, 13, 0, `0x6E`, 0, 0, 25, 0, 0, 13, 17, 16, 18, 19, 0, 19, 20, 21, 23, 0, 0, 22, 22, 25, 27, 14, 28, 20, 26, and the areas 50–68 the regions 51–69.
@@ -240,6 +242,35 @@ By night no track starts, and the one playing plays to its end, without the jing
 Since #55 the sieges' and the world change's music follow the scripts' variables `RegionChange` and `Globalchange1` as the handler overrides it (`music::music_of`), whenever the hero's sector's music is chosen, so that a quest's siege changes the music of the sector the hero stands in at once (**hypothesis**: the original's pass posts the music at each of its runs).
 In the game, the quest 58's `Init58` (the console's `quest set-up 58`, `script Init58`), which sets the bits 1 and 6, gave the start's sector `MUSIC_VILLAGE_SIEGE_UNDEAD`.
 Not in the game: the world changes' creatures (`RegionChange` and `ReplaceSpawn`, #55) and the fights' music (docs/decisions/2026-10-17-region-music.md).
+
+### The peace stream's alternation
+
+Read 2026-10-27 for #1211 in `Sacred.exe`, code only (**confirmed** by code unless marked otherwise; the original not run).
+
+- **One stream for both.** `cMSS::playMusic` (`0x694510`) plays on a pair of Miles streams, `+0x5D4` (the current one, its id at `+0x68C`) and `+0x5F0` (the one before, `+0x690`), the peace music and the ambient loops (`ATMO_*`) alike, never on the once-stream `+0x60C` of the death and the jingles: the music and the ambient loop never sound together but in a crossfade, and the once-stream sounds over either.
+  `+0x698` is the stream's phase: 3 the music, 2 the ambient loop, 0 not started (1 and 4 skip the cycle; **hypothesis**: 1 a pause, set and undone by the event (12, 1, v)).
+  The reset `0x676E00` sets `+0xAF28` to 1, the phase to 2 and the timer `+0xB7B8` to 0.
+- **`+0xAF28`** is 1 but from the start of a fight's music (`0x695E70` at `0x696036`) to the first crossfade after it (every frame of a crossfade of the peace stream, `0x69C66C`, and the end of a fade-out of both streams, `0x69C490`, set it back) (**hypothesis**: "no fight's music holds the stream").
+  With it set, a crossfade back to the music before the one before swaps the two streams, so that the fading track comes back (`0x69C8A6`).
+- **The timer.** `+0xB7B8` (a double, seconds) gains each frame's time unless the phase of the day `+0xA34` is 1 (the dusk) or 2 (the night).
+  Each frame with `+0xAF28` set, a phase other than 0, no spot loop on its own stream (`+0x6AC` 0; **hypothesis**: the cemetery's and the arenas' of `0x695400`) and a region's music other than `ATMOSPOT_CEMETERY` (6504) and `ATMOSPOT_ARENA_INDOOR` (6508), a timer past 180 s (`0x8961F0`) switches: the music's phase to the ambient loop of the place's nature (`0x696A90`), the ambient phase to the region's music (`playMusic(+0x692)`, or the loop again at a music volume below 0.001), and on success sets the phase and the timer to 0.
+  A switch that fails leaves both, so that it is tried again at each frame; in a sector without music the music cannot open (**hypothesis**: `SOUND_FX_INVALID` has no file), so the ambient loop, once it comes, stays.
+  Past 180 s while a crossfade runs, 20 s (`0x896220`) are taken off the timer: the switch waits 20 s more (not "20 s less", as this document said before).
+  No roll enters the durations.
+- **The first phase** is rolled at the first region's event (2, 0) with the phase 0 (`0x6822E5`): `rand() & 1`, odd the ambient loop, even the music; a music volume of 0.001 or less makes it the ambient loop at any phase.
+- **A region's change** keeps the timer: in the music's phase it crossfades to the new music unless the once-stream plays; in the ambient phase, and in a crossfade, it only chooses the loop again; with a fight's music (`+0xAF4A`) it only keeps the music and the nature.
+- **Requests to switch now** (`0x691310`) set the timer to 200 s: the dusk's and the night's events (3, 2) and (3, 3) ask for the ambient loop, of the night's column of `0x696A90`, so that by dusk and by night the music gives way within a crossfade and the timer stands until the dawn (3, 4), the music coming back 180 s into the dawn or the day; the region's handler asks for it at the cemetery and the outdoor arena.
+  So do the death's music forced in the music's phase (`0x694FE0`), the hero's death (`0x6853F7`), and the danger and fight jingles of `0x68BEA0` played in the music's phase (the `music` profile's groups 3, 4, 5 and 7 on the once-stream): the music gives way to the ambient loop as they play.
+  After the danger jingle (group 3) in the music's phase, every 10 s (`+0xAF78`) the test of the fight's end (`0x678F80`) is asked, and once out of the fight, in the ambient phase, the timer is set to 200 s: the music comes back.
+  A crossfade that fails to open in the music's phase sets 200 s too, unless the track it leaves is `ATMO_WOOD`, `_VULCANO`, `_ICE` or `_DESERT` and still plays (then it keeps it).
+- **The dungeons** have no rule of their own: their music alternates with their loop; `0x696A90` takes the nature `DUNGEON` (`0x80`) to `ATMO_DUNGEON` by day and `ATMO_WOOD_NIGHT` by dusk and night, and only a nature outside its table takes the dungeons' musics (6520–6523, 6508) to `ATMO_DUNGEON` or `ATMO_DUNGEON_NIGHT`.
+- **A crossfade** (`playMusic` with its second argument 0): the stream before, if any, is stopped, the current one becomes the one before, and the new track opens on the current one at the volume 0, the pan 0.5, looping forever (`AIL_set_stream_loop_count` 0), resumed where it was left if it was left out of a fight (a table of positions at `+0x8B4`); at each frame (`0x69C4BB`–`0x69C974`) the new one rises by its target times the frame's time over 7 s and the old one falls at its own target's rate, both linear, and the crossfade ends when the new one stands at its target and the old one is gone; a frame of 0.1 s or more moves neither.
+  The target is the id's factor (`+0x6B4`) times the effects' volume (`+0x78`) for a name that starts with `ATMO`, else the music's volume (`+0x7C`).
+  The same id already playing is left alone; the immediate path (a fight's music, a music forced by the scripts) stops the current track at once and starts the new one at its target.
+- **A fight's music** (`0x695E70`, not in the game yet) cuts in at once at full volume, unless 10 s after the last fight's end (`+0xAF70`), at the indoor arena, at a music volume of 0.001 or less or while the once-stream plays: `MUSIC_FIGHT_NUKNUK` and `_KARIBIK` in their regions, `MUSIC_FIGHT05`–`10` by `rand() % 6` in `MUSIC_DESERT01`, else by the fight's kind and `rand() % 9`; the cycle stands meanwhile while the timer counts on by day.
+  Out of the fight (`0x678F80`: no hostile record within 800 and none attacking) a timer past 180 s is set to 120 s, and `0x697710` ends the fight's music (above), the next fight's music held off for 10 s.
+
+What the game does differs (#1177): `music` plays the region's music by day and none by night, and `atmosphere` plays the ambient loops on a channel of their own beside it (docs/decisions/2026-10-17-region-music.md), with fades of 2 s.
 
 ## The sources: what plays, and what `opensacred-game` does not yet
 
@@ -434,7 +465,7 @@ Read further 2026-10-27 for #1171 (**confirmed** by code unless marked otherwise
   `opensacred-game` plays them so at the nearest fire (`fx::crackle`, #1170), each loop placed at its fire by the listener's volume times its type's.
 - **The element stones and the stargates** (`0x69F9EF`–`0x69FAB0`): `FX_ELEMENTSTONE01`–`05` (827–830, 841) loop `ELEMENT_LOOP` (213), `06` (939) `HEART_GOLD_LOOP` (214), `07` (768) `HEART_ROTTEN_LOOP` (215), `FX_STARGATE` (802) and `FX_STARGATE_UW` (1180) `SPELL_TELEPORTER` (2087), each within 1,150 (not at the distance 0), stopped beyond.
 - **The crows and bats** (`0x41F1B0`, the fliers over the camera, docs/re/weather.md item 7): at each of the flier's timers, the crows (513, 589, 590) `ANIMAL_CROW01` (126), the bat (514) `ANIMAL_BAT04` or `05` at even odds, in the middle.
-- **The music's alternation** (`0x69B770`'s head): by day (the phase not 1 or 2) `+0xB7B8` counts seconds; with `+0xAF28` set, past 180 s the peace music (`+0x698` 3) gives way to the ambient loop (`0x696A90`, state 2) and the loop to the music again (`cMSS::playMusic`, state 3), the count reset; with bit 2 of `+0x64` it counts 20 s less (**hypothesis**: `+0xAF28` the music on).
+- **The music's alternation** (`0x69B770`'s head): by day the peace music and the ambient loop take turns of 180 s on one stream, by dusk and by night the ambient loop alone ("The peace stream's alternation" above, #1211).
 
 #### The hero's comments
 
