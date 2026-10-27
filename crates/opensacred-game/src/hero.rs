@@ -404,7 +404,7 @@ pub fn spawn(
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     bodies: Query<Entity, With<Body>>,
-    wielded: Query<(Entity, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
+    wielded: Query<(Entity, &crate::models::OrderedWith), crate::npcs::Carried>,
     old: Option<Res<Clips>>,
 ) {
     if hero.spawned {

@@ -1221,7 +1221,7 @@ impl Plugin for ChoicePlugin {
                 (
                     (keys.in_set(crate::frame::Control), show),
                     // The figures, where the game draws models.
-                    (dress, settle, shade, npcs::equip)
+                    (dress, settle, shade, npcs::equip, npcs::bind_worn)
                         .chain()
                         .run_if(resource_exists::<Assets<Gltf>>),
                 )
