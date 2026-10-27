@@ -57,6 +57,7 @@ mod pause;
 mod pick;
 mod pickup;
 mod remote;
+mod rewards;
 mod ripples;
 #[cfg(test)]
 mod scene_tests;
@@ -321,6 +322,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
@@ -331,9 +333,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,
-        sound::SoundPlugin,
     ))
     .add_plugins((
+        sound::SoundPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,

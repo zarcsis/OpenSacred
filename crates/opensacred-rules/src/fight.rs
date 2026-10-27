@@ -440,7 +440,7 @@ pub fn weighing(level: u32, hero: u32, (anteil, voll, upper): (f32, f32, f32)) -
 
 /// The decay of the experience of a hero of level `hero` (`0x57E050`): 1 up to level 99,
 /// `0.985^(H − 99)` to 124, `0.98^(H − 99)` to 149, `0.975^(H − 109)` from 150.
-fn decay(hero: u32) -> f32 {
+pub fn decay(hero: u32) -> f32 {
     let power = |base: f32, from: u32| base.powf(to_f32(hero.saturating_sub(from)));
     match hero {
         0..=99 => 1.0,

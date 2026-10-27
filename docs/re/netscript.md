@@ -274,6 +274,26 @@ Read 2026-10-26 (#656) by the static reading of `Sacred.exe`; **confirmed** by c
 `GroupIsDead` answers in the play (`scripts::living_groups`): a group lives while a creature of it lives in the world, but the raised dead, or away from it, made by the start or the play, or gone with its sector alive (`npcs::Npcs::living_groups`); a sector's `Init` makes its creatures only as its sector comes in, and at the start, before the world, the test is not answered, as before.
 In the game the Seraphim's start's monsters of the group 10 each run quest 9's `tot1` as they fall, and the seventh's sets its timer `Tutorial09`.
 
+## The rewards: `AddExp`, `AddGold` and `Gewinn`
+
+Read 2026-10-27 (#1162); **confirmed** by code unless marked otherwise.
+The trees hold 1,023 `AddExp` (17), 1,473 `AddGold` (18) and 5,710 `Gewinn` (125), mostly in the quests' functions of their delivery.
+
+- Each acts only outside a function whose quest is finished (`+0x120` bit 2) or not set up (bit 1 clear), by the running function's index (`0x94E07C`) and its quest (the trigger names' `+0x48`, the quests' store `0xAABF18`), as `CreateObj` does (`0x48D480`, `0x48DA40`, `0x4AC940`).
+- `AddExp` (`0x48D480`) and `AddGold` (`0x48DA40`) name a creature by `0x01`, `HERO` (case aside) the local hero, and take a number by `0x0B`; a record without a name acts on the function's creature (the walker's argument).
+  `AddExp` adds the points through the creature's `addExperience` (`0x549520`), with no difficulty's factor.
+  `AddGold` adds the amount through the gold's handler (`0x57FD80`), less than 0 too, and sends the creature the engine's event 6, a line over it of the amount and the game's text 1004 (the word for gold), `0xFFFFFF80` for a gain and `0xFFFF4040` for a loss; **seen**: `script F_Gold` on bronze gave the Seraphim 1,000 gold and showed the amount and the word in light yellow over her head.
+  Of the trees' records, 659 `AddGold` and 231 `AddExp` name `HERO`, and the others no one: the prices of services (`AddGold` of −100 to −2,000) among them.
+- `Gewinn` (`0x4AC940`) reads up to three numbers from the tags `0x0B` and `0x9F` in their order: its flags, a value `v` and a step `s` held to 0 to 5.
+  Of the trees' 5,666 `Gewinn`s, the orders are `0B 0B 0B` (4,606), `0B 9F 9F` (1,000), `9F 9F 9F` (20) and `0B 9F 0B` (40, a variable's value between two numbers, as quest 10259's level); counted on the listings 2026-10-27.
+  - Each counts the hero's quests (`+0x2CF`) and a set's count (`+0x2CD`); once the latter passes `R(1, 56)` it starts again and the hero drops a piece of a set not 33 to 38 whose least level is at most the hero's, 6 at least, at random (`0x559BF0`).
+  - The flag 1 gives gold, `(G[s]·v + 100)·(H/2 + 1)` for the hero's level `H`, `G` = 5, 8, 12, 20, 4, 25, through the gold's handler and with the line of `AddGold`.
+  - The flag 2 gives experience: the middle of the hero's sector's levels `m` (`(lowest + highest)/2` of its world record's `+0xD3` and `+0xD5`, 0 without one) makes `⌊(m + 2)·(E[s]·v + 100)/2⌋`, `E` = 10, 8, 12, 8, 4, 15, times the difficulty's factor, 1, 2, 10, 20 or 30, truncated, times the decay of a high hero (`0x57E050`), truncated, through `addExperience`.
+  - The flags 4, 8, `0x10` and `0x20` give an item each of a category at random among 7, 8, 9, 15, 16, 20, 29, 30 and 31, among 5 and 13, among 6, 13, 17, 18, 19 and 21 to 25, and of 8, by the drops' type (`0x5C7FA0`) at `v + R(0, 3)` with a quality key rolled on the drops' weights by the difficulty's item factor (1.0, 1.4, 1.9, 2.9 or 4.2); the flag `0x40`, or none made, the hero's class's item (`0x45F410`); made at the hero's side (its facing) at a level of the sector's levels raised by the difficulty and of the hero's (**hypothesis** for the details, not read in full).
+
+`opensacred-game` gives the hero the gold and the experience of the three records (`rewards`, `opensacred_rules::rewards`, #1162): `scripts` keeps the records of a finished quest's function out and reads their variables' values as they run, and `rewards` carries them out before `npcs` takes the records, the line of the gold over the hero; a record without a name acts on the hero (**hypothesis**: the function's creature is the hero in the functions that pay).
+`Gewinn`'s items and sets' pieces, and a reward to another creature, are not followed yet.
+
 ## `SetGroupState`, `DelNPC`, `SetOnKill` and `SetOnCollect`
 
 Read 2026-10-26 (#1021) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise; none of it seen in the running original yet.

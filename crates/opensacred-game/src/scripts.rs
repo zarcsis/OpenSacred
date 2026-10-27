@@ -501,7 +501,8 @@ impl Live {
     /// Runs the `entry`-th function of the name `function` as [`Self::run`] does: what it did to
     /// the world and how it ended, none where its quest is not set up.
     fn call(&mut self, function: &str, entry: usize) -> (Effects, Option<Outcome>) {
-        if let Some(quest) = self.quest_of(function)
+        let quest = self.quest_of(function);
+        if let Some(quest) = quest
             && self.state.quests.flags(quest) & quests::SET_UP == 0
         {
             bevy::log::debug!("scripts: {function} waits for its quest {quest}");
@@ -513,6 +514,7 @@ impl Live {
             &mut self.rng,
         );
         recorder.living = Some(&self.living);
+        recorder.quest = quest;
         let outcome = match self.runtime.call_entry(function, entry, &mut recorder) {
             Ok(outcome) => Some(outcome),
             Err(e) => {
@@ -668,7 +670,14 @@ struct Recorder<'a> {
     /// Whether no function runs, the runner's index of the running function at −1 (`0x94E07C`):
     /// before the first begins, and after any ends, until the next begins ([`Host::ends`]).
     between: bool,
+    /// The quest of the function that runs, which the rewards ask ([`REWARDS`]).
+    quest: Option<u32>,
 }
+
+/// The records of the rewards, `AddExp`, `AddGold` and `Gewinn`, which `rewards` carries out:
+/// none inside a function whose quest is finished or not set up (`0x48D480`, `0x48DA40`,
+/// `0x4AC940`; #1162), their variables' values read as they run.
+const REWARDS: [&str; 3] = ["add_exp", "add_gold", "gewinn"];
 
 impl<'a> Recorder<'a> {
     fn new(
@@ -691,7 +700,16 @@ impl<'a> Recorder<'a> {
             infos: Vec::new(),
             popups: Vec::new(),
             between: true,
+            quest: None,
         }
+    }
+
+    /// Whether a reward may act: no function's quest, or one set up and not finished.
+    fn rewards(&self) -> bool {
+        self.quest.is_none_or(|quest| {
+            let flags = self.state.quests.flags(quest);
+            flags & quests::SET_UP != 0 && flags & quests::FINISHED == 0
+        })
     }
 }
 
@@ -717,9 +735,27 @@ impl Host for Recorder<'_> {
                 _ => Handled::Unknown,
             };
         }
+        if REWARDS.contains(&name) && !self.rewards() {
+            bevy::log::debug!("scripts: {name} inside a finished quest gives nothing");
+            return Handled::Done;
+        }
         if ran.is_empty()
             && let Some(mut record) = opensacred_scripts::record(name, operands)
         {
+            // A reward's numbers as its variables hold them now (`+0xA860`).
+            if REWARDS.contains(&name)
+                && let netscript::Body::Operands(ops) = &mut record.body
+            {
+                for op in ops.iter_mut() {
+                    if let Value::Variable(variable) = &op.value {
+                        let value = self
+                            .state
+                            .variables
+                            .value(&expand(variable, &self.state.variables));
+                        op.value = Value::I32(value);
+                    }
+                }
+            }
             // A `CreateNPC` takes the pair of its cell's area's `RegionChange` list as it runs
             // (`0x482F41`, #1063): each area's that turns its type, which `npcs` picks by its
             // cell.
