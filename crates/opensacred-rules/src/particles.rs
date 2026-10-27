@@ -460,6 +460,7 @@ fn smoke(variant: u8) -> Option<Fire> {
             0.03,
             lava(1.0),
         ),
+        7 => return Some(geyser()),
         _ => return None,
     };
     Some(Fire {
@@ -487,11 +488,106 @@ fn smoke(variant: u8) -> Option<Fire> {
     })
 }
 
+/// The geyser's jet at rest (the variant 7, `FX_GEYSIR`, the flags `0x46`): one layer of
+/// `PARTICLE_WATER01` whole, a blue-white of (208, 212, 228) at the alpha of the life, laid over
+/// by its alpha; its drops falling by 100 a second's buoyancy, of 5 ± 1, ± 1 about the system,
+/// rising at 40 ± 5 every 0.1 s and living 0.73 s (`0x76E980`, `0x76E2D0`).
+fn geyser() -> Fire {
+    let [r, g, b] = [208.0 / 255.0, 212.0 / 255.0, 228.0 / 255.0];
+    Fire {
+        texture: "particle_water01",
+        layers: vec![Layer {
+            life: -350.0,
+            size: 15.0,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            buoyancy: spread(100.0, 0.0),
+            size: spread(5.0, 1.0),
+            velocity: spread([0.0, 0.0, 40.0], [0.0, 0.0, 5.0]),
+            offset: spread([0.0; 3], [1.0; 3]),
+            interval: 0.1,
+            ..Block::default()
+        }],
+        ramps: vec![Ramp::new([r, g, b, 1.0], &[([r, g, b, 0.0], 256)])],
+        blends: vec![Blend::Over],
+        grid: 1,
+        count: SMOKE_PARTICLES,
+        light: 0.0,
+    }
+}
+
+/// A geyser's clock (`+0x2E38`): its jet bursts for a second as the clock runs from 1 to 0, then
+/// rests 30 to 100 s (`0x76E2D0`'s case of the variant 7).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Geyser {
+    pub clock: f32,
+}
+
+/// What a geyser's frame asks: its jet at rest, its jet bursting, and whether its burst's sound
+/// is to start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Jet {
+    Rests,
+    Bursts { sounds: bool },
+}
+
+/// A share of 0 to 1 by `dice`, as the client's `rand()` / 32767.
+fn share(dice: &mut impl Dice) -> f32 {
+    f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0
+}
+
+impl Geyser {
+    /// A geyser as it starts, its first burst 3 to 20 s on (**estimate** for the roll's form).
+    pub fn new(dice: &mut impl Dice) -> Self {
+        Self {
+            clock: 3.0 + 17.0 * share(dice),
+        }
+    }
+
+    /// One frame of `dt` seconds of the geyser of the jet `fire`, `latch` the sound's latch that
+    /// every geyser shares (`0x17EEBC8`): the clock run below 0 rests it again 30 to 100 s on and
+    /// opens the latch; below 1 its jet bursts upward at 200 and lives longer, its drops every
+    /// 0.035 s, its sound starting where the latch is open, which it then closes; else its jet
+    /// rests as [`geyser`] makes it.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        fire: &mut Fire,
+        latch: &mut bool,
+        dice: &mut impl Dice,
+    ) -> Jet {
+        self.clock -= dt;
+        let (Some(layer), Some(block)) = (fire.layers.first_mut(), fire.blocks.first_mut()) else {
+            return Jet::Rests;
+        };
+        if self.clock < 0.0 {
+            *latch = false;
+            self.clock = 30.0 + 70.0 * share(dice);
+            return Jet::Rests;
+        }
+        block.velocity.value = [0.0, 0.0, 40.0];
+        if self.clock < 1.0 {
+            block.velocity.value[2] = 200.0;
+            layer.life = -75.0;
+            block.interval = 0.035;
+            let sounds = !*latch;
+            *latch = true;
+            Jet::Bursts { sounds }
+        } else {
+            layer.life = -350.0;
+            block.interval = 0.1;
+            Jet::Rests
+        }
+    }
+}
+
 /// The smoke class's variant of the FX type `kind` that the scripts' `CreateObj` gives it
-/// (`0x48907C`): 771, 810 and 811 the chimneys' smokes, 812, 813 and 876 the fire smokes, 882 and
-/// 881 the lavas' smokes, 886, 885 and 884 the fires.
+/// (`0x48907C`): 771, 810 and 811 the chimneys' smokes, 812, 813 and 876 the fire smokes, 879 the
+/// geyser, 882 and 881 the lavas' smokes, 886, 885 and 884 the fires.
 pub fn fire_variant(kind: u32) -> Option<u8> {
     match kind {
+        879 => Some(7),
         771 => Some(1),
         810 => Some(2),
         811 => Some(3),
@@ -548,5 +644,35 @@ mod tests {
         }
         assert!(system.particles.iter().all(|p| p.layer == 1));
         assert_eq!(fire_variant(884), Some(12));
+    }
+
+    #[test]
+    fn a_geyser_bursts_a_second_and_one_of_them_sounds() {
+        let mut dice = Rng::of(0, 0, 3);
+        let mut fire = fire(7).unwrap();
+        let mut latch = false;
+        let mut geyser = Geyser { clock: 1.5 };
+        assert_eq!(
+            geyser.update(0.4, &mut fire, &mut latch, &mut dice),
+            Jet::Rests
+        );
+        assert_eq!(fire.blocks[0].interval, 0.1);
+        // Below 1, the burst; its sound once, and none for another geyser while it bursts.
+        assert_eq!(
+            geyser.update(0.2, &mut fire, &mut latch, &mut dice),
+            Jet::Bursts { sounds: true }
+        );
+        assert_eq!(fire.blocks[0].velocity.value[2], 200.0);
+        let mut other = Geyser { clock: 0.5 };
+        assert_eq!(
+            other.update(0.1, &mut fire, &mut latch, &mut dice),
+            Jet::Bursts { sounds: false }
+        );
+        // Past 0, at rest again 30 to 100 s on, the latch open.
+        assert_eq!(
+            geyser.update(1.0, &mut fire, &mut latch, &mut dice),
+            Jet::Rests
+        );
+        assert!((30.0..=100.0).contains(&geyser.clock) && !latch);
     }
 }
