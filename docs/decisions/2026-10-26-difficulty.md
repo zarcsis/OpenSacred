@@ -13,7 +13,8 @@ About seventy functions read the difficulty: the balance's rows by its column, a
 The choice of the hero starts its new hero on bronze, as the original's, the difficulty's arrows changing nothing.
 A game named by the command line, the console or a script may take another (`new-game --difficulty`), in place of a hero of the saves that won the difficulty below, which the game cannot load yet (#1095, #1117).
 The game follows the difficulty in the balance's rows of the fight by its column, the scaling of the creatures' levels and the sectors' bounds, the experience's factor and cap, the levels on bronze's scale that the experience and the creatures' test of the levels weigh, the drops and the death's toll of gold.
-It does not follow yet the other readers, which #1125 lists: the stats of a hostile creature on platinum and niobium, the potions' healing by `PotionDiv`, the quests' rewards and the scripts' tests of the difficulty, the items' sockets and sets, the specials' chances and the terror of the effect 852; nor the cap of a creature's damage to a player, which bronze takes too (#1124).
+It does not follow yet the other readers, which #1125 lists: the stats of a hostile creature on platinum and niobium, the potions' healing by `PotionDiv`, the quests' rewards and the scripts' tests of the difficulty, the items' sockets and sets, the specials' chances and the terror of the effect 852.
+The cap of a creature's damage to a player follows the difficulty since #1124.
 
 ## Why
 
