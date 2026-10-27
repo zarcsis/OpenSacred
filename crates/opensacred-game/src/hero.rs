@@ -122,6 +122,8 @@ pub struct Hero {
     )>,
     /// The model's dying clips, the slots 173 and 174 (`npcs`).
     pub dying: Vec<String>,
+    /// The model's pick-up, the slot 172, if it has one (`pickup`, #1219).
+    pub pickup: Option<String>,
     pub position: Vec3,
     /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
     /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
@@ -166,6 +168,7 @@ impl Hero {
             combat: None,
             vitals: None,
             dying: Vec::new(),
+            pickup: None,
             position,
             floor: None,
             target: None,
@@ -194,6 +197,7 @@ impl Hero {
         self.attacks.clone_from(&form.clips.attacks);
         self.arts.clone_from(&form.clips.arts);
         self.dying.clone_from(&form.clips.dying);
+        self.pickup.clone_from(&form.clips.pickup);
         self.gltf = Some(assets.load(self.model.clone()));
         self.equipment = (form.armed && !self.held.is_empty())
             .then(|| crate::npcs::equipment(assets, &self.held));
@@ -366,6 +370,8 @@ pub struct Clips {
     pub arts: Vec<ArtNode>,
     /// The dying clips' nodes.
     dying: Vec<AnimationNodeIndex>,
+    /// The pick-up's node and clip, where the model has one (`pickup`, #1219).
+    pub pickup: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -468,7 +474,13 @@ pub fn spawn(
         clips.extend(dying);
         let dyings = clips.len() - 3 - stances - strikes;
         clips.extend(arts.iter().filter_map(|(_, clip)| clip.clone()));
+        // The pick-up, last.
+        let pickup = hero.pickup.as_ref().and_then(|name| clip(name));
+        clips.extend(pickup.clone());
         let (graph, nodes) = AnimationGraph::from_clips(clips);
+        let pickup = pickup
+            .zip(nodes.last().copied())
+            .map(|(clip, node)| (node, clip));
         let mut art_nodes = nodes[3 + stances + strikes + dyings..].iter();
         let art_nodes = arts
             .into_iter()
@@ -494,6 +506,7 @@ pub fn spawn(
                 .collect(),
             dying: nodes[3 + stances + strikes..3 + stances + strikes + dyings].to_vec(),
             arts: art_nodes,
+            pickup,
             player: None,
         });
     }
@@ -836,7 +849,7 @@ pub fn run(
         &mut Transform,
         &mut Body,
         Has<crate::attack::Striking>,
-        Has<crate::making::Playing>,
+        (Has<crate::making::Playing>, Has<crate::pickup::Picking>),
         Has<Dies>,
         Has<Flies>,
         Option<&crate::effects::Effects>,
@@ -844,7 +857,9 @@ pub fn run(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body, striking, making, dying, flies, effects) in &mut bodies {
+    for (me, mut transform, mut body, striking, (making, picking), dying, flies, effects) in
+        &mut bodies
+    {
         // The Daemon in his form of 1094 wades where the ground is low (`0x4EBCA0` at
         // `0x4EBD62`, an effect keyed by 1094).
         let wades =
@@ -1023,12 +1038,12 @@ pub fn run(
             }
         }
         // The state changes only with the clip: before the model's player exists, the next
-        // frame tries again. A strike plays its own clip (`attack`), an art its own (`making`), and
-        // a fall its own ([`fall`]).
+        // frame tries again. A strike plays its own clip (`attack`), an art its own (`making`), a
+        // pick-up its own (`pickup`), and a fall its own ([`fall`]).
         let Some(clips) = clips.as_ref() else {
             continue;
         };
-        if striking || making || dying {
+        if striking || making || picking || dying {
             body.moving = None;
             body.stopping = None;
             continue;
@@ -1133,6 +1148,7 @@ pub fn fall(
                     crate::attack::Striking,
                     crate::making::Making,
                     crate::making::Playing,
+                    crate::pickup::Picking,
                 )>()
                 .insert(Fallen(0.0));
             let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
@@ -1328,6 +1344,7 @@ mod tests {
                 attacks: Vec::new(),
                 arts: Vec::new(),
                 dying: Vec::new(),
+                pickup: None,
                 player: None,
             });
         }
@@ -1383,6 +1400,7 @@ mod tests {
             attacks: Vec::new(),
             arts: Vec::new(),
             dying: Vec::new(),
+            pickup: None,
             player: None,
         };
         let with = clips(Some(node(4)));

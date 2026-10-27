@@ -149,6 +149,12 @@ impl Slots {
         self.slot(177)
     }
 
+    /// The clip of the pick-up, slot 172 (`MOTION_PICKUP`), which a hero plays as it takes an
+    /// item off the ground (`0x53A170`, docs/re/items.md, "The take"; #1219).
+    pub fn pickup(&self) -> Option<&str> {
+        self.slot(172)
+    }
+
     /// The clip in `slot`, where the model has one.
     pub fn slot(&self, slot: u16) -> Option<&str> {
         self.0.get(&slot).map(String::as_str)

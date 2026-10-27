@@ -2,9 +2,13 @@
 //! the left button that goes to no attack, on an item lying under the cursor, sends the hero to
 //! the item's point and 25 along both axes, as the AI's state 1 walks a creature to an item
 //! (`0x53A170`); standing, within a hero's reach of 100 and with a straight line of walkable
-//! cells to it (`0x4FCC80`), the hero takes it, else it gives up. Gold goes into the hero's purse
-//! (`0x57FD80`), every other item into its pack (docs/decisions/2026-10-26-pickup.md).
+//! cells to it (`0x4FCC80`), the hero turns to it and plays its pick-up, taking it once half the
+//! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), every
+//! other item into its pack (docs/decisions/2026-10-26-pickup.md).
 
+use std::time::Duration;
+
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use opensacred_rules::drops::{Dropped, Kind};
 
@@ -34,6 +38,23 @@ pub const QUESTS_ITEM: u32 = 7117;
 /// The item that the hero was sent to by a click, which it takes as it stands near.
 #[derive(Component)]
 pub struct Picks(Entity);
+
+/// The hero playing its pick-up of `item` (the motion 172, `0x53A170`'s sub-state 3): the clip's
+/// node and length, and whether it took the item, which it does at the clip's half
+/// (`cCreature::pickupItem`, `0x558080`); the order ends with the clip (#1219).
+#[derive(Component)]
+pub struct Picking {
+    item: Entity,
+    node: AnimationNodeIndex,
+    length: f32,
+    taken: bool,
+}
+
+/// The blend into the pick-up's clip.
+const BLEND: Duration = Duration::from_millis(150);
+/// The longest clip that the pick-up waits for: a clip of times longer, or negative, takes the
+/// item at once (`0x558080`).
+const SANE: f32 = 10.0;
 
 /// What the hero carries: its gold (the stats' word `+0x46`), and the items it picked up, in the
 /// order taken.
@@ -87,8 +108,10 @@ pub(crate) fn pick(
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
+    // Any press ends the order, a pick-up under way with it: its clip given up, the item left
+    // lying where the clip had not reached its half.
     for (hero, _) in &heroes {
-        commands.entity(hero).remove::<Picks>();
+        commands.entity(hero).remove::<(Picks, Picking)>();
     }
     let Some(cursor) = pointer.0 else {
         return;
@@ -150,29 +173,82 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
     ))
 }
 
+/// What takes an item off the ground into the hero's purse, pack or hand.
+#[derive(SystemParam)]
+pub(crate) struct Taking<'w, 's> {
+    commands: Commands<'w, 's>,
+    pack: ResMut<'w, Pack>,
+    taken: MessageWriter<'w, Taken>,
+    sounds: MessageWriter<'w, sfx::Play>,
+    arsenal: Option<Res<'w, crate::arsenal::Arsenal>>,
+    throws: MessageWriter<'w, crate::arsenal::Throws>,
+    items: Query<'w, 's, &'static Lying>,
+}
+
+impl Taking<'_, '_> {
+    /// Takes `item` (`cCreature::pickupItem`, `0x558080`), if it still lies there: gold sounds
+    /// `GOLD01` and the weapon taken back into the hero's hand `UI_INV_PUTMETAL01` (the events
+    /// `(9, 0x83)` and `(9, 5)`; #1167), and the scripts' collecting sounds any other item
+    /// (`scripts`).
+    fn take(&mut self, item: Entity) {
+        let Ok(lying) = self.items.get(item) else {
+            return;
+        };
+        info!(
+            "pickup: the hero takes {:?} {} x{}",
+            lying.dropped.kind, lying.dropped.item, lying.dropped.amount
+        );
+        // The weapon the hero hurled goes back into its empty hand (`0x54ACC0`, #755).
+        if self
+            .arsenal
+            .as_deref()
+            .is_some_and(|arsenal| arsenal.takes_back(&lying.dropped))
+        {
+            self.throws.write(crate::arsenal::Throws(false));
+            self.sounds.write(sfx::Play {
+                sound: sfx::Of::Id(PUT_METAL),
+                at: None,
+                rate: (0.45, sfx::Roll::Share(0.1)),
+            });
+        } else {
+            if lying.dropped.kind == Kind::Gold {
+                self.sounds.write(sfx::Play {
+                    sound: sfx::Of::Id(GOLD),
+                    at: None,
+                    rate: (0.3, sfx::Roll::Share(0.4)),
+                });
+            } else {
+                self.taken.write(Taken(lying.dropped.item));
+            }
+            self.pack.take(lying.dropped);
+        }
+        self.commands.entity(item).despawn();
+    }
+}
+
 /// The hero that stands, once its way to an item it was sent to ends: within its reach of the
-/// item, with a straight line of walkable cells to it, it takes it, else it gives up; gold
-/// sounds `GOLD01` and the weapon taken back into its hand `UI_INV_PUTMETAL01`, in the middle
-/// (`cCreature::pickupItem`, the events `(9, 0x83)` and `(9, 5)`; #1167), and the scripts'
-/// collecting sounds any other item (`scripts`).
+/// item, with a straight line of walkable cells to it, it turns to it and plays its pick-up
+/// (the motion 172, `MOTION_PICKUP`) at the game's speed ([`picking`]), or takes it at once where
+/// its model has none or the clip's time is not sane; else it gives up.
 pub(crate) fn take(
-    mut commands: Commands,
-    mut pack: ResMut<Pack>,
-    (mut taken, mut sounds): (MessageWriter<Taken>, MessageWriter<sfx::Play>),
-    (arsenal, mut throws): (
-        Option<Res<crate::arsenal::Arsenal>>,
-        MessageWriter<crate::arsenal::Throws>,
-    ),
+    mut taking: Taking,
     heights: Res<Heights>,
-    items: Query<(&GlobalTransform, &Lying)>,
-    heroes: Query<(Entity, &Transform, &Body, &Picks)>,
+    (clips, speed, animations): (
+        Option<Res<hero::Clips>>,
+        Res<hero::GameSpeed>,
+        Res<Assets<AnimationClip>>,
+    ),
+    places: Query<&GlobalTransform, With<Lying>>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    mut heroes: Query<(Entity, &mut Transform, &Body, &Picks)>,
 ) {
-    for (hero, transform, body, picks) in &heroes {
-        if body.target().is_some() {
+    for (hero, mut transform, body, picks) in &mut heroes {
+        // Its order to the item taken at a tick of the world first (`hero::take_orders`).
+        if body.target().is_some() || body.ordered() {
             continue;
         }
-        commands.entity(hero).remove::<Picks>();
-        let Ok((at, lying)) = items.get(picks.0) else {
+        taking.commands.entity(hero).remove::<Picks>();
+        let Ok(at) = places.get(picks.0) else {
             continue;
         };
         let (here, at) = (transform.translation, at.translation());
@@ -183,34 +259,60 @@ pub(crate) fn take(
             debug!("pickup: the hero cannot reach {}", picks.0);
             continue;
         }
-        info!(
-            "pickup: the hero takes {:?} {} x{}",
-            lying.dropped.kind, lying.dropped.item, lying.dropped.amount
-        );
-        // The weapon the hero hurled goes back into its empty hand (`0x54ACC0`, #755).
-        if arsenal
+        // It turns to the item and plays its pick-up, taking the item at the clip's half
+        // (`0x44DD90`, `0x53A170`'s sub-state 3; the clip's rate `+0x221` not followed).
+        transform.rotation = hero::facing((at - here).with_y(0.0));
+        let clip = clips
             .as_deref()
-            .is_some_and(|arsenal| arsenal.takes_back(&lying.dropped))
+            .and_then(|clips| Some((clips.pickup.clone()?, clips.player?)));
+        if let Some(((node, clip), player)) = clip
+            && let Ok((mut player, mut transitions)) = players.get_mut(player)
         {
-            throws.write(crate::arsenal::Throws(false));
-            sounds.write(sfx::Play {
-                sound: sfx::Of::Id(PUT_METAL),
-                at: None,
-                rate: (0.45, sfx::Roll::Share(0.1)),
-            });
-        } else {
-            if lying.dropped.kind == Kind::Gold {
-                sounds.write(sfx::Play {
-                    sound: sfx::Of::Id(GOLD),
-                    at: None,
-                    rate: (0.3, sfx::Roll::Share(0.4)),
+            let length = animations.get(&clip).map_or(0.0, AnimationClip::duration);
+            if length > 0.0 && length <= SANE {
+                transitions
+                    .play(&mut player, node, BLEND)
+                    .set_speed(speed.0);
+                taking.commands.entity(hero).insert(Picking {
+                    item: picks.0,
+                    node,
+                    length,
+                    taken: false,
                 });
-            } else {
-                taken.write(Taken(lying.dropped.item));
+                continue;
             }
-            pack.take(lying.dropped);
         }
-        commands.entity(picks.0).despawn();
+        taking.take(picks.0);
+    }
+}
+
+/// Plays each hero's pick-up on: it takes the item once half the clip has played
+/// (`cCreature::pickupItem`, `0x558080`), and its order ends as the clip ends, or as another
+/// clip takes the pick-up's place (a strike, a fall).
+pub(crate) fn picking(
+    mut taking: Taking,
+    clips: Option<Res<hero::Clips>>,
+    players: Query<(&AnimationPlayer, &AnimationTransitions)>,
+    mut heroes: Query<(Entity, &mut Picking)>,
+) {
+    for (hero, mut picking) in &mut heroes {
+        let active = clips
+            .as_deref()
+            .and_then(|clips| clips.player)
+            .and_then(|player| players.get(player).ok())
+            .filter(|(_, transitions)| transitions.get_main_animation() == Some(picking.node))
+            .and_then(|(player, _)| player.animation(picking.node));
+        let Some(active) = active else {
+            taking.commands.entity(hero).remove::<Picking>();
+            continue;
+        };
+        if !picking.taken && active.seek_time() >= picking.length / 2.0 {
+            picking.taken = true;
+            taking.take(picking.item);
+        }
+        if active.is_finished() {
+            taking.commands.entity(hero).remove::<Picking>();
+        }
     }
 }
 
@@ -241,6 +343,7 @@ impl Plugin for PickupPlugin {
                         .after(hero::steer)
                         .after(crate::doors::pick),
                     take.after(hero::run),
+                    picking.after(take),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),

@@ -26,7 +26,8 @@ const NIGHT_CLIPS: [&str; 3] = ["VMPN_IDLE_BH", "VMPN_WALK_BH", "VMPN_RUN_BH"];
 const CLAWS: u8 = 0;
 
 /// The clips of a hero's model for what it holds: its idle, walk and run, its fight stance, its
-/// attacks with the fractions at which they hit, its arts' actions and its dying clips.
+/// attacks with the fractions at which they hit, its arts' actions, its dying clips and its
+/// pick-up.
 #[derive(Clone, Debug, Default)]
 pub struct Clips {
     pub moving: [String; 3],
@@ -34,6 +35,7 @@ pub struct Clips {
     pub attacks: Vec<(String, [f32; 2])>,
     pub arts: Vec<hero::ArtClipName>,
     pub dying: Vec<String>,
+    pub pickup: Option<String>,
 }
 
 /// A form of the hero: its type, its model and clips, its record's values for its fight, its
