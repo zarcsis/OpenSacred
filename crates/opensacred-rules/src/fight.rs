@@ -2365,9 +2365,9 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u3
 /// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
 /// times the factor of the attacker's level `weapons` ([`weapons_factor`], at `0x56D05C`), the
 /// product on the x87 unit stored as a float, times the strike's factor `factor` ([`scaled`]),
-/// at least 1; held at `cap` where that is below it (`0x56DA8E`), whole (the skills' specials and
-/// the effects between are not read; the resolution adds a half before it truncates, `0x56DAA1`,
-/// #1134).
+/// at least 1; held at `cap` where that is below it (`0x56DA8E`); rounded to the nearest whole, a
+/// half up, as the resolution adds a half before it truncates (`0x56DAA1`; nothing between the sum
+/// and there takes a half off, #1134; the skills' specials and the effects between are not read).
 fn taken(sum: f32, factor: f32, weapons: f64, cap: Option<f64>) -> u32 {
     let sum = stored(weapons * f64::from(sum));
     let damage = scaled(sum, factor).max(1.0);
@@ -2375,7 +2375,7 @@ fn taken(sum: f32, factor: f32, weapons: f64, cap: Option<f64>) -> u32 {
         Some(cap) if cap < f64::from(damage) => stored(cap),
         _ => damage,
     };
-    whole(damage)
+    whole_f64(f64::from(damage) + 0.5)
 }
 
 /// A strike's damage `total` times its factor `factor` (the event's `+0x1C`, `0x56B130`) where the
@@ -3079,7 +3079,8 @@ mod tests {
             resistance: [10.0, 0.0, 0.0, 0.0],
             ..attacker
         };
-        // 10²/(10 + 10) = 5; with a damping of 40 per cent, 3; half a strike, 2.
+        // 10²/(10 + 10) = 5; with a damping of 40 per cent, 3; half a strike, 2.5, rounded up to
+        // 3 (#1134).
         assert_eq!(
             strike(&attacker, &defender, Blow::default(), &mut rng),
             Some(5)
@@ -3102,16 +3103,17 @@ mod tests {
                 },
                 &mut rng
             ),
-            Some(2)
+            Some(3)
         );
-        // Every kind below 1: 15 physical, of which a resistance of 0 lets 0.9999 through.
+        // Every kind below 1: 15 physical, of which a resistance of 0 lets 0.9999 through, 14.9985
+        // rounded to 15.
         let weak = Combat {
             damage: [[0.5, 0.9], [0.0; 2], [0.0; 2], [0.0; 2]],
             ..attacker
         };
         assert_eq!(
             strike(&weak, &attacker, Blow::default(), &mut rng),
-            Some(14)
+            Some(15)
         );
         assert_eq!(strike(&weak, &defender, Blow::default(), &mut rng), Some(9));
     }
@@ -3309,7 +3311,7 @@ mod tests {
             ..weak
         };
         // No attack against a defence of 1,000: a plain strike lands only on the roll of 0, a
-        // sure one always, 12²/(12 + 0) less the truncation.
+        // sure one always, 12²/(12 + 0) just under 12, rounded.
         let landed = (0..100)
             .filter(|_| strike(&weak, &armoured, Blow::default(), &mut rng).is_some())
             .count();
@@ -3317,7 +3319,7 @@ mod tests {
         let dealt: Vec<u32> = (0..100)
             .map(|_| sure_strike(&weak, &armoured, Blow::default(), &mut rng))
             .collect();
-        assert!(dealt.iter().all(|&d| d == 11), "{dealt:?}");
+        assert!(dealt.iter().all(|&d| d == 12), "{dealt:?}");
     }
 
     #[test]
@@ -3779,8 +3781,9 @@ mod tests {
             ..Rules::default()
         };
         assert!((niobium.player_cap(1) - 2.0 * cap).abs() < 1e-6);
-        // A strike above the cap takes the cap, one below it is kept, and none is held without it.
-        assert_eq!(taken(500.0, 1.0, 1.0, Some(cap)), 74);
+        // A strike above the cap takes the cap, rounded, one below it is kept, and none is held
+        // without it.
+        assert_eq!(taken(500.0, 1.0, 1.0, Some(cap)), 75);
         assert_eq!(taken(60.0, 1.0, 1.0, Some(cap)), 60);
         assert_eq!(taken(500.0, 1.0, 1.0, None), 500);
         // The hero struck by a creature carries the cap; a creature struck by the hero none.
@@ -3829,7 +3832,7 @@ mod tests {
             resistance: [10.0, 0.0, 0.0, 0.0],
             ..attacker
         };
-        // `10·(1 − 1/2²)` = 7.5 for `k` 2.
+        // `10·(1 − 1/2²)` = 7.5 for `k` 2, rounded up to 8.
         assert_eq!(
             strike(
                 &attacker,
@@ -3840,7 +3843,7 @@ mod tests {
                 },
                 &mut rng
             ),
-            Some(7)
+            Some(8)
         );
     }
 
