@@ -330,7 +330,11 @@ fn ui_image(image: &opensacred_formats::portraits::InterfaceImage) -> UiImage {
         if empty {
             (from, 0, false)
         } else if to < from {
-            (to.saturating_add(2), from.saturating_sub(to).saturating_sub(1), true)
+            (
+                to.saturating_add(2),
+                from.saturating_sub(to).saturating_sub(1),
+                true,
+            )
         } else {
             (from, to.saturating_sub(from).saturating_add(1), false)
         }
@@ -643,9 +647,15 @@ mod tests {
             }
         );
         let edge = image([190.0, 209.0, 221.0, 178.0]);
-        assert_eq!((edge.rect, edge.turned), ([190, 180, 32, 30], [false, true]));
+        assert_eq!(
+            (edge.rect, edge.turned),
+            ([190, 180, 32, 30], [false, true])
+        );
         let plain = image([148.0, 178.0, 188.0, 221.0]);
-        assert_eq!((plain.rect, plain.turned), ([148, 178, 41, 44], [false, false]));
+        assert_eq!(
+            (plain.rect, plain.turned),
+            ([148, 178, 41, 44], [false, false])
+        );
         assert!(!ron::to_string(&plain).unwrap().contains("turned"));
         let old: UiImage = ron::from_str("(texture: \"gui_main_12\", rect: (1, 2, 3, 4))").unwrap();
         assert_eq!(old.turned, [false, false]);
