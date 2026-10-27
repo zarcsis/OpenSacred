@@ -1,5 +1,6 @@
-//! The Ancaria campaign's choice of the hero, as the original's (docs/re/menus.md, "The choice
-//! of the hero", #1119): its picture of 12 tiles over its water, the eight classes as 3D figures
+//! The campaigns' choices of the hero, as the original's (docs/re/menus.md, "The choice of the
+//! hero"): the Underworld campaign's, its pedestals empty until the heroes can be saved and
+//! imported (#1129, #1117), and the Ancaria campaign's (#1119): its picture of 12 tiles over its water, the eight classes as 3D figures
 //! standing on the pedestals and idling, dark until the cursor is on one or it is chosen, and
 //! under them a panel of the hero's name, starting as the class's own, the difficulty, Import,
 //! Back and Start Game, which shows a class's description while the cursor is on its figure.
@@ -130,7 +131,7 @@ pub fn names() -> impl Iterator<Item = &'static str> {
             let (name, description) = texts(spot.class);
             [name, description]
         })
-        .chain([IMPORT, START, BACK])
+        .chain([IMPORT, START, BACK, EMPTY])
         .chain(DIFFICULTIES)
 }
 
@@ -138,6 +139,25 @@ pub fn names() -> impl Iterator<Item = &'static str> {
 const IMPORT: &str = "UI_IMPORT";
 const START: &str = "1029";
 const BACK: &str = "UI_NET_BACK";
+/// The word of a free pedestal of the Underworld campaign (the saves' `<empty>`, the same text).
+const EMPTY: &str = "UI_SAVE_EMPTY";
+
+/// The centres of the Underworld campaign's labels, a pedestal's each, measured on the original's
+/// frames: six free pedestals', then the places of the two heroes that the installation ships.
+const PEDESTALS: [Vec2; 8] = [
+    Vec2::new(94.0, 496.0),
+    Vec2::new(220.0, 382.0),
+    Vec2::new(360.0, 391.0),
+    Vec2::new(527.0, 447.0),
+    Vec2::new(637.0, 372.0),
+    Vec2::new(716.0, 427.0),
+    Vec2::new(807.0, 455.0),
+    Vec2::new(905.0, 637.0),
+];
+const PEDESTAL_LABEL: Vec2 = Vec2::new(120.0, 28.0);
+/// The labels' size and their shadow, which keeps them read over the mist.
+const PEDESTAL_SIZE: f32 = 21.0;
+const SHADOW: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.8);
 /// The difficulties' texts, bronze's first (`0x710190`).
 const DIFFICULTIES: [&str; 5] = [
     "UI_DIFFICULTY_BRONZE",
@@ -459,9 +479,98 @@ fn screen(
     }
     let font: Handle<Font> = assets.load(FONT);
     let layer = layers.add(Layer { figures: target });
+    picture(
+        &mut commands,
+        (Screen::Heroes, &images, &assets),
+        |picture| {
+            picture.spawn((
+                MaterialNode(layer),
+                place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+            ));
+            for spot in &SPOTS {
+                spotted(picture, spot);
+            }
+            let difficulty = request.0.difficulty.unwrap_or_default().index();
+            panel(picture, &images, (&words, difficulty), &font, &assets);
+        },
+    );
+}
+
+/// The Underworld campaign's choice of the hero (#1129): the same picture, each pedestal labelled
+/// free, as the original labels the pedestals that no saved hero takes; the panel's empty name,
+/// Back, and Start Game greyed, no hero being there to choose.
+fn underworld_screen(
+    mut commands: Commands,
+    images: Res<Images>,
+    words: Res<Words>,
+    assets: Res<AssetServer>,
+) {
+    let font: Handle<Font> = assets.load(FONT);
+    let atlas = images.atlas.as_ref();
+    picture(
+        &mut commands,
+        (Screen::Underworld, &images, &assets),
+        |picture| {
+            let empty = words.get(EMPTY).unwrap_or("<empty>");
+            for at in PEDESTALS {
+                picture.spawn((
+                    Pickable::IGNORE,
+                    Node {
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..place(about(at, PEDESTAL_LABEL))
+                    },
+                    children![(
+                        Text::new(empty),
+                        TextFont {
+                            font: font.clone().into(),
+                            font_size: FontSize::Px(PEDESTAL_SIZE),
+                            ..default()
+                        },
+                        TextColor(TEXT),
+                        TextShadow {
+                            offset: Vec2::splat(1.5),
+                            color: SHADOW,
+                        },
+                    )],
+                ));
+            }
+            frame(picture, atlas, &assets);
+            piece(
+                picture,
+                atlas,
+                &assets,
+                (FIELD, FIELD_ENDS),
+                about(NAME_AT, NAME_SIZE),
+            );
+            button(
+                picture,
+                (atlas, &assets),
+                (words.get(BACK).unwrap_or("Back"), &font, TEXT),
+                (BACK_AT, BUTTON_SIZE),
+                |commands| commands.run_system_cached(back),
+            );
+            button(
+                picture,
+                (atlas, &assets),
+                (words.get(START).unwrap_or("Start Game"), &font, TEXT_GREY),
+                (START_AT, BUTTON_SIZE),
+                |_| {},
+            );
+        },
+    );
+}
+
+/// A choice of the hero's picture over its water, black about it in a wider window, which
+/// `content` fills.
+fn picture(
+    commands: &mut Commands,
+    (screen, images, assets): (Screen, &Images, &AssetServer),
+    content: impl FnOnce(&mut ChildSpawnerCommands),
+) {
     commands
         .spawn((
-            DespawnOnExit(Screen::Heroes),
+            DespawnOnExit(screen),
             Node {
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
@@ -479,17 +588,9 @@ fn screen(
                 ..default()
             })
             .with_children(|picture| {
-                menu::water(picture, [&images.bed, &images.reflection], &assets, &WATER);
-                menu::tiles(picture, &images.tiles, &assets);
-                picture.spawn((
-                    MaterialNode(layer),
-                    place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
-                ));
-                for spot in &SPOTS {
-                    spotted(picture, spot);
-                }
-                let difficulty = request.0.difficulty.unwrap_or_default().index();
-                panel(picture, &images, (&words, difficulty), &font, &assets);
+                menu::water(picture, [&images.bed, &images.reflection], assets, &WATER);
+                menu::tiles(picture, &images.tiles, assets);
+                content(picture);
             });
         });
 }
@@ -618,13 +719,13 @@ fn label(
 fn button(
     parent: &mut ChildSpawnerCommands,
     (atlas, assets): (Option<&String>, &AssetServer),
-    (word, font): (&str, &Handle<Font>),
+    (word, font, colour): (&str, &Handle<Font>, Color),
     (centre, size): (Vec2, Vec2),
     act: fn(&mut Commands),
 ) -> Entity {
     let rect = about(centre, size);
     piece(parent, atlas, assets, (BUTTON, BUTTON_ENDS), rect);
-    let label = label(parent, word, font, rect, TEXT);
+    let label = label(parent, word, font, rect, colour);
     parent.commands().entity(label).observe(
         move |click: On<PointerClick>, mut commands: Commands| {
             if click.button == PointerButton::Primary {
@@ -644,6 +745,13 @@ fn panel(
     assets: &AssetServer,
 ) {
     let atlas = images.atlas.as_ref();
+    frame(picture, atlas, assets);
+    controls(picture, atlas, (words, difficulty), font, assets);
+}
+
+/// The panel's frame: its fill and edge, its corners' ornaments and its strips along the edges
+/// and over the buttons.
+fn frame(picture: &mut ChildSpawnerCommands, atlas: Option<&String>, assets: &AssetServer) {
     picture.spawn((
         place(PANEL),
         BackgroundColor(FILL),
@@ -714,7 +822,17 @@ fn panel(
     ] {
         tiled(picture, atlas, assets, source, rect);
     }
-    // The name, the difficulty and Import, hidden while a description shows.
+}
+
+/// The Ancaria campaign's panel's parts: the name, the difficulty and Import, hidden while a
+/// description shows, the description, Back and Start Game.
+fn controls(
+    picture: &mut ChildSpawnerCommands,
+    atlas: Option<&String>,
+    (words, difficulty): (&Words, usize),
+    font: &Handle<Font>,
+    assets: &AssetServer,
+) {
     picture
         .spawn((
             Part::Controls,
@@ -796,14 +914,14 @@ fn panel(
     button(
         picture,
         (atlas, assets),
-        (words.get(BACK).unwrap_or("Back"), font),
+        (words.get(BACK).unwrap_or("Back"), font, TEXT),
         (BACK_AT, BUTTON_SIZE),
         |commands| commands.run_system_cached(back),
     );
     let start = button(
         picture,
         (atlas, assets),
-        (words.get(START).unwrap_or("Start Game"), font),
+        (words.get(START).unwrap_or("Start Game"), font, TEXT_GREY),
         (START_AT, BUTTON_SIZE),
         |commands| commands.run_system_cached(start),
     );
@@ -1097,6 +1215,7 @@ impl Plugin for ChoicePlugin {
             .init_resource::<Figures>()
             .init_resource::<Images>()
             .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
+            .add_systems(OnEnter(Screen::Underworld), underworld_screen)
             .add_systems(
                 Update,
                 (

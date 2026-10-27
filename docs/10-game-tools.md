@@ -79,6 +79,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The picture keeps the original's 1024 × 768, scaled to the window's height, black at its sides in a wider window.
 * The original's choice of the hero (#1119, docs/re/menus.md), a module `choice`: the eight classes as idling 3D figures on the pedestals, in a scene of their own that their camera draws into a texture between the picture and the panel (`figures.wesl`), dark until pointed at or chosen; the panel of the name, the difficulty, Import, Back and Start Game, and a class's description while the cursor is on its figure.
   The arrows choose a figure, the keys type the hero's name, Enter starts the game with the class and the name (`--name` of `new-game`).
+  The Underworld campaign's choice (#1129), a sub-state `Screen::Underworld`: the same picture, its pedestals labelled free until the heroes can be saved and imported, Back, and Start Game greyed.
 * The pause menu (#178): Esc in the game pauses it under a small menu over the frame dimmed, Continue, Main menu and Quit; Continue or Esc again goes on.
   The pause is a state `Paused` under `InGame` with Bevy's virtual time paused, so that the hero, the NPCs, their animations, the clock and the liquids stop and the world takes no input.
   The sound pauses too, the music, the ambient loops and the footsteps fading out and, on Continue, in again from where they stopped: paused rather than muted, so that a track does not run on unheard.
