@@ -5,18 +5,21 @@
 //! under them a panel of the hero's name, starting as the class's own, the difficulty, Import,
 //! Back and Start Game, which shows a class's description while the cursor is on its figure.
 //!
-//! The figures stand in their own scene ([`FIGURES`]), which their camera draws into a texture of
-//! the picture's size; the interface lays that texture between the picture and the panel, in the
-//! frame's sRGB values (`figures.wesl`). A figure is its class's model in its template's items
-//! (`npcs::figure_gear`), its idle clip by what it holds, and copies of its materials, which its
-//! light darkens or brightens alone.
+//! The figures stand in their own scene ([`FIGURES`]), which the original's camera draws into a
+//! texture of its frustum's shape, stretched over the picture as the original's frustum is over
+//! the screen; the interface lays that texture between the picture and the panel, in the frame's
+//! sRGB values (`figures.wesl`). A figure is its class's model where the client's table puts it
+//! (`tables/figures.ron`), in the table's items and its class's default (`npcs::figure_gear`),
+//! its idle clip by what it holds, and copies of its materials, which its light darkens or
+//! brightens alone; the cursor lights it in its table's window (docs/re/equipment.md, "The
+//! choice of the hero's figures"; #1130).
 //!
 //! The mouse chooses a figure by pointing and clicking, the arrows choose the next or the one
 //! before, a key types the name, Enter starts the game and Esc goes back (`menu`).
 
 use bevy::asset::embedded_asset;
+use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::{RenderTarget, ScalingMode};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
@@ -28,85 +31,53 @@ use bevy::text::FontSize;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::window::PrimaryWindow;
 
+use opensacred_data::tables::{FIGURES as FIGURES_TABLE, Figure as Showcase};
+
 use crate::game::{AppState, Class, Data, FONT, Request};
 use crate::menu::{self, Screen, Words};
-use crate::{game, hud, motions, npcs};
+use crate::{files, hud, motions, npcs};
 
 /// The figures' scene, which the main camera does not see.
 const FIGURES: usize = 1;
 /// The shader that lays the figures on the interface, embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/figures.wesl";
 
-/// A figure's place in the picture: its class, where its feet stand, how high it stands in the
-/// picture's pixels and in its model's units, and how far it turns from the camera to the
-/// screen's right, in degrees; matched by eye to the original's frames (docs/re/menus.md).
-struct Spot {
-    class: Class,
-    feet: Vec2,
-    height: f32,
-    units: f32,
-    turn: f32,
-}
-
-/// The figures in the screen's order, left to right, as the original stands them.
-const SPOTS: [Spot; 8] = [
-    Spot {
-        class: Class::Gladiator,
-        feet: Vec2::new(100.0, 662.0),
-        height: 335.0,
-        units: 80.0,
-        turn: 15.0,
-    },
-    Spot {
-        class: Class::Seraphim,
-        feet: Vec2::new(222.0, 500.0),
-        height: 265.0,
-        units: 74.0,
-        turn: 5.0,
-    },
-    Spot {
-        class: Class::Daemon,
-        feet: Vec2::new(350.0, 532.0),
-        height: 345.0,
-        units: 85.0,
-        turn: 20.0,
-    },
-    Spot {
-        class: Class::Dwarf,
-        feet: Vec2::new(535.0, 525.0),
-        height: 205.0,
-        units: 54.0,
-        turn: 25.0,
-    },
-    Spot {
-        class: Class::WoodElf,
-        feet: Vec2::new(625.0, 455.0),
-        height: 217.0,
-        units: 72.0,
-        turn: 0.0,
-    },
-    Spot {
-        class: Class::Mage,
-        feet: Vec2::new(735.0, 540.0),
-        height: 265.0,
-        units: 72.0,
-        turn: -20.0,
-    },
-    Spot {
-        class: Class::DarkElf,
-        feet: Vec2::new(807.0, 472.0),
-        height: 215.0,
-        units: 74.0,
-        turn: -20.0,
-    },
-    Spot {
-        class: Class::Vampiress,
-        feet: Vec2::new(900.0, 672.0),
-        height: 332.0,
-        units: 73.0,
-        turn: -25.0,
-    },
+/// The figures in the screen's order, left to right, as the client's table stands them.
+const ORDER: [Class; 8] = [
+    Class::Gladiator,
+    Class::Seraphim,
+    Class::Daemon,
+    Class::Dwarf,
+    Class::WoodElf,
+    Class::Mage,
+    Class::DarkElf,
+    Class::Vampiress,
 ];
+
+/// The slots of a hero's that the table's eight items go into (`0x70C710`): the right hand, the
+/// left hand, the body, none (the boots, never shown), the head, the hands, the belt and the
+/// back.
+const SLOTS: [Option<u8>; 8] = [
+    Some(13),
+    Some(12),
+    Some(1),
+    None,
+    Some(0),
+    Some(4),
+    Some(2),
+    Some(17),
+];
+
+/// The figures' camera (`cUI_NetGranny`, `0x6F50B0`): its horizontal angle in degrees, its
+/// vertical one a share of it, its near and far planes, and its eye's distance from the
+/// figures' origin and its pitch, from below, in radians; it looks at the origin, over the
+/// whole screen.
+const ANGLE: f32 = 69.7;
+const VERTICAL: f32 = 0.75;
+const NEAR: f32 = 10.0;
+const FAR: f32 = 1000.0;
+const DISTANCE: f32 = 100.0;
+const PITCH: f32 = -0.059_203_625;
 
 /// The name of each class's text in the game's texts: its own name, which the hero's starts as,
 /// and its description (docs/re/menus.md).
@@ -125,10 +96,10 @@ fn texts(class: Class) -> (&'static str, &'static str) {
 
 /// The names of the texts this screen shows (`menu::Words`).
 pub fn names() -> impl Iterator<Item = &'static str> {
-    SPOTS
+    ORDER
         .iter()
-        .flat_map(|spot| {
-            let (name, description) = texts(spot.class);
+        .flat_map(|&class| {
+            let (name, description) = texts(class);
             [name, description]
         })
         .chain([IMPORT, START, BACK, EMPTY])
@@ -179,12 +150,17 @@ struct Choice {
     name: String,
 }
 
-/// The figures' models, their idle clips and what they hold, once read.
+/// The figures, once read.
 #[derive(Resource, Default)]
-struct Figures(Vec<Option<Look>>);
+struct Figures(Option<Vec<Look>>);
 
+/// A figure: its class, its window in the picture, where it stands and turns in its scene, and
+/// its model, idle clip and items where its model was converted.
 struct Look {
-    model: String,
+    class: Class,
+    window: Rect,
+    place: Transform,
+    model: Option<String>,
     idle: String,
     held: Vec<npcs::Held>,
 }
@@ -313,16 +289,15 @@ const WATER: menu::Water = menu::Water {
     veil: Color::linear_rgba(0.80, 0.88, 0.90, 0.38),
 };
 /// The figures' light: a figure dark is all but a shape, the light from the top left and the
-/// ambient light of their scene, and how far their tops lean away from the camera.
+/// ambient light of their scene.
 const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
 const LIGHT: f32 = 4000.0;
 const AMBIENT: f32 = 600.0;
-const LEAN: f32 = -0.12;
 
 /// The figure of the arrows' next choice from `chosen`, `step` figures on in the screen's order.
 fn step(chosen: Option<Class>, step: isize) -> Class {
-    let count = SPOTS.len();
-    let index = match chosen.and_then(|class| SPOTS.iter().position(|spot| spot.class == class)) {
+    let count = ORDER.len();
+    let index = match chosen.and_then(|class| ORDER.iter().position(|&c| c == class)) {
         Some(at) => {
             let signed = isize::try_from(at).unwrap_or(0) + step;
             usize::try_from(signed.rem_euclid(isize::try_from(count).unwrap_or(1))).unwrap_or(0)
@@ -330,7 +305,7 @@ fn step(chosen: Option<Class>, step: isize) -> Class {
         None if step < 0 => count - 1,
         None => 0,
     };
-    SPOTS[index].class
+    ORDER[index]
 }
 
 /// Chooses `class`: its figure lit, the name its own.
@@ -339,55 +314,133 @@ fn choose(choice: &mut Choice, words: &Words, class: Class) {
     choice.name = words.get(texts(class).0).unwrap_or(class.name()).to_owned();
 }
 
-/// Reads the figures' models, idle clips and items from the game's data, once.
+/// Reads the figures from the client's table and the game's data, once: none where the table
+/// was not converted.
 fn read_figures(data: Option<Res<Data>>, mut figures: ResMut<Figures>) {
     let Some(data) = data else {
         return;
     };
-    if !figures.0.is_empty() {
+    if figures.0.is_some() {
         return;
     }
     let shared = &data.0;
     let assets = &shared.assets;
-    let files = match (npcs::model_files(assets), npcs::texture_files(assets)) {
-        (Ok(models), Ok(textures)) => (models, textures),
-        (Err(e), _) | (_, Err(e)) => {
+    let path = assets.join("tables").join(FIGURES_TABLE);
+    let table: Vec<Showcase> = match files::read_to_string(&path)
+        .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))
+        .and_then(|text| {
+            ron::from_str(&text).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))
+        }) {
+        Ok(table) => table,
+        Err(e) => {
             warn!("choice: no figures: {e:#}");
-            figures.0 = SPOTS.iter().map(|_| None).collect();
+            figures.0 = Some(Vec::new());
             return;
         }
     };
-    figures.0 = SPOTS
-        .iter()
-        .map(|spot| {
-            let worn = game::template(assets, spot.class)
-                .map(|hero| hero.worn)
-                .unwrap_or_default();
-            let (held_class, held) =
-                match npcs::figure_gear(&shared.tables, (&files.0, &files.1), &worn) {
-                    Ok(gear) => gear,
-                    Err(e) => {
-                        warn!("choice: {}: no items: {e:#}", spot.class.name());
-                        (0, Vec::new())
-                    }
-                };
-            let (grn, [idle, ..], _) = spot.class.preset();
-            let model = files.0.get(grn)?.clone();
-            let idle = motions::Slots::read(&assets.join(&model))
-                .ok()
-                .and_then(|slots| {
-                    slots
-                        .clip(motions::Action::Stand, held_class)
-                        .map(|(name, _)| name.to_owned())
+    let files = match (npcs::model_files(assets), npcs::texture_files(assets)) {
+        (Ok(models), Ok(textures)) => (models, textures),
+        (Err(e), _) | (_, Err(e)) => {
+            warn!("choice: no figures' models: {e:#}");
+            (Default::default(), Default::default())
+        }
+    };
+    figures.0 = Some(
+        table
+            .iter()
+            .filter_map(|figure| {
+                let class = *ORDER.iter().find(|c| c.creature() == figure.class)?;
+                let slots = slots(figure, class);
+                let (held_class, held) =
+                    match npcs::figure_gear(&shared.tables, (&files.0, &files.1), &slots) {
+                        Ok(gear) => gear,
+                        Err(e) => {
+                            warn!("choice: {}: no items: {e:#}", class.name());
+                            (0, Vec::new())
+                        }
+                    };
+                let (grn, [idle, ..], _) = class.preset();
+                let model = files.0.get(grn).cloned();
+                let idle = model
+                    .as_ref()
+                    .and_then(|model| motions::Slots::read(&assets.join(model)).ok())
+                    .and_then(|slots| {
+                        // The Vampiress and the Dark Elf stand in their fight stance, the rest
+                        // as they stand by what they hold (`0x6F4C58`).
+                        let stance = matches!(class, Class::Vampiress | Class::DarkElf)
+                            .then(|| slots.stance(held_class))
+                            .flatten();
+                        stance
+                            .or_else(|| {
+                                slots
+                                    .clip(motions::Action::Stand, held_class)
+                                    .map(|(name, _)| name)
+                            })
+                            .map(str::to_owned)
+                    })
+                    .unwrap_or_else(|| idle.to_owned());
+                let [left, top, width, height] = figure.window;
+                Some(Look {
+                    class,
+                    window: Rect::new(left, top, left + width, top + height),
+                    place: place_of(figure),
+                    model,
+                    idle,
+                    held,
                 })
-                .unwrap_or_else(|| idle.to_owned());
-            Some(Look { model, idle, held })
-        })
-        .collect();
+            })
+            .collect(),
+    );
 }
 
-/// The screen: the picture and its water, the figures' layer, the figures' spots and the panel;
-/// the figures' camera, light and models.
+/// The items of a figure of the table in their slots, and its class's default in its slot where
+/// that is empty (`0x6F4E60`).
+fn slots(figure: &Showcase, class: Class) -> Vec<(u8, u32)> {
+    let mut slots: Vec<(u8, u32)> = SLOTS
+        .iter()
+        .zip(figure.items)
+        .filter(|&(_, item)| item != 0)
+        .filter_map(|(&slot, item)| Some((slot?, item)))
+        .collect();
+    if let Some((slot, item)) = class.default_item()
+        && !slots.iter().any(|&(taken, _)| taken == slot)
+    {
+        slots.push((slot, item));
+    }
+    slots
+}
+
+/// Where a figure of the table stands in the figures' scene, and how it turns: its position of
+/// the client's world, Z up, its X to the screen's right and its Y towards the camera, is the
+/// scene's (X, Z, Y); its turn of `turn` degrees (`0x6F3E90`) faces its model's front, its +X,
+/// towards the camera at 0 and to the screen's left as it grows.
+fn place_of(figure: &Showcase) -> Transform {
+    let [x, y, z] = figure.position;
+    let (sin, cos) = figure.turn.to_radians().sin_cos();
+    Transform::from_xyz(x, z, y).with_rotation(crate::hero::facing(Vec3::new(-sin, 0.0, cos)))
+}
+
+/// The figures' camera ([`ANGLE`]): where it stands and looks, and its projection, whose aspect
+/// is its frustum's shape, the ratio of its angles' tangents; its texture takes that shape, which
+/// the layer stretches over the picture as the original's frustum is over its screen.
+fn camera() -> (Transform, PerspectiveProjection) {
+    let horizontal = ANGLE.to_radians();
+    let vertical = horizontal * VERTICAL;
+    let (sin, cos) = PITCH.sin_cos();
+    (
+        Transform::from_xyz(0.0, DISTANCE * sin, DISTANCE * cos).looking_at(Vec3::ZERO, Vec3::Y),
+        PerspectiveProjection {
+            fov: vertical,
+            aspect_ratio: (horizontal / 2.0).tan() / (vertical / 2.0).tan(),
+            near: NEAR,
+            far: FAR,
+            ..default()
+        },
+    )
+}
+
+/// The screen: the picture and its water, the figures' layer, the figures' windows and the
+/// panel; the figures' camera, light and models.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources one by one"
@@ -405,14 +458,17 @@ fn screen(
 ) {
     *choice = Choice::default();
     let scale = window.map_or(1.0, |window| window.height() / menu::SCREEN.y);
-    let size = (menu::SCREEN * scale.max(1.0)).round().as_uvec2();
+    let (eye, projection) = camera();
+    let height = menu::SCREEN.y * scale.max(1.0);
+    let size = Vec2::new(height * projection.aspect_ratio, height)
+        .round()
+        .as_uvec2();
     let target = targets.add(Image::new_target_texture(
         size.x,
         size.y,
         TextureFormat::Rgba8UnormSrgb,
         None,
     ));
-    // The figures' camera, looking at the picture's plane from the front, a unit a pixel.
     commands.spawn((
         DespawnOnExit(Screen::Heroes),
         Camera3d::default(),
@@ -422,16 +478,8 @@ fn screen(
             ..default()
         },
         RenderTarget::from(target.clone()),
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::Fixed {
-                width: menu::SCREEN.x,
-                height: menu::SCREEN.y,
-            },
-            near: -4000.0,
-            far: 4000.0,
-            ..OrthographicProjection::default_3d()
-        }),
-        Transform::from_xyz(0.0, 0.0, 2000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Projection::Perspective(projection),
+        eye,
         Tonemapping::None,
         AmbientLight {
             color: Color::WHITE,
@@ -450,29 +498,21 @@ fn screen(
         Transform::from_xyz(-1.0, 1.2, 1.5).looking_at(Vec3::ZERO, Vec3::Y),
         RenderLayers::layer(FIGURES),
     ));
-    for (spot, look) in SPOTS.iter().zip(&figures.0) {
-        let Some(look) = look else {
+    let looks = figures.0.as_deref().unwrap_or_default();
+    for look in looks {
+        let Some(model) = &look.model else {
             continue;
         };
-        let turn = spot.turn.to_radians();
-        let rotation = Quat::from_rotation_x(LEAN)
-            * crate::hero::facing(Vec3::new(turn.sin(), 0.0, turn.cos()));
         commands.spawn((
             DespawnOnExit(Screen::Heroes),
             Figure {
-                class: spot.class,
-                gltf: Some(assets.load(look.model.clone())),
+                class: look.class,
+                gltf: Some(assets.load(model.clone())),
                 idle: look.idle.clone(),
             },
             Shades::default(),
             npcs::equipment(&assets, &look.held),
-            Transform::from_translation(Vec3::new(
-                spot.feet.x - menu::SCREEN.x / 2.0,
-                menu::SCREEN.y / 2.0 - spot.feet.y,
-                spot.feet.y,
-            ))
-            .with_rotation(rotation)
-            .with_scale(Vec3::splat(spot.height / spot.units)),
+            look.place,
             Visibility::default(),
             RenderLayers::layer(FIGURES),
         ));
@@ -487,8 +527,8 @@ fn screen(
                 MaterialNode(layer),
                 place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
             ));
-            for spot in &SPOTS {
-                spotted(picture, spot);
+            for look in looks {
+                spotted(picture, look.class, look.window);
             }
             let difficulty = request.0.difficulty.unwrap_or_default().index();
             panel(picture, &images, (&words, difficulty), &font, &assets);
@@ -612,15 +652,10 @@ fn about(centre: Vec2, size: Vec2) -> Rect {
     Rect::from_center_size(centre, size)
 }
 
-/// A figure's spot, the cursor over it lighting it and a click choosing it.
-fn spotted(picture: &mut ChildSpawnerCommands, spot: &Spot) {
-    let width = spot.height * 0.4;
-    let class = spot.class;
+/// A figure's window, the cursor over it lighting the figure of `class` and a click choosing it.
+fn spotted(picture: &mut ChildSpawnerCommands, class: Class, window: Rect) {
     picture
-        .spawn((place(Rect::from_corners(
-            Vec2::new(spot.feet.x - width / 2.0, spot.feet.y - spot.height),
-            Vec2::new(spot.feet.x + width / 2.0, spot.feet.y),
-        )),))
+        .spawn((place(window),))
         .observe(move |_: On<PointerOver>, mut choice: ResMut<Choice>| {
             choice.hovered = Some(class);
         })
@@ -1299,6 +1334,59 @@ mod tests {
         let request = &app.world().resource::<Request>().0;
         assert_eq!(request.class, Some(Class::Seraphim));
         assert_eq!(request.name.as_deref(), Some("Seraphimx"));
+    }
+
+    /// The Gladiator of the client's table, as `tables/figures.ron` holds him.
+    fn gladiator() -> Showcase {
+        Showcase {
+            class: 2,
+            items: [1726, 0, 4054, 0, 0, 0, 0, 0],
+            position: [-100.0, -82.5, -59.0],
+            turn: -30.0,
+            floats_34: [-80.0, 90.0, 40.0],
+            window: [35.0, 320.0, 120.0, 320.0],
+        }
+    }
+
+    #[test]
+    fn a_figure_takes_its_class_default_where_its_slot_is_empty() {
+        // The Gladiator's belt in the body's slot and, his default, in the belt's.
+        assert_eq!(
+            slots(&gladiator(), Class::Gladiator),
+            [(13, 1726), (1, 4054), (2, 4054)]
+        );
+        // The Dwarf's helmet takes the head's slot, which his goggles do not; his boots go in
+        // none.
+        let dwarf = Showcase {
+            class: 8,
+            items: [1853, 0, 3009, 3010, 3012, 3011, 3008, 0],
+            ..gladiator()
+        };
+        assert_eq!(
+            slots(&dwarf, Class::Dwarf),
+            [(13, 1853), (1, 3009), (0, 3012), (4, 3011), (2, 3008)]
+        );
+    }
+
+    #[test]
+    fn the_camera_shows_a_figure_where_the_original_does() {
+        use bevy::camera::CameraProjection;
+        let (eye, projection) = camera();
+        let place = place_of(&gladiator());
+        // The Gladiator's feet, where the original's view and projection (`0x6F50B0`), worked
+        // out by hand, put them on its 1024 × 768 screen.
+        let clip = projection.get_clip_from_view()
+            * eye.to_matrix().inverse()
+            * place.translation.extend(1.0);
+        let ndc = clip.truncate() / clip.w;
+        let feet = Vec2::new(
+            (ndc.x + 1.0) / 2.0 * menu::SCREEN.x,
+            (1.0 - ndc.y) / 2.0 * menu::SCREEN.y,
+        );
+        assert!(feet.distance(Vec2::new(100.9, 663.1)) < 0.5, "{feet}");
+        // His front turned 30° from the camera to the screen's right.
+        let front = place.rotation * Vec3::X;
+        assert!(front.distance(Vec3::new(0.5, 0.0, 0.866)) < 1e-3, "{front}");
     }
 
     #[test]

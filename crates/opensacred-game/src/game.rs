@@ -97,6 +97,21 @@ impl Class {
         }
     }
 
+    /// The item that the class has in a slot of its own whenever that slot is empty, and the slot
+    /// (`0x426580`; docs/re/equipment.md, "Worn items and the classes' defaults"): the
+    /// Seraphim's hair, the Gladiator's belt, the Battle Mage's hood, the Vampiress's hair and
+    /// the Dwarf's goggles.
+    pub fn default_item(self) -> Option<(u8, u32)> {
+        match self {
+            Class::Seraphim => Some((0, 4007)),
+            Class::Gladiator => Some((2, 4054)),
+            Class::Mage => Some((0, 3219)),
+            Class::Vampiress => Some((0, 4028)),
+            Class::Dwarf => Some((0, 3018)),
+            Class::WoodElf | Class::DarkElf | Class::Daemon => None,
+        }
+    }
+
     /// The model's `.GRN` name, the idle, walk and run clips and the footstep profile.
     pub fn preset(self) -> (&'static str, [&'static str; 3], &'static str) {
         const FEMALE: &str = "footsteps_hero_female";
@@ -348,7 +363,7 @@ fn creature_types(tables: &Tables) -> Result<std::collections::HashSet<u32>> {
 
 /// The template of the hero of `class` (`heroes.ron`, docs/02 §9): the items it wears and holds
 /// at the start and its combat arts; none where the index or the class's template is lacking.
-pub fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
+fn template(assets: &Path, class: Class) -> Option<opensacred_data::heroes::HeroEntry> {
     files::read_to_string(assets.join("heroes").join(opensacred_data::heroes::INDEX))
         .ok()
         .and_then(|text| ron::from_str::<opensacred_data::heroes::Heroes>(&text).ok())

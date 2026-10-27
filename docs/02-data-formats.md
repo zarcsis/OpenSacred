@@ -796,6 +796,12 @@ The creatures' idle noises (#714) lie in code too, two switches by the type in t
 The interface's images' table at VA `0x9ECEB0` has entries of 0x54 bytes: the index (`u32`, the entry's own), a `u32`, the TGA's name (`char[36]` from `+8`), and from `+0x2C` the rectangle as four `f32`, the left, top, right and bottom pixels, the last two included: the type 1's image 964 is the part (96, 0)–(191, 127) of `GUI_portraitX34.TGA`, whose texture is `texture.pak`'s `gui_portraitx34`.
 `opensacred-convert tables` writes them into `tables/portraits.ron` (`opensacred_data::tables::Portraits`): each type's texture by its name lower-cased and its part's left, top, width and height, and the default's.
 
+### 6.8 The figures of the choice of the hero in Sacred.exe
+
+**Confirmed** by code and in the running original 2026-10-26 (#1132, #1130; docs/re/equipment.md, "The choice of the hero's figures"): eight entries of 0x50 bytes at VA `0x9E3248`, in the screen's order, the Gladiator's first.
+An entry holds the class (`u32`, the hero's creature type), eight item types (`u32` each, 0 for none), the figure's position (three `f32`) and its turn in degrees (`f32`), three `f32` that no code reads, and its window as four `f32`, the left, top, width and height in the pixels of 1024 × 768: the Gladiator's is the class 2, the items 1726 and 4054 in the first and third places, the position (−100, −82.5, −59), the turn −30 and the window (35, 320, 120, 320).
+`opensacred-convert tables` writes them into `tables/figures.ron` (`opensacred_data::tables::Figure`), every field as it is.
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding

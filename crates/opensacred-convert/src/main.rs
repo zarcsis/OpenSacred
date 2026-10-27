@@ -175,7 +175,8 @@ enum Command {
         listing: bool,
     },
     /// Convert the creature, weapon, item, motion and trigger tables, the data tables of bin/, and
-    /// the combat arts and the creatures' voices of Sacred.exe into RON files under <ASSETS_SRC>/tables/
+    /// the combat arts, the creatures' voices and portraits, the weather's rolls and the figures of
+    /// the choice of the hero of Sacred.exe into RON files under <ASSETS_SRC>/tables/
     Tables {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -610,7 +611,7 @@ fn execute(command: Command) -> Result<ExitCode> {
         Command::Tables { game_dir, out } => {
             let summary = tables::convert(&game_dir, &out)?;
             println!(
-                "tables: {} creatures, {} weapons, {} items, {} motions, {} triggers, {} files of bin/, {} spells, {} weapon arts, {} voices, {} and {} idle noises, {} portraits -> {}",
+                "tables: {} creatures, {} weapons, {} items, {} motions, {} triggers, {} files of bin/, {} spells, {} weapon arts, {} voices, {} and {} idle noises, {} portraits, {} figures -> {}",
                 summary.creatures,
                 summary.weapons,
                 summary.items,
@@ -623,6 +624,7 @@ fn execute(command: Command) -> Result<ExitCode> {
                 summary.idle_noises.0,
                 summary.idle_noises.1,
                 summary.portraits,
+                summary.figures,
                 tables::output_dir(&out).display(),
             );
             Ok(ExitCode::SUCCESS)
