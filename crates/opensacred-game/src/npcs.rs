@@ -2157,24 +2157,30 @@ fn position(
 }
 
 /// The texture of every `texture.pak` record (`textures/texture/NNNNN-name.ktx2`), by its number,
-/// relative to the asset directory.
+/// and of every `texture03.pak` record by `TEXTURE03_BASE` and its number, relative to the asset
+/// directory.
 pub fn texture_files(assets: &Path) -> Result<HashMap<u32, String>> {
-    let path = assets.join("textures").join("texture");
     let mut files = HashMap::new();
-    let Ok(entries) = crate::files::read_dir(&path) else {
-        return Ok(files);
-    };
-    for entry in entries {
-        let name = entry
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if let Some(number) = name
-            .split_once('-')
-            .and_then(|(number, _)| number.parse::<u32>().ok())
-            && name.ends_with(&format!(".{}", opensacred_data::texture::EXTENSION))
-        {
-            files.insert(number, format!("textures/texture/{name}"));
+    // `texture03.pak`'s after `texture.pak`'s, in the client's one numbering (#1152).
+    for (dir, base) in [
+        ("texture", 0),
+        ("texture03", opensacred_data::texture::TEXTURE03_BASE),
+    ] {
+        let Ok(entries) = crate::files::read_dir(assets.join("textures").join(dir)) else {
+            continue;
+        };
+        for entry in entries {
+            let name = entry
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if let Some(number) = name
+                .split_once('-')
+                .and_then(|(number, _)| number.parse::<u32>().ok())
+                && name.ends_with(&format!(".{}", opensacred_data::texture::EXTENSION))
+            {
+                files.insert(base + number, format!("textures/{dir}/{name}"));
+            }
         }
     }
     Ok(files)

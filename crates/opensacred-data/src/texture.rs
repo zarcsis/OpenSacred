@@ -10,6 +10,11 @@ use std::io;
 
 /// The textures' extension.
 pub const EXTENSION: &str = "ktx2";
+
+/// The slots of `texture.pak`, from which the client numbers the textures of `texture03.pak`, the
+/// overlay's, in one numbering with `texture.pak`'s (`0x429190`; docs/02 §6.1; #1152): its record
+/// `n` is the texture `TEXTURE03_BASE + n`, as `Items03.pak`'s records name it in `items.ron`.
+pub const TEXTURE03_BASE: u32 = 25_535;
 /// The texture (by its name in `texture.pak`) that the game reads on the CPU besides those the
 /// world names: the cursor's.
 pub const CURSOR: &str = "mouse_main";
