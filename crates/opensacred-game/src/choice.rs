@@ -23,6 +23,7 @@ use bevy::asset::embedded_asset;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
+use bevy::image::{ImageLoaderSettings, ImageSampler};
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
 use bevy::picking::pointer::PointerButton;
@@ -250,6 +251,14 @@ enum Part {
     Start,
 }
 
+/// A button's word, lit while the cursor is on its button and grey while the button is greyed
+/// out, as the original's (`0x72B490`, `0x72B700`).
+#[derive(Component)]
+struct Word {
+    lit: bool,
+    greyed: bool,
+}
+
 /// The material that lays the figures' texture on the interface.
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 struct Layer {
@@ -264,13 +273,14 @@ impl UiMaterial for Layer {
     }
 }
 
-/// The picture's tiles and water, and the panel's atlas, relative to the asset directory.
+/// The picture's tiles and water, and the panel's atlases, relative to the asset directory.
 #[derive(Resource, Default)]
 pub struct Images {
     tiles: Vec<Option<String>>,
     bed: Option<String>,
     reflection: Option<String>,
-    atlas: Option<String>,
+    frames: Option<String>,
+    fields: Option<String>,
 }
 
 impl Images {
@@ -278,81 +288,209 @@ impl Images {
     pub fn find(assets: &std::path::Path) -> Self {
         let tiles: Vec<String> = (1..=12).map(|n| format!("gui_uw_char_{n:02}")).collect();
         let mut names: Vec<&str> = tiles.iter().map(String::as_str).collect();
-        names.extend(["ui_char_center", "ui_char_ref", "gui_main_12"]);
+        names.extend([
+            "ui_char_center",
+            "ui_char_ref",
+            "gui_main_12",
+            "gui_main_13",
+        ]);
         let mut found = hud::find_textures(assets, &names);
-        let atlas = found.pop().flatten();
+        let fields = found.pop().flatten();
+        let frames = found.pop().flatten();
         let reflection = found.pop().flatten();
         let bed = found.pop().flatten();
         Self {
             tiles: found,
             bed,
             reflection,
-            atlas,
+            frames,
+            fields,
         }
     }
 }
 
-/// The pieces of `gui_main_12` that the panel takes, in its pixels: a button with a jewel at each
-/// end, the field's bar, the arrows to the left and to the right, and a corner's ornament.
-const BUTTON: Rect = Rect::from_corners(Vec2::new(30.0, 144.0), Vec2::new(146.0, 181.0));
-const FIELD: Rect = Rect::from_corners(Vec2::new(30.0, 124.0), Vec2::new(128.0, 140.0));
-/// The round button with its arrow pointing down that opens the difficulties' list, a little of
-/// its box's plate at its sides (the interface's images 270 and 325), and the plain plate between
-/// two of them (the button's middle, 284).
-const DROP: Rect = Rect::from_corners(Vec2::new(66.0, 180.0), Vec2::new(105.0, 216.0));
-const PLATE: Rect = Rect::from_corners(Vec2::new(66.0, 142.0), Vec2::new(105.0, 178.0));
-const CORNER: Rect = Rect::from_corners(Vec2::new(148.0, 58.0), Vec2::new(188.0, 98.0));
-/// The ornamented strips of the frame's edges: along it, and up and down its sides.
-const STRIP: Rect = Rect::from_corners(Vec2::new(152.0, 23.0), Vec2::new(216.0, 32.0));
-const SIDE: Rect = Rect::from_corners(Vec2::new(157.0, 145.0), Vec2::new(165.0, 178.0));
-/// The ends of a button and of the field, which keep their size as the middle stretches.
-const BUTTON_ENDS: f32 = 34.0;
-const FIELD_ENDS: f32 = 8.0;
+/// The atlases of the interface that the panel's pieces are cut from.
+#[derive(Clone, Copy)]
+enum Sheet {
+    /// `gui_main_12`: the frame, the rule, the buttons and the difficulty's bar.
+    Frames,
+    /// `gui_main_13`: the name's field.
+    Fields,
+}
 
-/// The panel's frame in the picture, and its parts' centres and sizes (docs/re/menus.md).
-const PANEL: Rect = Rect::from_corners(Vec2::new(285.0, 547.0), Vec2::new(740.0, 748.0));
-const NAME_AT: Vec2 = Vec2::new(510.0, 586.0);
-const NAME_SIZE: Vec2 = Vec2::new(320.0, 22.0);
-const DIFFICULTY_AT: Vec2 = Vec2::new(510.0, 621.0);
-const DIFFICULTY_SIZE: Vec2 = Vec2::new(130.0, 22.0);
-const ARROWS: [f32; 2] = [428.0, 593.0];
-/// The list's first difficulty's centre and the pitch of the next, and its dark box's sides and
-/// top, which dims what lies behind it (the original's frames).
-const LIST_FIRST: f32 = 647.0;
-const LIST_PITCH: f32 = 21.0;
+/// The panel's atlases, loaded to be sampled texel by texel: the original draws its pieces a
+/// texel to a pixel, and stretches a button's middle without blurring it.
+struct Atlases {
+    frames: Option<Handle<Image>>,
+    fields: Option<Handle<Image>>,
+}
+
+impl Atlases {
+    fn load(images: &Images, assets: &AssetServer) -> Self {
+        let load = |path: &Option<String>| {
+            path.as_ref().map(|path| {
+                assets
+                    .load_builder()
+                    .with_settings(|settings: &mut ImageLoaderSettings| {
+                        settings.is_srgb = false;
+                        settings.sampler = ImageSampler::nearest();
+                    })
+                    .load(path.clone())
+            })
+        };
+        Self {
+            frames: load(&images.frames),
+            fields: load(&images.fields),
+        }
+    }
+
+    fn sheet(&self, sheet: Sheet) -> Option<&Handle<Image>> {
+        match sheet {
+            Sheet::Frames => self.frames.as_ref(),
+            Sheet::Fields => self.fields.as_ref(),
+        }
+    }
+}
+
+/// An image of the interface's table (set up at `0x761580`): its atlas, its texels from the
+/// first to the last (left, top, right, bottom), and whether it is turned about across or along,
+/// as the table's entries whose corners are reversed draw their texels (docs/re/menus.md, "The
+/// choice of the hero").
+#[derive(Clone, Copy)]
+struct Piece {
+    sheet: Sheet,
+    texels: [u16; 4],
+    turned: [bool; 2],
+}
+
+impl Piece {
+    const fn new(sheet: Sheet, texels: [u16; 4]) -> Self {
+        Self {
+            sheet,
+            texels,
+            turned: [false, false],
+        }
+    }
+
+    /// The same texels, turned about across where `across` and along where `along`.
+    const fn turned(self, across: bool, along: bool) -> Self {
+        Self {
+            turned: [across, along],
+            ..self
+        }
+    }
+
+    /// Its size as the original draws it, a texel to a pixel.
+    fn size(self) -> Vec2 {
+        let [left, top, right, bottom] = self.texels.map(f32::from);
+        Vec2::new(right - left + 1.0, bottom - top + 1.0)
+    }
+
+    /// Its texels in the atlas, from the first's corner to past the last.
+    fn source(self) -> Rect {
+        let [left, top, right, bottom] = self.texels.map(f32::from);
+        Rect::new(left, top, right + 1.0, bottom + 1.0)
+    }
+}
+
+/// The interface's images that the panel takes, by their indices in its table: a button's ends
+/// and middle (280–282), the rule's middle and ends (294, 296, 297), the frame's sides and edges
+/// (310–313), the difficulty's buttons (324, 325) and the name's field's ends and middle (331,
+/// 333, 334).
+const BUTTON_LEFT: Piece = Piece::new(Sheet::Frames, [1, 39, 45, 75]);
+const BUTTON_MIDDLE: Piece = Piece::new(Sheet::Frames, [47, 39, 84, 75]);
+const BUTTON_RIGHT: Piece = Piece::new(Sheet::Frames, [88, 39, 133, 75]);
+const RULE_MIDDLE: Piece = Piece::new(Sheet::Frames, [173, 1, 204, 17]);
+const RULE_LEFT: Piece = Piece::new(Sheet::Frames, [152, 19, 183, 35]);
+const RULE_RIGHT: Piece = Piece::new(Sheet::Frames, [185, 19, 216, 35]);
+const SIDE_LEFT: Piece = Piece::new(Sheet::Frames, [148, 223, 188, 254]);
+const EDGE_TOP: Piece = Piece::new(Sheet::Frames, [190, 178, 221, 221]);
+const SIDE_RIGHT: Piece = Piece::new(Sheet::Frames, [150, 223, 173, 254]).turned(true, false);
+const EDGE_BOTTOM: Piece = Piece::new(Sheet::Frames, [190, 180, 221, 209]).turned(false, true);
+const DROP_LEFT: Piece = Piece::new(Sheet::Frames, [66, 218, 105, 254]);
+const DROP_RIGHT: Piece = Piece::new(Sheet::Frames, [66, 180, 105, 216]);
+const FIELD_LEFT: Piece = Piece::new(Sheet::Fields, [1, 118, 31, 143]);
+const FIELD_MIDDLE: Piece = Piece::new(Sheet::Fields, [33, 118, 63, 143]);
+const FIELD_RIGHT: Piece = Piece::new(Sheet::Fields, [66, 118, 97, 143]);
+/// The crest's halves at the middle of the frame's top and its foot (314–317), and the frame's
+/// corners (318–321): the top left, the top right, the bottom left and the bottom right.
+const CREST: [Piece; 4] = [
+    Piece::new(Sheet::Frames, [223, 178, 254, 221]),
+    Piece::new(Sheet::Frames, [225, 178, 254, 221]).turned(true, false),
+    Piece::new(Sheet::Frames, [223, 180, 254, 221]).turned(false, true),
+    Piece::new(Sheet::Frames, [225, 180, 254, 221]).turned(true, true),
+];
+const CORNERS: [Piece; 4] = [
+    Piece::new(Sheet::Frames, [148, 178, 188, 221]),
+    Piece::new(Sheet::Frames, [150, 178, 188, 221]).turned(true, false),
+    Piece::new(Sheet::Frames, [148, 180, 188, 221]).turned(false, true),
+    Piece::new(Sheet::Frames, [150, 180, 188, 221]).turned(true, true),
+];
+
+/// The panel's dark fill, black at the alpha `0x9F`, and the box its frame stands about, its
+/// ornaments outside it (docs/re/menus.md).
+const FILL: Rect = Rect::from_corners(Vec2::new(300.0, 563.0), Vec2::new(724.0, 731.0));
+const SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 159.0 / 255.0);
+const FRAMED: Rect = Rect::from_corners(Vec2::new(320.0, 583.0), Vec2::new(704.0, 711.0));
+/// How far below the box the frame's foot stands, and its right side out of its right edge.
+const FOOT: f32 = 12.0;
+const RIGHT_SIDE: f32 = 15.0;
+/// The rule over the buttons: its left end and its width.
+const RULE_AT: Vec2 = Vec2::new(300.0, 683.0);
+const RULE_WIDTH: f32 = 424.0;
+/// The buttons' middles, their ends outside them, and the rows their words stand on: Back, Start
+/// Game and Import.
+const BACK_BUTTON: (Rect, f32) = (
+    Rect::from_corners(Vec2::new(368.0, 698.0), Vec2::new(464.0, 735.0)),
+    720.0,
+);
+const START_BUTTON: (Rect, f32) = (
+    Rect::from_corners(Vec2::new(560.0, 698.0), Vec2::new(656.0, 735.0)),
+    720.0,
+);
+const IMPORT_BUTTON: (Rect, f32) = (
+    Rect::from_corners(Vec2::new(448.0, 646.0), Vec2::new(576.0, 683.0)),
+    668.0,
+);
+/// The name's field's middle, its ends outside it, and where the name starts and the row it
+/// stands on.
+const NAME_FIELD: Rect = Rect::from_corners(Vec2::new(380.0, 575.0), Vec2::new(644.0, 599.0));
+const NAME_AT: Vec2 = Vec2::new(385.0, 591.0);
+/// The difficulty's bar, a button's middle with the two buttons that open the list outside it,
+/// and the row the difficulty stands on.
+const DIFFICULTY_BAR: Rect = Rect::from_corners(Vec2::new(448.0, 606.0), Vec2::new(576.0, 643.0));
+const DIFFICULTY_ROW: f32 = 627.0;
+/// The list's sides, the top of its dark box, which dims what lies behind it, the box's height
+/// past its rows, the row its first difficulty stands on, and the pitch of the next.
 const LIST_SIDES: [f32; 2] = [440.0, 584.0];
-const LIST_TOP: f32 = 637.0;
-const LIST_SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.4);
+const LIST_TOP: f32 = 634.0;
+const LIST_BOX: f32 = 8.0;
+const LIST_BOX_PITCH: f32 = 20.0;
+const LIST_FIRST: f32 = 652.0;
+const LIST_PITCH: f32 = 22.0;
+const LIST_SHADE: Color =
+    Color::linear_rgba(31.0 / 255.0, 31.0 / 255.0, 31.0 / 255.0, 175.0 / 255.0);
 /// A difficulty of the list under the cursor: pure yellow, in the frame's values.
 const LIST_LIT: Color = Color::linear_rgb(1.0, 1.0, 0.0);
-const IMPORT_AT: Vec2 = Vec2::new(510.0, 663.0);
-const IMPORT_SIZE: Vec2 = Vec2::new(210.0, 28.0);
-const BACK_AT: Vec2 = Vec2::new(415.0, 714.0);
-const START_AT: Vec2 = Vec2::new(607.0, 714.0);
-const BUTTON_SIZE: Vec2 = Vec2::new(176.0, 28.0);
-/// The row of the strip over the buttons, and where a description stands.
-const SEPARATOR: f32 = 690.0;
-const DESCRIPTION: Rect = Rect::from_corners(Vec2::new(317.0, 565.0), Vec2::new(705.0, 686.0));
-/// The panel's inner border: its light outer line and dark inner one, a pixel each, around the
-/// panel's upper part (the original's frames).
-const INNER: Rect = Rect::from_corners(Vec2::new(299.0, 562.0), Vec2::new(725.0, 685.0));
-const INNER_LIGHT: Color = Color::linear_rgb(119.0 / 255.0, 102.0 / 255.0, 102.0 / 255.0);
-const INNER_DARK: Color = Color::linear_rgb(34.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0);
-/// How far the corners' ornaments stand out of the panel's sides.
-const CORNER_OUT: f32 = 12.0;
-/// The panel's fill and its edge, and the texts' sizes and colours, in the frame's sRGB values
-/// (`hud`).
-const FILL: Color = Color::linear_rgba(0.02, 0.02, 0.03, 0.62);
-const EDGE: Color = Color::linear_rgb(0.42, 0.42, 0.45);
+/// Where a description stands: its lines from the column 317 to 706, its first line's letters'
+/// foot on the row 580, in the panel's box of 150 rows from the row 562.
+const DESCRIPTION: Rect = Rect::from_corners(Vec2::new(317.0, 565.0), Vec2::new(706.0, 712.0));
+/// The panel's font, as the original makes it: 17 pixels to the em, a line every 20 pixels, a
+/// letter's foot 15 rows under its line's top, and its letters a pixel further apart than the
+/// font's advances (docs/re/menus.md).
 const TEXT_SIZE: f32 = 17.0;
-const DESCRIPTION_SIZE: f32 = 18.0;
-const DESCRIPTION_LINE: f32 = 20.0;
-/// The space between a description's letters, which the original's lay wider than the font's.
-const DESCRIPTION_SPACING: f32 = 0.8;
-const TEXT: Color = Color::linear_rgb(0.93, 0.93, 0.93);
-const TEXT_GREY: Color = Color::linear_rgb(0.45, 0.45, 0.45);
+const LINE: f32 = 20.0;
+const FOOT_ROW: f32 = 15.0;
+const SPACING: f32 = 1.0;
+/// The words' colours, in the frame's sRGB values (`hud`): a button's, lit under the cursor, and
+/// greyed out; a description's, and its marked words'.
+const TEXT: Color = Color::WHITE;
+const LIT: Color = Color::linear_rgb(1.0, 1.0, 128.0 / 255.0);
+const TEXT_GREY: Color = Color::linear_rgb(127.0 / 255.0, 127.0 / 255.0, 127.0 / 255.0);
 const PLAIN: Color = Color::linear_rgb(198.0 / 255.0, 202.0 / 255.0, 187.0 / 255.0);
-const MARKED: Color = Color::linear_rgb(1.0, 1.0, 128.0 / 255.0);
+const MARKED: Color = LIT;
+/// How long the name's caret shows, and then hides, in milliseconds of real time.
+const BLINK: u128 = 300;
 /// The figures' light: a figure dark is all but a shape, the light from the top left and the
 /// ambient light of their scene.
 const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
@@ -606,7 +744,8 @@ fn screen(
             for look in looks {
                 spotted(picture, look.class, look.window);
             }
-            panel(picture, &images, &words, &choice.offered, &font, &assets);
+            let atlases = Atlases::load(&images, &assets);
+            panel(picture, &atlases, &words, &choice.offered, &font);
         },
     );
 }
@@ -624,7 +763,7 @@ fn underworld_screen(
     mut ripples: Ripples,
 ) {
     let font: Handle<Font> = assets.load(FONT);
-    let atlas = images.atlas.as_ref();
+    let atlases = Atlases::load(&images, &assets);
     let water = ripples.spawn(
         &mut commands,
         (&mut targets, &assets),
@@ -660,26 +799,20 @@ fn underworld_screen(
                     )],
                 ));
             }
-            frame(picture, atlas, &assets);
-            piece(
-                picture,
-                atlas,
-                &assets,
-                (FIELD, FIELD_ENDS),
-                about(NAME_AT, NAME_SIZE),
-            );
+            frame(picture, &atlases);
+            field(picture, &atlases);
             button(
                 picture,
-                (atlas, &assets),
-                (words.get(BACK).unwrap_or("Back"), &font, TEXT),
-                (BACK_AT, BUTTON_SIZE),
+                &atlases,
+                (words.get(BACK).unwrap_or("Back"), &font, false),
+                BACK_BUTTON,
                 |commands| commands.run_system_cached(back),
             );
             button(
                 picture,
-                (atlas, &assets),
-                (words.get(START).unwrap_or("Start Game"), &font, TEXT_GREY),
-                (START_AT, BUTTON_SIZE),
+                &atlases,
+                (words.get(START).unwrap_or("Start Game"), &font, true),
+                START_BUTTON,
                 |_| {},
             );
         },
@@ -770,127 +903,171 @@ fn spotted(picture: &mut ChildSpawnerCommands, class: Class, window: Rect) {
         );
 }
 
-/// A piece of the panel's atlas in the picture's rectangle `rect`, its ends `ends` wide kept
-/// as its middle stretches.
-fn piece(
+/// A piece of the panel's atlases stretched over the picture's rectangle `rect`.
+fn stretch(
     parent: &mut ChildSpawnerCommands,
-    atlas: Option<&String>,
-    assets: &AssetServer,
-    (source, ends): (Rect, f32),
+    atlases: &Atlases,
+    piece: Piece,
     rect: Rect,
 ) -> Option<Entity> {
-    let atlas = atlas?;
-    let mut image = ImageNode::new(hud::image(assets, atlas.clone()));
-    image.rect = Some(source);
-    image.image_mode = if ends > 0.0 {
-        NodeImageMode::Sliced(TextureSlicer {
-            border: BorderRect {
-                min_inset: Vec2::new(ends, 0.0),
-                max_inset: Vec2::new(ends, 0.0),
-            },
-            center_scale_mode: SliceScaleMode::Stretch,
-            sides_scale_mode: SliceScaleMode::Stretch,
-            max_corner_scale: 1.0,
-        })
-    } else {
-        NodeImageMode::Stretch
+    let sheet = atlases.sheet(piece.sheet)?;
+    let [flip_x, flip_y] = piece.turned;
+    let image = ImageNode {
+        rect: Some(piece.source()),
+        flip_x,
+        flip_y,
+        image_mode: NodeImageMode::Stretch,
+        ..ImageNode::new(sheet.clone())
     };
-    Some(parent.spawn((image, place(rect))).id())
+    Some(parent.spawn((image, Pickable::IGNORE, place(rect))).id())
 }
 
-/// A piece of the panel's atlas repeated along the picture's rectangle `rect`.
-fn tiled(
+/// A piece of the panel's atlases at its own size, its top left corner at `at`.
+fn put(parent: &mut ChildSpawnerCommands, atlases: &Atlases, piece: Piece, at: Vec2) {
+    stretch(
+        parent,
+        atlases,
+        piece,
+        Rect::from_corners(at, at + piece.size()),
+    );
+}
+
+/// Three pieces in a row, as the original draws its buttons and fields: the middle stretched over
+/// the rectangle `rect`, the ends outside its sides, as tall as it and `ends` wide.
+fn row(
     parent: &mut ChildSpawnerCommands,
-    atlas: Option<&String>,
-    assets: &AssetServer,
-    source: Rect,
+    atlases: &Atlases,
+    [left, middle, right]: [Piece; 3],
     rect: Rect,
+    ends: [f32; 2],
 ) {
-    let Some(atlas) = atlas else {
-        return;
-    };
-    let mut image = ImageNode::new(hud::image(assets, atlas.clone()));
-    image.rect = Some(source);
-    image.image_mode = NodeImageMode::Tiled {
-        tile_x: rect.width() > rect.height(),
-        tile_y: rect.height() >= rect.width(),
-        stretch_value: 1.0,
-    };
-    parent.spawn((image, Pickable::IGNORE, place(rect)));
+    stretch(parent, atlases, middle, rect);
+    stretch(
+        parent,
+        atlases,
+        left,
+        Rect::new(rect.min.x - ends[0], rect.min.y, rect.min.x, rect.max.y),
+    );
+    stretch(
+        parent,
+        atlases,
+        right,
+        Rect::new(rect.max.x, rect.min.y, rect.max.x + ends[1], rect.max.y),
+    );
 }
 
-/// A text centred in the picture's rectangle `rect`.
-fn label(
-    parent: &mut ChildSpawnerCommands,
-    text: &str,
-    font: &Handle<Font>,
-    rect: Rect,
-    colour: Color,
-) -> Entity {
-    parent
-        .spawn((
-            Node {
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..place(rect)
-            },
-            children![(
-                Text::new(text),
-                TextFont {
-                    font: font.clone().into(),
-                    font_size: FontSize::Px(TEXT_SIZE),
-                    ..default()
-                },
-                TextColor(colour),
-            )],
-        ))
-        .id()
+/// The node of a line of the panel's words from the column `left` to `right`, its letters' foot
+/// on the row `foot`.
+fn line(left: f32, right: f32, foot: f32) -> Node {
+    let top = foot - FOOT_ROW;
+    place(Rect::new(left, top, right, top + LINE))
 }
 
-/// A button: its piece, its word, and what a click on it does.
+/// The panel's font, its line and the spacing of its letters.
+fn lettering(font: &Handle<Font>) -> (TextFont, LineHeight, LetterSpacing) {
+    (
+        TextFont {
+            font: font.clone().into(),
+            font_size: FontSize::Px(TEXT_SIZE),
+            ..default()
+        },
+        LineHeight::Px(LINE),
+        LetterSpacing::Px(SPACING),
+    )
+}
+
+/// A button: its pieces about its middle `rect`, its word centred over the middle with its foot
+/// on the row `foot`, greyed out where `greyed`, and what a click on it does.
 fn button(
     parent: &mut ChildSpawnerCommands,
-    (atlas, assets): (Option<&String>, &AssetServer),
-    (word, font, colour): (&str, &Handle<Font>, Color),
-    (centre, size): (Vec2, Vec2),
+    atlases: &Atlases,
+    (word, font, greyed): (&str, &Handle<Font>, bool),
+    (rect, foot): (Rect, f32),
     act: fn(&mut Commands),
 ) -> Entity {
-    let rect = about(centre, size);
-    piece(parent, atlas, assets, (BUTTON, BUTTON_ENDS), rect);
-    let label = label(parent, word, font, rect, colour);
-    parent.commands().entity(label).observe(
-        move |click: On<PointerClick>, mut commands: Commands| {
+    row(
+        parent,
+        atlases,
+        [BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT],
+        rect,
+        [BUTTON_LEFT.size().x, BUTTON_RIGHT.size().x],
+    );
+    let top = foot - FOOT_ROW - rect.min.y;
+    parent
+        .spawn((
+            Word { lit: false, greyed },
+            place(rect),
+            children![(
+                Pickable::IGNORE,
+                place(Rect::new(0.0, top, rect.width(), top + LINE)),
+                Text::new(word),
+                lettering(font),
+                TextLayout::justify(Justify::Center),
+                TextColor(if greyed { TEXT_GREY } else { TEXT }),
+            )],
+        ))
+        .observe(|over: On<PointerOver>, mut words: Query<&mut Word>| {
+            if let Ok(mut word) = words.get_mut(over.entity) {
+                word.lit = true;
+            }
+        })
+        .observe(|out: On<PointerOut>, mut words: Query<&mut Word>| {
+            if let Ok(mut word) = words.get_mut(out.entity) {
+                word.lit = false;
+            }
+        })
+        .observe(move |click: On<PointerClick>, mut commands: Commands| {
             if click.button == PointerButton::Primary {
                 act(&mut commands);
             }
-        },
+        })
+        .id()
+}
+
+/// Colours the buttons' words as they stand: grey while greyed out, else lit under the cursor.
+fn colour_words(
+    words: Query<(&Word, &Children), Changed<Word>>,
+    mut colours: Query<&mut TextColor>,
+) {
+    for (word, children) in &words {
+        let colour = if word.greyed {
+            TEXT_GREY
+        } else if word.lit {
+            LIT
+        } else {
+            TEXT
+        };
+        for &child in children {
+            if let Ok(mut text) = colours.get_mut(child) {
+                text.0 = colour;
+            }
+        }
+    }
+}
+
+/// The name's field: its middle stretched over `NAME_FIELD`, its emblem at the left and its end
+/// at the right as wide as its middle, as the original's edit control draws them (`0x7382F0`).
+fn field(parent: &mut ChildSpawnerCommands, atlases: &Atlases) {
+    row(
+        parent,
+        atlases,
+        [FIELD_LEFT, FIELD_MIDDLE, FIELD_RIGHT],
+        NAME_FIELD,
+        [FIELD_LEFT.size().x, FIELD_MIDDLE.size().x],
     );
-    label
 }
 
 /// The panel under the figures, its list offering the difficulties `offered`.
 fn panel(
     picture: &mut ChildSpawnerCommands,
-    images: &Images,
+    atlases: &Atlases,
     words: &Words,
     offered: &[Difficulty],
     font: &Handle<Font>,
-    assets: &AssetServer,
 ) {
-    let atlas = images.atlas.as_ref();
-    frame(picture, atlas, assets);
-    controls(picture, atlas, words, font, assets);
+    frame(picture, atlases);
+    controls(picture, atlases, words, font);
     list(picture, words, offered, font);
-}
-
-/// The node of a line of words centred in the picture's rectangle `rect`: as wide, its line's
-/// middle at the rectangle's.
-fn words_node(rect: Rect) -> Node {
-    let line = TEXT_SIZE * 1.2;
-    place(Rect::from_center_size(
-        rect.center(),
-        Vec2::new(rect.width(), line),
-    ))
 }
 
 /// The name of `difficulty` in the game's texts.
@@ -909,7 +1086,9 @@ fn list(
     offered: &[Difficulty],
     font: &Handle<Font>,
 ) {
-    let bottom = LIST_TOP + LIST_PITCH * f32::from(u8::try_from(offered.len()).unwrap_or(u8::MAX));
+    let rows = f32::from(u8::try_from(offered.len()).unwrap_or(u8::MAX));
+    let bottom = LIST_TOP + LIST_BOX + LIST_BOX_PITCH * rows;
+    let [left, right] = LIST_SIDES;
     picture
         .spawn((
             Part::List,
@@ -924,26 +1103,15 @@ fn list(
         .with_children(|list| {
             list.spawn((
                 Pickable::IGNORE,
-                place(Rect::from_corners(
-                    Vec2::new(LIST_SIDES[0], LIST_TOP),
-                    Vec2::new(LIST_SIDES[1], bottom),
-                )),
+                place(Rect::new(left, LIST_TOP, right, bottom)),
                 BackgroundColor(LIST_SHADE),
             ));
             for (row, &difficulty) in offered.iter().enumerate() {
-                let y = LIST_FIRST + LIST_PITCH * f32::from(u8::try_from(row).unwrap_or(0));
-                let rect = Rect::from_corners(
-                    Vec2::new(LIST_SIDES[0], y - LIST_PITCH / 2.0),
-                    Vec2::new(LIST_SIDES[1], y + LIST_PITCH / 2.0),
-                );
+                let foot = LIST_FIRST + LIST_PITCH * f32::from(u8::try_from(row).unwrap_or(0));
                 list.spawn((
-                    words_node(rect),
+                    line(left, right, foot),
                     Text::new(difficulty_name(words, difficulty)),
-                    TextFont {
-                        font: font.clone().into(),
-                        font_size: FontSize::Px(TEXT_SIZE),
-                        ..default()
-                    },
+                    lettering(font),
                     TextLayout::justify(Justify::Center),
                     TextColor(TEXT),
                 ))
@@ -972,107 +1140,66 @@ fn list(
         });
 }
 
-/// The panel's frame: its fill and edge, its corners' ornaments and its strips along the edges
-/// and over the buttons.
-fn frame(picture: &mut ChildSpawnerCommands, atlas: Option<&String>, assets: &AssetServer) {
-    picture.spawn((
-        place(PANEL),
-        BackgroundColor(FILL),
-        Outline::new(Val::Px(2.0), Val::ZERO, EDGE),
-    ));
-    for (rect, colour) in [
-        (INNER, INNER_LIGHT),
-        (
-            Rect::from_corners(INNER.min + 1.0, INNER.max - 1.0),
-            INNER_DARK,
-        ),
+/// The panel's frame, as the original draws it about the box `FRAMED`: its dark fill, the crest's
+/// halves at the middle of its top and its foot, its corners, its edges along the top and the
+/// foot, as many whole pieces as the box is wide, its sides down to the box's foot, and the rule
+/// over the buttons, its middles up to its right end, drawn last over the last of them.
+fn frame(picture: &mut ChildSpawnerCommands, atlases: &Atlases) {
+    picture.spawn((Pickable::IGNORE, place(FILL), BackgroundColor(SHADE)));
+    let Rect { min, max } = FRAMED;
+    let top = min.y - CORNERS[0].size().y;
+    let middle = FRAMED.center().x;
+    for (piece, x, y) in [
+        (CREST[0], middle - CREST[0].size().x, top),
+        (CREST[1], middle, top),
+        (CREST[2], middle - CREST[2].size().x, max.y),
+        (CREST[3], middle, max.y),
+        (CORNERS[0], min.x - CORNERS[0].size().x, top),
+        (CORNERS[1], max.x, top),
+        (CORNERS[2], min.x - CORNERS[2].size().x, max.y),
+        (CORNERS[3], max.x, max.y),
     ] {
-        picture.spawn((
-            Pickable::IGNORE,
-            Node {
-                border: UiRect::all(Val::Px(1.0)),
-                ..place(rect)
-            },
-            BorderColor::all(colour),
-        ));
+        put(picture, atlases, piece, Vec2::new(x, y));
     }
-    // The corners' ornaments, the top left's turned about for the others, standing out of the
-    // panel's sides.
-    let out = Vec2::new(CORNER_OUT, 0.0);
-    for (corner, flip) in [
-        (PANEL.min - out, Vec2::ONE),
-        (
-            Vec2::new(PANEL.max.x - 40.0, PANEL.min.y) + out,
-            Vec2::new(-1.0, 1.0),
-        ),
-        (
-            Vec2::new(PANEL.min.x, PANEL.max.y - 40.0) - out,
-            Vec2::new(1.0, -1.0),
-        ),
-        (PANEL.max - 40.0 + out, Vec2::NEG_ONE),
-    ] {
-        if let Some(corner) = piece(
+    let mut x = min.x;
+    while x + EDGE_TOP.size().x <= max.x {
+        put(picture, atlases, EDGE_TOP, Vec2::new(x, top));
+        put(picture, atlases, EDGE_BOTTOM, Vec2::new(x, max.y + FOOT));
+        x += EDGE_TOP.size().x;
+    }
+    let mut y = min.y;
+    while y < max.y {
+        put(
             picture,
-            atlas,
-            assets,
-            (CORNER, 0.0),
-            Rect::from_corners(corner - 6.0, corner + 34.0),
-        ) {
-            picture
-                .commands()
-                .entity(corner)
-                .insert(UiTransform::from_scale(flip));
-        }
+            atlases,
+            SIDE_LEFT,
+            Vec2::new(min.x - CORNERS[0].size().x, y),
+        );
+        put(
+            picture,
+            atlases,
+            SIDE_RIGHT,
+            Vec2::new(max.x + RIGHT_SIDE, y),
+        );
+        y += SIDE_LEFT.size().y;
     }
-    for (source, rect) in [
-        (
-            STRIP,
-            Rect::from_corners(
-                PANEL.min - Vec2::new(0.0, 4.0),
-                Vec2::new(PANEL.max.x, PANEL.min.y + 5.0),
-            ),
-        ),
-        (
-            STRIP,
-            Rect::from_corners(
-                Vec2::new(PANEL.min.x, PANEL.max.y - 5.0),
-                PANEL.max + Vec2::new(0.0, 4.0),
-            ),
-        ),
-        (
-            STRIP,
-            Rect::from_corners(
-                Vec2::new(PANEL.min.x + 12.0, SEPARATOR - 4.0),
-                Vec2::new(PANEL.max.x - 12.0, SEPARATOR + 5.0),
-            ),
-        ),
-        (
-            SIDE,
-            Rect::from_corners(
-                PANEL.min - Vec2::new(4.0, 0.0),
-                Vec2::new(PANEL.min.x + 4.0, PANEL.max.y),
-            ),
-        ),
-        (
-            SIDE,
-            Rect::from_corners(
-                Vec2::new(PANEL.max.x - 4.0, PANEL.min.y),
-                PANEL.max + Vec2::new(4.0, 0.0),
-            ),
-        ),
-    ] {
-        tiled(picture, atlas, assets, source, rect);
+    put(picture, atlases, RULE_LEFT, RULE_AT);
+    let end = RULE_AT.x + RULE_WIDTH - RULE_RIGHT.size().x;
+    let mut x = RULE_AT.x + RULE_LEFT.size().x;
+    while x < end {
+        put(picture, atlases, RULE_MIDDLE, Vec2::new(x, RULE_AT.y));
+        x += RULE_MIDDLE.size().x;
     }
+    put(picture, atlases, RULE_RIGHT, Vec2::new(end, RULE_AT.y));
 }
 
-/// The Ancaria campaign's panel's parts: the name, the difficulty and Import, hidden while a
-/// description shows, the description, Back and Start Game.
+/// The Ancaria campaign's panel's parts: the name and the difficulty, Import, which a description
+/// hides, the description, Back and Start Game.
 fn controls(
     picture: &mut ChildSpawnerCommands,
-    atlas: Option<&String>,
+    atlases: &Atlases,
     words: &Words,
     font: &Handle<Font>,
-    assets: &AssetServer,
 ) {
     picture
         .spawn((
@@ -1081,46 +1208,29 @@ fn controls(
             place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
         ))
         .with_children(|controls| {
-            let field = about(NAME_AT, NAME_SIZE);
-            piece(controls, atlas, assets, (FIELD, FIELD_ENDS), field);
+            field(controls, atlases);
             controls.spawn((
                 Part::Name,
-                Node {
-                    padding: UiRect::left(Val::Px(12.0)),
-                    align_items: AlignItems::Center,
-                    ..place(field)
-                },
+                Pickable::IGNORE,
+                line(NAME_AT.x, NAME_FIELD.max.x, NAME_AT.y),
                 Text::new(""),
-                TextFont {
-                    font: font.clone().into(),
-                    font_size: FontSize::Px(TEXT_SIZE),
-                    ..default()
-                },
+                lettering(font),
                 TextColor(TEXT),
             ));
-            // The plate between the buttons' centres, the difficulty's word on it.
-            let half = PLATE.height() / 2.0;
-            let plate = Rect::from_corners(
-                Vec2::new(ARROWS[0], DIFFICULTY_AT.y - half),
-                Vec2::new(ARROWS[1], DIFFICULTY_AT.y + half),
-            );
-            piece(controls, atlas, assets, (PLATE, 0.0), plate);
-            controls.spawn((
-                Part::Difficulty,
-                words_node(about(DIFFICULTY_AT, DIFFICULTY_SIZE)),
-                Text::new(difficulty_name(words, Difficulty::default())),
-                TextFont {
-                    font: font.clone().into(),
-                    font_size: FontSize::Px(TEXT_SIZE),
-                    ..default()
-                },
-                TextLayout::justify(Justify::Center),
-                TextColor(TEXT),
-            ));
-            // The two buttons that open the list.
-            for x in ARROWS {
-                let rect = about(Vec2::new(x, DIFFICULTY_AT.y), DROP.size());
-                let Some(button) = piece(controls, atlas, assets, (DROP, 0.0), rect) else {
+            // The difficulty's bar, the two buttons that open the list at its ends.
+            stretch(controls, atlases, BUTTON_MIDDLE, DIFFICULTY_BAR);
+            let Rect { min, max } = DIFFICULTY_BAR;
+            for (piece, rect) in [
+                (
+                    DROP_LEFT,
+                    Rect::new(min.x - DROP_LEFT.size().x, min.y, min.x, max.y),
+                ),
+                (
+                    DROP_RIGHT,
+                    Rect::new(max.x, min.y, max.x + DROP_RIGHT.size().x, max.y),
+                ),
+            ] {
+                let Some(button) = stretch(controls, atlases, piece, rect) else {
                     continue;
                 };
                 controls
@@ -1134,6 +1244,15 @@ fn controls(
                         }
                     });
             }
+            controls.spawn((
+                Part::Difficulty,
+                Pickable::IGNORE,
+                line(min.x, max.x, DIFFICULTY_ROW),
+                Text::new(difficulty_name(words, Difficulty::default())),
+                lettering(font),
+                TextLayout::justify(Justify::Center),
+                TextColor(TEXT),
+            ));
         });
     picture
         .spawn((
@@ -1142,14 +1261,12 @@ fn controls(
             place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
         ))
         .with_children(|import| {
-            let rect = about(IMPORT_AT, IMPORT_SIZE);
-            piece(import, atlas, assets, (BUTTON, BUTTON_ENDS), rect);
-            label(
+            button(
                 import,
-                words.get(IMPORT).unwrap_or("Import"),
-                font,
-                rect,
-                TEXT_GREY,
+                atlases,
+                (words.get(IMPORT).unwrap_or("Import"), font, true),
+                IMPORT_BUTTON,
+                |_| {},
             );
         });
     picture.spawn((
@@ -1158,28 +1275,22 @@ fn controls(
         Visibility::Hidden,
         place(DESCRIPTION),
         Text::default(),
-        TextFont {
-            font: font.clone().into(),
-            font_size: FontSize::Px(DESCRIPTION_SIZE),
-            ..default()
-        },
-        LineHeight::Px(DESCRIPTION_LINE),
-        LetterSpacing::Px(DESCRIPTION_SPACING),
+        lettering(font),
         TextLayout::justify(Justify::Justified),
         TextColor(PLAIN),
     ));
     button(
         picture,
-        (atlas, assets),
-        (words.get(BACK).unwrap_or("Back"), font, TEXT),
-        (BACK_AT, BUTTON_SIZE),
+        atlases,
+        (words.get(BACK).unwrap_or("Back"), font, false),
+        BACK_BUTTON,
         |commands| commands.run_system_cached(back),
     );
     let start = button(
         picture,
-        (atlas, assets),
-        (words.get(START).unwrap_or("Start Game"), font, TEXT_GREY),
-        (START_AT, BUTTON_SIZE),
+        atlases,
+        (words.get(START).unwrap_or("Start Game"), font, true),
+        START_BUTTON,
         |commands| commands.run_system_cached(start),
     );
     picture.commands().entity(start).insert(Part::Start);
@@ -1251,13 +1362,12 @@ fn keys(
     }
 }
 
-/// The panel as the choice stands: the name with the cursor after it, Start Game greyed until a
-/// hero is chosen, and a figure's description in place of the controls while the cursor is on it.
+/// The panel as the choice stands: Start Game greyed until a hero is chosen, and a figure's
+/// description in place of the controls while the cursor is on it.
 fn show(
     choice: Res<Choice>,
     words: Res<Words>,
-    mut parts: Query<(&Part, &mut Visibility, Option<&mut Text>, Option<&Children>)>,
-    mut colours: Query<&mut TextColor>,
+    mut parts: Query<(&Part, &mut Visibility, Option<&mut Text>, Option<&mut Word>)>,
     mut commands: Commands,
 ) {
     if !choice.is_changed() {
@@ -1268,7 +1378,7 @@ fn show(
         .hovered
         .filter(|&class| choice.chosen != Some(class))
         .map(|class| texts(class).1);
-    for (part, mut visibility, text, children) in &mut parts {
+    for (part, mut visibility, text, word) in &mut parts {
         match part {
             Part::Controls => {
                 *visibility = if description.is_some() || choice.chosen.is_none() {
@@ -1284,11 +1394,8 @@ fn show(
                     Visibility::Inherited
                 };
             }
-            Part::Name => {
-                if let Some(mut text) = text {
-                    text.0 = format!("{}_", choice.name);
-                }
-            }
+            // The caret blinks in it (`caret`).
+            Part::Name => {}
             Part::Difficulty => {
                 if let Some(mut text) = text {
                     difficulty_name(&words, choice.difficulty).clone_into(&mut text.0);
@@ -1310,14 +1417,8 @@ fn show(
                 };
             }
             Part::Start => {
-                for child in children.into_iter().flatten() {
-                    if let Ok(mut colour) = colours.get_mut(*child) {
-                        colour.0 = if choice.chosen.is_some() {
-                            TEXT
-                        } else {
-                            TEXT_GREY
-                        };
-                    }
+                if let Some(mut word) = word {
+                    word.greyed = choice.chosen.is_none();
                 }
             }
         }
@@ -1326,6 +1427,30 @@ fn show(
     if let Some(name) = description {
         let text = words.get(name).unwrap_or_default();
         commands.run_system_cached_with(describe, spans(text));
+    }
+}
+
+/// The name with its caret after it, the caret shown and hidden in turns of `BLINK` of real time,
+/// as the original's edit control's.
+fn caret(
+    time: Res<Time<Real>>,
+    choice: Res<Choice>,
+    mut shown: Local<Option<bool>>,
+    mut parts: Query<(&Part, &mut Text)>,
+) {
+    let on = (time.elapsed().as_millis() / BLINK).is_multiple_of(2);
+    if *shown == Some(on) && !choice.is_changed() {
+        return;
+    }
+    *shown = Some(on);
+    for (part, mut text) in &mut parts {
+        if *part == Part::Name {
+            text.0 = if on {
+                format!("{}_", choice.name)
+            } else {
+                choice.name.clone()
+            };
+        }
     }
 }
 
@@ -1349,8 +1474,8 @@ fn describe(
                 text.spawn((
                     TextSpan::new(words),
                     font.clone(),
-                    LineHeight::Px(DESCRIPTION_LINE),
-                    LetterSpacing::Px(DESCRIPTION_SPACING),
+                    LineHeight::Px(LINE),
+                    LetterSpacing::Px(SPACING),
                     TextColor(if marked { MARKED } else { PLAIN }),
                 ));
             }
@@ -1554,7 +1679,7 @@ impl Plugin for ChoicePlugin {
             .add_systems(
                 Update,
                 (
-                    (keys.in_set(crate::frame::Control), show),
+                    (keys.in_set(crate::frame::Control), show, caret),
                     // The figures, where the game draws models.
                     (dress, settle, shade, npcs::equip, npcs::bind_worn)
                         .chain()
@@ -1563,6 +1688,7 @@ impl Plugin for ChoicePlugin {
                     .chain()
                     .run_if(in_state(Screen::Heroes)),
             )
+            .add_systems(Update, colour_words.after(show))
             .add_systems(
                 Update,
                 introduce
@@ -1705,6 +1831,63 @@ mod tests {
         // His front turned 30° from the camera to the screen's right.
         let front = place.rotation * Vec3::X;
         assert!(front.distance(Vec3::new(0.5, 0.0, 0.866)) < 1e-3, "{front}");
+    }
+
+    #[test]
+    fn the_frame_lays_its_pieces_where_the_original_does() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        let atlases = Atlases {
+            frames: Some(Handle::default()),
+            fields: Some(Handle::default()),
+        };
+        app.world_mut()
+            .commands()
+            .spawn(Node::default())
+            .with_children(|picture| frame(picture, &atlases));
+        app.world_mut().flush();
+        let px = |val: Val| match val {
+            Val::Px(px) => px,
+            _ => panic!("{val:?}"),
+        };
+        // Each piece's place, size, first texel and turns.
+        let pieces: Vec<([f32; 4], Vec2, [bool; 2])> = app
+            .world_mut()
+            .query::<(&ImageNode, &Node)>()
+            .iter(app.world())
+            .map(|(image, node)| {
+                (
+                    [node.left, node.top, node.width, node.height].map(px),
+                    image.rect.map(|rect| rect.min).unwrap_or_default(),
+                    [image.flip_x, image.flip_y],
+                )
+            })
+            .collect();
+        // The crest's 4, the corners' 4, the edges' 12 and 12, the sides' 4 and 4, and the rule's
+        // 14.
+        assert_eq!(pieces.len(), 54);
+        let at = |place: [f32; 4]| pieces.iter().filter(|p| p.0 == place).count();
+        // The top right corner, turned across, and the crest's bottom right half, turned both ways.
+        assert!(pieces.contains(&(
+            [704.0, 539.0, 39.0, 44.0],
+            Vec2::new(150.0, 178.0),
+            [true, false]
+        )));
+        assert!(pieces.contains(&(
+            [512.0, 711.0, 30.0, 42.0],
+            Vec2::new(225.0, 180.0),
+            [true, true]
+        )));
+        // The foot's edges 12 rows under the box, the right sides 15 columns out of it.
+        assert_eq!(at([672.0, 723.0, 32.0, 30.0]), 1);
+        for y in [583.0, 615.0, 647.0, 679.0] {
+            assert_eq!(at([719.0, y, 24.0, 32.0]), 1, "{y}");
+        }
+        assert_eq!(at([719.0, 711.0, 24.0, 32.0]), 0);
+        // The rule's right end over its last middle.
+        assert_eq!(at([684.0, 683.0, 32.0, 17.0]), 1);
+        assert_eq!(at([692.0, 683.0, 32.0, 17.0]), 1);
+        assert_eq!(at([716.0, 683.0, 32.0, 17.0]), 0);
     }
 
     #[test]
