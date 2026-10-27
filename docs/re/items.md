@@ -317,7 +317,7 @@ Read 2026-10-25 (#911) by the static reading of `Sacred.exe`; **confirmed** by c
 ### What becomes of the item (`0x558080`)
 
 - It refuses an item that is gone, of `+0x14` bit `0x10`, or whose type has bit 22 (`0x43F650`) or is 0; else it clears the item's bit `0x20` of `+0x14` ("vanishing") and logs the pick-up.
-- An item object first takes the picking creature's type's variant of its type (`0x5C7370`, "switchItem", `0x43CA20`; **hypothesis**: the class's own model of a piece).
+- An item object first takes the picking creature's type's variant of its type (`0x5C7370`, "switchItem", `0x43CA20`; **hypothesis**: the class's own model of a piece), which is none for a hero, a type below 32 (above, and docs/re/equipment.md, "The item's model").
 - The creatures of an id below 32 each have an inventory entry of `0x1180` bytes (`0x5DEBC0`, `0x5DEC90`; a log calls it `cInventoryEntry`), whose grid is `+0x115C` cells wide and `+0x115E` high.
 - Every branch that takes the item for a hero runs a script named by the item where that name begins with `Take:`: the rest of the name is the function, called with the taker (`0x4A71F0`, `0x46BF40`).
 - The branches, in this order:
