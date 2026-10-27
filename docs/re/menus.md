@@ -64,8 +64,8 @@ On the pedestals stand the eight classes, as 3D figures that move as they idle, 
 | Vampiress | 890, 480 |
 
 The figures stand dark, all but shapes; the one under the cursor and the one chosen are lit in their colours.
-They wear a showcase of a table compiled into the client, not their templates' items: the Daemon a sword and shield of her own, the Seraphim her wings, armour and hair, among them (docs/re/equipment.md, "The choice of the hero's figures").
-A figure is chosen by a click.
+They stand where a table compiled into the client puts them, under a camera of their own, and wear its showcase, not their templates' items: the Daemon a sword and shield of her own, the Seraphim her wings, armour and hair, among them (docs/re/equipment.md, "The choice of the hero's figures").
+A figure is lit while the cursor is in its window of that table, and chosen by a click.
 
 Under the figures, a panel spans the columns 285 to 740 and the rows 547 to 748, a dark frame with silver ornaments of the interface's atlases (the buttons, arrows and edges of `gui_main_12`).
 At its foot are two buttons, Back (centre 415, 714) and Start Game (607, 714, `res:1029`), the latter greyed until a hero is chosen.

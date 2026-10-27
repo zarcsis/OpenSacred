@@ -32,6 +32,9 @@ pub const PORTRAITS: &str = "portraits.ron";
 /// intensities, by a rolling index (`0x95FA84`, `0x625290`; docs/re/weather.md), as a list of
 /// numbers.
 pub const WEATHER_ROLLS: &str = "weather_rolls.ron";
+/// The figures of the choice of the hero that `Sacred.exe` holds (`0x9E3248`; #1130), as a list
+/// of [`Figure`]s.
+pub const FIGURES: &str = "figures.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +215,24 @@ pub struct IdleNoise {
     pub wait: f32,
     /// Added to the voices' volume, 0.45 + (`rand() % 10`) / 90.
     pub volume: f32,
+}
+
+/// A figure of the choice of the hero, of the table that `Sacred.exe` holds at `0x9E3248`, in the
+/// screen's order (docs/re/equipment.md, "The choice of the hero's figures"; #1130).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Figure {
+    /// The hero's class, its creature type: 1 the Seraphim to 9 the Daemon.
+    pub class: u32,
+    /// The item types it shows, 0 for none, which go into the slots 13, 12, 1, none, 0, 4, 2 and
+    /// 17.
+    pub items: [u32; 8],
+    /// Where it stands in its camera's world, Z up, and its turn about Z in degrees.
+    pub position: [f32; 3],
+    pub turn: f32,
+    /// Three floats that the client does not read.
+    pub floats_34: [f32; 3],
+    /// Its window in the screen's pixels of 1024 × 768: left, top, width and height.
+    pub window: [f32; 4],
 }
 
 /// What an idle noise plays.

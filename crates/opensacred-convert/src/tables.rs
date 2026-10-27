@@ -1,7 +1,7 @@
 //! `tables` subcommand: `Creature.pak`, `Weapon.pak`, `Items.pak` with the overlay
 //! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK`, the data tables of `bin/`, and the combat arts'
-//! tables, the creatures' voices and portraits and the weather's rolls of `Sacred.exe` → one RON
-//! file each under `<out>/tables/`
+//! tables, the creatures' voices and portraits, the weather's rolls and the figures of the choice
+//! of the hero of `Sacred.exe` → one RON file each under `<out>/tables/`
 //! (docs/02 §6; the format is [`opensacred_data::tables`]).
 
 use std::fs;
@@ -10,11 +10,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use opensacred_data::tables::{
     ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
-    BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, IDLE_NOISES, ITEM_SETS,
-    ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS, Mercenary, Motion, PORTRAITS,
-    Portrait, Portraits, QualityPass, QualityWeight, STAIRS, START_POINTS, STATIC_REMAP, Spell,
-    StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS,
-    WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
+    BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, FIGURES, Figure,
+    IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
+    Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, STAIRS,
+    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, VOICES, WEAPON_GROUPS,
+    WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt,
+    WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -50,6 +51,8 @@ pub struct Summary {
     pub idle_noises: (usize, usize),
     /// The creature types with a portrait of their own.
     pub portraits: usize,
+    /// The figures of the choice of the hero.
+    pub figures: usize,
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -217,6 +220,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     let portraits = portraits(&exe)?;
     write(&dir, PORTRAITS, &portraits)?;
     write(&dir, WEATHER_ROLLS, &weather_rolls(&exe)?)?;
+    let figures = figures(&exe)?;
+    write(&dir, FIGURES, &figures)?;
     let idle_noises = crate::idle_noises::idle_noises();
     write(&dir, IDLE_NOISES, &idle_noises)?;
 
@@ -232,6 +237,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         voices: voices.voices.len(),
         idle_noises: (idle_noises.hostile.len(), idle_noises.peaceful.len()),
         portraits: portraits.creatures.len(),
+        figures: figures.len(),
     })
 }
 
@@ -244,6 +250,40 @@ fn weather_rolls(exe: &[u8]) -> Result<Vec<u8>> {
     let image = opensacred_formats::pe::Image::parse(exe)?;
     let mut rolls = image.at(WEATHER_ROLLS_ADDRESS, 256, "the weather's rolls")?;
     Ok(rolls.bytes(256, "the weather's rolls")?.to_vec())
+}
+
+/// Where `Sacred.exe` holds the figures of the choice of the hero, and how many and how long
+/// they are (#1130, docs/re/equipment.md, "The choice of the hero's figures").
+const FIGURES_ADDRESS: u32 = 0x9E_3248;
+const FIGURES_COUNT: usize = 8;
+const FIGURE_SIZE: usize = 0x50;
+
+/// The figures of the choice of the hero of `Sacred.exe` (`cUI_NetGranny`, `0x6F3E90`).
+fn figures(exe: &[u8]) -> Result<Vec<Figure>> {
+    const WHAT: &str = "the figures of the choice of the hero";
+    let image = opensacred_formats::pe::Image::parse(exe)?;
+    let mut table = image.at(FIGURES_ADDRESS, FIGURES_COUNT * FIGURE_SIZE, WHAT)?;
+    (0..FIGURES_COUNT)
+        .map(|_| {
+            let class = table.u32()?;
+            let mut items = [0; 8];
+            for item in &mut items {
+                *item = table.u32()?;
+            }
+            let position = table.f32s()?;
+            let turn = table.f32()?;
+            let floats_34 = table.f32s()?;
+            let window = table.f32s()?;
+            Ok(Figure {
+                class,
+                items,
+                position,
+                turn,
+                floats_34,
+                window,
+            })
+        })
+        .collect()
 }
 
 /// The creatures' portraits of `Sacred.exe` (#1032): each type's image of the interface by the
@@ -544,6 +584,7 @@ mod tests {
                 voices: 322,
                 idle_noises: (311, 241),
                 portraits: 467,
+                figures: 8,
             }
         );
         let dir = output_dir(&out);
@@ -558,6 +599,22 @@ mod tests {
             }
         );
         assert_eq!(portraits.of(9_999), &portraits.default);
+        // The figures in the screen's order, the Gladiator's first: a two-handed sword and his
+        // belt, at his place and turn and in his window (docs/re/equipment.md; #1130).
+        let figures: Vec<Figure> = ron::from_str(&read(FIGURES)).unwrap();
+        let classes: Vec<u32> = figures.iter().map(|f| f.class).collect();
+        assert_eq!(classes, [2, 1, 9, 8, 5, 3, 4, 6]);
+        assert_eq!(
+            figures[0],
+            Figure {
+                class: 2,
+                items: [1726, 0, 4054, 0, 0, 0, 0, 0],
+                position: [-100.0, -82.5, -59.0],
+                turn: -30.0,
+                floats_34: [-80.0, 90.0, 40.0],
+                window: [35.0, 320.0, 120.0, 320.0],
+            }
+        );
         let items: Vec<Item> = ron::from_str(&read(ITEMS)).unwrap();
         let overlay = items.iter().find(|i| i.slot == 3999).unwrap();
         assert_eq!(overlay.name, "Krombacher.grn");
