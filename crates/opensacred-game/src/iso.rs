@@ -111,6 +111,43 @@ pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
     )
 }
 
+/// The render layer of what the night leaves untinted (#1191), which the [`Untinted`] camera
+/// alone draws.
+pub const UNTINTED: usize = 8;
+
+/// The camera of what the night leaves untinted (#1191, docs/re/effects.md): a child of the
+/// world's camera ([`camera`]) that draws the layer [`UNTINTED`] after it and its night's pass
+/// (`daynight::Night`) into the same frame, against the world's depth, which the cameras of one
+/// target share, so that a fire keeps its colours by night and the fireflies add theirs to the
+/// darkened frame, as the original draws its effects without the tint; its projection follows the
+/// world camera's (`daynight`), and the interface, drawn by the last camera, lies over both.
+#[derive(Component, Clone, Copy, Default)]
+pub struct Untinted;
+
+/// A query's filter of the cameras that draw the world, `F`, the [`Untinted`] one left out.
+pub type Eye<F = With<Camera3d>> = (F, Without<Untinted>);
+
+/// The [`Untinted`] camera, a child of the world's.
+pub fn untinted() -> impl Bundle {
+    (
+        Untinted,
+        Camera3d {
+            depth_load_op: bevy::camera::Camera3dDepthLoadOp::Load,
+            ..default()
+        },
+        Camera {
+            order: 1,
+            clear_color: bevy::camera::ClearColorConfig::None,
+            ..default()
+        },
+        Tonemapping::None,
+        DebandDither::Disabled,
+        crate::srgb::Frame,
+        Projection::Orthographic(OrthographicProjection::default_3d()),
+        bevy::camera::visibility::RenderLayers::layer(UNTINTED),
+    )
+}
+
 /// The original's zoom range. Its zoom scales its projection, `ortho(±267·zoom, ±200·zoom, …)`
 /// (docs/02 §5.3), as it scales the camera's here: 2 shows twice the world, the widest view, and
 /// 0.5 half of it.

@@ -245,12 +245,19 @@ fn light(
                 };
                 let mesh = meshes.add(empty());
                 handles.push(mesh.clone());
-                layers.spawn((
-                    Mesh3d(mesh),
-                    MeshMaterial3d(material),
-                    Transform::default(),
-                    bevy::camera::visibility::NoFrustumCulling,
-                ));
+                // A system that the light at it does not tint keeps its colours by night: the
+                // camera after the night's pass draws it (#1191).
+                layers
+                    .spawn((
+                        Mesh3d(mesh),
+                        MeshMaterial3d(material),
+                        Transform::default(),
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ))
+                    .insert_if(
+                        bevy::camera::visibility::RenderLayers::layer(iso::UNTINTED),
+                        || !fire.tinted,
+                    );
             }
         });
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);

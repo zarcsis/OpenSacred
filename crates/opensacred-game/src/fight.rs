@@ -641,7 +641,7 @@ fn rise(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<AssetServer>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye>,
     ui_scale: Res<UiScale>,
     mut numbers: Query<(Entity, &mut Number)>,
     mut labels: Query<(&mut Node, &mut TextColor)>,

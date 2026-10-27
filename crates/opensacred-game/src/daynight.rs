@@ -10,7 +10,9 @@
 //! by night a ramp of the light's level, built from the setting `NIGHT_DARKNESS` (50), and
 //! `255 − level` added to each channel, so that the day is white. The game draws the frame first
 //! and then multiplies it by that colour (`night.wesl`, a fullscreen pass): the same for the art,
-//! which the original multiplies by its vertices' colour, if not for its blending.
+//! which the original multiplies by its vertices' colour, if not for its blending. The effects
+//! that the original leaves untinted, the fires and the fireflies, are drawn after the pass by a
+//! camera of their own (`iso::Untinted`, #1191).
 //!
 //! The light's level at a point is 32 and, for every light source whose radius reaches it, the
 //! radius less the distance, at most 223 each and 255 in all, in the pixels of the original's
@@ -33,7 +35,7 @@ use bevy::core_pipeline::fullscreen_material::{FullscreenMaterial, FullscreenMat
 use bevy::math::{Vec2, Vec3, Vec4};
 use bevy::prelude::{
     AlphaMode, App, AssetServer, Assets, Camera, Color, Commands, Component, GlobalTransform,
-    IntoScheduleConfigs, OnExit, Plugin, Projection, Query, Res, ResMut, Resource,
+    IntoScheduleConfigs, OnExit, Plugin, PostUpdate, Projection, Query, Res, ResMut, Resource,
     StandardMaterial, Startup, Time, Transform, Update, With, Without, default,
 };
 use bevy::render::RenderApp;
@@ -170,7 +172,22 @@ impl Plugin for DayNightPlugin {
                     .chain()
                     .in_set(crate::frame::Playing),
             )
-            .add_systems(OnExit(crate::game::AppState::InGame), leave);
+            .add_systems(OnExit(crate::game::AppState::InGame), leave)
+            .add_systems(PostUpdate, follow.before(bevy::camera::CameraUpdateSystems));
+    }
+}
+
+/// Keeps the projection of the camera of what the night leaves untinted (`iso::Untinted`,
+/// #1191) the world camera's, its zoom.
+fn follow(
+    worlds: Query<&Projection, (With<Night>, Without<crate::iso::Untinted>)>,
+    mut untinted: Query<&mut Projection, With<crate::iso::Untinted>>,
+) {
+    let Some(world) = worlds.iter().next() else {
+        return;
+    };
+    for mut projection in &mut untinted {
+        *projection = world.clone();
     }
 }
 

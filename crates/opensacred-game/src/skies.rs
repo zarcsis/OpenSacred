@@ -327,7 +327,7 @@ fn draw(
     weather: Option<ResMut<Weather>>,
     (clock, dungeons): (Option<Res<Clock>>, Option<Res<Dungeons>>),
     window: Option<Single<&Window, With<PrimaryWindow>>>,
-    cameras: Query<(&GlobalTransform, &Projection), With<crate::srgb::Frame>>,
+    cameras: Query<(&GlobalTransform, &Projection), crate::iso::Eye<With<crate::srgb::Frame>>>,
     heroes: Query<&Transform, With<hero::Body>>,
     (mut layers, mut flakes): (Query<&mut Layer>, Option<ResMut<Flakes>>),
     (mut materials, mut buffers): (ResMut<Assets<Skies>>, ResMut<Assets<ShaderBuffer>>),
@@ -465,7 +465,7 @@ fn draw(
 fn shake(
     weather: Option<Res<Weather>>,
     mut dice: Local<Option<Rng>>,
-    mut cameras: Query<(&mut Transform, &Projection), With<crate::srgb::Frame>>,
+    mut cameras: Query<(&mut Transform, &Projection), crate::iso::Eye<With<crate::srgb::Frame>>>,
 ) {
     let Some(weather) = weather else {
         return;

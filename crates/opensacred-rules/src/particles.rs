@@ -251,6 +251,9 @@ pub struct Fire {
     pub grid: u8,
     pub count: usize,
     pub light: f32,
+    /// Whether the light at it tints its colours (the flags' bit `0x40`): the chimneys' smokes and
+    /// the geyser's jet darken by night, the fires and the lavas' smokes keep their colours.
+    pub tinted: bool,
 }
 
 /// The smoke class's particles (`0x76E200`).
@@ -385,6 +388,7 @@ pub fn fire(variant: u8) -> Option<Fire> {
         grid: 1,
         count: SMOKE_PARTICLES,
         light,
+        tinted: false,
     })
 }
 
@@ -485,6 +489,8 @@ fn smoke(variant: u8) -> Option<Fire> {
         grid: 2,
         count: SMOKE_PARTICLES,
         light: 0.0,
+        // The chimneys' flags `0x146`, the lavas' `0x10C`.
+        tinted: variant <= 3,
     })
 }
 
@@ -514,6 +520,7 @@ fn geyser() -> Fire {
         grid: 1,
         count: SMOKE_PARTICLES,
         light: 0.0,
+        tinted: true,
     }
 }
 

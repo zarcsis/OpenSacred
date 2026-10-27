@@ -284,7 +284,7 @@ pub struct Probe<'w, 's> {
     hero: Option<Res<'w, Hero>>,
     bodies: Query<'w, 's, (&'static Transform, &'static Body)>,
     clock: Option<Res<'w, Clock>>,
-    cameras: Query<'w, 's, &'static Projection, With<Camera3d>>,
+    cameras: Query<'w, 's, &'static Projection, crate::iso::Eye>,
     streamer: Option<Res<'w, Streamer>>,
     ready: Option<Res<'w, Ready>>,
     npcs: Query<'w, 's, (), With<Npc>>,

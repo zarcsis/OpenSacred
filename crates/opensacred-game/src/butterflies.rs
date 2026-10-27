@@ -200,6 +200,8 @@ fn make(
                             MeshMaterial3d(material),
                             Transform::default(),
                             bevy::camera::visibility::NoFrustumCulling,
+                            // Untinted by the night: the system's flags lack `0x40` (#1191).
+                            bevy::camera::visibility::RenderLayers::layer(crate::iso::UNTINTED),
                         ));
                     }
                 }

@@ -259,7 +259,10 @@ fn water(
     mut sfx: ResMut<Sfx>,
     heights: Res<Heights>,
     heroes: Query<&Transform, With<Body>>,
-    (projections, heard): (Query<&Projection, With<Camera>>, Res<sfx::Listener>),
+    (projections, heard): (
+        Query<&Projection, crate::iso::Eye<With<Camera>>>,
+        Res<sfx::Listener>,
+    ),
     channels: WaterChannels,
     assets: Res<AssetServer>,
 ) {

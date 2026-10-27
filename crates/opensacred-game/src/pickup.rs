@@ -80,7 +80,7 @@ pub(crate) fn pick(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<Pointer>,
     aim: Res<Aim>,
-    camera: Single<(&Camera, &GlobalTransform)>,
+    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
     items: Query<(Entity, &GlobalTransform, &Lying)>,
     mut heroes: Query<(Entity, &mut Body)>,
 ) {

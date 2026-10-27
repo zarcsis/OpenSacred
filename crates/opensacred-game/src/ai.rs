@@ -1177,7 +1177,7 @@ fn behave(
     crowd: Res<Crowd>,
     heights: Res<Heights>,
     hero: Query<(Entity, &Transform), With<Body>>,
-    cameras: Query<&Projection, With<Camera3d>>,
+    cameras: Query<&Projection, crate::iso::Eye>,
     doors: Query<(Entity, &Object, &Door), Without<Mind>>,
     npcs: Option<Res<Npcs>>,
     clock: Res<Clock>,

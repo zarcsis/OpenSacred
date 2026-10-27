@@ -154,7 +154,7 @@ fn show(
     time: Res<Time>,
     texts: Option<Res<Texts>>,
     assets: Res<AssetServer>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye>,
     ui_scale: Res<UiScale>,
     mut speakers: Query<(Entity, &GlobalTransform, &mut Says)>,
     mut nodes: Query<&mut Node>,
