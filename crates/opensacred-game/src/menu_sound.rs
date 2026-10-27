@@ -7,6 +7,7 @@
 //! choices' figures speak their classes' introductions (`choice`).
 
 use bevy::prelude::*;
+use bevy_kira_audio::AudioApp;
 use bevy_kira_audio::prelude::{Audio, AudioChannel, AudioControl, AudioSource};
 
 use crate::game::{AppState, Shows};
@@ -37,6 +38,11 @@ const DUNGEON_ODDS: u32 = 3;
 const DRIP_PAN: (f32, f32) = (0.1, 0.8);
 const IDLE_PAN: (f32, f32) = (0.3, 0.4);
 const RATE: (f32, f32) = (0.3, 0.4);
+
+/// The channel of the figures' introductions on the choice of the hero (`choice`), which one stop
+/// silences whether it plays or still loads.
+#[derive(Resource)]
+pub struct Introductions;
 
 /// The idle sounds' clock and whether the last drop fell into a cave's water, which chooses
 /// them, as the sound manager keeps it from the drop's event (`+0x88`).
@@ -166,6 +172,7 @@ pub struct MenuSoundPlugin;
 impl Plugin for MenuSoundPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Idle>()
+            .add_audio_channel::<Introductions>()
             .add_systems(OnEnter(AppState::Menu), start)
             .add_systems(OnExit(AppState::Menu), stop)
             .add_systems(

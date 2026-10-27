@@ -34,10 +34,11 @@ use bevy::window::PrimaryWindow;
 
 use opensacred_data::tables::{FIGURES as FIGURES_TABLE, Figure as Showcase};
 
-use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween};
+use bevy_kira_audio::prelude::{AudioChannel, AudioControl};
 
 use crate::game::{AppState, Class, Data, FONT, Request};
 use crate::menu::{self, Screen, Words};
+use crate::menu_sound::Introductions;
 use crate::ripples::{self, Pond, Ripples};
 use crate::sfx::{self, Sfx};
 use crate::{files, hud, motions, npcs};
@@ -156,12 +157,12 @@ struct Choice {
 }
 
 /// The introduction of the class whose figure the cursor rests on: the class, how long the cursor
-/// has rested there, in seconds, and the introduction playing, once it has.
+/// has rested there, in seconds, and whether it has spoken.
 #[derive(Resource, Default)]
 struct Introduction {
     class: Option<Class>,
     rested: f32,
-    playing: Option<Handle<AudioInstance>>,
+    spoken: bool,
 }
 
 /// How long the cursor rests on a figure before it speaks, in seconds (`0x70C710`).
@@ -1269,19 +1270,21 @@ fn settle(
 
 /// The class of the figure that the cursor rests on speaks its introduction once the cursor has
 /// rested there half a second, at the effects' volume, in the middle and at its sample's rate;
-/// the cursor leaving it stops it (the sound event (9, 0x44), `0x693FE0`).
+/// the cursor leaving it stops it (the sound event (9, 0x44), `0x693FE0`). The introductions play
+/// on a channel of their own, whose stop also drops one still loading (#1144).
 fn introduce(
     time: Res<Time<Real>>,
     choice: Res<Choice>,
     mut introduction: ResMut<Introduction>,
-    (mut sfx, audio, assets): (ResMut<Sfx>, Res<Audio>, Res<AssetServer>),
-    mut instances: ResMut<Assets<AudioInstance>>,
+    (mut sfx, channel, assets): (
+        ResMut<Sfx>,
+        Res<AudioChannel<Introductions>>,
+        Res<AssetServer>,
+    ),
 ) {
     if choice.hovered != introduction.class {
-        if let Some(playing) = introduction.playing.take()
-            && let Some(mut instance) = instances.get_mut(&playing)
-        {
-            instance.stop(AudioTween::default());
+        if introduction.spoken {
+            channel.stop();
         }
         *introduction = Introduction {
             class: choice.hovered,
@@ -1291,7 +1294,7 @@ fn introduce(
     let Some(class) = introduction.class else {
         return;
     };
-    if introduction.playing.is_some() {
+    if introduction.spoken {
         return;
     }
     introduction.rested += time.delta_secs();
@@ -1303,16 +1306,15 @@ fn introduce(
     };
     let sample = sfx.sample(id, file, &assets);
     debug!("choice: {} introduces itself, {id}", class.name());
-    introduction.playing = Some(audio.play(sample).with_volume(sfx::decibels(1.0)).handle());
+    channel.stop();
+    channel.play(sample).with_volume(sfx::decibels(1.0));
+    introduction.spoken = true;
 }
 
-/// Stops the introduction playing as the screen closes.
-fn hush(mut introduction: ResMut<Introduction>, instances: Option<ResMut<Assets<AudioInstance>>>) {
-    if let Some(playing) = introduction.playing.take()
-        && let Some(mut instances) = instances
-        && let Some(mut instance) = instances.get_mut(&playing)
-    {
-        instance.stop(AudioTween::default());
+/// Stops the introduction playing, or loading, as the screen closes.
+fn hush(mut introduction: ResMut<Introduction>, channel: Option<Res<AudioChannel<Introductions>>>) {
+    if let Some(channel) = channel {
+        channel.stop();
     }
     *introduction = Introduction::default();
 }
@@ -1374,7 +1376,7 @@ impl Plugin for ChoicePlugin {
                     .after(show)
                     .run_if(in_state(Screen::Heroes))
                     .run_if(resource_exists::<Sfx>)
-                    .run_if(resource_exists::<Assets<AudioInstance>>),
+                    .run_if(resource_exists::<AudioChannel<Introductions>>),
             );
     }
 }
