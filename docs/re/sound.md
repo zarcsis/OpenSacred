@@ -279,7 +279,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Heroes' `HITENEMY`, `BATTLECRY`, `ENEMYKILLME`, `MUSIC_DEATH` | `0x6852B0`, `0x67A7A0` (5, 1) | by name | docs/re/sound.md | yes | yes |
 | Footsteps of the hero, rain, thunder, quake, menus, dialogues' voice-overs, introductions | `0x68EB90`, `0x41A4F0`, `0x419A70`, `0x697220`, `0x69B770`, `0x4A9730` | 102/103, 101, 200–204, 209, 7015–7018, `IDLEFX_*`, by name | as read before | yes | yes |
 | Weapon's `MISS` on an animal | `0x532731`–`0x5329D0` | the striker's weapon's 0 | a strike that does no damage to an animal | yes | no: the game plays `PARADE` |
-| The hero's critical-hit cry | `0x6852B0`, `0x686F4F`–`0x686FC9` | 16301 or 16302 | the hero takes `CRITICALHIT` | yes | no |
+| The hero's critical-hit cry | `0x6852B0`, `0x686F4F`–`0x686FC9` | 16301 or 16302 | the hero takes `CRITICALHIT` | yes | yes (`voices`, #1168) |
 | Doors open and close | `0x44BCD0` → `0x695800` | 602–608, groups 1 and 3, by the type | a door turns | yes (`npcs::swing`) | yes (#1166) |
 | A locked trigger rattles | `0x415F00` | 331 or 332 | the hero without the trigger's key | no (keys, #1088) | no |
 | Chests, shrines, vases, graves, book stands | `0x695800` from `0x48AE90` (`SetObjState`) and `0x4968A0` | 605, 609, 610, 611, 324/325 | an object opened or closed | no | no |
@@ -324,9 +324,13 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 
 - **The animals' parade** (`0x532731`): a strike that did no damage plays, for most targets, the striker's weapon's `PARADE` (`0x425EC0(type, 2)`) or the fist's (`0x4261D0(502, 2)`).
   For the target types 512, 536, 543, 545, 567–570, 573–582, 584–588 and 591 (as compared at `0x53274E`–`0x532850`) it searches the striker's weapon's type name (`0x43CED0`) from its 13th character, past `TYPE_WEAPON_`, for the strings at `0x956024`–`0x956038` (`SWORD`, `MACE` and `AXE` read in the code, `DAGGER` among them) and, with one found, plays the weapon's `MISS` (`0x425EC0(type, 0)`) at the target, else nothing.
-- **The hero's critical-hit cry**: when the hero is the speaker of group 3 (`CRITICALHIT`), `0x6852B0` plays 16301 or 16302 at even odds at the hero, at the voice's rate factor, before the line's own test, and stops the hero's playing MP3 line (`0x693FB0`).
+- **The hero's critical-hit cry**: when the hero is the speaker of group 3 (`CRITICALHIT`), `0x6852B0` plays 16301 or 16302 at even odds at the hero, at the voice's rate factor, before the line's own test, and stops the hero's playing MP3 line (`0x693FB0`); its rate factor is 0.45 + (`rand() % 10`)/90, the voice's (`0x686F75`).
+  `opensacred-game` plays it so, and stops the hero's line by name that plays (`voices`, #1168).
 - **The killer's weapon at a death** (`0x5334DD`, `0x536362`): `0x425EC0(the event's weapon type, 7)`, which every weapon profile leaves empty: silent (**hypothesis** for the argument).
-- **Death by fire** (`0x53ECA0`, from the creature's event receiver `0x5375C0`): an effect `0x50` at the creature and `DIEFLAMES` (7029) at it (three sites; **hypothesis**: a creature burnt to death).
+- **Death by fire** (`0x53ECA0`, the death's action, the action 6 of the AI's switch at `0x539918` in `0x5375C0`): an effect `0x50` at the creature and `DIEFLAMES` (7029) at it, at a rate factor of 0.5 (three sites).
+  The action's sub-mode (`+0x152`) set, the creature standing (`+0x241`, `+0x214` 0), its type (`+0x10`, 32 to 143) chooses the case by the byte table `0x542A30` (the cases at `0x542A14`, read 2026-10-27): the fire ghoul, 73 (`feuerghul.grn`), makes the FX object 856 at itself, the effect and the sound, unless its flags word (`+0x1F4`) has bit `0x2000`; the magic skeletons 48, 80 and 81 and the undead goblins 142 and 143 each have a case of their own that plays it in a branch after a test of `+0x4D4` (not read; **hypothesis**: as they fall for good rather than rise).
+  So it is not a death by fire's damage but these types' end.
+  `opensacred-game` plays it at a fire ghoul's death (`sfx`, #1168).
 - **`CHAR_SPLASH`** (3000) plays in one branch of `0x4E8DA0` (called from `addExperience`, the gold's handler, the deaths, the arrows and the save's load; what it does is not read) with an effect `0x27` at the creature and the event (6, 7); the branch's condition is not read.
 
 #### The listener and the zoom

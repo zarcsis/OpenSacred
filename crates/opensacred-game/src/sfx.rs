@@ -15,8 +15,8 @@ use std::collections::HashMap;
 
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message, MessageReader,
-    Plugin, Query, Res, ResMut, Resource, Update, Vec3, With,
+    Added, App, AssetServer, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
+    MessageReader, MessageWriter, Plugin, Query, Res, ResMut, Resource, Update, Vec3, With,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
@@ -456,6 +456,28 @@ fn plays(
     }
 }
 
+/// The fire ghoul, which burns away as it dies (`DIEFLAMES`, #1168).
+const FIRE_GHOUL: u32 = 73;
+const DIES_IN_FLAMES: u32 = 7029;
+
+/// A fire ghoul dying sounds `DIEFLAMES` at itself (the death's action, `0x53ECA0`, its case of
+/// the type 73 at `0x5416DD`); the magic skeletons' and the undead goblins' cases, which sound it
+/// in a branch not read, do not.
+fn burns_away(
+    dying: Query<(Entity, &crate::ai::Mind), Added<crate::npcs::Dies>>,
+    mut sounds: MessageWriter<Play>,
+) {
+    for (creature, mind) in &dying {
+        if mind.thinks.creature == FIRE_GHOUL {
+            sounds.write(Play {
+                sound: Of::Id(DIES_IN_FLAMES),
+                at: Some(creature),
+                rate: (0.5, Roll::None),
+            });
+        }
+    }
+}
+
 /// The weapons' sounds and the world's.
 pub struct SfxPlugin;
 
@@ -463,7 +485,7 @@ impl Plugin for SfxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Blow>()
             .add_message::<Play>()
-            .add_systems(Update, (blows, plays).in_set(Unpaused));
+            .add_systems(Update, (blows, burns_away, plays).in_set(Unpaused));
     }
 }
 

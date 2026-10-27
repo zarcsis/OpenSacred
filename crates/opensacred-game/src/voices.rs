@@ -62,6 +62,8 @@ const PEACEFUL_IDLE: u8 = 70;
 const IDLE: u8 = 0;
 /// The Gladiator's creature type, whose battle cry's roll is one in two (`0x4FD0F0`).
 const GLADIATOR: u32 = 2;
+/// The hero's cries at a critical hit (`SOUND_FX_HERO_CRITICALHIT01`, `02`).
+const HERO_CRIES: [u32; 2] = [16301, 16302];
 
 /// The hero makes a combat art: its battle cry, one in three, one in two for the Gladiator, or
 /// surely after the art's own cry (`0x4FD0F0`, `art_sounds`).
@@ -148,9 +150,10 @@ impl Speak {
     }
 }
 
-/// The line a creature speaks, while it plays.
+/// The line a creature speaks, while it plays, and whether it is a hero's line by name (the
+/// original's MP3 lines, `0x693FE0`).
 #[derive(Component)]
-struct Speaking(Handle<AudioInstance>);
+struct Speaking(Handle<AudioInstance>, bool);
 
 /// The voices of the types, the waits of the sound ids that played, and the dice.
 #[derive(Resource)]
@@ -288,6 +291,7 @@ struct Said {
     file: String,
     wait: Option<f32>,
     play: Play,
+    named: bool,
 }
 
 /// Whether a line of a group of roll `n` plays: always for 1, never for 0, else when
@@ -335,7 +339,11 @@ fn speak(
     mut cries: MessageReader<BattleCry>,
     mut voices: ResMut<Voices>,
     mut sfx: ResMut<Sfx>,
-    (hero, forms): (Option<Res<hero::Hero>>, Option<Res<crate::forms::Forms>>),
+    (hero, forms, mut sounds): (
+        Option<Res<hero::Hero>>,
+        Option<Res<crate::forms::Forms>>,
+        MessageWriter<sfx::Play>,
+    ),
     speakers: Query<(
         &GlobalTransform,
         Option<&crate::ai::Mind>,
@@ -376,6 +384,7 @@ fn speak(
                     file,
                     wait: None,
                     play: Play::Interrupts,
+                    named: true,
                 });
             }
             continue;
@@ -392,7 +401,27 @@ fn speak(
                 file,
                 wait: None,
                 play: Play::Plays,
+                named: true,
             });
+        }
+        // The hero's cry at a critical hit, at the voice's rate's factor, before its line's own
+        // test, which stops its line by name (`0x6852B0` at `0x686F4F`).
+        let mut speaking = speaking;
+        let mut cried = false;
+        if is_hero && line.group == CRITICAL_HIT {
+            let cry = HERO_CRIES[usize::try_from(sfx.dice.below(2)).unwrap_or(0)];
+            sounds.write(sfx::Play {
+                sound: sfx::Of::Id(cry),
+                at: Some(line.speaker),
+                rate: (0.45, sfx::Roll::Tenths),
+            });
+            if let Some(named) = speaking.filter(|s| s.1 && playing(Some(s)))
+                && let Some(mut old) = instances.get_mut(&named.0)
+            {
+                old.stop(AudioTween::default());
+                speaking = None;
+                cried = true;
+            }
         }
         let creature = match (is_hero, mind) {
             (true, _) => match hero_type {
@@ -406,7 +435,11 @@ fn speak(
             continue;
         };
         let waiting = voices.waits.get(&id).is_some_and(|&until| until > now);
-        let play = play(line.group, playing(speaking), waiting);
+        let play = match play(line.group, playing(speaking), waiting) {
+            // The line by name that the cry stopped gives way.
+            Play::Plays if cried => Play::Interrupts,
+            play => play,
+        };
         if play != Play::GivesWay {
             said.push(Said {
                 speaker: line.speaker,
@@ -414,6 +447,7 @@ fn speak(
                 file,
                 wait: Some(wait),
                 play,
+                named: false,
             });
         }
     }
@@ -432,6 +466,7 @@ fn speak(
                 file,
                 wait: None,
                 play: Play::Plays,
+                named: true,
             });
         }
     }
@@ -470,7 +505,9 @@ fn speak(
             "voices: {} speaks {}, at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}",
             line.speaker, line.id
         );
-        commands.entity(line.speaker).insert(Speaking(instance));
+        commands
+            .entity(line.speaker)
+            .insert(Speaking(instance, line.named));
     }
 }
 
@@ -547,7 +584,7 @@ fn idle(
             "voices: {creature} makes the idle noise {id}, at {near:.2}, panned {pan:.2}, at a \
              rate of {rate:.2}"
         );
-        commands.entity(creature).insert(Speaking(instance));
+        commands.entity(creature).insert(Speaking(instance, false));
     }
 }
 
