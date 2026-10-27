@@ -470,6 +470,7 @@ fn think(
         ),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
+    queued: Query<(), With<crate::npcs::ScriptQueue>>,
 ) {
     let Some((hero, body, size, unseen)) = hero.iter().next() else {
         return;
@@ -503,6 +504,11 @@ fn think(
         // A knocked creature thinks nothing while it slides, but for its timer while it is held
         // (`opensacred_rules::minds::Mind::knocked`).
         if sliding && !mind.held() {
+            continue;
+        }
+        // One whose script's queue runs leaves its idle thought, fighting still where it fights
+        // (`0x542B20` at `0x542D9E`, #1220).
+        if queued.contains(entity) && !mind.fighting() {
             continue;
         }
         let here = transform.translation;
@@ -1186,7 +1192,10 @@ fn behave(
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    followers: Query<(), With<crate::followers::Follower>>,
+    (followers, queued): (
+        Query<(), With<crate::followers::Follower>>,
+        Query<(), With<crate::npcs::ScriptQueue>>,
+    ),
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
         return;
@@ -1290,8 +1299,9 @@ fn behave(
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
     let mut stops: Vec<Entity> = Vec::new();
     for (entity, transform, way, mut mind, walk) in &mut creatures {
-        // A follower keeps by its master instead (`followers`).
-        if followers.contains(entity) {
+        // A follower keeps by its master instead (`followers`), and one whose script's queue runs
+        // by its queue (`0x544890` at `0x545B1B`, #1220).
+        if followers.contains(entity) || queued.contains(entity) {
             continue;
         }
         let here = transform.translation;

@@ -794,6 +794,35 @@ Its quest (`0x75`) serves only the dynamic quests' table, which the release neve
 Not followed, and why: the stock itself, for the game has no trade yet; `0x36`, which serves nothing; `0x73`'s mark of 64, the game taking a creature's mark by its type (`opensacred_rules::minds::marked`), and no `SetNPCState` of the Seraphim's tree carrying it; `0x90`'s byte `+0x400` and `0xA1`'s `+0x14` bit `0x200000`, whose readers are not read; `0x7F`, `0x80`, `0x84`, `0x8C` and `0x85`'s effect, not read.
 In the Seraphim's tree the `SetNPCState`s carry `0x03` 4 times, `0x11` 3 times and `0x63` 59 times (the stables' horses, of no dialogue already).
 
+## The anim mode and the creatures' queues
+
+Read 2026-10-27 (#1220) in `Sacred.exe` and seen in the original under the driver of #448 (the novice's way out of the chapel after her first dialogue, `QIS_OnEnter9` of the Seraphim's tree, run by `exit01`); **confirmed** by code unless marked otherwise.
+
+`SetAnimMode` (88) runs nothing itself: it turns on the "anim" bit of the script manager's mode word (`0xAACF80 + 0xA45C`, bit 1), under which the records that name a creature wait their turn in that creature's own queue instead of acting.
+`SetCinemaMode` (134) turns on the same bit and the "cinema" bit 2, and stops the local player's hero where its queue is empty.
+`SetPlayMode` (89) with no creature turns both bits off at once, waiting for no queue; naming a creature while the mode is on, it queues an end marker instead, and the mode ends as that creature's queue reaches it (`0x4A4040`, `0x59E926`).
+Every `SetPlayMode` of the Seraphim's tree (76) names none, so its mode always ends within the same function's run.
+Both post the engine's event `0x13` of subtype 3 with 1 or 0, which the interface manager takes as a flag (`0x757840`'s case 5; **hypothesis**: the interface locked while it holds, faded back after a mode of a second or more); turned on and off within one frame it changes nothing on the screen (seen).
+
+- The records that queue, each testing the anim bit and adding an entry of 68 bytes to the creature's vector `+0x588` (its first word the entry's kind): `NPC_Goto` (72, kind 1, `0x49E210`), `Wait` (90, kind 2), `PlayAnim` (91, kind 3), `Attack` (92, kind 4), `SetPlayMode` with a creature (kind 5), `ActObj` (93, kind 6), `SetVarBit` and `UnsetVarBit` naming a creature (kinds 7 and 8), `Teleport` (46, kind 9, `0x491D40`), `Morph` (79, kind 10), `CreateObj` (8, kind 11), `CallFunktion` with a creature (22, kind 12), `Partikel` (99, kind 13) and the type 100 (kind 14).
+  Every other record acts at once, the mode on or not: `SetNPCState`, `PlaySound`, `SetTimer`, `Popup`, `GroupGoto` and `NPC_TalkTo` among those of the Seraphim's spans.
+- The creature's update (`0x5375C0`) calls the queue's step (`0x59A840`) while its queue is not empty, once a tick of the world (about 0.1 s, seen), which takes the first entry alone (a switch on its kind, `0x59F390`); an entry done is removed and the rest shift down, a queue of more than 500 is emptied, and the queue is saved with the creature (`0x54B3D0`).
+  While it is not empty, the creature's idle handler (`0x542B20`, at `0x542D9E`) and its standing action (`0x544890`) leave their own behaviours; a fight goes on.
+- A walk (kind 1, `0x59A885`): while the creature fights or strikes it waits; moving, it is steered on to its target; standing, it ends once the creature stands within 40 of the target along each axis (less than a cell) and on the walk's layer, else it is ordered again, at a run (`+0x1F8` 2; at a walk with the record's `0x66`), and its count goes up, the creature's place noted as the count starts.
+  Past 5 orders the walk is dropped where the creature has not moved since, and counted anew where it has: the only time-out.
+  The record's layer 0 is the creature's layer as the record runs (`0x49E210`).
+- A teleport (kind 9, `0x59EF1A`) puts the creature on its cell and layer as written, 0 the ground, turned to its heading, at once.
+- A wait (kind 2, `0x59CAA5`) holds until its condition holds: while the mode is on (`0x58`, the creature stopped meanwhile), while or until another creature fights, lives or stands idle (`0x59` to `0x5C`, the other may be itself), until a variable's bit is set or clear (`0x5D`, `0x5E`), or for a time in seconds, in hundredths where negative (`0x5F`).
+- A clip (kind 3, `0x59E151`) waits while a clip of the scripts plays, then starts its own and is done at once: a walk after it does not wait for it, a second clip does.
+- The player is not held by the anim mode: the hero ran at a click while the novice's queue ran (seen); the cinema bit alone refuses the player's input on the world (`0x6172C0` at `0x6172ED`) and stops the hero at each tick (`0x539613`), in the Daemon's two functions of the Seraphim's tree.
+- Seen: the novice ran from the chapel's floor 1 to its entrance cell 3237,2519 (0.3 s), stood, was put on the exit cell 3237,2520 on the ground at the next tick, and ran 4 cells down to the steps at 3237,2524 (0.85 s), at her type's run speed (276 for 170 × 1.25 × 1.3); her second walk, its layer the floor 1 she stood on as the record ran, never counted as arrived and was dropped 2.4 s later, as she stood on the steps.
+
+In the Seraphim's tree 65 functions hold 74 spans, 72 of `SetAnimMode` and 2 of `SetCinemaMode`, each closed by a `SetPlayMode` of no creature in the same function; in them 84 `NPC_Goto`s, 43 `PlayAnim`s, 41 `CallFunktion`s, 14 `Wait`s, 13 `Teleport`s and fewer of the other records.
+
+In `opensacred-game` since #1220 (`npcs::ScriptQueue`, `npcs::take_steps`): the play's `NPC_Goto`s and `Teleport`s between a `SetAnimMode` or a `SetCinemaMode` and a `SetPlayMode` wait in their creature's queue, one step at each tick of the world, the creature's idle thought and behaviours left meanwhile (`ai`); a walk runs and ends within 40 along each axis on its level, or is dropped after 5 orders standing still; a teleport puts the creature at once.
+A walk to a cell of no floor goes onto the creature's level as it sets out rather than as the record ran, so that the novice's walk after her teleport down ends on the steps rather than being dropped there.
+Not followed yet (#1232): the other queued records (`Wait`, `PlayAnim`, `Attack` and the rest, which the game does not run at all yet), a `SetPlayMode` naming a creature (it ends the mode at once), the cinema mode's hold on the player, the interface's flag, and the queues saved with the creatures.
+
 ## Differences from the openheilig table
 
 openheilig's tag table (MIT; derived from a Linux build with addresses `0x08xxxxxx`) differs from the GOG client in eight places:
