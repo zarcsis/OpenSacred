@@ -287,6 +287,11 @@ pub struct Shows {
 }
 
 impl Shows {
+    /// Whether the music is off, in the games and in the menus (`menu_sound`).
+    pub fn no_music(self) -> bool {
+        self.no_music
+    }
+
     /// How `game` says its games show.
     pub fn of(game: &NewGame) -> Self {
         Self {

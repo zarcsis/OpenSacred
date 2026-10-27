@@ -306,6 +306,7 @@ fn main_screen(
         }
         .as_ref(),
         view: ripples::MAIN,
+        cave: false,
     };
     let water = ripples.spawn(
         &mut commands,

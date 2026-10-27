@@ -92,11 +92,20 @@ pub const CAVE: View = View {
 };
 
 /// A screen's water: its bed's and its reflection's textures, relative to the asset directory,
-/// and its camera.
+/// its camera, and whether it is a cave's, the choices of the hero's, whose drops sound so
+/// (`menu_sound`).
 pub struct Pond<'a> {
     pub bed: Option<&'a String>,
     pub reflection: Option<&'a String>,
     pub view: View,
+    pub cave: bool,
+}
+
+/// A drop that fell into the water, a cave's or not, in the same update, as the original posts its
+/// sound from the drop itself (the sound event (9, 0x85, cave); `menu_sound`).
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fallen {
+    pub cave: bool,
 }
 
 /// The heights and speeds of the grid's points, row by row from the far edge, which the menus'
@@ -240,11 +249,12 @@ fn along(at: usize) -> f32 {
     f32::from(u16::try_from(at).unwrap_or(0)) * SPAN / (SPAN - 1.0) - SPAN / 2.0
 }
 
-/// A screen's water: its camera and its passes' meshes, the bed's, the reflection's and the
-/// highlights'.
+/// A screen's water: its camera, whether it is a cave's, and its passes' meshes, the bed's, the
+/// reflection's and the highlights'.
 #[derive(Component)]
 struct Water {
     view: View,
+    cave: bool,
     meshes: [Handle<Mesh>; 3],
 }
 
@@ -306,6 +316,7 @@ impl Ripples<'_> {
             DespawnOnExit(screen),
             Water {
                 view: pond.view,
+                cave: pond.cave,
                 meshes: meshes.clone(),
             },
         ));
@@ -396,13 +407,21 @@ fn seen(view: View, point: Vec3) -> [f32; 3] {
 
 /// Steps the surface as the frames' real time owes it and lets a drop fall when its time comes,
 /// while a screen shows its water.
-fn ripple(time: Res<Time<Real>>, mut surface: ResMut<Surface>) {
+fn ripple(
+    time: Res<Time<Real>>,
+    mut surface: ResMut<Surface>,
+    waters: Query<&Water>,
+    mut fallen: MessageWriter<Fallen>,
+) {
     let elapsed = time.delta_secs();
     surface.drop_in -= elapsed;
     if surface.drop_in <= 0.0 {
         let share = COLUMN + SPREAD * surface.roll();
         surface.drop_at(share);
         surface.drop_in = WAIT + WAIT_MORE * surface.roll();
+        fallen.write(Fallen {
+            cave: waters.iter().any(|water| water.cave),
+        });
     }
     surface.owed += elapsed;
     let mut steps = 0;
@@ -518,10 +537,12 @@ pub struct RipplesPlugin;
 
 impl Plugin for RipplesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Surface>().add_systems(
-            Update,
-            (ripple, shape).chain().run_if(any_with_component::<Water>),
-        );
+        app.init_resource::<Surface>()
+            .add_message::<Fallen>()
+            .add_systems(
+                Update,
+                (ripple, shape).chain().run_if(any_with_component::<Water>),
+            );
     }
 }
 

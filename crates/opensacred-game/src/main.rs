@@ -44,6 +44,7 @@ mod lines;
 mod liquids;
 mod making;
 mod menu;
+mod menu_sound;
 mod models;
 mod motions;
 mod music;
@@ -307,13 +308,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
+        menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
-        overlay::OverlayPlugin,
     ))
     .add_plugins((
+        overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
         ripples::RipplesPlugin,
@@ -328,9 +330,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         sound::SoundPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
-        statics::StaticsPlugin,
     ))
-    .add_plugins((talk::TalkPlugin, terrain::GroundPlugin))
+    .add_plugins((
+        statics::StaticsPlugin,
+        talk::TalkPlugin,
+        terrain::GroundPlugin,
+    ))
     .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
