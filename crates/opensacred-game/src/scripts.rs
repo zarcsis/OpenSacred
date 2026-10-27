@@ -478,17 +478,9 @@ impl Live {
         }
     }
 
-    /// The quest of the function `function`, the first of its name: the quest whose file of the
-    /// tree holds it (`quests/<n>.luau`, the function's quest of `Vectoren.bin`), none for
-    /// another.
+    /// The quest of the function `function` ([`quest_of`]).
     fn quest_of(&self, function: &str) -> Option<u32> {
-        let entry = self.runtime.index().functions.get(function)?.first()?;
-        entry
-            .file
-            .strip_prefix("quests/")?
-            .strip_suffix(".luau")?
-            .parse()
-            .ok()
+        quest_of(self.runtime.index(), function)
     }
 
     /// Runs the `entry`-th function of the name `function` as the client's runner does
@@ -510,6 +502,7 @@ impl Live {
         }
         let mut recorder = Recorder::new(
             (&self.tree, &self.creatures),
+            self.runtime.index(),
             &mut self.state,
             &mut self.rng,
         );
@@ -535,8 +528,8 @@ impl Live {
         (effects, outcome)
     }
 
-    /// A quest's transition, as its record runs it (`SetUpQuest`, `TriggerQuest`;
-    /// `quests::Quests::step`), its sections run in turn: what they did to the world.
+    /// A quest's transition, as its record runs it (`SetUpQuest`, `TriggerQuest`, `ExitQuest`,
+    /// `LoseQuest`; `quests::Quests::step`), its sections run in turn: what they did to the world.
     pub fn transition(&mut self, transition: Transition, quest: u32) -> Effects {
         let mut ran = Vec::new();
         let mut effects = Effects::default();
@@ -621,6 +614,19 @@ impl Live {
     }
 }
 
+/// The quest of the function `function` of the tree of the index `index`, the first of its name:
+/// the quest whose file of the tree holds it (`quests/<n>.luau`, the function's quest of
+/// `Vectoren.bin`, `+0x48` of its entry), none for another.
+fn quest_of(index: &Index, function: &str) -> Option<u32> {
+    let entry = index.functions.get(function)?.first()?;
+    entry
+        .file
+        .strip_prefix("quests/")?
+        .strip_suffix(".luau")?
+        .parse()
+        .ok()
+}
+
 /// Which of the functions of a region's `Init`, `entries` of one name, run, in their order: of a
 /// name written again, the last and then the first, the two that the client's cache of the
 /// sectors' and the regions' names keeps (`0x46A5C3`: the first index in its low word, each later
@@ -643,18 +649,19 @@ fn records(
     state: &mut quests::Scripts,
     rng: &mut Rng,
 ) -> Vec<Record> {
-    let mut recorder = Recorder::new(of, state, rng);
+    let mut recorder = Recorder::new(of, runtime.index(), state, rng);
     if let Err(e) = runtime.call_entry(function, entry, &mut recorder) {
         bevy::log::warn!("scripts: {e}");
     }
     recorder.records
 }
 
-/// The host of a run: the hero's tree, the creatures' types, the scripts' state, their `rand()`,
-/// the records in the order run, the hero's teleports and the objects' states.
+/// The host of a run: the hero's tree, the creatures' types, the tree's index, the scripts' state,
+/// their `rand()`, the records in the order run, the hero's teleports and the objects' states.
 struct Recorder<'a> {
     tree: &'a str,
     creatures: &'a HashSet<u32>,
+    index: &'a Index,
     state: &'a mut quests::Scripts,
     rng: &'a mut Rng,
     records: Vec<Record>,
@@ -672,6 +679,9 @@ struct Recorder<'a> {
     between: bool,
     /// The quest of the function that runs, which the rewards ask ([`REWARDS`]).
     quest: Option<u32>,
+    /// The quests of the functions that run, the innermost last, each as the record walker takes
+    /// its function's (`+0x48`, `0x46BA90`).
+    running: Vec<Option<u32>>,
 }
 
 /// The records of the rewards, `AddExp`, `AddGold` and `Gewinn`, which `rewards` carries out:
@@ -682,12 +692,14 @@ const REWARDS: [&str; 3] = ["add_exp", "add_gold", "gewinn"];
 impl<'a> Recorder<'a> {
     fn new(
         (tree, creatures): (&'a str, &'a HashSet<u32>),
+        index: &'a Index,
         state: &'a mut quests::Scripts,
         rng: &'a mut Rng,
     ) -> Self {
         Self {
             tree,
             creatures,
+            index,
             state,
             rng,
             records: Vec::new(),
@@ -701,7 +713,30 @@ impl<'a> Recorder<'a> {
             popups: Vec::new(),
             between: true,
             quest: None,
+            running: Vec::new(),
         }
+    }
+
+    /// The quest that an `ExitQuest` or a `LoseQuest` of the operands `tags` ends (`0x48EE20`):
+    /// that of its number, where the tree has it, else the quest of the function that runs.
+    fn ending(&self, tags: &Tags) -> Option<u32> {
+        let named = tags
+            .numbers("_0B")
+            .first()
+            .and_then(|&quest| u32::try_from(quest).ok())
+            .filter(|&quest| self.has_quest(quest));
+        named.or_else(|| self.running.last().copied().flatten())
+    }
+
+    /// Whether the tree has the quest `quest`: a file of its functions (`0xAABF18`'s records,
+    /// **hypothesis**: a quest of none is not one of them).
+    fn has_quest(&self, quest: u32) -> bool {
+        let file = format!("quests/{quest}.luau");
+        self.index
+            .functions
+            .values()
+            .flatten()
+            .any(|entry| entry.file == file)
     }
 
     /// Whether a reward may act: no function's quest, or one set up and not finished.
@@ -778,23 +813,36 @@ impl Host for Recorder<'_> {
         }
         let variables = &mut self.state.variables;
         match name {
-            "set_up_quest" | "trigger_quest" => {
-                let transition = if name == "set_up_quest" {
-                    Transition::SetUp
-                } else {
-                    Transition::Trigger
+            "set_up_quest" | "trigger_quest" | "exit_quest" | "lose_quest" => {
+                let transition = match name {
+                    "set_up_quest" => Transition::SetUp,
+                    "trigger_quest" => Transition::Trigger,
+                    "exit_quest" => Transition::Exit,
+                    _ => Transition::Lose,
                 };
-                let Some(quest) = tags
-                    .numbers("_0B")
-                    .first()
-                    .and_then(|&q| u32::try_from(q).ok())
-                else {
+                let quest = if matches!(transition, Transition::Exit | Transition::Lose) {
+                    self.ending(&tags)
+                } else {
+                    tags.numbers("_0B")
+                        .first()
+                        .and_then(|&q| u32::try_from(q).ok())
+                };
+                let Some(quest) = quest else {
                     return Handled::Done;
                 };
                 match self.state.quests.step(transition, quest, ran) {
                     Some(section) => Handled::Run(section.function(quest)),
                     None => Handled::Done,
                 }
+            }
+            // The quest's flag 4 off and its log entry out (`0x48E600`).
+            "un_trigger_quest" => {
+                if let Some(&quest) = tags.numbers("_0B").first()
+                    && let Ok(quest) = u32::try_from(quest)
+                {
+                    self.state.quests.untrigger(quest);
+                }
+                Handled::Done
             }
             "set_var" => {
                 let names = tags.names("_01", variables);
@@ -1166,12 +1214,14 @@ impl Host for Recorder<'_> {
         self.state.variables.value(name)
     }
 
-    fn begins(&mut self, _function: &str) {
+    fn begins(&mut self, function: &str) {
         self.between = false;
+        self.running.push(quest_of(self.index, function));
     }
 
     fn ends(&mut self) {
         self.between = true;
+        self.running.pop();
     }
 }
 
@@ -1498,8 +1548,9 @@ pub fn run_function(world: &mut World, function: &str) -> Result<Vec<String>, St
     carry_out(world, run)
 }
 
-/// Sets the quest `quest` up or triggers it, as its records do, its sections run in turn (the
-/// command `quest`): lines as [`run_function`] gives them, the quest's flags first.
+/// Sets the quest `quest` up, triggers it, exits it or loses it, as its records do, its sections
+/// run in turn (the command `quest`): lines as [`run_function`] gives them, the quest's flags
+/// first.
 pub fn run_transition(
     world: &mut World,
     transition: Transition,
@@ -2396,6 +2447,85 @@ mod tests {
                 state("gate", Some(true), Some(false))
             ]
         );
+    }
+
+    #[test]
+    fn an_exit_or_a_loss_ends_its_quest_or_else_that_of_its_function() {
+        let runtime = runtime(&[
+            (
+                "quests/5.luau",
+                "local F = {}\n\
+                 F[\"QIS_Trigger5\"] = function()\n\
+                 return true\n\
+                 end\n\
+                 F[\"QIS_OnExit5\"] = function()\n\
+                 set_hp { _0B = 5 }\n\
+                 return true\n\
+                 end\n\
+                 F[\"done5\"] = function()\n\
+                 exit_quest {}\n\
+                 set_hp { _0B = 50 }\n\
+                 return true\n\
+                 end\n\
+                 F[\"lost6\"] = function()\n\
+                 lose_quest { _0B = 6 }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/7.luau",
+                "local F = {}\n\
+                 F[\"QIS_Trigger7\"] = function()\n\
+                 return true\n\
+                 end\n\
+                 F[\"QIS_OnExit7\"] = function()\n\
+                 set_hp { _0B = 7 }\n\
+                 return true\n\
+                 end\n\
+                 F[\"unknown\"] = function()\n\
+                 exit_quest { _0B = 404 }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+            (
+                "quests/6.luau",
+                "local F = {}\n\
+                 F[\"QIS_Trigger6\"] = function()\n\
+                 return true\n\
+                 end\n\
+                 F[\"QIS_OnLose6\"] = function()\n\
+                 set_hp { _0B = 6 }\n\
+                 return true\n\
+                 end\n\
+                 return F",
+            ),
+        ]);
+        let mut live = live(runtime);
+        let shares = |effects: Effects| -> Vec<u32> {
+            effects.healths.iter().map(|set| set.share).collect()
+        };
+        for quest in [5, 6, 7] {
+            live.transition(Transition::SetUp, quest);
+            live.transition(Transition::Trigger, quest);
+        }
+        // A loss of its number, the quest's `OnLose` in the record's middle.
+        assert_eq!(shares(live.run("lost6", 0)), [6]);
+        assert_eq!(
+            live.state.quests.flags(6),
+            quests::SET_UP | quests::ENTERED | quests::FINISHED
+        );
+        // An exit of no number, and of a number the tree has not, ends the function's quest,
+        // once.
+        assert_eq!(shares(live.run("done5", 0)), [5, 50]);
+        assert_eq!(
+            live.state.quests.flags(5),
+            quests::SET_UP | quests::ENTERED | quests::FINISHED
+        );
+        assert_eq!(live.transition(Transition::Exit, 5), Effects::default());
+        assert_eq!(shares(live.run("unknown", 0)), [7]);
+        assert_eq!(shares(live.run("unknown", 0)), Vec::<u32>::new());
     }
 
     #[test]

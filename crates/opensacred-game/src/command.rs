@@ -228,8 +228,9 @@ enum Command {
     /// only while the quest is set up, the hero put where it teleports it; then list the
     /// scripts' timers
     Script { function: String },
-    /// Set the quest QUEST up, or trigger it, entering it where its trigger runs through, as the
-    /// scripts' records do, its sections run in turn; then list the scripts' timers
+    /// Set the quest QUEST up, trigger it, entering it where its trigger runs through, or exit or
+    /// lose it, as the scripts' records do, its sections run in turn; then list the scripts'
+    /// timers
     Quest { action: QuestAction, quest: u32 },
     /// The hero's combat arts, as the original's driver lists them: each one's table, id, level
     /// and bonus, whether a rune taught it, its time, its factor and what is still to run, which
@@ -300,6 +301,8 @@ enum RankArg {
 enum QuestAction {
     SetUp,
     Trigger,
+    Exit,
+    Lose,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -1329,6 +1332,8 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             let transition = match action {
                 QuestAction::SetUp => opensacred_rules::quests::Transition::SetUp,
                 QuestAction::Trigger => opensacred_rules::quests::Transition::Trigger,
+                QuestAction::Exit => opensacred_rules::quests::Transition::Exit,
+                QuestAction::Lose => opensacred_rules::quests::Transition::Lose,
             };
             Ok(Outcome {
                 lines: crate::scripts::run_transition(world, transition, quest)?,
