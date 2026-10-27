@@ -532,11 +532,13 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The interface over the world (#1087): the client's interface images whole (#1160), the cursor's looks, the hand over an item and the sword over a foe (#1157), the item's name beside the hand (#1161), and the bar and the hero's portrait at the original's places, matched with its frames (#1164).
     The scripts' rewards, `AddExp`, `AddGold` and `Gewinn` (#1163), a strike's damage rounded as the original's (#1151), the items table with the client's changes (#1153) and the overlay's textures in one numbering (#1154).
     The sound's sources were read whole (#1182) and filed as sixteen issues (#1166–#1181), and in the night most were played: the doors', the pick-up's, the gold's and the level-up's (#1184), the spells' and the combat arts' (#1185), the hero's critical cry and the fire ghoul's end (#1186), the animals' misses by the weapon's name (#1196, after the types' names of `Sacred.exe`, #1193), the idle effects and the water's loops (#1188, a decision on the water's pan), the listener's loudness by the zoom (#1192), the other creatures' footsteps (#1195) and the fires' loops (#1197).
-    The effects were read (#1165) and the particle systems' machinery made with the world's fires, set beside the original's braziers (#1189), the chimneys' and the lavas' smokes (#1194) and the geysers (#1198).
+    The effects were read (#1165) and the particle systems' machinery made with the world's fires, set beside the original's braziers (#1189), the chimneys' and the lavas' smokes (#1194) and the geysers (#1198); by night the fires and the fireflies keep their colours, drawn by a camera of their own after the night's pass (#1205, closing #1191), and an empty system warns no more (#1204, closing #1203).
+    The hero comments on the fight as the original's (#1200), names the kind of foe it attacks (#1206), breathes as it runs and stands (#1207) and remarks on its foes on the run, their motions kept over their last 16 updates (#1208), so that #1175 is done.
+    The magic skeletons and the undead goblins rise once, 4 s after their first fall, with no drop nor experience at it, the skeletons draining a lower killer, and burn away at their last (#1201, closing #1199, seen in the running original first); their effects and the other undead's ends are #1202.
     Subagents of the session read the code for the ambience, the footsteps, the hero's comments in the fight and the undead that rise again; one original ran at a time.
-    Found on the way: the night's pass darkens the effects that the original leaves untinted (#1191), the runes left out of the drops (#1183) and the undead that rise again (#1199).
-    The tests on the game files passed on `main` in the morning, 892 of 892.
-    Next: the hero's comments (#1175, #1176), the rest of the effects (#1092), the inventory and its windows (#1088), and the night's effects (#1191).
+    Found on the way: the night's pass darkening the effects that the original leaves untinted (#1191), the runes left out of the drops (#1183), the undead that rise again (#1199), their effects (#1202) and the effects' empty meshes (#1203).
+    The tests on the game files passed on `main` before #1200, 892 of 892.
+    Next: the hero's comments in the world and the quests' sounds (#1176), the rest of the effects (#1092, #1202), and the inventory and its windows (#1088).
 
 ### 10.1 Priority queue
 
