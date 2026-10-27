@@ -3,6 +3,7 @@
 //! sector's ground and the hero model with an animation, at any resolution.
 
 mod ai;
+mod ambience;
 mod arrows;
 mod arsenal;
 mod art_sounds;
@@ -271,6 +272,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     // Bevy takes 15 plugins at a time.
     .add_plugins((
         ai::AiPlugin,
+        ambience::AmbiencePlugin,
         arrows::ArrowsPlugin,
         arsenal::ArsenalPlugin,
         art_sounds::ArtSoundsPlugin,
@@ -284,9 +286,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         blended::BlendedPlugin,
         bolts::BoltsPlugin,
         breath::BreathPlugin,
-        buildings::BuildingsPlugin,
     ))
     .add_plugins((
+        buildings::BuildingsPlugin,
         burns::BurnsPlugin,
         choice::ChoicePlugin,
         command::CommandPlugin,
@@ -301,9 +303,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         fight::FightPlugin,
         fliers::FliersPlugin,
         followers::FollowersPlugin,
-        forms::FormsPlugin,
     ))
     .add_plugins((
+        forms::FormsPlugin,
         frame::FramePlugin,
         game::GamePlugin,
         glance::GlancePlugin,
@@ -318,9 +320,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
-        menu_sound::MenuSoundPlugin,
     ))
     .add_plugins((
+        menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
@@ -335,9 +337,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
-        shaders::ShaderLibrary,
     ))
     .add_plugins((
+        shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,

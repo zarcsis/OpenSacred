@@ -133,6 +133,14 @@ struct Piece {
     indices: Vec<u32>,
 }
 
+/// Whether the liquid material `material` is a clear water (the byte `+0xCC` of its record),
+/// whose cells the water's sound counts (`0x62DD00`).
+pub fn clear(material: u8) -> bool {
+    MATERIALS
+        .get(usize::from(material))
+        .is_some_and(|material| material.clear)
+}
+
 /// Whether `cell` lies under a liquid, of either slot.
 pub fn liquid(cell: &Cell) -> bool {
     SLOTS.contains(&(cell.ground >> 4))

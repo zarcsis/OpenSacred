@@ -809,6 +809,18 @@ impl Heights {
         self.cells.get(&key)?.bed
     }
 
+    /// The liquid material of the global cell `(cx, cy)` under a liquid: its sector's material of
+    /// the cell's slot, `WATERA` the first and `WATERB` the second (docs/02 §5.1); `None` for any
+    /// other cell and outside the loaded sectors.
+    pub fn liquid_material(&self, (cx, cy): (i32, i32)) -> Option<u8> {
+        let key = (u32::try_from(cx).ok()?, u32::try_from(cy).ok()?);
+        let cell = self.cells.get(&key)?;
+        cell.bed?;
+        let side = u32::try_from(SIDE).ok()?;
+        let slots = self.liquids(((key.0 / side), (key.1 / side)))?;
+        slots.get(usize::from(cell.nature.checked_sub(9)?)).copied()
+    }
+
     /// The liquid materials of a loaded sector's two slots (docs/02 §5.1).
     pub fn liquids(&self, sector: (u32, u32)) -> Option<[u8; 2]> {
         self.liquids.get(&sector).copied()
