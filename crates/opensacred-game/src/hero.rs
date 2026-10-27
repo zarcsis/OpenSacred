@@ -718,10 +718,11 @@ pub fn take_orders(mut bodies: Query<&mut Body>) {
     }
 }
 
-/// Lands a hero that a command put on a cell, once the sectors about it are in, as its
-/// [`Arrival`] says: on the cell itself, at the floor it names (#522), or where it can stand and
-/// walk (#458, [`Heights::landing`]): on the cell, on the ground or in a room of a building's
-/// floor, else on the cell of the ground nearest it, which the log tells.
+/// Lands a hero that a command or the start put on a cell, as its [`Arrival`] says: on the cell
+/// itself, at the floor it names (#522), as soon as that floor's cell is in (#1218), or where it
+/// can stand and walk (#458, [`Heights::landing`]), once the sectors about it are in: on the
+/// cell, on the ground or in a room of a building's floor, else on the cell of the ground nearest
+/// it, which the log tells.
 pub fn land(
     heights: Res<Heights>,
     streamer: Option<Res<Streamer>>,
@@ -731,13 +732,9 @@ pub fn land(
         let Some((cell, arrival)) = body.landing else {
             continue;
         };
-        if streamer
+        let settled = streamer
             .as_ref()
-            .is_some_and(|streamer| !streamer.settled(transform.translation))
-        {
-            continue;
-        }
-        body.landing = None;
+            .is_none_or(|streamer| streamer.settled(transform.translation));
         let floor = match arrival {
             Arrival::Nearest => None,
             Arrival::On(floor) => Some(floor),
@@ -745,31 +742,43 @@ pub fn land(
         if let Some(floor) = floor {
             let level = match floor {
                 None | Some(0) => None,
-                Some(floor) => {
-                    let level = heights
-                        .building_on_floor(cell, usize::from(floor))
-                        .and_then(|building| heights.floor_level(building, usize::from(floor)));
-                    if level.is_none() {
-                        warn!(
-                            "hero: no building's floor {floor} holds cell {},{}; the hero stands \
-                             on the ground",
-                            cell.0, cell.1
-                        );
-                    }
-                    level
-                }
+                Some(floor) => heights
+                    .building_on_floor(cell, usize::from(floor))
+                    .and_then(|building| heights.floor_level(building, usize::from(floor))),
             };
+            // Its floor's cell in, it lands at once rather than once every sector about it is:
+            // the start's hero stands inside its building from the game's first frames, the
+            // building cut away about it (#1218).
+            let position = transform.translation;
+            let found = match floor {
+                None | Some(0) => heights.standing(position.x, position.z, None).is_some(),
+                Some(_) => level.is_some(),
+            };
+            if !found && !settled {
+                continue;
+            }
+            body.landing = None;
+            if let (None, Some(floor @ 1..)) = (level, floor) {
+                warn!(
+                    "hero: no building's floor {floor} holds cell {},{}; the hero stands on the \
+                     ground",
+                    cell.0, cell.1
+                );
+            }
             body.level = level;
             body.pinned = floor.is_some().then_some(cell);
             // As though it had climbed onto a stair it stands on, so that it stays on its floor.
             body.climbed = body.pinned.is_some();
-            let position = transform.translation;
             if let Some(y) = heights.standing(position.x, position.z, level) {
                 transform.translation.y = y;
                 body.unplaced = false;
             }
             continue;
         }
+        if !settled {
+            continue;
+        }
+        body.landing = None;
         let (mut position, level) = match heights.landing(cell) {
             Some(Landing::On(level)) => (transform.translation, level),
             Some(Landing::Near(near)) => {
