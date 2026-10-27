@@ -267,6 +267,8 @@ enum HeroLine {
         night: bool,
     },
     EnemyKillMe,
+    /// The hero's breath (`0x68BEA0`), by its sound id rather than as a line by name.
+    Breathing,
 }
 
 impl HeroLine {
@@ -281,6 +283,7 @@ impl HeroLine {
             Self::EnemyType(_) => "ENEMYTYPE",
             Self::BattleCry { .. } => "BATTLECRY",
             Self::EnemyKillMe => "ENEMYKILLME",
+            Self::Breathing => "BREATHING",
         }
     }
 
@@ -292,6 +295,7 @@ impl HeroLine {
             Self::EnemyType(_) => 5,
             Self::BattleCry { .. } => 10,
             Self::EnemyKillMe => 6,
+            Self::Breathing => 10,
         }
     }
 
@@ -306,7 +310,7 @@ impl HeroLine {
             Self::BattleCry { sure: true, .. } => 1,
             Self::BattleCry { .. } if creature == GLADIATOR => 2,
             Self::BattleCry { .. } => 3,
-            Self::EnemyKillMe => 1,
+            Self::EnemyKillMe | Self::Breathing => 1,
         }
     }
 
@@ -334,6 +338,7 @@ impl HeroLine {
                     n + 1
                 )
             }
+            Self::Breathing => format!("SOUND_FX_{}{:02}_{class}", self.stem(), n + 1),
             _ => format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1),
         })
     }
@@ -856,6 +861,180 @@ fn rate(roll: f32, higher: f32) -> f32 {
     0.45 + roll / 90.0 + higher + 0.5
 }
 
+/// How long the hero walks or runs before it breathes hard, and stands before it breathes, in
+/// seconds; and how long it rests from a breath that ended (`0x68BEA0`).
+const BREATHES_MOVING: f32 = 20.0;
+const BREATHES_STANDING: f32 = 15.0;
+const BREATH_RESTS: f32 = 10.0;
+
+/// The hero's breath (`0x68BEA0`, `BREATHING`): the seconds it has walked or run (`+0xD70`) and
+/// stood (`+0xD80`) without a break, the rest still to run (`+0xD78`), and the breath playing
+/// (`+0xD94`) with the times it may still play, for the hero it keeps.
+#[derive(Default)]
+struct Breath {
+    hero: Option<Entity>,
+    moved: f32,
+    stood: f32,
+    rests: f32,
+    playing: Option<(Handle<AudioInstance>, u8, (u32, String))>,
+}
+
+/// The number of the breath of the hero of type `creature` for its gait, by the roll `n` of
+/// `rand() % 5`: walking 1 to 5, running 6 to 10, the Vampiress's 8, 9, 8, 9 and 10, standing 1
+/// to 5.
+fn breath(creature: u32, gait: Option<hero::Gait>, n: u32) -> u32 {
+    match gait {
+        Some(hero::Gait::Run) if matches!(creature, 6 | 7) => {
+            [8, 9, 8, 9, 10][usize::try_from(n % 5).unwrap_or(0)]
+        }
+        Some(hero::Gait::Run) => 6 + n % 5,
+        _ => 1 + n % 5,
+    }
+}
+
+/// The hero breathes (`0x68BEA0`): after more than 20 s of walking or running without a break,
+/// rested, a breath of its gait twice in a row, but once only if it stops; after more than 15 s
+/// of standing without a break, a breath of the walk once; at the hero, at a rate of 0.9 to 1.1
+/// of its sample, by its sound id (`SOUND_FX_BREATHINGnn_<CLASS>`). A breath that ends rests the
+/// next 10 s; a hero's line by name stops it at once, without the rest. A strike or an art's
+/// action breaks both runs, as the original's motions' shares of their last 16 updates do
+/// (**hypothesis** for their span, a frame each).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn breathe(
+    mut breath_of: bevy::prelude::Local<Breath>,
+    hero: Option<Res<hero::Hero>>,
+    heroes: Query<
+        (
+            Entity,
+            &Body,
+            &GlobalTransform,
+            Option<&Speaking>,
+            Has<crate::attack::Striking>,
+            Has<crate::making::Playing>,
+        ),
+        Without<Dies>,
+    >,
+    mut sfx: ResMut<Sfx>,
+    heard: Res<sfx::Listener>,
+    (assets, audio, mut instances): (Res<AssetServer>, Res<Audio>, ResMut<Assets<AudioInstance>>),
+    time: Res<Time>,
+) {
+    let (Some(hero), Ok((entity, body, at, speaking, striking, acting))) = (hero, heroes.single())
+    else {
+        return;
+    };
+    let state = &mut *breath_of;
+    if state.hero != Some(entity) {
+        *state = Breath {
+            hero: Some(entity),
+            ..Breath::default()
+        };
+    }
+    let dt = time.delta_secs();
+    let gait = body.moving();
+    let busy = striking || acting;
+    state.moved = if gait.is_some() && !busy {
+        state.moved + dt
+    } else {
+        0.0
+    };
+    state.stood = if gait.is_none() && !busy {
+        state.stood + dt
+    } else {
+        0.0
+    };
+    state.rests -= dt;
+    let named = speaking.is_some_and(|s| {
+        s.1 && matches!(
+            audio.state(&s.0),
+            PlaybackState::Playing { .. } | PlaybackState::Queued
+        )
+    });
+    if let Some((handle, plays, sound)) = state.playing.take() {
+        if named {
+            if let Some(mut instance) = instances.get_mut(&handle) {
+                instance.stop(AudioTween::default());
+            }
+            return;
+        }
+        if matches!(
+            audio.state(&handle),
+            PlaybackState::Playing { .. } | PlaybackState::Queued
+        ) {
+            state.playing = Some((handle, plays, sound));
+            return;
+        }
+        // Looped twice while the hero moves on, once when it stops.
+        if plays > 1 && gait.is_some() {
+            let again = play_breath(
+                &mut sfx,
+                sound.clone(),
+                at.translation(),
+                *heard,
+                (&assets, &audio),
+            );
+            state.playing = again.map(|handle| (handle, plays - 1, sound));
+            return;
+        }
+        state.rests = BREATH_RESTS;
+        return;
+    }
+    if named {
+        return;
+    }
+    let (number, plays) = if state.moved > BREATHES_MOVING && state.rests <= 0.0 {
+        (breath(hero.creature, gait, sfx.dice.below(5)), 2)
+    } else if state.stood > BREATHES_STANDING {
+        state.stood = 0.0;
+        (breath(hero.creature, None, sfx.dice.below(5)), 1)
+    } else {
+        return;
+    };
+    let Some(sound) = HeroLine::Breathing
+        .name(hero.creature, number - 1)
+        .and_then(|name| sfx.named(&name))
+    else {
+        return;
+    };
+    debug!("voices: the hero breathes {}", sound.0);
+    let handle = play_breath(
+        &mut sfx,
+        sound.clone(),
+        at.translation(),
+        *heard,
+        (&assets, &audio),
+    );
+    state.playing = handle.map(|handle| (handle, plays, sound));
+}
+
+/// Plays the breath `sound` at the hero at `at`, at a rate's factor of 0.4 to 0.6 of its sample's
+/// (`playSFX`'s, and 0.5).
+fn play_breath(
+    sfx: &mut Sfx,
+    (id, file): (u32, String),
+    at: Vec3,
+    heard: sfx::Listener,
+    (assets, audio): (&AssetServer, &Audio),
+) -> Option<Handle<AudioInstance>> {
+    let (volume, pan) = sfx::placed_at(at, Some(at), heard);
+    if volume <= 0.0 {
+        return None;
+    }
+    let rate = 0.4 + 0.2 * sfx.share() + 0.5;
+    let sample = sfx.sample(id, file, assets);
+    Some(
+        audio
+            .play(sample)
+            .with_volume(sfx::decibels(volume))
+            .with_panning(pan)
+            .with_playback_rate(f64::from(rate))
+            .handle(),
+    )
+}
+
 /// The creatures near the hero make their idle noises at the world's tick: those not hostile to
 /// it in any state, those hostile while they do not fight (the original's state of rest, the
 /// record's `+0xDBC` 0, which `0x68BEA0` keeps from the creature's moves and strikes); the noise
@@ -950,7 +1129,8 @@ impl Plugin for VoicesPlugin {
                 idle.after(speak)
                     .in_set(Unpaused)
                     .run_if(crate::frame::ticked),
-            );
+            )
+            .add_systems(Update, breathe.after(speak).in_set(Unpaused));
     }
 }
 
@@ -1048,6 +1228,25 @@ mod tests {
         assert_eq!(
             HeroLine::EnemyType(Foe::Orc).name(1, 0).as_deref(),
             Some("SOUND_FX_ENEMYTYPE_ORC01_SERA")
+        );
+    }
+
+    #[test]
+    fn the_hero_breathes_by_its_gait() {
+        use hero::Gait;
+        // The Seraphim walking 1 to 5, running 6 to 10; the Vampiress lacks 6 and 7.
+        assert_eq!([0, 4].map(|n| breath(1, Some(Gait::Walk), n)), [1, 5]);
+        assert_eq!([0, 4].map(|n| breath(1, Some(Gait::Run), n)), [6, 10]);
+        assert_eq!(
+            (0..5)
+                .map(|n| breath(6, Some(Gait::Run), n))
+                .collect::<Vec<_>>(),
+            [8, 9, 8, 9, 10]
+        );
+        assert_eq!(breath(6, None, 2), 3);
+        assert_eq!(
+            HeroLine::Breathing.name(2, 5).as_deref(),
+            Some("SOUND_FX_BREATHING06_GLAD")
         );
     }
 
