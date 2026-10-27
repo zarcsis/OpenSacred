@@ -149,7 +149,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `heal` | the hero's health to its most (#526) | |
 | `god [on\|off]` | the hero takes no damage (`fight::Immortal`): a hit lands and shows, the health stays (#526) | |
 | `fly [on\|off]` | the hero goes straight where it is sent, through walls and buildings and over water, on the ground's level, through no door and up no stair (`hero::Flies`, #526) | |
-| `take` | sends the hero to take the item lying nearest it, as a left click on it does: it walks to the item and takes it once it stands within its reach, gold into its purse, which `state` shows, and the rest into its pack (#911) | |
+| `take` | sends the hero to take the item lying nearest it, as a left click on it does: it walks to the item and, standing within its reach, plays its pick-up and takes it at the clip's half (#1219), gold into its purse, which `state` shows, and the rest into its pack (#911) | |
 | `talk [ID]` | sends the hero to speak to the creature ID, or to the creature of a dialogue nearest it, as a left click on it does: within its reach the creature's dialogue runs and its window shows (#1028) | |
 | `answer [N]` | the dialogue's window shown: its button N (from 1) chosen, as a click on it does, which closes it and runs the button's function; without N, the window's name, texts and buttons | |
 | `drop [TIMES]` | makes the hostile creature nearest the hero drop as if the hero killed it, TIMES deaths' worth, and lists what fell (#415) | |

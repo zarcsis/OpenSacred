@@ -650,6 +650,7 @@ fn load(
         holding,
     ));
     hero.dying = clips.dying;
+    hero.pickup = clips.pickup;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.gait = hero::Gait::Walk;
@@ -691,8 +692,8 @@ fn load(
 /// The clips of the model `model` of a hero of type `kind` holding what is of `class`: its idle,
 /// walk and run by the model's slots (`0x5467A0`), the `presets` where the slots cannot be read;
 /// its fight stance and its attacks, with the fractions of each at which they hit (`hits`); its
-/// dying clips, the slots 173 and 174; and the clips of its arts' actions with their hit points
-/// (`points`, #509).
+/// dying clips, the slots 173 and 174; the clips of its arts' actions with their hit points
+/// (`points`, #509); and its pick-up, the slot 172 (#1219).
 pub fn clips_of(
     assets: &Path,
     model: &str,
@@ -729,6 +730,9 @@ pub fn clips_of(
                 .collect()
         })
         .unwrap_or_default();
+    let pickup = slots
+        .as_ref()
+        .and_then(|slots| slots.pickup().map(str::to_owned));
     let attacks = slots
         .map(|slots| slots.attacks(class))
         .unwrap_or_default()
@@ -747,6 +751,7 @@ pub fn clips_of(
         attacks,
         arts,
         dying,
+        pickup,
     }
 }
 
