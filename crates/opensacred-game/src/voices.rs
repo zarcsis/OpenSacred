@@ -31,7 +31,7 @@ use bevy::log::debug;
 use bevy::prelude::{
     Added, App, AssetServer, Assets, Commands, Component, Entity, GlobalTransform, Handle, Has,
     IntoScheduleConfigs, Message, MessageReader, MessageWriter, Plugin, Query, Res, ResMut,
-    Resource, Time, Update, With, Without,
+    Resource, Time, Update, Vec3, With, Without,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
 use opensacred_data::tables::{IDLE_NOISES, IdleNoise, IdleNoises, IdleSound, VOICES, Voice};
@@ -56,6 +56,180 @@ const CRITICAL: u32 = 26;
 /// The animals' types, which the comments on a kill, a boss and a foe's strength leave out
 /// (`0x687656`).
 const ANIMALS: std::ops::RangeInclusive<u32> = 512..=596;
+
+/// How near a foe stands that the hero names as it attacks (`ENEMYTYPE`, the record's `+0x14`),
+/// in the place's pixels.
+const NAMES_WITHIN: i32 = 149;
+
+/// The kinds of foe that the hero names as it attacks (`ENEMYTYPE`, `0x686254`–`0x686CFE`), its
+/// lines `SOUND_FX_ENEMYTYPE_<KIND>nn_<CLASS>`: the orcs and the thieves for every class, the
+/// others for the Dwarf and the Daemon alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Foe {
+    Orc,
+    Thief,
+    DarkElf,
+    Demon,
+    Demordrey,
+    Dragon,
+    Giant,
+    Mage,
+    Monster,
+    Undead,
+    Goblin,
+}
+
+impl Foe {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Orc => "ORC",
+            Self::Thief => "THIEF",
+            Self::DarkElf => "DARKELF",
+            Self::Demon => "DEMON",
+            Self::Demordrey => "DEMORDREY",
+            Self::Dragon => "DRAGON",
+            Self::Giant => "GIANT",
+            Self::Mage => "MAGE",
+            Self::Monster => "MONSTER",
+            Self::Undead => "UNDEAD",
+            Self::Goblin => "GOBLIN",
+        }
+    }
+}
+
+/// What a type's name makes of a creature that the hero may name: a kind of foe, or the search's
+/// end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Named {
+    Foe(Foe),
+    Ends,
+}
+
+/// The parts of the monsters' types' names, each after `TYPE_NPC_`.
+const MONSTERS: [&str; 13] = [
+    "GHUL",
+    "MINOTAUR",
+    "GARGOYLE",
+    "TATZELANNOY",
+    "TROLL",
+    "HARPIEN",
+    "FLIGHT_L",
+    "FEUER",
+    "GLORBFRESSER",
+    "FETZER",
+    "BLUTSCHRECKE",
+    "STACHERALB",
+    "SCHLEIMWURM",
+];
+
+/// What the type's name `name` makes of a creature for `ENEMYTYPE` (`0x686254`, the names of
+/// `0x43CED0` searched for parts, in this order): a soldier of none of Demordrey's types is a
+/// deserter only by a shown name that holds the German `desertiert`, which the English text never
+/// does (**hypothesis**), and the search ends at it with no line.
+fn named(name: &str) -> Option<Named> {
+    let has = |parts: &[&str]| parts.iter().any(|part| name.contains(part));
+    let foe = if has(&["TYPE_NPC_ORC_"]) {
+        Foe::Orc
+    } else if has(&["TYPE_NPC_THIEF_"]) {
+        Foe::Thief
+    } else if has(&["TYPE_NPC_DARKELVE"]) {
+        Foe::DarkElf
+    } else if has(&[
+        "BIG_DEMON",
+        "FLIGHT_DEMON",
+        "GARGOYLE_LESSERDEMON",
+        "ANDUCAR_DEMON",
+        "SPIDER_M2_DEMON",
+        "GIGANT_SPIDER_DEMON",
+    ]) {
+        Foe::Demon
+    } else if has(&[
+        "SOLDIER01",
+        "SOLDIER02",
+        "SOLDIER03",
+        "SOLDIER04",
+        "SOLDIER05",
+        "SOLDIER14",
+        "SOLDIER23",
+    ]) {
+        Foe::Demordrey
+    } else if has(&["TYPE_NPC_SOLDIER"]) {
+        return Some(Named::Ends);
+    } else if has(&["TYPE_NPC_DRAGON"]) {
+        Foe::Dragon
+    } else if name == "TYPE_NPC_RIESE" || has(&["TYPE_NPC_BAUMBART"]) {
+        Foe::Giant
+    } else if has(&["TYPE_NPC_BLACK_MAGICIAN"]) {
+        Foe::Mage
+    } else if MONSTERS
+        .iter()
+        .any(|part| name.contains(&format!("TYPE_NPC_{part}")))
+    {
+        Foe::Monster
+    } else if has(&["GOBLIN_UNDEAD", "GOBLIN_MAGIC_UNDEAD", "UPIRATE", "ZOMBIE"]) {
+        Foe::Undead
+    } else if has(&["TYPE_NPC_GOBLIN"]) {
+        Foe::Goblin
+    } else {
+        return None;
+    };
+    Some(Named::Foe(foe))
+}
+
+/// The creatures' types that the hero may name as it attacks ([`named`]), by the types' names of
+/// a new game's tables.
+#[derive(Resource, Default)]
+struct Names(HashMap<u32, Named>);
+
+impl Names {
+    fn of(names: &[opensacred_data::tables::TypeName]) -> Self {
+        Self(
+            names
+                .iter()
+                .filter_map(|n| named(&n.name).map(|named| (n.kind, named)))
+                .collect(),
+        )
+    }
+}
+
+/// The kind of the first foe within [`NAMES_WITHIN`] of the hero at `at`, of the creatures' places
+/// and types `foes`, the nearest first, whose type names one that the hero of type `creature` has
+/// lines for (`0x68616B`; **hypothesis** for the order, the sound manager's list's): one of a kind
+/// without lines passes to the next, a soldier of none of Demordrey's types ends the search.
+fn foe_near(
+    (at, creature): (Vec3, u32),
+    names: &Names,
+    foes: impl Iterator<Item = (Vec3, u32)>,
+    sfx: &Sfx,
+) -> Option<Foe> {
+    let mut near: Vec<(i32, u32)> = foes
+        .map(|(place, kind)| (sfx::screen_distance(place, at), kind))
+        .filter(|&(distance, _)| distance <= NAMES_WITHIN)
+        .collect();
+    near.sort_by_key(|&(distance, _)| distance);
+    for (_, kind) in near {
+        match names.0.get(&kind) {
+            Some(Named::Ends) => return None,
+            Some(&Named::Foe(foe))
+                if HeroLine::EnemyType(foe)
+                    .name(creature, 0)
+                    .is_some_and(|name| sfx.named(&name).is_some()) =>
+            {
+                return Some(foe);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The names of a new game's types.
+fn names(mut commands: Commands, data: Option<Res<crate::game::Data>>) {
+    let names = data
+        .as_ref()
+        .and_then(|data| data.0.tables.type_names().ok());
+    commands.insert_resource(names.map_or_else(Names::default, Names::of));
+}
 
 /// The idle noises' rolls at each world tick (`0x69B770`): one in 20 for a creature hostile to the
 /// hero (the update's first list), one in 70 for the others (the second).
@@ -85,6 +259,8 @@ enum HeroLine {
     EnemyHitMe,
     EnemyTooWeak,
     EnemyTooStrong,
+    /// The kind of the foe the hero attacks.
+    EnemyType(Foe),
     /// A battle cry, `sure` after an art's own cry, `night` in the Vampiress's night's form.
     BattleCry {
         sure: bool,
@@ -102,6 +278,7 @@ impl HeroLine {
             Self::EnemyHitMe => "ENEMYHITME",
             Self::EnemyTooWeak => "ENEMYTOOWEAK",
             Self::EnemyTooStrong => "ENEMYTOOSTRONG",
+            Self::EnemyType(_) => "ENEMYTYPE",
             Self::BattleCry { .. } => "BATTLECRY",
             Self::EnemyKillMe => "ENEMYKILLME",
         }
@@ -112,6 +289,7 @@ impl HeroLine {
             Self::HitEnemy => 11,
             Self::KillEnemy => 14,
             Self::BossMob | Self::EnemyHitMe | Self::EnemyTooWeak | Self::EnemyTooStrong => 6,
+            Self::EnemyType(_) => 5,
             Self::BattleCry { .. } => 10,
             Self::EnemyKillMe => 6,
         }
@@ -123,6 +301,7 @@ impl HeroLine {
             Self::HitEnemy => 5,
             Self::KillEnemy | Self::BossMob => 3,
             Self::EnemyHitMe => 4,
+            Self::EnemyType(_) => 8,
             Self::EnemyTooWeak | Self::EnemyTooStrong => 20,
             Self::BattleCry { sure: true, .. } => 1,
             Self::BattleCry { .. } if creature == GLADIATOR => 2,
@@ -146,7 +325,17 @@ impl HeroLine {
             9 => "DEMON",
             _ => return None,
         };
-        Some(format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1))
+        Some(match self {
+            Self::EnemyType(foe) => {
+                format!(
+                    "SOUND_FX_{}_{}{:02}_{class}",
+                    self.stem(),
+                    foe.name(),
+                    n + 1
+                )
+            }
+            _ => format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1),
+        })
     }
 }
 
@@ -312,7 +501,7 @@ impl Voices {
 
 /// A line of the fight as the hero's comments hear it: its group, whether the hero speaks it,
 /// and its speaker's type, whether it is a boss or a champion (the sound manager's record's flag
-/// 4) and its level.
+/// 4) and its level; at the hero's attack, the kind of the foe near it that it has lines for.
 #[derive(Clone, Copy, Debug)]
 struct Heard {
     group: u8,
@@ -320,6 +509,7 @@ struct Heard {
     kind: u32,
     marked: bool,
     level: u32,
+    foe: Option<Foe>,
 }
 
 /// The hero as its comments look at it: its level, its health in per cent, and whether its own
@@ -333,7 +523,8 @@ struct HeroState {
 
 /// The comment the line `heard` makes, the clock `clock` seconds on, by the rolls of `dice`
 /// (`0x6852B0`, its blocks in order, at most one): a taunt (`HITENEMY`) at a boss's or a
-/// champion's hit while the hero's grunt sounds, more than 10 s on, one in five; the hero's own
+/// champion's hit while the hero's grunt sounds, more than 10 s on, one in five; the kind of the
+/// foe near the hero as it attacks (`ENEMYTYPE`), more than 20 s on, one in eight; the hero's own
 /// hit near its death (`ENEMYHITME`), more than 20 s on, one in four, silent; a boss's or a
 /// champion's death (`KILLENEMY`, 14 lines of 15 rolls) or hit (`BOSSMOB`, a second roll of one in
 /// four past 30 s), more than 10 s on, one in three, the hero silent and the speaker no animal; a
@@ -345,6 +536,14 @@ fn comment(heard: Heard, hero: HeroState, clock: f64, dice: &mut Rng) -> Option<
     let hit = matches!(heard.group, NORMAL_HIT | CRITICAL_HIT);
     if !heard.hero && hit && heard.marked && hero.grunts && clock > 10.0 && dice.below(5) == 0 {
         return Some((HeroLine::HitEnemy, dice.below(11)));
+    }
+    if heard.hero
+        && heard.group == ATTACK
+        && clock > 20.0
+        && dice.below(8) == 0
+        && let Some(foe) = heard.foe
+    {
+        return Some((HeroLine::EnemyType(foe), dice.below(5)));
     }
     if heard.hero
         && heard.group == CRITICAL_HIT
@@ -452,6 +651,10 @@ fn speak(
     audio: Res<Audio>,
     mut instances: ResMut<Assets<AudioInstance>>,
     time: Res<Time>,
+    (names, foes): (
+        Option<Res<Names>>,
+        Query<(&GlobalTransform, &crate::ai::Mind), (Without<Body>, Without<Dies>)>,
+    ),
 ) {
     let now = time.elapsed_secs_f64();
     let the_hero = heroes.iter().next();
@@ -513,6 +716,18 @@ fn speak(
                 )
             }),
             level: health.map_or(1, |h| h.level),
+            // The foes hostile to the hero about it as it attacks (`0x68616B`).
+            foe: listener
+                .zip(hero_type)
+                .zip(names.as_deref())
+                .filter(|_| is_hero && line.group == ATTACK)
+                .and_then(|(hero, names)| {
+                    let near = foes
+                        .iter()
+                        .filter(|(_, mind)| mind.hostile())
+                        .map(|(at, mind)| (at.translation(), mind.thinks.creature));
+                    foe_near(hero, names, near, &sfx)
+                }),
         };
         if let (Some((hero, _)), Some(creature), Some(state)) = (the_hero, hero_type, hero_state)
             && let Some((id, file)) = voices.comment(&sfx, creature, (heard, state), now)
@@ -728,6 +943,7 @@ impl Plugin for VoicesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Speak>()
             .add_message::<BattleCry>()
+            .add_systems(bevy::prelude::OnEnter(crate::game::AppState::InGame), names)
             .add_systems(Update, (dies, speak).chain().in_set(Unpaused))
             .add_systems(
                 Update,
@@ -764,6 +980,7 @@ mod tests {
             kind: 300,
             marked: true,
             level: 10,
+            foe: None,
         };
         let hero = HeroState {
             level: 10,
@@ -805,6 +1022,59 @@ mod tests {
             ..boss
         };
         assert!(taunts(dies, silent, 11.0).contains(&HeroLine::KillEnemy));
+        // The hero's attack names the foe near it, more than 20 s on.
+        let attacks = Heard {
+            group: ATTACK,
+            hero: true,
+            kind: 1,
+            marked: false,
+            level: 10,
+            foe: Some(Foe::Orc),
+        };
+        let named = taunts(attacks, silent, 21.0);
+        assert!(!named.is_empty() && named.iter().all(|&l| l == HeroLine::EnemyType(Foe::Orc)));
+        assert!(taunts(attacks, silent, 19.0).is_empty());
+        assert!(
+            taunts(
+                Heard {
+                    foe: None,
+                    ..attacks
+                },
+                silent,
+                21.0
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            HeroLine::EnemyType(Foe::Orc).name(1, 0).as_deref(),
+            Some("SOUND_FX_ENEMYTYPE_ORC01_SERA")
+        );
+    }
+
+    #[test]
+    fn the_hero_names_its_foes_by_their_types_names() {
+        let kind = |name: &str| named(name);
+        assert_eq!(kind("TYPE_NPC_ORC_01"), Some(Named::Foe(Foe::Orc)));
+        assert_eq!(kind("TYPE_NPC_SOLDIER14"), Some(Named::Foe(Foe::Demordrey)));
+        assert_eq!(kind("TYPE_NPC_SOLDIER06"), Some(Named::Ends));
+        assert_eq!(kind("TYPE_NPC_RIESE"), Some(Named::Foe(Foe::Giant)));
+        assert_eq!(kind("TYPE_NPC_RIESE_02"), None);
+        // The lesser demon of the gargoyles is a demon, the other gargoyles monsters.
+        assert_eq!(
+            kind("TYPE_NPC_GARGOYLE_LESSERDEMON"),
+            Some(Named::Foe(Foe::Demon))
+        );
+        assert_eq!(kind("TYPE_NPC_GARGOYLE01"), Some(Named::Foe(Foe::Monster)));
+        // The undead goblins before the goblins.
+        assert_eq!(
+            kind("TYPE_NPC_GOBLIN_UNDEAD"),
+            Some(Named::Foe(Foe::Undead))
+        );
+        assert_eq!(
+            kind("TYPE_NPC_GOBLIN_WARRIOR"),
+            Some(Named::Foe(Foe::Goblin))
+        );
+        assert_eq!(kind("TYPE_NPC_WOLF"), None);
     }
 
     #[test]
