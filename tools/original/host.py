@@ -529,6 +529,8 @@ class Host:
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
                 "ready at once; arts use ART: the hero's art starts its regeneration as a use of it does, its time "
                 'added to every art of its kind',
+                "weather rain|fog|snow|quake N: the weather's level asked, 0 to 100, as the console's setrain, "
+                "setfog, setsnow and setquake ask it; weather clear: every level fades to 0",
                 "pause [on|off]: the world's time stands without the menu, the frames going on, or goes on; "
                 'without a switch, toggles',
                 'level N: the hero rises to level N, its experience the level\'s start, as kills raise it',
@@ -1049,6 +1051,18 @@ class Host:
         result = self.world('god', {'on': None if not rest else rest == 'on'})
         return [f"god {'on' if result['god'] else 'off'}: {self.describe_hero(result['hero'])}"]
 
+    def command_weather(self, rest):
+        words = rest.split()
+        kinds = {'rain': 2, 'fog': 3, 'snow': 5, 'quake': 7}
+        if words == ['clear']:
+            kind, value = 1, 0
+        elif len(words) == 2 and words[0] in kinds and words[1].isdigit() and int(words[1]) <= 100:
+            kind, value = kinds[words[0]], int(words[1])
+        else:
+            raise ValueError('weather rain|fog|snow|quake N (0 to 100), or weather clear')
+        self.world('weather', {'kind': kind, 'value': value})
+        return [f'weather: {rest}']
+
     def command_pause(self, rest):
         if rest not in ('', 'on', 'off'):
             raise ValueError('pause [on|off]')
@@ -1241,7 +1255,8 @@ WORLD_COMMANDS = {
     'sector': Host.command_sector,
     'time': Host.command_time, 'day-speed': Host.command_day_speed, 'zoom': Host.command_zoom,
     'point': Host.command_point, 'go': Host.command_go,
-    'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause, 'arts': Host.command_arts, 'level': Host.command_level,
+    'god': Host.command_god, 'heal': Host.command_heal, 'effect': Host.command_effect, 'pause': Host.command_pause,
+    'weather': Host.command_weather, 'arts': Host.command_arts, 'level': Host.command_level,
     'experience': Host.command_experience,
     'spawn': Host.command_spawn, 'kill': Host.command_kill, 'drop': Host.command_drop, 'item': Host.command_item,
     'gold': Host.command_gold, 'home': Host.command_home, 'wear': Host.command_wear,

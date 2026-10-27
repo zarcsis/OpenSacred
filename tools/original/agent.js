@@ -824,6 +824,11 @@ const WORLD = {
   triggerCells: ptr('0xab44c8'),     // the root of the scripts' tree of the trigger cells (0x4BF460)
   runScript: ptr('0x46bf40'),        // cdecl (name, object or 0, 0): runs the hero's tree's function of that name, found
                                      // case aside (0x859690), through the runner 0x46BA90, as the calendar's timers do
+  // The weather (docs/re/weather.md): the renderer's object, which 0x417E70 makes once, and its handler of the events
+  // of the weather, which the console's `setrain` calls with an event kept on this machine.
+  renderer: ptr('0xaa4544'),
+  weatherEvent: ptr('0x419a70'),     // the renderer: thiscall (renderer, cEventWeather*)
+  weatherVtable: ptr('0x890928'),    // cEventWeather's vtable: +8 the kind, +0x0C the value, +0x14 kept on this machine
 };
 const CELL = 53.66563;               // a cell's side in world units
 const CREATURE = {
@@ -878,6 +883,7 @@ const addGold = new NativeFunction(WORLD.addGold, 'void', ['pointer', 'int32'], 
 const makeObject = new NativeFunction(WORLD.makeObject, 'uint32', ['pointer', 'uint32'], 'thiscall');
 const slotOf = new NativeFunction(WORLD.slotOf, 'int32', ['pointer', 'uint32'], 'thiscall');
 const putInSlot = new NativeFunction(WORLD.putInSlot, 'void', ['pointer', 'uint32', 'uint32', 'uint32'], 'thiscall');
+const weatherEvent = new NativeFunction(WORLD.weatherEvent, 'void', ['pointer', 'pointer'], 'thiscall');
 // A creature's combat arts (docs/re/arts.md, "A creature's arts"): entries of 22 bytes between the pointers at
 // +0x102 and +0x106 of its stats.
 const ART = { list: 0x102, end: 0x106, size: 22, table: 0, id: 4, level: 6, bonus: 7, flags: 8, time: 10, factor: 14,
@@ -1287,6 +1293,21 @@ const COMMANDS = {
     WORLD.cheats.writeU32(want ? (flags | GOD) >>> 0 : (flags & ~GOD) >>> 0);
     world.god = want ? { id: h.add(CREATURE.id).readU32(), hero: h, health: h.add(CREATURE.health).readS32() } : null;
     return { god: want, hero: readCreature(h) };
+  },
+  // An event of the weather of a kind and a value, kept on this machine, as the console's `setrain`, `setfog`,
+  // `setsnow` and `setquake` send theirs (#1073).
+  weather: (engine, { kind, value }) => {
+    const renderer = WORLD.renderer.readPointer();
+    if (renderer.isNull()) {
+      throw new Error('no renderer');
+    }
+    const event = Memory.alloc(0x1c);
+    event.writePointer(WORLD.weatherVtable);
+    event.add(8).writeU32(kind);
+    event.add(0x0c).writeU32(value);
+    event.add(0x14).writeU32(1);
+    weatherEvent(renderer, event);
+    return { kind, value };
   },
   // The world's time stands, as under the menu over a game, without the menu (#567): the first byte of the timer,
   // which the state reads as the screen `paused`; the frames go on.

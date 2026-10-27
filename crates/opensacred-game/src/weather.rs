@@ -1,8 +1,8 @@
 //! The world's weather (#1072, docs/re/weather.md): the rain, the fog and the snow that the sector
 //! the hero is in chooses by its weather entries (`world.ron`), on timers of real time that every
 //! sector shares, and their levels moving toward what the choice wants as the game runs
-//! (`opensacred_rules::weather`), the rolls `Sacred.exe`'s (`tables/weather_rolls.ron`). Nothing is
-//! drawn or heard of it yet (#1073); the overlay (F3) and `state` show it, and the console's
+//! (`opensacred_rules::weather`), the rolls `Sacred.exe`'s (`tables/weather_rolls.ron`). `skies`
+//! draws and plays it (#1073); the overlay (F3) and `state` show it, and the console's
 //! `setrain`, `setfog` and `setsnow` set it, as the original's do (`0x614230`).
 
 use std::collections::HashMap;
@@ -52,6 +52,8 @@ pub struct Weather {
     pub state: weather::Weather,
     sectors: HashMap<(u32, u32), (u32, Vec<SectorWeather>)>,
     dice: Rng,
+    /// The lightnings come since `skies` last drew them.
+    pub lightnings: u32,
 }
 
 impl Weather {
@@ -65,6 +67,7 @@ impl Weather {
                 .map(|entry| ((entry.x, entry.y), (entry.id, entry.weather.clone())))
                 .collect(),
             dice: Rng::of(0, 0, SEED),
+            lightnings: 0,
         }
     }
 
@@ -108,7 +111,8 @@ fn choose(
     }
     let lightnings = weather.state.update(time.delta_secs(), &mut weather.dice);
     if lightnings > 0 {
-        bevy::log::debug!("weather: a lightning, drawn by #1073");
+        bevy::log::debug!("weather: a lightning");
+        weather.lightnings += lightnings;
     }
 }
 

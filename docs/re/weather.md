@@ -1,7 +1,7 @@
 # The weather: rain, fog, snow, the storm, the shakes and the butterflies
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra on 2026-10-26 (#1065, a subagent of the session), and on `World/sectors.keyx` and the NetScript trees by scans of the files.
-Status: **confirmed** by code unless marked otherwise; none of it seen in the running original yet.
+Status: **confirmed** by code unless marked otherwise; the rain and the fog seen in the running original on 2026-10-27 (#1073, below).
 
 The weather is drawn and heard only: no rule of the play reads it.
 The sector the camera looks at chooses it, by the weather entries of its `sectors.keyx` record, on timers of real time that every sector shares.
@@ -67,10 +67,14 @@ The levels move by steps of about three a second (an accumulator `0xAA4548` grow
 ## What is drawn and heard
 
 - **The rain**: lines without a texture (`WEATHER_RAIN01.TGA` is the shadows' texture, docs/re/drawing.md), each frame every drop at random on the screen, 5 to 20 pixels long, slanted by `L · [+0x74] · [+0x68]`, where `+0x68` is the cosine of the time of day (a turn in 1,440 minutes) and `+0x74` is `2 · |t/1439 − 0.5| + 0.2` (**hypothesis**: the shadows' vector, docs/re/drawing.md), each coloured by the light where it falls (`0x41B510`).
+  A drop is a strip of two vertices, its top of the alpha 0 and its bottom of 255 (`0x00FFFFFF` and `0xFFFFFFFF` as `0x417F00` sets them up, the light's colour put in at each frame), so that it fades in from its top; it is blended by its alpha (`SRCALPHA`, `INVSRCALPHA`), under the interface.
   Its sound is a loop of the profile 101, the sample 205 `SOUND_FX_RAIN01`, at the volume of the drops' count over 3,000, stopped when the count reaches 0.
 - **The storm**: a rain above 75 arms a timer of 20 to 40 s, at whose every end an event of kind 9 flashes the screen white, a quad added over it for 3 to 8 frames, and plays one of the thunders, the samples 200 to 204 (`THUNDER01` to `05`), but not in a dungeon (`0x63D260`).
+  The quad (`+0x3A8`) is of the grey `0xCC` (`0xFFCCCCCC`) and blended `ONE`, `ONE`, so that it adds 0.8 to each value of the frame, which is white wherever it was 0.2 or more.
   No entry reaches 75, so a storm comes only from the console (**hypothesis** for the play).
 - **The fog**: `WEATHER_FOG01.TGA` in two layers over the screen, their texture coordinates moved with the camera and drifting by (0.045, 0.028) and (0.079, 0.061) a second, at the fog's alpha, at most twice its intensity; white by day, and with the night's flag `0x20` of the colour `255 − 0.508 · N` in red and green and `255 − 0.273 · N` in blue (the constants at `0x890940`).
+  It is filtered linearly and blended by its alpha.
+- The flags of `0x643430` that these draws set are Direct3D 7's render states: 4 the alpha's blending, 8 the source's factor `ONE` (else `SRCALPHA`), `0x10` the destination's `ONE` (else `INVSRCALPHA`), `0x800` the linear filter of the textures; so the snow is added (`ONE`, `ONE`), as the flash is.
 - **The snow**: `PARTICLE_SPARK03.TGA` on quads lit by the light where they are, falling at 10 · size pixels a second, swaying by `cos(0.1 · y) · dt · size · 5`, drifting by `[+0x74] · [+0x68]` at each frame (not by the frame's time), wrapping round the screen's sides and made again past twice its height.
 - None of the three is drawn while `DETAILLEVEL` (`Settings.cfg`, 0 to 2, the byte `0x182EE78` that `0x814152` reads) is 0, nor in a dungeon.
 
@@ -123,7 +127,14 @@ So no script sets the weather, and the sectors' `Enter`s only make the butterfli
 ## In `opensacred-game`
 
 The world's weather is followed (#1072): `opensacred-convert world` writes each sector's entries of rain, fog, snow and butterflies into `world.ron` (`weather`) and `tables` the rolls of `0x95FA84` (`tables/weather_rolls.ron`), and the game chooses and ramps it as above, by the sector the hero is in, at the time of real time and by the game's time (`opensacred_rules::weather`, `weather`), the two slips repaired (#1083, docs/decisions/2026-10-26-weather-timers.md: a time spans its range by its roll, never infinite, and the snow goes by its own flag); the overlay (F3) and `state` show its levels, and the console's `setrain`, `setfog` and `setsnow` set it.
-Its drawing and sounds, the rain, the fog, the snow, the storm, the shakes, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds, are #1073 (M5).
+`skies` draws the rain, the fog and the lightning's flash, and plays the rain's loop and the thunders (#1073): one material over the whole screen, over the world and under the interface, whose colours are premultiplied so that the flash adds to the frame; the drops lie anew at random each frame by a hash of the frame's count, as many as the weather's state holds, their slant by the time of day, and the fog's two layers move with the camera and drift.
+The drops are lit by the night's colour over the whole screen, not by the light where each falls (`0x41B510`).
+The snow, the shakes, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds are still #1073 (M5).
+
+Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
+
+- A rain of 60: about 1,800 drops in both, of the same length, white at their bottoms and fading upwards, leaning to the left by about a fifth of their height, under the interface; the original's lines are two pixels wide on four rows in ten, opensacred-game's on one in ten (dgVoodoo2's lines; **hypothesis**).
+- A fog of 40: the frame's mean over the world, about 100 in red without it, became 159, 153 and 145 in the original and 160, 155 and 146 in opensacred-game.
 
 ## To see in the original
 
@@ -133,6 +144,6 @@ With the driver (docs/03 §3.8), `trace 0x419A70` and the kind at `[[esp+4]+8]`,
 2. In 51,43 or 52,43: `RainStart` and the sample 205.
 3. In 51,17: `RainStart` again and again, the snow starting anew, and no `RainStop`.
 4. In 54,42 at any hour: objects of the type 873 made through `0x5FBA40` as the sector comes into the 3 × 3 about the hero.
-5. `setrain 80`: a lightning and a thunder every 20 to 40 s, none in a dungeon; `setquake 30`: a shake of a second; `DETAILLEVEL 0`: no rain drawn.
+5. `weather rain 80`: a lightning and a thunder every 20 to 40 s, none in a dungeon; `weather quake 30`: a shake of a second; `DETAILLEVEL 0`: no rain drawn.
 6. Over two hours or more, whether a kind's timer freezes as the table's index reaches its 0.
 7. By day in a sector whose `+0x2C` is `0x10`: crows over the camera every 20 to 180 s.
