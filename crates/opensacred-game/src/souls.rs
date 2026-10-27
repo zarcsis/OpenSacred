@@ -58,14 +58,19 @@ fn make_look(
 }
 
 /// Sends a soul from each creature that dies within [`SOUL_REACH`] of the hero while his
-/// effect 35 holds, of the health that his 1044 at its level in play gives.
+/// effect 35 holds, of the health that his 1044 at its level in play gives; an undead that rises
+/// again sends none (#1199).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
 fn catch(
     mut commands: Commands,
     look: Option<Res<Look>>,
     arts: Option<Res<HeroArts>>,
     experience: Res<Experience>,
     heroes: Query<(Entity, &Transform, &Body, &Effects)>,
-    dying: Query<&Transform, (Added<Dies>, Without<Body>)>,
+    dying: Query<(&Transform, &Dies), (Added<Dies>, Without<Body>)>,
 ) {
     let (Some(look), Some(arts)) = (look, arts) else {
         return;
@@ -88,7 +93,7 @@ fn catch(
         return;
     };
     let heals = soul_heals(spell, level.unwrap_or(1));
-    for place in &dying {
+    for (place, _) in dying.iter().filter(|(_, dies)| !dies.rises) {
         if (place.translation - at.translation).xz().length() >= SOUL_REACH {
             continue;
         }

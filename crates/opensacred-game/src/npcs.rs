@@ -5943,6 +5943,9 @@ pub struct Dies {
     /// Whether anyone killed it: a `SetHP` of 0, a summoned follower replaced or a lifetime's
     /// end kills nobody's, which the scripts' kills do not count (`0x534F60`, #1021).
     pub killed: bool,
+    /// Whether it is an undead that rises again (`undead`, #1199): its death drops nothing,
+    /// gives no experience and is no kill (`0x533C7F`, `0x534775`).
+    pub rises: bool,
 }
 
 impl Dies {
@@ -5952,6 +5955,7 @@ impl Dies {
             played: false,
             by_creature: false,
             killed: true,
+            rises: false,
         }
     }
 
@@ -6017,6 +6021,11 @@ pub(crate) fn die(
         commands
             .entity(entity)
             .remove::<(Walk, Strikes, Talks, Plays, crowd::InTheWay, ai::Mind)>();
+        // An undead at its last death plays no dying clip: it burns away (`0x53F31D`, #1199).
+        if mind.is_some_and(|mind| opensacred_rules::undead::rises(mind.creature)) && !dies.rises {
+            dies.played = true;
+            continue;
+        }
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };

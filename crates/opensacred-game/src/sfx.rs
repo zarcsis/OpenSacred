@@ -573,11 +573,12 @@ fn plays(
 
 /// The fire ghoul, which burns away as it dies (`DIEFLAMES`, #1168).
 const FIRE_GHOUL: u32 = 73;
-const DIES_IN_FLAMES: u32 = 7029;
+/// `DIEFLAMES`, the sound of a creature that burns away.
+pub(crate) const DIES_IN_FLAMES: u32 = 7029;
 
 /// A fire ghoul dying sounds `DIEFLAMES` at itself (the death's action, `0x53ECA0`, its case of
-/// the type 73 at `0x5416DD`); the magic skeletons' and the undead goblins' cases, which sound it
-/// in a branch not read, do not.
+/// the type 73 at `0x5416DD`); the magic skeletons and the undead goblins sound it as they burn
+/// away at their last death (`undead`, #1199).
 fn burns_away(
     dying: Query<(Entity, &crate::ai::Mind), Added<crate::npcs::Dies>>,
     mut sounds: MessageWriter<Play>,
