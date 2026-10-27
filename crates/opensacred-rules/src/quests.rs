@@ -55,6 +55,10 @@ pub enum Transition {
     SetUp,
     /// `TriggerQuest` ([`Quests::trigger`]).
     Trigger,
+    /// `ExitQuest` ([`Quests::exit`]).
+    Exit,
+    /// `LoseQuest` ([`Quests::lose`]).
+    Lose,
 }
 
 /// The quests' flags by number, and the quests in the quest log.
@@ -73,12 +77,6 @@ impl Quests {
     /// Whether the quest `quest` is in the quest log.
     pub fn in_log(&self, quest: u32) -> bool {
         self.log.contains(&quest)
-    }
-
-    /// Runs a section of the quest `quest` through `run`, which answers whether its body ran to
-    /// its end: none for a quest not set up (`0x46BA90`).
-    fn run(&self, quest: u32, section: Section, run: &mut impl FnMut(&str) -> bool) -> bool {
-        self.flags(quest) & SET_UP != 0 && run(&section.function(quest))
     }
 
     /// `SetUpQuest` (21, `0x48F7F0`, `0x46DB20`): once, the flags 1 and 8, its `OnSetUp`, its
@@ -113,9 +111,12 @@ impl Quests {
     /// `SetUpQuest` sets a quest not yet set up up, the flags 1 and 8, runs its `OnSetUp` and its
     /// trigger whatever they answer, then takes the flag 8 off. `TriggerQuest` runs the trigger of
     /// a quest set up, and where that runs through, enters the quest unless it is entered already
-    /// (`0x46C160`): a quest log entry, the flag 4 and its `OnEnter`.
+    /// (`0x46C160`): a quest log entry, the flag 4 and its `OnEnter`. `ExitQuest` and `LoseQuest`
+    /// run the `OnExit` or the `OnLose` of a quest entered and not finished, then set the flag 2
+    /// (`0x46CBE0`).
     pub fn step(&mut self, transition: Transition, quest: u32, ran: &[bool]) -> Option<Section> {
-        let set_up = self.flags(quest) & SET_UP != 0;
+        let flags = self.flags(quest);
+        let set_up = flags & SET_UP != 0;
         match (transition, ran) {
             (Transition::SetUp, []) => {
                 if set_up {
@@ -133,7 +134,7 @@ impl Quests {
             }
             (Transition::Trigger, []) => set_up.then_some(Section::Trigger),
             (Transition::Trigger, [true]) => {
-                if self.flags(quest) & ENTERED != 0 {
+                if flags & ENTERED != 0 {
                     return None;
                 }
                 self.log.insert(quest);
@@ -141,29 +142,32 @@ impl Quests {
                 Some(Section::OnEnter)
             }
             (Transition::Trigger, _) => None,
+            (Transition::Exit | Transition::Lose, []) => {
+                if flags & ENTERED == 0 || flags & FINISHED != 0 {
+                    return None;
+                }
+                Some(if transition == Transition::Exit {
+                    Section::OnExit
+                } else {
+                    Section::OnLose
+                })
+            }
+            (Transition::Exit | Transition::Lose, _) => {
+                *self.flags.entry(quest).or_default() |= FINISHED;
+                None
+            }
         }
     }
 
     /// `ExitQuest` (15, `0x48EE20`, `0x46CBE0`): for a quest entered and not finished, its
     /// `OnExit` and the flag 2; whether it did.
     pub fn exit(&mut self, quest: u32, run: &mut impl FnMut(&str) -> bool) -> bool {
-        self.finish(quest, Section::OnExit, run)
+        !self.steps(Transition::Exit, quest, run).is_empty()
     }
 
     /// `LoseQuest` (54): as `ExitQuest`, its `OnLose`; whether it did.
     pub fn lose(&mut self, quest: u32, run: &mut impl FnMut(&str) -> bool) -> bool {
-        self.finish(quest, Section::OnLose, run)
-    }
-
-    /// An exit or a loss: for a quest entered and not finished, its section and the flag 2.
-    fn finish(&mut self, quest: u32, section: Section, run: &mut impl FnMut(&str) -> bool) -> bool {
-        let flags = self.flags(quest);
-        if flags & ENTERED == 0 || flags & FINISHED != 0 {
-            return false;
-        }
-        self.run(quest, section, run);
-        *self.flags.entry(quest).or_default() |= FINISHED;
-        true
+        !self.steps(Transition::Lose, quest, run).is_empty()
     }
 
     /// `UnTriggerQuest` (77, `0x48E600`): the flag 4 off and the quest log's entry out.
@@ -1137,6 +1141,20 @@ mod tests {
         quests.untrigger(2);
         assert!(!quests.in_log(2));
         assert_eq!(quests.flags(2), SET_UP | FINISHED);
+    }
+
+    #[test]
+    fn an_exit_runs_its_section_before_it_finishes_the_quest() {
+        let mut quests = Quests::default();
+        let mut ran = Vec::new();
+        quests.set_up(4, &mut runtime(&mut ran, true));
+        quests.trigger(4, &mut runtime(&mut ran, true));
+        assert_eq!(quests.step(Transition::Exit, 4, &[]), Some(Section::OnExit));
+        // Not yet finished while the section runs.
+        assert_eq!(quests.flags(4) & FINISHED, 0);
+        assert_eq!(quests.step(Transition::Exit, 4, &[false]), None);
+        assert_eq!(quests.flags(4) & FINISHED, FINISHED);
+        assert_eq!(quests.step(Transition::Lose, 4, &[]), None);
     }
 
     #[test]
