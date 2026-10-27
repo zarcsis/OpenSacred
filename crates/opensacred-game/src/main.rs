@@ -18,6 +18,7 @@ mod bolts;
 mod breath;
 mod buildings;
 mod burns;
+mod butterflies;
 mod choice;
 mod command;
 mod console;
@@ -291,6 +292,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
+        butterflies::ButterfliesPlugin,
         choice::ChoicePlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
@@ -303,9 +305,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         effects::EffectsPlugin,
         fight::FightPlugin,
         fliers::FliersPlugin,
-        followers::FollowersPlugin,
     ))
     .add_plugins((
+        followers::FollowersPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
         fx::FxPlugin,
@@ -320,9 +322,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
-        making::MakingPlugin,
     ))
     .add_plugins((
+        making::MakingPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
@@ -337,9 +339,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
-        settings::SettingsPlugin,
     ))
     .add_plugins((
+        settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
