@@ -35,6 +35,9 @@ pub const WEATHER_ROLLS: &str = "weather_rolls.ron";
 /// The figures of the choice of the hero that `Sacred.exe` holds (`0x9E3248`; #1130), as a list
 /// of [`Figure`]s.
 pub const FIGURES: &str = "figures.ron";
+/// The interface's images that `Sacred.exe` holds (`0x9ECEB0`; #1087), which the interface's
+/// controls name by their indices, as a list of [`UiImage`]s in the order of the indices.
+pub const UI_IMAGES: &str = "ui_images.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +183,15 @@ pub struct CreaturePortrait {
 /// (`gui_portraitx34`), and its part, its left, top, width and height in pixels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Portrait {
+    pub texture: String,
+    pub rect: [u16; 4],
+}
+
+/// An image of the interface: the texture of `texture.pak` it is a part of, by its name
+/// lower-cased (`gui_main_03`), and its part, its left, top, width and height in pixels; the
+/// entry 0, `INVALID`, of no size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UiImage {
     pub texture: String,
     pub rect: [u16; 4],
 }

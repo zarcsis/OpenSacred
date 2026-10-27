@@ -87,29 +87,57 @@ pub fn interface_images(
     let image = Image::parse(exe)?;
     indices
         .into_iter()
-        .map(|index| {
-            let at = IMAGES_ADDRESS + index * IMAGE_SIZE;
-            let mut r = image.at(at, 0x54, "interface's image")?;
-            let start = r.offset();
-            let entry = r.bytes(0x54, "interface's image")?;
-            let stored = u32::from_le_bytes(entry[..4].try_into().unwrap_or_default());
-            if stored != index {
-                return Err(r.error_at(
+        .map(|index| match entry(&image, index)? {
+            Some(found) => Ok(found),
+            None => {
+                let mut r =
+                    image.at(IMAGES_ADDRESS + index * IMAGE_SIZE, 4, "interface's image")?;
+                let start = r.offset();
+                let stored = r.u32()?;
+                Err(r.error_at(
                     start,
                     field("interface's image index", stored.into(), index.to_string()),
-                ));
+                ))
             }
-            let name = &entry[NAME_AT..RECT_AT];
-            let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
-            let file = name[..end].iter().map(|&b| char::from(b)).collect();
-            let mut rect = [0.0; 4];
-            for (k, value) in rect.iter_mut().enumerate() {
-                let at = RECT_AT + 4 * k;
-                *value = f32::from_le_bytes(entry[at..at + 4].try_into().unwrap_or_default());
-            }
-            Ok(InterfaceImage { index, file, rect })
         })
         .collect()
+}
+
+/// The whole of the interface's images' table at `0x9ECEB0`, from its entry 0 (`INVALID`) to the
+/// last whose stored index is its own (1,824 in GOG 2.28; #1087).
+pub fn all_interface_images(exe: &[u8]) -> Result<Vec<InterfaceImage>> {
+    let image = Image::parse(exe)?;
+    let mut images = Vec::new();
+    for index in 0..MOST_IMAGES {
+        match entry(&image, index)? {
+            Some(found) => images.push(found),
+            None => break,
+        }
+    }
+    Ok(images)
+}
+
+/// The most entries the table is read for, far past its end.
+const MOST_IMAGES: u32 = 8_192;
+
+/// The entry `index` of the images' table, none where its stored index is not its own.
+fn entry(image: &Image<'_>, index: u32) -> Result<Option<InterfaceImage>> {
+    let at = IMAGES_ADDRESS + index * IMAGE_SIZE;
+    let mut r = image.at(at, 0x54, "interface's image")?;
+    let entry = r.bytes(0x54, "interface's image")?;
+    let stored = u32::from_le_bytes(entry[..4].try_into().unwrap_or_default());
+    if stored != index {
+        return Ok(None);
+    }
+    let name = &entry[NAME_AT..RECT_AT];
+    let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+    let file = name[..end].iter().map(|&b| char::from(b)).collect();
+    let mut rect = [0.0; 4];
+    for (k, value) in rect.iter_mut().enumerate() {
+        let at = RECT_AT + 4 * k;
+        *value = f32::from_le_bytes(entry[at..at + 4].try_into().unwrap_or_default());
+    }
+    Ok(Some(InterfaceImage { index, file, rect }))
 }
 
 #[cfg(test)]

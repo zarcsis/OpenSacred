@@ -809,6 +809,9 @@ The creatures' idle noises (#714) lie in code too, two switches by the type in t
 467 types have a case of their own; the others take the default's image 900.
 The interface's images' table at VA `0x9ECEB0` has entries of 0x54 bytes: the index (`u32`, the entry's own), a `u32`, the TGA's name (`char[36]` from `+8`), and from `+0x2C` the rectangle as four `f32`, the left, top, right and bottom pixels, the last two included: the type 1's image 964 is the part (96, 0)–(191, 127) of `GUI_portraitX34.TGA`, whose texture is `texture.pak`'s `gui_portraitx34`.
 `opensacred-convert tables` writes them into `tables/portraits.ron` (`opensacred_data::tables::Portraits`): each type's texture by its name lower-cased and its part's left, top, width and height, and the default's.
+The table runs from its entry 0 (`INVALID`, a rectangle of zeros) to the entry 1,823, whose next stores another index (1,771); its pieces lie in 274 TGAs, most in `GUI_main_12` (64), `GUI_main_01` (61) and `GUI_main_icons` (57) (counted 2026-10-27, #1087).
+The `u32` at `+4` is 0 or 9, and the six `u32` from `+0x3C` are zero in most entries but hold small numbers in some of `GUI_main_03`'s (**hypothesis**: the places of a button's parts); neither is read.
+`opensacred-convert tables` writes the whole table into `tables/ui_images.ron` (`opensacred_data::tables::UiImage`, #1087), in the order of the indices: each image's texture by its name lower-cased and its part's left, top, width and height, the entry 0 of no size.
 
 ### 6.8 The figures of the choice of the hero in Sacred.exe
 
