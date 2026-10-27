@@ -54,6 +54,8 @@ pub struct Weather {
     dice: Rng,
     /// The lightnings come since `skies` last drew them.
     pub lightnings: u32,
+    /// The quakes sent since `skies` last heard them.
+    pub quakes: u32,
 }
 
 impl Weather {
@@ -68,12 +70,16 @@ impl Weather {
                 .collect(),
             dice: Rng::of(0, 0, SEED),
             lightnings: 0,
+            quakes: 0,
         }
     }
 
     /// The console's `setrain`, `setfog` and `setsnow` (`0x614230`): their kinds' events of the
     /// value `value`, at most 100.
     pub fn set(&mut self, event: Event) {
+        if matches!(event, Event::Quake(value) if value > 0) {
+            self.quakes += 1;
+        }
         self.state.event(event, &mut self.dice);
     }
 

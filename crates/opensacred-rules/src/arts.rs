@@ -1875,6 +1875,10 @@ pub fn claw_quake(record: &WeaponArt, level: u32) -> (f32, f32) {
     )
 }
 
+/// The screen's quake that the Gladiator's jump sends as he lands, an event of the weather of the
+/// kind 7 (`0x4FF0B0` at `0x500765`; docs/re/weather.md): a shake of 15 pixels for 1.5 s.
+pub const JUMP_SHAKES: u32 = 45;
+
 /// The radius about the Gladiator and the factor of the strikes of his jump of `record` as he
 /// lands, at the level in play `level` (`0x4FF0B0` at `0x500824`): `L·[+0x54] + [+0x50]`,
 /// 190 + 10·L for 1003, a creature of the hero's list nearer him than that struck with

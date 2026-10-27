@@ -14,11 +14,13 @@ use opensacred_data::world::{SectorWeather, WeatherKind};
 
 use crate::spawning::Dice;
 
-/// The renderer's flags (`+0x10`): the rain, the fog, a storm (its lightning armed) and the snow.
+/// The renderer's flags (`+0x10`): the rain, the fog, a storm (its lightning armed), the snow and
+/// a quake of the screen.
 pub const RAIN: u32 = 0x1;
 pub const FOG: u32 = 0x2;
 pub const STORM: u32 = 0x4;
 pub const SNOW: u32 = 0x10;
+pub const QUAKE: u32 = 0x80;
 
 /// The most of a value of the weather's events (`0x419A70`).
 const MOST: u32 = 100;
@@ -36,6 +38,8 @@ const STEPS: f32 = 3.0;
 const RAIN_STEP: u32 = 10;
 const FOG_STEP: u32 = 1;
 const SNOW_STEP: u32 = 20;
+/// How fast a quake's amplitude falls, in the screen's pixels a second.
+const QUAKE_FALLS: f32 = 10.0;
 
 /// A level of the weather: what the choice wants and what it is now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,7 +63,7 @@ impl Level {
     }
 }
 
-/// An event of the weather (`cEventWeather`, its kinds 0, 1, 2, 3 and 5; docs/re/weather.md,
+/// An event of the weather (`cEventWeather`, its kinds 0, 1, 2, 3, 5 and 7; docs/re/weather.md,
 /// "`cEventWeather` and its kinds"), a value of 0 stopping its kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -70,6 +74,8 @@ pub enum Event {
     Rain(u32),
     Fog(u32),
     Snow(u32),
+    /// A quake of the screen (7), which the arts' landings and the spells send.
+    Quake(u32),
 }
 
 /// The weather as the renderer keeps it.
@@ -84,6 +90,8 @@ pub struct Weather {
     pub snow: Level,
     /// The seconds to the storm's next lightning (`+0x428`).
     pub storm: f32,
+    /// A quake's amplitude, in the screen's pixels (`+0x9DB8`).
+    pub quake: f32,
     /// The steps' accumulator (`0xAA4548`).
     steps: f32,
     /// When the rain's, the fog's and the snow's timers end, in milliseconds of real time
@@ -192,6 +200,7 @@ impl Weather {
                 self.rain.wanted = 0;
                 self.fog.wanted = 0;
                 self.snow.wanted = 0;
+                self.quake = 0.0;
             }
             Event::Rain(0) => {
                 self.rain.wanted = 0;
@@ -220,6 +229,14 @@ impl Weather {
                 self.flags |= SNOW;
                 self.snow.wanted = (value.min(MOST) * DROPS).min(FLAKES);
             }
+            Event::Quake(0) => {
+                self.quake = 0.0;
+                self.flags &= !QUAKE;
+            }
+            Event::Quake(value) => {
+                self.flags |= QUAKE;
+                self.quake = small(value.min(MOST)) / 3.0;
+            }
         }
     }
 
@@ -232,8 +249,8 @@ impl Weather {
     /// One frame's update of the levels (`0x41A4F0`), `dt` its seconds: the steps of the frame,
     /// about three a second, move each level that its flag holds toward what is wanted, and a
     /// level at 0 and wanted at 0 takes its flag off; the storm's lightning comes as its time
-    /// ends, 20 to 40 s on again. How many lightnings came (the event of kind 9, which only the
-    /// drawing takes, #1073).
+    /// ends, 20 to 40 s on again; a quake's amplitude falls by 10 a second, and ends at 0. How
+    /// many lightnings came (the event of kind 9, which only the drawing takes, #1073).
     pub fn update(&mut self, dt: f32, dice: &mut impl Dice) -> u32 {
         while self.steps > 1.0 {
             self.steps -= 1.0;
@@ -270,6 +287,12 @@ impl Weather {
                 self.snow.now = 0;
             }
         }
+        if self.flags & QUAKE != 0 {
+            self.quake -= dt * QUAKE_FALLS;
+            if self.quake <= 0.0 {
+                self.event(Event::Quake(0), dice);
+            }
+        }
         lightnings
     }
 }
@@ -278,6 +301,11 @@ impl Weather {
 fn lightning_in(dice: &mut impl Dice) -> f32 {
     let roll = u16::try_from(dice.below(32_768)).unwrap_or(0);
     (f32::from(roll) * 3.051_851e-5 + 1.0) * 20.0
+}
+
+/// A value of an event, at most 100, as a float.
+fn small(value: u32) -> f32 {
+    f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
 /// The whole steps of the accumulator `steps`, as the C library truncates a float.
@@ -409,5 +437,21 @@ mod tests {
         // The snow is held at 3,000 flakes.
         weather.event(Event::Snow(100), &mut dice);
         assert_eq!(weather.snow.wanted, 3_000);
+    }
+
+    #[test]
+    fn a_quake_shakes_by_a_third_of_its_value_and_falls_by_ten_a_second() {
+        let mut dice = Rolls(vec![0]);
+        let mut weather = Weather::default();
+        weather.event(Event::Quake(45), &mut dice);
+        assert_eq!(weather.flags & QUAKE, QUAKE);
+        assert!((weather.quake - 15.0).abs() < 1e-4);
+        weather.update(1.0, &mut dice);
+        assert!((weather.quake - 5.0).abs() < 1e-4);
+        weather.update(0.6, &mut dice);
+        assert_eq!((weather.flags & QUAKE, weather.quake), (0, 0.0));
+        // At most 100.
+        weather.event(Event::Quake(300), &mut dice);
+        assert!((weather.quake - 100.0 / 3.0).abs() < 1e-4);
     }
 }

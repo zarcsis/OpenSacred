@@ -1885,6 +1885,16 @@ fn make(
                     let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                     match (arts.kind, record) {
                         (2, Some(record)) => {
+                            // The screen's quake of 45 as it lands (`0x4FF0B0` at `0x500765`).
+                            commands.queue(|world: &mut World| {
+                                if let Some(mut weather) =
+                                    world.get_resource_mut::<crate::weather::Weather>()
+                                {
+                                    weather.set(opensacred_rules::weather::Event::Quake(
+                                        arts::JUMP_SHAKES,
+                                    ));
+                                }
+                            });
                             let (radius, factor) = arts::jump_quake(record, playing.level);
                             for &entity in &nearest.hostiles {
                                 let Ok((_, at, mind, health)) = creatures.get(entity) else {

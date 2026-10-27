@@ -1,30 +1,37 @@
-//! The weather drawn and heard (#1073; docs/re/weather.md, "What is drawn and heard"): the fog's
-//! two layers of `WEATHER_FOG01`, drifting and moved with the camera, at its alpha and tinted by
-//! the night; the rain's drops, lines of 5 to 20 of the original's pixels at random anew each
-//! frame, slanted by the time of day and fading in from their tops; the storm's lightning, a grey
-//! added over the screen and a thunder; and the rain's loop, at the volume of its drops over
-//! 3,000. None of it in a dungeon. They are drawn by one full-screen material over the world and
-//! under the interface (`skies.wesl`), its parameters from the weather's state (`weather`) at
-//! each frame, blended as premultiplied colours so that the flash adds to what lies below.
+//! The weather drawn and heard (#1073; docs/re/weather.md, "What is drawn and heard"): the rain's
+//! drops, lines of 5 to 20 of the original's pixels at random anew each frame, slanted by the time
+//! of day and fading in from their tops; the fog's two layers of `WEATHER_FOG01` over them,
+//! drifting and moved with the camera, at its alpha and tinted by the night; the storm's
+//! lightning, a grey added over the screen and a thunder; the snow's flakes of `PARTICLE_SPARK03`,
+//! added, falling and swaying as the original's; and the rain's loop, at the volume of its drops
+//! over 3,000. None of it in a dungeon. They are drawn by one full-screen material over the world
+//! and under the interface (`skies.wesl`), its parameters from the weather's state (`weather`) at
+//! each frame, blended as premultiplied colours so that the flash and the flakes add to what lies
+//! below. A quake of the screen moves the camera by a random offset within its amplitude at each
+//! frame, with the earthquake's sound, in a dungeon too.
 //!
-//! Not followed yet: the snow, the quakes and jolts, the butterflies and the birds (#1073); the
-//! drops' light is the night's tint over the whole screen, not the light where each falls
-//! (`0x41B510`).
+//! Not followed yet: the jolts of the big creatures' steps, the butterflies and the birds
+//! (#1073); the drops' and the flakes' light is the night's tint over the whole screen, not the
+//! light where each falls (`0x41B510`).
 
-use bevy::asset::embedded_asset;
+use bevy::asset::{RenderAssetUsages, embedded_asset};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
     AsBindGroup, BlendState, RenderPipelineDescriptor, ShaderType,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::ui_render::ui_material::UiMaterialKey;
 use bevy::window::PrimaryWindow;
 use bevy_kira_audio::AudioApp;
 use bevy_kira_audio::prelude::{AudioChannel, AudioControl};
+use opensacred_rules::spawning::Rng;
+use opensacred_rules::weather::QUAKE;
 
 use crate::daynight::{self, Clock, Dungeons};
+use crate::frame::{Step, Unpaused};
 use crate::game::{AppState, Data};
 use crate::sfx::{self, Sfx};
 use crate::weather::Weather;
@@ -32,8 +39,9 @@ use crate::{hero, hud, iso, paths};
 
 /// The shader, embedded in the binary.
 const SHADER: &str = "embedded://opensacred_game/skies.wesl";
-/// The fog's texture.
+/// The fog's texture, and the snow's.
 const FOG: &str = "weather_fog01";
+const SPARK: &str = "particle_spark03";
 /// The fog's two layers' drifts, in its texture's widths a second (`+0x180` to `+0x18C`).
 const DRIFTS: [Vec2; 2] = [Vec2::new(0.045, 0.028), Vec2::new(0.079, 0.061)];
 /// The night's tint of the fog's white, red and green and blue lowered by these shares of the
@@ -50,6 +58,23 @@ const THUNDERS: [u32; 5] = [200, 201, 202, 203, 204];
 const FLASH: f32 = 0.8;
 const FLASH_FRAMES: (f32, f32) = (3.0, 8.0);
 const FRAME: f32 = 1.0 / 60.0;
+/// The original's frames a second, at which its snow drifts by the slant at each frame.
+const FRAMES: f32 = 60.0;
+/// The snow's flakes kept (`+0x4B4`), their sizes 2 to 10, how fast they fall and sway by their
+/// size, and the height past which a flake's place on the screen wraps (`& 0x3FF`).
+const MOST_FLAKES: usize = 3_000;
+const FLAKE_SIZES: (f32, f32) = (2.0, 8.0);
+const FALL: f32 = 10.0;
+const SWAY: f32 = 5.0;
+const SWAY_PERIOD: f32 = 0.1;
+const WRAP: f32 = 1_024.0;
+/// The side of a cell of the snow's grid, in the original's pixels: the most a flake's half side
+/// reaches at the closest zoom, so that a flake covers at most two cells along each axis.
+const SNOW_CELL: f32 = 32.0;
+/// The earthquake's sound (`SOUND_FX_EARTHQUAKE_LOOP`), and how soon after it it plays again, at
+/// the soonest.
+const QUAKE_SOUND: u32 = 209;
+const QUAKE_SOUND_AGAIN: (f32, f32) = (0.1, 0.25);
 
 /// The parameters of [`Skies`], as `skies.wesl` reads them.
 #[derive(ShaderType, Clone, Copy, Debug, Default)]
@@ -59,6 +84,7 @@ struct Params {
     fog: Vec4,
     fog2: Vec4,
     tint: Vec4,
+    snow: Vec4,
 }
 
 /// The material of the weather's layer.
@@ -69,6 +95,13 @@ struct Skies {
     #[texture(1)]
     #[sampler(2)]
     fog: Option<Handle<Image>>,
+    #[texture(3)]
+    #[sampler(4)]
+    spark: Option<Handle<Image>>,
+    #[storage(5, read_only)]
+    flakes: Handle<ShaderBuffer>,
+    #[storage(6, read_only)]
+    cells: Handle<ShaderBuffer>,
 }
 
 impl UiMaterial for Skies {
@@ -76,8 +109,8 @@ impl UiMaterial for Skies {
         SHADER.into()
     }
 
-    /// Premultiplied colours, so that the flash adds to the frame as the fog and the drops lie
-    /// over it.
+    /// Premultiplied colours, so that the flash and the flakes add to the frame as the fog and
+    /// the drops lie over it.
     fn specialize(descriptor: &mut RenderPipelineDescriptor, _key: UiMaterialKey<Self>) {
         if let Some(fragment) = descriptor.fragment.as_mut() {
             for target in fragment.targets.iter_mut().flatten() {
@@ -87,14 +120,103 @@ impl UiMaterial for Skies {
     }
 }
 
-/// The weather's layer of a game, its material, the fog's drift, the flash's time left and the
-/// frames drawn, whose count seeds the rain.
+/// The weather's layer of a game, its material, the fog's drift, the flash's time left, the
+/// frames drawn, whose count seeds the rain, and the time before the earthquake's sound may play
+/// again.
 #[derive(Component)]
 struct Layer {
     material: Handle<Skies>,
     drift: [Vec2; 2],
     flash: f32,
     frames: u32,
+    rumble: f32,
+}
+
+/// The snow's flakes, as the original keeps them (`+0x4B4`): a place on the screen in its pixels
+/// and a size, of which the weather's count falls.
+#[derive(Resource)]
+struct Flakes {
+    flakes: Vec<Vec3>,
+    dice: Rng,
+}
+
+impl Flakes {
+    /// The flakes at random on a screen of `screen` pixels.
+    fn new(screen: Vec2, seed: usize) -> Self {
+        let mut dice = Rng::of(0, 0, seed);
+        let flakes = (0..MOST_FLAKES).map(|_| flake(&mut dice, screen)).collect();
+        Self { flakes, dice }
+    }
+
+    /// The first `count` flakes fall for `dt` seconds (`0x41A4F0`): down by 10 times their size
+    /// a second, across by the slant `drift` and by their sway, `cos(0.1·y)·5·size` a second,
+    /// round the screen's sides; one past twice the screen's height is made anew at random on it.
+    fn fall(&mut self, count: usize, dt: f32, drift: f32, screen: Vec2) {
+        let Self { flakes, dice } = self;
+        for f in flakes.iter_mut().take(count) {
+            f.y += dt * f.z * FALL;
+            f.x += drift + (SWAY_PERIOD * f.y).cos() * dt * f.z * SWAY;
+            if f.x > screen.x {
+                f.x -= screen.x;
+            }
+            if f.x < 0.0 {
+                f.x += screen.x;
+            }
+            if f.y > 2.0 * screen.y {
+                *f = flake(dice, screen);
+            }
+        }
+    }
+
+    /// The snow's grid over a screen of `screen` pixels at the zoom `zoom`: each cell's flakes in
+    /// turn, a centre where it is drawn (its height wrapped at 1,024, as the original's) and a
+    /// half side of its size over the zoom; each cell's first entry and count; and the cells
+    /// across and down.
+    fn grid(&self, count: usize, zoom: f32, screen: Vec2) -> (Vec<Vec4>, Vec<UVec2>, u32, u32) {
+        let cols = whole(screen.x / SNOW_CELL).max(1);
+        let rows = whole(screen.y / SNOW_CELL).max(1);
+        let cell_of = |at: f32, most: u32| whole((at / SNOW_CELL).max(0.0).floor()).min(most - 1);
+        let mut lists: Vec<Vec<Vec4>> = vec![Vec::new(); usize::try_from(cols * rows).unwrap_or(0)];
+        for f in self.flakes.iter().take(count) {
+            let half = f.z / zoom.max(0.1);
+            let y = f.y.rem_euclid(WRAP);
+            if y - half >= screen.y || f.x - half >= screen.x || f.x + half < 0.0 {
+                continue;
+            }
+            let entry = Vec4::new(f.x, y, half, 0.0);
+            for row in cell_of(y - half, rows)..=cell_of(y + half, rows) {
+                for col in cell_of(f.x - half, cols)..=cell_of(f.x + half, cols) {
+                    if let Some(list) = usize::try_from(row * cols + col)
+                        .ok()
+                        .and_then(|i| lists.get_mut(i))
+                    {
+                        list.push(entry);
+                    }
+                }
+            }
+        }
+        let mut entries = Vec::new();
+        let mut cells = Vec::with_capacity(lists.len());
+        for list in lists {
+            let first = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+            cells.push(UVec2::new(first, u32::try_from(list.len()).unwrap_or(0)));
+            entries.extend(list);
+        }
+        if entries.is_empty() {
+            entries.push(Vec4::ZERO);
+        }
+        (entries, cells, cols, rows)
+    }
+}
+
+/// A flake made at random on a screen of `screen` pixels, of a size of 2 to 10 (`0x41A4F0`).
+fn flake(dice: &mut Rng, screen: Vec2) -> Vec3 {
+    let mut unit = || to_f32(dice.below(32_768)) * 3.051_851e-5;
+    Vec3::new(
+        unit() * screen.x,
+        unit() * screen.y,
+        FLAKE_SIZES.0 + FLAKE_SIZES.1 * unit(),
+    )
 }
 
 /// The channel of the rain's loop.
@@ -105,35 +227,52 @@ struct RainLoop;
 #[derive(Resource, Default)]
 struct Raining(bool);
 
-/// The weather's layer of a game played, over the world and under the interface.
+/// The weather's layer of a game played, over the world and under the interface, and the snow's
+/// flakes.
 fn spawn(
     mut commands: Commands,
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<Skies>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
-    let fog = data.and_then(|data| {
-        hud::find_textures(&data.0.assets, &[FOG])
-            .pop()
-            .flatten()
-            .map(|path| {
-                assets
-                    .load_builder()
-                    .with_settings(|settings: &mut ImageLoaderSettings| {
-                        settings.is_srgb = false;
-                        settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-                            address_mode_u: ImageAddressMode::Repeat,
-                            address_mode_v: ImageAddressMode::Repeat,
-                            ..ImageSamplerDescriptor::linear()
-                        });
-                    })
-                    .load(path)
-            })
+    let found = data.map_or_else(
+        || vec![None, None],
+        |data| hud::find_textures(&data.0.assets, &[FOG, SPARK]),
+    );
+    let [fog, spark] = [
+        (0, ImageAddressMode::Repeat),
+        (1, ImageAddressMode::ClampToEdge),
+    ]
+    .map(|(i, address)| {
+        found.get(i).cloned().flatten().map(|path| {
+            assets
+                .load_builder()
+                .with_settings(move |settings: &mut ImageLoaderSettings| {
+                    settings.is_srgb = false;
+                    settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                        address_mode_u: address,
+                        address_mode_v: address,
+                        ..ImageSamplerDescriptor::linear()
+                    });
+                })
+                .load(path)
+        })
     });
     let material = materials.add(Skies {
         params: Params::default(),
         fog,
+        spark,
+        flakes: buffers.add(ShaderBuffer::new(
+            vec![Vec4::ZERO],
+            RenderAssetUsages::default(),
+        )),
+        cells: buffers.add(ShaderBuffer::new(
+            vec![UVec2::ZERO],
+            RenderAssetUsages::default(),
+        )),
     });
+    commands.insert_resource(Flakes::new(Vec2::new(1_024.0, iso::SCREEN_HEIGHT), 1073));
     commands.spawn((
         DespawnOnExit(AppState::InGame),
         Layer {
@@ -141,6 +280,7 @@ fn spawn(
             drift: [Vec2::ZERO; 2],
             flash: 0.0,
             frames: 0,
+            rumble: 0.0,
         },
         MaterialNode(material),
         Node {
@@ -155,7 +295,8 @@ fn spawn(
 }
 
 /// The slant of the rain's drops across per pixel down at the minute `minutes` of the day:
-/// `(2·|t/1439 − 0.5| + 0.2) · cos(2π·t/1440)` (`[+0x74] · [+0x68]`).
+/// `(2·|t/1439 − 0.5| + 0.2) · cos(2π·t/1440)` (`[+0x74] · [+0x68]`), by which the snow drifts at
+/// each of the original's frames too.
 fn slant(minutes: f32) -> f32 {
     let lean = 2.0 * (minutes / 1439.0 - 0.5).abs() + 0.2;
     lean * (minutes / 1440.0 * std::f32::consts::TAU).cos()
@@ -173,11 +314,13 @@ fn tint(night: f32) -> Vec3 {
 }
 
 /// The weather's layer's parameters at each frame: the fog's and the rain's levels, the fog's
-/// offsets by the camera and its drift, the light, and a lightning's flash with its thunder; none
-/// in a dungeon.
+/// offsets by the camera and its drift, the light, a lightning's flash with its thunder, the
+/// snow's flakes fallen and gridded, and the earthquake's sound as a quake comes; none but the
+/// sound in a dungeon.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources one by one"
+    clippy::too_many_lines,
+    reason = "a Bevy system takes its resources one by one; the layer's parameters in one place"
 )]
 fn draw(
     time: Res<Time<Real>>,
@@ -186,8 +329,8 @@ fn draw(
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     cameras: Query<(&GlobalTransform, &Projection), With<crate::srgb::Frame>>,
     heroes: Query<&Transform, With<hero::Body>>,
-    mut layers: Query<&mut Layer>,
-    mut materials: ResMut<Assets<Skies>>,
+    (mut layers, mut flakes): (Query<&mut Layer>, Option<ResMut<Flakes>>),
+    (mut materials, mut buffers): (ResMut<Assets<Skies>>, ResMut<Assets<ShaderBuffer>>),
     (mut sfx, audio, assets): (ResMut<Sfx>, Res<bevy_kira_audio::Audio>, Res<AssetServer>),
 ) {
     let (Some(mut weather), Ok(mut layer)) = (weather, layers.single_mut()) else {
@@ -204,6 +347,12 @@ fn draw(
         );
         dungeons.as_ref().is_some_and(|d| d.sector(sector))
     });
+    let play = |id: u32, sfx: &mut Sfx| {
+        if let Some((id, file)) = sfx.with_id(id) {
+            let sample = sfx.sample(id, file, &assets);
+            audio.play(sample).with_volume(sfx::decibels(1.0));
+        }
+    };
     // A lightning: a flash and one of the thunders, but in a dungeon.
     let lightnings = std::mem::take(&mut weather.lightnings);
     if lightnings > 0 && !underground {
@@ -211,21 +360,22 @@ fn draw(
             FLASH_FRAMES.0 + (FLASH_FRAMES.1 - FLASH_FRAMES.0 + 1.0) * sfx.roll(1000) / 1000.0;
         layer.flash = frames.floor() * FRAME;
         let thunder = THUNDERS[usize::try_from(sfx.dice.below(5)).unwrap_or(0)];
-        if let Some((id, file)) = sfx.with_id(thunder) {
-            let sample = sfx.sample(id, file, &assets);
-            audio.play(sample).with_volume(sfx::decibels(1.0));
-        }
+        play(thunder, &mut sfx);
+    }
+    // A quake's sound, at most once in its time (`0x697220`).
+    layer.rumble = (layer.rumble - dt).max(0.0);
+    if std::mem::take(&mut weather.quakes) > 0 && layer.rumble <= 0.0 {
+        let (soonest, more) = QUAKE_SOUND_AGAIN;
+        layer.rumble = soonest + more * sfx.roll(1000) / 1000.0;
+        play(QUAKE_SOUND, &mut sfx);
     }
     let flash = if layer.flash > 0.0 { FLASH } else { 0.0 };
     layer.flash = (layer.flash - dt).max(0.0);
     let state = &weather.state;
-    let (drops, fog) = if underground {
-        (0.0, 0.0)
+    let (drops, fog, snow) = if underground {
+        (0, 0, 0)
     } else {
-        (
-            to_f32(state.rain.now),
-            to_f32(state.fog.now.min(255)) / 255.0,
-        )
+        (state.rain.now, state.fog.now.min(255), state.snow.now)
     };
     for (drift, speed) in layer.drift.iter_mut().zip(DRIFTS) {
         *drift = (*drift + speed * dt).fract_gl();
@@ -261,12 +411,38 @@ fn draw(
     let night = narrow(daynight::level(minutes));
     let minutes = narrow(minutes);
     let light = tint(night);
+    // The snow's flakes fall, those of the weather's count, and lie in the grid the shader reads.
+    let count = usize::try_from(snow).unwrap_or(0).min(MOST_FLAKES);
+    let mut grid = Vec4::new(1.0, 1.0, SNOW_CELL, 0.0);
+    if let Some(flakes) = flakes.as_deref_mut()
+        && count > 0
+    {
+        flakes.fall(count, dt, slant(minutes) * FRAMES * dt, screen);
+        let (entries, cells, cols, rows) = flakes.grid(count, zoom, screen);
+        grid = Vec4::new(to_f32(cols), to_f32(rows), SNOW_CELL, 1.0);
+        if let Some(material) = materials.get(&layer.material) {
+            for (handle, data) in [
+                (
+                    &material.flakes,
+                    ShaderBuffer::new(entries, RenderAssetUsages::default()),
+                ),
+                (
+                    &material.cells,
+                    ShaderBuffer::new(cells, RenderAssetUsages::default()),
+                ),
+            ] {
+                if let Some(mut buffer) = buffers.get_mut(handle) {
+                    *buffer = data;
+                }
+            }
+        }
+    }
     if let Some(mut material) = materials.get_mut(&layer.material) {
         material.params = Params {
             screen: Vec4::new(screen.x, screen.y, zoom, to_f32(layer.frames % 65_536)),
-            rain: Vec4::new(drops, slant(minutes), 0.0, 0.0),
+            rain: Vec4::new(to_f32(drops), slant(minutes), 0.0, 0.0),
             fog: Vec4::new(
-                fog,
+                to_f32(fog) / 255.0,
                 base.x + layer.drift[0].x,
                 base.y + layer.drift[0].y,
                 0.0,
@@ -278,7 +454,40 @@ fn draw(
                 0.0,
             ),
             tint: light.extend(flash),
+            snow: grid,
         };
+    }
+}
+
+/// The screen's quake (`0x4190D0`, `0x6284E0`): while one lasts, the camera moves by a random
+/// offset within its amplitude across and down, in the original's pixels, at each frame but in a
+/// pause, while the amplitude stands.
+fn shake(
+    weather: Option<Res<Weather>>,
+    mut dice: Local<Option<Rng>>,
+    mut cameras: Query<(&mut Transform, &Projection), With<crate::srgb::Frame>>,
+) {
+    let Some(weather) = weather else {
+        return;
+    };
+    let state = &weather.state;
+    if state.flags & QUAKE == 0 || state.quake <= 0.0 {
+        return;
+    }
+    let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 7));
+    let mut offset = || {
+        let unit = to_f32(dice.below(32_768)) * 3.051_851e-5;
+        (state.quake * (2.0 * unit - 1.0)).trunc()
+    };
+    let (across, down) = (offset(), offset());
+    for (mut transform, projection) in &mut cameras {
+        let zoom = match projection {
+            Projection::Orthographic(ortho) => ortho.scale,
+            _ => 1.0,
+        };
+        let units = zoom / iso::PIXELS_PER_UNIT;
+        let shift = transform.right() * across * units - transform.up() * down * units;
+        transform.translation += shift;
     }
 }
 
@@ -307,10 +516,15 @@ fn rain_loop(
     }
 }
 
-/// Stops the rain's loop as the game ends.
-fn hush(channel: Res<AudioChannel<RainLoop>>, mut raining: ResMut<Raining>) {
+/// Stops the rain's loop as the game ends, and forgets the snow.
+fn hush(
+    mut commands: Commands,
+    channel: Res<AudioChannel<RainLoop>>,
+    mut raining: ResMut<Raining>,
+) {
     channel.stop();
     raining.0 = false;
+    commands.remove_resource::<Flakes>();
 }
 
 /// A double as a float.
@@ -325,6 +539,16 @@ fn narrow(value: f64) -> f32 {
 /// A count as a float.
 fn to_f32(count: u32) -> f32 {
     f32::from(u16::try_from(count.min(u32::from(u16::MAX))).unwrap_or(u16::MAX))
+}
+
+/// The whole cells that cover `span` cells, rounded up.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a screen's cells, a few dozen"
+)]
+fn whole(span: f32) -> u32 {
+    span.ceil().clamp(0.0, 4_096.0) as u32
 }
 
 /// The weather drawn and heard.
@@ -343,6 +567,14 @@ impl Plugin for SkiesPlugin {
                 (draw, rain_loop)
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Sfx>),
+            )
+            .add_systems(
+                Update,
+                shake
+                    .after(hero::follow)
+                    .in_set(Step::Follow)
+                    .in_set(Unpaused)
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -363,5 +595,39 @@ mod tests {
         assert_eq!(tint(0.0), Vec3::ONE);
         let night = tint(255.0);
         assert!((night.x - 0.492).abs() < 1e-3 && (night.z - 0.727).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_flake_falls_by_its_size_sways_and_wraps_round_the_sides() {
+        let screen = Vec2::new(1024.0, 768.0);
+        let mut flakes = Flakes::new(screen, 1);
+        flakes.flakes[0] = Vec3::new(1023.0, 0.0, 4.0);
+        flakes.flakes[1] = Vec3::new(10.0, 1535.0, 10.0);
+        flakes.fall(2, 0.5, 3.0, screen);
+        // Down by 10 · 4 · 0.5, across by the drift and the sway cos(0.1 · 20) · 0.5 · 4 · 5,
+        // past the right side and round to the left.
+        let sway = (0.1_f32 * 20.0).cos() * 10.0;
+        let x = 1023.0 + 3.0 + sway - 1024.0;
+        assert!((flakes.flakes[0].y - 20.0).abs() < 1e-3);
+        assert!((flakes.flakes[0].x - x.rem_euclid(1024.0)).abs() < 1e-3);
+        // Past twice the screen's height: made anew on the screen, of a size of 2 to 10.
+        let anew = flakes.flakes[1];
+        assert!(anew.y < 768.0 && (2.0..=10.0).contains(&anew.z));
+    }
+
+    #[test]
+    fn the_grid_lists_each_cell_with_the_flakes_that_cover_it() {
+        let screen = Vec2::new(64.0, 64.0);
+        let mut flakes = Flakes::new(screen, 1);
+        // A flake of half side 4 at (29, 1053): drawn at the height 29, over the four cells
+        // about (32, 32).
+        flakes.flakes[0] = Vec3::new(29.0, 1053.0, 4.0);
+        let (entries, cells, cols, rows) = flakes.grid(1, 1.0, screen);
+        assert_eq!((cols, rows), (2, 2));
+        assert_eq!(cells.iter().map(|c| c.y).collect::<Vec<_>>(), [1, 1, 1, 1]);
+        assert_eq!(entries[0], Vec4::new(29.0, 29.0, 4.0, 0.0));
+        // At the zoom 2 its half side is 2, within the first cell alone.
+        let (_, cells, ..) = flakes.grid(1, 2.0, screen);
+        assert_eq!(cells.iter().map(|c| c.y).collect::<Vec<_>>(), [1, 0, 0, 0]);
     }
 }

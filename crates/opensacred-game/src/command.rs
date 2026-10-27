@@ -93,6 +93,8 @@ enum Command {
     Setfog { value: u32 },
     /// Start the snow of intensity N, 1 to 100, or stop it with 0, as `setsnow`
     Setsnow { value: u32 },
+    /// Shake the screen by a third of N pixels, 1 to 100, falling by 10 a second, as `setquake`
+    Setquake { value: u32 },
     /// The music and the ambient loops
     Music { on: Switch },
     /// Pause the game without the pause's menu, for a still frame, or go on
@@ -425,8 +427,8 @@ fn in_game(world: &World) -> Result<(), String> {
     }
 }
 
-/// The console's `setrain`, `setfog` and `setsnow` (`0x614230`, #1072): the weather takes the
-/// event of their kind and value, at most 100.
+/// The console's `setrain`, `setfog`, `setsnow` (`0x614230`, #1072) and `setquake` (#1073): the
+/// weather takes the event of their kind and value, at most 100.
 fn set_weather(world: &mut World, event: Event) -> Result<Outcome, String> {
     in_game(world)?;
     let mut weather = world
@@ -1011,6 +1013,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Setrain { value } => set_weather(world, Event::Rain(value)),
         Command::Setfog { value } => set_weather(world, Event::Fog(value)),
         Command::Setsnow { value } => set_weather(world, Event::Snow(value)),
+        Command::Setquake { value } => set_weather(world, Event::Quake(value)),
         Command::Music { on } => {
             in_game(world)?;
             match on {
@@ -1704,6 +1707,7 @@ mod tests {
                 "script",
                 "sector",
                 "setfog",
+                "setquake",
                 "setrain",
                 "setsnow",
                 "spawn",
