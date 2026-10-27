@@ -10,6 +10,7 @@
   The project circumvents nothing, and publishes nothing about circumventing a protection.
 * What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words.
   Never: game files, converted assets, decompiler output, game texts (§3).
+  Issues and pull requests also carry frames of a problem, cropped to it, as their attachments, never in the repository's git (§3).
 * Sacred is a trademark of its owner; OpenSacred is not affiliated with THQ Nordic, Ascaron or GOG (§6).
 
 ## 1. Disclaimer
@@ -32,12 +33,13 @@ The text of the Directive: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=C
 
 ## 3. What the project publishes and what it never does
 
-The same rules hold for the repository, issues, pull requests, discussions and their attachments.
+The same rules hold for the repository, issues, pull requests, discussions and their attachments, but for one kind of attachment: the frames of a problem (below).
 
 | Published | Never published |
 |---|---|
 | Our own code under MIT OR Apache-2.0 | Any file of the game, in any form: executables, archives, models, textures, sounds, movies, saves |
-| Facts about the formats (docs/02) and descriptions of the original's behavior in our own words (docs/re/) | Converted assets, atlases, glTF models, HD packs, screenshots or recordings of converted assets |
+| Facts about the formats (docs/02) and descriptions of the original's behavior in our own words (docs/re/) | Converted assets, atlases, glTF models, HD packs; screenshots or recordings of converted assets in the repository |
+| Frames of a problem, of the game or of the original, cropped to it, as attachments of its issue or pull request (below) | Recordings with sound, and frames or sequences that show the assets for their own sake, anywhere |
 | Addresses, offsets, identifiers, counts and hashes needed to read the data or to check a reader | Decompiler output (pseudo-C, listings) or code translated from it; memory dumps |
 | Words of the project's own that the converter puts in place of the game's texts' defects, named by the strings' ids and the original words' hashes (docs/02 §8, #403) | Another release's or a mod's wording of those texts |
 | The SHA-256 manifest of the reference installation (`docs/manifest-gog-2.28.txt`) | Texts of the game, its dialogues, credits or license agreements |
@@ -46,8 +48,14 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 
 How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227; from #448 on, made by Claude Code too), and against values recorded from the user's own executable by the oracle (PLAN.md §6.1, #363).
 The oracle runs the original's machine code in an emulator: our code in it only sets the inputs and reads the outputs, and its vectors are written outside the repository, never committed.
-The driver of the original (#448) runs the user's own copy and observes it (Art. 5(3)): its agent hooks functions in the running process alone, carries only addresses, offsets and the original's names, changes nothing of the original on disk, and its frames, logs and traces stay on the developer's machine.
+The driver of the original (#448) runs the user's own copy and observes it (Art. 5(3)): its agent hooks functions in the running process alone, carries only addresses, offsets and the original's names, changes nothing of the original on disk, and its frames, logs and traces stay on the developer's machine, but for a frame of a problem attached to its issue or pull request (below).
 Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
+
+The frames of a problem (#1222): an issue whose problem shows on the screen carries a frame of it, and a pull request that changes what the screen shows carries its frames before and after (CLAUDE.md, "Issues and pull requests").
+Each is the part of a frame of `opensacred-game`, or of the original beside it where the comparison tells, that shows the problem, cropped to it.
+It is GitHub's attachment of the issue, the pull request or a comment (`gh issue create`, `gh issue comment`, `gh pr create` or `gh pr comment` with `--attach`), stored by GitHub apart from the repository: it is never committed, nor kept in the repository's git in any branch.
+A frame shows the game's art, which is protected; a part of one that shows a fault of our own program, or the original's behavior beside it, quotes the game for the description of the problem (Directive 2001/29/EC, Art. 5(3)(d): a quotation for criticism or review, of a work lawfully made available, to the extent the purpose needs), as the reports of other engines' projects commonly do, and it carries none of the game's files.
+The risk is low (**estimate**), and it stays apart from the repository: a complaint names the attachment, which is then deleted, and finds nothing of the game in the repository's history.
 
 ## 4. Repository and CI
 
@@ -59,7 +67,7 @@ Anything made locally while studying the original (Ghidra projects, notes with d
   It links Unicorn (GPL-2.0), so it is a separate development-only crate, a binary without a library, never linked into the converter or the game; Unicorn is its feature `emulator`, `deny.toml` allows GPL-2.0 for Unicorn's two crates alone and denies them anywhere else in the graph (docs/03 §3.4).
 * The driver of the original (`tools/original/`, #448, planned) runs the user's own `Sacred.exe` under Frida (wxWindows Library Licence 3.1) on the developer's machine, never in CI, and checks it against the manifest first.
   It is a Python tool of `tools/`, not a dependency of the converter or the game, and no release carries it.
-  It runs the original in place in `OriginalGame/`, where the game writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), never one of the manifest; what it observes reaches the repository and the issues only as prose (§3).
+  It runs the original in place in `OriginalGame/`, where the game writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), never one of the manifest; what it observes reaches the repository and the issues as prose, and the issues and pull requests as the frames of a problem too (§3).
 * A dependency comes only under a license that `deny.toml` allows (`CLAUDE.md`, "Prohibitions"): Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0, ISC, MIT, MIT-0, MPL-2.0, Unicode-3.0 and Zlib.
   `cargo deny check` checks the licenses on every pull request (docs/03 §3.4, §5).
 * A binary release must ship with the executable the SIL Open Font License 1.1 of the Fira Mono font, which Bevy's `default_font` feature embeds, together with the licenses of the other dependencies (`cargo deny list` prints them; `THIRD-PARTY-NOTICES.md`, "Binary distributions").
@@ -104,4 +112,4 @@ A constant table or formula taken from an MIT project carries the project's noti
 | 10 | Maintainer burnout | medium | high | an early vertical slice; short milestones; visible progress | milestones drag on |
 | 11 | HD pack size | high | low | selective upscaling; separate packs | tens of GB on disk |
 | 12 | `sound.pak` in an unexpected format | retired 2026-10-16 | — | the format is confirmed by `snd_ls.py` (docs/02, §10.2) | — |
-| 13 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests on synthetic data or on the user's local installation; the same rules for issues and pull requests (§3; PLAN.md §11) | a game file, a converted asset or a screenshot of one in a diff, an issue or a pull request |
+| 13 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests on synthetic data or on the user's local installation; the same rules for issues and pull requests, whose frames of a problem are cropped attachments, never in git (§3; PLAN.md §11) | a game file, a converted asset or a screenshot in a diff; a game file, a converted asset, a recording with sound or a frame of no problem in an issue or a pull request |

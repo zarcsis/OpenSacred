@@ -6,7 +6,7 @@ body:
     id: what
     attributes:
       label: What happens
-      description: What OpenSacred does, and what you expected instead.
+      description: What OpenSacred does, and what you expected instead; where it shows on the screen, a frame of it, cropped to it (and the original's beside it where that tells).
     validations:
       required: true
   - type: textarea
@@ -33,5 +33,5 @@ body:
     attributes:
       label: Rules
       options:
-        - label: This issue has no game files, converted assets, screenshots of them or game texts (docs/08 §3).
+        - label: This issue has no game files, converted assets or game texts; a frame only of its problem, cropped to it, as an attachment (docs/08 §3).
           required: true
