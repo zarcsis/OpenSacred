@@ -393,6 +393,7 @@ What the first step found (2026-10-21, Windows 11, #449):
   `gold N` brings it to N through the gold's handler `0x57FD80`, as a pile picked up or a price paid changes it: the handler first runs the original's integrity test (`0x590730`), and a gold written directly fails it, so that the next change kills the hero for good (seen: its gold left at 1 and no rise).
   `home` reads or sets the hero's home (`+0x2B9`), where it rises after its death; a cell's sector is filled in as a position's is.
   `wear` lists the hero's 19 slots; with a type it makes an object of it (`0x5FB530`) and puts it into its slot (`0x54ACC0`) through `0x555E00`, as a juggler takes its instrument, what the slot held being put aside.
+* The weather (#1073, docs/re/weather.md): `weather rain|fog|snow|quake N` hands the renderer's handler (`0x419A70`) an event of the weather of that kind and value, kept on this machine, as the console's `setrain`, `setfog`, `setsnow` and `setquake` do, which the driver cannot type (Enter opened no console in a game of one player); `weather clear` sends the kind 1, so that every level fades.
 
 The maintainer's play (#551, asked for on 2026-10-22): the original on the screen, its 1024 × 768 scaled to the whole monitor with its proportions kept, played with the maintainer's own mouse and keyboard while the driver's commands stay at hand.
 
