@@ -103,11 +103,15 @@ fn items(game_dir: &Path) -> Result<Vec<Item>> {
         } else {
             None
         };
-        let extra = if slot < overlay.len() {
-            overlay.record(slot).context("PAK/Items03.pak")?
-        } else {
-            None
-        };
+        // The overlay's record, its textures in the client's one numbering (#1152).
+        let extra =
+            if slot < overlay.len() && overlay.get(slot).context("PAK/Items03.pak")?.is_some() {
+                let mut bytes = overlay.bytes(slot).context("PAK/Items03.pak")?.to_vec();
+                crate::item_patches::overlay(&mut bytes, opensacred_data::texture::TEXTURE03_BASE);
+                Some(items::parse_record(&bytes, slot).context("PAK/Items03.pak")?)
+            } else {
+                None
+            };
         anyhow::ensure!(
             record.is_none() || extra.is_none(),
             "PAK/Items03.pak: slot {slot} is used in PAK/Items.pak too"
@@ -621,6 +625,11 @@ mod tests {
         let items: Vec<Item> = ron::from_str(&read(ITEMS)).unwrap();
         let overlay = items.iter().find(|i| i.slot == 3999).unwrap();
         assert_eq!(overlay.name, "Krombacher.grn");
+        // Its texture is `texture03.pak`'s first, in the client's one numbering (#1152).
+        assert_eq!(
+            overlay.words_08[0],
+            opensacred_data::texture::TEXTURE03_BASE + 1
+        );
         // The sound profiles of a sword's and a bow's types (#710).
         let item = |slot| items.iter().find(|i| i.slot == slot).unwrap();
         assert_eq!((item(1729).sound(), item(1732).sound()), (500, 501));

@@ -695,7 +695,9 @@ Of the 1,038,011 placed statics, 586,002 draw a sprite and 445,943 are miniature
 * `+0x62` 0 for 4277 and 4284 to 4302;
 * after the overlays: the category of 3240 22; for 4304 `+0x61` 2, `+0x62` 0 and `+0x1C` 8804; for 5776 `+0x6A` 0 and the flags word `0x8000000`; `+0x6A` 55 for 5635 and 5769 where it is 0.
 
-An overlay's record goes into the slot that its own `+0x76` names when its category is not 0, its `+0x08` and `+0x66` raised by an offset of its pak's textures and its `+0x70` cleared (`0x429190`); `items.ron` keeps `Items03.pak`'s 3999 as the file holds it (#1152).
+An overlay's record goes into the slot that its own `+0x76` names when its category is not 0, its `+0x08` and `+0x66` raised by an offset of its pak's textures and its `+0x70` cleared (`0x429190`).
+The offset of `ITEMS0n.PAK` is the sum of the texture manager's counts of the `n + 1` texture paks before its own (from `+0x44`), which for `Items03.pak` is `texture.pak`'s 25,535 slots alone, the others 0 (**confirmed** 2026-10-27 with the driver of #448, #1152): the client numbers `texture03.pak`'s textures from 25,535 in one numbering with `texture.pak`'s.
+`opensacred-convert tables` raises 3999's textures so (its texture is 25,536, `texture03.pak`'s `CAB.TGA`), and the game numbers `texture03.pak`'s textures from 25,535 (`opensacred_data::texture::TEXTURE03_BASE`).
 
 ### 6.2 Creature.pak (CIF) and Weapon.pak (WPN)
 

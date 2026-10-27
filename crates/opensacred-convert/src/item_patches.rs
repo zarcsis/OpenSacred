@@ -157,6 +157,25 @@ pub fn apply(slot: u32, record: &mut [u8]) -> usize {
     changes.len()
 }
 
+/// The offsets of the textures and of the model's index of a record.
+const TEXTURE: usize = 0x08;
+const MODEL: usize = 0x70;
+
+/// Makes the client's changes to a record of the overlay `Items03.pak`, its 128 bytes `record`, as
+/// it loads it over its table (`0x429190`): its texture `+0x08` and its effects' texture `+0x66`
+/// raised by `base`, where the overlay's textures start in its one numbering, and its model's index
+/// `+0x70` cleared.
+pub fn overlay(record: &mut [u8], base: u32) {
+    for at in [TEXTURE, EFFECTS] {
+        let value = record
+            .get(at..at + 4)
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map_or(0, u32::from_le_bytes);
+        put(record, at, &value.wrapping_add(base).to_le_bytes());
+    }
+    put(record, MODEL, &0u32.to_le_bytes());
+}
+
 /// The u32 at `+0x00`.
 fn word(record: &[u8]) -> u32 {
     record
@@ -202,6 +221,18 @@ mod tests {
         record[FIELD_6A] = 0;
         apply(5635, &mut record);
         assert_eq!(record[FIELD_6A], 55);
+    }
+
+    #[test]
+    fn an_overlays_textures_follow_the_bases() {
+        let mut record = [0u8; 128];
+        record[TEXTURE] = 1;
+        record[EFFECTS] = 2;
+        record[MODEL] = 9;
+        overlay(&mut record, 25_535);
+        assert_eq!(&record[TEXTURE..TEXTURE + 4], &25_536u32.to_le_bytes());
+        assert_eq!(&record[EFFECTS..EFFECTS + 4], &25_537u32.to_le_bytes());
+        assert_eq!(record[MODEL], 0);
     }
 
     #[test]
