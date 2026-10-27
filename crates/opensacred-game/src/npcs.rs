@@ -76,7 +76,7 @@ use crate::terrain::Heights;
 use crate::terrain::Level;
 use crate::{
     ai, arrows, buildings, crowd, daynight, drops, fight, hero, iso, models, motions, paths,
-    sectors, shadows, spawning,
+    sectors, sfx, shadows, spawning,
 };
 
 /// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
@@ -3927,6 +3927,7 @@ fn spawn(
         }
         if placement.door {
             entity.insert(Door {
+                kind: placement.creature.0,
                 gltf: assets.load(placement.model.clone()),
                 clips: None,
                 player: None,
@@ -4828,11 +4829,13 @@ pub fn stance(
     }
 }
 
-/// A door, which the townsfolk go into the houses and out of them by (`ai`): its model, its
-/// clips of opening and closing (`*_ACTIVATE`, `*_DEACTIVATE`) and its animation player once
-/// it has them, and whether it is open (bit 0 of its trigger's word, `0x4FC8D0`).
+/// A door, which the townsfolk go into the houses and out of them by (`ai`): its type, by which
+/// it sounds (`sfx::door_profile`), its model, its clips of opening and closing (`*_ACTIVATE`,
+/// `*_DEACTIVATE`) and its animation player once it has them, and whether it is open (bit 0 of
+/// its trigger's word, `0x4FC8D0`).
 #[derive(Component)]
 pub struct Door {
+    kind: u32,
     gltf: Handle<Gltf>,
     clips: Option<(AnimationNodeIndex, AnimationNodeIndex)>,
     player: Option<Entity>,
@@ -5266,7 +5269,9 @@ fn door_clips(
     }
 }
 
-/// Opens or closes each door that `ai` swings, playing its clip once.
+/// Opens or closes each door that `ai` swings, playing its clip once, and its sound of opening
+/// or closing before it, at the door, at a rate's factor of 0.45 and a tenth's roll (`0x44BCD0`,
+/// `0x695800`; #1166).
 fn swing(
     mut commands: Commands,
     mut doors: Query<(Entity, &mut Door, &Swing)>,
@@ -5274,7 +5279,22 @@ fn swing(
     mut npcs: ResMut<Npcs>,
     mut heights: ResMut<Heights>,
     speed: Res<hero::GameSpeed>,
+    mut sounds: MessageWriter<sfx::Play>,
 ) {
+    let mut sound = |entity, door: &Door, open: bool| {
+        if door.open == open {
+            return;
+        }
+        let Some(profile) = sfx::door_profile(door.kind) else {
+            return;
+        };
+        let group = if open { sfx::OPEN } else { sfx::CLOSE };
+        sounds.write(sfx::Play {
+            sound: sfx::Of::Profile(profile, group),
+            at: Some(entity),
+            rate: (0.45, sfx::Roll::Tenths),
+        });
+    };
     for (entity, mut door, swing) in &mut doors {
         if !swing.open && !swing.by_hero && !swing.scripted && npcs.marked(&door) {
             commands.entity(entity).remove::<Swing>();
@@ -5289,6 +5309,7 @@ fn swing(
         let (Some((open, close)), Some(player)) = (door.clips, door.player) else {
             // Its clips not yet given, it waits, unless its model has none.
             if door.player.is_some() {
+                sound(entity, &door, swing.open);
                 turn_trigger(&mut npcs, &mut heights, &door, swing);
                 door.open = swing.open;
                 commands.entity(entity).remove::<Swing>();
@@ -5303,6 +5324,7 @@ fn swing(
                 .play(&mut player, clip, Duration::ZERO)
                 .set_speed(speed.0);
         }
+        sound(entity, &door, swing.open);
         turn_trigger(&mut npcs, &mut heights, &door, swing);
         door.open = swing.open;
         commands.entity(entity).remove::<Swing>();

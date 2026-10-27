@@ -54,11 +54,6 @@ struct Idle {
     music: Option<Handle<AudioSource>>,
 }
 
-/// A number from 0 to 1 at random, as the client's `rand()` / 32767.
-fn share(sfx: &mut Sfx) -> f32 {
-    f32::from(u16::try_from(sfx.dice.below(0x8000)).unwrap_or(0)) / 32_767.0
-}
-
 /// Plays the sample of the sound `id` at the effects' volume, at the pan of `pan` and the rate of
 /// `rate`, each a base and up to a span more of a roll, the pan from 0 left to 1 right.
 fn play(
@@ -70,8 +65,8 @@ fn play(
     let Some((id, file)) = sfx.with_id(id) else {
         return;
     };
-    let pan = pan.0 + pan.1 * share(sfx);
-    let rate = rate.0 + rate.1 * share(sfx) + 0.5;
+    let pan = pan.0 + pan.1 * sfx.share();
+    let rate = rate.0 + rate.1 * sfx.share() + 0.5;
     let sample = sfx.sample(id, file, assets);
     audio
         .play(sample)

@@ -4,7 +4,9 @@
 //! (`WOOSH`) by the class of what the striker holds, at its hit moment within reach or in the
 //! air; at the target, the striker's weapon's `HIT` when the hit did damage, else its `PARADE`,
 //! by the item's sound profile (`items.pak +0x24`), the fist's for bare hands; and a shot's
-//! `SHOOT` by the bow's profile.
+//! `SHOOT` by the bow's profile. The world's other sounds that the modules ask for ([`Play`]):
+//! the doors', the items' taken and the level-up's (#1166, #1167; docs/re/sound.md, "The
+//! sources").
 //!
 //! The volume falls and the pan follows the place from the hero as the original's `0x678260`
 //! gives them (docs/re/sound.md, "A sound's place", #731).
@@ -133,6 +135,11 @@ impl Sfx {
     pub fn roll(&mut self, n: u32) -> f32 {
         f32::from(u16::try_from(self.dice.below(n)).unwrap_or(0))
     }
+
+    /// A number from 0 to 1 at random, as the client's `rand()` / 32767.
+    pub fn share(&mut self) -> f32 {
+        self.roll(0x8000) / 32_767.0
+    }
 }
 
 /// The distance of a sound `x`, `y` screen pixels from the listener, as the original approximates
@@ -229,6 +236,57 @@ pub fn swing_profile(class: u8) -> Option<u32> {
         9 | 10 => Some(506),
         _ => None,
     }
+}
+
+/// The objects' groups: a door's opening and closing (`0x695800`, from `0x44BCD0`).
+pub const OPEN: u8 = 1;
+pub const CLOSE: u8 = 3;
+
+/// The profile of a door of the type `door`, an object of category 10, as `0x695800` chooses it:
+/// the grid 603, the barn's 604, the dungeon's and the gate's 606, the prison's 607, the fence's
+/// 608, any other whose type's name holds `TYPE_OBJECT_DOOR` the wooden door 602; the secret door
+/// 5221 (`TYPE_OBJECT_S_DOOR`), the only door whose name does not, none.
+pub fn door_profile(door: u32) -> Option<u32> {
+    match door {
+        5221 => None,
+        5674 => Some(603),
+        5673 | 5749 => Some(604),
+        5700..=5709 | 5740 | 5741 => Some(606),
+        5720..=5729 => Some(607),
+        5743 | 5745 => Some(608),
+        _ => Some(602),
+    }
+}
+
+/// A sound of the world that a module asks for (#1166, #1167): a variant of a profile's group or
+/// a sound, at an object or a creature, by its place's volume and pan, or in the middle (the
+/// original's creature −1), at the volume 1 and a rate of its sample's of `playSFX`'s factor plus
+/// 0.5 (`0x693510`).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Play {
+    pub sound: Of,
+    pub at: Option<Entity>,
+    /// The rate's factor: a base, and what a roll adds to it.
+    pub rate: (f32, Roll),
+}
+
+/// What a [`Play`] plays.
+#[derive(Clone, Copy, Debug)]
+pub enum Of {
+    /// A variant of a profile's group ([`Sfx::pick`]).
+    Profile(u32, u8),
+    /// The sound of an id.
+    Id(u32),
+}
+
+/// What a roll adds to a rate's factor.
+#[derive(Clone, Copy, Debug)]
+pub enum Roll {
+    None,
+    /// `rand() % 10` / 90.
+    Tenths,
+    /// `rand()` / 32767 times the span.
+    Share(f32),
 }
 
 /// What a striker holds, for its weapons' sounds: the class of it (`motions::class`), and the
@@ -348,13 +406,64 @@ fn blows(
     }
 }
 
-/// The weapons' sounds.
+/// Plays the sounds of the world that the modules ask for.
+fn plays(
+    mut plays: MessageReader<Play>,
+    mut sfx: ResMut<Sfx>,
+    places: Query<&GlobalTransform>,
+    listeners: Query<&GlobalTransform, With<Body>>,
+    assets: Res<AssetServer>,
+    audio: Res<Audio>,
+) {
+    let listener = listeners.iter().next().map(GlobalTransform::translation);
+    for play in plays.read() {
+        let (volume, pan) = match play.at {
+            Some(at) => {
+                let Ok(place) = places.get(at) else {
+                    continue;
+                };
+                placed_at(place.translation(), listener)
+            }
+            None => placed(0, 0),
+        };
+        if volume <= 0.0 {
+            continue;
+        }
+        let picked = match play.sound {
+            Of::Profile(profile, group) => sfx.pick(profile, group),
+            Of::Id(id) => sfx.with_id(id),
+        };
+        let Some((id, file)) = picked else {
+            continue;
+        };
+        let (base, roll) = play.rate;
+        let rate =
+            base + match roll {
+                Roll::None => 0.0,
+                Roll::Tenths => sfx.roll(10) / 90.0,
+                Roll::Share(span) => span * sfx.share(),
+            } + 0.5;
+        let sample = sfx.sample(id, file, &assets);
+        audio
+            .play(sample)
+            .with_volume(decibels(volume))
+            .with_panning(pan)
+            .with_playback_rate(f64::from(rate));
+        debug!(
+            "sfx: {:?} ({id}) at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}",
+            play.sound
+        );
+    }
+}
+
+/// The weapons' sounds and the world's.
 pub struct SfxPlugin;
 
 impl Plugin for SfxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Blow>()
-            .add_systems(Update, blows.in_set(Unpaused));
+            .add_message::<Play>()
+            .add_systems(Update, (blows, plays).in_set(Unpaused));
     }
 }
 
@@ -388,6 +497,21 @@ mod tests {
         assert_eq!(swing_profile(8), Some(500));
         assert_eq!(swing_profile(3), Some(509));
         assert_eq!(swing_profile(7), None);
+    }
+
+    #[test]
+    fn a_door_sounds_by_its_type() {
+        assert_eq!(door_profile(5650), Some(602));
+        assert_eq!(door_profile(5674), Some(603));
+        assert_eq!(door_profile(5749), Some(604));
+        assert_eq!(door_profile(5709), Some(606));
+        assert_eq!(door_profile(5741), Some(606));
+        assert_eq!(door_profile(5720), Some(607));
+        assert_eq!(door_profile(5745), Some(608));
+        // The addon's dwarves' doors and the second desert gate by their names.
+        assert_eq!(door_profile(5766), Some(602));
+        assert_eq!(door_profile(5783), Some(602));
+        assert_eq!(door_profile(5221), None);
     }
 
     #[test]

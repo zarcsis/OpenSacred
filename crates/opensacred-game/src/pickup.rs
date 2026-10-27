@@ -16,12 +16,20 @@ use crate::game::AppState;
 use crate::hero::{self, Body};
 use crate::hud::Pointer;
 use crate::paths;
+use crate::sfx;
 use crate::terrain::Heights;
 
 /// How far along both axes from the item's point the hero walks to (`+0x158`, `+0x15C`).
 const BESIDE: f32 = 25.0;
 /// A hero's reach of an item it takes (`0x53A170`: 100 for an id up to 16).
 const REACH: f32 = 100.0;
+/// The sounds of the items taken (docs/re/sound.md, "Items, gold and levels"): gold
+/// (`GOLD01`), a weapon into the hand (`UI_INV_PUTMETAL01`), an item into the pack
+/// (`PICKUP01`) and a quest's item (`UI_QUESTBOOK_WRITING`).
+const GOLD: u32 = 7100;
+const PUT_METAL: u32 = 7005;
+pub const INTO_THE_PACK: u32 = 7103;
+pub const QUESTS_ITEM: u32 = 7117;
 
 /// The item that the hero was sent to by a click, which it takes as it stands near.
 #[derive(Component)]
@@ -143,11 +151,14 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
 }
 
 /// The hero that stands, once its way to an item it was sent to ends: within its reach of the
-/// item, with a straight line of walkable cells to it, it takes it, else it gives up.
+/// item, with a straight line of walkable cells to it, it takes it, else it gives up; gold
+/// sounds `GOLD01` and the weapon taken back into its hand `UI_INV_PUTMETAL01`, in the middle
+/// (`cCreature::pickupItem`, the events `(9, 0x83)` and `(9, 5)`; #1167), and the scripts'
+/// collecting sounds any other item (`scripts`).
 pub(crate) fn take(
     mut commands: Commands,
     mut pack: ResMut<Pack>,
-    mut taken: MessageWriter<Taken>,
+    (mut taken, mut sounds): (MessageWriter<Taken>, MessageWriter<sfx::Play>),
     (arsenal, mut throws): (
         Option<Res<crate::arsenal::Arsenal>>,
         MessageWriter<crate::arsenal::Throws>,
@@ -182,8 +193,19 @@ pub(crate) fn take(
             .is_some_and(|arsenal| arsenal.takes_back(&lying.dropped))
         {
             throws.write(crate::arsenal::Throws(false));
+            sounds.write(sfx::Play {
+                sound: sfx::Of::Id(PUT_METAL),
+                at: None,
+                rate: (0.45, sfx::Roll::Share(0.1)),
+            });
         } else {
-            if lying.dropped.kind != Kind::Gold {
+            if lying.dropped.kind == Kind::Gold {
+                sounds.write(sfx::Play {
+                    sound: sfx::Of::Id(GOLD),
+                    at: None,
+                    rate: (0.3, sfx::Roll::Share(0.4)),
+                });
+            } else {
                 taken.write(Taken(lying.dropped.item));
             }
             pack.take(lying.dropped);

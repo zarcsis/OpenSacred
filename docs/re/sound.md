@@ -280,14 +280,14 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Footsteps of the hero, rain, thunder, quake, menus, dialogues' voice-overs, introductions | `0x68EB90`, `0x41A4F0`, `0x419A70`, `0x697220`, `0x69B770`, `0x4A9730` | 102/103, 101, 200–204, 209, 7015–7018, `IDLEFX_*`, by name | as read before | yes | yes |
 | Weapon's `MISS` on an animal | `0x532731`–`0x5329D0` | the striker's weapon's 0 | a strike that does no damage to an animal | yes | no: the game plays `PARADE` |
 | The hero's critical-hit cry | `0x6852B0`, `0x686F4F`–`0x686FC9` | 16301 or 16302 | the hero takes `CRITICALHIT` | yes | no |
-| Doors open and close | `0x44BCD0` → `0x695800` | 602–608, groups 1 and 3, by the type | a door turns | yes (`doors`) | no |
+| Doors open and close | `0x44BCD0` → `0x695800` | 602–608, groups 1 and 3, by the type | a door turns | yes (`npcs::swing`) | yes (#1166) |
 | A locked trigger rattles | `0x415F00` | 331 or 332 | the hero without the trigger's key | no (keys, #1088) | no |
 | Chests, shrines, vases, graves, book stands | `0x695800` from `0x48AE90` (`SetObjState`) and `0x4968A0` | 605, 609, 610, 611, 324/325 | an object opened or closed | no | no |
-| Pick-up of an item, of gold | `0x558080` → (9, `0x80`), `0x57FD80` → (9, `0x83`) | 7103, 7100 | an item into the pack or onto the cursor; gold added | yes (`pickup`) | no |
-| An item taken straight into a slot, a quest's item | `0x558080` → (9, 5), (9, `0x81`) | `UI_INV_PUT*` by kind, 7117 | as said | partly | no |
+| Pick-up of an item, of gold | `0x558080` → (9, `0x80`), `0x57FD80` → (9, `0x83`) | 7103, 7100 | an item into the pack or onto the cursor; gold added | yes (`pickup`, `scripts::collect`) | yes (#1167) |
+| An item taken straight into a slot, a quest's item | `0x558080` → (9, 5), (9, `0x81`) | `UI_INV_PUT*` by kind, 7117 | as said | partly | the quest's item and the hurled weapon taken back into the hand (7005) (#1167); the slots wait for the inventory (#1088) |
 | No room in the pack | `0x558080` → (8, 3) | `CANTCARRYMORE` lines | the pack full | no (#1088) | no |
-| A rune dropped by a kill | `0x559BF0` at `0x55A4BD` | 7028 | the drop rolls a rune | yes (`drops`) | no |
-| Level-up | `0x57E160` → (9, `0x10`) | 7002 | the hero's level rises | yes (`fight::level_up`) | no |
+| A rune dropped by a kill | `0x559BF0` at `0x55A4BD` | 7028 | the drop rolls a rune | no: the drops leave the runes out (docs/decisions/2026-10-21-drops.md) | no |
+| Level-up | `0x57E160` → (9, `0x10`) | 7002 | the hero's level rises | yes (`fight::level_up`) | yes (#1167) |
 | Spells' cast | `0x51E110` | 2000–2125 by the spell | the cast starts | yes (`making`, `spells`) | no |
 | Spells' act | `0x522480` | 2011–2117 by the spell | the spell acts | yes | no |
 | Spells' and arts' objects | `0x76A440`–`0x7C3AC0` | casts, flights, impacts, loops | the object's life | partly (stand-ins) | no |
@@ -340,14 +340,15 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
   By the type: 5200–5213 and 5220 (`0x1450`–`0x145D`, `0x1464`) the chest 605; 5214, 5215 the shrine 609; 5218 the vase 610; 5222 the book stand 611; 5216, 5217, 5219 and 5223–5226 `GRAVE_OPEN01` or `02` (324, 325) at even odds whatever the group; 5674 (`0x162A`) the grid 603; 5673 and 5749 the barn 604; 5700–5709, 5740 and 5741 the fence 606; 5720–5729 the iron door 607; 5743 and 5745 the wooden fence 608; 5650–5672, 5675–5699, 5710–5719, 5730–5739, 5742, 5744, 5746–5748 and 5750–5758 the wooden door 602; any other type whose name holds `TYPE_OBJECT_DOOR` the wooden door, the rest nothing.
   (The comparisons before the switch at `0x6958E4` and the switch at `0x695B00` as read; the bounds are worth a test against `items.ron`.)
 - **The doors** (`0x44BCD0`): the open plays group 1 before the clip `0xAA`, the close group 3 before `0xAB`, at the door.
+  Every door of the category 10 has a profile but the secret door 5221 (`TYPE_OBJECT_S_DOOR`): the 118 others' names in the types' table (`0x8EC328`, read by `0x43CED0`) hold `TYPE_OBJECT_DOOR`, so the addon's dwarves' doors 5759–5766 (`TYPE_OBJECT_DOOR2_*`) and the second desert gate 5783 sound as wooden doors (counted 2026-10-27 against `items.ron`).
 - **A locked trigger** (`0x415F00`, `cTrigger::setState`): a trigger of the flags `0x44` with a key (`+0xC`) that the hero lacks (`0x5DF1D0`) plays `DOOR_CLOSED01` or `02` at even odds in the middle, if its flag 4 is set.
 - `0x695800`'s other callers, `SetObjState` (`0x48AE90`, `0x48B278`) and `0x4968A0` (not identified), open the chests and the like.
 
 #### Items, gold and levels
 
-- **`cCreature::pickupItem`** (`0x558080`, docs/re/items.md "Picking up") posts: a quest's item (9, `0x81`): `UI_QUESTBOOK_WRITING` (7117); gold: through `0x57FD80`, which posts (9, `0x83`): `GOLD01` (7100) at a rate factor of 0.3 to 0.7; an item worn at once (9, 5, its category `0x426220`, `items.pak +0x2E`); onto the cursor or into the pack (9, `0x80`): `PICKUP01` (7103) at 0.4 to 0.6; no room (8, 3): the hero's `CANTCARRYMORE` line, more than 2 s since the last; the category 14 (9, `0x82`): nothing.
+- **`cCreature::pickupItem`** (`0x558080`, docs/re/items.md "Picking up") posts: a quest's item (9, `0x81`): `UI_QUESTBOOK_WRITING` (7117); gold: through `0x57FD80`, which posts (9, `0x83`): `GOLD01` (7100) at a rate factor of 0.3 + 0.4 `rand()`/32767; an item worn at once (9, 5, its category `0x426220`, `items.pak +0x2E`); onto the cursor or into the pack (9, `0x80`): `PICKUP01` (7103) at 0.4 + 0.2 `rand()`/32767, as 7117; no room (8, 3): the hero's `CANTCARRYMORE` line, more than 2 s since the last; the category 14 (9, `0x82`): nothing.
   All play in the middle (the creature −1), the volume 1.
-- **(9, 5) and (9, 1)**, an item by its category: 6, 18, 19, 21, 23, 24 `UI_INV_PUTCLOTHES01` (7116); 8 `UI_INV_PUTRING01` (7007); 9 `UI_INV_POTION01` (7019); 13 `UI_INV_PUTSHIELD01` (7115); 14 `UI_INV_PUTKEYS01` (7114); 16 `UI_QUESTBOOK_TURN02` (7107); 17 `UI_INV_PUTHELMET01` (7113); 20, 28 `UI_INV_PUTAMULET01` (7020); the rest `UI_INV_PUTMETAL01` (7005) at 0.45 to 0.55, the others at 0.4 to 0.6; (9, 2) `UI_INV_PUTFAILED01` (7004); (9, 3) 7005.
+- **(9, 5) and (9, 1)**, an item by its category: 6, 18, 19, 21, 23, 24 `UI_INV_PUTCLOTHES01` (7116); 8 `UI_INV_PUTRING01` (7007); 9 `UI_INV_POTION01` (7019); 13 `UI_INV_PUTSHIELD01` (7115); 14 `UI_INV_PUTKEYS01` (7114); 16 `UI_QUESTBOOK_TURN02` (7107); 17 `UI_INV_PUTHELMET01` (7113); 20, 28 `UI_INV_PUTAMULET01` (7020); the rest `UI_INV_PUTMETAL01` (7005) at 0.45 + 0.1 `rand()`/32767, the others at 0.4 to 0.6; (9, 2) `UI_INV_PUTFAILED01` (7004); (9, 3) 7005.
 - **A rune's drop** (`0x559BF0`, the drop's call, docs/re/items.md): when the roll makes a rune of the 123 at `0x9565A0` and the dying creature is not 516, 592 or 593, `DROPRUNE` (7028) plays at the dying creature, rate factor 0.5.
 - **The level-up** (`addExperience`, `0x57E160`, at `0x57EE84`): (9, `0x10`): `LEVELUP01` (7002) in the middle, 0.5.
 - **A potion** (`0x5CAA60`, a `cItem` virtual): `DRINK_POTION01`, `02` or `03` (7003, 7001, 7008) by `rand() % 3` in the middle, then `0x5D8000`, the item used up, `UI_INV_USEITEM01` (7006).
