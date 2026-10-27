@@ -479,6 +479,63 @@ pub fn types(fill: &Fill) -> impl Iterator<Item = u32> + '_ {
     })
 }
 
+/// The weapon kinds (`Weapon.pak +0x1E`) of the crossbows and the muskets (`0x427E80`), which a
+/// model shoots with the motion slot `0x8B`.
+const CROSSBOWS: [u8; 2] = [12, 14];
+/// The weapon kinds of the ranged weapons (`0x427ED0`): the bows, the crossbows, the cannons and
+/// the muskets.
+const RANGED: [u8; 4] = [7, 12, 13, 14];
+/// The weapon kinds that a creature's weapon that its model cannot shoot becomes: a bow, or a
+/// weapon of kind 1 (the swords and the axes).
+pub const BOW: u8 = 7;
+pub const BLADE: u8 = 1;
+/// The motion slots of a crossbow's shot and of a bow's (the attack slots of the classes 12 and
+/// 7, `motions`).
+pub const CROSSBOW_SHOT: u16 = 0x8B;
+pub const BOW_SHOT: u16 = 0x72;
+/// The quality of the weapons' choice that gives a creature a weapon anew (`0x5C7FA0`'s last
+/// argument).
+pub const REARMED_QUALITY: i64 = 14;
+
+/// The shots of a creature's model: whether it has the clip of a crossbow's ([`CROSSBOW_SHOT`])
+/// and of a bow's ([`BOW_SHOT`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shots {
+    pub crossbow: bool,
+    pub bow: bool,
+}
+
+/// The kind of the weapon that the first item of a `MakeGroup` rule asks for in its place, an
+/// item of the weapon kind `kind` held by a model of the shots `shots` (`0x47F8E0` at
+/// `0x480547`, #1217): a crossbow or a musket that the model cannot shoot asks for a bow where it
+/// shoots a bow, else for a weapon of kind 1; `None` keeps the item. The weapon comes of the
+/// weapons' choice at the fill's level ([`crate::drops::Catalogue::choose`]), and the second item
+/// is made by the new first's kind.
+pub fn filled_weapon(kind: Option<u8>, shots: Shots) -> Option<u8> {
+    let crossbow = kind.is_some_and(|kind| CROSSBOWS.contains(&kind));
+    (crossbow && !shots.crossbow).then_some(if shots.bow { BOW } else { BLADE })
+}
+
+/// The kind of the weapon that an item of a `CreateNPC` record asks for in its place, an item of
+/// the weapon kind `kind` held by a model of the shots `shots`, at each of the two steps of
+/// `sdk_CREATENPC` (`0x484C44`, `0x484C93`; #1217): first a crossbow or a musket that the model
+/// cannot shoot asks for a bow; then a ranged weapon, the bow among them, that it cannot shoot as
+/// a bow asks for a weapon of kind 1. `None` keeps the item.
+pub fn created_weapon(step: Step, kind: Option<u8>, shots: Shots) -> Option<u8> {
+    let of = |kinds: &[u8]| kind.is_some_and(|kind| kinds.contains(&kind));
+    match step {
+        Step::Crossbow => (of(&CROSSBOWS) && !shots.crossbow).then_some(BOW),
+        Step::Ranged => (of(&RANGED) && !shots.bow).then_some(BLADE),
+    }
+}
+
+/// The steps of `sdk_CREATENPC` that change an item its model cannot shoot ([`created_weapon`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    Crossbow,
+    Ranged,
+}
+
 /// A small generator of the game's own (SplitMix64), seeded by a sector and a record.
 #[derive(Clone, Debug)]
 pub struct Rng(u64);
@@ -771,5 +828,41 @@ mod tests {
         assert!((800..1200).contains(&made[&592]) && (800..1200).contains(&made[&593]));
         assert_eq!(variant(76, &mut rng), 76);
         assert_eq!(types(&rabbits()).collect::<Vec<_>>(), [516, 592, 593]);
+    }
+
+    #[test]
+    fn a_weapon_that_its_model_cannot_shoot_asks_for_another() {
+        // A thief's model shoots a bow and no crossbow; a soldier's both; a beast's neither.
+        let thief = Shots {
+            crossbow: false,
+            bow: true,
+        };
+        let soldier = Shots {
+            crossbow: true,
+            bow: true,
+        };
+        let beast = Shots {
+            crossbow: false,
+            bow: false,
+        };
+        // A fill's crossbow (12) or musket (14): a bow for the thief, a blade for the beast.
+        assert_eq!(filled_weapon(Some(12), thief), Some(BOW));
+        assert_eq!(filled_weapon(Some(14), beast), Some(BLADE));
+        assert_eq!(filled_weapon(Some(12), soldier), None);
+        // A fill's bow, sword or cannon stays, whatever the model.
+        assert_eq!(filled_weapon(Some(7), beast), None);
+        assert_eq!(filled_weapon(Some(1), beast), None);
+        assert_eq!(filled_weapon(Some(13), beast), None);
+        assert_eq!(filled_weapon(None, beast), None);
+        // `CreateNPC`'s crossbow: a bow first, which a model without a bow's shot then gives up
+        // for a blade, as it does a bow or a cannon of the record.
+        assert_eq!(created_weapon(Step::Crossbow, Some(12), thief), Some(BOW));
+        assert_eq!(created_weapon(Step::Ranged, Some(BOW), thief), None);
+        assert_eq!(created_weapon(Step::Crossbow, Some(12), beast), Some(BOW));
+        assert_eq!(created_weapon(Step::Ranged, Some(BOW), beast), Some(BLADE));
+        assert_eq!(created_weapon(Step::Ranged, Some(13), beast), Some(BLADE));
+        assert_eq!(created_weapon(Step::Crossbow, Some(12), soldier), None);
+        assert_eq!(created_weapon(Step::Ranged, Some(12), soldier), None);
+        assert_eq!(created_weapon(Step::Ranged, Some(1), beast), None);
     }
 }

@@ -547,7 +547,9 @@ pub fn pile(level: u32, dice: &mut impl Dice) -> u32 {
 
 /// What a pass asks of the type choice ([`Catalogue::choose`]): the category, the dead
 /// creature's level, the class (the hero's type, 0 for any), whether the records' levels go
-/// untested, and the quality, `16 − key` for the keys 2 to 15, else 0.
+/// untested, the quality, `16 − key` for the keys 2 to 15, else 0, and the weapon kind of
+/// `Weapon.pak +0x1E`, none for any (`0xF`; a drop's), as a creature's crossbow that its model
+/// cannot shoot asks for a bow or a weapon of kind 1 (#1217).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Wanted {
     pub category: u8,
@@ -555,6 +557,7 @@ pub struct Wanted {
     pub class: u32,
     pub loose: bool,
     pub quality: i64,
+    pub kind: Option<u8>,
 }
 
 /// What the drops know of a type of a `Weapon.pak` record.
@@ -566,6 +569,8 @@ struct Record {
     levels: [u8; 2],
     /// `+0x9A` and `+0x9B`: a skill that wearing it needs, and that skill's level.
     skill: [u8; 2],
+    /// `+0x1E`: a weapon's kind, 0 for a type that is no weapon.
+    kind: u8,
     /// A piece of a set of `sets.bin` (whose loader writes the set's number to `+0x23`).
     set: bool,
     /// Its template's words 38 to 40 ([`Templates::limits`]).
@@ -616,6 +621,7 @@ impl Catalogue {
                     flags: u32::from(word(0)) | u32::from(word(1)) << 16,
                     levels: [word(8).to_le_bytes()[0], word(10).to_le_bytes()[1]],
                     skill: [skill, needed],
+                    kind: weapon.bytes_1c[2],
                     set: pieces.contains(&weapon.id),
                     limits: templates.looked_up(weapon.id),
                 };
@@ -707,15 +713,15 @@ impl Catalogue {
     }
 
     /// The type of a drop (`0x5C7FA0`, the client's `TypeManager::getRandomItem`) of the
-    /// category, level, class and quality `wanted`, of any weapon kind and no set piece, for the
-    /// hero `hero`; none where no type fits. A listed type
+    /// category, level, class, quality and weapon kind `wanted`, and no set piece, for the hero
+    /// `hero`; none where no type fits. A listed type
     /// is a candidate when it has a template whose word 39 is at most the level held at 28 plus
     /// a jitter (1, above level 5 the product of two rolls of 1 to a third of the held level, at
     /// most 3) and at most the level, whose word 40 is at most the quality and whose record's
-    /// levels lie below the held level plus the jitter; of the types with class bits, those of
-    /// the class asked; no unique of a word 38 of 29. Then one at random: with a class asked, in
-    /// one case of two among those of its bit or of none; else, in one case of two, the first of
-    /// up to three draws that the hero can wear.
+    /// levels lie below the held level plus the jitter, of the kind asked if any; of the types
+    /// with class bits, those of the class asked; no unique of a word 38 of 29. Then one at
+    /// random: with a class asked, in one case of two among those of its bit or of none; else, in
+    /// one case of two, the first of up to three draws that the hero can wear.
     pub fn choose(&self, wanted: Wanted, hero: &Hero, dice: &mut impl Dice) -> Option<u32> {
         let Wanted {
             category,
@@ -723,6 +729,7 @@ impl Catalogue {
             class,
             loose,
             quality,
+            kind,
         } = wanted;
         let held = i64::from(level.min(HELD));
         let mut found = Vec::new();
@@ -737,6 +744,10 @@ impl Catalogue {
                 1
             };
             let top = held + jitter;
+            // The kind tested after the jitter's rolls, as the original rolls them first.
+            if kind.is_some_and(|kind| record.kind != kind) {
+                continue;
+            }
             let Some([flags, least, least_quality]) = record.limits else {
                 continue;
             };
@@ -1041,6 +1052,7 @@ impl Dropping<'_> {
             class,
             loose,
             quality,
+            kind: None,
         };
         self.catalogue.choose(wanted, &self.death.hero, dice)
     }

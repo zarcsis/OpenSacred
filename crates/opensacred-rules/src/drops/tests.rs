@@ -54,6 +54,7 @@ fn record(flags: u32, levels: [u8; 2], limits: [i64; 3]) -> Record {
         flags,
         levels,
         skill: [0, 0],
+        kind: 0,
         set: false,
         limits: Some(limits),
     }
@@ -460,6 +461,7 @@ fn the_type_of_a_drop_is_of_its_level_class_and_quality() {
         class,
         loose,
         quality,
+        kind: None,
     };
     let choose = |wanted, rolls: &[u32]| {
         let mut dice = script(rolls);
@@ -501,12 +503,46 @@ fn above_level_5_the_jitter_lets_a_type_of_higher_levels_drop() {
         class: 0,
         loose: false,
         quality: 0,
+        kind: None,
     };
     let choose = |rolls: &[u32]| catalogue.choose(wanted, &hero(6), &mut script(rolls));
     // A jitter of 1·1: the record's level 7 is not below 7.
     assert_eq!(choose(&[0, 0]), None);
     // Of 2·2: below 10.
     assert_eq!(choose(&[1, 1, 1, 0]), Some(2000));
+}
+
+#[test]
+fn a_kind_asked_takes_the_weapons_of_that_kind_alone() {
+    let weapon = |kind| Record {
+        kind,
+        ..record(ANY, [1, 1], [1, 0, 0])
+    };
+    // A sword (1), a bow (7) and a crossbow (12); a creature's crossbow becomes a bow (#1217).
+    let catalogue = catalogue(&[
+        (1000, 5, weapon(1)),
+        (1001, 5, weapon(7)),
+        (1002, 5, weapon(12)),
+    ]);
+    let wanted = |kind| Wanted {
+        category: 5,
+        level: 1,
+        class: 0,
+        loose: false,
+        quality: 14,
+        kind,
+    };
+    let choose = |kind, rolls: &[u32]| {
+        let mut dice = script(rolls);
+        let item = catalogue.choose(wanted(kind), &hero(1), &mut dice);
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        item
+    };
+    assert_eq!(choose(Some(7), &[1, 0]), Some(1001));
+    assert_eq!(choose(Some(1), &[1, 0]), Some(1000));
+    assert_eq!(choose(Some(4), &[]), None);
+    // None asks for any kind, as a drop does.
+    assert_eq!(choose(None, &[1, 0, 2]), Some(1002));
 }
 
 #[test]
