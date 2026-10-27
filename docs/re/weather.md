@@ -76,6 +76,8 @@ The levels move by steps of about three a second (an accumulator `0xAA4548` grow
   It is filtered linearly and blended by its alpha.
 - The flags of `0x643430` that these draws set are Direct3D 7's render states: 4 the alpha's blending, 8 the source's factor `ONE` (else `SRCALPHA`), `0x10` the destination's `ONE` (else `INVSRCALPHA`), `0x800` the linear filter of the textures; so the snow is added (`ONE`, `ONE`), as the flash is.
 - **The snow**: `PARTICLE_SPARK03.TGA` on quads lit by the light where they are, falling at 10 · size pixels a second, swaying by `cos(0.1 · y) · dt · size · 5`, drifting by `[+0x74] · [+0x68]` at each frame (not by the frame's time), wrapping round the screen's sides and made again past twice its height.
+  A flake made again lies at random on the screen, its size 2 to 10 (`0x41A4F0`); its quad's half side is its size over the zoom, and its height on the screen is its own wrapped at 1,024 (`& 0x3FF`), so that a flake that has fallen below the screen's 768 comes in again from the top until it passes 1,536.
+  The quads are added (`ONE`, `ONE`), the texture's colour times the light's.
 - None of the three is drawn while `DETAILLEVEL` (`Settings.cfg`, 0 to 2, the byte `0x182EE78` that `0x814152` reads) is 0, nor in a dungeon.
 
 ## `cEventWeather` and its kinds
@@ -101,7 +103,8 @@ It is made in place or by `0x51CB60`, which Ghidra names as an effect's construc
 - The set 39 (docs/re/items.md) sends the snow at 100 or 0 as the stats are made anew (`0x57D362`), and again at 100 as the hero changes sector while its query `0x4E` answers (`0x5FCB70`; **hypothesis**: the set's bonus, a snow about its wearer).
 - The kinds 4 and 6 have no case; the fields `+0x210` and `+0x214` and 50 floats of speeds 0.003 to 0.025 at `+0x218` are set up and kept but never drawn (**hypothesis**: an effect taken out).
 - **The quake (kind 7)**, while `SCREEN_QUAKE` is on (`0x81DDE0`; 1 in `Settings.cfg`): an amplitude of value/3 pixels (`+0x9DB8`), falling by 10 a second, moves the screen by a random offset within it on both axes at each frame, which the view's matrix adds to the camera (`0x6284E0`), and plays the sample 209 `SOUND_FX_EARTHQUAKE_LOOP` (`0x697220`), at most once every 0.1 to 0.35 s; so 30 shakes it by 10 pixels for a second, 45 by 15 for a second and a half.
-  The arts' landings send 45 (`0x4FF0B0`, the jump 1003's `0x50E6C0`, `0x5192E0`; docs/re/arts.md, which took it for the ground's shaking), and the particle systems and spells 30, 24 or 21 (`0x7866C0`, `0x790340`, `0x79E730`, `0x7A7500`, `0x7AF550`, `0x7B70A0`, `0x7BAD70`, `0x7C1790`).
+  Each event sets the amplitude anew rather than raising it, and plays the sample as it comes; the kind 1 sets the amplitude to 0, its flag left for the next frame to take off.
+  The Gladiator's jump 1003 sends 45 as it lands (`0x4FF0B0` at `0x500765`, after its regeneration starts; docs/re/arts.md, which took it for the ground's shaking), and the Daemon's executor sends 45 as one of its arts takes its effect 50 off (`0x5192E0` at `0x519EFB`; which art is not read); the particle systems and spells send 30, 24 or 21 (`0x7866C0`, `0x790340`, `0x79E730`, `0x7A7500`, `0x7AF550`, `0x7B70A0`, `0x7BAD70`, `0x7C1790`; which spells is not read).
 - **The jolt (kind 12)**, under `SCREEN_QUAKE` too: a vertical offset of value/3 pixels, falling by 40 a second; a creature's step sends 18 (`0x639080`, for an object of the kind `0x5FE870` 0x35; **hypothesis**: a big creature's stomp), and so does `0x527716` in `0x522480` (not read).
 
 ## The butterflies and the birds
@@ -127,14 +130,17 @@ So no script sets the weather, and the sectors' `Enter`s only make the butterfli
 ## In `opensacred-game`
 
 The world's weather is followed (#1072): `opensacred-convert world` writes each sector's entries of rain, fog, snow and butterflies into `world.ron` (`weather`) and `tables` the rolls of `0x95FA84` (`tables/weather_rolls.ron`), and the game chooses and ramps it as above, by the sector the hero is in, at the time of real time and by the game's time (`opensacred_rules::weather`, `weather`), the two slips repaired (#1083, docs/decisions/2026-10-26-weather-timers.md: a time spans its range by its roll, never infinite, and the snow goes by its own flag); the overlay (F3) and `state` show its levels, and the console's `setrain`, `setfog` and `setsnow` set it.
-`skies` draws the rain, the fog and the lightning's flash, and plays the rain's loop and the thunders (#1073): one material over the whole screen, over the world and under the interface, whose colours are premultiplied so that the flash adds to the frame; the drops lie anew at random each frame by a hash of the frame's count, as many as the weather's state holds, their slant by the time of day, and the fog's two layers move with the camera and drift.
-The drops are lit by the night's colour over the whole screen, not by the light where each falls (`0x41B510`).
-The snow, the shakes, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds are still #1073 (M5).
+`skies` draws the rain, the fog over it, the lightning's flash and the snow, in the original's order, and plays the rain's loop and the thunders (#1073): one material over the whole screen, over the world and under the interface, whose colours are premultiplied so that the flash and the flakes add to the frame; the drops lie anew at random each frame by a hash of the frame's count, as many as the weather's state holds, their slant by the time of day, and the fog's two layers move with the camera and drift.
+The snow's 3,000 flakes move on the CPU as the original's (`skies::Flakes`), their drift by the slant at each of the original's frames taken at its 60 a second, and those of the weather's count are listed by the cells of a grid of 32 pixels in two storage buffers, so that a pixel tests only the flakes of its cell.
+The drops and the flakes are lit by the night's colour over the whole screen, not by the light where each falls (`0x41B510`).
+A quake (`opensacred_rules::weather::Event::Quake`) moves the camera after it follows the hero by a random offset within the amplitude, in the original's pixels at the zoom, at each frame but in a pause, and plays the earthquake's sound as it comes; the console's `setquake` and the Gladiator's jump send it, the Daemon's art and the spells not yet, and `SCREEN_QUAKE` has no setting.
+The jolts, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds are still #1073 (M5).
 
 Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
 
 - A rain of 60: about 1,800 drops in both, of the same length, white at their bottoms and fading upwards, leaning to the left by about a fifth of their height, under the interface; the original's lines are two pixels wide on four rows in ten, opensacred-game's on one in ten (dgVoodoo2's lines; **hypothesis**).
 - A fog of 40: the frame's mean over the world, about 100 in red without it, became 159, 153 and 145 in the original and 160, 155 and 146 in opensacred-game.
+- A snow of 60: sparks of the same shapes and sizes in both, white over the floor, 10.7 % of a region of the floor's pixels lit in the original against 11.6 % in opensacred-game.
 
 ## To see in the original
 
