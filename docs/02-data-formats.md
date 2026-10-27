@@ -685,6 +685,18 @@ Confirmed on every record by `mixed_dump.py`: the directory has 32,768 slots of 
 Implemented 2026-10-17: `opensacred_formats::items` (type, class, subclass, the miniature atlas, the sprite, the name), matching the prototype on every record.
 Of the 1,038,011 placed statics, 586,002 draw a sprite and 445,943 are miniatures (flag `0x20`): squares of their type's atlas, which Static.PAK `+0x2E…+0x32` cut (x, y, size; with flag `0x40` columns, rows, rotation, timing, frames; openheilig).
 
+**The client's changes** (**confirmed** by code 2026-10-27, `0x4293B0`, #1136): as it loads its table, after `Items.pak` and around the overlays, the client changes about a hundred records by hand, and `opensacred-convert tables` makes the same changes before it writes `items.ron` (`item_patches`):
+
+* the angle `+0x57` of the heroes' types 1 to 4 and 6 to 90°, of the Wood Elf's 5 to 0;
+* the flag `0x4000000` of `+0x00` cleared for the types 536 to 538, 543, 545, 591 and 600, and set for 802 and 1338 to 1341;
+* the id `+0x20` of 58, 135 and 573, and of the gloves below, their own slots;
+* the Gladiator's gloves 4073 to 4075: the flags word `0x80502` (the kind 2, the class 5, the subclass 8) and the category 24; the Seraphim's 4076 and 4082: the same flags, the category 22, and their effects' textures `+0x66`, `fx_multiTexBase04` and `fx_multiTexBase05` (197, 198); the client also names the gloves' models and textures, which `Items.pak` names already;
+* the sound profile `+0x24` of 60 of the types 3105 to 3174, the weapons' (500 a sword, 503, 505 to 509, 516 and 517), 0 for eight of them;
+* `+0x62` 0 for 4277 and 4284 to 4302;
+* after the overlays: the category of 3240 22; for 4304 `+0x61` 2, `+0x62` 0 and `+0x1C` 8804; for 5776 `+0x6A` 0 and the flags word `0x8000000`; `+0x6A` 55 for 5635 and 5769 where it is 0.
+
+An overlay's record goes into the slot that its own `+0x76` names when its category is not 0, its `+0x08` and `+0x66` raised by an offset of its pak's textures and its `+0x70` cleared (`0x429190`); `items.ron` keeps `Items03.pak`'s 3999 as the file holds it (#1152).
+
 ### 6.2 Creature.pak (CIF) and Weapon.pak (WPN)
 
 **Checked on every record 2026-10-17** by `tables_dump.py` and converted with every field by `opensacred-convert tables` (`tables/creatures.ron`, `tables/weapons.ron`):

@@ -86,8 +86,8 @@ fn item(slot: usize, r: items::Record) -> Result<Item> {
     })
 }
 
-/// The used slots of `Items.pak`, with those of the overlay `Items03.pak` in slots the base
-/// leaves empty.
+/// The used slots of `Items.pak`, with the client's changes made to them as it loads its table
+/// (`item_patches`), and those of the overlay `Items03.pak` in slots the base leaves empty.
 fn items(game_dir: &Path) -> Result<Vec<Item>> {
     let base_data = read(game_dir, "PAK/Items.pak")?;
     let base = Items::parse(&base_data).context("PAK/Items.pak")?;
@@ -95,8 +95,11 @@ fn items(game_dir: &Path) -> Result<Vec<Item>> {
     let overlay = Items::parse(&overlay_data).context("PAK/Items03.pak")?;
     let mut out = Vec::new();
     for slot in 0..base.len().max(overlay.len()) {
-        let record = if slot < base.len() {
-            base.record(slot).context("PAK/Items.pak")?
+        let used = slot < base.len() && base.get(slot).context("PAK/Items.pak")?.is_some();
+        let record = if used {
+            let mut bytes = base.bytes(slot).context("PAK/Items.pak")?.to_vec();
+            crate::item_patches::apply(u32::try_from(slot)?, &mut bytes);
+            Some(items::parse_record(&bytes, slot).context("PAK/Items.pak")?)
         } else {
             None
         };
@@ -619,8 +622,14 @@ mod tests {
         let overlay = items.iter().find(|i| i.slot == 3999).unwrap();
         assert_eq!(overlay.name, "Krombacher.grn");
         // The sound profiles of a sword's and a bow's types (#710).
-        let sound = |slot| items.iter().find(|i| i.slot == slot).unwrap().sound();
-        assert_eq!((sound(1729), sound(1732)), (500, 501));
+        let item = |slot| items.iter().find(|i| i.slot == slot).unwrap();
+        assert_eq!((item(1729).sound(), item(1732).sound()), (500, 501));
+        // The client's changes as it loads its table (#1136): the heroes' angles, the weapons'
+        // sounds, the Gladiator's gloves' category and a flag cleared.
+        assert_eq!((item(1).angle(), item(5).angle()), (90.0, 0.0));
+        assert_eq!((item(3112).sound(), item(3105).sound()), (500, 0));
+        assert_eq!((item(4073).category(), item(3240).category()), (24, 22));
+        assert_eq!(item(536).flags() & 0x0400_0000, 0);
         let weapons: Vec<Weapon> = ron::from_str(&read(WEAPONS)).unwrap();
         let original = tables::weapons(&game_file_bytes(&game, "PAK/Weapon.pak")).unwrap();
         // Floats survive the text form exactly.
