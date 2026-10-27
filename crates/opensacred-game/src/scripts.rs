@@ -55,6 +55,7 @@ use crate::frame::{Playing, Step, Unpaused};
 use crate::game::AppState;
 use crate::hero::{Arrival, Body};
 use crate::npcs::{Dies, OnDeath, ScriptName};
+use crate::remarks::Remark;
 use crate::terrain::Heights;
 use crate::{files, iso, npcs, paths};
 
@@ -212,6 +213,8 @@ pub struct Effects {
     pub popups: Vec<Begins>,
     /// What it plays on the music's streams.
     pub sounds: Vec<ScriptSound>,
+    /// The hero's remarks it gives cause to.
+    pub remarks: Vec<Remark>,
 }
 
 impl Effects {
@@ -228,6 +231,7 @@ impl Effects {
         self.infos.extend(other.infos);
         self.popups.extend(other.popups);
         self.sounds.extend(other.sounds);
+        self.remarks.extend(other.remarks);
     }
 }
 
@@ -362,6 +366,8 @@ pub struct Live {
     /// The scripts' groups that hold a living creature, wherever it stands, by which
     /// `GroupIsDead` answers (`0x48C860`, [`living_groups`]), taken before each run.
     living: HashSet<u32>,
+    /// Whether a talk's dialogue function runs ([`Self::talk`]).
+    talking: bool,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on.
@@ -394,6 +400,7 @@ impl Live {
             minute: None,
             creatures: started.creatures,
             living: HashSet::new(),
+            talking: false,
         }
     }
 
@@ -441,7 +448,12 @@ impl Live {
         let function = self
             .named(&format!("Dialog:{dialogue}"))
             .or_else(|| self.named(dialogue))?;
+        // The talk's function runs with the hero in its talk; a button's runs after the talk's
+        // end (`0x499DA0`; **hypothesis** that the end takes the hero out of its AI state 10 at
+        // once, the creature's handler of the event `0x10C` not read).
+        self.talking = true;
         let mut effects = self.run(&function, 0);
+        self.talking = false;
         // A `SetIcon` without a name changes the running dialogue's icon (`+0xA458`,
         // `0x4A1A50`; #1039), which `npcs` finds by its name.
         for record in &mut effects.records {
@@ -531,6 +543,7 @@ impl Live {
         );
         recorder.living = Some(&self.living);
         recorder.quest = quest;
+        recorder.talking = self.talking;
         let outcome = match self.runtime.call_entry(function, entry, &mut recorder) {
             Ok(outcome) => Some(outcome),
             Err(e) => {
@@ -548,6 +561,7 @@ impl Live {
             infos: recorder.infos,
             popups: recorder.popups,
             sounds: recorder.sounds,
+            remarks: recorder.remarks,
         };
         (effects, outcome)
     }
@@ -702,6 +716,10 @@ struct Recorder<'a> {
     infos: Vec<(i32, String)>,
     popups: Vec<Begins>,
     sounds: Vec<ScriptSound>,
+    remarks: Vec<Remark>,
+    /// Whether the run is a talk's, a dialogue's function as the talk opens, with the hero in its
+    /// AI state 10.
+    talking: bool,
     /// Whether no function runs, the runner's index of the running function at −1 (`0x94E07C`):
     /// before the first begins, and after any ends, until the next begins ([`Host::ends`]).
     between: bool,
@@ -740,6 +758,8 @@ impl<'a> Recorder<'a> {
             infos: Vec::new(),
             popups: Vec::new(),
             sounds: Vec::new(),
+            remarks: Vec::new(),
+            talking: false,
             between: true,
             quest: None,
             running: Vec::new(),
@@ -863,10 +883,23 @@ impl Host for Recorder<'_> {
                 if transition == Transition::Exit && ran.is_empty() && quest >= FANFARES_FROM {
                     self.sounds.push(ScriptSound::Fanfare);
                 }
-                match self.state.quests.step(transition, quest, ran) {
+                let section = self.state.quests.step(transition, quest, ran);
+                // A side quest entered in a talk, before its `OnEnter` (`0x46C58D`).
+                if section == Some(quests::Section::OnEnter)
+                    && self.talking
+                    && quest >= FANFARES_FROM
+                {
+                    self.remarks.push(Remark::TakesQuest);
+                }
+                match section {
                     Some(section) => Handled::Run(section.function(quest)),
                     None => Handled::Done,
                 }
+            }
+            // Its operands are read and ignored (`0x47603D`).
+            "reject_quest" => {
+                self.remarks.push(Remark::RejectsQuest);
+                Handled::Done
             }
             // The quest's flag 4 off and its log entry out (`0x48E600`).
             "un_trigger_quest" => {
@@ -1679,9 +1712,11 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         infos,
         popups,
         sounds,
+        remarks,
         ..
     } = effects;
     world.write_message_batch(sounds);
+    world.write_message_batch(remarks);
     world.resource_mut::<Infos>().0.extend(infos);
     world.resource_mut::<Popups>().0.extend(popups);
     world.resource_mut::<ObjStates>().0.extend(states);
@@ -1752,6 +1787,7 @@ struct Queues<'w> {
     infos: ResMut<'w, Infos>,
     popups: ResMut<'w, Popups>,
     sounds: MessageWriter<'w, ScriptSound>,
+    remarks: MessageWriter<'w, Remark>,
 }
 
 impl Queues<'_> {
@@ -1766,6 +1802,7 @@ impl Queues<'_> {
         self.infos.0.extend(effects.infos);
         self.popups.0.extend(effects.popups);
         self.sounds.write_batch(effects.sounds);
+        self.remarks.write_batch(effects.remarks);
     }
 }
 
@@ -1947,6 +1984,7 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<Infos>()
             .init_resource::<Popups>()
             .add_message::<ScriptSound>()
+            .add_message::<Remark>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -2370,6 +2408,7 @@ mod tests {
             .init_resource::<Infos>()
             .init_resource::<Popups>()
             .add_message::<ScriptSound>()
+            .add_message::<Remark>()
             .add_systems(Update, deaths);
         let dying = |app: &mut App, function: &str| {
             let mut functions = quests::DeathFunctions::default();
@@ -2587,6 +2626,63 @@ mod tests {
         assert_eq!(live.transition(Transition::Exit, 5), Effects::default());
         assert_eq!(shares(live.run("unknown", 0)), [7]);
         assert_eq!(shares(live.run("unknown", 0)), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn a_side_quest_entered_in_a_talk_and_a_rejection_give_the_hero_its_remarks() {
+        let runtime = runtime(&[
+            (
+                "functions/giver.luau",
+                "local F = {}
+                 F[\"Dialog:giver\"] = function()
+                 trigger_quest { _0B = 1001 }
+                 trigger_quest { _0B = 2 }
+                 reject_quest { _0B = 0 }
+                 return true
+                 end
+                 F[\"btn_take\"] = function()
+                 trigger_quest { _0B = 1002 }
+                 return true
+                 end
+                 return F",
+            ),
+            (
+                "quests/1001.luau",
+                "local F = {}
+                 F[\"QIS_Trigger1001\"] = function()
+                 return true
+                 end
+                 return F",
+            ),
+            (
+                "quests/1002.luau",
+                "local F = {}
+                 F[\"QIS_Trigger1002\"] = function()
+                 return true
+                 end
+                 return F",
+            ),
+            (
+                "quests/2.luau",
+                "local F = {}
+                 F[\"QIS_Trigger2\"] = function()
+                 return true
+                 end
+                 return F",
+            ),
+        ]);
+        let mut live = live(runtime);
+        for quest in [1001, 1002, 2] {
+            live.transition(Transition::SetUp, quest);
+        }
+        // The side quest speaks, the main quest not; a second talk enters nothing again.
+        let talk = live.talk("giver").expect("the dialogue runs");
+        assert_eq!(talk.remarks, [Remark::TakesQuest, Remark::RejectsQuest]);
+        let again = live.talk("giver").expect("the dialogue runs");
+        assert_eq!(again.remarks, [Remark::RejectsQuest]);
+        // A button's function runs after the talk: no remark (**hypothesis**).
+        assert!(live.run_named("btn_take").remarks.is_empty());
+        assert!(live.state.quests.in_log(1002));
     }
 
     #[test]

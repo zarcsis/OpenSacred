@@ -325,15 +325,7 @@ impl HeroLine {
     fn name(self, creature: u32, n: u32) -> Option<String> {
         let class = match creature {
             6 | 7 if matches!(self, Self::BattleCry { night: true, .. }) => "REALVAMP",
-            1 => "SERA",
-            2 => "GLAD",
-            3 => "MAGE",
-            4 => "DELF",
-            5 => "HELF",
-            6 | 7 => "VAMP",
-            8 => "DWARF",
-            9 => "DEMON",
-            _ => return None,
+            _ => class(creature)?,
         };
         Some(match self {
             Self::EnemyType(foe) => {
@@ -350,6 +342,22 @@ impl HeroLine {
             _ => format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1),
         })
     }
+}
+
+/// The class of the hero of the type `creature` in its lines' names (`+0xAF42`): `SERA`, `GLAD`,
+/// `MAGE`, `DELF`, `HELF`, `VAMP` (6 and 7, the Vampiress by day and by night), `DWARF`, `DEMON`.
+pub(crate) fn class(creature: u32) -> Option<&'static str> {
+    Some(match creature {
+        1 => "SERA",
+        2 => "GLAD",
+        3 => "MAGE",
+        4 => "DELF",
+        5 => "HELF",
+        6 | 7 => "VAMP",
+        8 => "DWARF",
+        9 => "DEMON",
+        _ => return None,
+    })
 }
 
 /// A creature speaks: the group of its profile that the fight passes.
@@ -373,7 +381,7 @@ impl Speak {
 /// The line a creature speaks, while it plays, and whether it is a hero's line by name (the
 /// original's MP3 lines, `0x693FE0`).
 #[derive(Component)]
-struct Speaking(Handle<AudioInstance>, bool);
+pub(crate) struct Speaking(pub(crate) Handle<AudioInstance>, pub(crate) bool);
 
 /// The line by name that plays: the sound manager's one at a time (`0x693FE0`, `+0xB7E0`), which
 /// the hero's lines by name and the dialogues' voice-overs (`talk`) share, so that each stops the
@@ -383,7 +391,7 @@ pub struct NamedLine(Option<Handle<AudioInstance>>);
 
 impl NamedLine {
     /// Whether a line by name plays.
-    fn plays(&self, audio: &Audio) -> bool {
+    pub(crate) fn plays(&self, audio: &Audio) -> bool {
         self.0.as_ref().is_some_and(|line| {
             matches!(
                 audio.state(line),
@@ -394,7 +402,7 @@ impl NamedLine {
 
     /// `line` now the line by name, the one before stopped; with none, only the stop
     /// (`0x693FB0`). The line stopped, if one was.
-    fn name(
+    pub(crate) fn name(
         &mut self,
         instances: &mut Assets<AudioInstance>,
         line: Option<Handle<AudioInstance>>,
