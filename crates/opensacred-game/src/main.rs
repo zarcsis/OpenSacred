@@ -55,6 +55,7 @@ mod pause;
 mod pick;
 mod pickup;
 mod remote;
+mod ripples;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
@@ -315,6 +316,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         pause::PausePlugin,
         pickup::PickupPlugin,
+        ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
@@ -327,9 +329,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
-        talk::TalkPlugin,
     ))
-    .add_plugins((terrain::GroundPlugin,))
+    .add_plugins((talk::TalkPlugin, terrain::GroundPlugin))
     .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)

@@ -1,7 +1,8 @@
 //! The main menu, its submenus, the choice of the hero and the pause's menu (docs/10 §4). The main
-//! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles, the column of its
-//! items in Carolingia, gold, lit under the cursor with a glow and fading in as a menu replaces
-//! another, and the Multiplayer and Extras submenus; the items whose screens the game does not
+//! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving
+//! water (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor
+//! with a glow and fading in as a menu replaces another, and the Multiplayer and Extras
+//! submenus; the items whose screens the game does not
 //! have yet stand greyed (docs/decisions/2026-10-19-menus.md). The campaigns open their choices
 //! of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and Quit over
 //! the frame dimmed. The mouse chooses by pointing and clicking, the keyboard with the arrows and
@@ -14,10 +15,12 @@ use crate::game::{AppState, FONT, GOLD};
 use crate::hud;
 use crate::lines::Texts;
 use crate::pause::Play;
+use crate::ripples::{self, Pond, Ripples};
 use bevy::picking::events::{PointerClick, PointerEnter};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::FontSize;
+use bevy::window::PrimaryWindow;
 
 /// The menu's screen.
 #[derive(SubStates, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -143,9 +146,11 @@ struct Shown(f32);
 pub struct Images {
     /// The main menu's 12 tiles, four to a row from the top left.
     main: Vec<Option<String>>,
-    /// The main menu's water: its bed, and the portal reflected in it.
+    /// The main menu's water: its bed, the portal reflected in it, and the first game's portal
+    /// that the menu's first showing reflects (docs/re/menus.md, "The water").
     bed: Option<String>,
     reflection: Option<String>,
+    first: Option<String>,
 }
 
 impl Images {
@@ -153,15 +158,29 @@ impl Images {
     pub fn find(assets: &Path) -> Self {
         let tiles: Vec<String> = (1..=TILES).map(|n| format!("gui_uw_option{n}")).collect();
         let mut names: Vec<&str> = tiles.iter().map(String::as_str).collect();
-        names.extend(["ui_uw_main_center", "ui_uw_main_ref"]);
+        names.extend(["ui_uw_main_center", "ui_uw_main_ref", "ui_main_ref"]);
         let mut found = hud::find_textures(assets, &names);
+        let first = found.pop().flatten();
         let reflection = found.pop().flatten();
         let bed = found.pop().flatten();
         Self {
             main: found,
             bed,
             reflection,
+            first,
         }
+    }
+}
+
+/// Whether the main menu has not shown another screen yet since the menus started: its water
+/// then reflects the first game's portal, as the menus' start sets it after the menu has set its
+/// own (`0x7598E0`, `0x711EE0`).
+#[derive(Resource)]
+struct FirstShowing(bool);
+
+impl Default for FirstShowing {
+    fn default() -> Self {
+        Self(true)
     }
 }
 
@@ -201,26 +220,7 @@ const TILES: usize = 12;
 const TILE: f32 = 256.0;
 /// The original's screen, which the menus' pictures fill.
 pub const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
-/// How a menu's water shows: the row where its band at the picture's foot starts, the rows of
-/// the bed's and the reflection's textures of 1024 × 1024 squeezed into it, the reflection's
-/// opacity and the veil over both, matched by eye to the original's frames.
-pub struct Water {
-    pub top: f32,
-    pub bed: (f32, f32),
-    pub reflection: (f32, f32),
-    pub reflection_alpha: f32,
-    pub veil: Color,
-}
 
-/// The main menu's water.
-const MAIN_WATER: Water = Water {
-    top: 640.0,
-    bed: (634.0, 914.0),
-    reflection: (560.0, 1024.0),
-    reflection_alpha: 0.65,
-    veil: Color::linear_rgba(0.78, 0.84, 0.84, 0.08),
-};
-const WATER_TEXTURE: f32 = 1024.0;
 /// The main menu's row 0's centre, the rows' pitch, and the items' size in Carolingia.
 const FIRST_ROW: f32 = 287.0;
 const ROW: f32 = 32.0;
@@ -273,21 +273,46 @@ fn item<'a>(
     entity
 }
 
-/// The main menu or a submenu: the original's picture with the column of the screen's items, the
-/// first that does anything chosen, and the game's version in its corner.
+/// The main menu or a submenu: the original's picture over its water, with the column of the
+/// screen's items, the first that does anything chosen, and the game's version in its corner.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources one by one"
+)]
 fn main_screen(
     mut commands: Commands,
     screen: Res<State<Screen>>,
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
     images: Res<Images>,
     words: Res<Words>,
     assets: Res<AssetServer>,
     mut chosen: ResMut<Chosen>,
     mut shown: ResMut<Shown>,
+    first: Res<FirstShowing>,
+    mut ripples: Ripples,
+    mut targets: ResMut<Assets<Image>>,
 ) {
     let screen = *screen.get();
     let items = rows(screen);
     chosen.0 = items.iter().position(|(item, _)| item.works()).unwrap_or(0);
     shown.0 = 0.0;
+    let height = picture_height(window.map(|window| window.height()));
+    let pond = Pond {
+        bed: images.bed.as_ref(),
+        reflection: if first.0 {
+            &images.first
+        } else {
+            &images.reflection
+        }
+        .as_ref(),
+        view: ripples::MAIN,
+    };
+    let water = ripples.spawn(
+        &mut commands,
+        (&mut targets, &assets),
+        (screen, &pond),
+        height,
+    );
     let font: Handle<Font> = assets.load(MENU_FONT);
     let small: Handle<Font> = assets.load(FONT);
     commands
@@ -310,12 +335,7 @@ fn main_screen(
                 ..default()
             })
             .with_children(|picture| {
-                water(
-                    picture,
-                    [&images.bed, &images.reflection],
-                    &assets,
-                    &MAIN_WATER,
-                );
+                self::water(picture, water);
                 tiles(picture, &images.main, &assets);
                 for (place, &(entry, row)) in items.iter().enumerate() {
                     picture
@@ -402,37 +422,44 @@ pub fn tiles(picture: &mut ChildSpawnerCommands, tiles: &[Option<String>], asset
     }
 }
 
-/// A menu's water under the bottom tiles, which leave the main menu's clear below the row 652:
-/// its bed, what stands over it reflected and a pale veil, still, as the original's plane of water
-/// looks from the screen (`ui_uw_main_center`, `ui_uw_main_ref` and the choice of the hero's;
-/// docs/decisions/2026-10-19-menus.md).
-pub fn water(
-    picture: &mut ChildSpawnerCommands,
-    [bed, reflection]: [&Option<String>; 2],
-    assets: &AssetServer,
-    water: &Water,
-) {
-    let band = Node {
-        position_type: PositionType::Absolute,
-        left: Val::Px(0.0),
-        top: Val::Px(water.top),
-        width: Val::Px(SCREEN.x),
-        height: Val::Px(SCREEN.y - water.top),
-        ..default()
-    };
-    for (texture, rows, alpha) in [
-        (bed, water.bed, 1.0),
-        (reflection, water.reflection, water.reflection_alpha),
-    ] {
-        if let Some(texture) = texture {
-            let mut image = ImageNode::new(hud::image(assets, texture.clone()))
-                .with_color(Color::WHITE.with_alpha(alpha));
-            image.rect = Some(Rect::new(0.0, rows.0, WATER_TEXTURE, rows.1));
-            image.image_mode = NodeImageMode::Stretch;
-            picture.spawn((image, band.clone()));
-        }
+/// The picture's height in the window's pixels, by the window's height `window`: the original's
+/// 768 scaled to it, not below it.
+pub fn picture_height(window: Option<f32>) -> f32 {
+    SCREEN.y * window.map_or(1.0, |height| height / SCREEN.y).max(1.0)
+}
+
+/// A menu's water (`ripples`), its texture over the whole picture under its tiles, which leave
+/// the main menu's clear below the row 652.
+pub fn water(picture: &mut ChildSpawnerCommands, texture: Handle<Image>) {
+    let mut image = ImageNode::new(texture);
+    image.image_mode = NodeImageMode::Stretch;
+    picture.spawn((
+        image,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            width: Val::Px(SCREEN.x),
+            height: Val::Px(SCREEN.y),
+            ..default()
+        },
+    ));
+}
+
+/// Remembers that the main menu has shown another screen, once a screen not of the main menu
+/// shows.
+fn forget_first(screen: Res<State<Screen>>, mut first: ResMut<FirstShowing>) {
+    if !matches!(
+        screen.get(),
+        Screen::Main | Screen::Multiplayer | Screen::Extras
+    ) {
+        first.0 = false;
     }
-    picture.spawn((BackgroundColor(water.veil), band));
+}
+
+/// Remembers that the main menu has shown another screen, once a game shows.
+fn forget_first_for_game(mut first: ResMut<FirstShowing>) {
+    first.0 = false;
 }
 
 /// Items of a word each, in order.
@@ -633,9 +660,12 @@ impl Plugin for MenuPlugin {
             .init_resource::<Shown>()
             .init_resource::<Images>()
             .init_resource::<Words>()
+            .init_resource::<FirstShowing>()
             .add_systems(OnEnter(Screen::Main), main_screen)
             .add_systems(OnEnter(Screen::Multiplayer), main_screen)
             .add_systems(OnEnter(Screen::Extras), main_screen)
+            .add_systems(OnExit(AppState::Menu), forget_first_for_game)
+            .add_systems(Update, forget_first.run_if(state_changed::<Screen>))
             .add_systems(OnEnter(Play::Paused), pause_screen)
             .add_systems(
                 Update,
@@ -671,6 +701,8 @@ mod tests {
         ))
         .init_asset::<Font>()
         .init_asset::<Image>()
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
         .init_state::<AppState>()
         .add_plugins(MenuPlugin)
         .init_resource::<ButtonInput<KeyCode>>()
@@ -763,6 +795,8 @@ mod tests {
         ))
         .init_asset::<Font>()
         .init_asset::<Image>()
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
         .insert_state(AppState::InGame)
         .add_plugins((MenuPlugin, crate::pause::PausePlugin))
         .init_resource::<ButtonInput<KeyCode>>()
