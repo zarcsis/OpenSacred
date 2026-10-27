@@ -10,16 +10,16 @@
 //! creature takes a hit's line, one in five and 10 s after the last; a battle cry at a combat art,
 //! one in three; and its death's line.
 //!
-//! The line plays at the original's volume, 0.45 + (`rand() % 10`) / 90, lowered with the
-//! distance from the hero and panned by its side as the original places it (`sfx::placed`,
-//! `0x678260`).
+//! The line plays at the volume of its place, lowered with the distance from the hero and panned
+//! by its side as the original places it (`sfx::placed`, `0x678260`), and at a rate of its
+//! sample's times 0.45 + (`rand() % 10`) / 90 + 0.5, 0.95 to 1.05 (`0x693510`, #1140).
 //!
 //! Between the fights the creatures make their idle noises (#714; docs/re/sound.md, "The idle
 //! noises"), as the sound manager's update does (`0x69B770`) at each world tick: a creature near
 //! the hero that is not hostile to it rolls one in 70, one hostile to it one in 20 while it does
 //! not fight, then its type's noise rolls its own (`tables/idle_noises.ron`) and plays a variant
 //! of its profile's group 0 or one of its run of sound ids, unless the creature speaks or the id
-//! waits; the id then waits the noise's seconds, and the volume adds the noise's own.
+//! waits; the id then waits the noise's seconds, and the rate's factor adds the noise's own.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -211,7 +211,7 @@ impl Voices {
     }
 
     /// The idle noise of `creature` at this tick, if the rolls give one: the sound id, its file,
-    /// its wait and the volume it adds.
+    /// its wait and what it adds to the rate's factor.
     fn idle_noise(
         &mut self,
         sfx: &mut Sfx,
@@ -225,7 +225,7 @@ impl Voices {
                 sfx.with_id(u32::from(first) + self.dice.below(u32::from(count)))?
             }
         };
-        Some((id, file, noise.wait, noise.volume))
+        Some((id, file, noise.wait, noise.rate))
     }
 
     /// The line of `creature`'s voice for `group`, if its roll gives one: the profile (one of
@@ -433,9 +433,8 @@ fn speak(
                 }
             }
         }
-        let loud = 0.45 + sfx.roll(10) / 90.0;
-        let (near, pan) = sfx::placed_at(at.translation(), listener);
-        let volume = loud * near;
+        let rate = rate(sfx.roll(10), 0.0);
+        let (volume, pan) = sfx::placed_at(at.translation(), listener);
         if volume <= 0.0 {
             continue;
         }
@@ -444,22 +443,30 @@ fn speak(
             .play(sample)
             .with_volume(sfx::decibels(volume))
             .with_panning(pan)
+            .with_playback_rate(f64::from(rate))
             .handle();
         if let Some(wait) = line.wait {
             voices.waits.insert(line.id, now + f64::from(wait));
         }
         debug!(
-            "voices: {} speaks {}, at {volume:.2}, panned {pan:.2}",
+            "voices: {} speaks {}, at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}",
             line.speaker, line.id
         );
         commands.entity(line.speaker).insert(Speaking(instance));
     }
 }
 
+/// The rate of a line or an idle noise, of its sample's: `playSFX`'s factor, 0.45 + `roll` / 90
+/// for a `roll` of `rand() % 10` plus the noise's own `higher`, and 0.5 (`0x693510`; docs/re/
+/// sound.md, #1140).
+fn rate(roll: f32, higher: f32) -> f32 {
+    0.45 + roll / 90.0 + higher + 0.5
+}
+
 /// The creatures near the hero make their idle noises at the world's tick: those not hostile to
 /// it in any state, those hostile while they do not fight (the original's state of rest, the
 /// record's `+0xDBC` 0, which `0x68BEA0` keeps from the creature's moves and strikes); the noise
-/// plays as the voices do, at most at the full volume.
+/// plays as the voices do, at the volume of its place and its own rate.
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -501,7 +508,7 @@ fn idle(
         if speaks || (hostile && mind.thinks.fighting()) {
             continue;
         }
-        let Some((id, file, wait, louder)) =
+        let Some((id, file, wait, higher)) =
             voices.idle_noise(&mut sfx, mind.thinks.creature, hostile)
         else {
             continue;
@@ -509,16 +516,19 @@ fn idle(
         if voices.waits.get(&id).is_some_and(|&until| until > now) {
             continue;
         }
-        let loud = (0.45 + sfx.roll(10) / 90.0 + louder).min(1.0);
-        let volume = loud * near;
+        let rate = rate(sfx.roll(10), higher);
         let sample = sfx.sample(id, file, &assets);
         let instance = audio
             .play(sample)
-            .with_volume(sfx::decibels(volume))
+            .with_volume(sfx::decibels(near))
             .with_panning(pan)
+            .with_playback_rate(f64::from(rate))
             .handle();
         voices.waits.insert(id, now + f64::from(wait));
-        debug!("voices: {creature} makes the idle noise {id}, at {volume:.2}, panned {pan:.2}");
+        debug!(
+            "voices: {creature} makes the idle noise {id}, at {near:.2}, panned {pan:.2}, at a \
+             rate of {rate:.2}"
+        );
         commands.entity(creature).insert(Speaking(instance));
     }
 }
@@ -553,6 +563,20 @@ impl Plugin for VoicesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_voice_plays_at_a_rate_about_its_samples() {
+        // A line at 0.95 to 1.05 of its sample's rate; a noise of a case's 0.7 higher.
+        assert!((rate(0.0, 0.0) - 0.95).abs() < 1e-6);
+        assert!((rate(9.0, 0.0) - 1.05).abs() < 1e-6);
+        assert!((rate(0.0, 0.7) - 1.65).abs() < 1e-6);
+        // The noises converted before name it their volume.
+        let noise: IdleNoise = ron::from_str(
+            "(creature: 1, roll: 1, sound: Ids(first: 9, count: 2), wait: 0.0, volume: 0.2)",
+        )
+        .unwrap();
+        assert_eq!(noise.rate, 0.2);
+    }
 
     #[test]
     fn a_line_plays_by_its_roll() {
@@ -604,7 +628,7 @@ mod tests {
             roll,
             sound: IdleSound::Profile(2014),
             wait: 0.0,
-            volume: 0.0,
+            rate: 0.0,
         };
         let mut voices = Voices {
             voices: HashMap::new(),

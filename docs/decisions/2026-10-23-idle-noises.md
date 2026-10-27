@@ -1,6 +1,6 @@
 # The creatures' idle noises
 
-Sound (`opensacred-game`), 2026-10-23 (#714).
+Sound (`opensacred-game`), 2026-10-23 (#714); changed 2026-10-26 (#1140).
 
 ## The original
 
@@ -12,7 +12,6 @@ It follows at most 32 hostile creatures and 256 others, a record of the flag 4 o
 * A creature hostile to the hero makes its noise only while it does not fight, of the group 0: the original's state of rest, approximated; the states of moving towards or away from the hero and of striking, and their groups 1, 4, 5 and 6, are left out.
 * The lists have no limit; the path by the name, the flag 2 and the record before are left out; the types 702 to 705 play the run of the manager's `+0x8C` not 1, and 52, 74, 88 and 100 to 103 the group 0.
 * A noise plays within the hearing, 900 pixels, where its volume is above 0; its id waits after it whatever the wait.
-* The volume, with the case's own added, is at most 1.
 
 ## Why
 

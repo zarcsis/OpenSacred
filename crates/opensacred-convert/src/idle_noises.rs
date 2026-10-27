@@ -4,30 +4,30 @@
 //! roll of one in 20 a tick while they are at rest, and the others, at one in 70 → `tables/
 //! idle_noises.ron` ([`opensacred_data::tables::IdleNoises`]). A type then makes its noise at its
 //! own roll, a variant of its profile's group 0 or one of a run of sound ids, the id waiting the
-//! noise's seconds after it played, a little louder or softer than the voices.
+//! noise's seconds after it played, a little higher or lower than the voices.
 //!
 //! [`HOSTILE`] and [`PEACEFUL`] say which types make which noise, as read off the update's two
 //! switches by the type and checked in the running original (#714): the types left out make none.
 
 use opensacred_data::tables::{IdleNoise, IdleNoises, IdleSound};
 
-/// A noise: its roll (`rand() % n`, 1 always), what it plays, its wait in seconds and the volume
-/// it adds.
+/// A noise: its roll (`rand() % n`, 1 always), what it plays, its wait in seconds and what it
+/// adds to the voices' factor of the rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Noise {
     pub roll: u8,
     pub sound: IdleSound,
     pub wait: f32,
-    pub volume: f32,
+    pub rate: f32,
 }
 
 impl Noise {
-    const fn new(roll: u8, sound: IdleSound, wait: f32, volume: f32) -> Self {
+    const fn new(roll: u8, sound: IdleSound, wait: f32, rate: f32) -> Self {
         Self {
             roll,
             sound,
             wait,
-            volume,
+            rate,
         }
     }
 }
@@ -208,7 +208,7 @@ fn noises(table: &Table) -> Vec<IdleNoise> {
                     roll: noise.roll,
                     sound: noise.sound,
                     wait: noise.wait,
-                    volume: noise.volume,
+                    rate: noise.rate,
                 })
             })
         })
