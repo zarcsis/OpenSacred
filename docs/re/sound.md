@@ -294,7 +294,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Arts' own cries | `0x67A7A0` (5, 1) | 2098–2104 by the art | an art's start | yes | yes, with the battle cry then sure (#1174) |
 | Arts' executors | `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0` | 2076–2122 by the art | an art's run | yes | at the art's start (#1174; where in the run not read) |
 | The Vampiress's night battle cries | `0x67A7A0` (5, 1), flag `+0xAF48` by (9, `0x49`) | `BATTLECRY_nn_REALVAMP` | a battle cry in her night form | yes (`forms`) | yes (`voices`, #1174) |
-| Other creatures' footsteps | `0x68EB90` | 103–114, 1194–1199 | a creature's step near the hero | yes | no |
+| Other creatures' footsteps | `0x68EB90` | 103–114, 1194–1199 | a creature's step near the hero | yes | yes (`steps`, #1171) |
 | The giant spider's steps | `0x4E0300` | 1242, 1243, 1248, 1249 | its motion | yes | no |
 | In-game idle ambience | `0x69B770` (`0x69FBC0`–`0x69FF5F`) | `IDLEFX_*` | every 0.5 s, by the region's music and the day | yes | yes (`ambience`, #1169) |
 | Water ambience | `0x6906C0`, the count from `0x690690` | 216, 217, 218 loops | water cells drawn | yes (`liquids`) | yes (`ambience`, #1169) |
@@ -404,6 +404,17 @@ Outside them: `SERA_PLASMASHOT` (2072) with a railgun's shot (`0x4DCB80` at `0x4
 - else by the type's name after its `TYPE_`: `NATURE_HORSE` and `NPC_UNICORN` 105 by the ground; `NPC_FEUERGHUL` 102 group 4; `NPC_DRAGON` and `NPC_BIG_DEMON` `footsteps_bigger ones` 113; `NPC_ORC_`, `NPC_WARRIOR`, `NPC_GOBLIN`, the three pirates, `NPC_ANDUCAR_GARDE`, `NPC_GLORB` and `NPC_DAEMONENFUERST` `footsteps_metalclothes` 109; `NPC_TATZELANNOY`, `NPC_GIGANT_SPIDER` (at a rate 0.3 lower), `NPC_KILLERKRABBE` and `NPC_RUINENASSEL` `footsteps_tatzeltannoy` 112; `NPC_SPIDER_M`, `NPC_SMALLSPIDER` and `NPC_MED_SPIDER` `footsteps_giant spider` 114; `NPC_SKELETON` and `NPC_DWARF_SKELETON` `footsteps_skelette` 108; all group 1; else none.
 
 The giant spider's steps 1242, 1243, 1248, 1249 are played by its own code (`0x4E0300`, `0x4E378C`–`0x4E3831`).
+
+Read further 2026-10-27 for #1171 (**confirmed** by code unless marked otherwise):
+
+- **The two tables** are filled once, by `0x697860` from the manager's constructor `0x676200`, with constant name prefixes kept sorted: `+0xBCF4` 35 of `TYPE_NPC_` (`ANDUCAR`, `AMAZONE`, `BAR_FEM`, `BARBARIAN`, `BARONESS`, `BLACK_MAGICIAN`, `BLACKSMITH`, `CITIZEN`, `DARKELVE`, `DEMODREY`, `DRUID`, `DRYAD`, `ELVE`, `FARMER`, `GAUKLER`, `GARGADUK`, `MERCHAND`, `NOBLE`, `NOVIZIN`, `PRIEST`, `PRUTUK`, `RAEUBER`, `ROCHEFORD`, `SHARIFA`, `SHARIFO`, `SOLDIER`, `SORCERESS`, `THIEF`, `TUKTUK`, `VALOR`, `VILYA_UW`, `WIZARD`, `WITCH`, `WIRT`, `WUESTLING`), `+0xBD00` 12 (`TYPE_NATURE_` `BULL`, `BEAR`, `COW`, `DEER`, `PIG`, `RABBIT`, `RED_DEER`, `WILD_BOAR`, `WOLF`, and `TYPE_NPC_TERRORSPRINTER`, `_CHAMP`, `_MAGIER`).
+  `0x68EB90` searches them by `strncmp` over the shorter length, so an entry matches as a prefix of the type's name: the `ANDUCAR_GARDE` rule (109) and the `FEUERGHUL` one (102) are never reached.
+  Over the types' table (docs/02 §6.9) the cascade gives 104 to 163 creature types, 106 to 51, 103 group 4 to 42, 107 to 38 (its group 2 on swamp too), 109 to 36, 108 to 17, 105 to 10, 113 to 9, 112 to 8, 114 to 8, the wings to 54 always, and nothing to 91.
+- **The steps** come from the creature's animation step `0x5941A0` alone, while it walks (its action 1, or 5 for an id above 16): at its clip's motion's moments `floats_46[1]` (the right foot), `[0]` (the left), and `[3]` and `[2]` (the forelegs' hands) where they are not 0, each once a loop of the clip, and only where the model has the bone (but the spiders' right foot); the nature is the cell's under the creature, the bridge's on a bridge, flying 0; a creature in the air (`+0x1F4` bit `0x200000`, set for the types of the `Creature.pak` flag 1 in some sectors; **hypothesis**: in the air) takes the wings instead.
+- **The lists** are the idle noises': every animation step posts the event (6), and a creature within 1,200 pixels enters the first list (hostile, at most 32) or the second (at most 256); a step is heard within the hearing distance, 900 pixels at zoom 1.
+- **The play**: `playSFX` at the creature at a rate's factor of 0.4 + 0.2·`rand()`/32767 (0.3 less for the giant spiders 55 and 237), the volume and pan of its place, no waits; the wings 1194/1199, 1195/1196 or 1197/1198 at even odds.
+- **The Big Demon** (53, not 94): each of its steps makes an `FX_SMALLFIRE` (878) at its place and sends the weather's jolt of 18, then its sound 113.
+- `opensacred-game` plays them (`steps`, #1171): the types' sounds as the cascade gives them, the steps at the clip's moments of the walk or the run that plays, at the creature, the fliers of the flag 1 always in the air (**hypothesis**); the Big Demon's jolt with them, not its fire.
 
 #### Ambience
 

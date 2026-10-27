@@ -44,6 +44,8 @@ const FOG_STEP: u32 = 1;
 const SNOW_STEP: u32 = 20;
 /// How fast a quake's amplitude falls, in the screen's pixels a second.
 const QUAKE_FALLS: f32 = 10.0;
+/// How fast a jolt falls, in the screen's pixels a second.
+const JOLT_FALLS: f32 = 40.0;
 
 /// A level of the weather: what the choice wants and what it is now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -80,6 +82,8 @@ pub enum Event {
     Snow(u32),
     /// A quake of the screen (7), which the arts' landings and the spells send.
     Quake(u32),
+    /// A jolt of the screen (12), which the Big Demon's steps send.
+    Jolt(u32),
 }
 
 /// The weather as the renderer keeps it.
@@ -96,6 +100,8 @@ pub struct Weather {
     pub storm: f32,
     /// A quake's amplitude, in the screen's pixels (`+0x9DB8`).
     pub quake: f32,
+    /// A jolt's offset down the screen, in its pixels (docs/re/weather.md, "The jolt").
+    pub jolt: f32,
     /// The steps' accumulator (`0xAA4548`).
     steps: f32,
     /// When the rain's, the fog's and the snow's timers end, in milliseconds of real time
@@ -274,6 +280,7 @@ impl Weather {
                 self.flags |= QUAKE;
                 self.quake = small(value.min(MOST)) / 3.0;
             }
+            Event::Jolt(value) => self.jolt = small(value.min(MOST)) / 3.0,
         }
     }
 
@@ -293,6 +300,7 @@ impl Weather {
             self.steps -= 1.0;
         }
         self.steps += dt * STEPS;
+        self.jolt = (self.jolt - dt * JOLT_FALLS).max(0.0);
         if self.flags == 0 {
             return 0;
         }
@@ -491,6 +499,18 @@ mod tests {
         // The snow is held at 3,000 flakes.
         weather.event(Event::Snow(100), &mut dice);
         assert_eq!(weather.snow.wanted, 3_000);
+    }
+
+    #[test]
+    fn a_jolt_moves_by_a_third_of_its_value_and_falls_by_forty_a_second() {
+        let mut dice = Rolls(vec![0]);
+        let mut weather = Weather::default();
+        weather.event(Event::Jolt(18), &mut dice);
+        assert!((weather.jolt - 6.0).abs() < 1e-4);
+        weather.update(0.1, &mut dice);
+        assert!((weather.jolt - 2.0).abs() < 1e-4);
+        weather.update(0.1, &mut dice);
+        assert_eq!(weather.jolt, 0.0);
     }
 
     #[test]

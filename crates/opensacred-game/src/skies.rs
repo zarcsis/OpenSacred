@@ -471,7 +471,8 @@ fn shake(
         return;
     };
     let state = &weather.state;
-    if state.flags & QUAKE == 0 || state.quake <= 0.0 {
+    let quakes = state.flags & QUAKE != 0 && state.quake > 0.0;
+    if !quakes && state.jolt <= 0.0 {
         return;
     }
     let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 7));
@@ -479,7 +480,13 @@ fn shake(
         let unit = to_f32(dice.below(32_768)) * 3.051_851e-5;
         (state.quake * (2.0 * unit - 1.0)).trunc()
     };
-    let (across, down) = (offset(), offset());
+    let (across, down) = if quakes {
+        (offset(), offset())
+    } else {
+        (0.0, 0.0)
+    };
+    // A jolt moves the view down by its pixels as it falls (docs/re/weather.md, "The jolt").
+    let down = down + state.jolt;
     for (mut transform, projection) in &mut cameras {
         let zoom = match projection {
             Projection::Orthographic(ortho) => ortho.scale,

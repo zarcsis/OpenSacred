@@ -879,6 +879,20 @@ impl Npc {
     pub fn pace(&self) -> f32 {
         self.pace
     }
+
+    /// The clip that its walk `walk` plays now, its animation player, its node and its name, and
+    /// whether it runs (`steps`).
+    pub(crate) fn walking(&self, walk: &Walk) -> Option<(Entity, AnimationNodeIndex, &str, bool)> {
+        let graph = self.graph.as_ref()?;
+        let node = graph.moving(walk)?;
+        let runs = walk.runs && graph.run.is_some();
+        let name = if runs {
+            self.names.run.as_deref()
+        } else {
+            self.names.walk.as_deref()
+        }?;
+        Some((self.player?, node, name, runs))
+    }
 }
 
 /// An NPC's animation graph: its idle clip, and its walk, run and stance clips if it has them.
