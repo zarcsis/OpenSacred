@@ -348,6 +348,28 @@ impl Regions {
     }
 }
 
+/// The entries of the areas' table (`0x61D450`, 256 of 24 bytes) that stand pacified, `+2` above
+/// `+3` (`0x61DB10`): those that the scripts' `RegionFrei` (124, `0x475C70`) set to 100
+/// (`0x61D540(N, 1, 100.0, 1)`), by their number, which the hero's remark at an area's border
+/// looks up by the sector's area (docs/re/sound.md, "The hero's comments"; **hypothesis**: `+3`,
+/// which nothing is found to write, is 0).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pacified(BTreeSet<u8>);
+
+impl Pacified {
+    /// `RegionFrei`'s number `n`, held to 0 to 255, pacified: the entry's number.
+    pub fn pacify(&mut self, n: i32) -> u8 {
+        let entry = u8::try_from(n.clamp(0, 255)).unwrap_or(u8::MAX);
+        self.0.insert(entry);
+        entry
+    }
+
+    /// Whether the entry `entry` stands pacified.
+    pub fn holds(&self, entry: u8) -> bool {
+        self.0.contains(&entry)
+    }
+}
+
 /// The places that the scripts name (`DefPos`, 23, `0x478780`): a name and up to four numbers,
 /// the first two a global cell, the third the layer where a record takes the place as a cell
 /// (`SetBaseTrigger`, `Teleport`); a name defined again replaces its entry. The names are kept
@@ -1057,6 +1079,9 @@ pub struct Scripts {
     /// The kills counted (`SetOnKill`) and the items collected (`SetOnCollect`).
     pub kills: Counts,
     pub collecting: Counts,
+    /// The areas' entries that the scripts' `RegionFrei`s pacified (#1247).
+    #[serde(default)]
+    pub pacified: Pacified,
     /// The game's difficulty, 0 bronze to 4 niobium (`0x182EE44`), which the `IF`s' tags `0x96`
     /// to `0x9A` test (`0x4987B0`; docs/re/fight.md, "The difficulty"; #1125).
     #[serde(default)]
