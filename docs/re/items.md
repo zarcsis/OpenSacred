@@ -283,7 +283,7 @@ Read 2026-10-25 (#911) by the static reading of `Sacred.exe`; **confirmed** by c
   Within the first class that has a rectangle under the cursor, the rectangle whose centre lies nearest the cursor wins.
   So a hostile creature under the cursor wins over an item unless Alt is held, the key that also shows the items' labels.
 - With Alt held and nothing picked, the last object's rectangle under the cursor is taken (`0x6270A0`).
-- With an object under the cursor, the handler sends the sound manager the event `(9, 0x5C)` with the object's type (`0x6770E0`, `0x67A7A0`; **hypothesis**: the click's sound).
+- With an object under the cursor, the handler sends the sound manager the event `(9, 0x5C)` with the object's type (`0x6770E0`, `0x67A7A0`), by which a hireling or a named companion clicked says one of its click lines (read 2026-10-27, docs/re/sound.md, "The sources").
 - When the cursor holds nothing (`0x655560`) and Shift is not held, an object that is not a creature, an item among them, gives the hero the event 7, with the object's id and the click's world point; with Shift held, a click on an item sends nothing.
 - While the cursor holds an item, a click on the ground with nothing under the cursor calls `0x611E20` with the hero's position and the point (**hypothesis**: it drops the held item there).
 - Holding the button (`0x60F130`, at every tick) repeats only a walk to the point under the cursor, every 0.4 s, and sends no event 7.
