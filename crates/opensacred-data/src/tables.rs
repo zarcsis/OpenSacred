@@ -204,6 +204,16 @@ pub struct TypeName {
 pub struct UiImage {
     pub texture: String,
     pub rect: [u16; 4],
+    /// Whether the original draws its part turned about across and along, as the table's
+    /// entries whose right stands left of their left, or whose bottom above their top, do; left
+    /// out of the file where it is neither (#1236).
+    #[serde(default, skip_serializing_if = "straight")]
+    pub turned: [bool; 2],
+}
+
+/// Whether an image is turned neither way.
+fn straight(turned: &[bool; 2]) -> bool {
+    *turned == [false, false]
 }
 
 impl Portraits {

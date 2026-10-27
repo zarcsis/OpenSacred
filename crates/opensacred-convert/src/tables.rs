@@ -317,20 +317,34 @@ fn ui_images(exe: &[u8]) -> Result<Vec<UiImage>> {
 
 /// An image of the interface as the game takes it: its texture's name lower-cased without its
 /// `.tga`, and its part's left, top, width and height (its rectangle's last pixels included).
+/// An entry whose right stands left of its left, or whose bottom above its top, draws its texels
+/// from the far side's two past it to the near side's turned about (`0x761580`'s corners and
+/// coordinates; #1236).
 fn ui_image(image: &opensacred_formats::portraits::InterfaceImage) -> UiImage {
     let name = image.file.to_ascii_lowercase();
     let texture = name.strip_suffix(".tga").unwrap_or(&name).to_owned();
     let [x0, y0, x1, y1] = image.rect.map(pixel);
-    let size = |from: u16, to: u16| {
-        if to < from || image.rect == [0.0; 4] {
-            0
+    let empty = image.rect == [0.0; 4];
+    // The first texel, the size and whether it is turned, along one axis.
+    let axis = |from: u16, to: u16| {
+        if empty {
+            (from, 0, false)
+        } else if to < from {
+            (
+                to.saturating_add(2),
+                from.saturating_sub(to).saturating_sub(1),
+                true,
+            )
         } else {
-            to.saturating_sub(from).saturating_add(1)
+            (from, to.saturating_sub(from).saturating_add(1), false)
         }
     };
+    let (left, width, across) = axis(x0, x1);
+    let (top, height, along) = axis(y0, y1);
     UiImage {
         texture,
-        rect: [x0, y0, size(x0, x1), size(y0, y1)],
+        rect: [left, top, width, height],
+        turned: [across, along],
     }
 }
 
@@ -611,6 +625,44 @@ mod tests {
         assert_eq!(ron::from_str::<Balance>(&text).unwrap(), balance);
     }
 
+    /// An image whose right stands left of its left, or whose bottom above its top, is its texels
+    /// from the far side's two past it to the near side, turned about; the turns are left out of
+    /// the file where there are none, and an older file without them still reads (#1236).
+    #[test]
+    fn an_image_of_reversed_corners_is_turned_about() {
+        let image = |rect| {
+            ui_image(&opensacred_formats::portraits::InterfaceImage {
+                index: 0,
+                file: "GUI_main_12.TGA".into(),
+                rect,
+            })
+        };
+        let corner = image([188.0, 178.0, 148.0, 221.0]);
+        assert_eq!(
+            corner,
+            UiImage {
+                texture: "gui_main_12".into(),
+                rect: [150, 178, 39, 44],
+                turned: [true, false],
+            }
+        );
+        let edge = image([190.0, 209.0, 221.0, 178.0]);
+        assert_eq!(
+            (edge.rect, edge.turned),
+            ([190, 180, 32, 30], [false, true])
+        );
+        let plain = image([148.0, 178.0, 188.0, 221.0]);
+        assert_eq!(
+            (plain.rect, plain.turned),
+            ([148, 178, 41, 44], [false, false])
+        );
+        assert!(!ron::to_string(&plain).unwrap().contains("turned"));
+        let old: UiImage = ron::from_str("(texture: \"gui_main_12\", rect: (1, 2, 3, 4))").unwrap();
+        assert_eq!(old.turned, [false, false]);
+        let text = ron::to_string(&corner).unwrap();
+        assert_eq!(ron::from_str::<UiImage>(&text).unwrap(), corner);
+    }
+
     /// Every table converts and reads back.
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
@@ -667,11 +719,29 @@ mod tests {
             UiImage {
                 texture: "gui_main_03".into(),
                 rect: [0, 0, 64, 19],
+                turned: [false, false],
             }
         );
         assert_eq!(
             (ui_images[964].texture.as_str(), ui_images[964].rect),
             ("gui_portraitx34", [96, 0, 96, 128])
+        );
+        // The 22 images the original draws turned about (#1236), the frame's top right corner
+        // among them.
+        assert_eq!(
+            ui_images
+                .iter()
+                .filter(|image| image.turned != [false, false])
+                .count(),
+            22
+        );
+        assert_eq!(
+            ui_images[319],
+            UiImage {
+                texture: "gui_main_12".into(),
+                rect: [150, 178, 39, 44],
+                turned: [true, false],
+            }
         );
         // The figures in the screen's order, the Gladiator's first: a two-handed sword and his
         // belt, at his place and turn and in his window (docs/re/equipment.md; #1130).
