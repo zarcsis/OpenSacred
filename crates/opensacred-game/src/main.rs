@@ -8,6 +8,7 @@ mod arsenal;
 mod arts;
 mod atmosphere;
 mod attack;
+mod bar;
 mod benchmark;
 mod blast;
 mod blended;
@@ -273,6 +274,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         arts::ArtsPlugin,
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
+        bar::BarPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blast::BlastPlugin,
@@ -281,9 +283,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
-        choice::ChoicePlugin,
     ))
     .add_plugins((
+        choice::ChoicePlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
         crowd::CrowdPlugin,
@@ -298,9 +300,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         forms::FormsPlugin,
         frame::FramePlugin,
         game::GamePlugin,
-        glance::GlancePlugin,
     ))
     .add_plugins((
+        glance::GlancePlugin,
         guns::GunsPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
@@ -315,9 +317,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
-        npcs::NpcsPlugin,
     ))
     .add_plugins((
+        npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
@@ -332,9 +334,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
-        souls::SoulsPlugin,
     ))
     .add_plugins((
+        souls::SoulsPlugin,
         sound::SoundPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
@@ -356,6 +358,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(liquids::Liquids::read(&assets)?)
     .insert_resource(voices::Voices::read(&assets)?)
     .insert_resource(talk::Portraits::read(&assets)?)
+    .insert_resource(bar::UiImages::read(&assets)?)
     .insert_resource(weather::Rolls::read(&assets)?)
     .insert_resource(icons::Files::find(&assets))
     .insert_resource(sfx::Sfx::new(&sound_index.0))

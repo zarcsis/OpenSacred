@@ -1,0 +1,183 @@
+# The interface over the world: the bar and the portraits' column
+
+Read 2026-10-27 (#1087) in the GOG `Sacred.exe` 2.28 (the taskbar `cUI_Taskbar2`, the portraits' column `cUI_Mercenary`, their buttons and statics, the interface's images' table) and measured on three frames of the running original at 1024 × 768 (a new Seraphim at the start, under fog, rain and snow; the frames stay in the scratchpad).
+Status: **confirmed** by code unless marked otherwise; "measured" means a composite of the atlases at the places below was compared pixel by pixel with a frame.
+
+All places are pixels of the 1024 × 768 screen.
+`cUI_Manager_createGameWindows` (`0x759AF0`) makes `UI_WND_TASKBAR` at (0, 676, 1024, 92) and `UI_WND_MERC` at (932, 0, 92, 676); a control made with its window as the parent is placed relative to the window's corner, and the potions' belt, the clips and the taskbar's "+" are written in screen coordinates directly (both **measured**).
+"Image N" is the entry N of the interface's images' table at `0x9ECEB0` (docs/02 §11).
+
+## The images' table at run time
+
+`0x761580` prepares every entry once, after the textures load (**confirmed**):
+
+- It adds 1 to the right and bottom edges (so they become exclusive), loads the TGA named at `+0x08` and keeps its handle at `+0x28`.
+  So the name is 32 characters (`+0x08` to `+0x27`), not 36.
+- `+0x4C` and `+0x50` become the width and height, `right − left + 1` and `bottom − top + 1` of the table's numbers.
+- The rectangle becomes texture coordinates over a 256-pixel atlas: left/256, top/256, (right + 1)/256 + 1/512, (bottom + 1)/256 + 1/512.
+- `+0x3C`, `+0x40`, `+0x44`, `+0x48` are two anchor points in atlas pixels; each value not 0 is made relative to the rectangle's left or top.
+  An entry whose `+0x04` is 9 gets both anchors at its centre (width/2, height/2) instead; the buttons and icons are of this kind.
+  The bar's pieces use the first anchor's y as the piece's distance from its top to the bar's line (below).
+
+Controls (`cUI_Static2`, `cUI_Button2`) keep their picture as a texture handle and four texture coordinates in the order left, right, top, bottom (`+0x54`, `+0x58`, `+0x5C`, `+0x60`), a button a second set at `+0x64` to `+0x70`.
+
+## The bar (`cUI_Taskbar2`)
+
+Built by `0x6DF590` with `0x6E4DF0` (the controls) and `0x6E0070` → `0x6E01F0` (the slots and the rail).
+`n` below is the number of slots a side, 1 to 5, by the hero's level (`+0x3FE`) through the table at `0x95703C` (`0x57F890`): 1 below level 2, 2 from level 2, 3 from 8, 4 from 16, 5 from 30.
+The bar checks the level whenever the mouse is tested against it (`0x6DFD60`) and rebuilds the slots and the rail when `n` changes.
+
+### Elements
+
+| Element | Rectangle (screen) | Images by state | What it does |
+|---|---|---|---|
+| Disc of day and night | an ellipse of 110 × 55 centred on (513, 710.5) | `GUI_daynightdisc.TGA` turned by the clock, `GUI_daynightalpha.TGA` over it unturned (below) | the time of day; tooltip text 9915 over (477, 680, 76 × 20) (`UI_TB_DAYNIGHT`) |
+| Disc's housing (`UI_STATIC`) | (397, 680), 231 × 87 | image 11, `GUI_main_03` (0, 169)–(230, 255) | the oval frame about the disc and the bar's centre, drawn over the disc (**measured**) |
+| Rail, left end | (362 − 66n, 747), 103 × 20 | image 5, `GUI_main_03` (0, 56)–(102, 75) | decoration (**measured** for n = 1: x 296) |
+| Rail, left middle | from the end's right edge to x 397, one piece after another | image 6 (0, 76)–(99, 93) at y 749 or image 7 (0, 94)–(99, 110) at y 750, each piece chosen by `rand() & 1` | decoration; none for n = 1 |
+| Rail, right end | (570 + 64n, 747), 105 × 20 | image 8, `GUI_main_03` (0, 111)–(104, 130) | decoration (**measured** for n = 1: x 634) |
+| Rail, right middle | from x 570 + 64n − 64 leftwards while x > 532, each piece at x then x −= its width | image 9 (0, 131)–(99, 149) or 10 (0, 150)–(99, 168) at y 748, by `rand() & 1` | decoration; one piece at x 570 for n = 1 (the frames' match is poor, **hypothesis** that it is image 9) |
+| Weapon slots (left), i < n | (394 + 66(i − n), 691), 64 × 64 | background image 515 (`GUI_spell03` (192, 192)–(255, 255), a pink orb) for the selected set, 635 (`GUI_spell10` (192, 192)–(255, 255), a beige orb) for the others; ring 103 (`GUI_main_01` (83, 169)–(146, 232), gold) selected, 102 ((19, 169)–(82, 232), dark iron) not; while an item is dragged over it, halves 531 and 532 (`GUI_spell04` (192–223 and 224–255, 192–255), green) selected or 549 and 550 (`GUI_spell05`, pale green) not | the weapon set: the two hands' items drawn as 3D models in the orb; click selects; tooltip text 9906; **measured** (the background and ring at (328, 691)) |
+| Weapon set's damage icons | from (slot x + 4, slot y + 57), 16–17 × 16 each, each next one 4 pixels less than its width along (the direction by a flag, not read) | images 205–208 (`GUI_main_06` (192, 240)–(255, 255): physical, fire, magic, poison), or framed 209–212 ((192, 204)–(255, 219)) | the set's kinds of damage, each drawn at an alpha of the sum of the two items' bytes for that kind (`0x5C8D70`), only while `TASKBAR_ICONS` is 1 (the installation's `Settings.cfg` has 1); **measured** image 205 at (332, 748) |
+| Art slots (right), i < n | (640 + 66i, 691), 64 × 64 | the art's three images (below); without an art 479 (`GUI_spell01` (192, 192)–(255, 255), pale blue) selected or 635 not, 533 (`GUI_spell04`, green) while an art is dragged over it, 569 (`GUI_spell06`, purple) for the Vampiress at night (`+0x14` bit `0x2000`); ring 103/102 as the left | the combat art or combo of the right mouse button; click selects; tooltip text 9912 and the art's description; **measured** (Attacke's 620 and the gold ring at (640, 691)) |
+| Inventory (`UI_TB_INVENTORY`) | (399, 705), 34 × 34 | image 87 (`GUI_main_01` (102, 0)–(135, 33)), down 88 ((102, 34)–(135, 67)) | toggles the inventory (`cCommand_onInvOpen`/`onInvClose`); tooltip 9907; **measured** |
+| Options (`UI_TB_OPTIONS`) | (434, 729), 34 × 34 | 89 ((136, 0), a gear), down 90 ((136, 34)) | toggles `UI_WND_ESCMENU`; tooltip 9908; **measured** |
+| Map (`UI_TB_MAP`) | (558, 729), 34 × 34 | 91 ((170, 0), a grid), down 92 ((170, 34)) | toggles `UI_WND_MEGAMAP`; tooltip 9910; **measured** |
+| Book (`UI_TB_BOOK`) | (594, 705), 34 × 34 | 93 ((204, 0), a book), down 94 ((204, 34)) | toggles `UI_WND_QUESTBOOK`; tooltip 9911; **measured** |
+| Collect (`UI_TB_COLLECT`), single player | (496, 743), 36 × 26 | 134 (`GUI_main_01` (184, 230)–(219, 255)), down 135 ((220, 230)–(255, 255)) | sends the hero the creature event `0x113` (not read; **hypothesis**: pick up the items about the hero); tooltip 9909; **measured** |
+| Net info (`UI_TB_NETINFO`), network game | (496, 743), 34 × 25 | 140 ((185, 203)–(218, 227)), down 141 ((149, 230)–(182, 254)) | toggles `UI_WND_NETINFO`; tooltip 9917 |
+| Potions' belt, 5 buttons | (435, 667), (465, 653), (497, 649), (530, 653), (560, 667), 32 × 32 each | filled: 176 (`GUI_main_05` (129, 65)–(160, 96), red), 179 ((129, 164), purple), 177 ((129, 98), blue), 178 ((129, 131), green), 180 ((129, 197), yellow), slot 1 to 5; empty: 175 ((195, 65)–(226, 96), a grey flask) | a slot shows its colour while `0x5DA8C0(slot, 0)` is not 0, else the empty flask; a click sends the engine event `0x17` with the slot (1–5) and which button (**hypothesis**: drinks it); tooltip the item's description; only while `SHOWPOTIONS` is 1; **measured** (slot 1 red, slots 2–5 empty) |
+| Belt's clips | (424, 690) 16 × 18, (586, 690) 18 × 18 | images 39 and 40 (`GUI_main_03` (240, 201), (238, 183)) | fully transparent in this `GUI_main_03` (**measured**): they draw nothing |
+| Compass needle | the 18 × 58 sword turned about (512, 710) | image 101 (`GUI_main_01` (0, 169)–(17, 226)) | points at the marker 0 (below); tooltip text 9916 over (477, 700, 76 × 35) (`UI_TB_COMPASS`) |
+| Compass pins | 17 × 16, on ellipses about (512, 710) | image 136 ((133, 137)–(149, 152), white arrowhead, blue dot), image 137 ((133, 121)–(149, 136), red dot) | the markers 1 to 3 (below) |
+| Points "+" | (898, 10), 34 × 34 | image 81 (`GUI_main_01` (0, 0)–(33, 33)) in both states | shown with a pulsing glow while the hero has points to spend; a click opens `UI_WND_INVENTORY`; hidden at a new game (**seen**: absent in the frames) |
+
+The bar shows no text of its own: no level, no numbers, no font; the only words are the tooltips (`cUI_Manager` tooltips, styles `0x209`, `0xB`, `0x8B`), which belong to the tooltip work.
+There is no health or mana orb: Sacred has no mana, and the health is the ring of the portrait (below).
+The left orb is the weapon set (the left button's attack), the right orb the selected combat art (the right button).
+
+### The disc of day and night (`0x6E3E00`)
+
+- The clock's minutes `t` (hours × 60 + minutes of `cCalendar`, `+0x20` and `+0x22`) give the angle θ = t · 0.004363323 radians (a turn a day, 0.25° a minute).
+- One quad, corners (±27.5, ±27.5) with texture coordinates 0 to 1 over the whole 128 × 128 texture; a corner (x, y) is turned by θ and then drawn at (513 + 2(x cos θ − y sin θ), 710.5 + (y cos θ + x sin θ)): an ellipse of 110 × 55 whose picture turns clockwise on the screen as the day goes.
+- `GUI_daynightdisc.TGA` (a ring of night sky with the moon at its top and day sky with the sun at its bottom) is drawn turned; then `GUI_daynightalpha.TGA` (a bronze ring of red runes open at the top) over it on the same ellipse unturned, so only the top of the turning sky shows through the opening.
+- At 12:00 the sun stands at the top (**measured**: the three frames fit the clock's angle within 2° at 12:16, 12:24 and 14:32, the fog frame 331 s after the rain frame at 24 game seconds a second).
+- Both are drawn with the filter linear (`0x643430(0x800, 1)`: magnification and minification `D3DTFG_LINEAR` on stages 0 and 1) and blended by their alpha (**hypothesis** for the blend, the default 2D state).
+- `GUI_daynightglow.TGA` is loaded into `+0xAB0` and never read by the taskbar's code (a byte scan of `0x6DF590`–`0x6E6700`).
+
+### The compass (`0x6E3F70`)
+
+- Each frame it asks four map markers, `sdk_MARKER_RESOLVE(k, &x, &y, &colour)` for k = 0 to 3, each giving a direction (**hypothesis**: from the hero to the marker), and takes φ = atan2(x, y) + π/2.
+- Marker 0 (red): the sword (image 101) turned by φ about its middle at (512, 710).
+- Marker 1 (green): the pin 136 turned by φ at (512 + 30 sin φ, 710 − 15 cos φ), on an inner ellipse of 30 × 15.
+- Marker 2 (blue): the pin 137 turned by φ at (512 + 58 sin φ, 710 − 29 cos φ), on the outer ellipse of 58 × 29.
+- Marker 3 (white): blinks every 300 ms of real time between the outer pin 137 and the inner pin 136.
+- All in the texture of image 136 (`GUI_main_01`), filter linear, vertex colour white.
+- A marker newly set (the taskbar's message `0x34` with its number k) starts a "sonar" ring: `FX_SONAREFFECT.TGA` tinted `0xDDCCAA` at (512, 711), from radius r = 10 out to r + 40, r growing 600 pixels a second until 500, its alpha falling (**hypothesis** for the alpha's formula), with the sound event (9, `0x46`); four can run at once.
+
+### The slots' drawing (`0x6E3430` right, `0x6E29E0` left, `0x6DFBF0` rings)
+
+- A selected slot's ring is image 103 (gold), the others 102 (dark), on both sides; the left's selection is `0x5D9BA0(0)`, the right's `0x5D9BA0(1)`.
+- An art or a combo in a right slot is drawn from its three images (the art record's `+0x30`, `+0x34`, `+0x38`, docs/re/arts.md; a combo's `0x4D2B30` record `+0x24` to `+0x2C`): `+0x30` grey (not ready), `+0x34` pale (ready), `+0x38` vivid (ready and selected); Attacke's are 618, 619, 620 (`GUI_spell10` (0, 128), (0, 64), (0, 0)).
+- Ready and selected: the vivid image whole.
+- Otherwise the icon is split across a line: the top `g = ⌊(1 − s)·64⌋` rows from the grey image, the rest from the pale one, `s` the share regenerated (`0x580D90`; a combo's regenerated time over its time, held at 1, `0x581A20`); so the pale picture fills up from the bottom as the art regenerates, and a ready art not selected is all pale.
+- Riding (`0x54FC20`) with an art that may not be used on horseback, the slot shows the horse's images 632, 631, 630 (`GUI_spell10` (0, 192), (64, 192), (128, 192): orange, brown, grey) in place of the art's, `s` being `1 − [+0x4E8]/[+0x4EC]` of the hero (**hypothesis**: the horse's own timer).
+- Each right slot then gets the burn (below), then its ring.
+- A weapon slot draws its background, its ring, the two items' models (offset ±8 pixels when both hands hold one of `0x427A40`'s kind), then the damage icons.
+
+### The burn (`FX_BUTTONBURN.TGA`, `0x6E4CA0`)
+
+- The taskbar's message `0x35` starts it (`+0xAB8` set, the start time kept); who sends it is not read (**hypothesis**: an art learnt or raised).
+- 16 frames at 16 a second from the 4 × 4 grid of the 256 × 256 texture, frame f at (f mod 4, f div 4) · 64; after the 16th it stops.
+- It is drawn over every visible art slot at once, after the icon and before the ring, blended by alpha (`0x643430(8, 0)` and `(0x10, 0)`: `SRCBLEND` `SRCALPHA`, `DESTBLEND` `INVSRCALPHA`).
+
+### The buttons (`cUI_Button2`, `0x72B700` draw, `0x72B560` input)
+
+- The taskbar's buttons are toggles: a left click inside plays the button's sound (its `+0x18`), sets the flag `0x10` and runs its first command (show the window, the UI event `0x11`), or clears it and runs the second (hide, `0x12`).
+- Without `0x10` the button draws its `+0x64` image (the first row of `GUI_main_01`, lit); with it the `+0x54` image (the second row, darker, pressed in), so a button stays down while its window is open.
+- No hover image; the hover shows the tooltip.
+- The flags `0x20000` (1 s) and `0x20000000` (4 s) draw a sparkle: a glow of radius 30 cos(πt/2) and 20 random sparks; the potions' buttons get `0x20000` from the message `0x10` (**hypothesis**: a potion added or used), and an emptied slot passes it to its empty flask.
+- The glow `0x732220(a)` (the "+" and the portrait's ring) draws the control again 49 times shifted by −6 to +6 pixels in steps of 2, added onto the screen (`DESTBLEND` `ONE`) at an alpha of ⌊12.75 a⌋/255 (16 times at alpha 16/255 on a display below 32 bits).
+
+### Draw order (`0x6E3D10`)
+
+1. The disc and its alpha ring.
+2. The rail's pieces (`+0x248` list).
+3. The right slots (icons, burn, rings).
+4. The left slots (backgrounds, rings, item models, damage icons).
+5. A control at `+0x160` (not read).
+6. The children: the disc's housing (image 11), then the buttons.
+7. The compass's needle, pins and sonar rings.
+8. The belt and its clips, while `SHOWPOTIONS` is 1 and a hero exists (`0x6E3C30`).
+9. The tooltips of the belt and the slots (`0x6E4560`).
+10. The points' "+" (`+0x18C`) and, while its flag `0x400000` is set, its glow at a = (sin 6T + 1) · 0.3, T the real time in seconds.
+
+### Input (`0x6E1BC0`, `0x6DFD60`)
+
+- The bar takes the mouse over x 384 − 80n to 640 + 80n, y 676 to 768, so a click there does not reach the world.
+- A click on a right slot selects it (`0x6E1A20`); while the combat arts' window has put the bar in its edit mode (the message 2), a click drops the art or combo the cursor holds into the slot, and a click on an empty or the selected slot calls `0x5D96C0` (not read).
+- A click on a left slot selects that weapon set (`0x6E1690`); in the edit mode it puts the dragged item into the half clicked (`0x6E14C0`).
+- Keys `1` to `5` select the weapon sets 1 to 5 and, while `COMBINE_SLOTS` is on (its default, absent from the installation's `Settings.cfg`), also the art slots 1 to 5; keys `6` to `9` and `0` select the art slots 1 to 5.
+- Taskbar messages (UI event 5, kind `0x2B`): 1 sets `n`; 2 the edit mode; 3, 4 and 6 put a spell, a weapon art or a combo into the selected art slot; 5 equips a weapon (with sounds (9, 3), (9, 4), (9, 7) or (8, 3)); 7 hides the "+" (`0x581120`, `0x580E90` send it once no points remain); 8 shows it; 9 a toggle of `0x5D8FB0`; `0x10` the sparkle of a belt slot; kind `0x34` a compass marker's sonar; kind `0x35` the burn.
+- The windows' own keys (I, M, Esc …) are not the taskbar's: not read here.
+
+## The portraits' column (`cUI_Mercenary`)
+
+Built by `0x6D6430` and `0x6D8250`: five entries of `0x194` bytes, the hero first and up to four followers (the hero's list `+0x39C`, those with a master `+0x251` or the bits 4 or `0x100` of `+0x1F4`), entry k at y0 = 16 + 132k.
+
+| Element | Rectangle (screen) | Images | What it does |
+|---|---|---|---|
+| Ring, health | (932, y0), 96 × 108 | image 42 (`GUI_main_02` (96, 0)–(191, 107), grey) over the top `g` rows, image 41 ((0, 0)–(95, 107), red) below | health share f = `+0x4D8`/`+0x4D4`, held at 0; g = ⌊(108 − 11)(1 − f) + 11⌋, so the red drains from the top and the clasp's 11 rows are always the grey's; **measured** for the hero |
+| Low health | the ring | the glow at a = (sin 4T + 1) · 0.5 | while f < 0.25 (**hypothesis** that the glowing control is the red ring) |
+| Hero's alarm | rings about (975, 70) | `FX_SONAREFFECT.TGA` tinted `0xFF0000`, r from 10 to 500 at 600 a second, width 40 | once as the hero's f falls below `0x81D790`'s level (**hypothesis**: `WARNING_LEVEL`, 25 in the installation, as a share) |
+| Portrait | (941, y0 + 18), 64 × 74 | by creature type (`0x435D30`): the heroes 1 Seraphim 1255, 2 Gladiator 1257, 3 Mage 1256, 4 Dark Elf 1260, 5 Wood Elf 1261, 6 and 7 Vampiress 1259 (`GUI_PORTRAIT00` (0, 0), (128, 0), (64, 0), (64, 71), (128, 71), (0, 71), 64 × 71, 1261 65 wide), 8 Dwarf 1438 and 9 Daemon 1437 (`GUI_PORTRAIT15` (192, 0), (128, 0)); followers by the same switch | the 64 × 71 picture stretched to 64 × 74 (**measured**); hover: tooltip of text 9960 with the health and its most, and a `<notify>` event `0x2D` to `UI_WND_MERCENARY`; right click on the hero's calls `0x6D60E0` (not read) |
+| Bonuses "+" (hero only) | (1000, 34), 16 × 16 | image 110 (`GUI_main_01` (240, 0)–(255, 15)) | hover: a tooltip at (16, 16) listing the hero's bonuses (`0x55E5E0`, the list at `0xAD4218`); **measured** |
+| Experience bar (hero only) | frame (940, y0 + 106) 73 × 10; fill (940, y0 + 108) | frame image 66 (`GUI_main_02` (74, 123)–(146, 132), dim green beads); fill image 67 ((0, 119)–(73, 125), bright green) | fill width ⌊73 · e⌋, e the experience into the level over the level's span (`0x57F7B0`, `0x57F6E0`, docs/re/fight.md), its texture cut to match, so it grows from the left; hover: text 9961 with the two numbers; the message (5, `0x29`, 2) for a creature flashes it with the glow from 1 fading over a second; **measured** (empty at level 1) |
+| Mount's bar | frame (940, y0 + 117) 72 × 15; fill the same | image 77 ((75, 160)–(146, 174), blue horseshoes), fill image 78 ((75, 145)–(146, 159), gold horseshoes) cut as the experience | while the creature has a horse (`0x55C630`): the horse's health share; hover: the horse's description (**hypothesis** that 77 is the frame) |
+| Horse's button | (986, y0 + 70), 34 × 34 | image 365 (`GUI_main_15` (33, 216)–(66, 249), a horseshoe) | while riding a hero's horse: left click mounts within 250 (creature event 7) or calls the horse (`0x116`); its tooltip 200 pixels right of it |
+
+The ring is drawn before the portrait: its middle is a glass of grey 204 at the alpha 85, and over the portrait it would pale the face by about a third toward grey, which the frames do not show (**measured** 2026-10-27: the face's mean colour 172, 155, 137 in the frames, the portrait's own; 182, 170, 158 with the ring over it).
+The portrait is blended by its alpha (its background is black at the alpha 0 to 0.47), so the world shows through about the head (**seen** in the rain's frame).
+
+The other images of `GUI_main_02` beside them (yellow beads 65, red frame 68 and beads 69) are not used by these functions.
+
+## What changes with the hero's state
+
+- Level: the slots a side (1, 2, 3, 4, 5 at 1, 2, 8, 16, 30) and with them the rail's length and the bar's mouse area.
+- Health: the ring's red share, the glow below a quarter, the red alarm once below the warning level.
+- Experience: the bar under the portrait.
+- The clock: the disc's angle.
+- Markers: the needle and the pins; a new marker's sonar.
+- Arts: each art slot's split by its regeneration, the vivid picture for the selected ready art, the burn on the message `0x35`.
+- Riding, the Vampiress's night form, points to spend, potions on the belt, the selected weapon set and art.
+
+## Implementing it: an order
+
+1. The static frame at the start of a game, which is most of the look: the rail (ends 5 and 8, middle pieces chosen once), the housing 11, the five buttons in their lit images, the belt's flasks, the two slot orbs with their rings, the portrait's ring, portrait, "+" and experience frame.
+   Every place above was measured on the frames, so a screenshot beside the original's should match within a pixel.
+2. The disc: two textured quads on the ellipse, the clock's angle; then the health ring's split and the experience fill.
+3. The art slot's icon from the selected art's three images and its regeneration split; the weapon slot's selected background and the damage icon (a 3D model of the held weapon can wait: draw nothing or the item's flat icon).
+4. Input: the bar's mouse area (keep clicks off the world), the toggles' down images, keys 1–0 and slot clicks once the arts and weapon sets have a selection in `opensacred-game`.
+5. Later, with their windows: the inventory, options, map and book buttons open #1088, the Esc menu, #1091's map and quest log; the belt's potions and their use with #1088 or #1090; the right slots' edit mode and drag and drop with #1090 (the combat arts' window); the points "+" with #1089 (the character sheet); the tooltips, the compass's markers (quests, #1091), the burn, the sonars, the followers' portraits and the mount's bar when followers and horses come.
+
+## Open questions
+
+- The sender and meaning of the taskbar's message `0x35` (the burn) and of `0x10` (a belt slot's sparkle).
+- What `sdk_MARKER_RESOLVE`'s four markers are (the quests' goals by their kinds, **hypothesis**) and the frame of its direction.
+- The right rail's middle piece in the frames matches neither image 9 nor 10 well at x 570 (its chain's knot at 641–660 fits image 9; the wavy line left of it does not show).
+- The creature event `0x113` of the Collect button; `0x5D96C0`; `0x6D60E0`; the control at `+0x160`.
+- How the bar scales at the original's other resolutions (the windows' rectangles are fixed at 1024 × 768 here).
+- Whether the sonars' alpha falls linearly with the radius.
+
+## In `opensacred-game`
+
+`bar` lays the bar and the hero's entry of the column out from the interface's images' table (`tables/ui_images.ron`, #1160) at the places above, in the interface's units of the 768-pixel-high screen (`hud`, `UiScale`), the bar centred along the bottom of a wider window and the column at its right edge (#1087):
+
+- the disc of day and night turned by the clock, its rings sampled without their smaller levels so that the runes stay sharp as the ellipse shrinks them (the original's textures have one level);
+- the rail's ends and middle pieces for the slots a side, its middle pieces chosen at random once as the slots are made;
+- the slots, 1 to 5 a side by the hero's level: the weapon sets' at the left, the first selected, and the arts' at the right, the first holding the selected art (`making::Selected`) split by its regeneration, vivid when ready;
+- the housing, the five buttons in their lit images, and the belt's five empty flasks;
+- the health's ring split by the hero's health, the portrait by its type over the ring, the bonuses' "+", and the experience's bar filled by the experience into the level;
+- clicks over the bar's area (x 384 − 80n to 640 + 80n, y from 676) and over the hero's portrait do not reach the world, the set `frame::Control` held back there; the pieces are the interface under the cursor, which shows the arrow (`cursors`).
+
+Not followed yet: the buttons' windows and pressed images, the belt's potions, the slots' selection, edit mode and keys, the weapons' models and damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.
