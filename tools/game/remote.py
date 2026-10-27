@@ -87,6 +87,8 @@ def lines(snapshot):
         world.append(f"zoom {snapshot['zoom']:.2f}")
     if snapshot.get('sectors'):
         world.append(f"sectors {snapshot['sectors'][0]} +{snapshot['sectors'][1]}")
+    if snapshot.get('cursor'):
+        world.append(f"cursor {snapshot['cursor']}")
     if world:
         out.append('  '.join(world))
         out.append(f"NPCs {snapshot['npcs']}  objects {snapshot['objects']}  entities {snapshot['entities']}"

@@ -108,6 +108,11 @@ impl Forms {
             steps,
         }
     }
+
+    /// Whether the hero wears its night's form (`+0x14` bit `0x2000`).
+    pub fn by_night(&self) -> bool {
+        self.by_night
+    }
 }
 
 /// A change of the hero's form: into its night's for `seconds`, or back to its day's.

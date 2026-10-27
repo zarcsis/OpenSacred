@@ -360,9 +360,11 @@ const BIG: u8 = 0x02;
 /// The weapon kinds of `Weapon.pak +0x1E` held in the left hand: bows and crossbows.
 const BOW: u8 = 7;
 const CROSSBOW: u8 = 12;
+/// The weapon kinds of the guns (`0x54A340`): 13, the Dwarf's cannons, and 14, the muskets.
+const GUNS: [u8; 2] = [13, 14];
 /// The weapon kinds of the ranged weapons, with which a creature fights at range (`0x427ED0`;
-/// docs/re/fight.md, "Who fights"): the bows, the crossbows, 13 and the muskets.
-const RANGED: [u8; 4] = [BOW, CROSSBOW, 13, 14];
+/// docs/re/fight.md, "Who fights"): the bows, the crossbows and the guns.
+const RANGED: [u8; 4] = [BOW, CROSSBOW, GUNS[0], GUNS[1]];
 /// The arrows' types: the archers' shots' `ARROW_LONG.GRN` (`0x4EB700`) and the Wood Elf's
 /// special arrows' (`opensacred_rules::arrows::projectile`).
 const ARROWS: [u32; 5] = [arrows::ARROW, 3074, 3075, 3077, 3078];
@@ -480,9 +482,14 @@ fn skill_of(class: u8, holding: &[(InHand, Option<fight::ItemValues>)]) -> u8 {
 
 /// Whether an NPC holds a ranged weapon, its items in their hands ([`ranged`]).
 fn ranged_of(holding: &[InHand]) -> bool {
+    holds_kind(holding, &RANGED)
+}
+
+/// Whether a creature holds a weapon of one of `kinds`, its items in their hands.
+fn holds_kind(holding: &[InHand], kinds: &[u8]) -> bool {
     holding
         .iter()
-        .any(|held| held.category == WEAPON && held.kind.is_some_and(|kind| RANGED.contains(&kind)))
+        .any(|held| held.category == WEAPON && held.kind.is_some_and(|kind| kinds.contains(&kind)))
 }
 
 /// The hand each of an NPC's items goes in, as the client equips them in order (`0x54ACC0`,
@@ -2912,6 +2919,7 @@ impl Npcs {
                 .iter()
                 .any(|held| held.hand == Hand::Left && held.category == SHIELD),
             ranged: ranged_of(&holding),
+            gun: holds_kind(&holding, &GUNS),
             items: worn
                 .iter()
                 .filter(|worn| self.gear.get(&worn.item).is_none_or(|gear| gear.counts))
@@ -6462,6 +6470,7 @@ impl Arms {
             weapon: class != 0 || right,
             shield: holds(Hand::Left, Some(true)),
             ranged: ranged_of(&in_hands),
+            gun: holds_kind(&in_hands, &GUNS),
             items: self
                 .holding
                 .iter()

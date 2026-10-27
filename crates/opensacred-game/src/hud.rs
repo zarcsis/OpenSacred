@@ -1,5 +1,6 @@
-//! The interface over the world: for now the original's cursor, `MOUSE_MAIN.TGA`, scaled in whole
-//! steps with the system's display scale, and the interface laid out on the original's
+//! The interface over the world: for now the original's cursor, the picture that `cursors`
+//! chooses (`MOUSE_MAIN.TGA` and the others), scaled in whole steps with the system's display
+//! scale, and the interface laid out on the original's
 //! 768-pixel-high screen scaled to the window's height, as the world is. The original lays its
 //! interface out in code from the `gui_main_*` atlases (docs/02 §11); it comes in M5, and until
 //! then the HUD shows nothing of the hero (docs/decisions/2026-10-17-hud.md).
@@ -9,6 +10,7 @@
 //! its images read as stored, so that they show as given and blend as the original's interface
 //! does.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow, bail};
@@ -19,20 +21,21 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage};
 use opensacred_data::texture;
 
+use crate::cursors::{Look, Shown};
 use crate::files;
 
 /// The height of the original's screen, which the interface is laid out on.
 const SCREEN_HEIGHT: f32 = 768.0;
 
-/// The original's cursor (`texture::CURSOR`): the arrow in the top left 32 × 32 of its 64 × 64
-/// image, its tip at the corner.
+/// The original's cursors (`cursors::Look`): each picture in the top left 32 × 32 of its 64 × 64
+/// image, its point at the corner.
 const CURSOR_SIDE: usize = 32;
 
 /// The interface's images.
 #[derive(Resource)]
 pub struct Hud {
-    /// The cursor's image file, if the converted textures have it.
-    pub cursor: Option<PathBuf>,
+    /// The cursors' image files that the converted textures have.
+    pub cursors: HashMap<Look, PathBuf>,
 }
 
 /// The converted texture named `name` (`textures/texture/<record>-<name>.ktx2`).
@@ -66,8 +69,22 @@ pub fn find_textures(assets: &Path, names: &[&str]) -> Vec<Option<String>> {
     found
 }
 
-pub fn cursor_file(assets: &Path) -> Option<PathBuf> {
-    find_texture(assets, texture::CURSOR)
+/// The cursors' image files (`cursors::Look::texture`), one look through the directory for all.
+pub fn cursor_files(assets: &Path) -> HashMap<Look, PathBuf> {
+    let dir = assets.join("textures").join("texture");
+    let mut found = HashMap::new();
+    for path in files::read_dir(&dir).into_iter().flatten() {
+        let Some(file) = path.file_name().and_then(|f| f.to_str()) else {
+            continue;
+        };
+        if let Some(look) = Look::ALL
+            .into_iter()
+            .find(|look| file.ends_with(&format!("-{}.{}", look.texture(), texture::EXTENSION)))
+        {
+            found.insert(look, path.clone());
+        }
+    }
+    found
 }
 
 /// An interface image, read as stored: in the frame's sRGB values.
@@ -126,42 +143,61 @@ fn cursor_scale(display_scale: f32) -> usize {
     scale
 }
 
-/// Puts the original's cursor on the window, scaled with the system's display scale, and makes it
-/// again when that changes: it is not known yet at the start, and a window moved to another
-/// monitor takes that monitor's.
+/// Puts the original's cursor that `cursors` chooses on the window, scaled with the system's
+/// display scale, its point at the top left (`0x6548A0`), and makes it again when either changes:
+/// the scale is not known yet at the start, and a window moved to another monitor takes that
+/// monitor's. A picture made is kept for its scale; one whose texture is missing shows the arrow.
 fn cursor(
     mut commands: Commands,
     hud: Res<Hud>,
+    look: Res<Shown>,
     window: Single<(Entity, &Window)>,
     mut images: ResMut<Assets<Image>>,
-    mut shown: Local<usize>,
+    mut made: Local<HashMap<(Look, usize), Handle<Image>>>,
+    mut shown: Local<Option<(Look, usize)>>,
 ) {
-    let Some(path) = &hud.cursor else {
-        return;
-    };
     let (entity, window) = *window;
     let display_scale = window.resolution.base_scale_factor();
     let scale = cursor_scale(display_scale);
-    if *shown == scale {
+    let look = if hud.cursors.contains_key(&look.0) {
+        look.0
+    } else {
+        Look::Arrow
+    };
+    if *shown == Some((look, scale)) {
         return;
     }
-    *shown = scale;
-    match cursor_image(path, scale) {
-        Ok(image) => {
-            info!(
-                "cursor: {0} x {0} pixels at the display scale {display_scale}",
-                image.width()
-            );
-            commands
-                .entity(entity)
-                .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
-                    handle: images.add(image),
-                    hotspot: (0, 0),
-                    ..default()
-                })));
-        }
-        Err(e) => bevy::log::warn!("cursor: {e:#}"),
+    let Some(path) = hud.cursors.get(&look) else {
+        return;
+    };
+    if shown.is_none_or(|(_, before)| before != scale) {
+        info!(
+            "cursor: {0} x {0} pixels at the display scale {display_scale}",
+            CURSOR_SIDE * scale
+        );
     }
+    *shown = Some((look, scale));
+    let handle = match made.get(&(look, scale)) {
+        Some(handle) => handle.clone(),
+        None => match cursor_image(path, scale) {
+            Ok(image) => {
+                let handle = images.add(image);
+                made.insert((look, scale), handle.clone());
+                handle
+            }
+            Err(e) => {
+                bevy::log::warn!("cursor: {e:#}");
+                return;
+            }
+        },
+    };
+    commands
+        .entity(entity)
+        .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
+            handle,
+            hotspot: (0, 0),
+            ..default()
+        })));
 }
 
 /// Scales the interface with the window's height.
