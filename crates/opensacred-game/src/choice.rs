@@ -2,8 +2,9 @@
 //! hero"): the Underworld campaign's, its pedestals empty until the heroes can be saved and
 //! imported (#1129, #1117), and the Ancaria campaign's (#1119): its picture of 12 tiles over its water, the eight classes as 3D figures
 //! standing on the pedestals and idling, dark until the cursor is on one or it is chosen, and
-//! under them a panel of the hero's name, starting as the class's own, the difficulty, Import,
-//! Back and Start Game, which shows a class's description while the cursor is on its figure.
+//! under them a panel of the hero's name, starting as the class's own, the difficulty, a
+//! drop-down list of bronze and silver (#1145), Import, Back and Start Game, which shows a class's
+//! description while the cursor is on its figure.
 //!
 //! The figures stand in their own scene ([`FIGURES`]), which the original's camera draws into a
 //! texture of its frustum's shape, stretched over the picture as the original's frustum is over
@@ -35,6 +36,8 @@ use bevy::window::PrimaryWindow;
 use opensacred_data::tables::{FIGURES as FIGURES_TABLE, Figure as Showcase};
 
 use bevy_kira_audio::prelude::{AudioChannel, AudioControl};
+
+use opensacred_rules::drops::Difficulty;
 
 use crate::game::{AppState, Class, Data, FONT, Request};
 use crate::menu::{self, Screen, Words};
@@ -148,12 +151,26 @@ const DIFFICULTIES: [&str; 5] = [
 /// backspaces).
 const NAME_LENGTH: usize = 24;
 
-/// What the screen holds: the hero chosen, the figure under the cursor and the name typed.
+/// What the screen holds: the hero chosen, the figure under the cursor, the name typed, the
+/// difficulty chosen and those offered, and whether the difficulties' list is open.
 #[derive(Resource, Default)]
 struct Choice {
     chosen: Option<Class>,
     hovered: Option<Class>,
     name: String,
+    difficulty: Difficulty,
+    offered: Vec<Difficulty>,
+    listing: bool,
+}
+
+/// The difficulties that the list offers a new hero: bronze and silver, as the original's box
+/// does with its highest 1 (`0x710190`; docs/re/fight.md, "What opens the levels"), up to one
+/// that the command line names above them.
+fn offered(named: Option<Difficulty>) -> Vec<Difficulty> {
+    let highest = named
+        .map_or(0, Difficulty::index)
+        .max(Difficulty::Silver.index());
+    Difficulty::ALL.into_iter().take(highest + 1).collect()
 }
 
 /// The introduction of the class whose figure the cursor rests on: the class, how long the cursor
@@ -226,6 +243,9 @@ enum Part {
     Controls,
     Import,
     Name,
+    /// The difficulty chosen, on its plate, and the list of those offered.
+    Difficulty,
+    List,
     Description,
     Start,
 }
@@ -276,8 +296,11 @@ impl Images {
 /// end, the field's bar, the arrows to the left and to the right, and a corner's ornament.
 const BUTTON: Rect = Rect::from_corners(Vec2::new(30.0, 144.0), Vec2::new(146.0, 181.0));
 const FIELD: Rect = Rect::from_corners(Vec2::new(30.0, 124.0), Vec2::new(128.0, 140.0));
-const LEFT: Rect = Rect::from_corners(Vec2::new(110.0, 78.0), Vec2::new(146.0, 114.0));
-const RIGHT: Rect = Rect::from_corners(Vec2::new(73.0, 78.0), Vec2::new(109.0, 114.0));
+/// The round button with its arrow pointing down that opens the difficulties' list, a little of
+/// its box's plate at its sides (the interface's images 270 and 325), and the plain plate between
+/// two of them (the button's middle, 284).
+const DROP: Rect = Rect::from_corners(Vec2::new(66.0, 180.0), Vec2::new(105.0, 216.0));
+const PLATE: Rect = Rect::from_corners(Vec2::new(66.0, 142.0), Vec2::new(105.0, 178.0));
 const CORNER: Rect = Rect::from_corners(Vec2::new(148.0, 58.0), Vec2::new(188.0, 98.0));
 /// The ornamented strips of the frame's edges: along it, and up and down its sides.
 const STRIP: Rect = Rect::from_corners(Vec2::new(152.0, 23.0), Vec2::new(216.0, 32.0));
@@ -293,7 +316,15 @@ const NAME_SIZE: Vec2 = Vec2::new(320.0, 22.0);
 const DIFFICULTY_AT: Vec2 = Vec2::new(510.0, 621.0);
 const DIFFICULTY_SIZE: Vec2 = Vec2::new(130.0, 22.0);
 const ARROWS: [f32; 2] = [428.0, 593.0];
-const ARROW: f32 = 28.0;
+/// The list's first difficulty's centre and the pitch of the next, and its dark box's sides and
+/// top, which dims what lies behind it (the original's frames).
+const LIST_FIRST: f32 = 647.0;
+const LIST_PITCH: f32 = 21.0;
+const LIST_SIDES: [f32; 2] = [440.0, 584.0];
+const LIST_TOP: f32 = 637.0;
+const LIST_SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.4);
+/// A difficulty of the list under the cursor: pure yellow, in the frame's values.
+const LIST_LIT: Color = Color::linear_rgb(1.0, 1.0, 0.0);
 const IMPORT_AT: Vec2 = Vec2::new(510.0, 663.0);
 const IMPORT_SIZE: Vec2 = Vec2::new(210.0, 28.0);
 const BACK_AT: Vec2 = Vec2::new(415.0, 714.0);
@@ -482,6 +513,9 @@ fn screen(
     mut ripples: Ripples,
 ) {
     *choice = Choice::default();
+    let named = request.0.difficulty;
+    choice.difficulty = named.unwrap_or_default();
+    choice.offered = offered(named);
     let height = menu::picture_height(window.map(|window| window.height()));
     let water = ripples.spawn(
         &mut commands,
@@ -562,8 +596,7 @@ fn screen(
             for look in looks {
                 spotted(picture, look.class, look.window);
             }
-            let difficulty = request.0.difficulty.unwrap_or_default().index();
-            panel(picture, &images, (&words, difficulty), &font, &assets);
+            panel(picture, &images, &words, &choice.offered, &font, &assets);
         },
     );
 }
@@ -825,17 +858,108 @@ fn button(
     label
 }
 
-/// The panel under the figures.
+/// The panel under the figures, its list offering the difficulties `offered`.
 fn panel(
     picture: &mut ChildSpawnerCommands,
     images: &Images,
-    (words, difficulty): (&Words, usize),
+    words: &Words,
+    offered: &[Difficulty],
     font: &Handle<Font>,
     assets: &AssetServer,
 ) {
     let atlas = images.atlas.as_ref();
     frame(picture, atlas, assets);
-    controls(picture, atlas, (words, difficulty), font, assets);
+    controls(picture, atlas, words, font, assets);
+    list(picture, words, offered, font);
+}
+
+/// The node of a line of words centred in the picture's rectangle `rect`: as wide, its line's
+/// middle at the rectangle's.
+fn words_node(rect: Rect) -> Node {
+    let line = TEXT_SIZE * 1.2;
+    place(Rect::from_center_size(
+        rect.center(),
+        Vec2::new(rect.width(), line),
+    ))
+}
+
+/// The name of `difficulty` in the game's texts.
+fn difficulty_name(words: &Words, difficulty: Difficulty) -> &str {
+    let index = difficulty.index();
+    words
+        .get(DIFFICULTIES[index])
+        .unwrap_or(crate::game::DIFFICULTIES[index])
+}
+
+/// The difficulties' list, over the panel: a catch of the clicks elsewhere, which closes it, its
+/// dark box, and each difficulty `offered`, yellow under the cursor and chosen by a click.
+fn list(
+    picture: &mut ChildSpawnerCommands,
+    words: &Words,
+    offered: &[Difficulty],
+    font: &Handle<Font>,
+) {
+    let bottom = LIST_TOP + LIST_PITCH * f32::from(u8::try_from(offered.len()).unwrap_or(u8::MAX));
+    picture
+        .spawn((
+            Part::List,
+            Visibility::Hidden,
+            place(Rect::from_corners(Vec2::ZERO, menu::SCREEN)),
+        ))
+        .observe(|click: On<PointerClick>, mut choice: ResMut<Choice>| {
+            if click.button == PointerButton::Primary {
+                choice.listing = false;
+            }
+        })
+        .with_children(|list| {
+            list.spawn((
+                Pickable::IGNORE,
+                place(Rect::from_corners(
+                    Vec2::new(LIST_SIDES[0], LIST_TOP),
+                    Vec2::new(LIST_SIDES[1], bottom),
+                )),
+                BackgroundColor(LIST_SHADE),
+            ));
+            for (row, &difficulty) in offered.iter().enumerate() {
+                let y = LIST_FIRST + LIST_PITCH * f32::from(u8::try_from(row).unwrap_or(0));
+                let rect = Rect::from_corners(
+                    Vec2::new(LIST_SIDES[0], y - LIST_PITCH / 2.0),
+                    Vec2::new(LIST_SIDES[1], y + LIST_PITCH / 2.0),
+                );
+                list.spawn((
+                    words_node(rect),
+                    Text::new(difficulty_name(words, difficulty)),
+                    TextFont {
+                        font: font.clone().into(),
+                        font_size: FontSize::Px(TEXT_SIZE),
+                        ..default()
+                    },
+                    TextLayout::justify(Justify::Center),
+                    TextColor(TEXT),
+                ))
+                .observe(
+                    |over: On<PointerOver>, mut colours: Query<&mut TextColor>| {
+                        if let Ok(mut colour) = colours.get_mut(over.entity) {
+                            colour.0 = LIST_LIT;
+                        }
+                    },
+                )
+                .observe(|out: On<PointerOut>, mut colours: Query<&mut TextColor>| {
+                    if let Ok(mut colour) = colours.get_mut(out.entity) {
+                        colour.0 = TEXT;
+                    }
+                })
+                .observe(
+                    move |mut click: On<PointerClick>, mut choice: ResMut<Choice>| {
+                        if click.button == PointerButton::Primary {
+                            choice.difficulty = difficulty;
+                            choice.listing = false;
+                            click.propagate(false);
+                        }
+                    },
+                );
+            }
+        });
 }
 
 /// The panel's frame: its fill and edge, its corners' ornaments and its strips along the edges
@@ -918,7 +1042,7 @@ fn frame(picture: &mut ChildSpawnerCommands, atlas: Option<&String>, assets: &As
 fn controls(
     picture: &mut ChildSpawnerCommands,
     atlas: Option<&String>,
-    (words, difficulty): (&Words, usize),
+    words: &Words,
     font: &Handle<Font>,
     assets: &AssetServer,
 ) {
@@ -946,28 +1070,41 @@ fn controls(
                 },
                 TextColor(TEXT),
             ));
-            let row = about(DIFFICULTY_AT, DIFFICULTY_SIZE);
-            piece(controls, atlas, assets, (FIELD, FIELD_ENDS), row);
-            // A new hero's difficulty is bronze alone, the arrows doing nothing, as the original
-            // offers it (`0x710190` with 0, docs/re/fight.md, "The difficulty"); one that the
-            // command line names stands in its place.
-            label(
-                controls,
-                words
-                    .get(DIFFICULTIES[difficulty])
-                    .unwrap_or(crate::game::DIFFICULTIES[difficulty]),
-                font,
-                row,
-                TEXT,
+            // The plate between the buttons' centres, the difficulty's word on it.
+            let half = PLATE.height() / 2.0;
+            let plate = Rect::from_corners(
+                Vec2::new(ARROWS[0], DIFFICULTY_AT.y - half),
+                Vec2::new(ARROWS[1], DIFFICULTY_AT.y + half),
             );
-            for (x, arrow) in ARROWS.into_iter().zip([LEFT, RIGHT]) {
-                piece(
-                    controls,
-                    atlas,
-                    assets,
-                    (arrow, 0.0),
-                    about(Vec2::new(x, DIFFICULTY_AT.y), Vec2::splat(ARROW)),
-                );
+            piece(controls, atlas, assets, (PLATE, 0.0), plate);
+            controls.spawn((
+                Part::Difficulty,
+                words_node(about(DIFFICULTY_AT, DIFFICULTY_SIZE)),
+                Text::new(difficulty_name(words, Difficulty::default())),
+                TextFont {
+                    font: font.clone().into(),
+                    font_size: FontSize::Px(TEXT_SIZE),
+                    ..default()
+                },
+                TextLayout::justify(Justify::Center),
+                TextColor(TEXT),
+            ));
+            // The two buttons that open the list.
+            for x in ARROWS {
+                let rect = about(Vec2::new(x, DIFFICULTY_AT.y), DROP.size());
+                let Some(button) = piece(controls, atlas, assets, (DROP, 0.0), rect) else {
+                    continue;
+                };
+                controls
+                    .commands()
+                    .entity(button)
+                    .insert(Pickable::default())
+                    .observe(|mut click: On<PointerClick>, mut choice: ResMut<Choice>| {
+                        if click.button == PointerButton::Primary {
+                            choice.listing = !choice.listing;
+                            click.propagate(false);
+                        }
+                    });
             }
         });
     picture
@@ -1031,9 +1168,15 @@ fn start(
     let Some(class) = choice.chosen else {
         return;
     };
-    info!("choice: a {} named {}", class.name(), choice.name);
+    info!(
+        "choice: a {} named {}, on {:?}",
+        class.name(),
+        choice.name,
+        choice.difficulty
+    );
     request.0.class = Some(class);
     request.0.name = Some(choice.name.clone());
+    request.0.difficulty = Some(choice.difficulty);
     state.set(AppState::Loading);
 }
 
@@ -1110,6 +1253,19 @@ fn show(
                 if let Some(mut text) = text {
                     text.0 = format!("{}_", choice.name);
                 }
+            }
+            Part::Difficulty => {
+                if let Some(mut text) = text {
+                    difficulty_name(&words, choice.difficulty).clone_into(&mut text.0);
+                }
+            }
+            Part::List => {
+                *visibility = if choice.listing && choice.chosen.is_some() && description.is_none()
+                {
+                    Visibility::Inherited
+                } else {
+                    Visibility::Hidden
+                };
             }
             Part::Description => {
                 *visibility = if description.is_some() {
@@ -1451,6 +1607,14 @@ mod tests {
         let request = &app.world().resource::<Request>().0;
         assert_eq!(request.class, Some(Class::Seraphim));
         assert_eq!(request.name.as_deref(), Some("Seraphimx"));
+        assert_eq!(request.difficulty, Some(Difficulty::Bronze));
+    }
+
+    #[test]
+    fn a_new_hero_is_offered_bronze_and_silver() {
+        assert_eq!(offered(None), [Difficulty::Bronze, Difficulty::Silver]);
+        // One that the command line names above them is offered with those below it.
+        assert_eq!(offered(Some(Difficulty::Gold)).len(), 3);
     }
 
     /// The Gladiator of the client's table, as `tables/figures.ron` holds him.
