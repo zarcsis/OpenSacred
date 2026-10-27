@@ -111,7 +111,13 @@ It is made in place or by `0x51CB60`, which Ghidra names as an effect's construc
 
 - As a sector's `Enter` runs (`0x6261A0`), the event of kind 10 makes, for each of its entries of the type 5, ten objects of the type 873 `FX_BUTTERFLY` (`sdk_CREATE` with the type `0x369`), each at a place at random that `0x638CD0` admits and sent the effect's event `0x61`, one in 31 with a flag of 1; it tests neither the hour nor the weather, whatever its log line says of good weather.
   As the sector goes (`0x6262A0`), the kind 11 takes them out (`0x5FF160`).
-- Apart from the weather, `0x625290` sends, but by night, every 20 to 180 s, a creature of a pool of eight (`0x637060`) over the camera: the type 513 `CROW.GRN` where the sector's object has the byte `+0x2C` at `0x10`, the type 514 `BAT.GRN` where it has `0x80` (**hypothesis**: a flock flying over; where `+0x2C` comes from is not read).
+- Apart from the weather, `0x625290` sends, but by night, every 20 to 180 s, a flier of a pool of eight (`0x637060`) over the camera: the type 513 `CROW.GRN` where the camera's sector has the byte `+0x2C` at `0x10`, the type 514 `BAT.GRN` where it has `0x80` (read 2026-10-27, **confirmed** by code):
+  - The byte is the sector's `sectors.keyx +0x1D8` (docs/02 §5.1; **confirmed** by a trace of `0x626017` in the running original: `0x40` in 50,39, `0x10` in 51,51).
+  - In a sector whose byte is not 0, a timer of real time (`0xAD77BC`) is first armed `b % 161 + 20` seconds on by the weather's rolls (`0x95FA84`, whose index `0xAD77C0` the weather's timers share); once it passes, the byte's flier is sent and the timer armed anew the same way; another byte sends none but runs the timer.
+  - It is sent but by night (`0x41BAB0`, 22:20 to 03:20), while `0x637060` finds a free place among its eight (`+0x828C`, `0x34` bytes each), and while a value of the world view (`0x6413E0`'s `+8`) is under 10 (not read).
+  - It lives 20 s (`0x41F180`).
+    As it is made (`0x41F400`), it takes its type's model and the clip of the motion slot 179 (`CROW_FLY_LOOP`, `BATX_FLY_LOOP`) and starts at even odds 1,124 world units behind the camera's point or 1,024 ahead of it along the world's x, at `rand() % 1536 − 768` along y, for a point as far on the other side and its own `rand() % 1536 − 768`, both turned into the models' space, 240 of its units up; it faces its way and flies straight along it at 115 of those units a second (`0x41F1B0`).
+  - It calls first `trunc(rand()/32767 · 25 + 5)` seconds after it is made; at each call's time a roll of `trunc(rand()/32767 · 100)` above 60 silences it for good, else it calls in the middle at the volume 1 and a rate's factor of 0.5, the crow `ANIMAL_CROW01` (126), the bat `ANIMAL_BAT04` or `05` (103, 104) at even odds, and calls again `trunc(rand()/32767 · 20 + 10)` seconds on (`0x41F1B0`, its switch `0x41F3A4` by the type).
 
 ## The network, the console and the settings
 
@@ -134,7 +140,9 @@ The world's weather is followed (#1072): `opensacred-convert world` writes each 
 The snow's 3,000 flakes move on the CPU as the original's (`skies::Flakes`), their drift by the slant at each of the original's frames taken at its 60 a second, and those of the weather's count are listed by the cells of a grid of 32 pixels in two storage buffers, so that a pixel tests only the flakes of its cell.
 The drops and the flakes are lit by the night's colour over the whole screen, not by the light where each falls (`0x41B510`).
 A quake (`opensacred_rules::weather::Event::Quake`) moves the camera after it follows the hero by a random offset within the amplitude, in the original's pixels at the zoom, at each frame but in a pause, and plays the earthquake's sound as it comes; the console's `setquake` and the Gladiator's jump send it, the Daemon's art and the spells not yet, and `SCREEN_QUAKE` has no setting.
-The jolts, the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) and the birds are still #1073 (M5).
+The crows and the bats fly over the camera as above (`fliers`, #1073): `opensacred-convert world` writes each sector's byte into `world.ron` (`fliers`), `opensacred_rules::weather` keeps the timer on the rolls the weather shares, and the camera's point is the hero's, which the camera follows; a flier is a model among the others, drawn at the cell under it (`models::Ordered`), lit as they are, its call in the middle.
+Seen 2026-10-27 in 51,51 at noon: a crow 134 s after the hero came, flying right and down over the screen, about 70 pixels across at zoom 1, and its call 13 s after it started; not yet set beside the original's.
+The jolts and the butterflies (`FX_BUTTERFLY` is an effect's type, of the category 12, with no model) are still #1073 (M5).
 
 Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
 
@@ -152,4 +160,4 @@ With the driver (docs/03 §3.8), `trace 0x419A70` and the kind at `[[esp+4]+8]`,
 4. In 54,42 at any hour: objects of the type 873 made through `0x5FBA40` as the sector comes into the 3 × 3 about the hero.
 5. `weather rain 80`: a lightning and a thunder every 20 to 40 s, none in a dungeon; `weather quake 30`: a shake of a second; `DETAILLEVEL 0`: no rain drawn.
 6. Over two hours or more, whether a kind's timer freezes as the table's index reaches its 0.
-7. By day in a sector whose `+0x2C` is `0x10`: crows over the camera every 20 to 180 s.
+7. By day in a sector whose `+0x2C` is `0x10` (51,51): crows over the camera every 20 to 180 s, their size and height beside `opensacred-game`'s.

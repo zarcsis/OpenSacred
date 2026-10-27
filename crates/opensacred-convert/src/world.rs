@@ -264,6 +264,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
             area: k.area,
             dungeon: k.dungeon,
             weather: weather(&k.weather),
+            fliers: k.fliers,
         })
         .collect();
     entries.sort_by_key(|e| (e.y, e.x));

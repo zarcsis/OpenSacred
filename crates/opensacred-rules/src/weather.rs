@@ -22,6 +22,10 @@ pub const STORM: u32 = 0x4;
 pub const SNOW: u32 = 0x10;
 pub const QUAKE: u32 = 0x80;
 
+/// The fliers over the camera: the crow's and the bat's creature types (`CROW.GRN`, `BAT.GRN`).
+pub const CROW: u32 = 513;
+pub const BAT: u32 = 514;
+
 /// The most of a value of the weather's events (`0x419A70`).
 const MOST: u32 = 100;
 /// The rain's drops and the snow's flakes of a value of 1.
@@ -102,6 +106,9 @@ pub struct Weather {
     index: u8,
     /// The view's sector last seen (`0x95F930`).
     sector: Option<u32>,
+    /// When the next flier is due over the camera, in seconds of real time (`0xAD77BC`), none
+    /// until a sector of fliers is first seen.
+    fliers: Option<f64>,
 }
 
 /// A kind's place among the timed ones.
@@ -188,6 +195,36 @@ impl Weather {
             );
             let roll = self.roll(rolls);
             self.deadlines[k] = Some(now + period(range, roll));
+        }
+    }
+
+    /// The fliers over the camera at the time `now` (seconds of real time) in a sector whose
+    /// fliers' byte is `byte` (`0x625290`'s end): in a sector of any byte but 0 their timer runs,
+    /// first armed `rand() % 161 + 20` seconds on by the rolls `rolls`, which the weather's
+    /// timers share; once it is passed, the flier of the byte is due, a crow (513) for `0x10` or
+    /// a bat (514) for `0x80`, none for the rest, and the timer is armed anew. The caller sends
+    /// it but by night (`0x41BAB0`) and while a place of its pool of eight is free (`0x637060`).
+    pub fn fliers(&mut self, now: f64, byte: u8, rolls: &[u8]) -> Option<u32> {
+        if byte == 0 {
+            return None;
+        }
+        let wait = |weather: &mut Self| f64::from(weather.roll(rolls) % 161 + 20);
+        let due = match self.fliers {
+            Some(due) => due,
+            None => {
+                let due = now + wait(self);
+                self.fliers = Some(due);
+                due
+            }
+        };
+        if now <= due {
+            return None;
+        }
+        self.fliers = Some(now + wait(self));
+        match byte {
+            0x10 => Some(CROW),
+            0x80 => Some(BAT),
+            _ => None,
         }
     }
 
@@ -321,6 +358,23 @@ fn whole(steps: f32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flier_comes_on_its_timer_by_the_sectors_byte() {
+        let rolls: Vec<u8> = (0..=255).collect();
+        let mut weather = Weather::default();
+        assert_eq!(weather.fliers(0.0, 0, &rolls), None);
+        assert_eq!(weather.fliers(10.0, 0x10, &rolls), None);
+        // Armed by the roll 1: 21 s on.
+        assert_eq!(weather.fliers, Some(31.0));
+        assert_eq!(weather.fliers(31.0, 0x10, &rolls), None);
+        assert_eq!(weather.fliers(31.5, 0x10, &rolls), Some(CROW));
+        // Armed anew by the roll 2.
+        assert_eq!(weather.fliers, Some(53.5));
+        assert_eq!(weather.fliers(60.0, 0x30, &rolls), None);
+        assert_eq!(weather.fliers, Some(83.0));
+        assert_eq!(weather.fliers(90.0, 0x80, &rolls), Some(BAT));
+    }
 
     /// Dice that roll their numbers in turn.
     struct Rolls(Vec<u32>);

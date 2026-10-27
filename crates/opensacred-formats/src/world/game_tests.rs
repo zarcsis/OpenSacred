@@ -48,6 +48,10 @@ fn the_sectors_weather_entries_count_by_their_types() {
     assert_eq!(kinds, [307, 1_031, 46, 10, 2_428, 37]);
     let dungeons = keyx.sectors.iter().filter(|key| key.dungeon).count();
     assert_eq!(dungeons, 2_428);
+    // The crows' and the bats' sectors (docs/02 §5.1), the start's byte 0x40.
+    let fliers = |byte: u8| keyx.sectors.iter().filter(|key| key.fliers == byte).count();
+    assert_eq!((fliers(0x10), fliers(0x80), fliers(0)), (272, 870, 139));
+    assert_eq!(keyx.sector(50, 39).map(|key| key.fliers), Some(0x40));
 }
 
 fn cell_bytes(cell: &Cell) -> [u8; 32] {
