@@ -224,6 +224,21 @@ pub fn placed_at(at: Vec3, listener: Option<Vec3>, volume: Listener) -> (f32, f3
     )
 }
 
+/// The integer distance of `at` from the listener at `listener` in the original's screen pixels
+/// at zoom 1, as the sound manager measures its lists' records (`0x6912B0`, `0x678260`'s rule).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "an offset in pixels within the world, far below 2^31"
+)]
+pub fn screen_distance(at: Vec3, listener: Vec3) -> i32 {
+    let offset = at - listener;
+    let (cx, cy) = (offset.x / iso::CELL, offset.z / iso::CELL);
+    distance(
+        (48.0 * (cx - cy)).round() as i32,
+        (24.0 * (cx + cy)).round() as i32,
+    )
+}
+
 /// The volume at the listener (`+0x84`), which the zoom sets (#1181): `cWorldView_setZoom`
 /// (`0x628130`) sends the sound manager the event `(9, 0x15)` of the zoom in hundredths, which
 /// its handler (`0x67C105`) holds within 50 to 200 and makes 1 − (z − 50)·0.005 below 100, 0.75

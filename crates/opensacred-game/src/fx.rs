@@ -30,6 +30,7 @@ const SEED: usize = 0x76E;
 /// A fire: its variant's data, its particles and its dice, and its layers' meshes.
 #[derive(Component)]
 pub struct Burning {
+    variant: u8,
     fire: Arc<Fire>,
     system: System,
     dice: Rng,
@@ -252,6 +253,7 @@ fn light(
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
         let mut burning = commands.entity(entity);
         burning.insert(Burning {
+            variant,
             fire: fire.clone(),
             system: System::new(fire.count),
             dice: Rng::of(0, 0, SEED ^ index),
@@ -307,8 +309,105 @@ fn burn(time: Res<Time>, mut fires: Query<&mut Burning>, mut meshes: ResMut<Asse
     }
 }
 
-fn end(mut commands: Commands) {
+/// The fires' loop, `INDOORFIRE_LOOP`, how many of it play at most, and how near the hero a fire
+/// sounds, in the original's screen pixels (`0x690420`).
+const FIRE_LOOP: u32 = 210;
+const LOOPS: usize = 4;
+const NEAR: i32 = 300;
+
+/// The loop's volume of a fire of the variant `variant`, by its type: 0.3 for `FX_FI_SMOKE_S`
+/// and the smallest `FX_FIRE_L`, 0.4 for the middle ones, 0.6 for the largest; none for a smoke.
+fn crackle_volume(variant: u8) -> Option<f32> {
+    match variant {
+        4 | 10 => Some(0.3),
+        5 | 11 => Some(0.4),
+        6 | 12 => Some(0.6),
+        _ => None,
+    }
+}
+
+/// The fires' loops that play, each at its fire.
+#[derive(Resource, Default)]
+struct Crackles(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
+
+/// The fires' loop near the hero (`0x690420`): at each frame, while fewer than four play, one
+/// more starts at the nearest fire within 300 pixels, looping at the sample's rate; each plays at
+/// its fire's place by its volume, and stops when its fire goes or is further than 300.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn crackle(
+    mut crackles: ResMut<Crackles>,
+    fires: Query<(Entity, &Burning, &GlobalTransform)>,
+    heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
+    mut sfx: ResMut<crate::sfx::Sfx>,
+    heard: Res<crate::sfx::Listener>,
+    assets: Res<AssetServer>,
+    audio: Res<bevy_kira_audio::Audio>,
+    mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>,
+) {
+    use bevy_kira_audio::prelude::{AudioControl, AudioTween, PlaybackState};
+    let Some(hero) = heroes.iter().next().map(GlobalTransform::translation) else {
+        return;
+    };
+    let near = |at: &GlobalTransform| crate::sfx::screen_distance(at.translation(), hero) <= NEAR;
+    crackles.0.retain(|(fire, handle)| {
+        // A loop whose instance is not made yet is starting.
+        let playing = instances.get(handle).is_none_or(|instance| {
+            matches!(
+                instance.state(),
+                PlaybackState::Playing { .. } | PlaybackState::Queued
+            )
+        });
+        let keep = playing && fires.get(*fire).is_ok_and(|(_, _, at)| near(at));
+        if !keep && let Some(mut instance) = instances.get_mut(handle) {
+            instance.stop(AudioTween::default());
+        }
+        keep
+    });
+    if crackles.0.len() < LOOPS
+        && let Some((fire, _)) = fires
+            .iter()
+            .filter(|(_, burning, at)| crackle_volume(burning.variant).is_some() && near(at))
+            .map(|(fire, _, at)| (fire, crate::sfx::screen_distance(at.translation(), hero)))
+            .min_by_key(|&(_, d)| d)
+        && let Some((id, file)) = sfx.with_id(FIRE_LOOP)
+    {
+        let sample = sfx.sample(id, file, &assets);
+        let handle = audio
+            .play(sample)
+            .looped()
+            .with_volume(crate::sfx::decibels(0.0))
+            .handle();
+        debug!("fx: the fires' loop starts at {fire}, {} playing", crackles.0.len() + 1);
+        crackles.0.push((fire, handle));
+    }
+    for (fire, handle) in &crackles.0 {
+        let (Ok((_, burning, at)), Some(mut instance)) =
+            (fires.get(*fire), instances.get_mut(handle))
+        else {
+            continue;
+        };
+        let (volume, pan) = crate::sfx::placed_at(at.translation(), Some(hero), *heard);
+        let volume = volume * crackle_volume(burning.variant).unwrap_or(0.0);
+        instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
+        instance.set_panning(pan, AudioTween::default());
+    }
+}
+
+fn end(
+    mut commands: Commands,
+    crackles: Option<Res<Crackles>>,
+    mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>,
+) {
     commands.remove_resource::<Fires>();
+    for (_, handle) in crackles.iter().flat_map(|crackles| &crackles.0) {
+        if let Some(mut instance) = instances.get_mut(handle) {
+            instance.stop(bevy_kira_audio::prelude::AudioTween::default());
+        }
+    }
+    commands.insert_resource(Crackles::default());
 }
 
 /// The FX objects' particle systems.
@@ -316,11 +415,12 @@ pub struct FxPlugin;
 
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), begin)
+        app.init_resource::<Crackles>()
+            .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
                 Update,
-                (light.run_if(resource_exists::<Fires>), burn)
+                (light.run_if(resource_exists::<Fires>), burn, crackle)
                     .chain()
                     .in_set(Playing)
                     .in_set(Unpaused),
