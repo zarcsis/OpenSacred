@@ -417,6 +417,19 @@ The game follows the talks since #1028 (`npcs::Talk`, `scripts::Live::talk`, `ta
 In the game the Seraphim's start's novice showed her text and her button, as the original's, and the button ran `exit01`, which gave her her next dialogue, the one the next talk showed, and showed the first act's title over the scene as the original's does.
 Since #1039 her "?!" pulses over her head as the original's does.
 
+### The talks' binds and `SelfTriggerQuest<n>`
+
+Read 2026-10-27 for #1250 in `Sacred.exe` and on the converted trees, code only; **confirmed** by code unless marked otherwise.
+
+- The compiler gives every quest a function `SelfTriggerQuest<n>` of one record, `TriggerQuest n` (`0x45C73D`–`0x45C7DC`; `SelfTriggerQuestPool<n>` for a pool's quest), so that each tree holds one for each of its quests (601 in the Seraphim's).
+- Two records bind such a function, both handled before the walker's dispatch (`0x47578D`–`0x4757DE`) and only while the walker's flag is set, their entries of the jump table `0x4784C0` doing nothing: `TalkTo` (6, `sdk_DIALOG_CHECK`, `0x491170`), which takes a creature's name (`0x01`, a `res:` name as its shown string) and a dialogue by name (`0x09`) or number (`0x0A`), and `MoveOver` (16, `0x4915A0`), which takes a base trigger's name.
+  The flag is the script manager's byte `+0x14`, which only the new game's walk of its start script sets (`0x470AC1`, cleared at `0x470BCB`) and which `SetUpQuest` hands its sections (`0x48F8A6`, `0x46DB20`): so they would bind only in the set-up sections that the start script runs (**hypothesis** that no other writer of the byte exists).
+- `TalkTo`'s bind (`sdk_TALKBIND_FIRE_FUNNEL`, `0x463240`) gives the creature the dialogue's entry (its `+0x4C`, `sdk_STAMP_IDX`, the creature's `+0x14` bit `0x80000`) and adds the index of `SelfTriggerQuest<quest>`, the running function's quest, under the key `Talk <name> Dlg <entry>` to the script manager's map at `+0x752C` (`0xAB44AC`), the same map that the start's records of type 39 fill with the base triggers' functions; `MoveOver` adds it under the trigger's name (`0x4636C0`).
+- A talked-to creature's talk, at its end (its talk's step 6, `0x52AB70`, `0x52C364`–`0x52C5CD`, after its window is gone and a button's function ran), runs the first function under its key with the creature (`0x52C503`), the key taken out and put back only where the function did not run to its end; the talk's start runs none (`0x52BDB7`).
+- No record of the types 6, 16 or 47 stands in any of the 20 trees (every `FunkCode`, `StartCode`, `QuestCode` and `QuestPoolCode`), so the release binds nothing and never runs a `SelfTriggerQuest<n>`: they are the compiler's leftovers.
+  Every side quest of the trees has a `TriggerQuest` outside it; of the Seraphim's 221 campaign side quests, 210 are entered by a dialogue's button's function (`trigger<n>`, `btn_accept_<n>_start`, `trgquest<n>`, 44 of them by another function too), 10 in their own `QIS_OnSetUp<n>` (5081 to 5089, 9522) and one by its base trigger (301); her other 352 are the dynamic quests 2600 to 3056, which never run.
+- `opensacred-game` keeps no binds and runs no `SelfTriggerQuest<n>`, as the release; the side quests are entered by the buttons' functions it runs (#1028).
+
 ### The icons over the creatures
 
 Read 2026-10-26 (#1039) by the static reading of `Sacred.exe`; **confirmed** by code unless marked otherwise, and **seen** the same day in the running original.
