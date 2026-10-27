@@ -19,6 +19,7 @@ pub mod quests;
 pub mod rewards;
 pub mod spawning;
 pub mod spells;
+pub mod undead;
 pub mod ways;
 pub mod weather;
 

@@ -320,6 +320,11 @@ fn dies(
         debug!("drops: {} drops nothing: a creature killed it", died.entity);
         return;
     }
+    // An undead that rises again drops nothing at this death (`0x533C7F`, #1199).
+    if dies.rises {
+        debug!("drops: {} drops nothing: it rises again", died.entity);
+        return;
+    }
     let treasure = heroes
         .iter()
         .next()

@@ -328,9 +328,9 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
   `opensacred-game` plays it so, and stops the hero's line by name that plays (`voices`, #1168).
 - **The killer's weapon at a death** (`0x5334DD`, `0x536362`): `0x425EC0(the event's weapon type, 7)`, which every weapon profile leaves empty: silent (**hypothesis** for the argument).
 - **Death by fire** (`0x53ECA0`, the death's action, the action 6 of the AI's switch at `0x539918` in `0x5375C0`): an effect `0x50` at the creature and `DIEFLAMES` (7029) at it, at a rate factor of 0.5 (three sites).
-  The action's sub-mode (`+0x152`) set, the creature standing (`+0x241`, `+0x214` 0), its type (`+0x10`, 32 to 143) chooses the case by the byte table `0x542A30` (the cases at `0x542A14`, read 2026-10-27): the fire ghoul, 73 (`feuerghul.grn`), makes the FX object 856 at itself, the effect and the sound, unless its flags word (`+0x1F4`) has bit `0x2000`; the magic skeletons 48, 80 and 81 and the undead goblins 142 and 143 each have a case of their own that plays it in a branch after a test of `+0x4D4` (not read; **hypothesis**: as they fall for good rather than rise).
+  The action's sub-mode (`+0x152`) set, the creature standing (`+0x241`, `+0x214` 0), its type (`+0x10`, 32 to 143) chooses the case by the byte table `0x542A30` (the cases at `0x542A14`, read 2026-10-27): the fire ghoul, 73 (`feuerghul.grn`), makes the FX object 856 at itself, the effect and the sound, unless its flags word (`+0x1F4`) has bit `0x2000`; the magic skeletons 48, 80 and 81 and the undead goblins 142 and 143 each have a case of their own that plays it where their most health (`+0x4D4`) is 0, as they burn away at their last death rather than rise (docs/re/fight.md, "The undead that rise again", #1199).
   So it is not a death by fire's damage but these types' end.
-  `opensacred-game` plays it at a fire ghoul's death (`sfx`, #1168).
+  `opensacred-game` plays it at a fire ghoul's death (`sfx`, #1168) and as an undead burns away (`undead`, #1199).
 - **`CHAR_SPLASH`** (3000) plays in one branch of `0x4E8DA0` (called from `addExperience`, the gold's handler, the deaths, the arrows and the save's load; what it does is not read) with an effect `0x27` at the creature and the event (6, 7); the branch's condition is not read.
 
 #### The listener and the zoom

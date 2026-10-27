@@ -84,6 +84,7 @@ mod steps;
 mod tables;
 mod talk;
 mod terrain;
+mod undead;
 mod voices;
 mod weather;
 
@@ -355,6 +356,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
+        undead::UndeadPlugin,
     ))
     .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))

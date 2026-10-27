@@ -183,7 +183,7 @@ pub(crate) fn resolve(
             Option<&Worth>,
             Has<Body>,
             Option<&Ranked>,
-            Has<Immortal>,
+            (Has<Immortal>, Option<&crate::ai::Mind>),
         ),
         Without<Dies>,
     >,
@@ -191,7 +191,7 @@ pub(crate) fn resolve(
     for hit in hits.read() {
         let (
             Ok((attacker, hero, mind, from, ranked)),
-            Ok((mut health, defender, at, worth, hero_hit, rank, immortal)),
+            Ok((mut health, defender, at, worth, hero_hit, rank, (immortal, victim))),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
             debug!(
@@ -348,7 +348,21 @@ pub(crate) fn resolve(
         ));
         if health.current == 0 {
             let by_creature = !hero && !hero_hit;
-            if let Some(&worth) = worth.filter(|_| by_creature) {
+            // A magic skeleton or an undead goblin may rise again, a skeleton draining a lower
+            // killer (`0x532BD6`, #1199): no kill.
+            let rank_of = rank.map_or(Rank::Common, |rank| rank.0);
+            let plain = hit.art.is_none() && !hit.ranged;
+            let rises = victim.and_then(|victim| {
+                crate::undead::rolls(&mut dice.0, victim, rank_of, plain).inspect(|_| {
+                    crate::undead::drain(
+                        &mut commands,
+                        hit.attacker,
+                        (victim.creature, health.level),
+                        level,
+                    );
+                })
+            });
+            if let Some(&worth) = worth.filter(|_| by_creature && rises.is_none()) {
                 kills.write(Kill {
                     killer: hit.attacker,
                     victim: hit.target,
@@ -361,7 +375,7 @@ pub(crate) fn resolve(
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
-                (hit.target, by_creature),
+                (hit.target, by_creature, rises),
                 &health,
                 worth,
             );
@@ -383,20 +397,39 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
 /// hero killed it, of `worth` and its rank, the hero earns its experience (the event 9,
 /// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned. A creature
 /// killed by another (`by_creature`, #630) drops nothing, and its killer earns its experience
-/// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690).
+/// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises`
+/// gives nothing (`undead`, #1199).
 fn fell(
     commands: &mut Commands,
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
-    (target, by_creature): (Entity, bool),
+    (target, by_creature, rises): (Entity, bool, Option<crate::undead::Rises>),
     health: &Health,
     worth: Option<(Worth, Option<Ranked>)>,
 ) -> u32 {
     let choice = dice.0.below(2);
-    commands.entity(target).insert(if by_creature {
+    let mut dies = if by_creature {
         Dies::by_creature(choice)
     } else {
         Dies::new(choice)
-    });
+    };
+    dies.rises = rises.is_some();
+    commands.entity(target).insert(dies);
+    let Some(rises) = rises else {
+        return earn(experience, rules, target, health, worth);
+    };
+    info!("fight: {target} falls and will rise");
+    commands.entity(target).insert(rises);
+    0
+}
+
+/// The experience the hero earns of `target`, at `health`, of `worth` and its rank ([`fell`]).
+fn earn(
+    experience: &mut Experience,
+    rules: &Rules,
+    target: Entity,
+    health: &Health,
+    worth: Option<(Worth, Option<Ranked>)>,
+) -> u32 {
     let Some((worth, rank)) = worth else {
         return 0;
     };
@@ -454,11 +487,17 @@ pub fn kill(
             continue;
         }
         health.current = 0;
+        let rises = crate::undead::rolls(
+            &mut dice.0,
+            mind,
+            rank.map_or(Rank::Common, |rank| rank.0),
+            true,
+        );
         let worth = worth.map(|worth| (*worth, rank.copied()));
         let earned = fell(
             &mut commands,
             (&mut dice, &mut experience, &rules),
-            (entity, false),
+            (entity, false, rises),
             &health,
             worth,
         );

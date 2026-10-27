@@ -1712,11 +1712,14 @@ fn deaths(
             live.living = living_groups(npcs.as_deref(), minds.iter());
             taken = true;
         }
+        // An undead that rises again is no kill and runs no death's function at this death
+        // (`0x5337AB`, #1199; **hypothesis** for the function).
+        if dies.rises {
+            continue;
+        }
         // A kill of a type that a `SetOnKill` counts, whoever killed it, but not a death at
-        // nobody's hands nor one of class 5 (`0x534795`, `0x534F60`, `0x5337AB`; #1021).
-        let kill = mind
-            .filter(|mind| dies.killed && mind.class != 5)
-            .map(|mind| mind.creature);
+        // nobody's hands (`0x534795`, `0x534F60`; #1021).
+        let kill = mind.filter(|_| dies.killed).map(|mind| mind.creature);
         let Some(function) = on_death.and_then(|mut on_death| on_death.0.take()) else {
             if let Some(creature) = kill {
                 let effects = live.kill(creature);
