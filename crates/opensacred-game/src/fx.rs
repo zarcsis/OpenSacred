@@ -117,16 +117,13 @@ pub(crate) fn particle_material(image: Handle<Image>, alpha_mode: AlphaMode) -> 
     }
 }
 
-/// A mesh of no quads, which a system fills each frame.
+/// A mesh of no quads, which a system fills each frame ([`Quads::into_mesh`]).
 pub(crate) fn empty() -> Mesh {
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, Vec::<[f32; 3]>::new());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, Vec::<[f32; 2]>::new());
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, Vec::<[f32; 4]>::new());
-    mesh.insert_indices(Indices::U32(Vec::new()));
+    Quads::default().into_mesh(&mut mesh);
     mesh
 }
 
@@ -173,8 +170,12 @@ impl Quads {
             .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
-    /// Puts the quads into `mesh`.
-    pub(crate) fn into_mesh(self, mesh: &mut Mesh) {
+    /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
+    /// as the renderer warns of a mesh without vertices (#1203).
+    pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
+        if self.indices.is_empty() {
+            self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);
+        }
         mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.positions);
         mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs);
         mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.colours);
