@@ -72,12 +72,12 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 **The hero's lines**, MP3 samples by name (`0x693FE0`), part of the 3,404 MP3s of `sound.pak` (docs/02 §10.2):
 
 - `HITENEMY_nn_<class>` (11 a class) from `0x6852B0` when a creature not the hero takes the group 2 or 3, 10 s since the last, one in five;
-- `BATTLECRY_nn_<class>` (10 a class) at the sound event 5 with an argument from 1003 to 1104 (**hypothesis**: a combat art), one in three, always for the arts that play their own ids 2098 to 2104;
+- `BATTLECRY_nn_<class>` (10 a class) at the sound event 5 with an argument from 1003 to 1104 (**hypothesis**: a combat art), one in three (one in two for the maker of type 2, the Gladiator), always for the arts that play their own ids 2098 to 2104;
 - `ENEMYKILLME_nn_<class>` (6 a class) at the hero's `DEATH`, with `MUSIC_DEATH` (6505, `0x694FE0`).
 
 `opensacred-game` speaks the voices so (`voices`, #711): `ATTACK` at the first strike of the hero's attack and at a creature's strike that does not chain or its shot, `NORMALHIT` or `CRITICALHIT` (below 26 % of the health) at a hit that did damage and does not fell, `DEATH` at a death, each by its type's roll, the heroes' two profiles, a slot of 8 at random, the waits per sound id and one line a creature as above; at the volume of its place and panned by it as the original does (below, "A sound's place", #731), and at the rate above (`voices::rate`, #1140).
 It plays the weapons' sounds (`sfx`, #712): a strike's swing by the class of what the striker holds at its hit moment within reach or in the air; at the target the striker's weapon's `HIT` when the hit did damage, else its `PARADE`, by the sound profile of the weapon's own type, so that a starting weapon without a slot of its own is silent there as the original's, and the fist's for bare hands; a shot's group 3 by the bow's profile (**hypothesis**: `SHOOT`); at the original's volumes, placed as the voices.
-It plays the heroes' lines by name (`voices`, #713): a taunt when a creature takes a hit's line, one in five and 10 s after the last; a battle cry at the start of a combat art, one in three; the death's line at the hero's fall; one of the class's at random, as the hero's line.
+It plays the heroes' lines by name (`voices`, #713): a taunt when a creature takes a hit's line, one in five and 10 s after the last; a battle cry at the start of a combat art, one in three, one in two for the Gladiator, and surely after an art's own cry (#1174); the death's line at the hero's fall; one of the class's at random, as the hero's line.
 It plays `MUSIC_DEATH` at the hero's fall (`music`, #734; below, "A music played once").
 Not yet: the vampiress's `realvamp` lines and the arts that play their own cries.
 
@@ -288,11 +288,11 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | No room in the pack | `0x558080` → (8, 3) | `CANTCARRYMORE` lines | the pack full | no (#1088) | no |
 | A rune dropped by a kill | `0x559BF0` at `0x55A4BD` | 7028 | the drop rolls a rune | no: the drops leave the runes out (docs/decisions/2026-10-21-drops.md) | no |
 | Level-up | `0x57E160` → (9, `0x10`) | 7002 | the hero's level rises | yes (`fight::level_up`) | yes (#1167) |
-| Spells' cast | `0x51E110` | 2000–2125 by the spell | the cast starts | yes (`making`, `spells`) | no |
-| Spells' act | `0x522480` | 2011–2117 by the spell | the spell acts | yes | no |
+| Spells' cast | `0x51E110` | 2000–2125 by the spell | the cast starts | yes (`making`, `spells`) | yes, the hero's (`art_sounds`, #1172) |
+| Spells' act | `0x522480` | 2011–2117 by the spell | the spell acts | yes | yes, the hero's (#1172) |
 | Spells' and arts' objects | `0x76A440`–`0x7C3AC0` | casts, flights, impacts, loops | the object's life | partly (stand-ins) | no |
-| Arts' own cries | `0x67A7A0` (5, 1) | 2098–2104 by the art | an art's start | yes | no |
-| Arts' executors | `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0` | 2076–2122 by the art | an art's run | yes | no |
+| Arts' own cries | `0x67A7A0` (5, 1) | 2098–2104 by the art | an art's start | yes | yes, with the battle cry then sure (#1174) |
+| Arts' executors | `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0` | 2076–2122 by the art | an art's run | yes | at the art's start (#1174; where in the run not read) |
 | The Vampiress's night battle cries | `0x67A7A0` (5, 1), flag `+0xAF48` by (9, `0x49`) | `BATTLECRY_nn_REALVAMP` | a battle cry in her night form | yes (`forms`) | no |
 | Other creatures' footsteps | `0x68EB90` | 103–114, 1194–1199 | a creature's step near the hero | yes | no |
 | The giant spider's steps | `0x4E0300` | 1242, 1243, 1248, 1249 | its motion | yes | no |

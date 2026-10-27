@@ -895,7 +895,10 @@ fn make(
                 making.art
             );
             // The hero's battle cry (`0x67A7A0`'s event 5, `0x693FE0`, #713).
-            cries.write(crate::voices::BattleCry { hero });
+            cries.write(crate::voices::BattleCry {
+                hero,
+                sure: crate::art_sounds::cries_surely(making.art),
+            });
             commands.entity(hero).insert(Playing {
                 style,
                 node,
