@@ -45,9 +45,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Result;
+use bevy::camera::visibility::NoFrustumCulling;
+use bevy::ecs::query::Or;
 use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::math::{Affine3A, Quat, Vec3Swizzles};
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::{
     AnimationClip, AnimationGraph, AnimationGraphHandle, AnimationNodeIndex, AnimationPlayer,
     AnimationTransitions, App, AssetId, AssetServer, Assets, ChildOf, Children, Commands,
@@ -338,6 +341,10 @@ const FX_OPAQUE: u32 = 203;
 /// The item categories of `items.pak +0x2E` that go in a hand (docs/02 §6.1).
 const WEAPON: u8 = 5;
 const SHIELD: u8 = 13;
+/// The categories of the items that a creature does not wear on its skeleton but holds or carries
+/// on a bone of its own: the weapons and the shields, the rings, the amulets and the back's
+/// (docs/re/equipment.md, "The bones").
+const ATTACHED: [u8; 5] = [WEAPON, SHIELD, 8, 20, 25];
 /// The category of the chests, the barrels, the vases, the coffins, the cabinets, the book stands
 /// and the shrines, which the client makes `cChest3D`s, whose draw draws their shadows
 /// (`0x451300`, `0x5C97B0`), and which take their cells: a creature does not step into a cell
@@ -377,6 +384,10 @@ pub struct Held {
     hand: Hand,
     /// A shield, held on the forearm rather than in the hand.
     shield: bool,
+    /// Worn on the holder's skeleton rather than held: its skinned meshes follow the holder's
+    /// bones of their joints' names (`GrannyWearSequence`, docs/re/equipment.md, "Worn items and
+    /// the classes' defaults"; #1131).
+    pub(crate) worn: bool,
 }
 
 /// An item in an NPC's hand, whose values it fights with: its type, its category, its weapon's
@@ -2524,6 +2535,7 @@ impl Makers {
                     texture,
                     hand: hand?,
                     shield: category(item) == SHIELD,
+                    worn: false,
                 })
             })
             .collect();
@@ -2915,6 +2927,7 @@ impl Npcs {
             texture: gear.texture.clone(),
             hand: held.hand,
             shield: false,
+            worn: false,
         };
         let at = worn.iter().position(|worn| worn.item == held.item)?;
         let mut rest = worn.to_vec();
@@ -2962,10 +2975,11 @@ impl Npcs {
     }
 
     /// The class of what the hero holds of `worn`, its template's items ([`class_of`]), by which
-    /// it picks its clips, and the models of those in its hands (#488).
+    /// it picks its clips, and the models of those in its hands (#488) and of those it wears on
+    /// its skeleton (#1131).
     pub fn hero_gear(&self, worn: &[Worn]) -> (u8, Vec<Held>) {
         let holding = self.hero_holding(worn);
-        let held = holding
+        let mut held: Vec<Held> = holding
             .iter()
             .filter_map(|held| {
                 let gear = self.gear.get(&held.item)?;
@@ -2974,9 +2988,11 @@ impl Npcs {
                     texture: gear.texture.clone(),
                     hand: held.hand,
                     shield: held.category == SHIELD,
+                    worn: false,
                 })
             })
             .collect();
+        held.extend(worn_gear(&self.gear, worn, &holding));
         (class_of(&holding), held)
     }
 
@@ -3059,7 +3075,7 @@ pub fn figure_gear(
         let gear = gear.get(&worn.item)?;
         Some((worn.item, gear.category, gear.kind))
     }));
-    let held = holding
+    let mut held: Vec<Held> = holding
         .iter()
         .filter_map(|held| {
             let gear = gear.get(&held.item)?;
@@ -3068,10 +3084,36 @@ pub fn figure_gear(
                 texture: gear.texture.clone(),
                 hand: held.hand,
                 shield: held.category == SHIELD,
+                worn: false,
             })
         })
         .collect();
+    held.extend(worn_gear(&gear, worn, &holding));
     Ok((class_of(&holding), held))
+}
+
+/// The items of `worn` that their wearer wears on its skeleton: those not in its hands
+/// (`holding`) whose categories it does not carry on a bone ([`ATTACHED`]), each with its model
+/// and texture (#1131). A template's are the class's own cosmetic items, which its default
+/// (`0x426580`) also gives: the Seraphim's hair, the Gladiator's belt, the Battle Mage's hood, the
+/// Vampiress's hair and the Dwarf's goggles (docs/re/equipment.md).
+fn worn_gear(gear: &HashMap<u32, Gear>, worn: &[Worn], holding: &[InHand]) -> Vec<Held> {
+    worn.iter()
+        .filter(|worn| !holding.iter().any(|held| held.item == worn.item))
+        .filter_map(|worn| {
+            let gear = gear.get(&worn.item)?;
+            if ATTACHED.contains(&gear.category) {
+                return None;
+            }
+            Some(Held {
+                model: gear.model.clone()?,
+                texture: gear.texture.clone(),
+                hand: Hand::Right,
+                shield: false,
+                worn: true,
+            })
+        })
+        .collect()
 }
 
 /// The horses' `Creature.pak` class, whose level `CreateNPC` raises by the hero's riding
@@ -3512,6 +3554,7 @@ pub fn place(
                                 texture: g.texture.clone(),
                                 hand: hand?,
                                 shield: g.category == SHIELD,
+                                worn: false,
                             })
                         })
                         .collect();
@@ -4017,6 +4060,68 @@ fn category(item: &Item) -> u8 {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Wielded(Hand);
 
+/// The model of an item that a creature wears on its skeleton (`equip`): its wearer, whose bones
+/// its skinned meshes follow ([`bind_worn`]).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct WornBy(pub Entity);
+
+/// A worn item's skinned mesh whose joints are its wearer's bones.
+#[derive(Component)]
+pub struct Bound;
+
+/// An item's model on a creature, held in a hand ([`Wielded`]) or worn ([`WornBy`]).
+pub type Carried = Or<(With<Wielded>, With<WornBy>)>;
+
+/// Binds the skinned meshes of each worn item to its wearer's bones of their joints' names, as
+/// `GrannyWearSequence` merges a worn item onto its wearer's skeleton (`0x44C980`, docs/re/
+/// equipment.md, "Worn items and the classes' defaults"): each joint becomes the wearer's bone of
+/// its name where the wearer has one, not a bone of the items it holds or wears.
+pub fn bind_worn(
+    mut commands: Commands,
+    worn: Query<(Entity, &WornBy)>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    items: Query<(), Carried>,
+    mut meshes: Query<&mut SkinnedMesh, Without<Bound>>,
+) {
+    for (piece, by) in &worn {
+        let skinned: Vec<Entity> = children
+            .iter_descendants(piece)
+            .filter(|&entity| meshes.contains(entity))
+            .collect();
+        if skinned.is_empty() {
+            continue;
+        }
+        let mut bones: HashMap<&str, Entity> = HashMap::new();
+        let mut stack = vec![by.0];
+        while let Some(entity) = stack.pop() {
+            if let Ok(name) = names.get(entity) {
+                bones.entry(name.as_str()).or_insert(entity);
+            }
+            for &child in children.get(entity).into_iter().flatten() {
+                if !items.contains(child) {
+                    stack.push(child);
+                }
+            }
+        }
+        for entity in skinned {
+            let Ok(mut mesh) = meshes.get_mut(entity) else {
+                continue;
+            };
+            for joint in &mut mesh.joints {
+                let bone = names
+                    .get(*joint)
+                    .ok()
+                    .and_then(|name| bones.get(name.as_str()));
+                if let Some(&bone) = bone {
+                    *joint = bone;
+                }
+            }
+            commands.entity(entity).insert((Bound, NoFrustumCulling));
+        }
+    }
+}
+
 /// An NPC's equipment still to attach: each item's model, its texture, its hand, and whether the
 /// NPC's own scene is ready.
 #[derive(Component)]
@@ -4027,6 +4132,7 @@ pub struct Equip {
     texture: Option<Handle<Image>>,
     hand: Hand,
     shield: bool,
+    worn: bool,
     ready: bool,
     /// The frames it waits once its holder's scene is ready ([`SETTLES`]).
     waits: u8,
@@ -4061,6 +4167,7 @@ pub fn equipment(assets: &AssetServer, held: &[Held]) -> Equipment {
                 texture: held.texture.as_ref().map(|t| load_texture(assets, t)),
                 hand: held.hand,
                 shield: held.shield,
+                worn: held.worn,
                 ready: false,
                 waits: SETTLES,
             })
@@ -4113,6 +4220,28 @@ pub fn equip(
             let Some(gltf) = gltfs.get(&item.gltf) else {
                 return true;
             };
+            // A worn item's model goes under its wearer, its skinned meshes then bound to the
+            // wearer's bones ([`bind_worn`]).
+            if item.worn {
+                let Some(scene) = gltf.scenes.first().cloned() else {
+                    return false;
+                };
+                if !worlds.contains(&scene) {
+                    return true;
+                }
+                let mut piece = commands.spawn((
+                    WorldAssetRoot(scene),
+                    Transform::default(),
+                    ChildOf(npc),
+                    models::OrderedWith(npc),
+                    WornBy(npc),
+                ));
+                if let Some(texture) = &item.texture {
+                    piece.insert(Retexture(texture.clone()));
+                }
+                bevy::log::debug!("npcs: {npc} wears {}", piece.id());
+                return false;
+            }
             let (socket, own, holder) = bones(item.hand, item.shield);
             let Some(pose) = pose(gltf, &nodes, socket) else {
                 return false;
@@ -6368,7 +6497,7 @@ fn rearm(
         }
         let mut equipment = equipment;
         if let Some(equipment) = equipment.as_mut() {
-            equipment.0.retain(|item| !gone(item.hand));
+            equipment.0.retain(|item| item.worn || !gone(item.hand));
         }
         let grade = mind.level;
         if let Some(item) = rearms.takes
@@ -6394,6 +6523,7 @@ fn rearm(
                     texture: gear.texture.as_ref().map(|t| load_texture(&assets, t)),
                     hand: other,
                     shield: gear.category == SHIELD,
+                    worn: false,
                     ready: true,
                     waits: 0,
                 };
@@ -6465,6 +6595,7 @@ fn instrument(
             texture: texture.as_ref().map(|t| load_texture(&assets, t)),
             hand: Hand::Right,
             shield: false,
+            worn: false,
             ready: true,
             waits: 0,
         }]));
@@ -6505,6 +6636,7 @@ impl Plugin for NpcsPlugin {
                     die,
                     stance,
                     equip,
+                    bind_worn,
                 )
                     .chain()
                     .in_set(Step::Npcs),
@@ -7798,6 +7930,46 @@ mod tests {
         assert_eq!(levels((52, 44)), Some((1, 4)));
         assert_eq!(levels((51, 44)), None);
         assert_eq!(fills.keys().collect::<Vec<_>>(), [&(49, 44)]);
+    }
+
+    #[test]
+    fn a_hero_wears_what_it_neither_holds_nor_carries_on_a_bone() {
+        let gear = |category, model: &str| Gear {
+            category,
+            kind: None,
+            model: Some(model.to_owned()),
+            texture: None,
+            counts: false,
+            sound: 0,
+            size: 50.0,
+        };
+        // A sword in the hand, a hood, a ring and wings for the back.
+        let gear: HashMap<u32, Gear> = [
+            (7904, gear(WEAPON, "staff.glb")),
+            (3219, gear(17, "cowl.glb")),
+            (1001, gear(8, "ring.glb")),
+            (4006, gear(25, "wings.glb")),
+        ]
+        .into_iter()
+        .collect();
+        let worn: Vec<Worn> = [7904, 3219, 1001, 4006]
+            .into_iter()
+            .map(|item| Worn {
+                id: 0,
+                item,
+                words: Vec::new(),
+            })
+            .collect();
+        let holding = InHand::of([(7904, WEAPON, None)]);
+        let wears = worn_gear(&gear, &worn, &holding);
+        assert_eq!(
+            wears
+                .iter()
+                .map(|held| held.model.as_str())
+                .collect::<Vec<_>>(),
+            ["cowl.glb"]
+        );
+        assert!(wears[0].worn);
     }
 
     #[test]
