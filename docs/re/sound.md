@@ -274,7 +274,7 @@ Read 2026-10-27 for #1211 in `Sacred.exe`, code only (**confirmed** by code unle
 - **Seen** 2026-10-27 with the driver of #448 (the Seraphim's new game at 08:00, the region's music `MUSIC_WOOD01`, 6560, a trace of `0x694510` and probes of the manager at `0x69B770`):
   - With the driver's default volumes of 0, the first phase was the ambient loop (`ATMO_WOOD` at 20 s) and the switch due every 180 s took the ambient loop again, as a music's volume of 0.001 or less does: `ATMO_WOOD` at 20.5, 200.4 and 380.4 s.
   - With `--muted` (the game's volumes 64, every Miles volume set to 0 by the agent), `ATMO_WOOD` at 19 s and no `playMusic` for seven minutes, the hero moved to 54,42 meanwhile; the manager read `+0x698` 2, `+0xAF28` 1, `+0x6AC` 0, `+0x692` 6560, `+0x64` 7 (a crossfade's bit held), the stream B closed and the timer climbing to 180 s and set back to 160: the crossfade, its levels read back as 0, never ended, and the switch waited 20 s again and again (#1213).
-  The alternation itself is still to be heard in the original with its volumes read back as set.
+  - With the mute reading a stream's volume back as the game asked (#1213), the crossfade's bit cleared within 7 s, and the stream turned `ATMO_WOOD` at 19.9 s, `MUSIC_WOOD01` at 200.0 s and `ATMO_WOOD` at 380.0 s, 180 s each, the hero standing in the chapel of 50,39 by day.
 
 What the game does differs (#1177): `music` plays the region's music by day and none by night, and `atmosphere` plays the ambient loops on a channel of their own beside it (docs/decisions/2026-10-17-region-music.md), with fades of 2 s.
 

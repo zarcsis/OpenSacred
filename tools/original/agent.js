@@ -2438,8 +2438,16 @@ function stopTrace(name) {
 
 // With the host's --muted, the game keeps its volumes and so plays its sounds, for their traces, while mss32.dll
 // outputs nothing: every volume the game sets on a sample, a 3D sample or a stream is 0, each is set to 0 again as it
-// starts, and so is the digital driver's master volume as it opens.
-const mute = { set: 0 };
+// starts, and so is the digital driver's master volume as it opens. A stream's volume read back answers the volume the
+// game asked for, as the music's crossfades weigh the streams' own levels and would never end at 0 (#1213).
+const mute = { set: 0, asked: new Map(), own: false };
+
+// A float's value from the bits of a stack argument.
+function floatOf(bits) {
+  const buffer = new ArrayBuffer(4);
+  new Uint32Array(buffer)[0] = bits.toUInt32();
+  return new Float32Array(buffer)[0];
+}
 
 function installMute() {
   const mss = Module.load('mss32.dll');
@@ -2452,9 +2460,35 @@ function installMute() {
       mute.set += 1;
     },
   });
+  // The volume the game asks of each stream (`_AIL_set_stream_volume_pan`), kept, then set to 0.
+  Interceptor.attach(exp('_AIL_set_stream_volume_pan@12'), {
+    onEnter(args) {
+      if (!mute.own && !args[0].isNull()) {
+        mute.asked.set(args[0].toString(), floatOf(args[1]));
+      }
+      args[1] = ptr(0);
+      mute.set += 1;
+    },
+  });
+  Interceptor.attach(exp('_AIL_stream_volume_pan@12'), {
+    onEnter(args) {
+      this.stream = args[0].toString();
+      this.volume = args[1];
+    },
+    onLeave() {
+      if (mute.asked.has(this.stream) && !this.volume.isNull()) {
+        this.volume.writeFloat(mute.asked.get(this.stream));
+      }
+    },
+  });
+  Interceptor.attach(exp('_AIL_close_stream@4'), {
+    onEnter(args) {
+      mute.asked.delete(args[0].toString());
+    },
+  });
   const volumes = {
     '_AIL_set_sample_volume_pan@12': [1], '_AIL_set_sample_volume_levels@12': [1, 2],
-    '_AIL_set_3D_sample_volume@8': [1], '_AIL_set_stream_volume_pan@12': [1],
+    '_AIL_set_3D_sample_volume@8': [1],
     '_AIL_set_stream_volume_levels@12': [1, 2], '_AIL_set_digital_master_volume_level@8': [1],
     '_AIL_redbook_set_volume_level@8': [1], '_AIL_set_XMIDI_master_volume@8': [1],
   };
@@ -2476,7 +2510,11 @@ function installMute() {
   before('_AIL_resume_sample@4', (s) => setSample(s, 0, 0.5));
   before('_AIL_start_3D_sample@4', (s) => set3D(s, 0));
   before('_AIL_resume_3D_sample@4', (s) => set3D(s, 0));
-  before('_AIL_start_stream@4', (s) => setStream(s, 0, 0.5));
+  before('_AIL_start_stream@4', (s) => {
+    mute.own = true;
+    setStream(s, 0, 0.5);
+    mute.own = false;
+  });
   Interceptor.attach(exp('_AIL_open_digital_driver@16'), {
     onLeave(driver) {
       if (!driver.isNull()) {
