@@ -6,9 +6,11 @@
 //! id but at a death; it gives way to the creature's own line still playing but at a hit, which
 //! stops that line, and at a death; it records the wait of its id. One line a creature.
 //!
-//! The hero speaks lines of its own too, MP3 samples by name (`0x693FE0`, #713): a taunt when a
-//! creature takes a hit's line, one in five and 10 s after the last; a battle cry at a combat art,
-//! one in three; and its death's line.
+//! The hero speaks lines of its own too, MP3 samples by name (`0x693FE0`, #713): a battle cry at a
+//! combat art, one in three; its death's line; and its comments in the fight on one clock, which
+//! each comment that plays sets back to 0 (`+0xB7E8`, #1175; docs/re/sound.md, "The hero's
+//! comments"): a taunt at a boss's or a champion's hit while the hero's own grunt still sounds,
+//! its kill and its hit, the hero hit near its death, and a foe too weak or too strong for it.
 //!
 //! The line plays at the volume of its place, lowered with the distance from the hero and panned
 //! by its side as the original places it (`sfx::placed`, `0x678260`), and at a rate of its
@@ -51,8 +53,9 @@ pub const DEATH: u8 = 7;
 /// record's `+0x2C` below 26, **hypothesis**: its health in per cent).
 const CRITICAL: u32 = 26;
 
-/// The hero's taunts' wait, in seconds.
-const TAUNTS_AFTER: f64 = 10.0;
+/// The animals' types, which the comments on a kill, a boss and a foe's strength leave out
+/// (`0x687656`).
+const ANIMALS: std::ops::RangeInclusive<u32> = 512..=596;
 
 /// The idle noises' rolls at each world tick (`0x69B770`): one in 20 for a creature hostile to the
 /// hero (the update's first list), one in 70 for the others (the second).
@@ -77,6 +80,11 @@ pub struct BattleCry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeroLine {
     HitEnemy,
+    KillEnemy,
+    BossMob,
+    EnemyHitMe,
+    EnemyTooWeak,
+    EnemyTooStrong,
     /// A battle cry, `sure` after an art's own cry, `night` in the Vampiress's night's form.
     BattleCry {
         sure: bool,
@@ -89,6 +97,11 @@ impl HeroLine {
     fn stem(self) -> &'static str {
         match self {
             Self::HitEnemy => "HITENEMY",
+            Self::KillEnemy => "KILLENEMY",
+            Self::BossMob => "BOSSMOB",
+            Self::EnemyHitMe => "ENEMYHITME",
+            Self::EnemyTooWeak => "ENEMYTOOWEAK",
+            Self::EnemyTooStrong => "ENEMYTOOSTRONG",
             Self::BattleCry { .. } => "BATTLECRY",
             Self::EnemyKillMe => "ENEMYKILLME",
         }
@@ -97,6 +110,8 @@ impl HeroLine {
     fn count(self) -> u32 {
         match self {
             Self::HitEnemy => 11,
+            Self::KillEnemy => 14,
+            Self::BossMob | Self::EnemyHitMe | Self::EnemyTooWeak | Self::EnemyTooStrong => 6,
             Self::BattleCry { .. } => 10,
             Self::EnemyKillMe => 6,
         }
@@ -106,6 +121,9 @@ impl HeroLine {
     fn roll(self, creature: u32) -> u8 {
         match self {
             Self::HitEnemy => 5,
+            Self::KillEnemy | Self::BossMob => 3,
+            Self::EnemyHitMe => 4,
+            Self::EnemyTooWeak | Self::EnemyTooStrong => 20,
             Self::BattleCry { sure: true, .. } => 1,
             Self::BattleCry { .. } if creature == GLADIATOR => 2,
             Self::BattleCry { .. } => 3,
@@ -161,8 +179,8 @@ pub struct Voices {
     voices: HashMap<u32, Voice>,
     /// Until when, in the game's seconds, a sound id waits.
     waits: HashMap<u32, f64>,
-    /// When the hero last taunted.
-    taunted: Option<f64>,
+    /// When the hero last made a comment (`+0xB7E8` counts the seconds since).
+    commented: Option<f64>,
     /// The idle noises of the types hostile to the hero, and of the others.
     hostile_idle: HashMap<u32, IdleNoise>,
     peaceful_idle: HashMap<u32, IdleNoise>,
@@ -207,7 +225,7 @@ impl Voices {
         Ok(Self {
             voices,
             waits: HashMap::new(),
-            taunted: None,
+            commented: None,
             hostile_idle: by_type(idle.hostile),
             peaceful_idle: by_type(idle.peaceful),
             dice: Rng::of(0, 0, 3),
@@ -259,28 +277,105 @@ impl Voices {
         Some((id, file, wait))
     }
 
-    /// The hero's `line`, of the hero of type `creature`, if its roll gives one (a taunt also
-    /// 10 s after the last, at `now`): one of the class's at random.
-    fn hero_line(
-        &mut self,
-        sfx: &Sfx,
-        creature: u32,
-        line: HeroLine,
-        now: f64,
-    ) -> Option<(u32, String)> {
-        if line == HeroLine::HitEnemy && self.taunted.is_some_and(|t| now - t < TAUNTS_AFTER) {
-            return None;
-        }
+    /// The hero's `line`, of the hero of type `creature`, if its roll gives one: one of the
+    /// class's at random.
+    fn hero_line(&mut self, sfx: &Sfx, creature: u32, line: HeroLine) -> Option<(u32, String)> {
         if !rolls(line.roll(creature), &mut self.dice) {
             return None;
         }
         let name = line.name(creature, self.dice.below(line.count()))?;
-        let found = sfx.named(&name)?;
-        if line == HeroLine::HitEnemy {
-            self.taunted = Some(now);
-        }
-        Some(found)
+        sfx.named(&name)
     }
+
+    /// The comment that `heard` makes the hero say (`0x6852B0`), its line's sound and file, at
+    /// `now`: the clock set back to 0 when one comes, even one that names no line.
+    fn comment(
+        &mut self,
+        sfx: &Sfx,
+        creature: u32,
+        (heard, hero): (Heard, HeroState),
+        now: f64,
+    ) -> Option<(u32, String)> {
+        let clock = self.commented.map_or(f64::INFINITY, |at| now - at);
+        let (line, n) = comment(heard, hero, clock, &mut self.dice)?;
+        self.commented = Some(now);
+        let name = line.name(creature, n)?;
+        // The sixth line that a class lacks is its fifth again (by its id, `0x689199`).
+        sfx.named(&name).or_else(|| {
+            (n == 5 && matches!(line, HeroLine::EnemyTooWeak | HeroLine::EnemyTooStrong))
+                .then(|| line.name(creature, 4))
+                .flatten()
+                .and_then(|name| sfx.named(&name))
+        })
+    }
+}
+
+/// A line of the fight as the hero's comments hear it: its group, whether the hero speaks it,
+/// and its speaker's type, whether it is a boss or a champion (the sound manager's record's flag
+/// 4) and its level.
+#[derive(Clone, Copy, Debug)]
+struct Heard {
+    group: u8,
+    hero: bool,
+    kind: u32,
+    marked: bool,
+    level: u32,
+}
+
+/// The hero as its comments look at it: its level, its health in per cent, and whether its own
+/// grunt of its profile still sounds (the record's `+0x34`).
+#[derive(Clone, Copy, Debug)]
+struct HeroState {
+    level: u32,
+    health: u32,
+    grunts: bool,
+}
+
+/// The comment the line `heard` makes, the clock `clock` seconds on, by the rolls of `dice`
+/// (`0x6852B0`, its blocks in order, at most one): a taunt (`HITENEMY`) at a boss's or a
+/// champion's hit while the hero's grunt sounds, more than 10 s on, one in five; the hero's own
+/// hit near its death (`ENEMYHITME`), more than 20 s on, one in four, silent; a boss's or a
+/// champion's death (`KILLENEMY`, 14 lines of 15 rolls) or hit (`BOSSMOB`, a second roll of one in
+/// four past 30 s), more than 10 s on, one in three, the hero silent and the speaker no animal; a
+/// foe hit two levels or more below the hero at 71 % of its health or more (`ENEMYTOOWEAK`), or
+/// one striking two levels or more above it at 29 % or less (`ENEMYTOOSTRONG`), more than 15 s on,
+/// one in 20, silent. The line and its number, `None` for no comment; a number past the class's
+/// lines names none, and still sets the clock back.
+fn comment(heard: Heard, hero: HeroState, clock: f64, dice: &mut Rng) -> Option<(HeroLine, u32)> {
+    let hit = matches!(heard.group, NORMAL_HIT | CRITICAL_HIT);
+    if !heard.hero && hit && heard.marked && hero.grunts && clock > 10.0 && dice.below(5) == 0 {
+        return Some((HeroLine::HitEnemy, dice.below(11)));
+    }
+    if heard.hero
+        && heard.group == CRITICAL_HIT
+        && clock > 20.0
+        && dice.below(4) == 0
+        && !hero.grunts
+    {
+        return Some((HeroLine::EnemyHitMe, dice.below(6)));
+    }
+    let foe = !heard.hero && !ANIMALS.contains(&heard.kind) && !hero.grunts;
+    if foe && heard.marked && (heard.group == DEATH || hit) && clock > 10.0 && dice.below(3) == 0 {
+        if heard.group == DEATH {
+            // One roll of 15 of 14 lines, the clock set back even by the last.
+            let n = dice.below(15);
+            return Some((HeroLine::KillEnemy, n));
+        }
+        if clock > 30.0 && dice.below(4) == 0 {
+            return Some((HeroLine::BossMob, dice.below(6)));
+        }
+    }
+    if foe && clock > 15.0 {
+        let weak = hit && hero.level >= heard.level + 2 && hero.health >= 71;
+        let strong = heard.group == ATTACK && heard.level >= hero.level + 2 && hero.health <= 29;
+        if weak && dice.below(20) == 0 {
+            return Some((HeroLine::EnemyTooWeak, dice.below(6)));
+        }
+        if strong && dice.below(20) == 0 {
+            return Some((HeroLine::EnemyTooStrong, dice.below(6)));
+        }
+    }
+    None
 }
 
 /// A line to play: who speaks it, its sound id and file, the wait it records, and what it does
@@ -350,6 +445,7 @@ fn speak(
         Option<&crate::ai::Mind>,
         Has<Body>,
         Option<&Speaking>,
+        (Option<&crate::fight::Health>, Option<&crate::fight::Ranked>),
     )>,
     heroes: Query<(Entity, &GlobalTransform), With<Body>>,
     assets: Res<AssetServer>,
@@ -369,15 +465,29 @@ fn speak(
             )
         })
     };
+    // The hero as its comments look at it: its level, its health in per cent and whether its
+    // own grunt of its profile still sounds.
+    let percent = |health: Option<&crate::fight::Health>| {
+        health.map_or(0, |h| {
+            u32::try_from(100 * u64::from(h.current) / u64::from(h.most.max(1))).unwrap_or(0)
+        })
+    };
+    let hero_state = the_hero.and_then(|(hero, _)| speakers.get(hero).ok()).map(
+        |(_, _, _, speaking, (health, _))| HeroState {
+            level: health.map_or(1, |h| h.level),
+            health: percent(health),
+            grunts: speaking.is_some_and(|s| !s.1 && playing(Some(s))),
+        },
+    );
     let mut said = Vec::new();
     for line in lines.read() {
-        let Ok((_, mind, is_hero, speaking)) = speakers.get(line.speaker) else {
+        let Ok((_, mind, is_hero, speaking, (health, ranked))) = speakers.get(line.speaker) else {
             continue;
         };
         if is_hero && line.group == DEATH {
             // The hero's death speaks its line by name (`0x6852B0`, `0x693FE0`).
             if let Some((id, file)) = hero_type
-                .and_then(|creature| voices.hero_line(&sfx, creature, HeroLine::EnemyKillMe, now))
+                .and_then(|creature| voices.hero_line(&sfx, creature, HeroLine::EnemyKillMe))
             {
                 said.push(Said {
                     speaker: line.speaker,
@@ -390,18 +500,30 @@ fn speak(
             }
             continue;
         }
-        // A creature's hit makes the hero taunt (`0x6852B0`'s hero branch).
-        if !is_hero
-            && matches!(line.group, NORMAL_HIT | CRITICAL_HIT)
-            && let (Some((hero, _)), Some(creature)) = (the_hero, hero_type)
-            && let Some((id, file)) = voices.hero_line(&sfx, creature, HeroLine::HitEnemy, now)
+        // The hero's comments on the line, which stop its line by name that plays (`0x6852B0`,
+        // `0x693FE0`).
+        let heard = Heard {
+            group: line.group,
+            hero: is_hero,
+            kind: mind.map_or(0, |mind| mind.thinks.creature),
+            marked: ranked.is_some_and(|r| {
+                matches!(
+                    r.0,
+                    opensacred_rules::fight::Rank::Boss | opensacred_rules::fight::Rank::Champion
+                )
+            }),
+            level: health.map_or(1, |h| h.level),
+        };
+        if let (Some((hero, _)), Some(creature), Some(state)) = (the_hero, hero_type, hero_state)
+            && let Some((id, file)) = voices.comment(&sfx, creature, (heard, state), now)
         {
+            debug!("voices: the hero comments with {id}");
             said.push(Said {
                 speaker: hero,
                 id,
                 file,
                 wait: None,
-                play: Play::Plays,
+                play: Play::Interrupts,
                 named: true,
             });
         }
@@ -459,7 +581,7 @@ fn speak(
                 sure: cry.sure,
                 night,
             };
-            voices.hero_line(&sfx, creature, line, now)
+            voices.hero_line(&sfx, creature, line)
         }) {
             said.push(Said {
                 speaker: cry.hero,
@@ -472,7 +594,7 @@ fn speak(
         }
     }
     for line in said {
-        let Ok((at, _, _, speaking)) = speakers.get(line.speaker) else {
+        let Ok((at, _, _, speaking, _)) = speakers.get(line.speaker) else {
             continue;
         };
         match line.play {
@@ -635,6 +757,57 @@ mod tests {
     }
 
     #[test]
+    fn the_hero_comments_on_its_foes_by_the_original_conditions() {
+        let boss = Heard {
+            group: NORMAL_HIT,
+            hero: false,
+            kind: 300,
+            marked: true,
+            level: 10,
+        };
+        let hero = HeroState {
+            level: 10,
+            health: 100,
+            grunts: true,
+        };
+        // A taunt at a boss's hit only while the hero's grunt sounds, more than 10 s on.
+        let taunts = |heard: Heard, hero: HeroState, clock: f64| {
+            let mut dice = Rng::of(0, 0, 1);
+            (0..200)
+                .filter_map(|_| comment(heard, hero, clock, &mut dice))
+                .map(|(line, _)| line)
+                .collect::<Vec<_>>()
+        };
+        let lines = taunts(boss, hero, 11.0);
+        assert!(!lines.is_empty() && lines.iter().all(|&l| l == HeroLine::HitEnemy));
+        assert!(taunts(boss, hero, 9.0).is_empty());
+        let silent = HeroState {
+            grunts: false,
+            ..hero
+        };
+        // Silent, a boss's hit makes `BOSSMOB` only past 30 s; a common creature's nothing.
+        assert!(taunts(boss, silent, 20.0).is_empty());
+        let late = taunts(boss, silent, 31.0);
+        assert!(!late.is_empty() && late.iter().all(|&l| l == HeroLine::BossMob));
+        let common = Heard {
+            marked: false,
+            ..boss
+        };
+        assert!(taunts(common, silent, 100.0).is_empty());
+        // A foe two levels below the hero at full health is too weak; an animal never.
+        let weak = Heard { level: 8, ..common };
+        assert!(taunts(weak, silent, 16.0).contains(&HeroLine::EnemyTooWeak));
+        let animal = Heard { kind: 520, ..weak };
+        assert!(taunts(animal, silent, 16.0).is_empty());
+        // A boss's death, more than 10 s on.
+        let dies = Heard {
+            group: DEATH,
+            ..boss
+        };
+        assert!(taunts(dies, silent, 11.0).contains(&HeroLine::KillEnemy));
+    }
+
+    #[test]
     fn a_line_plays_by_its_roll() {
         let mut dice = Rng::of(0, 0, 3);
         assert!(rolls(1, &mut dice));
@@ -703,7 +876,7 @@ mod tests {
         let mut voices = Voices {
             voices: HashMap::new(),
             waits: HashMap::new(),
-            taunted: None,
+            commented: None,
             hostile_idle: HashMap::from([(512, noise(512, 2))]),
             peaceful_idle: HashMap::from([(560, noise(560, 2)), (677, noise(677, 1))]),
             dice: Rng::of(0, 0, 3),
