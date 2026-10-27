@@ -30,6 +30,7 @@ mod drops;
 mod effects;
 mod fight;
 mod files;
+mod fliers;
 mod followers;
 mod forms;
 mod frame;
@@ -298,11 +299,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         drops::DropsPlugin,
         effects::EffectsPlugin,
         fight::FightPlugin,
+        fliers::FliersPlugin,
         followers::FollowersPlugin,
         forms::FormsPlugin,
-        frame::FramePlugin,
     ))
     .add_plugins((
+        frame::FramePlugin,
         game::GamePlugin,
         glance::GlancePlugin,
         guns::GunsPlugin,
@@ -317,9 +319,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         making::MakingPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
-        models::ModelsPlugin,
     ))
     .add_plugins((
+        models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
@@ -334,9 +336,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
-        shadows::ShadowsPlugin,
     ))
     .add_plugins((
+        shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,

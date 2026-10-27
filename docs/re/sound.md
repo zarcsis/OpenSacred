@@ -300,7 +300,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Water ambience | `0x6906C0`, the count from `0x690690` | 216, 217, 218 loops | water cells drawn | yes (`liquids`) | no |
 | Waterfalls | `0x69B770` (`0x69F88C`–`0x69F90D`) | 208 loop | six `WAFA_*` statics within 1,150 | yes (`statics`) | no |
 | Fires, element stones, stargates | `0x690420`, `0x69B770` (`0x69F9EF`–`0x69FAB0`) | 210, 213, 214, 215, 2087 loops | such an object within 300 or 1,150 | **hypothesis**: no (FX objects not made) | no |
-| Crows and bats over the camera | `0x41F1B0` | 126; 103 or 104 | their flight | no (weather's crows) | no |
+| Crows and bats over the camera | `0x41F1B0` | 126; 103 or 104 | their flight | yes (`fliers`, #1073) | yes (#1179) |
 | The hero's horse | `0x68EB90`, (9, `0x25`), (9, `0x26`) | 105; 7012–7014; `NOTMYHORSE` | riding, the whistle, another's horse | no | no |
 | Hero's comments in the fight | `0x6852B0`, `0x68BEA0` | `KILLENEMY`, `BOSSMOB`, `ENDMOB`, `ENEMYHITME`, `ENEMYTOOSTRONG`, `ENEMYTOOWEAK`, `ENEMYTYPE`, `BREATHING`, `FOE_ON_THE_RUN`, `ENEMYFLEES` | below | yes | no |
 | Hero's comments in the world | (9, `0x30`, `0x35`, `0x3F`, `0x40`, `0xCC`, `0x100`), `0x696060` | `REGIONTOOSTRONG`/`WEAK`, `REGIONPACIFIED`, `APPROACHQLOC`, `GETNQ`, `COMEINTOTOWN`/`VILLAGE`, `CANCELMYIDLE`, `REJECTNQ` | below | partly | no |

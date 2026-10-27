@@ -61,6 +61,19 @@ pub struct SectorEntry {
     /// The sector's weather, its entries in order (docs/re/weather.md), none for most sectors.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub weather: Vec<SectorWeather>,
+    /// The byte by which crows (`0x10`) or bats (`0x80`) fly over the camera in the sector, any
+    /// other value but 0 running their timer alone (`sectors.keyx +0x1D8`, docs/re/weather.md).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fliers: u8,
+}
+
+/// Whether `byte` is 0, which `world.ron` leaves out.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_zero(byte: &u8) -> bool {
+    *byte == 0
 }
 
 /// A kind of a sector's weather (`sectors.keyx +0x1EE`'s types 0, 1, 2 and 5; docs/02 §5.1).
