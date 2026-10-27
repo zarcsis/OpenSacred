@@ -16,7 +16,7 @@ It departs where nothing in the game reads more:
 - The ambient loop changes with the nature under the hero in its phase, after 2 s on the other ground (**hypothesis**: the original chooses it again at the region's events).
 - The spot loops of the cemetery and the arenas (`ATMOSPOT_*`) take the music's channel while the hero stands in their sectors, the turns held (**hypothesis**: the original plays the arenas' on a stream of their own and asks for the ambient loop at the cemetery).
 - The music's volume of 0.001 or less, which takes the ambient loop always, and the factors of the ids (`0x697820`, taken as 1) are not followed: the game has no music's volume yet, only the music on or off.
-- No fights' music and no jingles yet, so no `PEACE` variant after a fight; a track left is not resumed where it was.
+- No fights' music nor their jingles yet, so no `PEACE` variant after a fight; a track left is not resumed where it was.
 
 From 2026-10-17 to 2026-10-18 the tracks of the `music` profile's first group (`MUSIC_WOOD01`–`03`) played one after another everywhere, before the sectors' music was read; until #1177 the region's music played by day beside the ambient loop on its own channel, none by night, and the `PEACE` tracks one after another in a sector without music.
 

@@ -57,8 +57,9 @@ const FONT_SIZE: f32 = 18.0;
 const NOTICE: Color = Color::srgb(1.0, 0.55, 0.12);
 const NOTICE_SECONDS: f32 = 5.0;
 const NOTICE_TOP: f32 = 22.0;
-/// The modes of an `InfoPlayer` that show its text (`0x4AE350`): 0 and 1 with the interface's
-/// sounds 200 and 201, 2 with the jingle `0x1B61` too, 3 with the sound 7000.
+/// The modes of an `InfoPlayer` that show its text (`0x4AE350`): 0 and 1, 2 with the music
+/// `0x1B61` once, which has no file, and 3 with the sound 7000, which no tree's `InfoPlayer` asks
+/// for (#1243).
 const SHOWS: [i32; 4] = [0, 1, 2, 3];
 
 /// An `InfoPlayer`'s text on the screen, and how long it still shows.

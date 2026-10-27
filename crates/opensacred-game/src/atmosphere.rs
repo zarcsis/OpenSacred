@@ -132,11 +132,15 @@ pub fn choose(
         return;
     };
     // The music's phase or a spot loop: the loop falls.
-    if !music.is_some_and(|music| music.ambient()) {
+    if !music.as_ref().is_some_and(|music| music.ambient()) {
         if atmosphere.playing.take().is_some() {
             channel.stop().fade_out(AudioTween::linear(FADE));
         }
         atmosphere.wanted = None;
+        return;
+    }
+    // The scripts hold the stream: no loop changes (`0x694616`).
+    if music.is_some_and(|music| music.holds()) {
         return;
     }
     let has_loop = |nature: u8| {

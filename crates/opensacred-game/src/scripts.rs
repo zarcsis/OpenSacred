@@ -38,8 +38,9 @@ use std::time::Instant;
 use anyhow::{Context, Result};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{
-    Added, App, Commands, Entity, IntoScheduleConfigs, MessageReader, NonSendMut, OnEnter, OnExit,
-    Plugin, Query, Res, ResMut, Resource, Transform, Update, With, Without, World,
+    Added, App, Commands, Entity, IntoScheduleConfigs, Message, MessageReader, MessageWriter,
+    NonSendMut, OnEnter, OnExit, Plugin, Query, Res, ResMut, Resource, Transform, Update, With,
+    Without, World,
 };
 use opensacred_data::luau::{BYTECODE, INDEX, Index};
 use opensacred_data::netscript::{self, Function, Record, Tree, Value};
@@ -137,6 +138,25 @@ pub struct Infos(pub Vec<(i32, String)>);
 #[derive(Resource, Default)]
 pub struct Popups(pub Vec<Begins>);
 
+/// What the scripts' records play on the music's streams, in order, which `music` carries out
+/// (#1243, docs/re/sound.md, "Scripts and notices").
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub enum ScriptSound {
+    /// `PlayMusic` (127, `0x4ADAA0`): a music by its name, crossfaded onto the peace stream.
+    Music(String),
+    /// `PlayJingle` (128, `0x4ADD60`): a music by its name, once on the once-stream.
+    Jingle(String),
+    /// `SetScriptSoundControle` (129, `0x6791C0`): the scripts take the stream, or give it back.
+    Control(bool),
+    /// The fanfare of an `ExitQuest` of a quest numbered 100 or more, a side quest (`0x46CBE0`,
+    /// the sound manager's event (9, `0x42`) with the value 0).
+    Fanfare,
+}
+
+/// The quests from which an `ExitQuest` sounds its fanfare: those numbered 100 or more, the main
+/// quests' below (`0x46CC43`).
+const FANFARES_FROM: u32 = 100;
+
 /// A talk that a script begins: the hero's own, of a dialogue that a `Popup` gives it (95,
 /// `0x4A7760`; #1033), or the hero's with the creature of a script's name, which an
 /// `NPC_TalkTo` gives a dialogue (71, `0x49DCF0`; #1037).
@@ -190,6 +210,8 @@ pub struct Effects {
     /// The texts its `InfoPlayer`s show and the talks its `Popup`s and `NPC_TalkTo`s begin.
     pub infos: Vec<(i32, String)>,
     pub popups: Vec<Begins>,
+    /// What it plays on the music's streams.
+    pub sounds: Vec<ScriptSound>,
 }
 
 impl Effects {
@@ -205,6 +227,7 @@ impl Effects {
         self.window.untalks |= other.window.untalks;
         self.infos.extend(other.infos);
         self.popups.extend(other.popups);
+        self.sounds.extend(other.sounds);
     }
 }
 
@@ -524,6 +547,7 @@ impl Live {
             window: recorder.window,
             infos: recorder.infos,
             popups: recorder.popups,
+            sounds: recorder.sounds,
         };
         (effects, outcome)
     }
@@ -533,6 +557,9 @@ impl Live {
     pub fn transition(&mut self, transition: Transition, quest: u32) -> Effects {
         let mut ran = Vec::new();
         let mut effects = Effects::default();
+        if transition == Transition::Exit && quest >= FANFARES_FROM {
+            effects.sounds.push(ScriptSound::Fanfare);
+        }
         while let Some(section) = self.state.quests.step(transition, quest, &ran) {
             let function = section.function(quest);
             let through = self.runtime.entries(&function) > 0 && {
@@ -674,6 +701,7 @@ struct Recorder<'a> {
     window: Window,
     infos: Vec<(i32, String)>,
     popups: Vec<Begins>,
+    sounds: Vec<ScriptSound>,
     /// Whether no function runs, the runner's index of the running function at −1 (`0x94E07C`):
     /// before the first begins, and after any ends, until the next begins ([`Host::ends`]).
     between: bool,
@@ -711,6 +739,7 @@ impl<'a> Recorder<'a> {
             window: Window::default(),
             infos: Vec::new(),
             popups: Vec::new(),
+            sounds: Vec::new(),
             between: true,
             quest: None,
             running: Vec::new(),
@@ -830,6 +859,10 @@ impl Host for Recorder<'_> {
                 let Some(quest) = quest else {
                     return Handled::Done;
                 };
+                // The fanfare comes first, whatever the quest's flags (`0x46CC4D`).
+                if transition == Transition::Exit && ran.is_empty() && quest >= FANFARES_FROM {
+                    self.sounds.push(ScriptSound::Fanfare);
+                }
                 match self.state.quests.step(transition, quest, ran) {
                     Some(section) => Handled::Run(section.function(quest)),
                     None => Handled::Done,
@@ -1084,6 +1117,28 @@ impl Host for Recorder<'_> {
                 if let Some(sound) = tags.texts("_01").first() {
                     self.window.sounds.push((*sound).to_owned());
                 }
+                Handled::Done
+            }
+            // A music by its name, crossfaded onto the peace stream or played once (`0x4ADAA0`,
+            // `0x4ADD60`); `PlayMusic`'s number is never read.
+            "play_music" | "play_jingle" => {
+                if let Some(&music) = tags.texts("_01").first() {
+                    let music = music.to_owned();
+                    self.sounds.push(if name == "play_music" {
+                        ScriptSound::Music(music)
+                    } else {
+                        ScriptSound::Jingle(music)
+                    });
+                }
+                Handled::Done
+            }
+            // The control by its last number's low 16 bits, 0 without one (`0x4760C4`).
+            "set_script_sound_controle" => {
+                let on = tags
+                    .numbers("_0B")
+                    .last()
+                    .is_some_and(|&on| on & 0xFFFF != 0);
+                self.sounds.push(ScriptSound::Control(on));
                 Handled::Done
             }
             // The speaker's dialogue taken away, and the function stopped (`0x477CA7`).
@@ -1623,8 +1678,10 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         home,
         infos,
         popups,
+        sounds,
         ..
     } = effects;
+    world.write_message_batch(sounds);
     world.resource_mut::<Infos>().0.extend(infos);
     world.resource_mut::<Popups>().0.extend(popups);
     world.resource_mut::<ObjStates>().0.extend(states);
@@ -1694,6 +1751,7 @@ struct Queues<'w> {
     home: ResMut<'w, HeroHome>,
     infos: ResMut<'w, Infos>,
     popups: ResMut<'w, Popups>,
+    sounds: MessageWriter<'w, ScriptSound>,
 }
 
 impl Queues<'_> {
@@ -1707,6 +1765,7 @@ impl Queues<'_> {
         }
         self.infos.0.extend(effects.infos);
         self.popups.0.extend(effects.popups);
+        self.sounds.write_batch(effects.sounds);
     }
 }
 
@@ -1887,6 +1946,7 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<HeroHome>()
             .init_resource::<Infos>()
             .init_resource::<Popups>()
+            .add_message::<ScriptSound>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -2309,6 +2369,7 @@ mod tests {
             .init_resource::<HeroHome>()
             .init_resource::<Infos>()
             .init_resource::<Popups>()
+            .add_message::<ScriptSound>()
             .add_systems(Update, deaths);
         let dying = |app: &mut App, function: &str| {
             let mut functions = quests::DeathFunctions::default();
@@ -2526,6 +2587,43 @@ mod tests {
         assert_eq!(live.transition(Transition::Exit, 5), Effects::default());
         assert_eq!(shares(live.run("unknown", 0)), [7]);
         assert_eq!(shares(live.run("unknown", 0)), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn the_scripts_music_and_a_side_quests_fanfare_go_to_the_music_in_order() {
+        let runtime = runtime(&[(
+            "quests/150.luau",
+            "local F = {}\n\
+             F[\"QIS_Trigger150\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"scene150\"] = function()\n\
+             set_script_sound_controle { _0B = 1 }\n\
+             play_music { _01 = \"ATMO_DUNGEON\", _0B = 1 }\n\
+             play_jingle { _01 = \"MeetValor\" }\n\
+             set_script_sound_controle { _0B = 65536 }\n\
+             exit_quest {}\n\
+             exit_quest {}\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        live.transition(Transition::SetUp, 150);
+        live.transition(Transition::Trigger, 150);
+        // The fanfare sounds at each exit of the side quest, finished or not (`0x46CC4D`); the
+        // control's number by its low 16 bits.
+        assert_eq!(
+            live.run("scene150", 0).sounds,
+            [
+                ScriptSound::Control(true),
+                ScriptSound::Music("ATMO_DUNGEON".to_owned()),
+                ScriptSound::Jingle("MeetValor".to_owned()),
+                ScriptSound::Control(false),
+                ScriptSound::Fanfare,
+                ScriptSound::Fanfare,
+            ]
+        );
     }
 
     #[test]

@@ -1,11 +1,12 @@
 //! The peace stream's alternation (docs/re/sound.md, "The peace stream's alternation"; #1177):
 //! by day the region's music and the ambient loop of the place take the one stream in turns of
 //! 180 s, crossfading over 7 s. The timer (`+0xB7B8`) counts by day and dawn alone; past 180 s it
-//! switches the stream to the other phase and starts again, or, while a crossfade runs, waits 20 s
-//! more. The hero's death and the dusk and the night ask for the ambient loop now, setting the
+//! switches the stream to the other phase and starts again, a crossfade that runs taking 20 s off
+//! it first. The hero's death and the dusk and the night ask for the ambient loop now, setting the
 //! timer to 200 s in the music's phase; a sector without music cannot open the music, so that the
-//! ambient loop, once it plays, stays. `opensacred-game`'s `music` and `atmosphere` play what the
-//! phase holds.
+//! ambient loop, once it plays, stays. The scripts' control (`SetScriptSoundControle`, #1243)
+//! refuses the switches while it holds, until the scripts give the stream back or 300 s pass.
+//! `opensacred-game`'s `music` and `atmosphere` play what the phase holds.
 
 /// How long a phase lasts, in seconds of the timer (`0x8961F0`).
 pub const TURN: f64 = 180.0;
@@ -15,6 +16,9 @@ pub const WAITS: f64 = 20.0;
 pub const NOW: f64 = 200.0;
 /// How long a crossfade lasts, in seconds (`0x69C4BB`).
 pub const CROSSFADE: f32 = 7.0;
+/// How long the scripts' control holds after their last `SetScriptSoundControle`, in seconds
+/// (`+0xB7C8`, `0x6791C0`).
+pub const CONTROL: f64 = 300.0;
 
 /// What the peace stream plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,11 +29,13 @@ pub enum Phase {
     Ambient,
 }
 
-/// The peace stream: its phase, none before the first region's event, and its timer.
+/// The peace stream: its phase, none before the first region's event, its timer, and what is
+/// left of the scripts' control, none when they do not hold it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Stream {
     phase: Option<Phase>,
     timer: f64,
+    control: Option<f64>,
 }
 
 impl Stream {
@@ -43,6 +49,23 @@ impl Stream {
         self.timer
     }
 
+    /// Whether the scripts hold the stream (`+0x6B1`): no music but theirs changes it.
+    pub fn controlled(&self) -> bool {
+        self.control.is_some()
+    }
+
+    /// The scripts' `SetScriptSoundControle` (129, `0x6791C0`): `on` takes the stream for
+    /// [`CONTROL`] from now, asking for the ambient loop in the music's phase as [`Self::now`]
+    /// does; off gives it back, the caller crossfading to what the phase holds.
+    pub fn control(&mut self, on: bool) {
+        if on {
+            self.control = Some(CONTROL);
+            self.now();
+        } else {
+            self.control = None;
+        }
+    }
+
     /// Its first phase, as the first region's event rolls it (`0x6822E5`): the ambient loop for an
     /// odd `roll` (`rand() & 1`), else the music; the stream begun once.
     pub fn begin(&mut self, roll: u32) -> Phase {
@@ -53,17 +76,22 @@ impl Stream {
         })
     }
 
-    /// A frame of `seconds`: the timer counts where the day `counts` (the day and the dawn, not
-    /// the dusk nor the night); past [`TURN`], unless the place `holds` the cycle (the cemetery's
-    /// and the indoor arena's music, a spot loop of their own), it switches to the other phase,
-    /// the music only where the place has one (`music`), and starts again; a switch due while a
-    /// crossfade runs (`crossfading`) waits [`WAITS`] more. The phase it switched to, if it did.
+    /// A frame of `seconds`: the scripts' control runs out at [`CONTROL`] whatever the hour
+    /// (`0x69B85C`); the timer counts where the day `counts` (the day and the dawn, not the dusk
+    /// nor the night); past [`TURN`], unless the place `holds` the cycle (the cemetery's and the
+    /// indoor arena's music, a spot loop of their own), a crossfade that runs (`crossfading`)
+    /// takes [`WAITS`] off it, and a timer still past it switches to the other phase, the music
+    /// only where the place has one (`music`) and nothing while the scripts hold the stream, and
+    /// starts again (`0x69BD5E`). The phase it switched to, if it did.
     pub fn frame(
         &mut self,
         seconds: f64,
         (counts, holds): (bool, bool),
         (crossfading, music): (bool, bool),
     ) -> Option<Phase> {
+        if let Some(left) = self.control {
+            self.control = Some(left - seconds).filter(|&left| left > 0.0);
+        }
         if counts {
             self.timer += seconds;
         }
@@ -73,6 +101,12 @@ impl Stream {
         }
         if crossfading {
             self.timer -= WAITS;
+            if self.timer <= TURN {
+                return None;
+            }
+        }
+        // A switch that the control refuses, tried again at each frame (`0x694616`).
+        if self.controlled() {
             return None;
         }
         let next = match phase {
@@ -149,16 +183,48 @@ mod tests {
     }
 
     #[test]
+    fn the_scripts_control_holds_the_stream_until_given_back_or_300_s_pass() {
+        let mut stream = Stream::default();
+        stream.begin(0);
+        // Taken in the music's phase: the loop asked for, but refused while held.
+        stream.control(true);
+        assert!(stream.controlled());
+        assert!((stream.timer() - NOW).abs() < 1e-9);
+        assert_eq!(stream.frame(0.5, (true, false), (false, true)), None);
+        assert_eq!(stream.phase(), Some(Phase::Music));
+        // Given back: the switch goes through at the next frame.
+        stream.control(false);
+        assert_eq!(
+            stream.frame(0.5, (true, false), (false, true)),
+            Some(Phase::Ambient)
+        );
+        // The control runs out 300 s after it was taken, the switch due then going through.
+        stream.control(true);
+        assert_eq!(stream.phase(), Some(Phase::Ambient));
+        assert!(run(&mut stream, 0.5, 599).is_empty());
+        assert!(stream.controlled());
+        assert_eq!(run(&mut stream, 0.5, 1), [Phase::Music]);
+        assert!(!stream.controlled());
+    }
+
+    #[test]
     fn a_switch_waits_for_a_crossfade_and_a_place_without_music() {
         let mut stream = Stream::default();
         stream.begin(0);
         stream.now();
-        // A crossfade running: 20 s more.
+        // A crossfade running: 20 s off, the switch where the timer is still past 180 s.
         assert_eq!(stream.frame(0.0, (true, false), (true, true)), None);
         assert!((stream.timer() - (NOW - WAITS)).abs() < 1e-9);
         assert_eq!(stream.frame(0.0, (true, false), (false, true)), None);
         assert_eq!(
             stream.frame(0.5, (true, false), (false, true)),
+            Some(Phase::Ambient)
+        );
+        let mut stream = Stream::default();
+        stream.begin(0);
+        stream.now();
+        assert_eq!(
+            stream.frame(0.5, (true, false), (true, true)),
             Some(Phase::Ambient)
         );
         // No music where the hero stands: the loop stays, tried again at each frame.
