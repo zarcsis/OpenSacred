@@ -13,9 +13,9 @@ use opensacred_data::tables::{
     BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, FIGURES, Figure,
     IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
     Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, STAIRS,
-    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, Trigger, UI_IMAGES, UiImage, VOICES,
-    WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS, WORLD_INDEX, WORLD_MAP, Weapon,
-    WeaponArt, WeaponModifier,
+    START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, TYPE_NAMES, Trigger, TypeName,
+    UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS,
+    WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
 };
 use opensacred_formats::arts::{self, Head};
 use opensacred_formats::bin_tables;
@@ -55,6 +55,7 @@ pub struct Summary {
     pub figures: usize,
     /// The interface's images.
     pub ui_images: usize,
+    pub type_names: usize,
 }
 
 fn read(game_dir: &Path, path: &str) -> Result<Vec<u8>> {
@@ -233,6 +234,11 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     write(&dir, FIGURES, &figures)?;
     let ui_images = ui_images(&exe)?;
     write(&dir, UI_IMAGES, &ui_images)?;
+    let type_names: Vec<TypeName> = opensacred_formats::type_names::type_names(&exe)?
+        .into_iter()
+        .map(|(kind, name)| TypeName { kind, name })
+        .collect();
+    write(&dir, TYPE_NAMES, &type_names)?;
     let idle_noises = crate::idle_noises::idle_noises();
     write(&dir, IDLE_NOISES, &idle_noises)?;
 
@@ -250,6 +256,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         portraits: portraits.creatures.len(),
         figures: figures.len(),
         ui_images: ui_images.len(),
+        type_names: type_names.len(),
     })
 }
 
@@ -627,6 +634,7 @@ mod tests {
                 portraits: 467,
                 figures: 8,
                 ui_images: 1_824,
+                type_names: 5_624,
             }
         );
         let dir = output_dir(&out);
@@ -643,6 +651,14 @@ mod tests {
         assert_eq!(portraits.of(9_999), &portraits.default);
         // The interface's images by their indices: the entry 0 of no size, the first piece of
         // `GUI_main_03.TGA`, and the type 1's portrait (#1087).
+        // The types' names: the first door's and the goblin's (#1171).
+        let names: Vec<TypeName> = ron::from_str(&read(TYPE_NAMES)).unwrap();
+        assert_eq!(names.len(), 5_624);
+        assert!(
+            names
+                .iter()
+                .any(|n| n.kind == 5_650 && n.name == "TYPE_OBJECT_DOOR_HOF01_A")
+        );
         let ui_images: Vec<UiImage> = ron::from_str(&read(UI_IMAGES)).unwrap();
         assert_eq!(ui_images.len(), 1_824);
         assert_eq!(ui_images[0].rect, [0, 0, 0, 0]);
