@@ -35,6 +35,7 @@ mod fliers;
 mod followers;
 mod forms;
 mod frame;
+mod fx;
 mod game;
 mod glance;
 mod guns;
@@ -307,6 +308,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         forms::FormsPlugin,
         frame::FramePlugin,
+        fx::FxPlugin,
         game::GamePlugin,
         glance::GlancePlugin,
         guns::GunsPlugin,
@@ -319,9 +321,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
-        menu::MenuPlugin,
     ))
     .add_plugins((
+        menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
@@ -336,9 +338,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
-        sfx::SfxPlugin,
     ))
     .add_plugins((
+        sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
