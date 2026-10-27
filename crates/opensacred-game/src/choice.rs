@@ -35,6 +35,7 @@ use opensacred_data::tables::{FIGURES as FIGURES_TABLE, Figure as Showcase};
 
 use crate::game::{AppState, Class, Data, FONT, Request};
 use crate::menu::{self, Screen, Words};
+use crate::ripples::{self, Pond, Ripples};
 use crate::{files, hud, motions, npcs};
 
 /// The figures' scene, which the main camera does not see.
@@ -225,7 +226,7 @@ impl Images {
     pub fn find(assets: &std::path::Path) -> Self {
         let tiles: Vec<String> = (1..=12).map(|n| format!("gui_uw_char_{n:02}")).collect();
         let mut names: Vec<&str> = tiles.iter().map(String::as_str).collect();
-        names.extend(["ui_uw_char_center", "ui_uw_char_ref", "gui_main_12"]);
+        names.extend(["ui_char_center", "ui_char_ref", "gui_main_12"]);
         let mut found = hud::find_textures(assets, &names);
         let atlas = found.pop().flatten();
         let reflection = found.pop().flatten();
@@ -279,15 +280,6 @@ const TEXT: Color = Color::linear_rgb(0.93, 0.93, 0.93);
 const TEXT_GREY: Color = Color::linear_rgb(0.45, 0.45, 0.45);
 const PLAIN: Color = Color::linear_rgb(0.80, 0.80, 0.80);
 const MARKED: Color = Color::WHITE;
-/// The water under the clear middle of the bottom tiles: the river's bed under a pale mist, its
-/// reflection's texture holding nothing.
-const WATER: menu::Water = menu::Water {
-    top: 512.0,
-    bed: (0.0, 1024.0),
-    reflection: (0.0, 1024.0),
-    reflection_alpha: 0.0,
-    veil: Color::linear_rgba(0.80, 0.88, 0.90, 0.38),
-};
 /// The figures' light: a figure dark is all but a shape, the light from the top left and the
 /// ambient light of their scene.
 const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
@@ -455,11 +447,17 @@ fn screen(
     mut targets: ResMut<Assets<Image>>,
     mut layers: ResMut<Assets<Layer>>,
     mut choice: ResMut<Choice>,
+    mut ripples: Ripples,
 ) {
     *choice = Choice::default();
-    let scale = window.map_or(1.0, |window| window.height() / menu::SCREEN.y);
+    let height = menu::picture_height(window.map(|window| window.height()));
+    let water = ripples.spawn(
+        &mut commands,
+        (&mut targets, &assets),
+        (Screen::Heroes, &pond(&images, true)),
+        height,
+    );
     let (eye, projection) = camera();
-    let height = menu::SCREEN.y * scale.max(1.0);
     let size = Vec2::new(height * projection.aspect_ratio, height)
         .round()
         .as_uvec2();
@@ -522,6 +520,7 @@ fn screen(
     picture(
         &mut commands,
         (Screen::Heroes, &images, &assets),
+        water,
         |picture| {
             picture.spawn((
                 MaterialNode(layer),
@@ -544,12 +543,22 @@ fn underworld_screen(
     images: Res<Images>,
     words: Res<Words>,
     assets: Res<AssetServer>,
+    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    mut targets: ResMut<Assets<Image>>,
+    mut ripples: Ripples,
 ) {
     let font: Handle<Font> = assets.load(FONT);
     let atlas = images.atlas.as_ref();
+    let water = ripples.spawn(
+        &mut commands,
+        (&mut targets, &assets),
+        (Screen::Underworld, &pond(&images, false)),
+        menu::picture_height(window.map(|window| window.height())),
+    );
     picture(
         &mut commands,
         (Screen::Underworld, &images, &assets),
+        water,
         |picture| {
             let empty = words.get(EMPTY).unwrap_or("<empty>");
             for at in PEDESTALS {
@@ -601,11 +610,22 @@ fn underworld_screen(
     );
 }
 
-/// A choice of the hero's picture over its water, black about it in a wider window, which
-/// `content` fills.
+/// The water of a choice of the hero (docs/re/menus.md, "The water"): the first game's bed, and
+/// its reflection where `reflected`, the Ancaria campaign's, under the camera of the caves.
+fn pond(images: &Images, reflected: bool) -> Pond<'_> {
+    Pond {
+        bed: images.bed.as_ref(),
+        reflection: images.reflection.as_ref().filter(|_| reflected),
+        view: ripples::CAVE,
+    }
+}
+
+/// A choice of the hero's picture over its water's texture `water`, black about it in a wider
+/// window, which `content` fills.
 fn picture(
     commands: &mut Commands,
     (screen, images, assets): (Screen, &Images, &AssetServer),
+    water: Handle<Image>,
     content: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
     commands
@@ -628,7 +648,7 @@ fn picture(
                 ..default()
             })
             .with_children(|picture| {
-                menu::water(picture, [&images.bed, &images.reflection], assets, &WATER);
+                menu::water(picture, water);
                 menu::tiles(picture, &images.tiles, assets);
                 content(picture);
             });
@@ -1290,6 +1310,8 @@ mod tests {
         ))
         .init_asset::<Font>()
         .init_asset::<Image>()
+        .init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
         .init_asset::<bevy::shader::Shader>()
         .init_state::<AppState>()
         .add_message::<KeyboardInput>()
