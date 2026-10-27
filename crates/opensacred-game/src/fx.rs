@@ -36,14 +36,19 @@ pub struct Burning {
     meshes: Vec<Handle<Mesh>>,
 }
 
-/// The fires' variants and their materials, made as the game starts.
+/// The fires' and smokes' variants and each one's materials of its layers, made as the game
+/// starts.
 #[derive(Resource, Default)]
 struct Fires {
-    variants: Vec<(u8, Arc<Fire>)>,
-    /// A material of the particles' texture a blend.
-    add: Option<Handle<StandardMaterial>>,
-    over: Option<Handle<StandardMaterial>>,
+    variants: Vec<(u8, Arc<Fire>, Vec<Material>)>,
 }
+
+/// A layer's material, none without its texture.
+type Material = Option<Handle<StandardMaterial>>;
+
+/// The smoke class's variants that the game makes: the chimneys', the fire smokes', the lavas'
+/// smokes and the fires (docs/re/effects.md).
+const VARIANTS: [u8; 11] = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
 
 /// A fire to make: its variant, as `spawn` leaves it for [`light`].
 #[derive(Component)]
@@ -174,35 +179,46 @@ impl Quads {
     }
 }
 
-/// The fires' variants and their two materials, of the texture `PARTICLE_FIRE03`.
+/// The variants and the materials of their layers, one a texture and a blend.
 fn begin(
     mut commands: Commands,
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let variants: Vec<(u8, Arc<Fire>)> = [4, 5, 6, 10, 11, 12]
-        .into_iter()
-        .filter_map(|variant| Some((variant, Arc::new(fire(variant)?))))
-        .collect();
-    let image = data.and_then(|data| {
-        let name = variants.first()?.1.texture;
-        particle_texture(&data.0.assets, &assets, name)
-    });
-    if image.is_none() {
-        warn!("fx: no particle texture; the fires are not drawn");
+    let mut made: Vec<((&'static str, Blend), Material)> = Vec::new();
+    let mut variants = Vec::new();
+    for variant in VARIANTS {
+        let Some(fire) = fire(variant) else {
+            continue;
+        };
+        let layers = fire
+            .blends
+            .iter()
+            .map(|&blend| {
+                let key = (fire.texture, blend);
+                if let Some((_, material)) = made.iter().find(|(k, _)| *k == key) {
+                    return material.clone();
+                }
+                let image = data
+                    .as_ref()
+                    .and_then(|data| particle_texture(&data.0.assets, &assets, fire.texture));
+                if image.is_none() {
+                    warn!("fx: no texture {}; its effects are not drawn", fire.texture);
+                }
+                let alpha_mode = match blend {
+                    Blend::Add => AlphaMode::Add,
+                    Blend::Over => AlphaMode::Blend,
+                };
+                let material =
+                    image.map(|image| materials.add(particle_material(image, alpha_mode)));
+                made.push((key, material.clone()));
+                material
+            })
+            .collect();
+        variants.push((variant, Arc::new(fire), layers));
     }
-    let mut material = |alpha_mode| {
-        image
-            .clone()
-            .map(|image| materials.add(particle_material(image, alpha_mode)))
-    };
-    let (add, over) = (material(AlphaMode::Add), material(AlphaMode::Blend));
-    commands.insert_resource(Fires {
-        variants,
-        add,
-        over,
-    });
+    commands.insert_resource(Fires { variants });
 }
 
 /// Gives each new fire its particles, its layers' meshes and its light.
@@ -214,17 +230,13 @@ fn light(
 ) {
     for (entity, &Unlit(variant)) in &unlit {
         commands.entity(entity).remove::<Unlit>();
-        let Some((_, fire)) = fires.variants.iter().find(|(v, _)| *v == variant) else {
+        let Some((_, fire, materials)) = fires.variants.iter().find(|(v, ..)| *v == variant) else {
             continue;
         };
         let mut handles = Vec::new();
         commands.entity(entity).with_children(|layers| {
-            for blend in &fire.blends {
-                let material = match blend {
-                    Blend::Add => fires.add.clone(),
-                    Blend::Over => fires.over.clone(),
-                };
-                let Some(material) = material else {
+            for material in materials {
+                let Some(material) = material.clone() else {
                     continue;
                 };
                 let mesh = meshes.add(empty());
@@ -238,15 +250,16 @@ fn light(
             }
         });
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
-        commands.entity(entity).insert((
-            Burning {
-                fire: fire.clone(),
-                system: System::new(fire.count),
-                dice: Rng::of(0, 0, SEED ^ index),
-                meshes: handles,
-            },
-            daynight::Light(fire.light),
-        ));
+        let mut burning = commands.entity(entity);
+        burning.insert(Burning {
+            fire: fire.clone(),
+            system: System::new(fire.count),
+            dice: Rng::of(0, 0, SEED ^ index),
+            meshes: handles,
+        });
+        if fire.light > 0.0 {
+            burning.insert(daynight::Light(fire.light));
+        }
     }
 }
 
@@ -265,6 +278,7 @@ fn burn(time: Res<Time>, mut fires: Query<&mut Burning>, mut meshes: ResMut<Asse
                 continue;
             };
             let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
+            let grid = f32::from(fire.grid.max(1));
             let mut quads = Quads::default();
             for particle in burning
                 .system
@@ -274,11 +288,17 @@ fn burn(time: Res<Time>, mut fires: Query<&mut Burning>, mut meshes: ResMut<Asse
             {
                 // The models' frame, its third coordinate up, at the world's scale.
                 let [x, y, z] = particle.place;
+                // Its frame's square of the texture's grid.
+                let side = fire.grid.max(1);
+                let frame = Vec2::new(
+                    f32::from(particle.frame % side),
+                    f32::from(particle.frame / side % side),
+                );
                 quads.push(
                     Vec3::new(x, z, y) * iso::MODEL_SCALE,
                     particle.size * iso::MODEL_SCALE,
                     particle.angle,
-                    (Vec2::ZERO, 1.0),
+                    (frame / grid, 1.0 / grid),
                     ramp.at(particle.life),
                 );
             }

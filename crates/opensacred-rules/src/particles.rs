@@ -21,6 +21,8 @@ pub struct Particle {
     pub angle: f32,
     pub spin: f32,
     pub layer: u8,
+    /// Its frame of the texture's grid.
+    pub frame: u8,
 }
 
 impl Particle {
@@ -64,6 +66,8 @@ pub struct Block {
     pub velocity: Spread<[f32; 3]>,
     pub offset: Spread<[f32; 3]>,
     pub interval: f32,
+    /// A frame of the texture's grid at random below it, the first for 0 or 1 (`+0x60`).
+    pub frames: u8,
 }
 
 /// A colour ramp over a particle's life (`0x763F50`): 256 entries of red, green, blue and alpha in
@@ -186,6 +190,11 @@ impl System {
                 angle: spread_f32(block.angle, dice),
                 spin: spread_f32(block.spin, dice),
                 layer: u8::try_from(layer).unwrap_or(0),
+                frame: if block.frames > 1 {
+                    u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0)
+                } else {
+                    0
+                },
             };
             age(&mut particle, self.clock - self.last, rates);
             if particle.alive() {
@@ -238,6 +247,8 @@ pub struct Fire {
     pub blocks: Vec<Block>,
     pub ramps: Vec<Ramp>,
     pub blends: Vec<Blend>,
+    /// The texture's frames along each side: 1 whole, 2 a grid of 2 × 2.
+    pub grid: u8,
     pub count: usize,
     pub light: f32,
 }
@@ -347,7 +358,7 @@ pub fn fire(variant: u8) -> Option<Fire> {
             smoke_ramp(),
             530.0,
         ),
-        _ => return None,
+        _ => return smoke(variant),
     };
     let layer = |k: usize| Layer {
         life: lives[k],
@@ -371,15 +382,121 @@ pub fn fire(variant: u8) -> Option<Fire> {
         ],
         ramps: vec![flame_ramp(), smoke],
         blends: vec![Blend::Add, Blend::Over],
+        grid: 1,
         count: SMOKE_PARTICLES,
         light,
     })
 }
 
+/// The smokes of the smoke class's variants 1 to 3, the chimneys' `FX_HS_SMOKE_S`, `_M` and `_L`,
+/// a grey of 224 at the alpha of the life (the flags `0x146`), and 8 and 9, the lavas'
+/// `FX_LV_SMOKE_M` and `_L`, ramp B starting opaque (`0x10C`): one layer of `PARTICLE_SMOKE03`'s
+/// 2 × 2 frames, a frame at random, turned and spinning, laid over by its alpha, no light.
+fn smoke(variant: u8) -> Option<Fire> {
+    let grey = 224.0 / 255.0;
+    let fading = || Ramp::new([grey, grey, grey, 1.0], &[([grey, grey, grey, 0.0], 256)]);
+    let lava = |alpha: f32| {
+        let grey = |g: f32, a: f32| [g / 255.0, g / 255.0, g / 255.0, a];
+        Ramp::new(
+            grey(60.0, 1.0),
+            &[(grey(33.0, alpha), 110), (grey(0.0, 0.0), 146)],
+        )
+    };
+    // The life and the growth a second, the buoyancy, the size, the place's spread, the velocity
+    // and its spread, the spin's spread, the interval and the ramp.
+    let (life, growth, buoyancy, size, place, velocity, spin, interval, ramp) = match variant {
+        1 => (
+            -300.0,
+            10.0,
+            spread(-50.0, 0.0),
+            spread(6.0, 2.0),
+            [2.0; 3],
+            spread([0.0, 0.0, 1.0], [0.3; 3]),
+            3.0,
+            0.04,
+            fading(),
+        ),
+        2 => (
+            -120.0,
+            10.0,
+            spread(1.5, 0.0),
+            spread(5.0, 2.0),
+            [2.0; 3],
+            spread([0.0, 0.0, 23.0], [2.0; 3]),
+            3.0,
+            0.1,
+            fading(),
+        ),
+        3 => (
+            -75.0,
+            8.0,
+            spread(2.0, 0.0),
+            spread(5.0, 2.0),
+            [2.0; 3],
+            spread([0.0, 0.0, 30.0], [2.0; 3]),
+            3.0,
+            0.1,
+            fading(),
+        ),
+        8 => (
+            -200.0,
+            12.0,
+            spread(-35.0, 5.0),
+            spread(1.0, 0.75),
+            [5.0, 0.0, 0.0],
+            spread([0.0; 3], [0.4; 3]),
+            1.0,
+            0.03,
+            lava(0.77),
+        ),
+        9 => (
+            -150.0,
+            14.0,
+            spread(-35.0, 5.0),
+            spread(1.5, 1.0),
+            [20.0, 0.0, 0.0],
+            spread([0.0; 3], [0.5; 3]),
+            2.0,
+            0.03,
+            lava(1.0),
+        ),
+        _ => return None,
+    };
+    Some(Fire {
+        texture: "particle_smoke03",
+        layers: vec![Layer {
+            life,
+            size: growth,
+            ..Layer::default()
+        }],
+        blocks: vec![Block {
+            buoyancy,
+            size,
+            spin: spread(0.0, spin),
+            velocity,
+            offset: spread([0.0; 3], place),
+            interval,
+            frames: 4,
+            ..Block::default()
+        }],
+        ramps: vec![ramp],
+        blends: vec![Blend::Over],
+        grid: 2,
+        count: SMOKE_PARTICLES,
+        light: 0.0,
+    })
+}
+
 /// The smoke class's variant of the FX type `kind` that the scripts' `CreateObj` gives it
-/// (`0x48907C`), for the fires: 812, 813 and 876 the fire smokes, 886, 885 and 884 the fires.
+/// (`0x48907C`): 771, 810 and 811 the chimneys' smokes, 812, 813 and 876 the fire smokes, 882 and
+/// 881 the lavas' smokes, 886, 885 and 884 the fires.
 pub fn fire_variant(kind: u32) -> Option<u8> {
     match kind {
+        771 => Some(1),
+        810 => Some(2),
+        811 => Some(3),
+        882 => Some(8),
+        881 => Some(9),
         812 => Some(4),
         813 => Some(5),
         876 => Some(6),
