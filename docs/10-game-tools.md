@@ -100,7 +100,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   One function gathers its values, which the remote protocol returns too (§8):
   * the frames a second, the mean and slowest frame time of the last second;
   * the hero's cell, sector, level, target and gait;
-  * the clock and its phase, the zoom;
+  * the clock and its phase, the zoom, the cursor's look (#1147);
   * the sectors spawned and being built, the NPCs and objects placed, the entities;
   * the health of the creature nearest the hero, its most and its level (#278);
   * the hero's level, its health and its most (#292) and its experience (#283);

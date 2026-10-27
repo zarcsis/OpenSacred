@@ -19,6 +19,7 @@ mod choice;
 mod command;
 mod console;
 mod crowd;
+mod cursors;
 mod daemon;
 mod daynight;
 mod debug;
@@ -285,6 +286,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         command::CommandPlugin,
         console::ConsolePlugin,
         crowd::CrowdPlugin,
+        cursors::CursorsPlugin,
         daemon::DaemonPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
@@ -296,9 +298,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         frame::FramePlugin,
         game::GamePlugin,
         glance::GlancePlugin,
-        guns::GunsPlugin,
     ))
     .add_plugins((
+        guns::GunsPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
@@ -313,9 +315,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
-        opus::OpusPlugin,
     ))
     .add_plugins((
+        opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
@@ -330,9 +332,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
-        spells::SpellsPlugin,
     ))
     .add_plugins((
+        spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         talk::TalkPlugin,
@@ -357,7 +359,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(sfx::Sfx::new(&sound_index.0))
     .insert_resource(sound_index)
     .insert_resource(hud::Hud {
-        cursor: hud::cursor_file(&assets),
+        cursors: hud::cursor_files(&assets),
     })
     .insert_resource(menu::Images::find(&assets))
     .insert_resource(menu::Words::read(&assets))

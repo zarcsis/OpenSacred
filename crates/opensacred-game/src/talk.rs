@@ -137,7 +137,7 @@ pub struct Shown {
 /// The dialogue a creature speaks, its own (`+0x245`, [`Talk`]) or, without one, its type's of
 /// `SetRgnDialog` where it is of the townsfolk's sides and flags and hostile neither way
 /// (`0x549920`); found anew at each query.
-fn dialogue_of(talk: Option<&Talk>, mind: &Mind, npcs: Option<&Npcs>) -> Option<String> {
+pub(crate) fn dialogue_of(talk: Option<&Talk>, mind: &Mind, npcs: Option<&Npcs>) -> Option<String> {
     let region = |creature| npcs?.region_talk(creature).map(str::to_owned);
     dialogue_by(talk, mind, region)
 }

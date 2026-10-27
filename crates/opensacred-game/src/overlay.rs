@@ -129,6 +129,9 @@ pub struct Snapshot {
     /// The weather's rain drops, fog alpha and snow flakes now, while one is on (`weather`,
     /// #1072).
     pub weather: Option<(u32, u32, u32)>,
+    /// The cursor's look in a game (`cursors`, #1147): `arrow`, `hand`, `sword`, `bow`, `gun`,
+    /// `talk`, `merchant`, `combo`, `smith` or `horse-trader`.
+    pub cursor: Option<&'static str>,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -198,6 +201,9 @@ impl Snapshot {
         }
         if let Some((spawned, building)) = self.sectors {
             world.push(format!("sectors {spawned} +{building}"));
+        }
+        if let Some(cursor) = self.cursor {
+            world.push(format!("cursor {cursor}"));
         }
         if !world.is_empty() {
             lines.push(world.join("  "));
@@ -291,6 +297,7 @@ pub struct Probe<'w, 's> {
     drops: Query<'w, 's, (&'static Transform, &'static crate::drops::Lying)>,
     arts: Option<Res<'w, crate::arts::HeroArts>>,
     weather: Option<Res<'w, crate::weather::Weather>>,
+    cursor: Option<Res<'w, crate::cursors::Shown>>,
 }
 
 impl Probe<'_, '_> {
@@ -430,6 +437,11 @@ impl Probe<'_, '_> {
                 .weather
                 .as_deref()
                 .and_then(crate::weather::Weather::levels),
+            cursor: self
+                .hero
+                .as_ref()
+                .and(self.cursor.as_deref())
+                .map(|shown| shown.0.name()),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies

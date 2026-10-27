@@ -1027,14 +1027,16 @@ impl Base {
 }
 
 /// What a creature holds, as its values take it: a weapon (`0x546F80`), a shield (`0x54A660`),
-/// a ranged weapon (the kinds 7, 12, 13 and 14, `0x54A2A0`), the values of the items it holds
-/// and wears that have them (an NPC's in its hands, a hero's of its template too), and the
+/// a ranged weapon (the kinds 7, 12, 13 and 14, `0x54A2A0`) and among them a gun (the kinds 13
+/// and 14, `0x54A340`, by which the cursor shows a pistol over a foe), the values of the items it
+/// holds and wears that have them (an NPC's in its hands, a hero's of its template too), and the
 /// skill of what it holds ([`weapon_skill`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Holds {
     pub weapon: bool,
     pub shield: bool,
     pub ranged: bool,
+    pub gun: bool,
     pub items: Vec<ItemValues>,
     pub skill: u8,
 }
@@ -4284,6 +4286,7 @@ mod tests {
             weapon: true,
             shield: false,
             ranged: false,
+            gun: false,
             items,
             skill: 0,
         };
@@ -4337,6 +4340,7 @@ mod tests {
             weapon: true,
             shield: false,
             ranged: false,
+            gun: false,
             items,
             skill: 0,
         };
@@ -4413,6 +4417,7 @@ mod tests {
             weapon: true,
             shield: false,
             ranged: false,
+            gun: false,
             items: vec![dagger],
             skill: 0,
         };
