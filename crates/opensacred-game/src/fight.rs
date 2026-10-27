@@ -45,6 +45,8 @@ pub(crate) struct Dice(Rng);
 
 /// The Dwarf's creature type (docs/02 §6.2).
 const DWARF: u32 = 8;
+/// The sound of the hero's level-up (`LEVELUP01`).
+const LEVEL_UP_SOUND: u32 = 7002;
 
 /// The hero's experience, its level and the points its levels gave
 /// (`opensacred_rules::fight::Experience`).
@@ -516,7 +518,8 @@ fn regenerate(
 
 /// The hero's level-up (`0x564D60` from `0x57E160`): its attack, defence, damage, resistances,
 /// most health and regeneration by its new level, with what it holds and wears, its health
-/// refilled.
+/// refilled; a rise sounds `LEVELUP01` in the middle (`0x57E160` at `0x57EE84`, the event
+/// `(9, 0x10)`; #1167).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -534,11 +537,19 @@ fn level_up(
         ),
         (With<Body>, Without<Dies>),
     >,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     for (base, holding, mut values, mut health, mut regenerates) in &mut heroes {
         let level = experience.level;
         if health.level == level {
             continue;
+        }
+        if level > health.level {
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(LEVEL_UP_SOUND),
+                at: None,
+                rate: (0.5, crate::sfx::Roll::None),
+            });
         }
         let skills = skills(base, level, true);
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();

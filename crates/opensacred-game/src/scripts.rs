@@ -1765,27 +1765,41 @@ fn deaths(
 
 /// Counts each item that the hero picks up on the scripts' collecting (`SetOnCollect`,
 /// `0x4AAAE0`; #1021): one that a count counts goes from its pack among the main quest's items
-/// (docs/re/items.md, "What becomes of the item"), and a count done runs its function.
+/// (docs/re/items.md, "What becomes of the item"), and a count done runs its function. The
+/// quest's item sounds `UI_QUESTBOOK_WRITING`, any other `PICKUP01`, in the middle (the events
+/// `(9, 0x81)` and `(9, 0x80)`; #1167).
 fn collect(
-    live: Option<NonSendMut<Live>>,
-    mut taken: MessageReader<crate::pickup::Taken>,
+    mut live: Option<NonSendMut<Live>>,
+    (mut taken, mut sounds): (
+        MessageReader<crate::pickup::Taken>,
+        bevy::prelude::MessageWriter<crate::sfx::Play>,
+    ),
     mut pack: ResMut<crate::pickup::Pack>,
     mut heroes: Query<(&mut Transform, &mut Body)>,
     mut queues: Queues,
     (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
-    let Some(mut live) = live else {
-        taken.clear();
-        return;
-    };
     for &crate::pickup::Taken(item) in taken.read() {
-        live.living = living_groups(npcs.as_deref(), minds.iter());
-        let Some(effects) = live.collect(item) else {
+        let collected = live.as_mut().and_then(|live| {
+            live.living = living_groups(npcs.as_deref(), minds.iter());
+            live.collect(item)
+        });
+        let sound = if collected.is_some() {
+            crate::pickup::QUESTS_ITEM
+        } else {
+            crate::pickup::INTO_THE_PACK
+        };
+        sounds.write(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(sound),
+            at: None,
+            rate: (0.4, crate::sfx::Roll::Share(0.2)),
+        });
+        let (Some(live), Some(effects)) = (live.as_mut(), collected) else {
             continue;
         };
         pack.keep_for_quest(item);
         if let Ok((mut transform, mut body)) = heroes.single_mut() {
-            put(&mut live, &effects.teleports, &mut transform, &mut body);
+            put(live, &effects.teleports, &mut transform, &mut body);
         }
         queues.hand(effects);
     }
