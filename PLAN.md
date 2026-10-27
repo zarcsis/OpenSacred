@@ -136,7 +136,7 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
 5. **Observations of the running original.**
    Where the oracle cannot reach (a rule spread over threads and frames, the engine's timing, the creatures' choices, what the screen shows), the running original is observed.
    Until 2026-10-21 that needed the maintainer at the game (#227); the driver of #448 (planned) lets Claude Code do it itself: `tools/original/` runs the user's own `Sacred.exe` under Frida in the background, reads its state, sends its keys and clicks, runs commands, traces its functions and takes its frames (docs/03 §3.8).
-   Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose.
+   Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose, and a frame of a problem, cropped to it, into its issue as an attachment (docs/08 §3).
 6. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
@@ -571,7 +571,7 @@ This is not legal advice.
 * The repository and CI hold no game bytes: no game files, no `Sacred.exe`, no converted assets, HD packs, memory dumps, decompiler output or game texts.
   Tests that need the game run locally on the user's installation in `OriginalGame/` (git-ignored); CI runs only the tests that need no game files.
 * Converted output is generated locally from the user's own copy and is never published.
-  The same rules apply to issues and pull requests.
+  The same rules apply to issues and pull requests, which carry only the frames of a problem, cropped to it, as their attachments (docs/08 §3, #1222).
 * OpenSacred is not affiliated with the rights holder; Sacred is a trademark of THQ Nordic GmbH.
   The name and its use: docs/08 §6, "Name and trademark".
 

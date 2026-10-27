@@ -292,7 +292,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   `python -I tools/game/conformance.py` (#600) runs the checks as a suite with PASS or FAIL each and a non-zero exit on a failure: the experience of kills for a hero of level 1 and 30 (`experience`), the hero's values at the levels 1, 10 and 30 (`hero`), common creature types at four levels (`stats`), the shares of 1,000 drops by category (`drops`), and the scripts' creatures where they stand, the guards of 52,39 and the stable of 64,41 (`places`, #606), and the health regained per second of world time from 1 (`heal --to 1`) by a creature and by the hero alone and in a fight (`regeneration`, #609), and a goblin's strikes at the hero over 60 s, their pace, the share that lands and the damage (`strikes`, #609, which needs the game's log of `opensacred_game::fight` at `debug`: `RUST_LOG=info,opensacred_game::fight=debug`), the arts' times after a use and the rate of their regeneration (`arts`, #623), and the hero's run of 9 cells and back, its pace and its time from the first step to the stop (`movement`, #632); it starts both games afresh (`new-game`, and the original's `load` of a save of the Seraphim's new game, `--save`).
   The game reads `assets/`, so after a change of the converter `opensacred-convert all` comes first: a `heroes.ron` of before #604 holds no arts, and `arts` then fails (#623).
   The original makes a sector's `Enter` creatures again when the sector comes back into the view after a teleport, beside the ones kept (#227's item 10), so after a jump away and back its list holds such pairs on one cell; a fresh load before a cell avoids them.
-* Screenshots and logs taken this way show the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
+* Screenshots and logs taken this way show the converted assets: they stay local, but for a frame of a problem, cropped to it, which its issue or pull request carries as an attachment (`gh … --attach`; docs/08 §3, #1222).
 
 ### 3.8 Driving the original
 
@@ -358,7 +358,7 @@ How it works:
   Every call of a function of the original, given by its address or by a preset's name (the fight, the drops, the regeneration, the creatures' decisions, the doors, the sounds), becomes a log record with the game's time and the wall clock's and its arguments.
 * **Frames.**
   The original's own screenshot (`Capture/shotNNNN.tga`), converted to PNG by the host; the back buffer read before the flip if that fails.
-* Frames, logs and traces of the original stay local, never in the repository, issues or pull requests (docs/08 §3); the results go into the issues and `docs/re/` as prose.
+* Frames, logs and traces of the original stay local, never in the repository (docs/08 §3); the results go into the issues and `docs/re/` as prose, and a frame of a problem, cropped to it, beside the game's into its issue or pull request as an attachment (`gh … --attach`).
 
 What the first step found (2026-10-21, Windows 11, #449):
 

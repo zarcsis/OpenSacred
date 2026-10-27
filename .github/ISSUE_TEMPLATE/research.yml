@@ -23,5 +23,5 @@ body:
     attributes:
       label: Rules
       options:
-        - label: This issue has no game files, converted assets, screenshots of them, game texts or decompiler output (docs/08 §3).
+        - label: This issue has no game files, converted assets, game texts or decompiler output; a frame only of its problem, cropped to it, as an attachment (docs/08 §3).
           required: true

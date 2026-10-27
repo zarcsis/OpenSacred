@@ -86,6 +86,6 @@ The traces see what the commands make the game do (a `kill`'s drops and experien
 
 ## Rules
 
-- Frames, logs and traces of the original stay in the scratchpad: never in the repository, an issue or a pull request (docs/08 §3). Write what they show in words, the results into #227 and `docs/re/`.
+- Frames, logs and traces of the original stay in the scratchpad: never in the repository (docs/08 §3). Write what they show in words, the results into #227 and `docs/re/`. A frame of the original beside the game's, cropped to a problem that shows on the screen, goes to its issue or pull request as an attachment (`gh … --attach`; CLAUDE.md, "Issues and pull requests"); logs and traces never.
 - The game may overwrite the files it writes itself (`Settings.cfg`, `save/`, `Capture/`, its logs); never touch a file of the manifest, and add nothing to `OriginalGame/` beyond dgVoodoo2's two DLLs and its `dgVoodoo.conf` (docs/03 §3.8).
 - The agent hooks the running process alone and carries only addresses, offsets and the original's names (docs/re/window.md): no decompiler output, no code translated from it.

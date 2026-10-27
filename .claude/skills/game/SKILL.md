@@ -58,6 +58,6 @@ The left button walks the hero, or attacks a foe under the cursor, Ctrl with it 
 
 ## Rules
 
-- Screenshots, recordings and logs show the converted assets: keep them in the scratchpad, look at them, never commit them and never attach them to an issue or a pull request (docs/08 §3). Describe what they show in words.
+- Screenshots, recordings and logs show the converted assets: keep them in the scratchpad, look at them, never commit them, and describe what they show in words. The one way out is a frame of a problem, cropped to it, attached to its issue or pull request with `gh … --attach` (before and after for a pull request; CLAUDE.md, "Issues and pull requests"; docs/08 §3); never a recording, a log or a whole screen of the assets.
 - End the game you started (`exec quit`), or it keeps its port: a second `--remote` on the same port fails to listen; pass another port (`--remote 15703`, `--port 15703`).
 - A click posted to the window from outside (`PostMessage`, `SendKeys`) does not walk the hero: the system reports the cursor leaving a window it is not over. Use the client.
