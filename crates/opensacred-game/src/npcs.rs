@@ -1296,13 +1296,18 @@ const ONE_ITEM: [u8; 5] = [2, 3, 4, 7, 12];
 
 /// The items a creature of `creature` takes by the first of the sector's rules that names it
 /// (`0x47F8E0`): each of the first two by its chance from its pool, at random among the pool's
-/// items, the first swapped ([`SWAPPED`]), the second only after a weapon of a kind that leaves
-/// a hand free; the third, a worn piece, is left out, the game drawing no worn models.
+/// items, the first swapped ([`SWAPPED`]), and a crossbow or a musket first that its model of the
+/// shots `shots` cannot shoot replaced by `weapon` of the kind it asks for, none if it gives none
+/// (`spawning::filled_weapon`, `0x480547`, #1217); the second only after a weapon of a kind that
+/// leaves a hand free; the third, a worn piece, is left out, the game drawing no worn models.
 fn gear_of<'a>(
     rules: &[Rule],
     creature: u32,
-    pools: &HashMap<i32, Vec<u32>>,
-    gear: &'a HashMap<u32, Gear>,
+    (pools, gear): (&HashMap<i32, Vec<u32>>, &'a HashMap<u32, Gear>),
+    (shots, weapon): (
+        spawning::Shots,
+        impl FnOnce(u8, &mut spawning::Rng) -> Option<u32>,
+    ),
     rng: &mut spawning::Rng,
 ) -> Vec<(u32, &'a Gear)> {
     let Some(rule) = rules.iter().find(|r| r.types.contains(&creature)) else {
@@ -1319,6 +1324,12 @@ fn gear_of<'a>(
         other => other,
     });
     let second = roll(rule.items[1]);
+    let first = first.and_then(|item| {
+        match spawning::filled_weapon(gear.get(&item).and_then(|g| g.kind), shots) {
+            Some(kind) => weapon(kind, rng),
+            None => Some(item),
+        }
+    });
     let first = first.and_then(|item| Some((item, gear.get(&item)?)));
     let second = second
         .filter(|_| {
@@ -2243,12 +2254,16 @@ pub fn model_files(assets: &Path) -> Result<HashMap<String, String>> {
 }
 
 /// What the scripts' records are placed with, at the load and during the play ([`Npcs::read`],
-/// [`Npcs::add`]): the asset directory, the items by slot, the weapons' kinds, the models and the
-/// textures, and each creature type's speeds, class, fight values, flags and shadow.
+/// [`Npcs::add`]): the asset directory, the items by slot, the weapons' kinds and parents, the
+/// models and the textures, and each creature type's speeds, class, fight values, flags and
+/// shadow.
 struct Makers {
     assets: std::path::PathBuf,
     items: HashMap<u32, Item>,
     kinds: HashMap<u32, u8>,
+    /// Each `Weapon.pak` type's parent (`+0x24`), 0 for none: a derived type shows its root's
+    /// item ([`Makers::record`]).
+    parents: HashMap<u32, u32>,
     models: HashMap<String, String>,
     textures: HashMap<u32, String>,
     speeds: HashMap<u32, [u16; 2]>,
@@ -2593,18 +2608,18 @@ impl Makers {
     /// models in its hands, the items in its hands, whose values it fights with, the class of
     /// what it holds, and whether that is a ranged weapon.
     fn arming(&self, items: &[u32]) -> Arming {
-        let equipped: Vec<&Item> = items
+        let equipped: Vec<(u32, &Item)> = items
             .iter()
-            .filter_map(|slot| self.items.get(slot))
+            .filter_map(|&item| Some((item, self.record(item)?)))
             .collect();
         let categories: Vec<(u8, Option<u8>)> = equipped
             .iter()
-            .map(|item| (category(item), self.kinds.get(&item.slot).copied()))
+            .map(|&(item, record)| (category(record), self.kinds.get(&item).copied()))
             .collect();
         let equipment = equipped
             .iter()
             .zip(hands(&categories))
-            .filter_map(|(item, hand)| {
+            .filter_map(|(&(_, item), hand)| {
                 let model = self.models.get(&item.name.to_ascii_uppercase())?;
                 let texture = match item.words_08[0] {
                     0 => None,
@@ -2618,13 +2633,11 @@ impl Makers {
                 })
             })
             .collect();
-        let holding = InHand::of(equipped.iter().map(|item| {
-            (
-                item.slot,
-                category(item),
-                self.kinds.get(&item.slot).copied(),
-            )
-        }));
+        let holding = InHand::of(
+            equipped
+                .iter()
+                .map(|&(item, record)| (item, category(record), self.kinds.get(&item).copied())),
+        );
         Arming {
             equipment,
             holding,
@@ -2632,6 +2645,105 @@ impl Makers {
             ranged: ranged(&categories),
         }
     }
+
+    /// The `items.pak` record that an item of the type `item` shows: its own, or for a derived
+    /// type its nearest ancestor's that has one (`Weapon.pak +0x24`), as [`gear_table`] finds it.
+    fn record(&self, item: u32) -> Option<&Item> {
+        std::iter::successors(Some(item), |item| {
+            self.parents
+                .get(item)
+                .copied()
+                .filter(|&parent| parent != 0)
+        })
+        .take(8)
+        .find_map(|item| self.items.get(&item))
+    }
+
+    /// The placement `placement` of a `CreateNPC`'s creature made at the level `level`, each
+    /// weapon that its model cannot shoot chosen anew by `armoury` ([`shootable`], #1217), rolled
+    /// by `dice`; none where it keeps its items, or its model's clips are not read.
+    fn rearmed(
+        &self,
+        placement: &Placement,
+        (level, armoury, dice): (u32, Armoury, &mut spawning::Rng),
+        model_slots: &mut HashMap<String, motions::Slots>,
+    ) -> Option<Placement> {
+        if placement.object || placement.items.is_empty() {
+            return None;
+        }
+        let shots = shots(model_slots.get(&placement.model)?);
+        let items = shootable(&placement.items, &self.kinds, shots, |kind| {
+            armoury.weapon(kind, level, dice)
+        });
+        if items == placement.items {
+            return None;
+        }
+        match self.remade(placement, placement.creature.0, &items, model_slots) {
+            Ok(remade) => remade,
+            Err(e) => {
+                bevy::log::warn!("npcs: {e:#}");
+                None
+            }
+        }
+    }
+}
+
+/// What gives a creature a weapon anew in place of one that its model cannot shoot (#1217): the
+/// item types to choose from and the hero as the choice sees it (`0x5C7FA0`).
+#[derive(Clone, Copy)]
+pub(crate) struct Armoury<'a> {
+    catalogue: &'a opensacred_rules::drops::Catalogue,
+    hero: &'a opensacred_rules::drops::Hero,
+}
+
+impl Armoury<'_> {
+    /// A weapon of the kind `kind` at the level `level` as `0x5C7FA0` chooses a creature's: of the
+    /// category 5, of the quality 14, of any class and no set piece; none where no type fits.
+    fn weapon(&self, kind: u8, level: u32, dice: &mut impl spawning::Dice) -> Option<u32> {
+        let wanted = opensacred_rules::drops::Wanted {
+            category: WEAPON,
+            level,
+            class: 0,
+            loose: false,
+            quality: spawning::REARMED_QUALITY,
+            kind: Some(kind),
+        };
+        self.catalogue.choose(wanted, self.hero, dice)
+    }
+}
+
+/// The shots of a model of the clips' slots `slots`: whether it has a crossbow's and a bow's.
+fn shots(slots: &motions::Slots) -> spawning::Shots {
+    spawning::Shots {
+        crossbow: slots.slot(spawning::CROSSBOW_SHOT).is_some(),
+        bow: slots.slot(spawning::BOW_SHOT).is_some(),
+    }
+}
+
+/// The items `items` of a `CreateNPC`'s creature, its model of the shots `shots`, each weapon
+/// that the model cannot shoot chosen anew by `weapon` of the kind it asks for, in the record's
+/// order (`spawning::created_weapon`, `sdk_CREATENPC` at `0x484C44`, #1217): a crossbow or a
+/// musket a bow, then a ranged weapon a weapon of kind 1; an item that none is chosen for is left
+/// out. `kinds` are the weapons' kinds by their types.
+fn shootable(
+    items: &[u32],
+    kinds: &HashMap<u32, u8>,
+    shots: spawning::Shots,
+    mut weapon: impl FnMut(u8) -> Option<u32>,
+) -> Vec<u32> {
+    items
+        .iter()
+        .filter_map(|&item| {
+            let mut item = item;
+            for step in [spawning::Step::Crossbow, spawning::Step::Ranged] {
+                if let Some(kind) = spawning::created_weapon(step, kinds.get(&item).copied(), shots)
+                {
+                    item = weapon(kind)?;
+                }
+            }
+            Some(item)
+        })
+        .collect()
 }
 
 /// What an NPC holds ([`Makers::arming`]).
@@ -2698,6 +2810,7 @@ impl Npcs {
                 .map(|(&slot, &item)| (slot, item.clone()))
                 .collect(),
             kinds: kinds.clone(),
+            parents: weapons.iter().map(|w| (w.id, w.parent)).collect(),
             models: models.clone(),
             textures: textures.clone(),
             speeds: speeds.clone(),
@@ -2808,8 +2921,9 @@ impl Npcs {
             );
         }
         let pools = pools(&records);
-        // The pools' items, the weapons that an archer takes to melee and back (#396), and the
-        // hero's (#486).
+        // The pools' items, the weapons that an archer takes to melee and back (#396), the
+        // hero's (#486), and the bows and the weapons of kind 1 that a crossbow its holder cannot
+        // shoot becomes (#1217).
         let gear = gear_table(
             &items,
             weapons,
@@ -2819,7 +2933,13 @@ impl Npcs {
                 .values()
                 .flatten()
                 .chain(&opensacred_rules::minds::SWITCHED)
-                .chain(worn),
+                .chain(worn)
+                .chain(
+                    weapons
+                        .iter()
+                        .filter(|w| matches!(w.bytes_1c[2], spawning::BOW | spawning::BLADE))
+                        .map(|w| &w.id),
+                ),
         );
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
@@ -3400,13 +3520,16 @@ pub fn spawn_creatures(
 }
 
 /// Places the placement `index` of the sector `at` as it comes in: a kept one anew the first time,
-/// where it stood after and never once killed, the others anew each time.
+/// where it stood after and never once killed, the others anew each time. Made anew, a weapon
+/// that its model cannot shoot is chosen anew by `armoury` where it is read (#1217), which a kept
+/// one keeps.
 fn place_index(
     commands: &mut Commands,
     npcs: &mut Npcs,
     (index, at): (usize, (u32, u32)),
     (heights, states, assets): (&Heights, &buildings::Buildings, &AssetServer),
     (hero, minutes, area_types): (u32, u32, Option<&quests::AreaTypes>),
+    armoury: Option<Armoury>,
     streamer: &mut Streamer,
 ) {
     // An `Enter`'s creature, made again as its `CreateNPC` runs again, of the type that its
@@ -3437,17 +3560,28 @@ fn place_index(
     } else {
         Again::Anew
     };
+    // Made anew, the level its record makes it at: the start's creature's as the game starts,
+    // with the hero of its first level and no time played; a sector's as its function runs.
+    let made_at = matches!(again, Again::Anew).then(|| {
+        if placement.started {
+            npcs.scripted_level(placement, fight::HERO_LEVEL, 0)
+        } else {
+            npcs.scripted_level(placement, hero, minutes)
+        }
+    });
+    // A weapon that its model cannot shoot chosen anew at that level (`sdk_CREATENPC` at
+    // `0x484C44`, #1217), the same each time the same record makes it.
+    let rearmed = made_at.zip(armoury).and_then(|(level, armoury)| {
+        let mut dice = spawning::Rng::of(placement.cell.0, placement.cell.1, index);
+        npcs.makers
+            .rearmed(placement, (level, armoury, &mut dice), &mut npcs.slots)
+    });
+    let placement = rearmed.as_ref().unwrap_or(placement);
     let entity = match again {
         Again::Not => return,
         Again::Anew => {
-            // The start's creature as the game starts, with the hero of its first level
-            // and no time played; a sector's as its function runs; a script's boss then
-            // at the hero's level now and more, as a fill's (`0x550E50`).
-            let level = if placement.started {
-                npcs.scripted_level(placement, fight::HERO_LEVEL, 0)
-            } else {
-                npcs.scripted_level(placement, hero, minutes)
-            };
+            // A script's boss then at the hero's level now and more, as a fill's (`0x550E50`).
+            let level = made_at.unwrap_or_default();
             let values = npcs.values.get(&at).copied().unwrap_or_default();
             let big = placement.creature.1 & crowd::BIG != 0;
             let level = placement.rank.level(level, hero, &values, big, &npcs.fight);
@@ -3492,6 +3626,13 @@ fn place_index(
         commands.entity(entity).insert(placed);
     }
     streamer.adopt(at, entity);
+    // A kept creature comes again with the weapon chosen for it (`respawn`).
+    if kept
+        && turned.is_none()
+        && let Some(rearmed) = rearmed
+    {
+        npcs.placements[index] = rearmed;
+    }
 }
 
 /// Places the NPCs of every sector that came in, as entities of that sector, and marks the cells
@@ -3514,12 +3655,28 @@ pub fn place(
         Option<Res<crate::scripts::ScriptReplacements>>,
         Option<Res<crate::scripts::ScriptAreaTypes>>,
     ),
+    items: Option<Res<drops::Tables>>,
+    bodies: Query<&fight::Base, With<hero::Body>>,
 ) {
     let npcs = &mut *npcs;
     let hero = experience.level;
     let minutes = played.minutes();
     let area_types = area_types.as_ref().map(|lists| &lists.0);
     let side = u32::try_from(SIDE).unwrap_or(64);
+    // The weapons' choice, once the drops' tables are read, for the hero, or one of no class
+    // before it stands in the world (#1217).
+    let chooser = bodies.iter().next().map_or(
+        opensacred_rules::drops::Hero {
+            creature: 0,
+            level: hero,
+            skills: Vec::new(),
+        },
+        |base| drops::hero(base, hero),
+    );
+    let armoury = items.as_ref().map(|items| Armoury {
+        catalogue: items.catalogue(),
+        hero: &chooser,
+    });
     // The placements that the play's scripts made in the sectors in the world (#1014).
     for index in std::mem::take(&mut npcs.pending) {
         let (x, y) = npcs.placements[index].cell;
@@ -3529,6 +3686,7 @@ pub fn place(
             (index, (x / side, y / side)),
             (&heights, &states, &assets),
             (hero, minutes, area_types),
+            armoury,
             &mut streamer,
         );
     }
@@ -3555,6 +3713,7 @@ pub fn place(
                 (index, at),
                 (&heights, &states, &assets),
                 (hero, minutes, area_types),
+                armoury,
                 &mut streamer,
             );
         }
@@ -3646,9 +3805,26 @@ pub fn place(
                 };
                 let mut placement = template.clone();
                 placement.cell = (cx, cy);
-                // Its items by the sector's rules, in its hands, and its clips by what it holds.
+                // Its items by the sector's rules, in its hands, and its clips by what it holds; a
+                // crossbow its model cannot shoot another weapon of the run's level (#1217).
                 let rules = npcs.rules.get(&at).map(Vec::as_slice).unwrap_or_default();
-                let gear = gear_of(rules, made.creature, &npcs.pools, &npcs.gear, &mut rng);
+                let shots = match (armoury, npcs.slots.get(&placement.model)) {
+                    (Some(_), Some(slots)) => shots(slots),
+                    _ => spawning::Shots {
+                        crossbow: true,
+                        bow: true,
+                    },
+                };
+                let weapon = |kind, rng: &mut spawning::Rng| {
+                    armoury.and_then(|armoury| armoury.weapon(kind, shared, rng))
+                };
+                let gear = gear_of(
+                    rules,
+                    made.creature,
+                    (&npcs.pools, &npcs.gear),
+                    (shots, weapon),
+                    &mut rng,
+                );
                 if !gear.is_empty() {
                     let categories: Vec<(u8, Option<u8>)> =
                         gear.iter().map(|(_, g)| (g.category, g.kind)).collect();
@@ -7269,6 +7445,7 @@ mod tests {
         };
         let makers = Makers {
             assets: std::path::PathBuf::new(),
+            parents: HashMap::new(),
             items: HashMap::from([
                 (279, item(279, "soldier.grn", 0)),
                 (276, item(276, "renegade.grn", 0)),
@@ -8204,17 +8381,19 @@ mod tests {
             pool(125, 1812),
             pool(134, 1729),
             pool(50, 1203),
+            pool(124, 1731),
         ];
         let records: Vec<&Record> = records.iter().collect();
         let pools = pools(&records);
         assert_eq!(pools[&125], [1811, 1812, 1812]);
         // Thieves: always a bow from 125, a shield never after a bow; a sword's wielder 304
-        // takes the shield by its chance.
+        // takes the shield by its chance; 307 a crossbow from 124.
         let rule = |types: Vec<u32>, items| Rule { types, items };
         let rules = [
             rule(vec![306, 313], [(125, 100), (50, 100), (-1, 0)]),
             rule(vec![304], [(134, 100), (50, 100), (-1, 0)]),
             rule(vec![306], [(134, 100), (0, 0), (-1, 0)]),
+            rule(vec![307], [(124, 100), (50, 100), (-1, 0)]),
         ];
         let gear = |category, kind| Gear {
             category,
@@ -8230,25 +8409,89 @@ mod tests {
             (1812, gear(WEAPON, Some(BOW))),
             (1729, gear(WEAPON, Some(1))),
             (1203, gear(SHIELD, None)),
+            (1731, gear(WEAPON, Some(CROSSBOW))),
         ]
         .into();
         let mut rng = spawning::Rng::of(48, 39, 0);
         let kinds = |items: Vec<(u32, &Gear)>| {
             items
                 .iter()
-                .map(|(_, g)| (g.category, g.kind))
+                .map(|&(item, g)| (item, g.category, g.kind))
                 .collect::<Vec<_>>()
         };
-        // The first rule that names 306 wins: a bow alone.
+        let shots = |crossbow, bow| spawning::Shots { crossbow, bow };
+        // The weapons' choice: the bow 1812 or the sword 1729 by the kind asked.
+        let chosen = |kind, _: &mut spawning::Rng| match kind {
+            spawning::BOW => Some(1812),
+            _ => Some(1729),
+        };
+        let mut items = |creature, shots, weapon: fn(u8, &mut spawning::Rng) -> Option<u32>| {
+            kinds(gear_of(
+                &rules,
+                creature,
+                (&pools, &gear),
+                (shots, weapon),
+                &mut rng,
+            ))
+        };
+        // The first rule that names 306 wins: a bow alone, of the pool's at random.
         assert_eq!(
-            kinds(gear_of(&rules, 306, &pools, &gear, &mut rng)),
-            [(WEAPON, Some(BOW))]
+            items(306, shots(true, true), chosen),
+            [(1812, WEAPON, Some(BOW))]
         );
         assert_eq!(
-            kinds(gear_of(&rules, 304, &pools, &gear, &mut rng)),
-            [(WEAPON, Some(1)), (SHIELD, None)]
+            items(304, shots(true, true), chosen),
+            [(1729, WEAPON, Some(1)), (1203, SHIELD, None)]
         );
         // A type no rule names takes nothing.
-        assert!(gear_of(&rules, 516, &pools, &gear, &mut rng).is_empty());
+        assert!(items(516, shots(true, true), chosen).is_empty());
+        // A crossbow (#1217): kept by a model that shoots it; a thief's model, which shoots a bow
+        // alone, takes a bow and so no shield; a model that shoots neither takes a sword, and the
+        // shield after it; none chosen, nothing.
+        assert_eq!(
+            items(307, shots(true, true), chosen),
+            [(1731, WEAPON, Some(CROSSBOW))]
+        );
+        assert_eq!(
+            items(307, shots(false, true), chosen),
+            [(1812, WEAPON, Some(BOW))]
+        );
+        assert_eq!(
+            items(307, shots(false, false), chosen),
+            [(1729, WEAPON, Some(1)), (1203, SHIELD, None)]
+        );
+        assert!(items(307, shots(false, true), |_, _| None).is_empty());
+    }
+
+    #[test]
+    fn a_created_creature_takes_weapons_its_model_shoots() {
+        // The crossbow 1731, the bow 1812, the sword 1729 and a shield 1203 of no kind.
+        let kinds: HashMap<u32, u8> = [(1731, CROSSBOW), (1812, BOW), (1729, 1)].into();
+        let shots = |crossbow, bow| spawning::Shots { crossbow, bow };
+        let chosen = |kind| Some(if kind == spawning::BOW { 1812 } else { 1729 });
+        // A thief of 54,39 (`create_npc { _02 = { 260, 1730 } }`): its crossbow becomes a bow.
+        assert_eq!(
+            shootable(&[1731, 1203], &kinds, shots(false, true), chosen),
+            [1812, 1203]
+        );
+        // A model that shoots neither: the crossbow a bow, the bow a sword; a bow alone too.
+        assert_eq!(
+            shootable(&[1731], &kinds, shots(false, false), chosen),
+            [1729]
+        );
+        assert_eq!(
+            shootable(&[1812], &kinds, shots(false, false), chosen),
+            [1729]
+        );
+        // A soldier's model shoots both: kept.
+        assert_eq!(
+            shootable(&[1731, 1812], &kinds, shots(true, true), chosen),
+            [1731, 1812]
+        );
+        // None chosen: the item is left out.
+        assert_eq!(
+            shootable(&[1731, 1203], &kinds, shots(false, true), |_| None),
+            [1203]
+        );
     }
 }

@@ -76,6 +76,12 @@ impl Tables {
             looks,
         })
     }
+
+    /// The item types to choose from, which the creatures' weapons are chosen anew from too
+    /// (`npcs`, #1217).
+    pub(crate) fn catalogue(&self) -> &Catalogue {
+        &self.catalogue
+    }
 }
 
 /// The tables being read, at the start, off the main thread.
@@ -142,11 +148,17 @@ fn turn([x, y, z]: [f32; 3]) -> Quat {
 
 /// What the hero is to the drops, if it lives: its type, its level and its skills.
 fn hero_of(base: &fight::Base, health: &fight::Health, level: u32) -> Option<Hero> {
-    (health.current > 0).then(|| Hero {
+    (health.current > 0).then(|| hero(base, level))
+}
+
+/// What the hero of the values `base` at the level `level` is to the choice of an item's type:
+/// its type, its level and its skills.
+pub(crate) fn hero(base: &fight::Base, level: u32) -> Hero {
+    Hero {
         creature: base.id,
         level,
         skills: fight::skills(base, level, true),
-    })
+    }
 }
 
 /// Why a creature drops nothing as it dies (docs/re/items.md, "Who drops"), or `None` when it
