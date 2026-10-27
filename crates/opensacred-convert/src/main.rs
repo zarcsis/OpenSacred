@@ -12,6 +12,7 @@ mod gltf;
 mod heroes;
 mod idle_noises;
 mod item_names;
+mod item_patches;
 mod ktx;
 mod luau;
 mod manifest;

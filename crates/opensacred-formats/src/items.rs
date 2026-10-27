@@ -157,41 +157,46 @@ impl<'a> Items<'a> {
         if self.pak.entry(index)?.kind != USED {
             return Ok(None);
         }
-        let bytes = self.bytes(index)?;
-        let mut r = Reader::new(bytes).with_record(index);
-        let u32s = |r: &mut Reader<'_>, out: &mut [u32]| -> Result<()> {
-            for value in out {
-                *value = r.u32()?;
-            }
-            Ok(())
-        };
-        let [kind, class, subclass, byte_03] = r.array("item")?;
-        let texture = r.u32()?;
-        let mut words_08 = [0; 2];
-        u32s(&mut r, &mut words_08)?;
-        let sprite = r.u32()?;
-        let mut words_14 = [0; 8];
-        u32s(&mut r, &mut words_14)?;
-        let bytes_34 = r.array("item")?;
-        let name = crate::tables::name_field(&mut r, 32, "item name")?;
-        let byte_57 = r.u8()?;
-        let mut words_58 = [0; 10];
-        u32s(&mut r, &mut words_58)?;
-        Ok(Some(Record {
-            kind,
-            class,
-            subclass,
-            byte_03,
-            texture,
-            words_08,
-            sprite,
-            words_14,
-            bytes_34,
-            name,
-            byte_57,
-            words_58,
-        }))
+        parse_record(self.bytes(index)?, index).map(Some)
     }
+}
+
+/// The record of the slot `index` from its 128 bytes `bytes`, as [`Items::record`] reads a used
+/// slot's; `opensacred-convert` makes the client's changes to the bytes first.
+pub fn parse_record(bytes: &[u8], index: usize) -> Result<Record> {
+    let mut r = Reader::new(bytes).with_record(index);
+    let u32s = |r: &mut Reader<'_>, out: &mut [u32]| -> Result<()> {
+        for value in out {
+            *value = r.u32()?;
+        }
+        Ok(())
+    };
+    let [kind, class, subclass, byte_03] = r.array("item")?;
+    let texture = r.u32()?;
+    let mut words_08 = [0; 2];
+    u32s(&mut r, &mut words_08)?;
+    let sprite = r.u32()?;
+    let mut words_14 = [0; 8];
+    u32s(&mut r, &mut words_14)?;
+    let bytes_34 = r.array("item")?;
+    let name = crate::tables::name_field(&mut r, 32, "item name")?;
+    let byte_57 = r.u8()?;
+    let mut words_58 = [0; 10];
+    u32s(&mut r, &mut words_58)?;
+    Ok(Record {
+        kind,
+        class,
+        subclass,
+        byte_03,
+        texture,
+        words_08,
+        sprite,
+        words_14,
+        bytes_34,
+        name,
+        byte_57,
+        words_58,
+    })
 }
 
 #[cfg(test)]
