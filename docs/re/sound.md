@@ -293,7 +293,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Spells' and arts' objects | `0x76A440`–`0x7C3AC0` | casts, flights, impacts, loops | the object's life | partly (stand-ins) | no |
 | Arts' own cries | `0x67A7A0` (5, 1) | 2098–2104 by the art | an art's start | yes | yes, with the battle cry then sure (#1174) |
 | Arts' executors | `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0` | 2076–2122 by the art | an art's run | yes | at the art's start (#1174; where in the run not read) |
-| The Vampiress's night battle cries | `0x67A7A0` (5, 1), flag `+0xAF48` by (9, `0x49`) | `BATTLECRY_nn_REALVAMP` | a battle cry in her night form | yes (`forms`) | no |
+| The Vampiress's night battle cries | `0x67A7A0` (5, 1), flag `+0xAF48` by (9, `0x49`) | `BATTLECRY_nn_REALVAMP` | a battle cry in her night form | yes (`forms`) | yes (`voices`, #1174) |
 | Other creatures' footsteps | `0x68EB90` | 103–114, 1194–1199 | a creature's step near the hero | yes | no |
 | The giant spider's steps | `0x4E0300` | 1242, 1243, 1248, 1249 | its motion | yes | no |
 | In-game idle ambience | `0x69B770` (`0x69FBC0`–`0x69FF5F`) | `IDLEFX_*` | every 0.5 s, by the region's music and the day | yes | no |
