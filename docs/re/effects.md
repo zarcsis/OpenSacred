@@ -483,7 +483,10 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 
 ## In `opensacred-game`
 
-No FX object is made or drawn yet: the spells and the arts draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), the scripts' `CreateObj`s of the category 12 place nothing, and the torches burn without a flame (#1092, #61).
+The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12; the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886) and `FX_FI_SMOKE_*` (812, 813, 876) places a fire at its `0x20` and its height `0x7E` in the models' units above the world's zero (`npcs`), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
+Set beside the original on 2026-10-27 at the braziers of 50,39 by noon: a flame of a yellow core and an orange top with a faint grey smoke, its pixels of red above 200 and green above 150 247 against the original's 239, its brightest (255, 255, 165) against (255, 255, 157), its extent within two or three pixels of the original's.
+By night the original's flame keeps its colour (the flags `0x0C` leave out the tint) where the game's night pass darkens the whole frame about the fire's own light, so that its flame shows paler; the wind of the smoke class's layers and the other variants and classes are not followed.
+The spells and the arts still draw stand-ins of their own (balls and flames of one colour, docs/re/arts.md), and the torches burn without a flame (#1092, #61).
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
@@ -491,7 +494,7 @@ The order above is #1092's: the machinery with the world's fires first, then the
 - What the object's `+0x14` bit `4` means (the smoke family, the torch smoke, the traps 892 and 893, the blood puddle 903), and the other system flags of the update (`0x8`, `0x10`, `0x20`, `0x800`, `0x4000`, `0x10000`, `0x20000`, `0x40000`, `0x80000`, `0x200000`).
 - What the update's second argument (0 from the tick, 1 from the draw) changes, so whether an effect off the screen runs at half the rate of one on it.
 - The matrix at `sdk_DXDISPLAY + 0x250` the systems are drawn with (**hypothesis**: the view's rotation inverted, for camera-facing quads), and the scale of the models' units on the screen for a particle's size (1 unit about 1.92 pixels at zoom 1 by docs/re/drawing.md).
-- The units and the frame of the scripts' tag `0x7E` (the effects' height), and which statics the fires and fire smokes stand on.
+- The units and the frame of the scripts' tag `0x7E` (the effects' height; the game takes it in the models' units above the world's zero, which puts the braziers' fires of 50,39 on their bowls as the original's), and which statics the fires and fire smokes stand on.
 - The renderer's vector `+0x6C`, `+0x70` that the smoke's wind takes besides `+0x68` and `+0x74`.
 - Whether the butterflies' fade in step shows in the original (frames at 60 a second over 3 s).
 - The weapons' effects of `cWeapon3D` (the kinds `0xB`, `0x1C`, `0x1D`, `0x33`, `0x3C`, `0x52`) and their systems.

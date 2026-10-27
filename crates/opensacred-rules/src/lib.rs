@@ -14,6 +14,7 @@ pub mod arts;
 pub mod drops;
 pub mod fight;
 pub mod minds;
+pub mod particles;
 pub mod quests;
 pub mod rewards;
 pub mod spawning;

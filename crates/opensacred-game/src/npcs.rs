@@ -207,6 +207,9 @@ struct Placement {
     /// and closes (#372).
     door: bool,
     trigger: Option<String>,
+    /// A fire of the FX objects (`items.pak` category 12), its variant of the smoke class and its
+    /// height in the models' units, the record's `0x7E` (`fx`, #1092).
+    fx: Option<(u8, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -353,6 +356,10 @@ const ATTACHED: [u8; 5] = [WEAPON, SHIELD, 8, 20, 25];
 const CHEST: u8 = 4;
 /// The category of the doors (`items.pak` 5650 to 5766, `0x428130`).
 const DOOR: u8 = 10;
+/// The FX objects' category (`cObjectFX`, docs/re/effects.md).
+const FX: u8 = 12;
+/// A `CreateObj`'s height of an FX object, in the models' units (`0x4861BF`).
+const FX_HEIGHT: u8 = 0x7E;
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
 /// A `Creature.pak` record's flag of a big type (`0x426CB0`).
@@ -587,6 +594,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         casts: kind.casts,
         blocks: false,
         door: false,
+        fx: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
@@ -2294,7 +2302,23 @@ impl Makers {
         let Some(item) = self.items.get(&creature) else {
             return Ok(None);
         };
-        let Some(model) = self.models.get(&item.name.to_ascii_uppercase()) else {
+        // A fire of the FX objects, which has no model: its variant and its height.
+        let fx = (record.kind == CREATE_OBJ && category(item) == FX)
+            .then(|| opensacred_rules::particles::fire_variant(creature))
+            .flatten()
+            .map(|variant| {
+                let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                    _ => None,
+                });
+                (variant, height.unwrap_or(0.0))
+            });
+        let empty = String::new();
+        let Some(model) = self
+            .models
+            .get(&item.name.to_ascii_uppercase())
+            .or(fx.is_some().then_some(&empty))
+        else {
             return Ok(None);
         };
         let texture = match item.words_08[0] {
@@ -2392,6 +2416,7 @@ impl Makers {
             },
             blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
             door: record.kind == CREATE_OBJ && category(item) == DOOR,
+            fx,
             trigger: (record.kind == CREATE_OBJ && category(item) == DOOR)
                 .then(|| {
                     ops.iter().find_map(|o| match (o.tag, &o.value) {
@@ -3899,6 +3924,14 @@ fn spawn(
             placement.model,
             model.x,
             model.z,
+        );
+    }
+    if let Some((variant, height)) = placement.fx {
+        return crate::fx::spawn(
+            commands,
+            variant,
+            Vec3::new(model.x, height * iso::MODEL_SCALE, model.z),
+            (layered, layered.visibility(states)),
         );
     }
     let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(placement.model.clone()));
