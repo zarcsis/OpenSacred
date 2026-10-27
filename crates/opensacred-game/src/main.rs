@@ -5,6 +5,7 @@
 mod ai;
 mod arrows;
 mod arsenal;
+mod art_sounds;
 mod arts;
 mod atmosphere;
 mod attack;
@@ -271,6 +272,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         ai::AiPlugin,
         arrows::ArrowsPlugin,
         arsenal::ArsenalPlugin,
+        art_sounds::ArtSoundsPlugin,
         arts::ArtsPlugin,
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
@@ -282,9 +284,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         bolts::BoltsPlugin,
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
-        burns::BurnsPlugin,
     ))
     .add_plugins((
+        burns::BurnsPlugin,
         choice::ChoicePlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
@@ -299,9 +301,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         followers::FollowersPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
-        game::GamePlugin,
     ))
     .add_plugins((
+        game::GamePlugin,
         glance::GlancePlugin,
         guns::GunsPlugin,
         help::HelpPlugin,
@@ -316,9 +318,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
-        music::MusicPlugin,
     ))
     .add_plugins((
+        music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
@@ -333,9 +335,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-        skies::SkiesPlugin,
     ))
     .add_plugins((
+        skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
         spells::SpellsPlugin,

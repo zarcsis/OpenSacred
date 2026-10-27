@@ -60,18 +60,26 @@ const HOSTILE_IDLE: u8 = 20;
 const PEACEFUL_IDLE: u8 = 70;
 /// The profiles' group of the idle noises.
 const IDLE: u8 = 0;
+/// The Gladiator's creature type, whose battle cry's roll is one in two (`0x4FD0F0`).
+const GLADIATOR: u32 = 2;
 
-/// The hero makes a combat art: its battle cry, one in three.
+/// The hero makes a combat art: its battle cry, one in three, one in two for the Gladiator, or
+/// surely after the art's own cry (`0x4FD0F0`, `art_sounds`).
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BattleCry {
     pub hero: Entity,
+    pub sure: bool,
 }
 
 /// The hero's lines by name (`0x693FE0`): the name's stem, how many a class has, and the roll.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HeroLine {
     HitEnemy,
-    BattleCry,
+    /// A battle cry, `sure` after an art's own cry, `night` in the Vampiress's night's form.
+    BattleCry {
+        sure: bool,
+        night: bool,
+    },
     EnemyKillMe,
 }
 
@@ -79,7 +87,7 @@ impl HeroLine {
     fn stem(self) -> &'static str {
         match self {
             Self::HitEnemy => "HITENEMY",
-            Self::BattleCry => "BATTLECRY",
+            Self::BattleCry { .. } => "BATTLECRY",
             Self::EnemyKillMe => "ENEMYKILLME",
         }
     }
@@ -87,22 +95,27 @@ impl HeroLine {
     fn count(self) -> u32 {
         match self {
             Self::HitEnemy => 11,
-            Self::BattleCry => 10,
+            Self::BattleCry { .. } => 10,
             Self::EnemyKillMe => 6,
         }
     }
 
-    fn roll(self) -> u8 {
+    /// The roll of the line of the hero of type `creature`: one in this many.
+    fn roll(self, creature: u32) -> u8 {
         match self {
             Self::HitEnemy => 5,
-            Self::BattleCry => 3,
+            Self::BattleCry { sure: true, .. } => 1,
+            Self::BattleCry { .. } if creature == GLADIATOR => 2,
+            Self::BattleCry { .. } => 3,
             Self::EnemyKillMe => 1,
         }
     }
 
-    /// The sound's name of the line `n` of the hero of type `creature`.
+    /// The sound's name of the line `n` of the hero of type `creature`: the Vampiress's battle
+    /// cries in her night's form her own (the event `(9, 0x49)` sets the manager's `+0xAF48`).
     fn name(self, creature: u32, n: u32) -> Option<String> {
         let class = match creature {
+            6 | 7 if matches!(self, Self::BattleCry { night: true, .. }) => "REALVAMP",
             1 => "SERA",
             2 => "GLAD",
             3 => "MAGE",
@@ -255,7 +268,7 @@ impl Voices {
         if line == HeroLine::HitEnemy && self.taunted.is_some_and(|t| now - t < TAUNTS_AFTER) {
             return None;
         }
-        if !rolls(line.roll(), &mut self.dice) {
+        if !rolls(line.roll(creature), &mut self.dice) {
             return None;
         }
         let name = line.name(creature, self.dice.below(line.count()))?;
@@ -322,7 +335,7 @@ fn speak(
     mut cries: MessageReader<BattleCry>,
     mut voices: ResMut<Voices>,
     mut sfx: ResMut<Sfx>,
-    hero: Option<Res<hero::Hero>>,
+    (hero, forms): (Option<Res<hero::Hero>>, Option<Res<crate::forms::Forms>>),
     speakers: Query<(
         &GlobalTransform,
         Option<&crate::ai::Mind>,
@@ -405,9 +418,14 @@ fn speak(
         }
     }
     for cry in cries.read() {
-        if let Some((id, file)) = hero_type
-            .and_then(|creature| voices.hero_line(&sfx, creature, HeroLine::BattleCry, now))
-        {
+        if let Some((id, file)) = hero_type.and_then(|creature| {
+            let night = forms.as_ref().is_some_and(|forms| forms.by_night());
+            let line = HeroLine::BattleCry {
+                sure: cry.sure,
+                night,
+            };
+            voices.hero_line(&sfx, creature, line, now)
+        }) {
             said.push(Said {
                 speaker: cry.hero,
                 id,
@@ -611,8 +629,22 @@ mod tests {
             Some("SOUND_FX_HITENEMY_01_SERA")
         );
         assert_eq!(
-            HeroLine::BattleCry.name(9, 9).as_deref(),
+            HeroLine::BattleCry {
+                sure: false,
+                night: false
+            }
+            .name(9, 9)
+            .as_deref(),
             Some("SOUND_FX_BATTLECRY_10_DEMON")
+        );
+        assert_eq!(
+            HeroLine::BattleCry {
+                sure: false,
+                night: true
+            }
+            .name(6, 0)
+            .as_deref(),
+            Some("SOUND_FX_BATTLECRY_01_REALVAMP")
         );
         assert_eq!(
             HeroLine::EnemyKillMe.name(5, 5).as_deref(),
