@@ -4,15 +4,16 @@
 //! window at the screen's middle shows the creature's name, its texts and its buttons, until the
 //! original's interface of M5 (docs/decisions/2026-10-26-dialogue-window.md). A button closes it,
 //! ends the talk and runs its function (`scripts::answer`); without buttons Enter or a click
-//! closes it; the talk ends too where the hero stands farther than 1,500 from the creature. The
-//! world runs on meanwhile, the hero's clicks on it held back while the window shows.
+//! closes it; the talk ends too where the hero stands farther than 1,500 from the creature. Its
+//! voice-over ends as it closes. The world runs on meanwhile, the hero's clicks on it held back
+//! while the window shows.
 
 use bevy::picking::Pickable;
 use bevy::picking::events::PointerClick;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::FontSize;
-use bevy_kira_audio::prelude::{Audio, AudioControl};
+use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween};
 use opensacred_data::tables::PORTRAITS;
 use opensacred_rules::minds;
 
@@ -122,6 +123,11 @@ impl Portraits {
 
 /// A portrait in the window: its texture, and its part, its left, top, width and height.
 type Portrait = (Handle<Image>, [u16; 4]);
+
+/// The dialogue's voice-over that plays: the original's one line by name (`0x693FE0`, `+0xB7E0`),
+/// which the next stops, and so does the window's close (`0x693FB0`).
+#[derive(Resource, Default)]
+struct VoiceOver(Option<Handle<AudioInstance>>);
 
 /// The dialogue's window while it shows: its root, the creature, and its buttons' functions.
 #[derive(Resource, Clone, Debug)]
@@ -420,7 +426,7 @@ fn resource(name: &str) -> &str {
 }
 
 /// Plays the dialogue's sounds, its voice-overs under their texts' keys (`sound.pak`'s
-/// `SOUND_FX_<key>`, `0x4A9730`).
+/// `SOUND_FX_<key>`, `0x4A9730`), each a line by name that stops the one before (`0x693FE0`).
 fn voice(world: &mut World, sounds: &[String]) {
     for sound in sounds {
         let name = format!("SOUND_FX_{}", sound.to_ascii_uppercase());
@@ -433,9 +439,28 @@ fn voice(world: &mut World, sounds: &[String]) {
             return;
         };
         let sample = sfx.sample(id, file, &assets);
-        if let Some(audio) = world.get_resource::<Audio>() {
-            audio.play(sample);
-        }
+        hush(world);
+        let Some(audio) = world.get_resource::<Audio>() else {
+            return;
+        };
+        let instance = audio.play(sample).handle();
+        world.insert_resource(VoiceOver(Some(instance)));
+    }
+}
+
+/// Stops the dialogue's voice-over that plays, if one does (`0x693FB0`).
+fn hush(world: &mut World) {
+    let Some(instance) = world
+        .get_resource_mut::<VoiceOver>()
+        .and_then(|mut voice| voice.0.take())
+    else {
+        return;
+    };
+    if let Some(mut instances) = world.get_resource_mut::<Assets<AudioInstance>>()
+        && let Some(mut instance) = instances.get_mut(&instance)
+    {
+        debug!("talk: the voice-over stops");
+        instance.stop(AudioTween::default());
     }
 }
 
@@ -556,11 +581,12 @@ fn choose(world: &mut World, index: usize) {
     }
 }
 
-/// Closes the window, if one shows, and ends the talk.
+/// Closes the window, if one shows, its voice-over stopped, and ends the talk.
 fn close(world: &mut World) {
     let Some(shown) = world.remove_resource::<Shown>() else {
         return;
     };
+    hush(world);
     if let Ok(root) = world.get_entity_mut(shown.root) {
         root.despawn();
     }
@@ -813,9 +839,10 @@ fn no_window(shown: Option<Res<Shown>>) -> bool {
     shown.is_none()
 }
 
-/// Leaves no window behind a game.
+/// Leaves no window and no voice-over behind a game.
 fn forget(mut commands: Commands) {
     commands.remove_resource::<Shown>();
+    commands.queue(hush);
 }
 
 /// The talks.
