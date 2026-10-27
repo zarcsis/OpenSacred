@@ -105,7 +105,7 @@ It is made in place or by `0x51CB60`, which Ghidra names as an effect's construc
 - **The quake (kind 7)**, while `SCREEN_QUAKE` is on (`0x81DDE0`; 1 in `Settings.cfg`): an amplitude of value/3 pixels (`+0x9DB8`), falling by 10 a second, moves the screen by a random offset within it on both axes at each frame, which the view's matrix adds to the camera (`0x6284E0`), and plays the sample 209 `SOUND_FX_EARTHQUAKE_LOOP` (`0x697220`), at most once every 0.1 to 0.35 s; so 30 shakes it by 10 pixels for a second, 45 by 15 for a second and a half.
   Each event sets the amplitude anew rather than raising it, and plays the sample as it comes; the kind 1 sets the amplitude to 0, its flag left for the next frame to take off.
   The Gladiator's jump 1003 sends 45 as it lands (`0x4FF0B0` at `0x500765`, after its regeneration starts; docs/re/arts.md, which took it for the ground's shaking), and the Daemon's executor sends 45 as one of its arts takes its effect 50 off (`0x5192E0` at `0x519EFB`; which art is not read); the particle systems and spells send 30, 24 or 21 (`0x7866C0`, `0x790340`, `0x79E730`, `0x7A7500`, `0x7AF550`, `0x7B70A0`, `0x7BAD70`, `0x7C1790`; which spells is not read).
-- **The jolt (kind 12)**, under `SCREEN_QUAKE` too: a vertical offset of value/3 pixels, falling by 40 a second; a creature's step sends 18 (`0x639080`, for an object of the kind `0x5FE870` 0x35; **hypothesis**: a big creature's stomp), and so does `0x527716` in `0x522480` (not read).
+- **The jolt (kind 12)**, under `SCREEN_QUAKE` too: a vertical offset of value/3 pixels, falling by 40 a second; the Big Demon's step sends 18 (`0x639080`, for an object whose type `0x5FE870` gives is 53, `TYPE_NPC_BIG_DEMON`; **confirmed** 2026-10-27, docs/re/sound.md), and so does `0x527716` in `0x522480` (not read).
 
 ## The butterflies and the birds
 
@@ -143,7 +143,7 @@ A quake (`opensacred_rules::weather::Event::Quake`) moves the camera after it fo
 The crows and the bats fly over the camera as above (`fliers`, #1073): `opensacred-convert world` writes each sector's byte into `world.ron` (`fliers`), `opensacred_rules::weather` keeps the timer on the rolls the weather shares, and the camera's point is the hero's, which the camera follows; a flier is a model among the others, drawn at the cell under it (`models::Ordered`), lit as they are, its call in the middle.
 Seen 2026-10-27 in 51,51 at noon: a crow 134 s after the hero came, flying right and down over the screen, about 70 pixels across at zoom 1, and its call 13 s after it started; not yet set beside the original's.
 The butterflies fly (`butterflies`, #1073): as a sector of their entries comes in, ten swarms an entry at walkable places at random, as docs/re/effects.md ("The butterflies") reads them; they go with the sector.
-The jolts are still #1073 (M5).
+The Big Demon's steps jolt the screen (`steps`, #1171): the weather's jolt moves the view down by a third of its value in pixels, falling by 40 a second, after the quake's offset (`skies`).
 
 Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
 

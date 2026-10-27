@@ -80,6 +80,7 @@ mod sound;
 mod spells;
 mod srgb;
 mod statics;
+mod steps;
 mod tables;
 mod talk;
 mod terrain;
@@ -351,6 +352,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
+        steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
     ))

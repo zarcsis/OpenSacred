@@ -63,6 +63,12 @@ fn group(nature: u8) -> usize {
     }
 }
 
+/// The footstep group of a cell's nature as [`group`] gives it, for the other creatures' steps
+/// that take the hero's (`steps`).
+pub(crate) fn group_of(nature: u8) -> u8 {
+    u8::try_from(group(nature)).unwrap_or(1)
+}
+
 /// The sound index, `sound/sound.ron`, as read at the start.
 #[derive(Resource, Clone)]
 pub struct Index(pub Arc<Sound>);
