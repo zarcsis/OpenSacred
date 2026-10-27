@@ -17,7 +17,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
-use opensacred_rules::particles::{Blend, Fire, System, fire};
+use opensacred_rules::particles::{Blend, Fire, Geyser, Jet, System, fire};
 use opensacred_rules::spawning::Rng;
 
 use crate::frame::{Playing, Unpaused};
@@ -35,6 +35,8 @@ pub struct Burning {
     system: System,
     dice: Rng,
     meshes: Vec<Handle<Mesh>>,
+    /// A geyser's clock and its jet of its own, which the clock changes.
+    geyser: Option<(Geyser, Fire)>,
 }
 
 /// The fires' and smokes' variants and each one's materials of its layers, made as the game
@@ -49,7 +51,7 @@ type Material = Option<Handle<StandardMaterial>>;
 
 /// The smoke class's variants that the game makes: the chimneys', the fire smokes', the lavas'
 /// smokes and the fires (docs/re/effects.md).
-const VARIANTS: [u8; 11] = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
+const VARIANTS: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 /// A fire to make: its variant, as `spawn` leaves it for [`light`].
 #[derive(Component)]
@@ -251,13 +253,16 @@ fn light(
             }
         });
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+        let mut dice = Rng::of(0, 0, SEED ^ index);
+        let geyser = (variant == GEYSER).then(|| (Geyser::new(&mut dice), (**fire).clone()));
         let mut burning = commands.entity(entity);
         burning.insert(Burning {
             variant,
             fire: fire.clone(),
             system: System::new(fire.count),
-            dice: Rng::of(0, 0, SEED ^ index),
+            dice,
             meshes: handles,
+            geyser,
         });
         if fire.light > 0.0 {
             burning.insert(daynight::Light(fire.light));
@@ -265,25 +270,57 @@ fn light(
     }
 }
 
-/// Runs each fire's particles a frame on, and lays its layers' quads out facing the camera.
-fn burn(time: Res<Time>, mut fires: Query<&mut Burning>, mut meshes: ResMut<Assets<Mesh>>) {
+/// The geyser's variant of the smoke class, and its bursts' two sounds (`0x76E2D0`).
+const GEYSER: u8 = 7;
+const GEYSER_SOUNDS: [u32; 2] = [211, 212];
+
+/// The geysers' sound's latch, which every geyser shares (`0x17EEBC8`).
+#[derive(Resource, Default)]
+struct GeyserLatch(bool);
+
+/// Runs each fire's particles a frame on, and lays its layers' quads out facing the camera; a
+/// geyser runs its clock first, its burst's sound at it, one of two at a rate of 0.9 to 1.1 of the
+/// sample's.
+fn burn(
+    time: Res<Time>,
+    mut fires: Query<(Entity, &mut Burning)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    (mut latch, mut sounds): (ResMut<GeyserLatch>, MessageWriter<crate::sfx::Play>),
+) {
     let dt = time.delta_secs().min(0.1);
-    for mut burning in &mut fires {
-        let burning = &mut *burning;
-        let fire = burning.fire.clone();
-        burning.system.update(dt, &fire.layers);
-        burning
-            .system
-            .emit(&fire.blocks, &fire.layers, fire.count, &mut burning.dice);
-        for (layer, handle) in burning.meshes.iter().enumerate() {
+    for (entity, mut burning) in &mut fires {
+        let Burning {
+            fire,
+            system,
+            dice,
+            meshes: layers,
+            geyser,
+            ..
+        } = &mut *burning;
+        let fire: &Fire = match geyser {
+            Some((geyser, own)) => {
+                if let Jet::Bursts { sounds: true } = geyser.update(dt, own, &mut latch.0, dice) {
+                    let pick = usize::try_from(dice.below(2)).unwrap_or(0);
+                    sounds.write(crate::sfx::Play {
+                        sound: crate::sfx::Of::Id(GEYSER_SOUNDS[pick]),
+                        at: Some(entity),
+                        rate: (0.4, crate::sfx::Roll::Share(0.2)),
+                    });
+                }
+                own
+            }
+            None => fire,
+        };
+        system.update(dt, &fire.layers);
+        system.emit(&fire.blocks, &fire.layers, fire.count, dice);
+        for (layer, handle) in layers.iter().enumerate() {
             let Some(mut mesh) = meshes.get_mut(handle) else {
                 continue;
             };
             let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
             let grid = f32::from(fire.grid.max(1));
             let mut quads = Quads::default();
-            for particle in burning
-                .system
+            for particle in system
                 .particles
                 .iter()
                 .filter(|p| usize::from(p.layer) == layer)
@@ -419,6 +456,7 @@ pub struct FxPlugin;
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Crackles>()
+            .init_resource::<GeyserLatch>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
