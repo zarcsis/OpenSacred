@@ -15,12 +15,13 @@
 //! choice of the hero's figures"; #1130).
 //!
 //! The mouse chooses a figure by pointing and clicking, the arrows choose the next or the one
-//! before, a key types the name, Enter starts the game and Esc goes back (`menu`).
+//! before, a key types the name, Enter starts the game and Esc goes back (`menu`). The cursor
+//! resting on a figure makes it speak its class's introduction (#1128).
 
 use bevy::asset::embedded_asset;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
-use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
 use bevy::picking::pointer::PointerButton;
@@ -33,9 +34,12 @@ use bevy::window::PrimaryWindow;
 
 use opensacred_data::tables::{FIGURES as FIGURES_TABLE, Figure as Showcase};
 
+use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween};
+
 use crate::game::{AppState, Class, Data, FONT, Request};
 use crate::menu::{self, Screen, Words};
 use crate::ripples::{self, Pond, Ripples};
+use crate::sfx::{self, Sfx};
 use crate::{files, hud, motions, npcs};
 
 /// The figures' scene, which the main camera does not see.
@@ -149,6 +153,33 @@ struct Choice {
     chosen: Option<Class>,
     hovered: Option<Class>,
     name: String,
+}
+
+/// The introduction of the class whose figure the cursor rests on: the class, how long the cursor
+/// has rested there, in seconds, and the introduction playing, once it has.
+#[derive(Resource, Default)]
+struct Introduction {
+    class: Option<Class>,
+    rested: f32,
+    playing: Option<Handle<AudioInstance>>,
+}
+
+/// How long the cursor rests on a figure before it speaks, in seconds (`0x70C710`).
+const RESTS: f32 = 0.5;
+
+/// Each class's introduction, a sound id: `SOUND_FX_1060` to `1065`, `SOUND_FX_STARTUP_DEMON`
+/// and `SOUND_FX_STARTUP_DWARF` (`0x693FE0`; docs/re/menus.md, "The sound").
+fn introduction(class: Class) -> u32 {
+    match class {
+        Class::Gladiator => 17000,
+        Class::Seraphim => 18120,
+        Class::DarkElf => 16600,
+        Class::WoodElf => 17370,
+        Class::Mage => 17750,
+        Class::Vampiress => 18510,
+        Class::Daemon => 21219,
+        Class::Dwarf => 21545,
+    }
 }
 
 /// The figures, once read.
@@ -479,6 +510,7 @@ fn screen(
         Projection::Perspective(projection),
         eye,
         Tonemapping::None,
+        DebandDither::Disabled,
         AmbientLight {
             color: Color::WHITE,
             brightness: AMBIENT,
@@ -617,6 +649,7 @@ fn pond(images: &Images, reflected: bool) -> Pond<'_> {
         bed: images.bed.as_ref(),
         reflection: images.reflection.as_ref().filter(|_| reflected),
         view: ripples::CAVE,
+        cave: true,
     }
 }
 
@@ -1234,6 +1267,56 @@ fn settle(
     }
 }
 
+/// The class of the figure that the cursor rests on speaks its introduction once the cursor has
+/// rested there half a second, at the effects' volume, in the middle and at its sample's rate;
+/// the cursor leaving it stops it (the sound event (9, 0x44), `0x693FE0`).
+fn introduce(
+    time: Res<Time<Real>>,
+    choice: Res<Choice>,
+    mut introduction: ResMut<Introduction>,
+    (mut sfx, audio, assets): (ResMut<Sfx>, Res<Audio>, Res<AssetServer>),
+    mut instances: ResMut<Assets<AudioInstance>>,
+) {
+    if choice.hovered != introduction.class {
+        if let Some(playing) = introduction.playing.take()
+            && let Some(mut instance) = instances.get_mut(&playing)
+        {
+            instance.stop(AudioTween::default());
+        }
+        *introduction = Introduction {
+            class: choice.hovered,
+            ..default()
+        };
+    }
+    let Some(class) = introduction.class else {
+        return;
+    };
+    if introduction.playing.is_some() {
+        return;
+    }
+    introduction.rested += time.delta_secs();
+    if introduction.rested <= RESTS {
+        return;
+    }
+    let Some((id, file)) = sfx.with_id(self::introduction(class)) else {
+        return;
+    };
+    let sample = sfx.sample(id, file, &assets);
+    debug!("choice: {} introduces itself, {id}", class.name());
+    introduction.playing = Some(audio.play(sample).with_volume(sfx::decibels(1.0)).handle());
+}
+
+/// Stops the introduction playing as the screen closes.
+fn hush(mut introduction: ResMut<Introduction>, instances: Option<ResMut<Assets<AudioInstance>>>) {
+    if let Some(playing) = introduction.playing.take()
+        && let Some(mut instances) = instances
+        && let Some(mut instance) = instances.get_mut(&playing)
+    {
+        instance.stop(AudioTween::default());
+    }
+    *introduction = Introduction::default();
+}
+
 /// Lights the figure under the cursor and the one chosen, the others dark.
 fn shade(
     choice: Res<Choice>,
@@ -1267,6 +1350,8 @@ impl Plugin for ChoicePlugin {
         embedded_asset!(app, "figures.wesl");
         app.add_plugins(UiMaterialPlugin::<Layer>::default())
             .init_resource::<Choice>()
+            .init_resource::<Introduction>()
+            .add_systems(OnExit(Screen::Heroes), hush)
             .init_resource::<Figures>()
             .init_resource::<Images>()
             .add_systems(OnEnter(Screen::Heroes), (read_figures, screen).chain())
@@ -1282,6 +1367,14 @@ impl Plugin for ChoicePlugin {
                 )
                     .chain()
                     .run_if(in_state(Screen::Heroes)),
+            )
+            .add_systems(
+                Update,
+                introduce
+                    .after(show)
+                    .run_if(in_state(Screen::Heroes))
+                    .run_if(resource_exists::<Sfx>)
+                    .run_if(resource_exists::<Assets<AudioInstance>>),
             );
     }
 }

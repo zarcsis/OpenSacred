@@ -62,7 +62,7 @@ const FADE_IN: Duration = Duration::from_secs(2);
 /// How long the music of the sector left fades.
 const FADE_OUT: Duration = Duration::from_secs(2);
 /// Below the effects, so that the footsteps stay audible.
-const VOLUME: Decibels = Decibels(-8.0);
+pub const VOLUME: Decibels = Decibels(-8.0);
 /// How long a track may wait for its file before the next one is tried: a file that fails to
 /// load or decode would otherwise stop the music for good.
 const WAIT: Duration = Duration::from_secs(30);
