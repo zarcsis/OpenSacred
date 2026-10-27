@@ -155,7 +155,7 @@ Its object holds the state at fixed offsets; what they are is read off the code 
 | `+0xA40` | u32 | an index; 0x6E is replaced by 0xB |
 
 It plays a loop through `0x694510(id, 0, 0)`, `cMSS::playMusic` (its log line), which plays the music too: it takes the volume at `+0x78` for a name that starts with `ATMO` (after `SOUND_FX_`) and the one at `+0x7C` for the rest.
-Whether an ambient loop and a music track can sound at once is not read yet.
+An ambient loop and a music track sound together only in a crossfade of the one stream they share ("The peace stream's alternation" below, #1211).
 By the nature, through a switch on `nature − 0x10` (byte table `0x696F50`, jump table `0x696F38`, entry at `0x696C27`) by day and another (`0x696E54`, `0x696E40`, entry at `0x696BDA`) by night:
 
 | Nature | Day | Night |
@@ -169,7 +169,7 @@ By the nature, through a switch on `nature − 0x10` (byte table `0x696F50`, jum
 
 Before the switch the function leaves the loop alone while one of the region musics plays (`MUSIC_PILZWALD`, `MUSIC_KARIBIK`, `MUSIC_HELL`, `MUSIC_WAYTOHELL`, `MUSIC_PIRATENPUB`); after it, a switch on the playing id (`id − 6504`: byte table `0x697058`, jump table `0x697034`; by night another switch at `0x696D20`) handles the rest, including `ATMO_KARIBIK` and `ATMO_PILZWALD`; not analyzed yet.
 
-`opensacred-game` plays the day's column by day and at the dawn, the night's in the dusk and by night (`atmosphere.rs`, by the game's clock, docs/re/daynight.md).
+`opensacred-game` plays the day's column by day and at the dawn, the night's in the dusk and by night (`atmosphere.rs`, by the game's clock, docs/re/daynight.md), in the peace stream's ambient phase since #1177.
 
 A static whose type has a sound profile (`items.pak +0x24`, docs/02 §6.1; the 22 waterfall types 15531 to 15560 have `atmospot_waterfall`, 10) sends the sound manager the event 13 with its cell and type at every frame it is drawn (`cWorldView_renderTileRow`, `0x62B9D5` to `0x62B9FE`); what the manager makes of it is not read.
 **Seen** 2026-10-25 (#227, check 25) beside nine of them at 51,28: in 15 s nothing of the profile 10 was picked, no sample started and no stream opened, so the original's waterfalls are silent (**hypothesis**: the profile names the id 6507, a music file's, which `sound.pak` lacks); `opensacred-game` plays no static's sound either.
@@ -202,8 +202,7 @@ So the stream also carries the ambient loops there, and what restarts the music 
 Read again 2026-10-27 (#1211): the death's music plays on the once-stream `+0x60C`, while the peace music and the ambient loops share the pair of streams of `cMSS::playMusic` ("The peace stream's alternation" below); the hero's death sets the alternation's timer to 200 s, so that the peace stream turns to the ambient loop as the death's music plays, and the music should come back 180 s later by day.
 The 7 minutes without a stream opened are the driver's mute (#1213): under `--muted` a crossfade never ends ("The peace stream's alternation", seen below).
 
-`opensacred-game` plays it at the hero's fall (`music`, #734): the track playing stops at once, `MUSIC_DEATH` plays once at the music's volume without fading in, by day or by night, and plays to its end in whatever sector the hero rises; then the music is silent until the hero enters a sector that another track would switch to, as above.
-Its ambient loops play apart (`atmosphere`, above) and go on.
+`opensacred-game` plays it at the hero's fall (`music`, #734), on a channel of its own since #1177: `MUSIC_DEATH` once at the music's volume without fading in, by day or by night, over the peace stream, which turns to the ambient loop in its music's phase.
 The factor of `0x697820` is taken as 1, and the jingles of the fights wait for the fights' music.
 
 ## The region's music
@@ -237,8 +236,7 @@ In the campaign's trees (`NetScriptCamp`, the heroes' `type_npc_*`; the listings
 The variables `atmos_rg<N>` (above, the atmosphere) are others.
 So the sieges' and the world changes' music follows the campaign's quests, which the game has not (M4).
 
-`opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`): entering a sector of another music switches to it at once, the one playing fading out (**hypothesis**: what `cMSS::playMusic` does with the track playing is not read); a track that ends plays again; out of a sector with music into one without, the track plays to its end, then `PEACE`.
-By night no track starts, and the one playing plays to its end, without the jingle (#5).
+`opensacred-game` plays the music of the hero's sector (`music`, the converter's `world.ron` carrying each sector's `music` and `area`) in the peace stream's music phase since #1177 ("The peace stream's alternation" below): entering a sector of another music crossfades to it, a sector without music gives the stream to the ambient loop.
 Since #55 the sieges' and the world change's music follow the scripts' variables `RegionChange` and `Globalchange1` as the handler overrides it (`music::music_of`), whenever the hero's sector's music is chosen, so that a quest's siege changes the music of the sector the hero stands in at once (**hypothesis**: the original's pass posts the music at each of its runs).
 In the game, the quest 58's `Init58` (the console's `quest set-up 58`, `script Init58`), which sets the bits 1 and 6, gave the start's sector `MUSIC_VILLAGE_SIEGE_UNDEAD`.
 Not in the game: the world changes' creatures (`RegionChange` and `ReplaceSpawn`, #55) and the fights' music (docs/decisions/2026-10-17-region-music.md).
@@ -276,7 +274,7 @@ Read 2026-10-27 for #1211 in `Sacred.exe`, code only (**confirmed** by code unle
   - With `--muted` (the game's volumes 64, every Miles volume set to 0 by the agent), `ATMO_WOOD` at 19 s and no `playMusic` for seven minutes, the hero moved to 54,42 meanwhile; the manager read `+0x698` 2, `+0xAF28` 1, `+0x6AC` 0, `+0x692` 6560, `+0x64` 7 (a crossfade's bit held), the stream B closed and the timer climbing to 180 s and set back to 160: the crossfade, its levels read back as 0, never ended, and the switch waited 20 s again and again (#1213).
   - With the mute reading a stream's volume back as the game asked (#1213), the crossfade's bit cleared within 7 s, and the stream turned `ATMO_WOOD` at 19.9 s, `MUSIC_WOOD01` at 200.0 s and `ATMO_WOOD` at 380.0 s, 180 s each, the hero standing in the chapel of 50,39 by day.
 
-What the game does differs (#1177): `music` plays the region's music by day and none by night, and `atmosphere` plays the ambient loops on a channel of their own beside it (docs/decisions/2026-10-17-region-music.md), with fades of 2 s.
+`opensacred-game` follows it since #1177 (`opensacred_rules::music::Stream`, `music::alternate`): the timer by day and dawn, the switch past 180 s or 20 s later in a crossfade, the first phase rolled, the dusk, the night, the hero's death and a sector without music asking for the ambient loop, the cemetery's and the arenas' sectors holding the turns; the music and the ambient loop on two channels that cross over the same 7 s, linear, the tracks looping, the loops at the effects' level (docs/decisions/2026-10-17-region-music.md for what it does not follow).
 
 ## The sources: what plays, and what `opensacred-game` does not yet
 
