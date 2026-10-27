@@ -15,8 +15,9 @@ use std::collections::HashMap;
 
 use bevy::log::debug;
 use bevy::prelude::{
-    Added, App, AssetServer, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
-    MessageReader, MessageWriter, Plugin, Query, Res, ResMut, Resource, Update, Vec3, With,
+    Added, App, AssetServer, Camera, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
+    MessageReader, MessageWriter, Plugin, Projection, Query, Res, ResMut, Resource, Update, Vec3,
+    With,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
 use opensacred_data::sound::Sound;
@@ -160,19 +161,23 @@ fn distance(x: i32, y: i32) -> i32 {
 /// The volume falls along three lines to silence at the hearing distance, 900 pixels; the pan
 /// goes by the side, the more the less the sound lies above or below the listener, and back to
 /// the middle within 260 pixels.
+/// The volume at the listener `listener` (`+0x84`, [`Listener`]) narrows the hearing distance as
+/// it rises, and the factor is taken of the volume at zoom 1, so that a sound at the listener
+/// plays louder zoomed in and quieter zoomed out.
 #[expect(
     clippy::cast_precision_loss,
     reason = "a distance in pixels, far below 2^24"
 )]
-pub fn placed(x: i32, y: i32) -> (f32, f32) {
-    let hearing = HEARING * (1.5 - NEAR_VOLUME);
+pub fn placed(x: i32, y: i32, listener: Listener) -> (f32, f32) {
+    let at_listener = listener.0;
+    let hearing = HEARING * (1.5 - at_listener);
     let near = distance(x, y) as f32;
     let d = near.min(hearing);
     let [first, first_volume, second, second_volume] = CURVE;
     let (first, second) = (first * hearing, second * hearing);
-    let first_volume = (0.5 - first_volume) * (NEAR_VOLUME - 0.5) + first_volume;
+    let first_volume = (0.5 - first_volume) * (at_listener - 0.5) + first_volume;
     let volume = if d < first {
-        NEAR_VOLUME - (NEAR_VOLUME - first_volume) / first * d
+        at_listener - (at_listener - first_volume) / first * d
     } else if d < second {
         first_volume - (d - first) * (first_volume - second_volume) / (second - first)
     } else if d < hearing {
@@ -209,13 +214,55 @@ pub fn placed(x: i32, y: i32) -> (f32, f32) {
     clippy::cast_possible_truncation,
     reason = "an offset in pixels within the world, far below 2^31"
 )]
-pub fn placed_at(at: Vec3, listener: Option<Vec3>) -> (f32, f32) {
+pub fn placed_at(at: Vec3, listener: Option<Vec3>, volume: Listener) -> (f32, f32) {
     let offset = listener.map_or(Vec3::ZERO, |hero| at - hero);
     let (cx, cy) = (offset.x / iso::CELL, offset.z / iso::CELL);
     placed(
         (48.0 * (cx - cy)).round() as i32,
         (24.0 * (cx + cy)).round() as i32,
+        volume,
     )
+}
+
+/// The volume at the listener (`+0x84`), which the zoom sets (#1181): `cWorldView_setZoom`
+/// (`0x628130`) sends the sound manager the event `(9, 0x15)` of the zoom in hundredths, which
+/// its handler (`0x67C105`) holds within 50 to 200 and makes 1 − (z − 50)·0.005 below 100, 0.75
+/// at 100 and 0.75 − (z − 100)·0.0025 above: 1 at the zoom 0.5, 0.5 at 2.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct Listener(pub f32);
+
+impl Default for Listener {
+    fn default() -> Self {
+        Self(NEAR_VOLUME)
+    }
+}
+
+impl Listener {
+    /// The volume at the listener at the zoom `zoom`.
+    pub fn of_zoom(zoom: f32) -> Self {
+        let z = (zoom * 100.0).trunc().clamp(50.0, 200.0);
+        Self(if z > 100.0 {
+            0.75 - (z - 100.0) * 0.0025
+        } else if z < 100.0 {
+            1.0 - (z - 50.0) * 0.005
+        } else {
+            0.75
+        })
+    }
+}
+
+/// Keeps the volume at the listener by the camera's zoom.
+fn listen(mut listener: ResMut<Listener>, projections: Query<&Projection, With<Camera>>) {
+    let Some(zoom) = projections.iter().find_map(|projection| match projection {
+        Projection::Orthographic(ortho) => Some(ortho.scale),
+        _ => None,
+    }) else {
+        return;
+    };
+    let now = Listener::of_zoom(zoom);
+    if *listener != now {
+        *listener = now;
+    }
 }
 
 /// A volume's factor in decibels.
@@ -353,7 +400,7 @@ fn blows(
     heroes: Query<(), With<Body>>,
     arms: Query<&crate::npcs::Arms>,
     places: Query<&GlobalTransform>,
-    listeners: Query<&GlobalTransform, With<Body>>,
+    (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
     assets: Res<AssetServer>,
     audio: Res<Audio>,
 ) {
@@ -390,7 +437,7 @@ fn blows(
         let Some((id, file)) = sfx.pick(profile, group) else {
             continue;
         };
-        let (near, pan) = placed_at(place.translation(), listener);
+        let (near, pan) = placed_at(place.translation(), listener, *volume);
         let volume = loud * near;
         if volume <= 0.0 {
             continue;
@@ -411,7 +458,7 @@ fn plays(
     mut plays: MessageReader<Play>,
     mut sfx: ResMut<Sfx>,
     places: Query<&GlobalTransform>,
-    listeners: Query<&GlobalTransform, With<Body>>,
+    (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
     assets: Res<AssetServer>,
     audio: Res<Audio>,
 ) {
@@ -422,9 +469,9 @@ fn plays(
                 let Ok(place) = places.get(at) else {
                     continue;
                 };
-                placed_at(place.translation(), listener)
+                placed_at(place.translation(), listener, *volume)
             }
-            None => placed(0, 0),
+            None => placed(0, 0, *volume),
         };
         if volume <= 0.0 {
             continue;
@@ -485,7 +532,11 @@ impl Plugin for SfxPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Blow>()
             .add_message::<Play>()
-            .add_systems(Update, (blows, burns_away, plays).in_set(Unpaused));
+            .init_resource::<Listener>()
+            .add_systems(
+                Update,
+                (listen, (blows, burns_away, plays).in_set(Unpaused)).chain(),
+            );
     }
 }
 
@@ -498,7 +549,7 @@ mod tests {
     #[test]
     fn a_sound_falls_and_pans_as_the_originals() {
         let original = |x: i32, y: i32| {
-            let (volume, pan) = placed(x, y);
+            let (volume, pan) = placed(x, y, Listener::default());
             (volume * NEAR_VOLUME, f32::midpoint(pan, 1.0))
         };
         let close = |(a, b): (f32, f32), (c, d): (f32, f32)| {
@@ -509,7 +560,7 @@ mod tests {
         close(original(647, 470), (0.097, 0.711));
         close(original(-149, -927), (0.0, 0.515));
         close(original(0, 7), (0.746, 0.46));
-        assert_eq!(placed(0, 0), (1.0, 0.0));
+        assert_eq!(placed(0, 0, Listener::default()), (1.0, 0.0));
     }
 
     #[test]
@@ -519,6 +570,24 @@ mod tests {
         assert_eq!(swing_profile(8), Some(500));
         assert_eq!(swing_profile(3), Some(509));
         assert_eq!(swing_profile(7), None);
+    }
+
+    #[test]
+    fn the_zoom_sets_the_volume_at_the_listener() {
+        let close = |zoom: f32, volume: f32| {
+            assert!((Listener::of_zoom(zoom).0 - volume).abs() < 1e-5, "{zoom}");
+        };
+        close(1.0, 0.75);
+        close(0.5, 1.0);
+        close(0.75, 0.875);
+        close(2.0, 0.5);
+        close(1.5, 0.625);
+        close(3.0, 0.5);
+        // Nearer, louder at the listener and heard less far.
+        let (near, _) = placed(0, 0, Listener::of_zoom(0.5));
+        assert!((near - 1.0 / 0.75).abs() < 1e-5);
+        assert_eq!(placed(700, 0, Listener::of_zoom(0.5)).0, 0.0);
+        assert!(placed(700, 0, Listener::of_zoom(2.0)).0 > 0.0);
     }
 
     #[test]

@@ -40,8 +40,6 @@ const SEED: usize = 0x78;
 
 /// The water's loops, their thresholds of `d` and the volume each takes (`0x6906C0`).
 const WATERS: [(u32, f32); 3] = [(216, 30.0), (217, 300.0), (218, 700.0)];
-/// The listener's volume (`+0x84`), as the sound's place takes it (`sfx`).
-const LISTENER: f32 = 0.75;
 /// The original's screen at zoom 1, in its pixels, whose tile rows it counts the liquids of.
 const SCREEN: Vec2 = Vec2::new(1_024.0, 768.0);
 
@@ -261,7 +259,7 @@ fn water(
     mut sfx: ResMut<Sfx>,
     heights: Res<Heights>,
     heroes: Query<&Transform, With<Body>>,
-    projections: Query<&Projection, With<Camera>>,
+    (projections, heard): (Query<&Projection, With<Camera>>, Res<sfx::Listener>),
     channels: WaterChannels,
     assets: Res<AssetServer>,
 ) {
@@ -278,8 +276,8 @@ fn water(
     let (count, middle) = waters_seen(&heights, at, zoom);
     // Without a clear water on the screen the manager hears a count of 0 (`0x62E093`).
     let count = if middle.is_some() { count } else { 0 };
-    let volumes = water_volumes(spread(count, LISTENER));
-    let pan = middle.map_or(0.0, |middle| sfx::placed_at(middle, Some(at)).1);
+    let volumes = water_volumes(spread(count, heard.0));
+    let pan = middle.map_or(0.0, |middle| sfx::placed_at(middle, Some(at), *heard).1);
     let (tiny, normal, big) = channels;
     let channels: [&dyn WaterChannel; 3] = [&*tiny, &*normal, &*big];
     let ambience = &mut *ambience;
@@ -296,7 +294,7 @@ fn water(
                     ambience.waters[k] = true;
                     debug!(
                         "ambience: the water's loop {id} starts, d {:.0}",
-                        spread(count, LISTENER)
+                        spread(count, heard.0)
                     );
                 }
                 channel.set(volume, pan);
@@ -392,7 +390,7 @@ mod tests {
 
     #[test]
     fn the_waters_loops_take_the_count_alone() {
-        let d = spread(100, LISTENER);
+        let d = spread(100, sfx::Listener::default().0);
         assert!((d - 290.625).abs() < 1e-3);
         let [tiny, normal, big] = water_volumes(d);
         assert!(tiny.is_some_and(|v| (v - 0.4 * 290.625 / 300.0).abs() < 1e-5));
