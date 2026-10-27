@@ -2,8 +2,8 @@
 //! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles, the column of its
 //! items in Carolingia, gold, lit under the cursor with a glow and fading in as a menu replaces
 //! another, and the Multiplayer and Extras submenus; the items whose screens the game does not
-//! have yet stand greyed (docs/decisions/2026-10-19-menus.md). The Ancaria campaign opens the
-//! choice of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and Quit over
+//! have yet stand greyed (docs/decisions/2026-10-19-menus.md). The campaigns open their choices
+//! of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and Quit over
 //! the frame dimmed. The mouse chooses by pointing and clicking, the keyboard with the arrows and
 //! Enter; Esc goes back a screen.
 
@@ -28,6 +28,7 @@ pub enum Screen {
     Multiplayer,
     Extras,
     Heroes,
+    Underworld,
 }
 
 /// What an item of a menu does.
@@ -74,13 +75,12 @@ impl Item {
         }
     }
 
-    /// Whether it does anything yet: the Underworld campaign waits for #1117, multiplayer for M9,
-    /// the options for #1096, the saves for #1095, the credits and the movies for #1094.
+    /// Whether it does anything yet: multiplayer waits for M9, the options for #1096, the saves for
+    /// #1095, the credits and the movies for #1094.
     fn works(self) -> bool {
         !matches!(
             self,
-            Self::Underworld
-                | Self::Options
+            Self::Options
                 | Self::LoadGame
                 | Self::LocalNetwork
                 | Self::ClosedInternet
@@ -117,7 +117,7 @@ fn rows(screen: Screen) -> &'static [(Item, u8)] {
             (Item::UnderworldIntro, 2),
             (Item::Back, 4),
         ],
-        Screen::Heroes => &[],
+        Screen::Heroes | Screen::Underworld => &[],
     }
 }
 
@@ -504,6 +504,7 @@ fn act(
 ) {
     match item {
         Item::Ancaria => screen.set(Screen::Heroes),
+        Item::Underworld => screen.set(Screen::Underworld),
         Item::Multiplayer => screen.set(Screen::Multiplayer),
         Item::Extras => screen.set(Screen::Extras),
         Item::Back => screen.set(Screen::Main),
@@ -516,8 +517,7 @@ fn act(
             }
         }
         Item::MainMenu => state.set(AppState::Menu),
-        Item::Underworld
-        | Item::Options
+        Item::Options
         | Item::LoadGame
         | Item::LocalNetwork
         | Item::ClosedInternet
@@ -719,7 +719,14 @@ mod tests {
     #[test]
     fn the_arrows_pass_over_the_items_that_do_nothing_yet_into_the_submenus() {
         let mut app = menu_app();
-        // Down from the Ancaria campaign passes the Underworld's to Multiplayer.
+        // Down from the Ancaria campaign is the Underworld's, whose choice Esc leaves.
+        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(screen(&app), Screen::Underworld);
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(screen(&app), Screen::Main);
+        // Down twice is Multiplayer.
+        press(&mut app, KeyCode::ArrowDown);
         press(&mut app, KeyCode::ArrowDown);
         press(&mut app, KeyCode::Enter);
         assert_eq!(screen(&app), Screen::Multiplayer);
