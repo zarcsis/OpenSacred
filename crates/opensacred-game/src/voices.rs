@@ -339,10 +339,11 @@ fn speak(
     mut cries: MessageReader<BattleCry>,
     mut voices: ResMut<Voices>,
     mut sfx: ResMut<Sfx>,
-    (hero, forms, mut sounds): (
+    (hero, forms, mut sounds, heard): (
         Option<Res<hero::Hero>>,
         Option<Res<crate::forms::Forms>>,
         MessageWriter<sfx::Play>,
+        Res<sfx::Listener>,
     ),
     speakers: Query<(
         &GlobalTransform,
@@ -487,7 +488,7 @@ fn speak(
             }
         }
         let rate = rate(sfx.roll(10), 0.0);
-        let (volume, pan) = sfx::placed_at(at.translation(), listener);
+        let (volume, pan) = sfx::placed_at(at.translation(), listener, *heard);
         if volume <= 0.0 {
             continue;
         }
@@ -542,14 +543,14 @@ fn idle(
     heroes: Query<&GlobalTransform, With<Body>>,
     assets: Res<AssetServer>,
     audio: Res<Audio>,
-    time: Res<Time>,
+    (time, heard): (Res<Time>, Res<sfx::Listener>),
 ) {
     let Some(listener) = heroes.iter().next().map(GlobalTransform::translation) else {
         return;
     };
     let now = time.elapsed_secs_f64();
     for (creature, at, mind, speaking) in &creatures {
-        let (near, pan) = sfx::placed_at(at.translation(), Some(listener));
+        let (near, pan) = sfx::placed_at(at.translation(), Some(listener), *heard);
         if near <= 0.0 {
             continue;
         }

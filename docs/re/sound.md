@@ -260,7 +260,7 @@ Each source not played is an issue of its own under #1093 (#1166 to #1181).
 | `0x67A7A0` | the sound manager's events: (type, sub-command, values…) | 154 posts |
 
 The events of `0x67A7A0` that play: 2 the region's music; 5 sub 1 an art's own cry and battle cry, 5 sub 2 the swing; 7 the runes' reading; 8 and 9 the hero's comments and the interface's and the items' sounds (below); 12 sub 2 the menus' music; 13 the statics of a profile; 14 sub 2 the interface's windows.
-The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, the volume at the listener, from 50 to 200, by `cWorldView_setZoom` and `addZoom`: **hypothesis**, the zoom moves the listener's loudness), and `0x25` to `0x100` by the byte table `0x684B58` and the jump table `0x684AF8`: only `0x25`, `0x26`, `0x30`, `0x35`, `0x3F`, `0x40`, `0x42`, `0x44`, `0x46`, `0x47`, `0x49`, `0x5C`, `0x5D`, `0x80`, `0x81`, `0x83`, `0x84`, `0x85`, `0xCA`, `0xCB`, `0xCC` and `0x100` have a case; `0x11`, `0x13`, `0x14`, `0x16`, `0x17`, `0x20`–`0x24`, `0x43`, `0x82`, `0xC0`, `0xC8` and `0xC9` are posted by the client and play nothing.
+The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, the volume at the listener, from 50 to 200, by `cWorldView_setZoom` and `addZoom`: the zoom in hundredths, below), and `0x25` to `0x100` by the byte table `0x684B58` and the jump table `0x684AF8`: only `0x25`, `0x26`, `0x30`, `0x35`, `0x3F`, `0x40`, `0x42`, `0x44`, `0x46`, `0x47`, `0x49`, `0x5C`, `0x5D`, `0x80`, `0x81`, `0x83`, `0x84`, `0x85`, `0xCA`, `0xCB`, `0xCC` and `0x100` have a case; `0x11`, `0x13`, `0x14`, `0x16`, `0x17`, `0x20`–`0x24`, `0x43`, `0x82`, `0xC0`, `0xC8` and `0xC9` are posted by the client and play nothing.
 
 #### The profiles' groups against their callers
 
@@ -316,7 +316,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Death extras | `0x53ECA0`, `0x4E8DA0`, `0x5334DD`, `0x536362` | 7029, 3000, the killer's weapon's 7 | below | partly | no |
 | Boss and odd sounds | `0x5A3840`, `0x7BCBC0`, `0x797179`, `0x77BD60`, `0x5BB010` | 11426/11427, 16303, 2050, 711, 708, 2070 | below | partly | no |
 | Music's alternation with the ambience | `0x69B770` (head), `+0xB7B8` | `PEACE` and the `ATMO_*` loop | every 180 s by day | yes | no |
-| The listener's volume by the zoom | (9, `0x15`) from `cWorldView_setZoom` | every placed sound | the zoom changes | yes | no: held at 0.75 |
+| The listener's volume by the zoom | (9, `0x15`) from `cWorldView_setZoom` | every placed sound | the zoom changes | yes | yes (`sfx::Listener`, #1181) |
 
 ### Facts for the sources not played
 
@@ -335,8 +335,9 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 
 #### The listener and the zoom
 
-- (9, `0x15`, z) from `cWorldView_setZoom` (`0x6281AE`), `cWorldView_addZoom` (`0x628393`) and `0x6288F0` (`0x628BB9`) sets the volume at the listener `+0x84` from z held to 50…200: 1.0 − (z − 50)·0.005 below 100, 0.75 at 100, 0.75 − (z − 100)·0.0025 above (**hypothesis**: z the zoom in per cent).
-  As the hearing distance is `+0xB790`·(1.5 − `+0x84`) and the curve's points follow `+0x84` (docs/re/sound.md, "A sound's place"), the zoom changes how loud and how far every placed sound is heard; `sfx::placed` holds `+0x84` at 0.75.
+- (9, `0x15`, z) from `cWorldView_setZoom` (`0x6281AE`), `cWorldView_addZoom` (`0x628393`) and `0x6288F0` (`0x628BB9`) sets the volume at the listener `+0x84` from z held to 50…200: 1.0 − (z − 50)·0.005 below 100, 0.75 at 100, 0.75 − (z − 100)·0.0025 above (`0x67C105`); z is the zoom in hundredths, `cWorldView_setZoom` sending its `+0xB60`, held to its bounds, times 100 truncated (**confirmed** 2026-10-27 at `0x62817B`): 1.0 at the zoom 0.5, 0.5 at 2.
+  As the hearing distance is `+0xB790`·(1.5 − `+0x84`) and the curve's points follow `+0x84` (docs/re/sound.md, "A sound's place"), the zoom changes how loud and how far every placed sound is heard: zoomed in a sound at the listener is louder and heard less far, zoomed out quieter and heard further.
+  `opensacred-game` follows it (`sfx::Listener`, #1181): the camera's zoom sets the volume at the listener, by which the voices, the weapons', doors' and world's sounds and the water's count are placed, the volume's factor taken of the volume at zoom 1 (0.75) so that nothing changes at the zoom 1.
 
 #### The objects
 
