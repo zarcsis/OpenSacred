@@ -2762,6 +2762,14 @@ struct Arming {
 }
 
 impl Npcs {
+    /// The level of the sector `sector`, by which the hero's remark at an area's border weighs
+    /// it (`0x622D70`): the mean of its `SpawnValues`' lowest and highest, 0 without them.
+    pub fn level(&self, sector: (u32, u32)) -> u32 {
+        self.values
+            .get(&sector)
+            .map_or(0, |values| (values.lowest + values.highest) / 2)
+    }
+
     /// Reads the records of the scripts that ran, `tree` (`scripts::run`), and the tables, and
     /// what of them the hero's template's items `worn` are ([`Self::hero_holds`]).
     pub fn read(

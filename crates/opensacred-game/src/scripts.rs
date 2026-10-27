@@ -422,6 +422,11 @@ impl Live {
             .cloned()
     }
 
+    /// Whether the areas' entry `area` stands pacified (`0x61DB10`, `RegionFrei`).
+    pub fn pacified(&self, area: u8) -> bool {
+        self.state.pacified.holds(area)
+    }
+
     /// The value of the scripts' variable `name`, 0 for one never set (`this+0x7550`).
     pub fn variable(&self, name: &str) -> i32 {
         self.state.variables.value(name)
@@ -895,6 +900,15 @@ impl Host for Recorder<'_> {
                     Some(section) => Handled::Run(section.function(quest)),
                     None => Handled::Done,
                 }
+            }
+            // The areas' entry of its last number pacified, and the hero's remark on it, out of
+            // the fight (`0x475C70`).
+            "region_frei" => {
+                let n = tags.numbers("_0B").last().copied().unwrap_or(0);
+                let entry = self.state.pacified.pacify(n);
+                bevy::log::debug!("scripts: the area {entry} is pacified");
+                self.remarks.push(Remark::Pacified { forced: true });
+                Handled::Done
             }
             // Its operands are read and ignored (`0x47603D`).
             "reject_quest" => {
@@ -2683,6 +2697,28 @@ mod tests {
         // A button's function runs after the talk: no remark (**hypothesis**).
         assert!(live.run_named("btn_take").remarks.is_empty());
         assert!(live.state.quests.in_log(1002));
+    }
+
+    #[test]
+    fn a_region_frei_pacifies_its_areas_entry_and_gives_the_hero_its_remark() {
+        let runtime = runtime(&[(
+            "functions/befriedet_rg.luau",
+            "local F = {}
+             F[\"befriedet_rg2\"] = function()
+             region_frei { _0B = 2 }
+             region_frei { _0B = 300 }
+             return true
+             end
+             return F",
+        )]);
+        let mut live = live(runtime);
+        assert!(!live.pacified(2));
+        assert_eq!(
+            live.run_named("befriedet_rg2").remarks,
+            [Remark::Pacified { forced: true }; 2]
+        );
+        // The number held to 255.
+        assert!(live.pacified(2) && live.pacified(255) && !live.pacified(3));
     }
 
     #[test]

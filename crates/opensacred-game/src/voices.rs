@@ -488,6 +488,18 @@ impl Voices {
         })
     }
 
+    /// Whether the sound id `id` still waits at `now` (`0x679170`).
+    pub(crate) fn waiting(&self, id: u32, now: f64) -> bool {
+        self.waits.get(&id).is_some_and(|&until| until > now)
+    }
+
+    /// A comment of the sound id `id` said at `now`: the comments' clock set back (`+0xB7E8`)
+    /// and the id waiting `wait` seconds (`0x679120`).
+    pub(crate) fn commented(&mut self, id: u32, now: f64, wait: f64) {
+        self.commented = Some(now);
+        self.waits.insert(id, now + wait);
+    }
+
     /// The idle noise of `creature` at this tick, hostile to the hero or not, if the update's roll
     /// and then the type's give one.
     fn idle_roll(&mut self, creature: u32, hostile: bool) -> Option<IdleNoise> {
