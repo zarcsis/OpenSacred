@@ -30,8 +30,8 @@ use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
     Added, App, AssetServer, Assets, Commands, Component, Entity, GlobalTransform, Handle, Has,
-    IntoScheduleConfigs, Message, MessageReader, MessageWriter, Plugin, Query, Res, ResMut,
-    Resource, Time, Update, Vec3, With, Without,
+    IntoScheduleConfigs, Message, MessageReader, MessageWriter, Mut, Plugin, Query, Res, ResMut,
+    Resource, Time, Update, Vec3, With, Without, World,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween, PlaybackState};
 use opensacred_data::tables::{IDLE_NOISES, IdleNoise, IdleNoises, IdleSound, VOICES, Voice};
@@ -375,6 +375,52 @@ impl Speak {
 #[derive(Component)]
 struct Speaking(Handle<AudioInstance>, bool);
 
+/// The line by name that plays: the sound manager's one at a time (`0x693FE0`, `+0xB7E0`), which
+/// the hero's lines by name and the dialogues' voice-overs (`talk`) share, so that each stops the
+/// one before, and which `0x693FB0` stops (#1238).
+#[derive(Resource, Default)]
+pub struct NamedLine(Option<Handle<AudioInstance>>);
+
+impl NamedLine {
+    /// Whether a line by name plays.
+    fn plays(&self, audio: &Audio) -> bool {
+        self.0.as_ref().is_some_and(|line| {
+            matches!(
+                audio.state(line),
+                PlaybackState::Playing { .. } | PlaybackState::Queued
+            )
+        })
+    }
+
+    /// `line` now the line by name, the one before stopped; with none, only the stop
+    /// (`0x693FB0`). The line stopped, if one was.
+    fn name(
+        &mut self,
+        instances: &mut Assets<AudioInstance>,
+        line: Option<Handle<AudioInstance>>,
+    ) -> Option<Handle<AudioInstance>> {
+        let old = std::mem::replace(&mut self.0, line)?;
+        if let Some(mut instance) = instances.get_mut(&old) {
+            debug!("voices: the line by name stops");
+            instance.stop(AudioTween::default());
+        }
+        Some(old)
+    }
+}
+
+/// [`NamedLine::name`] in `world`: `line`, a dialogue's voice-over, now the line by name, or the
+/// line by name stopped (`talk`).
+pub fn name_line(world: &mut World, line: Option<Handle<AudioInstance>>) {
+    if !world.contains_resource::<NamedLine>() {
+        return;
+    }
+    world.resource_scope(|world, mut named: Mut<NamedLine>| {
+        if let Some(mut instances) = world.get_resource_mut::<Assets<AudioInstance>>() {
+            named.name(&mut instances, line);
+        }
+    });
+}
+
 /// The voices of the types, the waits of the sound ids that played, and the dice.
 #[derive(Resource)]
 pub struct Voices {
@@ -663,6 +709,7 @@ fn speak(
     assets: Res<AssetServer>,
     audio: Res<Audio>,
     mut instances: ResMut<Assets<AudioInstance>>,
+    mut named_line: ResMut<NamedLine>,
     time: Res<Time>,
     (names, foes): (
         Option<Res<Names>>,
@@ -756,7 +803,8 @@ fn speak(
             });
         }
         // The hero's cry at a critical hit, at the voice's rate's factor, before its line's own
-        // test, which stops its line by name (`0x6852B0` at `0x686F4F`).
+        // test, which stops the line by name that plays, its own or a dialogue's (`0x6852B0` at
+        // `0x686F4F`, `0x693FB0`).
         let mut speaking = speaking;
         let mut cried = false;
         if is_hero && line.group == CRITICAL_HIT {
@@ -766,12 +814,12 @@ fn speak(
                 at: Some(line.speaker),
                 rate: (0.45, sfx::Roll::Tenths),
             });
-            if let Some(named) = speaking.filter(|s| s.1 && playing(Some(s)))
-                && let Some(mut old) = instances.get_mut(&named.0)
-            {
-                old.stop(AudioTween::default());
-                speaking = None;
-                cried = true;
+            if named_line.plays(&audio) {
+                let stopped = named_line.name(&mut instances, None);
+                if speaking.is_some_and(|s| s.1 && stopped.as_ref() == Some(&s.0)) {
+                    speaking = None;
+                    cried = true;
+                }
             }
         }
         let creature = match (is_hero, mind) {
@@ -856,6 +904,10 @@ fn speak(
             "voices: {} speaks {}, at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}",
             line.speaker, line.id
         );
+        // A line by name stops the one that plays, a dialogue's voice-over too.
+        if line.named {
+            named_line.name(&mut instances, Some(instance.clone()));
+        }
         commands
             .entity(line.speaker)
             .insert(Speaking(instance, line.named));
@@ -964,7 +1016,6 @@ fn flight(
             &Body,
             &GlobalTransform,
             &crate::fight::Health,
-            Option<&Speaking>,
             Has<crate::attack::Striking>,
         ),
         Without<Dies>,
@@ -981,11 +1032,10 @@ fn flight(
         ),
         (Without<Body>, Without<Dies>),
     >,
-    (assets, audio): (Res<AssetServer>, Res<Audio>),
+    (assets, audio, mut named_line): (Res<AssetServer>, Res<Audio>, ResMut<NamedLine>),
     time: Res<Time>,
 ) {
-    let (Some(hero), Ok((entity, body, at, health, speaking, striking))) = (hero, heroes.single())
-    else {
+    let (Some(hero), Ok((entity, body, at, health, striking))) = (hero, heroes.single()) else {
         return;
     };
     let now = time.elapsed_secs_f64();
@@ -1052,12 +1102,7 @@ fn flight(
     if matches!(hero.creature, 8 | 9) {
         return;
     }
-    let named = speaking.is_some_and(|s| {
-        s.1 && matches!(
-            audio.state(&s.0),
-            PlaybackState::Playing { .. } | PlaybackState::Queued
-        )
-    });
+    let named = named_line.plays(&audio);
     let Some((id, file)) = line
         .name(hero.creature, n)
         .and_then(|name| sfx.named(&name))
@@ -1082,6 +1127,8 @@ fn flight(
         .with_panning(pan)
         .with_playback_rate(f64::from(rate))
         .handle();
+    // No line by name plays: the slot only takes it.
+    named_line.0 = Some(instance.clone());
     commands.entity(entity).insert(Speaking(instance, true));
 }
 
@@ -1135,19 +1182,17 @@ fn breathe(
             Entity,
             &Body,
             &GlobalTransform,
-            Option<&Speaking>,
             Has<crate::attack::Striking>,
             Has<crate::making::Playing>,
         ),
         Without<Dies>,
     >,
-    mut sfx: ResMut<Sfx>,
+    (mut sfx, named_line): (ResMut<Sfx>, Res<NamedLine>),
     heard: Res<sfx::Listener>,
     (assets, audio, mut instances): (Res<AssetServer>, Res<Audio>, ResMut<Assets<AudioInstance>>),
     time: Res<Time>,
 ) {
-    let (Some(hero), Ok((entity, body, at, speaking, striking, acting))) = (hero, heroes.single())
-    else {
+    let (Some(hero), Ok((entity, body, at, striking, acting))) = (hero, heroes.single()) else {
         return;
     };
     let state = &mut *breath_of;
@@ -1171,12 +1216,7 @@ fn breathe(
         0.0
     };
     state.rests -= dt;
-    let named = speaking.is_some_and(|s| {
-        s.1 && matches!(
-            audio.state(&s.0),
-            PlaybackState::Playing { .. } | PlaybackState::Queued
-        )
-    });
+    let named = named_line.plays(&audio);
     if let Some((handle, plays, sound)) = state.playing.take() {
         if named {
             if let Some(mut instance) = instances.get_mut(&handle) {
@@ -1346,6 +1386,7 @@ impl Plugin for VoicesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Speak>()
             .add_message::<BattleCry>()
+            .init_resource::<NamedLine>()
             .add_systems(bevy::prelude::OnEnter(crate::game::AppState::InGame), names)
             .add_systems(Update, (dies, speak).chain().in_set(Unpaused))
             .add_systems(

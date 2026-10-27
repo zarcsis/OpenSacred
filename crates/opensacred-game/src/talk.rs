@@ -13,7 +13,7 @@ use bevy::picking::events::PointerClick;
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::text::FontSize;
-use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioTween};
+use bevy_kira_audio::prelude::{Audio, AudioControl};
 use opensacred_data::tables::PORTRAITS;
 use opensacred_rules::minds;
 
@@ -28,6 +28,7 @@ use crate::lines::Texts;
 use crate::npcs::{Dies, Npcs, ScriptName, Still, Talk, Talks, Walk};
 use crate::scripts::{self, SHOWN};
 use crate::sfx::Sfx;
+use crate::voices;
 
 /// How far, past 1.5 times the two creatures' reach, the talk opens (`0x529C60`).
 const OPENS_WITHIN: f32 = 1.5;
@@ -123,11 +124,6 @@ impl Portraits {
 
 /// A portrait in the window: its texture, and its part, its left, top, width and height.
 type Portrait = (Handle<Image>, [u16; 4]);
-
-/// The dialogue's voice-over that plays: the original's one line by name (`0x693FE0`, `+0xB7E0`),
-/// which the next stops, and so does the window's close (`0x693FB0`).
-#[derive(Resource, Default)]
-struct VoiceOver(Option<Handle<AudioInstance>>);
 
 /// The dialogue's window while it shows: its root, the creature, and its buttons' functions.
 #[derive(Resource, Clone, Debug)]
@@ -426,7 +422,8 @@ fn resource(name: &str) -> &str {
 }
 
 /// Plays the dialogue's sounds, its voice-overs under their texts' keys (`sound.pak`'s
-/// `SOUND_FX_<key>`, `0x4A9730`), each a line by name that stops the one before (`0x693FE0`).
+/// `SOUND_FX_<key>`, `0x4A9730`), each the line by name that stops the one before, the hero's
+/// own too (`0x693FE0`, `voices::NamedLine`).
 fn voice(world: &mut World, sounds: &[String]) {
     for sound in sounds {
         let name = format!("SOUND_FX_{}", sound.to_ascii_uppercase());
@@ -439,29 +436,18 @@ fn voice(world: &mut World, sounds: &[String]) {
             return;
         };
         let sample = sfx.sample(id, file, &assets);
-        hush(world);
         let Some(audio) = world.get_resource::<Audio>() else {
             return;
         };
         let instance = audio.play(sample).handle();
-        world.insert_resource(VoiceOver(Some(instance)));
+        voices::name_line(world, Some(instance));
     }
 }
 
-/// Stops the dialogue's voice-over that plays, if one does (`0x693FB0`).
+/// Stops the line by name that plays, the window's voice-over or the hero's own line
+/// (`0x693FB0`).
 fn hush(world: &mut World) {
-    let Some(instance) = world
-        .get_resource_mut::<VoiceOver>()
-        .and_then(|mut voice| voice.0.take())
-    else {
-        return;
-    };
-    if let Some(mut instances) = world.get_resource_mut::<Assets<AudioInstance>>()
-        && let Some(mut instance) = instances.get_mut(&instance)
-    {
-        debug!("talk: the voice-over stops");
-        instance.stop(AudioTween::default());
-    }
+    voices::name_line(world, None);
 }
 
 /// The window: a panel at the screen's middle, the name over the texts, the buttons under them,
