@@ -453,9 +453,7 @@ impl Live {
         let function = self
             .named(&format!("Dialog:{dialogue}"))
             .or_else(|| self.named(dialogue))?;
-        // The talk's function runs with the hero in its talk; a button's runs after the talk's
-        // end (`0x499DA0`; **hypothesis** that the end takes the hero out of its AI state 10 at
-        // once, the creature's handler of the event `0x10C` not read).
+        // The talk's function runs with the hero in its talk.
         self.talking = true;
         let mut effects = self.run(&function, 0);
         self.talking = false;
@@ -473,6 +471,16 @@ impl Live {
             }
         }
         Some(effects)
+    }
+
+    /// Runs a dialogue's button's function `function` as [`Self::run_named`] does, the hero still
+    /// in its talk: the click sends the talks' end, whose handler leaves the hero's AI state as it
+    /// is, and runs the function at once (`0x499DA0`, `0x5304EE`; #1253).
+    pub fn answer(&mut self, function: &str) -> Effects {
+        self.talking = true;
+        let effects = self.run_named(function);
+        self.talking = false;
+        effects
     }
 
     /// Counts a kill of a creature of the type `creature` (`SetOnKill`, `0x4AA630`; #1021): the
@@ -1785,7 +1793,7 @@ pub fn answer(world: &mut World, function: &str) {
             return;
         };
         live.living = living;
-        live.run_named(function)
+        live.answer(function)
     };
     hand_world(world, effects);
 }
@@ -2658,6 +2666,18 @@ mod tests {
                  trigger_quest { _0B = 1002 }
                  return true
                  end
+                 F[\"btn_other\"] = function()
+                 trigger_quest { _0B = 1003 }
+                 return true
+                 end
+                 return F",
+            ),
+            (
+                "quests/1003.luau",
+                "local F = {}
+                 F[\"QIS_Trigger1003\"] = function()
+                 return true
+                 end
                  return F",
             ),
             (
@@ -2686,7 +2706,7 @@ mod tests {
             ),
         ]);
         let mut live = live(runtime);
-        for quest in [1001, 1002, 2] {
+        for quest in [1001, 1002, 1003, 2] {
             live.transition(Transition::SetUp, quest);
         }
         // The side quest speaks, the main quest not; a second talk enters nothing again.
@@ -2694,9 +2714,11 @@ mod tests {
         assert_eq!(talk.remarks, [Remark::TakesQuest, Remark::RejectsQuest]);
         let again = live.talk("giver").expect("the dialogue runs");
         assert_eq!(again.remarks, [Remark::RejectsQuest]);
-        // A button's function runs after the talk: no remark (**hypothesis**).
-        assert!(live.run_named("btn_take").remarks.is_empty());
+        // A button's function runs in the talk too; a function outside a talk speaks of nothing.
+        assert_eq!(live.answer("btn_take").remarks, [Remark::TakesQuest]);
         assert!(live.state.quests.in_log(1002));
+        assert!(live.run_named("btn_other").remarks.is_empty());
+        assert!(live.state.quests.in_log(1003));
     }
 
     #[test]
