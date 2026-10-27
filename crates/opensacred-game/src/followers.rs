@@ -593,7 +593,7 @@ fn keep(
     mut dice: ResMut<Dice>,
     heights: Res<Heights>,
     nearest: Res<Nearest>,
-    cameras: Query<&Projection, With<Camera3d>>,
+    cameras: Query<&Projection, crate::iso::Eye>,
     masters: Query<
         (
             &Transform,

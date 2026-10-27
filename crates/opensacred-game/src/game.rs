@@ -888,7 +888,9 @@ fn finish(
 
 /// The camera that every game and menu draws through, and the light.
 fn setup(mut commands: Commands) {
-    commands.spawn((iso::camera(Vec3::ZERO, 1.0), daynight::Night::default()));
+    commands
+        .spawn((iso::camera(Vec3::ZERO, 1.0), daynight::Night::default()))
+        .with_child(iso::untinted());
     commands.insert_resource(GlobalAmbientLight {
         brightness: 600.0,
         ..default()
@@ -907,7 +909,7 @@ fn setup(mut commands: Commands) {
 fn place_camera(
     hero: Res<hero::Hero>,
     zoom: Res<Zoom>,
-    camera: Single<(&mut Transform, &mut Projection), With<Camera3d>>,
+    camera: Single<(&mut Transform, &mut Projection), crate::iso::Eye>,
 ) {
     let (mut transform, mut projection) = camera.into_inner();
     *transform = iso::view_of(hero.position);

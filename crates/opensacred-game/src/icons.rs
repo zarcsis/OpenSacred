@@ -303,7 +303,7 @@ fn show(
 )]
 fn place(
     time: Res<Time<Real>>,
-    cameras: Query<&GlobalTransform, With<Camera3d>>,
+    cameras: Query<&GlobalTransform, crate::iso::Eye>,
     mut icons: Query<(Entity, &mut Icon)>,
     children: Query<&Children>,
     names: Query<&Name>,

@@ -298,7 +298,10 @@ impl Listener {
 }
 
 /// Keeps the volume at the listener by the camera's zoom.
-fn listen(mut listener: ResMut<Listener>, projections: Query<&Projection, With<Camera>>) {
+fn listen(
+    mut listener: ResMut<Listener>,
+    projections: Query<&Projection, crate::iso::Eye<With<Camera>>>,
+) {
     let Some(zoom) = projections.iter().find_map(|projection| match projection {
         Projection::Orthographic(ortho) => Some(ortho.scale),
         _ => None,

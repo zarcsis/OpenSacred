@@ -158,7 +158,7 @@ fn choose(
         Res<Pointer>,
     ),
     (hovered, nodes): (Option<Res<HoverMap>>, Query<(), With<Node>>),
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    cameras: Query<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
     (npcs, forms): (Option<Res<Npcs>>, Option<Res<Forms>>),
     creatures: Query<
         (

@@ -652,7 +652,7 @@ pub fn steer(
     mut held: Local<f32>,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
-    camera: Single<(&Camera, &GlobalTransform)>,
+    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
     heights: Res<Heights>,
     buildings: Res<crate::buildings::Buildings>,
     aim: Res<crate::attack::Aim>,
@@ -1184,7 +1184,7 @@ pub fn fall(
 /// Keeps the camera on the hero.
 pub fn follow(
     bodies: Query<&Transform, (With<Body>, Without<Camera>)>,
-    mut cameras: Query<&mut Transform, With<Camera>>,
+    mut cameras: Query<&mut Transform, crate::iso::Eye<With<Camera>>>,
 ) {
     let Some(hero) = bodies.iter().next() else {
         return;
