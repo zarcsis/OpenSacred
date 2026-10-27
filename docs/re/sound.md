@@ -278,7 +278,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Voices, idle noises, swings, hits, parades, shots | `0x6852B0`, `0x69B770`, `0x67A7A0` (5, 2), `0x5320B2` | creatures' profiles, weapons' 1, 2, 3, 5 | docs/re/sound.md | yes | yes |
 | Heroes' `HITENEMY`, `BATTLECRY`, `ENEMYKILLME`, `MUSIC_DEATH` | `0x6852B0`, `0x67A7A0` (5, 1) | by name | docs/re/sound.md | yes | yes |
 | Footsteps of the hero, rain, thunder, quake, menus, dialogues' voice-overs, introductions | `0x68EB90`, `0x41A4F0`, `0x419A70`, `0x697220`, `0x69B770`, `0x4A9730` | 102/103, 101, 200–204, 209, 7015–7018, `IDLEFX_*`, by name | as read before | yes | yes |
-| Weapon's `MISS` on an animal | `0x532731`–`0x5329D0` | the striker's weapon's 0 | a strike that does no damage to an animal | yes | no: the game plays `PARADE` |
+| Weapon's `MISS` on an animal | `0x532731`–`0x5329D0` | the striker's weapon's 0 | a strike that does no damage to an animal | yes | yes (`sfx`, #1168): 78 weapon types by their names |
 | The hero's critical-hit cry | `0x6852B0`, `0x686F4F`–`0x686FC9` | 16301 or 16302 | the hero takes `CRITICALHIT` | yes | yes (`voices`, #1168) |
 | Doors open and close | `0x44BCD0` → `0x695800` | 602–608, groups 1 and 3, by the type | a door turns | yes (`npcs::swing`) | yes (#1166) |
 | A locked trigger rattles | `0x415F00` | 331 or 332 | the hero without the trigger's key | no (keys, #1088) | no |

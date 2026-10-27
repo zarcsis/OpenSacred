@@ -3032,10 +3032,16 @@ impl Npcs {
                     .iter()
                     .find(|held| held.hand == Hand::Left && held.category != SHIELD)
             })
-            .map(|held| self.gear.get(&held.item).map_or(0, |gear| gear.sound));
+            .map(|held| {
+                (
+                    held.item,
+                    self.gear.get(&held.item).map_or(0, |gear| gear.sound),
+                )
+            });
         crate::sfx::Armed {
             class: class_of(holding),
-            weapon,
+            weapon: weapon.map(|(_, sound)| sound),
+            kind: weapon.map(|(kind, _)| kind),
         }
     }
 
