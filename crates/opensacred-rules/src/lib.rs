@@ -7,7 +7,7 @@
 //! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
 //! drops ([`drops`]), a creature's combat arts with the runes that teach them ([`arts`]), the
 //! spells' cast ([`spells`]), the scripts' state: the quests, the variables and the dialogues
-//! ([`quests`]), and the weather ([`weather`]).
+//! ([`quests`]), a quest's reward ([`rewards`]), and the weather ([`weather`]).
 
 pub mod arrows;
 pub mod arts;
@@ -15,6 +15,7 @@ pub mod drops;
 pub mod fight;
 pub mod minds;
 pub mod quests;
+pub mod rewards;
 pub mod spawning;
 pub mod spells;
 pub mod ways;

@@ -5547,7 +5547,7 @@ pub(crate) fn script_healths(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
 )]
-fn script_records(
+pub(crate) fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
