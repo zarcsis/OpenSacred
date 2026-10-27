@@ -225,9 +225,11 @@ fn pick(
     for (hero, mut body, _) in &mut heroes {
         debug!("talk: the hero goes to speak to {creature} ({dialogue})");
         body.send_onto(at, level);
+        // The strike goes with its attack: `attack::engage`, which alone ends it, takes only a
+        // hero that attacks (#1215).
         commands
             .entity(hero)
-            .remove::<attack::Attack>()
+            .remove::<(attack::Attack, attack::Striking)>()
             .insert(Talking {
                 creature,
                 dialogue: dialogue.clone(),
@@ -765,12 +767,15 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
         .get_mut::<Body>(hero)
         .ok_or("the hero is not in the world yet")?;
     body.send_onto(at, level);
-    world.entity_mut(hero).insert(Talking {
-        creature,
-        dialogue: dialogue.clone(),
-        open: false,
-        stops: 0,
-    });
+    world
+        .entity_mut(hero)
+        .remove::<(crate::attack::Attack, crate::attack::Striking)>()
+        .insert(Talking {
+            creature,
+            dialogue: dialogue.clone(),
+            open: false,
+            stops: 0,
+        });
     Ok(format!("the hero goes to speak to {creature} ({dialogue})"))
 }
 

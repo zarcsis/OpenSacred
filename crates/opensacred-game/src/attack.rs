@@ -148,11 +148,19 @@ pub(crate) fn aim(
         (Entity, &GlobalTransform, &Mind, &Health),
         (Without<Dies>, Without<crate::npcs::Talk>),
     >,
-    mut heroes: Query<(Entity, &Transform, Option<&mut Attack>), (With<Body>, Without<Dies>)>,
+    mut heroes: Query<
+        (
+            Entity,
+            &Transform,
+            Option<&mut Attack>,
+            Has<crate::making::Playing>,
+        ),
+        (With<Body>, Without<Dies>),
+    >,
 ) {
     if !buttons.pressed(MouseButton::Left) {
         aim.0 = false;
-        for (.., attack) in &mut heroes {
+        for (_, _, attack, _) in &mut heroes {
             if let Some(mut attack) = attack.filter(|attack| attack.held) {
                 attack.held = false;
             }
@@ -176,7 +184,7 @@ pub(crate) fn aim(
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(entity, _)| entity);
     let at_once = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
-    for (hero, transform, attack) in &mut heroes {
+    for (hero, transform, attack, playing) in &mut heroes {
         // Where the cursor's line of sight meets the hero's height: the air it strikes.
         let along = (transform.translation.y - ray.origin.y) / ray.direction.y;
         let point = ray.origin + ray.direction.as_vec3() * along;
@@ -200,10 +208,14 @@ pub(crate) fn aim(
                 *attack = Attack { spoke, ..next };
             }
             (true, None) => {
-                commands
-                    .entity(hero)
-                    .remove::<crate::making::Making>()
-                    .insert(next);
+                let mut hero = commands.entity(hero);
+                // An art under way keeps its order, as the button leaves it (`making::aim`):
+                // `making::make` alone ends its clip, and the attack waits for that (`engage`,
+                // #1215).
+                if !playing {
+                    hero.remove::<crate::making::Making>();
+                }
+                hero.insert(next);
             }
             (false, Some(mut attack)) => attack.ends = true,
             (false, None) => {}
@@ -252,6 +264,7 @@ fn engage(
             Option<&fight::Holding>,
             Option<&fight::Frenzy>,
             Option<&crate::effects::Effects>,
+            Has<crate::making::Playing>,
         ),
         Without<Dies>,
     >,
@@ -279,8 +292,13 @@ fn engage(
         holding,
         frenzy,
         effects,
+        playing,
     ) in &mut heroes
     {
+        // Ordered while an art plays, it waits for the art's clip to end (`aim`, #1215).
+        if playing {
+            continue;
+        }
         let target = attack
             .target
             .and_then(|target| targets.get(target).ok())
