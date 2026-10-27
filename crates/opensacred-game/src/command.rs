@@ -588,9 +588,15 @@ fn attack(world: &mut World, id: Option<Entity>) -> Result<String, String> {
         .map(|(entity, place, ..)| (entity, (place.translation() - at).xz().length()))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or("no hostile creature alive to attack")?;
-    world
-        .entity_mut(hero)
-        .remove::<(crate::making::Making, crate::attack::Striking)>()
+    // An art under way keeps its order, the attack waiting for its end, as the click leaves it
+    // (`attack::aim`, #1215).
+    let playing = world.get::<crate::making::Playing>(hero).is_some();
+    let mut entity = world.entity_mut(hero);
+    if !playing {
+        entity.remove::<crate::making::Making>();
+    }
+    entity
+        .remove::<crate::attack::Striking>()
         .insert(crate::attack::Attack::ordered(target));
     Ok(format!("the hero attacks {target} at {distance:.0}"))
 }
