@@ -811,7 +811,9 @@ The interface's images' table at VA `0x9ECEB0` has entries of 0x54 bytes: the in
 `opensacred-convert tables` writes them into `tables/portraits.ron` (`opensacred_data::tables::Portraits`): each type's texture by its name lower-cased and its part's left, top, width and height, and the default's.
 The table runs from its entry 0 (`INVALID`, a rectangle of zeros) to the entry 1,823, whose next stores another index (1,771); its pieces lie in 274 TGAs, most in `GUI_main_12` (64), `GUI_main_01` (61) and `GUI_main_icons` (57) (counted 2026-10-27, #1087).
 The `u32` at `+4` is 0 or 9, and the six `u32` from `+0x3C` are zero in most entries but hold small numbers in some of `GUI_main_03`'s (**hypothesis**: the places of a button's parts); neither is read.
-`opensacred-convert tables` writes the whole table into `tables/ui_images.ron` (`opensacred_data::tables::UiImage`, #1087), in the order of the indices: each image's texture by its name lower-cased and its part's left, top, width and height, the entry 0 of no size.
+The client sets each entry up at its start (`0x761580`): its width is `|right + 1 − left|` and its height `|bottom + 1 − top|`, and its texture's coordinates run from `left/256, top/256` to `(right + 1)/256 + 1/512, (bottom + 1)/256 + 1/512`.
+An entry whose right stands left of its left, or whose bottom above its top, so draws its part turned about: the texels from two past its right (or bottom) to its left (or top), reversed; 22 entries are (37, 38, 252, 277–279, 303–305, 307–309, 312, 313, 315–317, 319–321, 332, 361), eight of them the frame of the choice of the hero's panel (**confirmed** by code and against the original's frames 2026-10-27, #1221).
+`opensacred-convert tables` writes the whole table into `tables/ui_images.ron` (`opensacred_data::tables::UiImage`, #1087), in the order of the indices: each image's texture by its name lower-cased and its part's left, top, width and height, the entry 0 of no size, and, for the 22, whether it is turned about across and along (`turned`, #1236).
 
 ### 6.8 The figures of the choice of the hero in Sacred.exe
 

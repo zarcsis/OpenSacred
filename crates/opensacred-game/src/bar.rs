@@ -152,10 +152,16 @@ impl UiImages {
 
     /// The image `index`: its texture's file and its part in it.
     fn part(&self, index: u32) -> Option<(&str, Rect)> {
+        self.turned_part(index).map(|(file, rect, _)| (file, rect))
+    }
+
+    /// The image `index`: its texture's file, its part in it, and whether it is turned about
+    /// across and along (#1236).
+    fn turned_part(&self, index: u32) -> Option<(&str, Rect, [bool; 2])> {
         let image = self.images.get(usize::try_from(index).ok()?)?;
         let file = self.files.get(&image.texture)?;
         let [x, y, w, h] = image.rect.map(f32::from);
-        Some((file.as_str(), Rect::new(x, y, x + w, y + h)))
+        Some((file.as_str(), Rect::new(x, y, x + w, y + h), image.turned))
     }
 
     /// The image `index`'s size in pixels.
@@ -216,10 +222,12 @@ fn piece(
     at: Vec2,
     origin: Vec2,
 ) -> (ImageNode, Node) {
-    let (image, size) = match images.part(index) {
-        Some((file, rect)) => (
+    let (image, size) = match images.turned_part(index) {
+        Some((file, rect, [flip_x, flip_y])) => (
             ImageNode {
                 rect: Some(rect),
+                flip_x,
+                flip_y,
                 ..ImageNode::new(hud::image(assets, file.to_owned()))
             },
             rect.size(),
