@@ -269,6 +269,9 @@ enum HeroLine {
     EnemyKillMe,
     /// The hero's breath (`0x68BEA0`), by its sound id rather than as a line by name.
     Breathing,
+    /// The foes on the run (`0x68BEA0`).
+    FoeOnTheRun,
+    EnemyFlees,
 }
 
 impl HeroLine {
@@ -284,6 +287,8 @@ impl HeroLine {
             Self::BattleCry { .. } => "BATTLECRY",
             Self::EnemyKillMe => "ENEMYKILLME",
             Self::Breathing => "BREATHING",
+            Self::FoeOnTheRun => "FOE_ON_THE_RUN",
+            Self::EnemyFlees => "ENEMYFLEES",
         }
     }
 
@@ -295,7 +300,8 @@ impl HeroLine {
             Self::EnemyType(_) => 5,
             Self::BattleCry { .. } => 10,
             Self::EnemyKillMe => 6,
-            Self::Breathing => 10,
+            Self::Breathing | Self::FoeOnTheRun => 10,
+            Self::EnemyFlees => 5,
         }
     }
 
@@ -310,7 +316,7 @@ impl HeroLine {
             Self::BattleCry { sure: true, .. } => 1,
             Self::BattleCry { .. } if creature == GLADIATOR => 2,
             Self::BattleCry { .. } => 3,
-            Self::EnemyKillMe | Self::Breathing => 1,
+            Self::EnemyKillMe | Self::Breathing | Self::FoeOnTheRun | Self::EnemyFlees => 1,
         }
     }
 
@@ -338,7 +344,9 @@ impl HeroLine {
                     n + 1
                 )
             }
-            Self::Breathing => format!("SOUND_FX_{}{:02}_{class}", self.stem(), n + 1),
+            Self::Breathing | Self::FoeOnTheRun | Self::EnemyFlees => {
+                format!("SOUND_FX_{}{:02}_{class}", self.stem(), n + 1)
+            }
             _ => format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1),
         })
     }
@@ -861,6 +869,222 @@ fn rate(roll: f32, higher: f32) -> f32 {
     0.45 + roll / 90.0 + higher + 0.5
 }
 
+/// A creature's motions over its last 16 updates (`0x679040`), by its motion's class: the stand,
+/// the walk, the run and the strike (`MOTION_IDLE` 0, `WALK` 1, `RUN` 2, `ATTACK` 4), and where it
+/// stood at the last.
+#[derive(Component, Default)]
+struct Motions {
+    classes: [u8; 16],
+    at: usize,
+    last: Option<Vec3>,
+    /// Its move since the last update, along the ground.
+    moved: Vec3,
+}
+
+/// The motions' classes (`0x679040`).
+const STANDS: u8 = 0;
+const WALKS: u8 = 1;
+const RUNS: u8 = 2;
+const STRIKES: u8 = 4;
+
+impl Motions {
+    /// Keeps the class of this update and the move from the last.
+    fn push(&mut self, class: u8, at: Vec3) {
+        self.classes[self.at] = class;
+        self.at = (self.at + 1) % self.classes.len();
+        self.moved = self.last.map_or(Vec3::ZERO, |last| (at - last).with_y(0.0));
+        self.last = Some(at);
+    }
+
+    /// The share of the class `class`, in per cent of the 16 updates.
+    fn share(&self, class: u8) -> usize {
+        100 * self.classes.iter().filter(|&&c| c == class).count() / self.classes.len()
+    }
+}
+
+/// How near the foes stand that the hero counts in its fight, and that it sees flee, in the
+/// place's pixels (`0x68BEA0`).
+const ENGAGED_WITHIN: i32 = 450;
+const FLEES_WITHIN: i32 = 500;
+
+/// The hero's fight as its comments on the foes on the run see it (`0x68BEA0`): its motions, the
+/// counts of the foes engaged over the last five updates (`+0xD96`, `+0xD98`).
+#[derive(Default)]
+struct Flight {
+    hero: Motions,
+    engaged: [usize; 5],
+    at: usize,
+}
+
+/// Whether a creature of `motions` engages in the fight (`0x68BEA0`): a strike's share above 20,
+/// a run's above 30 or a walk's above 50.
+fn engages(motions: &Motions) -> bool {
+    motions.share(STRIKES) > 20 || motions.share(RUNS) > 30 || motions.share(WALKS) > 50
+}
+
+/// Whether a creature of `motions` at `at` flees from the hero at `hero` of `hero_motions` (the
+/// record's state 5): it neither strikes (a share below 31) nor casts, walks or runs (a share of
+/// 51 or more), moves away from the hero, its move's direction within 0.2 of the hero's to it,
+/// nearer than [`FLEES_WITHIN`], while the hero runs less than 71 % of the time.
+fn flees(motions: &Motions, at: Vec3, (hero, hero_motions): (Vec3, &Motions)) -> bool {
+    let away = (at - hero).with_y(0.0).normalize_or_zero();
+    let moving = motions.moved.normalize_or_zero();
+    motions.share(STRIKES) < 31
+        && (motions.share(WALKS) >= 51 || motions.share(RUNS) >= 51)
+        && hero_motions.share(RUNS) < 71
+        && moving != Vec3::ZERO
+        && (moving - away).length() <= 0.2
+        && sfx::screen_distance(at, hero) < FLEES_WITHIN
+}
+
+/// The hero sees its foes run (`0x68BEA0`, `FOE_ON_THE_RUN` and `ENEMYFLEES`): at each update the
+/// motions of the creatures hostile to it are kept, the bosses and the champions and those that
+/// engage counted (those nearer than 450 of a level at least the hero's less 2 as engaged); where
+/// more of them flee than 0.6 of the most engaged over the last five updates, more than 20 s
+/// after the hero's last comment, one in five, `rand() % 15` names one of the ten
+/// `FOE_ON_THE_RUN` or the five `ENEMYFLEES` of the hero's class (none for the Dwarf and the
+/// Daemon), which plays at the hero while no line by name plays and its sound id does not wait,
+/// sets the comments' clock back and waits 60 s.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn flight(
+    mut commands: Commands,
+    mut state: bevy::prelude::Local<Flight>,
+    (hero, mut voices, mut sfx, heard): (
+        Option<Res<hero::Hero>>,
+        ResMut<Voices>,
+        ResMut<Sfx>,
+        Res<sfx::Listener>,
+    ),
+    heroes: Query<
+        (
+            Entity,
+            &Body,
+            &GlobalTransform,
+            &crate::fight::Health,
+            Option<&Speaking>,
+            Has<crate::attack::Striking>,
+        ),
+        Without<Dies>,
+    >,
+    mut creatures: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &crate::ai::Mind,
+            &crate::fight::Health,
+            Option<&crate::fight::Ranked>,
+            (Option<&crate::npcs::Walk>, Has<crate::npcs::Strikes>),
+            Option<&mut Motions>,
+        ),
+        (Without<Body>, Without<Dies>),
+    >,
+    (assets, audio): (Res<AssetServer>, Res<Audio>),
+    time: Res<Time>,
+) {
+    let (Some(hero), Ok((entity, body, at, health, speaking, striking))) = (hero, heroes.single())
+    else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    let hero_at = at.translation();
+    let class = match (striking, body.moving()) {
+        (true, _) => STRIKES,
+        (false, Some(hero::Gait::Walk)) => WALKS,
+        (false, Some(hero::Gait::Run)) => RUNS,
+        (false, None) => STANDS,
+    };
+    state.hero.push(class, hero_at);
+    let (mut engaged, mut fleeing) = (0, 0);
+    for (creature, at, mind, of, ranked, (walk, strikes), motions) in &mut creatures {
+        if !mind.hostile() {
+            continue;
+        }
+        let place = at.translation();
+        let class = match walk {
+            _ if strikes => STRIKES,
+            Some(walk) if walk.runs() => RUNS,
+            Some(_) => WALKS,
+            None => STANDS,
+        };
+        let Some(mut motions) = motions else {
+            if sfx::screen_distance(place, hero_at) < 2 * FLEES_WITHIN {
+                let mut motions = Motions::default();
+                motions.push(class, place);
+                commands.entity(creature).insert(motions);
+            }
+            continue;
+        };
+        motions.push(class, place);
+        let marked = ranked.is_some_and(|r| {
+            matches!(
+                r.0,
+                opensacred_rules::fight::Rank::Boss | opensacred_rules::fight::Rank::Champion
+            )
+        });
+        if !marked && !engages(&motions) {
+            continue;
+        }
+        if sfx::screen_distance(place, hero_at) < ENGAGED_WITHIN && of.level + 2 >= health.level {
+            engaged += 1;
+        }
+        if flees(&motions, place, (hero_at, &state.hero)) {
+            fleeing += 1;
+        }
+    }
+    let at_now = state.at;
+    state.engaged[at_now] = engaged;
+    state.at = (at_now + 1) % state.engaged.len();
+    let most = state.engaged.iter().copied().max().unwrap_or(0);
+    let clock = voices.commented.map_or(f64::INFINITY, |at| now - at);
+    // More flee than 0.6 of the most engaged: `fleeing > 0.6·most`, in whole numbers.
+    if fleeing == 0 || 10 * fleeing <= 6 * most || clock <= 20.0 || voices.dice.below(5) != 0 {
+        return;
+    }
+    let n = voices.dice.below(15);
+    let (line, n) = if n < 10 {
+        (HeroLine::FoeOnTheRun, n)
+    } else {
+        (HeroLine::EnemyFlees, n - 10)
+    };
+    if matches!(hero.creature, 8 | 9) {
+        return;
+    }
+    let named = speaking.is_some_and(|s| {
+        s.1 && matches!(
+            audio.state(&s.0),
+            PlaybackState::Playing { .. } | PlaybackState::Queued
+        )
+    });
+    let Some((id, file)) = line
+        .name(hero.creature, n)
+        .and_then(|name| sfx.named(&name))
+    else {
+        return;
+    };
+    if named || voices.waits.get(&id).is_some_and(|&until| until > now) {
+        return;
+    }
+    let (volume, pan) = sfx::placed_at(hero_at, Some(hero_at), *heard);
+    if volume <= 0.0 {
+        return;
+    }
+    debug!("voices: the hero sees {fleeing} of {most} foes flee, {id}");
+    voices.commented = Some(now);
+    voices.waits.insert(id, now + 60.0);
+    let rate = rate(sfx.roll(10), 0.0);
+    let sample = sfx.sample(id, file, &assets);
+    let instance = audio
+        .play(sample)
+        .with_volume(sfx::decibels(volume))
+        .with_panning(pan)
+        .with_playback_rate(f64::from(rate))
+        .handle();
+    commands.entity(entity).insert(Speaking(instance, true));
+}
+
 /// How long the hero walks or runs before it breathes hard, and stands before it breathes, in
 /// seconds; and how long it rests from a breath that ended (`0x68BEA0`).
 const BREATHES_MOVING: f32 = 20.0;
@@ -1130,7 +1354,7 @@ impl Plugin for VoicesPlugin {
                     .in_set(Unpaused)
                     .run_if(crate::frame::ticked),
             )
-            .add_systems(Update, breathe.after(speak).in_set(Unpaused));
+            .add_systems(Update, (breathe, flight).after(speak).in_set(Unpaused));
     }
 }
 
@@ -1248,6 +1472,37 @@ mod tests {
             HeroLine::Breathing.name(2, 5).as_deref(),
             Some("SOUND_FX_BREATHING06_GLAD")
         );
+    }
+
+    #[test]
+    fn a_foe_flees_running_away_from_the_hero() {
+        let hero = Motions::default();
+        let mut foe = Motions::default();
+        // Sixteen updates running east, the hero to the west of it.
+        for x in 0..16 {
+            foe.push(RUNS, Vec3::new(100.0 + 10.0 * x as f32, 0.0, 0.0));
+        }
+        assert_eq!(foe.share(RUNS), 100);
+        assert!(engages(&foe));
+        assert!(flees(&foe, Vec3::new(250.0, 0.0, 0.0), (Vec3::ZERO, &hero)));
+        // Running toward the hero, or far off, it does not flee.
+        foe.push(RUNS, Vec3::new(240.0, 0.0, 0.0));
+        assert!(!flees(
+            &foe,
+            Vec3::new(240.0, 0.0, 0.0),
+            (Vec3::ZERO, &hero)
+        ));
+        let mut far = Motions::default();
+        for x in 0..16 {
+            far.push(RUNS, Vec3::new(5_000.0 + 10.0 * x as f32, 0.0, 0.0));
+        }
+        assert!(!flees(
+            &far,
+            Vec3::new(5_150.0, 0.0, 0.0),
+            (Vec3::ZERO, &hero)
+        ));
+        // A creature that stands does not engage.
+        assert!(!engages(&Motions::default()));
     }
 
     #[test]
