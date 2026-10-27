@@ -377,7 +377,7 @@ The fight and the stats:
 - in it too, a player struck by a creature takes at most `⌊(6·(E + 9))^1.5 · 0.32258 · m + 0.5⌋` damage, `E` the attacker's level on bronze's scale (`0x5522D0`) and `m` 0.5, 0.625, 0.75, 0.875 and 1.0 from bronze to niobium (`0x56DA51`): 75 on bronze and 150 on niobium for an attacker of level 1;
 - and an attacker's flag `0x8000000` of `+0x4F0` cuts a resistance of its defender to `max(0, 1 − 0.4·f)`; the effect 841's value is times 0.8, 0.7, 0.6 or 0.5 above bronze (**hypothesis**: a leech of the damage); the sets' bonuses against kinds of defenders and their chances of specials take `f` (the counts of `+0x4F8`, **hypothesis**: a set's pieces worn);
 - the getters of `A` and `D` of an NPC times `ProzAW` (`0x56AA10`, `0x56AA90`); the most health by `ProzHP` (`0x5658F0`, "Health");
-- the stats' recomputation (`0x5796A0`): a creature hostile to the hero on platinum and niobium has its attack speed 170 and 200, its pace 160 and 190, its `b3` 1.5 and 2 times, and its regeneration value 1.5 and 1 times `a3`, in place of 2 times;
+- the stats' recomputation (`0x5796A0`, at `0x579B27`): a creature hostile to the hero (`0x549000`) on platinum and niobium has its attack speed 170 and 200 and its pace 160 and 190 in place of its type's 140 and 130 to start from, its `b3` 1.5 times, truncated, and 2 times, from which its `a3` grows by its level, and its regeneration value `⌊1.5·a3⌋` and `a3` in place of `2·a3`; `opensacred-rules` follows it (`fight::Hardened`, #1125);
 - the hero's luck (`0x564A60`) by the sets' `1 + 0.2·f`; the effect 852's threshold of terror (`0x5903F0`), `⌊v + SchreckenBase/f + 0.5⌋` per cent of the hero's level, under which the hero's look kills a hostile creature at once that is no boss, champion or big type (`0x547070`); the Daemon's and the Vampiress's arts' times by `1 + 0.4·f` and `1.4·f` (docs/re/arts.md); an art 1103 of the flag `0x20000000` in `⌊15·f⌋` cases of a hundred.
 
 The levels:
@@ -392,7 +392,7 @@ The items and the drops: the magic bonus times `f` and the term of the damage's 
 
 The AI: the test of the levels by the creature's level on bronze's scale (`0x542B20`); the marked creatures' specials, their chances times 20, 60, 80, 100 or 130 per cent (`0x4D4E50`); three chances of the melee state by `f` and a test of the target's level plus `2·d + 2` (`0x4E0300`).
 
-The scripts: the `IF` tags `0x96` to `0x9A` hold on bronze to niobium, and `0x9B` and `0x9C` test the hero's quest bit of the current difficulty, which `HeroQBit` sets and clears (`0x4987B0`, `0x49B840`, `0x49C160`).
+The scripts: the `IF` tags `0x96` to `0x9A` hold on bronze to niobium, and `0x9B` and `0x9C` test the hero's quest bit of the current difficulty, a number, set and clear, which `HeroQBit` sets and clears (`0x4987B0`, `0x49B840`, `0x49C160`); the quests give a reward once by them (`_9C`, then `HeroQBit` set). `opensacred-game` follows them, the quest bits in the variable `HeroQBit` (#1125).
 
 The interface shows the difficulty's name (`0x6C6C50`); a sound of a fight (6569, **hypothesis**) starts at once on bronze, else above a measure of 15, 20, 25 or 30 (`0x68BEA0`).
 

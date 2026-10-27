@@ -227,6 +227,11 @@ pub struct Difficulty(pub opensacred_rules::drops::Difficulty);
 /// The names of the difficulties on the command line, bronze's first.
 pub const DIFFICULTIES: [&str; 5] = ["bronze", "silver", "gold", "platinum", "niobium"];
 
+/// The index of `game`'s difficulty, 0 bronze to 4 niobium, as the scripts test it.
+fn difficulty_index(game: &NewGame) -> u8 {
+    u8::try_from(game.difficulty.unwrap_or_default().index()).unwrap_or(0)
+}
+
 /// A difficulty by its name.
 fn parse_difficulty(text: &str) -> Result<opensacred_rules::drops::Difficulty, String> {
     DIFFICULTIES
@@ -405,7 +410,7 @@ fn load(
         started,
     } = scripts::run(
         assets,
-        &tree,
+        (&tree, difficulty_index(game)),
         |at| areas.get(&at).copied(),
         creature_types(tables)?,
     )?;

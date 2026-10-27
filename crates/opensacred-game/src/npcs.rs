@@ -3993,8 +3993,13 @@ fn spawn(
         // level (`0x5D5080`), the same each time it is made, its hits' share, and its
         // regeneration.
         let mut dice = spawning::Rng::of(x, y, usize::try_from(creature).unwrap_or(0));
+        // A creature hostile to the hero hardened on platinum and niobium (`0x5796A0`, #1125).
+        let base = fight::Base(opensacred_rules::fight::Base {
+            hardened: rules.hardened(minds::hostile_to_heroes(placement.side, creature)),
+            ..placement.base.0
+        });
         let arms = Arms {
-            base: placement.base,
+            base,
             plain: placement.plain,
             model: placement.model.clone(),
             holding: placement
@@ -4024,7 +4029,7 @@ fn spawn(
             arms,
             fight::Ranked(placement.rank),
             fight::Worth(placement.base.experience),
-            fight::Regenerates::new(fight::regeneration(&placement.base, grade, &skills, rules)),
+            fight::Regenerates::new(fight::regeneration(&base, grade, &skills, rules)),
         ));
         // A boss or a champion not hostile to the hero takes its level at its first fight.
         if placement.rank != fight::Rank::Common

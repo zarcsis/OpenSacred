@@ -1053,6 +1053,10 @@ pub struct Scripts {
     /// The kills counted (`SetOnKill`) and the items collected (`SetOnCollect`).
     pub kills: Counts,
     pub collecting: Counts,
+    /// The game's difficulty, 0 bronze to 4 niobium (`0x182EE44`), which the `IF`s' tags `0x96`
+    /// to `0x9A` test (`0x4987B0`; docs/re/fight.md, "The difficulty"; #1125).
+    #[serde(default)]
+    pub difficulty: u8,
 }
 
 #[cfg(test)]

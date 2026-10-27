@@ -496,8 +496,9 @@ impl Regenerates {
 }
 
 /// The regeneration value of a creature of `base` at level `level` (`0x5796A0`): `2·a3`, its
-/// attribute 3 raised by its level, times 1 plus its skill 10's per cent (`0x566070`), taken
-/// whole (`+0x138` is a whole number, which the skill's case stores with `_ftol`).
+/// attribute 3 raised by its level (`1.5·a3` and `a3` of a hostile creature on platinum and
+/// niobium, [`Hardened`]), times 1 plus its skill 10's per cent (`0x566070`), taken whole (`+0x138`
+/// is a whole number, which the skill's case stores with `_ftol`).
 pub fn regeneration(base: &Base, level: u32, skills: &[(u8, u32)], rules: &Rules) -> f32 {
     regeneration_with(base, level, skills, &[], rules)
 }
@@ -511,8 +512,11 @@ pub fn regeneration_with(
     effects: &[Effect],
     rules: &Rules,
 ) -> f32 {
-    let b3 = u32::from(base.attributes[3]);
-    let mut value = to_f32(2 * (b3 + b3 * (level.max(1) - 1) / 10));
+    let b3 = base.hardened.attribute(u32::from(base.attributes[3]));
+    let mut value = to_f32(
+        base.hardened
+            .regeneration(b3 + b3 * (level.max(1) - 1) / 10),
+    );
     for effect in effects.iter().filter(|e| e.id == effects::REGENERATION) {
         value = quickened(value, f64::from(effect.value) + 1.0);
     }
@@ -577,6 +581,8 @@ pub struct Rules {
     scale: [f32; 2],
     cap: f32,
     regeneration: [f32; 3],
+    /// How the difficulty hardens a creature hostile to the hero.
+    hardened: Hardened,
     curves: Curves,
     level_cap: f32,
     start_levels: [f32; 2],
@@ -615,6 +621,59 @@ impl Default for Rules {
             multi_shot: 0.83,
             geschick: 200.0,
             spawn_weapon: [25.0, 275.0],
+            hardened: Hardened::No,
+        }
+    }
+}
+
+/// How the difficulty hardens a creature hostile to the hero as its stats are recomputed
+/// (`0x5796A0`, at `0x579B27`; docs/re/fight.md, "The difficulty"; #1125): on platinum and on
+/// niobium its attribute 3 is 1.5 and 2 times its type's, its attack speed and its pace start from
+/// 170 and 160, and 200 and 190, and its regeneration value is 1.5 and 1 times its attribute 3,
+/// in place of twice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Hardened {
+    #[default]
+    No,
+    Platinum,
+    Niobium,
+}
+
+impl Hardened {
+    /// How `difficulty` hardens a hostile creature.
+    pub fn on(difficulty: Difficulty) -> Self {
+        match difficulty {
+            Difficulty::Platinum => Self::Platinum,
+            Difficulty::Niobium => Self::Niobium,
+            _ => Self::No,
+        }
+    }
+
+    /// The attribute 3 of the type's `b3`: 1.5 times it on platinum, truncated, twice on niobium.
+    fn attribute(self, b3: u32) -> u32 {
+        match self {
+            Self::No => b3,
+            Self::Platinum => whole_f64(f64::from(b3) * 1.5),
+            Self::Niobium => 2 * b3,
+        }
+    }
+
+    /// The attack speed and the pace that the recomputation starts from, where it sets them.
+    fn speeds(self) -> Option<(f32, f32)> {
+        match self {
+            Self::No => None,
+            Self::Platinum => Some((170.0, 160.0)),
+            Self::Niobium => Some((200.0, 190.0)),
+        }
+    }
+
+    /// The regeneration value of the grown attribute 3 `a3`: twice it, 1.5 times on platinum,
+    /// truncated, once on niobium.
+    fn regeneration(self, a3: u32) -> u32 {
+        match self {
+            Self::No => 2 * a3,
+            Self::Platinum => 3 * a3 / 2,
+            Self::Niobium => a3,
         }
     }
 }
@@ -676,9 +735,13 @@ impl Rules {
     pub fn at(balance: Option<&Balance>, difficulty: Difficulty) -> Self {
         let default = Self::default();
         let Some(b) = balance else {
-            return default;
+            return Self {
+                hardened: Hardened::on(difficulty),
+                ..default
+            };
         };
         let column = difficulty.column();
+        let hardened = Hardened::on(difficulty);
         let points = (1..=5)
             .map(|i| Some((b.f32(&format!("HP_s{i}"))?, b.f32(&format!("HP_w{i}"))?)))
             .collect::<Option<Vec<_>>>()
@@ -793,7 +856,13 @@ impl Rules {
                 b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
                 b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
             ],
+            hardened,
         }
+    }
+
+    /// How the difficulty hardens a creature, `hostile` to the hero or not: none that is not.
+    pub fn hardened(&self, hostile: bool) -> Hardened {
+        if hostile { self.hardened } else { Hardened::No }
     }
 
     /// The factor of the whole value of the Gladiator's 1016's effect, of a creature of the
@@ -920,6 +989,8 @@ pub struct Base {
     /// Whether its creature is in the Vampiress's night form (`+0x14` bit `0x2000`), which takes
     /// [`NIGHT_SLOWS`] off its three speeds.
     pub night: bool,
+    /// How the difficulty hardens its creature, hostile to the hero ([`Rules::hardened`]).
+    pub hardened: Hardened,
 }
 
 /// The casts' speed `+0x3E` that a creature starts with (seen 120 for the Mage and the
@@ -950,6 +1021,7 @@ impl Base {
                 skills
             },
             night: false,
+            hardened: Hardened::No,
         }
     }
 }
@@ -1674,10 +1746,10 @@ pub fn combat_with(
 ) -> Combat {
     let armed = holds.weapon;
     let level = level.max(1);
-    let b = base.attributes.map(f32::from);
-    let grown = base
-        .attributes
-        .map(|b| u32::from(b) + u32::from(b) * (level - 1) / 10);
+    let mut attributes = base.attributes.map(u32::from);
+    attributes[3] = base.hardened.attribute(attributes[3]);
+    let b = attributes.map(to_f32);
+    let grown = attributes.map(|b| b + b * (level - 1) / 10);
     let a = grown.map(to_f32);
     let l = to_f32(level);
     let off = rules.stat_offset;
@@ -1723,7 +1795,10 @@ pub fn combat_with(
     // `0x57A6E0`), after those of the bits 15 and 14.
     let mut spell_items = [0.0_f32; KINDS];
     let mut speed_bonus = 0.0;
-    let mut pace = pace(base.id);
+    let (start_speed, mut pace) = base
+        .hardened
+        .speeds()
+        .unwrap_or((attack_speed(base.id), pace(base.id)));
     let mut attribute_bonuses = [0.0_f32; 6];
     for item in &holds.items {
         for (ends, item) in damage.iter_mut().zip(item.damage) {
@@ -1790,7 +1865,7 @@ pub fn combat_with(
     }
     // The effects (`0x5796A0`, #651), after the items, before the skills. The attack speed is a
     // whole number of the stats by then (`+0x3C`).
-    let mut speed = attack_speed(base.id) + speed_bonus;
+    let mut speed = start_speed + speed_bonus;
     let mut cast = CAST_SPEED;
     let mut speeds_changed = false;
     for effect in effects {
@@ -1848,7 +1923,7 @@ pub fn combat_with(
         }
     }
     if !speeds_changed {
-        speed = attack_speed(base.id) + speed_bonus;
+        speed = start_speed + speed_bonus;
     }
     if let Some(turns) = effects.iter().find(|effect| effect.id == effects::TURNS) {
         turn_damage(&mut damage, turns);
@@ -3862,6 +3937,46 @@ mod tests {
             hero_health(base, 1, &[], &Rules::default()),
             health_of(base, 1, None, 1.0, 1.0)
         );
+    }
+
+    #[test]
+    fn a_hostile_creature_is_hardened_on_platinum_and_niobium() {
+        let wolf = a_wolf();
+        // Only a hostile creature, on platinum and niobium alone.
+        assert_eq!(
+            Rules::at(None, Difficulty::Platinum).hardened(true),
+            Hardened::Platinum
+        );
+        assert_eq!(
+            Rules::at(None, Difficulty::Platinum).hardened(false),
+            Hardened::No
+        );
+        assert_eq!(
+            Rules::at(None, Difficulty::Gold).hardened(true),
+            Hardened::No
+        );
+        let rules = Rules::default();
+        let grown = |b: u32| b + b * 9 / 10;
+        let b3 = u32::from(wolf.attributes[3]);
+        for (hardened, speed, pace, regeneration) in [
+            (Hardened::No, 140.0, 130.0, 2 * grown(b3)),
+            (Hardened::Platinum, 170.0, 160.0, 3 * grown(b3 * 3 / 2) / 2),
+            (Hardened::Niobium, 200.0, 190.0, grown(2 * b3)),
+        ] {
+            let base = Base { hardened, ..wolf };
+            let values = combat(&base, 10, Holds::default(), &[], &rules);
+            assert_eq!((values.speed, values.pace), (speed, pace), "{hardened:?}");
+            assert_eq!(
+                fight_regeneration(&base, &rules),
+                to_f32(regeneration),
+                "{hardened:?}"
+            );
+        }
+    }
+
+    /// A creature of `base`'s regeneration value at level 10, with no skills.
+    fn fight_regeneration(base: &Base, rules: &Rules) -> f32 {
+        regeneration(base, 10, &[], rules)
     }
 
     #[test]
