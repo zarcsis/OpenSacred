@@ -360,9 +360,9 @@ The choice of the hero sets it as Start Game or the import starts a game (`cUI_C
 ### What opens the levels
 
 The box takes the levels from bronze up to a highest `n`, at most niobium (`0x710190`), and lets none be chosen but bronze where `n` is 0.
-The Ancaria campaign's new hero has `n` 0, bronze alone: the box shows Bronze and its arrows change nothing (**seen** 2026-10-26).
+The Ancaria campaign's new hero is offered bronze and silver (**seen** 2026-10-27 by the maintainer and with the driver of #448, #1145): the box is a drop-down list (docs/re/menus.md, "The choice of the hero"), which an earlier look, 2026-10-26, took for a row whose arrows change nothing.
+So the screen's modes 0 and 1 (`+0x390`), which give `n` 1 to a new hero, are the Ancaria campaign's (**hypothesis**: the modes are not traced).
 A hero of the saves, as the Underworld campaign offers them, has one more than the highest difficulty it won (`0x6F4F20` over its bytes `+0x3E9`…`+0x3EE`), so silver at least.
-A path of the choice that the single player's campaigns do not take (the modes 0 and 1 of the screen's `+0x390`; **hypothesis**: the network's) offers bronze and silver to a new hero.
 A hero's bytes of the difficulties are raised by `0x424CF0` with the difficulty, which the console's `win` calls and one of the modes of the scripts' `InfoPlayer` (**hypothesis**: the campaign won on that difficulty).
 
 ### What the difficulty changes
