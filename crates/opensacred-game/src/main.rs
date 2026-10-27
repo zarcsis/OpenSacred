@@ -62,6 +62,7 @@ mod paths;
 mod pause;
 mod pick;
 mod pickup;
+mod remarks;
 mod remote;
 mod rewards;
 mod ripples;
@@ -336,13 +337,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
-        sectors::SectorsPlugin,
     ))
     .add_plugins((
+        sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
