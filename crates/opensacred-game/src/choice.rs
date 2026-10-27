@@ -29,7 +29,7 @@ use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 use bevy::render::render_resource::{AsBindGroup, TextureFormat};
 use bevy::shader::ShaderRef;
-use bevy::text::FontSize;
+use bevy::text::{FontSize, LetterSpacing, LineHeight};
 use bevy::ui_render::prelude::{MaterialNode, UiMaterial, UiMaterialPlugin};
 use bevy::window::PrimaryWindow;
 
@@ -332,17 +332,27 @@ const START_AT: Vec2 = Vec2::new(607.0, 714.0);
 const BUTTON_SIZE: Vec2 = Vec2::new(176.0, 28.0);
 /// The row of the strip over the buttons, and where a description stands.
 const SEPARATOR: f32 = 690.0;
-const DESCRIPTION: Rect = Rect::from_corners(Vec2::new(305.0, 560.0), Vec2::new(720.0, 686.0));
+const DESCRIPTION: Rect = Rect::from_corners(Vec2::new(317.0, 565.0), Vec2::new(705.0, 686.0));
+/// The panel's inner border: its light outer line and dark inner one, a pixel each, around the
+/// panel's upper part (the original's frames).
+const INNER: Rect = Rect::from_corners(Vec2::new(299.0, 562.0), Vec2::new(725.0, 685.0));
+const INNER_LIGHT: Color = Color::linear_rgb(119.0 / 255.0, 102.0 / 255.0, 102.0 / 255.0);
+const INNER_DARK: Color = Color::linear_rgb(34.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0);
+/// How far the corners' ornaments stand out of the panel's sides.
+const CORNER_OUT: f32 = 12.0;
 /// The panel's fill and its edge, and the texts' sizes and colours, in the frame's sRGB values
 /// (`hud`).
 const FILL: Color = Color::linear_rgba(0.02, 0.02, 0.03, 0.62);
 const EDGE: Color = Color::linear_rgb(0.42, 0.42, 0.45);
 const TEXT_SIZE: f32 = 17.0;
-const DESCRIPTION_SIZE: f32 = 16.0;
+const DESCRIPTION_SIZE: f32 = 18.0;
+const DESCRIPTION_LINE: f32 = 20.0;
+/// The space between a description's letters, which the original's lay wider than the font's.
+const DESCRIPTION_SPACING: f32 = 0.8;
 const TEXT: Color = Color::linear_rgb(0.93, 0.93, 0.93);
 const TEXT_GREY: Color = Color::linear_rgb(0.45, 0.45, 0.45);
-const PLAIN: Color = Color::linear_rgb(0.80, 0.80, 0.80);
-const MARKED: Color = Color::WHITE;
+const PLAIN: Color = Color::linear_rgb(198.0 / 255.0, 202.0 / 255.0, 187.0 / 255.0);
+const MARKED: Color = Color::linear_rgb(1.0, 1.0, 128.0 / 255.0);
 /// The figures' light: a figure dark is all but a shape, the light from the top left and the
 /// ambient light of their scene.
 const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
@@ -970,18 +980,36 @@ fn frame(picture: &mut ChildSpawnerCommands, atlas: Option<&String>, assets: &As
         BackgroundColor(FILL),
         Outline::new(Val::Px(2.0), Val::ZERO, EDGE),
     ));
-    // The corners' ornaments, the top left's turned about for the others.
-    for (corner, flip) in [
-        (PANEL.min, Vec2::ONE),
+    for (rect, colour) in [
+        (INNER, INNER_LIGHT),
         (
-            Vec2::new(PANEL.max.x - 40.0, PANEL.min.y),
+            Rect::from_corners(INNER.min + 1.0, INNER.max - 1.0),
+            INNER_DARK,
+        ),
+    ] {
+        picture.spawn((
+            Pickable::IGNORE,
+            Node {
+                border: UiRect::all(Val::Px(1.0)),
+                ..place(rect)
+            },
+            BorderColor::all(colour),
+        ));
+    }
+    // The corners' ornaments, the top left's turned about for the others, standing out of the
+    // panel's sides.
+    let out = Vec2::new(CORNER_OUT, 0.0);
+    for (corner, flip) in [
+        (PANEL.min - out, Vec2::ONE),
+        (
+            Vec2::new(PANEL.max.x - 40.0, PANEL.min.y) + out,
             Vec2::new(-1.0, 1.0),
         ),
         (
-            Vec2::new(PANEL.min.x, PANEL.max.y - 40.0),
+            Vec2::new(PANEL.min.x, PANEL.max.y - 40.0) - out,
             Vec2::new(1.0, -1.0),
         ),
-        (PANEL.max - 40.0, Vec2::NEG_ONE),
+        (PANEL.max - 40.0 + out, Vec2::NEG_ONE),
     ] {
         if let Some(corner) = piece(
             picture,
@@ -1135,6 +1163,9 @@ fn controls(
             font_size: FontSize::Px(DESCRIPTION_SIZE),
             ..default()
         },
+        LineHeight::Px(DESCRIPTION_LINE),
+        LetterSpacing::Px(DESCRIPTION_SPACING),
+        TextLayout::justify(Justify::Justified),
         TextColor(PLAIN),
     ));
     button(
@@ -1232,7 +1263,11 @@ fn show(
     if !choice.is_changed() {
         return;
     }
-    let description = choice.hovered.map(|class| texts(class).1);
+    // The chosen hero's own figure shows no description, as the original's.
+    let description = choice
+        .hovered
+        .filter(|&class| choice.chosen != Some(class))
+        .map(|class| texts(class).1);
     for (part, mut visibility, text, children) in &mut parts {
         match part {
             Part::Controls => {
@@ -1314,6 +1349,8 @@ fn describe(
                 text.spawn((
                     TextSpan::new(words),
                     font.clone(),
+                    LineHeight::Px(DESCRIPTION_LINE),
+                    LetterSpacing::Px(DESCRIPTION_SPACING),
                     TextColor(if marked { MARKED } else { PLAIN }),
                 ));
             }
