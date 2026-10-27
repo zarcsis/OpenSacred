@@ -821,7 +821,7 @@ In the Seraphim's tree 65 functions hold 74 spans, 72 of `SetAnimMode` and 2 of 
 
 In `opensacred-game` since #1220 (`npcs::ScriptQueue`, `npcs::take_steps`): the play's `NPC_Goto`s and `Teleport`s between a `SetAnimMode` or a `SetCinemaMode` and a `SetPlayMode` wait in their creature's queue, one step at each tick of the world, the creature's idle thought and behaviours left meanwhile (`ai`); a walk runs and ends within 40 along each axis on its level, or is dropped after 5 orders standing still; a teleport puts the creature at once.
 A walk to a cell of no floor goes onto the creature's level as it sets out rather than as the record ran, so that the novice's walk after her teleport down ends on the steps rather than being dropped there.
-Not followed yet: the other queued records (`Wait`, `PlayAnim`, `Attack` and the rest, which the game does not run at all yet), a `SetPlayMode` naming a creature (it ends the mode at once), the cinema mode's hold on the player, the interface's flag, and the queues saved with the creatures.
+Not followed yet (#1232): the other queued records (`Wait`, `PlayAnim`, `Attack` and the rest, which the game does not run at all yet), a `SetPlayMode` naming a creature (it ends the mode at once), the cinema mode's hold on the player, the interface's flag, and the queues saved with the creatures.
 
 ## Differences from the openheilig table
 
