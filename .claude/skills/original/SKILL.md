@@ -25,6 +25,8 @@ The host checks `Sacred.exe` against the manifest and refuses to start while a `
 
 Stopping the host's background task ends the game within a second (a job object). A run that hangs is ended by stopping that task, never by killing `Sacred.exe` by hand while the host lives.
 
+One original runs on the machine, whichever worktree starts it. Tell the peer sessions before starting the host and after `exec quit` (`ListAgents`, `SendMessage`); when the host refuses because a `Sacred.exe` runs, ask them who holds it and to say when it is free (a session idle may still hold it), never ending another session's original (docs/03 §3.5).
+
 | Option | What it does |
 |---|---|
 | `--place offscreen` | the window to the right of every monitor (by default): it draws there, and the screenshots are whole |
