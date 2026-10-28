@@ -486,6 +486,33 @@ pub struct Held {
     pub(crate) texture: Option<String>,
     hand: Hand,
     mount: Mount,
+    /// The slot of its wearer's equipment that it is worn in, for an item not in a hand: which
+    /// an item put on in that slot takes off, as it does a class's default (`0x556A30`, #1307).
+    slot: Option<u8>,
+}
+
+impl Held {
+    /// The item of the model `model` and the texture `texture` worn in the slot `slot` of the
+    /// hero's equipment (#1307): on its back in the slot 17, the wings', else on its skeleton
+    /// (docs/re/equipment.md, "The slots").
+    pub fn worn(slot: u8, model: String, texture: Option<String>) -> Self {
+        Self {
+            model,
+            texture,
+            hand: Hand::Right,
+            mount: if slot == BACK {
+                Mount::Back
+            } else {
+                Mount::Worn
+            },
+            slot: Some(slot),
+        }
+    }
+
+    /// The slot of its wearer's equipment that it is worn in, none in a hand.
+    pub fn slot(&self) -> Option<u8> {
+        self.slot
+    }
 }
 
 /// An item in an NPC's hand, whose values it fights with: its type, its category, its weapon's
@@ -2830,6 +2857,7 @@ impl Makers {
                     texture,
                     hand: hand?,
                     mount: Mount::held(category(item)),
+                    slot: None,
                 })
             })
             .collect();
@@ -3336,6 +3364,7 @@ impl Npcs {
             texture: gear.texture.clone(),
             hand: held.hand,
             mount: Mount::Hand,
+            slot: None,
         };
         let at = worn.iter().position(|worn| worn.item == held.item)?;
         let mut rest = worn.to_vec();
@@ -3402,6 +3431,7 @@ impl Npcs {
                     texture: gear.texture.clone(),
                     hand: held.hand,
                     mount: Mount::held(held.category),
+                    slot: None,
                 })
             })
             .collect();
@@ -3526,6 +3556,7 @@ fn showcase(gear: &HashMap<u32, Gear>, slots: &[(u8, u32)]) -> (u8, Vec<Held>) {
                 texture: gear.texture.clone(),
                 hand,
                 mount,
+                slot: (!mount.handed()).then_some(slot),
             });
         }
     }
@@ -3534,7 +3565,7 @@ fn showcase(gear: &HashMap<u32, Gear>, slots: &[(u8, u32)]) -> (u8, Vec<Held>) {
 
 /// The items of `worn` that their wearer wears on its skeleton: those not in its hands
 /// (`holding`) whose categories it does not carry on a bone ([`ATTACHED`]), each with its model
-/// and texture (#1131). A template's are the class's own cosmetic items, which its default
+/// and texture (#1131), in the first slot that takes its category (#1307). A template's are the class's own cosmetic items, which its default
 /// (`0x426580`) also gives: the Seraphim's hair, the Gladiator's belt, the Battle Mage's hood, the
 /// Vampiress's hair and the Dwarf's goggles (docs/re/equipment.md).
 fn worn_gear(gear: &HashMap<u32, Gear>, worn: &[Worn], holding: &[InHand]) -> Vec<Held> {
@@ -3550,6 +3581,7 @@ fn worn_gear(gear: &HashMap<u32, Gear>, worn: &[Worn], holding: &[InHand]) -> Ve
                 texture: gear.texture.clone(),
                 hand: Hand::Right,
                 mount: Mount::Worn,
+                slot: opensacred_rules::equipment::slot_for(gear.category, |_| false),
             })
         })
         .collect()
@@ -4093,6 +4125,7 @@ pub fn place(
                                 texture: g.texture.clone(),
                                 hand: hand?,
                                 mount: Mount::held(g.category),
+                                slot: None,
                             })
                         })
                         .collect();

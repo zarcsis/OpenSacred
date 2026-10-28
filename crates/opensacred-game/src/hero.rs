@@ -110,6 +110,11 @@ pub struct Hero {
     /// The items in its hands, its template's (`npcs::Npcs::hero_gear`, #488), and their
     /// equipment once loading.
     pub held: Vec<crate::npcs::Held>,
+    /// The items it wears in the equipment window's slots (#1307), which take off those of
+    /// [`Self::held`] worn in the same slots: the classes' defaults (`0x556A30`).
+    wears: Vec<crate::npcs::Held>,
+    /// Whether its form shows none of its items (`forms::Form::armed`).
+    bare: bool,
     equipment: Option<crate::npcs::Equipment>,
     /// Its attack, defence, damage and resistances, by its type's record (`fight::combat`).
     pub combat: Option<crate::fight::Combat>,
@@ -164,6 +169,8 @@ impl Hero {
             attacks: Vec::new(),
             arts: Vec::new(),
             held: Vec::new(),
+            wears: Vec::new(),
+            bare: false,
             equipment: None,
             combat: None,
             vitals: None,
@@ -199,10 +206,48 @@ impl Hero {
         self.dying.clone_from(&form.clips.dying);
         self.pickup.clone_from(&form.clips.pickup);
         self.gltf = Some(assets.load(self.model.clone()));
-        self.equipment = (form.armed && !self.held.is_empty())
-            .then(|| crate::npcs::equipment(assets, &self.held));
+        self.bare = !form.armed;
+        self.equipment = self.equip(assets);
         self.spawned = false;
         self.worn = true;
+    }
+
+    /// Puts on `wears`, the items worn in the equipment window's slots, in its own form, its
+    /// model and its clips kept (#1307): their models on it, those of its template's items in
+    /// their slots taken off, and given back as the slots empty (`0x556A30`).
+    pub fn dress(&mut self, wears: Vec<crate::npcs::Held>, assets: &AssetServer) {
+        self.wears = wears;
+        self.equipment = self.equip(assets);
+        // A body standing takes its items anew ([`spawn`]); one still to come takes them as it
+        // comes.
+        if self.spawned {
+            self.kept = true;
+            self.spawned = false;
+            self.worn = true;
+        }
+    }
+
+    /// What it shows: the items of [`Self::held`] but those worn in a slot that one of
+    /// [`Self::wears`] takes, and those; none where its form shows none.
+    fn shown(&self) -> Vec<crate::npcs::Held> {
+        if self.bare {
+            return Vec::new();
+        }
+        let taken = |slot: Option<u8>| {
+            slot.is_some_and(|slot| self.wears.iter().any(|worn| worn.slot() == Some(slot)))
+        };
+        self.held
+            .iter()
+            .filter(|held| !taken(held.slot()))
+            .chain(&self.wears)
+            .cloned()
+            .collect()
+    }
+
+    /// The equipment of what it shows ([`Self::shown`]), to attach once its body is ready.
+    fn equip(&self, assets: &AssetServer) -> Option<crate::npcs::Equipment> {
+        let shown = self.shown();
+        (!shown.is_empty()).then(|| crate::npcs::equipment(assets, &shown))
     }
 
     fn speed(&self) -> f32 {
@@ -397,9 +442,7 @@ impl Clips {
 
 pub fn load(mut hero: ResMut<Hero>, assets: Res<AssetServer>) {
     hero.gltf = Some(assets.load(hero.model.clone()));
-    if !hero.held.is_empty() {
-        hero.equipment = Some(crate::npcs::equipment(&assets, &hero.held));
-    }
+    hero.equipment = hero.equip(&assets);
 }
 
 /// Spawns the model once its glTF is loaded, or gives the body that stands a form's new model
@@ -1258,6 +1301,28 @@ impl Plugin for HeroPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_item_worn_takes_off_the_default_of_its_slot() {
+        let worn = |slot, model: &str| crate::npcs::Held::worn(slot, model.to_owned(), None);
+        let models = |hero: &Hero| -> Vec<String> {
+            hero.shown().into_iter().map(|held| held.model).collect()
+        };
+        let mut hero = Hero::new(String::new(), Default::default(), Vec3::ZERO);
+        // The Seraphim's hair in the slot 0, her default.
+        hero.held = vec![worn(0, "hair")];
+        assert_eq!(models(&hero), ["hair"]);
+        // A helmet takes it off, an armour leaves it on; both off, it comes back.
+        hero.wears = vec![worn(0, "helmet"), worn(1, "armour")];
+        assert_eq!(models(&hero), ["helmet", "armour"]);
+        hero.wears = vec![worn(1, "armour")];
+        assert_eq!(models(&hero), ["hair", "armour"]);
+        hero.wears.clear();
+        assert_eq!(models(&hero), ["hair"]);
+        // A form that shows no items.
+        hero.bare = true;
+        assert!(models(&hero).is_empty());
+    }
 
     #[test]
     fn game_speed_is_the_balance_variable_of_its_name() {
