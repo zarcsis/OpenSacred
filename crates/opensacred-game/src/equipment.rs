@@ -21,7 +21,7 @@
 //! as the slot empties (`0x556A30`); the window does not show the defaults. The items in its hands
 //! are the weapon sets' (#1271), so that its clips do not change by the window.
 //!
-//! Not followed: the rings on its fingers.
+//! The rings on its fingers are not drawn, the original showing nothing of them (seen, #1334).
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, ScalingMode};
