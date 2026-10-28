@@ -259,12 +259,13 @@ struct Word {
     greyed: bool,
 }
 
-/// The material that lays the figures' texture on the interface.
+/// The material that lays the figures' texture on the interface, which the inventory's grid lays
+/// its items' with too (`inventory`).
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
-struct Layer {
+pub(crate) struct Layer {
     #[texture(0)]
     #[sampler(1)]
-    figures: Handle<Image>,
+    pub(crate) figures: Handle<Image>,
 }
 
 impl UiMaterial for Layer {

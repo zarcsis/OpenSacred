@@ -11,6 +11,7 @@ use std::time::Duration;
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use opensacred_rules::drops::{Dropped, Kind};
+use opensacred_rules::inventory::Grid;
 
 use crate::attack::{self, Aim};
 use crate::doors::Opens;
@@ -68,7 +69,11 @@ const SANE: f32 = 10.0;
 #[derive(Resource, Default, Debug)]
 pub struct Pack {
     pub gold: u32,
-    pub items: Vec<Dropped>,
+    /// The items in the backpack, each by its key in the grid, in the order taken, and the grid
+    /// (#1268), and the next key.
+    pub items: Vec<(u32, Dropped)>,
+    pub grid: Grid,
+    next: u32,
     /// The main quest's items, which the scripts' collecting keeps (`SetOnCollect`, #1021), the
     /// quests' items that the scripts laid and the hero took, and those they gave it (#1256).
     pub quest: Vec<Dropped>,
@@ -96,20 +101,32 @@ pub struct Given(pub u32);
 
 impl Pack {
     /// Takes `dropped`: gold into the purse, held below `0x7FFFFFFF` (`0x57FD80`), any other item
-    /// into the pack.
-    pub fn take(&mut self, dropped: Dropped) {
-        match dropped.kind {
-            Kind::Gold => {
-                self.gold = self.gold.saturating_add(dropped.amount).min(0x7FFF_FFFE);
-            }
-            _ => self.items.push(dropped),
+    /// of `size` into the backpack's grid at its first fit by columns (`0x5DABA0`): whether it
+    /// did, none without room (`0x5592B0`).
+    pub fn take(&mut self, dropped: Dropped, size: (u8, u8)) -> bool {
+        if dropped.kind == Kind::Gold {
+            self.gold = self.gold.saturating_add(dropped.amount).min(0x7FFF_FFFE);
+            return true;
         }
+        let key = self.next;
+        if self.grid.take(key, size).is_none() {
+            return false;
+        }
+        self.next += 1;
+        self.items.push((key, dropped));
+        true
     }
 
-    /// Moves the last item of the type `item` of the pack among the main quest's items.
+    /// Moves the last item of the type `item` of the pack among the main quest's items, out of
+    /// the grid.
     pub fn keep_for_quest(&mut self, item: u32) {
-        if let Some(at) = self.items.iter().rposition(|dropped| dropped.item == item) {
-            let kept = self.items.remove(at);
+        if let Some(at) = self
+            .items
+            .iter()
+            .rposition(|(_, dropped)| dropped.item == item)
+        {
+            let (key, kept) = self.items.remove(at);
+            self.grid.remove(key);
             self.quest.push(kept);
         }
     }
@@ -124,7 +141,7 @@ pub(crate) fn pick(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<Pointer>,
     aim: Res<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     items: Query<(Entity, &GlobalTransform, &Lying)>,
     mut heroes: Query<(Entity, &mut Body)>,
 ) {
@@ -207,6 +224,7 @@ pub(crate) struct Taking<'w, 's> {
     throws: MessageWriter<'w, crate::arsenal::Throws>,
     items: Query<'w, 's, (&'static Lying, Option<&'static QuestItem>)>,
     for_quest: MessageWriter<'w, TakenForQuest>,
+    tables: Option<Res<'w, crate::drops::Tables>>,
 }
 
 impl Taking<'_, '_> {
@@ -249,6 +267,18 @@ impl Taking<'_, '_> {
                 rate: (0.45, sfx::Roll::Share(0.1)),
             });
         } else {
+            let size = self
+                .tables
+                .as_deref()
+                .map_or((1, 1), |tables| tables.size(lying.dropped.item));
+            // Without room it stays where it lies (the jump of `0x5592B0` not followed).
+            if !self.pack.take(lying.dropped, size) {
+                info!(
+                    "pickup: no room in the backpack for {} of {size:?}",
+                    lying.dropped.item
+                );
+                return;
+            }
             if lying.dropped.kind == Kind::Gold {
                 self.sounds.write(sfx::Play {
                     sound: sfx::Of::Id(GOLD),
@@ -258,7 +288,6 @@ impl Taking<'_, '_> {
             } else {
                 self.taken.write(Taken(lying.dropped.item));
             }
-            self.pack.take(lying.dropped);
         }
         self.commands.entity(item).despawn();
     }
@@ -475,15 +504,27 @@ mod tests {
     #[test]
     fn gold_goes_into_the_purse_and_the_rest_into_the_pack() {
         let mut pack = Pack::default();
-        pack.take(dropped(Kind::Gold, 5133, 37));
-        pack.take(dropped(Kind::Weapon, 1712, 1));
-        pack.take(dropped(Kind::Gold, 5132, 5));
-        pack.take(dropped(Kind::Other, 6005, 1));
+        assert!(pack.take(dropped(Kind::Gold, 5133, 37), (1, 1)));
+        assert!(pack.take(dropped(Kind::Weapon, 1712, 1), (1, 3)));
+        assert!(pack.take(dropped(Kind::Gold, 5132, 5), (1, 1)));
+        assert!(pack.take(dropped(Kind::Other, 6005, 1), (1, 1)));
         assert_eq!(pack.gold, 42);
-        let items: Vec<u32> = pack.items.iter().map(|d| d.item).collect();
+        let items: Vec<u32> = pack.items.iter().map(|(_, d)| d.item).collect();
         assert_eq!(items, [1712, 6005]);
+        // The sword down the first column, the stone under it (#1268).
+        let places: Vec<(u8, u8)> = pack.grid.items.iter().map(|item| item.at).collect();
+        assert_eq!(places, [(0, 0), (0, 3)]);
+        pack.keep_for_quest(1712);
+        assert_eq!(pack.grid.items.len(), 1);
+        assert_eq!(pack.quest.len(), 1);
         pack.gold = 0x7FFF_FFF0;
-        pack.take(dropped(Kind::Gold, 5135, 1000));
+        assert!(pack.take(dropped(Kind::Gold, 5135, 1000), (1, 1)));
         assert_eq!(pack.gold, 0x7FFF_FFFE);
+        // A full grid takes nothing more.
+        let mut full = Pack::default();
+        for _ in 0..160 {
+            assert!(full.take(dropped(Kind::Other, 5171, 1), (1, 1)));
+        }
+        assert!(!full.take(dropped(Kind::Other, 5171, 1), (1, 1)));
     }
 }

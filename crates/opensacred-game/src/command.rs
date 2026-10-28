@@ -1006,7 +1006,8 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         }
         Command::Zoom { zoom } => {
             let zoom = zoom.clamp(*iso::ZOOM.start(), *iso::ZOOM.end());
-            let mut cameras = world.query_filtered::<&mut Projection, With<Camera3d>>();
+            let mut cameras =
+                world.query_filtered::<&mut Projection, (With<Camera3d>, Without<iso::Apart>)>();
             for mut projection in cameras.iter_mut(world) {
                 if let Projection::Orthographic(ortho) = &mut *projection {
                     ortho.scale = zoom;

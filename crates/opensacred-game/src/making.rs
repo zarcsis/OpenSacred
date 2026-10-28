@@ -260,7 +260,7 @@ fn aim(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
-    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     selected: Res<Selected>,
     arts: Option<Res<HeroArts>>,
     (creatures, corpses): (

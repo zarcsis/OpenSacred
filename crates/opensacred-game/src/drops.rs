@@ -27,13 +27,26 @@ use crate::terrain::{Heights, Level};
 use crate::{ai, crowd, fight, files, iso, models, npcs, sectors};
 
 /// What the drops read: the balance's values, the item types to choose from, the templates that
-/// make the items, and each item type's model and texture, relative to the asset directory.
+/// make the items, each item type's model and texture, relative to the asset directory, and its
+/// size in the backpack's cells and its inventory's transform (#1268).
 #[derive(Resource)]
 pub struct Tables {
     rules: Rules,
     catalogue: Catalogue,
     templates: fight::Templates,
     looks: HashMap<u32, (String, Option<String>)>,
+    sizes: HashMap<u32, (u8, u8)>,
+    poses: HashMap<u32, Pose>,
+}
+
+/// How an item's model lies in the backpack's grid (`0x434270`, its `Weapon.pak` record's floats
+/// `+0x00` to `+0x18`): a scale, three turns in radians and two offsets (docs/re/inventory.md,
+/// "Drawing it").
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Pose {
+    pub scale: f32,
+    pub turns: [f32; 3],
+    pub offsets: [f32; 2],
 }
 
 /// A table of `tables/`.
@@ -69,12 +82,73 @@ impl Tables {
                 Some((item.slot, (model, texture)))
             })
             .collect();
+        // The items' sizes and poses in the backpack by their types' `Weapon.pak` records
+        // (`0x428D60`, `0x434270`).
+        let records: HashMap<u32, &opensacred_data::tables::Weapon> =
+            weapons.iter().map(|weapon| (weapon.id, weapon)).collect();
+        let sizes = items
+            .iter()
+            .map(|item| {
+                let record = records
+                    .get(&item.slot)
+                    .map_or([0; 2], |weapon| [weapon.bytes_1c[0], weapon.bytes_1c[1]]);
+                let category = item.words_14[6].to_le_bytes()[2];
+                (
+                    item.slot,
+                    opensacred_rules::inventory::size(item.slot, record, category),
+                )
+            })
+            .collect();
+        let poses = records
+            .iter()
+            .map(|(&id, weapon)| {
+                let [scale, a, b, c, first] = weapon.floats_00;
+                (
+                    id,
+                    Pose {
+                        scale,
+                        turns: [a, b, c],
+                        offsets: [first, weapon.float_18],
+                    },
+                )
+            })
+            .collect();
         Ok(Self {
             rules: Rules::of(balance),
             catalogue,
             templates,
             looks,
+            sizes,
+            poses,
         })
+    }
+
+    /// The size in the backpack's cells of an item of the type `item` (`0x428D60`), of its
+    /// derived type's root (#596); 1 × 1 for a type of none.
+    pub fn size(&self, item: u32) -> (u8, u8) {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        self.sizes
+            .get(&item)
+            .or_else(|| self.sizes.get(&slot))
+            .copied()
+            .unwrap_or((1, 1))
+    }
+
+    /// The model, the texture and the backpack's pose of an item of the type `item`, of its
+    /// derived type's root.
+    pub fn look(&self, item: u32) -> Option<(&str, Option<&str>, Pose)> {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        let (model, texture) = self.looks.get(&slot)?;
+        let pose = self
+            .poses
+            .get(&item)
+            .or_else(|| self.poses.get(&slot))
+            .copied()
+            .unwrap_or(Pose {
+                scale: 1.0,
+                ..Pose::default()
+            });
+        Some((model.as_str(), texture.as_deref(), pose))
     }
 
     /// The item types to choose from, which the creatures' weapons are chosen anew from too

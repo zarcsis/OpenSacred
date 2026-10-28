@@ -74,6 +74,11 @@ const EQUIPMENT_RIGHT_FROM: f32 = 10.0;
 const EQUIPMENT_TOP: [u32; 4] = [50, 7, 7, 51];
 const EQUIPMENT_BOTTOM: (u32, u32, (u32, u32)) = (60, 61, (15, 5));
 
+/// The windows made or taken away as they show and hide, which the grid's page follows
+/// (`backpack`).
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Opened;
+
 /// Whether the inventory's windows show.
 #[derive(Resource, Default)]
 pub struct Shown(pub bool);
@@ -367,7 +372,10 @@ impl Plugin for InventoryPlugin {
                     .after(crate::console::keys)
                     .run_if(in_state(AppState::InGame)),
             )
-            .add_systems(Update, show.run_if(in_state(AppState::InGame)));
+            .add_systems(
+                Update,
+                show.in_set(Opened).run_if(in_state(AppState::InGame)),
+            );
     }
 }
 
