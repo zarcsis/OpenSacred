@@ -57,6 +57,9 @@ pub enum Remark {
     Pacified { forced: bool },
     /// `COMEINTOTOWN` or `COMEINTOVILLAGE` (9, `0xCC`): a settlement's ground entered, or left.
     Settlement { entering: bool },
+    /// `CANTCARRYMORE` (8, 3): an item picked up that finds no room in the backpack (`0x558080`,
+    /// #1324).
+    CantCarry,
 }
 
 impl Remark {
@@ -68,6 +71,7 @@ impl Remark {
             Self::Region { .. } => 6,
             Self::Pacified { .. } => 1,
             Self::Settlement { .. } => 12,
+            Self::CantCarry => 11,
         }
     }
 
@@ -90,6 +94,8 @@ impl Remark {
                 format!("SOUND_FX_REGIONTOO{stem}_{n:02}_{class}")
             }
             Self::Pacified { .. } => format!("SOUND_FX_REGIONPACIFIED01_{class}"),
+            // The Dwarf's table names a tenth and an eleventh that the sound data lacks, silent.
+            Self::CantCarry => format!("SOUND_FX_CANTCARRYMORE{n:02}_{class}"),
             // Six of the town, then six of the village, by consecutive ids: the Wood Elf, who
             // lacks her fifth of the village, says her fourth for it.
             Self::Settlement { .. } if n <= 6 => format!("SOUND_FX_COMEINTOTOWN_{n:02}_{class}"),
@@ -110,6 +116,7 @@ impl Remark {
             Self::Region { .. } => Some(REGION),
             Self::Pacified { .. } => Some(PACIFIED),
             Self::Settlement { .. } => Some(SETTLEMENT),
+            Self::CantCarry => Some(CANT_CARRY),
             _ => None,
         }
     }
@@ -122,6 +129,8 @@ const WOOD_ELF: u32 = 5;
 const REGION: u8 = 0x30;
 const PACIFIED: u8 = 0x35;
 const SETTLEMENT: u8 = 0xCC;
+/// The timer of the event (8, 3), its sub-command.
+const CANT_CARRY: u8 = 3;
 /// How long the play runs without the player's input before the hero remarks on it, in seconds
 /// (`0x424A60`).
 const IDLE: f64 = 120.0;
@@ -186,6 +195,8 @@ impl Remarks {
             Remark::Settlement { entering } => {
                 calm && self.passes(SETTLEMENT, 300.0, 41.0) && entering
             }
+            // Made at 2.1 s, past 2.0 s (`0x691610(3, 2.1)`), then 0.
+            Remark::CantCarry => self.passes(CANT_CARRY, 2.0, 2.1),
             _ => true,
         }
     }
@@ -517,5 +528,19 @@ mod tests {
         assert!(!remarks.lets(entering, true));
         remarks.timers.insert(SETTLEMENT, 301.0);
         assert!(remarks.lets(entering, true));
+    }
+
+    #[test]
+    fn a_full_backpack_is_remarked_on_once_in_two_seconds() {
+        assert_eq!(
+            Remark::CantCarry.name(1, 10).as_deref(),
+            Some("SOUND_FX_CANTCARRYMORE11_SERA")
+        );
+        let mut remarks = Remarks::default();
+        // Made at 2.1 s, the first passes, fight or not; the next within 2 s does not.
+        assert!(remarks.lets(Remark::CantCarry, false));
+        assert!(!remarks.lets(Remark::CantCarry, true));
+        remarks.timers.insert(CANT_CARRY, 2.05);
+        assert!(remarks.lets(Remark::CantCarry, true));
     }
 }
