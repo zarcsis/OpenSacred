@@ -98,6 +98,13 @@ pub trait Host {
     /// (`0x94E07C` at −1, `0x46BDAD`, `0x46BF20`), until the next begins, though the function that
     /// called it runs on.
     fn ends(&mut self) {}
+    /// A `CallFunktion` of `function`, with its operands after the name: whether the host keeps it
+    /// to run later, as one naming a creature under the scripts' anim mode waits its turn in that
+    /// creature's queue (`0x4813D0`, the step `0x59CE5B`; #1278). By default it does not, and the
+    /// function runs at once.
+    fn defer(&mut self, _function: &str, _operands: &[Operand]) -> bool {
+        false
+    }
 }
 
 /// A call's failure, naming its tree, its file and its function.
@@ -340,6 +347,10 @@ fn dispatch(
                     )));
                 }
             };
+            let rest: Vec<Operand> = args.iter().skip(1).map(operand).collect();
+            if host.borrow_mut().defer(&callee, &rest) {
+                return Ok(Value::Boolean(true));
+            }
             let outcome = run(lua, inner, host, &callee, 0).map_err(mlua::Error::external)?;
             Ok(Value::Boolean(outcome.ran()))
         }
@@ -571,6 +582,16 @@ mod tests {
             self.events.push(format!("+{function}"));
         }
 
+        fn defer(&mut self, function: &str, operands: &[Operand]) -> bool {
+            // A call naming a creature, as the game's host defers one under the anim mode.
+            let deferred =
+                matches!(operands.first(), Some(Operand::Tags(tags)) if tags.contains_key("_01"));
+            if deferred {
+                self.events.push(format!("deferred {function}"));
+            }
+            deferred
+        }
+
         fn ends(&mut self) {
             self.events.push("-".to_owned());
         }
@@ -647,6 +668,24 @@ mod tests {
                 Operand::Number(2514.0),
                 Operand::Number(0.0)
             ]))
+        );
+    }
+
+    #[test]
+    fn a_call_that_the_host_defers_does_not_run() {
+        let (runtime, _) = runtime(&[(
+            "start.luau",
+            "local t = {}\n\
+             t.Outer = function()\n  call(\"Inner\", { _01 = \"novice\" })\n  call(\"Inner\")\n  return true\nend\n\
+             t.Inner = function()\n  inside({})\n  return true\nend\n\
+             return t",
+        )]);
+        let mut host = Recorder::default();
+        assert_eq!(runtime.call("Outer", &mut host).ok(), Some(Outcome::Ran));
+        // The call naming a creature is the host's to run later; the other runs at once.
+        assert_eq!(
+            host.events,
+            ["+Outer", "deferred Inner", "+Inner", "inside", "-", "-"]
         );
     }
 
