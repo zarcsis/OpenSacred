@@ -6,9 +6,9 @@
 //! orthographic, a unit of the models a pixel of the original's screen, into a texture laid over
 //! the cells as the choice of the hero lays its figures (`choice::Layer`).
 //!
-//! What the hero picks up goes into the grid at its first fit by columns (`pickup::Pack`); the
-//! clicks on the page and the highlights of a held item are #1269's, the red cells of an item the
-//! hero cannot use #1270's.
+//! What the hero picks up goes into the grid at its first fit by columns (`pickup::Pack`); while
+//! the cursor holds an item over the grid, the cells under it are tinted by where it would go
+//! (#1269, `held`); the red cells of an item the hero cannot use are #1270's.
 
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
@@ -19,12 +19,13 @@ use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
-use opensacred_rules::inventory::{COLUMNS, ROWS};
+use opensacred_rules::inventory::{COLUMNS, Grid, Highlight, ROWS, held_at};
 
 use crate::bar::{self, UiImages};
 use crate::choice::Layer;
 use crate::drops::{Pose, Tables};
 use crate::game::AppState;
+use crate::hud::Pointer;
 use crate::inventory::Shown;
 use crate::iso::Apart;
 use crate::npcs::Retexture;
@@ -33,13 +34,53 @@ use crate::pickup::Pack;
 /// The grid's top left on the original's screen, its cells' side and image, and an item's cells'
 /// tint (`0x5DC430`).
 const GRID: Vec2 = Vec2::new(0.0, 392.0);
-const CELL: f32 = 32.0;
+pub(crate) const CELL: f32 = 32.0;
 const CELL_IMAGE: u32 = 165;
-const ITEM_TINT: Color = Color::srgba(61.0 / 255.0, 89.0 / 255.0, 171.0 / 255.0, 64.0 / 255.0);
+const ITEM_TINT: Color = tinted(0x3D, 0x59, 0xAB);
+/// The cells' tints under a held item (`0x5DC430`): where it fits, where it would swap, where it
+/// would not go.
+const FITS_TINT: Color = tinted(0x3D, 0x91, 0x40);
+const SWAPS_TINT: Color = tinted(0x91, 0x21, 0x9E);
+const REFUSED_TINT: Color = tinted(0xFF, 0x00, 0x00);
 /// The render layer of the items' models, and the light their camera gives them (**estimate**).
 const ITEMS: usize = 10;
-const AMBIENT: f32 = 600.0;
-const LIGHT: f32 = 3_000.0;
+pub(crate) const AMBIENT: f32 = 600.0;
+pub(crate) const LIGHT: f32 = 3_000.0;
+
+/// A cell's tint of the colour `(r, g, b)` at the alpha `0x40`.
+const fn tinted(r: u8, g: u8, b: u8) -> Color {
+    Color::srgba(
+        r as f32 / 255.0,
+        g as f32 / 255.0,
+        b as f32 / 255.0,
+        64.0 / 255.0,
+    )
+}
+
+/// The pointer on the original's screen from the grid's top left, in its pixels.
+pub(crate) fn on_grid(
+    pointer: &Pointer,
+    ui_scale: &UiScale,
+    windows: &Query<&Window>,
+) -> Option<Vec2> {
+    Some(crate::inventory::screen_point(pointer, ui_scale, windows)? - GRID)
+}
+
+/// The cell, column and row, under the point `at` from the grid's top left, where it lies on the
+/// grid.
+pub(crate) fn cell_under(at: Vec2) -> Option<(u8, u8)> {
+    let size = Vec2::new(f32::from(COLUMNS), f32::from(ROWS)) * CELL;
+    if at.x < 0.0 || at.y < 0.0 || at.x >= size.x || at.y >= size.y {
+        return None;
+    }
+    let (column, row) = held_at((at.x, at.y), (1, 1));
+    Some((u8::try_from(column).ok()?, u8::try_from(row).ok()?))
+}
+
+/// A model whose parts take its render layer and a copy of their materials that reflects no light
+/// (`layer`): the grid's items and the held one (`held`).
+#[derive(Component)]
+pub(crate) struct Matte;
 
 /// The grid's interface, laid out on the original's screen centred as the inventory's windows.
 #[derive(Component)]
@@ -195,7 +236,7 @@ fn show(
 /// (**hypothesis**, matched against its frames of the torch 5633, the arms 1218 and the staff
 /// 2666): the pose is taken through that mirror, so that its turns about x and z run the other
 /// way here.
-fn placement(at: (u8, u8), size: (u8, u8), pose: Pose) -> Transform {
+pub(crate) fn placement(at: (u8, u8), size: (u8, u8), pose: Pose) -> Transform {
     let centre = Vec3::new(
         (f32::from(at.0) + f32::from(size.0) / 2.0) * CELL,
         -(f32::from(at.1) + f32::from(size.1) / 2.0) * CELL,
@@ -216,27 +257,50 @@ fn placement(at: (u8, u8), size: (u8, u8), pose: Pose) -> Transform {
         * Transform::from_matrix(turn * mirror * game * mirror * turn.inverse())
 }
 
-/// Lays the items' models and the cells' tints out as the pack holds them, while the inventory
-/// shows: a model for each item, made as it comes, taken away as it goes.
+/// Tints the cells while the inventory shows: under an item held over the grid by where it
+/// would go, green, purple or red (`0x5DC430`); else blue under an item.
+fn tint(
+    shown: Res<Shown>,
+    pack: Res<Pack>,
+    (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
+    windows: Query<&Window>,
+    mut tints: Query<(&Tint, &mut BackgroundColor)>,
+) {
+    if !shown.0 {
+        return;
+    }
+    let held = pack.held.and_then(|held| {
+        let at = on_grid(&pointer, &ui_scale, &windows)?;
+        cell_under(at)?;
+        let cell = held_at((at.x, at.y), held.size);
+        Some((cell, held.size, pack.grid.highlight(cell, held.size)))
+    });
+    for (tint, mut colour) in &mut tints {
+        let wanted = match held {
+            Some((at, size, highlight)) if Grid::held_over(tint.0, at, size) => match highlight {
+                Highlight::Fits => FITS_TINT,
+                Highlight::Swaps => SWAPS_TINT,
+                Highlight::Refused => REFUSED_TINT,
+            },
+            _ if pack.grid.at(tint.0).is_some() => ITEM_TINT,
+            _ => Color::NONE,
+        };
+        colour.set_if_neq(BackgroundColor(wanted));
+    }
+}
+
+/// Lays the items' models out as the pack holds them, while the inventory shows: a model for each
+/// item, made as it comes, taken away as it goes.
 fn lay_out(
     mut commands: Commands,
     shown: Res<Shown>,
     pack: Res<Pack>,
     (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
     models: Query<(Entity, &Model)>,
-    mut tints: Query<(&Tint, &mut BackgroundColor)>,
     added: Query<(), Added<Tint>>,
 ) {
     if !shown.0 || !(pack.is_changed() || shown.is_changed() || !added.is_empty()) {
         return;
-    }
-    for (tint, mut colour) in &mut tints {
-        let wanted = if pack.grid.at(tint.0).is_some() {
-            ITEM_TINT
-        } else {
-            Color::NONE
-        };
-        colour.set_if_neq(BackgroundColor(wanted));
     }
     let Some(tables) = tables else {
         return;
@@ -265,6 +329,7 @@ fn lay_out(
         let mut entity = commands.spawn((
             Scene,
             Model(placed.key),
+            Matte,
             WorldAssetRoot(scene),
             placement(placed.at, placed.size, pose),
             RenderLayers::layer(ITEMS),
@@ -280,19 +345,19 @@ fn lay_out(
 /// gives it a copy of its material that reflects no light (**estimate**): the original lights an
 /// item by its colour alone, where the ambient light's reflection of 4% would lift its darks to a
 /// grey.
-fn layer(
+pub(crate) fn layer(
     mut commands: Commands,
-    models: Query<Entity, With<Model>>,
+    models: Query<(Entity, &RenderLayers), With<Matte>>,
     children: Query<&Children>,
     layered: Query<(), With<RenderLayers>>,
     mut parts: Query<&mut MeshMaterial3d<StandardMaterial>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut matte: Local<HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>>,
 ) {
-    for model in &models {
+    for (model, layers) in &models {
         for part in children.iter_descendants(model) {
             if !layered.contains(part) {
-                commands.entity(part).insert(RenderLayers::layer(ITEMS));
+                commands.entity(part).insert(layers.clone());
             }
             let Ok(mut material) = parts.get_mut(part) else {
                 continue;
@@ -322,7 +387,7 @@ impl Plugin for BackpackPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (show, lay_out, layer)
+            (show, lay_out, tint, layer)
                 .chain()
                 .after(crate::inventory::Opened)
                 .run_if(in_state(AppState::InGame)),

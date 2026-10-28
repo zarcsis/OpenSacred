@@ -41,6 +41,7 @@ mod fx;
 mod game;
 mod glance;
 mod guns;
+mod held;
 mod help;
 mod hero;
 mod hud;
@@ -321,15 +322,16 @@ fn run(cli: Cli) -> Result<AppExit> {
         game::GamePlugin,
         glance::GlancePlugin,
         guns::GunsPlugin,
+        held::HeldPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
         inventory::InventoryPlugin,
-        journal::JournalPlugin,
     ))
     .add_plugins((
+        journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
@@ -344,9 +346,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         pickup::PickupPlugin,
         puffs::PuffsPlugin,
         remarks::RemarksPlugin,
-        rewards::RewardsPlugin,
     ))
     .add_plugins((
+        rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
@@ -361,9 +363,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
-        steps::StepsPlugin,
     ))
     .add_plugins((
+        steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
         undead::UndeadPlugin,

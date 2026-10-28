@@ -27,8 +27,8 @@ use crate::terrain::{Heights, Level};
 use crate::{ai, crowd, fight, files, iso, models, npcs, sectors};
 
 /// What the drops read: the balance's values, the item types to choose from, the templates that
-/// make the items, each item type's model and texture, relative to the asset directory, and its
-/// size in the backpack's cells and its inventory's transform (#1268).
+/// make the items, each item type's model and texture, relative to the asset directory, its size
+/// in the backpack's cells and its inventory's transform (#1268), and its category (#1269).
 #[derive(Resource)]
 pub struct Tables {
     rules: Rules,
@@ -37,6 +37,7 @@ pub struct Tables {
     looks: HashMap<u32, (String, Option<String>)>,
     sizes: HashMap<u32, (u8, u8)>,
     poses: HashMap<u32, Pose>,
+    categories: HashMap<u32, u8>,
 }
 
 /// How an item's model lies in the backpack's grid (`0x434270`, its `Weapon.pak` record's floats
@@ -99,6 +100,10 @@ impl Tables {
                 )
             })
             .collect();
+        let categories = items
+            .iter()
+            .map(|item| (item.slot, item.words_14[6].to_le_bytes()[2]))
+            .collect();
         let poses = records
             .iter()
             .map(|(&id, weapon)| {
@@ -120,7 +125,19 @@ impl Tables {
             looks,
             sizes,
             poses,
+            categories,
         })
+    }
+
+    /// The category of an item of the type `item` (`items.pak +0x2E`, `0x426220`), of its derived
+    /// type's root; 0 for a type of none.
+    pub fn category(&self, item: u32) -> u8 {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        self.categories
+            .get(&item)
+            .or_else(|| self.categories.get(&slot))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// The size in the backpack's cells of an item of the type `item` (`0x428D60`), of its
@@ -315,37 +332,61 @@ fn throw(
 ) {
     for dropped in made {
         let flight = Flight::thrown(at.x, at.z, dice);
-        let upright = drops::upright(dropped.item);
-        let mut entity = commands.spawn((
-            Transform::from_translation(world(flight.at)).with_scale(Vec3::splat(iso::MODEL_SCALE)),
-            Lying {
-                dropped,
-                resting: false,
-            },
-            Flying {
-                flight,
-                level,
-                upright,
-            },
-            DespawnOnExit(AppState::InGame),
+        lay(commands, (assets, tables), (flight, level), dropped);
+    }
+}
+
+/// Puts `dropped` into the world on its `flight` on `level`, its model, if it was converted, with
+/// its texture.
+fn lay(
+    commands: &mut Commands,
+    (assets, tables): (&AssetServer, &Tables),
+    (flight, level): (Flight, Level),
+    dropped: Dropped,
+) {
+    let upright = drops::upright(dropped.item);
+    let mut entity = commands.spawn((
+        Transform::from_translation(world(flight.at)).with_scale(Vec3::splat(iso::MODEL_SCALE)),
+        Lying {
+            dropped,
+            resting: false,
+        },
+        Flying {
+            flight,
+            level,
+            upright,
+        },
+        DespawnOnExit(AppState::InGame),
+    ));
+    // A derived type shows its root's model and texture, the items table's entry it holds
+    // (#596).
+    let slot = tables.catalogue.slot(dropped.item).unwrap_or(dropped.item);
+    if let Some((model, texture)) = tables.looks.get(&slot) {
+        let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.clone()));
+        // An item, of a `Weapon.pak` record, which the original draws under the surface of a
+        // liquid cell (`0x434070`).
+        entity.insert((
+            WorldAssetRoot(scene),
+            models::Ordered::default(),
+            models::Sinks,
         ));
-        // A derived type shows its root's model and texture, the items table's entry it holds
-        // (#596).
-        let slot = tables.catalogue.slot(dropped.item).unwrap_or(dropped.item);
-        if let Some((model, texture)) = tables.looks.get(&slot) {
-            let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.clone()));
-            // An item, of a `Weapon.pak` record, which the original draws under the surface of
-            // a liquid cell (`0x434070`).
-            entity.insert((
-                WorldAssetRoot(scene),
-                models::Ordered::default(),
-                models::Sinks,
-            ));
-            if let Some(texture) = texture {
-                entity.insert(Retexture::load(assets, texture));
-            }
+        if let Some(texture) = texture {
+            entity.insert(Retexture::load(assets, texture));
         }
     }
+}
+
+/// Drops `dropped` off the cursor at the centre of the cell `cell` on `level`
+/// (`cEngine::dropItem`, `0x611620`): it rises from 60 over the ground on [`Flight::dropped`].
+pub(crate) fn drop_at(
+    commands: &mut Commands,
+    (assets, tables, dice): (&AssetServer, &Tables, &mut Dice),
+    (cell, level): ((i32, i32), Level),
+    dropped: Dropped,
+) {
+    let at = crate::paths::centre(cell);
+    let flight = Flight::dropped(at.x, at.y, &mut dice.0);
+    lay(commands, (assets, tables), (flight, level), dropped);
 }
 
 /// The line of the log of a creature's drops.

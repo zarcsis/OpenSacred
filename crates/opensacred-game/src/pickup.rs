@@ -12,7 +12,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use opensacred_data::heroes::Carried;
 use opensacred_rules::drops::{Dropped, Kind};
-use opensacred_rules::inventory::Grid;
+use opensacred_rules::inventory::{Grid, Put};
 
 use crate::attack::{self, Aim};
 use crate::doors::Opens;
@@ -78,6 +78,16 @@ pub struct Pack {
     /// The main quest's items, which the scripts' collecting keeps (`SetOnCollect`, #1021), the
     /// quests' items that the scripts laid and the hero took, and those they gave it (#1256).
     pub quest: Vec<Dropped>,
+    /// The item on the cursor (`cMouse +0x68`, #1269).
+    pub held: Option<Held>,
+}
+
+/// An item on the cursor: its key in the grid, the item and its size in cells.
+#[derive(Clone, Copy, Debug)]
+pub struct Held {
+    pub key: u32,
+    pub dropped: Dropped,
+    pub size: (u8, u8),
 }
 
 /// An item that the hero took into its pack, its type, which the scripts' collecting counts
@@ -116,6 +126,80 @@ impl Pack {
         self.next += 1;
         self.items.push((key, dropped));
         true
+    }
+
+    /// Takes `dropped` of `size` onto the cursor where it holds nothing, as an item picked up
+    /// while the items' page shows goes (`0x5D9060`, `0x655580`): whether it did.
+    pub fn hold(&mut self, dropped: Dropped, size: (u8, u8)) -> bool {
+        if self.held.is_some() {
+            return false;
+        }
+        self.held = Some(Held {
+            key: self.next,
+            dropped,
+            size,
+        });
+        self.next += 1;
+        true
+    }
+
+    /// Takes the item over the cell `cell` out of the grid onto the cursor where it holds nothing
+    /// (`0x5DA3D0`): whether one went.
+    pub fn lift(&mut self, cell: (u8, u8)) -> bool {
+        if self.held.is_some() {
+            return false;
+        }
+        let Some(placed) = self.grid.at(cell).copied() else {
+            return false;
+        };
+        let Some(index) = self.items.iter().position(|(key, _)| *key == placed.key) else {
+            return false;
+        };
+        self.grid.remove(placed.key);
+        let (key, dropped) = self.items.remove(index);
+        self.held = Some(Held {
+            key,
+            dropped,
+            size: placed.size,
+        });
+        true
+    }
+
+    /// Puts the item on the cursor at the cell `at` of the grid (`0x6C0150`): where it fits, the
+    /// cursor emptied; over exactly one item, that one onto the cursor in its place; else
+    /// nothing.
+    pub fn put_held(&mut self, at: (i32, i32)) -> Put {
+        let Some(held) = self.held else {
+            return Put::Refused;
+        };
+        // The sizes of the items in the grid, before the put takes one out.
+        let sizes: Vec<(u32, (u8, u8))> = self
+            .grid
+            .items
+            .iter()
+            .map(|placed| (placed.key, placed.size))
+            .collect();
+        let put = self.grid.put(held.key, at, held.size);
+        match put {
+            Put::Placed => {
+                self.items.push((held.key, held.dropped));
+                self.held = None;
+            }
+            Put::Swapped(other) => {
+                self.items.push((held.key, held.dropped));
+                self.held = None;
+                if let Some(index) = self.items.iter().position(|(key, _)| *key == other) {
+                    let (key, dropped) = self.items.remove(index);
+                    let size = sizes
+                        .iter()
+                        .find(|(key, _)| *key == other)
+                        .map_or((1, 1), |&(_, size)| size);
+                    self.held = Some(Held { key, dropped, size });
+                }
+            }
+            Put::Refused => {}
+        }
+        put
     }
 
     /// Puts `dropped` of `size` into the grid at the cell `at` where it fits: whether it did.
@@ -237,6 +321,7 @@ pub(crate) struct Taking<'w, 's> {
     items: Query<'w, 's, (&'static Lying, Option<&'static QuestItem>)>,
     for_quest: MessageWriter<'w, TakenForQuest>,
     tables: Option<Res<'w, crate::drops::Tables>>,
+    shown: Option<Res<'w, crate::inventory::Shown>>,
 }
 
 impl Taking<'_, '_> {
@@ -283,8 +368,12 @@ impl Taking<'_, '_> {
                 .tables
                 .as_deref()
                 .map_or((1, 1), |tables| tables.size(lying.dropped.item));
+            // While the items' page shows, onto the empty cursor (#1269).
+            let onto_the_cursor = lying.dropped.kind != Kind::Gold
+                && self.shown.as_deref().is_some_and(|shown| shown.0)
+                && self.pack.hold(lying.dropped, size);
             // Without room it stays where it lies (the jump of `0x5592B0` not followed).
-            if !self.pack.take(lying.dropped, size) {
+            if !onto_the_cursor && !self.pack.take(lying.dropped, size) {
                 info!(
                     "pickup: no room in the backpack for {} of {size:?}",
                     lying.dropped.item
@@ -570,6 +659,36 @@ mod tests {
             assert!(full.take(dropped(Kind::Other, 5171, 1), (1, 1)));
         }
         assert!(!full.take(dropped(Kind::Other, 5171, 1), (1, 1)));
+    }
+
+    #[test]
+    fn an_item_goes_onto_the_cursor_and_back_into_the_grid_or_in_place_of_another() {
+        let mut pack = Pack::default();
+        assert!(pack.put(dropped(Kind::Potion, 5171, 1), (0, 0), (1, 1)));
+        assert!(pack.put(dropped(Kind::Weapon, 1712, 1), (2, 0), (1, 3)));
+        // Nothing under the cell: nothing taken.
+        assert!(!pack.lift((5, 5)));
+        assert!(pack.lift((2, 1)));
+        assert_eq!(
+            pack.held.map(|held| (held.dropped.item, held.size)),
+            Some((1712, (1, 3)))
+        );
+        assert_eq!(pack.items.len(), 1);
+        // A second item does not go onto the full cursor.
+        assert!(!pack.lift((0, 0)));
+        assert!(!pack.hold(dropped(Kind::Other, 6005, 1), (1, 1)));
+        // Out of the grid: refused; over the potion: swapped.
+        assert_eq!(pack.put_held((19, 6)), Put::Refused);
+        assert!(matches!(pack.put_held((0, 0)), Put::Swapped(_)));
+        assert_eq!(
+            pack.held.map(|held| (held.dropped.item, held.size)),
+            Some((5171, (1, 1)))
+        );
+        assert_eq!(pack.grid.at((0, 2)).map(|placed| placed.size), Some((1, 3)));
+        assert_eq!(pack.put_held((5, 5)), Put::Placed);
+        assert!(pack.held.is_none());
+        assert_eq!(pack.items.len(), 2);
+        assert!(pack.hold(dropped(Kind::Other, 6005, 1), (1, 1)));
     }
 
     #[test]

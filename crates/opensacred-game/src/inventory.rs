@@ -199,7 +199,11 @@ fn toggle(
 }
 
 /// The pointer on the original's screen, centred along the window's width as the bar is.
-fn screen_point(pointer: &Pointer, ui_scale: &UiScale, windows: &Query<&Window>) -> Option<Vec2> {
+pub(crate) fn screen_point(
+    pointer: &Pointer,
+    ui_scale: &UiScale,
+    windows: &Query<&Window>,
+) -> Option<Vec2> {
     let at = pointer.0?;
     let window = windows.single().ok()?;
     let scale = ui_scale.0.max(0.01);

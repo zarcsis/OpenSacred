@@ -1,11 +1,15 @@
 //! The hero's backpack as the original's grid (#1268; docs/re/inventory.md, §3): every hero's of
 //! 20 columns by 8 rows, an item's size in cells (`0x428D60`), the fit of an item at a cell
 //! (`0x5DACB0`), the search for the first fit column by column (`0x5DABA0`'s mode 0), the place
-//! and the removal (`0x5D9F00`, `0x5DA630`), and the swap's test (`0x5DB0D0`).
+//! and the removal (`0x5D9F00`, `0x5DA630`), and the swap's test (`0x5DB0D0`); the cursor's item
+//! (#1269; §3 "The clicks on the items' page" and §6): its offset from the cursor, the cell it is
+//! held over, the cells' highlight under it and its put.
 
 /// Every hero's grid: 20 columns by 8 rows (`0x5DF570`, `0x5D7A50`).
 pub const COLUMNS: u8 = 20;
 pub const ROWS: u8 = 8;
+/// A cell's side, in pixels of the original's screen.
+pub const CELL: f32 = 32.0;
 
 /// The Seraphim's hair of her template, which the grid takes as 2 × 2 whatever its record.
 const HAIR: u32 = 4007;
@@ -69,6 +73,105 @@ pub enum Under {
     Free,
     One(u32),
     Refused,
+}
+
+/// The offset of a held item's top left from the cursor, in pixels, along each side of `size`
+/// (`0x655810`, `0x655870`): 8 · n for an even number of cells, 16 · n − 16 for an odd one.
+pub fn held_offset(size: (u8, u8)) -> (f32, f32) {
+    let along = |cells: u8| {
+        if cells.is_multiple_of(2) {
+            8.0 * f32::from(cells)
+        } else {
+            16.0 * f32::from(cells) - 16.0
+        }
+    };
+    (along(size.0), along(size.1))
+}
+
+/// The cell, column and row, of the top left of an item of `size` held with the cursor at `point`,
+/// in pixels from the grid's top left: the cell under the cursor less the item's offset, which
+/// may lie outside the grid.
+pub fn held_at(point: (f32, f32), size: (u8, u8)) -> (i32, i32) {
+    let (dx, dy) = held_offset(size);
+    let cell = |at: f32| {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a whole number of cells held within a thousand"
+        )]
+        let cell = (at / CELL).floor().clamp(-1000.0, 1000.0) as i32;
+        cell
+    };
+    (cell(point.0 - dx), cell(point.1 - dy))
+}
+
+/// How the cells under a held item are tinted (`0x5DC430`): green where it fits, purple where it
+/// would swap with the one item under it, red where it would not go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Highlight {
+    Fits,
+    Swaps,
+    Refused,
+}
+
+/// What a held item's put did (`0x6C0150`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Put {
+    /// It went into the grid; the cursor is empty.
+    Placed,
+    /// It went into the grid in place of the item `key`, which goes onto the cursor.
+    Swapped(u32),
+    /// Nothing moved.
+    Refused,
+}
+
+/// The eight cells about a cell, by the direction toward them (`0x95DCB0`): from −x, turning
+/// toward −y.
+const AROUND: [(i32, i32); 8] = [
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+];
+
+/// The cell where an item dropped off the cursor by a click toward the cell `toward` lands, the
+/// hero standing on the cell `hero` (`cEngine::dropItem`, `0x611620`): of the eight about the
+/// hero's, the one in the direction of the click, `(atan2(dy, dx) + π + π/8) · 4/π` cut to a
+/// whole eighth, else the next to each side in turn (one further, one back, two further, …), the
+/// first of eight tries that `walkable` takes; else the hero's own.
+pub fn drop_cell(
+    hero: (i32, i32),
+    toward: (i32, i32),
+    walkable: impl Fn((i32, i32)) -> bool,
+) -> (i32, i32) {
+    let (dx, dy) = (
+        f64::from(toward.0.saturating_sub(hero.0)),
+        f64::from(toward.1.saturating_sub(hero.1)),
+    );
+    let eighth = (dy.atan2(dx) + std::f64::consts::PI + std::f64::consts::FRAC_PI_8) * 4.0
+        / std::f64::consts::PI;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "an angle's eighth from 0 to 8, cut as the original's `ftol` cuts it"
+    )]
+    let mut direction = eighth.clamp(0.0, 8.0) as usize;
+    for turn in 1..=8usize {
+        let (ax, ay) = AROUND[direction % 8];
+        let cell = (hero.0 + ax, hero.1 + ay);
+        if walkable(cell) {
+            return cell;
+        }
+        direction = if turn % 2 == 1 {
+            direction % 8 + turn
+        } else {
+            (direction % 8 + 8 - turn % 8) % 8
+        };
+    }
+    hero
 }
 
 /// A grid of `width` × `height` cells and the items in it.
@@ -143,6 +246,59 @@ impl Grid {
         self.items.iter().find(|item| item.covers(cell))
     }
 
+    /// The cell `at` of a held item, where it lies within the grid's range of cells.
+    fn cell(at: (i32, i32)) -> Option<(u8, u8)> {
+        Some((u8::try_from(at.0).ok()?, u8::try_from(at.1).ok()?))
+    }
+
+    /// The highlight under an item of `size` held over the cell `at`, which may lie outside the
+    /// grid.
+    pub fn highlight(&self, at: (i32, i32), size: (u8, u8)) -> Highlight {
+        match Self::cell(at).map(|at| self.under(at, size)) {
+            Some(Under::Free) => Highlight::Fits,
+            Some(Under::One(_)) => Highlight::Swaps,
+            Some(Under::Refused) | None => Highlight::Refused,
+        }
+    }
+
+    /// Whether the cell `cell` lies under an item of `size` held over `at`.
+    pub fn held_over(cell: (u8, u8), at: (i32, i32), size: (u8, u8)) -> bool {
+        let (column, row) = (i32::from(cell.0), i32::from(cell.1));
+        column >= at.0
+            && column < at.0 + i32::from(size.0)
+            && row >= at.1
+            && row < at.1 + i32::from(size.1)
+    }
+
+    /// Puts the held item `key` of `size` at the cell `at` (`0x6C0150`): where it fits, there;
+    /// over exactly one item, there in its place, the other taken out of the grid onto the cursor;
+    /// else nothing.
+    pub fn put(&mut self, key: u32, at: (i32, i32), size: (u8, u8)) -> Put {
+        let Some(cell) = Self::cell(at) else {
+            return Put::Refused;
+        };
+        match self.under(cell, size) {
+            Under::Free => {
+                self.items.push(Placed {
+                    key,
+                    at: cell,
+                    size,
+                });
+                Put::Placed
+            }
+            Under::One(other) => {
+                self.remove(other);
+                self.items.push(Placed {
+                    key,
+                    at: cell,
+                    size,
+                });
+                Put::Swapped(other)
+            }
+            Under::Refused => Put::Refused,
+        }
+    }
+
     /// What lies under an item of `size` held at `at` (`0x5DB0D0`): refused where it runs out of
     /// the grid.
     pub fn under(&self, at: (u8, u8), size: (u8, u8)) -> Under {
@@ -191,6 +347,55 @@ mod tests {
         assert_eq!(full.take(10, (1, 1)), None);
         assert!(!full.fits((1, 1), (1, 1)));
         assert!(!full.fits((1, 0), (2, 1)));
+    }
+
+    #[test]
+    fn a_dropped_item_lands_beside_the_hero_toward_the_click() {
+        let anywhere = |_| true;
+        assert_eq!(drop_cell((10, 10), (20, 10), anywhere), (11, 10));
+        assert_eq!(drop_cell((10, 10), (0, 10), anywhere), (9, 10));
+        assert_eq!(drop_cell((10, 10), (10, 20), anywhere), (10, 11));
+        assert_eq!(drop_cell((10, 10), (20, 21), anywhere), (11, 11));
+        // A click on the hero's own cell: the angle 0, toward +x.
+        assert_eq!(drop_cell((10, 10), (10, 10), anywhere), (11, 10));
+        // Toward +x blocked: one further (+x +y), then one back (+x −y).
+        assert_eq!(drop_cell((10, 10), (20, 10), |c| c != (11, 10)), (11, 11));
+        assert_eq!(
+            drop_cell((10, 10), (20, 10), |c| c != (11, 10) && c != (11, 11)),
+            (11, 9)
+        );
+        // Nowhere to go: the hero's own cell.
+        assert_eq!(drop_cell((10, 10), (20, 10), |_| false), (10, 10));
+    }
+
+    #[test]
+    fn a_held_item_lies_off_the_cursor_by_its_size() {
+        assert_eq!(held_offset((1, 1)), (0.0, 0.0));
+        assert_eq!(held_offset((2, 3)), (16.0, 32.0));
+        assert_eq!(held_offset((1, 4)), (0.0, 32.0));
+        // A potion under the cursor's cell; a 2 × 2 item's top left 16 pixels up and left.
+        assert_eq!(held_at((40.0, 70.0), (1, 1)), (1, 2));
+        assert_eq!(held_at((40.0, 70.0), (2, 2)), (0, 1));
+        assert_eq!(held_at((10.0, 10.0), (2, 2)), (-1, -1));
+    }
+
+    #[test]
+    fn a_put_places_swaps_or_refuses_and_the_cells_show_which() {
+        let mut grid = Grid::default();
+        grid.place(1, (0, 0), (1, 1));
+        grid.place(2, (0, 1), (1, 1));
+        assert_eq!(grid.highlight((5, 5), (2, 2)), Highlight::Fits);
+        assert_eq!(grid.highlight((0, 1), (1, 2)), Highlight::Swaps);
+        assert_eq!(grid.highlight((0, 0), (1, 2)), Highlight::Refused);
+        assert_eq!(grid.highlight((-1, 0), (1, 1)), Highlight::Refused);
+        assert_eq!(grid.highlight((19, 7), (2, 1)), Highlight::Refused);
+        assert!(Grid::held_over((1, 2), (0, 1), (2, 2)));
+        assert!(!Grid::held_over((2, 2), (0, 1), (2, 2)));
+        assert_eq!(grid.put(3, (0, 0), (1, 2)), Put::Refused);
+        assert_eq!(grid.put(3, (0, 1), (1, 2)), Put::Swapped(2));
+        assert_eq!(grid.at((0, 2)).map(|item| item.key), Some(3));
+        assert_eq!(grid.put(2, (4, 4), (1, 1)), Put::Placed);
+        assert_eq!(grid.put(4, (-1, 4), (1, 1)), Put::Refused);
     }
 
     #[test]

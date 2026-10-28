@@ -256,7 +256,7 @@ pub fn may_make(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
-fn aim(
+pub(crate) fn aim(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
