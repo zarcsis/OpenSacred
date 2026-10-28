@@ -1059,6 +1059,42 @@ fn a_rune_comes_by_the_heros_level_its_runes_and_its_arts() {
 }
 
 #[test]
+fn a_side_quests_rune_comes_by_the_heros_arts_and_runes_over_its_level() {
+    let rules = Rules::default();
+    let hero = |creature, level, runes, arts| Hero {
+        creature,
+        level,
+        runes,
+        arts,
+        ..Hero::default()
+    };
+    // The Seraphim of level 1 with one art at level 1: x = 1/1.85, x⁵·1000 = 46, the count set
+    // to 1; a roll of 0 to 46 always below 50.
+    let mut given = 0;
+    assert_eq!(rules.quest_rune_range(&hero(1, 1, 0, 1), &mut given), 46);
+    assert_eq!(given, 1);
+    assert!(rules.rune_given(46, &mut Rng::of(50, 39, 0)));
+    // Her arts and runes behind the count given: they count as its two thirds and its third,
+    // `(3/2 + 6)/4 = 1.75`, x = 1.75/1.85, x⁵·1000 = 757.
+    let mut given = 9;
+    assert_eq!(rules.quest_rune_range(&hero(1, 4, 0, 1), &mut given), 757);
+    assert_eq!(given, 9);
+    // The Dwarf and the Daemon take 1 for their runes per level; the range is held at 32,767.
+    let mut given = 0;
+    assert_eq!(
+        rules.quest_rune_range(&hero(8, 1, 0, 30), &mut given),
+        32_767
+    );
+    // A range of 0 rolls 0, below 50.
+    assert!(rules.rune_given(0, &mut Rng::of(50, 39, 0)));
+    let mut rng = Rng::of(50, 39, 0);
+    let given = (0..1000)
+        .filter(|_| rules.rune_given(32_767, &mut rng))
+        .count();
+    assert!(given < 10, "{given}");
+}
+
+#[test]
 fn a_rune_is_one_of_the_runes_and_a_creature_makes_one_until_another_does() {
     let rules = Rules::default();
     let templates = Templates::default();

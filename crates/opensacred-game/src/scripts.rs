@@ -218,6 +218,9 @@ pub struct Effects {
     pub remarks: Vec<Remark>,
     /// The items it gave the hero straight among the main quest's items (#1256).
     pub given: Vec<u32>,
+    /// The side quests that its `ExitQuest`s won, each of which may give the hero a rune of its
+    /// class (`0x46D362`, `rewards`; #1386).
+    pub won: Vec<u32>,
 }
 
 impl Effects {
@@ -236,6 +239,7 @@ impl Effects {
         self.sounds.extend(other.sounds);
         self.remarks.extend(other.remarks);
         self.given.extend(other.given);
+        self.won.extend(other.won);
     }
 }
 
@@ -580,6 +584,7 @@ impl Live {
             sounds: recorder.sounds,
             remarks: recorder.remarks,
             given: recorder.given,
+            won: recorder.won,
         };
         (effects, outcome)
     }
@@ -593,6 +598,9 @@ impl Live {
             effects.sounds.push(ScriptSound::Fanfare);
         }
         while let Some(section) = self.state.quests.step(transition, quest, &ran) {
+            if section == quests::Section::OnExit && ran.is_empty() && quest >= FANFARES_FROM {
+                effects.won.push(quest);
+            }
             let function = section.function(quest);
             let through = self.runtime.entries(&function) > 0 && {
                 let (done, outcome) = self.call(&function, 0);
@@ -750,6 +758,8 @@ struct Recorder<'a> {
     /// The items that its `CreateObj`s gave the hero straight among the main quest's items
     /// ([`Recorder::given`], #1256).
     given: Vec<u32>,
+    /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
+    won: Vec<u32>,
     /// Whether the scripts' anim mode is on in the run, from a `SetAnimMode` or a
     /// `SetCinemaMode` to a `SetPlayMode` (the mode word's bit 1, `0xAB73DC`; #1278).
     anim: bool,
@@ -799,6 +809,7 @@ impl<'a> Recorder<'a> {
             running: Vec::new(),
             names: Vec::new(),
             given: Vec::new(),
+            won: Vec::new(),
             anim: false,
         }
     }
@@ -1000,6 +1011,13 @@ impl Host for Recorder<'_> {
                     self.sounds.push(ScriptSound::Fanfare);
                 }
                 let section = self.state.quests.step(transition, quest, ran);
+                // A side quest won, after its `OnExit` (`0x46D362`).
+                if section == Some(quests::Section::OnExit)
+                    && ran.is_empty()
+                    && quest >= FANFARES_FROM
+                {
+                    self.won.push(quest);
+                }
                 // A side quest entered in a talk, before its `OnEnter` (`0x46C58D`).
                 if section == Some(quests::Section::OnEnter)
                     && self.talking
@@ -1863,10 +1881,14 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         popups,
         sounds,
         remarks,
+        given,
+        won,
         ..
     } = effects;
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
+    world.write_message_batch(given.into_iter().map(crate::pickup::Given));
+    world.write_message_batch(won.into_iter().map(crate::rewards::QuestWon));
     world.resource_mut::<Infos>().0.extend(infos);
     world.resource_mut::<Popups>().0.extend(popups);
     world.resource_mut::<ObjStates>().0.extend(states);
@@ -1939,6 +1961,7 @@ struct Queues<'w> {
     sounds: MessageWriter<'w, ScriptSound>,
     remarks: MessageWriter<'w, Remark>,
     given: MessageWriter<'w, crate::pickup::Given>,
+    won: MessageWriter<'w, crate::rewards::QuestWon>,
 }
 
 impl Queues<'_> {
@@ -1956,6 +1979,8 @@ impl Queues<'_> {
         self.remarks.write_batch(effects.remarks);
         self.given
             .write_batch(effects.given.into_iter().map(crate::pickup::Given));
+        self.won
+            .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
     }
 }
 
@@ -2193,6 +2218,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
+            .add_message::<crate::rewards::QuestWon>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -2626,6 +2652,7 @@ mod tests {
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
+            .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, deaths);
         let dying = |app: &mut App, function: &str| {
             let mut functions = quests::DeathFunctions::default();
@@ -2682,6 +2709,7 @@ mod tests {
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
+            .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, run_due);
         app.update();
         let world = app.world();
@@ -3114,8 +3142,9 @@ mod tests {
         live.transition(Transition::Trigger, 150);
         // The fanfare sounds at each exit of the side quest, finished or not (`0x46CC4D`); the
         // control's number by its low 16 bits.
+        let effects = live.run("scene150", 0);
         assert_eq!(
-            live.run("scene150", 0).sounds,
+            effects.sounds,
             [
                 ScriptSound::Control(true),
                 ScriptSound::Music("ATMO_DUNGEON".to_owned()),
@@ -3125,6 +3154,8 @@ mod tests {
                 ScriptSound::Fanfare,
             ]
         );
+        // It is won once, by the exit that finishes it, which may give a rune (#1386).
+        assert_eq!(effects.won, [150]);
     }
 
     #[test]
