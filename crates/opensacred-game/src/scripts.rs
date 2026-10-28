@@ -1130,11 +1130,15 @@ impl Host for Recorder<'_> {
                     .iter()
                     .find_map(|key| tags.spot(key, positions));
                 match spot {
+                    // Under the anim mode it waits its turn in the hero's queue, which `npcs`
+                    // keeps (seen: `annehmen2003`'s after its walk, #1280).
                     Some((x, y, layer)) if hero => {
-                        self.teleports.push(Teleport {
-                            cell: (x, y),
-                            layer: u8::try_from(layer).unwrap_or(0),
-                        });
+                        if !self.anim {
+                            self.teleports.push(Teleport {
+                                cell: (x, y),
+                                layer: u8::try_from(layer).unwrap_or(0),
+                            });
+                        }
                         Handled::Done
                     }
                     _ => Handled::Unknown,
