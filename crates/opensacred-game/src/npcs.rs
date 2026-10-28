@@ -7335,6 +7335,7 @@ fn strike(
                 hits.write(fight::Hit {
                     fixed: None,
                     sure: false,
+                    poison: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.share,

@@ -101,6 +101,7 @@ fn strike(
                 art: None,
                 fixed: Some(damages),
                 sure: true,
+                poison: false,
             });
         }
     }

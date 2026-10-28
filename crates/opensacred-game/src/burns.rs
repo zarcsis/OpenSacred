@@ -53,6 +53,7 @@ fn burn(
                     art: None,
                     fixed: Some(burn.damages()),
                     sure: true,
+                    poison: false,
                 });
             }
             !burn.over()

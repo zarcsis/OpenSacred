@@ -469,6 +469,7 @@ fn fly(
         hits.write(fight::Hit {
             fixed: None,
             sure: false,
+            poison: false,
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,
