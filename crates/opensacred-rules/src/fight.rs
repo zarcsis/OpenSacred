@@ -395,8 +395,16 @@ impl Bands {
 /// at least 0.04, and 1 for none; above bronze's `LevelKap` the hero's level `H` takes it down by
 /// `(LevelKap/H)²`, from level 100 the decay of a high hero (`0x57E050`), and above the bronze
 /// levels the fade of a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of
-/// the killer, bosses or champions yet (docs/decisions/2026-10-20-levels.md).
-pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
+/// the killer ([`experience_with`]), bosses or champions (docs/decisions/2026-10-20-levels.md).
+pub fn experience_of(worth: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
+    experience_with(worth, level, hero, rules, 0.0)
+}
+
+/// [`experience_of`] with the killer's `bonus`, the shares of the kill's base experience that it
+/// earns more, added to the base after `LevelKap`'s cut (`0x57D860` at `0x57DD83`): the values of
+/// its blue potions' effects (the effect 33 of the whole value 5, at `0x57DC62`;
+/// `potions::mentored`). The items' bonus (the effect 843) and the others are not followed.
+pub fn experience_with([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules, bonus: f32) -> u32 {
     let [share, anteil, voll, upper] = rules.experience;
     let level = rules.on_bronze(level);
     let (e, h) = (to_f32(level), to_f32(hero));
@@ -405,6 +413,7 @@ pub fn experience_of([a, b]: [u16; 2], level: u32, hero: u32, rules: &Rules) -> 
     if cap > 0.0 && h > cap {
         x *= cap * cap / (h * h);
     }
+    x = stored(f64::from(x) * f64::from(bonus) + f64::from(x));
     x *= weighing(level, hero, (anteil, voll, upper));
     if x <= 0.0 {
         x = 1.0;
@@ -1149,7 +1158,7 @@ pub struct Templates {
 
 /// The constant 0.01 of the item maker and of the skills (`0x890CB0`), a single-precision float a
 /// little below it.
-const HUNDREDTH: f64 = 0.009_999_999_776_482_582;
+pub(crate) const HUNDREDTH: f64 = 0.009_999_999_776_482_582;
 
 /// A value stored as a single-precision float.
 fn single(value: f64) -> f64 {
@@ -1161,7 +1170,7 @@ fn single(value: f64) -> f64 {
     clippy::cast_possible_truncation,
     reason = "the original stores the value as a float"
 )]
-fn stored(value: f64) -> f32 {
+pub(crate) fn stored(value: f64) -> f32 {
     value as f32
 }
 
@@ -4059,6 +4068,11 @@ mod tests {
             ..Rules::default()
         };
         assert_eq!(experience_of(worth, 1, 1, &more), 50);
+        // A blue potion's 0.5 adds half the base before the weighing: 25 · 1.5, then 35 · 1.5
+        // times 1.1/1.2.
+        assert_eq!(experience_with(worth, 1, 1, &rules, 0.5), 37);
+        assert_eq!(experience_with(worth, 3, 1, &rules, 0.5), 48);
+        assert_eq!(experience_with(worth, 3, 1, &rules, 0.0), 32);
     }
 
     #[test]

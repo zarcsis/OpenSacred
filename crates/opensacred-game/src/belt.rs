@@ -6,21 +6,22 @@
 //! With Shift, Space drinks the yellow potion of the kind 5; the right button on a slot of the
 //! kinds 1, 2 or 4 gives its potion to the hero's follower of the lowest most health among those
 //! below 99 % of their health (`0x612FA0`, #1313).
-//! A drink (`0x54AA80`, `cPotion3D`'s `0x5CAA60`) plays one of the three drinking sounds; a
-//! healing potion, where the hero's health is below its most, gives back its share of the most
-//! health (`opensacred_rules::potions`) and is used up, with the sound of an item used up
-//! (`0x5D8000`).
+//! A drink (`0x54AA80`, `cPotion3D`'s `0x5CAA60`) plays one of the three drinking sounds, and by
+//! its kind (`opensacred_rules::potions::Drink`, #1353): a healing potion, where the drinker's
+//! health is below its most, gives back its share of the most health; a purple or a blue one gives
+//! the drinker its effect 33, one alone of its whole value; a green one cures its effects 30; a
+//! yellow one waits for the combos (#1090). Each is then used up, with the sound of an item used
+//! up (`0x5D8000`); a healing potion at full health is not.
 //!
-//! Not followed: the other kinds' effects (the creature events 6, 7, 8 and 10), whose drink plays
-//! its sound and uses nothing; the hero's horse healed with it; the slots' sparkles and tooltips
-//! (#1272).
+//! Not followed: the hero's horse healed with it; the slots' sparkles and tooltips (#1272).
 
 use bevy::prelude::*;
-use opensacred_rules::potions::{self, choose, healed, missing};
+use opensacred_rules::potions::{self, Drink, choose, healed, missing};
 use opensacred_rules::spawning::Rng;
 
 use crate::backpack::{cell_under, on_grid};
 use crate::bar::{self, EMPTY_FLASK, UiImages};
+use crate::effects::Effects;
 use crate::fight::Health;
 use crate::followers::Follower;
 use crate::frame::Unpaused;
@@ -56,21 +57,21 @@ impl Flask {
     }
 }
 
-/// What the healing potions give back on the game's difficulty.
+/// What the potions do on the game's difficulty.
 #[derive(Resource, Debug, Default)]
-struct Healing(potions::Healing);
+struct Potions(potions::Potions);
 
-/// Takes the healing potions' shares of the balance on the game's difficulty.
+/// Takes the potions' values of the balance on the game's difficulty.
 fn begin(mut commands: Commands, data: Option<Res<Data>>, difficulty: Option<Res<Difficulty>>) {
     let balance = data.as_ref().and_then(|data| data.0.tables.balance().ok());
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
-    commands.insert_resource(Healing(potions::Healing::at(balance, difficulty)));
+    commands.insert_resource(Potions(potions::Potions::at(balance, difficulty)));
 }
 
 /// Lights each flask while the grid holds a potion of its kind.
 fn light(
     pack: Res<Pack>,
-    healing: Option<Res<Healing>>,
+    healing: Option<Res<Potions>>,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
     mut flasks: Query<(&mut Flask, &mut ImageNode)>,
 ) {
@@ -100,18 +101,19 @@ const HURT: f64 = 0.99;
 /// button on a potion of the grid: the hero drinks the potion (`0x612FA0`, `0x54AA80`). The right
 /// button on a slot of the kinds 1, 2 or 4: its potion, chosen as for the hero, goes to the
 /// hero's follower of the lowest most health among those below 99 % of their health, who drinks
-/// it (#1313).
+/// it (#1313). What the drink does goes by the potion's kind (#1353).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system's parameters are its inputs"
 )]
 fn drink(
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     shown: Res<Shown>,
     mut pack: ResMut<Pack>,
-    healing: Option<Res<Healing>>,
+    healing: Option<Res<Potions>>,
     mut heroes: Query<(Entity, &mut Health), With<Body>>,
     mut followers: Query<(Entity, &Follower, &mut Health), Without<Body>>,
     mut sounds: MessageWriter<sfx::Play>,
@@ -179,18 +181,54 @@ fn drink(
     };
     play(&mut sounds, DRINKS.get(roll).copied().unwrap_or(DRINKS[0]));
     let who = follower.map_or_else(|| "the hero".to_owned(), |f| format!("{f}"));
-    match healing.heals(item) {
-        Some(share) if drinker.current < drinker.most => {
+    let drinking = follower.unwrap_or(hero);
+    match healing.drink(item) {
+        Some(Drink::Heals(share)) if drinker.current < drinker.most => {
             drinker.current = healed(drinker.current, drinker.most, share);
-            pack.use_up(key);
-            play(&mut sounds, USED_UP);
             info!(
                 "belt: {who} drinks {item}: health {} of {}",
                 drinker.current, drinker.most
             );
         }
-        _ => debug!("belt: {who} drinks {item} to no effect"),
+        Some(Drink::Lasts(effect, seconds)) => {
+            affect(&mut commands, drinking, move |effects| {
+                effects.add_alone(effect, seconds);
+            });
+            info!(
+                "belt: {who} drinks {item}: the effect {} of the whole value {} for {seconds} s",
+                effect.id, effect.whole
+            );
+        }
+        Some(Drink::Cures(per_cent)) => {
+            affect(&mut commands, drinking, move |effects| {
+                effects.cure(per_cent)
+            });
+            info!("belt: {who} drinks {item}: the poison cured by {per_cent} %");
+        }
+        // The combos' regeneration, which waits for the combos (#1090).
+        Some(Drink::Refills(per_cent)) => {
+            info!("belt: {who} drinks {item}: the combos refilled by {per_cent} %, none held");
+        }
+        _ => {
+            debug!("belt: {who} drinks {item} to no effect");
+            return;
+        }
     }
+    pack.use_up(key);
+    play(&mut sounds, USED_UP);
+}
+
+/// Changes the effects of `drinker` by `change`, its list made where it has none.
+fn affect(
+    commands: &mut Commands,
+    drinker: Entity,
+    change: impl FnOnce(&mut Effects) + Send + Sync + 'static,
+) {
+    commands
+        .entity(drinker)
+        .entry::<Effects>()
+        .or_default()
+        .and_modify(move |mut effects| change(&mut effects));
 }
 
 /// The follower given a belt's potion, of `followers` by their healths and most healths

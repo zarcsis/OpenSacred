@@ -7483,9 +7483,17 @@ fn earn(
             continue;
         };
         let from = health.level;
-        let earned = kill
-            .rank
-            .earned(fight::experience_of(kill.worth.0, kill.level, from, rules));
+        // A blue potion's effect adds to it (#1353).
+        let bonus = effects.map_or(0.0, |effects| {
+            opensacred_rules::potions::mentored(&effects.list())
+        });
+        let earned = kill.rank.earned(fight::experience_with(
+            kill.worth.0,
+            kill.level,
+            from,
+            rules,
+            bonus,
+        ));
         let mut sum = points
             .as_deref()
             .map_or_else(|| fight::level_start(from), |points| points.0);

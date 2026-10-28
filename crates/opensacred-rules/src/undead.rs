@@ -99,10 +99,16 @@ pub fn burns_away(kind: u32) -> bool {
 
 /// The chance in per cent that an undead rises from a strike's death (`0x52E590`): 90, or 45 for
 /// a hit of another kind than a plain strike (the strike record's `+0x14`; **hypothesis**: an
-/// art's, a shot's or a throw's); the halvings by the record's second damage and `+0x2B7`, the
-/// killer's effect 33 and its set pieces are not followed (docs/re/fight.md).
-pub fn chance(plain: bool) -> u32 {
-    if plain { 90 } else { 45 }
+/// art's, a shot's or a throw's); 0 where the killer is `banished`, under a purple potion's effect
+/// (the effect 33 of the whole value 4, its `+0xB0` bit `0x80000`, at `0x532C48`;
+/// `potions::banishes`). The halvings by the record's second damage and `+0x2B7` and the
+/// killer's set pieces are not followed (docs/re/fight.md).
+pub fn chance(plain: bool, banished: bool) -> u32 {
+    match (banished, plain) {
+        (true, _) => 0,
+        (false, true) => 90,
+        (false, false) => 45,
+    }
 }
 
 /// Whether the roll `roll` of `R(0, 100)` (`0..=100`) makes an undead rise at the chance `chance`.
@@ -142,8 +148,11 @@ mod tests {
     fn the_undead_rise_once_at_their_chance() {
         assert!(rises(48) && rises(143) && !rises(73) && !rises(32));
         assert!(burns_away(73) && burns_away(80));
-        assert_eq!((chance(true), chance(false)), (90, 45));
+        assert_eq!((chance(true, false), chance(false, false)), (90, 45));
         assert!(rolls(89, 90) && !rolls(90, 90));
+        // A killer under a purple potion: none rises, whatever the roll.
+        assert_eq!((chance(true, true), chance(false, true)), (0, 0));
+        assert!(!rolls(0, chance(true, true)));
         // Seen: 139 of most health rose with 34, 69 and 46.
         assert_eq!([0, 1, 2].map(|roll| risen_health(139, roll)), [69, 46, 34]);
     }
