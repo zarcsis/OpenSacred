@@ -124,8 +124,14 @@ pub const UNTINTED: usize = 8;
 #[derive(Component, Clone, Copy, Default)]
 pub struct Untinted;
 
-/// A query's filter of the cameras that draw the world, `F`, the [`Untinted`] one left out.
-pub type Eye<F = With<Camera3d>> = (F, Without<Untinted>);
+/// A camera of a picture of its own, not of the world: the backpack's items (`backpack`), which
+/// neither follows the hero nor zooms.
+#[derive(Component, Clone, Copy, Default)]
+pub struct Apart;
+
+/// A query's filter of the cameras that draw the world, `F`, the [`Untinted`] one and those
+/// [`Apart`] left out.
+pub type Eye<F = With<Camera3d>> = (F, Without<Untinted>, Without<Apart>);
 
 /// The [`Untinted`] camera, a child of the world's.
 pub fn untinted() -> impl Bundle {
@@ -157,7 +163,7 @@ pub const ZOOM: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 /// forward brings the world closer.
 pub fn zoom(
     scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
-    mut projections: Query<&mut Projection, With<Camera>>,
+    mut projections: Query<&mut Projection, (With<Camera>, Without<Apart>)>,
 ) {
     if scroll.delta.y == 0.0 {
         return;

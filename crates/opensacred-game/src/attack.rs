@@ -141,7 +141,7 @@ pub(crate) fn aim(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     pointer: Res<crate::hud::Pointer>,
-    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     mut aim: ResMut<Aim>,
     // A creature of a dialogue is spoken to, hostile or not (`0x53A170`, `crate::talk`).
     creatures: Query<

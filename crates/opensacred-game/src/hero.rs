@@ -665,7 +665,7 @@ pub fn steer(
     mut held: Local<f32>,
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
-    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     heights: Res<Heights>,
     buildings: Res<crate::buildings::Buildings>,
     aim: Res<crate::attack::Aim>,

@@ -10,6 +10,7 @@ mod art_sounds;
 mod arts;
 mod atmosphere;
 mod attack;
+mod backpack;
 mod bar;
 mod benchmark;
 mod blast;
@@ -286,15 +287,16 @@ fn run(cli: Cli) -> Result<AppExit> {
         arts::ArtsPlugin,
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
+        backpack::BackpackPlugin,
         bar::BarPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blast::BlastPlugin,
         blended::BlendedPlugin,
         bolts::BoltsPlugin,
-        breath::BreathPlugin,
     ))
     .add_plugins((
+        breath::BreathPlugin,
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
         butterflies::ButterfliesPlugin,
@@ -309,9 +311,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         drops::DropsPlugin,
         effects::EffectsPlugin,
         fight::FightPlugin,
-        fliers::FliersPlugin,
     ))
     .add_plugins((
+        fliers::FliersPlugin,
         followers::FollowersPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
@@ -326,9 +328,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         icons::IconsPlugin,
         inventory::InventoryPlugin,
         journal::JournalPlugin,
-        lines::LinesPlugin,
     ))
     .add_plugins((
+        lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
@@ -343,9 +345,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         puffs::PuffsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
-        ripples::RipplesPlugin,
     ))
     .add_plugins((
+        ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
@@ -360,9 +362,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         steps::StepsPlugin,
-        talk::TalkPlugin,
     ))
     .add_plugins((
+        talk::TalkPlugin,
         terrain::GroundPlugin,
         undead::UndeadPlugin,
         voices::VoicesPlugin,

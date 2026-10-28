@@ -32,7 +32,7 @@ pub(crate) fn pick(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<Pointer>,
     aim: Res<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     doors: Query<(Entity, &GlobalTransform), With<Door>>,
     heroes: Query<Entity, With<Body>>,
 ) {

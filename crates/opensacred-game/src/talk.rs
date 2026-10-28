@@ -175,7 +175,7 @@ fn pick(
     buttons: Res<ButtonInput<MouseButton>>,
     pointer: Res<crate::hud::Pointer>,
     mut aim: ResMut<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), Without<crate::iso::Untinted>>,
+    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     npcs: Option<Res<Npcs>>,
     creatures: Query<
         (
