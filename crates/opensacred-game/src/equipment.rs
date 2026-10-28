@@ -12,9 +12,13 @@
 //! the first, the old item into the cell it left. The worn items are their 3D models centred in
 //! their frames, drawn by a camera of their own as the grid's are (`backpack`).
 //!
+//! The hero's fight takes the worn items' values (#1290, `0x5796A0`): its attack, defence,
+//! damage, resistances and regeneration made anew with them, its effects, at its level, as its
+//! level-up makes them.
+//!
 //! Not followed: the classes' default items that the hero wears from the start, which the window
-//! does not show and which a slot emptied would take anew (`0x556A30`); the hero's values and
-//! look, which the items worn change, are #1290's.
+//! does not show and which a slot emptied would take anew (`0x556A30`); and the hero's look and
+//! clips by what it wears (#1307).
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, ScalingMode};
@@ -23,13 +27,16 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_rules::equipment::{Glow, Refusal, frames, glow, refusal, slot_for, takes};
+use opensacred_rules::fight::{Holds, combat_with, regeneration_with};
 
 use crate::backpack::{self, Matte, cell_under, on_grid};
 use crate::bar::{self, UiImages};
 use crate::choice::Layer;
 use crate::drops::Tables;
-use crate::fight::{Experience, Rules};
+use crate::effects::Effects;
+use crate::fight::{self, Base, Combat, Experience, Holding, Regenerates, Rules};
 use crate::game::AppState;
+use crate::hero::Body;
 use crate::hero::Hero;
 use crate::hud::Pointer;
 use crate::inventory::{EQUIPMENT, EquipmentWindow, Shown};
@@ -399,6 +406,81 @@ fn click(
     }
 }
 
+/// What the hero holds and wears of its template, before any item worn in the window: the
+/// values that its worn items add to (#1290).
+#[derive(Component)]
+struct Unworn(Holds);
+
+/// Makes the hero's fight anew as the items it wears in the window change (`0x5796A0`): its
+/// template's items and the worn ones' values, its effects, at its level.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn refit(
+    mut commands: Commands,
+    pack: Res<Pack>,
+    (experience, rules, tables): (Res<Experience>, Res<Rules>, Option<Res<Tables>>),
+    mut hero: Option<ResMut<Hero>>,
+    mut heroes: Query<
+        (
+            Entity,
+            &Base,
+            &mut Holding,
+            &mut Combat,
+            &mut Regenerates,
+            Option<&Effects>,
+            Option<&Unworn>,
+        ),
+        With<Body>,
+    >,
+    mut seen: Local<Vec<u32>>,
+) {
+    let Some(tables) = tables else {
+        return;
+    };
+    let worn: Vec<u32> = pack.worn.iter().flatten().map(|&(key, _)| key).collect();
+    if *seen == worn {
+        return;
+    }
+    for (entity, base, mut holding, mut combat, mut regenerates, effects, unworn) in &mut heroes {
+        let mut holds = match unworn {
+            Some(unworn) => unworn.0.clone(),
+            None => {
+                commands.entity(entity).insert(Unworn(holding.0.clone()));
+                holding.0.clone()
+            }
+        };
+        holds
+            .items
+            .extend(pack.worn.iter().flatten().map(|(_, d)| tables.values(d)));
+        let level = experience.level;
+        let skills = fight::skills(base, level, true);
+        let list = effects.map(Effects::list).unwrap_or_default();
+        *combat = Combat(combat_with(
+            base,
+            level,
+            holds.clone(),
+            &skills,
+            &list,
+            &rules,
+        ));
+        regenerates.value = regeneration_with(base, level, &skills, &list, &rules);
+        holding.0 = holds;
+        if let Some(hero) = hero.as_mut() {
+            hero.pace = combat.pace_factor();
+        }
+        info!(
+            "equipment: the hero wears {} items: attack {:.2}, defence {:.2}, resistances {:?}",
+            worn.len(),
+            combat.attack,
+            combat.defence,
+            combat.resistance
+        );
+    }
+    *seen = worn;
+}
+
 /// The equipment window's slots.
 pub struct EquipmentPlugin;
 
@@ -406,10 +488,13 @@ impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            ((show, hide, click, lay_out, tint)
-                .chain()
-                .after(crate::inventory::Opened)
-                .before(backpack::layer),)
+            (
+                (show, hide, click, lay_out, tint)
+                    .chain()
+                    .after(crate::inventory::Opened)
+                    .before(backpack::layer),
+                refit.after(click),
+            )
                 .run_if(in_state(AppState::InGame)),
         );
     }
