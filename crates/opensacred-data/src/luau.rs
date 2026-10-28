@@ -38,28 +38,66 @@ pub const DIALOG: u16 = 40;
 /// The call of a dialogues' table's entry, `dialog_entry { name = …, values = { … } }`.
 pub const DIALOG_ENTRY: &str = "dialog_entry";
 
+/// The calls of the record types whose keywords are German words, by names of the project's own
+/// in English (#1388), each after the original's keyword.
+pub const ENGLISH: &[(u16, &str)] = &[
+    (14, "delete_function_block"), // DeleteFunktionBlock
+    (22, "call_function"),         // CallFunktion
+    (27, "max_open"),              // MaxOffen
+    (29, "rescue_mission"),        // Rettungsmission
+    (30, "to_do_blocks"),          // ToDoBloecke
+    (32, "rewards"),               // Belohnungen
+    (34, "treasure_hunt"),         // Schatzsuche
+    (36, "add_trade"),             // AddHandel
+    (63, "quest_compass_pos"),     // QuestKompassPos
+    (64, "quest_compass_obj"),     // QuestKompassObj
+    (99, "particles"),             // Partikel
+    (101, "kill_npc"),             // Toete_NPC
+    (102, "escort"),               // Begleite
+    (114, "weapon_pool"),          // Waffenpool
+    (123, "penalties"),            // Strafen
+    (124, "free_region"),          // RegionFrei
+    (125, "prize"),                // Gewinn
+    (140, "make_hiding_place"),    // MachVersteck
+];
+
+/// The English call of a record type of a German keyword ([`ENGLISH`]).
+fn english(kind: u16) -> Option<&'static str> {
+    ENGLISH
+        .iter()
+        .find(|&&(k, _)| k == kind)
+        .map(|&(_, call)| call)
+}
+
 /// The call of a record type in Luau: its first keyword in snake case
-/// ([`crate::netscript::name`]), `type<n>` for the types 39 and 47, which have none, and
-/// [`DIALOG_ENTRY`] for the dialogues' entries; none for any other, the flow's among them.
+/// ([`crate::netscript::name`]) or, for a German one, its English name ([`ENGLISH`]), `type<n>`
+/// for the types 39 and 47, which have none, and [`DIALOG_ENTRY`] for the dialogues' entries; none
+/// for any other, the flow's among them.
 pub fn call_name(kind: u16) -> Option<String> {
     match (kind, crate::netscript::name(kind)) {
         (DIALOG, _) => Some(DIALOG_ENTRY.to_owned()),
         (39 | 47, _) => Some(format!("type{kind}")),
-        (_, Some(keyword)) => Some(snake(keyword)),
+        (_, Some(keyword)) => Some(english(kind).map_or_else(|| snake(keyword), str::to_owned)),
         (_, None) => None,
     }
 }
 
-/// The record type of a call in Luau ([`call_name`]).
+/// The record type of a call in Luau ([`call_name`]); a German keyword in snake case names none.
 pub fn kind_of(call: &str) -> Option<u16> {
     match call {
         DIALOG_ENTRY => Some(DIALOG),
         "type39" => Some(39),
         "type47" => Some(47),
-        _ => crate::netscript::KEYWORDS
+        _ => ENGLISH
             .iter()
-            .find(|&&(keyword, _)| snake(keyword) == call)
-            .map(|&(_, kind)| kind),
+            .find(|&&(_, english)| english == call)
+            .map(|&(kind, _)| kind)
+            .or_else(|| {
+                crate::netscript::KEYWORDS
+                    .iter()
+                    .find(|&&(keyword, kind)| english(kind).is_none() && snake(keyword) == call)
+                    .map(|&(_, kind)| kind)
+            }),
     }
 }
 
@@ -106,5 +144,26 @@ mod tests {
         assert_eq!(call_name(55).as_deref(), Some("del_npc"));
         assert_eq!(call_name(58), Some("if".to_owned()));
         assert_eq!(kind_of("no_such_record"), None);
+    }
+
+    #[test]
+    fn the_german_keywords_are_called_in_english() {
+        assert_eq!(call_name(125).as_deref(), Some("prize"));
+        assert_eq!(call_name(124).as_deref(), Some("free_region"));
+        assert_eq!(call_name(101).as_deref(), Some("kill_npc"));
+        for &(kind, call) in ENGLISH {
+            let keyword = crate::netscript::name(kind).unwrap();
+            assert_ne!(snake(keyword), call, "{keyword}");
+            assert_eq!(kind_of(&snake(keyword)), None, "{keyword}");
+            assert_eq!(kind_of(call), Some(kind), "{call}");
+        }
+        // Every call names its type back, and no two types share one.
+        let mut calls = std::collections::BTreeSet::new();
+        for kind in 0..141 {
+            if let Some(call) = call_name(kind) {
+                assert_eq!(kind_of(&call), Some(kind), "{call}");
+                assert!(calls.insert(call));
+            }
+        }
     }
 }

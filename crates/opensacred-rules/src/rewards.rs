@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn gold_grows_with_the_value_the_step_and_the_heros_level() {
-        // `gewinn { _0B = { 1, 1, 3 } }`: (20 + 100) · (5/2 + 1) at level 5.
+        // `prize { _0B = { 1, 1, 3 } }`: (20 + 100) · (5/2 + 1) at level 5.
         assert_eq!(Prize::of(&[1, 1, 3]).gold(5), Some(360));
         // The step held to 5; no gold without the flag 1.
         assert_eq!(Prize::of(&[1, 2, 9]).gold(1), Some(150));

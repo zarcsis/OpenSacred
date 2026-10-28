@@ -767,7 +767,7 @@ struct Recorder<'a> {
 
 /// The kind of a `CallFunktion` record (22), which a deferred call hands to the world as
 /// (`Recorder::defer`, #1278): its first `0x01` the function, its second the creature.
-pub const CALL_FUNKTION: u16 = 22;
+pub const CALL_FUNCTION: u16 = 22;
 
 /// The functions whose turns came in their creatures' queues (`npcs`, #1278), which `run_due`
 /// runs.
@@ -777,7 +777,7 @@ pub struct Due(pub Vec<String>);
 /// The records of the rewards, `AddExp`, `AddGold` and `Gewinn`, which `rewards` carries out:
 /// none inside a function whose quest is finished or not set up (`0x48D480`, `0x48DA40`,
 /// `0x4AC940`; #1162), their variables' values read as they run.
-const REWARDS: [&str; 3] = ["add_exp", "add_gold", "gewinn"];
+const REWARDS: [&str; 3] = ["add_exp", "add_gold", "prize"];
 
 impl<'a> Recorder<'a> {
     fn new(
@@ -906,7 +906,7 @@ impl Host for Recorder<'_> {
             value: Value::Str(text.to_owned()),
         };
         self.records.push(Record {
-            kind: CALL_FUNKTION,
+            kind: CALL_FUNCTION,
             body: netscript::Body::Operands(vec![name(function), name(&creature)]),
         });
         bevy::log::debug!("scripts: {function} waits for {creature}'s turn");
@@ -1032,7 +1032,7 @@ impl Host for Recorder<'_> {
             }
             // The areas' entry of its last number pacified, and the hero's remark on it, out of
             // the fight (`0x475C70`).
-            "region_frei" => {
+            "free_region" => {
                 let n = tags.numbers("_0B").last().copied().unwrap_or(0);
                 let entry = self.state.pacified.pacify(n);
                 bevy::log::debug!("scripts: the area {entry} is pacified");
@@ -2295,6 +2295,13 @@ mod tests {
             .expect("the runtime starts")
     }
 
+    #[test]
+    fn the_rewards_are_the_calls_of_their_records() {
+        // `AddExp`, `AddGold` and `Gewinn`, the last by its English call (#1388).
+        let kinds = REWARDS.map(opensacred_data::luau::kind_of);
+        assert_eq!(kinds, [Some(17), Some(18), Some(125)]);
+    }
+
     /// The records' types.
     fn kinds(records: &[Record]) -> Vec<u16> {
         records.iter().map(|r| r.kind).collect()
@@ -2812,7 +2819,7 @@ mod tests {
         // Under the mode the call is handed to the world after the walk, its function not run;
         // after it the call runs at once.
         let kinds: Vec<u16> = effects.records.iter().map(|record| record.kind).collect();
-        assert_eq!(kinds, [88, 72, CALL_FUNKTION, 89, 52]);
+        assert_eq!(kinds, [88, 72, CALL_FUNCTION, 89, 52]);
         assert_eq!(effects.healths.len(), 1);
         let netscript::Body::Operands(ops) = &effects.records[2].body else {
             panic!("a call's operands");
@@ -3097,13 +3104,13 @@ mod tests {
     }
 
     #[test]
-    fn a_region_frei_pacifies_its_areas_entry_and_gives_the_hero_its_remark() {
+    fn a_free_region_pacifies_its_areas_entry_and_gives_the_hero_its_remark() {
         let runtime = runtime(&[(
             "functions/befriedet_rg.luau",
             "local F = {}
              F[\"befriedet_rg2\"] = function()
-             region_frei { _0B = 2 }
-             region_frei { _0B = 300 }
+             free_region { _0B = 2 }
+             free_region { _0B = 300 }
              return true
              end
              return F",

@@ -26,7 +26,7 @@ const CREATE_NPC: u16 = 1;
 const SET_NPC_STATE: u16 = 3;
 const SET_BASE_TRIGGER: u16 = 4;
 const TRIGGER_QUEST: u16 = 20;
-const CALL_FUNKTION: u16 = 22;
+const CALL_FUNCTION: u16 = 22;
 const TEXT: u16 = 26;
 const QUEST_BOOK: u16 = 53;
 const LOSE_QUEST: u16 = 54;
@@ -34,8 +34,8 @@ const IF: u16 = 58;
 const ELSE: u16 = 59;
 const SET_BUTTON: u16 = 60;
 const NOP: u16 = 62;
-const QUEST_KOMPASS_POS: u16 = 63;
-const QUEST_KOMPASS_OBJ: u16 = 64;
+const QUEST_COMPASS_POS: u16 = 63;
+const QUEST_COMPASS_OBJ: u16 = 64;
 const ELSEIF: u16 = 66;
 const SET_GROUP_STATE: u16 = 73;
 /// `SetVarBit`.
@@ -709,7 +709,7 @@ fn pigface(records: &mut [Record]) -> Result<(), String> {
     let kinds: Option<Vec<u16>> = records
         .get(i + 1..i + 5)
         .map(|after| after.iter().map(|r| r.kind).collect());
-    if kinds.as_deref() != Some(&[QUEST_BOOK, QUEST_KOMPASS_OBJ, ELSE, NOP]) {
+    if kinds.as_deref() != Some(&[QUEST_BOOK, QUEST_COMPASS_OBJ, ELSE, NOP]) {
         return Err("a QuestBook, a QuestKompassObj, an ELSE and a NOP after its IF".to_owned());
     }
     records.swap(i + 1, i + 4);
@@ -812,7 +812,7 @@ fn horn(records: &mut Vec<Record>) -> Result<(), String> {
 /// target 17215 among them, whose death 1702's win needs: after it, the target takes back the
 /// hostile side and the mode word that his `CreateNPC` gives him.
 fn baron(records: &mut Vec<Record>) -> Result<(), String> {
-    let i = the(records, "CallFunktion of BadToGood", CALL_FUNKTION, |r| {
+    let i = the(records, "CallFunktion of BadToGood", CALL_FUNCTION, |r| {
         has(r, 0x01, &text("BadToGood"))
     })?;
     records.insert(
@@ -915,7 +915,7 @@ fn arena(records: &mut [Record]) -> Result<(), String> {
 /// A `QuestKompassPos` of quest 61 at the cell `(x, y)`.
 fn compass(x: i32, y: i32) -> Record {
     new(
-        QUEST_KOMPASS_POS,
+        QUEST_COMPASS_POS,
         vec![
             op(0x0B, Value::I32(x)),
             op(0x0B, Value::I32(y)),
@@ -946,7 +946,7 @@ fn air_last(records: &mut Vec<Record>) -> Result<(), String> {
     let i = the(
         records,
         "QuestKompassPos of the 5.7.4 mouth",
-        QUEST_KOMPASS_POS,
+        QUEST_COMPASS_POS,
         |r| *r == compass(1093, 1750),
     )?;
     if i == 0 || records[i - 1].kind == IF {
@@ -1307,7 +1307,7 @@ mod tests {
             vec![
                 new(IF, vec![op(0x4A, bit(20, "1001"))]),
                 first,
-                new(QUEST_KOMPASS_OBJ, vec![op(0x01, text("Res:17041"))]),
+                new(QUEST_COMPASS_OBJ, vec![op(0x01, text("Res:17041"))]),
                 new(ELSE, Vec::new()),
                 last,
             ]
@@ -1378,7 +1378,7 @@ mod tests {
         horn(&mut records).unwrap();
         assert_eq!(records, [lose(501), removal(501), removal(551)]);
         assert_eq!(nobles_lost()[1], log_line(501, "Res:NQ_Log_QFAIL"));
-        let call = new(CALL_FUNKTION, vec![op(0x01, text("BadToGood"))]);
+        let call = new(CALL_FUNCTION, vec![op(0x01, text("BadToGood"))]);
         let mut records = vec![call.clone(), new(NOP, Vec::new())];
         baron(&mut records).unwrap();
         assert_eq!(records[0], call);

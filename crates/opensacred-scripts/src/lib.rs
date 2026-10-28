@@ -86,7 +86,7 @@ pub enum Handled {
 
 /// What the scripts' calls reach: the game.
 pub trait Host {
-    /// The record `name` (its type's keyword in snake case) with its operands, and the answers
+    /// The record `name` (its type's call, `opensacred_data::luau::call_name`) with its operands, and the answers
     /// of the functions it asked to run so far ([`Handled::Run`]), none at first.
     fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled;
     /// The value of the variable `name` (`var("name")`).

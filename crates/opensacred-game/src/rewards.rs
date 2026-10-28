@@ -26,10 +26,10 @@ use crate::pickup::Pack;
 use crate::scripts::WorldRecords;
 use crate::terrain::Level;
 
-/// The records' kinds.
+/// The records' kinds: `AddExp`, `AddGold` and `Gewinn`.
 const ADD_EXP: u16 = 17;
 const ADD_GOLD: u16 = 18;
-const GEWINN: u16 = 125;
+const PRIZE: u16 = 125;
 /// The operands' tags: a creature's name, a number, and `Gewinn`'s other numbers' tag.
 const NAME: u8 = 0x01;
 const NUMBER: u8 = 0x0B;
@@ -180,7 +180,7 @@ fn reward(
         );
     };
     for record in &records.0 {
-        if ![ADD_EXP, ADD_GOLD, GEWINN].contains(&record.kind) {
+        if ![ADD_EXP, ADD_GOLD, PRIZE].contains(&record.kind) {
             continue;
         }
         if !for_hero(record) {
@@ -360,16 +360,16 @@ mod tests {
 
     #[test]
     fn a_reward_reads_its_numbers_and_its_creature() {
-        let gewinn = record(
-            GEWINN,
+        let prize = record(
+            PRIZE,
             vec![
                 (NUMBER, Value::I32(2)),
                 (NUMBER, Value::I32(10)),
                 (NUMBER, Value::I32(3)),
             ],
         );
-        assert_eq!(numbers(&gewinn), [2, 10, 3]);
-        assert!(for_hero(&gewinn));
+        assert_eq!(numbers(&prize), [2, 10, 3]);
+        assert!(for_hero(&prize));
         let named = |name: &str| {
             record(
                 ADD_GOLD,
@@ -378,7 +378,7 @@ mod tests {
         };
         // A variable's value between two numbers, as quest 10259's reward holds it.
         let between = record(
-            GEWINN,
+            PRIZE,
             vec![
                 (NUMBER, Value::I32(1)),
                 (NUMBER, Value::I32(3)),

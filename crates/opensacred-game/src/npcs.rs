@@ -156,7 +156,8 @@ const CREATE_TRIGGER: u16 = 48;
 const TRIGGER_PATCH: u16 = 50;
 const FILL_SECTOR: u16 = 51;
 const SPAWN_VALUES: u16 = 100;
-const WAFFENPOOL: u16 = 114;
+/// `Waffenpool`.
+const WEAPON_POOL: u16 = 114;
 const MAKE_GROUP: u16 = 115;
 /// The tags of `CreateTrigger` that set and clear bit 0 of the trigger's state, its open bit, and
 /// that lock it, clearing bit 0 and setting `0x8000`, and unlock it (`0x496520`).
@@ -1361,7 +1362,7 @@ fn pools(records: &[&Record]) -> HashMap<i32, Vec<u32>> {
     let mut pools: HashMap<i32, Vec<u32>> = HashMap::new();
     for ops in records
         .iter()
-        .filter(|r| r.kind == WAFFENPOOL)
+        .filter(|r| r.kind == WEAPON_POOL)
         .filter_map(|r| match &r.body {
             Body::Operands(ops) => Some(ops),
             _ => None,
@@ -2189,7 +2190,7 @@ fn played(
         });
     }
     // A deferred `CallFunktion`: the function first, the creature second (`scripts`).
-    if kind == crate::scripts::CALL_FUNKTION {
+    if kind == crate::scripts::CALL_FUNCTION {
         let (function, name) = (names.first()?, names.get(1)?);
         return Some(Moved {
             name: name.clone(),
@@ -9548,7 +9549,7 @@ mod tests {
         // Pool 125 of two bows, the second twice; pool 134 of one sword; a shield's pool 50.
         let pool = |pool, item| {
             record(
-                WAFFENPOOL,
+                WEAPON_POOL,
                 vec![op(0x0B, Value::I32(pool)), op(0x02, Value::I32(item))],
             )
         };
