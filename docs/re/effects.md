@@ -300,12 +300,14 @@ The lamps' glows are the miniatures' (docs/re/daynight.md), not FX objects.
 The families, by what they need beyond the machinery:
 
 1. **The machinery** (one module): the FX object made from a category-12 record and an FX event (its kind and variant), a system per type by `0x5A3570`'s table, particles, layers, blocks, ramps and the update and emission of `0x7640C0` and `0x764760`; the billboards of `0x761B00` with the three blend modes (`SRCALPHA`/`INVSRCALPHA`, `SRCALPHA`/`ONE`, `ONE`/`ONE`), the atlases' frames and the per-layer switch; the glows of `0x762E10`; the light by `+0x9C`; the tint by the light at the object; the entries in the draw lists (list 4, 0 or 3 by the type's flags) under the night pass.
-2. **The world's fires and smokes** (the smoke class, 13 types, some 3,650 objects in the Seraphim's tree): already placed by the scripts' `CreateObj` with their heights; the variants are data (the table above), one texture each, no actions, and their lights are the night's (#61).
+2. **The world's fires and smokes** (the smoke class, 13 types, some 3,650 objects in the Seraphim's tree): already placed by the scripts' `CreateObj` with their heights; the variants are data (the table above), one texture each, no actions, and their lights their systems' radii (`fx`, #1189).
    The simplest first: the variants 10 to 12 (`FX_FIRE_L`), then 4 to 6 (with the hit of 5 and 6 already a rule), 1 to 3, 8 and 9, 7 (its timer and sound), 13.
 3. **The torches' flame** (787): a flip-book and a glow following the bone `weapon_fx01` of the item in hand; the game has the bones (docs/re/arts.md uses them for the `Rundum` strikes).
 4. **The butterflies** (873, #1073): the wander, the 8 × 8 flip-book with the alpha of the life, the fireflies' glows by the night's level.
 5. **The hit sparks**: `FX_SERA_SM_HIT` (843, 151 particles: a burst at once, buoyancy +180 ± 40, a size of 6 ± 1 shrinking by 4 a second, the velocity (0, 0, 60) ± 40, the place ± 10, a life of 1.275 s, `SPARK06` additive with a ramp from (127, 127, 255) at the birth to black, a light of 200, the system flag `0x40`: placed once at the bone the event names), and its kin `FX_ELVE_SM_HIT` (860), `FX_DARK_SM_HIT` (864), `FX_VAMP_SM_HIT` (862), `FX_GLAD_SM_HIT` (842, 600 particles with rings and floops), all `SPARK06` with the flags `0x19`; the art 1003's event value shakes the screen (kind 7, 30) and changes the burst.
 6. **The spells' and the arts' objects**, a class each (docs/re/arts.md has their rules): the fireball's flight (776 `GLOW01` with a light of 250; 778 `FIRE01` flip-book, light 200), then the rings, the decals, the helices, the beams and the models' effects.
+
+The families 1 and 2 are done (`fx`, #1189), and so is 4 (`butterflies`, #1073).
 
 ## The catalogue
 

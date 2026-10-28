@@ -7,7 +7,7 @@
 * **Settings:** `settings.toml` in the user's directory; borderless full screen by default, F11 for a window, both kept.
 * **Menu:** a main menu (New Game, Quit) and the choice of the hero, which needs the game to start and end inside one process: states, and a loading in the background.
   Esc in the game pauses it under a small menu: Continue, Main menu, Quit.
-* **On the screen:** the HUD's portrait, health bar and gait go; F3 shows a debug overlay (the frame rate and times, the hero's place), F4 the log, which a file keeps too.
+* **On the screen:** the HUD's portrait, health bar and gait go, the original's bar and portrait coming in their place with #1087; F3 shows a debug overlay (the frame rate and times, the hero's place), F4 the log, which a file keeps too.
 * **Commands:** one set of commands, which the command line's scripts, the console on `~` and the remote protocol run alike; the command line's options become commands.
 * **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/` and the project skill `game` for Claude Code, no MCP server.
 * **Work:** the issue #165 and its sub-issues #166–#181 and #189, in M2, then #196, #198 and #202; done 2026-10-19 and 2026-10-20.
@@ -93,7 +93,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 ## 5. The HUD, the overlay and the log (#168, #170, #169)
 
 * The HUD's portrait, health bar and Walk/Run label go (#168): the health was always full until M3, and the gait is the overlay's now.
-  Since #292 the overlay shows the hero's health too; the bar comes back with the interface of M5.
+  Since #292 the overlay shows the hero's health too; the original's bar and the hero's portrait came back in #1087 (`bar`).
   The cursor and the interface's scale stay; `docs/decisions/2026-10-17-hud.md` changes with it.
   Done 2026-10-19.
 * **The overlay (F3)**, in the upper left, refreshed four times a second in a monospaced font.
@@ -104,6 +104,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   * the sectors spawned and being built, the NPCs and objects placed, the entities;
   * the health of the creature nearest the hero, its most and its level (#278);
   * the hero's level, its health and its most (#292) and its experience (#283);
+  * the hero's gold, its combat arts still regenerating, the weather's levels and the drops nearest it;
   * the version, the GPU adapter and backend, the window's size and mode.
 
   Done 2026-10-19 (#170), in a module `overlay`: the frame times are those of the last second by the real time, kept by the module itself rather than Bevy's diagnostics; a `Snapshot` holds the values, which the command `state` and the remote protocol give too; whether the overlay shows is the setting `[debug] overlay`.
@@ -146,7 +147,9 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `kill [RADIUS]` | fells the hostile creatures within RADIUS cells of the hero (5): they die, drop and give the hero their experience, as its kills do (#524) | |
 | `item ITEM [--at X,Y\|+DX,+DY] [--level L] [--key K] [--amount N]` | throws an item of type ITEM (an `items.pak` slot) about a cell, the hero's by default, as a death's drop is thrown: gold of N pieces (a pile's by the level by default), a potion as it is, a weapon, armour or a jewel made by the item maker at level L (the hero's) with the pass's quality key K (16 plain, 2 to 15 the maker's key 16 − K, 0 its 14); a type of no drop's kind (a book, a quest's item, an upgrade) as it is (#1358), a type that the items' table does not hold refused (#525) | |
 | `level L`, `experience N\|+N` | the hero's level, its experience at the level's start; or its experience set or added to: its level, its attribute and skill points follow as its kills would give them, and its health (refilled), values and regeneration as at a level-up (#526) | |
-| `heal` | the hero's health to its most (#526) | |
+| `heal [ID] [--to N]` | a creature's health, the hero's by default, to its most or to N (#526, #618) | |
+| `effect EFFECT VALUE [--whole N] [--seconds S] [--art A] [--level L] [--id ID]` | gives a creature, the hero by default, the effect EFFECT of the value VALUE for S seconds (60), as the combat arts and the spells give one (`0x582D50`); `stats` shows its values from the next frame | |
+| `attack [ID]` | the hero attacks the hostile creature ID, or the nearest, as a left click on it does: it comes into its band and strikes once, or shoots with a bow or a crossbow | |
 | `god [on\|off]` | the hero takes no damage (`fight::Immortal`): a hit lands and shows, the health stays (#526) | |
 | `fly [on\|off]` | the hero goes straight where it is sent, through walls and buildings and over water, on the ground's level, through no door and up no stair (`hero::Flies`, #526) | |
 | `take` | sends the hero to take the item lying nearest it, as a left click on it does: it walks to the item and, standing within its reach, plays its pick-up and takes it at the clip's half (#1219), gold into its purse, which `state` shows, and the rest into its pack (#911) | |
@@ -182,7 +185,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 
 * The key under Esc opens and closes it, by its place rather than its character (`KeyCode::Backquote`: `~` in an English layout, `Ё` in a Russian one); Esc closes it too.
 * The top half of the screen: one scrolling view of the log and the commands' output, and a line of input of its own (no `bevy_egui`).
-* Enter runs the line; Up and Down walk the history, kept between runs; Tab completes the commands' names and the options' values; Ctrl+V pastes.
+* Enter runs the line; Up and Down walk the history, kept between runs; Tab completes the commands' names and the options' values; Ctrl+V pastes; PageUp and PageDown scroll the view.
 * While it is open the game takes no keys or clicks (no walking, no R, the wheel scrolls the console); F3, F4 and F11 still work, and the game goes on under it.
 * Done 2026-10-19 (#174), in a module `console`, with a line of input of its own rather than Bevy's `TextInput`: a console needs a line, a cursor and the history, which take a few dozen lines.
   The view is the log itself: the commands' lines and their output are logged under the target `console`, so F4 and the log file have them too.
@@ -208,10 +211,10 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 * Bevy's own methods (`rpc.discover`, `world.query`, `world.get_resources`, `world.mutate_resources`, …) see what is registered for reflection, which is none of the game's types yet.
 * `world.mutate_components` of `bevy_remote` 0.20.0 panics on an entity that is gone (`World::entity_mut`), so that a call on an object of a sector that has unloaded ended the game (#456, 2026-10-21).
   The game registers its own method under that name after Bevy's, which takes its place: it looks the entity up and answers `ENTITY_NOT_FOUND` (-23401) for one that is gone, as Bevy's other methods on an entity do, and hands the rest to Bevy's.
-* The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-state`, `wait-ready`, `key F11`, `type`, `click X Y`, `move`, `wheel`, `screenshot FILE`, `logs`, `call METHOD`, `shell`, and `--port`.
+* The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-state`, `wait-ready`, `key F11`, `type`, `click X Y`, `move`, `wheel`, `screenshot FILE`, `logs`, `wait-log PATTERN`, `call METHOD`, `shell`, and `--port`; `state --json` gives the state as the method returns it.
   `shell` (#550) reads lines until `:quit`, for driving a game by hand: a line is a command of the game, one starting with `:` a call of the client with the same arguments (`:state`, `:key Escape`, `:screenshot FILE`), and `:logs` goes on from the last record shown; `:follow on` prints the new records after each line.
 * Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window hidden (#556).
-* Screenshots and logs taken this way are pictures of the converted assets: they stay local, never in issues or pull requests (docs/08 §3).
+* Screenshots and logs taken this way are pictures of the converted assets: they stay local, but for a frame of a problem, cropped to it, which its issue or pull request carries as an attachment (`gh … --attach`; docs/08 §3, #1222).
 * Done 2026-10-19 (#175), in a module `remote`, with the client `tools/game/remote.py` and the recipe in docs/03 §3.7.
   The input waits in a queue that sends each message in its frame before Bevy reads the input: a key's release a frame after its press, a click's press a frame after the cursor's move and its release `hold` frames later (2 by default), so that the game's systems see the key and the button held.
   The cursor the game steers by is now the one its input saw last (`hud::Pointer`), the system's moves and the protocol's alike, so that a click sent from afar moves the hero and the system's cursor stays where it is.
@@ -227,10 +230,13 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | Key | Where | What it does |
 |---|---|---|
 | Left mouse button | the game | the hero walks or runs to the cursor |
-| Left mouse button on a foe | the game | attack it |
+| Left mouse button on a foe | the game | attack it; held, strike on |
+| Right mouse button on a foe | the game | make the selected combat art |
 | Ctrl + left mouse button | the game | strike at once |
 | R | the game | walk or run |
 | I | the game | the inventory's windows (#1267) |
+| Space, Shift + Space | the game | drink a healing potion of the belt, the yellow one (#1311, #1313) |
+| 1 to 5 | the game | choose a weapon set (#1348) |
 | Wheel | the game | zoom |
 | Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |

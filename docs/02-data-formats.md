@@ -1,7 +1,7 @@
 # Data formats and assets
 
 Plan document 02.
-Describes all containers and data files of Sacred Gold 2.28 (GOG, English), how far each has been parsed as of 2026-10-20, and what each is converted into.
+Describes all containers and data files of Sacred Gold 2.28 (GOG, English), how far each has been parsed as of 2026-10-28, and what each is converted into.
 The game does not read the original formats: the `opensacred-convert` converter translates them once into open formats, and the new engine works only with those (PLAN.md, §4 and §7).
 
 The level of confidence is marked with these words: **confirmed on file** (parsed by a script on a local copy), **confirmed by static analysis** (client code in Ghidra or via the `tools/analysis` scripts), **community-reported** (not checked on the file), **hypothesis**.
@@ -22,7 +22,7 @@ The level of confidence is marked with these words: **confirmed on file** (parse
   Converted into an intermediate representation (IR), which the converter translates into Luau for the game (#720).
 - `global.res`: UTF-16LE, 23,123 strings with id = `sacred_hash(name)`; the formula is verified.
   Converted to Fluent.
-- Original saves are not supported; the hero templates are converted with their sections whole, into starting presets once their layouts are recovered (§9).
+- Original saves are not supported; the hero templates are converted with their sections whole, their level, class, items worn, backpack and combat arts indexed, and into the rest of the starting presets once their layouts are recovered (§9).
 - Sound: `sound.pak` holds 6,598 samples, 3,194 RIFF WAV (PCM and IMA ADPCM) and 3,404 MP3; confirmed on file.
 - Not established: the semantics of some cell and static object fields (Open questions 1 and 2).
 
@@ -457,7 +457,7 @@ The measures: holes as boundary edges of a mesh whose corners are welded by posi
   Which weights the community's fix gave is not known (**hypothesis** that this is the defect it reports).
 
 `opensacred-convert models` repairs the named records as it writes them, each repair a `bug` of its own and recorded as a decision (CLAUDE.md, "Code conventions"), and counts them in its summary; a named record whose data is not what its repair expects is written as it is, with a warning.
-The earth amulet, the cannon's strap and the dragons' tails are repaired; the other repairs above are not made yet.
+`models` repairs the earth amulet, the cannon's strap and the dragons' tails, and `textures` the blacksmith's apron; the others need no narrow repair.
 
 ## 5. World
 
@@ -1083,7 +1083,7 @@ The −0x48 delta for Sacred Plus saves (version 0x1007) is not needed for Gold:
 **The game's saves**, `save/GAMEnn.PAK`, which the menu's Save Game writes (the list shows them in the order of `nn`), are another container: they begin `"AMS", 0x1B`, and the name typed in the list is a C string at `0x500` (observed 2026-10-21 on four saves the original wrote, #450; `<empty>probe1` when the name was typed after the field's `<empty>`); the rest is not read.
 
 For the new engine: original `.pax` saves are not supported (by design).
-The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears and its combat arts in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
+The `Templates/Hero*.ptx` templates are converted into postcard hero files with their sections inflated and whole, indexed by level, class, the items the hero wears, the items of its backpack (#1285) and its combat arts in `heroes.ron`; the rest of the starting presets (the stats) waits for the layout of 0xC7.
 The section layouts above are needed only for this and as a source of knowledge about the hero fields.
 
 ## 10. Sound, music, video
@@ -1158,9 +1158,9 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 ## 11. Fonts and UI assets
 
 - Fonts: `font/ANTQS__.TTF` ("AntiquaSSK", 63 KB) and `font/CAROLING.TTF` ("Carolingia", 39 KB); the original rasterizes them via GDI into 256² pages.
-  The new engine uses the same TTFs directly via cosmic-text, plus Noto (OFL) for missing glyphs.
+  The game sets the same TTFs through Bevy's text (parley); a Noto (OFL) fallback for missing glyphs is planned.
 - UI bitmaps: 1024×1024 `UI_*.TGA` in format 6 (A8R8G8B8, §3.1), the cursor `MOUSE_MAIN.TGA`; the `cUI_*` widget layout is defined in code, there are no layout files.
-  The new interface is designed from scratch; the original's textures are used as skins.
+  The interface follows the original's places and images (`tables/ui_images.ron`, [docs/re/interface.md](re/interface.md)).
 - Loading screens: `pak/loading0/1.bmp`, `loadgame.bmp`, `savegame.bmp`, `LoadingUW00/01.bmp`: BMP 1024×768, 24-bit, uncompressed, rows from the bottom; three files carry 2 bytes after the pixels.
   **Implemented 2026-10-17:** `opensacred_formats::bmp` decodes them, `opensacred-convert ui` writes `ui/screens/*.png` (a test compares every pixel with FFmpeg's decoding) and copies the two fonts to `ui/fonts/` and `credits.txt`, `credits2.txt` (ASCII with CRLF) to `ui/texts/`, with LF since #835.
 
@@ -1169,7 +1169,7 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 ### 12.1 Targets per format
 
 The converter writes in two stages (PLAN.md ADR-05 and §7, #694): stage A extracts lossless masters into `assets-src/`, the targets below, and stage B builds the game's assets into `assets/` from them: the textures as KTX2 with BC7 and mipmaps (#700), the sound and the music as Opus in Ogg (#701), the cutscenes as AV1 and Opus in WebM (#698), the scripts as Luau bytecode, all in ZIP archives by kind (#699); the rest as the masters are.
-Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/` as they are, but for the textures (#700), the sound (#701) and the cutscenes, until the later sub-issues change the other formats.
+Since #696 the extraction commands write the targets below into `assets-src/`, and since #699 `build` packs them into the archives of `assets/`, the textures, the sound, the cutscenes and the scripts encoded on the way.
 
 | Source | Target | Check |
 |---|---|---|
@@ -1179,12 +1179,12 @@ Since #696 the extraction commands write the targets below into `assets-src/`, a
 | Sectors (`sectors.wldx`, `sectors.keyx`), `Floor.PAK`, `Static.PAK`, `tiles.pak`, `mixed.pak` | `world/world.ron`, one file per sector (`sectors/<x>-<y>.sector`: postcard in a zlib stream, format version 9), `sprites.bin` and the sprites assembled from their pieces (`sprites/<record>.png`) | loading all 6,050 sectors; the sprites against `mixed_dump.py --assembled` |
 | `Items.pak`, `Items03.pak`, `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK`, `bin/*.bin`, the combat arts of `Sacred.exe` | RON tables with a typed schema under `tables/` | comparing the fields with the source |
 | `global.res` | Fluent (`.ftl`) | 23,123 strings in place |
-| NetScript | one postcard file per tree with a `netscript.ron` index; listings on request | disassembler without remainder on the 20 trees |
-| `sndProfiles.pak`, `sound.pak` | profiles in RON (`sound.ron`); WAV (PCM, IMA ADPCM) → FLAC; MP3 records unchanged, decoded into FLAC with #697 | durations and spot listening |
-| MP3 | unchanged, decoded into FLAC with #697 | playback |
+| NetScript | one postcard file per tree with a `netscript.ron` index, and each tree's Luau sources, built into bytecode (#723); listings on request | disassembler without remainder on the 20 trees |
+| `sndProfiles.pak`, `sound.pak` | profiles in RON (`sound.ron`); WAV (PCM, IMA ADPCM) → FLAC; MP3 → FLAC (#697) | durations and spot listening |
+| MP3 | FLAC (#697) | playback |
 | WMV | AV1 + Opus in WebM via FFmpeg; FFV1 and FLAC in Matroska as the master with #698 | playback |
 | TTF, BMP | TTF unchanged; BMP → PNG | viewing |
-| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn and the combat arts; the rest of the starting presets later | reading back |
+| `Templates/*.ptx` | postcard hero files with the sections whole and `heroes.ron` with the items worn, the backpack's items and the combat arts; the rest of the starting presets later | reading back |
 
 ### 12.2 Structure
 

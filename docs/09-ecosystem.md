@@ -179,7 +179,7 @@ Two independent groups have named the VM records: openheilig 120/141 from the ke
 The keyword table is also present in Sacred.exe itself (`.data`, file offset 0x54ce78, verified locally).
 The shipped scripts use 113 of the 141 record types; 45 cover 95% of the campaign's records, 68 cover 99%.
 The interpreter lives in the client, not in `GameServer.exe` (the server stores QuestDB and relays `TRIGGER_*`), and the community has not implemented it with any claim to accuracy: sacred-sdk executes quests and dialogs with its own runtime, openheilig with its own interpreter.
-The plan translates the scripts into Luau and estimates the translator, the runtime and the semantics at 40–80 agent-hours (docs/06, §8).
+The converter translates the scripts into Luau, which the game runs through mlua (docs/06 §8).
 
 **Networking.**
 The TinCat-2 transport (28 B frame, CRC32 of the body), the lobby (56 message types, obfuscation) and the UDP announcement are described and implemented in three codebases (C#, TS, C++).
@@ -293,10 +293,10 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 | 3D rendering | SDL3 GPU + D3D9 + GL + software (isle-portable); Tempest Vulkan/DX12/Metal (OpenGothic); OpenGL 3.3 (TR1X, OpenJKDF2, re3/librw); DX11/GL/Metal (SoH) | Bevy on wgpu: Vulkan, DX12 |
 | 2D/UI in 4K | UI and text at native resolution, separately from 3D (OpenGothic); HUD/book/cursor scaling, letterbox (Arx 1.2); aspect/border/integer upscale (TR1X 4.13); Enlarged UI + DPI (OpenRCT2); virtual resolutions (DevilutionX 1.5) | Bevy UI on the original's 768-pixel-high screen, scaled with the window's height (docs/05 §3.5); the original's visible area by default |
 | Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | Bevy's text (parley), the original TTFs; a free Unicode font (Noto) planned |
-| Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira + Symphonia; sounds are converted to FLAC |
+| Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira; FLAC masters built into Ogg Opus, decoded by libopus (#701) |
 | Video | Smacker libraries (isle); most skip cutscenes | AV1 via FFmpeg during conversion, rav1d during playback; skipping |
 | Networking | ZeroTier + TCP (DevilutionX 1.3); custom (OpenRCT2); absent (swars) | after version 1.0 (PLAN.md ADR-09, §13) |
-| Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | a fixed simulation step in `opensacred-rules` (#364; whether the game takes one is open), rendering at the monitor refresh rate; today the rules run in `opensacred-game` on each frame's time, with no fixed step |
+| Simulation tick | DevilutionX 1.0: 20 fps → monitor refresh rate; TR1X: 60 fps as an experiment → the default | the original's world tick of 0.1 s, gathered from the frames (`frame::WorldTick`), rendering at the monitor refresh rate |
 | Saves | Julius: compatibility with the original in both directions | not needed for us: our own save format (docs/06, §6) |
 
 ## 6. What we take and what we avoid

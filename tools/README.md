@@ -2,7 +2,7 @@
 
 ## Summary
 
-* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`), the game's remote-control client (`game/`) and the original's driver (`original/`).
+* This directory holds the Python scripts used to research the binary and data of Sacred Gold 2.28 (GOG), the Ghidra project's scripts (`ghidra/`), the process tools (`usage/`, `stack/`), the game's remote-control client and its conformance tools (`game/`) and the original's driver (`original/`).
   The research scripts are an archive and a reference for porting the parsing logic to Rust: the product does not use Python (PLAN.md, ADR-03).
 * The research scripts only read files in `OriginalGame/` and write nothing to the repository; outputs go to a path that is passed explicitly.
   The process tools work on Git and GitHub, as their rows say: `stack/stack.py` commits and pushes branches, `usage/pr_usage.py --update` edits a pull request's description.
@@ -61,6 +61,10 @@ python -I tools/game/remote.py click 900 520
 python -I tools/game/remote.py screenshot <scratch>/shot.png
 python -I tools/game/remote.py wait-log "sectors" --after 0
 ```
+
+With the original running beside the game under its driver, two more compare them (docs/03 §3.7):
+- `tools/game/compare.py X,Y …` puts both heroes onto each cell and compares their creatures, and `compare.py stats --types T,… --levels L,…` makes each type at each level in both and compares their fight values (#574, #587);
+- `tools/game/conformance.py [--suites …]` runs the suites of checks against the original, PASS or FAIL each, the experience, the hero, the stats, the drops, the places, the regeneration, the strikes, the arts and the movement (#600).
 
 ## The original's driver
 

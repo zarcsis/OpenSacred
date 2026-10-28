@@ -25,7 +25,7 @@ Multiplayer comes after version 1.0; until then there is no networking. Original
 | M6 Version 1.0 for Windows 11: saves, the settings' menu, the gamepad, 4K and HiDPI, the campaigns played through | planned |
 | M7–M9: HD assets, Linux and possibly Android, multiplayer | after version 1.0 |
 
-It is not a game you can play through yet: there is no inventory, no trade and no saving. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
+It is not a game you can play through yet: the inventory is partly made, and there is no trade, no character sheet and no saving. The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
 
 ## Requirements
 
@@ -51,7 +51,7 @@ cargo run --release -p opensacred-convert -- all      # extract everything into 
 cargo run --release -p opensacred-game                # the game, from its menu
 ```
 
-In the game the left button moves, speaks to a creature that has something to say and attacks a hostile one (with Ctrl it strikes at once), the right button makes the selected combat art, R switches walking and running, the wheel zooms, Esc pauses, F1 lists the keys, F3 shows the debug overlay, F4 the log, F11 switches between borderless full screen and a window, and the key under Esc opens the console.
+In the game the left button moves, speaks to a creature that has something to say and attacks a hostile one (with Ctrl it strikes at once), the right button makes the selected combat art, R switches walking and running, I opens the inventory, Space drinks a healing potion from the belt, 1 to 5 choose the weapon set, the wheel zooms, Esc pauses, F1 lists the keys, F3 shows the debug overlay, F4 the log, F11 switches between borderless full screen and a window, and the key under Esc opens the console.
 
 The converter works in two stages. The extractions `textures`, `models`, `world`, `sound`, `text`, `video`, `ui`, `tables`, `heroes` and `netscript` write the masters into `assets-src/`; `build` makes the game's `assets/` from them, packed into ZIP archives by kind, and remakes only those whose masters changed. `all` runs every extraction in order, skipping those whose output is up to date (`--force` runs them all), then `build`; `verify` checks the installation and `coverage` tells what becomes of each of its files. `--help` describes each. The game takes `--class` (a game at once, skipping the menu), `--sector X,Y`, `--zoom`, `--time HH:MM`, `--windowed`/`--borderless`, `--width`/`--height`, `--no-music`, `--settings`, `--log-file`, `--screenshot`, `--benchmark`, `--exec` and `--remote`; its `--help` lists the rest.
 
@@ -62,7 +62,7 @@ The converted assets are made from your copy of the game. Keep them for yourself
 | Path | Contents |
 |---|---|
 | `crates/opensacred-formats` | readers of the original formats (PAK, TEX, GRN, sectors, NetScript, `global.res`, AMH); parsing only |
-| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds, the drops, the quests' state, the spells and the weather |
+| `crates/opensacred-rules` | the game's rules with no engine: spawning, the fight's formulas, the ways, the creatures' minds, the arrows, the drops, the combat arts and spells, the quests' state and rewards, the backpack, the equipment, the potions and the weapon sets, the weather, the music, the particles and the undead |
 | `crates/opensacred-scripts` | the runtime of the scripts translated into Luau, sandboxed |
 | `crates/opensacred-data` | open-format types shared by the converter and the game, the game's ZIP archives and KTX2 textures |
 | `crates/opensacred-convert` | the converter CLI |

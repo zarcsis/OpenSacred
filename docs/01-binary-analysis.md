@@ -16,7 +16,7 @@ The status of claims is marked with these words: **confirmed** — there is an a
 * The GOG client has no protection at all and is analyzed as is: 4 sections, entry point RVA 0x44D964, no traces of ProtectDISC.
 * Client code: 1,462,718 instructions; after normalization **≈5,900 game functions in 3.48 MB (≈180k logical lines of C++)**, 410 vtables and 417 RTTI classes, ~1,300 `dynamic_cast`s, 2,539 EH frames; CRT, STLport 4.x, zlib 1.2.1 and D3DX7 are statically linked in.
 * On the order of **2,000–3,000 functions** need analysis: rules, items, AI, the script interpreter (§8).
-  Rendering and sound are written anew, but what they show (the draw order, the liquids, the light by the hour, the music and the footsteps by the ground) is read off the code into `docs/re/`; UI, input, networking and the file layer are written from scratch without reading the original's code.
+  Rendering and sound are written anew, but what they show (the draw order, the liquids, the light by the hour, the music and the footsteps by the ground) is read off the code into `docs/re/`; the interface's places and images are read off the code as well; input, networking and the file layer are written from scratch.
 * `GameServer.exe` is an auxiliary binary: 1,176 game functions (227 KB) are byte-identical to the client, which helps confirm function boundaries and classes.
   The server itself is not ported: multiplayer comes after version 1.0 and is written anew (PLAN.md ADR-09).
 * Behavior details useful for the reimplementation: random numbers come from the MSVC CRT LCG; object positions are integers; x87 precision in the original was not fixed, so bit-exact results are not needed (§7).
@@ -372,8 +372,8 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | Large unlabeled functions (world, AI) | 304 / 528 KB | **selective analysis** |
 | NetScript interpreter and quests | ≈29 / 12 KB under the client label + handlers in `game_sim` | **analysis**: semantics of the 113 record types in use |
 | Events (`cEvent*`) | 257 / 85 KB | **selective analysis**: which events the rules generate |
-| Particles (178 classes) | 1,270 / 345 KB | **data**: effect parameters are extracted semi-automatically, the code is not carried over |
-| UI | 987 / 572 KB | **not analyzed**: a new interface; only the formulas the UI displays are taken from the code |
+| Particles (178 classes) | 1,270 / 345 KB | **selective analysis**: the particle systems' machinery ([docs/re/effects.md](re/effects.md)) |
+| UI | 987 / 572 KB | **selective analysis**: the interface's places, images and behaviour ([docs/re/interface.md](re/interface.md), [menus.md](re/menus.md), [cursor.md](re/cursor.md), [inventory.md](re/inventory.md)) |
 | Rendering, D3D7, fonts | 134 / 56 KB | **selective analysis**: what is drawn and in what order ([docs/re/drawing.md](re/drawing.md), [liquids.md](re/liquids.md), [daynight.md](re/daynight.md)), not the D3D7 calls, whose facts are in [docs/05-renderer-vulkan-4k.md](05-renderer-vulkan-4k.md) |
 | Sound | — | **selective analysis**: the choice of the music, the footsteps and the ambient loops ([docs/re/sound.md](re/sound.md)); the Miles layer is replaced |
 | Video, networking, files, IME | — | **not analyzed**: replaced, networking after version 1.0 |
@@ -384,8 +384,8 @@ At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent
 
 ### 8.2 How to analyze
 
-1. A Ghidra 12.1.4 project with the GOG `Sacred.exe` and `GameServer.exe`, outside the repository, set up on 2026-10-18 (#87) and completed on 2026-10-19 (#88; [docs/03-toolchain.md](03-toolchain.md), §4.1): the classes from RTTI by `tools/ghidra/RttiClassesScript.java` (410 in the client, 253 in the server), the community names (sacred-bild only locally, sacred-sdk: 137 functions named, 37 data addresses labeled), the library code tagged (`LIBRARY` 1,725, `EH` 17,422 and `STL` 241 functions in the client) and the names carried between the two binaries over 1,546 matched functions.
-2. Claude Code works with the decompilation through an MCP server (pyghidra-mcp) and writes per-subsystem notes into `docs/re/`: so far `ai`, `daynight`, `drawing`, `equipment`, `fight`, `items`, `liquids`, `motions`, `movement`, `netscript`, `sound` and `spawning`.
+1. A Ghidra project (12.2 since 2026-10-24, [docs/03-toolchain.md](03-toolchain.md), §2) with the GOG `Sacred.exe` and `GameServer.exe`, outside the repository, set up on 2026-10-18 (#87) and completed on 2026-10-19 (#88; [docs/03-toolchain.md](03-toolchain.md), §4.1): the classes from RTTI by `tools/ghidra/RttiClassesScript.java` (410 in the client, 253 in the server), the community names (sacred-bild only locally, sacred-sdk: 137 functions named, 37 data addresses labeled), the library code tagged (`LIBRARY` 1,725, `EH` 17,422 and `STL` 241 functions in the client) and the names carried between the two binaries over 1,546 matched functions.
+2. Claude Code works with the decompilation through an MCP server (pyghidra-mcp) and writes per-subsystem notes into `docs/re/`: so far `ai`, `arts`, `cursor`, `daynight`, `drawing`, `effects`, `equipment`, `fight`, `interface`, `inventory`, `items`, `liquids`, `menus`, `motions`, `movement`, `netscript`, `objects`, `sound`, `spawning`, `traces`, `weather` and `window`.
 3. For formula functions: the behavior is described in prose in `docs/re/`, implemented independently in Rust and verified against vectors from the user's own executable in the Unicorn emulator ([docs/04-language-and-engine.md](04-language-and-engine.md), §2).
 4. `GameServer.exe` helps where functions are shared: boundaries, types, class names.
 

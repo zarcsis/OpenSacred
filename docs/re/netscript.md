@@ -777,7 +777,7 @@ To check in the original: 7622's target at its cell; 9512's demon at the four ce
 
 Not read: whether a save keeps the date and the timers, the drift seen in the running original, and a test by which a repaired drop could know that its partner quest is open (these quests set no bits of their own).
 The repairs each change a quest's course, so each is a `bug` whose decision is the maintainer's: the shared drops (#930), the timers of 1202 (#931) and 1803 (#932), the calendar's drift (#933), and the quests above (#935 to #944, #946 to #955, #957 to #960).
-The maintainer chose them on 2026-10-25, as their issues say: `opensacred-convert netscript` makes those of the data as it writes the trees (`script_repairs`, docs/02 §7.1), each recorded as a decision; those of the runtime (#930, #933, #952, #954) are decisions for #726; #943, #951 and #960 wait for their readings.
+The maintainer chose them on 2026-10-25, as their issues say: `opensacred-convert netscript` makes those of the data as it writes the trees (`script_repairs`, docs/02 §7.1), each recorded as a decision; those of the runtime (#930, #933, #952, #954) are decisions for #726; #943 and #951 were read and repaired by the converter (#971), and #960 proved no defect of the data (#970).
 
 ## `SetNPCState`
 
@@ -899,7 +899,7 @@ Seen in the original and the game (#1277): `OMO-1malorka_dance` after `Dialog:ma
 Since #1280 the hero has a queue of its own (`npcs::take_hero_steps`): under the mode an `NPC_Goto` of the hero and a `Teleport` of the hero or of no creature wait in it, the walk ordering the hero to its target at a run and setting the player's gait to running, ended within 40 along each axis on its level or dropped after five orders without moving, the teleport putting the hero as the scripts' `Teleport` puts a player; outside the mode an `NPC_Goto` of the hero sends it at once.
 An `NPC_Goto` walks the creature of its last name, and a `SetCinemaMode` stops a hero whose queue is empty.
 Seen in both games: the Daemon's `btn_Deamonstart` leaves the hero and Anducar where they stand, and `annehmen2003` from open grass sends the hero running toward its far target, its teleport waiting behind the walk.
-Not followed yet (#1232): what `Wait`, `Attack` and the rest do in their turns, the reset of the AI's state after an entry, a `SetPlayMode` naming a creature (it ends the mode at once), `NPC_Goto`'s walk with `0x66`, the cinema mode's per-tick stop of the hero and its refusal of the mouse, the interface's flag, and the queues saved with the creatures.
+Not followed yet (#1232, #1281): what `Attack` and `ActObj` do in their turns, the reset of the AI's state after an entry, a `SetPlayMode` naming a creature (it ends the mode at once), `NPC_Goto`'s walk with `0x66`, the cinema mode's per-tick stop of the hero and its refusal of the mouse, the interface's flag, and the queues saved with the creatures.
 The first window of a new game, the Daemon's Skip Tutorial among its buttons, is not shown in `opensacred-game` yet.
 
 ## Differences from the openheilig table

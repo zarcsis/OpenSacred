@@ -36,6 +36,7 @@ Stopping the host's background task ends the game within a second (a job object)
 | `--muted` | the game's volumes 64, so that it plays its sounds (for the sound traces), while the agent sets every volume of mss32.dll to 0, a stream's volume read back answering the one asked (#1213); never `--sound` while the maintainer may hear it |
 | `--arg WORD` | a word of `Sacred.exe`'s command line, as `--arg tabblocker` (docs/re/window.md) |
 | `--port N` | another port (15703 by default) |
+| `--game-dir DIR`, `--agent FILE` | another installation (`OriginalGame/` by default), another agent (`tools/original/agent.js` by default) |
 | `--interactive` (`--monitor N`) | the maintainer's play (#551, docs/03 §3.8): the original full screen through dgVoodoo2 on the primary monitor (or the n-th the log lists), scaled with its proportions kept, the maintainer's mouse and keyboard reaching it while it has the foreground; it takes the screen and the focus, so only when the maintainer starts it or asks for it, never for a check of Claude Code's own |
 
 ## What the client does here
