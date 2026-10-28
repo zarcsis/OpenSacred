@@ -12,6 +12,7 @@
 pub mod arrows;
 pub mod arts;
 pub mod drops;
+pub mod equipment;
 pub mod fight;
 pub mod inventory;
 pub mod minds;

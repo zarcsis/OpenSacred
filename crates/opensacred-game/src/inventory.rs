@@ -79,6 +79,10 @@ const EQUIPMENT_BOTTOM: (u32, u32, (u32, u32)) = (60, 61, (15, 5));
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Opened;
 
+/// The equipment window, which the slots' frames go into (`equipment`, #1288).
+#[derive(Component)]
+pub(crate) struct EquipmentWindow;
+
 /// Whether the inventory's windows show.
 #[derive(Resource, Default)]
 pub struct Shown(pub bool);
@@ -252,7 +256,7 @@ fn show(
         .id();
     let window = |rect: Rect| (bar::placed(rect.min, rect.size()), Pickable::IGNORE);
     let inventory = commands.spawn(window(INVENTORY)).id();
-    let equipment = commands.spawn(window(EQUIPMENT)).id();
+    let equipment = commands.spawn((window(EQUIPMENT), EquipmentWindow)).id();
     commands
         .entity(screen)
         .add_children(&[inventory, equipment]);
