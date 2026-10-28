@@ -539,6 +539,26 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     Found on the way: the night's pass darkening the effects that the original leaves untinted (#1191), the runes left out of the drops (#1183), the undead that rise again (#1199), their effects (#1202) and the effects' empty meshes (#1203).
     The tests on the game files passed on `main` before #1200, 892 of 892.
     Next: the hero's comments in the world and the quests' sounds (#1176), the rest of the effects (#1092, #1202), and the inventory and its windows (#1088).
+26. **2026-10-27: the sound's last threads, the scripts' music and remarks, and the anim mode.**
+    The peace stream's alternation was read (#1211) and followed: the music and the ambient loop take the stream in turns (#1177); the original's driver's mute reads a stream's volume back as asked (#1213).
+    The voices: a dialogue's voice-over ends as its window closes (#1234), and the voice-overs and the hero's lines by name share one slot (#1238).
+    The scripts in the play: `ExitQuest`, `LoseQuest` and `UnTriggerQuest` (#1242), the scripts' music, jingles and sound control and the quests' fanfare (#1243), the hero's remarks on the quests and on idling (#1246) and on the land, its regions and settlements (#1247), so that #1176 is done; the talks' binds and `SelfTriggerQuest<n>` were read (#1250), and a side quest accepted by a dialogue's button gives `GETNQ` (#1253).
+    The scripts' anim mode queues a creature's walks and teleports, one step a tick (#1220).
+    The hero plays its pick-up as it takes an item (#1219), lands on its start's floor as soon as its cell is in (#1218) and keeps what ends its art or strike through an order (#1215); a creature's crossbow that its model cannot shoot becomes a bow (#1217).
+    The choice of the hero's panel is laid out of the original's pieces (#1221), and the interface's images that the original turns keep their part and their turn (#1236).
+    The maintainer's new rule: a problem that shows on the screen carries its frames, cropped, in its issue and pull request (#1222).
+27. **The night of 2026-10-27 into 28: the inventory, the scripts' queues and the undead's ends.**
+    The day's dependency update (#1258), then the maintainer's three reports: the pick-up's clip plays at the original's rate (#1255); the items that the scripts lay in the world are picked up, the Seraphim's plant of quest 15001 among them (#1256); the "!" over a creature stands left of its head as in the original, the glyph in its texture's left columns (no issue: the maintainer chooses whether to centre it); #1168 was closed at the maintainer's word.
+    The class 5's deaths (#1260): the skeleton warriors' changes as they rise, the bursts, the vanishing and the fire ghoul's burn; the undead's ring and dust of 781 (#1261, a decision on the dust's points), and the magic skeletons' drain beam beside the original's (#1263).
+    The inventory (#1088) was read in the original and its code (#1251) and broken into sub-issues: its windows and frames (#1267); the backpack's grid with the items as their models, turned by their records' transforms through a mirror of the files' y found by the original's frames (#1268); the templates' backpacks at a new game's start (#1285); and the cursor's item, taken, put down, swapped and dropped beside the hero (#1269).
+    The equipment (#1270) was split into its slots (#1288), the putting on (#1289) and the hero's values and look (#1290); the use's test waits for the class bits and the level byte to be settled in the original.
+    The scripts' anim mode (#1232): its other kinds, the waits and the cinema were read (#1276); the queue keeps every kind and plays `PlayAnim`, Malorka's dancers going through their clips as in the original (#1277); a `CallFunktion` naming a creature waits its turn (#1278), and `Wait` holds its creature's queue (#1279).
+    The cinema's walk of the Daemon's start was tried in the original, where the hero did not walk under the driver, so its hypothesis waits for a reading (#1280, its comment).
+    The scripts' test `0x3A` finds an item in the hero's list of the main quest's items (#1257); quest 204 played through it found two bugs, both fixed: a death's function now places at its dying creature (#1295), and a `CreateObj` of an item's type lays an item to pick up, as seen in the original (#1296).
+    `luau0-src` 0.22.1, held back by #869, was yanked upstream, and #869 was closed.
+    The tests on the game files passed before each merge, 948 of 948 at #1263.
+    Waiting for the maintainer: whether the "!" over a creature is to be centred.
+    Next: the equipment's use test, read first (#1288), then #1289 and #1290; the effect 856 (#1262); the rest of the queue's kinds (#1281); and the cinema's hero (#1280).
 
 ### 10.1 Priority queue
 
