@@ -83,6 +83,9 @@ pub struct Pack {
     /// The items worn in the equipment window's slots, each by its key (#1289); the classes'
     /// default items, which the window does not show, not among them.
     pub worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
+    /// The types of the books read, each once, in the order read (the inventory entry's list at
+    /// `+0xC`, `0x5DD5D0`; #1358), which the quest book's window shows (#1091).
+    pub books: Vec<u32>,
 }
 
 /// An item on the cursor: its key in the grid, the item and its size in cells.
@@ -162,6 +165,16 @@ impl Pack {
         let index = self.items.iter().position(|(k, _)| *k == key)?;
         self.grid.remove(key);
         Some(self.items.remove(index).1)
+    }
+
+    /// Adds the book of the type `item` to the books read where it is not among them
+    /// (`0x5DD5D0`): whether it was new.
+    pub fn read(&mut self, item: u32) -> bool {
+        if self.books.contains(&item) {
+            return false;
+        }
+        self.books.push(item);
+        true
     }
 
     /// Takes `dropped` of `size` onto the cursor where it holds nothing, as an item picked up
@@ -767,6 +780,15 @@ mod tests {
         assert_eq!(pack.use_up(key), None);
         assert_eq!(pack.potions().len(), 2);
         assert!(pack.grid.at((2, 0)).is_none());
+    }
+
+    #[test]
+    fn a_book_joins_the_books_read_once() {
+        let mut pack = Pack::default();
+        assert!(pack.read(4097));
+        assert!(pack.read(4125));
+        assert!(!pack.read(4097));
+        assert_eq!(pack.books, [4097, 4125]);
     }
 
     #[test]
