@@ -578,6 +578,8 @@ fn plays(
 const FIRE_GHOUL: u32 = 73;
 /// `DIEFLAMES`, the sound of a creature that burns away.
 pub(crate) const DIES_IN_FLAMES: u32 = 7029;
+/// `CHAR_SPLASH`, the sound of a creature that bursts (`0x4E8DA0`, `undead`, #1260).
+pub(crate) const SPLASH: u32 = 3000;
 
 /// A fire ghoul dying sounds `DIEFLAMES` at itself (the death's action, `0x53ECA0`, its case of
 /// the type 73 at `0x5416DD`); the magic skeletons and the undead goblins sound it as they burn
