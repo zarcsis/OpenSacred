@@ -2080,8 +2080,9 @@ fn shortfall(required: u32, level: u32, skill: u32) -> Option<f64> {
     })
 }
 
-/// The level that an item of the values `values` asks of its holder, the byte `+0x19` that the
-/// client works out for every record as it loads the items and for every item it makes
+/// The own level of an item of the values `values`, the byte `+0x19` that the client works out
+/// for every record as it loads the items and for every item it makes (the level it asks of its
+/// holder is `+0x14`, worked out from it; #1303)
 /// (`0x5D3AB0`; #844): its damage's worth `D`, the mean of the four kinds' least and most summed,
 /// or their most where every least is 0; `T`, `D` and its resistances, at least 1, times 100
 /// over its template's scale where it has one; then `(T − SpawnWeaponMin)`, at least 1, times 100

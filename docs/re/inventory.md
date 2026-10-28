@@ -134,9 +134,10 @@ The slots' places in the window, (x, y) of their frames' corners:
 ### Who may use an item (`0x54ABE0`, `0x5BF810`)
 
 - First its classes (the item's virtual `0x38`, `0x5BF810`): the record's bits (`+0x04` bits 0 to 5, 22 and 23; the item's `+0x11C`) of the hero's types 1 to 9, bit 0 the Seraphim, 1 the Gladiator, 2 the Mage, 3 the Dark Elf, 4 the Wood Elf, 5 the Vampiress (the types 6 and 7), 22 the Dwarf, 23 the Daemon; no bit, or all of them, any class; bit 6 none; a class's variant (`0x43CA20`) writes the bits of the taker's class.
+  **Confirmed** on the data (#1303): each class's own item of the templates carries its class's bit alone in its record's `+0x04` (the Seraphim's 4007 bit 0, the Gladiator's 4054 bit 1, the Mage's 3219 and 7904 bit 2, the Dark Elf's 7903 bit 3, the Vampiress's 4028 bit 5, the Dwarf's 3018 bit 22), and the other templates' weapons all seven bits.
 - The weapons' kinds (`Weapon.pak +0x1E`): the Dwarf may not use the kinds 4, 7 and 12, the Daemon not 7, and the kind 3 is the Gladiator's and the Dwarf's alone; the Dwarf may not use the bridles (29), and the types 1800 to 1804 are for no hero.
 - Then the requirements of the item's record (`0x5BEB30`): its byte `+0x14` at most the hero's level (`+0x3FE`); `+0x15` the strength (the stats' `+0x10`, the creature's `+0x3B8`), `+0x16` the dexterity (`+0x3BC`), `+0x17` the charisma (`+0x3C2`) and `+0x18` the endurance (`+0x3BA`) at most the hero's; the skill `+0x1A` at least at the level `+0x1B` (`0x582450`); the tooltip names them by the keys `INVENTAR_MIN_*`.
-- This reads `+0x14` as the level an item asks of its holder, where docs/re/items.md, "The level an item asks", has `+0x19` for it and `+0x14` for the least level its maker gives it; the tooltip shows `+0x19` on a line of its own (the text 1070) as the item's level (**to be settled** in the original with an item of the two bytes apart).
+- `+0x14` is the level an item asks of its holder and `+0x19` the item's own level, **confirmed** in the original (#1303): a sword 1712 made by the driver's `item` showed the item's level 30 and a least level of 22 in red in its tooltip (`⌊(30 + 9)·0.8 − 8.5⌋`, docs/re/items.md), and its cells in the grid stayed red for the Daemon up to her level 21 and turned blue at 22.
 
 ### The clicks on the equipment window (`0x6B6690`)
 
