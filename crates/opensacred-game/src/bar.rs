@@ -37,7 +37,7 @@ use crate::hud::{self, Pointer};
 use crate::making::Selected;
 
 /// The original's screen, the bar's and the column's places on it.
-const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
+pub(crate) const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
 const BAR: Rect = Rect {
     min: Vec2::new(0.0, 676.0),
     max: Vec2::new(1024.0, 768.0),
@@ -55,8 +55,10 @@ const DISC_SIDE: f32 = 55.0;
 const DISC_TURN: f32 = 0.004_363_323;
 /// The images of the bar's pieces (docs/re/interface.md, "The bar").
 const HOUSING: (u32, Vec2) = (11, Vec2::new(397.0, 680.0));
+/// The inventory's button (`UI_TB_INVENTORY`, `inventory`).
+pub(crate) const INVENTORY_BUTTON: (u32, Vec2) = (87, Vec2::new(399.0, 705.0));
 const BUTTONS: [(u32, Vec2); 5] = [
-    (87, Vec2::new(399.0, 705.0)),
+    INVENTORY_BUTTON,
     (89, Vec2::new(434.0, 729.0)),
     (91, Vec2::new(558.0, 729.0)),
     (93, Vec2::new(594.0, 705.0)),
@@ -157,15 +159,24 @@ impl UiImages {
 
     /// The image `index`: its texture's file, its part in it, and whether it is turned about
     /// across and along (#1236).
-    fn turned_part(&self, index: u32) -> Option<(&str, Rect, [bool; 2])> {
+    pub(crate) fn turned_part(&self, index: u32) -> Option<(&str, Rect, [bool; 2])> {
         let image = self.images.get(usize::try_from(index).ok()?)?;
         let file = self.files.get(&image.texture)?;
         let [x, y, w, h] = image.rect.map(f32::from);
         Some((file.as_str(), Rect::new(x, y, x + w, y + h), image.turned))
     }
 
+    /// The image `index`'s anchors relative to its part's top left (#1267), none for an image
+    /// it does not have.
+    pub(crate) fn anchors(&self, index: u32) -> [f32; 4] {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.images.get(index))
+            .map_or([0.0; 4], |image| image.anchors.map(f32::from))
+    }
+
     /// The image `index`'s size in pixels.
-    fn size(&self, index: u32) -> Vec2 {
+    pub(crate) fn size(&self, index: u32) -> Vec2 {
         self.part(index).map_or(Vec2::ZERO, |(_, rect)| rect.size())
     }
 }
@@ -215,7 +226,7 @@ fn slots(level: u32) -> usize {
 
 /// A piece of the interface: the image `index` at `at` of the original's screen, relative to its
 /// container's corner `origin`, at its own size.
-fn piece(
+pub(crate) fn piece(
     images: &UiImages,
     assets: &AssetServer,
     index: u32,
@@ -238,7 +249,7 @@ fn piece(
 }
 
 /// A node at `at` of its container, of `size`.
-fn placed(at: Vec2, size: Vec2) -> Node {
+pub(crate) fn placed(at: Vec2, size: Vec2) -> Node {
     Node {
         position_type: PositionType::Absolute,
         left: Val::Px(at.x),
