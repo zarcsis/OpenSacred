@@ -6411,6 +6411,7 @@ pub(crate) fn script_records(
         (Without<Dies>, Without<hero::Body>),
     >,
     (mut queues, real): (Query<&mut ScriptQueue>, Res<Time<bevy::time::Real>>),
+    dying: Query<(&ScriptName, &Transform, Option<&crowd::InTheWay>), With<Dies>>,
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
     let talk_to = |commands: &mut Commands, entity: Entity, talk: Option<String>| match talk {
@@ -6447,11 +6448,21 @@ pub(crate) fn script_records(
                 .map_or(0, |body| floor_of(body.level()));
             cell_at(at.translation, floor)
         }),
+        // A dying creature still stands where it fell, as its death's function runs while its
+        // object lives on (#1295): quest 204's guard lays its book there.
         Some(name) => creatures
             .iter()
             .find(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
             .map(|(_, _, _, at, _, way, ..)| {
                 cell_at(at.translation, way.map_or(0, |way| floor_of(way.level)))
+            })
+            .or_else(|| {
+                dying
+                    .iter()
+                    .find(|(named, ..)| named.0 == name)
+                    .map(|(_, at, way)| {
+                        cell_at(at.translation, way.map_or(0, |way| floor_of(way.level)))
+                    })
             }),
     });
     match npcs.add(&records, |at| streamer.area(at)) {
