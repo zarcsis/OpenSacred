@@ -215,6 +215,8 @@ pub struct Effects {
     pub sounds: Vec<ScriptSound>,
     /// The hero's remarks it gives cause to.
     pub remarks: Vec<Remark>,
+    /// The items it gave the hero straight among the main quest's items (#1256).
+    pub given: Vec<u32>,
 }
 
 impl Effects {
@@ -232,6 +234,7 @@ impl Effects {
         self.popups.extend(other.popups);
         self.sounds.extend(other.sounds);
         self.remarks.extend(other.remarks);
+        self.given.extend(other.given);
     }
 }
 
@@ -575,6 +578,7 @@ impl Live {
             popups: recorder.popups,
             sounds: recorder.sounds,
             remarks: recorder.remarks,
+            given: recorder.given,
         };
         (effects, outcome)
     }
@@ -739,8 +743,12 @@ struct Recorder<'a> {
     /// The quest of the function that runs, which the rewards ask ([`REWARDS`]).
     quest: Option<u32>,
     /// The quests of the functions that run, the innermost last, each as the record walker takes
-    /// its function's (`+0x48`, `0x46BA90`).
+    /// its function's (`+0x48`, `0x46BA90`), and their names.
     running: Vec<Option<u32>>,
+    names: Vec<String>,
+    /// The items that its `CreateObj`s gave the hero straight among the main quest's items
+    /// ([`Recorder::given`], #1256).
+    given: Vec<u32>,
 }
 
 /// The records of the rewards, `AddExp`, `AddGold` and `Gewinn`, which `rewards` carries out:
@@ -776,6 +784,8 @@ impl<'a> Recorder<'a> {
             between: true,
             quest: None,
             running: Vec::new(),
+            names: Vec::new(),
+            given: Vec::new(),
         }
     }
 
@@ -808,6 +818,44 @@ impl<'a> Recorder<'a> {
             flags & quests::SET_UP != 0 && flags & quests::FINISHED == 0
         })
     }
+
+    /// A `CreateObj` of the operands `tags` that gives its item straight to the hero, as the
+    /// answers so far `ran` find it (`0x485C10`, docs/re/netscript.md, "The log's quest items";
+    /// #1256): one of `0x61` or `0x62`, an item type and no `0x8E` makes no object and gives the
+    /// item among the main quest's items, then runs its `0x41` function, unless that very
+    /// function runs, where it makes the object in the world instead (its record kept for
+    /// `npcs`). None for any other `CreateObj`.
+    fn given(&mut self, tags: &Tags, operands: &[Operand], ran: &[bool]) -> Option<Handled> {
+        let marked = |key: &str| matches!(tags.values(key).first(), Some(Operand::Bool(true)));
+        if !(marked("_61") || marked("_62")) || marked("_8E") {
+            return None;
+        }
+        let item = tags
+            .numbers("_02")
+            .first()
+            .and_then(|&item| u32::try_from(item).ok())?;
+        if !ran.is_empty() {
+            return Some(Handled::Done);
+        }
+        bevy::log::info!("scripts: CreateObj gives the hero {item}");
+        self.given.push(item);
+        let take = tags.texts("_41").first().map(|&take| take.to_owned());
+        match take {
+            Some(take)
+                if self
+                    .names
+                    .last()
+                    .is_some_and(|running| running.eq_ignore_ascii_case(&take)) =>
+            {
+                if let Some(record) = opensacred_scripts::record("create_obj", operands) {
+                    self.records.push(record);
+                }
+                Some(Handled::Done)
+            }
+            Some(take) => Some(Handled::Run(take)),
+            None => Some(Handled::Done),
+        }
+    }
 }
 
 impl Host for Recorder<'_> {
@@ -835,6 +883,12 @@ impl Host for Recorder<'_> {
         if REWARDS.contains(&name) && !self.rewards() {
             bevy::log::debug!("scripts: {name} inside a finished quest gives nothing");
             return Handled::Done;
+        }
+        // A `CreateObj` that gives its item straight to the hero (#1256).
+        if name == "create_obj"
+            && let Some(handled) = self.given(&tags, operands, ran)
+        {
+            return handled;
         }
         if ran.is_empty()
             && let Some(mut record) = opensacred_scripts::record(name, operands)
@@ -1327,11 +1381,13 @@ impl Host for Recorder<'_> {
     fn begins(&mut self, function: &str) {
         self.between = false;
         self.running.push(quest_of(self.index, function));
+        self.names.push(function.to_owned());
     }
 
     fn ends(&mut self) {
         self.between = true;
         self.running.pop();
+        self.names.pop();
     }
 }
 
@@ -1810,6 +1866,7 @@ struct Queues<'w> {
     popups: ResMut<'w, Popups>,
     sounds: MessageWriter<'w, ScriptSound>,
     remarks: MessageWriter<'w, Remark>,
+    given: MessageWriter<'w, crate::pickup::Given>,
 }
 
 impl Queues<'_> {
@@ -1825,6 +1882,8 @@ impl Queues<'_> {
         self.popups.0.extend(effects.popups);
         self.sounds.write_batch(effects.sounds);
         self.remarks.write_batch(effects.remarks);
+        self.given
+            .write_batch(effects.given.into_iter().map(crate::pickup::Given));
     }
 }
 
@@ -1977,6 +2036,36 @@ fn collect(
     }
 }
 
+/// Runs the taking's function of each quest's item that the scripts laid and the hero took
+/// (`Take:`, `0x4A71F0`, `0x46BF40`; #1256), and counts the item on the scripts' collecting
+/// (`SetOnCollect`, `0x4AAAE0`), the hero put where they teleport it.
+fn take_for_quest(
+    mut live: Option<NonSendMut<Live>>,
+    mut taken: MessageReader<crate::pickup::TakenForQuest>,
+    mut heroes: Query<(&mut Transform, &mut Body)>,
+    mut queues: Queues,
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
+) {
+    for crate::pickup::TakenForQuest { item, take, .. } in taken.read() {
+        let Some(live) = live.as_mut() else {
+            continue;
+        };
+        live.living = living_groups(npcs.as_deref(), minds.iter());
+        let mut effects = Effects::default();
+        if let Some(take) = take {
+            bevy::log::info!("scripts: the hero takes {item} and runs {take}");
+            effects.extend(live.run_named(take));
+        }
+        if let Some(counted) = live.collect(*item) {
+            effects.extend(counted);
+        }
+        if let Ok((mut transform, mut body)) = heroes.single_mut() {
+            put(live, &effects.teleports, &mut transform, &mut body);
+        }
+        queues.hand(effects);
+    }
+}
+
 /// Puts the hero where the last of `teleports` names, on its level.
 fn put(live: &mut Live, teleports: &[Teleport], transform: &mut Transform, body: &mut Body) {
     if let Some(&Teleport {
@@ -2028,8 +2117,8 @@ impl Plugin for ScriptsPlugin {
             )
             .add_systems(
                 Update,
-                collect
-                    .after(crate::pickup::take)
+                (collect, take_for_quest)
+                    .after(crate::pickup::picking)
                     .in_set(Playing)
                     .in_set(Unpaused),
             );
@@ -2648,6 +2737,50 @@ mod tests {
         assert_eq!(live.transition(Transition::Exit, 5), Effects::default());
         assert_eq!(shares(live.run("unknown", 0)), [7]);
         assert_eq!(shares(live.run("unknown", 0)), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn a_create_obj_of_0x61_gives_its_item_and_runs_its_function() {
+        let runtime = runtime(&[(
+            "functions/items.luau",
+            "local F = {}
+             F[\"gives\"] = function()
+             create_obj { _01 = \"res:6048\", _02 = 6048, _04 = \"CPOS:hero\", _61 = true }
+             create_obj { _01 = \"Res:6049\", _02 = 6049, _04 = \"CPOS:hero\", _41 = \"go11a2\", _61 = true }
+             return true
+             end
+             F[\"go11a2\"] = function()
+             set_hp { _0B = 11 }
+             create_obj { _01 = \"Res:6050\", _02 = 6050, _04 = \"CPOS:hero\", _41 = \"go11a2\", _62 = true }
+             return true
+             end
+             F[\"lays\"] = function()
+             create_obj { _01 = \"Res:6046\", _02 = 6046, _04 = \"CPOS:hero\", _41 = \"take1001\", _61 = true, _8E = true }
+             create_obj { _02 = 5218, _04 = { 3421, 3162, 1 }, _29 = \"chest\" }
+             return true
+             end
+             return F",
+        )]);
+        let mut live = live(runtime);
+        // The records of the kind 8, `CreateObj`.
+        let objects = |effects: &Effects| {
+            effects
+                .records
+                .iter()
+                .filter(|record| record.kind == 8)
+                .count()
+        };
+        // Both given with no object, the second's function run in its record's middle, whose
+        // own `CreateObj` of that function gives its item and lays its object (#1256).
+        let effects = live.run_named("gives");
+        assert_eq!(effects.given, [6048, 6049, 6050]);
+        let shares: Vec<u32> = effects.healths.iter().map(|set| set.share).collect();
+        assert_eq!(shares, [11]);
+        assert_eq!(objects(&effects), 1);
+        // A quest's item to lie in the world, and a chest, give nothing and go to `npcs`.
+        let effects = live.run_named("lays");
+        assert!(effects.given.is_empty());
+        assert_eq!(objects(&effects), 2);
     }
 
     #[test]

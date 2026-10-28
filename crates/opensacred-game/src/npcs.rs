@@ -19,7 +19,9 @@
 //! `0x03` a heading in degrees, an angle on the screen that the client takes into the grid's axes
 //! (`0x44DDC0`, docs/02 §7.3, `heading`). A `CreateObj` record has the same `0x02`, `0x04` and
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
-//! same reading); an object without a heading above 0 faces its item's own angle
+//! same reading); one of `0x8E` lays a quest's item, which the hero picks up and whose `0x41`
+//! function its taking runs ([`QuestItem`], #1256); an object without a heading above 0 faces
+//! its item's own angle
 //! (`Item::angle`), and its model shows where its world position `0x20` does on the ground's
 //! heights, where it has one, its cell staying its logical position (`Object`, `drawn_at`,
 //! `model_position`).
@@ -278,6 +280,9 @@ struct Placement {
     /// An NPC's functions of the script manager's list, of which its death runs one (#656):
     /// its `CreateNPC`'s and its `SetNPCState`s' `0x05` and `0x60`.
     on_death: DeathFunctions,
+    /// An object's item that lies as a quest's, which the hero picks up, and the function its
+    /// taking runs (`CreateObj`'s [`QUEST_ITEM`] and [`ON_TAKE`], #1256).
+    quest: Option<Option<String>>,
 }
 
 impl Placement {
@@ -366,6 +371,27 @@ const DOOR: u8 = 10;
 const FX: u8 = 12;
 /// A `CreateObj`'s height of an FX object, in the models' units (`0x4861BF`).
 const FX_HEIGHT: u8 = 0x7E;
+/// `CreateObj`'s mark of a quest's item that it lays in the world, an object of `+0x14` bit
+/// `0x800` (`0x485C10`), and the function that its taking runs, kept behind `Take:` (docs/re/
+/// netscript.md, "The log's quest items"; #1256).
+const QUEST_ITEM: u8 = 0x8E;
+const ON_TAKE: u8 = 0x41;
+/// A quest's item's quality key as a drop: a plain item's, made by no item maker.
+const QUEST_KEY: u8 = 16;
+/// The categories of the types that a creature may pick up (`0x427920`; docs/re/items.md,
+/// "The walk"): 5 to 9, 13 to 25, 28, 29 and 33.
+fn takeable(category: u8) -> bool {
+    matches!(category, 5..=9 | 13..=25 | 28 | 29 | 33)
+}
+
+/// A quest's item that a `CreateObj` of [`QUEST_ITEM`] lays in the world, which the hero picks up
+/// as a drop (`pickup`, #1256): the function its taking runs, and its placement, which is not
+/// placed again once taken ([`Npcs::taken`]).
+#[derive(Component, Clone, Debug, PartialEq)]
+pub struct QuestItem {
+    pub take: Option<String>,
+    pub index: usize,
+}
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
 /// A `Creature.pak` record's flag of a big type (`0x426CB0`).
@@ -620,6 +646,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         health_share: None,
         talk: None,
         on_death: DeathFunctions::default(),
+        quest: None,
     }
 }
 
@@ -648,6 +675,9 @@ pub struct Npcs {
     /// The placements that the play's records made, which live wherever they stand from then on
     /// ([`Self::living_groups`]).
     played: HashSet<usize>,
+    /// The placements of the quests' items that the hero took, which their sectors do not place
+    /// again ([`QuestItem`], #1256).
+    taken: HashSet<usize>,
     /// The dialogues' table by name, as the start's records fill it, its first entry twice
     /// (`0x476A05`), which the play's `SetGroupState`s look their dialogues up in (#1021), and
     /// each entry's icon, as the scripts' `SetIcon`s leave it (#1039).
@@ -2497,6 +2527,17 @@ impl Makers {
             } else {
                 DeathFunctions::default()
             },
+            quest: (record.kind == CREATE_OBJ
+                && takeable(category(item))
+                && ops
+                    .iter()
+                    .any(|o| o.tag == QUEST_ITEM && matches!(o.value, Value::Marker)))
+            .then(|| {
+                ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (ON_TAKE, Value::Str(name)) => Some(name.clone()),
+                    _ => None,
+                })
+            }),
         }))
     }
 
@@ -3021,6 +3062,7 @@ impl Npcs {
             places: positions,
             pending: Vec::new(),
             played: HashSet::new(),
+            taken: HashSet::new(),
             dialogues,
             icons,
             region_talks: region_talks(&records),
@@ -3547,6 +3589,10 @@ fn place_index(
     armoury: Option<Armoury>,
     streamer: &mut Streamer,
 ) {
+    // A quest's item that the hero took lies no more (#1256).
+    if npcs.taken.contains(&index) {
+        return;
+    }
     // An `Enter`'s creature, made again as its `CreateNPC` runs again, of the type that its
     // area's `RegionChange` list gives it now (`0x482F41`, #1063).
     let turn = area_types
@@ -3617,6 +3663,27 @@ fn place_index(
             (&npcs.fight, &npcs.items),
         ),
     };
+    // A quest's item lies to be picked up as a drop, its taking's function with it (#1256).
+    if let Some(take) = &placement.quest {
+        commands.entity(entity).insert((
+            QuestItem {
+                take: take.clone(),
+                index,
+            },
+            drops::Lying {
+                dropped: opensacred_rules::drops::Dropped {
+                    kind: opensacred_rules::drops::Kind::Other,
+                    item: placement.creature.0,
+                    level: 0,
+                    key: QUEST_KEY,
+                    quality: 0,
+                    amount: 1,
+                    values: None,
+                },
+                resting: true,
+            },
+        ));
+    }
     // An `Enter`'s creature keeps what it was made of, which a `RegionChange` changes (#1064).
     if placement.made.0 && !placement.object {
         commands
@@ -7120,6 +7187,13 @@ fn instrument(
 #[derive(Component)]
 pub struct Talks;
 
+/// Notes the quests' items that the hero took, which their sectors place no more (#1256).
+fn taken_items(mut taken: MessageReader<crate::pickup::TakenForQuest>, mut npcs: ResMut<Npcs>) {
+    for taken in taken.read() {
+        npcs.taken.insert(taken.index);
+    }
+}
+
 /// The NPCs and objects that the scripts and the fills place: placed as their sectors come in,
 /// animated, walked, retextured and equipped.
 pub struct NpcsPlugin;
@@ -7135,6 +7209,7 @@ impl Plugin for NpcsPlugin {
                 Update,
                 (
                     script_records,
+                    taken_items,
                     region_changes,
                     script_states,
                     script_healths,
@@ -7647,6 +7722,78 @@ mod tests {
             ("models/renegade.glb".to_owned(), motions::Slots::default()),
         ]);
         (makers, slots)
+    }
+
+    #[test]
+    fn a_create_obj_of_a_quest_item_lays_it_to_be_picked_up() {
+        let (mut makers, mut slots) = soldiers();
+        let item = |slot, name: &str, category: u8| Item {
+            slot,
+            kind: 34,
+            class: 1,
+            subclass: 8,
+            name: name.into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0, 0, 0, 0, 0, 0, u32::from(category) << 16, 0],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0; 10],
+        };
+        makers.items.insert(6001, item(6001, "bush01.grn", 15));
+        makers.items.insert(5218, item(5218, "chest.grn", CHEST));
+        makers
+            .models
+            .insert("BUSH01.GRN".to_owned(), "models/bush01.glb".to_owned());
+        makers
+            .models
+            .insert("CHEST.GRN".to_owned(), "models/chest.glb".to_owned());
+        let op = |tag, value| Operand { tag, value };
+        let mut made = |kind: u32, rest: &[Operand]| {
+            let mut ops = vec![
+                op(0x01, Value::Str("res:ZIELOBJEKT_15001".into())),
+                op(0x02, Value::I32(i32::try_from(kind).expect("a type"))),
+                op(0x04, Value::I32x3([3252, 2546, 0])),
+            ];
+            ops.extend_from_slice(rest);
+            let record = Record {
+                kind: CREATE_OBJ,
+                body: Body::Operands(ops.clone()),
+            };
+            makers
+                .placement(
+                    &record,
+                    &ops,
+                    Origin::default(),
+                    (&HashMap::new(), &HashMap::new()),
+                    &mut slots,
+                )
+                .expect("made")
+                .expect("placed")
+        };
+        // Quest 15001's plant: `0x41` `od_15001`, `0x61` and `0x8E` (#1256).
+        let take = op(ON_TAKE, Value::Str("od_15001".into()));
+        let plant = made(
+            6001,
+            &[
+                take.clone(),
+                op(0x61, Value::Marker),
+                op(QUEST_ITEM, Value::Marker),
+            ],
+        );
+        assert!(plant.object);
+        assert_eq!(plant.quest, Some(Some("od_15001".to_owned())));
+        // Without `0x8E` it is no quest's item lying, and a chest, which nobody picks up, none
+        // either.
+        assert_eq!(made(6001, &[take.clone()]).quest, None);
+        assert_eq!(
+            made(5218, &[take, op(QUEST_ITEM, Value::Marker)]).quest,
+            None
+        );
+        assert!(takeable(5) && takeable(15) && takeable(33));
+        assert!(!takeable(4) && !takeable(10) && !takeable(12) && !takeable(26));
     }
 
     #[test]

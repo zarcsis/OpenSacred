@@ -20,6 +20,7 @@ use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
 use crate::hero::{self, Body};
 use crate::hud::Pointer;
+use crate::npcs::QuestItem;
 use crate::paths;
 use crate::sfx;
 use crate::terrain::Heights;
@@ -68,7 +69,8 @@ const SANE: f32 = 10.0;
 pub struct Pack {
     pub gold: u32,
     pub items: Vec<Dropped>,
-    /// The main quest's items, which the scripts' collecting keeps (`SetOnCollect`, #1021).
+    /// The main quest's items, which the scripts' collecting keeps (`SetOnCollect`, #1021), the
+    /// quests' items that the scripts laid and the hero took, and those they gave it (#1256).
     pub quest: Vec<Dropped>,
 }
 
@@ -76,6 +78,21 @@ pub struct Pack {
 /// (`cCreature::pickupItem` at `0x558175`, `scripts`).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct Taken(pub u32);
+
+/// A quest's item that the scripts laid in the world and the hero took (`npcs::QuestItem`,
+/// #1256): its type, the function its taking runs, which `scripts` runs, and its placement, which
+/// `npcs` places no more.
+#[derive(Message, Clone, Debug)]
+pub struct TakenForQuest {
+    pub item: u32,
+    pub take: Option<String>,
+    pub index: usize,
+}
+
+/// An item that the scripts give the hero straight among the main quest's items, its type
+/// (`CreateObj` of `0x61` or `0x62` without `0x8E`, `0x4868F6`; #1256).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Given(pub u32);
 
 impl Pack {
     /// Takes `dropped`: gold into the purse, held below `0x7FFFFFFF` (`0x57FD80`), any other item
@@ -188,24 +205,39 @@ pub(crate) struct Taking<'w, 's> {
     sounds: MessageWriter<'w, sfx::Play>,
     arsenal: Option<Res<'w, crate::arsenal::Arsenal>>,
     throws: MessageWriter<'w, crate::arsenal::Throws>,
-    items: Query<'w, 's, &'static Lying>,
+    items: Query<'w, 's, (&'static Lying, Option<&'static QuestItem>)>,
+    for_quest: MessageWriter<'w, TakenForQuest>,
 }
 
 impl Taking<'_, '_> {
     /// Takes `item` (`cCreature::pickupItem`, `0x558080`), if it still lies there: gold sounds
     /// `GOLD01` and the weapon taken back into the hero's hand `UI_INV_PUTMETAL01` (the events
     /// `(9, 0x83)` and `(9, 5)`; #1167), and the scripts' collecting sounds any other item
-    /// (`scripts`).
+    /// (`scripts`). A quest's item that the scripts laid goes among the main quest's items with
+    /// `UI_QUESTBOOK_WRITING` (the event `(9, 0x81)`), and the scripts run its taking's function
+    /// (`Take:`, `0x4A71F0`; #1256).
     fn take(&mut self, item: Entity) {
-        let Ok(lying) = self.items.get(item) else {
+        let Ok((lying, quest)) = self.items.get(item) else {
             return;
         };
         info!(
             "pickup: the hero takes {:?} {} x{}",
             lying.dropped.kind, lying.dropped.item, lying.dropped.amount
         );
+        if let Some(quest) = quest {
+            self.for_quest.write(TakenForQuest {
+                item: lying.dropped.item,
+                take: quest.take.clone(),
+                index: quest.index,
+            });
+            self.sounds.write(sfx::Play {
+                sound: sfx::Of::Id(QUESTS_ITEM),
+                at: None,
+                rate: (0.4, sfx::Roll::Share(0.2)),
+            });
+            self.pack.quest.push(lying.dropped);
         // The weapon the hero hurled goes back into its empty hand (`0x54ACC0`, #755).
-        if self
+        } else if self
             .arsenal
             .as_deref()
             .is_some_and(|arsenal| arsenal.takes_back(&lying.dropped))
@@ -361,6 +393,22 @@ fn empty(mut commands: Commands) {
     commands.insert_resource(Pack::default());
 }
 
+/// Keeps each item that the scripts give the hero among the main quest's items (#1256).
+fn receive(mut given: MessageReader<Given>, mut pack: ResMut<Pack>) {
+    for &Given(item) in given.read() {
+        info!("pickup: the scripts give the hero {item} among the quest's items");
+        pack.quest.push(Dropped {
+            kind: Kind::Other,
+            item,
+            level: 0,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+        });
+    }
+}
+
 /// The items that the hero picks up.
 pub struct PickupPlugin;
 
@@ -368,7 +416,10 @@ impl Plugin for PickupPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Pack>()
             .add_message::<Taken>()
+            .add_message::<TakenForQuest>()
+            .add_message::<Given>()
             .add_systems(OnEnter(AppState::InGame), empty)
+            .add_systems(Update, receive.run_if(in_state(AppState::InGame)))
             .add_systems(
                 Update,
                 (
