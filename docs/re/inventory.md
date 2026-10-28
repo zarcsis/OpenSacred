@@ -151,9 +151,15 @@ The slots' places in the window, (x, y) of their frames' corners:
 
 ## 5. The weapon sets (the taskbar's left slots)
 
-- The weapons and the shields are worn in five weapon sets of two halves (0 the left hand, 1 the right), kept in the inventory's entry (`0x5D8700` reads, `0x5D8730` writes; **hypothesis**: the records at `+0xC18`).
+- The weapons and the shields are worn in five weapon sets of two halves (0 the left hand, 1 the right), kept in the inventory's entry (`0x5D8700` reads, `0x5D8730` writes; **confirmed** by code 2026-10-28): the set `s`'s half `h` is the entry of 12 bytes at the index `258 + 2s + h` (from `+0xC18`), its `+0` the item's id and its `+4` and `+8` the model that the taskbar draws in the slot, loaded as the item is put there by its type's model and texture (`0x426250`, `0x4262B0`); a half above 1 is taken as 1, and in a network game the write sends the event 299.
 - The held item dropped on a set (`0x6E14C0`) tries the half under the cursor first (the slot's left half the half 0), then the other: success plays `(9, 3)` and selects the set; failure plays `(9, 4)` where the class refuses and `(9, 7)` where the requirements do.
-- The rules (`0x6E09C0`): the hero must be able to use the item; a shield goes into the half 0 alone, and replaces a two-handed weapon; a two-handed weapon (`0x5CECD0`) takes the set alone, refused where the set holds two items, else swapped with the one; a one-handed weapon goes by its hands (`0x5CEC00`: 1 left, 2 right, 3 either; **hypothesis**), the half 0 needing a weapon of the hands 3 in the half 1 and the hero's skill 6 (**hypothesis**: two weapons); an item replaced goes onto the cursor or back into the grid.
+- The rules (`0x6E09C0`): the hero must be able to use the item; a shield goes into the half 0 alone, and replaces a two-handed weapon; a two-handed weapon (`0x5CECD0`) takes the set alone, refused where the set holds two items, else swapped with the one; a one-handed weapon goes by its hands (`0x5CEC00`: 1 left, 2 right, 3 either), the half 0 needing a weapon of the hands 3 in the half 1 and the hero's skill 6, the two weapons' (`0x582450`, docs/re/fight.md); an item replaced goes onto the cursor or back into the grid.
+- Read 2026-10-28 (**confirmed** by code): a weapon's hands (`0x5CEC00`) go by the weapon kind of its type's record, or its parent's (`Weapon.pak +0x1E`, docs/02 §6.2): 1 for the kinds 3, 7 (the bows) and 12 (the crossbows), 3 for 0, 1 (the swords and axes), 5 (the daggers), 6 and 10 (the dark elves' blades), and 2 for 2, 4 (the staves and polearms), any other kind and the fist weapons 4067 to 4072; a shield's are 1.
+  A weapon is two-handed (`0x5CECD0`) of the kinds 2, 3, 4, 7 and 12 and the fist weapons 4067 to 4072.
+  The rule answers 0 (refused), 1 (put into an empty place), 2 (put, the item it answers replaced) or 4 (put by trying the other half); it refuses everything while `0x5D8FD0` holds (not read), an item of no category 5 or 13, and an item the hero may not use (`0x54ABE0`).
+  A shield, into the half 0 alone: beside a one-handed weapon or none it takes the half 0's place, the old shield replaced; beside a two-handed weapon in the half 1 it replaces that weapon where the half 0 is empty, else it is refused.
+  A one-handed weapon into the half 1 needs the hands 2 or 3 and replaces a two-handed weapon of either half, else the half 1's item; into the half 0 it needs the hands 3, an item of the hands 3 in the half 1 and the hero's skill 6, and replaces a two-handed weapon of either half, else the half 0's item; so an empty set takes a weapon of the hands 3 into the half 1 alone, and the drop's second try puts it there.
+  A two-handed weapon dropped on a half other than the one its hands name (the half 0 for the hands 1, the half 1 for the hands 2) is tried on the named half, the rule answering 4 where that takes it; on the named half it takes the set alone: into an empty set, or in place of its one item, refused where both halves hold one.
 - A weapon put into the half 0 of an empty set moves to the half 1 unless its hands are 1; the half 1's weapon taken, the half 0's moves to the half 1.
 
 ## 6. The cursor's item
@@ -218,7 +224,7 @@ The windows show since #1267 (`inventory`): the key `I` and the bar's inventory 
 
 - Where the item's name and its quality's colour are drawn in the tooltip.
 - The tabs' advance and font; the equipment window's event to the camera.
-- The weapon sets' records, `0x5CEC00` and `0x5CECD0`; `0x4263A0`, `0x427E30` and `0x427E80` of the slot's test.
+- `0x5D8FD0`, which refuses every weapon set's put; `0x4263A0`, `0x427E30` and `0x427E80` of the slot's test.
 - `0x5DB280` (the sort's fallback) and the sort button's mode.
 - `0x43F710` (the cube), the references `0x11` and `0x1A` of the Shift's clicks, the hero's query `0x51`, the engine's event `0x14`.
 - The statistics window's gold and its region for the drop; the sparkles' list at `+0x116C`; the cells' mark `0x40`.
