@@ -229,7 +229,11 @@ mod tests {
     #[test]
     fn the_potion_goes_to_the_weakest_follower_that_is_hurt() {
         // A wolf at full health, a unicorn of 166 at 20, a skeleton of 90 at 89 (98.9 %).
-        let followers = [("wolf", 120, 120), ("unicorn", 20, 166), ("skeleton", 89, 90)];
+        let followers = [
+            ("wolf", 120, 120),
+            ("unicorn", 20, 166),
+            ("skeleton", 89, 90),
+        ];
         assert_eq!(weakest(followers), Some("skeleton"));
         // At 99 % and above, none.
         assert_eq!(weakest([("skeleton", 99, 100), ("wolf", 120, 120)]), None);
