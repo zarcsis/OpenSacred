@@ -31,7 +31,7 @@ const INVENTORY: Rect = Rect {
     min: Vec2::new(0.0, 388.0),
     max: Vec2::new(640.0, 644.0),
 };
-const EQUIPMENT: Rect = Rect {
+pub(crate) const EQUIPMENT: Rect = Rect {
     min: Vec2::new(656.0, 388.0),
     max: Vec2::new(912.0, 644.0),
 };

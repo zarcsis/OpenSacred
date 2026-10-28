@@ -51,7 +51,7 @@ struct Model {
 
 /// The sound of an item of the category `category` put into the grid or a slot (`(9, 1)` and
 /// `(9, 5)`, docs/re/sound.md, "Items, gold and levels"), and its rate.
-fn put_sound(category: u8) -> (u32, (f32, sfx::Roll)) {
+pub(crate) fn put_sound(category: u8) -> (u32, (f32, sfx::Roll)) {
     let id = match category {
         6 | 18 | 19 | 21 | 23 | 24 => 7116,
         8 => 7007,
