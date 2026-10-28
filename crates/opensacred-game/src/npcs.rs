@@ -7787,7 +7787,7 @@ mod tests {
         assert_eq!(plant.quest, Some(Some("od_15001".to_owned())));
         // Without `0x8E` it is no quest's item lying, and a chest, which nobody picks up, none
         // either.
-        assert_eq!(made(6001, &[take.clone()]).quest, None);
+        assert_eq!(made(6001, std::slice::from_ref(&take)).quest, None);
         assert_eq!(
             made(5218, &[take, op(QUEST_ITEM, Value::Marker)]).quest,
             None

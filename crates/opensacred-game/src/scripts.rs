@@ -2096,6 +2096,7 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<Popups>()
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
+            .add_message::<crate::pickup::Given>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -2520,6 +2521,7 @@ mod tests {
             .init_resource::<Popups>()
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
+            .add_message::<crate::pickup::Given>()
             .add_systems(Update, deaths);
         let dying = |app: &mut App, function: &str| {
             let mut functions = quests::DeathFunctions::default();
