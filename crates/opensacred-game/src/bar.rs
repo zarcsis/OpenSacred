@@ -416,16 +416,20 @@ fn rebuild(
     assets: Res<AssetServer>,
     bars: Query<Entity, With<BarRoot>>,
     pieces: Query<Entity, With<SlotPiece>>,
+    (sets, mut chosen): (Option<Res<crate::sets::WeaponSets>>, Local<Option<usize>>),
     mut dice: Local<Option<opensacred_rules::spawning::Rng>>,
 ) {
     let Ok(bar) = bars.single() else {
         return;
     };
     let n = slots(experience.0.level);
-    if shown.0 == n {
+    // The weapon set selected (#1348).
+    let selected = sets.map_or(0, |sets| sets.selected);
+    if shown.0 == n && *chosen == Some(selected) {
         return;
     }
     shown.0 = n;
+    *chosen = Some(selected);
     for entity in &pieces {
         commands.entity(entity).despawn();
     }
@@ -479,14 +483,13 @@ fn rebuild(
         }
         add(image(if i == 0 { RING_SELECTED } else { RING }, at), None);
     }
-    // The weapon sets at the left, the first selected.
+    // The weapon sets at the left, the selected one's orb and ring (`0x6E1690`).
     for i in 0..count {
-        let at = weapon_slot(
-            usize::try_from(i).unwrap_or(0),
-            usize::from(count.unsigned_abs()),
-        );
-        add(image(if i == 0 { WEAPON_SELECTED } else { ORB }, at), None);
-        add(image(if i == 0 { RING_SELECTED } else { RING }, at), None);
+        let set = usize::try_from(i).unwrap_or(0);
+        let at = weapon_slot(set, usize::from(count.unsigned_abs()));
+        let chosen = set == selected;
+        add(image(if chosen { WEAPON_SELECTED } else { ORB }, at), None);
+        add(image(if chosen { RING_SELECTED } else { RING }, at), None);
     }
 }
 
