@@ -1168,6 +1168,8 @@ pub fn upright(item: u32) -> bool {
 /// (`0x44D7B0`, `0x44D520`), and how fast it rises at first (`0x559BF0`).
 pub const THROWN_AT: f32 = 60.0;
 const RISES: f32 = 190.0;
+/// How fast an item dropped off the cursor rises at first (`0x611620`).
+const DROPPED_RISES: f32 = 50.0;
 /// The height's fall in a second of a drop's flight, in units of the models' height a second,
 /// the share of its velocity along the ground that it loses in a second, and the share of that
 /// velocity that it moves by (`0x44DFE0` and its caller).
@@ -1193,6 +1195,22 @@ impl Flight {
     pub fn thrown(x: f32, y: f32, dice: &mut impl Dice) -> Self {
         let mut roll = |half: u32| to_f32(dice.below(2 * half + 1)) - to_f32(half);
         let velocity = [10.0 * roll(75), 10.0 * roll(75), RISES];
+        let spin = [roll(6), roll(6), roll(6)];
+        Self {
+            at: [x, y, THROWN_AT],
+            velocity,
+            angles: [0.0; 3],
+            spin,
+            resting: false,
+        }
+    }
+
+    /// An item dropped off the cursor at the point `(x, y)` (`cEngine::dropItem`, `0x611620`): at
+    /// the height 60, with the velocity `(R(−10, 10), R(−10, 10), 50)` and the spin `R(−6, 6)`
+    /// about each axis.
+    pub fn dropped(x: f32, y: f32, dice: &mut impl Dice) -> Self {
+        let mut roll = |half: u32| to_f32(dice.below(2 * half + 1)) - to_f32(half);
+        let velocity = [roll(10), roll(10), DROPPED_RISES];
         let spin = [roll(6), roll(6), roll(6)];
         Self {
             at: [x, y, THROWN_AT],
