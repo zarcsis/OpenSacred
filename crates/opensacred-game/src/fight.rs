@@ -356,7 +356,7 @@ pub(crate) fn resolve(
                 crate::undead::rolls(&mut dice.0, victim, rank_of, plain).inspect(|_| {
                     crate::undead::drain(
                         &mut commands,
-                        hit.attacker,
+                        (hit.attacker, hit.target),
                         (victim.creature, health.level),
                         level,
                     );

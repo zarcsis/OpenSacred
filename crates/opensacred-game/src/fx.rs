@@ -172,6 +172,20 @@ impl Quads {
 
     /// Puts the quads into `mesh`; none put a quad of no size and no colour, which draws nothing,
     /// as the renderer warns of a mesh without vertices (#1203).
+    /// A quad of the four corners `corners`, in order about it, with the texture's points `uvs`
+    /// and the colour `colour`: a beam's segment (`beams`).
+    pub(crate) fn push_corners(&mut self, corners: [Vec3; 4], uvs: [Vec2; 4], colour: [f32; 4]) {
+        let Ok(first) = u32::try_from(self.positions.len()) else {
+            return;
+        };
+        self.positions
+            .extend(corners.map(|corner| corner.to_array()));
+        self.uvs.extend(uvs.map(|uv| uv.to_array()));
+        self.colours.extend([colour; 4]);
+        self.indices
+            .extend([0, 1, 2, 0, 2, 3].map(|index| first + index));
+    }
+
     pub(crate) fn into_mesh(mut self, mesh: &mut Mesh) {
         if self.indices.is_empty() {
             self.push(Vec3::ZERO, 0.0, 0.0, (Vec2::ZERO, 0.0), [0.0; 4]);

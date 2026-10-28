@@ -92,9 +92,18 @@ pub fn rolls(dice: &mut Rng, mind: &Mind, rank: Rank, plain: bool) -> Option<Ris
     })
 }
 
-/// A magic skeleton of `(kind, level)` that rises drains `killer` of the level `by`
-/// (`0x532E8D`, `opensacred_rules::undead::drained`); the beam it draws is not.
-pub fn drain(commands: &mut Commands, killer: Entity, (kind, level): (u32, u32), by: u32) {
+/// A magic skeleton `skeleton` of `(kind, level)` that rises drains `killer` of the level `by`
+/// (`0x532E8D`, `opensacred_rules::undead::drained`), and draws its beam from it (`0x533029`,
+/// `beams`, #1263).
+pub fn drain(
+    commands: &mut Commands,
+    (killer, skeleton): (Entity, Entity),
+    (kind, level): (u32, u32),
+    by: u32,
+) {
+    if undead::drained(kind, level, by, u32::MAX) > 0 {
+        crate::beams::spawn(commands, killer, skeleton);
+    }
     commands
         .entity(killer)
         .entry::<Health>()
