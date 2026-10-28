@@ -16,9 +16,12 @@
 //! damage, resistances and regeneration made anew with them, its effects, at its level, as its
 //! level-up makes them.
 //!
-//! Not followed: the classes' default items that the hero wears from the start, which the window
-//! does not show and which a slot emptied would take anew (`0x556A30`); and the hero's look and
-//! clips by what it wears (#1307).
+//! The hero wears them (#1307, `GrannyWearSequence`): their models on its skeleton, the wings on
+//! its back, each taking off its template's item in its slot, a class's default, which comes back
+//! as the slot empties (`0x556A30`); the window does not show the defaults. The items in its hands
+//! are the weapon sets' (#1271), so that its clips do not change by the window.
+//!
+//! Not followed: the amulets and the rings on its neck and fingers.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, ScalingMode};
@@ -485,6 +488,52 @@ fn refit(
     *seen = worn;
 }
 
+/// Whether the hero shows the item worn in the slot `slot` of its equipment (#1307): those of
+/// the slots 0 to 5 and 14 to 16 on its skeleton and the wings of 17 on its back; the amulets and
+/// the rings (6 to 11), which the original carries on its neck and fingers, not.
+fn shows(slot: u8) -> bool {
+    matches!(slot, 0..=5 | 14..=17)
+}
+
+/// Dresses the hero in the items it wears in the window as they change (#1307): each one's model
+/// and texture on it ([`shows`]), its template's items in their slots taken off and given back
+/// as the slots empty, as the classes' defaults are (`0x556A30`).
+fn dress(
+    pack: Res<Pack>,
+    tables: Option<Res<Tables>>,
+    hero: Option<ResMut<Hero>>,
+    assets: Res<AssetServer>,
+    mut seen: Local<Vec<(u8, u32)>>,
+) {
+    let (Some(tables), Some(mut hero)) = (tables, hero) else {
+        return;
+    };
+    let worn: Vec<(u8, u32)> = pack
+        .worn
+        .iter()
+        .zip(0u8..)
+        .filter(|&(_, slot)| shows(slot))
+        .filter_map(|(worn, slot)| Some((slot, worn.as_ref()?.1.item)))
+        .collect();
+    if *seen == worn {
+        return;
+    }
+    let wears = worn
+        .iter()
+        .filter_map(|&(slot, item)| {
+            let (model, texture, _) = tables.look(item)?;
+            Some(crate::npcs::Held::worn(
+                slot,
+                model.to_owned(),
+                texture.map(str::to_owned),
+            ))
+        })
+        .collect();
+    debug!("equipment: the hero is dressed in {worn:?}");
+    hero.dress(wears, &assets);
+    *seen = worn;
+}
+
 /// The equipment window's slots.
 pub struct EquipmentPlugin;
 
@@ -497,7 +546,7 @@ impl Plugin for EquipmentPlugin {
                     .chain()
                     .after(crate::inventory::Opened)
                     .before(backpack::layer),
-                refit.after(click),
+                (refit, dress).after(click),
             )
                 .run_if(in_state(AppState::InGame)),
         );
