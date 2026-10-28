@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use opensacred_data::heroes::{Hero, HeroArt, HeroEntry, Heroes, INDEX, Section, Worn};
-use opensacred_formats::amh::Amh;
+use opensacred_data::heroes::{Carried, Hero, HeroArt, HeroEntry, Heroes, INDEX, Section, Worn};
+use opensacred_formats::amh::{Amh, Item};
 
 use crate::verify::{GOG_MANIFEST, parse_manifest, read_game_file};
 
@@ -37,28 +37,55 @@ fn file_name(source: &str) -> String {
     format!("{stem}.hero")
 }
 
+/// An item's record's words from its `+4`.
+fn words(item: &Item) -> Vec<u16> {
+    item.record
+        .get(4..)
+        .unwrap_or_default()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&w| u16::from_le_bytes(w))
+        .collect()
+}
+
 /// The items of a template's inventory that its backpack does not hold, which the hero wears and
 /// holds: each record's words from its `+4`.
 fn worn(amh: &Amh) -> Result<Vec<Worn>> {
     let packed = amh.backpack()?;
     Ok(amh
         .items()?
-        .into_iter()
-        .filter(|item| !packed.contains(&item.id))
+        .iter()
+        .filter(|item| !packed.iter().any(|packed| packed.id == item.id))
         .map(|item| Worn {
             id: item.id,
             item: item.item,
-            words: item
-                .record
-                .get(4..)
-                .unwrap_or_default()
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|&w| u16::from_le_bytes(w))
-                .collect(),
+            words: words(item),
         })
         .collect())
+}
+
+/// The items of a template's backpack, cell by cell, with their records' words from the inventory.
+fn backpack(amh: &Amh) -> Result<Vec<Carried>> {
+    let items = amh.items()?;
+    amh.backpack()?
+        .into_iter()
+        .map(|packed| {
+            let item = items
+                .iter()
+                .find(|item| item.id == packed.id)
+                .with_context(|| {
+                    format!("the backpack's item {} not in the inventory", packed.id)
+                })?;
+            Ok(Carried {
+                id: packed.id,
+                item: packed.item,
+                at: packed.at,
+                size: packed.size,
+                words: words(item),
+            })
+        })
+        .collect()
 }
 
 /// The combat arts of a template's creature section, as it holds them.
@@ -88,6 +115,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
         let amh = Amh::parse(&data).with_context(|| source.clone())?;
         let info = amh.summary().with_context(|| source.clone())?;
         let worn = worn(&amh).with_context(|| source.clone())?;
+        let backpack = backpack(&amh).with_context(|| source.clone())?;
         let arts = arts(&amh).with_context(|| source.clone())?;
         let hero = Hero {
             sections: amh
@@ -118,6 +146,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<usize> {
             level: info.level,
             class: info.class,
             worn,
+            backpack,
             arts,
         });
     }
@@ -158,6 +187,24 @@ mod tests {
             assert_eq!(hero.sections.len(), 8);
             assert!((1..=3).contains(&entry.worn.len()), "{}", entry.source);
             assert!(entry.worn.iter().all(|w| w.words.len() == 63));
+            // Three healing potions down the first column and the large torch below them.
+            let backpack: Vec<_> = entry
+                .backpack
+                .iter()
+                .map(|c| (c.at, c.size, c.item))
+                .collect();
+            assert_eq!(
+                backpack,
+                [
+                    ((0, 0), (1, 1), 5171),
+                    ((0, 1), (1, 1), 5171),
+                    ((0, 2), (1, 1), 5171),
+                    ((0, 3), (1, 2), 5633)
+                ],
+                "{}",
+                entry.source
+            );
+            assert!(entry.backpack.iter().all(|c| c.words.len() == 63));
         }
         // The Seraphim's weapon, the record 7901 in her right hand (docs/02 §9): physical damage
         // 21 to 23, `A` 5, `D` 2.

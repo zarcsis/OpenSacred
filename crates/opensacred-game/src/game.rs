@@ -343,6 +343,7 @@ struct Loaded {
     arsenal: Option<arsenal::Arsenal>,
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
+    backpack: crate::pickup::Starting,
 }
 
 /// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
@@ -450,6 +451,12 @@ fn load(
     // The hero's template's items (#486): their values in its fight, the class of those in its
     // hands, by which it picks its clips, and their models (#488).
     let template = template(assets, class);
+    let backpack = crate::pickup::Starting(
+        template
+            .as_ref()
+            .map(|hero| hero.backpack.clone())
+            .unwrap_or_default(),
+    );
     let worn = template
         .as_ref()
         .map(|hero| hero.worn.clone())
@@ -686,6 +693,7 @@ fn load(
         arsenal,
         zoom: game.zoom.unwrap_or(1.0),
         music,
+        backpack,
     })
 }
 
@@ -884,6 +892,7 @@ fn finish(
         None => commands.remove_resource::<arsenal::Arsenal>(),
     }
     commands.insert_resource(Zoom(loaded.zoom));
+    commands.insert_resource(loaded.backpack);
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);
         commands.insert_resource(atmosphere);

@@ -197,8 +197,9 @@ The slots' places in the window, (x, y) of their frames' corners:
 
 ## In `opensacred-game`
 
-The hero picks the items up into a list with no grid (`pickup::Pack`, docs/decisions/2026-10-26-pickup.md).
-The windows show since #1267 (`inventory`): the key `I` and the bar's inventory button open and close the inventory and the equipment beside it with their sounds, on the original's screen centred along the window's width as the bar is; the inventory's frame, its three tabs and its sort's button, the equipment's ornament and frame, as above; their clicks kept from the world; the grid, the items, the slots, the tabs' pages and the statistics' window not yet.
+The hero picks the items up into the backpack's grid at their first fit by columns (`pickup::Pack`, docs/decisions/2026-10-26-pickup.md), and a new game's hero starts with its template's backpack (#1285).
+The grid shows since #1268 (`backpack`): its cells, the blue tint under an item and the items as their models by their transforms; its red cells, the sockets' icons and the clicks not yet.
+The windows show since #1267 (`inventory`): the key `I` and the bar's inventory button open and close the inventory and the equipment beside it with their sounds, on the original's screen centred along the window's width as the bar is; the inventory's frame, its three tabs and its sort's button, the equipment's ornament and frame, as above; their clicks kept from the world; the slots, the tabs' pages and the statistics' window not yet.
 #1088 follows this page in its sub-issues: the windows and their layout (#1267), the grid (#1268), the cursor's item (#1269), the equipment's slots (#1270), the weapon sets (#1271), the potions and the belt (#1272), the tooltip (#1273) and the extras (#1274).
 
 ## Open questions
