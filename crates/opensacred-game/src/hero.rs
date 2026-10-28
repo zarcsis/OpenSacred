@@ -296,8 +296,9 @@ pub struct Body {
     /// The cell a command stood it on at a floor it named: it keeps that level while it stays
     /// on the cell, whatever the cell's mass, entrance or exit would make of it ([`run`]).
     pinned: Option<(i32, i32)>,
-    /// Its course to its target, found as it took its order (`paths::Course`, `0x4F7710`).
-    course: Option<paths::Course<(Level, bool)>>,
+    /// Its leg toward its target and its course there, found as it took its order and at the
+    /// leg's end short of its target (`paths::Course`, `0x4F7710`, `0x4FABE0`).
+    course: Option<(Vec3, paths::Course<(Level, bool)>)>,
 }
 
 /// A hero that flies, for a test (the command `fly`, #526): it goes straight where it is sent,
@@ -1000,12 +1001,34 @@ pub fn run(
                 // From where it stands it climbs no more: the stair it stands on, if any, it has
                 // climbed already or arrived on.
                 let onto = body.onto;
-                let plan = |here| {
+                // A target beyond 25 cells along an axis it heads for a leg at a time, brought
+                // nearer along the line to the farthest cell within 25 that it may stand on, on
+                // the target's floor of the building there, else on the ground (`0x4FABE0`'s test
+                // `0x4EBCA0` of `0x6354D0`'s floor, #1344): from a building's floor its way so
+                // leaves the building rather than ending at its wall.
+                let floor = heights
+                    .floor(onto.unwrap_or(level))
+                    .map_or(0, |(_, floor)| usize::from(floor));
+                let level_at = |cell| match floor {
+                    0 => None,
+                    floor => heights
+                        .building_on_floor(cell, floor)
+                        .and_then(|building| heights.floor_level(building, floor)),
+                };
+                let plan = |here: Vec3| {
+                    let leg = paths::leg(here, target, |cell| {
+                        heights.walkable_on(cell, level_at(cell))
+                    });
+                    let leg_onto = if leg == target {
+                        onto
+                    } else {
+                        Some(level_at(paths::cell_of(leg.x, leg.z)))
+                    };
                     paths::course(
                         here,
                         (level, false),
-                        target,
-                        onto,
+                        leg,
+                        leg_onto,
                         |cell, (at, _)| free(cell, at),
                         |place| {
                             let mut next = heights.neighbours_by(place, open);
@@ -1014,20 +1037,26 @@ pub fn run(
                         },
                         |(at, _)| at,
                     )
+                    .map(|course| (leg, course))
                 };
-                let follow = |course: &mut Option<paths::Course<_>>| {
-                    course.as_mut().and_then(|course| {
+                let follow = |course: &mut Option<(Vec3, paths::Course<_>)>| {
+                    course.as_mut().and_then(|(leg, course)| {
                         paths::follow(
                             course,
                             here,
                             (level, false),
-                            target,
+                            *leg,
                             |cell, (at, _)| free(cell, at),
                             |(at, _)| at,
                         )
                     })
                 };
-                if body.course.is_none() {
+                let at_leg = |course: &Option<(Vec3, paths::Course<_>)>| {
+                    course.as_ref().is_some_and(|(leg, _)| {
+                        *leg != target && (*leg - here).with_y(0.0).length() <= ARRIVED
+                    })
+                };
+                if body.course.is_none() || at_leg(&body.course) {
                     body.course = plan(here);
                 }
                 let mut step = follow(&mut body.course);
