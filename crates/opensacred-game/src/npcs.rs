@@ -180,7 +180,10 @@ const PLAY_ANIM: u16 = 91;
 /// The other records that wait their turn in a creature's queue under the anim mode, and the
 /// rank of the `0x01` that names the creature: `Wait`, `Attack`, `ActObj` the first, a
 /// `CallFunktion` the second (docs/re/netscript.md, "The other kinds, the waits and the cinema").
-const QUEUED_OTHERS: [(u16, usize); 3] = [(90, 0), (92, 0), (93, 0)];
+const QUEUED_OTHERS: [(u16, usize); 2] = [(92, 0), (93, 0)];
+/// `Wait` (`0x4A1F20`): the first `0x01` the creature whose queue takes it, the second the other,
+/// one of the tags `0x58` to `0x5F` its condition (#1279).
+const WAIT: u16 = 90;
 /// The slots of a scripts' clip that end 0.2 s before the clip does (`0x545204`): the defending
 /// row.
 const DEFENDING: std::ops::RangeInclusive<u16> = 53..=65;
@@ -2047,6 +2050,9 @@ enum Act {
     /// A `CallFunktion` naming the creature, which the scripts deferred under the anim mode: its
     /// function runs at its turn (#1278).
     Call(String),
+    /// `Wait` under the anim mode: the other creature, `None` the hero, and its condition
+    /// (#1279).
+    Wait(Option<String>, Until),
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -2057,7 +2063,12 @@ enum Act {
 /// or slot above 0, or for the name `schmiede`, which opens the smith's window instead. Under the
 /// anim mode (`queued`), another record that waits its turn there and names a creature
 /// ([`QUEUED_OTHERS`]).
-fn played(kind: u16, ops: &[opensacred_data::netscript::Operand], queued: bool) -> Option<Moved> {
+fn played(
+    kind: u16,
+    ops: &[opensacred_data::netscript::Operand],
+    queued: bool,
+    now: f64,
+) -> Option<Moved> {
     let names: Vec<String> = ops
         .iter()
         .filter_map(|o| match (o.tag, &o.value) {
@@ -2095,6 +2106,23 @@ fn played(kind: u16, ops: &[opensacred_data::netscript::Operand], queued: bool) 
             name: name.clone(),
             act: Act::Call(function.clone()),
             queued: true,
+        });
+    }
+    // A `Wait`, which outside the mode does nothing.
+    if kind == WAIT {
+        let name = names.first().filter(|name| *name != "hero")?;
+        let other = names.get(1).filter(|other| *other != "hero").cloned();
+        let until = ops.iter().find_map(|o| {
+            let n = match o.value {
+                Value::I32(n) => n,
+                _ => 0,
+            };
+            Until::of(o.tag, n, now)
+        })?;
+        return queued.then(|| Moved {
+            name: name.clone(),
+            act: Act::Wait(other, until),
+            queued,
         });
     }
     let &(_, rank) = QUEUED_OTHERS.iter().find(|(other, _)| *other == kind)?;
@@ -5491,7 +5519,7 @@ impl Npcs {
     /// ([`script_records`]), those between a `SetAnimMode` or a `SetCinemaMode` and a
     /// `SetPlayMode` queued (#1220; a `SetPlayMode` naming a creature, which ends the mode as
     /// that creature's queue reaches it, ends it at once).
-    fn moves(&mut self, records: &[Record]) -> Vec<Moved> {
+    fn moves(&mut self, records: &[Record], now: f64) -> Vec<Moved> {
         let mut moves = Vec::new();
         let mut queued = false;
         for record in records {
@@ -5503,7 +5531,7 @@ impl Npcs {
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
-            if let Some(moved) = played(record.kind, ops, queued) {
+            if let Some(moved) = played(record.kind, ops, queued, now) {
                 moves.push(moved);
                 continue;
             }
@@ -6102,6 +6130,68 @@ enum Queued {
     /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
     /// #1278).
     Call(String),
+    /// A `Wait` (the kind 2): holds the queue while its condition `until` holds of the other
+    /// creature, `None` the hero (#1279).
+    Wait { other: Option<String>, until: Until },
+}
+
+/// A `Wait`'s condition (the step `0x59CAA5`, the table `0x59F538`), which holds the queue while
+/// it holds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Until {
+    /// `0x58`: while the anim mode is on, which no span of the Sacred campaign keeps past its run.
+    Mode,
+    /// `0x59`: while the other fights.
+    Fights,
+    /// `0x5A`: while it lives.
+    Lives,
+    /// `0x5B`: while it stands idle.
+    Idle,
+    /// `0x5C`: until it stands idle, while it is busy.
+    Busy,
+    /// `0x5D`, `0x5E`: a variable's bit (not followed: done at once).
+    Bit,
+    /// `0x5F`: a number of seconds of the real clock, of hundredths where negative, counted from
+    /// the record's whole second or hundredth; the deadline in seconds once the record ran.
+    Time(f64),
+}
+
+impl Until {
+    /// The condition of a `Wait`'s tag `tag` and its number `n`, the real clock at `now`
+    /// seconds.
+    fn of(tag: u8, n: i32, now: f64) -> Option<Self> {
+        Some(match tag {
+            0x58 => Self::Mode,
+            0x59 => Self::Fights,
+            0x5A => Self::Lives,
+            0x5B => Self::Idle,
+            0x5C => Self::Busy,
+            0x5D | 0x5E => Self::Bit,
+            0x5F if n >= 0 => Self::Time(now.floor() + f64::from(n)),
+            0x5F => Self::Time(((now * 100.0).floor() + f64::from(n.unsigned_abs())) / 100.0),
+            _ => return None,
+        })
+    }
+
+    /// Whether the queue waits on: the other's state `other`, whether it fights and whether it
+    /// stands idle, none where it is gone; the real clock at `now`.
+    fn holds(self, other: Option<(bool, bool)>, now: f64) -> bool {
+        match (self, other) {
+            (Self::Mode | Self::Bit, _)
+            | (Self::Fights | Self::Lives | Self::Idle | Self::Busy, None) => false,
+            (Self::Fights, Some((fights, _))) => fights,
+            (Self::Lives, Some(_)) => true,
+            (Self::Idle, Some((_, idle))) => idle,
+            (Self::Busy, Some((_, idle))) => !idle,
+            (Self::Time(deadline), _) => now < deadline,
+        }
+    }
+
+    /// Whether the waiting creature is held and stopped meanwhile (`+0x200` bit `0x10`,
+    /// `0x54E6D0`): for the conditions on the mode and on another creature.
+    fn stops(self) -> bool {
+        !matches!(self, Self::Bit | Self::Time(_))
+    }
 }
 
 /// A clip that the scripts play on a creature (`PlayAnim`; the standing action's sub-states
@@ -6144,8 +6234,19 @@ const QUEUED_MOVED: f32 = 1.0;
 fn take_steps(
     mut commands: Commands,
     tick: Res<WorldTick>,
-    heights: Res<Heights>,
+    (heights, real): (Res<Heights>, Res<Time<bevy::time::Real>>),
     mut due: Option<ResMut<crate::scripts::Due>>,
+    others: Query<
+        (
+            &ScriptName,
+            Option<&ai::Mind>,
+            Has<Walk>,
+            Has<ScriptClip>,
+            Has<Plays>,
+        ),
+        Without<Dies>,
+    >,
+    heroes: Query<&hero::Body>,
     mut creatures: Query<
         (
             Entity,
@@ -6237,6 +6338,28 @@ fn take_steps(
                 }
                 true
             }
+            // The other's state: whether it fights and whether it stands idle (the action 0 and
+            // the AI state 0, a script's clip or an instrument's waited for too), none where it
+            // is gone; the hero idle where it goes nowhere.
+            Some(Queued::Wait { other, until }) => {
+                let state = match other {
+                    None => heroes
+                        .iter()
+                        .next()
+                        .map(|body| (false, body.target().is_none())),
+                    Some(name) => others.iter().find(|(named, ..)| named.0 == *name).map(
+                        |(_, mind, walks, clip, plays)| {
+                            let fights = mind.is_some_and(|mind| mind.fighting());
+                            (fights, !fights && !walks && !clip && !plays)
+                        },
+                    ),
+                };
+                let holds = until.holds(state, real.elapsed_secs_f64());
+                if holds && until.stops() {
+                    commands.entity(entity).remove::<Walk>();
+                }
+                !holds
+            }
         };
         if done {
             queue.0.pop_front();
@@ -6278,7 +6401,7 @@ pub(crate) fn script_records(
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
-    mut queues: Query<&mut ScriptQueue>,
+    (mut queues, real): (Query<&mut ScriptQueue>, Res<Time<bevy::time::Real>>),
 ) {
     // A creature's dialogue as a change leaves it, its mind's flag with it.
     let talk_to = |commands: &mut Commands, entity: Entity, talk: Option<String>| match talk {
@@ -6422,7 +6545,7 @@ pub(crate) fn script_records(
     }
     // The steps queued in this run, for the creatures without a queue yet.
     let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
-    for moved in npcs.moves(&records) {
+    for moved in npcs.moves(&records, real.elapsed_secs_f64()) {
         let (whither, walks) = match moved.act {
             Act::Go { whither, walks } => (whither, walks),
             Act::Clip { slot, loops } => {
@@ -6452,7 +6575,7 @@ pub(crate) fn script_records(
                 );
                 continue;
             }
-            act @ (Act::Other(_) | Act::Call(_)) => {
+            act @ (Act::Other(_) | Act::Call(_) | Act::Wait(..)) => {
                 for (entity, ..) in creatures
                     .iter()
                     .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
@@ -6460,6 +6583,10 @@ pub(crate) fn script_records(
                     let step = match &act {
                         Act::Call(function) => Queued::Call(function.clone()),
                         Act::Other(kind) => Queued::Other(*kind),
+                        Act::Wait(other, until) => Queued::Wait {
+                            other: other.clone(),
+                            until: *until,
+                        },
                         _ => continue,
                     };
                     match queues.get_mut(entity) {
@@ -8517,31 +8644,72 @@ mod tests {
         let name = |n: &str| op(0x01, Value::Str(n.into()));
         let slot = |n| op(0x0B, Value::I32(n));
         // `OMO-1malorka_dance`'s first, under the anim mode.
-        let clip = played(PLAY_ANIM, &[name("res:17532"), slot(53)], true).unwrap();
+        let clip = played(PLAY_ANIM, &[name("res:17532"), slot(53)], true, 0.0).unwrap();
         assert_eq!(clip.name, "res:17532");
         assert_eq!(clip.act, Act::Clip { slot: 53, loops: 1 });
         assert!(clip.queued);
         // A second `0x0B` its count; the name taken case aside.
-        let twice = played(PLAY_ANIM, &[name("Malorka"), slot(89), slot(2)], false).unwrap();
+        let twice = played(PLAY_ANIM, &[name("Malorka"), slot(89), slot(2)], false, 0.0).unwrap();
         assert_eq!(
             (twice.name.as_str(), twice.act),
             ("malorka", Act::Clip { slot: 89, loops: 2 })
         );
         // None for the hero, the smith's window or no slot.
-        assert!(played(PLAY_ANIM, &[name("HERO"), slot(53)], true).is_none());
-        assert!(played(PLAY_ANIM, &[name("schmiede"), slot(53)], true).is_none());
-        assert!(played(PLAY_ANIM, &[name("res:17532"), slot(0)], true).is_none());
+        assert!(played(PLAY_ANIM, &[name("HERO"), slot(53)], true, 0.0).is_none());
+        assert!(played(PLAY_ANIM, &[name("schmiede"), slot(53)], true, 0.0).is_none());
+        assert!(played(PLAY_ANIM, &[name("res:17532"), slot(0)], true, 0.0).is_none());
         // A `CallFunktion` that the scripts deferred names its function first and its creature
         // second, and always waits its turn (#1278).
         let call = [name("sprich_15"), name("res:17532")];
-        let turn = played(22, &call, false).unwrap();
+        let turn = played(22, &call, false, 0.0).unwrap();
         assert_eq!(
             (turn.name.as_str(), turn.act, turn.queued),
             ("res:17532", Act::Call("sprich_15".into()), true)
         );
-        // A `Wait` takes a turn only under the mode.
-        assert!(played(90, &[name("res:17532")], true).is_some());
-        assert!(played(90, &[name("res:17532")], false).is_none());
+        // A `Wait` waits its turn only under the mode: on another creature or the hero, or
+        // for a time of the real clock from the record's whole second.
+        let until = op(0x5C, Value::Marker);
+        let wait = played(
+            90,
+            &[name("res:17273"), name("HERO"), until.clone()],
+            true,
+            0.0,
+        );
+        assert_eq!(
+            wait.map(|wait| (wait.name, wait.act)),
+            Some(("res:17273".into(), Act::Wait(None, Until::Busy)))
+        );
+        assert!(played(90, &[name("res:17273"), name("HERO"), until], false, 0.0).is_none());
+        let seconds = played(
+            90,
+            &[name("res:17276"), op(0x5F, Value::I32(3))],
+            true,
+            12.7,
+        );
+        assert_eq!(
+            seconds.map(|wait| wait.act),
+            Some(Act::Wait(None, Until::Time(15.0)))
+        );
+    }
+
+    #[test]
+    fn a_wait_holds_while_its_condition_holds() {
+        // Until the other stands idle: while it walks or fights, and done where it is gone.
+        assert!(Until::Busy.holds(Some((false, false)), 0.0));
+        assert!(!Until::Busy.holds(Some((false, true)), 0.0));
+        assert!(!Until::Busy.holds(None, 0.0));
+        assert!(Until::Fights.holds(Some((true, false)), 0.0));
+        assert!(Until::Lives.holds(Some((false, true)), 0.0));
+        assert!(!Until::Lives.holds(None, 0.0));
+        // A time: three seconds from the record's whole second; hundredths where negative.
+        let time = Until::of(0x5F, 3, 12.7).unwrap();
+        assert!(time.holds(None, 14.9) && !time.holds(None, 15.0));
+        let hundredths = Until::of(0x5F, -50, 12.731).unwrap();
+        assert!(hundredths.holds(None, 13.22) && !hundredths.holds(None, 13.23));
+        // The mode, which no span keeps past its run, and the variables' bits hold nothing.
+        assert!(!Until::Mode.holds(None, 0.0));
+        assert!(!Until::Bit.holds(None, 0.0));
+        assert!(Until::Busy.stops() && !time.stops());
     }
 
     #[test]
