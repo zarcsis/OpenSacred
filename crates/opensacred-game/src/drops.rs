@@ -47,7 +47,13 @@ pub struct Tables {
     /// Each type's record's classes' bits (`+0x04`), weapon's kind (`+0x1E`) and values, which
     /// the use's test asks (#1288).
     records: HashMap<u32, (u32, u8, fight::ItemValues)>,
+    /// Each type's price, its record's `+0x08` (`Weapon.pak +0x8C`), which a container's run of
+    /// items takes off its value (`0x4A0C42`; #1381).
+    prices: HashMap<u32, i64>,
 }
+
+/// The price of a type without a record (`0x5D3D36`).
+const DEFAULT_PRICE: i64 = 600;
 
 /// The combat arts' runes' category (`items.pak +0x2E`), whose items the hero carries weigh
 /// against a rune's drop (`0x5598B0`).
@@ -120,6 +126,13 @@ impl Tables {
                 )
             })
             .collect();
+        let prices = records
+            .iter()
+            .map(|(&id, weapon)| {
+                let word = |k: usize| i64::from(weapon.words_84.get(k).copied().unwrap_or(0));
+                (id, word(2) | word(3) << 16)
+            })
+            .collect();
         let used = records
             .iter()
             .map(|(&id, weapon)| {
@@ -186,6 +199,7 @@ impl Tables {
             categories,
             rune_arts,
             records: used,
+            prices,
         })
     }
 
@@ -309,6 +323,12 @@ impl Tables {
         &self.catalogue
     }
 
+    /// The price of an item of type `item`, its record's (`+0x08`); 600, the default of
+    /// `0x5D3AB0`, for a type without a record.
+    pub(crate) fn price(&self, item: u32) -> i64 {
+        self.prices.get(&item).copied().unwrap_or(DEFAULT_PRICE)
+    }
+
     /// The drops' balance's values, which the quests' rewards take too (`rewards`, #1386).
     pub(crate) fn rules(&self) -> &Rules {
         &self.rules
@@ -409,6 +429,42 @@ pub(crate) fn carrying(
     hero.runes = u32::try_from(runes).unwrap_or(u32::MAX);
     hero.arts = arts.map_or(0, |arts| arts.arts.levels());
 }
+
+/// Throws `dropped` from a container at `from` to `to` on `level` (`0x5C9BA0`), along the arc of
+/// [`Flight::to_point`].
+pub(crate) fn throw_to(
+    commands: &mut Commands,
+    (assets, tables): (&AssetServer, &Tables),
+    (from, to, level): (Vec3, Vec3, Level),
+    dropped: Dropped,
+) {
+    let flight = Flight::to_point([from.x, from.z], [to.x, to.z]);
+    lay(commands, (assets, tables), (flight, level), dropped);
+}
+
+/// Makes the item of a container's contents, `item` at `level` (`0x5D57C0` as `FillChest` calls
+/// it, #1381), or gold of `amount` in the pile `item`; none of a type the table does not hold. Its
+/// quality key is a death's pass's of no bonus, held at 5 or above, the item maker's at most 11
+/// (**hypothesis**: the original rolls it by the hero's luck and the time played, not read).
+pub(crate) fn contained(
+    tables: &Tables,
+    dice: &mut Dice,
+    (item, level, amount): (u32, u32, u32),
+) -> Option<Dropped> {
+    let key = tables
+        .rules
+        .key(0, tables.rules.spread(1.0), &mut dice.0)
+        .max(CONTAINED_LEAST_KEY);
+    drops::thrown(
+        &tables.catalogue,
+        &tables.templates,
+        (item, level, u8::try_from(key).unwrap_or(17), amount),
+        &mut dice.0,
+    )
+}
+
+/// The least quality key of a container's items, the item maker's quality 11 (`0x5D57C0`).
+const CONTAINED_LEAST_KEY: u32 = 5;
 
 /// Lays a quest's reward, an item of type `item`, at `at` on `level` (`0x4AC940`, `0x45FC60`:
 /// made beside the hero), rising from 60 over the ground as a dropped item ([`Flight::dropped`]),

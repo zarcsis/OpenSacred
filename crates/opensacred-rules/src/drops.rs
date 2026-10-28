@@ -450,6 +450,12 @@ impl Rules {
     /// hero's type 1 to 7 and 1 for the others, `H` its level; `x⁵·1000`, at most 32,767, whole.
     /// The rune comes where a roll of 0 to the range falls below `UpgradeDrop` ([`Self::rune_given`]).
     pub fn quest_rune_range(&self, hero: &Hero, given: &mut u32) -> i64 {
+        self.rune_range(hero, given, true)
+    }
+
+    /// [`Self::quest_rune_range`] as `0x5595A0(1000, fifth)` takes it: with `fifth` false (a
+    /// container's rune, `FillChest`), `x⁴` where `x` is below `p`'s 1, else `x⁵`.
+    pub fn rune_range(&self, hero: &Hero, given: &mut u32, fifth: bool) -> i64 {
         let (mut runes, mut arts) = (hero.runes, hero.arts);
         let carried = runes.saturating_add(arts);
         if *given == 0 || *given > QUEST_RUNES_RESET {
@@ -470,8 +476,16 @@ impl Rules {
         let h = f64::from(u16::try_from(hero.level).unwrap_or(u16::MAX).max(1));
         let v = single(f64::from(runes / 2 + arts) / h);
         let x = single(f64::from(v) / f64::from(per_level));
-        let r = (f64::from(x).powi(5) * 1000.0).min(QUEST_RUNES_MOST);
+        let power = if fifth || per_level <= v { 5 } else { 4 };
+        let r = (f64::from(x).powi(power) * 1000.0).min(QUEST_RUNES_MOST);
         truncated(r)
+    }
+
+    /// The gold of a container's pile for the hero's level `level` held to its sector's
+    /// (`0x4A0CE5`): `a + ⌊(b − a)·L/100⌋` of `GoldProLevel`'s two values.
+    pub fn gold_by_level(&self, level: u32) -> i64 {
+        let [a, b] = self.gold;
+        a + (b - a) * i64::from(level) / 100
     }
 
     /// Whether a roll of 0 to `range` gives the rune (`0x45FC60`): one below `UpgradeDrop`, the
@@ -1364,6 +1378,10 @@ pub fn upright(item: u32) -> bool {
     matches!(item, 5120..=5135 | 5375..=5631)
 }
 
+/// The peak and the time of a container's throw to its opener (`0x5C9BA0`).
+const ARC_PEAK: f32 = 80.0;
+const ARC_SECONDS: f32 = 0.9;
+
 /// How high a drop leaves, in units of the models' height, wherever the ground lies there
 /// (`0x44D7B0`, `0x44D520`), and how fast it rises at first (`0x559BF0`).
 pub const THROWN_AT: f32 = 60.0;
@@ -1387,6 +1405,20 @@ pub struct Flight {
     pub angles: [f32; 3],
     pub spin: [f32; 3],
     pub resting: bool,
+    /// A flight to a point ([`Flight::to_point`]) in place of the velocity's.
+    pub arc: Option<Arc>,
+}
+
+/// A flight to a point (`0x44DED0` with −1000, `0x44DFE0`): from where it left to where it lands,
+/// along the ground in `seconds`, its height over the ground `peak·(1 − 4(s − ½)²)` at the share
+/// `s` of the time, and the time flown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Arc {
+    pub from: [f32; 2],
+    pub to: [f32; 2],
+    pub peak: f32,
+    pub seconds: f32,
+    pub flown: f32,
 }
 
 impl Flight {
@@ -1402,6 +1434,27 @@ impl Flight {
             angles: [0.0; 3],
             spin,
             resting: false,
+            arc: None,
+        }
+    }
+
+    /// An item that a container throws to its opener (`0x5C9BA0`, `0x44DED0(x, y, 0, −1000, 80,
+    /// 0.9)`): from the container's point `from` on the ground to `to`, in 0.9 s along an arc
+    /// that peaks at 80.
+    pub fn to_point(from: [f32; 2], to: [f32; 2]) -> Self {
+        Self {
+            at: [from[0], from[1], 0.0],
+            velocity: [0.0; 3],
+            angles: [0.0; 3],
+            spin: [0.0; 3],
+            resting: false,
+            arc: Some(Arc {
+                from,
+                to,
+                peak: ARC_PEAK,
+                seconds: ARC_SECONDS,
+                flown: 0.0,
+            }),
         }
     }
 
@@ -1418,6 +1471,7 @@ impl Flight {
             angles: [0.0; 3],
             spin,
             resting: false,
+            arc: None,
         }
     }
 
@@ -1432,6 +1486,16 @@ impl Flight {
     /// velocity is below 1 and it lies within 1 of the ground.
     pub fn step(&mut self, dt: f32, ground: impl Fn(f32, f32) -> f32) {
         if self.resting {
+            return;
+        }
+        if let Some(arc) = &mut self.arc {
+            arc.flown += dt;
+            let s = (arc.flown / arc.seconds).min(1.0);
+            let x = arc.from[0] + (arc.to[0] - arc.from[0]) * s;
+            let y = arc.from[1] + (arc.to[1] - arc.from[1]) * s;
+            let height = arc.peak * (1.0 - 4.0 * (s - 0.5) * (s - 0.5));
+            self.at = [x, y, ground(x, y) + height];
+            self.resting = s >= 1.0;
             return;
         }
         let [x, y, z] = self.at;
@@ -1474,7 +1538,7 @@ fn ratio(e: u32, hero: u32) -> f32 {
 /// The game's roll of a whole number between `least` and `most` (`R`, `0x443B20`): a negative
 /// least counts as 0, a negative most as 1, the two swapped when reversed; no roll when they are
 /// equal.
-fn between(least: i64, most: i64, dice: &mut impl Dice) -> i64 {
+pub(crate) fn between(least: i64, most: i64, dice: &mut impl Dice) -> i64 {
     let (a, b) = (least.max(0), if most < 0 { 1 } else { most });
     let (low, high) = (a.min(b), a.max(b));
     if low == high {
