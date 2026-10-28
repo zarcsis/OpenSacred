@@ -21,7 +21,7 @@
 //! as the slot empties (`0x556A30`); the window does not show the defaults. The items in its hands
 //! are the weapon sets' (#1271), so that its clips do not change by the window.
 //!
-//! Not followed: the amulets and the rings on its neck and fingers.
+//! The rings on its fingers are not drawn, the original showing nothing of them (seen, #1334).
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, ScalingMode};
@@ -489,10 +489,11 @@ fn refit(
 }
 
 /// Whether the hero shows the item worn in the slot `slot` of its equipment (#1307): those of
-/// the slots 0 to 5 and 14 to 16 on its skeleton and the wings of 17 on its back; the amulets and
-/// the rings (6 to 11), which the original carries on its neck and fingers, not.
+/// the slots 0 to 7 and 14 to 16 on its skeleton, the amulets of 6 and 7 among them (#1334), and
+/// the wings of 17 on its back; the rings (8 to 11), which the original carries on its fingers,
+/// not.
 fn shows(slot: u8) -> bool {
-    matches!(slot, 0..=5 | 14..=17)
+    matches!(slot, 0..=7 | 14..=17)
 }
 
 /// Dresses the hero in the items it wears in the window as they change (#1307): each one's model
@@ -550,5 +551,16 @@ impl Plugin for EquipmentPlugin {
             )
                 .run_if(in_state(AppState::InGame)),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_hero_shows_the_worn_slots_and_the_amulets_but_not_the_rings() {
+        assert!((0..=7).all(shows) && (14..=17).all(shows));
+        assert!(!(8..=13).any(shows) && !shows(18));
     }
 }
