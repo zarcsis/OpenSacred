@@ -21,8 +21,8 @@
 //! (`0x44DDC0`, docs/02 §7.3, `heading`). A `CreateObj` record has the same `0x02`, `0x04` and
 //! `0x03`, and names its trigger and its contents in `0x29` and `0x41` (**hypothesis**, by the
 //! same reading); one of `0x8E` lays a quest's item, which the hero picks up and whose `0x41`
-//! function its taking runs ([`QuestItem`], #1256); an object without a heading above 0 faces
-//! its item's own angle
+//! function its taking runs ([`QuestItem`], #1256), named by its `res:` name's text where it has
+//! one ([`TextName`], #1360); an object without a heading above 0 faces its item's own angle
 //! (`Item::angle`), and its model shows where its world position `0x20` does on the ground's
 //! heights, where it has one, its cell staying its logical position (`Object`, `drawn_at`,
 //! `model_position`).
@@ -421,6 +421,24 @@ pub struct QuestItem {
     pub index: usize,
     /// Its script name (its `CreateObj`'s first `0x01`), by which the test `0x3A` asks for it.
     pub name: Option<String>,
+}
+
+/// The name of the game's texts that an item the scripts laid goes by, which the cursor shows in
+/// place of its type's (#1360): its `CreateObj`'s first `0x01` of the prefix `res:`, case aside.
+/// The scripts' field reader keys such a name alone, any other 0 (`0x4737CA`); the object keeps
+/// the key (`+0x3C`), and its name is the key's text where it has one, else its type's
+/// (`0x44A250`, from `cEngine::updateWorldCursor`, `0x611E70`).
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct TextName(pub String);
+
+impl TextName {
+    /// The text name of the script name `key`; none for a name without the prefix.
+    fn of(key: &str) -> Option<Self> {
+        match key.get(..4) {
+            Some(prefix) if prefix.eq_ignore_ascii_case("res:") => Some(Self(key[4..].to_owned())),
+            _ => None,
+        }
+    }
 }
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
@@ -3943,6 +3961,12 @@ fn place_index(
                 resting: true,
             },
         ));
+    }
+    // A lying item of a `res:` name goes by its text (#1360).
+    if (placement.lies || placement.quest.is_some())
+        && let Some(name) = placement.key.as_deref().and_then(TextName::of)
+    {
+        commands.entity(entity).insert(name);
     }
     // An `Enter`'s creature keeps what it was made of, which a `RegionChange` changes (#1064).
     if placement.made.0 && !placement.object {
@@ -9342,6 +9366,19 @@ mod tests {
         assert_eq!(states["unlocked"], (true, false));
         assert_eq!(states["door"], (true, false));
         assert!(!states.contains_key("plain"));
+    }
+
+    #[test]
+    fn a_script_name_of_the_prefix_res_alone_is_a_text_name() {
+        let of = |key| TextName::of(key).map(|name| name.0);
+        assert_eq!(
+            of("res:zielobjekt_15001").as_deref(),
+            Some("zielobjekt_15001")
+        );
+        assert_eq!(of("RES:17640").as_deref(), Some("17640"));
+        assert_eq!(of("non_unique"), None);
+        assert_eq!(of("gitter1_107"), None);
+        assert_eq!(of("rés"), None);
     }
 
     #[test]

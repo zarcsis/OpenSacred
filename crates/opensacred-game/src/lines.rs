@@ -38,6 +38,12 @@ impl Texts {
         }
     }
 
+    /// The texts of a Fluent file as the converter writes it.
+    #[cfg(test)]
+    pub fn of(ftl: &str) -> Self {
+        Self(parse(ftl))
+    }
+
     /// The text named `name`.
     pub fn named(&self, name: &str) -> Option<&str> {
         self.0

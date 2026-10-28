@@ -745,7 +745,8 @@ Since #1257 the scripts keep the hero's list of the main quest's items (`opensac
 A `CreateObj` of an item's type without `0x8E` (and without `0x61` or `0x62`) lays an item that the hero picks up as any lying item, not placed again once taken (**seen** in the original, `beweise209`'s two items at the hero's feet, one clicked into the backpack; #1296): quest 204's reward 5570 lies at the hero as `exit204` runs.
 Not followed: an object in the world whose type is in the list (`0x498860`), and the creature's 256 slots (the hero's inventory, where quest 2203's barrel 17713 stays).
 
-Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy, and what draws the glitter over a quest's item lying in the world (seen, #1256); to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
+An item laid by a `CreateObj` of a `res:` name goes by that name's text under the cursor rather than by its type's (docs/re/cursor.md, "The chooser's tests"; #1360).
+Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy, and what draws the glitter over a quest's item lying in the world (seen, #1256; #1382); to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
 
 ### Spawns and markers
 
