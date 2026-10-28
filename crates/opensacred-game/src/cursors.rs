@@ -184,9 +184,10 @@ fn choose(
         ),
         Without<Dies>,
     >,
-    (items, doors): (
+    (items, doors, containers): (
         Query<(&GlobalTransform, &Lying, Option<&TextName>)>,
         Query<&GlobalTransform, With<Door>>,
+        Query<(&GlobalTransform, &crate::containers::Container)>,
     ),
     (heights, buildings): (Option<Res<Heights>>, Option<Res<Buildings>>),
     heroes: Query<(Option<&Holding>, &Transform, &Body)>,
@@ -253,6 +254,15 @@ fn choose(
                 Some(Look::Hand)
             })
             .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
+            // A container that opens, not one emptied (`0x612843`, #1380).
+            .or_else(|| {
+                nearest(&mut containers.iter().filter_map(|(at, container)| {
+                    container
+                        .opens()
+                        .then(|| Some((near(at)?, Look::Hand)))
+                        .flatten()
+                }))
+            })
             .or_else(|| {
                 let (heights, buildings) = (heights.as_deref()?, buildings.as_deref()?);
                 let (_, transform, body) = hero?;
