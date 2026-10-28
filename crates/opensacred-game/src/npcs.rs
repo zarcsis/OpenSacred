@@ -2102,7 +2102,31 @@ enum Act {
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
+    /// `SetCinemaMode`'s stop of the hero where its queue is empty (`0x47740E`, `0x54E6D0(1, 0)`;
+    /// #1280).
+    Halt,
 }
+
+/// The creature that a play's `NPC_Goto` or `Teleport` of the operands `ops` moves, and whether
+/// it walks there, under the anim mode or not (`queued`): `NPC_Goto` the creature of its last
+/// `0x01` (`0x49E210` keeps each over the one before; the Daemon's start names `HERO` and then
+/// Anducar, #1280) and none without one, `Teleport` the creature of its first and the hero for
+/// none (`0x491D40`); the hero's teleport outside the mode left to `scripts`, which puts it at
+/// once (#1035).
+fn mover(kind: u16, ops: &[opensacred_data::netscript::Operand], queued: bool) -> Option<String> {
+    match kind {
+        NPC_GOTO => ops.iter().rev().find_map(|o| match (o.tag, &o.value) {
+            (0x01, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+            _ => None,
+        }),
+        TELEPORT => Some(name_of(ops).unwrap_or_else(|| HERO.to_owned()))
+            .filter(|name| queued || name != HERO),
+        _ => None,
+    }
+}
+
+/// The hero's name in the records (`HERO`, case aside), lower case.
+const HERO: &str = "hero";
 
 /// A `PlayAnim` of the operands `ops` (`0x4A2550`): the creature of its first `0x01`, the slot of
 /// its first `0x0B` and the count of its second, 1 by default; none for the hero, for no creature
@@ -5588,18 +5612,27 @@ impl Npcs {
         Ok(())
     }
 
-    /// The creatures that the play's `NPC_Goto`s send walking and its `Teleport`s put somewhere,
-    /// the hero's teleports left to `scripts` (#1035): their placements away from the world moved
-    /// to a cell they go to, the moves returned in order for the creatures in the world
-    /// ([`script_records`]), those between a `SetAnimMode` or a `SetCinemaMode` and a
-    /// `SetPlayMode` queued (#1220; a `SetPlayMode` naming a creature, which ends the mode as
-    /// that creature's queue reaches it, ends it at once).
+    /// The creatures that the play's `NPC_Goto`s send walking and its `Teleport`s put somewhere
+    /// ([`mover`]), the hero's teleports outside the anim mode left to `scripts` (#1035): their
+    /// placements away from the world moved to a cell they go to, the moves returned in order for
+    /// the creatures in the world and the hero ([`script_records`]), those between a
+    /// `SetAnimMode` or a `SetCinemaMode` and a `SetPlayMode` queued (#1220; a `SetPlayMode`
+    /// naming a creature, which ends the mode as that creature's queue reaches it, ends it at
+    /// once); a `SetCinemaMode` stops the hero first (#1280).
     fn moves(&mut self, records: &[Record], now: f64) -> Vec<Moved> {
         let mut moves = Vec::new();
         let mut queued = false;
         for record in records {
             match record.kind {
-                SET_ANIM_MODE | SET_CINEMA_MODE => queued = true,
+                SET_ANIM_MODE => queued = true,
+                SET_CINEMA_MODE => {
+                    queued = true;
+                    moves.push(Moved {
+                        name: HERO.to_owned(),
+                        act: Act::Halt,
+                        queued: false,
+                    });
+                }
                 SET_PLAY_MODE => queued = false,
                 _ => {}
             }
@@ -5610,14 +5643,10 @@ impl Npcs {
                 moves.push(moved);
                 continue;
             }
-            let walks = match record.kind {
-                NPC_GOTO => true,
-                TELEPORT => false,
-                _ => continue,
-            };
-            let Some(name) = name_of(ops).filter(|name| name != "hero") else {
+            let Some(name) = mover(record.kind, ops, queued) else {
                 continue;
             };
+            let walks = record.kind == NPC_GOTO;
             let Some(whither) = [0x04, 0x0C, 0x0D]
                 .into_iter()
                 .find_map(|tag| whither(ops, tag, &self.places))
@@ -5625,6 +5654,7 @@ impl Npcs {
                 continue;
             };
             if let Whither::Cell((x, y, layer)) = whither
+                && name != HERO
                 && let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y))
             {
                 for (index, placement) in self.placements.iter_mut().enumerate() {
@@ -6197,6 +6227,9 @@ enum Queued {
     },
     /// A teleport to `to` on the level `level` (`Teleport`, the kind 9).
     Put { to: Vec3, level: Level },
+    /// The hero's teleport to `to`, landing there as `arrival` says, as the scripts' `Teleport`
+    /// puts a player (the kind 9 of the local hero's queue, #1280).
+    Land { to: Vec3, arrival: hero::Arrival },
     /// A clip of the slot `slot` (`PlayAnim`, the kind 3): waits while a one-off clip of the
     /// creature plays, then starts and is done (#1277).
     Clip { slot: u16 },
@@ -6333,7 +6366,7 @@ fn take_steps(
             Has<Walk>,
             (Has<ScriptClip>, Has<Plays>),
         ),
-        Without<Dies>,
+        (Without<Dies>, Without<hero::Body>),
     >,
 ) {
     if tick.seconds.is_none() {
@@ -6406,7 +6439,7 @@ fn take_steps(
                     true
                 }
             }
-            Some(Queued::Other(_)) => true,
+            Some(Queued::Other(_) | Queued::Land { .. }) => true,
             Some(Queued::Call(function)) => {
                 if let Some(due) = due.as_deref_mut() {
                     due.0.push(std::mem::take(function));
@@ -6445,6 +6478,74 @@ fn take_steps(
     }
 }
 
+/// Takes the first step of the hero's [`ScriptQueue`] at each tick of the world, as the hero's
+/// update steps its queue as a creature's (`0x5375C0` calling `0x59A840` for the local hero, seen
+/// in `annehmen2003`'s run, #1280): a walk orders the hero to its target at a run, the player's
+/// gait set to it (`+0x1F8` 2, seen kept after), waits while it goes, and ends once it stands
+/// within 40 of the target along each axis on the walk's level, or once it was ordered more than
+/// five times without the hero moving; a teleport puts it there as the scripts' `Teleport` puts a
+/// player. The Sacred campaign queues no other step for the hero. The queue goes once empty.
+fn take_hero_steps(
+    mut commands: Commands,
+    tick: Res<WorldTick>,
+    hero: Option<ResMut<hero::Hero>>,
+    mut heroes: Query<(Entity, &mut ScriptQueue, &mut hero::Body, &mut Transform)>,
+) {
+    if tick.seconds.is_none() {
+        return;
+    }
+    let Ok((entity, mut queue, mut body, mut transform)) = heroes.single_mut() else {
+        return;
+    };
+    let here = transform.translation;
+    let level = body.level();
+    let done = match queue.0.front_mut() {
+        None => true,
+        Some(Queued::Walk {
+            to,
+            onto,
+            orders,
+            noted,
+        }) => {
+            if body.target().is_some() || body.ordered() {
+                false
+            } else {
+                let onto = *onto.get_or_insert(level);
+                let arrived = (to.x - here.x).abs() < QUEUED_ARRIVES
+                    && (to.z - here.z).abs() < QUEUED_ARRIVES
+                    && onto == level;
+                let dropped =
+                    *orders > QUEUED_ORDERS && (here - *noted).xz().length() < QUEUED_MOVED;
+                if *orders > QUEUED_ORDERS {
+                    *orders = 0;
+                }
+                if !arrived && !dropped {
+                    if *orders == 0 {
+                        *noted = here;
+                    }
+                    *orders += 1;
+                    if let Some(mut hero) = hero {
+                        hero.gait = hero::Gait::Run;
+                    }
+                    body.send_onto(*to, onto);
+                }
+                arrived || dropped
+            }
+        }
+        Some(&mut Queued::Land { to, arrival }) => {
+            body.put(&mut transform, to, arrival);
+            true
+        }
+        Some(_) => true,
+    };
+    if done {
+        queue.0.pop_front();
+    }
+    if queue.0.is_empty() {
+        commands.entity(entity).remove::<ScriptQueue>();
+    }
+}
+
 /// Places the records of the world that the scripts ran during the play (#1014,
 /// [`Npcs::add`]).
 #[expect(
@@ -6455,10 +6556,10 @@ pub(crate) fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    (heights, heroes, bodies, streamer, mut changes): (
+    (heights, heroes, mut bodies, streamer, mut changes): (
         Res<Heights>,
         Query<&Transform, With<hero::Body>>,
-        Query<&hero::Body>,
+        Query<(Entity, &mut hero::Body)>,
         Res<Streamer>,
         ResMut<AreaChanges>,
     ),
@@ -6511,7 +6612,7 @@ pub(crate) fn script_records(
             let floor = bodies
                 .iter()
                 .next()
-                .map_or(0, |body| floor_of(body.level()));
+                .map_or(0, |(_, body)| floor_of(body.level()));
             cell_at(at.translation, floor)
         }),
         // A dying creature still stands where it fell, as its death's function runs while its
@@ -6634,6 +6735,17 @@ pub(crate) fn script_records(
     for moved in npcs.moves(&records, real.elapsed_secs_f64()) {
         let (whither, walks) = match moved.act {
             Act::Go { whither, walks } => (whither, walks),
+            // The hero stopped where its queue is empty (#1280).
+            Act::Halt => {
+                if let Ok((entity, mut body)) = bodies.single_mut()
+                    && queues.get(entity).is_err()
+                    && !queued.contains_key(&entity)
+                {
+                    body.stop();
+                    bevy::log::info!("npcs: the scripts' cinema mode stops the hero");
+                }
+                continue;
+            }
             Act::Clip { slot, loops } => {
                 for (entity, ..) in creatures
                     .iter()
@@ -6704,6 +6816,46 @@ pub(crate) fn script_records(
         let Some((to, level, layer)) = spot else {
             continue;
         };
+        // The hero's own (#1280): under the mode a step of its queue, which it takes as a
+        // creature does (seen: `annehmen2003`'s run, then its teleport); outside it, an
+        // `NPC_Goto`'s walk at once, its teleport the scripts' own.
+        if moved.name == HERO {
+            let Ok((entity, mut body)) = bodies.single_mut() else {
+                continue;
+            };
+            if moved.queued {
+                let step = if walks {
+                    Queued::Walk {
+                        to,
+                        onto: (layer > 0).then_some(level),
+                        orders: 0,
+                        noted: heroes.iter().next().map_or(to, |at| at.translation),
+                    }
+                } else {
+                    let arrival = match &whither {
+                        Whither::Cell(_) => hero::Arrival::On(u8::try_from(layer).ok()),
+                        Whither::Creature(_) => hero::Arrival::Nearest,
+                    };
+                    Queued::Land { to, arrival }
+                };
+                match queues.get_mut(entity) {
+                    Ok(mut queue) => queue.0.push_back(step),
+                    Err(_) => queued.entry(entity).or_default().push(step),
+                }
+            } else if walks {
+                match (layer > 0).then_some(level) {
+                    Some(level) => body.send_onto(to, level),
+                    None => body.send(to),
+                }
+            }
+            bevy::log::info!(
+                "npcs: the scripts {} the hero to {:?}{}",
+                if walks { "send" } else { "put" },
+                whither,
+                if moved.queued { " in its turn" } else { "" }
+            );
+            continue;
+        }
         for (entity, _, _, mut transform, mind, way, _, _, layered) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
@@ -7727,7 +7879,7 @@ impl Plugin for NpcsPlugin {
                     rearm,
                     animate,
                     door_clips,
-                    take_steps,
+                    (take_steps, take_hero_steps).chain(),
                     walk,
                     put,
                     swing,
@@ -8785,6 +8937,42 @@ mod tests {
             seconds.map(|wait| wait.act),
             Some(Act::Wait(None, Until::Time(15.0)))
         );
+    }
+
+    #[test]
+    fn an_npc_goto_walks_its_last_name_and_a_teleport_of_none_puts_the_hero_in_its_turn() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        let cell = op(0x04, Value::I32x3([3986, 1813, 0]));
+        // `btn_Deamonstart`'s walk names the hero and then Anducar: Anducar's, of no cell.
+        let start = [name("HERO"), name("res:Anducar01"), op(0x66, Value::Marker)];
+        assert_eq!(
+            mover(NPC_GOTO, &start, true).as_deref(),
+            Some("res:anducar01")
+        );
+        // `annehmen2003`'s: the hero's, under the mode or not; none without a name.
+        assert_eq!(
+            mover(NPC_GOTO, &[name("HERO"), cell.clone()], true).as_deref(),
+            Some(HERO)
+        );
+        assert_eq!(
+            mover(NPC_GOTO, &[name("HERO"), cell.clone()], false).as_deref(),
+            Some(HERO)
+        );
+        assert_eq!(mover(NPC_GOTO, std::slice::from_ref(&cell), true), None);
+        // A teleport of no creature or of the hero is the hero's in its queue, the scripts'
+        // outside the mode; another creature's either way.
+        assert_eq!(
+            mover(TELEPORT, std::slice::from_ref(&cell), true).as_deref(),
+            Some(HERO)
+        );
+        assert_eq!(mover(TELEPORT, std::slice::from_ref(&cell), false), None);
+        assert_eq!(mover(TELEPORT, &[name("hero"), cell.clone()], false), None);
+        assert_eq!(
+            mover(TELEPORT, &[name("res:18103"), cell], false).as_deref(),
+            Some("res:18103")
+        );
+        assert_eq!(mover(PLAY_ANIM, &[name("HERO")], true), None);
     }
 
     #[test]
