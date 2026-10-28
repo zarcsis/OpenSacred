@@ -13,6 +13,7 @@ use opensacred_rules::drops::Dropped;
 use opensacred_rules::fight::{combat_with, regeneration_with};
 
 use crate::effects::Effects;
+use crate::equipment::Worn;
 use crate::fight::{self, Base, Combat, Experience, Holding, Regenerates, Rules};
 use crate::forms::Form;
 use crate::game::AppState;
@@ -109,18 +110,24 @@ type Wearer<'a> = (
     Mut<'a, Combat>,
     Mut<'a, Regenerates>,
     Option<Mut<'a, hero::Size>>,
+    Option<&'a Worn>,
 );
 
-/// Gives the hero `arms`: its items' models and clips, the values of what it holds, its size,
-/// and its values made anew with them, its pace and speeds with them.
+/// Gives the hero `arms`: its items' models and clips, the values of what it holds and of what
+/// it wears in the equipment window (#1290), its size, and its values made anew with them, its
+/// pace and speeds with them.
 fn wear(
     arms: Arms,
     commands: &mut Commands,
     hero: &mut Hero,
     assets: &AssetServer,
     (experience, rules, speed): (&Experience, &Rules, &GameSpeed),
-    (body, base, effects, mut combat, mut regenerates, size): Wearer,
+    (body, base, effects, mut combat, mut regenerates, size, worn): Wearer,
 ) {
+    let mut holds = arms.holds;
+    holds
+        .items
+        .extend(worn.into_iter().flat_map(|worn| worn.0.iter().cloned()));
     debug!("arsenal: the hero holds {:?}", arms.held);
     hero.held = arms.held;
     hero.armed = arms.armed;
@@ -147,13 +154,13 @@ fn wear(
     *combat = Combat(combat_with(
         base,
         level,
-        arms.holds.clone(),
+        holds.clone(),
         &skills,
         &list,
         rules,
     ));
     regenerates.value = regeneration_with(base, level, &skills, &list, rules);
-    commands.entity(body).insert(Holding(arms.holds));
+    commands.entity(body).insert(Holding(holds));
     hero.pace = combat.pace_factor();
     hero.speeds = arms.form.speeds.map(|s| f32::from(s) * hero.pace * speed.0);
 }
@@ -178,6 +185,7 @@ fn bear(
             &mut Combat,
             &mut Regenerates,
             Option<&mut hero::Size>,
+            Option<&Worn>,
         ),
         (With<Body>, Changed<Effects>),
     >,
@@ -232,6 +240,7 @@ fn throw(
             &mut Combat,
             &mut Regenerates,
             Option<&mut hero::Size>,
+            Option<&Worn>,
         ),
         With<Body>,
     >,

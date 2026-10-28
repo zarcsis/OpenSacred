@@ -27,7 +27,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_rules::equipment::{Glow, Refusal, frames, glow, refusal, slot_for, takes};
-use opensacred_rules::fight::{Holds, combat_with, regeneration_with};
+use opensacred_rules::fight::{combat_with, regeneration_with};
 
 use crate::backpack::{self, Matte, cell_under, on_grid};
 use crate::bar::{self, UiImages};
@@ -406,13 +406,13 @@ fn click(
     }
 }
 
-/// What the hero holds and wears of its template, before any item worn in the window: the
-/// values that its worn items add to (#1290).
-#[derive(Component)]
-struct Unworn(Holds);
+/// The values of the items that the hero wears in the window (#1290), the last of its
+/// `Holding`'s items, after those of its arms: what a change of its arms keeps (`arsenal`).
+#[derive(Component, Clone, Debug, Default)]
+pub struct Worn(pub Vec<fight::ItemValues>);
 
 /// Makes the hero's fight anew as the items it wears in the window change (`0x5796A0`): its
-/// template's items and the worn ones' values, its effects, at its level.
+/// arms' items and the worn ones' values, its effects, at its level.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -430,7 +430,7 @@ fn refit(
             &mut Combat,
             &mut Regenerates,
             Option<&Effects>,
-            Option<&Unworn>,
+            Option<&Worn>,
         ),
         With<Body>,
     >,
@@ -443,17 +443,21 @@ fn refit(
     if *seen == worn {
         return;
     }
-    for (entity, base, mut holding, mut combat, mut regenerates, effects, unworn) in &mut heroes {
-        let mut holds = match unworn {
-            Some(unworn) => unworn.0.clone(),
-            None => {
-                commands.entity(entity).insert(Unworn(holding.0.clone()));
-                holding.0.clone()
-            }
-        };
-        holds
+    for (entity, base, mut holding, mut combat, mut regenerates, effects, old) in &mut heroes {
+        let values: Vec<fight::ItemValues> = pack
+            .worn
+            .iter()
+            .flatten()
+            .map(|(_, d)| tables.values(d))
+            .collect();
+        let mut holds = holding.0.clone();
+        let arms = holds
             .items
-            .extend(pack.worn.iter().flatten().map(|(_, d)| tables.values(d)));
+            .len()
+            .saturating_sub(old.map_or(0, |old| old.0.len()));
+        holds.items.truncate(arms);
+        holds.items.extend(values.iter().cloned());
+        commands.entity(entity).insert(Worn(values));
         let level = experience.level;
         let skills = fight::skills(base, level, true);
         let list = effects.map(Effects::list).unwrap_or_default();
