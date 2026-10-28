@@ -97,7 +97,6 @@ sha2 = "0.11.1"
 # its `opusic-sys` builds with CMake.
 symphonia = { version = "0.6.1", default-features = false, features = ["ogg"] }
 symphonia-adapter-libopus = "0.3.0"
-# The game's commands split their lines as a shell does (docs/10 §6).
 thiserror = "2.0.21"
 # The game's settings file (docs/10 §3): read through serde, written key by key keeping the
 # user's comments and order, which the toml crate does not keep.

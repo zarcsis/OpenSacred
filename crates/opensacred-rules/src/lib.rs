@@ -7,7 +7,10 @@
 //! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
 //! drops ([`drops`]), a creature's combat arts with the runes that teach them ([`arts`]), the
 //! spells' cast ([`spells`]), the scripts' state: the quests, the variables and the dialogues
-//! ([`quests`]), a quest's reward ([`rewards`]), and the weather ([`weather`]).
+//! ([`quests`]), a quest's reward ([`rewards`]), the weather ([`weather`]), the peace stream's
+//! music ([`music`]), the undead that rise again ([`undead`]), the particle systems
+//! ([`particles`]), the backpack's grid ([`inventory`]), the equipment's slots and who may use an
+//! item ([`equipment`]), the potions and the belt ([`potions`]) and the weapon sets ([`sets`]).
 
 pub mod arrows;
 pub mod arts;

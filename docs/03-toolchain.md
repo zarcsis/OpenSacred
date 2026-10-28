@@ -150,7 +150,7 @@ The Ghidra project, the decompilation and anything exported from it stay on the 
 | Type | Input | Output | Check |
 |---|---|---|---|
 | Parse a format | a file from `OriginalGame/`, the facts in `docs/02-data-formats.md` | a reader in `opensacred-formats` + a converter in `opensacred-convert` | a test on all files of the installation; cross-check with the Python prototype |
-| Recover a rule | the original's function in the local Ghidra project | a description of the behavior in `docs/re/`, oracle vectors, an independent implementation in `opensacred-rules` (the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, #364) | the vectors pass; clippy without warnings |
+| Recover a rule | the original's function in the local Ghidra project | a description of the behavior in `docs/re/`, oracle vectors, an independent implementation in `opensacred-rules` (the game's rules with no engine, its modules in `CLAUDE.md`'s workspace table, #364) | the vectors pass; clippy without warnings |
 | Implement a system | notes in `docs/re/`, data from `assets/` | code in `opensacred-game` or `opensacred-rules` | snapshot and screenshot tests; a manual check in the game |
 | Migrate Bevy | the migration guide | an updated `opensacred-game` | everything builds, tests and screenshots match |
 | Update dependencies | `cargo update` | a new `Cargo.lock` | CI is green, `cargo deny check` reports no violations |

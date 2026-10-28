@@ -1125,7 +1125,7 @@ pub fn run(
             moving = body.moving;
         }
         // Standing, in its stance while the last look found a hostile within 350 units (the
-        // client's bit `0x8000`, `0x547070`; 1,000 with a bow, which the hero does not hold yet).
+        // client's bit `0x8000`, `0x547070`; 1,000 with a bow, not followed).
         let fight = nearest.found && nearest.distance < opensacred_rules::fight::IN_FIGHT_WITHIN;
         let node = clips.node(moving, fight);
         let Some((mut player, mut transitions)) =

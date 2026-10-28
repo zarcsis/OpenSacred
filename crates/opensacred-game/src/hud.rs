@@ -1,9 +1,9 @@
-//! The interface over the world: for now the original's cursor, the picture that `cursors`
-//! chooses (`MOUSE_MAIN.TGA` and the others), scaled in whole steps with the system's display
-//! scale, and the interface laid out on the original's
-//! 768-pixel-high screen scaled to the window's height, as the world is. The original lays its
-//! interface out in code from the `gui_main_*` atlases (docs/02 §11); it comes in M5, and until
-//! then the HUD shows nothing of the hero (docs/decisions/2026-10-17-hud.md).
+//! The interface over the world: the original's cursor, the picture that `cursors` chooses
+//! (`MOUSE_MAIN.TGA` and the others), scaled in whole steps with the system's display scale, and
+//! the interface laid out on the original's 768-pixel-high screen scaled to the window's height,
+//! as the world is. The original lays its interface out in code from the `gui_main_*` atlases
+//! (docs/02 §11); the bar and the hero's portrait are `bar`'s (#1087), the windows
+//! `inventory`'s and the others' (docs/decisions/2026-10-17-hud.md).
 //!
 //! Bevy's interface writes its colours and texels into the frame as they are, and the frame holds
 //! sRGB values (`srgb`): an interface gives them in those values, its colours as linear ones and

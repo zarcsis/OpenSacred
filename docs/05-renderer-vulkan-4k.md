@@ -71,8 +71,7 @@ Where the game draws as the original does instead, a file of docs/decisions/ say
 ### 3.3 Effects
 
 * The original's 178 effects are described in data (RON): emitter, textures, color and size curves, lifetime.
-* The executor is GPU particles (`bevy_hanabi`).
-  If `bevy_hanabi` lags behind the Bevy version, we start with the CPU executor.
+* The executor is our own, on the CPU: `opensacred-rules`' `particles` runs the original's particle systems and `fx` draws them as billboards (#1092, docs/re/effects.md).
 
 ### 3.4 Camera and visible area
 
@@ -90,9 +89,9 @@ Where the game draws as the original does instead, a file of docs/decisions/ say
   A free Unicode font (Noto, OFL) for missing characters is planned.
 * The original UI textures are used as skins with nine-slice stretching (9-slice) so that the frames do not blur.
 
-### 3.6 What `opensacred-game` does so far (2026-10-20)
+### 3.6 What `opensacred-game` does so far
 
-The vertical slice (`crates/opensacred-game`, Bevy 0.20) implements R1 and R2, and of R3 the shadows and day and night.
+The vertical slice (`crates/opensacred-game`, Bevy 0.20) implements R1 and R2, and of R3 the shadows, day and night, the weather and the world's fires.
 Where it departs from §2 and §3.1–3.4, it mostly draws as the original does, on purpose, and a file of docs/decisions/ says why (the sprites' depth and alpha, the liquids, the night, the models' shadows, the linear filter); a departure that is interim says so below.
 
 * **Camera:** orthographic, yaw 45°, pitch 30° (sin 30° = 1/2 gives the 2:1 diamond), in the original's world units (a cell is 24·√5 = 53.67 units, the edge of its diamond in pixels; 1.26 pixels a unit), scaled so that a cell's diamond is 96 × 48 pixels at zoom 1 and the view is as tall as the original's 768-pixel screen at any resolution (607 world units).
@@ -123,15 +122,15 @@ Where it departs from §2 and §3.1–3.4, it mostly draws as the original does,
   The models (the hero, the NPCs and their weapons, the start script's objects) take their cell's place too, after the cell's statics, with a hundredth of their own depth (`models.wesl`, docs/re/drawing.md): a sprite covers a model whole or not at all, as in the original, which draws them in its lists without depth.
 * **Water and lava:** each liquid cell shows the frames of its sector's liquid material (`B_WATER`, `C_LAVA`, …), a frame over 4 × 4 cells, cycling in 2,048 ms as the original does, each cell's surface flat at height 0 and each corner as opaque as the bed is deep there, the bed's height times the material's factor, and under the clear waters' surfaces their second layer, the frames again over 2 × 2 cells added to the frame, brighter over the deeper bed and gone by night (docs/re/liquids.md, docs/decisions/2026-10-17-liquids.md).
 * **Streaming:** the 3 × 3 sectors around the hero's are built off the main thread, two at a time, and spawned one a frame; farther than two sectors they go.
-* **Characters:** the hero (`--class`: any of the seven heroes whose models carry their own clips, the Seraphim, the Gladiator, the Battle Mage, the Wood Elf, the Dark Elf, the Daemon and the Dwarf; no base model of the Vampiress was found) as its glTF with idle, walk and run clips, starting at its start script's `StartPosition` blended by `AnimationTransitions`, at the creature's walk and run speeds (the `R` key toggles walking), round the cells it may not walk on by the client's rule and search, and through the doors onto the buildings' inside layers (docs/re/movement.md); the start script's NPCs in the clips the client plays standing by the class of what they hold (docs/re/motions.md), holding their weapons and shields as the client equips them (docs/re/equipment.md), and its objects (1,990 in the Seraphim's: barrels, chests, book stands, coffins, signposts); the NPCs of the quests the start enters, the Seraphim's novice walking into the chapel as the first quest sends her (docs/decisions/2026-10-19-quest-npcs.md).
+* **Characters:** the hero (`--class`: any of the eight heroes, the Seraphim, the Gladiator, the Battle Mage, the Wood Elf, the Dark Elf, the Daemon, the Dwarf and the Vampiress) as its glTF with idle, walk and run clips, starting at its start script's `StartPosition` blended by `AnimationTransitions`, at the creature's walk and run speeds (the `R` key toggles walking), round the cells it may not walk on by the client's rule and search, and through the doors onto the buildings' inside layers (docs/re/movement.md); the start script's NPCs in the clips the client plays standing by the class of what they hold (docs/re/motions.md), holding their weapons and shields as the client equips them (docs/re/equipment.md), and its objects (1,990 in the Seraphim's: barrels, chests, book stands, coffins, signposts); the NPCs of the quests the start enters, the Seraphim's novice walking into the chapel as the first quest sends her (docs/decisions/2026-10-19-quest-npcs.md).
   The hero, the NPCs and the chests, barrels and the like of the start script cast the original's shadows, their meshes flattened onto the ground at their height, leaning up and to the right (docs/re/drawing.md, "The models' shadows"; docs/decisions/2026-10-19-model-shadows.md).
 * **Creatures:** the creatures of the sectors' `Init` and `Enter` functions and of their `FillSector` records (docs/re/spawning.md), their life while no foe is near (docs/re/ai.md), and the fight between them and the hero (docs/re/fight.md); the buildings' doors open and close (#274).
   The damage numbers (**hypothesis** for their look: the original's is not read) and the creatures' lines (#270) are interface text over the world, in `ANTQS__.TTF` (`fight.rs`, `lines.rs`).
-* **HUD:** none of the hero until M5 (docs/decisions/2026-10-17-hud.md); the interface is laid out on a 768-pixel-high screen scaled to the window's height (`hud.rs`), and the original's cursor (`MOUSE_MAIN`, the arrow in the top left 32 × 32 of its image) is scaled in whole steps of the system's display scale, rounded down.
+* **HUD:** the original's bar and the hero's portrait at the original's places (#1087, docs/re/interface.md); the interface is laid out on a 768-pixel-high screen scaled to the window's height (`hud.rs`), and the original's cursor (`MOUSE_MAIN`, the arrow in the top left 32 × 32 of its image) is scaled in whole steps of the system's display scale, rounded down.
   The menus, the pause, the debug overlay, the log, the console and the keys' help are Bevy UI on the same screen (docs/10).
 * **Day and night:** the original's clock (08:00 at the start, a day in an hour) and phases, and the night's colour laid over the frame drawn by a fullscreen pass, as the original multiplies its art by its vertices' colour; lit by night by the light statics and the hero's own light (docs/re/daynight.md, docs/decisions/2026-10-18-night.md).
 * **Sound:** the hero's footsteps at the moments of the walk and run clips (docs/02 §4.1), the group of the footstep profile by the nature of the cell underfoot, by the client's own table (docs/re/sound.md); the music of the hero's sector, switching as the hero enters a sector of another music, and the wood tracks of the `music` profile one after another in a sector without (docs/re/sound.md, "The region's music"); beside it, the ambient loop that the nature underfoot calls for, by the client's own switch (docs/re/sound.md), the day's.
-  `bevy_kira_audio` decodes a whole track into memory, so only the one playing is loaded.
+  The game decodes a whole track into memory (`opus`, #701), so only the one playing is loaded.
 * **Measured:** at 3840 × 2160 while the hero runs across sectors (`--benchmark`, music on, on a development machine with 32 logical cores), about 690 frames a second on 2026-10-18 with four compute threads (#40), and 750 at 1920 × 1080 with the hero standing; the slowest frames, 30 ms, came when sectors spawned.
   Later the same day, with the ground filtered across the cells' edges, about 570 at 3840 × 2160 (#38); on 2026-10-19, running across sectors, 580 without the overlay and 566 with it (docs/10 §5, #170).
   Since the creatures, their life and the fight came (2026-10-20), on 2026-10-25 (`main` at #927, the hero standing at the Seraphim's start, `--hidden`, #928): 365 to 392 frames a second at 3840 × 2160 in three runs and 391 at 1920 × 1080, the slowest frames 22 to 24 ms, no stall.
@@ -191,14 +190,13 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 |---|---|---|---|
 | R1 First sector | terrain mesh, tile atlas, orthographic camera, 4K | 8–15 | M2 |
 | R2 Slice | sector streaming, sprite objects, hero with animations, water | 15–30 | M2 |
-| R3 Full world | all object types, shadows, day and night lighting, weather, effects (the shadows and day and night came with M2's slice, §3.6) | 25–50 | M5 |
+| R3 Full world | all object types, shadows, day and night lighting, weather, effects (the shadows, day and night, the weather and the world's fires have come, §3.6) | 25–50 | M5 |
 | R4 4K polish | UI scale, graphics settings | 8–15 | M6 |
 | R5 HD pipeline | upscaling, KTX2, path-based substitution | 15–30 | M7 |
 
 ## Open questions
 
-1. Readiness of `bevy_hanabi` for Bevy 0.20.
-2. How well upscaling copes with 4-bit alpha: check on a sample in M7.
+1. How well upscaling copes with 4-bit alpha: check on a sample in M7.
 
 ## Sources
 

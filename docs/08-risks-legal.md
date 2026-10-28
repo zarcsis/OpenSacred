@@ -65,7 +65,7 @@ The risk is low (**estimate**), and it stays apart from the repository: a compla
   The tests that need them are `#[ignore]` and run locally (`CLAUDE.md`, "Tests").
 * The oracle (PLAN.md §6.1, #363) runs the user's own `Sacred.exe` under emulation on the developer's machine, never in CI, and checks it against the manifest first.
   It links Unicorn (GPL-2.0), so it is a separate development-only crate, a binary without a library, never linked into the converter or the game; Unicorn is its feature `emulator`, `deny.toml` allows GPL-2.0 for Unicorn's two crates alone and denies them anywhere else in the graph (docs/03 §3.4).
-* The driver of the original (`tools/original/`, #448, planned) runs the user's own `Sacred.exe` under Frida (wxWindows Library Licence 3.1) on the developer's machine, never in CI, and checks it against the manifest first.
+* The driver of the original (`tools/original/`, #448) runs the user's own `Sacred.exe` under Frida (wxWindows Library Licence 3.1) on the developer's machine, never in CI, and checks it against the manifest first.
   It is a Python tool of `tools/`, not a dependency of the converter or the game, and no release carries it.
   It runs the original in place in `OriginalGame/`, where the game writes its own files (`Settings.cfg`, `save/`, `Capture/`, its logs), never one of the manifest; what it observes reaches the repository and the issues as prose, and the issues and pull requests as the frames of a problem too (§3).
 * A dependency comes only under a license that `deny.toml` allows (`CLAUDE.md`, "Prohibitions"): Apache-2.0, BSD-2-Clause, BSD-3-Clause, BSL-1.0, ISC, MIT, MIT-0, MPL-2.0, Unicode-3.0 and Zlib.
@@ -103,7 +103,7 @@ A constant table or formula taken from an MIT project carries the project's noti
 | 1 | Granny animations convert with errors | medium | high | three open readers as a reference; control poses; an early start in M1 | poses in Blender do not match the original's frames |
 | 2 | Combat and loot rules are recovered incorrectly | medium | medium | oracle vectors (#363: the levels, the hit chance, the damage through a resistance and the most health so far); checks in the running original (#227); the deviation log | the balance "doesn't feel right" in play |
 | 3 | NetScript semantics are harder than expected | medium | high | a disassembler early; coverage by type frequency | a quest cannot be completed |
-| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`, created 2026-10-21; most of the rules followed so far still live in `opensacred-game` and move into it, #364); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
+| 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`, #364); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
 | 5 | Ecosystem crates lag behind Bevy | high | low | upgrade after the needed crates are out; keep critical parts in our own code | a crate does not build with the new Bevy |
 | 6 | Token use exceeds the estimate | medium | medium | tracking from day one (docs/usage.md); a cheaper model for mechanical work | agent-hour cost above the model |
 | 7 | Claude Code usage limits slow the work down | medium | medium | a task queue, scheduling heavy tasks, reviews in parallel | idle time due to limits |

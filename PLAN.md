@@ -25,7 +25,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
   Estimates are given in hours of active agent work and in tokens (§9).
   To a playable version on Windows 11: **≈390–770 agent-hours** (estimate).
   At API prices for Claude Opus 5.5 the same tokens would cost ≈$3k–14k, center ≈$6k; development runs on a Claude subscription, so this is a hypothetical figure, not money spent (§9).
-  The first visible result, a walk through the starting region in 4K, comes after ≈80–160 agent-hours.
+  The first visible result, a walk through the starting region in 4K, came on 2026-10-17 (G2).
 
 ## 1. Requirements and goals
 
@@ -50,7 +50,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | # | Goal | Criterion |
 |---|---|---|
 | G1 | Game assets are available in open formats | The converter processes 100% of the files of the reference GOG installation per the manifest; models open in Blender and pass glTF-Validator; a rerun gives the same result. 2026-10-17: `opensacred-convert coverage` gives, of the manifest's 319 files, 303 converted and 16 skipped with a reason, none left; tables and hero files keep the fields not yet understood as raw spans |
-| G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors, about 580 on 2026-10-19 (docs/05 §3.6, docs/10) |
+| G2 | Vertical slice | The hero walks through the starting region with animations, sound and UI at 3840×2160 at ≥ 60 fps on a mid-range PC. Met 2026-10-17: about 775 fps at 3840 × 2160 while the hero runs across three sectors, about 580 on 2026-10-19, and 365 to 392 on 2026-10-25 with the creatures and the fight (docs/05 §3.6, docs/10) |
 | G3 | Game rules | Combat, attributes, skills, items and loot work by the recovered formulas; deviations from the original are deliberate and recorded |
 | G4 | Campaign content | Quests, dialogues and triggers of the Sacred and Underworld campaigns run from converted scripts; both campaigns are completable from start to finish |
 | G5 | Playable version 1.0 for Windows 11 x64 | Full UI, saves, settings, gamepad; 4K and HiDPI; a playthrough without critical bugs |
@@ -135,12 +135,13 @@ opensacred-game (Bevy) ───── uses ───── opensacred-rules (ru
    It runs locally on any OS and does not require running the game; CI has no `Sacred.exe`, so the tests on the vectors run locally, like the other tests on the game files.
 5. **Observations of the running original.**
    Where the oracle cannot reach (a rule spread over threads and frames, the engine's timing, the creatures' choices, what the screen shows), the running original is observed.
-   Until 2026-10-21 that needed the maintainer at the game (#227); the driver of #448 (planned) lets Claude Code do it itself: `tools/original/` runs the user's own `Sacred.exe` under Frida in the background, reads its state, sends its keys and clicks, runs commands, traces its functions and takes its frames (docs/03 §3.8).
+   Until 2026-10-21 that needed the maintainer at the game (#227); since 2026-10-22 the driver of #448 lets Claude Code do it itself: `tools/original/` runs the user's own `Sacred.exe` under Frida in the background, reads its state, sends its keys and clicks, runs commands, traces its functions and takes its frames (docs/03 §3.8).
    Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose, and a frame of a problem, cropped to it, into its issue as an attachment (docs/08 §3).
 6. **Rust, written independently, then redesigned.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
-   Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), the fight's formulas with the hero's levels (#360), the ways (#361) and the creatures' decisions (#362), which `opensacred-game` calls; `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`) and the most health, which `opensacred-rules`' tests compare with: the levels agree, the others showed five bugs, of which #406, #407 and #408 are fixed and #417 and #418 open; the checks in the original are gathered in #227.
+   Status 2026-10-21: `opensacred-rules` holds the spawning's rolls (#359), the fight's formulas with the hero's levels (#360), the ways (#361) and the creatures' decisions (#362), which `opensacred-game` calls; `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`) and the most health, which `opensacred-rules`' tests compare with: the levels agree, the others showed five bugs, all fixed (#406, #407, #408, #417, #418); the checks in the original of #227 were worked through with the driver and closed on 2026-10-25.
+   Since then the crate took the archers' arrows, the drops, the combat arts, the spells, the scripts' state and rewards, the weather, the peace stream's music, the undead, the particle systems, the backpack, the equipment, the potions and the weapon sets (`CLAUDE.md`, "Workspace").
 7. **Nothing from the study is committed.**
    The Ghidra project, decompiler output and anything else made locally while studying the original (scratch C++ in a local `reference/` directory included) stay on the development machine; the repository holds only the prose in `docs/re/` and our own code.
 
@@ -223,13 +224,14 @@ OpenSacred/
 │  ├─ opensacred-formats/     reading the original formats (PAK, TEX, GRN, sectors, NetScript, global.res, AMH templates)
 │  ├─ opensacred-convert/     CLI: OriginalGame → assets-src/ → assets/ (subcommands verify, textures, models, world, sound, text, video, ui, netscript, tables, heroes, build, all, coverage)
 │  ├─ opensacred-data/        open-format types shared by the converter and the game (serde)
-│  ├─ opensacred-rules/       game rules without the engine: character, combat, items, AI, the quests' state (the spawning's rolls, the fight's formulas, the ways and the creatures' decisions so far, #364)
-│  ├─ opensacred-scripts/     (#725, planned) the Luau runtime of the translated scripts and of mods: mlua with Luau, the scripts' API
+│  ├─ opensacred-rules/       game rules without the engine: the spawning, the fight, the ways, the creatures' minds, the drops, the arts and spells, the quests' state, the backpack, the equipment, the potions, the weapon sets, the weather, the music and the undead (#364)
+│  ├─ opensacred-scripts/     (#725) the Luau runtime of the translated scripts: mlua with Luau, sandboxed, each call bounded, its records handed to the game's host
 │  ├─ opensacred-game/        Bevy application: rendering, camera, input, UI, sound, saves
 │  └─ opensacred-oracle/      (#363; development only, run locally, Unicorn its feature `emulator`) runs functions of the user's own Sacred.exe in Unicorn, records vectors
 ├─ tools/analysis/            Python research scripts (archive, gradually replaced by Rust)
 ├─ tools/ghidra/              scripts of the local Ghidra project (classes, names, library marks)
-├─ tools/game/                the game's remote-control client
+├─ tools/game/                the game's remote-control client and the conformance tools
+├─ tools/original/            the original's driver under Frida (#448)
 ├─ tools/usage/  tools/stack/ the process: Claude Code usage per pull request, stacked pull requests
 ├─ docs/                      plan, format specifications, prose notes on the original's behavior (docs/re/), decision log
 ├─ assets-src/  assets/  assets-hd/   generated locally, in .gitignore
@@ -244,7 +246,7 @@ OpenSacred/
 * **Camera:** orthographic with the original's angle; zoom with smooth approach; an extended view option.
 * **UI:** a new scalable interface in Bevy UI; text through cosmic-text at native resolution; the original UI textures serve as skins.
 * **Sound:** event profiles from `sndProfiles` → RON tables → Kira.
-* **Tools:** settings in TOML, a stopgap menu, a debug overlay and the log on the screen, a console of the game's commands, and remote control through which Claude Code drives the game ([docs/10](docs/10-game-tools.md)).
+* **Tools:** settings in TOML, the original's menus (#1120, #1123), a debug overlay and the log on the screen, a console of the game's commands, and remote control through which Claude Code drives the game ([docs/10](docs/10-game-tools.md)).
 
 ### 6.3 Rules layer (`opensacred-rules`)
 
@@ -272,7 +274,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | `mp3/*.mp3` | FLAC, decoded from the MP3 (#697) | Opus in Ogg | playback |
 | `movie/*.wmv` | FFV1 video and FLAC audio in Matroska, the frames and samples the WMV decoder gives (#698) | AV1 + Opus in WebM | playback in the game |
 | `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters (the fallback not added yet) | the same files | rendering all strings |
-| `Templates/*.ptx` | hero starter kits; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, until their layout is recovered | the same files | character creation |
+| `Templates/*.ptx` | hero starter kits; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, and since then the items worn, the backpack and the arts, the rest kept whole until its layout is recovered | the same files | character creation |
 | Packing | loose files, which tools edit | ZIP archives by kind (stored entries for compressed data, deflate for text), read through an asset reader with a loose overlay (#699) | the game starts from the archives alone |
 
 Principles: the converter runs in two stages (ADR-05), is incremental (a hash-based cache), runs in parallel, and writes a manifest with the source of every output file.
@@ -308,7 +310,7 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 * **Agent-hour**: an hour of active Claude Code work on a task (the agent reads code, writes, runs tests).
   Parallel sessions add up.
 * **Maintainer hours**: setting tasks, review, manual checks, playtesting.
-* **Cost**: at API prices per million tokens as of 2026-10-16: Claude Opus 5.5: $4 input, $20 output, $0.20 cache read, $5 cache write; Claude Sonnet 5.5: $2 / $10 / $0.20 / $2.50; Claude Fable 5.1: $10 / $50 / $0.25 / $12.50.
+* **Cost**: at API prices per million tokens as of 2026-10-16: Claude Opus 5.5: $4 input, $20 output, $0.20 cache read, $5 cache write for 5 minutes and $8 for an hour, which Claude Code uses (docs/usage.md); Claude Sonnet 5.5: $2 / $10 / $0.20 / $2.50; Claude Fable 5.1: $10 / $50 / $0.25 / $12.50.
 * **Agent-hour cost model (estimate):** output with reasoning 0.2–0.5M tokens, cache reads 5–15M, cache writes 0.5–1M.
   For Opus 5.5 that is ≈$8–18 per agent-hour, for Sonnet 5.5 ≈$4–10, for Fable 5.1 ≈$18–40.
   On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
@@ -316,6 +318,7 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
   A later revision of the documents took 32 agents, ≈1.5 hours, 6.6M tokens.
   What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
   By 2026-10-20 the README's badge summed 4.15B tokens, ≈$1.2k at API prices: ≈37 agent-hours in 152 pull requests and 12.7 in the sessions before, about $24 per agent-hour, above the model's $8–18 (the subagents' time is not counted).
+  On 2026-10-28 the badge summed 17.6B tokens, ≈$5.0k at API prices, with M3 and M4 closed.
   The recomputation of §9 from these figures is due on 2026-11-15, 30 days after 2026-10-16.
 
 ### 9.2 Milestones
@@ -325,8 +328,8 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
 | M0 Foundation | Cargo workspace, `CLAUDE.md`, CI, GOG installation manifest | 6–12 | 4–8 |
 | M1 Converter | all formats from §7; tests and the manifest | 80–160 | 25–50 |
 | M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K | 30–60 | 15–30 |
-| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23; the estimates stand until M3's re-estimation) | 120–240 | 40–80 |
-| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26) | 60–120 | 25–50 |
+| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23); closed 2026-10-26, the estimates standing until the recomputation of §9 | 120–240 | 40–80 |
+| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26); closed 2026-10-26 | 60–120 | 25–50 |
 | M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies | 50–100 | 20–40 |
 | M6 Version 1.0 for Windows 11 | saves, settings, gamepad, 4K and HiDPI, polish, campaign playthroughs | 40–80 | 100–200 |
 | **Total to version 1.0** | | **≈390–770** | **≈230–460** |
@@ -569,12 +572,25 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The tests on the game files passed before each merge, 974 of 974 at #1334.
     Waiting for the maintainer: whether the "!" over a creature is to be centred.
     Next: the taskbar's weapon sets and the hero's arms by them (#1271), the other potions' effects and the `Use:` items (#1272), the items' tooltip (#1273), the effect 856 (#1262), the rest of the queue's kinds (#1281), and the cinema's hero (#1280).
+29. **The day of 2026-10-28: the driver's clicks, the hero's queue, the weapon sets, the potions and the books.**
+    The maintainer decided that the "!" over a creature stays left of its head, as in the original, and the question of items 27 and 28 is closed.
+    The maintainer's own clicks in the original under `--interactive` showed why the driver's clicks missed the interface's windows: the items' page tests the cursor's previous point, which only a mouse move sets; the driver now moves twice before a click, reads the windows and their controls (`ui`, `ui press`), names the tooltips' links by the scripts' functions and points at an object by its id (#1340, #1341).
+    The maintainer's report that a hero at full health drinks no potion is the original's own rule, which the game follows since #1311.
+    The scripts' cinema mode and the hero's own queue (#1280, #1342): `NPC_Goto` takes its last name, a `Teleport` of none puts the hero in its turn, and the Daemon's start walks nobody, in the original as in the game (seen).
+    The hero heads for a far target a leg at a time, the nearer point tested on the target's floor (#1344, #1345); the rest of the original's way out of a building's floor is #1346.
+    The weapon sets (#1271): kept and drawn in the taskbar's slots (#1347, #1350), chosen by a click or the keys 1 to 5 with the hero's arms made again by them (#1348, #1351), and, the inventory open, the items put into the sets and taken out, the grid's right button sending a weapon or a shield into the selected set and the halves that would take the held item glowing (#1349, #1352), each matched with the original's frames; the slots' damage icons and the skill of two weapons are left out.
+    The potions' effects (#1353, #1357), read in the code and seen in the original: the purple's undead that its drinker kills never rise, the blue's kill earns half its base experience more, the green cure the effect 30 by their per cent, and the yellow, whose combos wait for #1090, are only used up; the effect 30 is what a strike gives (**hypothesis**: the poison), which the game never gives yet (#1354).
+    The books and the scrolls read from the backpack join the hero's books read and are used up (#1358, #1359), and the command `item` throws any type.
+    Found on the way: #1341 had joined the driver's `KILL_TRIES` into a comment, and its `kill` failed until #1356 (#1355); the first window of a new game and its tips (#1343); and, the maintainer's report, the garden's quest plant named and drawn unlike the original's (#1360).
+    The tests on the game files of the crates changed passed before each merge.
+    At the maintainer's word the documents were brought up to date (#1362) and the decision log is to be gathered by subsystems, a table each (#1361).
+    Next: the garden's plant (#1360), the rest of #1272 (the horse, the `Use:` items), the items' tooltip (#1273), the strikes' poison (#1354), the effect 856 (#1262), the rest of the queue's kinds (#1281), the wings' glow (#1309), the first window (#1343) and the queue's walk (#1346).
 
 ### 10.1 Priority queue
 
 Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M9 of §9.2 are GitHub milestones.
 Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
-The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-20 there were none: all 17 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable.
+The daily dependency check opens a `deps` issue for every newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"); on 2026-10-20 there were none: all 17 direct dependencies were at their latest releases and Rust 1.99.1 was the latest stable; on 2026-10-28 none was open for the 25 direct dependencies.
 
 ## 11. Top risks
 
@@ -630,7 +646,8 @@ Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2),
 | [docs/re/](docs/re/) | the original's behavior described in prose, per subsystem |
 | [docs/decisions/](docs/decisions/) | deliberate deviations from the original's behavior |
 | [docs/usage.md](docs/usage.md) | how Claude Code usage is recorded per pull request; the sessions before |
-| [tools/README.md](tools/README.md) | research analysis scripts |
+| [tools/README.md](tools/README.md) | research analysis scripts, the game's remote control and the original's driver |
+| [CLAUDE.md](CLAUDE.md) | the conventions of development with Claude Code |
 
 ## Sources
 

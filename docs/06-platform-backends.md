@@ -11,7 +11,6 @@
   The conversion is done (`opensacred-convert video`); playback comes in M5.
 * **Saves and settings:** settings are TOML through serde and `toml_edit` (done); saves will be our own format on serde (M6); the original saves are not supported.
 * **Scripts:** the converter translates the NetScript bytecode into Luau, which the game runs through mlua (PLAN.md ADR-13, #720).
-  Until then `opensacred-game` places the NPCs and objects of the start script and of the sectors' `Init`, `Enter` and `FillSector` records.
 * **Multiplayer after version 1.0** (PLAN.md ADR-09): until then no networking, no server, no lobby; no Steam or GOG Galaxy integration is needed.
 
 ## 1. Platforms
@@ -38,7 +37,7 @@
 | Part | Decision |
 |---|---|
 | Sound engine | Kira 0.12 through `bevy_kira_audio` 0.27 |
-| Decoders | Symphonia 0.6 for FLAC and MP3 today; libopus for the Opus of stage B (#701), the one C library of the sound |
+| Decoders | Symphonia 0.6's Ogg demuxer and libopus (#701), the one C library of the sound, decode the game's Opus; the converter decodes the WAVs and MP3s through FFmpeg |
 | Sound effects and speech | `sound.pak`: WAV → FLAC masters (lossless from PCM and IMA ADPCM), the MP3 entries decoded into FLAC masters (#697); the game's Opus in Ogg built from them |
 | Music | FLAC masters decoded from the MP3s, the game's Opus in Ogg; `bevy_kira_audio` does not stream, so only the track playing is loaded (≈85 MB decoded for four minutes) |
 | Events | profiles → `sound/sound.ron`, beside the samples, the music and the original's sound names: event → sample group → random selection rules |
@@ -124,7 +123,6 @@ Estimate: 3–6 agent-hours (M1 and M5).
 3. **The translator** in `opensacred-convert` (#723): the IR → Luau sources, a file per quest, sector, region and start script, and their bytecode; a record becomes a call of the scripts' API.
    With the converter's two stages (#694) the sources are the masters and the bytecode the built assets.
 4. **The runtime and the API:** `opensacred-scripts` (#725) runs the bytecode through mlua with Luau, sandboxed, a call bounded by an interrupt; the quests' state, the variables and the dialogues' table are `opensacred-rules`' (#724) and part of the save; `opensacred-game` implements the API (#726).
-   Until then `opensacred-game` reads the start script's and the sectors' records itself.
 5. **Modding** (after 1.0): new quests in Luau on the same API, checked against a definition file of it.
 
 Estimate: 40–80 agent-hours (M1 and M4); the main source of content uncertainty.

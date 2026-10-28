@@ -166,6 +166,8 @@ The other images of `GUI_main_02` beside them (yellow beads 65, red frame 68 and
 4. Input: the bar's mouse area (keep clicks off the world), the toggles' down images, keys 1–0 and slot clicks once the arts and weapon sets have a selection in `opensacred-game`.
 5. Later, with their windows: the inventory, options, map and book buttons open #1088, the Esc menu, #1091's map and quest log; the belt's potions and their use with #1088 or #1090; the right slots' edit mode and drag and drop with #1090 (the combat arts' window); the points "+" with #1089 (the character sheet); the tooltips, the compass's markers (quests, #1091), the burn, the sonars, the followers' portraits and the mount's bar when followers and horses come.
 
+Done by 2026-10-28: items 1 to 3, the sets' keys and slots of item 4 (#1348), and item 5's inventory button (#1267) and belt (#1311).
+
 ## Open questions
 
 - The sender and meaning of the taskbar's message `0x35` (the burn).
@@ -190,4 +192,4 @@ The belt's flasks are lit by the potions of their kinds since #1311 (`belt`).
 The left slots draw their weapon sets' items since #1347 (`sets`), as above: each set's two models, the right hand's over the left's, by a camera of their own into a picture over the bar.
 Since #1348 a click on a left slot, the cursor empty, or the keys 1 to 5 choose its set: the slot takes the selected orb and ring, the hero's hands its items, its arms made anew with them (`arsenal::Maker`: their models, the clips of their class, its values and its weapons' sounds), and a change of their class stops the hero; the event `0x114` and the keys' choice of the art slots (`COMBINE_SLOTS`) not followed.
 Since #1349 the inventory open is the left slots' edit mode: a click takes an item out of a set or puts the held one in, and the halves that would take the held item glow under the ring (`sets`, docs/re/inventory.md, §5); the hero's skill of two weapons, which lets a second one-handed weapon into the left hand, not followed (none of the templates has it).
-Not followed yet: the buttons' windows and pressed images, the right slots' selection, the edit mode, the damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.
+Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.

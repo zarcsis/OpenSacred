@@ -44,6 +44,8 @@ API prices as of 2026-10-16, in dollars per million tokens (the cost is hypothet
 | Claude Sonnet 5.5 | 2 | 10 | 0.20 | 2.50 |
 | Claude Fable 5.1 | 10 | 50 | 0.25 | 12.50 |
 
+Claude Code writes the cache for an hour, at $8 for Opus 5.5, which the recorded usage takes (docs/usage.md); the model below keeps the 5 minutes' price until the recomputation of 2026-11-15.
+
 Agent-hour profile (estimate): output including reasoning: 0.2–0.5M tokens; cache reads: 5–15M (the context is reread at every step); cache writes: 0.5–1M; uncached input is small.
 
 ```text
@@ -70,7 +72,7 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 ### M0. Foundation — 6–12 agent-hours, 4–8 maintainer hours
 
-* Cargo workspace (`opensacred-formats`, `opensacred-convert`, `opensacred-data`; `opensacred-rules`, `opensacred-game` and `opensacred-oracle` are added in their milestones), `rust-toolchain.toml`, `CLAUDE.md`, Claude Code hooks, CI on Linux.
+* Cargo workspace (`opensacred-formats`, `opensacred-convert`, `opensacred-data`; `opensacred-rules`, `opensacred-scripts`, `opensacred-game` and `opensacred-oracle` are added in their milestones), `rust-toolchain.toml`, `CLAUDE.md`, Claude Code hooks, CI on Linux.
 * The SHA-256 manifest of the GOG installation; installation check in the converter.
 * **Exit criterion:** `cargo build` and the tests pass in CI; the converter checks the installation.
 
@@ -101,25 +103,27 @@ So these numbers indicate the order of magnitude, and the §1.3 model needs to b
 
 ### M3. Rules — 120–240 agent-hours, 40–80 maintainer hours
 
-* A local Ghidra 12.1.4 project on the GOG `Sacred.exe` and `GameServer.exe`, RTTI, community names; the MCP server connected to Claude Code.
+* A local Ghidra project (made in 12.1.4, opened in 12.2 since 2026-10-24) on the GOG `Sacred.exe` and `GameServer.exe`, RTTI, community names; the MCP server connected to Claude Code.
   Moved here from M0: M1 and M2 do not need the original's code; Ghidra is installed earlier if a format question does.
 * Study in Ghidra, the behavior described in prose in `docs/re/`, and an independent implementation in `opensacred-rules` (PLAN.md §4.2): attributes and levels, skills and combat arts, combat and damage, resistances, items and loot generation, sets, creature AI, spawning.
 * `opensacred-oracle`, run locally: emulation of the formula functions of the user's own `Sacred.exe`, vectors in JSON.
-* The converter's two stages and the game's packed assets (#694, moved here from M7 on 2026-10-23): lossless masters in `assets-src/`, the game's KTX2 with BC7 and mipmaps, Opus and ZIP archives in `assets/`; the estimate stands until M3's re-estimation.
+* The converter's two stages and the game's packed assets (#694, moved here from M7 on 2026-10-23): lossless masters in `assets-src/`, the game's KTX2 with BC7 and mipmaps, Opus and ZIP archives in `assets/`; the estimate stands until the recomputation of 2026-11-15 from the recorded usage.
 * **Exit criterion:** combat with the starting region's creatures, loot, experience and levels work; the formulas are covered by vectors; deviations are recorded in `docs/decisions/`.
 * **Status 2026-10-20:** the Ghidra project with the classes from RTTI, the community names and the library marks was done on 2026-10-18 and 2026-10-19 (#87, #88).
   On 2026-10-20 the spawning, the creatures' AI and the fight with experience and levels followed, in `opensacred-game` rather than `opensacred-rules`, and move into it from 2026-10-21 (#364; PLAN.md §10, items 11–13; #328).
   The hero's items, skills and combat arts, the loot, and the oracle's vectors remain.
+* **Status 2026-10-26:** closed; the hero's items, combat arts and spells, the loot and the oracle's vectors came between 2026-10-21 and 2026-10-25 (PLAN.md §10, items 15–23).
 
 ### M4. Quests and world — 60–120 agent-hours, 25–50 maintainer hours
 
-* NetScript translated into Luau and run (#720), dialogues, triggers, NPCs, trading, the blacksmith, horses, day and night, weather.
+* NetScript translated into Luau and run (#720), dialogues, triggers, NPCs, day and night, the weather's choice; the trading and the blacksmith moved to M5 on 2026-10-26 (#1066, #1067).
 * **Exit criterion:** the first chapter of the Sacred campaign is completable from start to finish; the 68 most frequent record types (99% of the campaign) are implemented and covered by tests.
 * **Status 2026-10-20:** day and night came with M2 (#5); the townsfolk's day (#255) and the doors that open and close (#268) are done; the NetScript interpreter, dialogues, trading, the blacksmith and weather have not started.
+* **Status 2026-10-26:** closed; the scripts run in Luau through the play (#726), the dialogues (#1028) and the weather's choice (#1072); the first chapter's playthrough waits for M6's (#1099).
 
 ### M5. UI and effects — 50–100 agent-hours, 20–40 maintainer hours
 
-* Full UI: main menu, hero creation, inventory, character, skills, trading, map, journal, settings; 178 effects as data; profile-driven sound; movies.
+* Full UI: main menu, hero creation, inventory, character, skills, trading and the blacksmith (from M4, 2026-10-26), map, journal; 178 effects as data; the weather drawn; profile-driven sound; movies; the settings' menu is M6's (#1096).
 * **Exit criterion:** all game screens are accessible from keyboard, mouse and gamepad; the effects of all skills are displayed.
 
 ### M6. Version 1.0 for Windows 11 — 40–80 agent-hours, 100–200 maintainer hours
@@ -229,7 +233,7 @@ M7, M8 and M9 come after M6
 ## Open questions
 
 1. The actual cost of an agent-hour on the project's tasks (in tokens and at API prices): after 30 days of tracking.
-2. The actual pace of function analysis: after the first 50 functions of M3.
+2. The actual pace of function analysis: from M3's issues and pull requests, at the recomputation of 2026-11-15.
 3. The decision on Android: after version 1.0.
 4. How multiplayer is made, and its estimate: when M9 starts (PLAN.md §13).
 
