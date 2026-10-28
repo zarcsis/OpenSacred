@@ -295,7 +295,7 @@ Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
   Tile and sprite batching, instancing and Bevy's GPU skinning remove it.
 * Visible area: by default as in the original at zoom 1.0, but with 4K pixel density; an extended view is an option.
 * The UI scales independently of the scene resolution; fonts are rasterized for the actual DPI.
-* The base textures go to the game as KTX2 since M3 (#700), built by stage B from the PNG masters: BC7 with a full mip chain where the GPU samples them and they are opaque (docs/decisions/2026-10-23-textures.md).
+* The base textures go to the game as KTX2 since M3 (#700), built by stage B from the PNG masters: BC7 with a full mip chain where the GPU samples them and they are opaque (docs/decisions/drawing.md, "Textures as KTX2 with mipmaps").
 * HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate) and separate alpha channel processing, into PNG masters in `assets-hd/`, which stage B packs as it packs the base ones.
   Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
 
@@ -390,7 +390,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
    Then sector streaming: the 3 × 3 sectors around the hero's are built in the background and spawned when ready (the eight neighbours of the start in about 1.5 s), those beyond two sectors go.
    `--benchmark 8` at 3840 × 2160 while the hero runs across three sectors: 650–775 frames a second on a development machine (a few frames a run took 30–150 ms at that size, a stall of every thread of the process: Bevy's compute pool used all the cores the other pools left, and the threads ready to run outnumbered the cores; four compute threads remove it, #2, docs/05 §3.6), after the ground moved from one image per sector (75 MB) to an atlas of the distinct stacks of layers (13 MB for the median sector).
    Then the miniatures (squares of their type's atlas; the animated ones show their first frame) and the original's draw lists approximated in depth: the types flagged as underlays lie under the ordinary sprites.
-   The liquids show the frames of their sector's two liquid materials, cycling in 2,048 ms and mapped a frame over 4 × 4 cells as the client does (docs/re/liquids.md), the clear waters translucent and every surface fading at the shore until its blending is recovered (docs/decisions/2026-10-17-liquids.md).
+   The liquids show the frames of their sector's two liquid materials, cycling in 2,048 ms and mapped a frame over 4 × 4 cells as the client does (docs/re/liquids.md), the clear waters translucent and every surface fading at the shore until its blending is recovered (docs/decisions/drawing.md, "Clear waters' second layer per cell").
    Footsteps through Kira (`bevy_kira_audio`): each step of the run clip, at the moments that the clip's motion parameters in `MOTIONS.PAK` give (a hypothesis the run and walk clips support: two fractions half a cycle apart), plays the next sample of `footsteps_hero_female` in the group that the cell's nature calls for, by the client's own table (docs/re/sound.md).
    Fixed the same night: a hero sent off before its model's player existed ran with the idle clip.
    The run speed comes from the hero's record in `Creature.pak` (180 units a second, a hypothesis), and the models and speeds are scaled from the units of the original's model projection (534 × 400 on 1024 × 768) to the ground's by 1.52, which sizes the hero against the sprites as in the original.
@@ -420,7 +420,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     the chests' cells, closed by the scripts' trigger patches rather than by their objects (#211, #216);
     the world peopled as the original peoples it, by the sectors' `Init` and `Enter` script functions and their `FillSector` records (#215, #221, #222: the start's novices and animals, rabbits about it, goblins and thieves placed, bandits further out), standing idle, hostile ones in the hero's way;
     and the fight stance, which the NPCs take by the distance of the hero's nearest hostile and the hero by its own (#155, #219, #230).
-    Their departure is docs/decisions/2026-10-20-spawning.md.
+    Their departure is docs/decisions/spawning.md, "Sectors' creatures kept and seeded".
     The rules read off the code and not yet seen in the original are gathered for the maintainer in #227.
     Then (item 12): the creatures' items and packs (#228, #229) and their life while no foe is near (#232), before their fight.
 12. **M3 into M4: the creatures' life.**
@@ -428,7 +428,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     the fills' creatures in their packs and with their `MakeGroup` items (#228, #229);
     the creatures' life while no foe is near, read off the code (#232, docs/re/ai.md): they wake by their timers and the hero's look and step about (#237), the animals flee and stroll (#238), the guards keep their posts (#239), and the crowded ones part and step aside for the hero (#240), a walk that cannot start standing a second (#258);
     and the townsfolk's day, read (#241) and followed in the sub-issues of #255 (#247–#254): they roll at the hero's looks within the zoom's range, walk home, to the animals, the traders and their partners, and meet them; the children play and gather about the hero; the jugglers play their instruments; they run from danger and from the Daemon (#269); and at dusk and by night the town goes into its houses.
-    Their departures are docs/decisions/2026-10-20-animals.md, -idle.md, -guards.md, -crowds.md and -townsfolk.md; the checks for the maintainer are added to #227.
+    Their departures are in docs/decisions/ai.md; the checks for the maintainer are added to #227.
     Then the doors that open and close (#268) and the lines over the creatures (#270), done in #274 and #275, and the fight's rules (item 13), which the creatures' attacks, the guards' torches (#61) and the danger of a fight wait for.
 13. **M3: the fight.**
     The rest of the night of 2026-10-20 read the fight off the code (#276, #281, #294, #300, #316; docs/re/fight.md, docs/re/items.md) and followed it in some twenty pull requests (#286–#319), the sub-issues of #285, the research shared with subagents of the session:
@@ -437,7 +437,7 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     an NPC's attack, defence, damage and resistances by its attributes, its level, its bonuses and its skills (#281, #293), and an armed one's by its weapon, made by its template (#294, #309);
     the hero attacking at a click, its strikes chained faster (#283, #312), taking the creatures' hits by bronze's factors, regenerating, falling and rising at the start (#292), and gaining levels by its kills' experience (#300);
     the wounded creatures fleeing and the far ones going home (#304); the bosses and the champions (#316, #318); each hero at its own speed (#298), and the creatures' lines over them in a tall window (#296).
-    Their departures are docs/decisions/2026-10-20-health.md, -pursuit.md, -hits.md, -hero-attack.md, -hero-health.md, -skills.md, -levels.md, -weapons.md and -bosses.md; the checks for the maintainer are added to #227.
+    Their departures are in docs/decisions/fight.md; the checks for the maintainer are added to #227.
     Next: the doors in the way, the places about the hero and the archers (#284, the last open sub-issue of #285, split in #391 and #392 after #383 read them); the hero's items and its character sheet come with the interface.
 14. **The documents against the code.**
     On 2026-10-20 the documents were audited against the code, the issues and the pull requests (#321–#325), and the problems found were filed as issues of their own (#326–#333).

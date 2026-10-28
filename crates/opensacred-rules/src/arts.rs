@@ -1906,7 +1906,7 @@ pub const JUMP_FLIGHT: f32 = 0.25;
 
 /// The rate of a jump's clip, its maker `distance` from its target (`0x5038F0` at `0x505C4C`):
 /// 5 within 10, 1 beyond 500, else `5 − ⌊d/99⌋`, at least 1, where the original's falls to 0
-/// from 495 to 500 and holds its clip (docs/decisions/2026-10-24-jump-rate.md).
+/// from 495 to 500 and holds its clip (docs/decisions/arts.md, "Seraphim's jump rate at least 1").
 pub fn jump_rate(distance: u32) -> f32 {
     let rate = match distance {
         0..10 => 5,
@@ -2731,7 +2731,7 @@ impl Blast {
     /// The share of the Daemon's strike at a creature `distance` from him (`0x5ABD80` at
     /// `0x5B1EB1`): `(R − d)/R · max(1, f/2)`; none beyond `R`, where the original takes `R − d`
     /// as an unsigned number, a factor of some four thousand million over `R`
-    /// (docs/decisions/2026-10-24-daemons-blast.md).
+    /// (docs/decisions/arts.md, "Daemon's blast edge and level").
     pub fn share(&self, distance: u32) -> Option<f32> {
         let most = f64::from(self.most);
         let distance = f64::from(distance);

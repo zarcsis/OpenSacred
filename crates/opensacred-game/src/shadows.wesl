@@ -1,7 +1,7 @@
 // The models' shadows' shader (`shadows::ShadowMaterial`): a model's mesh flattened onto the
 // plane at its root's height along the original's light (`cGranny::renderShadow`, `0x406FF0`),
 // black at its texture's alpha, every pixel of one shadow darkened once (docs/re/drawing.md,
-// "The models' shadows"; docs/decisions/2026-10-19-model-shadows.md).
+// "The models' shadows"; docs/decisions/drawing.md, "Models' shadows by depth, not stencil").
 //
 // The vertex stage is Bevy's own (`bevy_pbr::render::mesh`, MIT OR Apache-2.0) but for the
 // flattening, as the models' is (`models.wesl`).

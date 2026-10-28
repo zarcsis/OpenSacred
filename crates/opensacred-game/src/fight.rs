@@ -106,9 +106,9 @@ pub struct Ranked(pub Rank);
 /// A boss, a champion or a creature of a champion's levelling not hostile to the hero, whose
 /// levelling waits for its first strike or hit (`0x56B130`, `0x550E50`, #630): the hero's look
 /// levels the hostile ones by the hero's level (`0x547377`), which the game does as it makes them
-/// (docs/decisions/2026-10-20-bosses.md), but not the others, which take their first opponent's;
-/// and whether its type is big (`Creature.pak` flag `0x02`), which its sector's highest level
-/// does not hold (`npcs::first_fight`).
+/// (docs/decisions/fight.md, "Bosses and champions levelled when made"), but not the others, which
+/// take their first opponent's; and whether its type is big (`Creature.pak` flag `0x02`), which its
+/// sector's highest level does not hold (`npcs::first_fight`).
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Unfought {
     pub big: bool,

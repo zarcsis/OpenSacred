@@ -93,7 +93,7 @@ Tests that need the game files are marked `#[ignore]`: CI does not have them. Cr
 | [docs/02-data-formats.md](docs/02-data-formats.md) | the original data formats and their conversion targets |
 | [docs/03-toolchain.md](docs/03-toolchain.md) | tools, workstation setup, CI, the workflow with Claude Code |
 | [docs/re/](docs/re/) | the original's behavior, recovered and described by subsystem |
-| [docs/decisions/](docs/decisions/) | the deliberate deviations from the original, a decision each |
+| [docs/decisions/](docs/decisions/) | the deliberate deviations from the original, a table per subsystem |
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | the legal policy: what the project publishes and what it never does |
 | [docs/10-game-tools.md](docs/10-game-tools.md) | the game's commands, scripts and remote control |
 | [docs/usage.md](docs/usage.md) | how the Claude Code usage of each pull request is counted |

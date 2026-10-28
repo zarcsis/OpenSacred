@@ -2,11 +2,11 @@
 //! sends the hero within 1.5 times their reach, where the creature stops, both turn to each other
 //! and the creature plays its talk; its function `Dialog:<name>` runs (`scripts::speak`), and a
 //! window at the screen's middle shows the creature's name, its texts and its buttons, until the
-//! original's interface of M5 (docs/decisions/2026-10-26-dialogue-window.md). A button closes it,
-//! ends the talk and runs its function (`scripts::answer`); without buttons Enter or a click
-//! closes it; the talk ends too where the hero stands farther than 1,500 from the creature. Its
-//! voice-over ends as it closes. The world runs on meanwhile, the hero's clicks on it held back
-//! while the window shows.
+//! original's interface of M5 (#1087). A button closes it, ends the talk and runs its function
+//! (`scripts::answer`); without buttons Enter or a click closes it; the talk ends too where the
+//! hero stands farther than 1,500 from the creature. Its voice-over ends as it closes. The world
+//! runs on meanwhile, the hero's clicks on it held back while the window shows
+//! (docs/decisions/interface.md, "Dialogue window holds back world clicks").
 
 use bevy::picking::Pickable;
 use bevy::picking::events::PointerClick;

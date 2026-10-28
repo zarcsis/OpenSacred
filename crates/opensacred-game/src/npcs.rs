@@ -10,7 +10,8 @@
 //! docs/re/movement.md, "The objects in the way"). An NPC
 //! that a quest sends somewhere at the start (`NPC_Goto`) walks there from where it was made,
 //! along the hero's way, with its walk clip at its creature's walk speed, or its run's where its
-//! model has no walk, then stands (docs/decisions/2026-10-19-quest-npcs.md).
+//! model has no walk, then stands (docs/decisions/netscript.md, "NPCs sent by scripts walk the
+//! hero's way").
 //!
 //! What the operands mean is read off the data (**hypothesis**, docs/02 §7.3): the first `0x02`
 //! is the creature, which is also the `items.pak` slot of its model (`SOLDIER.GRN`, `HORSE.GRN`),
@@ -6951,7 +6952,7 @@ pub(crate) fn script_records(
 /// trigger it bars or unbars and opens or closes, its doors in the world turning with it. The
 /// state goes to the trigger by the object's name whether the object is in the world or gone
 /// with its sector, and the next object made under that name takes it
-/// (docs/decisions/2026-10-25-stale-object-names.md).
+/// (docs/decisions/netscript.md, "Object states kept for a gone object's name").
 fn script_states(
     mut commands: Commands,
     states: Option<ResMut<crate::scripts::ObjStates>>,

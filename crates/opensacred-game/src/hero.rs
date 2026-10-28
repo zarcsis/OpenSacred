@@ -1178,9 +1178,9 @@ pub struct Fallen(f32);
 
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
 /// its dying clips once and lies there; after five seconds it rises at the game's start with its
-/// health full (docs/decisions/2026-10-20-hero-health.md), paying a share of its gold by the
-/// difficulty, the game's (`0x53E4A8`, #976, #1086), at its home where the scripts gave it one, on its
-/// floor (`sdk_ENGINE_TP` at `0x5413ED`, #974), else at the game's start.
+/// health full, paying a share of its gold by the difficulty, the game's (`0x53E4A8`, #976,
+/// #1086), at its home where the scripts gave it one, on its floor (`sdk_ENGINE_TP` at
+/// `0x5413ED`, #974), else at the game's start.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"

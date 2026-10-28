@@ -18,9 +18,9 @@
 //! place among the sprites (#998).
 //!
 //! A mesh whose texture has translucent texels is drawn twice, as the sprites are
-//! (docs/decisions/2026-10-22-model-alpha.md): its opaque texels through the depth buffer, then,
-//! by a copy of the mesh ([`Fringe`]), the others that the original's alpha test keeps, blended by
-//! their alpha in the objects' layer of the blended things ([`Pass`]).
+//! (docs/decisions/drawing.md, "Models' translucent meshes drawn twice"): its opaque texels through
+//! the depth buffer, then, by a copy of the mesh ([`Fringe`]), the others that the original's alpha
+//! test keeps, blended by their alpha in the objects' layer of the blended things ([`Pass`]).
 //!
 //! A model that the original draws under a liquid's surface ([`Sinks`]) lies, while it stands in
 //! a liquid cell ([`Sunk`]), as far back as the liquid cells' miniatures, its translucent texels

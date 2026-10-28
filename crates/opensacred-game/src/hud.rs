@@ -3,7 +3,7 @@
 //! the interface laid out on the original's 768-pixel-high screen scaled to the window's height,
 //! as the world is. The original lays its interface out in code from the `gui_main_*` atlases
 //! (docs/02 §11); the bar and the hero's portrait are `bar`'s (#1087), the windows
-//! `inventory`'s and the others' (docs/decisions/2026-10-17-hud.md).
+//! `inventory`'s and the others' (docs/decisions/interface.md, "Bar, portrait and cursor scaled").
 //!
 //! Bevy's interface writes its colours and texels into the frame as they are, and the frame holds
 //! sRGB values (`srgb`): an interface gives them in those values, its colours as linear ones and

@@ -18,18 +18,19 @@
 //! functions, `OMO<quest><name>`, each of a quest only while that quest is set up (`0x5941A0`,
 //! `0x46BA90`), and their `Teleport`s of the hero put it where they name (`0x491D40`); their
 //! `CreateNPC`s and `CreateObj`s go to `npcs` ([`WorldRecords`], #1014). The timers of `SetTimer`
-//! and `DelTimer` count the game's minutes (#933, docs/decisions/2026-10-25-script-timers.md): at
-//! each minute of the clock but the one that ends a day the timers due run their functions in turn,
-//! but those of a finished quest, as the client's calendar runs them (`0x416F00`). `SetDrop` keeps
-//! the scripts' drops by the creature type and the item (#930,
-//! docs/decisions/2026-10-25-script-drops.md), which the deaths' drops take ([`ScriptDrops`],
-//! `drops`). `SetObjState` bars, unbars, opens and closes the trigger of the object it names
-//! ([`ObjStates`], which `npcs` carries out), the state kept by the trigger while the object is
-//! gone (#952, docs/decisions/2026-10-25-stale-object-names.md). `SetHP` sets a creature's health
-//! to a share of its most ([`Healths`], #1001). `RegionChange` keeps its pairs of types by area,
-//! a record replacing its area's list while a function runs and adding to it once a function it
-//! called has ended (`0x4ABFE0`), which the later `CreateNPC`s of the area that carry `0x6B` of 0
-//! take (`npcs::AREA_TURN`, [`ScriptAreaTypes`], #1063, #1102).
+//! and `DelTimer` count the game's minutes (#933, docs/decisions/netscript.md, "Scripts' timers in
+//! elapsed minutes"): at each minute of the clock but the one that ends a day the timers due run
+//! their functions in turn, but those of a finished quest, as the client's calendar runs them
+//! (`0x416F00`). `SetDrop` keeps the scripts' drops by the creature type and the item (#930,
+//! docs/decisions/netscript.md, "Scripts' drops per creature and item"), which the deaths' drops
+//! take ([`ScriptDrops`], `drops`). `SetObjState` bars, unbars, opens and closes the trigger of the
+//! object it names ([`ObjStates`], which `npcs` carries out), the state kept by the trigger while
+//! the object is gone (#952, docs/decisions/netscript.md, "Object states kept for a gone object's
+//! name"). `SetHP` sets a creature's health to a share of its most ([`Healths`], #1001).
+//! `RegionChange` keeps its pairs of types by area, a record replacing its area's list while a
+//! function runs and adding to it once a function it called has ended (`0x4ABFE0`), which the later
+//! `CreateNPC`s of the area that carry `0x6B` of 0 take (`npcs::AREA_TURN`, [`ScriptAreaTypes`],
+//! #1063, #1102).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

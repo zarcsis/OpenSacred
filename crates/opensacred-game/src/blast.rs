@@ -6,7 +6,7 @@
 //! while he lives (`Blast::share`; seen, #856), and then, by the kicks' roll of the charge's level (**hypothesis**: the
 //! object's level word, which the original leaves as it finds it), is knocked back by the blast's
 //! strength (`making::Knocked`). A ring of one colour stands in for its particle system
-//! (docs/decisions/2026-10-24-daemons-blast.md).
+//! (docs/decisions/arts.md, "Daemon's blast edge and level").
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{BLAST_LIFE, Blast};

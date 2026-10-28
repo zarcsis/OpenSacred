@@ -2,9 +2,10 @@
 //! killed by the living hero asks the rules for its drops (`opensacred_rules::drops`), and each
 //! drop becomes its item's model with its texture (`items.pak +0x70`, `+0x08`), thrown from the
 //! creature's place at the height 60 and flying by the rules (`opensacred_rules::drops::Flight`)
-//! until it lies on the ground, where it stays until the hero picks it up (`pickup`, #911); the
-//! labels on Alt come later (docs/decisions/2026-10-21-drops-in-game.md). The `state` command lists
-//! the nearest drops, and the command `drop` makes the nearest hostile creature drop.
+//! until it lies on the ground, where it stays until the hero picks it up (`pickup`, #911) or the
+//! game ends (docs/decisions/items.md, "Drops lie until the game ends"); the labels on Alt come
+//! later. The `state` command lists the nearest drops, and the command `drop` makes the nearest
+//! hostile creature drop.
 
 use std::collections::HashMap;
 use std::path::Path;

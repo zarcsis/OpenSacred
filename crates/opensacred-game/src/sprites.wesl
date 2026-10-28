@@ -2,10 +2,10 @@
 // screen at the depth of their cell, brought forward a little in the original's order of drawing,
 // so that sprites at the same depth do not fight (docs/re/drawing.md), and placed on screen by the
 // original's pixels, so that abutting sprites meet (`on_screen`). A sprite is drawn twice
-// (docs/decisions/2026-10-18-sprite-alpha.md): its opaque texels through the depth buffer, then the
-// others (`FRINGE`) blended by their alpha over what lies behind them, as the original blends
-// them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`). The sprites standing on an
-// upper storey's floor stay in front of its plane (`fragment_on_floor`).
+// (docs/decisions/drawing.md, "Sprites' opaque and translucent texels apart"): its opaque texels
+// through the depth buffer, then the others (`FRINGE`) blended by their alpha over what lies behind
+// them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
+// The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process};
@@ -145,7 +145,7 @@ fn filtered(uv: vec2<f32>, source: vec4<i32>, alpha: f32) -> vec4<f32> {
 /// the hero's point across and down, from the alpha at the point to 1 at the radius' distance;
 /// else 1. Per point here, where the original gives each corner of its sprites' pieces of 64
 /// pixels this alpha and lets the rasterizer blend it between them
-/// (docs/decisions/2026-10-19-tree-fade.md). The same as `statics::TreeFade::at`.
+/// (docs/decisions/drawing.md, "Trees' fade per pixel"). The same as `statics::TreeFade::at`.
 fn faded(screen: vec2<f32>) -> f32 {
     let point = fade[0].xy;
     let radius = fade[0].z;

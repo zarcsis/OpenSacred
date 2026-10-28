@@ -10,7 +10,7 @@
 //! the bed's height times the material's factor, and blended by that alpha. Before the
 //! surfaces, the clear waters have a second layer on their beds: the frames again, a frame over
 //! 2 × 2 cells, added to the frame, brighter over the deeper bed and gone by night (#118,
-//! docs/decisions/2026-10-17-liquids.md).
+//! docs/decisions/drawing.md, "Clear waters' second layer per cell").
 
 use std::collections::HashMap;
 use std::path::Path;

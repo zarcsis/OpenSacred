@@ -4,7 +4,7 @@
 //! reaches him, nearer than his size and its own, heals him `10 + 30·L` up to his most health
 //! with the effect 30 for 1 s (`opensacred_rules::arts::soul_speed`, `soul_heals`); a soul ends at
 //! a cell that may not be walked on or without him. A glowing ball stands in for its particles,
-//! as the Seraphim's bolts' (docs/decisions/2026-10-24-bolts-look.md).
+//! as the Seraphim's bolts' (#1092).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{SOUL_REACH, SOUL_SIZE, SOULCATCHER, soul_heals, soul_speed};

@@ -2,7 +2,8 @@
 //! KTX2 file of [`opensacred_data::texture`]. A texture that the game reads on the CPU
 //! ([`Use::Read`]) keeps its texels as they are, one level; one that the GPU samples
 //! ([`Use::Sampled`]) gets a full mip chain, in BC7 where its texels are all opaque and its sides
-//! whole blocks of 4, else as they are (docs/decisions/2026-10-23-textures.md).
+//! whole blocks of 4, else as they are (docs/decisions/drawing.md, "Textures as KTX2 with
+//! mipmaps").
 //!
 //! A level halves the one before by a box of 2 × 2 texels: the colours averaged in linear light,
 //! each weighted by its alpha, so that the colour of a texel the alpha hides does not bleed into
@@ -28,7 +29,8 @@ pub enum Use {
 }
 
 /// The models' alpha test, the original's, which drops the texels of alpha 64 or less
-/// (docs/decisions/2026-10-22-model-alpha.md): the alpha whose coverage the levels keep.
+/// (docs/decisions/drawing.md, "Models' translucent meshes drawn twice"): the alpha whose coverage
+/// the levels keep.
 const CUTOFF: f32 = 64.5 / 255.0;
 /// The widest scale of a level's alpha, enough to raise the least alpha over [`CUTOFF`].
 const MOST_SCALE: f32 = 256.0;

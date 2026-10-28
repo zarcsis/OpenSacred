@@ -63,9 +63,9 @@ const MP3_FLAC: [&str; 18] = [
     "pipe:1",
 ];
 
-/// The bitrates of the game's Opus (#701, docs/decisions/2026-10-23-opus.md): a sample's mono and
-/// stereo, at least the 48 to 96 kbit/s of the MP3 samples but for 72 of 128; the music's, at the
-/// MP3s' 256 kbit/s.
+/// The bitrates of the game's Opus (#701, docs/decisions/sound.md, "Sound in Ogg Opus"): a sample's
+/// mono and stereo, at least the 48 to 96 kbit/s of the MP3 samples but for 72 of 128; the music's,
+/// at the MP3s' 256 kbit/s.
 const SAMPLE_BITRATES: [&str; 2] = ["96k", "128k"];
 const MUSIC_BITRATES: [&str; 2] = ["128k", "256k"];
 
@@ -169,7 +169,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
             let bytes = match pak.get(slot).context(what.clone())? {
                 Some(Sample::Wav { data, .. }) => ffmpeg::pipe(&FLAC, data, &what)?,
                 // Decoded from the first frame: the zeros some records carry before it are left
-                // out (#354, docs/decisions/2026-10-20-mp3-leading-zeros.md).
+                // out (#354, docs/decisions/sound.md, "MP3 samples from their first frame").
                 Some(Sample::Mp3 { data, lead }) => ffmpeg::pipe(&MP3_FLAC, &data[lead..], &what)?,
                 None => unreachable!("ids() lists used slots"),
             };
@@ -243,7 +243,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
             .copied();
         let data = read_game_file(&source.join(&name))?;
         // The zeros or junk before the first frame of 154 files are dropped (#367,
-        // docs/decisions/2026-10-20-music-junk.md).
+        // docs/decisions/sound.md, "Music files from their first frame").
         let start = mp3_first_frame(&data)
             .with_context(|| format!("mp3/{name}: no MPEG-1 Layer III frame"))?;
         if start > 0 {

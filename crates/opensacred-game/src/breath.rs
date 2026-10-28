@@ -4,7 +4,7 @@
 //! (`opensacred_rules::arts::Burn`, kept on him, `burns`); as far as the point, at most 650, it
 //! stops, lays a pair of fires every 0.15 s across its line (`wall_spreads`), and goes; each fire
 //! burns for 10 s each creature it meets once. A ball and flames of one colour stand in for their
-//! particles (docs/decisions/2026-10-24-bolts-look.md).
+//! particles (#1092).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{

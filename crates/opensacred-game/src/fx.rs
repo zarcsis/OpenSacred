@@ -7,9 +7,9 @@
 //! alpha and the smoke laid over it by its alpha, not tinted by the night; and the fire lights
 //! the night by its system's radius (`+0x9C`, docs/re/effects.md, "Lights").
 //!
-//! Left out (docs/decisions/2026-10-24-bolts-look.md holds the spells' stand-ins): the wind that
-//! the smoke class writes into its layers (`+0x68` of the renderer, a **hypothesis**), the other
-//! classes and the torches' flames.
+//! Left out: the wind that the smoke class writes into its layers (`+0x68` of the renderer, a
+//! **hypothesis**), the other classes, the spells' among them, for which their modules draw
+//! stand-ins, and the torches' flames.
 
 use std::sync::Arc;
 

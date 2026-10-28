@@ -10,7 +10,7 @@
 //! found and goes, the BFG's those of its first contact and flies on harmless, the Daemon's the
 //! first alone and goes. The Mage's fireball flies as a bolt too, of its own speed and time by its
 //! level, and strikes every creature it found at its first contact and goes (`making`, #872). A
-//! glowing ball stands in for their particle systems (docs/decisions/2026-10-24-bolts-look.md).
+//! glowing ball stands in for their particle systems (#1092).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};

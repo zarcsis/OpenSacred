@@ -4,9 +4,9 @@
 //! as the renderer's events set them (`0x419A70`). It is drawn and heard only: no rule of the
 //! play reads it.
 //!
-//! Two slips of the original's choice are repaired (#1083,
-//! docs/decisions/2026-10-26-weather-timers.md): its time is `shortest + (longest − shortest) / b`
-//! for the roll `b`, nearly always the shortest and infinite for a roll of 0, where ours is
+//! Two slips of the original's choice are repaired (#1083, docs/decisions/weather.md, "Weather
+//! times span their range"): its time is `shortest + (longest − shortest) / b` for the roll `b`,
+//! nearly always the shortest and infinite for a roll of 0, where ours is
 //! `shortest + (longest − shortest) · b / 255`; and it takes the snow for on by the rain's flag,
 //! where ours takes the snow's own.
 

@@ -20,8 +20,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LABEL = 'needs-maintainer'
-# The decisions, a file each (docs/decisions/README.md); one is taken without the maintainer, unless it departs far
-# from the original or carries legal consequences, which Claude judges.
+# The decisions, a row each of a subsystem's table (docs/decisions/README.md); one is taken without the maintainer,
+# unless it departs far from the original or carries legal consequences, which Claude judges.
 DECISIONS = 'docs/decisions/'
 # What a pull request changes here always waits for the maintainer: the guardrails (the hooks, this one among them,
 # and the settings that run them), CI and the repository's GitHub files, the allowed licenses, the decision log's own

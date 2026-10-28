@@ -54,10 +54,10 @@ A creature's distance of 700 (`0x54A7B0`; hypothesis: its sight) becomes 1000 âˆ
 ## In `opensacred-game`
 
 `daynight` keeps the clock (08:00 at the start, `--time HH:MM` for another hour), advances it by 24 seconds a second of the frames' time, and takes its phase and the night's level as above.
-The colour by the night is laid over the frame drawn, a fullscreen pass that multiplies each pixel's 8-bit values by it (`night.wesl`; the interface is drawn after it), rather than over each vertex: the same for the art, which the original multiplies by its vertices' colour, but not for what the original blends (docs/decisions/2026-10-18-night.md).
+The colour by the night is laid over the frame drawn, a fullscreen pass that multiplies each pixel's 8-bit values by it (`night.wesl`; the interface is drawn after it), rather than over each vertex: the same for the art, which the original multiplies by its vertices' colour, but not for what the original blends (docs/decisions/drawing.md, "Night as a pass over the frame").
 The light sources are the static objects of the light types in the loaded sectors, at their positions on the ground at height 0 (the original's are flat positions on the screen), the world's fires (`fx`, #1189), and the hero, of the radii above; the 32 nearest the screen's centre that reach the view light it, the distance taken on the screen in the original's pixels, both ways alike, as the original's.
 The Wood Elf's light is doubled by night.
 In a sector that `world.ron` marks a dungeon (above), the hero's, at any hour the colour is the grey ramp and the hero's light of radius 200.
-The lamps' glows (`statics`, `daynight::glow`) are quads of `PARTICLE_GLOW01` about the light sources' miniatures, a little in front of them, of the colour and alpha above, under the night pass, which darkens them as it does the rest (docs/decisions/2026-10-18-night.md).
+The lamps' glows (`statics`, `daynight::glow`) are quads of `PARTICLE_GLOW01` about the light sources' miniatures, a little in front of them, of the colour and alpha above, under the night pass, which darkens them as it does the rest (docs/decisions/drawing.md, "Night as a pass over the frame").
 Not yet (#61): the creatures' and the spells' lights and glows, the torches and the attribute `0x361`.
 The ambient loops of the night play in the dusk and by night (`atmosphere`), and no music starts by night (`music`).

@@ -1,12 +1,11 @@
 //! The main menu, its submenus, the choice of the hero and the pause's menu (docs/10 §4). The main
-//! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving
-//! water (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor
-//! with a glow and fading in as a menu replaces another, and the Multiplayer and Extras
-//! submenus; the items whose screens the game does not
-//! have yet stand greyed (docs/decisions/2026-10-19-menus.md). The campaigns open their choices
-//! of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and Quit over
-//! the frame dimmed. The mouse chooses by pointing and clicking, the keyboard with the arrows and
-//! Enter; Esc goes back a screen.
+//! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving water
+//! (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor with a
+//! glow and fading in as a menu replaces another, and the Multiplayer and Extras submenus; the
+//! items whose screens the game does not have yet stand greyed (#1094, #1095, #1096). The campaigns
+//! open their choices of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and
+//! Quit over the frame dimmed. The mouse chooses by pointing and clicking, the keyboard with the
+//! arrows and Enter; Esc goes back a screen.
 
 use std::collections::HashMap;
 use std::path::Path;

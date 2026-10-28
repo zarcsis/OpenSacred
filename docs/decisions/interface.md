@@ -1,0 +1,10 @@
+# Interface
+
+The interface over the world, the menus and the dialogues' window (docs/re/interface.md, docs/re/menus.md).
+
+| Decision | Ours, against the original | Why | Kind | Issues |
+|---|---|---|---|---|
+| Bar, portrait and cursor scaled | The bar and the hero's portrait scale with the window's height, the bar centred along the bottom and the portrait at the right edge of a window wider than 4:3, and the cursor grows with the system's display scale in whole steps, where the original's screen is a fixed 4:3 and its cursor unscaled. | In a wide window the bar's centre and the portrait's corner are where the eye looks for them, and a cursor by the display scale is as large as the system's, its texels square. | deviation | #168, #442, #1087 |
+| Dialogue window holds back world clicks | While a dialogue's window shows, all of the hero's clicks on the world are held back, where the original's window takes only the clicks inside its rectangle. | A button's press must not walk the hero away and end its own talk. | deviation | #1028 |
+| Menus' scale, keys, text and figures | The menus keep the original's picture of 1024 × 768 scaled to the window's height, black at its sides, and the keyboard chooses with the arrows, Enter and Esc. The choice of the hero draws its words with Bevy's unhinted text, thinner than the original's hinted GDI, its unlit figures dark, and the menus' water at the installation's detail. | The keyboard serves play without a mouse and the scripts, the original's light of the figures is not read, and the game has no setting of the water's detail. | deviation | #172, #178, #1118, #1119, #1127, #1130, #1221 |
+| Underworld menu tile made opaque | `opensacred-convert textures` scales the alpha of `GUI_UW_OPTION12.TGA`, 195 to 255 over its body, by 255/195, held at 255, so that the menu's water does not show through its rocks. | A tile of a painted screen is not meant to be seen through (**community-reported**, with a community fix), and the play does not change. | repair | #352 |
