@@ -350,6 +350,7 @@ The maintainer's decisions of 2026-10-21:
 * **In place, in `OriginalGame/`.**
   The game may overwrite every file it writes itself (`Settings.cfg`, `save/`, `Capture/`, `DEBUG.LOG`, `ExpLog.LOG`, the `DefPos.bin` caches), never one of the manifest, so `verify` and the oracle's check stay green.
   Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, 1 in the maintainer's play; `SHOWMOVIE : 0`; the three volumes 0) and nothing else.
+  The volumes it replaces, unless it wrote them itself or all three are 0, it keeps in `%LOCALAPPDATA%\OpenSacred\original-volumes.json`, and `--sound` writes them back, or the installation's 64 where none were kept (#1383).
   Worktrees link `OriginalGame/` to one installation, so one original runs at a time.
 * **At any time, without disturbing the maintainer.**
   The original runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.

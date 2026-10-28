@@ -21,7 +21,7 @@ uv run python -I tools/game/remote.py --port 15703 logs --after 0
 uv run python -I tools/game/remote.py --port 15703 exec quit                 # the game closes as its window is closed
 ```
 
-The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (`--sound` keeps the volumes), and the window's keys of dgVoodoo2's `dgVoodoo.conf` back to their defaults, and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen; 6 when `--monitor` names no monitor.
+The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (keeping the volumes it replaces in `%LOCALAPPDATA%\OpenSacred\original-volumes.json`, which `--sound` writes back), and the window's keys of dgVoodoo2's `dgVoodoo.conf` back to their defaults, and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen; 6 when `--monitor` names no monitor.
 
 Stopping the host's background task ends the game within a second (a job object). A run that hangs is ended by stopping that task, never by killing `Sacred.exe` by hand while the host lives.
 
@@ -29,7 +29,7 @@ Stopping the host's background task ends the game within a second (a job object)
 |---|---|
 | `--place offscreen` | the window to the right of every monitor (by default): it draws there, and the screenshots are whole |
 | `--place behind` | the window at the primary monitor's corner, behind every other window |
-| `--sound` | keep `Settings.cfg`'s volumes |
+| `--sound` | audible: the volumes that the host replaced written back, else the installation's 64 (#1383) |
 | `--log-file FILE` | append the records to a file in the scratchpad as well |
 | `--keep-captures` | keep the game's `Capture/shotNNNN.tga` and `.jpg` of each screenshot (removed by default once converted) |
 | `--no-game-log` | leave out the game's own log (`logPrintf`) |

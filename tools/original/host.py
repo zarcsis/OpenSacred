@@ -97,6 +97,10 @@ VOLUMES = {'MUSICVOLUME': '0', 'SFXVOLUME': '0', 'VOICEVOLUME': '0'}
 # With --muted the game plays its sounds at the installation's volumes, for the sound traces, and the agent silences
 # mss32.dll's output.
 MUTED_VOLUMES = {'MUSICVOLUME': '64', 'SFXVOLUME': '64', 'VOICEVOLUME': '64'}
+# The volumes that the host replaced, which --sound writes back (#1383), else the installation's: kept outside the
+# installation, where the host writes only the game's own files (docs/03 §3.8), with the volumes it wrote last.
+KEPT_VOLUMES = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(), 'OpenSacred',
+                            'original-volumes.json')
 # The keys of dgVoodoo.conf the host sets before each start (#551). In the maintainer's play the game runs full screen
 # (FULLSCREEN 1), which dgVoodoo2 makes a window of the monitor's size with the game's 1024 x 768 scaled into it, its
 # proportions kept, and no display mode changed; the game's own window mode cannot be scaled, as its flip copies the
@@ -185,16 +189,63 @@ def check_executable(game_dir):
     return exe
 
 
-def set_settings(game_dir, sound, muted, interactive, journal):
+def choose_volumes(found, sound, muted, kept):
+    """The three volumes a start writes, and what the host keeps after it (#1383).
+
+    `found` are the volumes of Settings.cfg, `kept` what the host kept: `volumes`, those it replaced, and `written`,
+    those it wrote last. Volumes found that the host did not write, and not all 0, are the maintainer's: a silent or a
+    muted start keeps them before it replaces them, and `sound` leaves them; else `sound` writes the kept ones back,
+    or the installation's 64 where none were kept."""
+    kept = dict(kept)
+    own = found == kept.get('written') or all(value == '0' for value in found.values())
+    if not own:
+        kept['volumes'] = dict(found)
+    if sound:
+        volumes = dict(found) if not own else dict(kept.get('volumes') or MUTED_VOLUMES)
+    else:
+        volumes = dict(MUTED_VOLUMES if muted else VOLUMES)
+    kept['written'] = volumes
+    return volumes, kept
+
+
+def read_kept(path):
+    """The volumes that the host kept, none where the file is missing or unreadable."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            kept = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return kept if isinstance(kept, dict) else {}
+
+
+def write_kept(path, kept):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write(json.dumps(kept, indent=2, sort_keys=True) + '\n')
+
+
+def set_settings(game_dir, sound, muted, interactive, journal, kept_path=KEPT_VOLUMES):
     """Sets FULLSCREEN (1 in the maintainer's play through dgVoodoo2, else 0), SHOWMOVIE and the three volumes in
-    Settings.cfg (0; the game's 64 when `muted`; kept with `sound`); keeps every other line."""
+    Settings.cfg (0; the game's 64 when `muted`; with `sound` the maintainer's, which the host kept as it replaced
+    them, `choose_volumes`); keeps every other line."""
     path = os.path.join(game_dir, 'Settings.cfg')
-    wanted = dict(SETTINGS, **(MUTED_VOLUMES if muted else {} if sound else VOLUMES))
-    if interactive:
-        wanted['FULLSCREEN'] = '1'
     with open(path, 'rb') as f:
         text = f.read().decode('latin-1')
     lines = text.split('\r\n')
+    found = {}
+    for line in lines:
+        key, sep, value = line.partition(':')
+        if sep and key.strip() in VOLUMES:
+            found[key.strip()] = value.strip()
+    kept = read_kept(kept_path)
+    volumes, kept_after = choose_volumes(found, sound, muted, kept)
+    if kept_after != kept:
+        write_kept(kept_path, kept_after)
+        if kept_after.get('volumes') != kept.get('volumes'):
+            journal.push('INFO', 'host', f"the volumes kept for --sound: {kept_after['volumes']} ({kept_path})")
+    wanted = dict(SETTINGS, **volumes)
+    if interactive:
+        wanted['FULLSCREEN'] = '1'
     changed = []
     for i, line in enumerate(lines):
         key, sep, value = line.partition(':')
@@ -1379,7 +1430,8 @@ def main():
                              "foreground; never for Claude Code's runs, which stay in the background")
     parser.add_argument('--monitor', type=int, default=0,
                         help="with --interactive, the monitor: 0 the primary (by default), else the n-th the log lists")
-    parser.add_argument('--sound', action='store_true', help="keep Settings.cfg's volumes, audible")
+    parser.add_argument('--sound', action='store_true',
+                        help="audible: the volumes that the host replaced written back, else the installation's 64")
     parser.add_argument('--muted', action='store_true',
                         help="the game's volumes 64, so that it plays its sounds for the sound traces, while the agent "
                              "silences mss32.dll's output")
