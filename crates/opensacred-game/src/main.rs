@@ -344,9 +344,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
-        screenshot::ScreenshotPlugin,
     ))
     .add_plugins((
+        screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
@@ -361,9 +361,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         steps::StepsPlugin,
         talk::TalkPlugin,
-        terrain::GroundPlugin,
     ))
     .add_plugins((
+        terrain::GroundPlugin,
         undead::UndeadPlugin,
         voices::VoicesPlugin,
         weather::WeatherPlugin,
