@@ -3357,6 +3357,19 @@ impl Npcs {
         }))
     }
 
+    /// The types of the items of `worn`, the hero's template's, in its left hand and its right:
+    /// the halves 0 and 1 of its first weapon set, as the templates keep them (docs/02 §9, #1347).
+    pub fn hero_hands(&self, worn: &[Worn]) -> [Option<u32>; 2] {
+        let holding = self.hero_holding(worn);
+        let in_hand = |hand| {
+            holding
+                .iter()
+                .find(|held| held.hand == hand)
+                .map(|held| held.item)
+        };
+        [in_hand(Hand::Left), in_hand(Hand::Right)]
+    }
+
     /// The items of `worn`, the hero's template's, but those in its hands: what it wears while
     /// its hands' items are put away (the Seraphim's 1018, `arsenal`).
     pub fn hero_put_away(&self, worn: &[Worn]) -> Vec<Worn> {

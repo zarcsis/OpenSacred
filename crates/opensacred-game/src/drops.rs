@@ -37,6 +37,9 @@ pub struct Tables {
     looks: HashMap<u32, (String, Option<String>)>,
     sizes: HashMap<u32, (u8, u8)>,
     poses: HashMap<u32, Pose>,
+    /// Where each type's model lies in a weapon set's slot of the bar, from the slot's corner
+    /// (`0x434480`, #1347).
+    in_slot: HashMap<u32, Vec2>,
     categories: HashMap<u32, u8>,
     /// The combat art that each rune teaches (`items.pak +0x6A`, `0x43AF10`; #1315).
     rune_arts: HashMap<u32, u16>,
@@ -155,6 +158,22 @@ impl Tables {
                 )
             })
             .collect();
+        // A model in a weapon set's slot (`0x434480`): the record's cells' half sizes (`+0x1C`,
+        // `+0x1D`, 16 pixels a cell) less its signed bytes `+0x14` and `+0x15`, and 2 and 5.
+        let in_slot = records
+            .iter()
+            .map(|(&id, weapon)| {
+                let [width, height, ..] = weapon.bytes_1c;
+                let [x, y, ..] = weapon.bytes_14.map(|byte| f32::from(byte.cast_signed()));
+                (
+                    id,
+                    Vec2::new(
+                        f32::from(width) * 16.0 - x + 2.0,
+                        f32::from(height) * 16.0 - y + 5.0,
+                    ),
+                )
+            })
+            .collect();
         Ok(Self {
             rules: Rules::of(balance),
             catalogue,
@@ -162,6 +181,7 @@ impl Tables {
             looks,
             sizes,
             poses,
+            in_slot,
             categories,
             rune_arts,
             records: used,
@@ -241,6 +261,18 @@ impl Tables {
             .or_else(|| self.sizes.get(&slot))
             .copied()
             .unwrap_or((1, 1))
+    }
+
+    /// Where the model of an item of the type `item` lies in a weapon set's slot of the bar, from
+    /// the slot's corner (`0x434480`), of its derived type's root; the corner for a type of no
+    /// record.
+    pub fn in_slot(&self, item: u32) -> Vec2 {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        self.in_slot
+            .get(&item)
+            .or_else(|| self.in_slot.get(&slot))
+            .copied()
+            .unwrap_or(Vec2::ZERO)
     }
 
     /// The model, the texture and the backpack's pose of an item of the type `item`, of its

@@ -242,6 +242,12 @@ pub(crate) fn placement(at: (u8, u8), size: (u8, u8), pose: Pose) -> Transform {
         -(f32::from(at.1) + f32::from(size.1) / 2.0) * CELL,
         0.0,
     );
+    posed(centre, pose)
+}
+
+/// An item's model with its origin at `centre`, turned by its type's `pose` as [`placement`]
+/// turns it (`0x40E9C0`), the grid's and a weapon set's slot's alike (`sets`).
+pub(crate) fn posed(centre: Vec3, pose: Pose) -> Transform {
     if pose.scale == 0.0 {
         return Transform::from_translation(centre);
     }

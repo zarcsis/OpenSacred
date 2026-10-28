@@ -344,6 +344,7 @@ struct Loaded {
     zoom: f32,
     music: Option<(music::Music, atmosphere::Atmosphere)>,
     backpack: crate::pickup::Starting,
+    sets: crate::sets::Starting,
 }
 
 /// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
@@ -471,6 +472,11 @@ fn load(
     let difficulty = game.difficulty.unwrap_or_default();
     let npcs = npcs::Npcs::read(shared, &scripts, &items, difficulty)?;
     let holding = fight::Holding(npcs.hero_holds(&worn));
+    // Its first weapon set, the template's items in its hands (#1347).
+    let sets = crate::sets::Starting(
+        npcs.hero_hands(&worn)
+            .map(|item| item.and_then(|item| worn.iter().find(|worn| worn.item == item).cloned())),
+    );
     let (held_class, held) = npcs.hero_gear(&worn);
     bevy::log::debug!("game: the hero holds {held:?}, of the class {held_class}");
     let (grn, presets, footsteps) = class.preset();
@@ -694,6 +700,7 @@ fn load(
         zoom: game.zoom.unwrap_or(1.0),
         music,
         backpack,
+        sets,
     })
 }
 
@@ -893,6 +900,7 @@ fn finish(
     }
     commands.insert_resource(Zoom(loaded.zoom));
     commands.insert_resource(loaded.backpack);
+    commands.insert_resource(loaded.sets);
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);
         commands.insert_resource(atmosphere);

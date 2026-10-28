@@ -84,6 +84,10 @@ The left orb is the weapon set (the left button's attack), the right orb the sel
 - Riding (`0x54FC20`) with an art that may not be used on horseback, the slot shows the horse's images 632, 631, 630 (`GUI_spell10` (0, 192), (64, 192), (128, 192): orange, brown, grey) in place of the art's, `s` being `1 − [+0x4E8]/[+0x4EC]` of the hero (**hypothesis**: the horse's own timer).
 - Each right slot then gets the burn (below), then its ring.
 - A weapon slot draws its background, its ring, the two items' models (offset ±8 pixels when both hands hold one of `0x427A40`'s kind), then the damage icons.
+  Read 2026-10-28 (#1347, **confirmed** by code and seen): each model goes through the grid's draw (`0x40E9C0`, the scale 1.0, its type's backpack's turn) at the slot's corner plus its type's offsets (`0x434480`): its `Weapon.pak` record's `+0x1C` and `+0x1D` (its cells across and down) times 16 less its signed bytes `+0x14` and `+0x15`, and 2 and 5.
+  `0x427A40` holds for the category 5 (`items.pak +0x2E`), the weapons: the left hand's 8 pixels to the right and the right hand's 8 to the left.
+  The left hand's is drawn first and the right hand's over it (seen: the Vampiress's sword over her shield), and a long weapon overhangs its orb (the Seraphim's sword from 690 to 755).
+  The selected set's slot also keeps the set and the hands as one at each draw (`0x6E29E0`), unless the sets are locked (`0x5D8FD0`): with both hands empty (the hero's slots 12 and 13, `0x556F50`) it puts the set's items into them (`0x5D8970`), else it writes the hands' items into the set's halves where they differ (`0x5D8730`); #1348 follows it.
 
 ### The burn (`FX_BUTTONBURN.TGA`, `0x6E4CA0`)
 
@@ -181,4 +185,5 @@ The other images of `GUI_main_02` beside them (yellow beads 65, red frame 68 and
 - clicks over the bar's area (x 384 − 80n to 640 + 80n, y from 676) and over the hero's portrait do not reach the world, the set `frame::Control` held back there; the pieces are the interface under the cursor, which shows the arrow (`cursors`).
 
 The belt's flasks are lit by the potions of their kinds since #1311 (`belt`).
-Not followed yet: the buttons' windows and pressed images, the slots' selection, edit mode and keys, the weapons' models and damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.
+The left slots draw their weapon sets' items since #1347 (`sets`), as above: each set's two models, the right hand's over the left's, by a camera of their own into a picture over the bar.
+Not followed yet: the buttons' windows and pressed images, the slots' selection, edit mode and keys, the damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.

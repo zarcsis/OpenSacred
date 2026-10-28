@@ -38,7 +38,7 @@ use crate::making::Selected;
 
 /// The original's screen, the bar's and the column's places on it.
 pub(crate) const SCREEN: Vec2 = Vec2::new(1024.0, 768.0);
-const BAR: Rect = Rect {
+pub(crate) const BAR: Rect = Rect {
     min: Vec2::new(0.0, 676.0),
     max: Vec2::new(1024.0, 768.0),
 };
@@ -185,7 +185,7 @@ impl UiImages {
 
 /// The containers of the bar and of the column, which hold the pieces at their places.
 #[derive(Component)]
-struct BarRoot;
+pub(crate) struct BarRoot;
 #[derive(Component)]
 struct ColumnRoot;
 
@@ -215,7 +215,17 @@ struct ArtBottom;
 
 /// The slots a side shown, 0 before the first are made.
 #[derive(Resource, Default)]
-struct Shown(usize);
+pub(crate) struct Shown(pub usize);
+
+/// The top left of the weapon set `set`'s slot of `count` shown, the first at the left
+/// (`0x6E0070`).
+pub(crate) fn weapon_slot(set: usize, count: usize) -> Vec2 {
+    let (set, count) = (
+        f32::from(u16::try_from(set).unwrap_or(0)),
+        f32::from(u16::try_from(count).unwrap_or(0)),
+    );
+    Vec2::new(394.0 + 66.0 * (set - count), SLOT_Y)
+}
 
 /// A side's slots at the hero's level `level` (`0x57F890`).
 fn slots(level: u32) -> usize {
@@ -471,7 +481,10 @@ fn rebuild(
     }
     // The weapon sets at the left, the first selected.
     for i in 0..count {
-        let at = Vec2::new(394.0 + 66.0 * f32::from(i - count), SLOT_Y);
+        let at = weapon_slot(
+            usize::try_from(i).unwrap_or(0),
+            usize::from(count.unsigned_abs()),
+        );
         add(image(if i == 0 { WEAPON_SELECTED } else { ORB }, at), None);
         add(image(if i == 0 { RING_SELECTED } else { RING }, at), None);
     }
