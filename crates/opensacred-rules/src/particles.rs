@@ -747,7 +747,12 @@ mod tests {
         let burst = rise_ring();
         assert_eq!(burst.particles.len(), 75);
         let radius = |p: &Particle| p.place[0].hypot(p.place[1]);
-        assert!(burst.particles.iter().all(|p| (radius(p) - 17.5).abs() < 1e-3));
+        assert!(
+            burst
+                .particles
+                .iter()
+                .all(|p| (radius(p) - 17.5).abs() < 1e-3)
+        );
         let mut system = System::new(75);
         system.particles = burst.particles.clone();
         for _ in 0..42 {

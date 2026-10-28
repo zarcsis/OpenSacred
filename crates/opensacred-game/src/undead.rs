@@ -270,11 +270,7 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
 fn last(
     mut commands: Commands,
     lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform), Added<Corpse>>,
-    (children, names, places): (
-        Query<&Children>,
-        Query<&Name>,
-        Query<&GlobalTransform>,
-    ),
+    (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
     (mut sounds, mut dice): (MessageWriter<Play>, ResMut<Dice>),
 ) {
     for (entity, corpse, dies, at) in &lying {

@@ -80,7 +80,10 @@ fn make(
                     .as_ref()
                     .and_then(|data| particle_texture(&data.0.assets, &assets, burst.texture));
                 if image.is_none() {
-                    warn!("puffs: no texture {}; its bursts are not drawn", burst.texture);
+                    warn!(
+                        "puffs: no texture {}; its bursts are not drawn",
+                        burst.texture
+                    );
                 }
                 let alpha_mode = match burst.blend {
                     Blend::Add => AlphaMode::Add,
