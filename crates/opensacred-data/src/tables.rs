@@ -35,6 +35,9 @@ pub const WEATHER_ROLLS: &str = "weather_rolls.ron";
 /// The figures of the choice of the hero that `Sacred.exe` holds (`0x9E3248`; #1130), as a list
 /// of [`Figure`]s.
 pub const FIGURES: &str = "figures.ron";
+/// The combat arts' runes that the drops draw from, of the table that `Sacred.exe` holds
+/// (`0x9565A0`, `0x559BF0`; #1183), as a list of their 123 types.
+pub const RUNES: &str = "runes.ron";
 /// The interface's images that `Sacred.exe` holds (`0x9ECEB0`; #1087), which the interface's
 /// controls name by their indices, as a list of [`UiImage`]s in the order of the indices.
 pub const UI_IMAGES: &str = "ui_images.ron";

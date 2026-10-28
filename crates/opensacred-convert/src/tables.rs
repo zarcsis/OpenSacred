@@ -12,7 +12,7 @@ use opensacred_data::tables::{
     ARMOUR_SWITCHES, ARTS, Arts, BALANCE, Balance, BalanceList, BalanceRow, BalanceValue,
     BalanceVariable, CREATURES, Creature, CreaturePortrait, EffectChance, FIGURES, Figure,
     IDLE_NOISES, ITEM_SETS, ITEMS, Item, ItemSet, MERCENARIES, MERCENARIES_ADDON, MOTIONS,
-    Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, STAIRS,
+    Mercenary, Motion, PORTRAITS, Portrait, Portraits, QualityPass, QualityWeight, RUNES, STAIRS,
     START_POINTS, STATIC_REMAP, Spell, StartPoint, TRIGGERS, TYPE_NAMES, Trigger, TypeName,
     UI_IMAGES, UiImage, VOICES, WEAPON_GROUPS, WEAPON_MODIFIERS, WEAPONS, WEATHER_ROLLS,
     WORLD_INDEX, WORLD_MAP, Weapon, WeaponArt, WeaponModifier,
@@ -53,6 +53,8 @@ pub struct Summary {
     pub portraits: usize,
     /// The figures of the choice of the hero.
     pub figures: usize,
+    /// The runes that the drops draw from.
+    pub runes: usize,
     /// The interface's images.
     pub ui_images: usize,
     pub type_names: usize,
@@ -232,6 +234,8 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
     write(&dir, WEATHER_ROLLS, &weather_rolls(&exe)?)?;
     let figures = figures(&exe)?;
     write(&dir, FIGURES, &figures)?;
+    let runes = runes(&exe)?;
+    write(&dir, RUNES, &runes)?;
     let ui_images = ui_images(&exe)?;
     write(&dir, UI_IMAGES, &ui_images)?;
     let type_names: Vec<TypeName> = opensacred_formats::type_names::type_names(&exe)?
@@ -255,6 +259,7 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         idle_noises: (idle_noises.hostile.len(), idle_noises.peaceful.len()),
         portraits: portraits.creatures.len(),
         figures: figures.len(),
+        runes: runes.len(),
         ui_images: ui_images.len(),
         type_names: type_names.len(),
     })
@@ -269,6 +274,20 @@ fn weather_rolls(exe: &[u8]) -> Result<Vec<u8>> {
     let image = opensacred_formats::pe::Image::parse(exe)?;
     let mut rolls = image.at(WEATHER_ROLLS_ADDRESS, 256, "the weather's rolls")?;
     Ok(rolls.bytes(256, "the weather's rolls")?.to_vec())
+}
+
+/// Where `Sacred.exe` holds the runes that the drops draw from, and how many (#1183,
+/// docs/re/items.md, "A pass: what it makes").
+const RUNES_ADDRESS: u32 = 0x95_65A0;
+const RUNES_COUNT: usize = 123;
+
+/// The runes that the drops of `Sacred.exe` draw from (`0x559BF0`), their types in the table's
+/// order.
+fn runes(exe: &[u8]) -> Result<Vec<u32>> {
+    const WHAT: &str = "the drops' runes";
+    let image = opensacred_formats::pe::Image::parse(exe)?;
+    let mut table = image.at(RUNES_ADDRESS, RUNES_COUNT * 4, WHAT)?;
+    (0..RUNES_COUNT).map(|_| Ok(table.u32()?)).collect()
 }
 
 /// Where `Sacred.exe` holds the figures of the choice of the hero, and how many and how long
@@ -744,6 +763,7 @@ mod tests {
                 idle_noises: (311, 241),
                 portraits: 467,
                 figures: 8,
+                runes: 123,
                 ui_images: 1_824,
                 type_names: 5_624,
             }
@@ -822,7 +842,18 @@ mod tests {
                 window: [35.0, 320.0, 120.0, 320.0],
             }
         );
+        // The drops' runes, the first 5375 and the last 5782, each of the runes' category with
+        // a rune of its own (`items.pak +0x6A`; #1183).
+        let runes: Vec<u32> = ron::from_str(&read(RUNES)).unwrap();
+        assert_eq!(
+            (runes.len(), runes.first(), runes.last()),
+            (123, Some(&5375), Some(&5782))
+        );
         let items: Vec<Item> = ron::from_str(&read(ITEMS)).unwrap();
+        for rune in &runes {
+            let item = items.iter().find(|i| i.slot == *rune).unwrap();
+            assert_eq!(item.words_14[6].to_le_bytes()[2], 28, "{rune}");
+        }
         let overlay = items.iter().find(|i| i.slot == 3999).unwrap();
         assert_eq!(overlay.name, "Krombacher.grn");
         // Its texture is `texture03.pak`'s first, in the client's one numbering (#1152).

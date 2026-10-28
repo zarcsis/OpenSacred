@@ -35,7 +35,7 @@ fn hero(level: u32) -> Hero {
     Hero {
         creature: 1,
         level,
-        skills: Vec::new(),
+        ..Hero::default()
     }
 }
 
@@ -71,6 +71,8 @@ fn catalogue(types: &[(u32, u8, Record)]) -> Catalogue {
         records: types.iter().map(|&(item, _, r)| (item, r)).collect(),
         lists,
         slots: types.iter().map(|&(item, ..)| (item, item)).collect(),
+        readable: HashSet::new(),
+        runes: Vec::new(),
     }
 }
 
@@ -375,37 +377,38 @@ fn the_kinds_come_in_their_order() {
         let mut dice = script(rolls);
         let first = dropping.kind(0, &mut dice);
         assert!(dice.0.is_empty(), "{:?} left", dice.0);
-        (first, dropping.last.0.is_some())
+        (first, dropping.last.jewel.is_some())
     };
     // A potion in 180 ‰.
     assert_eq!(kinds(3, &[179, 0]).0, (Kind::Potion, Some(5171)));
-    // Gold in 300 ‰ of the rest, a pile by the level.
-    assert_eq!(kinds(3, &[180, 299, 1]).0, (Kind::Gold, Some(5132)));
+    // Past the potion a rune's roll, which a hero of level 5 with no arts and no runes holds to
+    // 100 ‰: 999 makes none; then gold in 300 ‰ of the rest, a pile by the level.
+    assert_eq!(kinds(3, &[180, 999, 299, 1]).0, (Kind::Gold, Some(5132)));
     // A weapon in 330 ‰ of the rest: of the levels tested in one case of three, for the hero's
     // class in one of two; none of an empty catalogue.
     assert_eq!(
-        kinds(3, &[180, 300, 600, 329, 1, 1]).0,
+        kinds(3, &[180, 999, 300, 600, 329, 1, 1]).0,
         (Kind::Weapon, None)
     );
     // Armour in 880 ‰ of the rest, of eleven categories, the bridles drawn once again.
     assert_eq!(
-        kinds(3, &[180, 300, 600, 330, 879, 0, 10, 0, 0]).0,
+        kinds(3, &[180, 999, 300, 600, 330, 879, 0, 10, 0, 0]).0,
         (Kind::Armour, None)
     );
     // Else a jewel, which the creature then has made.
     assert_eq!(
-        kinds(3, &[180, 300, 600, 330, 880, 1, 0]),
+        kinds(3, &[180, 999, 300, 600, 330, 880, 1, 0]),
         ((Kind::Jewel, None), true)
     );
-    // The animals always drop gold past a potion, the ghosts in 600 ‰ more and no weapon or
-    // armour.
+    // The animals roll no rune and always drop gold past a potion, the ghosts in 600 ‰ more and
+    // no weapon or armour.
     assert_eq!(kinds(ANIMALS, &[180, 999, 1]).0, (Kind::Gold, Some(5132)));
     assert_eq!(
-        kinds(GHOSTS, &[180, 300, 599, 1]).0,
+        kinds(GHOSTS, &[180, 999, 300, 599, 1]).0,
         (Kind::Gold, Some(5132))
     );
     assert_eq!(
-        kinds(GHOSTS, &[180, 300, 600, 0, 0, 2, 1]),
+        kinds(GHOSTS, &[180, 999, 300, 600, 0, 0, 2, 1]),
         ((Kind::Jewel, None), true)
     );
 }
@@ -421,8 +424,11 @@ fn a_creature_makes_one_jewel_and_then_the_dagger() {
         rules: &rules,
         catalogue: &catalogue,
         templates: &templates,
-        // This creature made the last jewel.
-        last: &mut LastJewel(Some(0)),
+        // This creature made the last jewel and the last rune.
+        last: &mut LastJewel {
+            jewel: Some(0),
+            rune: Some(0),
+        },
     };
     let mut dice = script(&[180, 300, 600, 330, 880]);
     assert_eq!(dropping.kind(0, &mut dice), (Kind::Jewel, None));
@@ -629,9 +635,12 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
         assert!(dice.0.is_empty(), "{:?} left", dice.0);
         made
     };
-    // The chance, the key 17, no potion, no gold, the ghosts' roll, a weapon of the levels not
-    // tested and of any class, none found; the dagger at R(0, 1) twice, its damage's six rolls.
-    let dagger = take(&[100, 9999, 180, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0]);
+    // The chance, the key 17, no potion, no rune, no gold, the ghosts' roll, a weapon of the
+    // levels not tested and of any class, none found; the dagger at R(0, 1) twice, its damage's
+    // six rolls.
+    let dagger = take(&[
+        100, 9999, 180, 999, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+    ]);
     assert_eq!(dagger.len(), 1);
     let drop = dagger[0];
     assert_eq!(
@@ -640,7 +649,7 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
     );
     assert_eq!(drop.values.map(|v| v.damage[0]), Some([12.0, 15.0]));
     // Gold: the key 0 taken to 16, a pile of level 1 and its amount.
-    let gold = take(&[100, 0, 180, 299, 5, 3]);
+    let gold = take(&[100, 0, 180, 999, 299, 5, 3]);
     assert_eq!(
         gold,
         [Dropped {
@@ -764,7 +773,15 @@ fn the_scripts_drops_of_a_type_each_make_their_item_in_their_share_of_the_deaths
 fn an_ordinary_creature_drops_in_35_per_cent_of_its_deaths_by_the_kinds_shares() {
     let rules = Rules::default();
     let (catalogue, templates) = (unlisted(), Templates::default());
-    let death = death(dead(3, 5, Rank::Common), 5);
+    // A hero of many arts' levels, whose runes' chance is the least, 0.5 ‰: the kinds as they
+    // share out without the runes.
+    let death = Death {
+        hero: Hero {
+            arts: 1000,
+            ..hero(5)
+        },
+        ..death(dead(3, 5, Rank::Common), 5)
+    };
     let mut rng = Rng::of(51, 39, 0);
     let deaths = 100_000_u32;
     let mut with_item = 0_u32;
@@ -993,11 +1010,97 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
     // Plain at the key 16; the key 1 taken as 2.
     assert_eq!(throw(DAGGER, 16, &[0; 6]).unwrap().quality, 0);
     assert_eq!(throw(DAGGER, 1, &[0; 6]).unwrap().quality, 14);
-    // Gold of the amount asked, a potion as it is, a rune of no drop's kind.
+    // Gold of the amount asked, a potion as it is, a rune as it is (#1183).
     let gold = throw(GOLD[2], 16, &[]).unwrap();
     assert_eq!((gold.kind, gold.amount, gold.level), (Kind::Gold, 250, 0));
     let potion = throw(5171, 16, &[]).unwrap();
     assert_eq!((potion.kind, potion.values), (Kind::Potion, None));
-    assert_eq!(throw(5400, 16, &[]), None);
+    let rune = throw(5400, 16, &[]).unwrap();
+    assert_eq!((rune.kind, rune.values), (Kind::Rune, None));
     assert_eq!(throw(9999, 16, &[]), None);
+}
+
+#[test]
+fn a_rune_comes_by_the_heros_level_its_runes_and_its_arts() {
+    let rules = Rules::default();
+    let seraphim = |level, runes, arts| Hero {
+        creature: 1,
+        level,
+        runes,
+        arts,
+        ..Hero::default()
+    };
+    // x = 1.85·10/(3/3 + 10) above 1: x⁵, held at 2, times 50.
+    assert!((rules.rune_chance(10, false, &seraphim(10, 3, 10)) - 100.0).abs() < 1e-4);
+    // x = 1.85/3 below 1: x⁴ times the weighing of the levels, times 50.
+    let x = 1.85_f64 / 3.0;
+    let weighing = f64::from(crate::fight::weighing(4, 1, rules.levels));
+    let expected = (weighing * x.powi(4)).max(0.01) * 50.0;
+    assert!((f64::from(rules.rune_chance(4, false, &seraphim(1, 0, 3))) - expected).abs() < 1e-3);
+    // A boss's or a champion's: x⁵, at least 0.01, times 1.5.
+    let ranked = x.powi(5).max(0.01) * 1.5 * 50.0;
+    assert!((f64::from(rules.rune_chance(4, true, &seraphim(1, 0, 3))) - ranked).abs() < 1e-3);
+    // The Battle Mage's 2.2 a level.
+    let mage = Hero {
+        creature: 3,
+        ..seraphim(1, 0, 4)
+    };
+    let x = 2.2_f64 / 4.0;
+    let expected =
+        (f64::from(crate::fight::weighing(1, 1, rules.levels)) * x.powi(4)).max(0.01) * 50.0;
+    assert!((f64::from(rules.rune_chance(1, false, &mage)) - expected).abs() < 1e-3);
+}
+
+#[test]
+fn a_rune_is_one_of_the_runes_and_a_creature_makes_one_until_another_does() {
+    let rules = Rules::default();
+    let templates = Templates::default();
+    let catalogue = Catalogue {
+        readable: [5375, 5376].into_iter().collect(),
+        runes: vec![5375, 5376, 5377],
+        ..Catalogue::default()
+    };
+    let rune = |creature: u32, rolls: &[u32], last: &mut LastJewel| {
+        let death = Death {
+            dead: Dead {
+                creature,
+                ..dead(3, 5, Rank::Common)
+            },
+            hero: hero(5),
+            ..Death::default()
+        };
+        let mut dropping = Dropping {
+            death: &death,
+            rules: &rules,
+            catalogue: &catalogue,
+            templates: &templates,
+            last,
+        };
+        let mut dice = script(rolls);
+        let made = dropping.kind(0, &mut dice);
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        made
+    };
+    // Below the 100 ‰ the second of the three runes.
+    let mut last = LastJewel::default();
+    assert_eq!(rune(76, &[180, 99, 1], &mut last), (Kind::Rune, Some(5376)));
+    assert_eq!(last.rune, Some(0));
+    // The same creature makes no rune again: gold.
+    assert_eq!(
+        rune(76, &[180, 299, 1], &mut last),
+        (Kind::Gold, Some(5132))
+    );
+    // A rune whose entry has none, or the types 516, 592 and 593: a potion, the creature still
+    // the last to make a rune.
+    let mut last = LastJewel::default();
+    assert_eq!(
+        rune(76, &[180, 0, 2, 0], &mut last),
+        (Kind::Potion, Some(5171))
+    );
+    assert_eq!(last.rune, Some(0));
+    let mut last = LastJewel::default();
+    assert_eq!(
+        rune(592, &[180, 0, 0, 0], &mut last),
+        (Kind::Potion, Some(5171))
+    );
 }

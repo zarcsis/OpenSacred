@@ -13,7 +13,7 @@ use anyhow::{Result, anyhow};
 use bevy::prelude::*;
 use bevy::tasks::futures::check_ready;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
-use opensacred_data::tables::{ITEM_SETS, ItemSet, WEAPON_MODIFIERS, WeaponModifier};
+use opensacred_data::tables::{ITEM_SETS, ItemSet, RUNES, WEAPON_MODIFIERS, WeaponModifier};
 use opensacred_rules::drops::{
     self, Catalogue, Dead, Death, Dropped, Flight, Hero, Kill, Kind, Rules,
 };
@@ -42,6 +42,12 @@ pub struct Tables {
     /// the use's test asks (#1288).
     records: HashMap<u32, (u32, u8, fight::ItemValues)>,
 }
+
+/// The combat arts' runes' category (`items.pak +0x2E`), whose items the hero carries weigh
+/// against a rune's drop (`0x5598B0`).
+const RUNE_CATEGORY: u8 = 28;
+/// `DROPRUNE`, a rune's drop's sound (docs/re/sound.md, "Items, gold and levels").
+const DROP_RUNE: u32 = 7028;
 
 /// How an item's model lies in the backpack's grid (`0x434270`, its `Weapon.pak` record's floats
 /// `+0x00` to `+0x18`): a scale, three turns in radians and two offsets (docs/re/inventory.md,
@@ -72,7 +78,12 @@ impl Tables {
         let modifiers: Vec<WeaponModifier> = table(assets, WEAPON_MODIFIERS)?;
         let balance = shared.tables.balance().ok();
         let templates = fight::Templates::new(&modifiers, weapons);
-        let catalogue = Catalogue::new(items, weapons, &sets, &templates);
+        // The runes that the drops draw from (#1183), none from assets made before them.
+        let runes: Vec<u32> = table(assets, RUNES).unwrap_or_else(|e| {
+            warn!("drops: {e}; no runes drop");
+            Vec::new()
+        });
+        let catalogue = Catalogue::new(items, weapons, &sets, &templates).with_runes(runes);
         let models = npcs::model_files(assets)?;
         let textures = npcs::texture_files(assets)?;
         let looks = items
@@ -310,6 +321,7 @@ pub(crate) fn hero(base: &fight::Base, level: u32) -> Hero {
         creature: base.id,
         level,
         skills: fight::skills(base, level, true),
+        ..Hero::default()
     }
 }
 
@@ -496,6 +508,7 @@ fn dies(
     >,
     hero_arts: Option<Res<crate::arts::HeroArts>>,
     scripted: Option<Res<crate::scripts::ScriptDrops>>,
+    (pack, mut sounds): (Res<crate::pickup::Pack>, MessageWriter<crate::sfx::Play>),
 ) {
     let Ok((mind, health, rank, worth, transform, way, dies)) = creatures.get(died.entity) else {
         return;
@@ -525,9 +538,17 @@ fn dies(
         debug!("drops: {} drops nothing: {why}", died.entity);
         return;
     }
-    let Some(hero) = hero else {
+    let Some(mut hero) = hero else {
         return;
     };
+    // The runes it carries and its arts' levels, by which a rune's chance goes (`0x5598B0`).
+    let runes = pack
+        .items
+        .iter()
+        .filter(|(_, dropped)| tables.category(dropped.item) == RUNE_CATEGORY)
+        .count();
+    hero.runes = u32::try_from(runes).unwrap_or(u32::MAX);
+    hero.arts = hero_arts.as_deref().map_or(0, |arts| arts.arts.levels());
     let death = death(
         died.entity,
         mind,
@@ -565,6 +586,14 @@ fn dies(
             health.level,
             listed(&made)
         );
+    }
+    // A rune's drop sounds at the creature (`0x559BF0` at `0x55A4BD`; #1167).
+    for _ in made.iter().filter(|drop| drop.kind == Kind::Rune) {
+        sounds.write(crate::sfx::Play {
+            sound: crate::sfx::Of::Id(DROP_RUNE),
+            at: Some(died.entity),
+            rate: (0.5, crate::sfx::Roll::None),
+        });
     }
     let level = way.and_then(|way| way.level);
     throw(
@@ -864,7 +893,7 @@ mod tests {
         let hero = Hero {
             creature: 1,
             level: 1,
-            skills: Vec::new(),
+            ..Hero::default()
         };
         assert_eq!(kept(&mind(76, 0x1), Some(&hero)), None);
         assert_eq!(
