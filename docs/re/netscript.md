@@ -636,7 +636,8 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 - In the 11 trees, quest 1401's soldier 17181 names the death function `attack1401`, which no tree defines, while `attacke1401` is defined and named by nothing; the 13 smugglers of `Region13Init` (the groups 14011 and 14012) name `0x60` `schmugler1402`, while the function is `schmuggler1402` (#944).
   Repaired: the records name the defined functions (docs/decisions/2026-10-25-script-names.md).
 
-Not read: how the log window shows a quest as completed or failed, by its lines or by its state; what `0x39` does to a follower; when an object's `0x41` function runs (**hypothesis**: as it is picked up); and none of these was seen in the running original.
+Not read: how the log window shows a quest as completed or failed, by its lines or by its state; and what `0x39` does to a follower; neither was seen in the running original.
+An object's `0x41` function runs as it is picked up ("The log's quest items" below): **seen** 2026-10-27 (#1256), the Seraphim's quest 15001's plant picked up, its `od_15001` gave its giver the dialogue `DLG_15001_ZIEL` (the giver's `+0x245` 181 to 183) and its "!".
 
 ### The NPCs that later events remove
 
@@ -738,7 +739,9 @@ Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau o
 - So the defect is the interpreter's, set off by one record of the data: a repair of the data names the record (`res:4609`, as 402 and 601 name their items) in all 20 trees; a repair of the VM falls back to the type's name key on the `0x61` path, refuses only a repeated type or key, and keeps an entry of the key 0 from answering `0x3A`, which also mends a state that already holds one.
   Repaired in the data: the record names `res:4609` (docs/decisions/2026-10-25-riddle-item-name.md).
 
-Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy; to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
+The game follows it since #1256: a `CreateObj` of `0x8E` and a type that may be picked up lays a quest's item that the hero picks up as a drop, which goes among the quest's items and runs its `0x41` function (`pickup`, `npcs::QuestItem`); one of `0x61` or `0x62` without `0x8E` gives its item there straight and runs its function, or, inside that very function, lays its object (`scripts`); the keys of the list and the test `0x3A` are #1257.
+
+Not read: the engine's event that `CreateObj` posts before the add (`cEvent_engine` 6), how the log window draws the list, the pickup's other branch (`0x55923C`) beyond its add and destroy, and what draws the glitter over a quest's item lying in the world (seen, #1256); to check in the original: 10260 won through the right vase, then any quest item picked up, the client's log expected to say that it has the item already.
 
 ### Spawns and markers
 
