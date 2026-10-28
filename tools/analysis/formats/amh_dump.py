@@ -18,7 +18,9 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
   items    tag 0xC8: a block per item, the item's type (u32), the marker 0xFEEDF00D, the object's id (u16) 10 bytes
            after the marker, the type again 14 bytes after it, and the item's record of 0x82 bytes 252 bytes after it,
            which begins with the type (the layout of Weapon.pak +0x80, docs/re/items.md); the backpack's grid (tag
-           0xCA: 0x40C bytes, then 256 cells of 12 bytes) names its items by their ids (u32), the others are worn
+           0xCA: six u16, the fifth the grid's width, 0x400 bytes, then 256 cells of 12 bytes, row by row) names its
+           items by their ids (u32) at their top left cells, each followed by u8 1, u8 width, u8 height, u8 0 and the
+           item's type (u32); the others are worn
   arts     tag 0xC7 (the creature): a u16 count of the hero's combat arts at its byte 1227, then entries of 22 bytes
            {u32 table (1 or 2); u16 id; u8 level; u8 bonus; u16 flags; f32 time; f32 factor; f32 remaining}
            (docs/re/arts.md); in a template the section is 1881 bytes for two arts and 22 more for each further one
@@ -29,13 +31,17 @@ Example
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --items /tmp/amh-items.tsv
   python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --arts /tmp/amh-arts.tsv
+  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --backpack /tmp/amh-backpack.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
-installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn; 19 combat arts in the templates.
+installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts
+in the templates.
 --rows writes a row per section: file, slot, tag, size, compressed (0/1), bytes kept, crc32 of the kept bytes (inflated
 or stored); --items a row per item: file, id, type, in the backpack (0/1), crc32 of its record; --arts a row per combat
 art: file, its index, table, id, level, bonus, flags, and the time, the factor and the remaining as the hexadecimal of
-their bits. Section contents (hero names etc.) are not printed.
+their bits; --backpack a row per item of the backpack's grid: file, id, column, row, width, height, type (the templates'
+32: three potions in the first column's top cells and a torch of 1 x 2 below them each). Section contents (hero names
+etc.) are not printed.
 Dependencies: standard library.
 """
 import argparse
@@ -106,8 +112,10 @@ def main():
     ap.add_argument('--saves', action='store_true', help='also check the saves of save/ (the game rewrites them)')
     ap.add_argument('--items', help='write a TSV row per item of the inventory sections')
     ap.add_argument('--arts', help='write a TSV row per combat art of the creature sections')
+    ap.add_argument('--backpack', help='write a TSV row per item of the backpack grids')
     args = ap.parse_args()
     item_rows = []
+    backpack_rows = []
     art_rows = []
     paths = sorted(glob.glob(os.path.join(args.game_dir, 'Templates', '*.ptx')))
     if args.saves:
@@ -174,6 +182,18 @@ def main():
                 ids.append(oid)
                 item_rows.append((rel, oid, item, int(oid in packed), f'{zlib.crc32(record):08x}'))
             check('items: the backpack names items of the inventory', packed <= set(ids), rel)
+            types = {struct.unpack_from('<H', inventory, at + ITEM_ID)[0]: struct.unpack_from('<I', inventory, at - 4)[0]
+                     for at in range(4, len(inventory) - 3) if inventory[at:at + 4] == ITEM_MARK}
+            width = struct.unpack_from('<H', inflated[BACKPACK], 8)[0]
+            for i in range(CELLS):
+                oid, one, w, h, zero, item = struct.unpack_from('<IBBBBI', grid, CELL * i)
+                if not oid:
+                    continue
+                check('backpack: a cell holds 1, the size, 0 and the type of the item of its id',
+                      (one, zero) == (1, 0) and w >= 1 and h >= 1 and types.get(oid) == item, f'{rel} cell {i}')
+                backpack_rows.append((rel, oid, i % width, i // width, w, h, item))
+            names = [r[1] for r in backpack_rows if r[0] == rel]
+            check('backpack: each item at one cell, its top left', len(names) == len(set(names)), rel)
     check.report()
     print(f'{len(paths)} files, {len(rows)} sections; tags {sorted(collections.Counter(r[2] for r in rows).items())}')
     if args.rows:
@@ -189,6 +209,13 @@ def main():
             for row in item_rows:
                 f.write('\t'.join(str(x) for x in row) + '\n')
         print(f'{len(item_rows)} rows -> {args.items}')
+    print(f'{len(backpack_rows)} items in the backpacks')
+    if args.backpack:
+        with open(args.backpack, 'w', encoding='ascii', newline='\n') as f:
+            f.write('file\tid\tcolumn\trow\twidth\theight\ttype\n')
+            for row in backpack_rows:
+                f.write('\t'.join(str(x) for x in row) + '\n')
+        print(f'{len(backpack_rows)} rows -> {args.backpack}')
     print(f'{len(art_rows)} combat arts')
     if args.arts:
         with open(args.arts, 'w', encoding='ascii', newline='\n') as f:

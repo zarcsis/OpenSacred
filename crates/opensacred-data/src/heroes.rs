@@ -32,6 +32,9 @@ pub struct HeroEntry {
     /// does not hold (docs/02 §9).
     #[serde(default)]
     pub worn: Vec<Worn>,
+    /// The items in its backpack at the start, each at its top left cell (docs/02 §9).
+    #[serde(default)]
+    pub backpack: Vec<Carried>,
     /// The combat arts its template holds, as the creature section has them (docs/re/arts.md,
     /// "The heroes' starting arts").
     #[serde(default)]
@@ -67,6 +70,21 @@ pub struct Worn {
     pub item: u32,
     /// Its record's `u16` words from its `+4`, as `tables::Weapon::words_84` holds a fixed
     /// item's from `Weapon.pak +0x84` (docs/re/items.md).
+    pub words: Vec<u16>,
+}
+
+/// An item in a hero's backpack.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Carried {
+    /// The object's id in the template.
+    pub id: u32,
+    /// Its type: its `items.pak` slot and `Weapon.pak` record.
+    pub item: u32,
+    /// Its top left cell, column and row.
+    pub at: (u8, u8),
+    /// Its width and height in cells.
+    pub size: (u8, u8),
+    /// Its record's words from its `+4`, as [`Worn::words`].
     pub words: Vec<u16>,
 }
 

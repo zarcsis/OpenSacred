@@ -103,7 +103,7 @@ python -I tools/game/remote.py --port 15703 exec quit
 | `analysis/formats/snd_ls.py` | formats | `sound.pak` directory: WAV (PCM, IMA ADPCM) and MP3, durations, cross-check with `sndProfiles.pak` |
 | `analysis/formats/global_res_dump.py` | formats | `global.res` string table: layout checks on every record (23,123 strings), a per-record table for the Rust reader |
 | `analysis/formats/global_res_hash.py` | formats | resource name hash and its check against `global.res` |
-| `analysis/formats/amh_dump.py` | formats | AMH hero templates (and saves with `--saves`): checks on every section, per-section rows for the Rust reader; the items of the inventory (`--items`) and the combat arts of the creature section (`--arts`, #506) |
+| `analysis/formats/amh_dump.py` | formats | AMH hero templates (and saves with `--saves`): checks on every section, per-section rows for the Rust reader; the items of the inventory (`--items`), the items of the backpack at their cells (`--backpack`, #1285) and the combat arts of the creature section (`--arts`, #506) |
 | `analysis/formats/mhp_probe.py`, `mhp_vs_mdt.py` | formats | `MOTIONS.PAK` fields and cross-check with `Models.tmp` |
 | `analysis/formats/grn_dump.py` | formats | MDL containers `models*.pak` and the GRN container of every record: layout checks, cross-check with `Models.tmp`, chunk tag census; the object section's string table, data extensions, transform channels and the skeleton with bone names; meshes, weights, the form's mesh bindings, textures, materials and render passes; animation tracks (split and interleaved); a per-record table with tree, skeleton, mesh, material and animation fingerprints for the Rust readers |
 | `analysis/formats/spf_names.py` | formats | `sndProfiles.pak` sound profiles |
@@ -133,7 +133,7 @@ python -I tools/game/remote.py --port 15703 exec quit
 | `sound_dump.py` | 6,598 samples (1,825 PCM, 1,369 IMA ADPCM, 3,404 MP3), 175 profiles; 102 profile ids have no sample (docs/02, §10); 6,869 sound names, every sample and profile id named |
 | `mixed_dump.py` | `items.pak` 17,408 used slots of 32,768; `mixed.pak` 16,255 sprites with 209,956 pieces, each as large in its atlas as in the sprite; with `--alpha`, no texel of any alpha past a sprite's size from its pieces' smallest corner, 2,122 sprites with texels past it from their origin (docs/02, §3.3, §6.1) |
 | `world_dump.py` | 6,050 sectors, 90,132 tiles, 1,038,014 statics, 6,713,136 floor overlays; every check passes; the cells' chains reach every overlay and every static but 2; the statics' mask (`+0x2B`) is 0 or one bit, 1 in 542,635 (docs/02, §5) |
-| `amh_dump.py` | 8 templates, 64 sections: 40 compressed, 24 stored; with `--saves` on a clean installation 10 files, 80 sections; 46 items, 19 combat arts; every check passes (docs/02, §9) |
+| `amh_dump.py` | 8 templates, 64 sections: 40 compressed, 24 stored; with `--saves` on a clean installation 10 files, 80 sections; 46 items, 32 of them in the backpacks, 19 combat arts; every check passes (docs/02, §9) |
 | `bin_tables_dump.py` | 12 files of `bin/` read to the last byte (docs/02, §6.3) |
 | `arts_dump.py` | 70 spells and 94 weapon arts, every check passes (docs/02, §6.5) |
 | `tables_dump.py` | 474 creatures (flags within six bits), 4,883 weapons, 3,423 motion parameter blocks, 1,246 of 2,268 triggers, one overlay item (slot 3999); every check passes (docs/02, §5.5, §6) |

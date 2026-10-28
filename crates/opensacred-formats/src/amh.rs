@@ -31,9 +31,11 @@ const ITEM_TYPE: usize = 14;
 const ITEM_RECORD: usize = 252;
 /// The size of an item's record (docs/re/items.md), as `Weapon.pak +0x80…+0x101` holds one.
 pub const RECORD: usize = 0x82;
-/// The backpack's grid: after six `u16` and `0x400` bytes, 256 cells of 12 bytes, each an item's
-/// id as a `u32` or 0.
+/// The backpack's grid: after six `u16`, the fifth its width, and `0x400` bytes, 256 cells of 12
+/// bytes, row by row, the top left cell of each item holding its id as a `u32` (0 none), a byte 1,
+/// its width and height in cells, a byte 0 and its type as a `u32`.
 const GRID: usize = 12 + 0x400;
+const WIDTH: usize = 8;
 const CELL: usize = 12;
 const CELLS: usize = 256;
 const MINI_ON_DISK: usize = 64;
@@ -112,6 +114,19 @@ pub struct Item {
     pub item: u32,
     /// Its record, [`RECORD`] bytes from its type.
     pub record: Vec<u8>,
+}
+
+/// An item in the backpack's grid, at its top left cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Packed {
+    /// The object's id, as the inventory section names it ([`Item::id`]).
+    pub id: u32,
+    /// Its top left cell, column and row.
+    pub at: (u8, u8),
+    /// Its width and height in cells.
+    pub size: (u8, u8),
+    /// Its type, as the inventory section has it ([`Item::item`]).
+    pub item: u32,
 }
 
 impl Amh {
@@ -283,19 +298,34 @@ impl Amh {
             .collect()
     }
 
-    /// The ids of the items in the backpack's grid, cell by cell.
-    pub fn backpack(&self) -> Result<Vec<u32>> {
+    /// The items in the backpack's grid, cell by cell, row by row, each at its top left cell.
+    pub fn backpack(&self) -> Result<Vec<Packed>> {
         let data = &self.section(BACKPACK, "AMH backpack section")?.data;
+        // The 256 cells' width, a byte's worth at most.
+        let width = u8::try_from(Reader::at(data, WIDTH).u16()?)
+            .unwrap_or(u8::MAX)
+            .max(1);
         let mut grid = Reader::new(data).window(GRID, CELL * CELLS, "AMH backpack grid")?;
-        let mut ids = Vec::new();
-        for _ in 0..CELLS {
-            let mut cell = grid.take(CELL, "AMH backpack cell")?;
-            match cell.u32()? {
-                0 => {}
-                id => ids.push(id),
+        let mut packed = Vec::new();
+        for index in 0..=u8::MAX {
+            let mut cell = grid
+                .take(CELL, "AMH backpack cell")?
+                .with_record(usize::from(index));
+            let id = cell.u32()?;
+            if id == 0 {
+                continue;
             }
+            cell.u8()?;
+            let size = (cell.u8()?, cell.u8()?);
+            cell.u8()?;
+            packed.push(Packed {
+                id,
+                at: (index % width, index / width),
+                size,
+                item: cell.u32()?,
+            });
         }
-        Ok(ids)
+        Ok(packed)
     }
 
     /// The decoded summary section.
@@ -398,7 +428,10 @@ mod tests {
             inventory[record + 0x1C..record + 0x1E].copy_from_slice(&least.to_le_bytes());
         }
         let mut backpack = vec![0; 4444];
-        backpack[GRID + 3 * CELL] = 19;
+        backpack[WIDTH] = 20;
+        let cell = GRID + 23 * CELL;
+        backpack[cell] = 19;
+        backpack[cell + 4..cell + 12].copy_from_slice(&[1, 1, 2, 0, 0x33, 0x14, 0, 0]);
         let section = |tag, data: Vec<u8>| Section {
             slot: 3,
             tag,
@@ -420,7 +453,15 @@ mod tests {
             .map(|i| (i.id, i.item, i.record.len(), i.record[0x1C]))
             .collect();
         assert_eq!(found, [(17, 7901, RECORD, 21), (19, 5171, RECORD, 0)]);
-        assert_eq!(amh.backpack().unwrap(), [19]);
+        assert_eq!(
+            amh.backpack().unwrap(),
+            [Packed {
+                id: 19,
+                at: (3, 1),
+                size: (1, 2),
+                item: 5171
+            }]
+        );
         // A block whose record is of another type is an error.
         let mut broken = inventory();
         broken.sections[0].data[4 + 4 + ITEM_RECORD] = 0;

@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+use opensacred_data::heroes::Carried;
 use opensacred_rules::drops::{Dropped, Kind};
 use opensacred_rules::inventory::Grid;
 
@@ -110,6 +111,17 @@ impl Pack {
         }
         let key = self.next;
         if self.grid.take(key, size).is_none() {
+            return false;
+        }
+        self.next += 1;
+        self.items.push((key, dropped));
+        true
+    }
+
+    /// Puts `dropped` of `size` into the grid at the cell `at` where it fits: whether it did.
+    pub fn put(&mut self, dropped: Dropped, at: (u8, u8), size: (u8, u8)) -> bool {
+        let key = self.next;
+        if !self.grid.place(key, at, size) {
             return false;
         }
         self.next += 1;
@@ -417,9 +429,41 @@ fn takes(hero: Vec3, item: Vec3) -> bool {
     (item - hero).xz().length().ceil() <= REACH
 }
 
-/// The hero's pack, empty at each game's start.
-fn empty(mut commands: Commands) {
-    commands.insert_resource(Pack::default());
+/// The items that the hero's template carries in its backpack at the start (`heroes.ron`,
+/// #1285), which `game` reads with the template.
+#[derive(Resource, Default, Clone, Debug)]
+pub struct Starting(pub Vec<Carried>);
+
+/// The hero's pack at each game's start: no gold, and its template's items in their cells, each
+/// of its type's kind, as the scripts give an item (`receive`).
+fn start(
+    mut commands: Commands,
+    starting: Option<Res<Starting>>,
+    tables: Option<Res<crate::drops::Tables>>,
+) {
+    let mut pack = Pack::default();
+    for carried in starting.iter().flat_map(|starting| &starting.0) {
+        let kind = tables
+            .as_deref()
+            .and_then(|tables| tables.catalogue().kind(carried.item))
+            .unwrap_or(Kind::Other);
+        let dropped = Dropped {
+            kind,
+            item: carried.item,
+            level: 0,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+        };
+        if !pack.put(dropped, carried.at, carried.size) {
+            warn!(
+                "pickup: the template's item {} does not fit at {:?}",
+                carried.item, carried.at
+            );
+        }
+    }
+    commands.insert_resource(pack);
 }
 
 /// Keeps each item that the scripts give the hero among the main quest's items (#1256).
@@ -447,7 +491,7 @@ impl Plugin for PickupPlugin {
             .add_message::<Taken>()
             .add_message::<TakenForQuest>()
             .add_message::<Given>()
-            .add_systems(OnEnter(AppState::InGame), empty)
+            .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(Update, receive.run_if(in_state(AppState::InGame)))
             .add_systems(
                 Update,
@@ -526,5 +570,19 @@ mod tests {
             assert!(full.take(dropped(Kind::Other, 5171, 1), (1, 1)));
         }
         assert!(!full.take(dropped(Kind::Other, 5171, 1), (1, 1)));
+    }
+
+    #[test]
+    fn the_templates_items_lie_in_their_cells_and_a_pick_up_goes_below_them() {
+        let mut pack = Pack::default();
+        for row in 0..3 {
+            assert!(pack.put(dropped(Kind::Potion, 5171, 1), (0, row), (1, 1)));
+        }
+        assert!(pack.put(dropped(Kind::Other, 5633, 1), (0, 3), (1, 2)));
+        assert!(!pack.put(dropped(Kind::Other, 5633, 1), (0, 4), (1, 1)));
+        assert!(pack.take(dropped(Kind::Potion, 5171, 1), (1, 1)));
+        let places: Vec<(u8, u8)> = pack.grid.items.iter().map(|item| item.at).collect();
+        assert_eq!(places, [(0, 0), (0, 1), (0, 2), (0, 3), (0, 5)]);
+        assert_eq!(pack.items.len(), 5);
     }
 }

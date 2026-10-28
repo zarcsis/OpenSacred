@@ -70,7 +70,7 @@ fn every_item_matches_amh_dump_py() {
                 "{path}\t{}\t{}\t{}\t{:08x}",
                 item.id,
                 item.item,
-                u8::from(packed.contains(&item.id)),
+                u8::from(packed.iter().any(|packed| packed.id == item.id)),
                 crc32fast::hash(&item.record)
             ));
         }
@@ -129,5 +129,53 @@ fn every_combat_art_matches_amh_dump_py() {
         .map(|a| (a.table, a.id, a.level, a.flags, a.time))
         .collect();
     assert_eq!(arts, [(2, 1071, 1, 0, 15.0), (1, 18, 1, 1, 24.0)]);
+    fs::remove_dir_all(out).unwrap();
+}
+
+#[test]
+#[ignore = "needs the game files in OriginalGame/ and Python"]
+fn every_backpack_matches_amh_dump_py() {
+    let out = scratch_dir("amh-backpack");
+    let rows = out.join("backpack.tsv");
+    let game = repo_root().join("OriginalGame");
+    run_python(
+        "tools/analysis/formats/amh_dump.py",
+        &[
+            OsStr::new("--game-dir"),
+            game.as_os_str(),
+            OsStr::new("--backpack"),
+            rows.as_os_str(),
+        ],
+    );
+    let mut ours = Vec::new();
+    for path in (0..8).map(|i| format!("Templates/Hero{i:02}.ptx")) {
+        let amh = Amh::parse(&game_file(&path)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        for packed in amh.backpack().unwrap() {
+            ours.push(format!(
+                "{path}\t{}\t{}\t{}\t{}\t{}\t{}",
+                packed.id, packed.at.0, packed.at.1, packed.size.0, packed.size.1, packed.item
+            ));
+        }
+    }
+    let theirs = fs::read_to_string(&rows).unwrap();
+    assert_eq!(ours, theirs.lines().skip(1).collect::<Vec<_>>());
+    // Each template's four: three healing potions down the first column and the large torch of
+    // 1 × 2 below them (docs/02 §9).
+    let amh = Amh::parse(&game_file("Templates/Hero01.ptx")).unwrap();
+    let packed: Vec<_> = amh
+        .backpack()
+        .unwrap()
+        .iter()
+        .map(|p| (p.at, p.size, p.item))
+        .collect();
+    assert_eq!(
+        packed,
+        [
+            ((0, 0), (1, 1), 5171),
+            ((0, 1), (1, 1), 5171),
+            ((0, 2), (1, 1), 5171),
+            ((0, 3), (1, 2), 5633)
+        ]
+    );
     fs::remove_dir_all(out).unwrap();
 }
