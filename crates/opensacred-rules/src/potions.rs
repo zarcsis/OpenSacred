@@ -159,8 +159,8 @@ pub fn missing(current: u32, most: u32) -> u32 {
 }
 
 /// The health that a drinker of `current` out of `most` has after a healing potion of the share
-/// `per_cent`: that share of its most added, at most its most (**hypothesis**: added, not set;
-/// seen only at 100 %).
+/// `per_cent`: that share of its most added, at most its most (the creature's event 6 of the
+/// kind 5, `0x52E590`; #1328).
 pub fn healed(current: u32, most: u32, per_cent: u32) -> u32 {
     let gain = u64::from(most) * u64::from(per_cent.min(100)) / 100;
     u32::try_from((u64::from(current) + gain).min(u64::from(most))).unwrap_or(most)
