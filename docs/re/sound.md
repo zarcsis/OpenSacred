@@ -323,7 +323,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | Pick-up of an item, of gold | `0x558080` → (9, `0x80`), `0x57FD80` → (9, `0x83`) | 7103, 7100 | an item into the pack or onto the cursor; gold added | yes (`pickup`, `scripts::collect`) | yes (#1167) |
 | An item taken straight into a slot, a quest's item | `0x558080` → (9, 5), (9, `0x81`) | `UI_INV_PUT*` by kind, 7117 | as said | partly | the quest's item and the hurled weapon taken back into the hand (7005) (#1167); the slots wait for the inventory (#1088) |
 | No room in the pack | `0x558080` → (8, 3) | `CANTCARRYMORE` lines | the pack full | no (#1088) | no |
-| A rune dropped by a kill | `0x559BF0` at `0x55A4BD` | 7028 | the drop rolls a rune | no: the drops leave the runes out (docs/decisions/2026-10-21-drops.md) | no |
+| A rune dropped by a kill | `0x559BF0` at `0x55A4BD` | 7028 | the drop rolls a rune | yes (`drops`, #1183) | no |
 | Level-up | `0x57E160` → (9, `0x10`) | 7002 | the hero's level rises | yes (`fight::level_up`) | yes (#1167) |
 | Spells' cast | `0x51E110` | 2000–2125 by the spell | the cast starts | yes (`making`, `spells`) | yes, the hero's (`art_sounds`, #1172) |
 | Spells' act | `0x522480` | 2011–2117 by the spell | the spell acts | yes | yes, the hero's (#1172) |

@@ -827,6 +827,11 @@ An entry holds the class (`u32`, the hero's creature type), eight item types (`u
 The client's code tests the names for parts: the footsteps of the creatures other than the hero (`0x68EB90`: `CROW`, `DRAGON`, `NATURE_HORSE`, `NPC_ORC_`, …) and the doors' sounds (`0x695800`: `TYPE_OBJECT_DOOR`); the secret door 5221 is `TYPE_OBJECT_S_DOOR`.
 `opensacred-convert tables` writes them into `tables/type_names.ron` (`opensacred_data::tables::TypeName`), in the table's order.
 
+### 6.10 The drops' runes in Sacred.exe
+
+**Confirmed** by code 2026-10-28 (#1183; docs/re/items.md, "A pass: what it makes"): 123 types (`u32` each) at VA `0x9565A0`, from 5375 to 5782 with gaps, each of the runes' category 28, of which a drop's rune is one at random (`0x559BF0`).
+`opensacred-convert tables` writes them into `tables/runes.ron`, a list of the types in the table's order.
+
 ## 7. NetScript scripts
 
 ### 7.1 Record encoding

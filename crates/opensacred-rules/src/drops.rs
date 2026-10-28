@@ -54,6 +54,10 @@ const HEROES: u8 = 1;
 const ANIMALS: u8 = 6;
 /// The ghosts' class, which drops no weapon or armour.
 const GHOSTS: u8 = 11;
+/// The creature types that drop a potion where they would drop a rune (`0x559BF0`).
+const NO_RUNES: [u32; 3] = [516, 592, 593];
+/// The rune's roll's scale, both of whose sides `0x559BF0` multiplies by it.
+const RUNE_SCALE: f32 = 30.0;
 /// The class bits of an item's record (`Weapon.pak +0x84` bits 0–5, 22 and 23).
 const CLASS_BITS: u32 = 0x00C0_003F;
 /// The record's bit that keeps its type from the drops.
@@ -84,6 +88,8 @@ pub enum Kind {
     Weapon,
     Armour,
     Jewel,
+    /// A combat art's rune (the category 28, #1183).
+    Rune,
     /// An item of no drop's kind, a quest's or another, which only the scripts' drops make.
     Other,
 }
@@ -193,6 +199,11 @@ pub struct Hero {
     pub level: u32,
     /// Its skills and their levels, which an item may require.
     pub skills: Vec<(u8, u32)>,
+    /// The runes it carries (the items of the category 28 in its backpack and its storage,
+    /// `0x5598B0`) and the sum of its combat arts' levels without their bonuses, which make a
+    /// rune's chance (#1183).
+    pub runes: u32,
+    pub arts: u32,
 }
 
 /// The kill, as it raises the bonus: whether a player made it, and the killer's values.
@@ -261,6 +272,34 @@ pub struct Rules {
     gold: [i64; 2],
     weights: Vec<(u32, u32)>,
     offsets: [[i64; 2]; 6],
+    runes: RuneRules,
+}
+
+/// The balance's values of a rune's chance (`0x5598B0`): its chance per mille (`UpgradeDrop`),
+/// the runes per level of each hero type 1 to 9 (`RunenProLevel_S`, `_G`, `_M`, `_D`, `_E`, `_V`
+/// for 6 and 7, `_Z` and `_T`), the runes carried that weigh as an art's level
+/// (`RuneInventoryFactor`), the factor's most (`RuneChanceFactorMax`) and a boss's or a
+/// champion's factor (`RunesPerBoss`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RuneRules {
+    chance: f32,
+    per_level: [f32; 9],
+    inventory: f32,
+    most: f32,
+    boss: f32,
+}
+
+impl Default for RuneRules {
+    /// The original's values.
+    fn default() -> Self {
+        Self {
+            chance: 50.0,
+            per_level: [1.85, 1.2, 2.2, 1.75, 1.75, 2.2, 2.2, 1.75, 1.9],
+            inventory: 3.0,
+            most: 2.0,
+            boss: 1.5,
+        }
+    }
 }
 
 impl Default for Rules {
@@ -286,6 +325,7 @@ impl Default for Rules {
             .map(|(weight, key)| (key, weight))
             .collect(),
             offsets: [[1, 9], [3, 14], [5, 19], [8, 25], [0, 0], [0, 0]],
+            runes: RuneRules::default(),
         }
     }
 }
@@ -351,7 +391,50 @@ impl Rules {
                     .collect()
             },
             offsets,
+            runes: RuneRules {
+                chance: f("UpgradeDrop", default.runes.chance),
+                per_level: std::array::from_fn(|kind| {
+                    let key = ["S", "G", "M", "D", "E", "V", "V", "Z", "T"][kind];
+                    f(
+                        &format!("RunenProLevel_{key}"),
+                        default.runes.per_level[kind],
+                    )
+                }),
+                inventory: f("RuneInventoryFactor", default.runes.inventory),
+                most: f("RuneChanceFactorMax", default.runes.most),
+                boss: f("RunesPerBoss", default.runes.boss),
+            },
         }
+    }
+
+    /// A rune's chance per mille in a pass of a creature of level `level`, a boss or a
+    /// champion where `ranked`, for `hero` (`0x5598B0`): `x = p·H/(n/RuneInventoryFactor + a)`,
+    /// `p` the runes per level of the hero's type, `H` its level at least 1, `n` the runes it
+    /// carries and `a` its arts' levels; `x⁵` where `x` is above 1 or the creature ranked, else
+    /// `x⁴` times the weighing of the levels; at least 0.01 and at most `RuneChanceFactorMax`,
+    /// times `RunesPerBoss` where ranked; times `UpgradeDrop`.
+    pub fn rune_chance(&self, level: u32, ranked: bool, hero: &Hero) -> f32 {
+        let runes = self.runes;
+        let per_level = usize::try_from(hero.creature)
+            .ok()
+            .and_then(|kind| runes.per_level.get(kind.checked_sub(1)?))
+            .copied()
+            .unwrap_or(1.0);
+        let h = f64::from(u16::try_from(hero.level).unwrap_or(u16::MAX).max(1));
+        let held =
+            f64::from(u16::try_from(hero.runes).unwrap_or(u16::MAX)) / f64::from(runes.inventory);
+        let a = f64::from(u16::try_from(hero.arts).unwrap_or(u16::MAX));
+        let x = f64::from(per_level) * h / (held + a);
+        let r = if x > 1.0 || ranked {
+            x.powi(5)
+        } else {
+            f64::from(fight::weighing(level, hero.level, self.levels)) * x.powi(4)
+        };
+        let mut r = r.max(0.01).min(f64::from(runes.most));
+        if ranked {
+            r *= f64::from(runes.boss);
+        }
+        single(r * f64::from(runes.chance))
     }
 
     /// The level `E` of a creature of level `level` on bronze's scale (`0x5522D0`, docs/re/fight.md,
@@ -590,6 +673,10 @@ pub struct Catalogue {
     /// The `items.pak` slot whose record each type's entry of the items table holds: its own, or
     /// for a derived type its root's ([`Catalogue::slot`]).
     slots: HashMap<u32, u32>,
+    /// The types whose entries have a rune (`items.pak +0x6A`, `0x43AF10`), and the runes that
+    /// the drops draw from (`0x9565A0`, `tables/runes.ron`; #1183).
+    readable: HashSet<u32>,
+    runes: Vec<u32>,
 }
 
 impl Catalogue {
@@ -656,6 +743,11 @@ impl Catalogue {
             .keys()
             .filter_map(|&item| Some((item, category(item)?)))
             .collect();
+        let readable = slots
+            .keys()
+            .copied()
+            .filter(|&item| entry(item).is_some_and(|entry| entry.words_58[4] >> 16 != 0))
+            .collect();
         let mut lists: HashMap<u8, Vec<u32>> = HashMap::new();
         for &listed_type in slots.keys() {
             let (Some(item), Some(category)) = (entry(listed_type), category(listed_type)) else {
@@ -682,7 +774,14 @@ impl Catalogue {
             records,
             lists,
             slots,
+            readable,
+            runes: Vec::new(),
         }
+    }
+
+    /// The catalogue with the runes that the drops draw from (`0x9565A0`, #1183).
+    pub fn with_runes(self, runes: Vec<u32>) -> Self {
+        Self { runes, ..self }
     }
 
     /// The `items.pak` slot whose record the items table holds for type `item`: the type's own,
@@ -700,6 +799,7 @@ impl Catalogue {
         }
         match *self.categories.get(&item)? {
             POTIONS_CATEGORY => Some(Kind::Potion),
+            RUNES => Some(Kind::Rune),
             WEAPONS => Some(Kind::Weapon),
             category if ARMOUR.contains(&category) => Some(Kind::Armour),
             category if JEWELS.contains(&category) => Some(Kind::Jewel),
@@ -854,11 +954,15 @@ fn class_bit(creature: u32) -> Option<u32> {
     }
 }
 
-/// The creature that made the last jewel (`0xAD4000`, the object's id): a creature makes no jewel
-/// while it is the last that made one, over its deaths as over a death's passes, so that one
-/// creature's drops make one jewel at most until another makes one (#610).
+/// The creatures that made the last jewel (`0xAD4000`) and the last rune (`0xAD3FFC`), the
+/// objects' ids: a creature makes no jewel while it is the last that made one, over its deaths
+/// as over a death's passes, so that one creature's drops make one jewel at most until another
+/// makes one (#610), and no rune likewise (#1183).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct LastJewel(Option<u64>);
+pub struct LastJewel {
+    jewel: Option<u64>,
+    rune: Option<u64>,
+}
 
 /// What a death drops (`0x533BA8`, `0x559BF0`): [`Rules::calls`] calls, each of the chance
 /// [`Rules::chance`] in passes of 1,000 per mille; nothing for a creature of the heroes' class.
@@ -945,7 +1049,7 @@ impl Dropping<'_> {
             let key = self.rules.key(*bonus, g, dice);
             let quality = if (2..=15).contains(&key) { 16 - key } else { 0 };
             let (kind, item) = self.kind(i64::from(quality), dice);
-            let key = if matches!(kind, Kind::Potion | Kind::Gold) {
+            let key = if matches!(kind, Kind::Potion | Kind::Gold | Kind::Rune) {
                 key.max(16)
             } else {
                 key
@@ -972,7 +1076,7 @@ impl Dropping<'_> {
         *bonus = self.rules.compound(*bonus, dead.creature, dead.worth);
         let key = self.rules.key(*bonus, g, dice);
         let kind = self.catalogue.kind(item).unwrap_or(Kind::Other);
-        let key = if matches!(kind, Kind::Potion | Kind::Gold | Kind::Other) {
+        let key = if matches!(kind, Kind::Potion | Kind::Gold | Kind::Rune | Kind::Other) {
             key.max(16)
         } else {
             key
@@ -981,15 +1085,18 @@ impl Dropping<'_> {
     }
 
     /// What a pass makes, in order (`0x559BF0`): a potion in `DropSaft` ‰; gold in `DropGold` ‰,
-    /// always for the animals, and for the ghosts in 600 ‰ of the rest; but for the ghosts a weapon
-    /// in `DropWaffe` ‰ and armour in `DropRuestung` ‰ of the rest; else a jewel, unless the
-    /// creature made the last one ([`LastJewel`]); the type none where none is found. The runes, which come before the gold,
-    /// are left out.
+    /// a rune ([`Self::rune`]); gold in `DropGold` ‰, always for the animals, and for the ghosts in
+    /// 600 ‰ of the rest; but for the ghosts a weapon in `DropWaffe` ‰ and armour in
+    /// `DropRuestung` ‰ of the rest; else a jewel, unless the creature made the last one
+    /// ([`LastJewel`]); the type none where none is found.
     fn kind(&mut self, quality: i64, dice: &mut impl Dice) -> (Kind, Option<u32>) {
         let dead = self.death.dead;
         let [potion_chance, gold, weapon, armour] = self.rules.kinds;
         if dice.below(1000) < potion_chance {
             return (Kind::Potion, Some(potion(self.death.difficulty, dice)));
+        }
+        if let Some(rune) = self.rune(dice) {
+            return rune;
         }
         if dice.below(1000) < gold
             || dead.class == ANIMALS
@@ -1017,16 +1124,49 @@ impl Dropping<'_> {
                 self.choose(category, class, loose, quality, dice),
             );
         }
-        if self.last.0 == Some(dead.id) {
+        if self.last.jewel == Some(dead.id) {
             return (Kind::Jewel, None);
         }
-        self.last.0 = Some(dead.id);
+        self.last.jewel = Some(dead.id);
         let category = JEWELS[index(dice.below(3))];
         let class = self.asked(dice);
         (
             Kind::Jewel,
             self.choose(category, class, false, quality, dice),
         )
+    }
+
+    /// A rune, unless the creature is an animal or made the last rune (`0x559BF0`): where a roll
+    /// below 1,000 is below its chance ([`Rules::rune_chance`]), the creature makes the last
+    /// rune, and the rune is one of the drops' runes at random, but a potion for the types 516,
+    /// 592 and 593 or a rune whose entry has none (`0x43AF10`).
+    fn rune(&mut self, dice: &mut impl Dice) -> Option<(Kind, Option<u32>)> {
+        let dead = self.death.dead;
+        if dead.class == ANIMALS || self.last.rune == Some(dead.id) {
+            return None;
+        }
+        let roll = f32::from(u16::try_from(dice.below(1000)).unwrap_or(999)) * RUNE_SCALE;
+        // The champions' mark gates it, as it gates the drop's chance (#621).
+        let ranked = matches!(dead.rank, Rank::Boss | Rank::Champion);
+        let chance = self.rules.rune_chance(dead.level, ranked, &self.death.hero) * RUNE_SCALE;
+        if chance <= roll {
+            return None;
+        }
+        self.last.rune = Some(dead.id);
+        let runes = &self.catalogue.runes;
+        let count = u32::try_from(runes.len()).unwrap_or(0);
+        let rune = (count > 0)
+            .then(|| runes.get(index(dice.below(count))).copied())
+            .flatten();
+        Some(match rune {
+            Some(rune)
+                if !NO_RUNES.contains(&dead.creature)
+                    && self.catalogue.readable.contains(&rune) =>
+            {
+                (Kind::Rune, Some(rune))
+            }
+            _ => (Kind::Potion, Some(potion(self.death.difficulty, dice))),
+        })
     }
 
     /// The class a type is chosen for: the hero's in one case of two, else any.
@@ -1138,7 +1278,7 @@ pub fn thrown(
     };
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
-        Kind::Potion | Kind::Other => {}
+        Kind::Potion | Kind::Rune | Kind::Other => {}
         Kind::Weapon | Kind::Armour | Kind::Jewel => {
             drop.quality = match drop.key {
                 0 => 14,

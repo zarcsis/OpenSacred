@@ -3954,7 +3954,7 @@ pub fn place(
         opensacred_rules::drops::Hero {
             creature: 0,
             level: hero,
-            skills: Vec::new(),
+            ..opensacred_rules::drops::Hero::default()
         },
         |base| drops::hero(base, hero),
     );
