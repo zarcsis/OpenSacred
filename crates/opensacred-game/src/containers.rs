@@ -6,7 +6,9 @@
 //! (`MOTION_ACTIVATE`) and its type's sound (`0x44BCD0`, `0x695800`), its `Take:` function runs,
 //! which fills it (`0x4A71F0`), and it throws what it holds to the hero (`0x5C9BA0`, #1381) and is
 //! emptied for good (`+0x14` bit `0x4000`): the cursor shows no hand over it, a click on it does
-//! nothing, and its sector places it again emptied.
+//! nothing, and its sector places it again emptied. Its function's `FillChest`s (78, `0x4A02A0`;
+//! `opensacred_rules::containers`) make what it holds, seeded by the hero and the container, which
+//! it throws along arcs to the hero's feet (#1381).
 //!
 //! As the doors, the game picks the container nearest the cursor's line of sight and the hero
 //! walks where the click sends it, beside the container's closed cell (`hero::steer`). Not
@@ -17,6 +19,8 @@ use std::time::Duration;
 
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
+use opensacred_data::netscript::{Body as RecordBody, Record, Value};
+use opensacred_rules::containers::{Content, Fill, Opening};
 
 use crate::attack::{self, Aim};
 use crate::frame::{Control, Step, Unpaused};
@@ -202,6 +206,7 @@ fn open(
             crate::npcs::open_container_trigger(&mut npcs, &mut heights, trigger);
         }
         if let Some(function) = container.function.clone() {
+            let opened = opens.0;
             commands.queue(move |world: &mut World| {
                 match crate::scripts::run_function(world, &function) {
                     Ok(lines) => {
@@ -211,11 +216,205 @@ fn open(
                     }
                     Err(e) => warn!("containers: {e}"),
                 }
+                let fills = take_fills(world);
+                if let Err(e) = world.run_system_cached_with(fill, (opened, fills)) {
+                    warn!("containers: {e}");
+                }
             });
         }
         container.emptied = true;
         npcs.emptied.insert(container.index);
     }
+}
+
+/// The record of `FillChest` (`0x4A02A0`) and its operands' tags: a container's name, a type, the
+/// value and the count of books.
+const FILL_CHEST: u16 = 78;
+const NAME: u8 = 0x01;
+const ITEM: u8 = 0x02;
+const VALUE: u8 = 0x53;
+const BOOKS: u8 = 0x86;
+/// How far about the hero a container's items land, along each axis (`0x5C9BA0`: `R(20, 50)`).
+const LANDS_FROM: u32 = 20;
+const LANDS_TO: u32 = 50;
+/// The id that a container's seed takes for the local hero's (**hypothesis**: the player's).
+const HERO_ID: u32 = 1;
+/// The record of a container's rolls, by which its seed's generator is made.
+const FILL_ROLL: usize = 0x4A02;
+
+/// Takes the `FillChest`s that a container's function ran out of the world's records, which a
+/// container's fill carries out (`fill`).
+fn take_fills(world: &mut World) -> Vec<Record> {
+    let Some(mut records) = world.get_resource_mut::<crate::scripts::WorldRecords>() else {
+        return Vec::new();
+    };
+    let (fills, others) = std::mem::take(&mut records.0)
+        .into_iter()
+        .partition(|record| record.kind == FILL_CHEST);
+    records.0 = others;
+    fills
+}
+
+/// A `FillChest`'s operands ([`Fill`]).
+fn fill_of(record: &Record) -> Fill {
+    let RecordBody::Operands(ops) = &record.body else {
+        return Fill::default();
+    };
+    let number = |tag: u8| {
+        ops.iter().find_map(|op| match (op.tag, &op.value) {
+            (t, Value::I32(n)) if t == tag => Some(*n),
+            (t, Value::U16(n)) if t == tag => Some(i32::from(*n)),
+            (t, Value::U8(n)) if t == tag => Some(i32::from(*n)),
+            _ => None,
+        })
+    };
+    Fill {
+        value: number(VALUE),
+        item: number(ITEM).and_then(|n| u32::try_from(n).ok()),
+        books: number(BOOKS)
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0),
+        named: ops.iter().any(|op| op.tag == NAME),
+    }
+}
+
+/// Fills the container `opened` by its `FillChest`s `fills` (`0x4A02A0`) and throws what it holds
+/// to the hero (`0x5C9BA0`): its items and gold made, each flying from the container to a point
+/// `R(20, 50)` from the hero along each axis, and a creature raised beside the hero.
+fn fill(
+    In((opened, fills)): In<(Entity, Vec<Record>)>,
+    mut commands: Commands,
+    (tables, mut dice, assets): (
+        Option<Res<crate::drops::Tables>>,
+        ResMut<crate::drops::Dice>,
+        Res<AssetServer>,
+    ),
+    (experience, pack, arts, mut given): (
+        Res<crate::fight::Experience>,
+        Res<crate::pickup::Pack>,
+        Option<Res<crate::arts::HeroArts>>,
+        ResMut<crate::rewards::RunesGiven>,
+    ),
+    containers: Query<(&Object, &Container)>,
+    heroes: Query<(&Transform, &crate::fight::Base, &Body)>,
+    lying: Query<&crate::drops::Lying>,
+) {
+    let (Some(tables), Ok((at, container)), Some((hero_at, base, body))) = (
+        tables.as_deref(),
+        containers.get(opened),
+        heroes.iter().next(),
+    ) else {
+        return;
+    };
+    if fills.is_empty() {
+        return;
+    }
+    let level = experience.0.level;
+    let mut hero = crate::drops::hero(base, level);
+    crate::drops::carrying(&mut hero, &pack, arts.as_deref(), tables);
+    let icon_in_world = lying
+        .iter()
+        .any(|lying| (5101..=5106).contains(&lying.dropped.item))
+        || pack
+            .items
+            .iter()
+            .any(|(_, dropped)| (5101..=5106).contains(&dropped.item));
+    // The seed of the hero and the container (`0x4A0705`).
+    let seed = opensacred_rules::containers::seed(
+        (base.id, HERO_ID, experience.0.points),
+        (
+            whole(at.at.x),
+            whole(at.at.z),
+            u32::try_from(container.index).unwrap_or(u32::MAX),
+        ),
+    );
+    let mut rolls = opensacred_rules::spawning::Rng::of(
+        u32::try_from(seed & 0xFFFF_FFFF).unwrap_or(0),
+        u32::try_from(seed >> 32).unwrap_or(0),
+        FILL_ROLL,
+    );
+    let mut opening = Opening {
+        hero: &hero,
+        gold_level: level,
+        rules: tables.rules(),
+        raises: Opening::raising(container.kind),
+        icon_in_world,
+        given: &mut given.0,
+    };
+    let mut made = Vec::new();
+    for record in &fills {
+        made.extend(opensacred_rules::containers::fill(
+            &fill_of(record),
+            &mut opening,
+            tables.catalogue(),
+            |item| tables.price(item),
+            &mut rolls,
+        ));
+    }
+    let hero_point = hero_at.translation;
+    for content in made {
+        let (item, level, amount) = match content {
+            Content::Item { item, level } => (item, level, 1),
+            Content::Gold { pile, amount } => (pile, level, amount),
+            Content::Creature(creature) => {
+                raise(&mut commands, creature, hero_point, level);
+                continue;
+            }
+        };
+        let Some(dropped) = crate::drops::contained(tables, &mut dice, (item, level, amount))
+        else {
+            continue;
+        };
+        let mut aside = || {
+            let along = rolls.below(LANDS_TO - LANDS_FROM + 1) + LANDS_FROM;
+            let along = f32::from(u16::try_from(along).unwrap_or(0));
+            if rolls.below(2) == 0 { along } else { -along }
+        };
+        let to = hero_point + Vec3::new(aside(), 0.0, aside());
+        debug!("containers: {opened} throws {item} ({amount})");
+        crate::drops::throw_to(
+            &mut commands,
+            (&assets, tables),
+            (at.at, to, body.level()),
+            dropped,
+        );
+    }
+}
+
+/// Raises the creature `creature` at the level `level` beside the hero at `hero`, as a grave or
+/// a shrine does where its value gives nothing (`0x4A0786`; **hypothesis** for its place,
+/// `0x45FF80`, which is not read: the cell beside the hero's).
+fn raise(commands: &mut Commands, creature: u32, hero: Vec3, level: u32) {
+    let (x, y) = crate::paths::cell_of(hero.x, hero.z);
+    let (Ok(x), Ok(y)) = (u32::try_from(x + 1), u32::try_from(y + 1)) else {
+        return;
+    };
+    let spawn = crate::npcs::Spawn {
+        creature,
+        cells: vec![(x, y)],
+        floor: 0,
+        level: Some(level),
+        rank: crate::fight::Rank::Common,
+        hostile: None,
+        immortal: false,
+        roams: false,
+    };
+    commands.queue(move |world: &mut World| {
+        match world.run_system_cached_with(crate::npcs::spawn_creatures, spawn) {
+            Ok(Ok(made)) => debug!("containers: raised {creature}: {made:?}"),
+            Ok(Err(e)) => warn!("containers: {e}"),
+            Err(e) => warn!("containers: {e}"),
+        }
+    });
+}
+
+/// A world coordinate as a whole number, as the object's `+0x1C` and `+0x20` hold it.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a world coordinate, far within the integers' range"
+)]
+fn whole(value: f32) -> i32 {
+    value as i32
 }
 
 /// Whether a hero standing at `hero` opens the container at `container`: within

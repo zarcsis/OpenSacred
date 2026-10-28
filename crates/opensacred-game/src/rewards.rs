@@ -59,7 +59,7 @@ pub struct QuestWon(pub u32);
 /// which weigh against the next ([`opensacred_rules::drops::Rules::quest_rune_range`]); kept for
 /// the session (**hypothesis**: the original keeps it with the player).
 #[derive(Resource, Default)]
-struct RunesGiven(u32);
+pub(crate) struct RunesGiven(pub(crate) u32);
 
 impl RunesGiven {
     fn one_more(&mut self) {
