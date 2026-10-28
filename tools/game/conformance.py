@@ -432,7 +432,8 @@ def main():
     parser.add_argument('--save', default='start-seraphim', help="the original's save of the Seraphim's new game")
     parser.add_argument('--types', help='the stats suite\'s creature types, comma-separated')
     parser.add_argument('--levels', default='1,10,25,40', help="the stats suite's levels")
-    parser.add_argument('--assets', default=os.path.join(ROOT, 'assets'))
+    parser.add_argument('--assets', default=os.path.join(ROOT, 'assets-src'),
+                        help="the masters, whose tables/ the drops suite reads (assets/ holds the game's archives)")
     parser.add_argument('--game-port', type=int, default=15702)
     parser.add_argument('--original-port', type=int, default=15703)
     args = parser.parse_args()
