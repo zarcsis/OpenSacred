@@ -1264,7 +1264,7 @@ Closed and not in the list: where the screen resolution is stored (nowhere: it i
 
 ## Sources
 
-Scripts ([tools/README.md](../tools/README.md); run with `python3 -I` on the user's own installation; paths under `tools/analysis/`):
+Scripts ([tools/README.md](../tools/README.md); run with `uv run python -I` on the user's own installation; paths under `tools/analysis/`):
 
 - `formats/tex_decode.py`, `formats/tex_fmt6.py` — TEX formats 4 and 6 (§3.1).
 - `formats/grn_dump.py`, `formats/mhp_probe.py`, `formats/mhp_vs_mdt.py` — MDL/MDT, GRN, MOTIONS.PAK (§4.1–4.2).

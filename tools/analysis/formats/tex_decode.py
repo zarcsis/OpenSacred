@@ -8,9 +8,9 @@ ARGB4444 (fmt 4), 256×256, without mipmaps/DXT/color key. Layout: directory 0x1
 an entry is an 80-byte header (name[32], u16 w, u16 h, u8 fmt, u32 csize @37) + a zlib stream of w×h×2 bytes.
 
 Examples
-  python3 -I tools/analysis/formats/tex_decode.py --game-dir ./OriginalGame --out /tmp/analysis/tex          # texture03.pak (27 KB, 2 entries)
-  python3 -I tools/analysis/formats/tex_decode.py --pak OriginalGame/PAK/texture.pak --out /tmp/analysis/tex  # 860 MB
-  python3 -I tools/analysis/formats/tex_decode.py --entry /tmp/analysis/tex_entry.bin --out /tmp/analysis/tex # truncated entry
+  uv run python -I tools/analysis/formats/tex_decode.py --game-dir ./OriginalGame --out /tmp/analysis/tex          # texture03.pak (27 KB, 2 entries)
+  uv run python -I tools/analysis/formats/tex_decode.py --pak OriginalGame/PAK/texture.pak --out /tmp/analysis/tex  # 860 MB
+  uv run python -I tools/analysis/formats/tex_decode.py --entry /tmp/analysis/tex_entry.bin --out /tmp/analysis/tex # truncated entry
 
 Output: <out>/tex_decode.txt, <out>/tex_<name>_{4444,565,1555}.png and _compare.png. The PNGs are derived from the
 game assets; do not commit. Dependencies: numpy, pillow.

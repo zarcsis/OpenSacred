@@ -8,7 +8,7 @@ visual: tiles GUI_OPTION1…12 (4×3 of 256×256 = the 1024×768 main menu) in B
 colors (sandstone, green foliage), in RGBA order they give light-blue stone and blue foliage.
 
 Example
-  python3 -I tools/analysis/formats/tex_fmt6.py --game-dir ./OriginalGame --out /tmp/analysis/tex6
+  uv run python -I tools/analysis/formats/tex_fmt6.py --game-dir ./OriginalGame --out /tmp/analysis/tex6
 
 Expected output: "fmt empty: 1, fmt 4: 25307, fmt 6: 227"; every fmt 6 entry has dataSize == w·h·4; for both formats
 the directory size == dataSize, i.e. it excludes the 80-byte entry header; byte 3 is alpha (77% of values are 255 and 11%

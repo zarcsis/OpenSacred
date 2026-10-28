@@ -13,15 +13,15 @@ With `--interactive` the maintainer plays it instead (#551): full screen through
 proportions kept, the maintainer's own mouse and keyboard reaching it while its window has the foreground.
 
 Example
-  python -I tools/original/host.py --log-file <scratch>/original.log          # run_in_background
-  python -I tools/original/host.py --interactive                              # the maintainer's play
-  python -I tools/game/remote.py --port 15703 shell                            # its commands by hand
-  python -I tools/game/remote.py --port 15703 state
-  python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
-  python -I tools/game/remote.py --port 15703 exec quit
+  uv run python -I tools/original/host.py --log-file <scratch>/original.log          # run_in_background
+  uv run python -I tools/original/host.py --interactive                              # the maintainer's play
+  uv run python -I tools/game/remote.py --port 15703 shell                            # its commands by hand
+  uv run python -I tools/game/remote.py --port 15703 state
+  uv run python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
+  uv run python -I tools/game/remote.py --port 15703 exec quit
 
 Expected output: the log's records, a line each, `sequence seconds LEVEL target: message`; the exit code is the
-game's. Dependencies: frida, Pillow (tools/requirements.txt); Windows.
+game's. Dependencies: frida, Pillow (pyproject.toml); Windows.
 """
 import argparse, ctypes, hashlib, http.server, json, os, queue, re, signal, struct, sys, tempfile, threading, time
 from ctypes import wintypes

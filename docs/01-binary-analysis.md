@@ -54,7 +54,7 @@ Other known builds (community-reported): German retail 2.0 (0x451BBE74 = 2006-09
 
 ## 2. The GOG client
 
-Checked on the file `OriginalGame/Sacred.exe` (`tools/triage/pe_triage.py`, pefile, `python3 -I`, read-only):
+Checked on the file `OriginalGame/Sacred.exe` (`tools/triage/pe_triage.py`, pefile, `uv run python -I`, read-only):
 
 | Parameter | Value |
 |---|---|
@@ -398,7 +398,7 @@ At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent
 
 ## Sources
 
-Scripts ([tools/README.md](../tools/README.md); run with `python3 -I` on the user's own installation):
+Scripts ([tools/README.md](../tools/README.md); run with `uv run python -I` on the user's own installation):
 
 * `tools/triage/pe_triage.py` — headers, sections with entropy, imports and exports, version (§1–2).
 * `tools/analysis/pe/pe_deep.py` — functions, calling conventions, import call sites, RTTI, vtables, EH, subsystem labels (§3–4).

@@ -7,7 +7,7 @@ Purpose (docs/01 §5.2): 258 shared classes, 1 server only
 (cGSclass), 159 client only (98 cUI_* + 36 Command*, fonts, cDxDevice, IME, cEngine, cPath*).
 
 Example
-  python3 -I tools/analysis/pe/class_compare.py /tmp/analysis/sacred_deep.json /tmp/analysis/gs_deep.json --out /tmp/analysis/class_compare.md
+  uv run python -I tools/analysis/pe/class_compare.py /tmp/analysis/sacred_deep.json /tmp/analysis/gs_deep.json --out /tmp/analysis/class_compare.md
 
 Expected output: stdout has "client classes 417 server classes 259 shared 258 client-only 159 server-only 1",
 depth histograms, roots; <out> is Markdown with tables. pe_deep.py can be run with --no-disasm

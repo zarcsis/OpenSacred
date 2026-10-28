@@ -6,8 +6,8 @@ Purpose (docs/02 §10.1: 8,192 slots of 184 B, 175 profiles, 2,355 distinct samp
 in the new sound backend).
 
 Example
-  python3 -I tools/analysis/formats/spf_names.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/spf_names.py OriginalGame/PAK/sndProfiles.pak
+  uv run python -I tools/analysis/formats/spf_names.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/spf_names.py OriginalGame/PAK/sndProfiles.pak
 
 Expected output: "used 175", "prefix groups: ...", "sample id range: ... distinct 2355", then one line per profile
 (index, name, v, number of ids, first 12 ids). Dependencies: standard library.

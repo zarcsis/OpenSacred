@@ -8,7 +8,7 @@ After 30 days, the estimates in `docs/07-roadmap-estimates.md` are recalculated 
 
 ## How it is calculated
 
-`python -I tools/usage/pr_usage.py <N> --update` writes the usage of pull request `<N>` into its description.
+`uv run python -I tools/usage/pr_usage.py <N> --update` writes the usage of pull request `<N>` into its description.
 It runs after `gh pr create` and again when the work on the pull request is over: after the merge, or, for one that waits for the maintainer, once its checks are green.
 The description can be edited after the merge, so the figures include the CI, the fixes and the merge without another commit.
 

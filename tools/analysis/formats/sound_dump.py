@@ -17,14 +17,14 @@ on 2026-10-17.
            SOUND_FX_INVALID to the last whose name starts with SOUND_FX_ (measured 2026-10-17): the sound ids' names.
 
 Example
-  python3 -I tools/analysis/formats/sound_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/sound_dump.py --game-dir ./OriginalGame --samples /tmp/s.tsv --profiles /tmp/p.tsv
-  python3 -I tools/analysis/formats/sound_dump.py --game-dir ./OriginalGame --names /tmp/n.tsv
+  uv run python -I tools/analysis/formats/sound_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/sound_dump.py --game-dir ./OriginalGame --samples /tmp/s.tsv --profiles /tmp/p.tsv
+  uv run python -I tools/analysis/formats/sound_dump.py --game-dir ./OriginalGame --names /tmp/n.tsv
 
 Expected output (2.28): every check passes on all of its items; statistics follow. --samples writes a row per used
 sound.pak slot (id, flags, size, kind, crc of the record); --profiles a row per used profile (slot, name, the groups'
 variants as space-separated ids joined by ";"); --names a row per name of the table in Sacred.exe (id, name), in its
-order. Dependencies: numpy (tools/requirements.txt).
+order. Dependencies: numpy (pyproject.toml).
 """
 import argparse
 import collections

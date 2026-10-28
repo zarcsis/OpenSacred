@@ -7,7 +7,7 @@ Purpose (docs/01 §7, x87 precision): the server does not touch the control word
 code (53 bits), the client sets _PC_24 three times in the main thread.
 
 Example
-  python3 -I tools/analysis/pe/control87_callers.py OriginalGame/GameServer.exe --inner 0x51761d --crt-tail 0x4E1000
+  uv run python -I tools/analysis/pe/control87_callers.py OriginalGame/GameServer.exe --inner 0x51761d --crt-tail 0x4E1000
 
 Expected output: "entry candidate: 0x517603 callers: N", lists of callers. srand_scan.py --ctl lists the same
 callers together with the immediate operands of their pushes. Dependencies: pefile, capstone.

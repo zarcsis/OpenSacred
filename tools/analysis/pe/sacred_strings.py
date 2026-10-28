@@ -8,7 +8,7 @@ Purpose (docs/01 §4.5, §6: the map of subsystems from log strings): 74 classes
 The .text section is not read.
 
 Example
-  python3 -I tools/analysis/pe/sacred_strings.py OriginalGame/Sacred.exe --out /tmp/analysis/strings
+  uv run python -I tools/analysis/pe/sacred_strings.py OriginalGame/Sacred.exe --out /tmp/analysis/strings
 
 Output: <out>/class_methods.md, <out>/string_categories.md, <out>/guids.md, <out>/strings.json; stdout gets
 per-category counters and the GUIDs found. Dependencies: pefile.

@@ -10,15 +10,15 @@ The original is the developer's own `Sacred.exe` in `OriginalGame/` (a link to t
 ## Start and stop
 
 ```bash
-python -I tools/original/host.py --log-file <scratch>/original.log    # run_in_background; one original at a time
-python -I tools/game/remote.py --port 15703 wait-state menu           # up, on its main menu
-python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"
-python -I tools/game/remote.py --port 15703 wait-ready                # in the world, the first windows closed
-python -I tools/game/remote.py --port 15703 exec "save start-seraphim"   # later: exec "load start-seraphim"
-python -I tools/game/remote.py --port 15703 click 720 480             # the hero walks there
-python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
-python -I tools/game/remote.py --port 15703 logs --after 0
-python -I tools/game/remote.py --port 15703 exec quit                 # the game closes as its window is closed
+uv run python -I tools/original/host.py --log-file <scratch>/original.log    # run_in_background; one original at a time
+uv run python -I tools/game/remote.py --port 15703 wait-state menu           # up, on its main menu
+uv run python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"
+uv run python -I tools/game/remote.py --port 15703 wait-ready                # in the world, the first windows closed
+uv run python -I tools/game/remote.py --port 15703 exec "save start-seraphim"   # later: exec "load start-seraphim"
+uv run python -I tools/game/remote.py --port 15703 click 720 480             # the hero walks there
+uv run python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
+uv run python -I tools/game/remote.py --port 15703 logs --after 0
+uv run python -I tools/game/remote.py --port 15703 exec quit                 # the game closes as its window is closed
 ```
 
 The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (`--sound` keeps the volumes), and the window's keys of dgVoodoo2's `dgVoodoo.conf` back to their defaults, and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen; 6 when `--monitor` names no monitor.

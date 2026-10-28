@@ -8,7 +8,7 @@ Purpose (docs/02 §4.1): MOTIONS.PAK is a cache of animation parameters
 (the output of cGrannyModelManager::saveMotionParams), not a format of its own.
 
 Example
-  python3 -I tools/analysis/formats/mhp_vs_mdt.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/mhp_vs_mdt.py --game-dir ./OriginalGame
 
 Expected output: "MHP[8:198]==MDT[0x42:0x100]: 3423/3423; u32 id == MDT u16@0x2E: ...". The constants 1574/1194/3423/256
 match the 2.28 build (overridable with options). Dependencies: standard library.

@@ -359,7 +359,7 @@ fn format_name(format: TextureFormat) -> &'static str {
 /// and the 16 floats), the mesh and material fingerprints of [`mesh_crc`] and [`material_crc`] and
 /// the animation fingerprint of [`animation_crc`].
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn trees_skeletons_and_models_match_grn_dump_py() {
     let out = scratch_dir("grn-trees");
     let table = out.join("records.tsv");

@@ -8,7 +8,7 @@ requests in a `gh pr list --json number,title,body` listing, adds the sessions b
 table of the pull requests for the workflow's run summary. The Usage workflow runs it; locally:
 
   gh pr list --state all --author <owner> --limit 10000 --json number,title,body > prs.json
-  python -I tools/usage/usage_badge.py prs.json --badge usage.json --summary summary.md
+  uv run python -I tools/usage/usage_badge.py prs.json --badge usage.json --summary summary.md
 
 Expected output: usage.json, {"schemaVersion": 1, "label": "Claude Code", "message": "1.03B tokens · $338 at API
 prices", "color": "blue"}, and the table in summary.md. The dollars are the cost of the same tokens at API prices,

@@ -341,19 +341,17 @@ pub fn game_file(path: &str) -> Vec<u8> {
     fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-/// Runs a Python prototype from `tools/` and returns its stdout. The interpreter is `$PYTHON`,
-/// otherwise `python` (Windows) or `python3`; dependencies are in `tools/requirements.txt`.
+/// Runs a Python prototype from `tools/` and returns its stdout: `uv run python -I` at the root,
+/// on the interpreter and the packages of `pyproject.toml` (docs/03 §2).
 pub fn run_python(script: &str, args: &[&OsStr]) -> String {
-    let python = std::env::var("PYTHON")
-        .unwrap_or_else(|_| if cfg!(windows) { "python" } else { "python3" }.to_owned());
     let root = repo_root();
-    let output = Command::new(&python)
-        .arg("-I")
+    let output = Command::new("uv")
+        .args(["run", "python", "-I"])
         .arg(root.join(script))
         .args(args)
         .current_dir(&root)
         .output()
-        .unwrap_or_else(|e| panic!("cannot run `{python}` (set PYTHON): {e}"));
+        .unwrap_or_else(|e| panic!("cannot run `uv` (docs/03 §2): {e}"));
     assert!(
         output.status.success(),
         "{script} failed: {}\n{}",

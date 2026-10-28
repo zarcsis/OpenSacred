@@ -10,7 +10,7 @@ use super::*;
 use crate::testing::{game_file, repo_root, run_python, scratch_dir};
 
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn samples_and_profiles_match_sound_dump_py() {
     let out = scratch_dir("sound");
     let (samples_table, profiles_table) = (out.join("samples.tsv"), out.join("profiles.tsv"));
@@ -83,7 +83,7 @@ fn samples_and_profiles_match_sound_dump_py() {
 }
 
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn names_match_sound_dump_py() {
     let out = scratch_dir("sound-names");
     let table = out.join("names.tsv");

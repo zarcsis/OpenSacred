@@ -38,9 +38,9 @@ FAIL:
 Nothing is written; the report names types, levels and categories alone, so it may go into an issue (docs/08 §3).
 
 Example
-  python -I tools/game/conformance.py
-  python -I tools/game/conformance.py --suites experience,hero --save start-seraphim
-  python -I tools/game/conformance.py --suites regeneration
+  uv run python -I tools/game/conformance.py
+  uv run python -I tools/game/conformance.py --suites experience,hero --save start-seraphim
+  uv run python -I tools/game/conformance.py --suites regeneration
 
 Expected output: a line per check, `PASS experience: type 76 level 10, hero 1: +109` or `FAIL stats: type 32 level 10:
 A 37.5 / 47`, then `N checks, M failed`; the exit code is 1 when one failed. Dependencies: the standard library.

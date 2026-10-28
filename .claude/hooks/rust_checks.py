@@ -10,7 +10,7 @@
          without new changes does not rebuild anything.
 
 Example (the hook input is JSON on stdin)
-  echo '{}' | python -I .claude/hooks/rust_checks.py check
+  echo '{}' | uv run python -I .claude/hooks/rust_checks.py check
 
 Tests on the game files (`--run-ignored all`) and `cargo deny check` stay manual (CLAUDE.md). Dependencies:
 standard library, git, cargo, cargo-nextest.

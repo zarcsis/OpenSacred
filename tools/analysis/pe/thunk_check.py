@@ -7,8 +7,8 @@ first thunk and the "Ghidra-only" starts inside functions, by module.
 Purpose (docs/01-binary-analysis.md, §4.1): 2,538 EH thunks among 10,823 starts; the tail is >= 0x7F1000.
 
 Examples
-  python3 -I tools/analysis/pe/thunk_check.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json --out /tmp/analysis/thunk_check.json
-  python3 -I tools/analysis/pe/thunk_check.py --funcs ... --ghidra-tsv /path/to/functions_eng.tsv
+  uv run python -I tools/analysis/pe/thunk_check.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json --out /tmp/analysis/thunk_check.json
+  uv run python -I tools/analysis/pe/thunk_check.py --funcs ... --ghidra-tsv /path/to/functions_eng.tsv
 
 Expected output: "starts beginning with mov eax,FuncInfo: 2538", a size histogram, "next byte after mov is E9".
 The executable is read as is. Dependencies: pefile.

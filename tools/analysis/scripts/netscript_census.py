@@ -8,8 +8,8 @@ Purpose (docs/02 §7.2–7.3): 141 record types, 113 occur, 45 cover 95%, 68 cov
 + NetScriptCamp = the Sacred campaign, bin/Addon/* = Underworld.
 
 Example
-  python3 -I tools/analysis/scripts/netscript_census.py --game-dir ./OriginalGame --out /tmp/analysis/netscript_opcodes.tsv
-  python3 -I tools/analysis/scripts/netscript_census.py --game-dir ./OriginalGame --names /path/opcode-names.tsv --out ...
+  uv run python -I tools/analysis/scripts/netscript_census.py --game-dir ./OriginalGame --out /tmp/analysis/netscript_opcodes.tsv
+  uv run python -I tools/analysis/scripts/netscript_census.py --game-dir ./OriginalGame --names /path/opcode-names.tsv --out ...
 
 Expected output: a table of files (bytes, instrs, distinct_ops, leftover, md5), classes of identical FunkCode.bin files
 (9 identical Addon trees), "union of opcodes observed in any shipped file: 113". Dependencies: standard library.

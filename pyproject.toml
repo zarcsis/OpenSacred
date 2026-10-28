@@ -1,0 +1,26 @@
+# The Python of tools/ and .claude/hooks/ (tools/README.md): uv installs the interpreter of .python-version and
+# the packages of uv.lock into .venv/, and `uv run python -I <script>` runs a script on them.
+# The bounds admit the compatible releases, as Cargo does: `uv lock --upgrade` moves to the newest of them, and a
+# newer major release is a `deps` issue of its own (docs/03 §3.3; `uv tree --outdated --depth 1` lists them).
+[project]
+name = "opensacred-tools"
+version = "0"
+description = "The research scripts, the process tools and the original's driver of tools/; not a package"
+requires-python = ">=3.15"
+dependencies = [
+    "pefile>=2024.8.26",
+    # capstone 6 is still alpha only (6.0.0a11 on 2026-10-24), and uv takes no pre-release unless asked.
+    "capstone>=5.0.9,<6",
+    "numpy>=2.5.4,<3",
+    "pillow>=13.0.0,<14",
+    # The curated scripts do not import lief directly; it is kept as a tool for manual PE triage.
+    "lief>=1.0.0,<2",
+    # The original's driver (tools/original/, docs/03 §3.8): run locally, never in CI or a release.
+    "frida>=17.24.3,<18",
+]
+
+[tool.uv]
+# The dependencies alone, no package of the project's own.
+package = false
+# uv's own interpreter, downloaded on first use, never the system's.
+python-preference = "only-managed"

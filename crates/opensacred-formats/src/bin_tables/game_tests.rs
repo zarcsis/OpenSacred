@@ -118,7 +118,7 @@ fn every_table_matches_bin_tables_dump_py() {
 /// The key table against `tools/analysis/pe/balance_keys.py`'s, read off the client's code; and
 /// the variables it names in `Balance.bin` (docs/02 §6.3).
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn the_balance_keys_match_balance_keys_py() {
     let out = scratch_dir("balance-keys");
     let table = out.join("keys.tsv");

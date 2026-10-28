@@ -27,8 +27,8 @@ follow the client's loader (0x42F8CE: fread of 0xD4 bytes, a u32 count, count x 
   MultiStart.bin  {u32 0; u32 x; u32 y; u32 0} rows to the end
 
 Example
-  python3 -I tools/analysis/formats/bin_tables_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/bin_tables_dump.py --game-dir ./OriginalGame --rows /tmp/bin.tsv
+  uv run python -I tools/analysis/formats/bin_tables_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/bin_tables_dump.py --game-dir ./OriginalGame --rows /tmp/bin.tsv
 
 Expected output (2.28): every check passes; the tail of Balance.bin prints its weights 7 9 0 3 5 6 8 10 12 13 14 15
 15 15 15 15 300 544, the quality pass's values 0 1 2 3 4 5 6 7 9 11 13 15 18 21 25 25 and the effects' chance

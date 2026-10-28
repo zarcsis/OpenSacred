@@ -7,9 +7,9 @@ Purpose (docs/01 §4.5: the WMV mechanism via amstream; also the SetCooperativeL
 Function boundaries are estimated roughly (a 16-aligned start after padding; the end is ret + padding).
 
 Examples
-  python3 -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --imp CoCreateInstance --max 4
-  python3 -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --str "cEngine::simThread"
-  python3 -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --range 0x645260:0x645E40
+  uv run python -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --imp CoCreateInstance --max 4
+  uv run python -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --str "cEngine::simThread"
+  uv run python -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --range 0x645260:0x645E40
 
 Expected output: "sites: N", then for each function found, lines like "VA mnemonic operands ; KERNEL32.dll!X | "string" | GUID IID_...".
 Dependencies: pefile, capstone.

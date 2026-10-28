@@ -23,9 +23,9 @@ The game is `opensacred-game` (docs/10). It reads the converted assets of `asset
   ```bash
   cargo run --release -p opensacred-game -- --assets <assets> --remote --hidden --no-music \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log      # run_in_background
-  python -I tools/game/remote.py wait-state menu        # up, on its main menu
-  python -I tools/game/remote.py exec "new-game --class dwarf"
-  python -I tools/game/remote.py wait-ready             # loaded, the hero animating, the sectors in place
+  uv run python -I tools/game/remote.py wait-state menu        # up, on its main menu
+  uv run python -I tools/game/remote.py exec "new-game --class dwarf"
+  uv run python -I tools/game/remote.py wait-ready             # loaded, the hero animating, the sectors in place
   ```
 
 Always pass `--hidden` (or `--windowed` for a one-shot script), `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), console history and log. `--hidden` keeps the window off the screen, the taskbar and Alt-Tab, while the game draws on and its screenshots are whole, also while the computer is locked (#556); it cannot be shown again, as the game hangs when it is. With `--remote` the window opens without taking the focus.

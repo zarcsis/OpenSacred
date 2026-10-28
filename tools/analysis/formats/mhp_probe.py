@@ -6,7 +6,7 @@ a census of the MotionDesc tail (>= 0x2C), a full dump of several records by kno
 Purpose (docs/02 §4.1: MOTIONS.PAK and MotionDesc). Read-only; prints statistics and hex.
 
 Example
-  python3 -I tools/analysis/formats/mhp_probe.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/mhp_probe.py --game-dir ./OriginalGame
 
 Expected output: "count 3423 stride 198 exact True", "id==index: 3423 / 3423", a list of float columns, "Models.tmp
 size check: ... ". Dependencies: standard library.

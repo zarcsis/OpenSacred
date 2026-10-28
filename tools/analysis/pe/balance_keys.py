@@ -19,8 +19,8 @@ and stores it at the key's variable, with `fstp dword ptr [A]` for a float (the 
            (BalanceDmg), the last at +0x131C (DaemonDamageBonus); every float's value finite in Balance.bin.
 
 Example
-  python3 -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame --table /tmp/balance_keys.tsv
+  uv run python -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/pe/balance_keys.py --game-dir ./OriginalGame --table /tmp/balance_keys.tsv
 
 Expected output (2.28): "355 variables, from BalanceDmg (+0x000) to DaemonDamageBonus (+0x131C); 276 floats, 79
 integers", every check passing, GameSpeed 1.25, TransSize 190, TransValu 50, skilllearn2 6, GoldProLevel 20 and

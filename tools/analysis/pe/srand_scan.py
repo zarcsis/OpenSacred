@@ -7,8 +7,8 @@ Purpose (docs/01 §7: random numbers and x87 precision)
   _control87/_controlfp is called from.
 
 Examples
-  python3 -I tools/analysis/pe/srand_scan.py OriginalGame/Sacred.exe --getptd 0x84ec63 --game-end 0x7F1000 --ctl 0x84d7e5
-  python3 -I tools/analysis/pe/srand_scan.py OriginalGame/GameServer.exe --getptd 0x514953 --game-end 0x4E1000 --ctl 0x517603 --ctl 0x51c8b4
+  uv run python -I tools/analysis/pe/srand_scan.py OriginalGame/Sacred.exe --getptd 0x84ec63 --game-end 0x7F1000 --ctl 0x84d7e5
+  uv run python -I tools/analysis/pe/srand_scan.py OriginalGame/GameServer.exe --getptd 0x514953 --game-end 0x4E1000 --ctl 0x517603 --ctl 0x51c8b4
 
 The _getptd/_control87 addresses come from the output of fpu_scan.py (its part 2, "functions containing fldcw") and
 detail_scan.py --rand.

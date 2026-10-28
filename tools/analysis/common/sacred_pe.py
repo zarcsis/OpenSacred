@@ -6,7 +6,7 @@ Purpose
     (pefile.get_memory_mapped_image), read as is;
   * ``Img``: methods u8/u16/u32/f32/f64/str_at/sec_of/disasm/note/dump/func_end.
 
-Usage from a script (``python3 -I`` does not add the script's directory to sys.path, so the path to
+Usage from a script (``uv run python -I`` does not add the script's directory to sys.path, so the path to
 ``common`` is set explicitly)::
 
     import os, sys

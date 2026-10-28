@@ -17,7 +17,7 @@ Purpose: the evidence for the threads, rounding, random numbers and VirtualProte
 of render ranges (dxDriver7::init, cWorldView).
 
 Example
-  python3 -I tools/analysis/pe/detail_scan.py OriginalGame/Sacred.exe --game-end 0x7F1000 \\
+  uv run python -I tools/analysis/pe/detail_scan.py OriginalGame/Sacred.exe --game-end 0x7F1000 \\
       --rand 0x849b40 --callers 0x84a1f4 --check 0x68eb05 0x6a0241 --vp --threads --beginthread 0x84bb9d \\
       --range 0x817b30:0x817fb0 --writers 0x182ee5c --strfunc "OBJECT_SET_POS/FLY_STOP"
 

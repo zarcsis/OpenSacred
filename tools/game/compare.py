@@ -13,8 +13,8 @@ original under `tools/original/host.py` (127.0.0.1:15703), each in a game. Nothi
 standard output, and it names creatures by their types and cells alone, so it may go into an issue (docs/08 §3).
 
 Example
-  python -I tools/game/compare.py --level 4 --time 12:00 3383,2520 3250,2604 3306,2519
-  python -I tools/game/compare.py --radius 25 --settle 6 --cells-file <scratch>/cells.txt
+  uv run python -I tools/game/compare.py --level 4 --time 12:00 3383,2520 3250,2604 3306,2519
+  uv run python -I tools/game/compare.py --radius 25 --settle 6 --cells-file <scratch>/cells.txt
 
 With `stats`, each type given is made at each level in both games beside their heroes (`spawn TYPE --level L
 --peaceful --immortal`) and their `stats` compared: the most health, `A`, `D`, each kind's least and most damage, the
@@ -23,8 +23,8 @@ exactly, taken through them as its attack record does (docs/re/fight.md): `A` an
 the two floats exact as the x87 unit's 53 bits give it, truncated when not 1; each damage times the items' multiplier
 plus the attributes'; each resistance times its own. The creatures stay where they are made.
 
-  python -I tools/game/compare.py stats --types 76,307,516 --levels 1,10,40
-  python -I tools/game/compare.py stats --types-file <scratch>/types.txt --levels 5,25
+  uv run python -I tools/game/compare.py stats --types 76,307,516 --levels 1,10,40
+  uv run python -I tools/game/compare.py stats --types-file <scratch>/types.txt --levels 5,25
 
 Expected output: a block per cell, `= 3383,2520: 11 in the game, 11 in the original, 9 paired`, then a line per
 difference (`level 4 / 1  type 297 at 3378,2517 / 3378,2517`, the game's value first) and per creature without a

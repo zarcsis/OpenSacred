@@ -9,8 +9,8 @@ int8 heightfield (step 5, 78.4% flat cells), the cell layout is 32 B. keyx recor
 +0x20 (idx, ordinal), +0xEC (offset, csize), +0x108 (usize); sector data is zlib; cells from +0x120, 64×64×32 B.
 
 Example
-  python3 -I tools/analysis/world/sector_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom          # all 6050 sectors (~2–4 min)
-  python3 -I tools/analysis/world/sector_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom --max-sectors 300
+  uv run python -I tools/analysis/world/sector_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom          # all 6050 sectors (~2–4 min)
+  uv run python -I tools/analysis/world/sector_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom --max-sectors 300
 
 Reads World/sectors.keyx (4.6 MB) and World/sectors.wldx (64 MB). Output: <out>/sector_stats.txt,
 <out>/sector<N>_height.png, sector<N>_light.png. Dependencies: numpy, pillow (PNG optional).
