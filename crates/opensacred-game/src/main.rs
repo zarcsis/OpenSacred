@@ -62,6 +62,7 @@ mod paths;
 mod pause;
 mod pick;
 mod pickup;
+mod puffs;
 mod remarks;
 mod remote;
 mod rewards;
@@ -337,13 +338,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        puffs::PuffsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
-        scripts::ScriptsPlugin,
     ))
     .add_plugins((
+        scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
@@ -358,9 +360,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
-        undead::UndeadPlugin,
     ))
-    .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
+    .add_plugins((
+        undead::UndeadPlugin,
+        voices::VoicesPlugin,
+        weather::WeatherPlugin,
+    ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)

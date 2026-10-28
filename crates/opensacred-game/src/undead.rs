@@ -10,10 +10,12 @@
 //! undead goblins burn away a moment later, `DIEFLAMES` at them, the skeleton warriors, the
 //! zombies 33 and 34 and the ghouls 36 and 50 burst at once with `CHAR_SPLASH`, and the others
 //! vanish; the fire ghoul burns away once its clip has played (`0x541653`'s cases). Their
-//! bodies are hidden. The effects 781 and 856, the burst's parts and the warriors' thrown parts
-//! are not drawn yet (#1261, #1262, #1264).
+//! bodies are hidden. A ring rises about an undead that stands again and a dust leaves a corpse
+//! that vanishes (781's variants 3 and 4, `puffs`, #1261); the effect 856, the burst's parts and
+//! the warriors' thrown parts are not drawn yet (#1262, #1264).
 
 use bevy::prelude::*;
+use opensacred_rules::particles;
 use opensacred_rules::undead::{self, End, LIES, RISEN};
 
 use crate::ai::Mind;
@@ -194,7 +196,7 @@ fn remake(
 /// Raises the undead `corpse` (`0x541E8D`, `0x541A0D`): the corpse goes and a creature of its
 /// type and level stands on its cell, hostile as it was, with its names, its dialogue, its trades
 /// and its death's functions, a half, a third or a quarter of its most health and the mark that
-/// its next death is its last.
+/// its next death is its last; a ring rises about it (781's variant 3, `puffs`, #1261).
 fn stand(world: &mut World, corpse: Entity, hostile: bool) {
     let (Some(dead), Some(level)) = (
         world.get::<Corpse>(corpse).copied(),
@@ -218,6 +220,9 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
                 "undead: {corpse}, a {}, rises as {entity} at {}/{}",
                 dead.creature, health.current, health.most
             );
+        }
+        if let Some(at) = risen.get::<Transform>().map(|at| at.translation) {
+            crate::puffs::spawn_in(world, particles::rise_ring(), at, Some(entity));
         }
     }
 }
@@ -259,14 +264,20 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
 /// What becomes of each creature of the class 5 that lies at its last death (`0x541653`'s cases,
 /// #1260): an undead that rises burns away a moment later ([`burn`]), a skeleton warrior, a
 /// zombie or a ghoul bursts at once, with `CHAR_SPLASH` at it (`0x4E8DA0`), and any other
-/// vanishes at once; the fire ghoul burns away once its clip has played ([`burn_after_clip`]).
-/// One that rises lies on.
+/// vanishes at once in a dust that leaves its bones ([`bones`], 781's variant 4, `puffs`,
+/// #1261); the fire ghoul burns away once its clip has played ([`burn_after_clip`]). One that
+/// rises lies on.
 fn last(
     mut commands: Commands,
-    lying: Query<(Entity, &Corpse, &Dies), Added<Corpse>>,
-    mut sounds: MessageWriter<Play>,
+    lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform), Added<Corpse>>,
+    (children, names, places): (
+        Query<&Children>,
+        Query<&Name>,
+        Query<&GlobalTransform>,
+    ),
+    (mut sounds, mut dice): (MessageWriter<Play>, ResMut<Dice>),
 ) {
-    for (entity, corpse, dies) in &lying {
+    for (entity, corpse, dies, at) in &lying {
         if dies.rises {
             continue;
         }
@@ -292,9 +303,42 @@ fn last(
             }
             End::Vanishes => {
                 debug!("undead: {entity}, a {}, vanishes", corpse.creature);
+                let origin = at.translation();
+                let points = bones(entity, origin, (&children, &names, &places));
+                crate::puffs::spawn(
+                    &mut commands,
+                    particles::dust(&points, &mut dice.0),
+                    origin,
+                    None,
+                );
                 gone(&mut commands, entity);
             }
         }
+    }
+}
+
+/// The points that a corpse's dust leaves, in the frame of a burst at `origin` (`puffs::local`):
+/// its skeleton's bones (`Bip01 …`), where the original takes its model's skinned vertices
+/// (`0x44FC30`, docs/decisions/2026-10-28-undead-effects.md), else its root.
+fn bones(
+    corpse: Entity,
+    origin: Vec3,
+    (children, names, places): (&Query<&Children>, &Query<&Name>, &Query<&GlobalTransform>),
+) -> Vec<[f32; 3]> {
+    let points: Vec<[f32; 3]> = children
+        .iter_descendants(corpse)
+        .filter(|&bone| {
+            names
+                .get(bone)
+                .is_ok_and(|name| name.as_str().starts_with("Bip01"))
+        })
+        .filter_map(|bone| places.get(bone).ok())
+        .map(|at| crate::puffs::local(at.translation(), origin))
+        .collect();
+    if points.is_empty() {
+        vec![[0.0; 3]]
+    } else {
+        points
     }
 }
 
