@@ -336,7 +336,7 @@ Read 2026-10-25 (#911) by the static reading of `Sacred.exe`; **confirmed** by c
   7. With bit `0x1000` of the global `0x182EE3C`, `0x557D60` uses or equips the item at once (a mode not followed).
   8. **The category 14** goes into the entry's list of 256 types at `+0xD5C` (`0x5DB030`) and is destroyed, with the sound event `(9, 0x82)`; no type of the table is of the category 14.
   9. **Into the inventory's grid**: the item's size in cells (`0x428D60`) is looked for in the grid (`0x5DABA0`), column by column from the left, each from the top, at the first place where it fits; the item clears `+0x14` bit `0x100000`, the scripts hear of it (`0x471790` with the code 2), and it leaves the world for that place (`0x5D9F00`), with the sound event `(9, 0x80)`.
-  10. **Without room**: the sound event `(8, 3)` with the item's type (**hypothesis**: the inventory's being full, its sound or line), then `0x5592B0`.
+  10. **Without room**: the sound event `(8, 3)` with the item's type, the hero's `CANTCARRYMORE` line (docs/re/sound.md, "About items"; read 2026-10-28, #1324), then `0x5592B0`.
 - So in a game of one player the hero walks to the item and plays the clip even with the inventory full: the room is looked for only at the take.
 
 ### Without room (`0x5592B0`)

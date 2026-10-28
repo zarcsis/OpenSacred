@@ -430,6 +430,7 @@ pub(crate) struct Taking<'w, 's> {
     for_quest: MessageWriter<'w, TakenForQuest>,
     tables: Option<Res<'w, crate::drops::Tables>>,
     shown: Option<Res<'w, crate::inventory::Shown>>,
+    remarks: MessageWriter<'w, crate::remarks::Remark>,
 }
 
 impl Taking<'_, '_> {
@@ -481,12 +482,14 @@ impl Taking<'_, '_> {
             let onto_the_cursor = lying.dropped.kind != Kind::Gold
                 && self.shown.as_deref().is_some_and(|shown| shown.0)
                 && self.pack.hold(lying.dropped, size);
-            // Without room it stays where it lies (the jump of `0x5592B0` not followed).
+            // Without room it stays where it lies (the jump of `0x5592B0` not followed), the
+            // hero saying so (the event (8, 3), #1324).
             if !onto_the_cursor && !self.pack.take(lying.dropped, size) {
                 info!(
                     "pickup: no room in the backpack for {} of {size:?}",
                     lying.dropped.item
                 );
+                self.remarks.write(crate::remarks::Remark::CantCarry);
                 return;
             }
             if lying.dropped.kind == Kind::Gold {
