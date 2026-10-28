@@ -24,6 +24,7 @@ use bevy::render::render_resource::TextureFormat;
 use bevy::ui_render::prelude::MaterialNode;
 use opensacred_data::heroes::Worn;
 use opensacred_rules::drops::{Dropped, Kind};
+use opensacred_rules::sets as rule;
 
 use crate::backpack::{self, Matte};
 use crate::bar::{self, BarRoot};
@@ -66,13 +67,6 @@ pub struct Starting(pub [Option<Worn>; HALVES]);
 pub struct WeaponSets {
     pub halves: [[Option<Dropped>; HALVES]; SETS],
     pub selected: usize,
-}
-
-impl WeaponSets {
-    /// The types of the selected set's items, the left hand's and the right's.
-    pub fn hands(&self) -> [Option<u32>; HALVES] {
-        self.halves[self.selected].map(|half| half.map(|item| item.item))
-    }
 }
 
 /// The keys that choose the weapon sets 1 to 5 (`0x6E1BC0`).
@@ -154,7 +148,7 @@ fn show(
             MaterialNode(layers.add(Layer {
                 figures: target.clone(),
             })),
-            ZIndex(1),
+            ZIndex(bar::RING_Z + 1),
             Pickable::IGNORE,
         ))
         .id();
@@ -269,21 +263,40 @@ fn slot_at(at: Vec2, count: usize) -> Option<usize> {
     })
 }
 
-/// Chooses a weapon set by a left click on its slot with the cursor empty, or by its key while the
-/// console is closed (`0x6E1690`): one of the slots shown alone. The bar holds the player's
-/// control of the world back under the pointer (`frame::Control`), so the click is taken here.
+/// Chooses a weapon set by a left click on its slot, or by its key while the console is closed
+/// (`0x6E1690`): one of the slots shown alone. While the inventory shows, the click first puts
+/// the cursor's item into the set or takes one out of it ([`edit`]), the sound `(9, 3)` where
+/// one moved. The bar holds the player's control of the world back under the pointer
+/// (`frame::Control`), so the click is taken here.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn choose(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
-    (pointer, ui_scale, console): (
+    (pointer, ui_scale, console, inventory): (
         Res<crate::hud::Pointer>,
         Res<UiScale>,
         Option<Res<crate::console::Console>>,
+        Option<Res<crate::inventory::Shown>>,
     ),
     windows: Query<&Window>,
-    shown: Option<Res<bar::Shown>>,
-    pack: Option<Res<crate::pickup::Pack>>,
-    sets: Option<ResMut<WeaponSets>>,
+    (shown, pack, sets, tables): (
+        Option<Res<bar::Shown>>,
+        Option<ResMut<crate::pickup::Pack>>,
+        Option<ResMut<WeaponSets>>,
+        Option<Res<Tables>>,
+    ),
+    (hero, experience, rules): (
+        Option<Res<crate::hero::Hero>>,
+        Res<crate::fight::Experience>,
+        Res<crate::fight::Rules>,
+    ),
+    (mut sounds, mut refusals): (
+        MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::voices::NotMine>,
+    ),
 ) {
     let (Some(shown), Some(mut sets)) = (shown, sets) else {
         return;
@@ -292,17 +305,349 @@ fn choose(
         .just_pressed(MouseButton::Left)
         .then(|| crate::inventory::screen_point(&pointer, &ui_scale, &windows))
         .flatten()
-        .filter(|_| pack.as_ref().is_none_or(|pack| pack.held.is_none()))
-        .and_then(|at| slot_at(at, shown.0));
+        .and_then(|at| Some((slot_at(at, shown.0)?, at)));
+    let editing = inventory.is_some_and(|inventory| inventory.0);
+    if let (Some((set, at)), true, Some(mut pack), Some(tables), Some(hero)) =
+        (clicked, editing, pack, tables, hero)
+        && edit(
+            set,
+            at,
+            shown.0,
+            &mut sets,
+            &mut pack,
+            &tables,
+            (hero.creature, experience.0.level, &rules),
+            &mut refusals,
+        )
+    {
+        sounds.write(put_sound());
+    }
     let keyed = KEYS
         .iter()
         .position(|&key| keys.just_pressed(key))
         .filter(|_| console.is_none_or(|console| !console.is_open()));
-    if let Some(set) = clicked.or(keyed).filter(|&set| set < shown.0)
+    if let Some(set) = clicked
+        .map(|(set, _)| set)
+        .or(keyed)
+        .filter(|&set| set < shown.0)
         && set != sets.selected
     {
         sets.selected = set;
         info!("sets: the weapon set {} chosen", set + 1);
+    }
+}
+
+/// The categories that a weapon set takes (`items.pak +0x2E`, `0x6E09C0`): the weapons and the
+/// shields.
+const SHIELD: u8 = 13;
+/// The key of a piece put into a set, beside its halves' 0 and 1.
+const PUT: u32 = 2;
+
+/// An item as a piece of a set of the key `key`: a shield, or a weapon of its kind's hands and
+/// hold; none for any other.
+fn piece(tables: &Tables, key: u32, item: u32) -> Option<rule::Piece> {
+    match tables.category(item) {
+        WEAPON => Some(rule::Piece::weapon(key, tables.weapon_kind(item), item)),
+        SHIELD => Some(rule::Piece::shield(key)),
+        _ => None,
+    }
+}
+
+/// A set's halves as the rule's pieces, keyed by their halves.
+fn pieces(tables: &Tables, halves: &[Option<Dropped>; HALVES]) -> rule::Set {
+    [0, 1].map(|half| {
+        halves[half].and_then(|item| piece(tables, u32::try_from(half).unwrap_or(0), item.item))
+    })
+}
+
+/// The item of the piece `piece`: a half's of `halves` by its key, else `put`.
+fn item_of(
+    piece: rule::Piece,
+    halves: &[Option<Dropped>; HALVES],
+    put: Option<Dropped>,
+) -> Option<Dropped> {
+    match piece.key {
+        PUT => put,
+        key => halves[usize::try_from(key).unwrap_or(0).min(HALVES - 1)],
+    }
+}
+
+/// What a set made of its rule's pieces holds.
+fn halves_of(
+    set: rule::Set,
+    halves: &[Option<Dropped>; HALVES],
+    put: Option<Dropped>,
+) -> [Option<Dropped>; HALVES] {
+    set.map(|piece| piece.and_then(|piece| item_of(piece, halves, put)))
+}
+
+/// The halves of a slot that a click on its point `at` tries, in order (`0x6E14C0`): the right
+/// hand's first on the slot's left half, as its model lies there, else the left hand's.
+fn halves_tried(corner: Vec2, at: Vec2) -> [usize; HALVES] {
+    if at.x < corner.x + SLOT / 2.0 {
+        [1, 0]
+    } else {
+        [0, 1]
+    }
+}
+
+/// How a put of an item into a set was refused, by the hero's line (`0x6E14C0`, the message 5):
+/// `NOTMYITEMLVL` where only the level or the attributes refuse it, else `NOTMYITEM`; or none
+/// where the hero may use it.
+fn refused(
+    tables: &Tables,
+    dropped: &Dropped,
+    hero: u32,
+    level: u32,
+    rules: &crate::fight::Rules,
+) -> Option<bool> {
+    let asks = tables.asks(dropped, rules);
+    opensacred_rules::equipment::refusal(hero, level, &asks)
+        .map(|why| why == opensacred_rules::equipment::Refusal::Level)
+}
+
+/// A left click on a set's slot while the inventory shows (its edit mode, `0x6E14C0`, seen): the
+/// cursor empty, the item of the half under the click, else of the other, onto the cursor, the
+/// left hand's weapon moving into the right hand where the right's goes (`0x6E0E30`); an item
+/// held, put into the half under the click, else the other, by the rule (`0x6E09C0`), the item it
+/// replaced onto the cursor, or refused by the hero's line. Either way the set is chosen with the
+/// sound `(9, 3)`. Whether anything moved.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the click's set and place, the sets, the pack and what the rule and the use's test ask"
+)]
+fn edit(
+    set: usize,
+    at: Vec2,
+    count: usize,
+    sets: &mut WeaponSets,
+    pack: &mut crate::pickup::Pack,
+    tables: &Tables,
+    (hero, level, rules): (u32, u32, &crate::fight::Rules),
+    refusals: &mut MessageWriter<crate::voices::NotMine>,
+) -> bool {
+    let tried = halves_tried(bar::weapon_slot(set, count), at);
+    let halves = sets.halves[set];
+    let Some(held) = pack.held else {
+        let Some(half) = tried.into_iter().find(|&half| halves[half].is_some()) else {
+            return false;
+        };
+        let (left, taken) = rule::take(pieces(tables, &halves), half);
+        let Some(taken) = taken.and_then(|piece| item_of(piece, &halves, None)) else {
+            return false;
+        };
+        sets.halves[set] = halves_of(left, &halves, None);
+        pack.hold(taken, tables.size(taken.item));
+        info!("sets: {} taken out of the set {}", taken.item, set + 1);
+        return true;
+    };
+    if let Some(level_only) = refused(tables, &held.dropped, hero, level, rules) {
+        refusals.write(crate::voices::NotMine { level: level_only });
+        return false;
+    }
+    let made = piece(tables, PUT, held.dropped.item)
+        .and_then(|piece| rule::drop(pieces(tables, &halves), tried[0], piece, false));
+    let Some((_, (made, replaced))) = made else {
+        refusals.write(crate::voices::NotMine { level: false });
+        return false;
+    };
+    sets.halves[set] = halves_of(made, &halves, Some(held.dropped));
+    pack.held = None;
+    if let Some(replaced) = replaced.and_then(|piece| item_of(piece, &halves, None)) {
+        pack.hold(replaced, tables.size(replaced.item));
+    }
+    info!("sets: {} put into the set {}", held.dropped.item, set + 1);
+    true
+}
+
+/// The right button on a weapon or a shield of the grid while the inventory shows, the cursor
+/// empty (`0x6C0150`, the taskbar's message 5, `0x6E0E30`): into the selected set, its left half
+/// tried first, the item it replaced back into the grid at its first fit, with the sound `(9, 3)`;
+/// else the hero's line, `CANTCARRYMORE` where it may use the item (`(8, 3)`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
+fn send(
+    shown: Res<crate::inventory::Shown>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale): (Res<crate::hud::Pointer>, Res<UiScale>),
+    windows: Query<&Window>,
+    (pack, sets, tables): (
+        Option<ResMut<crate::pickup::Pack>>,
+        Option<ResMut<WeaponSets>>,
+        Option<Res<Tables>>,
+    ),
+    (hero, experience, rules): (
+        Option<Res<crate::hero::Hero>>,
+        Res<crate::fight::Experience>,
+        Res<crate::fight::Rules>,
+    ),
+    (mut sounds, mut refusals, mut remarks): (
+        MessageWriter<crate::sfx::Play>,
+        MessageWriter<crate::voices::NotMine>,
+        MessageWriter<crate::remarks::Remark>,
+    ),
+) {
+    let (true, true, Some(mut pack), Some(mut sets), Some(tables), Some(hero)) = (
+        shown.0,
+        buttons.just_pressed(MouseButton::Right),
+        pack,
+        sets,
+        tables,
+        hero,
+    ) else {
+        return;
+    };
+    let Some(cell) =
+        backpack::on_grid(&pointer, &ui_scale, &windows).and_then(backpack::cell_under)
+    else {
+        return;
+    };
+    let Some(placed) = pack.grid.at(cell).copied() else {
+        return;
+    };
+    let Some(dropped) = pack
+        .items
+        .iter()
+        .find(|(key, _)| *key == placed.key)
+        .map(|&(_, dropped)| dropped)
+    else {
+        return;
+    };
+    if pack.held.is_some() || !matches!(tables.category(dropped.item), WEAPON | SHIELD) {
+        return;
+    }
+    if let Some(level_only) = refused(&tables, &dropped, hero.creature, experience.0.level, &rules)
+    {
+        refusals.write(crate::voices::NotMine { level: level_only });
+        return;
+    }
+    let set = sets.selected;
+    let halves = sets.halves[set];
+    let made = piece(&tables, PUT, dropped.item)
+        .and_then(|piece| rule::drop(pieces(&tables, &halves), 0, piece, false));
+    let Some((_, (made, replaced))) = made else {
+        remarks.write(crate::remarks::Remark::CantCarry);
+        return;
+    };
+    let replaced = replaced.and_then(|piece| item_of(piece, &halves, None));
+    pack.use_up(placed.key);
+    if let Some(replaced) = replaced
+        && !pack.take(replaced, tables.size(replaced.item))
+    {
+        // No room for the item it replaced: nothing moves.
+        pack.put(dropped, placed.at, placed.size);
+        return;
+    }
+    sets.halves[set] = halves_of(made, &halves, Some(dropped));
+    sounds.write(put_sound());
+    info!("sets: {} sent into the set {}", dropped.item, set + 1);
+}
+
+/// The halves' glow while the cursor holds an item that a half takes (`0x6E29E0`, docs/re/
+/// interface.md, "The bar"): the selected set's left and right halves the images 531 and 532,
+/// another set's 549 and 550; the slot's left half the right hand's.
+const GLOWS: [[u32; HALVES]; 2] = [[531, 532], [549, 550]];
+
+/// A half's glow over the bar.
+#[derive(Component)]
+struct Glow;
+
+/// Lays the halves' glow over the shown slots while the inventory shows and the cursor holds an
+/// item that a half takes by the rule (`0x6E09C0`'s test), the hero able to use it: the slot's
+/// left half where the right hand takes it, its right half where the left hand does.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
+fn glow(
+    mut commands: Commands,
+    inventory: Option<Res<crate::inventory::Shown>>,
+    (pack, sets, shown, tables): (
+        Option<Res<crate::pickup::Pack>>,
+        Option<Res<WeaponSets>>,
+        Option<Res<bar::Shown>>,
+        Option<Res<Tables>>,
+    ),
+    (hero, experience, rules): (
+        Option<Res<crate::hero::Hero>>,
+        Res<crate::fight::Experience>,
+        Res<crate::fight::Rules>,
+    ),
+    (images, assets): (Res<bar::UiImages>, Res<AssetServer>),
+    bars: Query<Entity, With<BarRoot>>,
+    glows: Query<Entity, With<Glow>>,
+    mut last: Local<Option<(Option<u32>, usize, usize, bool)>>,
+) {
+    let (Some(pack), Some(sets), Some(shown), Some(tables), Some(hero), Ok(bar)) =
+        (pack, sets, shown, tables, hero, bars.single())
+    else {
+        return;
+    };
+    let editing = inventory.is_some_and(|inventory| inventory.0);
+    let held = pack.held.filter(|_| editing);
+    let now = (
+        held.map(|held| held.key),
+        sets.selected,
+        shown.0,
+        sets.is_changed(),
+    );
+    if *last == Some(now) && !sets.is_changed() {
+        return;
+    }
+    *last = Some((now.0, now.1, now.2, false));
+    for glow in &glows {
+        commands.entity(glow).despawn();
+    }
+    let Some(held) = held else {
+        return;
+    };
+    let level = experience.0.level;
+    if refused(&tables, &held.dropped, hero.creature, level, &rules).is_some() {
+        return;
+    }
+    let Some(piece) = piece(&tables, PUT, held.dropped.item) else {
+        return;
+    };
+    for (set, halves) in sets.halves.iter().enumerate().take(shown.0) {
+        let corner = bar::weapon_slot(set, shown.0);
+        let images_of = GLOWS[usize::from(set != sets.selected)];
+        for half in 0..HALVES {
+            if rule::put(pieces(&tables, halves), half, piece, false).is_none() {
+                continue;
+            }
+            // The right hand's on the slot's left half.
+            let (image, left) = if half == 1 {
+                (images_of[0], 0.0)
+            } else {
+                (images_of[1], SLOT / 2.0)
+            };
+            let at = corner + Vec2::new(left, 0.0);
+            let (node_image, node) = bar::piece(&images, &assets, image, at, bar::BAR.min);
+            let child = commands
+                .spawn((
+                    Glow,
+                    node_image,
+                    node,
+                    ZIndex(bar::RING_Z - 1),
+                    Pickable::IGNORE,
+                ))
+                .id();
+            commands.entity(bar).add_child(child);
+        }
+    }
+}
+
+/// The sound `(9, 3)` of an item put into a set or taken out, in the middle: `UI_INV_PUTMETAL01`
+/// at its rate of a metal item put down (`held::put_sound`).
+fn put_sound() -> crate::sfx::Play {
+    let (id, rate) = crate::held::put_sound(WEAPON);
+    crate::sfx::Play {
+        sound: crate::sfx::Of::Id(id),
+        at: None,
+        rate,
     }
 }
 
@@ -314,13 +659,17 @@ fn arm(
     npcs: Option<Res<crate::npcs::Npcs>>,
     mut rearms: MessageWriter<crate::arsenal::Rearm>,
     mut bodies: Query<&mut crate::hero::Body>,
-    mut held: Local<Option<([Option<u32>; HALVES], u8)>>,
+    mut held: Local<Option<([Option<Dropped>; HALVES], u8)>>,
 ) {
     let (Some(sets), Some(maker), Some(npcs)) = (sets, maker, npcs) else {
         return;
     };
-    let hands = sets.hands();
-    let items: Vec<u32> = hands.iter().flatten().copied().collect();
+    let hands = sets.halves[sets.selected];
+    let items: Vec<(u32, Option<fight::ItemValues>)> = hands
+        .iter()
+        .flatten()
+        .map(|item| (item.item, item.values))
+        .collect();
     let Some((before, class)) = *held else {
         // The game's start: the hero holds its first set's items as its template does.
         let (class, _) = maker.arms(&npcs, &items);
@@ -331,7 +680,10 @@ fn arm(
         return;
     }
     let (now, arms) = maker.arms(&npcs, &items);
-    info!("sets: the hero's hands take {items:?}, of the class {now}");
+    info!(
+        "sets: the hero's hands take {:?}, of the class {now}",
+        items.iter().map(|&(item, _)| item).collect::<Vec<_>>()
+    );
     rearms.write(crate::arsenal::Rearm(arms));
     if now != class {
         for mut body in &mut bodies {
@@ -349,11 +701,13 @@ impl Plugin for SetsPlugin {
         app.add_systems(OnEnter(AppState::InGame), start)
             .add_systems(
                 Update,
-                (show, lay_out).chain().run_if(in_state(AppState::InGame)),
+                (show, lay_out, glow)
+                    .chain()
+                    .run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
-                choose
+                (choose, send)
                     .in_set(crate::frame::Unpaused)
                     .run_if(in_state(AppState::InGame)),
             )
@@ -369,6 +723,39 @@ impl Plugin for SetsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_on_a_slots_left_half_tries_the_right_hand_first() {
+        let corner = bar::weapon_slot(0, 1);
+        assert_eq!(halves_tried(corner, Vec2::new(340.0, 723.0)), [1, 0]);
+        assert_eq!(halves_tried(corner, Vec2::new(380.0, 723.0)), [0, 1]);
+    }
+
+    #[test]
+    fn a_rules_pieces_go_back_to_their_items() {
+        let item = |item| Dropped {
+            kind: Kind::Weapon,
+            item,
+            level: 1,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+        };
+        let halves = [None, Some(item(7901))];
+        let sword = rule::Piece::weapon(1, 1, 7901);
+        let dagger = rule::Piece::weapon(PUT, 5, 1712);
+        // The dagger put in the right hand, the sword it replaced given back.
+        let (made, replaced) = rule::put([None, Some(sword)], 1, dagger, false).unwrap();
+        assert_eq!(
+            halves_of(made, &halves, Some(item(1712))),
+            [None, Some(item(1712))]
+        );
+        assert_eq!(
+            replaced.and_then(|piece| item_of(piece, &halves, None)),
+            Some(item(7901))
+        );
+    }
 
     #[test]
     fn a_click_chooses_the_shown_slot_under_it() {

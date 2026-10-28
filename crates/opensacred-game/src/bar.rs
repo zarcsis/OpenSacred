@@ -89,6 +89,9 @@ const ORB: u32 = 635;
 const ART_SELECTED: u32 = 479;
 const RING_SELECTED: u32 = 103;
 const RING: u32 = 102;
+/// The rings' layer among the bar's pieces: over a weapon set's halves' glow (`sets`, at 1) and
+/// under its items' models (at 3), as `0x6E29E0` draws them in turn.
+pub(crate) const RING_Z: i32 = 2;
 /// The column's pieces: the health's ring, red and grey, the clasp's rows always grey, the
 /// portrait, the bonuses' "+", and the experience's frame and fill.
 const HEALTH_RED: u32 = 41;
@@ -434,7 +437,7 @@ fn rebuild(
         commands.entity(entity).despawn();
     }
     let dice = dice.get_or_insert_with(|| opensacred_rules::spawning::Rng::of(0, 0, 1087));
-    let mut add = |bundle: (ImageNode, Node), marker: Option<(bool, bool)>| {
+    let mut add = |bundle: (ImageNode, Node), marker: Option<(bool, bool)>, z: i32| {
         let mut entity = commands.spawn((SlotPiece, bundle));
         match marker {
             Some((true, _)) => {
@@ -445,6 +448,9 @@ fn rebuild(
             }
             _ => {}
         }
+        if z != 0 {
+            entity.insert(ZIndex(z));
+        }
         let child = entity.id();
         commands.entity(bar).add_child(child);
     };
@@ -454,42 +460,55 @@ fn rebuild(
     // The rail: the left end, its middle pieces to x 397; the right end, its middle pieces from
     // x 570 + 64n − 64 leftwards while x passes 532.
     let left_end = Vec2::new(362.0 - 66.0 * n, RAIL_LEFT.1);
-    add(image(RAIL_LEFT.0, left_end), None);
+    add(image(RAIL_LEFT.0, left_end), None, 0);
     let mut x = left_end.x + images.size(RAIL_LEFT.0).x;
     while x < 397.0 {
         let (index, y) = RAIL_LEFT_MIDDLE[usize::from(dice.below(2) == 1)];
-        add(image(index, Vec2::new(x, y)), None);
+        add(image(index, Vec2::new(x, y)), None, 0);
         x += images.size(index).x.max(1.0);
     }
     let mut x = 570.0 + 64.0 * n - 64.0;
     while x > 532.0 {
         let (index, y) = RAIL_RIGHT_MIDDLE[usize::from(dice.below(2) == 1)];
-        add(image(index, Vec2::new(x, y)), None);
+        add(image(index, Vec2::new(x, y)), None, 0);
         x -= images.size(index).x.max(1.0);
     }
     add(
         image(RAIL_RIGHT.0, Vec2::new(570.0 + 64.0 * n, RAIL_RIGHT.1)),
         None,
+        0,
     );
     // The art slots at the right, the first holding the selected art (its icon set at each
     // frame), the others empty.
     for i in 0..count {
         let at = Vec2::new(640.0 + 66.0 * f32::from(i), SLOT_Y);
         if i == 0 {
-            add(image(ART_SELECTED, at), Some((true, false)));
-            add(image(ART_SELECTED, at), Some((false, true)));
+            add(image(ART_SELECTED, at), Some((true, false)), 0);
+            add(image(ART_SELECTED, at), Some((false, true)), 0);
         } else {
-            add(image(ORB, at), None);
+            add(image(ORB, at), None, 0);
         }
-        add(image(if i == 0 { RING_SELECTED } else { RING }, at), None);
+        add(
+            image(if i == 0 { RING_SELECTED } else { RING }, at),
+            None,
+            RING_Z,
+        );
     }
     // The weapon sets at the left, the selected one's orb and ring (`0x6E1690`).
     for i in 0..count {
         let set = usize::try_from(i).unwrap_or(0);
         let at = weapon_slot(set, usize::from(count.unsigned_abs()));
         let chosen = set == selected;
-        add(image(if chosen { WEAPON_SELECTED } else { ORB }, at), None);
-        add(image(if chosen { RING_SELECTED } else { RING }, at), None);
+        add(
+            image(if chosen { WEAPON_SELECTED } else { ORB }, at),
+            None,
+            0,
+        );
+        add(
+            image(if chosen { RING_SELECTED } else { RING }, at),
+            None,
+            RING_Z,
+        );
     }
 }
 
