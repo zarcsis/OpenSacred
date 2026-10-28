@@ -2,7 +2,8 @@
 //! netscript.md, "Dialogues"): the function `0x4345C0`, which gives each creature type the index
 //! of its image of the interface, a switch over two jump tables whose cases each load a constant
 //! (`mov eax, imm32; ret 4`), its default too; and the interface's images' table at `0x9ECEB0`,
-//! entries of 0x54 bytes: the index, the TGA's name and the image's rectangle in it. Fixed virtual
+//! entries of 0x54 bytes: the index, its kind, the TGA's name, the image's rectangle in it and its
+//! two anchors (docs/re/interface.md, "The images' table at run time"). Fixed virtual
 //! addresses of the GOG 2.28 build, which the caller checks against the manifest.
 
 use crate::error::{Result, field};
@@ -21,17 +22,23 @@ pub const DEFAULT_CASE: u32 = 0x0043_525A;
 /// The interface's images' table and the size of an entry.
 pub const IMAGES_ADDRESS: u32 = 0x009E_CEB0;
 const IMAGE_SIZE: u32 = 0x54;
-/// Where an entry keeps its file's name and its rectangle, and how long the name may be.
+/// Where an entry keeps its kind, its file's name, its rectangle and its anchors.
+const KIND_AT: usize = 4;
 const NAME_AT: usize = 8;
 const RECT_AT: usize = 0x2C;
+const ANCHORS_AT: usize = 0x3C;
 
-/// An image of the interface: its index, its TGA's name, and its rectangle in it, `x0`, `y0`,
-/// `x1`, `y1`, the last pixels included.
-#[derive(Debug, Clone, PartialEq)]
+/// An image of the interface: its index, its TGA's name, its rectangle in it, `x0`, `y0`, `x1`,
+/// `y1`, the last pixels included, its kind (`+0x04`, 9 for the buttons and icons, which take
+/// their anchors at their centre), and its two anchor points `ax0`, `ay0`, `ax1`, `ay1` in the
+/// atlas's pixels, 0 for none (`+0x3C` to `+0x48`).
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct InterfaceImage {
     pub index: u32,
     pub file: String,
     pub rect: [f32; 4],
+    pub kind: u32,
+    pub anchors: [i32; 4],
 }
 
 /// The portraits' images by the function `0x4345C0`: the default's index, and each type's with a
@@ -137,7 +144,16 @@ fn entry(image: &Image<'_>, index: u32) -> Result<Option<InterfaceImage>> {
         let at = RECT_AT + 4 * k;
         *value = f32::from_le_bytes(entry[at..at + 4].try_into().unwrap_or_default());
     }
-    Ok(Some(InterfaceImage { index, file, rect }))
+    let word = |at: usize| entry[at..at + 4].try_into().unwrap_or_default();
+    let kind = u32::from_le_bytes(word(KIND_AT));
+    let anchors = std::array::from_fn(|k| i32::from_le_bytes(word(ANCHORS_AT + 4 * k)));
+    Ok(Some(InterfaceImage {
+        index,
+        file,
+        rect,
+        kind,
+        anchors,
+    }))
 }
 
 #[cfg(test)]
@@ -207,6 +223,10 @@ mod tests {
         for (k, v) in [96.0_f32, 0.0, 191.0, 127.0].into_iter().enumerate() {
             entry[RECT_AT + 4 * k..RECT_AT + 4 * k + 4].copy_from_slice(&v.to_le_bytes());
         }
+        entry[KIND_AT..KIND_AT + 4].copy_from_slice(&9_u32.to_le_bytes());
+        for (k, v) in [102_i32, 65, 0, 0].into_iter().enumerate() {
+            entry[ANCHORS_AT + 4 * k..ANCHORS_AT + 4 * k + 4].copy_from_slice(&v.to_le_bytes());
+        }
         let exe = image(IMAGES_ADDRESS, &table);
         let images = interface_images(&exe, [2]).unwrap();
         assert_eq!(
@@ -215,6 +235,8 @@ mod tests {
                 index: 2,
                 file: "GUI_portraitX34.TGA".into(),
                 rect: [96.0, 0.0, 191.0, 127.0],
+                kind: 9,
+                anchors: [102, 65, 0, 0],
             }]
         );
         assert!(interface_images(&exe, [1]).is_err());

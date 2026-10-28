@@ -345,7 +345,35 @@ fn ui_image(image: &opensacred_formats::portraits::InterfaceImage) -> UiImage {
         texture,
         rect: [left, top, width, height],
         turned: [across, along],
+        anchors: anchors(image, [x0, y0], [width, height]),
     }
+}
+
+/// The kind of the images that take both anchors at their centre: the buttons and the icons.
+const CENTRED: u32 = 9;
+
+/// The anchors of `image` relative to its part's top left `origin`, its part of the size `size`:
+/// each not 0 less the left or the top, both at the centre for the kind [`CENTRED`] (`0x761580`;
+/// docs/re/interface.md, "The images' table at run time").
+fn anchors(
+    image: &opensacred_formats::portraits::InterfaceImage,
+    origin: [u16; 2],
+    size: [u16; 2],
+) -> [i16; 4] {
+    let narrow =
+        |v: i64| i16::try_from(v.clamp(i64::from(i16::MIN), i64::from(i16::MAX))).unwrap_or(0);
+    if image.kind == CENTRED {
+        let [w, h] = size.map(|v| narrow(i64::from(v / 2)));
+        return [w, h, w, h];
+    }
+    std::array::from_fn(|k| {
+        let value = image.anchors[k];
+        if value == 0 {
+            0
+        } else {
+            narrow(i64::from(value) - i64::from(origin[k % 2]))
+        }
+    })
 }
 
 /// The creatures' portraits of `Sacred.exe` (#1032): each type's image of the interface by the
@@ -635,6 +663,7 @@ mod tests {
                 index: 0,
                 file: "GUI_main_12.TGA".into(),
                 rect,
+                ..Default::default()
             })
         };
         let corner = image([188.0, 178.0, 148.0, 221.0]);
@@ -644,6 +673,7 @@ mod tests {
                 texture: "gui_main_12".into(),
                 rect: [150, 178, 39, 44],
                 turned: [true, false],
+                anchors: [0; 4],
             }
         );
         let edge = image([190.0, 209.0, 221.0, 178.0]);
@@ -661,6 +691,35 @@ mod tests {
         assert_eq!(old.turned, [false, false]);
         let text = ron::to_string(&corner).unwrap();
         assert_eq!(ron::from_str::<UiImage>(&text).unwrap(), corner);
+    }
+
+    /// An image's anchors are made relative to its part's top left, each not 0, and a button's or
+    /// an icon's stand at its centre; none are left out of the file (#1267).
+    #[test]
+    fn an_images_anchors_stand_from_its_top_left() {
+        // The inventory's top edge's first piece, its anchor 102, 65 in `GUI_main_03`.
+        let edge = ui_image(&opensacred_formats::portraits::InterfaceImage {
+            index: 5,
+            file: "GUI_main_03.TGA".into(),
+            rect: [0.0, 56.0, 102.0, 75.0],
+            kind: 0,
+            anchors: [102, 65, 0, 0],
+        });
+        assert_eq!(edge.anchors, [102, 9, 0, 0]);
+        let button = ui_image(&opensacred_formats::portraits::InterfaceImage {
+            index: 73,
+            file: "GUI_main_02.TGA".into(),
+            rect: [222.0, 124.0, 255.0, 157.0],
+            kind: 9,
+            anchors: [0; 4],
+        });
+        assert_eq!(button.anchors, [17, 17, 17, 17]);
+        let plain = ui_image(&opensacred_formats::portraits::InterfaceImage {
+            rect: [0.0, 0.0, 9.0, 9.0],
+            ..Default::default()
+        });
+        assert!(!ron::to_string(&plain).unwrap().contains("anchors"));
+        assert!(ron::to_string(&edge).unwrap().contains("anchors"));
     }
 
     /// Every table converts and reads back.
@@ -715,13 +774,15 @@ mod tests {
         assert_eq!(ui_images.len(), 1_824);
         assert_eq!(ui_images[0].rect, [0, 0, 0, 0]);
         assert_eq!(
-            ui_images[1],
-            UiImage {
-                texture: "gui_main_03".into(),
-                rect: [0, 0, 64, 19],
-                turned: [false, false],
-            }
+            (
+                ui_images[1].texture.as_str(),
+                ui_images[1].rect,
+                ui_images[1].turned
+            ),
+            ("gui_main_03", [0, 0, 64, 19], [false, false])
         );
+        // The inventory's top edge's first piece stands 9 pixels over its line (#1267).
+        assert_eq!(ui_images[5].anchors, [102, 9, 0, 0]);
         assert_eq!(
             (ui_images[964].texture.as_str(), ui_images[964].rect),
             ("gui_portraitx34", [96, 0, 96, 128])
@@ -741,6 +802,8 @@ mod tests {
                 texture: "gui_main_12".into(),
                 rect: [150, 178, 39, 44],
                 turned: [true, false],
+                // A button's or an icon's, at its centre.
+                anchors: [19, 22, 19, 22],
             }
         );
         // The figures in the screen's order, the Gladiator's first: a two-handed sword and his

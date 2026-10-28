@@ -45,6 +45,7 @@ mod hero;
 mod hud;
 mod hurled;
 mod icons;
+mod inventory;
 mod iso;
 mod journal;
 mod lines;
@@ -322,11 +323,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
+        inventory::InventoryPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
-        liquids::LiquidsPlugin,
     ))
     .add_plugins((
+        liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
@@ -341,9 +343,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
-        scripts::ScriptsPlugin,
     ))
     .add_plugins((
+        scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
@@ -358,9 +360,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,
-        undead::UndeadPlugin,
     ))
-    .add_plugins((voices::VoicesPlugin, weather::WeatherPlugin))
+    .add_plugins((
+        undead::UndeadPlugin,
+        voices::VoicesPlugin,
+        weather::WeatherPlugin,
+    ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)
     .insert_resource(settings_file)
