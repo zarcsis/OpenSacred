@@ -553,3 +553,14 @@ impl Plugin for EquipmentPlugin {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_hero_shows_the_worn_slots_and_the_amulets_but_not_the_rings() {
+        assert!((0..=7).all(shows) && (14..=17).all(shows));
+        assert!(!(8..=13).any(shows) && !shows(18));
+    }
+}
