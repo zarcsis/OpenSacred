@@ -916,6 +916,23 @@ impl Npc {
         self.pace
     }
 
+    /// Whether its dying clip `choice`, as [`die`] plays it, has played to its end: at once for
+    /// a model of none, never before its clips are made.
+    pub(crate) fn died(&self, choice: u32, players: &Query<&AnimationPlayer>) -> bool {
+        let (Some(graph), Some(player)) = (&self.graph, self.player) else {
+            return false;
+        };
+        let Some(&node) = graph
+            .dying
+            .get(usize::try_from(choice).unwrap_or(0) % graph.dying.len().max(1))
+        else {
+            return true;
+        };
+        players
+            .get(player)
+            .is_ok_and(|player| player.animation(node).is_some_and(|clip| clip.is_finished()))
+    }
+
     /// The clip that its walk `walk` plays now, its animation player, its node and its name, and
     /// whether it runs (`steps`).
     pub(crate) fn walking(&self, walk: &Walk) -> Option<(Entity, AnimationNodeIndex, &str, bool)> {
@@ -6439,8 +6456,9 @@ pub(crate) fn die(
         commands
             .entity(entity)
             .remove::<(Walk, Strikes, Talks, Plays, crowd::InTheWay, ai::Mind)>();
-        // An undead at its last death plays no dying clip: it burns away (`0x53F31D`, #1199).
-        if mind.is_some_and(|mind| opensacred_rules::undead::rises(mind.creature)) && !dies.rises {
+        // A creature of the class 5 at its last death plays no dying clip: it burns away,
+        // bursts or vanishes (`0x53F31D`, #1199, #1260).
+        if mind.is_some_and(|mind| mind.class == opensacred_rules::undead::CLASS) && !dies.rises {
             dies.played = true;
             continue;
         }

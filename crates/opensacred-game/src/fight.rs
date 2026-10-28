@@ -398,7 +398,8 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
 /// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned. A creature
 /// killed by another (`by_creature`, #630) drops nothing, and its killer earns its experience
 /// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises`
-/// gives nothing (`undead`, #1199).
+/// gives nothing (`undead`, #1199), and a skeleton warrior that rises falls as the body of the
+/// type it changes into (`undead::change`, #1260).
 fn fell(
     commands: &mut Commands,
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
@@ -418,7 +419,13 @@ fn fell(
         return earn(experience, rules, target, health, worth);
     };
     info!("fight: {target} falls and will rise");
-    commands.entity(target).insert(rises);
+    if rises.changes_into().is_some() {
+        commands.queue(move |world: &mut World| {
+            crate::undead::change(world, target, rises, (choice, by_creature));
+        });
+    } else {
+        commands.entity(target).insert(rises);
+    }
     0
 }
 

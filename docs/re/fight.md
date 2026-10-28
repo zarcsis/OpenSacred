@@ -401,7 +401,7 @@ Open: the constants of nine chances of the sets in the strike's resolution (`0x5
 ## The undead that rise again
 
 Read 2026-10-27 for #1199 (**confirmed** by code unless marked otherwise) and seen the same day in the running original (the driver of #448, a Seraphim's new game on bronze, creatures of level 5 made and killed by its commands).
-The magic skeletons (48, 80, 81) and the undead goblins (142, 143), all of `Creature.pak`'s class 5 (`0x426A80`), rise once from a strike's death; the other types of class 5 change their type or never rise (not followed).
+The magic skeletons (48, 80, 81) and the undead goblins (142, 143), all of `Creature.pak`'s class 5 (`0x426A80`), rise once from a strike's death; the skeleton warriors change their type as they rise, and the other types of class 5 never rise ("The other deaths of class 5" below).
 - **The roll.** At a strike's death (the creature's events' handler `0x52E590`, its damage's path, at `0x532BD6`), a creature of class 5 has a chance `c` of 90 to rise, or 45 where the strike record's `+0x14` is not 0 (**hypothesis**: an art's, a shot's or a throw's hit).
   `c` is halved where a roll of `R(0, d)` falls below the record's second fixed damage (`+0x0E`; `d` not read) and where the dead's `+0x2B7` has bit `0x80`, is 0 where the killer's `+0xB0` has bit `0x80000` (the effect 33 of the whole value 4, docs/re/arts.md), and for the local player's killer falls by 30 % of the difficulty's factor where its counts `+0x4F8[1]` and `+0x4F8[0x12]` pass 5 and 7 (**hypothesis**: set pieces worn).
   In a network game the most health becomes 0 at once and no undead rises.
@@ -415,6 +415,38 @@ The magic skeletons (48, 80, 81) and the undead goblins (142, 143), all of `Crea
   **Seen**: the undead rose 4.06 to 4.11 s after the kill with a quarter, a half or a third of their most health (34, 69 and 46 of 139) and fought at once.
 - **Burning away.** Where its most health is 0 the case burns it instead, unless its flags word has bit `0x2000` (`CreateNPC`'s tag `0x45`, a corpse that is kept): an object 856 (`TYPE_FX_GENERIC`) at it, red for the goblins and of the variant 8 for the skeletons, and `DIEFLAMES` (7029); then, unless a script holds it or it has a dialogue, it leaves its sector's lists and is hidden (**hypothesis** for `+0x14` bit `0x10000000`), and its corpse goes 7, 10 or 25 s after the death by an option (`0x553DC0`, not read).
   **Seen**: the last deaths burnt 0.23 to 0.33 s after the kill, their bodies gone.
+
+### The other deaths of class 5
+
+Read 2026-10-27 for #1202 in `Sacred.exe`, code only (a subagent's static reading; **confirmed** by code unless marked otherwise).
+
+- **The strike's switch** (`0x532E3C` in `0x52E590`, the types 32 to 143, any other its case 7), for a death of class 5 in a game of one player where the effect 863's test (`0x590570`) failed: a roll `R(0, 100) < c` (the chance above, `0x443B20` inclusive) changes the type, else the death is the last, its most health 0:
+
+  | Case | Types | The change | The last death |
+  |---|---|---|---|
+  | 0 `0x53305B` | 32 | 113 (throws the right arm) in one case of three, else 116 (the left arm) in one of three, else 112 (the head): 1/3, 2/9 and 4/9 | `0x4E8DA0(1, 2)` at once |
+  | 1 `0x532E8D` | 48, 80, 81 | the rise above and the drain | |
+  | 2 `0x53317B` | 112 | 114 or 117 at even odds | |
+  | 3, 5 | 113, 116 | 114, 117 (throws the head) | |
+  | 4 `0x53337B` | 114, 117 | 115 (an arm) | |
+  | 6 `0x532E5A` | 142, 143 | the rise above | |
+  | 7 `0x53338A` | every other type of class 5 | none | |
+
+- The change leaves and enters again its sector's lists, takes the new type (`+0x10`), loads its model again, throws the part (`0x550580`: the head an object 5100 at `Bip01 Neck`, an arm a bone of the type's gib set at its upper arm, 60 up, ±1,000 on x and y, 150 up, a spin of ±15) and puts its items back; its most health is not set to 0, so that the death's action plays the new model's dying clip and gives no reward until the last death.
+  Not read: the helpers `0x4E9900`, `0x44DBF0`, `0x44C320` and `0x44D520`, and a boss's rank and the new most health through a change.
+- **The lying sub-mode** (`0x541653`, the bytes `0x542A30`, the jumps `0x542A14`), `t` the time since the death:
+  case 0 (32, 112 to 117) rises with a half, a third or a quarter of its most health once `t` passes 4 s, with a 781 of the variant 3, or, at the last death, bursts (`0x4E8DA0(1, 1)`);
+  case 1 (33, 34) the same, never reached from a strike;
+  case 2 (36, 50) bursts at once;
+  case 3 (48, 80, 81) the rise above, or burns in an 856 of the variant 8 at its place;
+  case 4 (73, the fire ghoul, after its clip) burns in an 856 of the variant 7;
+  case 5 (142, 143) the rise above, or burns in an 856 of the variant 0 at `0xFFFF4040` that follows it;
+  case 6 (every other) vanishes in a 781 of the variant 4, hidden at once;
+  the cases 3 to 5 play `DIEFLAMES` at 0.5.
+  A hidden corpse is destroyed 25, 10 or 7 s after the death by `DETAILLEVEL` 2, 1 or 0 (`0x553DC0`).
+- **The burst** (`0x4E8DA0`): with `VIOLENCE` on and the type's gib set (`items.pak +0x6F`) not 4, five `FX_BODYPARTS` (800) of the parts 0 to 4 for `parts` above 1 and six of the part 5 for `parts` above 0, each of the set's colour, and a blood decal (779) where the set has one; always an `FX_CLOUD` (809), `CHAR_SPLASH` (3000) at 0.5, and the creature destroyed (or its AI state 9 where a dialogue or a script holds it).
+  The sets: 3 bones (the warriors), 1 green (33, 34, 36, 50, the zombies), 2 black (44), 0 red (the rest).
+- The effects 781 and 856 and the drain's beam: docs/re/effects.md (#1261, #1262, #1263); the burst's objects: #1264.
 
 ## Open
 
@@ -435,6 +467,8 @@ At 0 the NPC plays one of its dying clips (the slots 173 and 174; **hypothesis**
 No criticals or life leech follow (docs/decisions/2026-10-20-hits.md); the deaths' scripts do since #656 (docs/re/netscript.md, "The deaths' functions").
 The undead rise once since #1199 (`opensacred_rules::undead`, `undead`; "The undead that rise again"): a magic skeleton or an undead goblin, no boss nor champion and not risen yet, that falls to a strike or the `kill` command rises at 90 in 101 rolls, or 45 for an art's or a shot's hit; its death drops nothing, gives no experience, sends no soul and is no kill, its death's functions waiting for its last (**hypothesis**); a skeleton drains a lower killer; 4 s after it falls a creature of its type and level stands where it lay, hostile as it was, with its names, dialogue, trades and death's functions, a half, a third or a quarter of its health and the mark; at its last death it plays no dying clip and 0.25 s later sounds `DIEFLAMES` and is hidden.
 The halvings of the chance, the effect 863, the beam and the objects 781 and 856 are not followed.
+The other deaths of class 5 follow since #1260: a skeleton warrior that rises changes its type as it falls, the body of the new type playing its dying clip in its place (`undead::change`), and stands again 4 s later as the undead do, until its last death (115's, or any at a failed roll); at its last death a creature of class 5 plays no dying clip, and the warriors, the zombies 33 and 34 and the ghouls 36 and 50 burst at once with `CHAR_SPLASH`, the others vanish, their bodies hidden; the fire ghoul is hidden once its dying clip has played.
+Not followed: the thrown parts, the burst's objects and the effects; a boss's or a champion's warrior does not change (**hypothesis**), and the corpses are not destroyed by `DETAILLEVEL`.
 The hero attacks (#283, `attack`): a left click on a hostile creature alive, within 45 of the cursor's line of sight up to 110 over its feet, makes it the hero's target, and the press does not steer the hero while it is held; the hero runs at it until within the band `R + 45`, 175, then stops, turns to it and strikes with one of its model's attack clips for bare hands at random, at its attack speed, hitting at the first world tick past the clip's fractions when the target is within 1.5 times the reach, 195, with a share of 1; it strikes again while the button stays held or for a click during a strike (#705), until the target dies, and a release, or a click elsewhere, ends the attack with its strike.
 With Ctrl held it strikes once, at once, where it stands, at the creature or in the air.
 Its strikes keep their pace, at its attack speed alone, as the original's (#704).
