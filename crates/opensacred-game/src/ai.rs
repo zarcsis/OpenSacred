@@ -470,7 +470,13 @@ fn think(
         ),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    queued: Query<(), With<crate::npcs::ScriptQueue>>,
+    queued: Query<
+        (),
+        Or<(
+            With<crate::npcs::ScriptQueue>,
+            With<crate::npcs::ScriptClip>,
+        )>,
+    >,
 ) {
     let Some((hero, body, size, unseen)) = hero.iter().next() else {
         return;
@@ -1194,7 +1200,13 @@ fn behave(
     >,
     (followers, queued): (
         Query<(), With<crate::followers::Follower>>,
-        Query<(), With<crate::npcs::ScriptQueue>>,
+        Query<
+            (),
+            Or<(
+                With<crate::npcs::ScriptQueue>,
+                With<crate::npcs::ScriptClip>,
+            )>,
+        >,
     ),
 ) {
     let Some((the_hero, hero)) = hero.iter().next() else {
