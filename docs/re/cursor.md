@@ -120,4 +120,5 @@ The overlay and `state` tell the look (`cursor`).
 Beside the hand over an item, its name of the game's texts by its type shows 24 of the original's pixels right of the cursor and 16 down, in white, in the game's font at 14 (the original's font for it is not read; its full name with the item's modifiers comes with the items' names of the inventory, #1088).
 An item that a `CreateObj` of a `res:` name laid goes by that name's text instead, and by none where the texts lack it (`npcs::TextName`, #1360), as the Seraphim's quest 15001's plant does.
 
+The hand shows over a container that opens, not over one emptied (#1380, docs/re/containers.md).
 Not followed yet: the name's colour (the item's, #1273), the hand over the teleports and the scripts' spots, the glow of an art that may be made, the enemy's panel and the hover's highlight (#1087), the horses' looks (no horses are ridden yet) and the map's arrows (#1091).

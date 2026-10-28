@@ -130,4 +130,7 @@ To see in the running original: the same chest's contents after a reload and aft
 
 ## In `opensacred-game`
 
-Not followed yet: the opening is #1380, the contents #1381.
+Since #1380 the hero opens the containers (`containers`): a left click on one that is not emptied, nor a town stash, picks the container nearest the cursor's line of sight as the doors are picked, and the hero walks where the click sends it, beside the container's closed cell; once its walk ends, or at once within 100, standing within 300 of the container it opens it: the model's `*_ACTIVATE` clip, the type's sound (the profiles 605, 609, 610 and 611, the graves' 324 or 325 at even odds), its own trigger opened (`npcs::open_container_trigger`), its `Take:` function run (`scripts::run_function`), and the container emptied, kept by its placement (`npcs::Npcs::emptied`), so that its sector places it again emptied, its clip played to its end.
+The cursor shows the hand over a container that opens, none over one emptied (`cursors`).
+**Seen** in the game: the Seraphim's start's `chest_sera2` opened by a click 0.75 s after it, the hero beside it, its lid up, `fillchest_sera` run.
+Not followed yet: what `FillChest` puts in a container and its throw (#1381), the town stash's window, and the straight line of walkable cells that the opening wants.

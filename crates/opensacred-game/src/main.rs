@@ -25,6 +25,7 @@ mod butterflies;
 mod choice;
 mod command;
 mod console;
+mod containers;
 mod crowd;
 mod cursors;
 mod daemon;
@@ -311,14 +312,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         choice::ChoicePlugin,
         command::CommandPlugin,
         console::ConsolePlugin,
+        containers::ContainersPlugin,
         crowd::CrowdPlugin,
         cursors::CursorsPlugin,
         daemon::DaemonPlugin,
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
-        drops::DropsPlugin,
     ))
     .add_plugins((
+        drops::DropsPlugin,
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,
         fight::FightPlugin,
@@ -333,9 +335,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         held::HeldPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
-        hud::HudPlugin,
     ))
     .add_plugins((
+        hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
         inventory::InventoryPlugin,
@@ -350,9 +352,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
-        pause::PausePlugin,
     ))
     .add_plugins((
+        pause::PausePlugin,
         pickup::PickupPlugin,
         puffs::PuffsPlugin,
         remarks::RemarksPlugin,
@@ -367,9 +369,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
-        skies::SkiesPlugin,
     ))
     .add_plugins((
+        skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
         spells::SpellsPlugin,

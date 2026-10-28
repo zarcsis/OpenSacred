@@ -304,6 +304,9 @@ struct Placement {
     /// An object of an item's type that lies to be picked up as any lying item, not a quest's
     /// (`CreateObj` without [`QUEST_ITEM`], #1296).
     lies: bool,
+    /// A container's (an object of [`CHEST`]): its `Take:` function, its `CreateObj`'s
+    /// [`ON_TAKE`], which fills it as it opens (`containers`, #1380).
+    container: Option<Option<String>>,
 }
 
 impl Placement {
@@ -725,6 +728,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         quest: None,
         key: None,
         lies: false,
+        container: None,
     }
 }
 
@@ -756,6 +760,9 @@ pub struct Npcs {
     /// The placements of the quests' items that the hero took, which their sectors do not place
     /// again ([`QuestItem`], #1256).
     taken: HashSet<usize>,
+    /// The placements of the containers that the hero emptied, which their sectors place again
+    /// emptied ([`crate::containers::Container`], #1380).
+    pub(crate) emptied: HashSet<usize>,
     /// The dialogues' table by name, as the start's records fill it, its first entry twice
     /// (`0x476A05`), which the play's `SetGroupState`s look their dialogues up in (#1021), and
     /// each entry's icon, as the scripts' `SetIcon`s leave it (#1039).
@@ -2702,7 +2709,7 @@ impl Makers {
             blocks: record.kind == CREATE_OBJ && category(item) == CHEST,
             door: record.kind == CREATE_OBJ && category(item) == DOOR,
             fx,
-            trigger: (record.kind == CREATE_OBJ && category(item) == DOOR)
+            trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
                     ops.iter().find_map(|o| match (o.tag, &o.value) {
                         (TRIGGER, Value::Str(name)) => Some(name.to_ascii_lowercase()),
@@ -2756,6 +2763,12 @@ impl Makers {
                     .iter()
                     .any(|o| o.tag == QUEST_ITEM && matches!(o.value, Value::Marker)))
             .then(|| {
+                ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (ON_TAKE, Value::Str(name)) => Some(name.clone()),
+                    _ => None,
+                })
+            }),
+            container: (record.kind == CREATE_OBJ && category(item) == CHEST).then(|| {
                 ops.iter().find_map(|o| match (o.tag, &o.value) {
                     (ON_TAKE, Value::Str(name)) => Some(name.clone()),
                     _ => None,
@@ -3287,6 +3300,7 @@ impl Npcs {
             pending: Vec::new(),
             played: HashSet::new(),
             taken: HashSet::new(),
+            emptied: HashSet::new(),
             dialogues,
             icons,
             region_talks: region_talks(&records),
@@ -3977,12 +3991,25 @@ fn place_index(
     }
     // A door whose trigger is open, as it was left or as the scripts set it while it was
     // gone, opens as it comes (#952).
-    if placement
-        .trigger
-        .as_ref()
-        .is_some_and(|trigger| npcs.opened.contains(trigger))
+    if placement.door
+        && placement
+            .trigger
+            .as_ref()
+            .is_some_and(|trigger| npcs.opened.contains(trigger))
     {
         commands.entity(entity).insert(Swing::by_script(true));
+    }
+    // A container, emptied for good once opened (#1380).
+    if let Some(function) = &placement.container {
+        commands
+            .entity(entity)
+            .insert(crate::containers::Container::new(
+                placement.creature.0,
+                assets.load(placement.model.clone()),
+                (function.clone(), placement.trigger.clone()),
+                index,
+                npcs.emptied.contains(&index),
+            ));
     }
     if kept {
         let placed = Placed {
@@ -6040,6 +6067,12 @@ fn turn_trigger(npcs: &mut Npcs, heights: &mut Heights, door: &Door, swing: &Swi
         npcs.marked.insert(name.clone());
     }
     open_trigger(npcs, heights, name, swing.open);
+}
+
+/// Opens the trigger `name` of a container as it opens (`0x44BCD0`, #1380): its cells, if it has
+/// any (a dwarves' chest's `chestTrigger`), freed.
+pub(crate) fn open_container_trigger(npcs: &mut Npcs, heights: &mut Heights, name: &str) {
+    open_trigger(npcs, heights, name, true);
 }
 
 /// Opens or closes the cells of the trigger `name`, bit 0 of its state, and keeps the state for
