@@ -73,6 +73,7 @@ mod remarks;
 mod remote;
 mod rewards;
 mod ripples;
+mod runes;
 #[cfg(test)]
 mod scene_tests;
 mod screenshot;
@@ -356,6 +357,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
+        runes::RunesPlugin,
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
@@ -365,9 +367,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,
-        sound::SoundPlugin,
     ))
     .add_plugins((
+        sound::SoundPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
