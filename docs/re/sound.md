@@ -319,7 +319,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 | The hero's critical-hit cry | `0x6852B0`, `0x686F4F`–`0x686FC9` | 16301 or 16302 | the hero takes `CRITICALHIT` | yes | yes (`voices`, #1168) |
 | Doors open and close | `0x44BCD0` → `0x695800` | 602–608, groups 1 and 3, by the type | a door turns | yes (`npcs::swing`) | yes (#1166) |
 | A locked trigger rattles | `0x415F00` | 331 or 332 | the hero without the trigger's key | no (keys, #1088) | no |
-| Chests, shrines, vases, graves, book stands | `0x695800` from `0x48AE90` (`SetObjState`) and `0x4968A0` | 605, 609, 610, 611, 324/325 | an object opened or closed | no | no |
+| Chests, shrines, vases, graves, book stands | `0x695800` from `0x44BCD0` (a container's opening, docs/re/containers.md), `0x48AE90` (`SetObjState`) and `0x4968A0` (`SetTriggerState`) | 605, 609, 610, 611, 324/325 | an object opened or closed | no | no |
 | Pick-up of an item, of gold | `0x558080` → (9, `0x80`), `0x57FD80` → (9, `0x83`) | 7103, 7100 | an item into the pack or onto the cursor; gold added | yes (`pickup`, `scripts::collect`) | yes (#1167) |
 | An item taken straight into a slot, a quest's item | `0x558080` → (9, 5), (9, `0x81`) | `UI_INV_PUT*` by kind, 7117 | as said | partly | the quest's item and the hurled weapon taken back into the hand (7005) (#1167); the slots wait for the inventory (#1088) |
 | No room in the pack | `0x558080` → (8, 3) | `CANTCARRYMORE` lines | the pack full | yes (`remarks`, #1324) | yes (#1324) |
@@ -384,7 +384,7 @@ The event 9 takes sub-commands up to `0x15` by one switch (`0x15` sets `+0x84`, 
 - **The doors** (`0x44BCD0`): the open plays group 1 before the clip `0xAA`, the close group 3 before `0xAB`, at the door.
   Every door of the category 10 has a profile but the secret door 5221 (`TYPE_OBJECT_S_DOOR`): the 118 others' names in the types' table (`0x8EC328`, read by `0x43CED0`) hold `TYPE_OBJECT_DOOR`, so the addon's dwarves' doors 5759–5766 (`TYPE_OBJECT_DOOR2_*`) and the second desert gate 5783 sound as wooden doors (counted 2026-10-27 against `items.ron`).
 - **A locked trigger** (`0x415F00`, `cTrigger::setState`): a trigger of the flags `0x44` with a key (`+0xC`) that the hero lacks (`0x5DF1D0`) plays `DOOR_CLOSED01` or `02` at even odds in the middle, if its flag 4 is set.
-- `0x695800`'s other callers, `SetObjState` (`0x48AE90`, `0x48B278`) and `0x4968A0` (not identified), open the chests and the like.
+- `0x695800`'s other callers open the chests and the like: the objects' receive `0x44BCD0` as a click opens a container (docs/re/containers.md), `SetObjState` (`0x48AE90`, `0x48B278`) and `SetTriggerState` (49, `0x4968A0`, the walker's case `0x476138`).
 
 #### Items, gold and levels
 
