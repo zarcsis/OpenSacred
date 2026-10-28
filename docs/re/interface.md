@@ -46,7 +46,7 @@ The bar checks the level whenever the mouse is tested against it (`0x6DFD60`) an
 | Book (`UI_TB_BOOK`) | (594, 705), 34 × 34 | 93 ((204, 0), a book), down 94 ((204, 34)) | toggles `UI_WND_QUESTBOOK`; tooltip 9911; **measured** |
 | Collect (`UI_TB_COLLECT`), single player | (496, 743), 36 × 26 | 134 (`GUI_main_01` (184, 230)–(219, 255)), down 135 ((220, 230)–(255, 255)) | sends the hero the creature event `0x113` (not read; **hypothesis**: pick up the items about the hero); tooltip 9909; **measured** |
 | Net info (`UI_TB_NETINFO`), network game | (496, 743), 34 × 25 | 140 ((185, 203)–(218, 227)), down 141 ((149, 230)–(182, 254)) | toggles `UI_WND_NETINFO`; tooltip 9917 |
-| Potions' belt, 5 buttons | (435, 667), (465, 653), (497, 649), (530, 653), (560, 667), 32 × 32 each | filled: 176 (`GUI_main_05` (129, 65)–(160, 96), red), 179 ((129, 164), purple), 177 ((129, 98), blue), 178 ((129, 131), green), 180 ((129, 197), yellow), slot 1 to 5; empty: 175 ((195, 65)–(226, 96), a grey flask) | a slot shows its colour while `0x5DA8C0(slot, 0)` is not 0, else the empty flask; a click sends the engine event `0x17` with the slot (1–5) and which button (**hypothesis**: drinks it); tooltip the item's description; only while `SHOWPOTIONS` is 1; **measured** (slot 1 red, slots 2–5 empty) |
+| Potions' belt, 5 buttons | (435, 667), (465, 653), (497, 649), (530, 653), (560, 667), 32 × 32 each | filled: 176 (`GUI_main_05` (129, 65)–(160, 96), red), 179 ((129, 164), purple), 177 ((129, 98), blue), 178 ((129, 131), green), 180 ((129, 197), yellow), slot 1 to 5; empty: 175 ((195, 65)–(226, 96), a grey flask) | a slot shows its colour while `0x5DA8C0(slot, 0)` is not 0, else the empty flask; a click sends the engine event `0x17` with the slot (1–5) and which button, the left drinking its potion (seen, #1311); tooltip the item's description; only while `SHOWPOTIONS` is 1; **measured** (slot 1 red, slots 2–5 empty) |
 | Belt's clips | (424, 690) 16 × 18, (586, 690) 18 × 18 | images 39 and 40 (`GUI_main_03` (240, 201), (238, 183)) | fully transparent in this `GUI_main_03` (**measured**): they draw nothing |
 | Compass needle | the 18 × 58 sword turned about (512, 710) | image 101 (`GUI_main_01` (0, 169)–(17, 226)) | points at the marker 0 (below); tooltip text 9916 over (477, 700, 76 × 35) (`UI_TB_COMPASS`) |
 | Compass pins | 17 × 16, on ellipses about (512, 710) | image 136 ((133, 137)–(149, 152), white arrowhead, blue dot), image 137 ((133, 121)–(149, 136), red dot) | the markers 1 to 3 (below) |
@@ -96,7 +96,7 @@ The left orb is the weapon set (the left button's attack), the right orb the sel
 - The taskbar's buttons are toggles: a left click inside plays the button's sound (its `+0x18`), sets the flag `0x10` and runs its first command (show the window, the UI event `0x11`), or clears it and runs the second (hide, `0x12`).
 - Without `0x10` the button draws its `+0x64` image (the first row of `GUI_main_01`, lit); with it the `+0x54` image (the second row, darker, pressed in), so a button stays down while its window is open.
 - No hover image; the hover shows the tooltip.
-- The flags `0x20000` (1 s) and `0x20000000` (4 s) draw a sparkle: a glow of radius 30 cos(πt/2) and 20 random sparks; the potions' buttons get `0x20000` from the message `0x10` (**hypothesis**: a potion added or used), and an emptied slot passes it to its empty flask.
+- The flags `0x20000` (1 s) and `0x20000000` (4 s) draw a sparkle: a glow of radius 30 cos(πt/2) and 20 random sparks; the potions' buttons get `0x20000` from the message `0x10`, which a potion used up sends with its belt kind (`0x5CAA60`, docs/re/inventory.md, §7), and an emptied slot passes it to its empty flask.
 - The glow `0x732220(a)` (the "+" and the portrait's ring) draws the control again 49 times shifted by −6 to +6 pixels in steps of 2, added onto the screen (`DESTBLEND` `ONE`) at an alpha of ⌊12.75 a⌋/255 (16 times at alpha 16/255 on a display below 32 bits).
 
 ### Draw order (`0x6E3D10`)
@@ -162,7 +162,7 @@ The other images of `GUI_main_02` beside them (yellow beads 65, red frame 68 and
 
 ## Open questions
 
-- The sender and meaning of the taskbar's message `0x35` (the burn) and of `0x10` (a belt slot's sparkle).
+- The sender and meaning of the taskbar's message `0x35` (the burn).
 - What `sdk_MARKER_RESOLVE`'s four markers are (the quests' goals by their kinds, **hypothesis**) and the frame of its direction.
 - The right rail's middle piece in the frames matches neither image 9 nor 10 well at x 570 (its chain's knot at 641–660 fits image 9; the wavy line left of it does not show).
 - The creature event `0x113` of the Collect button; `0x5D96C0`; `0x6D60E0`; the control at `+0x160`.
@@ -180,4 +180,5 @@ The other images of `GUI_main_02` beside them (yellow beads 65, red frame 68 and
 - the health's ring split by the hero's health, the portrait by its type over the ring, the bonuses' "+", and the experience's bar filled by the experience into the level;
 - clicks over the bar's area (x 384 − 80n to 640 + 80n, y from 676) and over the hero's portrait do not reach the world, the set `frame::Control` held back there; the pieces are the interface under the cursor, which shows the arrow (`cursors`).
 
-Not followed yet: the buttons' windows and pressed images, the belt's potions, the slots' selection, edit mode and keys, the weapons' models and damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.
+The belt's flasks are lit by the potions of their kinds since #1311 (`belt`).
+Not followed yet: the buttons' windows and pressed images, the slots' selection, edit mode and keys, the weapons' models and damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.

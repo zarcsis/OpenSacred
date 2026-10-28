@@ -18,6 +18,7 @@ pub mod inventory;
 pub mod minds;
 pub mod music;
 pub mod particles;
+pub mod potions;
 pub mod quests;
 pub mod rewards;
 pub mod spawning;

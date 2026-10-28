@@ -13,7 +13,7 @@
 //! the portrait by the hero's type, the bonuses' "+" and the experience's bar. Clicks over the
 //! bar's area and the portrait do not reach the world (`0x6E1BC0`).
 //!
-//! Not followed yet: the buttons' windows and their pressed images, the belt's potions, the slots'
+//! Not followed yet: the buttons' windows and their pressed images, the slots'
 //! selection and their edit mode, the weapons' models and damage icons in the left slots, the
 //! compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the
 //! points' "+", the followers' portraits and the mount's bar.
@@ -64,14 +64,16 @@ const BUTTONS: [(u32, Vec2); 5] = [
     (93, Vec2::new(594.0, 705.0)),
     (134, Vec2::new(496.0, 743.0)),
 ];
-const BELT: [Vec2; 5] = [
+/// The potions' belt's buttons, 32 × 32 each, the slots 1 to 5 (`belt`).
+pub(crate) const BELT: [Vec2; 5] = [
     Vec2::new(435.0, 667.0),
     Vec2::new(465.0, 653.0),
     Vec2::new(497.0, 649.0),
     Vec2::new(530.0, 653.0),
     Vec2::new(560.0, 667.0),
 ];
-const EMPTY_FLASK: u32 = 175;
+pub(crate) const BELT_SIDE: f32 = 32.0;
+pub(crate) const EMPTY_FLASK: u32 = 175;
 /// The rail's left end and its two middle pieces, its right end and its two.
 const RAIL_LEFT: (u32, f32) = (5, 747.0);
 const RAIL_LEFT_MIDDLE: [(u32, f32); 2] = [(6, 749.0), (7, 750.0)];
@@ -329,9 +331,13 @@ fn spawn(
         let child = commands.spawn((bundle, ZIndex(1))).id();
         commands.entity(bar).add_child(child);
     }
-    for at in BELT {
+    for (kind, at) in (1..).zip(BELT) {
         let child = commands
-            .spawn((image(EMPTY_FLASK, at, BAR.min), ZIndex(2)))
+            .spawn((
+                crate::belt::Flask::new(kind),
+                image(EMPTY_FLASK, at, BAR.min),
+                ZIndex(2),
+            ))
             .id();
         commands.entity(bar).add_child(child);
     }
@@ -655,6 +661,14 @@ fn ratio(part: u64, whole: u64) -> f32 {
     (narrow(part) / narrow(whole)).clamp(0.0, 1.0)
 }
 
+/// The belt's slot, 1 to 5, under the point `at` of the original's screen.
+pub(crate) fn belt_slot(at: Vec2) -> Option<u8> {
+    (1..)
+        .zip(BELT)
+        .find(|&(_, corner)| Rect::from_corners(corner, corner + BELT_SIDE).contains(at))
+        .map(|(slot, _)| slot)
+}
+
 /// Whether the pointer is off the bar's and the portrait's areas, where the original's windows
 /// take the mouse (`0x6E1BC0`: x 384 − 80n to 640 + 80n and y from 676 for `n` slots a side; the
 /// hero's portrait and ring): a click there does not reach the world.
@@ -677,7 +691,8 @@ fn off_the_bar(
     // The bar's places are those of the original's screen centred along the window's width.
     let bar = Vec2::new(at.x - (width - SCREEN.x) / 2.0, at.y);
     let n = f32::from(u16::try_from(shown.0.max(1)).unwrap_or(1));
-    let over_bar = bar.y >= BAR.min.y && bar.x >= 384.0 - 80.0 * n && bar.x <= 640.0 + 80.0 * n;
+    let over_bar = bar.y >= BAR.min.y && bar.x >= 384.0 - 80.0 * n && bar.x <= 640.0 + 80.0 * n
+        || belt_slot(bar).is_some();
     let column = Vec2::new(at.x - (width - COLUMN.width()), at.y);
     let over_portrait = column.x >= 0.0 && column.y <= RING_AT.y + RING_SIZE.y + 24.0;
     !(over_bar || over_portrait)
