@@ -7,12 +7,13 @@ use bevy::prelude::*;
 use opensacred_data::tables::{Balance, Creature};
 pub use opensacred_rules::fight::{
     BOSS_TAG, HERO_LEVEL, Holds, ItemValues, Raise, Rank, Templates, combat, creature_earns,
-    experience_of, fill_level, filled_level, hero_health, level_start, most_health, regeneration,
+    experience_with, fill_level, filled_level, hero_health, level_start, most_health, regeneration,
     scripted_level, skills, tagged_level, takes_on,
 };
 use opensacred_rules::fight::{
     Side, art_strike, range_factor, strike, sure_strike, weapons_factor, weighed,
 };
+use opensacred_rules::potions;
 
 use crate::game::{AppState, FONT};
 use crate::hero::Body;
@@ -352,15 +353,24 @@ pub(crate) fn resolve(
             // killer (`0x532BD6`, #1199): no kill.
             let rank_of = rank.map_or(Rank::Common, |rank| rank.0);
             let plain = hit.art.is_none() && !hit.ranged;
+            // The killer's potions' effects: the purple's banishes the undead, the blue's adds
+            // to the experience (#1353).
+            let killer = effects
+                .get(hit.attacker)
+                .map(|effects| effects.list())
+                .unwrap_or_default();
+            let banished = potions::banishes(&killer);
             let rises = victim.and_then(|victim| {
-                crate::undead::rolls(&mut dice.0, victim, rank_of, plain).inspect(|_| {
-                    crate::undead::drain(
-                        &mut commands,
-                        (hit.attacker, hit.target),
-                        (victim.creature, health.level),
-                        level,
-                    );
-                })
+                crate::undead::rolls(&mut dice.0, victim, rank_of, (plain, banished)).inspect(
+                    |_| {
+                        crate::undead::drain(
+                            &mut commands,
+                            (hit.attacker, hit.target),
+                            (victim.creature, health.level),
+                            level,
+                        );
+                    },
+                )
             });
             if let Some(&worth) = worth.filter(|_| by_creature && rises.is_none()) {
                 kills.write(Kill {
@@ -371,7 +381,9 @@ pub(crate) fn resolve(
                     rank: rank.map_or(Rank::Common, |rank| rank.0),
                 });
             }
-            let worth = worth.filter(|_| hero).map(|worth| (*worth, rank.copied()));
+            let worth = worth
+                .filter(|_| hero)
+                .map(|worth| (*worth, rank.copied(), potions::mentored(&killer)));
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
@@ -394,8 +406,9 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
 }
 
 /// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the
-/// hero killed it, of `worth` and its rank, the hero earns its experience (the event 9,
-/// `0x57D860`), twice for a boss and 1.5 times for a champion; the experience earned. A creature
+/// hero killed it, of `worth`, its rank and the hero's bonus (`potions::mentored`), the hero
+/// earns its experience (the event 9, `0x57D860`), twice for a boss and 1.5 times for a
+/// champion; the experience earned. A creature
 /// killed by another (`by_creature`, #630) drops nothing, and its killer earns its experience
 /// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises`
 /// gives nothing (`undead`, #1199), and a skeleton warrior that rises falls as the body of the
@@ -405,7 +418,7 @@ fn fell(
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
     (target, by_creature, rises): (Entity, bool, Option<crate::undead::Rises>),
     health: &Health,
-    worth: Option<(Worth, Option<Ranked>)>,
+    worth: Option<(Worth, Option<Ranked>, f32)>,
 ) -> u32 {
     let choice = dice.0.below(2);
     let mut dies = if by_creature {
@@ -429,18 +442,19 @@ fn fell(
     0
 }
 
-/// The experience the hero earns of `target`, at `health`, of `worth` and its rank ([`fell`]).
+/// The experience the hero earns of `target`, at `health`, of `worth`, its rank and the hero's
+/// bonus ([`fell`]).
 fn earn(
     experience: &mut Experience,
     rules: &Rules,
     target: Entity,
     health: &Health,
-    worth: Option<(Worth, Option<Ranked>)>,
+    worth: Option<(Worth, Option<Ranked>, f32)>,
 ) -> u32 {
-    let Some((worth, rank)) = worth else {
+    let Some((worth, rank, bonus)) = worth else {
         return 0;
     };
-    let earned = experience_of(worth.0, health.level, experience.level, rules);
+    let earned = experience_with(worth.0, health.level, experience.level, rules, bonus);
     let earned = rank.unwrap_or_default().0.earned(earned);
     let grew = experience.add(u64::from(earned), rules);
     info!(
@@ -466,7 +480,7 @@ pub fn kill(
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
     rules: Res<Rules>,
-    hero: Query<&Transform, With<Body>>,
+    hero: Query<(&Transform, Option<&crate::effects::Effects>), With<Body>>,
     mut creatures: Query<
         (
             Entity,
@@ -479,11 +493,13 @@ pub fn kill(
         (Without<Dies>, Without<Body>),
     >,
 ) -> Result<Vec<String>, String> {
-    let at = hero
+    let (at, effects) = hero
         .iter()
         .next()
-        .ok_or("the hero is not in the world yet")?
-        .translation;
+        .ok_or("the hero is not in the world yet")?;
+    let at = at.translation;
+    let effects = effects.map(|effects| effects.list()).unwrap_or_default();
+    let (banished, bonus) = (potions::banishes(&effects), potions::mentored(&effects));
     let home = crate::paths::cell_of(at.x, at.z);
     let radius = i32::try_from(radius).unwrap_or(i32::MAX);
     let mut lines = Vec::new();
@@ -498,9 +514,9 @@ pub fn kill(
             &mut dice.0,
             mind,
             rank.map_or(Rank::Common, |rank| rank.0),
-            true,
+            (true, banished),
         );
-        let worth = worth.map(|worth| (*worth, rank.copied()));
+        let worth = worth.map(|worth| (*worth, rank.copied(), bonus));
         let earned = fell(
             &mut commands,
             (&mut dice, &mut experience, &rules),

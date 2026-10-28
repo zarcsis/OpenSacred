@@ -70,14 +70,20 @@ impl Default for Dice {
 /// into, by two draws of `rand() % 3`: no boss nor champion, which its first fight marks as a
 /// rise does (`0x532E5A`, `0x532E8D`); a magic skeleton or an undead goblin not risen yet, or a
 /// skeleton warrior that has a part to lose (`0x532E3C`'s cases, #1260; **hypothesis** that the
-/// warriors' bosses and champions do not change either).
-pub fn rolls(dice: &mut Rng, mind: &Mind, rank: Rank, plain: bool) -> Option<Rises> {
+/// warriors' bosses and champions do not change either); never where its killer is `banished`,
+/// under a purple potion's effect (#1353).
+pub fn rolls(
+    dice: &mut Rng,
+    mind: &Mind,
+    rank: Rank,
+    (plain, banished): (bool, bool),
+) -> Option<Rises> {
     let kind = mind.creature;
     let warrior = undead::warrior(kind);
     if rank != Rank::Common || !(warrior || undead::rises(kind) && mind.flags & RISEN == 0) {
         return None;
     }
-    if !undead::rolls(dice.below(101), undead::chance(plain)) {
+    if !undead::rolls(dice.below(101), undead::chance(plain, banished)) {
         return None;
     }
     let into = if warrior {

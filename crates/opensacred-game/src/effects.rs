@@ -34,6 +34,36 @@ impl Effects {
         });
     }
 
+    /// Adds a potion's effect 33 for `seconds` as `0x582D50` does (at `0x584328`): one of the
+    /// same whole value alone, which keeps its place and value and takes the longer time.
+    pub fn add_alone(&mut self, effect: Effect, seconds: f32) {
+        let held = self
+            .0
+            .iter_mut()
+            .find(|timed| timed.effect.id == effect.id && timed.effect.whole == effect.whole);
+        match held {
+            Some(timed) => timed.left = timed.left.max(seconds),
+            None => self.add(effect, seconds),
+        }
+    }
+
+    /// A green potion's cure of `per_cent` (`0x582D50` at `0x583F1B`): each effect 30 keeps the
+    /// value `potions::cured` leaves it, or ends at once.
+    pub fn cure(&mut self, per_cent: u32) {
+        for timed in &mut self.0 {
+            if timed.effect.id != opensacred_rules::fight::effects::SLOWS {
+                continue;
+            }
+            match opensacred_rules::potions::cured(timed.effect.value, per_cent) {
+                Some(value) => timed.effect.value = value,
+                None => {
+                    timed.effect.value = 0.0;
+                    timed.left = CURED_LEFT;
+                }
+            }
+        }
+    }
+
     /// Whether an effect keyed by one of `arts` holds (`0x582B00`).
     pub fn holds_any(&self, arts: &[u16]) -> bool {
         self.0
@@ -132,6 +162,10 @@ impl Effects {
         self.0.len() != before
     }
 }
+
+/// The seconds that an effect 30 cured wholly keeps (the float `0x3A83126F`), so that it goes at
+/// the next tick.
+const CURED_LEFT: f32 = 0.001;
 
 /// The effect whose going kills an NPC: the raised dead's and the spiders' time (`0x586D80`).
 pub const LIFETIME: u32 = 29;
@@ -339,5 +373,36 @@ mod tests {
         assert!(effects.wear(0.1));
         assert_eq!(effects.timed().len(), 1);
         assert!((effects.timed()[0].left - 0.7).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_potions_effect_holds_alone_by_its_whole_value_and_a_cure_eases_the_poison() {
+        let potion = |whole, value| Effect {
+            whole,
+            ..Effect::new(33, value)
+        };
+        let mut effects = Effects::default();
+        effects.add_alone(potion(5, 0.5), 60.0);
+        effects.add_alone(potion(4, 0.8), 30.0);
+        // A second of a whole value held only lengthens the first to the longer time.
+        effects.add_alone(potion(5, 0.9), 90.0);
+        effects.add_alone(potion(4, 0.9), 10.0);
+        let held: Vec<_> = effects
+            .timed()
+            .iter()
+            .map(|timed| (timed.effect.whole, timed.effect.value, timed.left))
+            .collect();
+        assert_eq!(held, vec![(5, 0.5, 90.0), (4, 0.8, 30.0)]);
+        let poison = Effect {
+            whole: 20,
+            ..Effect::new(30, 8.0)
+        };
+        effects.add(poison, 20.0);
+        effects.cure(50);
+        assert_eq!(effects.timed()[2].effect.value, 4.0);
+        effects.cure(100);
+        assert_eq!(effects.timed()[2].effect.value, 0.0);
+        assert!(effects.wear(0.1));
+        assert!(!effects.holds(30));
     }
 }
