@@ -957,6 +957,8 @@ The source compiler (`cScriptCompiler::parseStatement/parseResource/loadScripted
    For each type, a test on real records.
 4. The translator in `opensacred-convert` (#723): each tree into Luau sources, a file per quest, sector, region and start script, with their bytecode; a record becomes a call of the scripts' API, the control flow Luau's `if`, `elseif` and `else`; what it does not understand fails the conversion.
    The sources: done 2026-10-24 (`opensacred-convert`'s `luau`, by its `flow`, §7.4).
+   A call is named by its record type's keyword in snake case (`CreateNPC` → `create_npc`), and the 18 keywords that are German words by names of the project's own in English (#1388, `opensacred_data::luau::ENGLISH`): `DeleteFunktionBlock` `delete_function_block`, `CallFunktion` `call_function`, `MaxOffen` `max_open`, `Rettungsmission` `rescue_mission`, `ToDoBloecke` `to_do_blocks`, `Belohnungen` `rewards`, `Schatzsuche` `treasure_hunt`, `AddHandel` `add_trade`, `QuestKompassPos` `quest_compass_pos`, `QuestKompassObj` `quest_compass_obj`, `Partikel` `particles`, `Toete_NPC` `kill_npc`, `Begleite` `escort`, `Waffenpool` `weapon_pool`, `Strafen` `penalties`, `RegionFrei` `free_region`, `Gewinn` `prize`, `MachVersteck` `make_hiding_place`.
+   The keywords stay the original's in the listings and in `docs/re/`.
    `netscript` writes each tree's sources into a directory next to its tree file, the masters of stage A:
    - `start.luau`, the start script and the quest flags;
    - `sectors/<n>.luau`, a sector's `Init` and `Enter`;

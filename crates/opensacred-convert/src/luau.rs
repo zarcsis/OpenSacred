@@ -16,10 +16,12 @@
 //! become tests (`if test { … } then`, `if not group_is_dead { … } then return false end`), a
 //! block 41 `if block(n) then`, its ends `return true`, `return false`, `return "done"` and
 //! `return "again"`. Every other record is a call named by its type's keyword in snake case
-//! (`CreateNPC` → `create_npc`; `type39`, `type47` and `dialog_entry` for the types without one),
+//! (`CreateNPC` → `create_npc`), a German keyword by a name in English (`Gewinn` → `prize`,
+//! #1388), and `type39`, `type47` and `dialog_entry` for the types without one,
 //! its operands a table keyed by their tags (`_01`, `_2A`), a tag that repeats a list of its
 //! values in their order, and a record of two markers or more `marks`, their tags in their order
-//! (#993); `CallFunktion` is `call("name", { … })` where it names one. A value is a
+//! (#993); `CallFunktion` is `call("name", { … })` where it names one, `call_function { … }`
+//! where it does not. A value is a
 //! number, a string,
 //! `true` for a marker, a list for a tuple, `var("name")` for a variable, and a number's
 //! expression (`A+VAR(B)`), whose value the client looks up in the variables, `var("A" ..
@@ -58,8 +60,9 @@ const BLOCK: u16 = 41;
 const BLOCK_END: u16 = 42;
 const CALL: u16 = 22;
 
-/// The Luau name of a record type: its keyword in snake case, `type<n>` or `dialog_entry` for the
-/// types without one (`opensacred_data::luau::call_name`); none for those of the flow.
+/// The Luau name of a record type: its keyword in snake case or a German one's in English,
+/// `type<n>` or `dialog_entry` for the types without one (`opensacred_data::luau::call_name`);
+/// none for those of the flow.
 fn call_name(kind: u16) -> Result<String> {
     if matches!(kind, IF | ELSE | ELSEIF | BLOCK | BLOCK_END | 0) {
         bail!("the record type {kind} is the flow's, not a call");
@@ -644,8 +647,11 @@ mod tests {
         assert_eq!(opensacred_data::luau::snake("NPC_TalkTo"), "npc_talk_to");
         assert_eq!(opensacred_data::luau::snake("SetRG"), "set_rg");
         assert_eq!(opensacred_data::luau::snake("DelOBJ"), "del_obj");
-        assert_eq!(opensacred_data::luau::snake("Toete_NPC"), "toete_npc");
+        assert_eq!(opensacred_data::luau::snake("NPC_Goto"), "npc_goto");
         assert_eq!(call_name(1).unwrap(), "create_npc");
+        // A German keyword's call is English (#1388): `Toete_NPC`, `Gewinn`.
+        assert_eq!(call_name(101).unwrap(), "kill_npc");
+        assert_eq!(call_name(125).unwrap(), "prize");
         assert_eq!(call_name(39).unwrap(), "type39");
         assert!(call_name(IF).is_err() && call_name(200).is_err());
     }
