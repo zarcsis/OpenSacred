@@ -254,12 +254,37 @@ fn key(name: &str) -> Option<(KeyCode, Key, Option<&'static str>)> {
     {
         return Some((*code, key.clone(), None));
     }
-    let letter = name.strip_prefix("Key").unwrap_or(name);
+    // The digits' row, by `Digit1` or `1` (the weapon sets' keys, #1348).
+    const DIGITS: [KeyCode; 10] = [
+        KeyCode::Digit0,
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+    ];
+    const DIGIT_TEXTS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    let letter = name
+        .strip_prefix("Key")
+        .or_else(|| name.strip_prefix("Digit"))
+        .unwrap_or(name);
     let mut chars = letter.chars();
     match (chars.next(), chars.next()) {
         (Some(c), None) if c.is_ascii_alphabetic() => {
             let i = usize::from(u8::try_from(c.to_ascii_lowercase()).ok()? - b'a');
             Some((LETTERS[i], Key::Character(LOWER[i].into()), Some(LOWER[i])))
+        }
+        (Some(c), None) if c.is_ascii_digit() => {
+            let i = usize::from(u8::try_from(c).ok()? - b'0');
+            Some((
+                DIGITS[i],
+                Key::Character(DIGIT_TEXTS[i].into()),
+                Some(DIGIT_TEXTS[i]),
+            ))
         }
         _ => None,
     }

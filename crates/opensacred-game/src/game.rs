@@ -345,6 +345,7 @@ struct Loaded {
     music: Option<(music::Music, atmosphere::Atmosphere)>,
     backpack: crate::pickup::Starting,
     sets: crate::sets::Starting,
+    maker: arsenal::Maker,
 }
 
 /// The record of creature `id` in `Creature.pak`: the hero's speeds (see `hero::Hero`) and the
@@ -610,6 +611,22 @@ fn load(
         }
         arsenal
     });
+    // What makes its arms anew as its hands' items change, a weapon set chosen (#1348).
+    let maker = arsenal::Maker {
+        assets: assets.to_path_buf(),
+        model: model.clone(),
+        presets,
+        kind,
+        record: record.clone(),
+        hits: hits.clone(),
+        points: points.clone(),
+        worn: npcs.hero_put_away(&worn),
+        words: tables
+            .weapons()?
+            .iter()
+            .map(|weapon| (weapon.id, weapon.words_84.clone()))
+            .collect(),
+    };
     let mut hero = hero::Hero::new(model, [idle, walk, run], center);
     hero.floor = floor;
     hero.stance = clips.stance;
@@ -701,6 +718,7 @@ fn load(
         music,
         backpack,
         sets,
+        maker,
     })
 }
 
@@ -901,6 +919,7 @@ fn finish(
     commands.insert_resource(Zoom(loaded.zoom));
     commands.insert_resource(loaded.backpack);
     commands.insert_resource(loaded.sets);
+    commands.insert_resource(loaded.maker);
     if let Some((music, atmosphere)) = loaded.music {
         commands.insert_resource(music);
         commands.insert_resource(atmosphere);

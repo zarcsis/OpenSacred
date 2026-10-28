@@ -9,6 +9,12 @@
 //! weapon (`0x427A40`), at the scale 1.0 and turned by its backpack's pose, as the grid draws its
 //! items (`0x40E9C0`, `backpack`); a camera of their own draws them into a picture over the bar's
 //! left slots.
+//!
+//! A click on a shown slot, the cursor empty, or the keys 1 to 5 choose its set (`0x6E1690`,
+//! #1348): the slot takes the selected orb and ring, and the set's items go into the hero's hands
+//! (`sdk_EQUIP` of the slots 12 and 13), its arms made anew with them (`arsenal::Maker`): their
+//! models, the clips of their class, its values and its weapons' sounds; a change of the class
+//! stops the hero (`0x54E6D0`). A set of nothing leaves its hands empty.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{RenderTarget, ScalingMode};
@@ -54,12 +60,31 @@ const WEAPON: u8 = 5;
 #[derive(Resource, Default, Clone, Debug)]
 pub struct Starting(pub [Option<Worn>; HALVES]);
 
-/// The hero's weapon sets: each set's two halves, the left hand's and the right's; the first
-/// selected (its choice #1348's).
+/// The hero's weapon sets: each set's two halves, the left hand's and the right's, and the set
+/// selected (`0x5D9BA0(0)`).
 #[derive(Resource, Default, Clone, Debug)]
 pub struct WeaponSets {
     pub halves: [[Option<Dropped>; HALVES]; SETS],
+    pub selected: usize,
 }
+
+impl WeaponSets {
+    /// The types of the selected set's items, the left hand's and the right's.
+    pub fn hands(&self) -> [Option<u32>; HALVES] {
+        self.halves[self.selected].map(|half| half.map(|item| item.item))
+    }
+}
+
+/// The keys that choose the weapon sets 1 to 5 (`0x6E1BC0`).
+const KEYS: [KeyCode; SETS] = [
+    KeyCode::Digit1,
+    KeyCode::Digit2,
+    KeyCode::Digit3,
+    KeyCode::Digit4,
+    KeyCode::Digit5,
+];
+/// A slot's side on the original's screen.
+const SLOT: f32 = 64.0;
 
 /// A set's half's model.
 #[derive(Component)]
@@ -236,6 +261,86 @@ fn lay_out(
     }
 }
 
+/// The set of the shown slot under the screen's point `at`, of `count` shown.
+fn slot_at(at: Vec2, count: usize) -> Option<usize> {
+    (0..count.min(SETS)).find(|&set| {
+        let corner = bar::weapon_slot(set, count);
+        Rect::from_corners(corner, corner + Vec2::splat(SLOT)).contains(at)
+    })
+}
+
+/// Chooses a weapon set by a left click on its slot with the cursor empty, or by its key while the
+/// console is closed (`0x6E1690`): one of the slots shown alone. The bar holds the player's
+/// control of the world back under the pointer (`frame::Control`), so the click is taken here.
+fn choose(
+    keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, console): (
+        Res<crate::hud::Pointer>,
+        Res<UiScale>,
+        Option<Res<crate::console::Console>>,
+    ),
+    windows: Query<&Window>,
+    shown: Option<Res<bar::Shown>>,
+    pack: Option<Res<crate::pickup::Pack>>,
+    sets: Option<ResMut<WeaponSets>>,
+) {
+    let (Some(shown), Some(mut sets)) = (shown, sets) else {
+        return;
+    };
+    let clicked = buttons
+        .just_pressed(MouseButton::Left)
+        .then(|| crate::inventory::screen_point(&pointer, &ui_scale, &windows))
+        .flatten()
+        .filter(|_| pack.as_ref().is_none_or(|pack| pack.held.is_none()))
+        .and_then(|at| slot_at(at, shown.0));
+    let keyed = KEYS
+        .iter()
+        .position(|&key| keys.just_pressed(key))
+        .filter(|_| console.is_none_or(|console| !console.is_open()));
+    if let Some(set) = clicked.or(keyed).filter(|&set| set < shown.0)
+        && set != sets.selected
+    {
+        sets.selected = set;
+        info!("sets: the weapon set {} chosen", set + 1);
+    }
+}
+
+/// Puts the selected set's items into the hero's hands as they change (`sdk_EQUIP`): its arms
+/// made anew with them, the hero stopped where the class of what it holds changes (`0x54E6D0`).
+fn arm(
+    sets: Option<Res<WeaponSets>>,
+    maker: Option<Res<crate::arsenal::Maker>>,
+    npcs: Option<Res<crate::npcs::Npcs>>,
+    mut rearms: MessageWriter<crate::arsenal::Rearm>,
+    mut bodies: Query<&mut crate::hero::Body>,
+    mut held: Local<Option<([Option<u32>; HALVES], u8)>>,
+) {
+    let (Some(sets), Some(maker), Some(npcs)) = (sets, maker, npcs) else {
+        return;
+    };
+    let hands = sets.hands();
+    let items: Vec<u32> = hands.iter().flatten().copied().collect();
+    let Some((before, class)) = *held else {
+        // The game's start: the hero holds its first set's items as its template does.
+        let (class, _) = maker.arms(&npcs, &items);
+        *held = Some((hands, class));
+        return;
+    };
+    if before == hands {
+        return;
+    }
+    let (now, arms) = maker.arms(&npcs, &items);
+    info!("sets: the hero's hands take {items:?}, of the class {now}");
+    rearms.write(crate::arsenal::Rearm(arms));
+    if now != class {
+        for mut body in &mut bodies {
+            body.stop();
+        }
+    }
+    *held = Some((hands, now));
+}
+
 /// The taskbar's weapon sets.
 pub struct SetsPlugin;
 
@@ -245,6 +350,18 @@ impl Plugin for SetsPlugin {
             .add_systems(
                 Update,
                 (show, lay_out).chain().run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                choose
+                    .in_set(crate::frame::Unpaused)
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                arm.after(choose)
+                    .before(crate::frame::Step::HeroSpawn)
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -252,6 +369,17 @@ impl Plugin for SetsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_chooses_the_shown_slot_under_it() {
+        // Two slots shown at the level 2: the first from 262, the second from 328.
+        assert_eq!(slot_at(Vec2::new(290.0, 723.0), 2), Some(0));
+        assert_eq!(slot_at(Vec2::new(360.0, 723.0), 2), Some(1));
+        // Between them, above them, or a slot not shown: none.
+        assert_eq!(slot_at(Vec2::new(327.0, 723.0), 2), None);
+        assert_eq!(slot_at(Vec2::new(360.0, 680.0), 2), None);
+        assert_eq!(slot_at(Vec2::new(360.0, 723.0), 1), Some(0));
+    }
 
     #[test]
     fn a_halfs_model_lies_at_its_slots_corner_and_offsets_apart_from_the_other_weapon() {

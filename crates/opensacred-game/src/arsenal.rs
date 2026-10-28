@@ -102,6 +102,70 @@ impl Arsenal {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct Throws(pub bool);
 
+/// What makes the hero's arms anew as the items in its hands change, a weapon set chosen (#1348;
+/// `0x6E1690`): its model, its motions' presets, its type and record, the clips' hit fractions and
+/// points, the items its template wears besides those in its hands, and the items' records'
+/// words, of which an item in its hands takes its values.
+#[derive(Resource, Clone)]
+pub struct Maker {
+    pub assets: std::path::PathBuf,
+    pub model: String,
+    pub presets: [&'static str; 3],
+    pub kind: u32,
+    pub record: opensacred_data::tables::Creature,
+    pub hits: std::collections::HashMap<String, [f32; 2]>,
+    pub points: std::collections::HashMap<String, Vec<f32>>,
+    pub worn: Vec<opensacred_data::heroes::Worn>,
+    pub words: std::collections::HashMap<u32, Vec<u16>>,
+}
+
+impl Maker {
+    /// The hero's arms with the items of the types `hands` in its hands, each of its record's
+    /// values, its template's other items worn as ever; and the class of what it holds, by which it
+    /// picks its clips (`0x546F80`).
+    pub fn arms(&self, npcs: &crate::npcs::Npcs, hands: &[u32]) -> (u8, Arms) {
+        let worn: Vec<opensacred_data::heroes::Worn> = self
+            .worn
+            .iter()
+            .cloned()
+            .chain(hands.iter().map(|&item| opensacred_data::heroes::Worn {
+                id: 0,
+                item,
+                words: self.words.get(&item).cloned().unwrap_or_default(),
+            }))
+            .collect();
+        let (class, held) = npcs.hero_gear(&worn);
+        let clips = crate::game::clips_of(
+            &self.assets,
+            &self.model,
+            self.presets,
+            (self.kind, class),
+            &self.hits,
+            &self.points,
+        );
+        let arms = Arms {
+            form: Form {
+                creature: self.kind,
+                model: self.model.clone(),
+                clips,
+                base: Base::of(&self.record),
+                speeds: self.record.speed,
+                size: opensacred_rules::minds::size(self.kind, class != 0),
+                armed: true,
+            },
+            held,
+            holds: npcs.hero_holds(&worn),
+            armed: npcs.hero_armed(&worn),
+            blade: npcs.hero_blade(&worn),
+        };
+        (class, arms)
+    }
+}
+
+/// The hero's arms by the items now in its hands, a weapon set chosen (#1348).
+#[derive(Message, Clone, Debug)]
+pub struct Rearm(pub Arms);
+
 /// What of the hero its arms change.
 type Wearer<'a> = (
     Entity,
@@ -280,9 +344,70 @@ fn throw(
     }
 }
 
+/// Gives the hero the arms of the items now in its hands (#1348), its own from then on; what its
+/// effect [`arts::BFG`] puts in its hand, or its hand that hurled its item, holds on until it
+/// ends, the new arms coming then. A hero that has had no effect yet has none.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn rearm(
+    mut commands: Commands,
+    mut rearms: MessageReader<Rearm>,
+    mut arsenal: Option<ResMut<Arsenal>>,
+    mut hero: ResMut<Hero>,
+    assets: Res<AssetServer>,
+    (experience, rules, speed): (Res<Experience>, Res<Rules>, Res<GameSpeed>),
+    mut bodies: Query<
+        (
+            Entity,
+            &Base,
+            Option<&Effects>,
+            &mut Combat,
+            &mut Regenerates,
+            Option<&mut hero::Size>,
+            Option<&Worn>,
+        ),
+        With<Body>,
+    >,
+) {
+    let none = Effects::default();
+    for Rearm(arms) in rearms.read() {
+        debug!(
+            "arsenal: the hero's arms made anew, {} items shown",
+            arms.held.len()
+        );
+        if let Some(arsenal) = arsenal.as_deref_mut() {
+            arsenal.own = arms.clone();
+            if arsenal.bearing || arsenal.thrown {
+                continue;
+            }
+        }
+        for (body, base, effects, combat, regenerates, size, worn) in &mut bodies {
+            wear(
+                arms.clone(),
+                &mut commands,
+                &mut hero,
+                &assets,
+                (&experience, &rules, &speed),
+                (
+                    body,
+                    base,
+                    effects.unwrap_or(&none),
+                    combat,
+                    regenerates,
+                    size,
+                    worn,
+                ),
+            );
+        }
+    }
+}
+
 /// Takes the arsenal back with the game.
 fn leave(mut commands: Commands) {
     commands.remove_resource::<Arsenal>();
+    commands.remove_resource::<Maker>();
 }
 
 pub struct ArsenalPlugin;
@@ -290,9 +415,12 @@ pub struct ArsenalPlugin;
 impl Plugin for ArsenalPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Throws>()
+            .add_message::<Rearm>()
             .add_systems(
                 Update,
-                (bear, throw).chain().in_set(crate::frame::Step::HeroSpawn),
+                (bear, throw, rearm)
+                    .chain()
+                    .in_set(crate::frame::Step::HeroSpawn),
             )
             .add_systems(OnExit(AppState::InGame), leave);
     }
