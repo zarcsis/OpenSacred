@@ -38,6 +38,8 @@ pub struct Tables {
     sizes: HashMap<u32, (u8, u8)>,
     poses: HashMap<u32, Pose>,
     categories: HashMap<u32, u8>,
+    /// The combat art that each rune teaches (`items.pak +0x6A`, `0x43AF10`; #1315).
+    rune_arts: HashMap<u32, u16>,
     /// Each type's record's classes' bits (`+0x04`), weapon's kind (`+0x1E`) and values, which
     /// the use's test asks (#1288).
     records: HashMap<u32, (u32, u8, fight::ItemValues)>,
@@ -128,6 +130,13 @@ impl Tables {
                 )
             })
             .collect();
+        let rune_arts = items
+            .iter()
+            .filter_map(|item| {
+                let art = u16::try_from(item.words_58[4] >> 16).ok()?;
+                (art != 0).then_some((item.slot, art))
+            })
+            .collect();
         let categories = items
             .iter()
             .map(|item| (item.slot, item.words_14[6].to_le_bytes()[2]))
@@ -154,6 +163,7 @@ impl Tables {
             sizes,
             poses,
             categories,
+            rune_arts,
             records: used,
         })
     }
@@ -210,6 +220,16 @@ impl Tables {
             .or_else(|| self.categories.get(&slot))
             .copied()
             .unwrap_or(0)
+    }
+
+    /// The combat art that a rune of the type `item` teaches, of its derived type's root
+    /// (`0x43AF10`); none for a type of no art.
+    pub fn rune_art(&self, item: u32) -> Option<u16> {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        self.rune_arts
+            .get(&item)
+            .or_else(|| self.rune_arts.get(&slot))
+            .copied()
     }
 
     /// The size in the backpack's cells of an item of the type `item` (`0x428D60`), of its
