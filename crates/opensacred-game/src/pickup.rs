@@ -108,6 +108,11 @@ pub struct TakenForQuest {
     pub name: Option<String>,
 }
 
+/// An item that the scripts' `CreateObj` laid and the hero took (`npcs::ScriptItem`, #1296): its
+/// placement, which `npcs` places no more.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct TakenPlaced(pub usize);
+
 /// An item that the scripts give the hero straight among the main quest's items, its type
 /// (`CreateObj` of `0x61` or `0x62` without `0x8E`, `0x4868F6`; #1256).
 #[derive(Message, Clone, Copy, Debug)]
@@ -321,7 +326,16 @@ pub(crate) struct Taking<'w, 's> {
     sounds: MessageWriter<'w, sfx::Play>,
     arsenal: Option<Res<'w, crate::arsenal::Arsenal>>,
     throws: MessageWriter<'w, crate::arsenal::Throws>,
-    items: Query<'w, 's, (&'static Lying, Option<&'static QuestItem>)>,
+    items: Query<
+        'w,
+        's,
+        (
+            &'static Lying,
+            Option<&'static QuestItem>,
+            Option<&'static crate::npcs::ScriptItem>,
+        ),
+    >,
+    placed: MessageWriter<'w, TakenPlaced>,
     for_quest: MessageWriter<'w, TakenForQuest>,
     tables: Option<Res<'w, crate::drops::Tables>>,
     shown: Option<Res<'w, crate::inventory::Shown>>,
@@ -335,7 +349,7 @@ impl Taking<'_, '_> {
     /// `UI_QUESTBOOK_WRITING` (the event `(9, 0x81)`), and the scripts run its taking's function
     /// (`Take:`, `0x4A71F0`; #1256).
     fn take(&mut self, item: Entity) {
-        let Ok((lying, quest)) = self.items.get(item) else {
+        let Ok((lying, quest, script_item)) = self.items.get(item) else {
             return;
         };
         info!(
@@ -393,6 +407,10 @@ impl Taking<'_, '_> {
             } else {
                 self.taken.write(Taken(lying.dropped.item));
             }
+        }
+        // A `CreateObj`'s item taken is not laid again as its sector comes back (#1296).
+        if let Some(script_item) = script_item {
+            self.placed.write(TakenPlaced(script_item.index));
         }
         self.commands.entity(item).despawn();
     }
@@ -583,6 +601,7 @@ impl Plugin for PickupPlugin {
         app.init_resource::<Pack>()
             .add_message::<Taken>()
             .add_message::<TakenForQuest>()
+            .add_message::<TakenPlaced>()
             .add_message::<Given>()
             .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(Update, receive.run_if(in_state(AppState::InGame)))
