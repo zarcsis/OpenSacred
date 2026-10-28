@@ -36,7 +36,7 @@ Its layout (`0x6C6490`), from the window's corner:
 - A tab sheet (`cUI_TabSheet`, `0x729640`) of 640 × 256 with three pages: the items (`cUI_InventoryTab`, `0x6BFFE0`, `UI_TABPAGE_ITEMS`, the text 1155), the spells (`cUI_SpellTab`, `0x6C1720`, `UI_TABPAGE_SPELLS`, 1156) and the combos (`cUI_ComboTab`, `0x6BEFB0`, `UI_TABPAGE_COMBOS`, 1157), the items selected at first.
 - The tabs' buttons (`0x729980`) above the window, at y −20 less the height of the font 2, each as wide as its text and 24, at least 128, on the image 108 (`GUI_main_01` (0, 126)–(94, 168)); their advance is a **hypothesis**.
 - The UI event 5 of the sub-kind `0x11` with 1 to 3 selects the page 0 to 2 (`0x6C61C0`; **hypothesis**: keys).
-- The frame of `UI_STATIC` children, all of `GUI_main_03`: a top edge of ten steps of 64 pixels, the first the image 5, the last 12, the eight between at random among 22 to 26, each raised by its anchor so that it overhangs the window; a bottom edge on the same steps at the height 256 less the anchor, the first 3, the last 13, the others among 15 to 19; a right edge of nine pieces from the height 4 at x about 640, the first 32, the last 33, the others among 28 to 30.
+- The frame of `UI_STATIC` children, all of `GUI_main_03` (read again for #1267): ten steps along, each a piece of the top edge at its step raised by its first anchor's y, so that it stands on the window's top, the first the image 5, the last 12, the others `rand()` / 32767 · 5 + 22; and a piece of the bottom edge at its step and 256 less its first anchor's y, the first 3, the last 13, the others · 5 + 15; each step as wide as its bottom piece; then nine pieces of the right edge from the height 4 down at 641 less their second anchor's x, each as high as it is, the first 32, the last 33, the others · 3 + 28.
 - The sort's button (`cUI_Button2` at `+0x158`) at (−2, 254), 34 × 34, the image 73 (`GUI_main_02` (222, 124)) and 71 ((188, 124)) for its other state, its tooltip `UI_TOOLTIP_AUTOSORT`, drawn and clicked on the items' page alone.
 - Its click runs `cInventoryEntry::autoSortItems` (`0x5DB6B0`) in the mode of the button's `+0x168` bit 4; in a game of the network a second click within 2 s waits 5 s.
 - The sort takes every item out, groups them by category, sorts each group by its area (w · h), the largest first, and puts the groups back in the order of the categories 28, 30, 31, 8, 20, 9, 15, 14, 16, 5, 17, 18, 19, 6, 13, 21, 22, 23, 24, 25, 29, 33, 0, 10, 11, 12, 27, 1, 26, 7, 2, 3, 4, each by the fit's search in the mode given; when an item finds no place it puts the grid back as it was and tries `0x5DB280` (not read).
@@ -97,7 +97,8 @@ Its layout (`0x6C6490`), from the window's corner:
 
 ## 4. The equipment window (`cUI_Equipment`)
 
-- Its ground is the image 376, `GUI_main_ornament.TGA` 256 × 256 at (0, 0), drawn at an alpha of `0x9F` (`0x6BAC80`), framed by pieces of `GUI_main_02` and `03` (the images 7, 34 to 36, 50, 51, 60 and 61; **hypothesis** for their ranges at random).
+- Its ground is the image 376, `GUI_main_ornament.TGA` 256 × 256 at (0, 0), drawn at an alpha of `0x9F` (`0x6BAC80`).
+- Its frame (`0x6BAC80`, read for #1267): eight pieces of the right edge from the height 10 down at 256 less their second anchor's x, each as high as it is, the image 34 where `rand()` / 32767 · 100 is above 40, else · 2 + 34; and four steps from −1 along, a piece of the top edge at the step raised by its first anchor's y (50, 7, 7 and 51, the last 3 further along) and one of the bottom edge at 256 less its first anchor's y (60, two of · 5 + 15 and 61, the last 3 back), each step as wide as its bottom piece.
 - At each draw it makes its slots again where the hero's type has changed (`0x6B7700`): the type 1 by `0x6B97D0`, 2 by `0x6B8290`, 3 and 5 by `0x6B88E0`, 4, 6 and 7 by `0x6B9050`, 8 by `0x6B9DA0`, 9 by `0x6BA510`.
 - Each slot is a `UI_STATIC` at `+0x15C + 4 · i`, `i` the creature's slot of equipment (docs/re/equipment.md), with the category it takes at `+0x326 + 20 · i`; the slots 12 and 13 (the hands) and 18 (the horse) have none.
 - Their frames, of `GUI_main_04` unless named: the helmet 146 (64 × 64), the armour 147 (64 × 96), the boots 150, the arms 152, the shoulder 162 and the greaves 163 (64 × 64 each), the belt 148 (64 × 64, the Seraphim's and the Gladiator's) or 149 (64 × 32), the gloves 151 (64 × 32), the amulets 153 and 154 and the rings 155 to 158 (32 × 32), the wings 164 (96 × 96), and the Dwarf's cannon 1611 (`GUI_main_17`, 64 × 96).
@@ -192,7 +193,8 @@ The slots' places in the window, (x, y) of their frames' corners:
 
 ## In `opensacred-game`
 
-The hero picks the items up into a list with no grid (`pickup::Pack`, docs/decisions/2026-10-26-pickup.md) and has no inventory window yet.
+The hero picks the items up into a list with no grid (`pickup::Pack`, docs/decisions/2026-10-26-pickup.md).
+The windows show since #1267 (`inventory`): the key `I` and the bar's inventory button open and close the inventory and the equipment beside it with their sounds, on the original's screen centred along the window's width as the bar is; the inventory's frame, its three tabs and its sort's button, the equipment's ornament and frame, as above; their clicks kept from the world; the grid, the items, the slots, the tabs' pages and the statistics' window not yet.
 #1088 follows this page in its sub-issues: the windows and their layout (#1267), the grid (#1268), the cursor's item (#1269), the equipment's slots (#1270), the weapon sets (#1271), the potions and the belt (#1272), the tooltip (#1273) and the extras (#1274).
 
 ## Open questions

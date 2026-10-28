@@ -230,6 +230,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | Left mouse button on a foe | the game | attack it |
 | Ctrl + left mouse button | the game | strike at once |
 | R | the game | walk or run |
+| I | the game | the inventory's windows (#1267) |
 | Wheel | the game | zoom |
 | Esc | the menus, the game, the console | back a screen; in the game, the pause menu and back; closes the console |
 | `~` (the key under Esc) | everywhere | the console |
