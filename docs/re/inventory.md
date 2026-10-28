@@ -19,7 +19,8 @@ Status: **confirmed** by code unless marked otherwise; places are pixels of the 
 - The Seraphim's frames lay where the table of §4 puts them: the helmet at the top's middle, the shoulder at the top right, the armour at the left, the wings in the middle, the amulet and two rings at the right, the arms, the boots and the belt along the bottom.
 - The template's potions lay in the grid's first column.
 - A potion hovered showed its tooltip to its right: its name in white on the first line, then its price, a grey line of its effect and a grey hint of its use.
-- A click of the driver on a potion did not take it onto the cursor (**hypothesis**: the agent's clicks do not reach the window's input); the clicks below are read from the code alone.
+- A click of the driver on a potion did not take it onto the cursor at first: the page tests the mouse's point before the press, which a single move of the driver left elsewhere (docs/re/window.md, "The mouse's two points"; #1340).
+  Seen 2026-10-28 with the maintainer's own clicks and then the driver's: the left button took a potion onto the cursor and a second press put it down; the right button on a healing potion sent the equipment window the event `0x2C` of the sub-kind 1 and drank it at 40 of 119 health (119 after), and left it at full health.
 
 ## 1. Three windows open together
 
