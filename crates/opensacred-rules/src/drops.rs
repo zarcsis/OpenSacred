@@ -289,6 +289,11 @@ struct RuneRules {
     boss: f32,
 }
 
+/// The count of a class's runes given above which the quests' count starts again from the runes
+/// carried and the arts (`0x5595A0`), and the most of the range of its roll.
+const QUEST_RUNES_RESET: u32 = 10_000;
+const QUEST_RUNES_MOST: f64 = 32_767.0;
+
 impl Default for RuneRules {
     /// The original's values.
     fn default() -> Self {
@@ -437,6 +442,48 @@ impl Rules {
         single(r * f64::from(runes.chance))
     }
 
+    /// The range of the roll of a class rune that a side quest's end or a reward gives the hero
+    /// `hero` (`0x5595A0(1000, 1)`, from `0x45FC60`; #1386), with `given` the runes of its class
+    /// the quests have given (the player's `+0x5710`): `given` first set to its runes carried and
+    /// its arts' levels where it is 0 or above 10,000, and where those fall below it they count
+    /// as its two thirds and its third; `x = (runes/2 + arts)/H/p`, `p` the runes per level of the
+    /// hero's type 1 to 7 and 1 for the others, `H` its level; `x⁵·1000`, at most 32,767, whole.
+    /// The rune comes where a roll of 0 to the range falls below `UpgradeDrop` ([`Self::rune_given`]).
+    pub fn quest_rune_range(&self, hero: &Hero, given: &mut u32) -> i64 {
+        let (mut runes, mut arts) = (hero.runes, hero.arts);
+        let carried = runes.saturating_add(arts);
+        if *given == 0 || *given > QUEST_RUNES_RESET {
+            *given = carried;
+        }
+        if carried < *given {
+            arts = *given * 2 / 3;
+            runes = *given / 3;
+        }
+        let per_level = match hero.creature {
+            1..=7 => usize::try_from(hero.creature - 1)
+                .ok()
+                .and_then(|kind| self.runes.per_level.get(kind))
+                .copied()
+                .unwrap_or(1.0),
+            _ => 1.0,
+        };
+        let h = f64::from(u16::try_from(hero.level).unwrap_or(u16::MAX).max(1));
+        let v = single(f64::from(runes / 2 + arts) / h);
+        let x = single(f64::from(v) / f64::from(per_level));
+        let r = (f64::from(x).powi(5) * 1000.0).min(QUEST_RUNES_MOST);
+        truncated(r)
+    }
+
+    /// Whether a roll of 0 to `range` gives the rune (`0x45FC60`): one below `UpgradeDrop`, the
+    /// roll 0 for a range of 0, and a range below 0 taken as 1.
+    pub fn rune_given(&self, range: i64, dice: &mut impl Dice) -> bool {
+        let roll = match range {
+            0 => 0,
+            range => between(0, range.max(1), dice),
+        };
+        to_f64(roll) < f64::from(self.runes.chance)
+    }
+
     /// The level `E` of a creature of level `level` on bronze's scale (`0x5522D0`, docs/re/fight.md,
     /// "Who fights"): 1 up to the difficulty's `BaseOffLevel`, else
     /// `(L − BaseOffLevel)/(1 + OffLevelProz/100)`, rounded, at least 1; `L` on bronze.
@@ -563,6 +610,12 @@ impl Rules {
         } else {
             f64::from(fight::weighing(e, hero, self.levels))
         };
+        self.spread(f)
+    }
+
+    /// The factor `g` of the keys' weights of the share `f`: `10·((1 − ItemThrowFactor)·f +
+    /// ItemThrowFactor)`, stored as a float (`0x559BF0`; a quest's reward's, `0x4AD4BD`).
+    pub fn spread(&self, f: f64) -> f32 {
         let share = f64::from(self.throw_factor);
         single(((1.0 - share) * f + share) * 10.0)
     }

@@ -308,6 +308,11 @@ impl Tables {
     pub(crate) fn catalogue(&self) -> &Catalogue {
         &self.catalogue
     }
+
+    /// The drops' balance's values, which the quests' rewards take too (`rewards`, #1386).
+    pub(crate) fn rules(&self) -> &Rules {
+        &self.rules
+    }
 }
 
 /// The tables being read, at the start, off the main thread.
@@ -316,7 +321,7 @@ struct Reading(Task<Result<Tables>>);
 
 /// The rolls of the drops and their flights.
 #[derive(Resource)]
-pub(crate) struct Dice(Rng);
+pub(crate) struct Dice(pub(crate) Rng);
 
 /// The creature that made the last jewel, which makes no other until another makes one (#610).
 #[derive(Resource, Default)]
@@ -386,6 +391,49 @@ pub(crate) fn hero(base: &fight::Base, level: u32) -> Hero {
         skills: fight::skills(base, level, true),
         ..Hero::default()
     }
+}
+
+/// Gives `hero` the runes it carries in `pack` and its arts' levels of `arts`, by which a rune's
+/// chance goes (`0x5598B0`, `0x5595A0`).
+pub(crate) fn carrying(
+    hero: &mut Hero,
+    pack: &crate::pickup::Pack,
+    arts: Option<&crate::arts::HeroArts>,
+    tables: &Tables,
+) {
+    let runes = pack
+        .items
+        .iter()
+        .filter(|(_, dropped)| tables.category(dropped.item) == RUNE_CATEGORY)
+        .count();
+    hero.runes = u32::try_from(runes).unwrap_or(u32::MAX);
+    hero.arts = arts.map_or(0, |arts| arts.arts.levels());
+}
+
+/// Lays a quest's reward, an item of type `item`, at `at` on `level` (`0x4AC940`, `0x45FC60`:
+/// made beside the hero), rising from 60 over the ground as a dropped item ([`Flight::dropped`]),
+/// its values made at `made_at` of the item maker's key `quality` (`16 − key`, 0 for none); the
+/// line of what it laid, none for a type the table does not hold.
+pub(crate) fn lay_reward(
+    commands: &mut Commands,
+    (assets, tables, dice): (&AssetServer, &Tables, &mut Dice),
+    (at, level): (Vec3, Level),
+    (item, made_at, quality): (u32, u32, i64),
+) -> Option<String> {
+    let key = match u8::try_from(quality) {
+        Ok(quality @ 1..=14) => 16 - quality,
+        _ => 16,
+    };
+    let dropped = drops::thrown(
+        &tables.catalogue,
+        &tables.templates,
+        (item, made_at, key, 1),
+        &mut dice.0,
+    )?;
+    let line = listed(&[dropped]);
+    let flight = Flight::dropped(at.x, at.z, &mut dice.0);
+    lay(commands, (assets, tables), (flight, level), dropped);
+    Some(line)
 }
 
 /// Why a creature drops nothing as it dies (docs/re/items.md, "Who drops"), or `None` when it
@@ -604,14 +652,7 @@ fn dies(
     let Some(mut hero) = hero else {
         return;
     };
-    // The runes it carries and its arts' levels, by which a rune's chance goes (`0x5598B0`).
-    let runes = pack
-        .items
-        .iter()
-        .filter(|(_, dropped)| tables.category(dropped.item) == RUNE_CATEGORY)
-        .count();
-    hero.runes = u32::try_from(runes).unwrap_or(u32::MAX);
-    hero.arts = hero_arts.as_deref().map_or(0, |arts| arts.arts.levels());
+    carrying(&mut hero, &pack, hero_arts.as_deref(), &tables);
     let death = death(
         died.entity,
         mind,
