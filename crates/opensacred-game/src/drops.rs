@@ -806,7 +806,7 @@ pub fn throw_item(
         (request.item, level, request.key, amount),
         &mut dice.0,
     )
-    .ok_or_else(|| format!("item {} is of no drop's kind", request.item))?;
+    .ok_or_else(|| format!("item {} is not in the items' table", request.item))?;
     let line = format!("thrown: {}", listed(&[dropped]));
     throw(
         &mut commands,

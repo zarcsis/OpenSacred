@@ -1259,14 +1259,21 @@ impl Dropping<'_> {
 /// An item of type `item` as a test throws it (the game's command `item`, #525): of its kind by
 /// its category, `amount` pieces of gold, a potion as it is, any other made by the item maker at
 /// `level` with the pass's quality key `key` as a drop's would be (the key 0 at the maker's key
-/// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); `None` for a type of no drop's kind.
+/// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); a type of no drop's kind as it is, of the kind
+/// [`Kind::Other`], as the original's driver makes any type (a book, a quest's item, #1358);
+/// `None` for a type that the items' table does not hold.
 pub fn thrown(
     catalogue: &Catalogue,
     templates: &Templates,
     (item, level, key, amount): (u32, u32, u8, u32),
     dice: &mut impl Dice,
 ) -> Option<Dropped> {
-    let kind = catalogue.kind(item)?;
+    let kind = catalogue.kind(item).or_else(|| {
+        catalogue
+            .categories
+            .contains_key(&item)
+            .then_some(Kind::Other)
+    })?;
     let mut drop = Dropped {
         kind,
         item,
