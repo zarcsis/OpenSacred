@@ -11,7 +11,7 @@ pub use opensacred_rules::fight::{
     scripted_level, skills, tagged_level, takes_on,
 };
 use opensacred_rules::fight::{
-    Side, art_strike, range_factor, strike, sure_strike, weapons_factor, weighed,
+    Side, art_landed, poisons, range_factor, strike_landed, sure_landed, weapons_factor, weighed,
 };
 use opensacred_rules::potions;
 
@@ -246,20 +246,39 @@ pub(crate) fn resolve(
             );
         }
         let landed = match (hit.sure, hit.art) {
-            (true, _) => Some(sure_strike(&attacker, &defender, blow, &mut dice.0)),
-            (false, Some(art)) => art_strike(&attacker, &defender, blow, art, &mut dice.0),
-            (false, None) => strike(&attacker, &defender, blow, &mut dice.0),
+            (true, _) => Some(sure_landed(&attacker, &defender, blow, &mut dice.0)),
+            (false, Some(art)) => art_landed(&attacker, &defender, blow, art, &mut dice.0),
+            (false, None) => strike_landed(&attacker, &defender, blow, &mut dice.0),
         };
         // At the target, the striker's weapon's hit or parry (`0x5320B2`, #712).
         blows.write(crate::sfx::Blow::Target {
             striker: hit.attacker,
             target: hit.target,
-            landed: landed.is_some_and(|damage| damage > 0),
+            landed: landed.is_some_and(|landed| landed.damage > 0),
         });
-        let Some(damage) = landed else {
+        let Some(landed) = landed else {
             debug!("fight: {} misses {}", hit.attacker, hit.target);
             continue;
         };
+        // Its poison, where it passes the target's resistance (`0x56DFC8`, #1354); none of the
+        // poison's own strikes, which a poisoned creature sends itself, of the kind 17.
+        if hit.attacker != hit.target
+            && let Some(poison) = poisons(&landed, &mut dice.0)
+        {
+            let source = hit.attacker;
+            debug!(
+                "fight: {source} poisons {}: slowed by {}, {:.2} for {:.2} s",
+                hit.target, poison.whole, poison.value, poison.seconds
+            );
+            commands
+                .entity(hit.target)
+                .entry::<crate::effects::Effects>()
+                .or_default()
+                .and_modify(move |mut effects| {
+                    effects.poison(poison, source);
+                });
+        }
+        let damage = landed.damage;
         // The Daemon's call of death: his strike's damage times its value while above 1
         // (`0x56D1EC`).
         let doom = effects.get(hit.attacker).ok().and_then(|held| {

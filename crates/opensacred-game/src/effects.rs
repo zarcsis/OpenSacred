@@ -14,11 +14,13 @@ use crate::frame::{Step, WorldTick};
 use crate::hero::Body;
 use crate::npcs::{self, Arms, Npc};
 
-/// An effect and the seconds it still holds.
+/// An effect, the seconds it still holds, and the creature that gave it where that counts: a
+/// poison's (the adder's eighth argument, first in the entry's list at `+0x08`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Timed {
     pub effect: Effect,
     pub left: f32,
+    pub source: Option<Entity>,
 }
 
 /// A creature's effects, in the order they were added.
@@ -31,7 +33,44 @@ impl Effects {
         self.0.push(Timed {
             effect,
             left: seconds,
+            source: None,
         });
+    }
+
+    /// Adds a strike's poison from `source` as `0x582D50` adds the effect 30 (at `0x583E40`;
+    /// #1354): to the first effect 30 that holds, unless `source` gave it, both doses spread over
+    /// the longer time and the source the larger dose's, its whole value as it was
+    /// (`opensacred_rules::fight::poison_added`); else at the list's end, slowing by its whole
+    /// value and gathering from its key (`Effect::art`, `+0x1C`). Whether it changed the list.
+    /// A bearer immune to poison (the stats' `+0x148` bit `0x10`, which the items' effects set)
+    /// is not followed: the items' effects are not.
+    pub fn poison(&mut self, poison: opensacred_rules::fight::Poison, source: Entity) -> bool {
+        let held = self
+            .0
+            .iter_mut()
+            .find(|timed| timed.effect.id == opensacred_rules::fight::effects::SLOWS);
+        let Some(timed) = held else {
+            self.0.push(Timed {
+                effect: Effect {
+                    whole: poison.whole,
+                    art: poison.gathered,
+                    ..Effect::new(opensacred_rules::fight::effects::SLOWS, poison.value)
+                },
+                left: poison.seconds,
+                source: Some(source),
+            });
+            return true;
+        };
+        if timed.source == Some(source) {
+            return false;
+        }
+        let was = (timed.effect.value, timed.left);
+        let added = (poison.value, poison.seconds);
+        if opensacred_rules::fight::poison_outweighs(was, added) {
+            timed.source = Some(source);
+        }
+        (timed.effect.value, timed.left) = opensacred_rules::fight::poison_added(was, added);
+        true
     }
 
     /// Adds a potion's effect 33 for `seconds` as `0x582D50` does (at `0x584328`): one of the
@@ -151,6 +190,27 @@ impl Effects {
         struck
     }
 
+    /// A step of `seconds` of each poison (the effect 30, `opensacred_rules::fight::poison_tick`):
+    /// the poison's damage of each strike; on a bearer that is dead, `dead`, each ends at once
+    /// instead (`0x5605E9`).
+    fn poison_step(&mut self, seconds: f32, dead: bool) -> Vec<u32> {
+        let mut strikes = Vec::new();
+        for timed in &mut self.0 {
+            if timed.effect.id != opensacred_rules::fight::effects::SLOWS {
+                continue;
+            }
+            if dead {
+                timed.left = CURED_LEFT;
+                continue;
+            }
+            let (gathered, strike) =
+                opensacred_rules::fight::poison_tick(timed.effect.art, timed.effect.value, seconds);
+            timed.effect.art = gathered;
+            strikes.extend(strike);
+        }
+        strikes
+    }
+
     /// Takes `seconds` off each effect's time, and those whose time is out off the list: whether
     /// one went.
     fn wear(&mut self, seconds: f32) -> bool {
@@ -206,8 +266,8 @@ fn wear(
     }
 }
 
-/// The most of a tick's time that the bleeding takes (`0x5375C0`).
-const BLEEDS_AT_MOST: f32 = 0.3;
+/// The most of a tick's time that the bleeding and the poison take (`0x5375C0`).
+const STEP_AT_MOST: f32 = 0.3;
 
 /// Each NPC's bleeding at each tick of the world (the creature's update `0x5375C0` at
 /// `0x537F07`, `0x560340`): each strike sends it the strike of its physical damage from the hero,
@@ -228,7 +288,7 @@ fn bleed(
     for (entity, mut effects) in &mut creatures {
         let struck = effects
             .bypass_change_detection()
-            .bleed(seconds.min(BLEEDS_AT_MOST));
+            .bleed(seconds.min(STEP_AT_MOST));
         if struck > 0 {
             debug!("effects: {entity} bleeds {struck}");
             hits.write(fight::Hit {
@@ -242,6 +302,46 @@ fn bleed(
                     0.0,
                     0.0,
                     0.0,
+                ]),
+                sure: true,
+            });
+        }
+    }
+}
+
+/// Each creature's poisons at each tick of the world (`0x560340` at `0x5605D3`, the hero's too;
+/// #1354): each strike sends its bearer the strike of its poison's damage from itself, the
+/// event 5 of the kind 17 with fixed damage, which rolls no hit and poisons no more
+/// (`0x5607C3`); a dead bearer's poisons end. The object 856 that each strike makes at its
+/// bearer is left out.
+fn poison(
+    tick: Res<WorldTick>,
+    mut hits: MessageWriter<fight::Hit>,
+    mut creatures: Query<(Entity, &mut Effects, &fight::Health), Without<npcs::Dies>>,
+) {
+    let Some(seconds) = tick.seconds else {
+        return;
+    };
+    for (entity, mut effects, health) in &mut creatures {
+        if !effects.holds(opensacred_rules::fight::effects::SLOWS) {
+            continue;
+        }
+        let strikes = effects
+            .bypass_change_detection()
+            .poison_step(seconds.min(STEP_AT_MOST), health.current == 0);
+        for strike in strikes {
+            debug!("effects: the poison strikes {entity} for {strike}");
+            hits.write(fight::Hit {
+                attacker: entity,
+                target: entity,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some([
+                    0.0,
+                    0.0,
+                    0.0,
+                    f32::from(u16::try_from(strike).unwrap_or(u16::MAX)),
                 ]),
                 sure: true,
             });
@@ -347,6 +447,7 @@ impl Plugin for EffectsPlugin {
             (
                 wear.run_if(crate::frame::ticked).in_set(Wears),
                 bleed.run_if(crate::frame::ticked),
+                poison.run_if(crate::frame::ticked),
                 refit_hero,
                 refit_npcs,
             )

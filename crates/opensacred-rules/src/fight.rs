@@ -2394,6 +2394,16 @@ pub(crate) fn truncated(value: f64) -> i64 {
 /// ([`taken`]), at least 1, held at a player's cap, whole. `blow` holds those factors, `k`, the
 /// rolled damage's and the cap.
 pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Option<u32> {
+    strike_landed(attacker, defender, blow, rng).map(|landed| landed.damage)
+}
+
+/// [`strike`], with what landed ([`Landed`]).
+pub fn strike_landed(
+    attacker: &Combat,
+    defender: &Combat,
+    blow: Blow,
+    rng: &mut Rng,
+) -> Option<Landed> {
     let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
@@ -2406,6 +2416,11 @@ pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -
 /// (`0x5ABD80`; seen: the resolution `0x56B130` takes no chance from `0x43EEE0` for them, #854):
 /// its damage as a plain strike's ([`strike`]).
 pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
+    sure_landed(attacker, defender, blow, rng).damage
+}
+
+/// [`sure_strike`], with what landed ([`Landed`]).
+pub fn sure_landed(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Landed {
     damage(attacker, defender, blow, rng)
 }
 
@@ -2420,6 +2435,17 @@ pub fn art_strike(
     level: u32,
     rng: &mut Rng,
 ) -> Option<u32> {
+    art_landed(attacker, defender, blow, level, rng).map(|landed| landed.damage)
+}
+
+/// [`art_strike`], with what landed ([`Landed`]).
+pub fn art_landed(
+    attacker: &Combat,
+    defender: &Combat,
+    blow: Blow,
+    level: u32,
+    rng: &mut Rng,
+) -> Option<Landed> {
     let chance = hit_chance(art_attack(attacker.attack, level), defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
         return None;
@@ -2434,18 +2460,109 @@ pub fn art_attack(attack: f32, level: u32) -> f32 {
     stored((f64::from(level) * 0.125 + 1.3) * f64::from(attack))
 }
 
+/// What a strike that landed did (`0x56B130`): what it took off the defender's health, and what
+/// its poison may give it ([`poisons`]): the poison's damage as rolled (`[esp + 0xE0]`), the
+/// defender's poison resistance (`[esp + 0x160]`), and what of the poison the resistance and the
+/// damping let through (`[esp + 0x28]`), before the sum's factors.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Landed {
+    pub damage: u32,
+    pub poison: [f32; 3],
+}
+
+/// The kind of the poison's damage, the last of [`KINDS`].
+const POISON: usize = 3;
+
 /// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
 /// the damping, summed, and what the sum takes off the health ([`taken`]).
-fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
-    let total: f32 = roll_damage(&attacker.damage, blow.rolled, rng)
+fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Landed {
+    let rolled = roll_damage(&attacker.damage, blow.rolled, rng);
+    let through: Vec<f32> = rolled
         .iter()
         .zip(defender.resistance)
         .zip(defender.damping)
         .map(|((&d, r), damping)| {
             dealt(d, r, blow.k) * f32::from(100_u8.saturating_sub(damping)) / 100.0
         })
-        .sum();
-    taken(total, blow.share, blow.weapons, blow.cap)
+        .collect();
+    let total: f32 = through.iter().sum();
+    Landed {
+        damage: taken(total, blow.share, blow.weapons, blow.cap),
+        poison: [rolled[POISON], defender.resistance[POISON], through[POISON]],
+    }
+}
+
+/// The poison that a strike which landed gives its defender, the effect 30 ([`effects::SLOWS`];
+/// `0x56B130` at `0x56DFC8`, #1354): where the poison's damage as rolled `p` passes the
+/// defender's poison resistance `q` by more than 99, or by more than a roll of 1 to 100
+/// (`rand() % 100 + 1`, drawn only then), its whole value `⌊5·p/q⌋`, its value a tenth of the
+/// poison let through, `p/q` seconds, and `⌊p/q⌋` gathered toward its first strike (the adder's
+/// key, `+0x1C`, `0x582D50`'s sixth argument, 0xEFFF from 0x10000), each taken as the x87 unit
+/// takes them. None where `p` is not above `q`, nor against a resistance of 0, where the share is
+/// infinite and its integers indefinite (docs/decisions/fight.md, "No poison against no
+/// resistance"). The poison's own strikes, the hits of the kinds 17 and 18, give none: the
+/// caller leaves them out.
+pub fn poisons(landed: &Landed, rng: &mut Rng) -> Option<Poison> {
+    let [p, q, through] = landed.poison;
+    if p <= q || q <= 0.0 {
+        return None;
+    }
+    let over = p - q;
+    if over <= 99.0 && over <= to_f32(rng.below(100) + 1) {
+        return None;
+    }
+    let share = p / q;
+    let key = whole_f64(f64::from(share));
+    Some(Poison {
+        whole: i32::try_from(whole_f64(f64::from(share) * 5.0)).unwrap_or(i32::MAX),
+        value: stored(f64::from(through) * f64::from(0.1_f32)),
+        seconds: share,
+        gathered: if key < 0x1_0000 { key } else { 0xEFFF },
+    })
+}
+
+/// A poison as a strike gives it ([`poisons`]): the effect 30's whole value, by which it slows
+/// its bearer, its value, by which it strikes it over time ([`poison_tick`]), its seconds, and
+/// what it has gathered toward its next strike.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Poison {
+    pub whole: i32,
+    pub value: f32,
+    pub seconds: f32,
+    pub gathered: u32,
+}
+
+/// An effect 30 of the value `value` held for `seconds` as another creature's poison of the
+/// value `added` for `more` seconds joins it (`0x582D50` at `0x583E40`): the two doses, value
+/// times seconds, spread over the longer of the times; the value and the seconds after. The
+/// first's whole value stays; a poison of the creature that gave the first adds nothing, which the
+/// caller tells.
+pub fn poison_added((value, seconds): (f32, f32), (added, more): (f32, f32)) -> (f32, f32) {
+    let (mut value, mut seconds) = (value, seconds);
+    if seconds < more {
+        value = seconds * value / more;
+        seconds = more;
+    }
+    (more * added / seconds + value, seconds)
+}
+
+/// Whether a poison of the value `added` for `more` seconds takes the place of the source of an
+/// effect 30 of `value` for `seconds` (`0x582D50` at `0x583E70`): where its dose is the larger.
+pub fn poison_outweighs((value, seconds): (f32, f32), (added, more): (f32, f32)) -> bool {
+    seconds * value < more * added
+}
+
+/// A step of `dt` seconds of a poison of the value `value` that has gathered `gathered`
+/// (`0x560340` at `0x5605D3`, `dt` held at 0.3 s by its caller): the gathered `⌊100·v·dt +
+/// gathered⌋`, and once that is 100 or more and above `99·v` a strike of the poison's damage of
+/// `⌊gathered/100⌋`, keeping the rest of 100; the new gathered and the strike.
+pub fn poison_tick(gathered: u32, value: f32, dt: f32) -> (u32, Option<u32>) {
+    let grown = whole_f64(f64::from(dt) * f64::from(value) * 100.0 + f64::from(gathered));
+    if grown >= 100 && 99.0 * f64::from(value) < f64::from(grown) {
+        (grown % 100, Some((grown / 100).max(1)))
+    } else {
+        (grown, None)
+    }
 }
 
 /// What the sum `sum` of a strike's kinds of damage takes off its defender's health (`0x56B130`):
@@ -3098,6 +3215,81 @@ mod tests {
         // The level raises the attributes by a tenth each: a level-10 wolf's are 15, 19, 34, 24.
         let older = combat(&a_wolf(), 10, Holds::default(), &[], &rules);
         assert!(near(older.attack, 24.5) && near(older.defence, 30.2));
+    }
+
+    #[test]
+    fn a_poison_passing_its_resistance_by_more_than_99_poisons_at_once() {
+        let landed = |p, q, through| Landed {
+            damage: 1,
+            poison: [p, q, through],
+        };
+        let mut rng = Rng::of(50, 39, 0);
+        // 150 against 40: by 110, no roll; the share 3.75, slowing by 18 for 3.75 s, its value a
+        // tenth of the 81.8 let through, 3 gathered at the start.
+        let poison = poisons(&landed(150.0, 40.0, 81.8), &mut rng).expect("poisons");
+        assert_eq!(poison.whole, 18);
+        assert!((poison.value - 8.18).abs() < 1e-5);
+        assert!((poison.seconds - 3.75).abs() < 1e-6);
+        assert_eq!(poison.gathered, 3);
+        // None at or below the resistance, nor against none.
+        assert_eq!(poisons(&landed(40.0, 40.0, 20.0), &mut rng), None);
+        assert_eq!(poisons(&landed(10.0, 40.0, 2.0), &mut rng), None);
+        assert_eq!(poisons(&landed(10.0, 0.0, 10.0), &mut rng), None);
+    }
+
+    #[test]
+    fn a_poison_passing_its_resistance_a_little_poisons_by_a_roll() {
+        let landed = Landed {
+            damage: 1,
+            poison: [60.0, 10.0, 51.0],
+        };
+        // By 50: poisoned where a roll of 1 to 100 falls below 50, about half the strikes.
+        let mut rng = Rng::of(50, 39, 0);
+        let poisoned = (0..2000)
+            .filter(|_| poisons(&landed, &mut rng).is_some())
+            .count();
+        assert!((900..1060).contains(&poisoned), "{poisoned}");
+    }
+
+    #[test]
+    fn a_second_poison_spreads_both_doses_over_the_longer_time() {
+        // 2 for 3 s and 4 for 6 s: 6 + 24 over 6 s, 5.
+        assert_eq!(poison_added((2.0, 3.0), (4.0, 6.0)), (5.0, 6.0));
+        // 4 for 6 s and 2 for 3 s: 24 over 6 s plus 6 over 6 s.
+        assert_eq!(poison_added((4.0, 6.0), (2.0, 3.0)), (5.0, 6.0));
+        assert!(poison_outweighs((2.0, 3.0), (4.0, 6.0)));
+        assert!(!poison_outweighs((4.0, 6.0), (2.0, 3.0)));
+    }
+
+    #[test]
+    fn a_poison_strikes_once_it_has_gathered_a_hundred() {
+        // The value 8 gathers 240 in 0.3 s, not above 99·8; at 960 it strikes for 9, 60 kept:
+        // about once a second, for about its value.
+        assert_eq!(poison_tick(0, 8.0, 0.3), (240, None));
+        assert_eq!(poison_tick(720, 8.0, 0.3), (60, Some(9)));
+        // The value 2 gathers 60 a step: none at 60, 120 and 180, which are not above 99·2;
+        // then 240, a strike of 2, 40 kept.
+        assert_eq!(poison_tick(0, 2.0, 0.3), (60, None));
+        assert_eq!(poison_tick(60, 2.0, 0.3), (120, None));
+        assert_eq!(poison_tick(180, 2.0, 0.3), (40, Some(2)));
+        // A value of 2 that has gathered 150 at once from its key: above 99·2? No, 198 is not.
+        assert_eq!(poison_tick(150, 2.0, 0.0), (150, None));
+    }
+
+    #[test]
+    fn a_strike_that_lands_tells_its_poison() {
+        let rules = Rules::default();
+        let mut attacker = combat(&a_wolf(), 1, Holds::default(), &[], &rules);
+        attacker.damage = [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [30.0, 30.0]];
+        attacker.attack = 1000.0;
+        let mut defender = combat(&a_goblin(), 1, Holds::default(), &[], &rules);
+        defender.resistance = [0.0, 0.0, 0.0, 10.0];
+        defender.damping = [0; KINDS];
+        let mut rng = Rng::of(50, 39, 0);
+        let landed = sure_landed(&attacker, &defender, Blow::default(), &mut rng);
+        // 30 rolled against 10: 30²/40 = 22.5 let through.
+        assert_eq!(landed.poison, [30.0, 10.0, 22.5]);
+        assert_eq!(landed.damage, 23);
     }
 
     #[test]
