@@ -80,6 +80,7 @@ Seen in the original's new games (#448's driver, the stats read): the Seraphim's
 
 Read 2026-10-24 (#844; **confirmed** by code unless marked otherwise).
 The byte `+0x19` of an item's record is the level it asks of its holder, and the byte `+0x14` the least level its maker gives it; neither comes from the file as it is.
+The use's test (`0x5BEB30`) and the tooltip read for #1251 take `+0x14` as the level asked and show `+0x19` as the item's level (docs/re/inventory.md, "Who may use an item"); which reading holds is to be settled in the original.
 As the client loads the item types (`0x425AEB`, which logs `makeSpawnInfo`, gated by the byte `0x949909`, 1 in the image with no store to it; `0x42C370` from `0x433E72` makes the same pass), it clears bit 31 of each record's `+0x04` and calls `0x5D3AB0(record, 0, 0)`, which, the bit clear, works both out anew from the record's values and sets the bit:
 
 - the damage's worth `D`, the mean of the four kinds' least and most summed (`+0x1C` to `+0x2A`), or their most summed where every least is 0 (`0x5D40C8`);
