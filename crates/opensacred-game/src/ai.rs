@@ -8,18 +8,19 @@
 //! the levels sends at the hero, or that has the hero within its reach, comes at it from up to
 //! 800 along a straight line of walkable cells and keeps the band of its reach, where it strikes;
 //! wounded it flees, and too far from home it goes back ([`pursue`],
-//! docs/decisions/2026-10-20-pursuit.md); the second to the fourth of the hero's hostiles beside
-//! the nearest take their places about the hero for a tick; one with a ranged weapon keeps 300
-//! to 800 from the hero and shoots, goes to melee when the hero attacks it from near and takes a
-//! bow again beyond its reach (`npcs::Rearms`, docs/decisions/2026-10-21-archers.md); one that the
-//! test holds back goes dormant again and steps about as one beyond it
-//! (docs/decisions/2026-10-20-idle.md).
+//! docs/decisions/fight.md, "Pursuit's leash, chain and wait"); the second to the fourth of the
+//! hero's hostiles beside the nearest take their places about the hero for a tick; one with a
+//! ranged weapon keeps 300 to 800 from the hero and shoots, goes to melee when the hero attacks it
+//! from near and takes a bow again beyond its reach (`npcs::Rearms`, docs/decisions/fight.md,
+//! "Archers' melee switch and rearming"); one that the test holds back goes dormant again and steps
+//! about as one beyond it.
 //! Without a straight line or a way to the hero, a creature goes for the nearest closed door of
-//! its sector that a hero turned, and opens it ([`open`], docs/decisions/2026-10-21-doors.md).
+//! its sector that a hero turned, and opens it ([`open`], docs/decisions/fight.md, "Doors' measured
+//! points and giving up").
 //! The creatures of hostile sides fight one another (#630): a guard awake attacks the nearest
 //! creature hostile to it within 500, and an idle hostile creature, in one tick of three, takes
 //! for its foe instead of the hero a creature that fights near it; they fight as they fight the
-//! hero, in melee (docs/decisions/2026-10-23-creatures-fight.md).
+//! hero, in melee or at range (#670; docs/re/ai.md, "Foes among the creatures").
 //! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
 //! components, reads the world for them and carries them out: the walks, the strikes, the shots,
 //! the doors, the lines and the turns. They decide at each of the world's ticks alone
@@ -692,7 +693,7 @@ impl Default for FightRules {
 /// or waits for the AI's two steps, as the rules decide (`Mind::ends_strike`, #466).
 /// One that fights a creature, its foe (#630), fights it so, in melee or at range (#670), steered
 /// by the foe alone without places about it; it leaves the fight once its foe is dead or gone
-/// (docs/decisions/2026-10-23-creatures-fight.md).
+/// (**hypothesis**).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1379,7 +1380,8 @@ fn behave(
             continue;
         }
         // At the trader it walked to, it talks once (the sub-states 12 and 13), and stays, where
-        // the original's goes into a house (docs/decisions/2026-10-20-townsfolk.md).
+        // the original's goes into a house (docs/decisions/ai.md, "Townsfolk's traders, doors and
+        // danger").
         if mind.visiting.take().is_some() {
             commands.entity(entity).insert(Talks);
             continue;

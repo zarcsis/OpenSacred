@@ -435,9 +435,8 @@ pub const BEHAVES_WITHIN: f32 = 1_500.0;
 /// townsperson that always rolls 9 and plays its instrument ([`roll`]).
 const JUGGLERS: [u32; 4] = [78, 79, 82, 104];
 const JUGGLER: u32 = 0x1000_0000;
-/// How near a creature other than an animal makes a wild animal flee and a farm animal step
-/// away (800 when it attacks, which the game does not follow yet:
-/// docs/decisions/2026-10-20-animals.md).
+/// How near a creature other than an animal makes a wild animal flee and a farm animal step away
+/// (800 when it attacks, which the game does not follow yet, #1364).
 const FLEE: f32 = 300.0;
 const SHY: f32 = 200.0;
 /// How far from home along an axis brings a wild animal back, within 50 of it.

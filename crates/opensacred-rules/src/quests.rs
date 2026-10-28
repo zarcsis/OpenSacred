@@ -499,7 +499,8 @@ pub fn trigger_function(name: &str) -> Option<(i32, &str)> {
 
 /// A scripts' timer (`SetTimer`, 56, `0x4982D0`; an entry of 0x4C bytes of the calendar's list):
 /// its id, the function it runs, its time in the game's minutes, and the minute it was set, of
-/// the game's minutes elapsed since the new game (docs/decisions/2026-10-25-script-timers.md).
+/// the game's minutes elapsed since the new game (docs/decisions/netscript.md, "Scripts' timers in
+/// elapsed minutes").
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timer {
     pub id: i32,
@@ -587,7 +588,8 @@ pub struct ScriptDrop {
 
 /// The scripts' drops (`SetDrop`, 137, `0x4AFFF0`; docs/re/items.md, "The scripts' drops"), kept
 /// by the creature type and the item in the order they were set, where the client keeps one
-/// entry per creature type (docs/decisions/2026-10-25-script-drops.md, #930).
+/// entry per creature type (docs/decisions/netscript.md, "Scripts' drops per creature and item",
+/// #930).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Drops(Vec<ScriptDrop>);
 

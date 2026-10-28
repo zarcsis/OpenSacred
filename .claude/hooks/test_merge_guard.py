@@ -17,7 +17,7 @@ import merge_guard  # noqa: E402
 
 class Waiting(unittest.TestCase):
     def test_a_decision_does_not_wait(self):
-        self.assertEqual(merge_guard.waiting(['docs/decisions/2026-10-17-hud.md', 'crates/a.rs']), [])
+        self.assertEqual(merge_guard.waiting(['docs/decisions/interface.md', 'crates/a.rs']), [])
 
     def test_claude_md_and_a_skill_do_not_wait(self):
         self.assertEqual(merge_guard.waiting(['CLAUDE.md', '.claude/skills/game/SKILL.md']), [])
@@ -40,10 +40,10 @@ class Refusal(unittest.TestCase):
             return merge_guard.refusal(['7', '--squash', '--auto'])
 
     def test_a_decision_merges(self):
-        self.assertIsNone(self.refusal(['feature'], ['docs/decisions/2026-10-17-hud.md']))
+        self.assertIsNone(self.refusal(['feature'], ['docs/decisions/interface.md']))
 
     def test_a_decision_labeled_for_the_maintainer_waits(self):
-        reason = self.refusal(['needs-maintainer'], ['docs/decisions/2026-10-17-hud.md'])
+        reason = self.refusal(['needs-maintainer'], ['docs/decisions/interface.md'])
         self.assertIn('waits for the maintainer', reason)
 
     def test_claude_md_and_a_skill_merge(self):

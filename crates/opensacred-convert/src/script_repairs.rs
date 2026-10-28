@@ -1,8 +1,9 @@
 //! Repairs of the scripts' data (docs/02 §7.4) that `netscript` makes as it writes the trees.
 //!
-//! - A start script's cell cut short (#723, docs/decisions/2026-10-25-chest-cell.md): a repair
-//!   names its trees and its record by the names in the record and the one after it; a tree it
-//!   names whose start script lacks such a record is left as it is, with a warning.
+//! - A start script's cell cut short (#723, docs/decisions/netscript.md, "Chest 1339's cut patch
+//!   given its cell"): a repair names its trees and its record by the names in the record and the
+//!   one after it; a tree it names whose start script lacks such a record is left as it is, with a
+//!   warning.
 //! - The quests' defects that the community reports (#356; docs/re/netscript.md, "The community's
 //!   quest defects"), the maintainer's decisions of 2026-10-25: an [`Edit`] changes the functions
 //!   of one name in every tree that holds them, a [`Rename`] makes every record that names a

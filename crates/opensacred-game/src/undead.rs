@@ -330,7 +330,7 @@ fn last(
 
 /// The points that a corpse's dust leaves, in the frame of a burst at `origin` (`puffs::local`):
 /// its skeleton's bones (`Bip01 …`), where the original takes its model's skinned vertices
-/// (`0x44FC30`, docs/decisions/2026-10-28-undead-effects.md), else its root.
+/// (`0x44FC30`, docs/decisions/drawing.md, "Undead's dust from the bones"), else its root.
 fn bones(
     corpse: Entity,
     origin: Vec3,

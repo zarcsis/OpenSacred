@@ -49,7 +49,7 @@ pub fn apply(name: &[u8], skeleton: &mut Skeleton, model: &mut Model) -> Outcome
 /// others, so the file's bind pose lies 0.34 units off theirs, while its mesh lies where theirs
 /// lie. The repair gives the skeleton their `Root` and binds the mesh rigidly to `Bip01 Spine3`,
 /// its positions unchanged: worn by bone names, it then sits on the dwarf where its siblings sit
-/// (docs/decisions/2026-10-21-earth-amulet.md).
+/// (docs/decisions/models.md, "Dwarf's earth amulet on the chest").
 const EARTH_AMULET: &[u8] = b"DWARF_AM_ERDE.GRN";
 /// The amulet's mesh and the bone it follows in the file.
 const EARTH_AMULET_MESH: &[u8] = b"Amulett_erd";
@@ -129,7 +129,7 @@ fn earth_amulet(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
 /// units below them, among positions on `Bip01 L Clavicle` and `Bip01 Neck`; worn on the dwarf,
 /// the strap's sides from them stretch up to 22 times in the dwarf's clips (#399, docs/02 §4.6).
 /// The repair weights them wholly on `Bip01 L Clavicle`, the bone of most of the strap's positions
-/// around them (docs/decisions/2026-10-21-cannon-strap.md).
+/// around them (docs/decisions/models.md, "Dwarf's cannon strap on the clavicle").
 const CANNON: &[u8] = b"DWARF_LEATHER_CANNON.GRN";
 const STRAP: &[u8] = b"shoulder_leather01";
 const STRAP_POSITIONS: usize = 43;
@@ -196,7 +196,7 @@ fn cannon_strap(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Str
 /// (#400, docs/02 §4.6). The repair blends the tail into the thighs over two rings of positions
 /// wholly on a thigh: those that share a side with a position wholly on `Bip01 Tail` take 2/3 of
 /// the tail and 1/3 of their thigh, those that share a side with the first ring 1/3 of the tail
-/// (docs/decisions/2026-10-21-dragon-tails.md).
+/// (docs/decisions/models.md, "Large dragons' tails blended into the thighs").
 const DRAGONS: [&[u8]; 8] = [
     b"DRAGON.GRN",
     b"DRAGON_ICE.GRN",

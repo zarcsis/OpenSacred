@@ -73,7 +73,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * The menu: New Game and Quit, in the original's interface font.
   New Game shows the eight classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game (the Vampiress since #790).
   The mouse, or the arrows, Enter and Esc.
-  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/2026-10-19-menus.md): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.png`).
+  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/interface.md, "Menus' scale, keys, text and figures"): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.png`).
   A game that the command line names starts at once, and a screenshot's, a recording's or a benchmark's ends the process when it does not load; any other goes back to the menu.
 * The original's main menu (#1118, docs/re/menus.md): its picture of 12 tiles with the water at its foot, the column of its items in Carolingia, gold, lit under the cursor with a glow and fading in, and the Multiplayer and Extras submenus, a sub-state `Screen { Main, Multiplayer, Extras, Heroes }`; the items' words come from the game's texts (`menu::Words`), and those whose screens the game does not have yet stand greyed and are passed over by the arrows.
   The picture keeps the original's 1024 × 768, scaled to the window's height, black at its sides in a wider window.
@@ -94,7 +94,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 
 * The HUD's portrait, health bar and Walk/Run label go (#168): the health was always full until M3, and the gait is the overlay's now.
   Since #292 the overlay shows the hero's health too; the original's bar and the hero's portrait came back in #1087 (`bar`).
-  The cursor and the interface's scale stay; `docs/decisions/2026-10-17-hud.md` changes with it.
+  The cursor and the interface's scale stay; docs/decisions/interface.md, "Bar, portrait and cursor scaled" changes with it.
   Done 2026-10-19.
 * **The overlay (F3)**, in the upper left, refreshed four times a second in a monospaced font.
   One function gathers its values, which the remote protocol returns too (§8):

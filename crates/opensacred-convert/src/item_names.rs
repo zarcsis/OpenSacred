@@ -1,13 +1,13 @@
 //! Names of the project's own for the item types that `global.res` leaves without one and that a
 //! kill can make (#685, the maintainer's decision of 2026-10-23 on #403;
-//! docs/decisions/2026-10-26-item-names.md): the 300 `Weapon.pak` records whose name's string the
-//! file lacks, each with an `items.pak` slot and listed among the drops of a category that a drop
-//! asks for (docs/re/items.md, "Drops"). The original shows such an item with no name, its
-//! tooltip beginning with its class's line (#685). A name is the class the item is made for, the
-//! word of its family of models and its piece by its category, one name for one model; the
-//! weapons and the shields by their models. And the one more that the scripts drop: the lung of
-//! quest 15072's `SetDrop`. `text` adds each under the hash of its type in decimal (docs/02 §6.2,
-//! §8), unless the file holds it.
+//! docs/decisions/text.md, "Nameless droppable items named"): the 300 `Weapon.pak` records whose
+//! name's string the file lacks, each with an `items.pak` slot and listed among the drops of a
+//! category that a drop asks for (docs/re/items.md, "Drops"). The original shows such an item with
+//! no name, its tooltip beginning with its class's line (#685). A name is the class the item is
+//! made for, the word of its family of models and its piece by its category, one name for one
+//! model; the weapons and the shields by their models. And the one more that the scripts drop: the
+//! lung of quest 15072's `SetDrop`. `text` adds each under the hash of its type in decimal (docs/02
+//! §6.2, §8), unless the file holds it.
 
 /// The types and their names, each with its model.
 pub const ITEM_NAMES: [(u32, &str); NAMES] = [

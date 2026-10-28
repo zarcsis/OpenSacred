@@ -371,10 +371,10 @@ fn path<'s>(skeleton: &Skeleton<'s>, bone: usize) -> Vec<&'s [u8]> {
 /// A bone's name as the converter writes it: the forearms of 176 files, spelled `Bip01 L ForeArm`
 /// and `Bip01 R ForeArm`, take the spelling of the rest, `Forearm`, which the client looks for
 /// first (`0x44C670` tries the other when it is missing; #355,
-/// docs/decisions/2026-10-20-forearm-spelling.md); no skeleton has both. The four instruments'
-/// socket, `Weapon_bone01` or `Weapon_Bone01` (models 0746 to 0749, the only ones that spell it
-/// so), takes the right hand's socket's name of every other item, `Bone_weapon_01` (#353,
-/// docs/decisions/2026-10-20-instrument-socket.md).
+/// docs/decisions/models.md, "Forearms spelled one way"); no skeleton has both. The four
+/// instruments' socket, `Weapon_bone01` or `Weapon_Bone01` (models 0746 to 0749, the only ones that
+/// spell it so), takes the right hand's socket's name of every other item, `Bone_weapon_01` (#353,
+/// docs/decisions/models.md, "Instruments' socket renamed").
 fn bone_name(name: &[u8]) -> &[u8] {
     match name {
         b"Bip01 L ForeArm" => b"Bip01 L Forearm",

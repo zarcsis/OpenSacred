@@ -1,9 +1,9 @@
 //! Repairs of the texts (docs/02 §8) that `text` makes as it writes `global.ftl`, with words of
-//! the project's own (#403, docs/decisions/2026-10-23-text-repairs.md). A repair names its strings
-//! by id and the original's word by its length and SHA-256, never by its wording (docs/08 §3), so
-//! it replaces only the word of 2.28 that it was written for; a string it names that holds no such
-//! word is left as it is, with a warning. A string the file lacks is added under the hash of its
-//! name, unless the file holds it.
+//! the project's own (#403, docs/decisions/text.md, "Text defects mended in the project's words").
+//! A repair names its strings by id and the original's word by its length and SHA-256, never by its
+//! wording (docs/08 §3), so it replaces only the word of 2.28 that it was written for; a string it
+//! names that holds no such word is left as it is, with a warning. A string the file lacks is added
+//! under the hash of its name, unless the file holds it.
 
 use opensacred_formats::text::sacred_hash;
 use sha2::{Digest, Sha256};
@@ -76,9 +76,9 @@ const GOBLIN_GOD: Word = Word {
 
 /// The name of a gamebox, the items 5150 to 5160, in place of the one generic word of 7 units
 /// that their eleven strings hold whole, the record's internal name as well (#686,
-/// docs/decisions/2026-10-25-gamebox-names.md): a name that tells the box by its art, the box of
-/// another game, without naming that game. The string's id is the hash of the item's number
-/// (docs/02 §6.2), and its model is the item's `+0x70`, 953 to 963 in order.
+/// docs/decisions/text.md, "Gameboxes named by their art"): a name that tells the box by its art,
+/// the box of another game, without naming that game. The string's id is the hash of the item's
+/// number (docs/02 §6.2), and its model is the item's `+0x70`, 953 to 963 in order.
 const fn gamebox(ids: &'static [u32], text: &'static str) -> Word {
     Word {
         what: "a gamebox's generic name",
@@ -101,11 +101,11 @@ pub struct Added {
 
 /// The strings that `text` adds: the names of the waters' shoals of fish, the only creatures of a
 /// type without a name that the scripts or the sectors' runner make (#684,
-/// docs/decisions/2026-10-23-fish-names.md), and the lines of the four quest-log keys that the
+/// docs/decisions/text.md, "Fish shoals named"), and the lines of the four quest-log keys that the
 /// scripts' `QuestBook` records name and the file lacks (#687,
-/// docs/decisions/2026-10-25-quest-log-lines.md). The runner makes the fish without a script
-/// (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every creature of
-/// the other such types that they make a name of its own.
+/// docs/decisions/text.md, "Quest log's missing lines written"). The runner makes the fish without
+/// a script (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every
+/// creature of the other such types that they make a name of its own.
 pub const ADDED: [Added; 6] = [
     // `fisc_01.grn`: three small fish and a middle-sized one.
     Added {

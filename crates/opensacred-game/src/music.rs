@@ -28,7 +28,7 @@
 //! music's phase to the ambient loop as the death does; `SetScriptSoundControle` takes the stream
 //! from every other music for 300 s at most (`opensacred_rules::music::Stream::control`), the
 //! death's music and the fanfares too; and the `ExitQuest` of a side quest sounds a fanfare, the
-//! music not dipping under it (docs/decisions/2026-10-27-fanfare-dip.md).
+//! music not dipping under it (docs/decisions/sound.md, "Music kept under a fanfare").
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

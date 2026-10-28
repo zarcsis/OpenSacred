@@ -6,10 +6,9 @@
 //! rolls taken from a [`Dice`].
 //!
 //! The runes come by their own pass (#1183), and the scripts' drops (`SetDrop`) are the game's
-//! (#930). Left out (docs/decisions/2026-10-21-drops.md): the uniques and the set pieces, whose
-//! keys fall back as the original's do where it finds none; the bosses' drops by their type; the
-//! potions of a hero who wears a set; the party's factor of a network game; and the effects 856
-//! and 868.
+//! (#930). Left out (#1367, #1262): the uniques and the set pieces, whose keys fall back as the
+//! original's do where it finds none; the bosses' drops by their type; the potions of a hero who
+//! wears a set; the party's factor of a network game; and the effects 856 and 868.
 
 use std::collections::{HashMap, HashSet};
 

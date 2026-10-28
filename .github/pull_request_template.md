@@ -14,7 +14,7 @@ CI runs fmt, clippy, the tests without the game files, the screenshot test on Me
 
 ## Documents updated
 
-<!-- docs/02 for a fact about a format, docs/re/ for the original's behavior, docs/decisions/ for a deviation (a file of its own), PLAN.md §13 for a closed question; or "none". -->
+<!-- docs/02 for a fact about a format, docs/re/ for the original's behavior, docs/decisions/ for a deviation (a row of its subsystem's table), PLAN.md §13 for a closed question; or "none". -->
 
 ## Rules (docs/08 §3)
 

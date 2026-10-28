@@ -4,7 +4,7 @@
 //! (`0x53A170`); standing, within a hero's reach of 100 and with a straight line of walkable
 //! cells to it (`0x4FCC80`), the hero turns to it and plays its pick-up, taking it once half the
 //! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), every
-//! other item into its pack (docs/decisions/2026-10-26-pickup.md).
+//! other item into its pack, not yet into the hands or the slots (#1088).
 
 use std::time::Duration;
 

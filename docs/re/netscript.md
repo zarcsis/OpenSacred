@@ -103,7 +103,7 @@ It moves the cursor past the name whether or not the name is found.
 A payload that runs past the record end is read from whatever follows the record in the copy buffer.
 In the release, 11 records of type 50 (`TriggerPatch`) end with tag 0x2A and no payload; each names `chestTrigger`, one in the `StartCode.bin` of each of the 9 Underworld trees and of both multiplayer trees.
 The handler of 0x2A reads 12 bytes past the record.
-The converter gives that payload the cell of the chest whose `CreateObj` follows the record (docs/02 §7.1, [docs/decisions/2026-10-25-chest-cell.md](../decisions/2026-10-25-chest-cell.md)).
+The converter gives that payload the cell of the chest whose `CreateObj` follows the record (docs/02 §7.1, docs/decisions/netscript.md, "Chest 1339's cut patch given its cell").
 
 **A creature's place.**
 Read 2026-10-26 (#1046): a position's name that begins with `CPOS:` the reader resolves as it reads the record (`0x474222`, `0x474295`), case aside.
@@ -197,7 +197,7 @@ Read off the client with Ghidra 2026-10-19 (#117), **confirmed** by code unless 
 - `QuestKompassObj` (64, `0x49AC80`) points the quest compass at the named object: the quest log alone.
 
 `opensacred-rules` keeps this state apart from Luau and from the engine (#724, `opensacred_rules::quests`): the quests' flags and the transitions above, each naming the section functions it runs for the scripts' runtime to run and taking its answer; the variables by name, kept to their first 31 bytes and found case aside (since #1054; the start's `Regionchange` and the quests' `RegionChange` are one); and the dialogues' table below, its first entry doubled; all of it serializable for the saves (`quests::Scripts`).
-`opensacred-game` runs the start script and the sectors' functions in Luau on this state since #726 (`scripts`, docs/decisions/2026-10-19-quest-npcs.md): the transitions run their sections in the middle of their records through the runtime (`opensacred_scripts::Handled::Run`, `quests::Quests::step`), `ExitQuest`, `LoseQuest` and `UnTriggerQuest` too since #1242 (a quest of a number found by the quests' files of the tree, `quests/<n>.luau`, **hypothesis** for a quest that has none), and the variables and the tests on them follow "Variables and groups" below.
+`opensacred-game` runs the start script and the sectors' functions in Luau on this state since #726 (`scripts`, docs/decisions/netscript.md, "NPCs sent by scripts walk the hero's way"): the transitions run their sections in the middle of their records through the runtime (`opensacred_scripts::Handled::Run`, `quests::Quests::step`), `ExitQuest`, `LoseQuest` and `UnTriggerQuest` too since #1242 (a quest of a number found by the quests' files of the tree, `quests/<n>.luau`, **hypothesis** for a quest that has none), and the variables and the tests on them follow "Variables and groups" below.
 
 ## Variables and groups
 
@@ -239,7 +239,7 @@ Read off the client with Ghidra and capstone 2026-10-25 (#1002), **confirmed** b
 
 Not read: the quests' hook of the event 5, and what the hero's list at `+0x39C` holds there.
 
-`opensacred-game` runs them since #1002 (`scripts`): the scripts' state keeps the places of `DefPos` and the boxes, the runtime lives on through the play, and as the hero's cell changes on its way (not by a teleport) the trigger of its cell runs its functions, found by their names; their `Teleport`s of the hero put it on the cell and layer they name (docs/decisions/2026-10-26-script-teleports.md).
+`opensacred-game` runs them since #1002 (`scripts`): the scripts' state keeps the places of `DefPos` and the boxes, the runtime lives on through the play, and as the hero's cell changes on its way (not by a teleport) the trigger of its cell runs its functions, found by their names; their `Teleport`s of the hero put it on the cell and layer they name (docs/decisions/netscript.md, "Hero's script teleports land on their cell").
 Since #1014 the `CreateNPC`s and `CreateObj`s that the play's functions run (these, the timers' and the quests' sections) place their creatures and objects as the start's are placed, with the places of their `DefPos`s and their `SetNPCState`s on the creatures they make: at once where their sectors are in the world, else as they come in, kept as an `Init`'s, a creature taking its level as it is made; walking into quest 52's box by (2738, 4290) makes its zombies and its bottle at once, as the original's did (#960).
 In the Seraphim's tree the hero so goes into the caves and the dungeons by their entrances and out by their exits: into 2.3 by 3047,2892 to 4086,83 and out by 4083,83 to 3042,2892.
 
@@ -332,7 +332,7 @@ Read 2026-10-26 (#1021) by the static reading of `Sacred.exe`; **confirmed** by 
 `opensacred-game` follows them since #1021:
 
 - `SetGroupState` (`npcs::Npcs::regroup`, `npcs::GroupState`): `0x51` removes the group's living creatures in the world, nothing dropped and no function run, and keeps those away from it from being placed again; else each member, in the world and away from it, takes the word (`opensacred_rules::ways::grouped_word`), the side (`opensacred_rules::minds::grouped_side`), the dialogue, the sight and death's functions, and away from the world the level.
-  Not followed: the kept bits carried from member to member, `0x60`'s bit and the list's second id taken out (docs/decisions/2026-10-26-group-states.md); the objects 780 and 856 and their events; the key, the quest word, `+0x255`, `+0x2B7` and `+0x200` bit `0x40`; the level of a member in the world.
+  Not followed: the kept bits carried from member to member, `0x60`'s bit and the list's second id taken out (docs/decisions/netscript.md, "Group states without carried bits"); the objects 780 and 856 and their events; the key, the quest word, `+0x255`, `+0x2B7` and `+0x200` bit `0x40`; the level of a member in the world.
 - `DelNPC`: the creatures of the name, in the world and away from it, removed as `0x51` removes them, whatever their resource name; the objects of the name are not followed.
 - `SetOnKill` and `SetOnCollect` (`opensacred_rules::quests::Counts`, `scripts::Live::kill`, `scripts::Live::collect`): a death that is a kill counts its type, but a creature's that its death's function raises, a death at nobody's hands (a `SetHP` of 0, a summoned follower replaced, a lifetime's end: `npcs::Dies::unkilled`) and one of class 5; an item the hero takes counts its type, and one counted goes from the pack among the main quest's items (`pickup::Pack::quest`); the engine's lines of the counts are not followed.
 
@@ -406,7 +406,7 @@ The game follows the talks since #1028 (`npcs::Talk`, `scripts::Live::talk`, `ta
 - A creature's dialogue is its `CreateNPC`'s `0x09`, as its `SetNPCState`s' and `SetGroupState`s' change it (#658, #1021) and a dialogue's `DelDlg` takes it away; without one, its type's of `SetRgnDialog` where it is of the sides and flags above and hostile neither way, found anew at each click (`npcs::Npcs::region_talk`); `Dialog` and the Underworld's generic lines are not followed.
 - A left click on a creature of a dialogue alive near the cursor's line of sight, hostile or not, sends the hero to it on its level, heading for it again as it moves, and the hero's attack passes it over; within 1.5 times their reach the hero stops, both turn to each other and the creature plays its talk (`npcs::Talks`) and stands still while the talk lasts.
 - Its `Dialog:<name>` runs as the runner runs a function, a quest's only while the quest is set up: its `Text`s replace or, with `0x7C`, add to the window's texts, its `SetButton`s give five buttons, its `PlaySound`s play the voice-overs as the window opens, `ExitDlg` and `DelDlg` stop it.
-- A window at the screen's middle shows the creature's name (its key's string), its texts, their `<n>` breaking their lines and their colours' tags left out, and its first four buttons; a button closes it, ends the talk and runs its function, found by its name case aside; one without buttons closes on Enter or a click; and the talk ends where the two stand farther than 1,500 apart or the creature is gone; a dialogue without a text shows no window (docs/decisions/2026-10-26-dialogue-window.md).
+- A window at the screen's middle shows the creature's name (its key's string), its texts, their `<n>` breaking their lines and their colours' tags left out, and its first four buttons; a button closes it, ends the talk and runs its function, found by its name case aside; one without buttons closes on Enter or a click; and the talk ends where the two stand farther than 1,500 apart or the creature is gone; a dialogue without a text shows no window; while it shows, the hero's clicks on the world are held back (docs/decisions/interface.md, "Dialogue window holds back world clicks"), and its look waits for the interface's frames (#1087).
 - Since #1033 a `Popup` begins the hero's own talk of its dialogue, its window without a name, once no window shows (`talk::popups`), and an `InfoPlayer` of the modes 0 to 3 shows its text in orange across the screen's upper part for 5 s, in place of the one before (`talk::notices`; **hypothesis** for the place and the time, the engine's event not read); its sounds and its other modes are not followed.
 - Since #1032 the window shows the creature's portrait at its left, its type's part of a texture of the interface (`tables/portraits.ron`, docs/02 §6.7, `talk::Portraits`); the hero's own talk shows none.
 - Since #1039 a creature of a dialogue or a trade shows its icon over its head (`icons`, `opensacred_rules::quests::icon`, below); the townsfolk's icons under Alt are not followed.
@@ -515,10 +515,10 @@ In both records `0x69`'s number is an area (a sector's `+0xD7`, keyx `+0x2C0`), 
 ### In the Seraphim's tree
 
 - 351 `ReplaceSpawn`s in 15 functions, 327 of them pairs; 24 of one type store nothing (`GoodToBad`'s five of area 6, `belohnung2411`'s and `belohnung2412`'s seven each, `untote_goodie_wueste`'s five), none carries `0x04` or `0x19`, and two have no tag (`Dialog:DlgHologram50`'s and `ElementAbfrage`'s), which make their runs peaceful with the flags word 0 (**hypothesis**: slips of the scripts, their siblings carrying `0x08` and `0x46`).
-  Repaired: both take their siblings' `0x08` and `0x46` (docs/decisions/2026-10-26-world-change-fills.md).
+  Repaired: both take their siblings' `0x08` and `0x46` (docs/decisions/netscript.md, "Area 2's fills turned back after quest 72").
 - 34 `RegionChange`s in 7 functions: `GoodToBad` 14 over 13 areas (4 to 8, 10, 11, 20 to 24, 31), `BadToGood` 13 over the same, `Init55` 3 in area 3, `Init45`, `WillbursTot45`, `feuerrune61` (whose pairs keep each type and only make the creatures hostile) and `untote_goodie_wueste`.
 - `GoodToBad` (from `WillbursTot45`, quest 45) turns the soldiers 279, 286, 288, 295 and 297 of its 13 areas into the hostile 276, 277, 278, 287 and 296 where they stand, but its lists turn none of their later `CreateNPC`s, which carry no `0x6B` of 0 (the tree's one record of `0x6B` 0 is `Help11`'s, of the type 700, which no list holds, and 718 carry 1), and it swaps the same types in the fills of the areas 2, 4, 5, 7, 11 and 24; `BadToGood` (quest 72) turns them back and reverses the lists and the fills of the areas 4 to 7, 11 and 24, so that the area 2's fills stay swapped and the area 6's hostile soldiers turn good though `GoodToBad` never swapped them there (the original's behaviour).
-  Repaired: `BadToGood` turns area 2's fills back too, and the area 6's stay as the original has them (docs/decisions/2026-10-26-world-change-fills.md).
+  Repaired: `BadToGood` turns area 2's fills back too, and the area 6's stay as the original has them (docs/decisions/netscript.md, "Area 2's fills turned back after quest 72").
 - `Init58` (quest 58) makes the fills of the areas 1 and 10 the hostile undead (the skeleton warrior 32 and the types 33, 34, 44, 48, 64, 66, 80 and 81, in place of 23 types) in the guards' mode, for good.
 - `opensacred-game` follows the `ReplaceSpawn`s in the fills of the sectors that come in anew (#55, docs/re/spawning.md), and the `RegionChange` lists in the later `CreateNPC`s of a `0x6B` of 0 (#1063, #1102): the scripts keep the lists by area (`opensacred_rules::quests::AreaTypes`, the host told as each function that runs begins and ends), a play's `CreateNPC` takes the pair of its cell's area as the lists stood when it ran, and an `Enter`'s creature, made again at each coming, the pair of the lists as they stand then (`npcs::Makers::retype`), its model, clips, speeds, values, flags word and side those of the new type; a `SetNPCState`'s side given to such a creature before is not given again.
   In the original, after the driver's `script GoodToBad` at 37,32 (#1100) and a trip to 52,39 and back, the `Enter`s of area 22 made the soldiers 279, 286, 288 and 297 again of their own types, peaceful, the side 7 and the guards' mode `0x4000`, the turned ones destroyed as their sector left (#1103); only `RegionChange`'s change of the creatures that exist turns them, hostile with its record's `0x08`.
@@ -552,7 +552,7 @@ The quests are named by their numbers, the community's names beside them only to
 
 The first three pairs are in all 20 trees, the fourth in the ten Underworld trees and `bin/NetScript`; quest 15080 is in both campaigns' trees and 7630 only in the Underworld's, so the last pair clashes there alone.
 - The defect is the scripts' data, two quests on one creature type, meeting the handler's one entry per creature, which the client makes so; whether the designers expected one quest at a time is a **hypothesis**.
-- `opensacred-game` keeps the scripts' drops by the creature and the item since #930 (docs/decisions/2026-10-25-script-drops.md): with 15015 and 10259 entered, the creatures of the type 38 drop 6005 and 4931 each at its own chance, both from some.
+- `opensacred-game` keeps the scripts' drops by the creature and the item since #930 (docs/decisions/netscript.md, "Scripts' drops per creature and item"): with 15015 and 10259 entered, the creatures of the type 38 drop 6005 and 4931 each at its own chance, both from some.
   No operand of the data keeps both items: a repair of the data could only make the drops come one after the other, and a list keyed by the creature and the item would be the VM's, a departure from the client.
 
 ### `SetTimer`'s minutes and the calendar
@@ -562,7 +562,7 @@ The first three pairs are in all 20 trees, the fourth in the ten Underworld tree
   The scan then starts again from the list's first, so every timer due runs in that minute (read again 2026-10-26, #933).
   The function runs by its name (`0x46BF40`), so only while its quest is set up (`0x46BA90`); an id of `0x10000000` or more names a creature, with which the function runs, after the quests' hook `0x471790` with the event 6.
 - `DelTimer` (57, `0x4985E0`, `0x4177E0`) takes the first timer of its id (`0B`) out, the list's last moved into its place.
-- `opensacred-game` keeps the timers since #933 (`scripts`, `opensacred_rules::quests::Timers`), counting the game's minutes elapsed since the new game rather than the calendar (docs/decisions/2026-10-25-script-timers.md), the rest as above; a `SetTimer` without its time makes no timer.
+- `opensacred-game` keeps the timers since #933 (`scripts`, `opensacred_rules::quests::Timers`), counting the game's minutes elapsed since the new game rather than the calendar (docs/decisions/netscript.md, "Scripts' timers in elapsed minutes"), the rest as above; a `SetTimer` without its time makes no timer.
   So `38` is in minutes of the game's clock: 1,440 a day, 4,320 three days, 10,080 seven (a day of the game an hour of play is docs/re/daynight.md's **hypothesis**).
 - The count takes months of 30 days and years of 12, but the date's carry (`0x416DA0`) makes eleven months of 29 days and the fifth of 34.
   So the count leaps a day ahead at the end of each other month, falls four days behind at the end of the fifth, and 31 days ahead at the end of the year: a timer across such an end runs a day early, four days late, or at once (not yet seen in the running original).
@@ -573,11 +573,11 @@ The quests whose time the community reports:
 - **1202 (Magical Thistle)**: `QIS_OnEnter1202` sets `zeit1202` for 4,320, three days; it sets bit 4 of the variable `1202`, takes the target NPC's health to 0, writes the failure in the log and loses the quest, and the giver's dialogue at bit 2 deletes the timer.
   The giver's start dialogue (`R12NQ02_NPC_Auftrag_Qstart`) states four days, the log's start (`R12NQ02_Log_Qstart`) and the giver's dialogue while the quest is open (`R12NQ02_NPC_Auftrag_Qoffen`) three: the timer agrees with two of the three, and the report is the start dialogue's number.
   The same in the 11 trees that hold the quest.
-  Repaired: the timer runs four days (docs/decisions/2026-10-25-quest-timers.md).
+  Repaired: the timer runs four days (docs/decisions/netscript.md, "Quests 1202 and 1803 timed as stated").
 - **1803 (Kalim-Khor)**: `QIS_OnEnter1803` sets `zeitum1803` for 4,320 where bit 9 of `1803` is set, which `take1803` sets as the item 6068 is picked up before the quest is taken, and for 10,080, seven days, where it is clear, the usual way from the giver; `take1803` does not start it again once the quest is open, and `exit1803` deletes it.
   Only the giver's start dialogue (`R18NQ03_NPC_Auftrag_Qstart`) states a number, three days, so the usual way lasts seven days where three are stated; the report's "about 8" being the seven read loosely, or the count's leap at a month's end, is a **hypothesis**.
   The same in the 11 trees that hold the quest.
-  Repaired: the second timer runs three days (docs/decisions/2026-10-25-quest-timers.md).
+  Repaired: the second timer runs three days (docs/decisions/netscript.md, "Quests 1202 and 1803 timed as stated").
 - **1102 (Compromising Situation)**: `QIS_OnEnter1102` sets `Zeitum1102` for 1,440, one day, which writes the failure in the log, sets bit 3 and loses the quest; `extquest1102` deletes it.
   The giver's start dialogue (`R11aNQ02_NPC_Auftrag_Qstart`) states one day, so the data does not explain a limit of three days never announced, nor can the count's drift, at most four days at the fifth month's end.
   The quest beside it, 1101 (Blackrobes), has a limit that no string of it announces (`QIS_OnEnter1101`, `Zeitum1101` for 1,440); that the report confuses the two, or that a save and a load set the date back, is a **hypothesis**, and the original is to be checked: 1102 taken, the date noted, and `Zeitum1102` seen to run.
@@ -597,44 +597,44 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 
 - **9009 (Whisky Supplier)**: `QIS_OnEnter9009` creates the barrel 17542 (item 6081), whose function `rg22_goodie1_start` (`0x41`) sets bit 25 of `goodies`, and the win is the target's branch on that bit.
   The target's dialogue, `Dialog:rg22_goodie1_ziel`, tests `0x3A` of the barrel 17713 first, which quest 2203 gives as its reward (`exit2203`), and offers to buy it; while the hero carries it the branch of bit 25 is never reached, and selling or drinking it frees it (#935).
-  Repaired: the dialogue tests the win first (docs/decisions/2026-10-25-quests-crossing.md).
+  Repaired: the dialogue tests the win first (docs/decisions/netscript.md, "Crossing quests left able to end").
 - **2203 (Pure Water)**: `Region22Init` creates its six objects (item 6081, `0x41` `obj2203`) and its hostile target 17260 (`0x05` `tot2203`).
   `obj2203` counts the variable `2303a` whatever the quest's state, setting bit 3 of `2203a` at a count of 6, or bit 3 of `2203`, the win, where bit 3 of `2203b` is set; `tot2203` tests bit 3 of `2203a` first, which sets the win, ahead of the branch that triggers the quest where the target is beaten before it is taken.
   So with the objects taken before the quest and the target killed after them, the giver offers the win with the quest never entered: its `QuestBook` lines go nowhere, `ExitQuest` does nothing, and `QIS_OnExit2203` never runs (#936; that the objects can be taken first is unconditioned in the data, not seen in play).
-  Repaired: the branch enters the quest first (docs/decisions/2026-10-25-quest-ends.md).
+  Repaired: the branch enters the quest first (docs/decisions/netscript.md, "Quests 2203, 7619 and 5005 end once").
 - The count `2303a` is also set by `Dialog:ziel2303` (bit 2), a dialogue of R23NQ03, which has no quest file, once: the same branch sets bit 2 of `2303`, which sends the dialogue's next showing elsewhere.
   `SetVarBit` ORs the bit in ("Variables and groups"), so with k of the six objects taken as it runs, the count becomes 4 or 5 for k = 0 or 1 and `obj2203`'s `== 6` holds at the second object; 6 or 7 for k = 2 or 3, with no test run, so that the quest cannot be won; and nothing changes for k = 4 to 6 (#943).
   Nothing reads that bit: the five records of `2303a` in each tree that holds the quest are the start script's `SetVar 0`, `obj2203`'s `IncVar` and two tests, and this `SetVarBit`.
-  Repaired: the dialogue's write goes (docs/decisions/2026-10-25-shared-names.md).
+  Repaired: the dialogue's write goes (docs/decisions/netscript.md, "Quests 2203 and 501 kept apart").
 - The same in the 11 trees that hold the two quests.
 
 ### The log contradicting itself
 
 - **1303 (Goods Messenger)**: `zeit1303`, set for 4,320 minutes by `QIS_OnEnter1303`, writes the failure line and then `NQ_Log_Qend`, the generic completion line, and sets bit 3, on which the giver's branch writes `NQ_Log_Qfail` and loses the quest.
   The target 17177 keeps its dialogue `ziel1303`, which tests nothing: after the failure it still writes `NQ_Log_Qend`, and its button `exit1303` gives the reward and exits the quest that the timer did not lose (#937).
-  Repaired: the timer writes no completion line and takes the target's dialogue away (docs/decisions/2026-10-25-quest-log-records.md).
+  Repaired: the timer writes no completion line and takes the target's dialogue away (docs/decisions/netscript.md, "Five quests' log records mended").
 - **7619 (Death to the Dead)**: `QIS_OnEnter7619` hires its follower 19545 and gives him the death function `od_threepwood_7619`, which writes the failure line, shows the failure and loses the quest, and which nothing takes away.
   `od_7619` runs at each death of the group 761901 and, the whole group dead, shows the completion while the quest stays open until the follower's button `btn_ok_threepwood_7619_c`: his death between the two loses the quest after the completion, and after the button writes the failure line after the win, `LoseQuest` doing nothing to the finished quest (#938; his death as a follower being likely is a **hypothesis**, what `0x39` does to a follower not read).
-  Repaired: the group's death gives him a death function with no records (docs/decisions/2026-10-25-quest-ends.md).
+  Repaired: the group's death gives him a death function with no records (docs/decisions/netscript.md, "Quests 2203, 7619 and 5005 end once").
   The same in the 10 Underworld trees and `bin/NetScript`.
 - **5005 (Pony Express)**: at the last leg the mage 17277 takes the dialogue `dlg_zwischenpe`, whose branch on bit 5 runs `exitpe`; `losepe`, which `timepe` starts 5 minutes after a leg's time runs out, writes the failure lines, loses the quest and removes the stations 17763 to 17766, but does not give the mage his dialogue back, which `exitpe` does (`NPC_Dialog_Magician`).
   So after a failure on the last leg the mage still offers `exitpe`: the win line, `NQ_Log_Qend` and the reward, `ExitQuest` doing nothing to the lost quest (#939).
-  Repaired: `losepe` gives the mage his dialogue back (docs/decisions/2026-10-25-quest-ends.md).
+  Repaired: `losepe` gives the mage his dialogue back (docs/decisions/netscript.md, "Quests 2203, 7619 and 5005 end once").
   The same in all 20 trees.
 - **10255 (Arachnophobia)**: each of its seven spider areas spawns a spider and calls `LoseQuest_10255`, which writes the line `DQ_10255_LOG_LOSE2` and gives the giver the dialogue `dlg_10255_Lost`, but has no `LoseQuest`, so the quest stays entered; its restart (`btn_accept_10255_REstart`) and its win (`btn_ok_10255_sieg`, which exits it) write no line.
   So after one failure the log's last line stays the failure line, even once the quest is won (#940; that the report means this line is a **hypothesis**); under its siblings' names (`DQ_<n>_LOG_SIEG`, as 10258 and 10261 write) the file has no line of its win or restart.
-  Repaired: the restart writes the quest's task again (docs/decisions/2026-10-25-quest-log-records.md).
+  Repaired: the restart writes the quest's task again (docs/decisions/netscript.md, "Five quests' log records mended").
   The same in all 20 trees.
 - **1401 (Ancarian Snow)**: `QIS_OnEnter1401` sets `zeit1401` (the id 1401) for 1,440 minutes, whose one record writes `NQ_Log_Qend`, and only `OMO1401tgilde1401` deletes it: the trigger `tgilde1401` with `0x40` naming 17180, the hero entering the area with him among its followers.
   So a day after the start without that, the log says the quest is completed while it stays open, with no bit, reward or `ExitQuest`; the follower's death (`tot1401`) writes the failure line and leaves the timer running (#941).
-  Repaired: the timer writes nothing (docs/decisions/2026-10-25-quest-log-records.md).
+  Repaired: the timer writes nothing (docs/decisions/netscript.md, "Five quests' log records mended").
   `tot1401`'s `SetTimer` (`hinterhalt1401`) carries two `0x0B`s, 1401 and 4320, and no `0x38`: the id 4320 with a time never set, where 4320 meant as the time, which would have replaced `zeit1401` at his death, is a **hypothesis**.
   The same in the 11 trees.
 - **1001 (Captain Pigface)**: `QIS_OnEnter1001` writes `R10NQ01_Log_Qziel01`, the line of the kill, and points the compass at the target 17041 where bit 20 of `1001` is clear (`0x4A`), as it is while the target's item 6046 is not taken (`take1001` sets it): a quest taken the usual way logs the kill at once while the target lives, and one triggered by the item's taking gets no line of the kill (#942).
-  Repaired: the line is written in the other branch (docs/decisions/2026-10-25-quest-log-records.md).
+  Repaired: the line is written in the other branch (docs/decisions/netscript.md, "Five quests' log records mended").
   The same in the 11 trees.
 - In the 11 trees, quest 1401's soldier 17181 names the death function `attack1401`, which no tree defines, while `attacke1401` is defined and named by nothing; the 13 smugglers of `Region13Init` (the groups 14011 and 14012) name `0x60` `schmugler1402`, while the function is `schmuggler1402` (#944).
-  Repaired: the records name the defined functions (docs/decisions/2026-10-25-script-names.md).
+  Repaired: the records name the defined functions (docs/decisions/netscript.md, "Misspelt function names and a swapped id").
 
 Not read: how the log window shows a quest as completed or failed, by its lines or by its state; and what `0x39` does to a follower; neither was seen in the running original.
 An object's `0x41` function runs as it is picked up ("The log's quest items" below): **seen** 2026-10-27 (#1256), the Seraphim's quest 15001's plant picked up, its `od_15001` gave its giver the dialogue `DLG_15001_ZIEL` (the giver's `+0x245` 181 to 183) and its "!".
@@ -652,28 +652,28 @@ Read 2026-10-25 (#356, a third pass of a subagent of the session, on the Luau of
   At each turn of a creature, a record's flags word other than 0 replaces the creature's (its `0x2000` kept), the side follows only where the creature's hostility to the hero differs from the record's, and each of its 19 items' slots (`0x556F50`) has every pair in order turn the item's type.
 - **301 (Orcs!)**: `Region3Init` creates its farmer 17033 and his daughter 17032 with four cows in the group 3012, in area 3, whose dialogues hold the win once its orcs (the group 301) are dead.
   `Init55`, the start of quest 55 (the button of `Dialog:DlgPrinzValor55`), removes the groups 3012 and 301 with `SetGroupState` `0x51`, testing nothing of 301: an open 301 whose orcs are beaten but whose farmers are not yet spoken to stays entered and cannot be won; with its orcs alive its timer still loses it (#946).
-  Repaired: `Init55` loses 301 and 302 first (docs/decisions/2026-10-25-quests-crossing.md).
+  Repaired: `Init55` loses 301 and 302 first (docs/decisions/netscript.md, "Crossing quests left able to end").
   It removes quest 302's cattle (the group 302) and robbers (3021) too, but not its giver 17029, and 302's ending runs through its death functions `tot302` and `tot2_302`, so an open 302 stays entered, for the removal runs none of them (#656).
   That the community's "start of act 2" means quest 55's start is a **hypothesis**.
 - **501 (Nucquam Astralis)**: `Region5Init` creates its Lady 17070 and Lord 17071 in the group 501, in area 11, through whom both its wins go.
   `NimmtDaemonenhorn`, the end of quest 55 (`Dialog:Cinematic2`), removes the groups 501, 551 and 50013, testing nothing of 501; its ghost 17069 stays, but offers the win only once the group 501 is dead (`tot501`), so an open 501 cannot be won after quest 55, for the removal runs no `tot501` (#947, #656).
-  Repaired: `NimmtDaemonenhorn` loses 501 first, and a new `QIS_OnLose501` writes the failure (docs/decisions/2026-10-25-quests-crossing.md).
+  Repaired: `NimmtDaemonenhorn` loses 501 first, and a new `QIS_OnLose501` writes the failure (docs/decisions/netscript.md, "Crossing quests left able to end").
 - **1702 (Robber Baron)**: `Region17Init` creates its target 17215 hostile (creature 296, with the death function `tot1702`, which drops the item 6065 that the win needs), in area 31.
   `BadToGood`, which only quest 72's `ScriptAnimShareef` calls (The Forge of the Ancestors), has a `RegionChange` of area 31 with the pair (296, 297) and `0x0E`, which makes him a creature 297 of the peaceful side, testing nothing of 1702, so that the item can no longer be won by fighting him (#948).
   This holds where `Region17Init` ran before the forge, as the first sector of the region 17 came near (docs/re/spawning.md, "When the sectors are filled"); of the named `CreateNPC`s of the Seraphim's tree he is the only quest target of area 31 so changed, and `BadToGood` makes the bounty targets 18708 and 18712 of `Kopfgeldauswahl` peaceful too (that it blocks an open bounty is a **hypothesis**).
-  Repaired: after `BadToGood`, 17215 takes back his hostile side (docs/decisions/2026-10-25-quests-crossing.md).
+  Repaired: after `BadToGood`, 17215 takes back his hostile side (docs/decisions/netscript.md, "Crossing quests left able to end").
 - **670 (Glubba-Jar)**: `Init81` takes the dialogue of Glubba 18308 away and his health to 0 only where bit 1 of `670` is clear, which only `QIS_OnEnter670` sets, so he dies only where 670 was never entered: the data leaves no quest taken unfinishable, and the report fits a quest declined or never offered (**hypothesis**).
   But `QIS_OnEnter670` gives him the death function `lose670`, which is empty, so his death as a follower leaves 670 entered with no way to finish (**hypothesis**: that `0x6B` 0 lets him die), and `QIS_OnLose670` writes the completion line on a loss (#950).
-  Repaired: his death loses the quest, and the loss writes the failure line (docs/decisions/2026-10-25-quest-log-records.md).
+  Repaired: his death loses the quest, and the loss writes the failure line (docs/decisions/netscript.md, "Five quests' log records mended").
 - **1202 (Magical Thistle)**: `ok1_602`, the button of quest 602's `Dialog:ziel602` once its knight 17136 is beaten, walks 17136 once, and then names 17163 in its three `NPC_Goto`s, its `Partikel` and its call of `ritterweg_602`, which deletes 17163 (`DelNPC`).
   17163 is quest 1202's target (`Region13Init`, in area 22, some 1,470 cells from the knight), whose dialogue holds 1202's win and then a trade, and nothing in 602 tests 1202: beating the knight before 1202's end deletes its target, and the quest stays entered, neither won nor lost, once its giver has deleted its timer; after its end, the trader is gone (#949).
-  Repaired: the six operands name the knight (docs/decisions/2026-10-25-script-names.md).
+  Repaired: the six operands name the knight (docs/decisions/netscript.md, "Misspelt function names and a swapped id").
   That 17163 is 17136 with two digits swapped is a **hypothesis**: the function's name and its first `NPC_Goto`, which names the knight, support it.
 - The functions above are in the 9 trees of the Sacred campaign (`Init55`, `NimmtDaemonenhorn`, `ScriptAnimShareef`, `Init81`) and the side quests in 11 (those and `netscript`, `addon-netscript`).
 - The group number 5001 is named by quest 501's 13 ghosts (`QIS_OnEnter501`), quest 5002's camp, the seven NPCs 17691 to 17697 that `Region20Enter` and `Region21Enter` make, and quest 5002's test (`od_5002`), attacks (`timer2_5002`, `OMO5002Hinterhalt5002`) and removal (`schatzsucher5002`).
   The groups are global by number ("Variables and groups"), so 5002's test answers alive while any of 501's ghosts lives, anywhere, its removal destroys them, and its attacks send group 5002 at them; nothing else names the group, so 501 itself never counts them.
   `QIS_OnEnter501` also creates again the four ghosts of the group 551 that `Region5Init` made, so `exx501` waits for eight (#951).
-  Repaired: the 13 ghosts take the group 50014 of their own (docs/decisions/2026-10-25-shared-names.md).
+  Repaired: the 13 ghosts take the group 50014 of their own (docs/decisions/netscript.md, "Quests 2203 and 501 kept apart").
 
 Not read: what `0x549080` and the event `0xC` do; none of this was seen in the running original.
 A removal runs no death's function (#656); that a `DelNPC` runs none either is a **hypothesis** (it destroys the creature, `0x463A70`).
@@ -699,10 +699,10 @@ The quests:
   The quest taken first, its unlocks meet a name never seen and are kept for the door that the next `Enter` makes; the cave entered first, the name is kept for a door already destroyed, both unlocks are lost, and the next door is locked (#952; a **hypothesis** where the door's `Enter` runs after the records of the function that teleports, as the 3 × 3 is walked when the view's centre changes, docs/re/spawning.md).
 - **2201 (Spider Monster of Moorbrook)**: the same pattern: its door `R22_NQ1_Tür1` (item 5707) is made by `Sector94054Enter` in the dungeon R22.1b on the trigger 1099 that `Sector94054Init` locks, and its only unlock is the bit-11 branch of `postchange2201`, as the item 6079 is taken from the giver's corpse, on the path that answers the target's dialogue with `change2201`; the path of `nochange2201` is won at the giver without the dungeon, as the community reports declining to avoid the trap (#952).
 - In the Seraphim's tree the scripts unlock by name 38 objects that an `Enter` makes; each meets the same reading where its unlock can run after its sector was entered and left, and only 2411 and 2201 are reported.
-- `opensacred-game` follows `SetObjState`'s bar (`0x06`, `0x07`) and open bit (`0x0F`, `0x10`) since #952 (`npcs`): the object's name finds its trigger among the scripts' `CreateObj`s (`0x29`), and the state goes to the trigger whether the object is in the world or gone with its sector, its door turning where it stands and the next door of that name made in that state (docs/decisions/2026-10-25-stale-object-names.md); with quest 2411 entered away from 38,94, its door's trigger 519 is unbarred.
+- `opensacred-game` follows `SetObjState`'s bar (`0x06`, `0x07`) and open bit (`0x0F`, `0x10`) since #952 (`npcs`): the object's name finds its trigger among the scripts' `CreateObj`s (`0x29`), and the state goes to the trigger whether the object is in the world or gone with its sector, its door turning where it stands and the next door of that name made in that state (docs/decisions/netscript.md, "Object states kept for a gone object's name"); with quest 2411 entered away from 38,94, its door's trigger 519 is unbarred.
 - **2002 (Panem et Circensis)**: the start script sets bit 0 of `2002`, and the building's exit `OMO-1tpraus20.2c` runs `monster2002` where bit 30 is clear and bit 0 set, then sets bit 30 and clears bit 0, testing nothing of the quest.
   Before the quest is taken `2002a` is missing, so `monster2_2002` makes no creature, and Vladimir's `Dialog:auftrag2002` then holds no branch, bits 0 to 4 all clear; only `ja2002` (bit 2) and `neu2002` (quest 5001's dialogue, where bit 1 is set) set bit 0 again, so the quest can never be taken (#953; not seen in the running original).
-  Repaired: the exit runs `monster2002` only once the quest is entered (docs/decisions/2026-10-25-quests-crossing.md).
+  Repaired: the exit runs `monster2002` only once the quest is entered (docs/decisions/netscript.md, "Crossing quests left able to end").
 - **10254 (Abducted)**: `QIS_OnSetUp10254` makes the note (item 4098) with the function `ot_Brief_10254` and no `0x61` or `0x8E`, unlike its sibling 10257's note; the function tests nothing, so each run makes the giver anew with its start dialogue, and accepting makes the pirates.
   The giver's death function loses the quest only once it is entered (`LoseQuest` needs the flag 4), so a giver killed before is replaced by picking the note up again, which the community reports as the way out rather than a trap; the function running at each pickup is **community-reported**, and a second giver of the same name while the first lives a **hypothesis**.
 - **1404 (Rescue of a Noble Lady)**: `QIS_OnEnter1404` gives Zaphod 17190 the death function `tot1404`, which makes the key 17193 (item 6061) at `CPOS:res:17190`, and its `take1404` unlocks the two doors of `Sector38030Enter` in the same sector, so 2411's pattern does not apply; the data does not depend on where he dies.
@@ -710,7 +710,7 @@ The quests:
 - **5003 (H'Runga'zz)**: `preritual5003` sets the trigger `omo_ritualstart5003` and takes the shaman's dialogue away; `OMO5003omo_ritualstart5003` deletes the trigger, teleports `HERO` to `pos_zielwaldgott5003` in sector 15,85, a dungeon by `world.ron`, makes the god there and writes the log's line.
   A mounted hero is not moved, yet the teleport answers success, the trigger is gone, and only the god's death function gives the shaman's dialogue back, so the quest is stuck (#954; that the trigger fires for a mounted hero is **community-reported**).
   `Dialog:dlg_sucher5003`'s decline button names `ablehnen5000`, which no tree defines, while `ablehnen5003` exists and is named by nothing, so a declined seeker keeps bit 2 of `5003`, and a quest later taken from the shaman takes the seeker's branch (#955; that a button naming a missing function does nothing is a **hypothesis**).
-  Repaired: the button names `ablehnen5003` (docs/decisions/2026-10-25-script-names.md).
+  Repaired: the button names `ablehnen5003` (docs/decisions/netscript.md, "Misspelt function names and a swapped id").
 - 2411, 2201, 2002 and 1404 are the same in the 11 trees that hold them; 5003, 10254 and the sectors' functions above in all 20.
 
 To check in the original: 2411's cave entered before the quest and the trigger 519's state; the same for 2201's dungeon before `change2201`; Zaphod killed on the veranda and his key's cell and layer; 5003's altar stepped on mounted.
@@ -737,7 +737,7 @@ Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau o
   - **9006 (The Unknown Warrior)** has no item of its own, and its successor 9007's items 17525 to 17528 are world objects counted by their own function; but with an entry of the key 0, `0x3A` of each holds while it merely lies in the world, so its giver's dialogue takes an item's branch early and deletes with `DelOBJ` an item never taken, which is then never counted (**hypothesis**: that this is the community's "last stage", which its guide does not tie to the riddle, and that `DelOBJ` destroys an object lying in the world).
 - Raven Rock 1.3b reports fixing it in the interpreter, the fix applying as an old save loads (**community-reported**); that the list is saved with the hero is a **hypothesis** that fits it.
 - So the defect is the interpreter's, set off by one record of the data: a repair of the data names the record (`res:4609`, as 402 and 601 name their items) in all 20 trees; a repair of the VM falls back to the type's name key on the `0x61` path, refuses only a repeated type or key, and keeps an entry of the key 0 from answering `0x3A`, which also mends a state that already holds one.
-  Repaired in the data: the record names `res:4609` (docs/decisions/2026-10-25-riddle-item-name.md).
+  Repaired in the data: the record names `res:4609` (docs/decisions/netscript.md, "Quest 10260's vase item named").
 
 The game follows it since #1256: a `CreateObj` of `0x8E` and a type that may be picked up lays a quest's item that the hero picks up as a drop, which goes among the quest's items and runs its `0x41` function (`pickup`, `npcs::QuestItem`); one of `0x61` or `0x62` without `0x8E` gives its item there straight and runs its function, or, inside that very function, lays its object (`scripts`).
 Since #1257 the scripts keep the hero's list of the main quest's items (`opensacred_rules::quests::QuestItems`): a quest's item picked up enters it by its `CreateObj`'s first name (`npcs::Placement`'s key), else by its type's key, an item given straight by the record's first name, else the key 0; an add is refused where an entry has its type or any has the key 0, as the original's; and `0x3A` holds where the hero's list holds the named key, or any entry has the key 0, never for another creature.
@@ -767,10 +767,10 @@ Read 2026-10-25 (#356, a fourth pass of a subagent of the session, on the Luau o
   Taken while bit 2 of `52` is clear, `NimmtWasserflasche52` calls `Init52`, which exits 51 and triggers 52, so that the bottle taken in chapter 1 may start 52 early (**hypothesis**, by the data: the pickup was not reached).
 - **61 (the IceCreek Pass marker)**: its compass is moved only by the 5.7 dungeon's teleports (`OMO-1tpreinHQ_5.7.*`, `OMO-1tprausHQ_5.7.*`) and by `NimmtElementLuft_2`, which sets it to the 5.7.4 mouth by Frostgard (1093, 1750) after `ElementAbfrage`, overriding its compass once the four elements are held (**hypothesis**: one compass a quest, shared by `QuestKompassPos` and `QuestKompassObj`).
   Entering 5.7.4 with bits 6 and 9 of `61` set matches none of its branches, and the exits 5.7.3 and 5.7.4 set the same cell again, so the marker points back at Frostgard's side until the hero leaves by 5.7.1 or 5.7.2 (#958; that this is the report is a **hypothesis**, a strong fit).
-  Repaired: the air's compass yields to the four elements', and the entrance 5.7.4 points the way on for bits 6 and 9 (docs/decisions/2026-10-25-quest-markers.md).
+  Repaired: the air's compass yields to the four elements', and the entrance 5.7.4 points the way on for bits 6 and 9 (docs/decisions/netscript.md, "Quest 61's compass and quest 9006's spawn").
 - **Jacquaire in Braverock (9006)**: Jacquaire 17523 is made at `auftrag_goodie5` (in Braverock) only by `OMO9006rg6_goodie1_waldrand`, where bit 11 of `goodies` is set, the trigger that `rg6_goodie1_start2` places on a 6 × 6 box in region 6 as it exits 9006; a hero who leaves by a portal or another road never makes him, and 9007 and 9011 wait on him (#959).
   The trigger is no region's border, though `Region23Enter`, which teleports him onward and sets 9011 up once 9007 is done, is one; that the box lies on one road of several is a **hypothesis**.
-  Repaired: 9006's end makes him, and the box no longer does (docs/decisions/2026-10-25-quest-markers.md).
+  Repaired: 9006's end makes him, and the box no longer does (docs/decisions/netscript.md, "Quest 61's compass and quest 9006's spawn").
 - Named by no record: the debug functions `goodie5` and `setuptest`; quest 45's `region_change` and 9000's `replace_spawn` name `0x69` 15, the oasis's area, which was not checked.
 
 To check in the original: 7622's target at its cell; 9512's demon at the four cells over several new games; 2404's groups with `creatures` once the quest stalls; the bottle taken in chapter 1; Jacquaire after leaving region 6 without crossing the box.

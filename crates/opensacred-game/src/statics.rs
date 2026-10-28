@@ -17,11 +17,12 @@
 //! one mesh; the animated ones (flag 0x40) show their first frame, still.
 //!
 //! The original blends a sprite by its alpha, after an alpha test (docs/re/drawing.md,
-//! "Blending"). A mesh is drawn twice here (docs/decisions/2026-10-18-sprite-alpha.md): its
-//! opaque texels through the depth buffer, then the others blended over what lies behind them,
-//! with the blended things of its layer (`blended`), its quads far to near. A light source's
-//! miniature (type flag `0x20000`, the lamps) carries a glow, a quad of `PARTICLE_GLOW01` three
-//! times its size about it, which `daynight` shows by night (`0x62FF60`, docs/re/daynight.md).
+//! "Blending"). A mesh is drawn twice here (docs/decisions/drawing.md, "Sprites' opaque and
+//! translucent texels apart"): its opaque texels through the depth buffer, then the others blended
+//! over what lies behind them, with the blended things of its layer (`blended`), its quads far to
+//! near. A light source's miniature (type flag `0x20000`, the lamps) carries a glow, a quad of
+//! `PARTICLE_GLOW01` three times its size about it, which `daynight` shows by night (`0x62FF60`,
+//! docs/re/daynight.md).
 //!
 //! A static of a type that casts a shadow has a quad of a cell of the shadow atlas
 //! (`SHADOW_TREE00`) at its foot, in list 1 or right before its sprite (docs/re/drawing.md, "The

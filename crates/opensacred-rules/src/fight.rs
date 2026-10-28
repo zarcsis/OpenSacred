@@ -395,7 +395,7 @@ impl Bands {
 /// at least 0.04, and 1 for none; above bronze's `LevelKap` the hero's level `H` takes it down by
 /// `(LevelKap/H)²`, from level 100 the decay of a high hero (`0x57E050`), and above the bronze
 /// levels the fade of a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of
-/// the killer ([`experience_with`]), bosses or champions (docs/decisions/2026-10-20-levels.md).
+/// the killer ([`experience_with`]), bosses or champions.
 pub fn experience_of(worth: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
     experience_with(worth, level, hero, rules, 0.0)
 }
@@ -1291,7 +1291,7 @@ impl Templates {
     /// `f = 25 + 2.5·level`; the damage's budget `p = max(S·f/100 + 0.5, 1)` by the scale `S`,
     /// its kinds rolled by their chances, normalised to `p` and split by the spread `w` into a
     /// least and a most; the resistances likewise, unsplit; `A` and `D` by their chances times
-    /// `f`. No magic bonus yet (docs/decisions/2026-10-20-weapons.md).
+    /// `f`. No magic bonus yet (#1367).
     pub fn make<D: Dice>(&self, item: u32, level: u32, rng: &mut D) -> Option<ItemValues> {
         let words = self.of(item)?;
         if words[38] == 29 {
@@ -1728,9 +1728,8 @@ fn quickened(whole: f32, by: f64) -> f32 {
 ///   times it, added and stored as a float in turn; the product of `A` or `D` and its multiplier
 ///   truncated as it is, not stored as a float first.
 ///
-/// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's,
-/// its weapon's unknown (#294; docs/decisions/2026-10-20-hits.md). Without effects
-/// ([`combat_with`]).
+/// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's, its
+/// weapon's unknown (#294). Without effects ([`combat_with`]).
 pub fn combat(
     base: &Base,
     level: u32,
@@ -2601,9 +2600,9 @@ const HORSES_MOST: u32 = 250;
 /// where the scaling keeps it: a horse's at most 250 (`0x4266F0`); any other's at most the
 /// highest level of its sector, `values`, plus bronze's `LevelKap` (0), or that addition alone
 /// where the sector has no highest, 300 for the type 701; at least 1, where the original leaves 0
-/// in a sector without levels (docs/decisions/2026-10-23-level-zero.md). A boss's or a champion's
-/// hold, raised by `LevelUpBoss` or `LevelUpChamp` and none for a big type, is [`Rank::level`]'s:
-/// the setter holds a creature before it is ranked.
+/// in a sector without levels (docs/decisions/fight.md, "Level 1 in sectors without levels"). A
+/// boss's or a champion's hold, raised by `LevelUpBoss` or `LevelUpChamp` and none for a big type,
+/// is [`Rank::level`]'s: the setter holds a creature before it is ranked.
 pub fn held_level(
     level: u32,
     values: Option<&SpawnValues>,
@@ -2684,7 +2683,7 @@ fn played_level(level: u32, minutes: u32, rules: &Rules) -> u32 {
 /// 0 and 3 together being 7 (type 135); raised by its skill 10 before the factors (`skills`,
 /// [`hero_health`], #498); a boss's or a champion's by its rank's factor `rank` ([`Rank::health`])
 /// after the skill and before the 100 for 0 and the level's factor, each taken whole (#579). No
-/// items yet (docs/decisions/2026-10-20-health.md).
+/// items yet (#1365).
 pub fn most_health(
     base: [u8; 6],
     level: u32,

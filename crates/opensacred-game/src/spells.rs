@@ -10,7 +10,7 @@
 //! lightning strikes its target at once; her holy light stands at its point, and her blades of
 //! light and her light go with their bearer, each striking about itself once a second for its
 //! time ([`Aura`]). Their particle systems are stood in for by a flash and translucent discs
-//! (docs/decisions/2026-10-24-bolts-look.md).
+//! (#1092).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;

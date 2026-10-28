@@ -1,9 +1,9 @@
-//! The order of the blended things (docs/decisions/2026-10-18-sprite-alpha.md). Bevy draws them
-//! after the opaque ones, back to front by the centres of their meshes plus their materials'
-//! `depth_bias`. The game's blended meshes span cells to sectors, so their centres say little of
-//! what lies over what; they go in layers instead, in the original's order after the ground: the
-//! objects of the liquid cells, the liquids' surfaces, then the draw lists (docs/re/drawing.md,
-//! "The rows"). Within a layer, the centres order them.
+//! The order of the blended things (docs/decisions/drawing.md, "Sprites' opaque and translucent
+//! texels apart"). Bevy draws them after the opaque ones, back to front by the centres of their
+//! meshes plus their materials' `depth_bias`. The game's blended meshes span cells to sectors, so
+//! their centres say little of what lies over what; they go in layers instead, in the original's
+//! order after the ground: the objects of the liquid cells, the liquids' surfaces, then the draw
+//! lists (docs/re/drawing.md, "The rows"). Within a layer, the centres order them.
 //!
 //! Bevy's own material also moves the depth that it tests by its `depth_bias`; [`Sorted`] keeps
 //! the bias for the order alone, and encodes its colour for the frame (`srgb`).

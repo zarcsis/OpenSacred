@@ -3,8 +3,9 @@
 //! compression, a byte a texel, for the opaque images that the GPU alone samples;
 //! [`Encoding::Rgba8`] keeps the texels as they are, for the images that the game composes or reads
 //! on the CPU and those with a texel of alpha under 255, whose alpha the game reads
-//! (docs/decisions/2026-10-23-textures.md). The converter's `build` writes them ([`write`]); the
-//! game hands them to Bevy's loader, or reads the 8-bit ones itself ([`read`]).
+//! (docs/decisions/drawing.md, "Textures as KTX2 with mipmaps"). The converter's `build` writes
+//! them ([`write`]); the game hands them to Bevy's loader, or reads the 8-bit ones itself
+//! ([`read`]).
 
 use std::io;
 

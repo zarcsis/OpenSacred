@@ -10,7 +10,8 @@
 //! one of them is of a clear water, makes `d = c + 2c·((v + 0.5)³ − 1)` at the listener's volume
 //! `v`, by which three loops play, `WATER_TINY` from 30, `WATER_NORMAL` from 300 and `WATER_BIG`
 //! from 700, each at a volume of the count alone and stopped below its threshold. Their pan is
-//! the true middle of those clear cells' (docs/decisions/2026-10-27-water-sound-place.md).
+//! the true middle of those clear cells' (docs/decisions/sound.md, "Water loops panned by the
+//! water").
 
 use std::collections::HashMap;
 
