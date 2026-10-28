@@ -10,7 +10,7 @@ own default names in the export (`FUN_`, `Unwind@`, `Catch@`, …) are left out.
 Example
   git clone --depth 1 https://github.com/kirides/sacred-bild <dir>/sacred-bild
   git clone --depth 1 https://github.com/bssth/sacred-sdk <dir>/sacred-sdk
-  python3 -I tools/ghidra/community_names.py --community <dir> --out <dir>/community-names.tsv
+  uv run python -I tools/ghidra/community_names.py --community <dir> --out <dir>/community-names.tsv
 
 Expected output (2026-10-19): "193 sacred-bild names, 76 sacred-sdk names, 266 addresses".
 Dependencies: standard library.

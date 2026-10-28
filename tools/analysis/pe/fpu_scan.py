@@ -11,8 +11,8 @@ Purpose (docs/01 §7: x87 precision, rounding, random numbers, hero data protect
   4. VirtualProtect call sites with recovered push arguments (lpAddress, dwSize, flNewProtect) and section.
 
 Examples
-  python3 -I tools/analysis/pe/fpu_scan.py OriginalGame/Sacred.exe --game-end 0x7F1000
-  python3 -I tools/analysis/pe/fpu_scan.py OriginalGame/GameServer.exe --game-end 0x4E1000
+  uv run python -I tools/analysis/pe/fpu_scan.py OriginalGame/Sacred.exe --game-end 0x7F1000
+  uv run python -I tools/analysis/pe/fpu_scan.py OriginalGame/GameServer.exe --game-end 0x4E1000
 
 Expected output (client): 3 _controlfp(_PC_24) sites in the main thread, 2,816 _ftol calls, 0x343FD/0x269EC3
 in CRT rand(), 72 VirtualProtect sites in one function (anti-cheat page). A full disassembly of the client takes ~1–3 min.

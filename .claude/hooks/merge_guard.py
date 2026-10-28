@@ -11,7 +11,7 @@ pull request that cannot be looked up is refused too. Other commands pass untouc
 (`gh api`, the web interface) are not seen; they are left to the rules in CLAUDE.md.
 
 Example (the hook input is JSON on stdin)
-  echo '{"tool_input": {"command": "gh pr merge 7 --squash --auto"}}' | python -I .claude/hooks/merge_guard.py
+  echo '{"tool_input": {"command": "gh pr merge 7 --squash --auto"}}' | uv run python -I .claude/hooks/merge_guard.py
 
 Dependencies: standard library, gh.
 """

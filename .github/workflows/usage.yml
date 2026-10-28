@@ -27,6 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # The repository's Python is uv's (docs/03 §2); the badge needs only the standard library, so --no-project
+      # installs none of the packages of pyproject.toml. The action publishes no major tag since v8, only releases.
+      - uses: astral-sh/setup-uv@v10.3.3
       - name: Sum the usage
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           gh pr list --state all --author "$OWNER" --limit 10000 --json number,title,body > "$RUNNER_TEMP/prs.json"
-          python3 -I tools/usage/usage_badge.py "$RUNNER_TEMP/prs.json" \
+          uv run --no-project python -I tools/usage/usage_badge.py "$RUNNER_TEMP/prs.json" \
             --badge "$RUNNER_TEMP/usage.json" --summary "$GITHUB_STEP_SUMMARY"
       - name: Publish on the branch badges
         run: |

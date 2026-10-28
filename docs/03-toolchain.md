@@ -20,7 +20,8 @@
 | | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session (§3.2) |
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
-| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1; packages in `tools/requirements.txt` | open source | research scripts in `tools/analysis/` |
+| | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1, uv's own; packages in `pyproject.toml`, their versions in `uv.lock` | open source | research scripts in `tools/analysis/` |
+| | uv | 0.13.6 | MIT or Apache-2.0 | the repository's Python: the interpreter and the packages of its own in `.venv/` for `tools/`, the hooks and the cross-check tests (§2); pyghidra-mcp (§3.2) |
 | Behavior references | Unicorn | 2.x, crate `unicorn-engine` 2.1.5 (x86 alone) | GPL-2.0, development only | `opensacred-oracle` (#363), a separate development-only crate run locally on your own `Sacred.exe`, the emulator behind its feature `emulator`: the original's functions in the emulator → vectors for tests (§3.4) |
 | | Frida | 17.24.3 (the Python package `frida`) | wxWindows Library Licence 3.1, development only | `tools/original/` (#448): a Python host and a JavaScript agent that drive your own running `Sacred.exe` in the background for Claude Code, its state, input, commands, traces and frames (§3.8) |
 | | x64dbg | 2026.05.27 | GPL-3.0 | breakpoints in the original on Windows 11 (`x32dbg` for the 32-bit `Sacred.exe`), testing hypotheses |
@@ -56,7 +57,7 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
   WSL2 with Ubuntu is for builds and tests on Linux.
 * **GPU:** with a Vulkan 1.3 or newer driver; a mid-range graphics card for 4K tests.
 * **Disk:** ≈3 GB for the GOG installation; ≈5–10 GB for the generated `assets/` (estimate); HD packs separately, up to tens of GB.
-* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; Python 3.15 for the research scripts; Ghidra 12.2 with JDK 25; uv for pyghidra-mcp (§3.2); x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
+* **Setup (Windows):** Rust through rustup; Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK; Git; CMake, with which the game's build compiles libopus (#701); your own GOG installation in `OriginalGame/` (§1); FFmpeg, which the converter's `models`, `sound`, `video`, `build` and `all` run; glTF-Validator; uv, which brings the repository's Python (below) and runs pyghidra-mcp (§3.2); Ghidra 12.2 with JDK 25; x64dbg; Vulkan SDK; Blender; for the oracle's emulator (§3.4), CMake, Ninja and libclang (the Build Tools component "C++ Clang tools for Windows", a standalone LLVM, or `LIBCLANG_PATH` naming a directory with `libclang.dll`).
 * **The JDK for Ghidra is 25 LTS (Temurin).**
   Ghidra 12.2 requires a 64-bit JDK of version 25 or later (`application.java.min=25`, no upper bound); 12.1 still accepted 21.
   We do not use non-LTS JDKs (26, 27): Ghidra has not been tested on them.
@@ -72,6 +73,11 @@ Nothing from it, and nothing converted from it, is ever committed (docs/08 §3, 
 * **Tools outside `PATH`** (this is how their installers set them up): Blender at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe`, RenderDoc at `C:\Program Files\RenderDoc\`, x64dbg (above).
   The Vulkan SDK's `vulkaninfo` is named `vulkaninfoSDK.exe`; the program of the same name in `PATH` is an old version from the driver.
   glTF-Validator is installed manually from the `KhronosGroup/glTF-Validator` releases into `~/.local/bin`.
+* **The repository's Python is uv's, not the system's** (#1374): `uv` from winget (`winget install --id astral-sh.uv --exact`) is the one thing to install.
+  `pyproject.toml` at the root names the packages of `tools/` (not a package itself), `uv.lock` their versions and `.python-version` the minor version of Python, 3.15; `python-preference = "only-managed"` makes uv take its own interpreter, which it downloads on first use, and never one installed on the system.
+  `uv run python -I <script>` runs a script on them: the first run in a checkout or a worktree makes its `.venv/` (ignored by Git) from uv's cache, which took 0.2 s on 2026-10-28, and every run brings it to `uv.lock`; `uv sync` does the same alone.
+  The hooks (§3.4) and the usage badge's workflow need only the standard library, so they run with `uv run --no-project python -I`, which installs no package: on 2026-10-28 `uv run python -I -c pass` took ≈55 ms against ≈110 ms of the system's `python` through the alias of the Python install manager.
+  `uv python upgrade` moves uv's interpreter to the newest patch release of its minor version, and the environments follow it; another interpreter for a run is `UV_PYTHON`.
 * **Not every tool is needed from the start:** Ghidra and the MCP server were set up on 2026-10-18, ahead of M3; KTX-Software is optional, as `build` writes the KTX2 files itself (#700), though its `ktx info` shows one; the upscalers come with M7.
 
 ```powershell
@@ -153,13 +159,14 @@ The Ghidra project, the decompilation and anything exported from it stay on the 
 | Recover a rule | the original's function in the local Ghidra project | a description of the behavior in `docs/re/`, oracle vectors, an independent implementation in `opensacred-rules` (the game's rules with no engine, its modules in `CLAUDE.md`'s workspace table, #364) | the vectors pass; clippy without warnings |
 | Implement a system | notes in `docs/re/`, data from `assets/` | code in `opensacred-game` or `opensacred-rules` | snapshot and screenshot tests; a manual check in the game |
 | Migrate Bevy | the migration guide | an updated `opensacred-game` | everything builds, tests and screenshots match |
-| Update dependencies | `cargo update` | a new `Cargo.lock` | CI is green, `cargo deny check` reports no violations |
+| Update dependencies | `cargo update`, `uv lock --upgrade` | a new `Cargo.lock` and `uv.lock` | CI is green, `cargo deny check` reports no violations |
 
 Size rule: one task is one finished result, verifiable by a test, of 1–4 agent-hours.
 Large systems are cut into such tasks in the milestone plan.
 
 Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is the open issues (§3.6).
-Once a day the maintainer's first session starts with `cargo update` in a pull request of its own, and opens a `deps` issue for each newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order").
+Once a day the maintainer's first session starts with `cargo update` and `uv lock --upgrade` in a pull request of its own, and opens a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order").
+The Python packages are bounded in `pyproject.toml` as Cargo bounds the crates, below by the version taken and above by the next major release, so that `uv lock --upgrade` takes only the compatible ones; `uv tree --outdated --depth 1` shows the newest release of each.
 Updating often keeps each step small.
 A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls back to the last cache of `main` and cargo rebuilds only the packages that changed (1.5 minutes on 2026-10-17 for a bump that Linux does not compile, against 15 for a cold build); once a day bounds those rebuilds and the cache entries that each new `Cargo.lock` leaves.
 
@@ -172,7 +179,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
 * **Merge guard** (`.claude/hooks/merge_guard.py`, a `PreToolUse` hook on shell commands): `gh pr merge` is refused when the pull request is labeled `needs-maintainer`, touches the guardrails (`.claude/hooks/`, `.claude/settings.json`, `.claude/settings.local.json`), `.github/`, `deny.toml`, the README of `docs/decisions/` or a screenshot reference, or was opened by someone other than the repository's owner; `--admin` is refused always (§3.6).
   A decision (a row of a subsystem's table in `docs/decisions/`, added, changed or removed), `CLAUDE.md` or the rest of `.claude/` (the skills) does not stop the merge.
   Whether the change waits for the maintainer instead (§3.6) the guard cannot judge: Claude Code labels such a pull request `needs-maintainer`, and the guard refuses it by the label.
-  Tests: `python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
+  Tests: `uv run python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
 * **Converter golden data (planned):** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
   Today the readers are cross-checked against the Python prototypes of `tools/analysis/` and the counts of docs/02, in the tests that need the game files.
 * **Oracle vectors (#363):** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
@@ -254,7 +261,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * **Usage.**
   Every pull request's description ends with its Claude Code usage, written by `tools/usage/pr_usage.py` after `gh pr create` and again when the work on it is over (§3.5, `docs/usage.md`).
   Until 2026-10-17 a session's usage went into a row of `docs/usage.md` through a pull request of its own; that cost a CI run and a commit on `main` each time, and a session is not a unit of work.
-* **Without an issue:** the daily `Dependencies: cargo update` pull request (`Cargo.lock` alone, label `deps`), auto-merged.
+* **Without an issue:** the daily `Dependencies: cargo update` pull request (`Cargo.lock` and `uv.lock` alone, label `deps`), auto-merged.
 * **Protection.**
   A ruleset on `main` for everyone, the repository's administrators included: changes only through a pull request, with the Linux, Windows and cargo deny checks green; no force pushes, no deletion.
   There is no bypass, so the `cargo update` pull request goes the same way.
@@ -273,23 +280,23 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   ```bash
   cargo run --release -p opensacred-game -- --remote --hidden --no-music \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log      # from a worktree also --assets ../../../assets
-  python -I tools/game/remote.py wait-state menu
-  python -I tools/game/remote.py exec "new-game --class mage"
-  python -I tools/game/remote.py wait-ready
-  python -I tools/game/remote.py exec "go +6,+2"          # or: click X Y, key R, key Escape, type "…"
-  python -I tools/game/remote.py screenshot <scratch>/shot.png
-  python -I tools/game/remote.py state
-  python -I tools/game/remote.py logs --after 0
-  python -I tools/game/remote.py exec quit
+  uv run python -I tools/game/remote.py wait-state menu
+  uv run python -I tools/game/remote.py exec "new-game --class mage"
+  uv run python -I tools/game/remote.py wait-ready
+  uv run python -I tools/game/remote.py exec "go +6,+2"          # or: click X Y, key R, key Escape, type "…"
+  uv run python -I tools/game/remote.py screenshot <scratch>/shot.png
+  uv run python -I tools/game/remote.py state
+  uv run python -I tools/game/remote.py logs --after 0
+  uv run python -I tools/game/remote.py exec quit
   ```
 
 * The keys and clicks go to the game through the protocol: posted to the window from outside, a click loses its cursor at once (the system reports the cursor leaving the window it is not over), and moving the system's cursor would take the maintainer's.
 * A run with nothing to wait on needs no server: `--exec "new-game --class mage; wait ready; screenshot <scratch>/shot.png; quit"` or `--script FILE` (docs/10 §6).
-* By hand, `python -I tools/game/remote.py shell` reads lines in a terminal (#550): a line is a command of the game, one starting with `:` a call of the client (`:state`, `:click X Y`, `:screenshot FILE`, `:logs`, `:follow on`, `:help`), and `:quit` ends the shell and leaves the game running.
+* By hand, `uv run python -I tools/game/remote.py shell` reads lines in a terminal (#550): a line is a command of the game, one starting with `:` a call of the client (`:state`, `:click X Y`, `:screenshot FILE`, `:logs`, `:follow on`, `:help`), and `:quit` ends the shell and leaves the game running.
   An error ends the line rather than the shell, and lines piped in run as a script; with `--port 15703` it drives the original (§3.8).
-* With both games running in a game, `python -I tools/game/compare.py X,Y …` (#574) puts each hero onto each cell and compares their creatures within a radius (`--radius`, 15): it pairs them by type and nearest cell (`--pair`, 3) and prints the pairs whose level, most health, hostility or rank differ, then each game's creatures without a pair; `--level` and `--time` set both heroes and clocks first, `--cells-file` reads the cells from a file.
+* With both games running in a game, `uv run python -I tools/game/compare.py X,Y …` (#574) puts each hero onto each cell and compares their creatures within a radius (`--radius`, 15): it pairs them by type and nearest cell (`--pair`, 3) and prints the pairs whose level, most health, hostility or rank differ, then each game's creatures without a pair; `--level` and `--time` set both heroes and clocks first, `--cells-file` reads the cells from a file.
   `compare.py stats --types T,… --levels L,…` (#587) makes each type at each level in both beside their heroes (`spawn … --peaceful --immortal`) and compares their `stats`: the most health, `A`, `D`, the damages, the resistances and the attack speed, the original's raw values taken through their multipliers as its attack record takes them: the driver prints each float exactly, the product of two is the x87 unit's at its 53 bits, and the whole values (the most health, `A`, `D`, the attack speed) must agree to the game's one decimal (#589; the floats rounded to thousandths made `A` and `D` one off).
-  `python -I tools/game/conformance.py` (#600) runs the checks as a suite with PASS or FAIL each and a non-zero exit on a failure: the experience of kills for a hero of level 1 and 30 (`experience`), the hero's values at the levels 1, 10 and 30 (`hero`), common creature types at four levels (`stats`), the shares of 1,000 drops by category (`drops`), and the scripts' creatures where they stand, the guards of 52,39 and the stable of 64,41 (`places`, #606), and the health regained per second of world time from 1 (`heal --to 1`) by a creature and by the hero alone and in a fight (`regeneration`, #609), and a goblin's strikes at the hero over 60 s, their pace, the share that lands and the damage (`strikes`, #609, which needs the game's log of `opensacred_game::fight` at `debug`: `RUST_LOG=info,opensacred_game::fight=debug`), the arts' times after a use and the rate of their regeneration (`arts`, #623), and the hero's run of 9 cells and back, its pace and its time from the first step to the stop (`movement`, #632); it starts both games afresh (`new-game`, and the original's `load` of a save of the Seraphim's new game, `--save`).
+  `uv run python -I tools/game/conformance.py` (#600) runs the checks as a suite with PASS or FAIL each and a non-zero exit on a failure: the experience of kills for a hero of level 1 and 30 (`experience`), the hero's values at the levels 1, 10 and 30 (`hero`), common creature types at four levels (`stats`), the shares of 1,000 drops by category (`drops`), and the scripts' creatures where they stand, the guards of 52,39 and the stable of 64,41 (`places`, #606), and the health regained per second of world time from 1 (`heal --to 1`) by a creature and by the hero alone and in a fight (`regeneration`, #609), and a goblin's strikes at the hero over 60 s, their pace, the share that lands and the damage (`strikes`, #609, which needs the game's log of `opensacred_game::fight` at `debug`: `RUST_LOG=info,opensacred_game::fight=debug`), the arts' times after a use and the rate of their regeneration (`arts`, #623), and the hero's run of 9 cells and back, its pace and its time from the first step to the stop (`movement`, #632); it starts both games afresh (`new-game`, and the original's `load` of a save of the Seraphim's new game, `--save`).
   The game reads `assets/`, so after a change of the converter `opensacred-convert all` comes first: a `heroes.ron` of before #604 holds no arts, and `arts` then fails (#623).
   The original makes a sector's `Enter` creatures again when the sector comes back into the view after a teleport, beside the ones kept (#227's item 10), so after a jump away and back its list holds such pairs on one cell; a fresh load before a cell avoids them.
 * Screenshots and logs taken this way show the converted assets: they stay local, but for a frame of a problem, cropped to it, which its issue or pull request carries as an attachment (`gh … --attach`; docs/08 §3, #1222).
@@ -301,34 +308,34 @@ The host, its guards, the frames and the process's state are in place (#449), th
 The project skill `original` says how to run it.
 
 ```bash
-python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
-python -I tools/game/remote.py --port 15703 wait-state menu
-python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"   # or: exec "load start-seraphim"
-python -I tools/game/remote.py --port 15703 wait-ready
-python -I tools/game/remote.py --port 15703 click 720 480            # or: key Escape, key L, type "…", wheel 1
-python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
-python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
-python -I tools/game/remote.py --port 15703 exec "cell-info +1,0"     # a cell's ground and floors, the hero's by default
-python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
-python -I tools/game/remote.py --port 15703 exec "ui press UI_WND_TASKBAR UI_TB_INVENTORY"   # ui lists the windows
-python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500, pause
-python -I tools/game/remote.py --port 15703 exec "arts learn 1071 2"  # or: arts, arts ready, arts use 1071
-python -I tools/game/remote.py --port 15703 exec "spawn 76 --count 3"   # or: kill 10, drop 20, item 5171
-python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
-python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
-python -I tools/game/remote.py --port 15703 shell                    # by hand: a command a line, ":help" the client's own
-python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
-python -I tools/game/remote.py --port 15703 logs --after 0
-python -I tools/game/remote.py --port 15703 exec quit
+uv run python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
+uv run python -I tools/game/remote.py --port 15703 wait-state menu
+uv run python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"   # or: exec "load start-seraphim"
+uv run python -I tools/game/remote.py --port 15703 wait-ready
+uv run python -I tools/game/remote.py --port 15703 click 720 480            # or: key Escape, key L, type "…", wheel 1
+uv run python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
+uv run python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
+uv run python -I tools/game/remote.py --port 15703 exec "cell-info +1,0"     # a cell's ground and floors, the hero's by default
+uv run python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
+uv run python -I tools/game/remote.py --port 15703 exec "ui press UI_WND_TASKBAR UI_TB_INVENTORY"   # ui lists the windows
+uv run python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500, pause
+uv run python -I tools/game/remote.py --port 15703 exec "arts learn 1071 2"  # or: arts, arts ready, arts use 1071
+uv run python -I tools/game/remote.py --port 15703 exec "spawn 76 --count 3"   # or: kill 10, drop 20, item 5171
+uv run python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
+uv run python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
+uv run python -I tools/game/remote.py --port 15703 shell                    # by hand: a command a line, ":help" the client's own
+uv run python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
+uv run python -I tools/game/remote.py --port 15703 logs --after 0
+uv run python -I tools/game/remote.py --port 15703 exec quit
 ```
 
-The maintainer plays the original themselves with `python -I tools/original/host.py --interactive` (#551, below): full screen on the primary monitor (`--monitor N` for another), the commands at hand from a terminal through `remote.py --port 15703 shell`.
+The maintainer plays the original themselves with `uv run python -I tools/original/host.py --interactive` (#551, below): full screen on the primary monitor (`--monitor N` for another), the commands at hand from a terminal through `remote.py --port 15703 shell`.
 
 The maintainer's decisions of 2026-10-21:
 
 * **Frida, not a Rust crate.**
   A Python host (`tools/original/host.py`) and a JavaScript agent (`tools/original/agent.js`) that Frida loads into the game's process: the agent hooks the original's functions and calls them by address, and reads its memory by offset, with no `unsafe`, no 32-bit Rust target and no build step.
-  `frida` joins `tools/requirements.txt`; the tool runs locally, never in CI or a release.
+  `frida` joins the packages of `pyproject.toml`; the tool runs locally, never in CI or a release.
 * **In place, in `OriginalGame/`.**
   The game may overwrite every file it writes itself (`Settings.cfg`, `save/`, `Capture/`, `DEBUG.LOG`, `ExpLog.LOG`, the `DefPos.bin` caches), never one of the manifest, so `verify` and the oracle's check stay green.
   Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, 1 in the maintainer's play; `SHOWMOVIE : 0`; the three volumes 0) and nothing else.

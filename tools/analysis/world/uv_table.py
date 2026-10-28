@@ -8,7 +8,7 @@ Purpose (docs/02 §5.4: 18 diamonds per 256² sheet).
 Vertex order as in renderTileRow: v0 left, v1 top, v2 bottom, v3 right.
 
 Example
-  python3 -I tools/analysis/world/uv_table.py --out /tmp/analysis/geom [--sheet /tmp/analysis/iso_sheet.png]
+  uv run python -I tools/analysis/world/uv_table.py --out /tmp/analysis/geom [--sheet /tmp/analysis/iso_sheet.png]
 
 Output: <out>/uv_table.txt, <out>/uv_layout_synthetic.png, and with --sheet <out>/uv_layout_on_sheet.png. Needs no game
 input files. Dependencies: numpy, pillow.

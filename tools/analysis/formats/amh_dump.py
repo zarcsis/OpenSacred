@@ -26,12 +26,12 @@ Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 202
            (docs/re/arts.md); in a template the section is 1881 bytes for two arts and 22 more for each further one
 
 Example
-  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --rows /tmp/amh.tsv
-  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves
-  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --items /tmp/amh-items.tsv
-  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --arts /tmp/amh-arts.tsv
-  python3 -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --backpack /tmp/amh-backpack.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --rows /tmp/amh.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --saves
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --items /tmp/amh-items.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --arts /tmp/amh-arts.tsv
+  uv run python -I tools/analysis/formats/amh_dump.py --game-dir ./OriginalGame --backpack /tmp/amh-backpack.tsv
 
 Expected output (2.28): every check passes on all of its items; 8 files, 64 sections (with --saves on a clean
 installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts

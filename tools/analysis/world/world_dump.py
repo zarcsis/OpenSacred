@@ -47,12 +47,12 @@ on the GOG files on 2026-10-17.
            holds its grid (0x634C50). 1245 buildings, of 1 to 4 floors; 1868 of the 1870 inside layers are floors.
 
 Example
-  python3 -I tools/analysis/world/world_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/world/world_dump.py --game-dir ./OriginalGame --records /tmp/analysis/world_sectors.tsv
+  uv run python -I tools/analysis/world/world_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/world/world_dump.py --game-dir ./OriginalGame --records /tmp/analysis/world_sectors.tsv
 
 Expected output (2.28): "keyx: WLK v5, 6050 sectors, grid 100 x 100"; every check passes on all of its items
 ("sector: inflated size; the cells end inside the stream: 6050/6050"); statistics follow. --records writes one
-tab-separated row per sector (columns in RECORD_COLUMNS). Dependencies: numpy (tools/requirements.txt).
+tab-separated row per sector (columns in RECORD_COLUMNS). Dependencies: numpy (pyproject.toml).
 """
 import argparse
 import collections

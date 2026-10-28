@@ -35,7 +35,7 @@ It is not a game you can play through yet: the inventory is partly made, and the
 - **CMake** in `PATH`: the game's build compiles libopus with it.
 - **FFmpeg** in `PATH`: the converter runs it for the sound, the videos and a few textures.
 - **Cargo tools** for development: `cargo install cargo-nextest cargo-deny`.
-- **Python 3.15** (optional): only for the research scripts in [tools/](tools/README.md) and the tests that cross-check against them; `pip install -r tools/requirements.txt`.
+- **[uv](https://docs.astral.sh/uv/)** for the Python tools in [tools/](tools/README.md), the Claude Code hooks and the tests that cross-check against the research scripts: it installs Python 3.15 and the packages of [pyproject.toml](pyproject.toml) for the project alone, never into the system's Python; `uv run python -I <script>`.
 
 The full tool list is in [docs/03-toolchain.md](docs/03-toolchain.md).
 
@@ -83,7 +83,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check                                    # licenses, advisories, sources
 ```
 
-Tests that need the game files are marked `#[ignore]`: CI does not have them. Cross-check tests run the interpreter from the `PYTHON` environment variable (default `python` on Windows, `python3` elsewhere).
+Tests that need the game files are marked `#[ignore]`: CI does not have them. Cross-check tests run the research scripts through `uv run python -I`.
 
 ## Documentation
 

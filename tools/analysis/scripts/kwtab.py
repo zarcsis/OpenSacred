@@ -14,8 +14,8 @@ Purpose (docs/02 §7.3; docs/re/netscript.md, "Keyword resolvers of the compiler
 .data (file offset 0x54CE78). The .text section is not read.
 
 Examples
-  python3 -I tools/analysis/scripts/kwtab.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/scripts/kwtab.py --game-dir ./OriginalGame --names /path/opcode-names.tsv
+  uv run python -I tools/analysis/scripts/kwtab.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/scripts/kwtab.py --game-dir ./OriginalGame --names /path/opcode-names.tsv
 
 Expected output: "anchor offsets: [...]", "pointer hits: []" for each anchor, then "N strings between 0x54cb78
 and 0x54d778" and lines "offset<TAB>name<TAB>op=...". Dependencies: pefile.

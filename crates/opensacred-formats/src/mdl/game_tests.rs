@@ -138,7 +138,7 @@ fn model_paks_match_docs() {
 /// Every record of both paks against the `--records` table of `grn_dump.py`: kind, name, bounds
 /// of the GRN file, flags, and the motion slots and the scale of models.
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn records_match_grn_dump_py() {
     let out = scratch_dir("grn-dump");
     let table = out.join("records.tsv");

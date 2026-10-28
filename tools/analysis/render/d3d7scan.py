@@ -10,7 +10,7 @@ the slot table; false positives are possible on other interfaces with the same o
 vt=(reg,disp).
 
 Example
-  python3 -I tools/analysis/render/d3d7scan.py --game-dir ./OriginalGame --out /tmp/analysis/geom
+  uv run python -I tools/analysis/render/d3d7scan.py --game-dir ./OriginalGame --out /tmp/analysis/geom
 
 Output: <out>/d3d7scan.txt (sites by slot), d3d7scan.json, d3d7scan_summary.txt (state,value -> number of sites);
 the summary is printed to stdout. Dependencies: pefile, capstone.

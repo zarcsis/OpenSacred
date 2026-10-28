@@ -15,13 +15,13 @@ virtual addresses are the code's.
                f32 factor[2]; f32 +0x58[2]; i32 +0x60[2]; i32 +0x68[2]; u32 classes; u8 flags; u8 0[3].
 
 Example
-  python3 -I tools/analysis/formats/arts_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/arts_dump.py --game-dir ./OriginalGame --rows /tmp/arts.tsv
+  uv run python -I tools/analysis/formats/arts_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/arts_dump.py --game-dir ./OriginalGame --rows /tmp/arts.tsv
 
 Expected output (2.28): every check passes on all of its items; the counts and a few records follow. --rows writes a
 row per record, the spells then the weapon arts, each in its table's order: the table, the record's index and every
 field, the pairs and the arrays as space-separated numbers, the floats as the hexadecimal of their bits. Dependencies:
-pefile, capstone (tools/requirements.txt, through tools/analysis/common/sacred_pe.py).
+pefile, capstone (pyproject.toml, through tools/analysis/common/sacred_pe.py).
 """
 import argparse
 import collections

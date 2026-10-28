@@ -3,7 +3,7 @@
 maintainer, which pull requests merge (with `gh pr view` stubbed), and which commands merge.
 
 Example
-  python -I -m unittest discover -s .claude/hooks -p "test_*.py"
+  uv run python -I -m unittest discover -s .claude/hooks -p "test_*.py"
 
 Dependencies: standard library.
 """

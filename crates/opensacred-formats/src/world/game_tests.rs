@@ -79,7 +79,7 @@ fn cell_bytes(cell: &Cell) -> [u8; 32] {
 /// (the cell index, then the record as stored), each static followed by its child chain; and
 /// the inside layers: their number and the CRC-32 over their places, sizes and cells.
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn sectors_and_chains_match_world_dump_py() {
     let out = scratch_dir("world");
     let table = out.join("sectors.tsv");

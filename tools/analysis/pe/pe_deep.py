@@ -8,9 +8,9 @@ Purpose
   subsystem labels (ui / fx_particles / render / game_sim / stl / crt ...).
 
 Examples
-  python3 -I tools/analysis/pe/pe_deep.py --game-dir ./OriginalGame --exe OriginalGame/GameServer.exe --out /tmp/analysis/gs_deep.json
-  python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --probe 84d964 --out /tmp/analysis/sacred_deep.json
-  python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --out /tmp/analysis/rtti_only.json   # fast: RTTI/EH only
+  uv run python -I tools/analysis/pe/pe_deep.py --game-dir ./OriginalGame --exe OriginalGame/GameServer.exe --out /tmp/analysis/gs_deep.json
+  uv run python -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --probe 84d964 --out /tmp/analysis/sacred_deep.json
+  uv run python -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --out /tmp/analysis/rtti_only.json   # fast: RTTI/EH only
 
 Output
   <out>: JSON with all counters (instructions, func_count, class_table, import_sites_*, layout_64k, ...);

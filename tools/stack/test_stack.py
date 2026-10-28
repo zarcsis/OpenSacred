@@ -2,7 +2,7 @@
 """Tests of tools/stack/stack.py on a temporary repository: a pull request stacked on one that is squash-merged.
 
 Example
-  python -I -m unittest discover -s tools/stack -p "test_*.py"
+  uv run python -I -m unittest discover -s tools/stack -p "test_*.py"
 
 Dependencies: standard library, `git` 2.40+.
 """

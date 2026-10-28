@@ -57,8 +57,8 @@ and prints how many records satisfy it.
            animates the bone whose 0C02 entry is its channel.
 
 Examples
-  python3 -I tools/analysis/formats/grn_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/grn_dump.py --game-dir ./OriginalGame --records /tmp/analysis/grn_records.tsv
+  uv run python -I tools/analysis/formats/grn_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/grn_dump.py --game-dir ./OriginalGame --records /tmp/analysis/grn_records.tsv
 
 Expected output (2.28): "PAK/models.pak: MDL v3 ... models 1572, motions 3421" and "PAK/models03.pak: ... models 2,
 motions 2", then "PAK/Models.tmp: ... True" and "GRN: 4993 non-empty records"; every check passes on all of its items
@@ -67,7 +67,7 @@ by the tag census, the skeleton census ("skeleton: bone 0 has parent 0, every ot
 4993/4993") and the model census ("model: files with meshes 1568, meshes 2555, ..."; "pass: triangles and set
 indices in range: 3193/3193"). --records writes one tab-separated row per record (columns in RECORD_COLUMNS); record
 names are printable ASCII. Dependencies: standard library (the shared sacred_pe module supplies the default game
-directory; it imports pefile and capstone from tools/requirements.txt).
+directory; it imports pefile and capstone, packages of pyproject.toml).
 """
 import argparse
 import collections

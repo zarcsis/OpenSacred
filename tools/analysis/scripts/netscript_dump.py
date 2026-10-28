@@ -34,15 +34,15 @@ DefPos.bin is a cache the client writes (first u32 0x4D2, 0x46FC5C); the shipped
 rebuilds them from the scripts, and this script does not read them.
 
 Example
-  python3 -I tools/analysis/scripts/netscript_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/scripts/netscript_dump.py --game-dir ./OriginalGame --files /tmp/f.tsv --names /tmp/n.tsv
+  uv run python -I tools/analysis/scripts/netscript_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/scripts/netscript_dump.py --game-dir ./OriginalGame --files /tmp/f.tsv --names /tmp/n.tsv
 
 Expected output (2.28): every check passes on all of its items; 2,203,278 records in 51 non-empty files; 11 records of
 type 50 end with tag 0x2A whose 12 bytes run past the record. --files writes a row per script file (path, bytes,
 records, operands, truncated, crc32 of the canonical listing, see `canonical`); --signatures a row per record type
 that occurs (its count, the number of distinct operand tag sequences and the three commonest); --names a row per record type with a
 name; --vectors a row per Vectoren.bin (path, functions, quests, regions, crc32 of `canonical_vectors`).
-Dependencies: pefile, capstone (tools/requirements.txt).
+Dependencies: pefile, capstone (pyproject.toml).
 """
 import argparse
 import collections

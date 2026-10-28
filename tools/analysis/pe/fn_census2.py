@@ -7,7 +7,7 @@ Purpose (docs/01-binary-analysis.md, §4.2 and §5.1): client↔server shared co
 particle classes is generated from templates.
 
 Example
-  python3 -I tools/analysis/pe/fn_census2.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json \\
+  uv run python -I tools/analysis/pe/fn_census2.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json \\
       --out /tmp/analysis/fn_census2.json
 
 Expected output: shared_by_region_label, shared_game_total (≈1,176 functions / 227 KB without STL), particle_slot_stats for

@@ -8,8 +8,8 @@ and was the first reference for the reader `opensacred_formats::sound` (now cros
 Extracts and writes nothing.
 
 Example
-  python3 -I tools/analysis/formats/snd_ls.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/snd_ls.py --game-dir ./OriginalGame --list | head
+  uv run python -I tools/analysis/formats/snd_ls.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/snd_ls.py --game-dir ./OriginalGame --list | head
 
 Expected output (GOG 2.28): "SND v1, 50000 slots, 6598 used", a directory without gaps or overlaps up to the end of the file;
 flags 32 = 3194 RIFF WAV, flags 33 = 3404 MP3; summaries of the WAV and MP3 formats; coverage of the sndProfiles.pak ids.

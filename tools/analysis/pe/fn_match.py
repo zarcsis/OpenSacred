@@ -6,7 +6,7 @@ Purpose (docs/01-binary-analysis.md, §5.1): what share of the server code is by
 modules, and at which addresses the shared code lies.
 
 Example
-  python3 -I tools/analysis/pe/fn_match.py --game-dir ./OriginalGame \\
+  uv run python -I tools/analysis/pe/fn_match.py --game-dir ./OriginalGame \\
       --client-funcs /tmp/analysis/sacred_deep.json.funcs.json --server-funcs /tmp/analysis/gs_deep.json.funcs.json \\
       --out /tmp/analysis/fn_match2.json
 

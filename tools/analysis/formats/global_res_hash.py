@@ -14,8 +14,8 @@ What the script does
   3. Tests the hypothesis "a numeric res:N is hashed as the string str(N)" and how many hi ids are hashes of decimal strings.
 
 Examples
-  python3 -I tools/analysis/formats/global_res_hash.py --name ID_NPC_MERC                  # just compute the hash
-  python3 -I tools/analysis/formats/global_res_hash.py --game-dir ./OriginalGame [names.txt ...]
+  uv run python -I tools/analysis/formats/global_res_hash.py --name ID_NPC_MERC                  # just compute the hash
+  uv run python -I tools/analysis/formats/global_res_hash.py --game-dir ./OriginalGame [names.txt ...]
 
 Expected output: "self-test OK", "global.res ids=23123 hi=... lo=...", a source/candidates/hits table, samples of the
 reproduced ids with their sources. Prints no text of the game. Dependencies: standard library.

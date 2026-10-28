@@ -25,10 +25,10 @@ BY-SA 4.0), measured on the GOG files on 2026-10-17.
            count from the pieces' smallest corner: past them the pieces' texels are all transparent (--alpha).
 
 Example
-  python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --items /tmp/items.tsv --sprites /tmp/sprites.tsv
-  python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --alpha
-  python3 -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --assembled ./assets-src/world/sprites
+  uv run python -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --items /tmp/items.tsv --sprites /tmp/sprites.tsv
+  uv run python -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --alpha
+  uv run python -I tools/analysis/formats/mixed_dump.py --game-dir ./OriginalGame --assembled ./assets-src/world/sprites
 
 Expected output (2.28): every check passes on all of its items; statistics follow, among them 2043 types of bit
 0x10000, 1635 of them leaning and 408 rectangles, one of size 0 (Dunkelbaum21), in 137 distinct cells up to 143.
@@ -38,7 +38,7 @@ height, crc of the record). --alpha also decodes the atlases' alpha from texture
 texels against its size. --assembled DIR assembles every sprite with pieces from the atlases of texture.pak, its pieces
 copied one to one over its rectangle (from its pieces' smallest corner, cut to its width and height), and compares it
 texel for texel with DIR/<record>.png, the image that `opensacred-convert world` writes (#838; DIR is
-<assets-src>/world/sprites; a few minutes). Dependencies: numpy, Pillow for --assembled (tools/requirements.txt).
+<assets-src>/world/sprites; a few minutes). Dependencies: numpy, Pillow for --assembled (pyproject.toml).
 """
 import argparse
 import collections

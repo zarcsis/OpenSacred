@@ -8,8 +8,8 @@ Purpose (docs/02 §4.3, the runtime contract): GetAnimationParameter ×175,
 SetAnimationParameter ×72, GetBoneState ×61, AddControlledPose with FLT_MAX on Bip01, AttachSequence with mask 0x1FF.
 
 Examples
-  python3 -I tools/analysis/pe/granny_args.py OriginalGame/Sacred.exe /tmp/analysis/sacred_deep.json.funcs.json
-  python3 -I tools/analysis/pe/granny_args.py OriginalGame/Sacred.exe /tmp/analysis/sacred_deep.json.funcs.json --imp _GrannyAttachSequence@32
+  uv run python -I tools/analysis/pe/granny_args.py OriginalGame/Sacred.exe /tmp/analysis/sacred_deep.json.funcs.json
+  uv run python -I tools/analysis/pe/granny_args.py OriginalGame/Sacred.exe /tmp/analysis/sacred_deep.json.funcs.json --imp _GrannyAttachSequence@32
 
 Expected output: blocks "=== <import>: N sites" with lines "VA (fn start): push ... | push ...", and at the end the
 imports with no sites found. Dependencies: pefile, capstone.

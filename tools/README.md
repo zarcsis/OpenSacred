@@ -12,17 +12,16 @@
 
 ## How to run
 
-* Python 3.15 (tested on 3.15.1); dependencies: `pip install -r tools/requirements.txt`.
-  After a Python upgrade, reinstall the dependencies: each version has its own packages.
-* Run from the repository root with `python3 -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
+* [uv](https://docs.astral.sh/uv/) brings the Python of the repository's own (docs/03 §2): Python 3.15 (tested on 3.15.1), uv's interpreter rather than the system's, and the packages of `pyproject.toml` at their versions in `uv.lock`, in `.venv/` at the root.
+  `uv run` makes the environment on its first run and keeps it at `uv.lock`; nothing is installed by hand.
+* Run from the repository root with `uv run python -I` (isolated mode): game files are untrusted data, and the interpreter must not pick up modules from data directories.
 * The scripts read your own copy of the GOG installation: `./OriginalGame` by default (ignored by Git), or the directory given with `--game-dir`.
   Output files go to the `--out` path outside the repository.
 
 ```bash
-pip install -r tools/requirements.txt
-python3 -I tools/triage/pe_triage.py OriginalGame/Sacred.exe
-python3 -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --str "cEngine::simThread" --max 1
-python3 -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --out /tmp/analysis/rtti.json
+uv run python -I tools/triage/pe_triage.py OriginalGame/Sacred.exe
+uv run python -I tools/analysis/pe/fn_context.py OriginalGame/Sacred.exe --str "cEngine::simThread" --max 1
+uv run python -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disasm --out /tmp/analysis/rtti.json
 ```
 
 ## The Ghidra project's scripts
@@ -54,12 +53,12 @@ $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadle
 `tools/game/remote.py` drives an `opensacred-game` started with `--remote` (docs/10 §8, docs/03 §3.7): it runs the game's commands, reads its state and log, sends the player's keys, text and clicks, and takes screenshots, through the game's Remote Protocol on `127.0.0.1`; the standard library alone.
 
 ```bash
-python -I tools/game/remote.py wait-state menu
-python -I tools/game/remote.py exec "new-game --class dwarf"
-python -I tools/game/remote.py wait-ready
-python -I tools/game/remote.py click 900 520
-python -I tools/game/remote.py screenshot <scratch>/shot.png
-python -I tools/game/remote.py wait-log "sectors" --after 0
+uv run python -I tools/game/remote.py wait-state menu
+uv run python -I tools/game/remote.py exec "new-game --class dwarf"
+uv run python -I tools/game/remote.py wait-ready
+uv run python -I tools/game/remote.py click 900 520
+uv run python -I tools/game/remote.py screenshot <scratch>/shot.png
+uv run python -I tools/game/remote.py wait-log "sectors" --after 0
 ```
 
 With the original running beside the game under its driver, two more compare them (docs/03 §3.7):
@@ -70,13 +69,13 @@ With the original running beside the game under its driver, two more compare the
 
 `tools/original/host.py` starts the developer's own `Sacred.exe` in the background under Frida, with `tools/original/agent.js` loaded into it, and serves the same methods on `127.0.0.1:15703`, so that `tools/game/remote.py --port 15703` drives the original as it drives the game (docs/03 §3.8, #448; the skill `original`).
 The agent guards the maintainer's desktop (no low-level hooks, no focus, no topmost window, no display mode, no cursor), keeps the game drawing without the focus, counts its frames and takes its screenshots, takes the player's input as its own messages, reads the world and runs commands on the render thread, and traces the original's functions (docs/re/traces.md); the host keeps the game in a job object that ends with it and clicks through the original's menus (a new game, the saves).
-It needs `frida` and Pillow (`tools/requirements.txt`) and the installation in `OriginalGame/`, and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
+It needs `frida` and Pillow (`pyproject.toml`) and the installation in `OriginalGame/`, and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
 
 ```bash
-python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
-python -I tools/game/remote.py --port 15703 state
-python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
-python -I tools/game/remote.py --port 15703 exec quit
+uv run python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
+uv run python -I tools/game/remote.py --port 15703 state
+uv run python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
+uv run python -I tools/game/remote.py --port 15703 exec quit
 ```
 
 ## Scripts
@@ -120,9 +119,9 @@ python -I tools/game/remote.py --port 15703 exec quit
 | `analysis/scripts/kwtab.py` | scripts | keyword tables of the script compiler in the client's `.data` |
 | `analysis/scripts/netscript_flow.py` | scripts | the census of the NetScript control flow over the 20 trees by the walker's semantics (#722): the `IF` chains by their ending, the `ELSE` branches by their record, the `IF`s within a branch, the blocks of 41 and 42, the guards |
 | `analysis/scripts/netscript_dump.py` | scripts | NetScript operands of every record with the tag table of the client's operand reader (checked against its dispatch tables), record type names from the compiler's keyword resolvers; per-file tables for the Rust reader; the operand tag sequences of each record type (`--signatures`) |
-| `usage/pr_usage.py` | process | Claude Code usage of a pull request from the transcripts' messages on its branch: tokens per model, cost at API prices, agent-hours; `--update` writes them into its description and refreshes the badge (`docs/usage.md`). The dollar figures are hypothetical: development runs on a Claude subscription; tests: `python -I -m unittest discover -s tools/usage -p "test_*.py"` |
+| `usage/pr_usage.py` | process | Claude Code usage of a pull request from the transcripts' messages on its branch: tokens per model, cost at API prices, agent-hours; `--update` writes them into its description and refreshes the badge (`docs/usage.md`). The dollar figures are hypothetical: development runs on a Claude subscription; tests: `uv run python -I -m unittest discover -s tools/usage -p "test_*.py"` |
 | `usage/usage_badge.py` | process | the README's usage badge: sums the usage blocks of the pull requests' descriptions and the sessions before, for the Usage workflow |
-| `stack/stack.py` | process | stacked pull requests: `after <PR>` brings the pull requests stacked on a squash-merged one up to `main` (merging `main` in with the newest of their base's commits as the merge base) and pushes them; `integrate` merges every open pull request into a local branch `integration`, a stacked one after its base, and prints the conflicts (`--check`: fmt, clippy and the tests on it); tests: `python -I -m unittest discover -s tools/stack -p "test_*.py"` |
+| `stack/stack.py` | process | stacked pull requests: `after <PR>` brings the pull requests stacked on a squash-merged one up to `main` (merging `main` in with the newest of their base's commits as the merge base) and pushes them; `integrate` merges every open pull request into a local branch `integration`, a stacked one after its base, and prints the conflicts (`--check`: fmt, clippy and the tests on it); tests: `uv run python -I -m unittest discover -s tools/stack -p "test_*.py"` |
 
 ## Check on the GOG client (2026-10-16, Python 3.15.0)
 

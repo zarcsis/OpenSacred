@@ -93,7 +93,7 @@ fn python_name(name: &[u8]) -> String {
 /// atlases, names without NUL and the last record, whose `dataSize` runs past the end of the
 /// file. Records are copied byte for byte together with their directory type and size.
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn argb4444_matches_tex_decode_py() {
     let data = game_file(TEXTURE_PAK);
     let pak = TexPak::parse(&data).unwrap();
@@ -187,7 +187,7 @@ fn argb4444_matches_tex_decode_py() {
 /// variants 4×3 into 1024×768 menu screens in BGRA order and drops alpha, so alpha is checked by
 /// the statistics the script prints (and docs/02 §3.1 quotes: 77 % of 255, 11 % of zeros).
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn bgra8888_matches_tex_fmt6_py() {
     let data = game_file(TEXTURE_PAK);
     let pak = TexPak::parse(&data).unwrap();

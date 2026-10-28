@@ -37,7 +37,7 @@ Claim status.
 Checking which build a contributor has (on their own copy; the script only reads the file):
 
 ```bash
-python3 -I - "$SACRED_DIR/Sacred.exe" <<'EOF'
+uv run python -I - "$SACRED_DIR/Sacred.exe" <<'EOF'
 import sys, datetime, hashlib, pefile
 pe = pefile.PE(sys.argv[1], fast_load=True)
 ts = pe.FILE_HEADER.TimeDateStamp

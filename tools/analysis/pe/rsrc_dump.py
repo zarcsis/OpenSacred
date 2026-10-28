@@ -6,8 +6,8 @@ Purpose (docs/01 §4.6): Sacred.exe .rsrc is 5.3 MB, resource BINARY #107 (2.76 
 16-bit data, purpose unknown), settings dialogs, string tables.
 
 Example
-  python3 -I tools/analysis/pe/rsrc_dump.py OriginalGame/Sacred.exe
-  python3 -I tools/analysis/pe/rsrc_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/pe/rsrc_dump.py OriginalGame/Sacred.exe
+  uv run python -I tools/analysis/pe/rsrc_dump.py --game-dir ./OriginalGame
 
 Expected output: "== resource types ==" with count/total, "== large / custom resources ==" (BINARY #107 size=27xxxxx),
 "== dialogs ==", "== string tables ==". Dependencies: pefile.

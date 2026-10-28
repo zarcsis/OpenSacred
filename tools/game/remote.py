@@ -10,18 +10,18 @@ With `--port 15703` it drives the original Sacred.exe under `tools/original/host
 
 Example
   cargo run --release -p opensacred-game -- --remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log
-  python -I tools/game/remote.py wait-state menu            # the game is up, on its menu
-  python -I tools/game/remote.py exec "new-game --class mage"
-  python -I tools/game/remote.py wait-ready                 # loaded, the hero animating, the sectors in place
-  python -I tools/game/remote.py exec "go +6,+2"
-  python -I tools/game/remote.py click 960 540              # as the player clicks the ground there
-  python -I tools/game/remote.py key Escape                 # the pause's menu
-  python -I tools/game/remote.py screenshot <scratch>/shot.png
-  python -I tools/game/remote.py state
-  python -I tools/game/remote.py logs --after 120
-  python -I tools/game/remote.py wait-log "strike: .*hit" --after 120
-  python -I tools/game/remote.py exec quit
-  python -I tools/game/remote.py --port 15703 shell         # a line a command: "cell 3296,2528", ":state", ":quit"
+  uv run python -I tools/game/remote.py wait-state menu            # the game is up, on its menu
+  uv run python -I tools/game/remote.py exec "new-game --class mage"
+  uv run python -I tools/game/remote.py wait-ready                 # loaded, the hero animating, the sectors in place
+  uv run python -I tools/game/remote.py exec "go +6,+2"
+  uv run python -I tools/game/remote.py click 960 540              # as the player clicks the ground there
+  uv run python -I tools/game/remote.py key Escape                 # the pause's menu
+  uv run python -I tools/game/remote.py screenshot <scratch>/shot.png
+  uv run python -I tools/game/remote.py state
+  uv run python -I tools/game/remote.py logs --after 120
+  uv run python -I tools/game/remote.py wait-log "strike: .*hit" --after 120
+  uv run python -I tools/game/remote.py exec quit
+  uv run python -I tools/game/remote.py --port 15703 shell         # a line a command: "cell 3296,2528", ":state", ":quit"
 
 Expected output: `exec` prints the command's lines; `state` the overlay's lines (`--json` the snapshot); `logs` a
 record a line, `sequence seconds LEVEL target: message`; the waits print the state they waited for; an error goes

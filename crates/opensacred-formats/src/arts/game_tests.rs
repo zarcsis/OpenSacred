@@ -32,7 +32,7 @@ fn head_row(head: &Head) -> String {
 }
 
 #[test]
-#[ignore = "needs the game files in OriginalGame/ and Python with tools/requirements.txt"]
+#[ignore = "needs the game files in OriginalGame/ and the Python of pyproject.toml through uv"]
 fn every_record_matches_arts_dump_py() {
     let out = scratch_dir("arts");
     let rows = out.join("rows.tsv");

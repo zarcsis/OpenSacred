@@ -19,7 +19,7 @@ The walker `FUN_00475680` runs one record a call; the function runner `FUN_0046B
 The scan of a false IF does not count IFs: an IF inside a branch shares the first ELSEIF or ELSE that follows it.
 
 Example
-  python3 -I tools/analysis/scripts/netscript_flow.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/scripts/netscript_flow.py --game-dir ./OriginalGame
 
 Expected output (2.28): the counts below, the same on every run; "IF chains" by their ending, the ELSE bodies by the
 type of their one record, the IFs met inside a branch, the 41 blocks, the guards. Dependencies: standard library.

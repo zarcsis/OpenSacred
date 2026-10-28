@@ -2,7 +2,7 @@
 """Tests of tools/usage/pr_usage.py on synthetic transcripts: the branch each response of a session counts toward.
 
 Example
-  python -I -m unittest discover -s tools/usage -p "test_*.py"
+  uv run python -I -m unittest discover -s tools/usage -p "test_*.py"
 
 Dependencies: standard library.
 """

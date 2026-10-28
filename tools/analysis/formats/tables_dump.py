@@ -22,8 +22,8 @@ GOG files on 2026-10-17.
   items03  "ITM" v5: the items.pak layout with one used slot, 3999, which is empty in items.pak.
 
 Example
-  python3 -I tools/analysis/formats/tables_dump.py --game-dir ./OriginalGame
-  python3 -I tools/analysis/formats/tables_dump.py --game-dir ./OriginalGame --rows /tmp/tables.tsv
+  uv run python -I tools/analysis/formats/tables_dump.py --game-dir ./OriginalGame
+  uv run python -I tools/analysis/formats/tables_dump.py --game-dir ./OriginalGame --rows /tmp/tables.tsv
 
 Expected output (2.28): every check passes on all of its items. --rows writes a row per record: table, index, the
 named fields, crc32 of the record bytes. Dependencies: standard library.

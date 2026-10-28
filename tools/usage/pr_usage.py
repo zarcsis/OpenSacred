@@ -21,9 +21,9 @@ on a Claude subscription, so the dollar figures are hypothetical, not money spen
 owner's prompt to the agent's last action; pauses longer than 10 minutes are not counted.
 
 Example
-  python -I tools/usage/pr_usage.py 17            # print the usage of pull request #17
-  python -I tools/usage/pr_usage.py 17 --update   # also write it into the description and refresh the badge
-  python -I -m unittest discover -s tools/usage -p "test_*.py"   # the tests, on synthetic transcripts
+  uv run python -I tools/usage/pr_usage.py 17            # print the usage of pull request #17
+  uv run python -I tools/usage/pr_usage.py 17 --update   # also write it into the description and refresh the badge
+  uv run python -I -m unittest discover -s tools/usage -p "test_*.py"   # the tests, on synthetic transcripts
 
 Expected output: the sessions that worked on the pull request; the block for its description (a per-model table of
 requests, tokens in M and cost, the agent-hours, and a machine-readable comment that the Usage workflow sums for

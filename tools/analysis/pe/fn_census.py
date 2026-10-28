@@ -8,7 +8,7 @@ Purpose (docs/01-binary-analysis.md, §4.1–4.2): 10,823 = 6,660 own + 1,625 li
 game_sim 2,343 functions / 1,814 KB, UI 987 / 572 KB, etc.
 
 Example
-  python3 -I tools/analysis/pe/fn_census.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json \\
+  uv run python -I tools/analysis/pe/fn_census.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json \\
       --ghidra-tsv /path/to/sacred-bild/tools/data/functions_eng.tsv --fn-match2 /tmp/analysis/fn_match2.json \\
       --out /tmp/analysis/fn_census.json
 

@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge_guard.py\"",
+            "command": "uv run --no-project python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge_guard.py\"",
             "timeout": 60,
             "statusMessage": "merge guard"
           }
@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust_checks.py\" fmt",
+            "command": "uv run --no-project python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust_checks.py\" fmt",
             "timeout": 60,
             "statusMessage": "cargo fmt"
           }
@@ -32,7 +32,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust_checks.py\" check",
+            "command": "uv run --no-project python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/rust_checks.py\" check",
             "timeout": 900,
             "statusMessage": "clippy and tests of the changed crates"
           }

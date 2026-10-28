@@ -11,10 +11,10 @@ its base, so that the order of the merges and their conflicts are known while th
 working tree: the merges are made with `git merge-tree` and `git commit-tree`.
 
 Example
-  python -I tools/stack/stack.py after 52             # bring the pull requests stacked on #52 up to main, push them
-  python -I tools/stack/stack.py after 52 --dry-run   # only print what it would do
-  python -I tools/stack/stack.py integrate            # the branch `integration`: main and every open pull request
-  python -I tools/stack/stack.py integrate --check    # also fmt, clippy and the tests on it, in a worktree
+  uv run python -I tools/stack/stack.py after 52             # bring the pull requests stacked on #52 up to main, push them
+  uv run python -I tools/stack/stack.py after 52 --dry-run   # only print what it would do
+  uv run python -I tools/stack/stack.py integrate            # the branch `integration`: main and every open pull request
+  uv run python -I tools/stack/stack.py integrate --check    # also fmt, clippy and the tests on it, in a worktree
 
 Expected output: for `after`, each open pull request that holds commits of the merged one's branch, the merge's
 changes (what `main` got beyond the base) and the commit pushed, or the files in conflict; for `integrate`, the

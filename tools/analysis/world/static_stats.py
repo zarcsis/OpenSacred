@@ -9,7 +9,7 @@ the confirmed layout is in docs/02 §5.5 (i32 x at +0x0E, whose high half is the
 checked on every record by world_dump.py.
 
 Example
-  python3 -I tools/analysis/world/static_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom
+  uv run python -I tools/analysis/world/static_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom
 
 Reads World/Static.PAK (79 MB) and PAK/Items.pak. Output: <out>/static_stats.txt (+ stdout).
 Dependencies: numpy.
