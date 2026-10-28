@@ -15,6 +15,7 @@ use opensacred_rules::drops::{Dropped, Kind};
 use crate::attack::{self, Aim};
 use crate::doors::Opens;
 use crate::drops::Lying;
+use crate::fight;
 use crate::frame::{Control, Step, Unpaused};
 use crate::game::AppState;
 use crate::hero::{self, Body};
@@ -50,8 +51,13 @@ pub struct Picking {
     taken: bool,
 }
 
-/// The blend into the pick-up's clip.
-const BLEND: Duration = Duration::from_millis(150);
+/// The pick-up's clip's rate over the attack speed's, which the other motions of the standing
+/// action's order play at alone (`0x544BD2`, #1255).
+const RATE: f32 = 1.8;
+/// The blend into the pick-up's clip, over its rate, and the longest blend (`0x593320`'s 0.25,
+/// seen in the original, #1255; **hypothesis**: seconds, as for the arts).
+const BLEND: f32 = 0.25;
+const LONGEST_BLEND: f32 = 0.2;
 /// The longest clip that the pick-up waits for: a clip of times longer, or negative, takes the
 /// item at once (`0x558080`).
 const SANE: f32 = 10.0;
@@ -226,10 +232,27 @@ impl Taking<'_, '_> {
     }
 }
 
+/// The rate of the pick-up's clip of a hero of the attack speed `attack_speed` (`0x584FE0`, the
+/// Dwarf's frenzy in it): its hundredth, times [`RATE`] (`0x544BCC`; the creature's `+0x2C9`,
+/// 1.0 but for the effect 15, not followed). The Seraphim's 154 plays it at 2.772 (seen, #1255).
+fn rate(attack_speed: f32) -> f32 {
+    attack_speed / 100.0 * RATE
+}
+
+/// The blend into the pick-up's clip at the rate `rate`: [`BLEND`] over it, at most
+/// [`LONGEST_BLEND`].
+fn blend(rate: f32) -> Duration {
+    Duration::from_secs_f32((BLEND / rate.max(f32::EPSILON)).min(LONGEST_BLEND))
+}
+
 /// The hero that stands, once its way to an item it was sent to ends: within its reach of the
 /// item, with a straight line of walkable cells to it, it turns to it and plays its pick-up
-/// (the motion 172, `MOTION_PICKUP`) at the game's speed ([`picking`]), or takes it at once where
-/// its model has none or the clip's time is not sane; else it gives up.
+/// (the motion 172, `MOTION_PICKUP`) at the game's speed times its [`rate`] ([`picking`]), or
+/// takes it at once where its model has none or the clip's time is not sane; else it gives up.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 pub(crate) fn take(
     mut taking: Taking,
     heights: Res<Heights>,
@@ -240,9 +263,16 @@ pub(crate) fn take(
     ),
     places: Query<&GlobalTransform, With<Lying>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    mut heroes: Query<(Entity, &mut Transform, &Body, &Picks)>,
+    mut heroes: Query<(
+        Entity,
+        &mut Transform,
+        &Body,
+        &Picks,
+        Option<&fight::Combat>,
+        Option<&fight::Frenzy>,
+    )>,
 ) {
-    for (hero, mut transform, body, picks) in &mut heroes {
+    for (hero, mut transform, body, picks, combat, frenzy) in &mut heroes {
         // Its order to the item taken at a tick of the world first (`hero::take_orders`).
         if body.target().is_some() || body.ordered() {
             continue;
@@ -260,8 +290,12 @@ pub(crate) fn take(
             continue;
         }
         // It turns to the item and plays its pick-up, taking the item at the clip's half
-        // (`0x44DD90`, `0x53A170`'s sub-state 3; the clip's rate `+0x221` not followed).
+        // (`0x44DD90`, `0x53A170`'s sub-state 3), at its attack speed, quickened by the
+        // Dwarf's frenzy (`0x584FE0`).
         transform.rotation = hero::facing((at - here).with_y(0.0));
+        let rate = rate(combat.map_or(100.0, |combat| {
+            opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
+        }));
         let clip = clips
             .as_deref()
             .and_then(|clips| Some((clips.pickup.clone()?, clips.player?)));
@@ -271,8 +305,8 @@ pub(crate) fn take(
             let length = animations.get(&clip).map_or(0.0, AnimationClip::duration);
             if length > 0.0 && length <= SANE {
                 transitions
-                    .play(&mut player, node, BLEND)
-                    .set_speed(speed.0);
+                    .play(&mut player, node, blend(rate))
+                    .set_speed(speed.0 * rate);
                 taking.commands.entity(hero).insert(Picking {
                     item: picks.0,
                     node,
@@ -375,6 +409,16 @@ mod tests {
         assert!(takes(item + Vec3::new(100.0, 0.0, 0.0), item));
         assert!(takes(item + Vec3::new(70.0, 0.0, 71.0), item));
         assert!(!takes(item + Vec3::new(71.0, 0.0, 71.0), item));
+    }
+
+    #[test]
+    fn the_pick_up_plays_at_the_attack_speed_times_its_own_rate() {
+        // The Seraphim's 154, as the original played it (#1255): 2.772, blended in over 0.09 s.
+        assert!((rate(154.0) - 2.772).abs() < 1e-5);
+        assert_eq!(blend(rate(154.0)).as_millis(), 90);
+        // A slow hero's blend held to 0.2 s.
+        assert!((rate(100.0) - 1.8).abs() < 1e-6);
+        assert_eq!(blend(1.0).as_millis(), 200);
     }
 
     #[test]
