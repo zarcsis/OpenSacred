@@ -28,7 +28,7 @@ use crate::game::{AppState, FONT};
 use crate::hero::Body;
 use crate::hud::Pointer;
 use crate::lines::Texts;
-use crate::npcs::{Dies, Door, Npcs, Talk, Trades};
+use crate::npcs::{Dies, Door, Npcs, Talk, TextName, Trades};
 use crate::terrain::Heights;
 use crate::{paths, pick};
 
@@ -100,9 +100,23 @@ impl Look {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shown(pub Look);
 
-/// The type of the item under the hand, whose name shows beside the cursor.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Named(Option<u32>);
+/// The item under the hand, whose name shows beside the cursor: its type, and the name of the
+/// game's texts that the scripts gave it (`npcs::TextName`).
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
+struct Named(Option<(u32, Option<String>)>);
+
+impl Named {
+    /// The item's name: its text name's text where the scripts gave it one, which may have none,
+    /// else its type's (`0x44A250`); none for an empty one.
+    fn shown<'a>(&self, texts: &'a Texts) -> Option<&'a str> {
+        let (item, text) = self.0.as_ref()?;
+        match text {
+            Some(text) => texts.named(text),
+            None => texts.named(&item.to_string()),
+        }
+        .filter(|name| !name.is_empty())
+    }
+}
 
 /// The item's name's place from the cursor, in the original's pixels, and its size.
 const NAME_OFFSET: Vec2 = Vec2::new(24.0, 16.0);
@@ -171,7 +185,7 @@ fn choose(
         Without<Dies>,
     >,
     (items, doors): (
-        Query<(&GlobalTransform, &Lying)>,
+        Query<(&GlobalTransform, &Lying, Option<&TextName>)>,
         Query<&GlobalTransform, With<Door>>,
     ),
     (heights, buildings): (Option<Res<Heights>>, Option<Res<Buildings>>),
@@ -225,17 +239,17 @@ fn choose(
                 }))
             })
             .or_else(|| {
-                let (_, kind) = items
+                let (_, kind, text) = items
                     .iter()
-                    .filter_map(|(at, lying)| {
+                    .filter_map(|(at, lying, text)| {
                         lying
                             .resting
                             .then(|| near(at))
                             .flatten()
-                            .map(|d| (d, lying.dropped.item))
+                            .map(|d| (d, lying.dropped.item, text))
                     })
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
-                item = Some(kind);
+                item = Some((kind, text.map(|text| text.0.clone())));
                 Some(Look::Hand)
             })
             .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
@@ -256,8 +270,8 @@ fn choose(
 }
 
 /// The item's name beside the cursor while the hand is over it (`0x611E70`, as it draws): its
-/// text of the game's texts by its type, white, 24 of the original's pixels right of the cursor
-/// and 16 down; none without a name.
+/// text of the game's texts by the name the scripts gave it, else by its type ([`Named::shown`]),
+/// white, 24 of the original's pixels right of the cursor and 16 down; none without a name.
 fn name_tag(
     mut commands: Commands,
     named: Res<Named>,
@@ -266,11 +280,7 @@ fn name_tag(
     (texts, assets): (Option<Res<Texts>>, Res<AssetServer>),
     mut tags: Query<(Entity, &mut Node, &mut Text), With<NameTag>>,
 ) {
-    let name = named
-        .0
-        .zip(texts.as_deref())
-        .and_then(|(item, texts)| texts.named(&item.to_string()))
-        .filter(|name| !name.is_empty());
+    let name = texts.as_deref().and_then(|texts| named.shown(texts));
     let (Some(name), Some(at)) = (name, pointer.0) else {
         for (tag, ..) in &tags {
             commands.entity(tag).despawn();
@@ -337,6 +347,28 @@ mod tests {
         // The Vampiress by night fights with her claws, whatever she holds; a gun stays a gun.
         assert_eq!(foe_look(Some(&holds(true, false)), true), Look::Sword);
         assert_eq!(foe_look(Some(&holds(true, true)), true), Look::Gun);
+    }
+
+    #[test]
+    fn an_item_the_scripts_named_goes_by_its_text_name_else_by_its_type() {
+        use opensacred_data::text::message;
+        let texts = Texts::of(&format!(
+            "{} = a type's name\n{} = a quest's name\n{} = {{\"\"}}\n",
+            message("6001"),
+            message("QUEST_PLANT"),
+            message("EMPTY")
+        ));
+        let named = |item, text: Option<&str>| Named(Some((item, text.map(str::to_owned))));
+        assert_eq!(named(6001, None).shown(&texts), Some("a type's name"));
+        assert_eq!(
+            named(6001, Some("quest_plant")).shown(&texts),
+            Some("a quest's name")
+        );
+        // A text name of no text names the item nothing, not by its type; nor does an empty one.
+        assert_eq!(named(6001, Some("NO_TEXT")).shown(&texts), None);
+        assert_eq!(named(6001, Some("EMPTY")).shown(&texts), None);
+        assert_eq!(named(6002, None).shown(&texts), None);
+        assert_eq!(Named(None).shown(&texts), None);
     }
 
     #[test]
