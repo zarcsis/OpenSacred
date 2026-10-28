@@ -147,6 +147,22 @@ impl Tables {
         })
     }
 
+    /// The values of `dropped` that its wearer's fight takes (#1290): its maker's where it gave it
+    /// some, else its type's record's, of its type's category.
+    pub fn values(&self, dropped: &Dropped) -> fight::ItemValues {
+        let slot = self.catalogue.slot(dropped.item).unwrap_or(dropped.item);
+        let record = self
+            .records
+            .get(&dropped.item)
+            .or_else(|| self.records.get(&slot))
+            .map(|&(_, _, values)| values)
+            .unwrap_or_default();
+        fight::ItemValues {
+            class: self.category(dropped.item),
+            ..dropped.values.unwrap_or(record)
+        }
+    }
+
     /// What `dropped` asks of the hero that would use it (#1288): its type's record's classes'
     /// bits and weapon's kind, its category, and the level asked of its own level (`+0x14` of
     /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's.
