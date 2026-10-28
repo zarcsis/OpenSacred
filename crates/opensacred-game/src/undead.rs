@@ -227,12 +227,7 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
 /// takes its place on its cell and plays its dying clip `choice` (a death at a creature's hands
 /// where `by_creature`), to lie and rise as [`rise`] raises it; the part it throws (`0x550580`) is
 /// not made.
-pub fn change(
-    world: &mut World,
-    fallen: Entity,
-    rises: Rises,
-    (choice, by_creature): (u32, bool),
-) {
+pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creature): (u32, bool)) {
     let Some(into) = rises.into else {
         return;
     };

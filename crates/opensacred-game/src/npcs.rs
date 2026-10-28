@@ -928,9 +928,11 @@ impl Npc {
         else {
             return true;
         };
-        players
-            .get(player)
-            .is_ok_and(|player| player.animation(node).is_some_and(|clip| clip.is_finished()))
+        players.get(player).is_ok_and(|player| {
+            player
+                .animation(node)
+                .is_some_and(|clip| clip.is_finished())
+        })
     }
 
     /// The clip that its walk `walk` plays now, its animation player, its node and its name, and
