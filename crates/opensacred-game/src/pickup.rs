@@ -103,6 +103,9 @@ pub struct TakenForQuest {
     pub item: u32,
     pub take: Option<String>,
     pub index: usize,
+    /// Its script name, by whose key it enters the hero's list of the main quest's items
+    /// (#1257).
+    pub name: Option<String>,
 }
 
 /// An item that the scripts give the hero straight among the main quest's items, its type
@@ -344,6 +347,7 @@ impl Taking<'_, '_> {
                 item: lying.dropped.item,
                 take: quest.take.clone(),
                 index: quest.index,
+                name: quest.name.clone(),
             });
             self.sounds.write(sfx::Play {
                 sound: sfx::Of::Id(QUESTS_ITEM),

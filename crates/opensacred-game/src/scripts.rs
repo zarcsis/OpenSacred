@@ -852,6 +852,9 @@ impl<'a> Recorder<'a> {
         }
         bevy::log::info!("scripts: CreateObj gives the hero {item}");
         self.given.push(item);
+        // Into its list by the key of the record's first name, the key 0 for none (`0x4868DB`).
+        let key = tags.texts("_01").first().map_or("", |name| name);
+        self.state.items.add(item, key);
         let take = tags.texts("_41").first().map(|&take| take.to_owned());
         match take {
             Some(take)
@@ -911,7 +914,7 @@ impl Host for Recorder<'_> {
         }
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
-            return tags.test(self.tree, &self.state.variables, self.state.difficulty);
+            return tags.test(self.tree, self.state);
         }
         // A guard: whether no creature of the group lives, wherever it stands (`0x48C860`); a
         // group never made is dead. At the start, before the world, not known.
@@ -1505,16 +1508,35 @@ impl Tags<'_> {
     /// number, `0x6D` greater, `0x6E` less, `0x49` its bit set and `0x4A` clear, each false for
     /// a missing variable; `0x52` the hero's tree, `tree`, named (**hypothesis**: the hero's
     /// type, by the name of its script, `TYPE_NPC_GLADIATOR`, which the quests' `OnEnter` ask
-    /// before they place a class's own NPCs); `0x96` to `0x9A` the game on bronze to niobium,
-    /// `difficulty`, and `0x9B` and `0x9C` the hero's quest bit of the number set and clear, the
+    /// before they place a class's own NPCs); `0x3A` the hero holding the named object in its
+    /// list of the main quest's items (#1257), never another creature; `0x96` to `0x9A` the game
+    /// on bronze to niobium, and `0x9B` and `0x9C` the hero's quest bit of the number set and clear, the
     /// variable `HeroQBit` that `HeroQBit`'s records set and clear (the original keeps it per
     /// difficulty with the hero, of which a game plays one; #1125); a test of any other tag has
     /// no meaning yet.
-    fn test(&self, tree: &str, variables: &quests::Variables, difficulty: u8) -> Handled {
+    fn test(&self, tree: &str, state: &quests::Scripts) -> Handled {
         let Some(tags) = self.0 else {
             return Handled::Unknown;
         };
+        let (variables, difficulty) = (&state.variables, state.difficulty);
         for (key, operand) in tags {
+            // `0x3A`: the creature holds the named object, the hero by its list of the main
+            // quest's items (#1257); another creature never (its 256 slots, which no creature of
+            // the game fills).
+            if key == "_3A" {
+                let Operand::List(pair) = operand else {
+                    return Handled::Unknown;
+                };
+                let [Operand::Text(creature), Operand::Text(name)] = pair.as_slice() else {
+                    return Handled::Unknown;
+                };
+                let holds = creature.eq_ignore_ascii_case("hero") && state.items.holds(name);
+                bevy::log::debug!("scripts: {creature} holds {name}: {holds}");
+                if !holds {
+                    return Handled::Answer(false);
+                }
+                continue;
+            }
             if let Some(on) = DIFFICULTY_TESTS.iter().position(|&tag| tag == key) {
                 if usize::from(difficulty) != on {
                     return Handled::Answer(false);
@@ -2091,10 +2113,17 @@ fn take_for_quest(
     mut queues: Queues,
     (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
 ) {
-    for crate::pickup::TakenForQuest { item, take, .. } in taken.read() {
+    for crate::pickup::TakenForQuest {
+        item, take, name, ..
+    } in taken.read()
+    {
         let Some(live) = live.as_mut() else {
             continue;
         };
+        // Into the list by its script name's key, else its type's (`sdk_REFKEY`, `0x44A1C0`).
+        let key = name.clone().unwrap_or_else(|| format!("type:{item}"));
+        let added = live.state.items.add(*item, &key);
+        bevy::log::debug!("scripts: {item} of the key {key} into the hero's list: {added}");
         live.living = living_groups(npcs.as_deref(), minds.iter());
         let mut effects = Effects::default();
         if let Some(take) = take {
@@ -2929,6 +2958,38 @@ mod tests {
         let effects = live.run_named("lays");
         assert!(effects.given.is_empty());
         assert_eq!(objects(&effects), 2);
+        // The items given are in the hero's list by their names' keys (#1257).
+        assert!(live.state.items.holds("RES:6049"));
+        assert!(!live.state.items.holds("res:6046"));
+    }
+
+    #[test]
+    fn the_test_0x3a_finds_an_item_in_the_heros_list() {
+        let runtime = runtime(&[(
+            "functions/items.luau",
+            "local F = {}
+             F[\"ask\"] = function()
+             if test { _3A = { \"HERO\", \"res:17640\" } } then
+             set_hp { _0B = 1 }
+             elseif test { _3A = { \"res:17000\", \"res:17640\" } } then
+             set_hp { _0B = 2 }
+             else
+             set_hp { _0B = 3 }
+             end
+             return true
+             end
+             F[\"give\"] = function()
+             create_obj { _01 = \"Res:17640\", _02 = 1741, _04 = \"CPOS:hero\", _61 = true }
+             return true
+             end
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let share = |effects: Effects| effects.healths.first().map(|set| set.share);
+        // Not held, then held by the hero alone.
+        assert_eq!(share(live.run_named("ask")), Some(3));
+        live.run_named("give");
+        assert_eq!(share(live.run_named("ask")), Some(1));
     }
 
     #[test]

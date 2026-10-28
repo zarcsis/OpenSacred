@@ -1082,15 +1082,62 @@ pub struct Scripts {
     /// The areas' entries that the scripts' `RegionFrei`s pacified (#1247).
     #[serde(default)]
     pub pacified: Pacified,
+    /// The local hero's list of the main quest's items, by which `0x3A` finds an item (#1257).
+    #[serde(default)]
+    pub items: QuestItems,
     /// The game's difficulty, 0 bronze to 4 niobium (`0x182EE44`), which the `IF`s' tags `0x96`
     /// to `0x9A` test (`0x4987B0`; docs/re/fight.md, "The difficulty"; #1125).
     #[serde(default)]
     pub difficulty: u8,
 }
 
+/// The local hero's list of the main quest's items (its inventory entry's, `0x5D8280`): pairs
+/// of an item type and a key, the key of the object's script name, which the test `0x3A` asks
+/// for (`0x4987B0`; docs/re/netscript.md, "The log's quest items"; #1257). An empty key stands
+/// for the key 0.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QuestItems(Vec<(u32, String)>);
+
+impl QuestItems {
+    /// Adds `item` of the key `key` (`cInventoryEntry::addMainQuestItem`, `0x5D8280`): unless an
+    /// entry has its type already, or any entry has the key 0: whether it did.
+    pub fn add(&mut self, item: u32, key: &str) -> bool {
+        if self
+            .0
+            .iter()
+            .any(|(held, held_key)| *held == item || held_key.is_empty())
+        {
+            return false;
+        }
+        self.0.push((item, key.to_ascii_lowercase()));
+        true
+    }
+
+    /// Whether the list holds the key `name`, case aside, or any entry of the key 0 (`0x4987B0`'s
+    /// `0x3A` on the list, `0x4988B4`).
+    pub fn holds(&self, name: &str) -> bool {
+        let name = name.to_ascii_lowercase();
+        self.0.iter().any(|(_, key)| *key == name || key.is_empty())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quest_items_list_refuses_a_type_twice_and_all_after_the_key_0() {
+        let mut items = QuestItems::default();
+        assert!(items.add(1741, "Res:17640"));
+        assert!(items.holds("res:17640") && !items.holds("res:17630"));
+        // A second item of a type held already is refused (quest 154's).
+        assert!(!items.add(1741, "res:17630"));
+        assert!(!items.holds("res:17630"));
+        // An entry of the key 0 refuses every later one, and answers every name.
+        assert!(items.add(4609, ""));
+        assert!(!items.add(6029, "res:6029"));
+        assert!(items.holds("res:17630"));
+    }
 
     /// A runtime that records the functions it ran and answers `through` for each.
     fn runtime(ran: &mut Vec<String>, through: bool) -> impl FnMut(&str) -> bool + '_ {

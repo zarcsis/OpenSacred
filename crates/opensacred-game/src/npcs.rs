@@ -295,6 +295,10 @@ struct Placement {
     /// An object's item that lies as a quest's, which the hero picks up, and the function its
     /// taking runs (`CreateObj`'s [`QUEST_ITEM`] and [`ON_TAKE`], #1256).
     quest: Option<Option<String>>,
+    /// An object's script name, its `CreateObj`'s first `0x01`, by whose key a quest's item
+    /// enters the hero's list of the main quest's items as it is picked up (`sdk_REFKEY`,
+    /// `0x44A1C0`; #1257).
+    key: Option<String>,
 }
 
 impl Placement {
@@ -403,6 +407,8 @@ fn takeable(category: u8) -> bool {
 pub struct QuestItem {
     pub take: Option<String>,
     pub index: usize,
+    /// Its script name (its `CreateObj`'s first `0x01`), by which the test `0x3A` asks for it.
+    pub name: Option<String>,
 }
 /// The flag of a creature that casts no shadow (`Creature.pak +0x06`, `0x426D30`).
 const NO_SHADOW: u8 = 0x10;
@@ -659,6 +665,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         talk: None,
         on_death: DeathFunctions::default(),
         quest: None,
+        key: None,
     }
 }
 
@@ -2656,6 +2663,7 @@ impl Makers {
             } else {
                 DeathFunctions::default()
             },
+            key: (record.kind == CREATE_OBJ).then(|| name_of(ops)).flatten(),
             quest: (record.kind == CREATE_OBJ
                 && takeable(category(item))
                 && ops
@@ -3798,6 +3806,7 @@ fn place_index(
             QuestItem {
                 take: take.clone(),
                 index,
+                name: placement.key.clone(),
             },
             drops::Lying {
                 dropped: opensacred_rules::drops::Dropped {
