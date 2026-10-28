@@ -7,12 +7,14 @@
 //! The inventory's frame is the original's (`0x6C6490`): a top and a bottom edge of ten steps, the
 //! first and the last pieces their own and the others at random, each standing on the window's
 //! edge by its anchor, and a right edge of nine pieces; its three tabs above it, the items' first,
-//! and its sort's button. The equipment's ornament at its alpha, framed as the original frames it
+//! and its sort's button, which sorts the backpack (#1321). The equipment's ornament at its
+//! alpha, framed as the original frames it
 //! (`0x6BAC80`). Clicks over the windows do not reach the world.
 //!
 //! Not followed yet: the grid's cells and the items (#1268), the slots (#1270), the tabs' pages and
 //! their buttons' pressed looks (the spells' and the combos' pages are #1090's), the statistics'
-//! window (#1089), the sort (#1274), and the camera's shift as the equipment shows.
+//! window (#1089), the sort's button's other mode (#1321), and the camera's shift as the
+//! equipment shows.
 
 use bevy::input::InputSystems;
 use bevy::prelude::*;
@@ -170,6 +172,44 @@ fn equipment_frame(
         x += size(bottom).x;
     }
     pieces
+}
+
+/// The sort's button, its side.
+const SORT_SIDE: f32 = 34.0;
+
+/// A left click on the sort's button while the windows show sorts the backpack's grid
+/// (`cInventoryEntry::autoSortItems`, `0x5DB6B0`, #1321): by the items' categories and areas, at
+/// their first fits by columns, the button's other mode (by rows, its `+0x168` bit 4) not read;
+/// the grid as it was where the sort leaves an item out.
+fn sort(
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    shown: Res<Shown>,
+    mut pack: ResMut<crate::pickup::Pack>,
+    tables: Option<Res<crate::drops::Tables>>,
+) {
+    if !shown.0 || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let corner = INVENTORY.min + SORT.1;
+    let on_button = screen_point(&pointer, &ui_scale, &windows)
+        .is_some_and(|at| Rect::from_corners(corner, corner + Vec2::splat(SORT_SIDE)).contains(at));
+    let Some(tables) = tables.filter(|_| on_button) else {
+        return;
+    };
+    let category = |key: u32| {
+        pack.items
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map_or(0, |(_, dropped)| tables.category(dropped.item))
+    };
+    match pack.grid.sorted(category, false) {
+        Some(sorted) => {
+            info!("inventory: the backpack sorted");
+            pack.grid = sorted;
+        }
+        None => info!("inventory: the backpack left as it was: the sort leaves an item out"),
+    }
 }
 
 /// `I` and the bar's inventory button show and hide the windows (`0x6C5A50`), with their
@@ -382,7 +422,7 @@ impl Plugin for InventoryPlugin {
             )
             .add_systems(
                 Update,
-                show.in_set(Opened).run_if(in_state(AppState::InGame)),
+                (show.in_set(Opened), sort.after(Opened)).run_if(in_state(AppState::InGame)),
             );
     }
 }

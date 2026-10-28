@@ -182,6 +182,30 @@ pub struct Grid {
     pub items: Vec<Placed>,
 }
 
+/// The categories in the order that the sort puts their groups back (`0x5DB6B0`): the runes, 30
+/// and 31, the rings, the amulets, the potions, the quest items, the keys, the books, the weapons,
+/// the helmets, the boots, the belts, the armour, the shields, the shoulders, the arms, the legs,
+/// the gloves, the wings, the bridles, the cannons, 0, then the rest; the table names 0 twice more
+/// at its end.
+pub const SORT_ORDER: [u8; 35] = [
+    28, 30, 31, 8, 20, 9, 15, 14, 16, 5, 17, 18, 19, 6, 13, 21, 22, 23, 24, 25, 29, 33, 0, 10, 11,
+    12, 27, 1, 26, 7, 2, 3, 4, 0, 0,
+];
+
+/// The sort's order of a group of items (`0x5DB6B0`, `0x5DB280`): each item against every other,
+/// the two swapped where the first's area (w · h) is the smaller; the areas so come out from the
+/// smallest up.
+pub fn by_area(items: &mut [Placed]) {
+    let area = |item: &Placed| u16::from(item.size.0) * u16::from(item.size.1);
+    for i in 0..items.len() {
+        for j in 0..items.len() {
+            if i != j && area(&items[i]) < area(&items[j]) {
+                items.swap(i, j);
+            }
+        }
+    }
+}
+
 impl Default for Grid {
     fn default() -> Self {
         Self::new(COLUMNS, ROWS)
@@ -217,6 +241,63 @@ impl Grid {
         (0..self.width)
             .flat_map(|column| (0..self.height).map(move |row| (column, row)))
             .find(|&at| self.fits(at, size))
+    }
+
+    /// The first cell where an item of `size` fits, by rows where `by_rows`, each from the left
+    /// (`0x5DABA0`'s mode 1), else as [`Self::first_fit`].
+    pub fn first_fit_by(&self, size: (u8, u8), by_rows: bool) -> Option<(u8, u8)> {
+        if !by_rows {
+            return self.first_fit(size);
+        }
+        (0..self.height)
+            .flat_map(|row| (0..self.width).map(move |column| (column, row)))
+            .find(|&at| self.fits(at, size))
+    }
+
+    /// The grid sorted (`cInventoryEntry::autoSortItems`, `0x5DB6B0`): every item taken out in the
+    /// order of its first cell row by row, grouped by its category (`category`), each group in the
+    /// sort's order of the areas ([`by_area`]), and the groups put back in the order of
+    /// [`SORT_ORDER`], each item at its first fit by columns, or by rows where `by_rows`; where an
+    /// item finds no place, every item in the sort's order of the areas, ungrouped (`0x5DB280`);
+    /// none where that leaves one out too, the grid then as it was. A category the order names
+    /// again puts nothing again.
+    pub fn sorted(&self, category: impl Fn(u32) -> u8, by_rows: bool) -> Option<Grid> {
+        let mut items = self.items.clone();
+        items.sort_by_key(|item| (item.at.1, item.at.0));
+        let place = |order: &[Placed]| {
+            let mut grid = Grid::new(self.width, self.height);
+            for item in order {
+                let at = grid.first_fit_by(item.size, by_rows)?;
+                grid.place(item.key, at, item.size);
+            }
+            Some(grid)
+        };
+        let mut grouped = Vec::with_capacity(items.len());
+        let mut done = Vec::new();
+        for &wanted in &SORT_ORDER {
+            if done.contains(&wanted) {
+                continue;
+            }
+            done.push(wanted);
+            let mut group: Vec<Placed> = items
+                .iter()
+                .filter(|item| category(item.key) == wanted)
+                .copied()
+                .collect();
+            by_area(&mut group);
+            grouped.extend(group);
+        }
+        // The items of a category the order does not name, last.
+        grouped.extend(
+            items
+                .iter()
+                .filter(|item| !SORT_ORDER.contains(&category(item.key)))
+                .copied(),
+        );
+        place(&grouped).or_else(|| {
+            by_area(&mut items);
+            place(&items)
+        })
     }
 
     /// Places the item `key` of `size` at `at` where it fits (`0x5D9F00`): whether it did.
@@ -410,5 +491,108 @@ mod tests {
         assert_eq!(grid.at((1, 2)).map(|item| item.key), Some(2));
         assert_eq!(grid.remove(2).map(|item| item.at), Some((1, 0)));
         assert_eq!(grid.under((1, 1), (2, 2)), Under::Free);
+    }
+
+    #[test]
+    fn the_sort_groups_by_category_and_orders_the_areas_from_the_smallest() {
+        let placed = |key, at, size| Placed { key, at, size };
+        // A ring 1, a sword 2, a potion 3, an armour 4, a potion 5 and a bigger sword 6.
+        let mut grid = Grid::new(4, 6);
+        for item in [
+            placed(1, (3, 5), (1, 1)),
+            placed(2, (0, 0), (1, 3)),
+            placed(3, (1, 0), (1, 1)),
+            placed(4, (2, 0), (2, 3)),
+            placed(5, (1, 1), (1, 1)),
+            placed(6, (0, 3), (1, 3)),
+        ] {
+            assert!(grid.place(item.key, item.at, item.size));
+        }
+        let category = |key| match key {
+            1 => 8,
+            2 | 6 => 5,
+            3 | 5 => 9,
+            _ => 6,
+        };
+        // The ring, the potions, the swords, the armour, each at its first fit by columns.
+        let sorted = grid.sorted(category, false).unwrap();
+        let at = |key| {
+            sorted
+                .items
+                .iter()
+                .find(|item| item.key == key)
+                .map(|item| item.at)
+        };
+        assert_eq!(
+            [1, 3, 5, 2, 6, 4].map(at),
+            [
+                Some((0, 0)),
+                Some((0, 1)),
+                Some((0, 2)),
+                Some((0, 3)),
+                Some((1, 0)),
+                Some((1, 3))
+            ]
+        );
+        // By rows.
+        let sorted = grid.sorted(category, true).unwrap();
+        let at = |key| {
+            sorted
+                .items
+                .iter()
+                .find(|item| item.key == key)
+                .map(|item| item.at)
+        };
+        assert_eq!(
+            [1, 3, 5].map(at),
+            [Some((0, 0)), Some((1, 0)), Some((2, 0))]
+        );
+    }
+
+    #[test]
+    fn the_sorts_order_compares_every_item_with_every_other() {
+        let placed = |key, h| Placed {
+            key,
+            at: (0, 0),
+            size: (1, h),
+        };
+        let mut items = [placed(1, 3), placed(2, 1), placed(3, 2), placed(4, 1)];
+        by_area(&mut items);
+        assert_eq!(items.map(|item| item.key), [2, 4, 3, 1]);
+    }
+
+    #[test]
+    fn a_sort_that_leaves_an_item_out_tries_ungrouped_and_else_keeps_the_grid() {
+        let placed = |key, at, size| Placed { key, at, size };
+        // A 2 × 2 grid of a 1 × 2 sword, a ring and a potion.
+        let mut grid = Grid::new(2, 2);
+        for item in [
+            placed(1, (0, 0), (1, 2)),
+            placed(2, (1, 0), (1, 1)),
+            placed(3, (1, 1), (1, 1)),
+        ] {
+            assert!(grid.place(item.key, item.at, item.size));
+        }
+        let category = |key| match key {
+            1 => 5,
+            2 => 8,
+            _ => 9,
+        };
+        // By columns the ring and the potion fill the first column and the sword the second.
+        let sorted = grid.sorted(category, false).unwrap();
+        let at = |key| {
+            sorted
+                .items
+                .iter()
+                .find(|item| item.key == key)
+                .map(|item| item.at)
+        };
+        assert_eq!(
+            [2, 3, 1].map(at),
+            [Some((0, 0)), Some((0, 1)), Some((1, 0))]
+        );
+        // By rows the small ones take the first row, grouped or not, and the sword no place: none,
+        // the grid kept by its caller.
+        assert_eq!(grid.sorted(category, true), None);
     }
 }

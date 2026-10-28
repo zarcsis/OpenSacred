@@ -290,13 +290,14 @@ fn tint(
 }
 
 /// Lays the items' models out as the pack holds them, while the inventory shows: a model for each
-/// item, made as it comes, taken away as it goes.
+/// item, made as it comes, taken away as it goes, and moved where the item moves (the sort,
+/// #1321).
 fn lay_out(
     mut commands: Commands,
     shown: Res<Shown>,
     pack: Res<Pack>,
     (tables, assets): (Option<Res<Tables>>, Res<AssetServer>),
-    models: Query<(Entity, &Model)>,
+    mut models: Query<(Entity, &Model, &mut Transform)>,
     added: Query<(), Added<Tint>>,
 ) {
     if !shown.0 || !(pack.is_changed() || shown.is_changed() || !added.is_empty()) {
@@ -305,15 +306,12 @@ fn lay_out(
     let Some(tables) = tables else {
         return;
     };
-    for (entity, model) in &models {
+    for (entity, model, _) in &models {
         if !pack.grid.items.iter().any(|item| item.key == model.0) {
             commands.entity(entity).despawn();
         }
     }
     for placed in &pack.grid.items {
-        if models.iter().any(|(_, model)| model.0 == placed.key) {
-            continue;
-        }
         let Some(item) = pack
             .items
             .iter()
@@ -325,13 +323,23 @@ fn lay_out(
         let Some((model, texture, pose)) = tables.look(item) else {
             continue;
         };
+        let at = placement(placed.at, placed.size, pose);
+        if let Some((.., mut transform)) = models
+            .iter_mut()
+            .find(|(_, model, _)| model.0 == placed.key)
+        {
+            if *transform != at {
+                *transform = at;
+            }
+            continue;
+        }
         let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(model.to_owned()));
         let mut entity = commands.spawn((
             Scene,
             Model(placed.key),
             Matte,
             WorldAssetRoot(scene),
-            placement(placed.at, placed.size, pose),
+            at,
             RenderLayers::layer(ITEMS),
             DespawnOnExit(AppState::InGame),
         ));
