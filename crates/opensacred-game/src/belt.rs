@@ -3,14 +3,17 @@
 //! (`0x5DA8C0`), else the empty flask. The left button on a slot drinks its potion, Space the
 //! healing one of the kind 1 (whose key the original's tooltip names), and the right button on a
 //! potion of the grid, the cursor empty, drinks that one (`0x6C0150`, the hero's event `0x10`).
+//! With Shift, Space drinks the yellow potion of the kind 5; the right button on a slot of the
+//! kinds 1, 2 or 4 gives its potion to the hero's follower of the lowest most health among those
+//! below 99 % of their health (`0x612FA0`, #1313).
 //! A drink (`0x54AA80`, `cPotion3D`'s `0x5CAA60`) plays one of the three drinking sounds; a
 //! healing potion, where the hero's health is below its most, gives back its share of the most
 //! health (`opensacred_rules::potions`) and is used up, with the sound of an item used up
 //! (`0x5D8000`).
 //!
 //! Not followed: the other kinds' effects (the creature events 6, 7, 8 and 10), whose drink plays
-//! its sound and uses nothing; the right button's potion to the weakest follower; the hero's horse
-//! healed with it; the slots' sparkles and tooltips (#1272).
+//! its sound and uses nothing; the hero's horse healed with it; the slots' sparkles and tooltips
+//! (#1272).
 
 use bevy::prelude::*;
 use opensacred_rules::potions::{self, choose, healed, missing};
@@ -19,6 +22,7 @@ use opensacred_rules::spawning::Rng;
 use crate::backpack::{cell_under, on_grid};
 use crate::bar::{self, EMPTY_FLASK, UiImages};
 use crate::fight::Health;
+use crate::followers::Follower;
 use crate::frame::Unpaused;
 use crate::game::{AppState, Data, Difficulty};
 use crate::hero::Body;
@@ -88,8 +92,15 @@ fn light(
     }
 }
 
-/// The left button on a slot of the belt, Space, or the right button on a potion of the grid:
-/// the hero drinks the potion (`0x612FA0`, `0x54AA80`).
+/// The followers whose health over their most is below this share are given the belt's potions
+/// (`0x612FA0`).
+const HURT: f64 = 0.99;
+
+/// The left button on a slot of the belt, Space (with Shift the yellow potion), or the right
+/// button on a potion of the grid: the hero drinks the potion (`0x612FA0`, `0x54AA80`). The right
+/// button on a slot of the kinds 1, 2 or 4: its potion, chosen as for the hero, goes to the
+/// hero's follower of the lowest most health among those below 99 % of their health, who drinks
+/// it (#1313).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system's parameters are its inputs"
@@ -101,11 +112,12 @@ fn drink(
     shown: Res<Shown>,
     mut pack: ResMut<Pack>,
     healing: Option<Res<Healing>>,
-    mut heroes: Query<&mut Health, With<Body>>,
+    mut heroes: Query<(Entity, &mut Health), With<Body>>,
+    mut followers: Query<(Entity, &Follower, &mut Health), Without<Body>>,
     mut sounds: MessageWriter<sfx::Play>,
     mut dice: Local<Option<Rng>>,
 ) {
-    let Ok(mut health) = heroes.single_mut() else {
+    let Ok((hero, health)) = heroes.single_mut() else {
         return;
     };
     if health.current == 0 {
@@ -113,12 +125,16 @@ fn drink(
     }
     let healing = healing.map(|h| h.0).unwrap_or_default();
     let wound = Some(missing(health.current, health.most));
-    let kind = if keys.just_pressed(KeyCode::Space) {
-        Some(1)
+    let slot = || screen_point(&pointer, &ui_scale, &windows).and_then(bar::belt_slot);
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    let (kind, given) = if keys.just_pressed(KeyCode::Space) {
+        (Some(if shift { 5 } else { 1 }), false)
     } else if buttons.just_pressed(MouseButton::Left) {
-        screen_point(&pointer, &ui_scale, &windows).and_then(bar::belt_slot)
+        (slot(), false)
+    } else if buttons.just_pressed(MouseButton::Right) {
+        (slot().filter(|kind| matches!(kind, 1 | 2 | 4)), true)
     } else {
-        None
+        (None, false)
     };
     let key = match kind {
         Some(kind) => choose(pack.potions(), kind, wound, &healing),
@@ -136,6 +152,22 @@ fn drink(
     else {
         return;
     };
+    let follower = if given {
+        let hers = followers
+            .iter()
+            .filter(|(_, of, _)| of.master == hero)
+            .map(|(entity, _, health)| (entity, health.current, health.most));
+        let Some(follower) = weakest(hers) else {
+            return;
+        };
+        Some(follower)
+    } else {
+        None
+    };
+    let mut drinker = match follower.and_then(|f| followers.get_mut(f).ok()) {
+        Some((_, _, health)) => health,
+        None => health,
+    };
     let dice = dice.get_or_insert_with(|| Rng::of(0, 0, 1311));
     let roll = usize::try_from(dice.below(3)).unwrap_or(0);
     let play = |sounds: &mut MessageWriter<sfx::Play>, id: u32| {
@@ -146,18 +178,35 @@ fn drink(
         });
     };
     play(&mut sounds, DRINKS.get(roll).copied().unwrap_or(DRINKS[0]));
+    let who = follower.map_or_else(|| "the hero".to_owned(), |f| format!("{f}"));
     match healing.heals(item) {
-        Some(share) if health.current < health.most => {
-            health.current = healed(health.current, health.most, share);
+        Some(share) if drinker.current < drinker.most => {
+            drinker.current = healed(drinker.current, drinker.most, share);
             pack.use_up(key);
             play(&mut sounds, USED_UP);
             info!(
-                "belt: the hero drinks {item}: health {} of {}",
-                health.current, health.most
+                "belt: {who} drinks {item}: health {} of {}",
+                drinker.current, drinker.most
             );
         }
-        _ => debug!("belt: the hero drinks {item} to no effect"),
+        _ => debug!("belt: {who} drinks {item} to no effect"),
     }
+}
+
+/// The follower given a belt's potion, of `followers` by their healths and most healths
+/// (`0x612FA0`): of those below 99 % of their health, the one of the lowest most health, the first
+/// of equal ones, below 99,999.
+fn weakest<T>(followers: impl IntoIterator<Item = (T, u32, u32)>) -> Option<T> {
+    let mut lowest = 99_999;
+    let mut weakest = None;
+    for (follower, current, most) in followers {
+        let hurt = f64::from(current) < HURT * f64::from(most);
+        if most < lowest && hurt {
+            lowest = most;
+            weakest = Some(follower);
+        }
+    }
+    weakest
 }
 
 /// The potions' belt.
@@ -170,5 +219,26 @@ impl Plugin for BeltPlugin {
                 Update,
                 (light, drink.in_set(Unpaused)).run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_potion_goes_to_the_weakest_follower_that_is_hurt() {
+        // A wolf at full health, a unicorn of 166 at 20, a skeleton of 90 at 89 (98.9 %).
+        let followers = [
+            ("wolf", 120, 120),
+            ("unicorn", 20, 166),
+            ("skeleton", 89, 90),
+        ];
+        assert_eq!(weakest(followers), Some("skeleton"));
+        // At 99 % and above, none.
+        assert_eq!(weakest([("skeleton", 99, 100), ("wolf", 120, 120)]), None);
+        // Of equal most healths the first.
+        assert_eq!(weakest([("a", 1, 50), ("b", 2, 50)]), Some("a"));
+        assert_eq!(weakest::<&str>([]), None);
     }
 }
