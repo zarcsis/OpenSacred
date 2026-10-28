@@ -26,7 +26,8 @@ uv run python -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disas
 
 ## The Ghidra project's scripts
 
-`tools/ghidra/` holds the Ghidra scripts (Java, compiled by Ghidra as it runs them) that build up the local project of docs/03 §4.1, and the merger of the community's names; they run on the project with the pyghidra-mcp server stopped (docs/03 §3.2), and their outputs stay in the project, never in the repository.
+`tools/ghidra/` holds the Ghidra scripts (Java, compiled by Ghidra as it runs them) that build up the local project of docs/03 §4.1, the merger of the community's names, and the bridge through which every Claude Code session reaches the pyghidra-mcp server, starting it when it is down (docs/03 §3.2).
+The scripts run on the project with the server stopped and `pyghidra-mcp.paused` in the project's directory, so that no session starts it again meanwhile, and their outputs stay in the project, never in the repository.
 
 ```powershell
 $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadless.bat"
@@ -47,6 +48,7 @@ $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadle
 | `ghidra/MarkLibraryScript.java` | tags the functions of address ranges (`TAG:start-end`) and of the `_STL` classes |
 | `ghidra/CarryNamesScript.java` | carries names and classes from another program of the project over the functions matched by their normalized bytes |
 | `ghidra/ProjectStatsScript.java` | the counts: functions by the source of their names, library, in classes; classes; vftables |
+| `ghidra/mcp_bridge.py` | the ghidra MCP server of a Claude Code session (stdio): starts pyghidra-mcp when nothing answers, and passes the session's messages to it over Streamable HTTP; `--start` starts it alone; the standard library alone, its tests `test_mcp_bridge.py` on a fake server |
 
 ## The game's remote control
 

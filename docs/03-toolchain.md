@@ -17,7 +17,7 @@
 | Stage | Tool | Version | License, price | Purpose |
 |---|---|---|---|---|
 | Binary analysis | Ghidra | 12.2 (JDK 25 LTS, Temurin) | Apache-2.0, free | disassembler and decompiler; RTTI, classes, a shared labeling database |
-| | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session (§3.2) |
+| | pyghidra-mcp | 0.2.7 (2026-09-25) | Apache-2.0 | the MCP server: Claude Code decompiles, follows cross-references, renames functions and variables, sets types; headless, one HTTP server for every session, which each session reaches through `tools/ghidra/mcp_bridge.py`, starting it when it is down (§3.2) |
 | | GhidraMCP | 2.0 (2026-10-10) | Apache-2.0 | an alternative MCP server, a plugin for the Ghidra GUI |
 | | IDA Free | current | free for non-commercial use, cloud x86 decompiler | an optional "second opinion" on hard functions |
 | | Python + pefile, capstone, numpy, Pillow, lief | Python 3.15.1, uv's own; packages in `pyproject.toml`, their versions in `uv.lock` | open source | research scripts in `tools/analysis/` |
@@ -110,6 +110,12 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
 * **One server for every session.**
   pyghidra-mcp runs as a persistent Streamable HTTP server at `http://127.0.0.1:8000/mcp`, not as a stdio server that each Claude Code session would start for itself: a Ghidra project is locked by the process that opens it, and several sessions run at once.
   Claude Code connects to it at the user scope, so the main checkout and every worktree see it; a session sees the server's tools only if it started after the connection was added.
+* **Every session reaches it, running or not** (#1376), through `tools/ghidra/mcp_bridge.py`, a stdio MCP server that Claude Code starts with the session and that passes its messages to the server over Streamable HTTP.
+  When nothing answers on the port, the bridge starts the server as below, hidden, with the project's directory as its working directory and `GHIDRA_INSTALL_DIR` from the user's environment, through a launcher that exits at once: Claude Code ends a stdio server's process tree with the session, and the server, no descendant of it, outlives the session and serves the later ones; a lock file in the project's directory keeps two sessions starting at once from starting two servers.
+  A server that dies during a session is started again on the next call, which then goes through in a new MCP session (on 2026-10-28, 8 s after the server was killed).
+  The server is started only for a session inside the repository or one of its worktrees; elsewhere the bridge only connects to a server that runs.
+  A connection straight to `http://127.0.0.1:8000/mcp` does not do this: Claude Code retries a refused HTTP server three times at the session's start, then leaves it failed for the session's life until `/mcp` reconnects it by hand, and neither a hook nor Claude can reconnect it (code.claude.com/docs/en/mcp.md, 2026-10-28).
+  A stdio server connects in the background, and its tools reach the session through the tool search as soon as it answers, mid-turn too; a connection may take `MCP_TIMEOUT`, 30 s by default, so `~/.claude/settings.json` raises it (`"env": {"MCP_TIMEOUT": "120000"}`) for a server that starts cold, which took 20 s on 2026-10-28 and 6 s warm.
 * **The project lies outside the repository**, in `%USERPROFILE%\GhidraProjects\`: `OpenSacred.gpr`, `OpenSacred.rep\` and `OpenSacred-pyghidra-mcp\` (the ChromaDB index of the code and the strings, and a cache of GZF files).
   In a checkout, `git clean -xfd` would delete it with the names and comments it gathers over M3, and `.gitignore` does not cover the `-pyghidra-mcp` directory.
 * **The server's working directory** is the project's directory too (`-WorkingDirectory` below), not the shell's current one.
@@ -131,16 +137,21 @@ The server is **pyghidra-mcp** (chosen on 2026-10-18), which needs no Ghidra GUI
   Ctrl+C in the server's console saves and closes the project.
   A shell started before `GHIDRA_INSTALL_DIR` was set lacks it, and pyghidra then stops at once ("GHIDRA_INSTALL_DIR is not set"): take it from the user's environment first (`$env:GHIDRA_INSTALL_DIR = [Environment]::GetEnvironmentVariable('GHIDRA_INSTALL_DIR', 'User')`).
   The hidden process is stopped with `taskkill /PID <uvx> /T /F` after the `save` tool has saved the programs' latest edits; on 2026-10-18 the project opened again after two such stops, the `OpenSacred.lock` they leave behind notwithstanding.
+  The next session's bridge starts it again, so a stop that must last (the headless scripts of `tools/ghidra/`, which need the project unlocked; a new release of Ghidra, §2) first creates `pyghidra-mcp.paused` in the project's directory, and deletes it after.
 * **The tools** (20 in 0.2.7): `decompile_function`, `disassemble`, `list_xrefs`, `gen_callgraph`, `search_code`, `search_strings`, `search_symbols_by_name`, `list_imports`, `list_exports`, `read_bytes`; `rename_function`, `rename_variable`, `set_variable_type`, `set_function_prototype`, `set_comment`, `save`; `import_binary`, `delete_project_binary`, `list_project_binaries`, `list_project_binary_metadata`.
   None of them executes arbitrary code.
 
 ```powershell
-# Once: uv, the Ghidra directory, the connection
+# Once: uv, the Ghidra directory, the connection through the bridge (from the main checkout; an earlier HTTP
+# connection goes first: claude mcp remove ghidra -s user), and MCP_TIMEOUT in ~/.claude/settings.json (above)
 winget install --id astral-sh.uv --exact
 [Environment]::SetEnvironmentVariable('GHIDRA_INSTALL_DIR', "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC", 'User')
-claude mcp add --transport http --scope user ghidra http://127.0.0.1:8000/mcp
+claude mcp add --scope user ghidra -- uv run --no-project python -I "$PWD\tools\ghidra\mcp_bridge.py"
 
-# The server, as a hidden process of its own; started by hand after a reboot
+# By hand, without a session: start the server if it is down and wait until it answers
+uv run --no-project python -I tools\ghidra\mcp_bridge.py --start
+
+# The server, as a hidden process of its own, as the bridge starts it; the first start by hand, with the binaries
 $d = "$env:USERPROFILE\GhidraProjects"; New-Item -ItemType Directory -Force $d | Out-Null
 $a = "--python 3.13 pyghidra-mcp@0.2.7 --transport streamable-http --project-path `"$d`" --project-name OpenSacred"
 # Only on the first start, from the main checkout (where OriginalGame/ is): the binaries to import
