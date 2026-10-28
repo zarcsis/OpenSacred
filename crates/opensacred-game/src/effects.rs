@@ -191,9 +191,9 @@ impl Effects {
     }
 
     /// A step of `seconds` of each poison (the effect 30, `opensacred_rules::fight::poison_tick`):
-    /// the poison's damage of each strike; on a bearer that is dead, `dead`, each ends at once
-    /// instead (`0x5605E9`).
-    fn poison_step(&mut self, seconds: f32, dead: bool) -> Vec<u32> {
+    /// the poison's damage of each strike and the creature that gave the poison; on a bearer that
+    /// is dead, `dead`, each ends at once instead (`0x5605E9`).
+    fn poison_step(&mut self, seconds: f32, dead: bool) -> Vec<(u32, Option<Entity>)> {
         let mut strikes = Vec::new();
         for timed in &mut self.0 {
             if timed.effect.id != opensacred_rules::fight::effects::SLOWS {
@@ -206,7 +206,7 @@ impl Effects {
             let (gathered, strike) =
                 opensacred_rules::fight::poison_tick(timed.effect.art, timed.effect.value, seconds);
             timed.effect.art = gathered;
-            strikes.extend(strike);
+            strikes.extend(strike.map(|strike| (strike, timed.source)));
         }
         strikes
     }
@@ -304,20 +304,23 @@ fn bleed(
                     0.0,
                 ]),
                 sure: true,
+                poison: false,
             });
         }
     }
 }
 
 /// Each creature's poisons at each tick of the world (`0x560340` at `0x5605D3`, the hero's too;
-/// #1354): each strike sends its bearer the strike of its poison's damage from itself, the
-/// event 5 of the kind 17 with fixed damage, which rolls no hit and poisons no more
-/// (`0x5607C3`); a dead bearer's poisons end. The object 856 that each strike makes at its
-/// bearer is left out.
+/// #1354): each strike sends its bearer the strike of its poison's damage from the creature that
+/// poisoned it, or from itself where none is (`0x560766`), the event 5 of the kind 17 with fixed
+/// damage, which rolls no hit and poisons no more (`0x5607C3`), so that a death of the poison
+/// is its poisoner's kill; a dead bearer's poisons end. The object 856 that each strike makes at
+/// its bearer is left out.
 fn poison(
     tick: Res<WorldTick>,
     mut hits: MessageWriter<fight::Hit>,
     mut creatures: Query<(Entity, &mut Effects, &fight::Health), Without<npcs::Dies>>,
+    strikers: Query<(), (With<fight::Combat>, Without<npcs::Dies>)>,
 ) {
     let Some(seconds) = tick.seconds else {
         return;
@@ -329,10 +332,13 @@ fn poison(
         let strikes = effects
             .bypass_change_detection()
             .poison_step(seconds.min(STEP_AT_MOST), health.current == 0);
-        for strike in strikes {
-            debug!("effects: the poison strikes {entity} for {strike}");
+        for (strike, source) in strikes {
+            let attacker = source
+                .filter(|&source| strikers.contains(source))
+                .unwrap_or(entity);
+            debug!("effects: the poison of {attacker} strikes {entity} for {strike}");
             hits.write(fight::Hit {
-                attacker: entity,
+                attacker,
                 target: entity,
                 share: 1.0,
                 ranged: false,
@@ -344,6 +350,7 @@ fn poison(
                     f32::from(u16::try_from(strike).unwrap_or(u16::MAX)),
                 ]),
                 sure: true,
+                poison: true,
             });
         }
     }
@@ -504,6 +511,42 @@ mod tests {
         effects.cure(100);
         assert_eq!(effects.timed()[2].effect.value, 0.0);
         assert!(effects.wear(0.1));
+        assert!(!effects.holds(30));
+    }
+
+    #[test]
+    fn a_poison_joins_anothers_but_not_its_own_and_strikes_from_its_poisoner() {
+        let poison = |value, seconds| opensacred_rules::fight::Poison {
+            whole: 10,
+            value,
+            seconds,
+            gathered: 0,
+        };
+        let (a, b) = (
+            Entity::from_raw_u32(1).unwrap(),
+            Entity::from_raw_u32(2).unwrap(),
+        );
+        let mut effects = Effects::default();
+        assert!(effects.poison(poison(2.0, 3.0), a));
+        // The same poisoner's again adds nothing.
+        assert!(!effects.poison(poison(9.0, 9.0), a));
+        // Another's: both doses over the longer time, the larger dose's poisoner.
+        assert!(effects.poison(poison(4.0, 6.0), b));
+        let held = effects.timed()[0];
+        assert_eq!(
+            (held.effect.value, held.left, held.source),
+            (5.0, 6.0, Some(b))
+        );
+        assert_eq!((held.effect.whole, effects.timed().len()), (10, 1));
+        // It strikes from its poisoner once it has gathered enough, and ends on a dead bearer.
+        let mut strikes = Vec::new();
+        for _ in 0..10 {
+            strikes.extend(effects.poison_step(0.3, false));
+        }
+        assert!(!strikes.is_empty());
+        assert!(strikes.iter().all(|&(_, source)| source == Some(b)));
+        assert!(effects.poison_step(0.3, true).is_empty());
+        assert!(effects.wear(0.01));
         assert!(!effects.holds(30));
     }
 }

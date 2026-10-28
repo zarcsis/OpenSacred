@@ -87,6 +87,7 @@ fn explode(
                     art: None,
                     fixed: Some(shell.damages),
                     sure: true,
+                    poison: false,
                 });
             }
         }

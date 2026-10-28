@@ -38,6 +38,9 @@ pub struct Hit {
     /// Whether it lands without the hit chance's roll (the event 5 of the Gladiator's 1016's
     /// effect and of the Seraphim's bolts; seen, #854).
     pub sure: bool,
+    /// Whether it is a poison's own strike, the event 5 of the kind 17 (`0x5607C3`), which
+    /// poisons no more (`0x56DFB3`; #1354).
+    pub poison: bool,
 }
 
 /// The dice of the strikes.
@@ -261,8 +264,8 @@ pub(crate) fn resolve(
             continue;
         };
         // Its poison, where it passes the target's resistance (`0x56DFC8`, #1354); none of the
-        // poison's own strikes, which a poisoned creature sends itself, of the kind 17.
-        if hit.attacker != hit.target
+        // poison's own strikes, of the kind 17.
+        if !hit.poison
             && let Some(poison) = poisons(&landed, &mut dice.0)
         {
             let source = hit.attacker;
@@ -871,6 +874,7 @@ mod tests {
                     art: None,
                     fixed: None,
                     sure: false,
+                    poison: false,
                 });
             }
         }

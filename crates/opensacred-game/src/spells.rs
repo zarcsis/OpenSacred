@@ -301,6 +301,7 @@ fn balls(
                             art: None,
                             fixed: Some(damages),
                             sure: true,
+                            poison: false,
                         });
                     }
                 }
@@ -473,6 +474,7 @@ fn pentagrams(
                 art: None,
                 fixed: Some(damages),
                 sure: true,
+                poison: false,
             });
         }
         commands.entity(entity).despawn();
@@ -1521,6 +1523,7 @@ fn act(
                     art: None,
                     fixed: Some(damages),
                     sure: true,
+                    poison: false,
                 });
                 if let (Some(looks), Ok(place)) = (&looks, places.get(act.target)) {
                     commands.spawn((
@@ -1821,6 +1824,7 @@ fn act(
                     art: None,
                     fixed: Some(damages),
                     sure: true,
+                    poison: false,
                 });
                 if let Some(looks) = &looks {
                     commands.spawn((
@@ -2021,6 +2025,7 @@ fn strike(
                     art: None,
                     fixed: Some(damages),
                     sure: true,
+                    poison: false,
                 });
             }
             aura.cooldown = BEAT;
@@ -2066,6 +2071,7 @@ fn strike(
                     art: None,
                     fixed: Some(damages),
                     sure: true,
+                    poison: false,
                 });
             }
             if !aura.gives.is_empty() && !given.contains(&(target, aura.key)) {
@@ -2184,6 +2190,7 @@ fn mine(
                 art: None,
                 fixed: Some(mine.damages),
                 sure: true,
+                poison: false,
             });
         }
         if let Some(looks) = &looks {
@@ -2397,6 +2404,7 @@ fn disk(
                 art: None,
                 fixed: Some(disk.damages),
                 sure: true,
+                poison: false,
             });
         }
         disk.cooldown = BEAT;
@@ -2459,6 +2467,7 @@ fn meteor(
                     art: None,
                     fixed: Some(meteor.damages),
                     sure: true,
+                    poison: false,
                 });
             }
         }
@@ -2531,6 +2540,7 @@ fn chain(
             art: None,
             fixed: Some(chain.damages),
             sure: true,
+            poison: false,
         });
         if let Some(looks) = &looks {
             commands.spawn((
@@ -2605,6 +2615,7 @@ fn spiral(
                     art: None,
                     fixed: Some(flame.damages),
                     sure: true,
+                    poison: false,
                 });
                 struck = true;
             }

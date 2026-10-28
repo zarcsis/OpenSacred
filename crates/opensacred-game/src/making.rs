@@ -923,6 +923,7 @@ fn make(
         let hit = |target: Entity, playing: &Playing| fight::Hit {
             fixed: None,
             sure: false,
+            poison: false,
             attacker: hero,
             target,
             share: playing.factor,
@@ -1686,6 +1687,7 @@ fn make(
                                 art: None,
                                 fixed: Some(damages),
                                 sure: true,
+                                poison: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
@@ -1910,6 +1912,7 @@ fn make(
                                 hits.write(fight::Hit {
                                     fixed: None,
                                     sure: false,
+                                    poison: false,
                                     share: factor,
                                     ..hit(entity, &playing)
                                 });
@@ -2346,6 +2349,7 @@ fn blades(
             hits.write(fight::Hit {
                 fixed: None,
                 sure: false,
+                poison: false,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
@@ -2480,6 +2484,7 @@ fn knock(
                     art: None,
                     fixed: None,
                     sure: true,
+                    poison: false,
                 });
                 commands
                     .entity(other)

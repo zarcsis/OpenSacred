@@ -180,6 +180,7 @@ fn drown(
                     0.0,
                 ]),
                 sure: true,
+                poison: false,
             });
         }
     }

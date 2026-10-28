@@ -383,6 +383,7 @@ fn fly(
                             art: None,
                             fixed: Some(bolt.damages.map(|d| (d * factor).trunc())),
                             sure: true,
+                            poison: false,
                         });
                     }
                 }
@@ -456,6 +457,7 @@ fn fly(
                 art: None,
                 fixed: Some(bolt.damages),
                 sure: true,
+                poison: false,
             });
         }
         match course.strikes {

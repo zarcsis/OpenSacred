@@ -181,6 +181,7 @@ fn fly(
                 // The art over at the throw, the hit takes no roll (the kind 3 never takes the
                 // plain one).
                 sure: true,
+                poison: false,
             });
         }
         if struck.is_none() && share < 1.0 {

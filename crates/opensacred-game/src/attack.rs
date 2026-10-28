@@ -382,6 +382,7 @@ fn engage(
                     hits.write(fight::Hit {
                         fixed: None,
                         sure: false,
+                        poison: false,
                         attacker: hero,
                         target: entity,
                         share: 1.0,
