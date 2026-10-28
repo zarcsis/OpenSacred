@@ -13,6 +13,7 @@ mod attack;
 mod backpack;
 mod bar;
 mod beams;
+mod belt;
 mod benchmark;
 mod blast;
 mod blended;
@@ -293,12 +294,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         backpack::BackpackPlugin,
         bar::BarPlugin,
         beams::BeamsPlugin,
+        belt::BeltPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blast::BlastPlugin,
-        blended::BlendedPlugin,
     ))
     .add_plugins((
+        blended::BlendedPlugin,
         bolts::BoltsPlugin,
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
@@ -313,9 +315,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         daynight::DayNightPlugin,
         doors::DoorsPlugin,
         drops::DropsPlugin,
-        effects::EffectsPlugin,
     ))
     .add_plugins((
+        effects::EffectsPlugin,
         equipment::EquipmentPlugin,
         fight::FightPlugin,
         fliers::FliersPlugin,
@@ -330,9 +332,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
-        hurled::HurledPlugin,
     ))
     .add_plugins((
+        hurled::HurledPlugin,
         icons::IconsPlugin,
         inventory::InventoryPlugin,
         journal::JournalPlugin,
@@ -347,9 +349,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
-        pickup::PickupPlugin,
     ))
     .add_plugins((
+        pickup::PickupPlugin,
         puffs::PuffsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
@@ -364,9 +366,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,
-        spells::SpellsPlugin,
     ))
     .add_plugins((
+        spells::SpellsPlugin,
         srgb::SrgbPlugin,
         statics::StaticsPlugin,
         steps::StepsPlugin,

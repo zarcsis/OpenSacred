@@ -139,6 +139,31 @@ impl Pack {
         true
     }
 
+    /// The potions in the grid by their keys and types, in its order row by row, as the belt
+    /// looks for them (`0x5DA8C0`, #1311): by their top rows, then their left columns.
+    pub fn potions(&self) -> Vec<(u32, u32)> {
+        let mut placed: Vec<_> = self
+            .grid
+            .items
+            .iter()
+            .filter_map(|placed| {
+                let (_, dropped) = self.items.iter().find(|(key, _)| *key == placed.key)?;
+                opensacred_rules::potions::kind(dropped.item)?;
+                Some(((placed.at.1, placed.at.0), (placed.key, dropped.item)))
+            })
+            .collect();
+        placed.sort_by_key(|&(at, _)| at);
+        placed.into_iter().map(|(_, potion)| potion).collect()
+    }
+
+    /// Takes the item of the key `key` out of the grid for good, as a potion drunk is used up
+    /// (`0x5DEBC0`, #1311): the item, none where the grid holds no such key.
+    pub fn use_up(&mut self, key: u32) -> Option<Dropped> {
+        let index = self.items.iter().position(|(k, _)| *k == key)?;
+        self.grid.remove(key);
+        Some(self.items.remove(index).1)
+    }
+
     /// Takes `dropped` of `size` onto the cursor where it holds nothing, as an item picked up
     /// while the items' page shows goes (`0x5D9060`, `0x655580`): whether it did.
     pub fn hold(&mut self, dropped: Dropped, size: (u8, u8)) -> bool {
@@ -721,6 +746,24 @@ mod tests {
         // A slow hero's blend held to 0.2 s.
         assert!((rate(100.0) - 1.8).abs() < 1e-6);
         assert_eq!(blend(1.0).as_millis(), 200);
+    }
+
+    #[test]
+    fn the_belt_finds_the_potions_row_by_row_and_a_drink_uses_one_up() {
+        let mut pack = Pack::default();
+        // Taken by columns: the sword down the first, the potions after it.
+        assert!(pack.take(dropped(Kind::Weapon, 1712, 1), (1, 3)));
+        assert!(pack.put(dropped(Kind::Potion, 5171, 1), (2, 0), (1, 1)));
+        assert!(pack.put(dropped(Kind::Potion, 5145, 1), (1, 1), (1, 1)));
+        assert!(pack.put(dropped(Kind::Potion, 5172, 1), (1, 0), (1, 1)));
+        let potions = pack.potions();
+        let types: Vec<u32> = potions.iter().map(|&(_, item)| item).collect();
+        assert_eq!(types, [5172, 5171, 5145]);
+        let (key, _) = potions[1];
+        assert_eq!(pack.use_up(key).map(|d| d.item), Some(5171));
+        assert_eq!(pack.use_up(key), None);
+        assert_eq!(pack.potions().len(), 2);
+        assert!(pack.grid.at((2, 0)).is_none());
     }
 
     #[test]
