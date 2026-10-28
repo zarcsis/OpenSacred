@@ -565,7 +565,8 @@ The main sources of uncertainty (each up to ×2): recovering the combat and loot
     The runes: the drops' runes, a table of `Sacred.exe` written into `tables/runes.ron`, by the original's chance of the hero's level, class, runes and arts (#1183, the drops' decision losing its "no runes"), and read from the backpack by the right button (#1315).
     The weapon sets' rule was read (#1317) and written in `opensacred-rules` (#1319); the taskbar's sets and the hero's arms by them are #1271's.
     The inventory's sort by its button (#1321), the doc's "largest first" corrected to the smallest first; the hero's line on a full backpack (#1324).
-    The tests on the game files passed before each merge, 973 of 973 at #1324.
+    Later the same morning: the yellow potions turned out the combos' cocktails, which set the combos' regeneration (#1330); the weapon sets' lock and the sort's mode, the inventory window's own, were read (#1332); the amulets are worn on the hero as in the original, whose rings show nothing (#1334); and the original's glow of the wings was traced to their model's effect texture, which the game's retexture covers (#1309's comment).
+    The tests on the game files passed before each merge, 974 of 974 at #1334.
     Waiting for the maintainer: whether the "!" over a creature is to be centred.
     Next: the taskbar's weapon sets and the hero's arms by them (#1271), the other potions' effects and the `Use:` items (#1272), the items' tooltip (#1273), the effect 856 (#1262), the rest of the queue's kinds (#1281), and the cinema's hero (#1280).
 
