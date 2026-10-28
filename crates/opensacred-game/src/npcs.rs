@@ -3319,18 +3319,36 @@ impl Npcs {
     /// (`fight::ItemValues::of_record`; #486), but those whose values do not count
     /// ([`Gear::counts`], #490).
     pub fn hero_holds(&self, worn: &[Worn]) -> fight::Holds {
+        self.hero_holds_valued(worn, &[])
+    }
+
+    /// As [`Self::hero_holds`], the item at each place of `worn` that `valued` gives values of
+    /// taking those in place of its record's: an item that the item maker made, put into a weapon
+    /// set (#1349).
+    pub fn hero_holds_valued(
+        &self,
+        worn: &[Worn],
+        valued: &[Option<fight::ItemValues>],
+    ) -> fight::Holds {
         let holding = self.hero_holding(worn);
         let class = class_of(&holding);
-        let values = |worn: &Worn| fight::ItemValues {
+        let values = |index: usize, worn: &Worn| fight::ItemValues {
             class: self.gear.get(&worn.item).map_or(0, |gear| gear.category),
             scale: self.items.scale(worn.item),
-            ..fight::ItemValues::of_record(&worn.words)
+            ..valued
+                .get(index)
+                .copied()
+                .flatten()
+                .unwrap_or_else(|| fight::ItemValues::of_record(&worn.words))
         };
         let in_hands: Vec<(InHand, Option<fight::ItemValues>)> = holding
             .iter()
             .map(|&held| {
-                let worn = worn.iter().find(|worn| worn.item == held.item);
-                (held, worn.map(values))
+                let found = worn
+                    .iter()
+                    .enumerate()
+                    .find(|(_, worn)| worn.item == held.item);
+                (held, found.map(|(index, worn)| values(index, worn)))
             })
             .collect();
         fight::Holds {
@@ -3342,8 +3360,9 @@ impl Npcs {
             gun: holds_kind(&holding, &GUNS),
             items: worn
                 .iter()
-                .filter(|worn| self.gear.get(&worn.item).is_none_or(|gear| gear.counts))
-                .map(values)
+                .enumerate()
+                .filter(|(_, worn)| self.gear.get(&worn.item).is_none_or(|gear| gear.counts))
+                .map(|(index, worn)| values(index, worn))
                 .collect(),
             skill: skill_of(class, &in_hands),
         }

@@ -263,6 +263,16 @@ impl Tables {
             .unwrap_or((1, 1))
     }
 
+    /// The weapon's kind of an item of the type `item` (`Weapon.pak +0x1E`), by which its hands go
+    /// (`0x5CEC00`, #1349), of its derived type's root; 0 for a type of no record.
+    pub fn weapon_kind(&self, item: u32) -> u8 {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        self.records
+            .get(&item)
+            .or_else(|| self.records.get(&slot))
+            .map_or(0, |&(_, kind, _)| kind)
+    }
+
     /// Where the model of an item of the type `item` lies in a weapon set's slot of the bar, from
     /// the slot's corner (`0x434480`), of its derived type's root; the corner for a type of no
     /// record.

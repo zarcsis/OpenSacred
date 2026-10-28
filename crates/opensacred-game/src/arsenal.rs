@@ -120,19 +120,33 @@ pub struct Maker {
 }
 
 impl Maker {
-    /// The hero's arms with the items of the types `hands` in its hands, each of its record's
-    /// values, its template's other items worn as ever; and the class of what it holds, by which it
-    /// picks its clips (`0x546F80`).
-    pub fn arms(&self, npcs: &crate::npcs::Npcs, hands: &[u32]) -> (u8, Arms) {
+    /// The hero's arms with the items of `hands` in its hands, each of its type and of the item
+    /// maker's values where it has some, else of its record's (#1349), its template's other items
+    /// worn as ever; and the class of what it holds, by which it picks its clips (`0x546F80`).
+    pub fn arms(
+        &self,
+        npcs: &crate::npcs::Npcs,
+        hands: &[(u32, Option<fight::ItemValues>)],
+    ) -> (u8, Arms) {
         let worn: Vec<opensacred_data::heroes::Worn> = self
             .worn
             .iter()
             .cloned()
-            .chain(hands.iter().map(|&item| opensacred_data::heroes::Worn {
-                id: 0,
-                item,
-                words: self.words.get(&item).cloned().unwrap_or_default(),
-            }))
+            .chain(
+                hands
+                    .iter()
+                    .map(|&(item, _)| opensacred_data::heroes::Worn {
+                        id: 0,
+                        item,
+                        words: self.words.get(&item).cloned().unwrap_or_default(),
+                    }),
+            )
+            .collect();
+        let valued: Vec<Option<fight::ItemValues>> = self
+            .worn
+            .iter()
+            .map(|_| None)
+            .chain(hands.iter().map(|&(_, values)| values))
             .collect();
         let (class, held) = npcs.hero_gear(&worn);
         let clips = crate::game::clips_of(
@@ -154,7 +168,7 @@ impl Maker {
                 armed: true,
             },
             held,
-            holds: npcs.hero_holds(&worn),
+            holds: npcs.hero_holds_valued(&worn, &valued),
             armed: npcs.hero_armed(&worn),
             blade: npcs.hero_blade(&worn),
         };
