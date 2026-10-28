@@ -32,6 +32,7 @@ mod debug;
 mod doors;
 mod drops;
 mod effects;
+mod equipment;
 mod fight;
 mod files;
 mod fliers;
@@ -315,6 +316,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         effects::EffectsPlugin,
     ))
     .add_plugins((
+        equipment::EquipmentPlugin,
         fight::FightPlugin,
         fliers::FliersPlugin,
         followers::FollowersPlugin,
@@ -329,9 +331,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
-        icons::IconsPlugin,
     ))
     .add_plugins((
+        icons::IconsPlugin,
         inventory::InventoryPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
@@ -346,9 +348,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
-        puffs::PuffsPlugin,
     ))
     .add_plugins((
+        puffs::PuffsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
@@ -363,9 +365,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         souls::SoulsPlugin,
         sound::SoundPlugin,
         spells::SpellsPlugin,
-        srgb::SrgbPlugin,
     ))
     .add_plugins((
+        srgb::SrgbPlugin,
         statics::StaticsPlugin,
         steps::StepsPlugin,
         talk::TalkPlugin,

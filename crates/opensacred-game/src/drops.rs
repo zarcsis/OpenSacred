@@ -38,6 +38,9 @@ pub struct Tables {
     sizes: HashMap<u32, (u8, u8)>,
     poses: HashMap<u32, Pose>,
     categories: HashMap<u32, u8>,
+    /// Each type's record's classes' bits (`+0x04`), weapon's kind (`+0x1E`) and values, which
+    /// the use's test asks (#1288).
+    records: HashMap<u32, (u32, u8, fight::ItemValues)>,
 }
 
 /// How an item's model lies in the backpack's grid (`0x434270`, its `Weapon.pak` record's floats
@@ -100,6 +103,20 @@ impl Tables {
                 )
             })
             .collect();
+        let used = records
+            .iter()
+            .map(|(&id, weapon)| {
+                let word = |k: usize| u32::from(weapon.words_84.get(k).copied().unwrap_or(0));
+                (
+                    id,
+                    (
+                        word(0) | word(1) << 16,
+                        weapon.bytes_1c[2],
+                        fight::ItemValues::of_record(&weapon.words_84),
+                    ),
+                )
+            })
+            .collect();
         let categories = items
             .iter()
             .map(|item| (item.slot, item.words_14[6].to_le_bytes()[2]))
@@ -126,7 +143,35 @@ impl Tables {
             sizes,
             poses,
             categories,
+            records: used,
         })
+    }
+
+    /// What `dropped` asks of the hero that would use it (#1288): its type's record's classes'
+    /// bits and weapon's kind, its category, and the level asked of its own level (`+0x14` of
+    /// `+0x19`, #1303), of its values where its maker gave it some, else of its record's.
+    pub fn asks(
+        &self,
+        dropped: &Dropped,
+        rules: &opensacred_rules::fight::Rules,
+    ) -> opensacred_rules::equipment::Asks {
+        let slot = self.catalogue.slot(dropped.item).unwrap_or(dropped.item);
+        let (classes, kind, values) = self
+            .records
+            .get(&dropped.item)
+            .or_else(|| self.records.get(&slot))
+            .cloned()
+            .unwrap_or_default();
+        let values = dropped.values.unwrap_or(values);
+        opensacred_rules::equipment::Asks {
+            item: dropped.item,
+            category: self.category(dropped.item),
+            kind,
+            classes,
+            level: opensacred_rules::equipment::asked_level(opensacred_rules::fight::item_level(
+                &values, rules,
+            )),
+        }
     }
 
     /// The category of an item of the type `item` (`items.pak +0x2E`, `0x426220`), of its derived
