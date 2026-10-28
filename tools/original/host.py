@@ -434,6 +434,11 @@ class Host:
             'cursor': agent.get('cursor'),
             'npcs': 0, 'objects': 0, 'entities': 0,
         }
+        if running and agent.get('frames'):
+            try:
+                snapshot['ui'] = self.agent.ui(False)
+            except Exception as e:
+                snapshot['ui_error'] = str(e).splitlines()[0]
         if running and agent.get('screen') in ('game', 'paused'):
             try:
                 world = self.agent.world('snapshot', {})
@@ -499,9 +504,11 @@ class Host:
         if word == 'help':
             return {'output': [
                 'help: these lines',
-                'new-game [--class CLASS] [--difficulty LEVEL] [--name NAME] [--skip-tutorial]: from the main menu, '
-                'a new game of the Ancaria campaign (classes: ' + ', '.join(HEROES) + '; the Seraphim by default; '
-                'levels: ' + ', '.join(DIFFICULTIES) + ', as far as the hero has unlocked them); then wait-ready',
+                'new-game [--class CLASS] [--difficulty LEVEL] [--name NAME] [--skip-tutorial|--leave-open]: from the '
+                'main menu, a new game of the Ancaria campaign (classes: ' + ', '.join(HEROES) + '; the Seraphim by '
+                'default; levels: ' + ', '.join(DIFFICULTIES) + ', as far as the hero has unlocked them), its first '
+                'window and the tutorial\'s first tip closed unless --leave-open leaves them to ui press; then '
+                'wait-ready',
                 "save NAME: in a game, saves through the original's menu into the save of that name, or a new one",
                 'load NAME: from the main menu or a game, loads the save of that name; then wait-ready',
                 'saves: the saves of save/, their files and names',
@@ -519,7 +526,7 @@ class Host:
                 'time HH:MM: the clock; day-speed DAY [NIGHT]: its rates (1 by default, 0 stops it)',
                 'zoom Z: the view\'s zoom, 0.5 to 2 (the game settles on 0.5, 1 or 2)',
                 'point X,Y: the window\'s pixel of a cell at its height on the hero\'s level (the ground or its '
-                'floor), for click',
+                "floor), for click; point #ID: an object's own pixel, an item's on the ground (a click takes it up)",
                 'go X,Y or go +DX,+DY: the hero walks there, by a click on the cell\'s pixel',
                 'god [on|off]: the hero takes no damage, or takes it again; without a switch, toggles',
                 "heal [ID] [--to N]: a creature's health to its most, or to N (at most its most), the hero's by default",
@@ -559,6 +566,9 @@ class Host:
                 "a register plus an offset as that instruction is reached, a function's middle too (the kinds and "
                 'double); MODULE!EXPORT names an export; traces lists those running and the presets; untrace '
                 'NAME|GROUP|all',
+                "ui: the interface's windows shown, their controls' names, classes and rectangles; ui press WINDOW "
+                'CONTROL [--button left|right]: a click in the middle of the control of that name shown within that '
+                'window, at any depth',
                 'quit: closes the game as its window is closed, ends it after 15 s if it is still running']}
         if word == 'new-game':
             return {'output': [self.start_script('new-game', self.new_game, self.new_game_options(rest))]}
@@ -568,6 +578,8 @@ class Host:
             return {'output': WORLD_COMMANDS[word](self, rest.strip())}
         if word == 'saves':
             return {'output': [f'{file} {name}' for file, name in self.saves()] or ['no saves']}
+        if word == 'ui':
+            return {'output': self.command_ui(rest.strip())}
         if word in ('save', 'load'):
             name = rest.strip()
             if not SAVE_NAME.fullmatch(name):
@@ -598,6 +610,7 @@ class Host:
         parser.add_argument('--difficulty', choices=DIFFICULTIES, default='bronze')
         parser.add_argument('--name')
         parser.add_argument('--skip-tutorial', action='store_true')
+        parser.add_argument('--leave-open', action='store_true')
         try:
             options, unknown = parser.parse_known_args(rest.split())
         except (argparse.ArgumentError, SystemExit) as e:
@@ -693,6 +706,10 @@ class Host:
         self.wait_screen({'loading', 'game', 'paused'}, 120)
         self.wait_screen({'game', 'paused'}, 300)
         time.sleep(2)
+        if options.leave_open:
+            # The first window stays for `ui` and `ui press` (#1340), its button pressed as a player presses it.
+            step('the first window left open')
+            return
         if options.skip_tutorial:
             step('Skip Tutorial')
             button = self.green_words(DREAM_SKIP_TUTORIAL)
@@ -1028,6 +1045,11 @@ class Host:
         return [f"zoom {self.world('zoom', {'zoom': zoom}):.2f}"]
 
     def command_point(self, rest):
+        if rest.startswith('#'):
+            if not rest[1:].isdigit():
+                raise ValueError('point #ID')
+            px, py = self.world('point', {'id': int(rest[1:])})
+            return [f'{px} {py}']
         x, y = self.target_cell(rest, relative_to_hero=True)
         px, py = self.world('point', {'x': x, 'y': y})
         return [f'{px} {py}']
@@ -1238,6 +1260,48 @@ class Host:
             raise ValueError('script NAME')
         ran = self.world('script', {'name': name})
         return [f"{ran['name']} ran: {'to its end' if ran['ran'] else 'not to its end'}"]
+
+    def command_ui(self, rest):
+        """The interface's windows shown, or a click on a control of one by its name (#1340): the tutorial's and the
+        notices' windows lay their buttons out by their texts, so a name finds them where a pixel would not."""
+        windows = self.agent.ui(True)['windows']
+        if not rest:
+            lines = []
+
+            def walk(node, depth):
+                x, y, w, h = node['rect']
+                field = f" +{node['field']:#x}" if node.get('field') is not None else ''
+                lines.append(f"{'  ' * depth}{node['name'] or '(no name)'} {node['class']} {x},{y} {w}x{h}{field}")
+                for child in node['children']:
+                    walk(child, depth + 1)
+            for window in windows:
+                walk(window, 0)
+            return lines or ['no window shown']
+        parser = argparse.ArgumentParser(prog='ui press', add_help=False, exit_on_error=False)
+        parser.add_argument('press', choices=['press'])
+        parser.add_argument('window')
+        parser.add_argument('control')
+        parser.add_argument('--button', choices=['left', 'right'], default='left')
+        try:
+            options = parser.parse_args(rest.split())
+        except (argparse.ArgumentError, SystemExit) as e:
+            raise ValueError(f'ui [press WINDOW CONTROL [--button left|right]]: {e}') from None
+        found = []
+
+        def search(node, within):
+            within = within or node['name'].lower() == options.window.lower()
+            if within and node['name'].lower() == options.control.lower():
+                found.append(node)
+            for child in node['children']:
+                search(child, within)
+        for window in windows:
+            search(window, False)
+        if not found:
+            raise RuntimeError(f'no control {options.control} shown within a window {options.window} (ui lists them)')
+        x, y, w, h = found[-1]['rect']
+        point = [x + w // 2, y + h // 2]
+        self.agent.input({'click': point, 'button': options.button})
+        return [f"pressed {options.window} {found[-1]['name']} at {point[0]},{point[1]}"]
 
     def quit_later(self):
         if not self.ended.wait(15):

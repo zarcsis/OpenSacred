@@ -310,6 +310,7 @@ python -I tools/game/remote.py --port 15703 exec "save start-seraphim"
 python -I tools/game/remote.py --port 15703 exec "cell 3296,2528"     # the hero onto a cell; also: sector X,Y, go +DX,+DY
 python -I tools/game/remote.py --port 15703 exec "cell-info +1,0"     # a cell's ground and floors, the hero's by default
 python -I tools/game/remote.py --port 15703 exec "creatures 20"       # or: time 20:20, day-speed 0, zoom 2, point X,Y
+python -I tools/game/remote.py --port 15703 exec "ui press UI_WND_TASKBAR UI_TB_INVENTORY"   # ui lists the windows
 python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500, pause
 python -I tools/game/remote.py --port 15703 exec "arts learn 1071 2"  # or: arts, arts ready, arts use 1071
 python -I tools/game/remote.py --port 15703 exec "spawn 76 --count 3"   # or: kill 10, drop 20, item 5171
@@ -395,6 +396,11 @@ What the first step found (2026-10-21, Windows 11, #449):
   `home` reads or sets the hero's home (`+0x2B9`), where it rises after its death; a cell's sector is filled in as a position's is.
   `wear` lists the hero's 19 slots; with a type it makes an object of it (`0x5FB530`) and puts it into its slot (`0x54ACC0`) through `0x555E00`, as a juggler takes its instrument, what the slot held being put aside.
 * The weather (#1073, docs/re/weather.md): `weather rain|fog|snow|quake N` hands the renderer's handler (`0x419A70`) an event of the weather of that kind and value, kept on this machine, as the console's `setrain`, `setfog`, `setsnow` and `setquake` do, which the driver cannot type (Enter opened no console in a game of one player); `weather clear` sends the kind 1, so that every level fades.
+* The interface's windows (#1340, docs/re/window.md, "The mouse's two points" and "The interface's controls").
+  The interface tests a click at the mouse's point before the press, which only `WM_MOUSEMOVE` moves, so the driver's `move` and `click` post the move twice: a single move left that point where the cursor had been, and the clicks in the inventory's and the equipment's windows and on an item on the ground missed (the maintainer's real clicks gave the baseline).
+  `state` shows the interface's own view in a game: the mouse's point and the point before, what the cursor holds, the controls under each point and the keyboard's focus.
+  `ui` lists the windows shown, their controls' names, classes and rectangles, and a tooltip's links (the first window's and the tutorial's OK and Skip Tutorial) by the scripts' functions they run; `ui press WINDOW CONTROL` clicks the middle of one by its name, as a player does; `new-game --leave-open` leaves the first window to it.
+  `point #ID` gives an object's own pixel, an item's on the ground, which a click takes up.
 
 The maintainer's play (#551, asked for on 2026-10-22): the original on the screen, its 1024 × 768 scaled to the whole monitor with its proportions kept, played with the maintainer's own mouse and keyboard while the driver's commands stay at hand.
 

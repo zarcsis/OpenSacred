@@ -67,6 +67,27 @@ The mouse's messages read the cursor themselves: `getClientCursorPos` (`0x66E280
 `WM_LBUTTONDOWN`, `WM_LBUTTONUP` and the right button's, their double clicks, and `WM_MOUSEWHEEL` (its turn, `wParam`'s high word) are posted as mouse events of the kernel; the middle button is not handled.
 The UI thread (`cUI_Manager::runThread`, `0x757060`), which draws the menus and flips for them, also skips its frames while the application is inactive, as the render thread does.
 
+**The mouse's two points** (**confirmed** by code and by probes of the maintainer's real clicks and the driver's, 2026-10-28, #1340).
+The mouse object (`cMouse`, `0x654F60`, the instance at `0xCDDB5C`) keeps the cursor's point at `+0x04` and `+0x08` and the point before it at `+0x0C` and `+0x10`.
+`cMouse_setPosition` (`0x6554E0`) copies the point into the point before, then takes the new one; in a game only the play's procedure calls it, on `WM_MOUSEMOVE` (`0x8123E0`), and the buttons' messages read the cursor for their event without moving the mouse object (`0x81230F`).
+A press reaches the interface as one mouse event (kind 2) that carries the press's point, its sub-kind 0 for the left button and 2 for the right; no event of a release reaches the items' page.
+The items' page (`0x6C0150`) does not test the event's point: it takes the point before, less the held item's offset (`0x655810`), and tests the grid's cell there (`0x5D9D60`); a tooltip's links, below, test the event's own point.
+A real mouse sends many small moves before a press, so the point before lies within a pixel of the press (seen); a single move before a press leaves it where the cursor was before, and the click lands there.
+What the cursor holds is at `+0x68`: its kind (1 an item) and, at `+4`, the item's id.
+
+## The interface's controls
+
+The interface's manager (`cUI_Manager_instance`, `0x756F40`, the instance at `0x17EEBBC`) holds the game's windows in its fields from `+0x80` to `+0xD8`, those that `cUI_Manager_isCursorOverUi` (`0x75AA90`) tests: the taskbar `+0x80`, the inventory `+0x84`, the equipment `+0x88`, the portraits' column `+0x9C`, the character's statistics `+0xA0` (seen); the main menu at `+0x130`; others in a vector at `+0x124`; the control that takes the keyboard's text at `+0x148` (`0x75AF80`).
+A control (`cUI_Control2`, `0x731B00`) has its flags at `+0x10` (bit 0 shown), its place against its parent's at `+0x24` and `+0x28`, its width and height at `+0x2C` and `+0x2E` (16 bits each), its name at `+0x30` (32 bytes) and its parent at `+0x50`; `cUI_Control2_getAbsoluteRect` (`0x732350`) adds its parents' places.
+A window (`cUI_Window2`) keeps its children in a vector at `+0x78` (`cUI_Window2_addChild`, `0x727890`).
+The main menu's items and the inventory's pages are not children of their windows (seen: none listed).
+
+A tooltip's window (`cUI_Tooltip`, `UI_WND_TOOLTIP`), the first window of a new game and the tutorial's tips among them, draws its buttons as green words of its text, not as controls: up to four links of 20 bytes from `+0x2180`, each the index of the scripts' function it runs, its place against the window's (`+0x04`, `+0x08`) and its width and height (`+0x0C`, `+0x0E`).
+A press inside a link (`0x6E74E0`, at the event's own point) runs its function by its index (`0x499DA0`, through the runner `0x46BA90`, after the creature event `0x10C` to the objects 1 to 16) and plays `(9, 0x5D)`; a press elsewhere inside the window is taken and goes no further.
+The functions' names are the records of `0x54` bytes from `sdk_TRIGGER_NAME_BEGIN` (`0xAAB708`), a name each, by the index.
+Seen on the Daemon's first window (2026-10-28): its OK runs `Tutorial_Trigger` and its Skip Tutorial `btn_Deamonstart`, which then runs `TT_KEINEMEHR`.
+A tooltip's window stays shown under the menu over a game, and takes the presses inside its rectangle: with the Daemon's first window open, the menu's Save Game, which lies inside it, does nothing (seen).
+
 ## The program's screen
 
 What the driver reports as the screen (observed on the main menu, a new game, the menu over it, the tutorial's windows, saving and loading):
@@ -82,7 +103,8 @@ Observed on 2026-10-21 (the window's pixels, 1024 × 768; the host's `new-game`,
 
 - The main menu: Ancaria Campaign, Underworld Campaign, Multiplayer, Options, Load Game, Extras and Quit, centred, one under another; it takes clicks a few seconds after it first appears.
 - The Ancaria campaign's hero choice: eight figures, left to right the Gladiator, the Seraphim, the Daemon, the Dwarf, the Wood Elf, the Battle Mage, the Dark Elf and the Vampiress; the one clicked lights up and gives its name to the name's field below (the name is the class's until typed); the difficulty's arrows offer the levels the hero has unlocked (Bronze alone on a fresh installation); Import, Back and Start Game.
-- A new game opens on a window with OK and Skip Tutorial, centred, of a height that depends on the class's text (its buttons 573 pixels down for the Dwarf, 624 for the Seraphim); Enter is its OK; after OK the tutorial's first tip has OK and No more Tips, its buttons 462 pixels down.
+- A new game opens on a window with OK and Skip Tutorial, centred, of a height that depends on the class's text (its buttons 573 pixels down for the Dwarf, 624 for the Seraphim, 497 for the Daemon); Enter is its OK; after OK the tutorial's first tip has OK and No more Tips, its buttons 462 pixels down.
+  These are a tooltip's links (above): the host's `ui` lists them by their functions, and `ui press` presses one.
 - Escape in a game opens the menu over it: Options, Save Game, Export, Quit, Continue.
   Save Game opens the saves' list, which also loads (the main menu's Load Game opens the same list with Save greyed): the saves in the order of their files' numbers, then one empty row, three rows shown and arrows to scroll a row at a time (the list keeps where it was scrolled); a row has a picture, the name's field (`<empty>` until a name is typed, and a typed name goes after what the field holds), the file's name and the date.
   Load and Save ask "OK" or "Cancel" when a save would be loaded or overwritten.

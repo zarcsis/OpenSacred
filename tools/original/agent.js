@@ -690,6 +690,16 @@ function point(x, y) {
   return [cx, cy, ((cy & 0xffff) << 16 | (cx & 0xffff)) >>> 0];
 }
 
+// A move of the cursor, posted twice (#1340). The game keeps the mouse's point and the one before it: the play's
+// window procedure moves them on `WM_MOUSEMOVE` alone (`cMouse_setPosition`, 0x6554E0, the point before taking the
+// last one), and the interface tests a click at the point before (the items' page 0x6C0150 through 0x655810), so a
+// single move leaves that point where the cursor was. A real mouse's many small moves keep the two within a pixel;
+// two moves to the target make both the target.
+function moveTo(lParam) {
+  post(0x200, buttonsHeld(), lParam);
+  post(0x200, buttonsHeld(), lParam);
+}
+
 // The player's input of `opensacred/input`, as opensacred-game takes it: a key (or keys held together), text, a
 // move, a click held `hold` frames, the wheel by lines.
 function sendInput(params) {
@@ -724,14 +734,14 @@ function sendInput(params) {
     }
   } else if (params.move !== undefined) {
     const [, , lParam] = point(params.move[0], params.move[1]);
-    post(0x200, buttonsHeld(), lParam);
+    moveTo(lParam);
   } else if (params.click !== undefined) {
     const button = BUTTONS[params.button ?? 'left'];
     if (button === undefined) {
       throw new Error(`no button ${params.button}`);
     }
     const [, , lParam] = point(params.click[0], params.click[1]);
-    post(0x200, buttonsHeld(), lParam);
+    moveTo(lParam);
     later(1, () => {
       post(button.down, buttonsHeld() | button.flag, lParam);
       later(Math.max(1, params.hold ?? 2), () => post(button.up, buttonsHeld() & ~button.flag, lParam));
@@ -764,6 +774,219 @@ function screen() {
     return 'paused';
   }
   return 'game';
+}
+
+// --- The interface -------------------------------------------------------------------------------------------------
+
+// What the original's interface sees (#1340, docs/re/window.md, "The interface's controls"): the mouse's two points,
+// what the cursor holds, the windows shown and the control under the cursor. The manager (`cUI_Manager_instance`,
+// 0x756F40) holds its windows in fields of its object and in a vector; each control (`cUI_Control2`, 0x731B00) has
+// its flags at +0x10 (bit 0 shown), its place against its parent's at +0x24 and +0x28, its width and height at +0x2C
+// and +0x2E, its name at +0x30 and its parent at +0x50, and a window (`cUI_Window2`) its children in a vector at +0x78.
+const UI = {
+  manager: ptr('0x17eebbc'),   // the manager, 0 until it is made
+  // The fields that hold windows: the game's, which `cUI_Manager_isCursorOverUi` (0x75AA90) tests, from the taskbar
+  // (+0x80) to +0xD8, and the menus' from the main menu (+0x130). Only these are read: a start of the original hung
+  // once while `state` read every word of the manager, in a race of the original's own at the end of the menus' UI
+  // thread, whose flag of its end the waiting thread can write over (**hypothesis**: the reads, which raise Frida's
+  // exceptions on the words that are no pointers, slowed the threads into it).
+  fields: [[0x80, 0xdc], [0x130, 0x144]],
+  windows: 0x124,              // the manager's vector of windows besides those of its fields
+  focus: 0x148,                // the control that takes the keyboard's text (0x75AF80), or 0
+  mouse: ptr('0xcddb5c'),      // cMouse (0x654F60)
+};
+const MOUSE = { point: 0x04, before: 0x0c, holds: 0x68 };   // what the cursor holds: its kind (1 an item), its id at +4
+const CONTROL = { flags: 0x10, x: 0x24, y: 0x28, width: 0x2c, height: 0x2e, name: 0x30, parent: 0x50, children: 0x78 };
+const MOST_CONTROLS = 4000;
+const uiClasses = new Map();   // a vtable -> its class's name and its bases' names, by its RTTI
+
+// A control's class and whether it is a control and a window, by its vtable's RTTI, or null for no such object.
+function uiClass(object) {
+  let vtable;
+  try {
+    vtable = object.readPointer();
+  } catch (e) {
+    return null;
+  }
+  const key = vtable.toString();
+  let known = uiClasses.get(key);
+  if (known === undefined) {
+    known = null;
+    try {
+      const locator = vtable.sub(4).readPointer();
+      const nameOf = (descriptor) => descriptor.add(8).readCString().replace(/^\.\?AV/, '').replace(/@@$/, '');
+      const hierarchy = locator.add(0x10).readPointer();
+      const count = hierarchy.add(8).readU32();
+      const array = hierarchy.add(0xc).readPointer();
+      const bases = [];
+      for (let i = 0; i < count && i < 32; i += 1) {
+        bases.push(nameOf(array.add(4 * i).readPointer().readPointer()));
+      }
+      known = { name: nameOf(locator.add(0xc).readPointer()), control: bases.includes('cUI_Control2'),
+        window: bases.includes('cUI_Window2') };
+    } catch (e) {
+      known = null;
+    }
+    uiClasses.set(key, known);
+  }
+  return known;
+}
+
+// A control's name, up to its first NUL within its 32 bytes.
+function controlName(control) {
+  const bytes = new Uint8Array(control.add(CONTROL.name).readByteArray(32));
+  const end = bytes.indexOf(0);
+  return String.fromCharCode(...bytes.slice(0, end < 0 ? 32 : end));
+}
+
+// A control's place on the screen: its own against its parent's, summed up its parents.
+function controlRect(control) {
+  let x = 0;
+  let y = 0;
+  for (let c = control, depth = 0; !c.isNull() && depth < 16; c = c.add(CONTROL.parent).readPointer(), depth += 1) {
+    x += c.add(CONTROL.x).readS32();
+    y += c.add(CONTROL.y).readS32();
+  }
+  return [x, y, control.add(CONTROL.width).readU16(), control.add(CONTROL.height).readU16()];
+}
+
+// The links of a tooltip's window (`cUI_Tooltip`, its click 0x6E74E0), the tutorial's and the notices' green words
+// (OK, Skip Tutorial): up to four records of 20 bytes from +0x2180, each the index of the scripts' function it runs
+// (through 0x499DA0 and the runner 0x46BA90), its place against the window's (+4, +8), its width and height (+0x0C,
+// +0x0E); each named by its function, whose names the records of 0x54 bytes from `sdk_TRIGGER_NAME_BEGIN` hold.
+const TOOLTIP_LINKS = { first: 0x2180, size: 20, count: 4 };
+const FUNCTION_NAMES = { begin: ptr('0xaab708'), end: ptr('0xaab70c'), size: 0x54 };
+
+function functionName(index) {
+  const begin = FUNCTION_NAMES.begin.readPointer();
+  const count = FUNCTION_NAMES.end.readPointer().sub(begin).toInt32() / FUNCTION_NAMES.size;
+  return index < count ? begin.add(index * FUNCTION_NAMES.size).readCString() : null;
+}
+
+function tooltipLinks(tooltip, [x, y]) {
+  const links = [];
+  for (let i = 0; i < TOOLTIP_LINKS.count; i += 1) {
+    const link = tooltip.add(TOOLTIP_LINKS.first + TOOLTIP_LINKS.size * i);
+    const width = link.add(0x0c).readU16();
+    const height = link.add(0x0e).readU16();
+    if (width > 0 && height > 0) {
+      const index = link.readU32();
+      links.push({ name: functionName(index) ?? `link${i}`, class: `link ${i}, function ${index}`,
+        rect: [x + link.add(4).readS32(), y + link.add(8).readS32(), width, height], children: [] });
+    }
+  }
+  return links;
+}
+
+// The controls shown, from the manager's windows down: each with its name, class, rectangle and children shown.
+function uiTree() {
+  const manager = UI.manager.readPointer();
+  if (manager.isNull()) {
+    return { windows: [], focus: null };
+  }
+  const seen = new Set();
+  let count = 0;
+  const describe = (control) => {
+    const kind = uiClass(control);
+    if (kind === null || !kind.control || seen.has(control.toString()) || count >= MOST_CONTROLS) {
+      return null;
+    }
+    seen.add(control.toString());
+    count += 1;
+    if ((control.add(CONTROL.flags).readU32() & 1) === 0) {
+      return null;
+    }
+    const node = { name: controlName(control), class: kind.name, rect: controlRect(control),
+      children: [] };
+    if (kind.name === 'cUI_Tooltip') {
+      node.children.push(...tooltipLinks(control, node.rect));
+    }
+    if (kind.window) {
+      const begin = control.add(CONTROL.children).readPointer();
+      const end = control.add(CONTROL.children + 4).readPointer();
+      const n = Math.min(end.sub(begin).toInt32() / 4, MOST_CONTROLS);
+      for (let i = 0; i < n; i += 1) {
+        const child = describe(begin.add(4 * i).readPointer());
+        if (child !== null) {
+          node.children.push(child);
+        }
+      }
+    }
+    return node;
+  };
+  const windows = [];
+  const top = (pointer, field) => {
+    if (!pointer.isNull()) {
+      const node = describe(pointer);
+      if (node !== null) {
+        node.field = field;
+        windows.push(node);
+      }
+    }
+  };
+  for (const [first, last] of UI.fields) {
+    for (let offset = first; offset <= last; offset += 4) {
+      top(manager.add(offset).readPointer(), offset);
+    }
+  }
+  const begin = manager.add(UI.windows).readPointer();
+  const end = manager.add(UI.windows + 4).readPointer();
+  const n = Math.min(end.sub(begin).toInt32() / 4, MOST_CONTROLS);
+  for (let i = 0; i < n; i += 1) {
+    top(begin.add(4 * i).readPointer());
+  }
+  const focus = manager.add(UI.focus).readPointer();
+  return { windows, focus: focus.isNull() || uiClass(focus) === null ? null : controlName(focus) };
+}
+
+// The path of names of the deepest control shown whose rectangle holds a point, the last window's first.
+function controlsAt(windows, x, y) {
+  const inside = (node) => x >= node.rect[0] && y >= node.rect[1] && x < node.rect[0] + node.rect[2]
+    && y < node.rect[1] + node.rect[3];
+  let best = [];
+  const walk = (node, path) => {
+    const here = [...path, node.name];
+    if (inside(node) && here.length > best.length) {
+      best = here;
+    }
+    for (const child of node.children) {
+      walk(child, here);
+    }
+  };
+  for (let i = windows.length - 1; i >= 0; i -= 1) {
+    walk(windows[i], []);
+    if (best.length > 0) {
+      break;
+    }
+  }
+  return best;
+}
+
+// The interface's own view of the mouse: its point and the point before, which the interface tests a click at, what
+// the cursor holds, the control under each point, and the keyboard's focus. The windows are read only in a game or
+// with the tree asked for, not while the menus' and the loading screens' UI thread comes and goes.
+function uiState(withTree) {
+  const mouse = UI.mouse.readPointer();
+  const out = { buttons: buttonsHeld() };
+  if (!mouse.isNull()) {
+    out.point = [mouse.add(MOUSE.point).readS32(), mouse.add(MOUSE.point + 4).readS32()];
+    out.before = [mouse.add(MOUSE.before).readS32(), mouse.add(MOUSE.before + 4).readS32()];
+    const holds = mouse.add(MOUSE.holds).readPointer();
+    out.holds = holds.isNull() ? null : { kind: holds.readU16(), id: holds.add(4).readU32() };
+  }
+  if (!withTree && !['game', 'paused'].includes(screen())) {
+    return out;
+  }
+  const tree = uiTree();
+  out.focus = tree.focus;
+  if (out.point !== undefined) {
+    out.under = controlsAt(tree.windows, ...out.point);
+    out.under_before = controlsAt(tree.windows, ...out.before);
+  }
+  if (withTree) {
+    out.windows = tree.windows;
+  }
+  return out;
 }
 
 // --- The world -----------------------------------------------------------------------------------------------------
@@ -939,8 +1162,7 @@ const SPARED_HEALTH = 0x3fffffff;    // the health a spared defender shows its s
 const BOSS = 0x80000;                // a boss: +0x1F4 (docs/re/fight.md, "Bosses and champions")
 const CHAMPION = 0x40;               // a champion: +0x2B8, with +0xB0 bit 0x400, a champion's levelling
 const CHAMPION_LEVELLING = 0x400;
-const DESTROYED = 0x10;              // an object destroyed: +0x14, until its slot is taken again (0x5FBDB0)
-const KILL_TRIES = 30;               // the strikes `kill` sends a creature before it gives up
+const DESTROYED = 0x10;              // an object destroyed: +0x14, until its slot is taken again (0x5FBDB0)const KILL_TRIES = 30;               // the strikes `kill` sends a creature before it gives up
 const MOST_LEVEL = 216;              // the highest level of an experience (0x57F8D0, docs/re/fight.md)
 
 const world = {
@@ -1267,9 +1489,27 @@ const COMMANDS = {
   },
   // A cell's pixel at the height it stands at on the hero's own level, the ground or the hero's floor, so that a
   // click there picks it (#973); on the ground where the hero's layer has no such cell.
-  point: (engine, { x, y }) => {
-    const h = hero();
+  point: (engine, { x, y, id }) => {
     const theWorld = WORLD.objects.readPointer().readPointer();
+    if (id !== undefined && id !== null) {
+      // An object's own place, an item's on the ground among them (#1340), at its cell's height on its own level.
+      const object = objectById(id);
+      if (object === null) {
+        throw new Error(`no object ${id}`);
+      }
+      // An item carried, worn or held has its place cleared (0x5D9F00), at the world's corner where no item lies.
+      if (object.add(CREATURE.x).readS32() <= 0 || object.add(CREATURE.y).readS32() <= 0) {
+        throw new Error(`object ${id} is not in the world (carried, worn or held)`);
+      }
+      const [cx, cy] = cellOf(object);
+      const layer = object.add(CREATURE.layer).readU32();
+      let height = standingHeight(theWorld, cx, cy, object.add(CREATURE.floor).readU8(), layer);
+      if (height === 0 && layer !== 0) {
+        height = standingHeight(theWorld, cx, cy, 0, 0);
+      }
+      return pixelOf(engine, object.add(CREATURE.x).readS32(), object.add(CREATURE.y).readS32(), height);
+    }
+    const h = hero();
     let height = 0;
     if (h !== null) {
       const layer = h.add(CREATURE.layer).readU32();
@@ -2875,6 +3115,9 @@ rpc.exports = {
   },
   input(params) {
     sendInput(params);
+  },
+  ui(withTree) {
+    return uiState(withTree === true);
   },
   world(name, args) {
     return worldCommand(name, args);

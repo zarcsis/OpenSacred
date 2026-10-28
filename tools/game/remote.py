@@ -70,6 +70,20 @@ def lines(snapshot):
         if snapshot.get('refusals'):
             line += f", {snapshot['refusals']} calls refused"
         out.append(line)
+    ui = snapshot.get('ui')
+    if ui and ui.get('point'):
+        # The original's interface (#1340): the mouse's point and the one before, which a click is tested at.
+        line = 'ui point {},{} before {},{}'.format(*ui['point'], *ui['before'])
+        if ui.get('holds'):
+            kind = 'item' if ui['holds']['kind'] == 1 else f"kind {ui['holds']['kind']}"
+            line += f" holds {kind} {ui['holds']['id']}"
+        if ui.get('under'):
+            line += ' under ' + ' > '.join(ui['under'])
+        if ui.get('under_before') and ui['under_before'] != ui.get('under'):
+            line += ' (before: ' + (' > '.join(ui['under_before']) or 'none') + ')'
+        if ui.get('focus'):
+            line += f" focus {ui['focus']}"
+        out.append(line)
     hero = snapshot.get('hero')
     if hero:
         place = 'ground' if not hero.get('inside') else 'inside {},{}:{}'.format(*hero['inside'])
