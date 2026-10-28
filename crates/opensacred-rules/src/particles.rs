@@ -232,7 +232,7 @@ fn pick(layers: usize, dice: &mut impl Dice) -> usize {
 
 /// How a layer of particles is drawn (docs/re/effects.md, "The billboards"): added to the frame
 /// by its alpha (`SRCALPHA`, `ONE`), or laid over it by its alpha (`SRCALPHA`, `INVSRCALPHA`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Blend {
     Add,
     Over,
@@ -610,6 +610,123 @@ pub fn fire_variant(kind: u32) -> Option<u8> {
     }
 }
 
+/// A system that makes its particles once, as it starts, and lives while they do: the classes
+/// whose update only ages them (as `cParticleSystem_puzzleSolved_v`'s, `0x76CF20`): its texture,
+/// its grid, how it is drawn, its one layer's rates, its ramp, and its particles.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Burst {
+    pub texture: &'static str,
+    pub grid: u8,
+    pub blend: Blend,
+    pub layer: Layer,
+    pub ramp: Ramp,
+    pub particles: Vec<Particle>,
+}
+
+/// The ring of an undead that rises again (781, `TYPE_FX_PUZZLE_SOLVED_V`, its variant 3,
+/// `0x76D260` at `0x76D5A3`; #1261): 75 particles on a ring of 17.5 about the system's place,
+/// each rising at 70, the even ones falling back by a buoyancy of 100, of a size of 10 that falls
+/// by 8 a second, living 1.275 s (−200), from magenta through blue to a pale blue and to black;
+/// `PARTICLE_GLOW03` added to the frame (the flags `0x19`, `0x76CF60`).
+pub fn rise_ring() -> Burst {
+    let particles = (0..75_u8)
+        .map(|k| {
+            let angle = f32::from(k) * std::f32::consts::TAU / 75.0;
+            Particle {
+                place: [angle.cos() * 17.5, angle.sin() * 17.5, 0.0],
+                velocity: [0.0, 0.0, 70.0],
+                buoyancy: if k % 2 == 0 { 100.0 } else { 0.0 },
+                size: 10.0,
+                life: 255.0,
+                angle: 0.0,
+                spin: 0.0,
+                layer: 0,
+                frame: 0,
+            }
+        })
+        .collect();
+    Burst {
+        texture: "PARTICLE_GLOW03",
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            life: -200.0,
+            size: -8.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(
+            [0.898, 0.0195, 0.996, 1.0],
+            &[
+                ([0.0117, 0.422, 0.996, 1.0], 126),
+                ([0.0664, 0.621, 0.9375, 0.949], 45),
+                ([0.0, 0.0, 0.0, 0.0], 85),
+            ],
+        ),
+        particles,
+    }
+}
+
+/// The dust of a corpse that vanishes (781, its variant 4, `0x76D260` at `0x76D704`; #1261):
+/// 150 particles at once (`0x767FB0`) at the corpse's points `points` in the system's frame, each
+/// at one of them on `dice`, of a buoyancy of −20 ± 8 that falls by 10 a second (they rise ever
+/// faster), a size of 10 that grows by 8 a second, an angle of π ± π turning by 0.5 ± 0.2 and 1 a
+/// second, a velocity of ± 3 along each axis and a frame of the 2 × 2 grid, living 2.55 s (−100),
+/// a pale bone colour from an alpha of 0.5 to none; `PARTICLE_SMOKE03` laid over the frame by its
+/// alpha (the flags `0x10C`, `0x76CF60`). The original takes the model's skinned vertices, the
+/// game the points it is given; the wind that the variant takes from the renderer is left out, as
+/// the smoke class's is (none without points).
+pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
+    let block = Block {
+        buoyancy: spread(-20.0, 8.0),
+        size: spread(10.0, 0.0),
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        spin: spread(0.5, 0.2),
+        velocity: spread([0.0; 3], [3.0; 3]),
+        offset: Spread::default(),
+        interval: 0.0,
+        frames: 4,
+    };
+    let count = u32::try_from(points.len()).unwrap_or(u32::MAX);
+    let particles = if points.is_empty() {
+        Vec::new()
+    } else {
+        (0..150)
+            .map(|_| {
+                let at = points[usize::try_from(dice.below(count)).unwrap_or(0)];
+                Particle {
+                    place: at,
+                    velocity: spread_3(block.velocity, dice),
+                    buoyancy: spread_f32(block.buoyancy, dice),
+                    size: spread_f32(block.size, dice),
+                    life: 255.0,
+                    angle: spread_f32(block.angle, dice),
+                    spin: spread_f32(block.spin, dice),
+                    layer: 0,
+                    frame: u8::try_from(dice.below(u32::from(block.frames))).unwrap_or(0),
+                }
+            })
+            .collect()
+    };
+    let bone = [0.898, 0.836, 0.664];
+    Burst {
+        texture: "PARTICLE_SMOKE03",
+        grid: 2,
+        blend: Blend::Over,
+        layer: Layer {
+            buoyancy: -10.0,
+            life: -100.0,
+            size: 8.0,
+            angle: 1.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(
+            [bone[0], bone[1], bone[2], 0.5],
+            &[([bone[0], bone[1], bone[2], 0.0], 256)],
+        ),
+        particles,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,6 +740,56 @@ mod tests {
         // The 22nd entry, opaque.
         assert!(close(ramp.at(255.0 - 21.0)[3], 1.0));
         assert_eq!(ramp.at(0.0), [0.0; 4]);
+    }
+
+    #[test]
+    fn a_risen_undeads_ring_rises_and_its_even_half_falls_back() {
+        let burst = rise_ring();
+        assert_eq!(burst.particles.len(), 75);
+        let radius = |p: &Particle| p.place[0].hypot(p.place[1]);
+        assert!(
+            burst
+                .particles
+                .iter()
+                .all(|p| (radius(p) - 17.5).abs() < 1e-3)
+        );
+        let mut system = System::new(75);
+        system.particles = burst.particles.clone();
+        for _ in 0..42 {
+            system.update(1.0 / 60.0, &[burst.layer]);
+        }
+        // At 0.7 s the even ones stand at their highest, about 24.5, the odd ones at 49.
+        let even = system.particles[0].place[2];
+        let odd = system.particles[1].place[2];
+        assert!((even - 24.5).abs() < 1.0, "{even}");
+        assert!((odd - 49.0).abs() < 1.0, "{odd}");
+        // All gone at 1.275 s.
+        for _ in 0..36 {
+            system.update(1.0 / 60.0, &[burst.layer]);
+        }
+        assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_vanishing_corpses_dust_leaves_its_points_and_fades() {
+        let mut dice = Rng::of(0, 0, 9);
+        let points = [[0.0, 0.0, 10.0], [5.0, 0.0, 40.0]];
+        let burst = dust(&points, &mut dice);
+        assert_eq!(burst.particles.len(), 150);
+        assert!(
+            burst
+                .particles
+                .iter()
+                .all(|p| points.contains(&p.place) && p.frame < 4)
+        );
+        assert!((burst.ramp.at(255.0)[3] - 0.5).abs() < 1e-3);
+        assert!(dust(&[], &mut dice).particles.is_empty());
+        let mut system = System::new(150);
+        system.particles = burst.particles;
+        for _ in 0..154 {
+            system.update(1.0 / 60.0, &[burst.layer]);
+        }
+        assert!(system.particles.is_empty());
     }
 
     #[test]

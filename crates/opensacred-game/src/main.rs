@@ -63,6 +63,7 @@ mod paths;
 mod pause;
 mod pick;
 mod pickup;
+mod puffs;
 mod remarks;
 mod remote;
 mod rewards;
@@ -339,12 +340,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        puffs::PuffsPlugin,
         remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
-        screenshot::ScreenshotPlugin,
     ))
     .add_plugins((
+        screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
         settings::SettingsPlugin,
@@ -359,9 +361,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         statics::StaticsPlugin,
         steps::StepsPlugin,
         talk::TalkPlugin,
-        terrain::GroundPlugin,
     ))
     .add_plugins((
+        terrain::GroundPlugin,
         undead::UndeadPlugin,
         voices::VoicesPlugin,
         weather::WeatherPlugin,
