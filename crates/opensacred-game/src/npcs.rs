@@ -175,6 +175,15 @@ const NPC_GOTO: u16 = 72;
 const SET_ANIM_MODE: u16 = 88;
 const SET_PLAY_MODE: u16 = 89;
 const SET_CINEMA_MODE: u16 = 134;
+/// `PlayAnim` (`0x4A2550`): a creature plays a clip of its model's slot (#1277).
+const PLAY_ANIM: u16 = 91;
+/// The other records that wait their turn in a creature's queue under the anim mode, and the
+/// rank of the `0x01` that names the creature: `Wait`, `Attack`, `ActObj` the first, a
+/// `CallFunktion` the second (docs/re/netscript.md, "The other kinds, the waits and the cinema").
+const QUEUED_OTHERS: [(u16, usize); 4] = [(90, 0), (92, 0), (93, 0), (22, 1)];
+/// The slots of a scripts' clip that end 0.2 s before the clip does (`0x545204`): the defending
+/// row.
+const DEFENDING: std::ops::RangeInclusive<u16> = 53..=65;
 
 /// An NPC or an object to place.
 #[derive(Clone, Default)]
@@ -895,6 +904,8 @@ pub struct Retextured(
 #[derive(Component)]
 pub struct Npc {
     gltf: Handle<Gltf>,
+    /// Its model's file, by which its clips of any slot are found (`motions`).
+    model: String,
     /// The clips it plays, by name.
     names: ClipNames,
     graph: Option<Clips>,
@@ -963,6 +974,9 @@ struct Clips {
     /// The attack's clips, each with its clip and the fractions at which it hits.
     attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
     dying: Vec<AnimationNodeIndex>,
+    /// The clips of the slots that the scripts' `PlayAnim`s played, added to its graph as they
+    /// come (#1277), each with its clip.
+    scripted: HashMap<u16, (AnimationNodeIndex, Handle<AnimationClip>)>,
 }
 
 impl Clips {
@@ -2019,9 +2033,65 @@ enum Whither {
 #[derive(Clone, Debug, PartialEq)]
 struct Moved {
     name: String,
-    whither: Whither,
-    walks: bool,
+    act: Act,
     queued: bool,
+}
+
+/// What a record of the play does to a creature (#1220, #1277).
+#[derive(Clone, Debug, PartialEq)]
+enum Act {
+    /// `NPC_Goto` (a walk) or `Teleport`, to `whither`.
+    Go { whither: Whither, walks: bool },
+    /// `PlayAnim`: the slot of its clip, and how many times it plays outside the anim mode.
+    Clip { slot: u16, loops: u32 },
+    /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
+    /// record itself carried out elsewhere or not yet (#1278 to #1281).
+    Other(u16),
+}
+
+/// A `PlayAnim` of the operands `ops` (`0x4A2550`): the creature of its first `0x01`, the slot of
+/// its first `0x0B` and the count of its second, 1 by default; none for the hero, for no creature
+/// or slot above 0, or for the name `schmiede`, which opens the smith's window instead. Under the
+/// anim mode (`queued`), another record that waits its turn there and names a creature
+/// ([`QUEUED_OTHERS`]).
+fn played(kind: u16, ops: &[opensacred_data::netscript::Operand], queued: bool) -> Option<Moved> {
+    let names: Vec<String> = ops
+        .iter()
+        .filter_map(|o| match (o.tag, &o.value) {
+            (0x01, Value::Str(name)) => Some(name.to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect();
+    if kind == PLAY_ANIM {
+        let numbers: Vec<i32> = ops
+            .iter()
+            .filter_map(|o| match (o.tag, &o.value) {
+                (0x0B, Value::I32(n)) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        let name = names
+            .first()
+            .filter(|name| *name != "hero" && *name != "schmiede")?;
+        let slot = u16::try_from(*numbers.first()?).ok().filter(|&s| s > 0)?;
+        let loops = numbers
+            .get(1)
+            .and_then(|&n| u32::try_from(n).ok())
+            .unwrap_or(1)
+            .max(1);
+        return Some(Moved {
+            name: name.clone(),
+            act: Act::Clip { slot, loops },
+            queued,
+        });
+    }
+    let &(_, rank) = QUEUED_OTHERS.iter().find(|(other, _)| *other == kind)?;
+    let name = names.get(rank).filter(|name| *name != "hero")?;
+    queued.then(|| Moved {
+        name: name.clone(),
+        act: Act::Other(kind),
+        queued,
+    })
 }
 
 /// Where a record's position of the tag `tag` sends a creature: a cell of its own, a `DefPos`'s
@@ -4381,6 +4451,7 @@ fn spawn(
         entity.insert((
             Npc {
                 gltf: assets.load(placement.model.clone()),
+                model: placement.model.clone(),
                 names: placement.clips.clone(),
                 graph: None,
                 player: None,
@@ -4881,6 +4952,7 @@ pub fn animate(
                 fun,
                 attacks,
                 dying,
+                scripted: HashMap::new(),
             });
         }
         if let Some(clips) = npc.graph.clone() {
@@ -5089,7 +5161,7 @@ pub fn stance(
     nearest: Res<crowd::Nearest>,
     npcs: Query<
         (Entity, &Npc, Option<&Walk>, Has<Talks>, Option<&Plays>),
-        (Without<Strikes>, Without<Dies>),
+        (Without<Strikes>, Without<Dies>, Without<ScriptClip>),
     >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<hero::GameSpeed>,
@@ -5156,6 +5228,88 @@ pub fn stance(
                 .repeat()
                 .set_speed(speed.0 * rate);
         }
+    }
+}
+
+/// How a scripts' clip blends in and back to standing (`0x544B6A`, `0x544F06`, `0x545204`).
+const CLIP_IN: Duration = Duration::from_millis(250);
+const DEFENDING_BACK: f32 = 0.2;
+
+/// Plays each creature's scripts' clip ([`ScriptClip`]): its slot's clip of its model, added to
+/// its graph the first time, blended in over 0.25 s at its attack speed's hundredth (`0x584FE0`;
+/// 1.0 for a creature of none), looped its count of times; it ends at the clip's end, or 0.2 s
+/// before it for the slots 53 to 65 (`0x545204`), and the creature stands again (`stance`). A
+/// slot its model lacks plays nothing.
+fn script_clips(
+    mut commands: Commands,
+    data: Res<Npcs>,
+    mut npcs: Query<(Entity, &mut Npc, &mut ScriptClip, Option<&fight::Combat>), Without<Dies>>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    (gltfs, clips): (Res<Assets<Gltf>>, Res<Assets<AnimationClip>>),
+    mut graphs: ResMut<Assets<AnimationGraph>>,
+    speed: Res<hero::GameSpeed>,
+) {
+    for (entity, mut npc, mut clip, combat) in &mut npcs {
+        let Some(player_entity) = npc.player else {
+            continue;
+        };
+        let Ok((mut player, mut transitions)) = players.get_mut(player_entity) else {
+            continue;
+        };
+        if let Some((node, handle)) = &clip.playing {
+            let length = clips.get(handle).map_or(0.0, AnimationClip::duration);
+            let ended = player.animation(*node).is_none_or(|active| {
+                active.is_finished()
+                    || (DEFENDING.contains(&clip.slot)
+                        && active.completions() + 1 >= clip.loops
+                        && active.seek_time() >= length - DEFENDING_BACK)
+            });
+            if ended {
+                commands.entity(entity).remove::<ScriptClip>();
+            }
+            continue;
+        }
+        let handle = data
+            .slots
+            .get(&npc.model)
+            .and_then(|slots| slots.slot(clip.slot))
+            .and_then(|name| {
+                gltfs
+                    .get(&npc.gltf)
+                    .and_then(|gltf| gltf.named_animations.get(name).cloned())
+            });
+        let Some(graph) = npc.graph.as_mut() else {
+            continue;
+        };
+        let scripted = match graph.scripted.get(&clip.slot) {
+            Some(scripted) => Some(scripted.clone()),
+            None => {
+                let added = handle.and_then(|handle| {
+                    let mut graph_asset = graphs.get_mut(&graph.graph)?;
+                    let root = graph_asset.root;
+                    Some((graph_asset.add_clip(handle.clone(), 1.0, root), handle))
+                });
+                if let Some(added) = &added {
+                    graph.scripted.insert(clip.slot, added.clone());
+                }
+                added
+            }
+        };
+        let Some((node, handle)) = scripted else {
+            bevy::log::debug!(
+                "npcs: {entity} has no clip of the slot {} to play",
+                clip.slot
+            );
+            commands.entity(entity).remove::<ScriptClip>();
+            continue;
+        };
+        let rate = combat.map_or(1.0, |combat| combat.0.speed / 100.0);
+        let active = transitions.play(&mut player, node, CLIP_IN);
+        active.replay();
+        active
+            .set_repeat(bevy::animation::RepeatAnimation::Count(clip.loops))
+            .set_speed(speed.0 * rate);
+        clip.playing = Some((node, handle));
     }
 }
 
@@ -5337,6 +5491,10 @@ impl Npcs {
             let Body::Operands(ops) = &record.body else {
                 continue;
             };
+            if let Some(moved) = played(record.kind, ops, queued) {
+                moves.push(moved);
+                continue;
+            }
             let walks = match record.kind {
                 NPC_GOTO => true,
                 TELEPORT => false,
@@ -5363,8 +5521,7 @@ impl Npcs {
             }
             moves.push(Moved {
                 name,
-                whither,
-                walks,
+                act: Act::Go { whither, walks },
                 queued,
             });
         }
@@ -5925,6 +6082,31 @@ enum Queued {
     },
     /// A teleport to `to` on the level `level` (`Teleport`, the kind 9).
     Put { to: Vec3, level: Level },
+    /// A clip of the slot `slot` (`PlayAnim`, the kind 3): waits while a one-off clip of the
+    /// creature plays, then starts and is done (#1277).
+    Clip { slot: u16 },
+    /// Another record's turn, of its kind, done at once (#1277; their own steps #1278 to #1281).
+    Other(u16),
+}
+
+/// A clip that the scripts play on a creature (`PlayAnim`; the standing action's sub-states
+/// `0x65` and `0x66`, `0x544B6A`): its slot, how many times it plays, and its node once it plays.
+/// The creature's idle behaviours leave it be meanwhile (`ai`), and its stance waits (`stance`).
+#[derive(Component, Debug)]
+pub struct ScriptClip {
+    slot: u16,
+    loops: u32,
+    playing: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
+}
+
+impl ScriptClip {
+    fn new(slot: u16, loops: u32) -> Self {
+        Self {
+            slot,
+            loops,
+            playing: None,
+        }
+    }
 }
 
 /// How near its target, along each axis, a creature stands for its queue's walk to end
@@ -5957,6 +6139,7 @@ fn take_steps(
             Option<&mut crowd::InTheWay>,
             Option<&mut buildings::Layered>,
             Has<Walk>,
+            (Has<ScriptClip>, Has<Plays>),
         ),
         Without<Dies>,
     >,
@@ -5964,7 +6147,9 @@ fn take_steps(
     if tick.seconds.is_none() {
         return;
     }
-    for (entity, mut queue, mut transform, mind, way, layered, walking) in &mut creatures {
+    for (entity, mut queue, mut transform, mind, way, layered, walking, (clip, plays)) in
+        &mut creatures
+    {
         let here = transform.translation;
         let level = way.as_ref().and_then(|way| way.level);
         let done = match queue.0.front_mut() {
@@ -6016,6 +6201,20 @@ fn take_steps(
                 commands.entity(entity).remove::<Walk>();
                 true
             }
+            // A one-off clip ordered or playing, the scripts' or an instrument's, makes it wait
+            // (`0x59E151`); a walk does not, its walk overwritten.
+            Some(&mut Queued::Clip { slot }) => {
+                if clip || plays {
+                    false
+                } else {
+                    commands
+                        .entity(entity)
+                        .remove::<Walk>()
+                        .insert(ScriptClip::new(slot, 1));
+                    true
+                }
+            }
+            Some(Queued::Other(_)) => true,
         };
         if done {
             queue.0.pop_front();
@@ -6202,8 +6401,51 @@ pub(crate) fn script_records(
     // The steps queued in this run, for the creatures without a queue yet.
     let mut queued: HashMap<Entity, Vec<Queued>> = HashMap::new();
     for moved in npcs.moves(&records) {
+        let (whither, walks) = match moved.act {
+            Act::Go { whither, walks } => (whither, walks),
+            Act::Clip { slot, loops } => {
+                for (entity, ..) in creatures
+                    .iter()
+                    .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                {
+                    if moved.queued {
+                        let step = Queued::Clip { slot };
+                        match queues.get_mut(entity) {
+                            Ok(mut queue) => queue.0.push_back(step),
+                            Err(_) => queued.entry(entity).or_default().push(step),
+                        }
+                    } else {
+                        // Outside the mode, the event `0x108` (**hypothesis**: the same clip, its
+                        // count its loops).
+                        commands
+                            .entity(entity)
+                            .remove::<Walk>()
+                            .insert(ScriptClip::new(slot, loops));
+                    }
+                }
+                bevy::log::info!(
+                    "npcs: the scripts play the slot {slot} of {}{}",
+                    moved.name,
+                    if moved.queued { " in its turn" } else { "" }
+                );
+                continue;
+            }
+            Act::Other(kind) => {
+                for (entity, ..) in creatures
+                    .iter()
+                    .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
+                {
+                    let step = Queued::Other(kind);
+                    match queues.get_mut(entity) {
+                        Ok(mut queue) => queue.0.push_back(step),
+                        Err(_) => queued.entry(entity).or_default().push(step),
+                    }
+                }
+                continue;
+            }
+        };
         // A creature's place: the hero's, or the first creature's of the name.
-        let spot = match &moved.whither {
+        let spot = match &whither {
             Whither::Cell((x, y, layer)) => {
                 let floor = usize::try_from(*layer).ok().filter(|&f| f > 0);
                 let level = floor.and_then(|floor| {
@@ -6231,7 +6473,7 @@ pub(crate) fn script_records(
             // of no floor onto the creature's own level (`0x49E210`), a teleport's floor 0 the
             // ground.
             if moved.queued {
-                let step = if moved.walks {
+                let step = if walks {
                     Queued::Walk {
                         to,
                         onto: (layer > 0).then_some(level),
@@ -6247,7 +6489,7 @@ pub(crate) fn script_records(
                 }
                 continue;
             }
-            if moved.walks {
+            if walks {
                 // At its walk speed, as the start's `NPC_Goto`s walk theirs (#132).
                 let speed = mind.as_ref().map_or(0.0, |mind| mind.speed);
                 let from = way.as_ref().and_then(|way| way.level);
@@ -6271,9 +6513,9 @@ pub(crate) fn script_records(
         }
         bevy::log::info!(
             "npcs: the scripts {} {} to {:?}{}",
-            if moved.walks { "send" } else { "put" },
+            if walks { "send" } else { "put" },
             moved.name,
-            moved.whither,
+            whither,
             if moved.queued { " in its turn" } else { "" }
         );
     }
@@ -7244,6 +7486,7 @@ impl Plugin for NpcsPlugin {
                     instrument,
                     strike,
                     die,
+                    script_clips,
                     stance,
                     equip,
                     bind_worn,
@@ -8243,6 +8486,37 @@ mod tests {
     }
 
     #[test]
+    fn a_play_anim_names_its_creature_and_slot_and_the_others_take_their_turns() {
+        let op = |tag, value| Operand { tag, value };
+        let name = |n: &str| op(0x01, Value::Str(n.into()));
+        let slot = |n| op(0x0B, Value::I32(n));
+        // `OMO-1malorka_dance`'s first, under the anim mode.
+        let clip = played(PLAY_ANIM, &[name("res:17532"), slot(53)], true).unwrap();
+        assert_eq!(clip.name, "res:17532");
+        assert_eq!(clip.act, Act::Clip { slot: 53, loops: 1 });
+        assert!(clip.queued);
+        // A second `0x0B` its count; the name taken case aside.
+        let twice = played(PLAY_ANIM, &[name("Malorka"), slot(89), slot(2)], false).unwrap();
+        assert_eq!(
+            (twice.name.as_str(), twice.act),
+            ("malorka", Act::Clip { slot: 89, loops: 2 })
+        );
+        // None for the hero, the smith's window or no slot.
+        assert!(played(PLAY_ANIM, &[name("HERO"), slot(53)], true).is_none());
+        assert!(played(PLAY_ANIM, &[name("schmiede"), slot(53)], true).is_none());
+        assert!(played(PLAY_ANIM, &[name("res:17532"), slot(0)], true).is_none());
+        // A `CallFunktion` names its creature second and takes a turn only under the mode.
+        let call = [name("audiomeldung"), name("res:17532")];
+        let turn = played(22, &call, true).unwrap();
+        assert_eq!(
+            (turn.name.as_str(), turn.act),
+            ("res:17532", Act::Other(22))
+        );
+        assert!(played(22, &call, false).is_none());
+        assert!(played(90, &[name("res:17532")], true).is_some());
+    }
+
+    #[test]
     fn a_walk_shows_its_clip_once_it_has_stepped() {
         let node = AnimationNodeIndex::new;
         let clips = Clips {
@@ -8255,6 +8529,7 @@ mod tests {
             fun: [None; 4],
             attacks: Vec::new(),
             dying: Vec::new(),
+            scripted: HashMap::new(),
         };
         let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
         // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.

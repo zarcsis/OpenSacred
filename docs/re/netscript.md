@@ -876,7 +876,11 @@ Read 2026-10-28 for #1276 in `Sacred.exe` by a subagent of the session, code onl
 
 In `opensacred-game` since #1220 (`npcs::ScriptQueue`, `npcs::take_steps`): the play's `NPC_Goto`s and `Teleport`s between a `SetAnimMode` or a `SetCinemaMode` and a `SetPlayMode` wait in their creature's queue, one step at each tick of the world, the creature's idle thought and behaviours left meanwhile (`ai`); a walk runs and ends within 40 along each axis on its level, or is dropped after 5 orders standing still; a teleport puts the creature at once.
 A walk to a cell of no floor goes onto the creature's level as it sets out rather than as the record ran, so that the novice's walk after her teleport down ends on the steps rather than being dropped there.
-Not followed yet (#1232): the other queued records (`Wait`, `PlayAnim`, `Attack` and the rest, which the game does not run at all yet), a `SetPlayMode` naming a creature (it ends the mode at once), the cinema mode's hold on the player, the interface's flag, and the queues saved with the creatures.
+Since #1277 a `PlayAnim` waits its turn in the queue as well: it waits while a one-off clip of the creature plays (the scripts' or a juggler's instrument's), then starts its clip and is done, the creature's walk dropped (`npcs::ScriptClip`); the clip of its slot is found among its model's motions and added to its animation graph the first time, blended in over 0.25 s at its attack speed's hundredth, and ends at its end, or 0.2 s before it for the slots 53 to 65, the creature standing again; meanwhile its idle behaviours and its stance leave it be.
+Outside the mode a `PlayAnim` plays its clip at once, its count of times (**hypothesis** for the event `0x108`).
+`Wait`, `Attack`, `ActObj` and a `CallFunktion` naming a creature take their turns in its queue, one a tick, so that the records after them wait as long as in the original; what they do is #1278, #1279 and #1281's.
+Seen in the original and the game (#1277): `OMO-1malorka_dance` after `Dialog:malorka_werbung` makes the five dancers go through their clips one after another in both.
+Not followed yet (#1232): what `Wait`, `Attack` and the rest do in their turns, the reset of the AI's state after an entry, a `SetPlayMode` naming a creature (it ends the mode at once), the cinema mode's hold on the player, the interface's flag, and the queues saved with the creatures.
 
 ## Differences from the openheilig table
 
