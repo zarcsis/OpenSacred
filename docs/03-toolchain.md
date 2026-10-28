@@ -327,7 +327,7 @@ The host, its guards, the frames and the process's state are in place (#449), th
 The project skill `original` says how to run it.
 
 ```bash
-uv run python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
+uv run python -I tools/original/host.py --holder <session> --log-file <scratch>/original.log   # in the background
 uv run python -I tools/game/remote.py --port 15703 wait-state menu
 uv run python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"   # or: exec "load start-seraphim"
 uv run python -I tools/game/remote.py --port 15703 wait-ready
@@ -360,6 +360,7 @@ The maintainer's decisions of 2026-10-21:
   Before each start the host sets the keys of `Settings.cfg` it needs (`FULLSCREEN : 0`, 1 in the maintainer's play; `SHOWMOVIE : 0`; the three volumes 0) and nothing else.
   The volumes it replaces, unless it wrote them itself or all three are 0, it keeps in `%LOCALAPPDATA%\OpenSacred\original-volumes.json`, and `--sound` writes them back, or the installation's 64 where none were kept (#1383).
   Worktrees link `OriginalGame/` to one installation, so one original runs at a time.
+  While a host runs it records the original's holder in `%LOCALAPPDATA%\OpenSacred\original-holder.json` (`--holder`, the session's name as `ListAgents` shows it; the Claude Code session, the branch and the worktree), and a host started meanwhile refuses, naming them (#1398).
 * **At any time, without disturbing the maintainer.**
   The original runs in the background, never takes the focus, never blocks the maintainer's keys and never outlives its host.
   The maintainer's own play (`--interactive`, 2026-10-22) is the one run that takes the screen, started by the maintainer or at their word.

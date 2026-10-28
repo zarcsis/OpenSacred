@@ -70,11 +70,12 @@ With the original running beside the game under its driver, two more compare the
 ## The original's driver
 
 `tools/original/host.py` starts the developer's own `Sacred.exe` in the background under Frida, with `tools/original/agent.js` loaded into it, and serves the same methods on `127.0.0.1:15703`, so that `tools/game/remote.py --port 15703` drives the original as it drives the game (docs/03 §3.8, #448; the skill `original`).
+One original runs on the machine: the host records its holder (`--holder`) while it runs, and a host started meanwhile refuses, naming it (#1398); tests: `uv run python -I -m unittest discover -s tools/original -p "test_*.py"`.
 The agent guards the maintainer's desktop (no low-level hooks, no focus, no topmost window, no display mode, no cursor), keeps the game drawing without the focus, counts its frames and takes its screenshots, takes the player's input as its own messages, reads the world and runs commands on the render thread, and traces the original's functions (docs/re/traces.md); the host keeps the game in a job object that ends with it and clicks through the original's menus (a new game, the saves).
 It needs `frida` and Pillow (`pyproject.toml`) and the installation in `OriginalGame/`, and writes only the keys of `Settings.cfg` it needs; the game writes its own files there.
 
 ```bash
-uv run python -I tools/original/host.py --log-file <scratch>/original.log    # in the background
+uv run python -I tools/original/host.py --holder <session> --log-file <scratch>/original.log   # in the background
 uv run python -I tools/game/remote.py --port 15703 state
 uv run python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
 uv run python -I tools/game/remote.py --port 15703 exec quit

@@ -10,7 +10,7 @@ The original is the developer's own `Sacred.exe` in `OriginalGame/` (a link to t
 ## Start and stop
 
 ```bash
-uv run python -I tools/original/host.py --log-file <scratch>/original.log    # run_in_background; one original at a time
+uv run python -I tools/original/host.py --holder <session> --log-file <scratch>/original.log   # run_in_background; one original at a time
 uv run python -I tools/game/remote.py --port 15703 wait-state menu           # up, on its main menu
 uv run python -I tools/game/remote.py --port 15703 exec "new-game --class seraphim"
 uv run python -I tools/game/remote.py --port 15703 wait-ready                # in the world, the first windows closed
@@ -21,11 +21,11 @@ uv run python -I tools/game/remote.py --port 15703 logs --after 0
 uv run python -I tools/game/remote.py --port 15703 exec quit                 # the game closes as its window is closed
 ```
 
-The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (keeping the volumes it replaces in `%LOCALAPPDATA%\OpenSacred\original-volumes.json`, which `--sound` writes back), and the window's keys of dgVoodoo2's `dgVoodoo.conf` back to their defaults, and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen; 6 when `--monitor` names no monitor.
+The host checks `Sacred.exe` against the manifest and refuses to start while a `Sacred.exe` runs or another host holds the original. Before each start it writes `FULLSCREEN : 0`, `SHOWMOVIE : 0` and the three volumes 0 into `Settings.cfg` (keeping the volumes it replaces in `%LOCALAPPDATA%\OpenSacred\original-volumes.json`, which `--sound` writes back), and the window's keys of dgVoodoo2's `dgVoodoo.conf` back to their defaults, and nothing else. It exits with the game's exit code: 0 after `quit`; 4 when its heartbeat stopped for 5 s; 5 when the agent was unloaded; 3 when the game asked DirectDraw for full screen; 6 when `--monitor` names no monitor.
 
 Stopping the host's background task ends the game within a second (a job object). A run that hangs is ended by stopping that task, never by killing `Sacred.exe` by hand while the host lives.
 
-One original runs on the machine, whichever worktree starts it. Tell the peer sessions before starting the host and after `exec quit` (`ListAgents`, `SendMessage`); when the host refuses because a `Sacred.exe` runs, ask them who holds it and to say when it is free (a session idle may still hold it), never ending another session's original (docs/03 §3.5).
+One original runs on the machine, whichever worktree starts it. `--holder` takes this session's name as `ListAgents` shows it: while the host runs it records the holder, the Claude Code session, the branch and the worktree in `%LOCALAPPDATA%\OpenSacred\original-holder.json`, removed as the host ends, and a host started meanwhile refuses with them and how long they have held it (#1398); a record whose host is gone is taken over. Tell the peer sessions before starting the host and after `exec quit` (`ListAgents`, `SendMessage`); when the host refuses, ask the holder it names to say when the original is free (a session idle may still hold it), never ending another session's original (docs/03 §3.5).
 
 | Option | What it does |
 |---|---|
@@ -38,6 +38,7 @@ One original runs on the machine, whichever worktree starts it. Tell the peer se
 | `--muted` | the game's volumes 64, so that it plays its sounds (for the sound traces), while the agent sets every volume of mss32.dll to 0, a stream's volume read back answering the one asked (#1213); never `--sound` while the maintainer may hear it |
 | `--arg WORD` | a word of `Sacred.exe`'s command line, as `--arg tabblocker` (docs/re/window.md) |
 | `--port N` | another port (15703 by default) |
+| `--holder NAME` | who holds the original while the host runs: the session's name as `ListAgents` shows it, which a host started meanwhile names as it refuses (#1398) |
 | `--game-dir DIR`, `--agent FILE` | another installation (`OriginalGame/` by default), another agent (`tools/original/agent.js` by default) |
 | `--interactive` (`--monitor N`) | the maintainer's play (#551, docs/03 §3.8): the original full screen through dgVoodoo2 on the primary monitor (or the n-th the log lists), scaled with its proportions kept, the maintainer's mouse and keyboard reaching it while it has the foreground; it takes the screen and the focus, so only when the maintainer starts it or asks for it, never for a check of Claude Code's own |
 
