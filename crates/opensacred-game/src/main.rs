@@ -12,6 +12,7 @@ mod atmosphere;
 mod attack;
 mod backpack;
 mod bar;
+mod beams;
 mod benchmark;
 mod blast;
 mod blended;
@@ -290,13 +291,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         attack::AttackPlugin,
         backpack::BackpackPlugin,
         bar::BarPlugin,
+        beams::BeamsPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
         blast::BlastPlugin,
         blended::BlendedPlugin,
-        bolts::BoltsPlugin,
     ))
     .add_plugins((
+        bolts::BoltsPlugin,
         breath::BreathPlugin,
         buildings::BuildingsPlugin,
         burns::BurnsPlugin,
@@ -311,9 +313,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         doors::DoorsPlugin,
         drops::DropsPlugin,
         effects::EffectsPlugin,
-        fight::FightPlugin,
     ))
     .add_plugins((
+        fight::FightPlugin,
         fliers::FliersPlugin,
         followers::FollowersPlugin,
         forms::FormsPlugin,
@@ -328,9 +330,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
-        inventory::InventoryPlugin,
     ))
     .add_plugins((
+        inventory::InventoryPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
@@ -345,9 +347,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         pause::PausePlugin,
         pickup::PickupPlugin,
         puffs::PuffsPlugin,
-        remarks::RemarksPlugin,
     ))
     .add_plugins((
+        remarks::RemarksPlugin,
         rewards::RewardsPlugin,
         ripples::RipplesPlugin,
         screenshot::ScreenshotPlugin,
@@ -362,9 +364,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sound::SoundPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
-        statics::StaticsPlugin,
     ))
     .add_plugins((
+        statics::StaticsPlugin,
         steps::StepsPlugin,
         talk::TalkPlugin,
         terrain::GroundPlugin,

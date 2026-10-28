@@ -412,7 +412,7 @@ pub(crate) fn aim(
 }
 
 /// The world point of the first of `names` among `root`'s descendants.
-fn bone(
+pub(crate) fn bone(
     root: Entity,
     names: &[&str],
     children: &Query<&Children>,
