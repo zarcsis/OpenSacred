@@ -749,7 +749,19 @@ struct Recorder<'a> {
     /// The items that its `CreateObj`s gave the hero straight among the main quest's items
     /// ([`Recorder::given`], #1256).
     given: Vec<u32>,
+    /// Whether the scripts' anim mode is on in the run, from a `SetAnimMode` or a
+    /// `SetCinemaMode` to a `SetPlayMode` (the mode word's bit 1, `0xAB73DC`; #1278).
+    anim: bool,
 }
+
+/// The kind of a `CallFunktion` record (22), which a deferred call hands to the world as
+/// (`Recorder::defer`, #1278): its first `0x01` the function, its second the creature.
+pub const CALL_FUNKTION: u16 = 22;
+
+/// The functions whose turns came in their creatures' queues (`npcs`, #1278), which `run_due`
+/// runs.
+#[derive(Resource, Default, Debug)]
+pub struct Due(pub Vec<String>);
 
 /// The records of the rewards, `AddExp`, `AddGold` and `Gewinn`, which `rewards` carries out:
 /// none inside a function whose quest is finished or not set up (`0x48D480`, `0x48DA40`,
@@ -786,6 +798,7 @@ impl<'a> Recorder<'a> {
             running: Vec::new(),
             names: Vec::new(),
             given: Vec::new(),
+            anim: false,
         }
     }
 
@@ -859,11 +872,43 @@ impl<'a> Recorder<'a> {
 }
 
 impl Host for Recorder<'_> {
+    /// A `CallFunktion` naming a creature under the anim mode waits its turn in that creature's
+    /// queue (`0x4813D0`, the step `0x59CE5B`): handed to the world as a record of the function and
+    /// the creature, which `npcs` queues and whose function `run_due` runs at its turn.
+    fn defer(&mut self, function: &str, operands: &[Operand]) -> bool {
+        let tags = match operands.first() {
+            Some(Operand::Tags(tags)) => Tags(Some(tags)),
+            _ => Tags(None),
+        };
+        let Some(creature) = tags.texts("_01").first().map(|&c| c.to_owned()) else {
+            return false;
+        };
+        if !self.anim {
+            return false;
+        }
+        let name = |text: &str| netscript::Operand {
+            tag: 0x01,
+            value: Value::Str(text.to_owned()),
+        };
+        self.records.push(Record {
+            kind: CALL_FUNKTION,
+            body: netscript::Body::Operands(vec![name(function), name(&creature)]),
+        });
+        bevy::log::debug!("scripts: {function} waits for {creature}'s turn");
+        true
+    }
+
     fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled {
         let tags = match operands.first() {
             Some(Operand::Tags(tags)) => Tags(Some(tags)),
             _ => Tags(None),
         };
+        match name {
+            "set_anim_mode" | "set_cinema_mode" => self.anim = true,
+            // Naming no creature it ends the mode at once (`0x4A4040`).
+            "set_play_mode" if tags.texts("_01").is_empty() => self.anim = false,
+            _ => {}
+        }
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
             return tags.test(self.tree, &self.state.variables, self.state.difficulty);
@@ -2066,6 +2111,22 @@ fn take_for_quest(
     }
 }
 
+/// Runs the functions whose turns came in their creatures' queues (#1278), each found by its
+/// name as the scripts run one, its records handed to the world.
+fn run_due(world: &mut World) {
+    let due = std::mem::take(&mut world.resource_mut::<Due>().0);
+    for function in due {
+        let run = |live: &mut Live| {
+            let effects = live.run_named(&function);
+            Ok((effects, format!("{function} ran at its turn")))
+        };
+        match carry_out(world, run) {
+            Ok(lines) => bevy::log::info!("scripts: {}", lines.join("; ")),
+            Err(e) => bevy::log::warn!("scripts: {function} at its turn: {e}"),
+        }
+    }
+}
+
 /// Puts the hero where the last of `teleports` names, on its level.
 fn put(live: &mut Live, teleports: &[Teleport], transform: &mut Transform, body: &mut Body) {
     if let Some(&Teleport {
@@ -2094,11 +2155,19 @@ impl Plugin for ScriptsPlugin {
             .init_resource::<HeroHome>()
             .init_resource::<Infos>()
             .init_resource::<Popups>()
+            .init_resource::<Due>()
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
+            .add_systems(
+                Update,
+                run_due
+                    .after(Step::Npcs)
+                    .in_set(Playing)
+                    .run_if(|due: Res<Due>| !due.0.is_empty()),
+            )
             .add_systems(
                 Update,
                 (step_on, timers, share)
@@ -2519,6 +2588,7 @@ mod tests {
             .init_resource::<HeroHome>()
             .init_resource::<Infos>()
             .init_resource::<Popups>()
+            .init_resource::<Due>()
             .add_message::<ScriptSound>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -2550,6 +2620,40 @@ mod tests {
         assert!(world.get::<OnDeath>(target).is_some_and(|d| d.0.is_empty()));
         assert!(world.entity(other).contains::<Dies>());
         assert_eq!(world.resource::<Healths>().0.len(), 2);
+    }
+
+    #[test]
+    fn a_call_whose_turn_came_runs_its_function_into_the_world() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"sprich_15\"] = function()\n\
+             set_hp { _01 = \"res:18103\", _0B = 50 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut app = bevy::app::App::new();
+        app.world_mut().insert_non_send(live(runtime));
+        app.init_resource::<ObjStates>()
+            .init_resource::<Healths>()
+            .init_resource::<WorldRecords>()
+            .init_resource::<HeroHome>()
+            .init_resource::<Infos>()
+            .init_resource::<Popups>()
+            .insert_resource(Due(vec!["sprich_15".into()]))
+            .add_message::<ScriptSound>()
+            .add_message::<Remark>()
+            .add_message::<crate::pickup::Given>()
+            .add_systems(Update, run_due);
+        app.update();
+        let world = app.world();
+        assert!(world.resource::<Due>().0.is_empty());
+        assert_eq!(world.resource::<Healths>().0.len(), 1);
+        assert_eq!(world.resource::<WorldRecords>().0.len(), 1);
     }
 
     #[test]
@@ -2616,6 +2720,48 @@ mod tests {
         assert_eq!(
             live.run("tot1202", 0).healths,
             [set(Some("res:17163"), 0), set(None, 100), set(None, 25)]
+        );
+    }
+
+    #[test]
+    fn a_call_naming_a_creature_under_the_anim_mode_waits_its_turn() {
+        let runtime = runtime(&[(
+            "start.luau",
+            "local F = {}\n\
+             F[\"StartCode\"] = function()\n\
+             return true\n\
+             end\n\
+             F[\"OMO-1lines\"] = function()\n\
+             set_anim_mode {}\n\
+             npc_goto { _01 = \"res:18103\", _04 = { 10, 10, 0 } }\n\
+             call(\"sprich_15\", { _01 = \"res:18103\" })\n\
+             set_play_mode {}\n\
+             call(\"sprich_15\", { _01 = \"res:18103\" })\n\
+             return true\n\
+             end\n\
+             F[\"sprich_15\"] = function()\n\
+             set_hp { _0B = 25 }\n\
+             return true\n\
+             end\n\
+             return F",
+        )]);
+        let mut live = live(runtime);
+        let effects = live.run("OMO-1lines", 0);
+        // Under the mode the call is handed to the world after the walk, its function not run;
+        // after it the call runs at once.
+        let kinds: Vec<u16> = effects.records.iter().map(|record| record.kind).collect();
+        assert_eq!(kinds, [88, 72, CALL_FUNKTION, 89, 52]);
+        assert_eq!(effects.healths.len(), 1);
+        let netscript::Body::Operands(ops) = &effects.records[2].body else {
+            panic!("a call's operands");
+        };
+        let names: Vec<&Value> = ops.iter().map(|op| &op.value).collect();
+        assert_eq!(
+            names,
+            [
+                &Value::Str("sprich_15".into()),
+                &Value::Str("res:18103".into())
+            ]
         );
     }
 

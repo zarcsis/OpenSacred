@@ -180,7 +180,7 @@ const PLAY_ANIM: u16 = 91;
 /// The other records that wait their turn in a creature's queue under the anim mode, and the
 /// rank of the `0x01` that names the creature: `Wait`, `Attack`, `ActObj` the first, a
 /// `CallFunktion` the second (docs/re/netscript.md, "The other kinds, the waits and the cinema").
-const QUEUED_OTHERS: [(u16, usize); 4] = [(90, 0), (92, 0), (93, 0), (22, 1)];
+const QUEUED_OTHERS: [(u16, usize); 3] = [(90, 0), (92, 0), (93, 0)];
 /// The slots of a scripts' clip that end 0.2 s before the clip does (`0x545204`): the defending
 /// row.
 const DEFENDING: std::ops::RangeInclusive<u16> = 53..=65;
@@ -2044,6 +2044,9 @@ enum Act {
     Go { whither: Whither, walks: bool },
     /// `PlayAnim`: the slot of its clip, and how many times it plays outside the anim mode.
     Clip { slot: u16, loops: u32 },
+    /// A `CallFunktion` naming the creature, which the scripts deferred under the anim mode: its
+    /// function runs at its turn (#1278).
+    Call(String),
     /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
     /// record itself carried out elsewhere or not yet (#1278 to #1281).
     Other(u16),
@@ -2083,6 +2086,15 @@ fn played(kind: u16, ops: &[opensacred_data::netscript::Operand], queued: bool) 
             name: name.clone(),
             act: Act::Clip { slot, loops },
             queued,
+        });
+    }
+    // A deferred `CallFunktion`: the function first, the creature second (`scripts`).
+    if kind == crate::scripts::CALL_FUNKTION {
+        let (function, name) = (names.first()?, names.get(1)?);
+        return Some(Moved {
+            name: name.clone(),
+            act: Act::Call(function.clone()),
+            queued: true,
         });
     }
     let &(_, rank) = QUEUED_OTHERS.iter().find(|(other, _)| *other == kind)?;
@@ -6067,7 +6079,7 @@ pub(crate) fn script_healths(
 pub struct ScriptQueue(std::collections::VecDeque<Queued>);
 
 /// A step of a creature's [`ScriptQueue`].
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Queued {
     /// A run to `to` (`NPC_Goto`, the kind 1) onto the level `onto`, the creature's own as it
     /// sets out where the record names no floor (**hypothesis** for when: the original takes the
@@ -6085,8 +6097,11 @@ enum Queued {
     /// A clip of the slot `slot` (`PlayAnim`, the kind 3): waits while a one-off clip of the
     /// creature plays, then starts and is done (#1277).
     Clip { slot: u16 },
-    /// Another record's turn, of its kind, done at once (#1277; their own steps #1278 to #1281).
+    /// Another record's turn, of its kind, done at once (#1277; their own steps #1279 to #1281).
     Other(u16),
+    /// A `CallFunktion`'s function, run at its turn and done the same tick (the step `0x59CE5B`,
+    /// #1278).
+    Call(String),
 }
 
 /// A clip that the scripts play on a creature (`PlayAnim`; the standing action's sub-states
@@ -6130,6 +6145,7 @@ fn take_steps(
     mut commands: Commands,
     tick: Res<WorldTick>,
     heights: Res<Heights>,
+    mut due: Option<ResMut<crate::scripts::Due>>,
     mut creatures: Query<
         (
             Entity,
@@ -6215,6 +6231,12 @@ fn take_steps(
                 }
             }
             Some(Queued::Other(_)) => true,
+            Some(Queued::Call(function)) => {
+                if let Some(due) = due.as_deref_mut() {
+                    due.0.push(std::mem::take(function));
+                }
+                true
+            }
         };
         if done {
             queue.0.pop_front();
@@ -6430,12 +6452,16 @@ pub(crate) fn script_records(
                 );
                 continue;
             }
-            Act::Other(kind) => {
+            act @ (Act::Other(_) | Act::Call(_)) => {
                 for (entity, ..) in creatures
                     .iter()
                     .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
                 {
-                    let step = Queued::Other(kind);
+                    let step = match &act {
+                        Act::Call(function) => Queued::Call(function.clone()),
+                        Act::Other(kind) => Queued::Other(*kind),
+                        _ => continue,
+                    };
                     match queues.get_mut(entity) {
                         Ok(mut queue) => queue.0.push_back(step),
                         Err(_) => queued.entry(entity).or_default().push(step),
@@ -8505,15 +8531,17 @@ mod tests {
         assert!(played(PLAY_ANIM, &[name("HERO"), slot(53)], true).is_none());
         assert!(played(PLAY_ANIM, &[name("schmiede"), slot(53)], true).is_none());
         assert!(played(PLAY_ANIM, &[name("res:17532"), slot(0)], true).is_none());
-        // A `CallFunktion` names its creature second and takes a turn only under the mode.
-        let call = [name("audiomeldung"), name("res:17532")];
-        let turn = played(22, &call, true).unwrap();
+        // A `CallFunktion` that the scripts deferred names its function first and its creature
+        // second, and always waits its turn (#1278).
+        let call = [name("sprich_15"), name("res:17532")];
+        let turn = played(22, &call, false).unwrap();
         assert_eq!(
-            (turn.name.as_str(), turn.act),
-            ("res:17532", Act::Other(22))
+            (turn.name.as_str(), turn.act, turn.queued),
+            ("res:17532", Act::Call("sprich_15".into()), true)
         );
-        assert!(played(22, &call, false).is_none());
+        // A `Wait` takes a turn only under the mode.
         assert!(played(90, &[name("res:17532")], true).is_some());
+        assert!(played(90, &[name("res:17532")], false).is_none());
     }
 
     #[test]
