@@ -299,6 +299,9 @@ struct Placement {
     /// enters the hero's list of the main quest's items as it is picked up (`sdk_REFKEY`,
     /// `0x44A1C0`; #1257).
     key: Option<String>,
+    /// An object of an item's type that lies to be picked up as any lying item, not a quest's
+    /// (`CreateObj` without [`QUEST_ITEM`], #1296).
+    lies: bool,
 }
 
 impl Placement {
@@ -398,6 +401,14 @@ const QUEST_KEY: u8 = 16;
 /// "The walk"): 5 to 9, 13 to 25, 28, 29 and 33.
 fn takeable(category: u8) -> bool {
     matches!(category, 5..=9 | 13..=25 | 28 | 29 | 33)
+}
+
+/// An item that a `CreateObj` of an item's type without [`QUEST_ITEM`] lays in the world, which the
+/// hero picks up as any lying item (seen in the original, #1296): its placement, which is not
+/// placed again once taken ([`Npcs::taken`]).
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct ScriptItem {
+    pub index: usize,
 }
 
 /// A quest's item that a `CreateObj` of [`QUEST_ITEM`] lays in the world, which the hero picks up
@@ -666,6 +677,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         on_death: DeathFunctions::default(),
         quest: None,
         key: None,
+        lies: false,
     }
 }
 
@@ -2664,6 +2676,9 @@ impl Makers {
                 DeathFunctions::default()
             },
             key: (record.kind == CREATE_OBJ).then(|| name_of(ops)).flatten(),
+            lies: record.kind == CREATE_OBJ
+                && takeable(category(item))
+                && !ops.iter().any(|o| o.tag == QUEST_ITEM),
             quest: (record.kind == CREATE_OBJ
                 && takeable(category(item))
                 && ops
@@ -3808,6 +3823,24 @@ fn place_index(
                 index,
                 name: placement.key.clone(),
             },
+            drops::Lying {
+                dropped: opensacred_rules::drops::Dropped {
+                    kind: opensacred_rules::drops::Kind::Other,
+                    item: placement.creature.0,
+                    level: 0,
+                    key: QUEST_KEY,
+                    quality: 0,
+                    amount: 1,
+                    values: None,
+                },
+                resting: true,
+            },
+        ));
+    }
+    // An item of a `CreateObj` lies to be picked up as a drop (#1296).
+    if placement.lies && placement.quest.is_none() {
+        commands.entity(entity).insert((
+            ScriptItem { index },
             drops::Lying {
                 dropped: opensacred_rules::drops::Dropped {
                     kind: opensacred_rules::drops::Kind::Other,
@@ -7623,9 +7656,18 @@ fn instrument(
 pub struct Talks;
 
 /// Notes the quests' items that the hero took, which their sectors place no more (#1256).
-fn taken_items(mut taken: MessageReader<crate::pickup::TakenForQuest>, mut npcs: ResMut<Npcs>) {
+fn taken_items(
+    (mut taken, mut items): (
+        MessageReader<crate::pickup::TakenForQuest>,
+        MessageReader<crate::pickup::TakenPlaced>,
+    ),
+    mut npcs: ResMut<Npcs>,
+) {
     for taken in taken.read() {
         npcs.taken.insert(taken.index);
+    }
+    for taken in items.read() {
+        npcs.taken.insert(taken.0);
     }
 }
 
