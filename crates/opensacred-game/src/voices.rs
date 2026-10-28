@@ -272,6 +272,17 @@ enum HeroLine {
     /// The foes on the run (`0x68BEA0`).
     FoeOnTheRun,
     EnemyFlees,
+    /// An item that the hero's class may not use, and one whose level or other requirements it
+    /// does not meet (the inventory's window, `0x6B6690`; #1289).
+    NotMyItem,
+    NotMyItemLevel,
+}
+
+/// The hero refuses an item it may not use (#1289): `level` where its class may use it but not
+/// its level or other requirements (`(9, 8)`, `NOTMYITEMLVL`), else `(9, 6)`, `NOTMYITEM`.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NotMine {
+    pub level: bool,
 }
 
 impl HeroLine {
@@ -289,6 +300,8 @@ impl HeroLine {
             Self::Breathing => "BREATHING",
             Self::FoeOnTheRun => "FOE_ON_THE_RUN",
             Self::EnemyFlees => "ENEMYFLEES",
+            Self::NotMyItem => "NOTMYITEM",
+            Self::NotMyItemLevel => "NOTMYITEMLVL",
         }
     }
 
@@ -302,6 +315,8 @@ impl HeroLine {
             Self::EnemyKillMe => 6,
             Self::Breathing | Self::FoeOnTheRun => 10,
             Self::EnemyFlees => 5,
+            Self::NotMyItem => 6,
+            Self::NotMyItemLevel => 7,
         }
     }
 
@@ -316,7 +331,12 @@ impl HeroLine {
             Self::BattleCry { sure: true, .. } => 1,
             Self::BattleCry { .. } if creature == GLADIATOR => 2,
             Self::BattleCry { .. } => 3,
-            Self::EnemyKillMe | Self::Breathing | Self::FoeOnTheRun | Self::EnemyFlees => 1,
+            Self::EnemyKillMe
+            | Self::Breathing
+            | Self::FoeOnTheRun
+            | Self::EnemyFlees
+            | Self::NotMyItem
+            | Self::NotMyItemLevel => 1,
         }
     }
 
@@ -336,7 +356,11 @@ impl HeroLine {
                     n + 1
                 )
             }
-            Self::Breathing | Self::FoeOnTheRun | Self::EnemyFlees => {
+            Self::Breathing
+            | Self::FoeOnTheRun
+            | Self::EnemyFlees
+            | Self::NotMyItem
+            | Self::NotMyItemLevel => {
                 format!("SOUND_FX_{}{:02}_{class}", self.stem(), n + 1)
             }
             _ => format!("SOUND_FX_{}_{:02}_{class}", self.stem(), n + 1),
@@ -709,7 +733,7 @@ fn play(group: u8, speaking: bool, waiting: bool) -> Play {
 fn speak(
     mut commands: Commands,
     mut lines: MessageReader<Speak>,
-    mut cries: MessageReader<BattleCry>,
+    (mut cries, mut refusals): (MessageReader<BattleCry>, MessageReader<NotMine>),
     mut voices: ResMut<Voices>,
     mut sfx: ResMut<Sfx>,
     (hero, forms, mut sounds, heard): (
@@ -885,6 +909,26 @@ fn speak(
                 file,
                 wait: None,
                 play: Play::Plays,
+                named: true,
+            });
+        }
+    }
+    for refusal in refusals.read() {
+        let line = if refusal.level {
+            HeroLine::NotMyItemLevel
+        } else {
+            HeroLine::NotMyItem
+        };
+        if let (Some((hero, _)), Some((id, file))) = (
+            the_hero,
+            hero_type.and_then(|creature| voices.hero_line(&sfx, creature, line)),
+        ) {
+            said.push(Said {
+                speaker: hero,
+                id,
+                file,
+                wait: None,
+                play: Play::Interrupts,
                 named: true,
             });
         }
@@ -1406,6 +1450,7 @@ impl Plugin for VoicesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Speak>()
             .add_message::<BattleCry>()
+            .add_message::<NotMine>()
             .init_resource::<NamedLine>()
             .add_systems(bevy::prelude::OnEnter(crate::game::AppState::InGame), names)
             .add_systems(Update, (dies, speak).chain().in_set(Unpaused))

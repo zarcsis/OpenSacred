@@ -80,6 +80,9 @@ pub struct Pack {
     pub quest: Vec<Dropped>,
     /// The item on the cursor (`cMouse +0x68`, #1269).
     pub held: Option<Held>,
+    /// The items worn in the equipment window's slots, each by its key (#1289); the classes'
+    /// default items, which the window does not show, not among them.
+    pub worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
 }
 
 /// An item on the cursor: its key in the grid, the item and its size in cells.
@@ -208,6 +211,69 @@ impl Pack {
             Put::Refused => {}
         }
         put
+    }
+
+    /// Takes the item worn in `slot` off onto the empty cursor, of `size` in the grid (`0x556A30`):
+    /// whether one went.
+    pub fn take_off(&mut self, slot: u8, size: (u8, u8)) -> bool {
+        if self.held.is_some() {
+            return false;
+        }
+        let Some((key, dropped)) = self.worn.get_mut(usize::from(slot)).and_then(Option::take)
+        else {
+            return false;
+        };
+        self.held = Some(Held { key, dropped, size });
+        true
+    }
+
+    /// Puts the held item on in `slot` (`sdk_EQUIP`), the item worn there before onto the cursor,
+    /// of `size` in the grid: whether it went.
+    pub fn put_on(&mut self, slot: u8, size: (u8, u8)) -> bool {
+        let (Some(held), Some(worn)) = (self.held, self.worn.get_mut(usize::from(slot))) else {
+            return false;
+        };
+        let old = worn.replace((held.key, held.dropped));
+        self.held = old.map(|(key, dropped)| Held { key, dropped, size });
+        true
+    }
+
+    /// Takes the item worn in `slot`, of `size`, into the grid at its first fit (the right
+    /// button, the UI event `0x2C` of the sub-kind 2): whether it went.
+    pub fn unwear(&mut self, slot: u8, size: (u8, u8)) -> bool {
+        let Some(&Some((key, dropped))) = self.worn.get(usize::from(slot)) else {
+            return false;
+        };
+        if self.grid.take(key, size).is_none() {
+            return false;
+        }
+        self.items.push((key, dropped));
+        self.worn[usize::from(slot)] = None;
+        true
+    }
+
+    /// Puts the grid's item `key` on in `slot` (the UI event `0x2C` of the sub-kind 1), the item
+    /// worn there before, of `old_size`, into the cell that the new one left, else at its first
+    /// fit (the sub-kind 3): whether it went; nothing moves where the old one finds no room.
+    pub fn wear(&mut self, key: u32, slot: u8, old_size: (u8, u8)) -> bool {
+        let Some(index) = self.items.iter().position(|(held, _)| *held == key) else {
+            return false;
+        };
+        let Some(placed) = self.grid.remove(key) else {
+            return false;
+        };
+        if let Some(&Some((old, _))) = self.worn.get(usize::from(slot))
+            && !self.grid.place(old, placed.at, old_size)
+            && self.grid.take(old, old_size).is_none()
+        {
+            self.grid.place(key, placed.at, placed.size);
+            return false;
+        }
+        let (_, dropped) = self.items.remove(index);
+        if let Some(old) = self.worn[usize::from(slot)].replace((key, dropped)) {
+            self.items.push(old);
+        }
+        true
     }
 
     /// Puts `dropped` of `size` into the grid at the cell `at` where it fits: whether it did.
@@ -712,6 +778,30 @@ mod tests {
         assert!(pack.held.is_none());
         assert_eq!(pack.items.len(), 2);
         assert!(pack.hold(dropped(Kind::Other, 6005, 1), (1, 1)));
+    }
+
+    #[test]
+    fn an_item_is_put_on_taken_off_and_worn_from_the_grid() {
+        let mut pack = Pack::default();
+        assert!(pack.put(dropped(Kind::Armour, 3005, 1), (0, 0), (2, 2)));
+        assert!(pack.put(dropped(Kind::Armour, 3006, 1), (4, 0), (2, 2)));
+        // Lifted onto the cursor and put on: worn, the cursor empty.
+        assert!(pack.lift((0, 0)));
+        assert!(pack.put_on(0, (2, 2)));
+        assert!(pack.held.is_none());
+        assert_eq!(pack.worn[0].map(|(_, d)| d.item), Some(3005));
+        // The other worn from the grid in its place: the first back where the second lay.
+        let second = pack.grid.at((4, 0)).map(|placed| placed.key).unwrap();
+        assert!(pack.wear(second, 0, (2, 2)));
+        assert_eq!(pack.worn[0].map(|(_, d)| d.item), Some(3006));
+        assert_eq!(pack.grid.at((4, 0)).map(|placed| placed.size), Some((2, 2)));
+        // Taken off onto the cursor, then by the right button into the grid.
+        assert!(pack.take_off(0, (2, 2)));
+        assert_eq!(pack.held.map(|held| held.dropped.item), Some(3006));
+        assert!(pack.put_on(0, (2, 2)));
+        assert!(pack.unwear(0, (2, 2)));
+        assert!(pack.worn[0].is_none());
+        assert_eq!(pack.items.len(), 2);
     }
 
     #[test]

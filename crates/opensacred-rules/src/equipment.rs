@@ -200,6 +200,40 @@ pub fn may_use(hero: u32, level: u32, asks: &Asks) -> bool {
     asks.level <= level
 }
 
+/// Why the hero may not use an item: its classes (the hero's line `NOTMYITEM`, the event `(9, 6)`),
+/// or anything else, the level among it (`NOTMYITEMLVL`, `(9, 8)`; `0x6B6690`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    Class,
+    Level,
+}
+
+/// Why the hero of the type `hero` and the level `level` may not use an item that `asks` so, none
+/// where it may.
+pub fn refusal(hero: u32, level: u32, asks: &Asks) -> Option<Refusal> {
+    if may_use(hero, level, asks) {
+        return None;
+    }
+    let classes_only = Asks { level: 0, ..*asks };
+    Some(if may_use(hero, u32::MAX, &classes_only) {
+        Refusal::Level
+    } else {
+        Refusal::Class
+    })
+}
+
+/// The slot that an item of the category `category` sent from the grid goes into (the UI event
+/// `0x2C` of the sub-kind 1, `0x6B6690`): the first of the window's slots 0 to 18 that takes it and
+/// is empty, else the first that takes it; none where none takes it.
+pub fn slot_for(category: u8, empty: impl Fn(u8) -> bool) -> Option<u8> {
+    let taking: Vec<u8> = (0..SLOTS).filter(|&slot| takes(slot, category)).collect();
+    taking
+        .iter()
+        .copied()
+        .find(|&slot| empty(slot))
+        .or_else(|| taking.first().copied())
+}
+
 /// How a slot of the equipment window glows while the cursor holds an item (docs/re/inventory.md,
 /// §4; seen with a potion held, every slot red): green where it takes the item and the hero may
 /// use it, red otherwise; white with nothing held.
@@ -302,6 +336,24 @@ mod tests {
         assert_eq!(asked_level(30), 22);
         assert_eq!(asked_level(8), 5);
         assert_eq!(asked_level(1), 1);
+    }
+
+    #[test]
+    fn a_refusal_names_the_class_or_the_level_and_a_slot_is_chosen() {
+        let kilt = Asks {
+            item: 4054,
+            category: 18,
+            classes: 0x800F_1302,
+            level: 5,
+            ..Asks::default()
+        };
+        assert_eq!(refusal(1, 30, &kilt), Some(Refusal::Class));
+        assert_eq!(refusal(2, 1, &kilt), Some(Refusal::Level));
+        assert_eq!(refusal(2, 5, &kilt), None);
+        // A ring: the first empty of the four, else the first.
+        assert_eq!(slot_for(8, |slot| slot != 8), Some(9));
+        assert_eq!(slot_for(8, |_| false), Some(8));
+        assert_eq!(slot_for(9, |_| true), None);
     }
 
     #[test]
