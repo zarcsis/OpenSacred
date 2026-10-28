@@ -21,6 +21,7 @@ pub mod particles;
 pub mod potions;
 pub mod quests;
 pub mod rewards;
+pub mod sets;
 pub mod spawning;
 pub mod spells;
 pub mod undead;
