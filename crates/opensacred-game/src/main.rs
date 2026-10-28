@@ -79,6 +79,7 @@ mod scene_tests;
 mod screenshot;
 mod scripts;
 mod sectors;
+mod sets;
 mod settings;
 mod sfx;
 mod shaders;
@@ -361,14 +362,15 @@ fn run(cli: Cli) -> Result<AppExit> {
         screenshot::ScreenshotPlugin,
         scripts::ScriptsPlugin,
         sectors::SectorsPlugin,
+        sets::SetsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
-        souls::SoulsPlugin,
     ))
     .add_plugins((
+        souls::SoulsPlugin,
         sound::SoundPlugin,
         spells::SpellsPlugin,
         srgb::SrgbPlugin,
