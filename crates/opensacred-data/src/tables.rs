@@ -209,11 +209,21 @@ pub struct UiImage {
     /// out of the file where it is neither (#1236).
     #[serde(default, skip_serializing_if = "straight")]
     pub turned: [bool; 2],
+    /// Its two anchor points relative to its part's top left, `x0`, `y0`, `x1`, `y1`: the
+    /// original's, each not 0 made relative to the part's left or top, both at the part's centre
+    /// for the buttons and icons (`0x761580`); left out of the file where all are 0 (#1267).
+    #[serde(default, skip_serializing_if = "unanchored")]
+    pub anchors: [i16; 4],
 }
 
 /// Whether an image is turned neither way.
 fn straight(turned: &[bool; 2]) -> bool {
     *turned == [false, false]
+}
+
+/// Whether an image has no anchors.
+fn unanchored(anchors: &[i16; 4]) -> bool {
+    *anchors == [0; 4]
 }
 
 impl Portraits {

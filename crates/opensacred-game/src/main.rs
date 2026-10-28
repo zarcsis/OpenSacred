@@ -45,6 +45,7 @@ mod hero;
 mod hud;
 mod hurled;
 mod icons;
+mod inventory;
 mod iso;
 mod journal;
 mod lines;
@@ -323,11 +324,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
+        inventory::InventoryPlugin,
         journal::JournalPlugin,
         lines::LinesPlugin,
-        liquids::LiquidsPlugin,
     ))
     .add_plugins((
+        liquids::LiquidsPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,
