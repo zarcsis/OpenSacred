@@ -61,6 +61,7 @@ mod journal;
 mod labels;
 mod lines;
 mod liquids;
+mod low_health;
 mod making;
 mod menu;
 mod menu_sound;
@@ -355,6 +356,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         labels::LabelsPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
+        low_health::LowHealthPlugin,
         making::MakingPlugin,
         menu::MenuPlugin,
         menu_sound::MenuSoundPlugin,

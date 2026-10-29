@@ -91,11 +91,18 @@ pub struct Interface {
     /// The foe's panel at the bottom while the cursor is over one, the original's
     /// `SHOW_ENEMYINFO` of `Settings.cfg`, on as the installation's (#1459).
     pub enemy_info: bool,
+    /// The share of the most health, in percent, below which the hero's falling health raises
+    /// the red alarm about its portrait, the original's `WARNING_LEVEL` of `Settings.cfg`, 25 as
+    /// the installation's (`0x81D2E0`, #1463).
+    pub warning_level: u8,
 }
 
 impl Default for Interface {
     fn default() -> Self {
-        Self { enemy_info: true }
+        Self {
+            enemy_info: true,
+            warning_level: 25,
+        }
     }
 }
 
@@ -396,7 +403,10 @@ mod tests {
                 width: 1280,
                 height: 720,
             },
-            interface: Interface { enemy_info: false },
+            interface: Interface {
+                enemy_info: false,
+                warning_level: 40,
+            },
             debug: Panels {
                 overlay: true,
                 log: true,
@@ -409,6 +419,7 @@ mod tests {
                 "display.width",
                 "display.height",
                 "interface.enemy_info",
+                "interface.warning_level",
                 "debug.overlay",
                 "debug.log",
             ],
