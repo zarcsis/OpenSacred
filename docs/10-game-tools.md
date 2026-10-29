@@ -57,6 +57,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * `--screenshot`, `--record` and `--benchmark` run in a window of the given size, as now, so that their frames do not depend on the monitor.
 * The overlays add `[debug] overlay` and `[debug] log` (§5); the rest of docs/06 §6 (sound, controls, gameplay) comes with M6.
 * `[interface] enemy_info` (on by default, as the installation's `SHOW_ENEMYINFO`) shows the foe's panel at the bottom while the cursor is over a foe (#1459).
+* `[interface] warning_level` (25 by default, as the installation's `WARNING_LEVEL`) is the percentage of the most health below which the hero's falling health raises the red alarm about its portrait (#1463).
 
 ## 4. States, the menus and the choice of the hero (#171, #172, #178)
 

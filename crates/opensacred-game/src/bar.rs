@@ -11,12 +11,13 @@
 //! the inventory's, the options', the map's, the book's and the collecting's buttons, and the
 //! potions' belt. The column: the health's ring, red below and grey above as the health drains,
 //! the portrait by the hero's type, the bonuses' "+" and the experience's bar. Clicks over the
-//! bar's area and the portrait do not reach the world (`0x6E1BC0`).
+//! bar's area and the portrait do not reach the world (`0x6E1BC0`). The low health's glow and
+//! alarm are `low_health`'s.
 //!
 //! Not followed yet: the buttons' windows and their pressed images, the slots'
 //! selection and their edit mode, the weapons' models and damage icons in the left slots, the
-//! compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the
-//! points' "+", the followers' portraits and the mount's bar.
+//! compass, the burn, the glows and sparkles, the tooltips, the points' "+", the followers'
+//! portraits and the mount's bar.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -148,7 +149,7 @@ impl UiImages {
         let mut names: Vec<&str> = images
             .iter()
             .map(|image| image.texture.as_str())
-            .chain([DISC, DISC_RING])
+            .chain([DISC, DISC_RING, crate::low_health::SONAR])
             .collect();
         names.sort_unstable();
         names.dedup();
@@ -159,6 +160,11 @@ impl UiImages {
             .filter_map(|(name, file)| Some((name.to_owned(), file?)))
             .collect();
         Ok(Self { images, files })
+    }
+
+    /// The file of the texture `name`, one of those found beside the images'.
+    pub(crate) fn file(&self, name: &str) -> Option<&str> {
+        self.files.get(name).map(String::as_str)
     }
 
     /// The image `index`: its texture's file and its part in it.
@@ -194,7 +200,7 @@ impl UiImages {
 #[derive(Component)]
 pub(crate) struct BarRoot;
 #[derive(Component)]
-struct ColumnRoot;
+pub(crate) struct ColumnRoot;
 
 /// The disc's turning picture.
 #[derive(Component)]
@@ -206,13 +212,13 @@ struct SlotPiece;
 
 /// The health's ring's grey part above and red part below.
 #[derive(Component)]
-struct HealthGrey;
+pub(crate) struct HealthGrey;
 #[derive(Component)]
-struct HealthRed;
+pub(crate) struct HealthRed;
 
 /// The experience's fill.
 #[derive(Component)]
-struct ExperienceFill;
+pub(crate) struct ExperienceFill;
 
 /// The selected art's icon in the first art slot: its grey top and its pale or vivid bottom.
 #[derive(Component)]
@@ -280,7 +286,7 @@ pub(crate) fn placed(at: Vec2, size: Vec2) -> Node {
 }
 
 /// The bar and the column of a game played.
-fn spawn(
+pub(crate) fn spawn(
     mut commands: Commands,
     images: Res<UiImages>,
     assets: Res<AssetServer>,
@@ -380,16 +386,17 @@ fn spawn(
         .and_then(|kind| PORTRAITS.get(kind.checked_sub(1)?))
         .copied()
         .unwrap_or(PORTRAITS[0]);
-    // The ring first, its glass middle under the portrait, which is stretched to 64 × 74.
+    // The ring first, the grey part, then the red with its glow (`low_health`), the glass middle
+    // under the portrait, which is stretched to 64 × 74.
     let (portrait, mut portrait_node) = image(portrait, PORTRAIT_AT, COLUMN.min);
     portrait_node.width = Val::Px(PORTRAIT_SIZE.x);
     portrait_node.height = Val::Px(PORTRAIT_SIZE.y);
     let pieces = [
         commands
-            .spawn((HealthRed, image(HEALTH_RED, RING_AT, COLUMN.min)))
+            .spawn((HealthGrey, image(HEALTH_GREY, RING_AT, COLUMN.min)))
             .id(),
         commands
-            .spawn((HealthGrey, image(HEALTH_GREY, RING_AT, COLUMN.min)))
+            .spawn((HealthRed, image(HEALTH_RED, RING_AT, COLUMN.min)))
             .id(),
         commands.spawn((portrait, portrait_node)).id(),
         commands.spawn(image(BONUSES.0, BONUSES.1, COLUMN.min)).id(),
@@ -539,7 +546,7 @@ fn turn(clock: Option<Res<Clock>>, mut discs: Query<&mut UiTransform, With<DiscP
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
-fn fill(
+pub(crate) fn fill(
     images: Res<UiImages>,
     experience: Res<Experience>,
     heroes: Query<&Health, With<Body>>,
