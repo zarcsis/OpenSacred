@@ -51,6 +51,7 @@ mod guns;
 mod held;
 mod help;
 mod hero;
+mod hover;
 mod hud;
 mod hurled;
 mod icons;
@@ -344,9 +345,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         guns::GunsPlugin,
         held::HeldPlugin,
     ))
+    .add_plugins((help::HelpPlugin, hero::HeroPlugin, hover::HoverPlugin))
     .add_plugins((
-        help::HelpPlugin,
-        hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
