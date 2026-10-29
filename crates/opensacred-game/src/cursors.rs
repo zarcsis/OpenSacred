@@ -101,6 +101,11 @@ impl Look {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shown(pub Look);
 
+/// The living foe under the cursor, nearest its line of sight, whose panel the interface shows
+/// (`foe_panel`, #1459).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Foe(pub Option<Entity>);
+
 /// The item under the hand, whose name shows beside the cursor: the item, and the name of the
 /// game's texts that the scripts gave it (`npcs::TextName`).
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
@@ -179,7 +184,7 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
               filters"
 )]
 fn choose(
-    (mut shown, mut named): (ResMut<Shown>, ResMut<Named>),
+    (mut shown, mut named, mut foe_shown): (ResMut<Shown>, ResMut<Named>, ResMut<Foe>),
     (state, window, pointer): (
         Option<Res<State<AppState>>>,
         Option<Res<crate::talk::Shown>>,
@@ -190,6 +195,7 @@ fn choose(
     (npcs, forms): (Option<Res<Npcs>>, Option<Res<Forms>>),
     creatures: Query<
         (
+            Entity,
             &GlobalTransform,
             &Mind,
             &Health,
@@ -218,6 +224,7 @@ fn choose(
         .zip(cameras.single().ok())
         .and_then(|(cursor, (camera, view))| camera.viewport_to_world(view, cursor).ok());
     let mut item = None;
+    let mut foe_under = None;
     let look = match ray {
         Some(ray) if in_game && window.is_none() && !over_interface => {
             let near = |at: &GlobalTransform| {
@@ -234,16 +241,19 @@ fn choose(
             let alive = || {
                 creatures
                     .iter()
-                    .filter(|(_, _, health, ..)| health.current > 0)
+                    .filter(|(_, _, _, health, ..)| health.current > 0)
             };
             let by_night = forms.as_deref().is_some_and(Forms::by_night);
             let hero = heroes.iter().next();
             let holding = hero.and_then(|(holding, ..)| holding);
-            let foe = alive()
-                .any(|(at, mind, _, talk, _)| is_foe(mind, talk) && near(at).is_some())
-                .then(|| foe_look(holding.map(|holding| &holding.0), by_night));
+            foe_under = alive()
+                .filter(|(_, _, mind, _, talk, _)| is_foe(mind, *talk))
+                .filter_map(|(entity, at, ..)| Some((near(at)?, entity)))
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, entity)| entity);
+            let foe = foe_under.map(|_| foe_look(holding.map(|holding| &holding.0), by_night));
             foe.or_else(|| {
-                nearest(&mut alive().filter_map(|(at, mind, _, talk, trades)| {
+                nearest(&mut alive().filter_map(|(_, at, mind, _, talk, trades)| {
                     let distance = near(at)?;
                     if is_foe(mind, talk) {
                         return None;
@@ -291,6 +301,7 @@ fn choose(
     };
     shown.set_if_neq(Shown(look));
     named.set_if_neq(Named(item.filter(|_| look == Look::Hand)));
+    foe_shown.set_if_neq(Foe(foe_under));
 }
 
 /// The item's name beside the cursor while the hand is over it (`0x611E70`, as it draws): its
@@ -351,6 +362,7 @@ impl Plugin for CursorsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Shown>()
             .init_resource::<Named>()
+            .init_resource::<Foe>()
             .add_systems(Update, (choose, name_tag).chain());
     }
 }

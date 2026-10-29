@@ -26,7 +26,7 @@ Status: **confirmed** by code unless marked otherwise; **seen** where the runnin
    - **A horse** (its creature record's `+0x04` is 4, `0x4266F0`) that the hero does not take for a foe: the horses' looks, below.
    - **A creature** (the category 2, 3 or `0x20`, `0x426610`), considered only where the hero stands on the ground or the first floor (its byte `+0x24` below 2) or on the creature's floor; where the local player's object is a horse with a rider (`+0x1EC`), the rider stands for the hero in these tests (**hypothesis** for the meaning).
      - In a network game (`0x182EBEC`) with Shift held over another player's hero (`+0x200` bit `0x40`) hostile neither way (`0x548FB0`): the hover's highlight alone.
-     - **A living foe** (the hero takes it for one, `0x548F60`: its AI's state not 9, its action not 6, its health not 0, the sides hostile; and alive, `0x549080`): a horse whose rider (`+0x1EC`) is not the hero gives way to its rider; the enemy's panel goes to the interface (`0x75C760`) while `Settings.cfg`'s `SHOW_ENEMYINFO` is on (`0x81CDD0`; **seen**: the level, the name and the kinds' icons in a box at the bottom's centre); its float `+0x20C` is raised to at least 1.0 (**hypothesis**: its health's bar shown); it takes the hover's highlight; then the look by the hero's weapons in its two hands (`+0x1D4`, `+0x1D8`):
+     - **A living foe** (the hero takes it for one, `0x548F60`: its AI's state not 9, its action not 6, its health not 0, the sides hostile; and alive, `0x549080`): a horse whose rider (`+0x1EC`) is not the hero gives way to its rider; the enemy's panel goes to the interface (`0x75C760`) while `Settings.cfg`'s `SHOW_ENEMYINFO` is on (`0x81CDD0`; "The foe's panel" below); its float `+0x20C` is raised to at least 1.0 (**hypothesis**: its health's bar shown); it takes the hover's highlight; then the look by the hero's weapons in its two hands (`+0x1D4`, `+0x1D8`):
        a weapon of the kind 13 or 14 (`Weapon.pak +0x1E`; 14 the muskets, 13 the Dwarf's cannons) in either hand (`0x54A340`, `0x428000`) **`MOUSE_GUN.TGA`** (a pistol);
        else a weapon of the kind 7, 12, 13 or 14 (the bows and the crossbows) in either hand (`0x54A2A0`), the hero not in the Vampiress's night's form (`+0x14` bit `0x2000`), **`MOUSE_ATTACKA.TGA`** (a bow);
        else **`MOUSE_ATTACK.TGA`** (a sword).
@@ -94,6 +94,31 @@ No string or format of the executable names `mouse_dialog01` to `03`, `mouse_sel
 - **The hover's highlight**: a foe, a ridden foe's horse and an object of the hand take `+0x14` bit `0x20000000`, which the world's drawing reads (`0x62FDE5`); **seen**: a hovered chest's front shaded a little otherwise (the effect not read); the peaceful creatures and the items take none.
 - **The world map**: `cUI_Megamap` (`0x6C7920`) pushes the arrow of the screen's edge that the cursor touches (x at 0 or 1023, y at 0 or 767, the corners the diagonals), and the map scrolls that way; its pin's button (`0x6C8140`) pushes `MOUSE_PUSHPIN` until a marker is placed (**seen**).
 
+## The foe's panel
+
+Read 2026-10-29 (#1459), **confirmed** by code and on the original's frames of a goblin warrior of level 5, its champion and its boss (the driver of #448).
+Over a living foe `cEngine_updateWorldCursor` fills a record of 13 words and hands it to the interface's manager (`0x75C760`, its `+0xDC`), which draws it (`0x75C310`) while its time `+0x108` is above 0:
+
+- the name: the creature's key's text, else its type's, the string of its number (`sdk_REFKEY`, `0x44A1C0`: the goblin warrior's of `"76"`);
+- its level on bronze's scale (`0x5522D0`);
+- its rank, the property `0x1C`: 1 a champion, 2 a boss;
+- its class, `Creature.pak +0x04` of its type (`0x43ADC0`);
+- each kind's damage (`0x564470`, not drawn) and resistance (`0x564740`, below);
+- the time, 0.1 s, which every frame over the foe sets again and the drawing counts down, so that the panel stays 0.1 s past the cursor's leaving;
+- its health's share, its health over its most and 1.
+
+The drawing, on the original's screen:
+
+- The text is `[level] name - class`, or `[level] name` for a class of no name, in the interface's font 1 (AntiquaSSK, at 19.5 of Bevy's its words are the original's width), white, a champion's light blue `0x87CEFA`, a boss's yellow `0xF2FA6C`.
+  A class's name is the game's text of the string of a number in the client's table `0x8EB79C` (16 entries of 0x28 bytes, the number first): the classes 1 to 13 Heroes, Monsters, NPC, Horses, Undead, Animals, Hirelings, Goblins, Demons, Dragon, Energy Beings, Elves and All, of the numbers 1184, 1187, 1178, 1196, 1180, 1179, 1185, 1186, 1182, 1181, 1188, 1189 and 1183; the classes 0, 14 and 15 have none.
+- The text's room `w` is its width and 2, a half wider (`×1.5`, truncated) where narrower than 100 or for the class 10.
+  With `n` the kinds of an icon, the panel is `16n + w` wide and its left `x0 = 512 − (16n + w)/2`.
+- Its ground black at 159/255 from `(x0 − 2, 620)` to the panel's right and 2 and to 646; the health's bar from `(x0, 620)`, `w` times the health's share wide, to 644, shaded from `(64, 16, 16)` at its left to `(64 + 119f, 16 + 69f, 16 + 69f)` at its right for the share `f`; the text over it from `x0`, its letters' tops at 625.
+- The kinds' icons after the text's room, from `x0 + w + 2` on, each the interface's image 209 to 212 (physical, fire, magic, poison, `gui_main_06`'s 17 × 16 at y 204, the table `0x9EC5CC`), a step of its width less 2, at 624, white at an alpha that is the kind's resistance's share of the strongest, times 255 and truncated (`0x564740`); a kind of no resistance has none.
+  The resistances are the stats' four by their multipliers, and the strongest is found from the first on, a stronger one taken half a point stronger (`0x563F20`): the goblin warrior's 9.41, 9.12, 0 and 1.66 give 255, 247, none and 44.
+- Grey lines at 111/255 of one pixel: across at 619 and 645 from `x0 − 1` to the panel's right and 1, and down at `x0 − 1`, after the text's room and at the panel's right.
+- Nothing is drawn while the inventory (the manager's `+0x84`) or the window of its `+0xC8` (not read) shows.
+
 ## Seen in the running original
 
 A Seraphim's new game, `god on`, the chooser probed (2026-10-27):
@@ -121,4 +146,5 @@ Beside the hand over an item, its name of the game's texts by its type shows 24 
 An item that a `CreateObj` of a `res:` name laid goes by that name's text instead, and by none where the texts lack it (`npcs::TextName`, #1360), as the Seraphim's quest 15001's plant does.
 
 The hand shows over a container that opens, not over one emptied (#1380, docs/re/containers.md).
-Not followed yet: the name's colour (the item's, #1273), the hand over the teleports and the scripts' spots, the glow of an art that may be made, the enemy's panel and the hover's highlight (#1087), the horses' looks (no horses are ridden yet) and the map's arrows (#1091).
+Since #1459 the foe nearest the line of sight under the cursor (`cursors::Foe`) shows its panel at the bottom (`foe_panel`), as "The foe's panel" above, while `settings.toml`'s `[interface] enemy_info` is on and the inventory hides; its text is laid out unseen first and the panel about it at the next frame, once its width is known; a foe of no `Combat` shows no icons.
+Not followed yet: the name's colour (the item's, #1273), the hand over the teleports and the scripts' spots, the glow of an art that may be made and the hover's highlight (#1087), the horses' looks (no horses are ridden yet) and the map's arrows (#1091).
