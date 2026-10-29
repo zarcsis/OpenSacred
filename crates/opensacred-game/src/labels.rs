@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 use opensacred_rules::drops::Kind;
 
-use crate::drops::Lying;
+use crate::drops::{Lying, Tables};
 use crate::game::{AppState, FONT};
 use crate::lines::Texts;
 use crate::npcs::TextName;
@@ -57,11 +57,16 @@ pub fn held(keys: &ButtonInput<KeyCode>) -> bool {
 #[derive(Component)]
 struct Label(Entity);
 
-/// The text of an item's label: its name, or for gold the amount and its pile's name
-/// (`0x627180`).
-fn text(texts: &Texts, lying: &Lying, name: Option<&TextName>) -> Option<String> {
+/// The text of an item's label: its name (`cursors::item_name`), or for gold the amount and its
+/// pile's name (`0x627180`).
+fn text(
+    (texts, tables): (&Texts, Option<&Tables>),
+    lying: &Lying,
+    name: Option<&TextName>,
+) -> Option<String> {
     let dropped = &lying.dropped;
-    let named = crate::cursors::item_name(texts, dropped.item, name.map(|name| name.0.as_str()))?;
+    let named =
+        crate::cursors::item_name(texts, tables, dropped, name.map(|name| name.0.as_str()))?;
     Some(if dropped.kind == Kind::Gold {
         format!("{} {named}", dropped.amount)
     } else {
@@ -103,10 +108,15 @@ fn lay_out(points: &[Vec2], sizes: &[Vec2]) -> Vec<Rect> {
 
 /// Shows the labels of the items lying in view while Alt is held, and takes them away as it is
 /// let go.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn label(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    (texts, assets, ui_scale): (Option<Res<Texts>>, Res<AssetServer>, Res<UiScale>),
+    (texts, tables): (Option<Res<Texts>>, Option<Res<Tables>>),
+    (assets, ui_scale): (Res<AssetServer>, Res<UiScale>),
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     items: Query<(Entity, &GlobalTransform, &Lying, Option<&TextName>)>,
     mut labels: Query<(Entity, &Label, &mut Node, &mut Text, &ComputedNode)>,
@@ -123,7 +133,7 @@ fn label(
                     let point = camera.world_to_viewport(view, at.translation()).ok()?;
                     let inside = point.cmpge(Vec2::ZERO).all() && point.cmplt(size).all();
                     inside.then_some(())?;
-                    Some((item, point, text(texts, lying, name)?))
+                    Some((item, point, text((texts, tables.as_deref()), lying, name)?))
                 })
                 .collect()
         }

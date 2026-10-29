@@ -111,6 +111,7 @@ fn start(mut commands: Commands, starting: Option<Res<Starting>>, tables: Option
             quality: 0,
             amount: 1,
             values: Some(fight::ItemValues::of_record(&worn.words)),
+            named: None,
         });
     }
     commands.insert_resource(sets);
@@ -741,6 +742,7 @@ mod tests {
             quality: 0,
             amount: 1,
             values: None,
+            named: None,
         };
         let halves = [None, Some(item(7901))];
         let sword = rule::Piece::weapon(1, 1, 7901);

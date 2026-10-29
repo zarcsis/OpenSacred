@@ -17,6 +17,9 @@ use opensacred_data::tables::{Balance, Item, ItemSet, Weapon};
 use crate::fight::{self, ItemValues, Rank, Templates};
 use crate::spawning::Dice;
 
+mod names;
+pub use names::name;
+
 /// The dagger 1712, which a pass drops where it finds no type of its kind.
 pub const DAGGER: u32 = 1712;
 /// The gold piles (`0x949920`), by their models `GoldCoins_01`, `_02`, `_05` and `_10.grn`.
@@ -113,6 +116,10 @@ pub struct Dropped {
     pub amount: u32,
     /// The values that the item maker gave the item, of a type with a template.
     pub values: Option<ItemValues>,
+    /// Whether the item maker named it ([`name`], `0x5C3130`), and its name's roll of one in two:
+    /// the digit 1 taken where it counts no bonus. `None` for an item that it did not make, which
+    /// goes by its type's name.
+    pub named: Option<bool>,
 }
 
 /// The difficulties, bronze to niobium (the int `0x182EE44`, 0 to 4).
@@ -273,6 +280,9 @@ pub struct Rules {
     weights: Vec<(u32, u32)>,
     offsets: [[i64; 2]; 6],
     runes: RuneRules,
+    /// The effects' records of six floats from the image's `+0x9DC` ([`names::NORMS`]), which the
+    /// namer weighs a bonus by; none without a balance.
+    norms: Vec<[f32; 6]>,
 }
 
 /// The balance's values of a rune's chance (`0x5598B0`): its chance per mille (`UpgradeDrop`),
@@ -331,6 +341,7 @@ impl Default for Rules {
             .collect(),
             offsets: [[1, 9], [3, 14], [5, 19], [8, 25], [0, 0], [0, 0]],
             runes: RuneRules::default(),
+            norms: Vec::new(),
         }
     }
 }
@@ -409,6 +420,7 @@ impl Rules {
                 most: f("RuneChanceFactorMax", default.runes.most),
                 boss: f("RunesPerBoss", default.runes.boss),
             },
+            norms: names::norms(&b.image),
         }
     }
 
@@ -744,6 +756,9 @@ pub struct Catalogue {
     /// the drops draw from (`0x9565A0`, `tables/runes.ron`; #1183).
     readable: HashSet<u32>,
     runes: Vec<u32>,
+    /// Each slot's `items.pak` name (`+0x37`, `0x43CED0`), by which the namer tells a sword from
+    /// an axe.
+    models: HashMap<u32, String>,
 }
 
 impl Catalogue {
@@ -843,6 +858,10 @@ impl Catalogue {
             slots,
             readable,
             runes: Vec::new(),
+            models: items
+                .iter()
+                .map(|item| (item.slot, item.name.clone()))
+                .collect(),
         }
     }
 
@@ -1297,6 +1316,7 @@ impl Dropping<'_> {
             quality: 0,
             amount: 1,
             values: None,
+            named: None,
         };
         let dead = self.death.dead;
         if GOLD.contains(&item) {
@@ -1319,6 +1339,7 @@ impl Dropping<'_> {
         drop.quality = u8::try_from(quality).unwrap_or(0);
         drop.level = u32::try_from(level).unwrap_or(0);
         drop.values = self.templates.make(item, drop.level, dice);
+        drop.named = names::roll(drop.values.as_ref(), dice);
         drop
     }
 }
@@ -1349,6 +1370,7 @@ pub fn thrown(
         quality: 0,
         amount: 1,
         values: None,
+        named: None,
     };
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
@@ -1361,6 +1383,7 @@ pub fn thrown(
             };
             drop.level = level.max(1);
             drop.values = templates.make(item, drop.level, dice);
+            drop.named = names::roll(drop.values.as_ref(), dice);
         }
     }
     Some(drop)

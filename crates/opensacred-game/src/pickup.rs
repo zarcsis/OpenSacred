@@ -1047,6 +1047,7 @@ fn start(
             quality: 0,
             amount: 1,
             values: None,
+            named: None,
         };
         if !pack.put(dropped, carried.at, carried.size) {
             warn!(
@@ -1070,6 +1071,7 @@ fn receive(mut given: MessageReader<Given>, mut pack: ResMut<Pack>) {
             quality: 0,
             amount: 1,
             values: None,
+            named: None,
         });
     }
 }
@@ -1118,6 +1120,7 @@ mod tests {
             quality: 0,
             amount,
             values: None,
+            named: None,
         }
     }
 

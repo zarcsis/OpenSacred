@@ -23,6 +23,7 @@ use opensacred_rules::spawning::Rng;
 use crate::frame::{Playing, Step, Unpaused};
 use crate::game::{AppState, Data};
 use crate::hero::Body;
+use crate::lines::Texts;
 use crate::npcs::{Dies, Retexture};
 use crate::terrain::{Heights, Level};
 use crate::{ai, crowd, fight, files, iso, models, npcs, sectors};
@@ -214,6 +215,17 @@ impl Tables {
             prices,
             glittering,
         })
+    }
+
+    /// The key of the name that the item maker gave `dropped`, where it made it, of the names
+    /// that `texts` holds a text for (`opensacred_rules::drops::name`, `0x5C3130`; #1424): the
+    /// words of its quality, its element, its class and its bonuses, else its family's.
+    pub fn made_name(&self, texts: &Texts, dropped: &Dropped) -> Option<String> {
+        drops::name(
+            dropped,
+            (&self.rules, &self.catalogue, &self.templates),
+            |key| texts.named(key).is_some_and(|text| !text.is_empty()),
+        )
     }
 
     /// Whether an item of the type `item` glitters lying on the ground, by its derived type's
@@ -1138,6 +1150,7 @@ mod tests {
                 quality: 0,
                 amount,
                 values: None,
+                named: None,
             },
             resting: true,
         };

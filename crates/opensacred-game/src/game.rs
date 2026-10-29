@@ -597,6 +597,7 @@ fn load(
                     quality: 0,
                     amount: 1,
                     values: Some(fight::ItemValues::of_record(&thrown.words)),
+                    named: None,
                 },
                 held,
             }
