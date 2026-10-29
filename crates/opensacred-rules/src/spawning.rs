@@ -79,7 +79,13 @@ pub fn animals(first_class: Option<u8>) -> bool {
 /// `a = b`), the lower for a hero at or below the sector's lowest level, the higher at or above
 /// its highest, one between at random otherwise; times the balance's factor (truncated), over
 /// the record's area; at least 1.
-pub fn count(fill: &Fill, values: SpawnValues, level: u32, factor: f32, rng: &mut Rng) -> u32 {
+pub fn count(
+    fill: &Fill,
+    values: SpawnValues,
+    level: u32,
+    factor: f32,
+    rng: &mut impl Dice,
+) -> u32 {
     let (a, b, area) = fill.per_area;
     let (a, b) = (a.min(b), a.max(b));
     let raised_a = if a == b {
@@ -109,7 +115,7 @@ pub fn count(fill: &Fill, values: SpawnValues, level: u32, factor: f32, rng: &mu
 /// A type by the entries' weights, as the client picks it (`0x47C610`): `r` at random below the
 /// weights' sum, then the first entry whose sum of weights so far reaches `r`, which gives the
 /// first one more chance than its weight; `None` when they weigh nothing.
-pub fn choose(entries: &[Entry], rng: &mut Rng) -> Option<Entry> {
+pub fn choose(entries: &[Entry], rng: &mut impl Dice) -> Option<Entry> {
     let total: u32 = entries.iter().map(|e| e.weight).sum();
     if total == 0 {
         return None;
@@ -133,7 +139,7 @@ fn allowed(cell: Cell, class: u8, flags: &impl Fn(Cell) -> Option<u8>) -> bool {
 }
 
 /// A cell at random of the sector of origin `(x0, y0)`.
-fn anywhere((x0, y0): Cell, rng: &mut Rng) -> Option<Cell> {
+fn anywhere((x0, y0): Cell, rng: &mut impl Dice) -> Option<Cell> {
     Some((
         x0 + i32::try_from(rng.below(64)).ok()?,
         y0 + i32::try_from(rng.below(64)).ok()?,
@@ -146,7 +152,7 @@ fn anywhere((x0, y0): Cell, rng: &mut Rng) -> Option<Cell> {
 fn spot(
     origin: Cell,
     class: u8,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
     walkable: &impl Fn(Cell) -> bool,
     flags: &impl Fn(Cell) -> Option<u8>,
     free: impl Fn(Cell) -> bool,
@@ -219,7 +225,7 @@ fn lead(
     class: Option<u8>,
     counters: &mut Counters,
     dungeon: bool,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<u32> {
     let halve = |slots: u32| if dungeon { slots / 2 } else { slots };
     let mut leader = None;
@@ -264,7 +270,12 @@ pub struct Ground<C, W, F> {
 /// does not lead put by the first leader of its class with slots left, within two cells of it,
 /// and joined to its pack, or else on any walkable cell of the sector, or else left where it was;
 /// last, some of them made of their type's variants ([`variant`]).
-pub fn make<C, W, F>(fill: &Fill, count: u32, ground: &Ground<C, W, F>, rng: &mut Rng) -> Vec<Made>
+pub fn make<C, W, F>(
+    fill: &Fill,
+    count: u32,
+    ground: &Ground<C, W, F>,
+    rng: &mut impl Dice,
+) -> Vec<Made>
 where
     C: Fn(u32) -> Option<u8>,
     W: Fn(Cell) -> bool,
@@ -356,7 +367,7 @@ fn distance(a: Cell, b: Cell) -> f32 {
 /// The type a creature of `creature` is made of (`0x47E551`): a quarter of the rabbits (516) of
 /// one of their variants 592 and 593, a sixth of those of another of the three, a ninth of the
 /// crows (513) of their variants 589 and 590.
-pub fn variant(creature: u32, rng: &mut Rng) -> u32 {
+pub fn variant(creature: u32, rng: &mut impl Dice) -> u32 {
     let mut pick = |chance: u32, even: u32, odd: u32| {
         (rng.below(chance) == 1).then(|| if rng.below(2) == 0 { even } else { odd })
     };
@@ -564,8 +575,9 @@ impl Rng {
     }
 }
 
-/// A source of the rolls, which the original takes from the C library's `rand()`: the game's
-/// [`Rng`], or a script of rolls in a test.
+/// A source of the rolls, which the original takes from the C library's `rand()`, `below(n)` as
+/// its `rand() % n`: the game's [`Rng`], or the values of `rand()` of a [`Script`] in the tests and
+/// the oracle (#1433).
 pub trait Dice {
     /// A number below `n`, 0 for `n` 0.
     fn below(&mut self, n: u32) -> u32;
@@ -577,9 +589,54 @@ impl Dice for Rng {
     }
 }
 
+/// The values that the original's `rand()` (`0x849B40`, 0 to 32,767) answers in turn, as dice:
+/// `below(n)` takes the next as `rand() % n` does, 0 once they are spent, no value for `n` 0. It
+/// counts the values taken, so that a test, or `opensacred-oracle` that answers the same values
+/// to the original's calls of `rand()`, compares how many rolls each side took (#1433).
+#[derive(Clone, Debug, Default)]
+pub struct Script {
+    values: Vec<u32>,
+    taken: usize,
+}
+
+impl Script {
+    pub fn new(values: Vec<u32>) -> Self {
+        Self { values, taken: 0 }
+    }
+
+    /// The values taken so far, those past the last among them.
+    pub fn taken(&self) -> usize {
+        self.taken
+    }
+}
+
+impl Dice for Script {
+    fn below(&mut self, n: u32) -> u32 {
+        if n == 0 {
+            return 0;
+        }
+        let value = self.values.get(self.taken).copied().unwrap_or(0);
+        self.taken += 1;
+        value % n
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_script_answers_each_value_modulo_its_bound_and_counts_them() {
+        let mut script = Script::new(vec![7, 32_767, 10]);
+        assert_eq!(script.below(5), 2);
+        assert_eq!(script.below(0x8000), 32_767);
+        // No value for a bound of 0.
+        assert_eq!(script.below(0), 0);
+        assert_eq!(script.below(3), 1);
+        // 0 once the values are spent, each roll counted all the same.
+        assert_eq!(script.below(9), 0);
+        assert_eq!(script.taken(), 4);
+    }
 
     fn rabbits() -> Fill {
         Fill {

@@ -19,7 +19,7 @@
 
 use std::ops::{Add, Mul, RangeInclusive, Sub};
 
-use crate::spawning::Rng;
+use crate::spawning::Dice;
 
 /// A point of the ground in the world's units, the original's (a cell's side is 53.66563,
 /// `CreateNPC` `0x482E9D`; docs/02 §5.1), in which the creatures' distances are measured: `x`
@@ -781,7 +781,13 @@ impl Mind {
     /// within 800 of it and no farther than the hero in two cases of three, the last it takes
     /// counting; one with a ranged weapon too, which fights it at range (#670). Its index in
     /// `foes`, or `None` for the hero.
-    fn picks_foe(&self, here: Spot, hero: Spot, foes: &[Foe], rng: &mut Rng) -> Option<usize> {
+    fn picks_foe(
+        &self,
+        here: Spot,
+        hero: Spot,
+        foes: &[Foe],
+        rng: &mut impl Dice,
+    ) -> Option<usize> {
         if foes.is_empty() || rng.below(LOOKS_FOR_FOES) != 2 {
             return None;
         }
@@ -862,7 +868,7 @@ impl Mind {
         senses: &Senses,
         clear: impl FnOnce(Spot) -> bool,
         door: impl FnOnce() -> bool,
-        rng: &mut Rng,
+        rng: &mut impl Dice,
     ) -> Thought {
         if self.to_door {
             return Thought::default();
@@ -966,7 +972,7 @@ impl Mind {
     /// The step of a group's member, the stepper among them, whose fellow of an `Enter` function
     /// stepped by `step` (`0x54F2AE` to `0x54F725`): the same step from `here`, within 50 more
     /// along each axis, and its home within 50 more of that, a walking member sent anew.
-    pub fn fellow_steps(&mut self, here: Spot, step: Spot, rng: &mut Rng) -> Spot {
+    pub fn fellow_steps(&mut self, here: Spot, step: Spot, rng: &mut impl Dice) -> Spot {
         let target = about(here + step, FELLOW, rng);
         self.home = about(target, FELLOW, rng);
         target
@@ -1091,7 +1097,7 @@ impl Mind {
         &mut self,
         sight: &Pursuit,
         clear: impl FnMut() -> bool,
-        rng: &mut Rng,
+        rng: &mut impl Dice,
     ) -> Option<Pursues> {
         if !self.fighting {
             return None;
@@ -1196,7 +1202,7 @@ impl Mind {
         hero: Spot,
         mut reaches: impl FnMut(Spot) -> bool,
         door: impl FnOnce() -> bool,
-        rng: &mut Rng,
+        rng: &mut impl Dice,
     ) -> Blocked {
         if reaches(hero) || reaches(about(hero, SEARCHES_ASTRAY, rng)) {
             return Blocked::ComesOn;
@@ -1237,7 +1243,7 @@ impl Mind {
         &mut self,
         sight: &Pursuit,
         mut clear: impl FnMut() -> bool,
-        rng: &mut Rng,
+        rng: &mut impl Dice,
     ) -> Option<Pursues> {
         let Pursuit {
             here,
@@ -1318,7 +1324,7 @@ impl Mind {
 
     /// A shot (the action 5, `0x4DCB80`): the choice of its attack's clip and the factor of its
     /// speed by its chain; it decides again after it.
-    fn shoot(&mut self, rng: &mut Rng) -> Pursues {
+    fn shoot(&mut self, rng: &mut impl Dice) -> Pursues {
         self.deciding = true;
         self.shot = true;
         self.backs = 0;
@@ -1332,7 +1338,13 @@ impl Mind {
     /// (`targeted`) from within 1.5 times the reach (`within`), by [`melee_switch`]. The
     /// original's other conditions hold for every creature of the game: its id above 16, no
     /// companion of a player (`+0x251`), its `+0x1F0` not 12.
-    fn switches(&mut self, d: f32, targeted: bool, within: f32, rng: &mut Rng) -> Option<Pursues> {
+    fn switches(
+        &mut self,
+        d: f32,
+        targeted: bool,
+        within: f32,
+        rng: &mut impl Dice,
+    ) -> Option<Pursues> {
         if !targeted || d > within {
             return None;
         }
@@ -1355,7 +1367,7 @@ impl Mind {
     /// It takes a bow again (`0x4D4A80`): `BOW_LONG` or `BOW_SHORT` by a coin ([`bow`]) in its
     /// left hand, its right hand emptied, the bit cleared, and it fights at range (the AI's state
     /// 8, deciding).
-    fn takes_a_bow(&mut self, rng: &mut Rng) -> Pursues {
+    fn takes_a_bow(&mut self, rng: &mut impl Dice) -> Pursues {
         self.takes_bow = false;
         self.ranged = true;
         self.armed = true;
@@ -1373,7 +1385,7 @@ impl Mind {
     /// Where it parts to at this tick of the world, standing at `here`, `crowded` by another in its
     /// cell (`0x544890`): unless it stays (`CreateNPC`'s tag `0x74`), has a dialogue, is a trader
     /// or fights, in one tick of 6, to a point by [`parting`].
-    pub fn parts(&self, here: Spot, crowded: bool, rng: &mut Rng) -> Option<Spot> {
+    pub fn parts(&self, here: Spot, crowded: bool, rng: &mut impl Dice) -> Option<Spot> {
         (crowded
             && self.flags & STAYS == 0
             && !self.dialogue
@@ -1392,7 +1404,7 @@ impl Mind {
         here: Spot,
         fear: Option<Spot>,
         (crowded, walking): (bool, Option<Spot>),
-        rng: &mut Rng,
+        rng: &mut impl Dice,
     ) -> Option<(Spot, Why)> {
         // One that stays where it is made takes no behaviour (`0x4EE030`).
         if still(self.creature) {
@@ -1410,7 +1422,7 @@ impl Mind {
         &self,
         here: Spot,
         hero: Spot,
-        rng: &mut Rng,
+        rng: &mut impl Dice,
         mut reaches: impl FnMut(Spot) -> bool,
     ) -> Option<Spot> {
         if self.hostile() || (here - hero).length() >= ASIDE_WITHIN {
@@ -1422,13 +1434,13 @@ impl Mind {
     }
 
     /// Whether it turns to the partner it meets and talks: an adult, in one case of two.
-    pub fn talks_at_meeting(&self, rng: &mut Rng) -> bool {
+    pub fn talks_at_meeting(&self, rng: &mut impl Dice) -> bool {
         !self.is_child() && rng.below(2) == 0
     }
 
     /// A juggler's instrument, if its hands are empty, at random (`0x4F29E2`), and whether it
     /// plays on and on: one of the flag `0x10000000`.
-    pub fn juggles(&self, rng: &mut Rng) -> (usize, bool) {
+    pub fn juggles(&self, rng: &mut impl Dice) -> (usize, bool) {
         let instrument = usize::try_from(rng.below(4)).unwrap_or(0);
         (instrument, self.flags & JUGGLER != 0)
     }
@@ -1555,7 +1567,7 @@ pub struct Thought {
 /// original fidgets), else in one case of four a step: within 150 along each axis, or home in one
 /// case of four, for a creature of an `Init` function or the start script; its place turned about
 /// the hero by −30° to +30°, for one of an `Enter` function; `None` otherwise.
-fn idle_step(mind: &Mind, here: Spot, hero: Spot, rng: &mut Rng) -> Option<Spot> {
+fn idle_step(mind: &Mind, here: Spot, hero: Spot, rng: &mut impl Dice) -> Option<Spot> {
     if rng.below(10) == 0 || rng.below(4) != 0 {
         return None;
     }
@@ -1795,7 +1807,7 @@ fn flees(
 }
 
 /// A point within `within` of `at` along each axis, at random.
-fn about(at: Spot, within: i32, rng: &mut Rng) -> Spot {
+fn about(at: Spot, within: i32, rng: &mut impl Dice) -> Spot {
     let mut offset = || {
         let span = u32::try_from(2 * within + 1).unwrap_or(1);
         let d = i32::try_from(rng.below(span)).unwrap_or(within) - within;
@@ -1837,7 +1849,7 @@ pub enum Why {
 
 /// A townsperson's roll of 26 (`0x4F22F0`): a child always rolls 20, a juggler of `0x10000000`
 /// always 9, one of the jugglers' types 9 in one case of six, and anyone else's 9 counts as 10.
-pub fn roll(mind: &Mind, rng: &mut Rng) -> u32 {
+pub fn roll(mind: &Mind, rng: &mut impl Dice) -> u32 {
     if mind.is_child() {
         return 20;
     }
@@ -1882,7 +1894,7 @@ pub fn townsperson<T>(
     human: Option<T>,
     animal: Option<T>,
     trader: Option<T>,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Decision<T> {
     match (roll(mind, rng), human, animal) {
         (0, Some(human), _) => Decision::Partner(human, false),
@@ -1937,7 +1949,11 @@ pub fn follow(here: Spot, partner: Spot, hero: bool) -> Why {
 
 /// Where a creature steps off to from its partner at `partner`: the first of 10 points 220 from
 /// it at random that it may stand on (`free`).
-pub fn steps_off(partner: Spot, rng: &mut Rng, mut free: impl FnMut(Spot) -> bool) -> Option<Spot> {
+pub fn steps_off(
+    partner: Spot,
+    rng: &mut impl Dice,
+    mut free: impl FnMut(Spot) -> bool,
+) -> Option<Spot> {
     (0..STEP_OFF_TRIES)
         .map(|_| {
             let degrees = f32::from(u16::try_from(rng.below(360)).unwrap_or(0));
@@ -2163,7 +2179,7 @@ pub fn child(
     here: Spot,
     (hero, daemon): (Spot, bool),
     in_settlement: bool,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Child {
     if daemon {
         let away = (here - hero).unit();
@@ -2197,7 +2213,7 @@ pub fn child(
 /// Where a townsperson at `here` in danger runs from its threat at `threat` (`0x4F0BDA`):
 /// without a door to go in by, 700 away from it along the line, within 100 more along each axis
 /// (`0x4F0F5E`).
-pub fn runs_from(here: Spot, threat: Spot, rng: &mut Rng) -> Spot {
+pub fn runs_from(here: Spot, threat: Spot, rng: &mut impl Dice) -> Spot {
     let away = (here - threat).unit();
     about(here + away * RUNS_FROM, RUNS_ASTRAY, rng)
 }
@@ -2210,7 +2226,7 @@ pub fn daemon_near(daemon: bool, here: Spot, hero: Spot) -> bool {
 
 /// The line of a townsperson's fear before the Daemon, in one case of three of its looks: one of
 /// `DaeAh1` to `6` (`0x4F0DAC`).
-pub fn daemon_fear(rng: &mut Rng) -> Option<String> {
+pub fn daemon_fear(rng: &mut impl Dice) -> Option<String> {
     (rng.below(3) == 0).then(|| format!("DaeAh{}", 1 + rng.below(6)))
 }
 
@@ -2232,7 +2248,7 @@ pub enum Evening {
 /// indoors it walks among the building's cells; outdoors it goes into the house of the door, by
 /// stages of 700 toward it, within 150 more, from farther than 1,000, and without a door it
 /// wanders within 400 of itself.
-pub fn evening_way(here: Spot, inside: bool, door: Option<Spot>, rng: &mut Rng) -> Evening {
+pub fn evening_way(here: Spot, inside: bool, door: Option<Spot>, rng: &mut impl Dice) -> Evening {
     match door {
         _ if inside => Evening::Indoors,
         Some(door) if (door - here).length() > DOOR_FAR => {
@@ -2249,7 +2265,7 @@ pub fn evening_way(here: Spot, inside: bool, door: Option<Spot>, rng: &mut Rng) 
 /// 100 of itself. The measure takes, of each point, its y from its x (`0x545B30`), not the home
 /// from the creature, and gives up past ±32,000, so that a creature parts about itself but near
 /// the world's diagonal.
-pub fn parting(home: Spot, here: Spot, rng: &mut Rng) -> Spot {
+pub fn parting(home: Spot, here: Spot, rng: &mut impl Dice) -> Spot {
     let (a, b) = (here.x - here.y, home.x - home.y);
     let measure = (a * a + b * b).sqrt();
     let measured = a.abs() <= 32_000.0 && b.abs() <= 32_000.0;
@@ -2261,7 +2277,7 @@ pub fn parting(home: Spot, here: Spot, rng: &mut Rng) -> Spot {
 }
 
 /// A number between `low` and `high`, at random.
-fn between(low: f32, high: f32, rng: &mut Rng) -> f32 {
+fn between(low: f32, high: f32, rng: &mut impl Dice) -> f32 {
     let part = f32::from(u16::try_from(rng.below(10_001)).unwrap_or(0)) / 10_000.0;
     low + (high - low) * part
 }
@@ -2269,10 +2285,10 @@ fn between(low: f32, high: f32, rng: &mut Rng) -> f32 {
 /// Where a wild animal at `here` runs from `fear` (`0x4EF150`): along each axis of the grid away
 /// from it by half to twice its distance along that axis, and across by up to half its distance
 /// along the other either way.
-fn flight(here: Spot, fear: Spot, rng: &mut Rng) -> Spot {
+fn flight<D: Dice>(here: Spot, fear: Spot, rng: &mut D) -> Spot {
     let d = here - fear;
     let (x, y) = (d.x.abs(), d.y.abs());
-    let along = |offset: f32, rng: &mut Rng| {
+    let along = |offset: f32, rng: &mut D| {
         let away = between(offset.abs() / 2.0, offset.abs() * 2.0, rng);
         if offset < 0.0 { -away } else { away }
     };
@@ -2296,7 +2312,7 @@ fn behaviour(
     here: Spot,
     fear: Option<Spot>,
     (strolls, walking): (bool, Option<Spot>),
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<(Spot, Why)> {
     let near = |within: f32| fear.filter(|f| (*f - here).length() < within);
     if walking.is_some() && mind.flags & GUARD == 0 {
@@ -2453,6 +2469,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::spawning::Rng;
     use crate::ways::{CRITTER, constructed};
 
     const SPEEDS: [f32; 2] = [70.0, 140.0];

@@ -1,4 +1,5 @@
-//! The fight's formulas of `Sacred.exe` against `opensacred-rules`' on random inputs (#1431):
+//! The fight's formulas and the rolls of `Sacred.exe` against `opensacred-rules`' on random inputs
+//! (#1431), the rolls with `rand()` answering a random script on both sides (#1433):
 //! both run in this process on each input, the original's in the emulator, and proptest's runner
 //! shrinks a mismatch to the smallest input that still shows it, running both again on each
 //! smaller one. The inputs keep to the game's ranges with a bias toward their bounds and the
@@ -12,13 +13,16 @@ use std::fmt::Debug;
 use anyhow::{Context, Result};
 use opensacred_data::tables::{Balance, BalanceValue, BalanceVariable};
 use opensacred_formats::bin_tables::{self, BALANCE_KEYS, Kind};
+use opensacred_rules::drops;
 use opensacred_rules::fight::{self, Rules};
+use opensacred_rules::spawning::Script;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngAlgorithm, TestError, TestRng, TestRunner};
 
 use crate::Set;
 use crate::fight as original;
 use crate::machine::Machine;
+use crate::rolls::{self, RAND_MOST};
 
 /// The fight's rules of the balance `balance`, the whole of `bin/Balance.bin`, its variables
 /// named as `opensacred-convert tables` names them.
@@ -73,6 +77,13 @@ pub fn report(
         }
         Set::MostHealth => {
             let found = most_health(machine, runs, rules);
+            let mismatch = found
+                .mismatch
+                .map(|(input, why)| format!("{input:?}: {why}"));
+            (found.rejected, mismatch)
+        }
+        Set::Between => {
+            let found = between(machine, runs);
             let mismatch = found
                 .mismatch
                 .map(|(input, why)| format!("{input:?}: {why}"));
@@ -218,6 +229,39 @@ pub fn most_health(
             };
             Ok((i64::from(ours) != i64::from(theirs))
                 .then(|| format!("ours {ours}, the original's {theirs}")))
+        },
+    )
+}
+
+/// A bound of a roll: 0, ±1, the extremes and small ones the more often.
+fn bound() -> impl Strategy<Value = i32> + Clone {
+    prop_oneof![
+        1 => Just(0_i32),
+        1 => Just(-1),
+        1 => Just(1),
+        1 => Just(i32::MIN),
+        1 => Just(i32::MAX),
+        4 => -100..=100_i32,
+        2 => any::<i32>(),
+    ]
+}
+
+/// The rolls between two bounds of the original and of the rules, `rand()` answering the same
+/// script of up to three values on both sides: the value and how many values each took.
+pub fn between(machine: &mut Machine<'_>, runs: (u32, u64)) -> Found<(i32, i32, Vec<u32>)> {
+    let value = prop_oneof![1 => Just(0_u32), 1 => Just(RAND_MOST), 6 => 0..=RAND_MOST];
+    run(
+        machine,
+        runs,
+        (bound(), bound(), prop::collection::vec(value, 0..=3)),
+        |machine, (least, most, values)| {
+            let theirs = rolls::between(machine, *least, *most, values)?;
+            let mut script = Script::new(values.clone());
+            let value = drops::between(i64::from(*least), i64::from(*most), &mut script);
+            let ours = (value, script.taken());
+            Ok((ours != (i64::from(theirs.0), theirs.1)).then(|| {
+                format!("ours {ours:?}, the original's {theirs:?} (the value, the values taken)")
+            }))
         },
     )
 }

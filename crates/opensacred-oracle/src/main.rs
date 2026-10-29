@@ -1,7 +1,8 @@
 //! `opensacred-oracle`: a development tool, run locally (docs/04 §2.3, PLAN.md §4.2). It loads
 //! the developer's own GOG `Sacred.exe` 2.28 into the Unicorn emulator, runs the fight's formula
-//! functions of docs/re/fight.md on sets of inputs, and writes their outputs as JSON vectors to a
-//! directory outside the repository, which `opensacred-rules`' tests compare its formulas with.
+//! functions of docs/re/fight.md and the game's rolls, `rand()` answering a script (#1433), on
+//! sets of inputs, and writes their outputs as JSON vectors to a directory outside the
+//! repository, which `opensacred-rules`' tests compare its formulas with.
 //!
 //! Unicorn is GPL-2.0: the emulator is the feature `emulator`, and no crate of the converter or
 //! the game depends on this one, which has no library (docs/08 §4). Without the feature the
@@ -16,6 +17,8 @@ mod fight;
 mod fuzz;
 #[cfg(feature = "emulator")]
 mod machine;
+#[cfg(feature = "emulator")]
+mod rolls;
 
 use std::path::{Path, PathBuf};
 
@@ -73,6 +76,10 @@ enum Set {
     /// (`0x5658F0`)
     #[value(name = "most_health")]
     MostHealth,
+    /// The game's roll of a whole number between two bounds, `rand()` answering a script
+    /// (`0x443B20`)
+    #[value(name = "between")]
+    Between,
 }
 
 /// The size of the balance's image (docs/02 §6.3), `bin/Balance.bin`'s first word, which the
@@ -152,6 +159,7 @@ fn fuzz(
     let mut machine = Machine::new(image, control_word(precision)?)?;
     machine.write(0xAD_4490, balance)?;
     fight::prepare(&mut machine)?;
+    rolls::prepare(&mut machine)?;
     let rules = fuzz::rules(file)?;
     println!("{}", fuzz::report(&mut machine, &rules, set, (cases, seed)));
     Ok(())
@@ -177,6 +185,7 @@ fn run(image: &Image, balance: &[u8], out: &Path, precision: u8, exe: &str) -> R
     // As the client holds it once it has read the balance.
     machine.write(0xAD_4490, balance)?;
     fight::prepare(&mut machine)?;
+    rolls::prepare(&mut machine)?;
     let about = |set, function: u32, description| About {
         set,
         function: format!("{function:#X}"),
@@ -234,6 +243,16 @@ fn run(image: &Image, balance: &[u8], out: &Path, precision: u8, exe: &str) -> R
                  type or not, on the first difficulty",
             ),
             &fight::most_health(&mut machine)?,
+        )?,
+        vectors::write(
+            out,
+            about(
+                "between",
+                0x44_3B20,
+                "the game's roll of a whole number between two bounds, rand() answering a \
+                 script of values",
+            ),
+            &rolls::betweens(&mut machine)?,
         )?,
     ];
     for file in files {

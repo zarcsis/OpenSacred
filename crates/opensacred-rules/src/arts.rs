@@ -9,7 +9,7 @@ use opensacred_data::heroes::HeroArt;
 use opensacred_data::tables::{Arts as Tables, Balance, Spell, WeaponArt};
 
 use crate::fight::{Effect, curve};
-use crate::spawning::Rng;
+use crate::spawning::Dice;
 
 /// The bit of an entry's flags that a rune sets: on every art it adds (`0x580750`) and on every
 /// art it raises for good (`0x581F80`).
@@ -1816,7 +1816,7 @@ pub fn wolf_level(hero: u32, level: u32, night: bool) -> u32 {
 /// reaches (`reaches`, `0x4FCC80`); none where none does.
 pub fn summoning_point(
     [x, y]: [f32; 2],
-    rng: &mut Rng,
+    rng: &mut impl Dice,
     mut reaches: impl FnMut([f32; 2]) -> bool,
 ) -> Option<[f32; 2]> {
     (1..=SUMMONING_MOST / SUMMONING_STEP)
