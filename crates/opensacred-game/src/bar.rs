@@ -59,9 +59,11 @@ const HOUSING: (u32, Vec2) = (11, Vec2::new(397.0, 680.0));
 pub(crate) const INVENTORY_BUTTON: (u32, Vec2) = (87, Vec2::new(399.0, 705.0));
 /// The collecting's button (`UI_TB_COLLECT`, `pickup`).
 pub(crate) const COLLECT_BUTTON: (u32, Vec2) = (134, Vec2::new(496.0, 743.0));
+/// The options' button (`UI_TB_OPTIONS`), which opens the menu over the game (`esc_menu`).
+pub(crate) const OPTIONS_BUTTON: (u32, Vec2) = (89, Vec2::new(434.0, 729.0));
 const BUTTONS: [(u32, Vec2); 5] = [
     INVENTORY_BUTTON,
-    (89, Vec2::new(434.0, 729.0)),
+    OPTIONS_BUTTON,
     (91, Vec2::new(558.0, 729.0)),
     (93, Vec2::new(594.0, 705.0)),
     COLLECT_BUTTON,

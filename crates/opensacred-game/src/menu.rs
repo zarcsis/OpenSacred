@@ -1,19 +1,18 @@
-//! The main menu, its submenus, the choice of the hero and the pause's menu (docs/10 §4). The main
+//! The main menu, its submenus and the choice of the hero (docs/10 §4). The main
 //! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving water
 //! (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor with a
 //! glow and fading in as a menu replaces another, and the Multiplayer and Extras submenus; the
 //! items whose screens the game does not have yet stand greyed (#1094, #1095, #1096). The campaigns
-//! open their choices of the hero (`choice`); in a paused game (`pause`), Continue, Main menu and
-//! Quit over the frame dimmed. The mouse chooses by pointing and clicking, the keyboard with the
-//! arrows and Enter; Esc goes back a screen.
+//! open their choices of the hero (`choice`); a paused game's menu is the original's Esc menu
+//! (`esc_menu`, #1410). The mouse chooses by pointing and clicking, the keyboard with the arrows
+//! and Enter; Esc goes back a screen.
 
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::game::{AppState, FONT, GOLD};
+use crate::game::{AppState, FONT};
 use crate::hud;
 use crate::lines::Texts;
-use crate::pause::Play;
 use crate::ripples::{self, Pond, Ripples};
 use bevy::picking::events::{PointerClick, PointerEnter};
 use bevy::picking::pointer::PointerButton;
@@ -50,8 +49,6 @@ pub enum Item {
     Intro,
     UnderworldIntro,
     Back,
-    Continue,
-    MainMenu,
 }
 
 impl Item {
@@ -73,7 +70,6 @@ impl Item {
             Self::Intro => ("UI_MAIN_INTRO", "Intro"),
             Self::UnderworldIntro => ("UI_MAIN_INTRO_UW", "Underworld Intro"),
             Self::Back => ("UI_NET_BACK", "Back"),
-            Self::Continue | Self::MainMenu => ("", ""),
         }
     }
 
@@ -225,13 +221,13 @@ const FIRST_ROW: f32 = 287.0;
 const ROW: f32 = 32.0;
 const ITEM_SIZE: f32 = 29.0;
 /// The main menu's font, Carolingia (`font/CAROLING.TTF`).
-const MENU_FONT: &str = "ui/fonts/caroling.ttf";
+pub(crate) const MENU_FONT: &str = "ui/fonts/caroling.ttf";
 /// The items' gold, an item lit, one that does nothing yet and their dark outline, in the frame's
 /// sRGB values (`hud`): the middle of the original's gold, which darkens down the letters.
 const ITEM_GOLD: Color = Color::linear_rgb(0.94, 0.70, 0.26);
 const ITEM_LIT: Color = Color::linear_rgb(1.0, 0.96, 0.72);
-const ITEM_GREY: Color = Color::linear_rgb(0.52, 0.48, 0.42);
-const OUTLINE: Color = Color::linear_rgb(0.08, 0.0, 0.0);
+pub(crate) const ITEM_GREY: Color = Color::linear_rgb(0.52, 0.48, 0.42);
+pub(crate) const OUTLINE: Color = Color::linear_rgb(0.08, 0.0, 0.0);
 /// The glow behind an item lit: pale, blurred at its edges.
 const GLOW: Color = Color::linear_rgba(1.0, 0.95, 0.8, 0.45);
 const GLOW_BLUR: f32 = 10.0;
@@ -241,13 +237,6 @@ const FADE: f32 = 0.25;
 /// The size of the version in the picture's bottom right corner.
 const VERSION_SIZE: f32 = 12.0;
 const VERSION: Color = Color::linear_rgb(0.85, 0.85, 0.85);
-
-/// The size of the pause's items on the original's 768-pixel-high screen (`hud`), and their
-/// colour not chosen, in the frame's sRGB values.
-const TITLE: f32 = 40.0;
-const DIM: Color = Color::linear_rgb(0.5, 0.42, 0.27);
-/// What the pause's menu lays over the frame.
-const SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.6);
 
 /// An item's node, chosen when the mouse enters it and done when it is clicked, if it does
 /// anything yet.
@@ -462,71 +451,10 @@ fn forget_first_for_game(mut first: ResMut<FirstShowing>) {
     first.0 = false;
 }
 
-/// Items of a word each, in order.
-fn words(column: &mut ChildSpawnerCommands, font: &Handle<Font>, entries: &[(Item, &str)]) {
-    for (place, (entry, text)) in entries.iter().enumerate() {
-        item(
-            column,
-            *entry,
-            place,
-            (
-                Text::new(*text),
-                TextFont {
-                    font: font.clone().into(),
-                    font_size: FontSize::Px(TITLE),
-                    ..default()
-                },
-                TextColor(DIM),
-            ),
-        );
-    }
-}
-
-/// The pause's menu over the frame dimmed, unless the pause is a still frame's.
-fn pause_screen(
-    mut commands: Commands,
-    assets: Res<AssetServer>,
-    mut chosen: ResMut<Chosen>,
-    still: Option<Res<crate::pause::Still>>,
-) {
-    if still.is_some_and(|still| still.0) {
-        return;
-    }
-    chosen.0 = 0;
-    let font: Handle<Font> = assets.load(FONT);
-    commands
-        .spawn((
-            DespawnOnExit(Play::Paused),
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Percent(100.0),
-                flex_direction: FlexDirection::Column,
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                row_gap: Val::Px(16.0),
-                ..default()
-            },
-            BackgroundColor(SHADE),
-        ))
-        .with_children(|column| {
-            words(
-                column,
-                &font,
-                &[
-                    (Item::Continue, "Continue"),
-                    (Item::MainMenu, "Main menu"),
-                    (Item::Quit, "Quit"),
-                ],
-            );
-        });
-}
-
 /// Does what `item` does; an item that does nothing yet does nothing.
 fn act(
     In(item): In<Item>,
     mut screen: ResMut<NextState<Screen>>,
-    mut state: ResMut<NextState<AppState>>,
-    play: Option<ResMut<NextState<Play>>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     match item {
@@ -538,12 +466,6 @@ fn act(
         Item::Quit => {
             exit.write(AppExit::Success);
         }
-        Item::Continue => {
-            if let Some(mut play) = play {
-                play.set(Play::Running);
-            }
-        }
-        Item::MainMenu => state.set(AppState::Menu),
         Item::Options
         | Item::LoadGame
         | Item::LocalNetwork
@@ -556,7 +478,7 @@ fn act(
 }
 
 /// The arrows move the choice among the items that do anything, Enter does it, Esc goes back from
-/// a submenu or the heroes to the main menu (the pause's Esc is the pause's, `pause`).
+/// a submenu or the heroes to the main menu.
 fn keys(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -596,9 +518,6 @@ fn keys(
     }
 }
 
-/// A pause's item, and its text.
-type Lit = (&'static Item, &'static Place, &'static mut TextColor);
-
 /// A main menu's item, its text's outline and its glow.
 type Gilt = (
     &'static Item,
@@ -609,14 +528,12 @@ type Gilt = (
 );
 
 /// Lights the item chosen: a main menu's in near white with a glow behind it, the others gold
-/// and the ones that do nothing yet grey, all fading in as their screen shows; a pause's item in
-/// gold.
+/// and the ones that do nothing yet grey, all fading in as their screen shows.
 fn light(
     time: Res<Time>,
     chosen: Res<Chosen>,
     mut shown: ResMut<Shown>,
     mut gilded: Query<Gilt, With<Gilded>>,
-    items: Query<Lit, Without<Gilded>>,
 ) {
     shown.0 += time.delta_secs();
     let alpha = (shown.0 / FADE).clamp(0.0, 1.0);
@@ -639,15 +556,11 @@ fn light(
             };
         }
     }
-    for (_, place, mut text) in items {
-        text.0 = if place.0 == chosen.0 { GOLD } else { DIM };
-    }
 }
 
-/// Whether a menu shows: the main menu's, or the pause's.
-fn shown(app: Option<Res<State<AppState>>>, play: Option<Res<State<Play>>>) -> bool {
+/// Whether the main menu shows.
+fn shown(app: Option<Res<State<AppState>>>) -> bool {
     app.is_some_and(|app| *app.get() == AppState::Menu)
-        || play.is_some_and(|play| *play.get() == Play::Paused)
 }
 
 /// The main menu, its submenus, the pause's menu and their keys.
@@ -666,7 +579,6 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(Screen::Extras), main_screen)
             .add_systems(OnExit(AppState::Menu), forget_first_for_game)
             .add_systems(Update, forget_first.run_if(state_changed::<Screen>))
-            .add_systems(OnEnter(Play::Paused), pause_screen)
             .add_systems(
                 Update,
                 (keys.in_set(crate::frame::Control), light)
@@ -783,44 +695,5 @@ mod tests {
         assert_eq!(items(&mut app).last(), Some(&Item::Back));
         press(&mut app, KeyCode::Escape);
         assert_eq!(screen(&app), Screen::Main);
-    }
-
-    #[test]
-    fn the_pauses_menu_continues_or_leaves_for_the_main_menu() {
-        let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins,
-            bevy::state::app::StatesPlugin,
-            AssetPlugin::default(),
-        ))
-        .init_asset::<Font>()
-        .init_asset::<Image>()
-        .init_asset::<Mesh>()
-        .init_asset::<StandardMaterial>()
-        .insert_state(AppState::InGame)
-        .add_plugins((MenuPlugin, crate::pause::PausePlugin))
-        .init_resource::<ButtonInput<KeyCode>>()
-        .init_resource::<Request>();
-        app.update();
-        let play = |app: &App| app.world().get_resource::<State<Play>>().map(|s| *s.get());
-        let items = |app: &mut App| app.world_mut().query::<&Item>().iter(app.world()).count();
-        assert_eq!(items(&mut app), 0);
-        press(&mut app, KeyCode::Escape);
-        assert_eq!(play(&app), Some(Play::Paused));
-        assert_eq!(items(&mut app), 3);
-        // Continue.
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(play(&app), Some(Play::Running));
-        assert_eq!(items(&mut app), 0);
-        press(&mut app, KeyCode::Escape);
-        press(&mut app, KeyCode::ArrowDown);
-        // Main menu.
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(
-            *app.world().resource::<State<AppState>>().get(),
-            AppState::Menu
-        );
-        assert_eq!(play(&app), None);
-        assert!(!app.world().resource::<Time<Virtual>>().is_paused());
     }
 }

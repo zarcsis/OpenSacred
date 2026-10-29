@@ -312,7 +312,7 @@ impl Images {
 
 /// The atlases of the interface that the panel's pieces are cut from.
 #[derive(Clone, Copy)]
-enum Sheet {
+pub(crate) enum Sheet {
     /// `gui_main_12`: the frame, the rule, the buttons and the difficulty's bar.
     Frames,
     /// `gui_main_13`: the name's field.
@@ -321,13 +321,13 @@ enum Sheet {
 
 /// The panel's atlases, loaded to be sampled texel by texel: the original draws its pieces a
 /// texel to a pixel, and stretches a button's middle without blurring it.
-struct Atlases {
+pub(crate) struct Atlases {
     frames: Option<Handle<Image>>,
     fields: Option<Handle<Image>>,
 }
 
 impl Atlases {
-    fn load(images: &Images, assets: &AssetServer) -> Self {
+    pub(crate) fn load(images: &Images, assets: &AssetServer) -> Self {
         let load = |path: &Option<String>| {
             path.as_ref().map(|path| {
                 assets
@@ -358,7 +358,7 @@ impl Atlases {
 /// as the table's entries whose corners are reversed draw their texels (docs/re/menus.md, "The
 /// choice of the hero").
 #[derive(Clone, Copy)]
-struct Piece {
+pub(crate) struct Piece {
     sheet: Sheet,
     texels: [u16; 4],
     turned: [bool; 2],
@@ -431,7 +431,7 @@ const CORNERS: [Piece; 4] = [
 /// The panel's dark fill, black at the alpha `0x9F`, and the box its frame stands about, its
 /// ornaments outside it (docs/re/menus.md).
 const FILL: Rect = Rect::from_corners(Vec2::new(300.0, 563.0), Vec2::new(724.0, 731.0));
-const SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 159.0 / 255.0);
+pub(crate) const SHADE: Color = Color::linear_rgba(0.0, 0.0, 0.0, 159.0 / 255.0);
 const FRAMED: Rect = Rect::from_corners(Vec2::new(320.0, 583.0), Vec2::new(704.0, 711.0));
 /// How far below the box the frame's foot stands, and its right side out of its right edge.
 const FOOT: f32 = 12.0;
@@ -867,7 +867,7 @@ fn picture(
 }
 
 /// The node of the picture's rectangle `rect`.
-fn place(rect: Rect) -> Node {
+pub(crate) fn place(rect: Rect) -> Node {
     Node {
         position_type: PositionType::Absolute,
         left: Val::Px(rect.min.x),
@@ -986,13 +986,7 @@ fn button(
     (rect, foot): (Rect, f32),
     act: fn(&mut Commands),
 ) -> Entity {
-    row(
-        parent,
-        atlases,
-        [BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT],
-        rect,
-        [BUTTON_LEFT.size().x, BUTTON_RIGHT.size().x],
-    );
+    button_pieces(parent, atlases, rect);
     let top = foot - FOOT_ROW - rect.min.y;
     parent
         .spawn((
@@ -1141,15 +1135,30 @@ fn list(
         });
 }
 
-/// The panel's frame, as the original draws it about the box `FRAMED`: its dark fill, the crest's
-/// halves at the middle of its top and its foot, its corners, its edges along the top and the
-/// foot, as many whole pieces as the box is wide, its sides down to the box's foot, and the rule
-/// over the buttons, its middles up to its right end, drawn last over the last of them.
+/// The panel's frame, as the original draws it about the box `FRAMED`: its dark fill, the frame
+/// ([`frame_about`]), and the rule over the buttons, its middles up to its right end, drawn last
+/// over the last of them.
 fn frame(picture: &mut ChildSpawnerCommands, atlases: &Atlases) {
     picture.spawn((Pickable::IGNORE, place(FILL), BackgroundColor(SHADE)));
-    let Rect { min, max } = FRAMED;
+    frame_about(picture, atlases, FRAMED);
+    put(picture, atlases, RULE_LEFT, RULE_AT);
+    let end = RULE_AT.x + RULE_WIDTH - RULE_RIGHT.size().x;
+    let mut x = RULE_AT.x + RULE_LEFT.size().x;
+    while x < end {
+        put(picture, atlases, RULE_MIDDLE, Vec2::new(x, RULE_AT.y));
+        x += RULE_MIDDLE.size().x;
+    }
+    put(picture, atlases, RULE_RIGHT, Vec2::new(end, RULE_AT.y));
+}
+
+/// The interface's standard frame (`UI_STATIC_FRAME`), as the original draws it about the box
+/// `framed`, here and over a game (the Esc menu, `esc_menu`): the crest's halves at the middle of
+/// its top and its foot, its corners, its edges along the top and the foot, as many whole pieces
+/// as the box is wide, and its sides down to the box's foot.
+pub(crate) fn frame_about(picture: &mut ChildSpawnerCommands, atlases: &Atlases, framed: Rect) {
+    let Rect { min, max } = framed;
     let top = min.y - CORNERS[0].size().y;
-    let middle = FRAMED.center().x;
+    let middle = framed.center().x;
     for (piece, x, y) in [
         (CREST[0], middle - CREST[0].size().x, top),
         (CREST[1], middle, top),
@@ -1184,14 +1193,30 @@ fn frame(picture: &mut ChildSpawnerCommands, atlases: &Atlases) {
         );
         y += SIDE_LEFT.size().y;
     }
-    put(picture, atlases, RULE_LEFT, RULE_AT);
-    let end = RULE_AT.x + RULE_WIDTH - RULE_RIGHT.size().x;
-    let mut x = RULE_AT.x + RULE_LEFT.size().x;
-    while x < end {
-        put(picture, atlases, RULE_MIDDLE, Vec2::new(x, RULE_AT.y));
-        x += RULE_MIDDLE.size().x;
-    }
-    put(picture, atlases, RULE_RIGHT, Vec2::new(end, RULE_AT.y));
+}
+
+/// A button's pieces about its middle `rect` (`BUTTON_LEFT`, `BUTTON_MIDDLE`, `BUTTON_RIGHT`), as
+/// the choice's and the Esc menu's dialog's buttons are drawn: the button's whole rectangle, its
+/// ends with it.
+pub(crate) fn button_pieces(
+    parent: &mut ChildSpawnerCommands,
+    atlases: &Atlases,
+    rect: Rect,
+) -> Rect {
+    let ends = [BUTTON_LEFT.size().x, BUTTON_RIGHT.size().x];
+    row(
+        parent,
+        atlases,
+        [BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT],
+        rect,
+        ends,
+    );
+    Rect::new(
+        rect.min.x - ends[0],
+        rect.min.y,
+        rect.max.x + ends[1],
+        rect.max.y,
+    )
 }
 
 /// The Ancaria campaign's panel's parts: the name and the difficulty, Import, which a description
