@@ -6,14 +6,16 @@ Purpose: Claude Code sees how the running original behaves without disturbing th
 `Sacred.exe` against the manifest, sets the keys of `Settings.cfg` it needs, spawns the game suspended with its
 working directory the installation, loads `agent.js` and resumes the game once every guard of the maintainer's desktop
 is in place (else it kills it). The game lives in a job object that kills it when the host's handle closes, and the
-agent ends it when the host's heartbeat stops. The host serves JSON-RPC 2.0 over HTTP on 127.0.0.1 with the game's
+agent ends it when the host's heartbeat stops. One original runs on the machine: while the host runs it records its
+holder (`--holder`, the session's name) in `%LOCALAPPDATA%\\OpenSacred\\original-holder.json`, and a host started
+meanwhile refuses, naming that holder (#1398). The host serves JSON-RPC 2.0 over HTTP on 127.0.0.1 with the game's
 own methods: `opensacred/state`, `opensacred/screenshot {path}`, `opensacred/logs {after}`, `opensacred/exec {line}`.
 `tools/game/remote.py --port 15703` is its client. Frames, logs and traces stay on this machine (docs/08 §3).
 With `--interactive` the maintainer plays it instead (#551): full screen through dgVoodoo2 on a monitor, scaled with its
 proportions kept, the maintainer's own mouse and keyboard reaching it while its window has the foreground.
 
 Example
-  uv run python -I tools/original/host.py --log-file <scratch>/original.log          # run_in_background
+  uv run python -I tools/original/host.py --holder <session> --log-file <scratch>/original.log   # run_in_background
   uv run python -I tools/original/host.py --interactive                              # the maintainer's play
   uv run python -I tools/game/remote.py --port 15703 shell                            # its commands by hand
   uv run python -I tools/game/remote.py --port 15703 state
@@ -23,7 +25,8 @@ Example
 Expected output: the log's records, a line each, `sequence seconds LEVEL target: message`; the exit code is the
 game's. Dependencies: frida, Pillow (pyproject.toml); Windows.
 """
-import argparse, ctypes, hashlib, http.server, json, os, queue, re, signal, struct, sys, tempfile, threading, time
+import argparse, atexit, ctypes, hashlib, http.server, json, os, queue, re, signal, struct, subprocess, sys, tempfile
+import threading, time
 from ctypes import wintypes
 
 import frida
@@ -101,6 +104,11 @@ MUTED_VOLUMES = {'MUSICVOLUME': '64', 'SFXVOLUME': '64', 'VOICEVOLUME': '64'}
 # installation, where the host writes only the game's own files (docs/03 §3.8), with the volumes it wrote last.
 KEPT_VOLUMES = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(), 'OpenSacred',
                             'original-volumes.json')
+# The original's holder while a host runs (#1398): one original runs on the machine, as every worktree links the one
+# installation (docs/03 §3.5, §3.8), and a host that finds the record of a live host refuses, naming its holder.
+HOLDER = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(), 'OpenSacred', 'original-holder.json')
+# A record younger than this whose file cannot be read yet is being written by a host that starts now.
+HOLDER_WRITING = 5.0
 # The keys of dgVoodoo.conf the host sets before each start (#551). In the maintainer's play the game runs full screen
 # (FULLSCREEN 1), which dgVoodoo2 makes a window of the monitor's size with the game's 1024 x 768 scaled into it, its
 # proportions kept, and no display mode changed; the game's own window mode cannot be scaled, as its flip copies the
@@ -119,11 +127,13 @@ kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
 kernel32.WaitForSingleObject.restype = wintypes.DWORD
 kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
 kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 PROCESS_TERMINATE, PROCESS_SET_QUOTA, PROCESS_QUERY_LIMITED_INFORMATION, SYNCHRONIZE = 0x1, 0x100, 0x1000, 0x100000
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 WAIT_OBJECT_0 = 0
+STILL_ACTIVE = 259
 
 
 class BasicLimits(ctypes.Structure):
@@ -137,6 +147,102 @@ class ExtendedLimits(ctypes.Structure):
     _fields_ = [('BasicLimitInformation', BasicLimits), ('IoInfo', ctypes.c_uint64 * 6),
                 ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
                 ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+
+def alive(pid):
+    """Whether a process of this pid runs."""
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def checkout_branch(root):
+    """The branch of the worktree at `root`, or None."""
+    try:
+        done = subprocess.run(['git', '-C', root, 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True,
+                              text=True, encoding='utf-8', timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.strip() or None if done.returncode == 0 else None
+
+
+def holder_record(holder, interactive):
+    """This host's record as the original's holder: the name the session gave, its Claude Code session, the branch and
+    the worktree the host runs from, the host's pid and the time."""
+    return {'holder': holder or ('the maintainer (--interactive)' if interactive else None),
+            'session': os.environ.get('CLAUDE_CODE_SESSION_ID'), 'branch': checkout_branch(ROOT), 'worktree': ROOT,
+            'pid': os.getpid(), 'since': time.time()}
+
+
+def read_holder(path):
+    """The holder's record at `path`, or None when there is none or it cannot be read."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) and isinstance(record.get('pid'), int) else None
+
+
+def holding(record):
+    """A holder's record in words: who and from where."""
+    who = record.get('holder') or (f"the Claude Code session {record['session']}" if record.get('session')
+                                   else 'a host given no --holder')
+    details = [f'{key} {record[key]}' for key in ('branch', 'worktree') if record.get(key)]
+    details.append(f"host pid {record['pid']}")
+    return f"{who} ({', '.join(details)})"
+
+
+def held_for(record):
+    """How long a holder's record has held the original, in words."""
+    minutes = max(0, int((time.time() - float(record.get('since') or time.time())) // 60))
+    return f'{minutes} min'
+
+
+def claim(record, path):
+    """Record `record` at `path` as the original's holder, refusing while the host of another record runs; a record
+    whose host is gone is stale and taken over."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    for _ in range(3):
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+        except FileExistsError:
+            held = read_holder(path)
+            if held is None:
+                try:
+                    if time.time() - os.path.getmtime(path) < HOLDER_WRITING:
+                        raise SystemExit('error: another host is taking the original right now; one original runs '
+                                         'at a time')
+                except FileNotFoundError:
+                    continue
+            elif held['pid'] != record['pid'] and alive(held['pid']):
+                raise SystemExit(f'error: the original is held by {holding(held)} for {held_for(held)}; one original '
+                                 'runs at a time: ask that session (ListAgents, SendMessage) to say when it is free')
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            continue
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='') as f:
+            json.dump(record, f, indent=2)
+            f.write('\n')
+        return
+    raise SystemExit(f'error: cannot record the original\'s holder in {path}')
+
+
+def release(record, path):
+    """Remove the holder's record at `path` while it is still `record`."""
+    held = read_holder(path)
+    if held is not None and held.get('pid') == record['pid'] and held.get('since') == record['since']:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 
 
 class Journal:
@@ -318,7 +424,8 @@ class Host:
         device = frida.get_local_device()
         running = [p.pid for p in device.enumerate_processes() if p.name.lower() == 'sacred.exe']
         if running:
-            raise SystemExit(f'error: a Sacred.exe runs already (pid {running[0]}); one original runs at a time')
+            raise SystemExit(f'error: a Sacred.exe runs already (pid {running[0]}) under no host that recorded its '
+                             'holder; one original runs at a time')
         set_dgvoodoo(self.game_dir, self.args.interactive, self.journal)
         set_settings(self.game_dir, self.args.sound, self.args.muted, self.args.interactive, self.journal)
         with open(self.args.agent, encoding='utf-8') as f:
@@ -1422,6 +1529,8 @@ def main():
     parser.add_argument('--game-dir', default=os.path.join(ROOT, 'OriginalGame'),
                         help='the GOG installation (OriginalGame/ by default)')
     parser.add_argument('--port', type=int, default=15703, help='the port of the remote control (15703 by default)')
+    parser.add_argument('--holder', help="who holds the original while the host runs, the session's name as "
+                                         "ListAgents shows it, which a host started meanwhile names as it refuses")
     parser.add_argument('--place', choices=['offscreen', 'behind'], default='offscreen',
                         help='the window to the right of every monitor (by default) or behind the other windows')
     parser.add_argument('--interactive', action='store_true',
@@ -1443,7 +1552,11 @@ def main():
     parser.add_argument('--arg', action='append', default=[],
                         help="a word of Sacred.exe's command line (repeatable), as `--arg tabblocker`")
     args = parser.parse_args()
+    record = holder_record(args.holder, args.interactive)
+    claim(record, HOLDER)
+    atexit.register(release, record, HOLDER)
     journal = Journal(args.log_file)
+    journal.push('INFO', 'host', f'the original is held by {holding(record)}')
     host = Host(args, journal)
     try:
         server = serve(host, args.port)
@@ -1453,6 +1566,7 @@ def main():
     def stop(signum, frame):
         journal.push('INFO', 'host', f'signal {signum}: the game is ended')
         host.kill(1)
+        release(record, HOLDER)
         os._exit(1)
 
     for name in ('SIGINT', 'SIGTERM', 'SIGBREAK'):
