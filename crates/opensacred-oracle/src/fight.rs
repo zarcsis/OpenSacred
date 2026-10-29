@@ -32,6 +32,11 @@ const CLIENT: u32 = 0x7D_84A0;
 /// its class's record.
 const IS_HERO: u32 = 0x42_6650;
 
+/// The factor of the levels (`0x551530`, `cdecl`, docs/re/fight.md, "The hero's levels") of a
+/// creature's level against a hero's, the creature's brought to bronze's scale by the difficulty
+/// (`0x182EE44`, 0, bronze, in the emulator); in `ST0`.
+const WEIGHING: u32 = 0x55_1530;
+
 /// The size of the synthetic stats (`+0x3A8` of a creature, docs/re/fight.md) and their fields:
 /// the creature they are of, its type, the attributes `a_i` (words), the base attributes `b_i`
 /// (words), the level (a word), the value of the health shown, the most health and the health.
@@ -339,6 +344,39 @@ pub fn most_health(machine: &mut Machine<'_>) -> Result<Vec<MostHealth>> {
             for level in LEVELS {
                 vectors.push(health(machine, base, level, hero)?);
             }
+        }
+    }
+    Ok(vectors)
+}
+
+/// The factor of the levels of a creature against a hero.
+#[derive(Serialize)]
+pub struct Weighing {
+    /// The creature's level, before bronze's scale.
+    pub level: u32,
+    pub hero: u32,
+    pub weighing: f64,
+}
+
+/// The levels of the set: each side of the hero's thresholds of 10 and 92, the highest, and the
+/// creature's about them.
+const CREATURE_LEVELS: [u32; 14] = [1, 2, 5, 10, 11, 20, 50, 80, 91, 92, 93, 100, 150, 216];
+const HERO_LEVELS: [u32; 12] = [1, 2, 10, 11, 12, 50, 91, 92, 93, 100, 150, 216];
+
+/// The factors of the creatures' levels against the heroes' (`0x551530`).
+pub fn weighings(machine: &mut Machine<'_>) -> Result<Vec<Weighing>> {
+    let mut vectors = Vec::new();
+    for hero in HERO_LEVELS {
+        for level in CREATURE_LEVELS {
+            let weighing = machine
+                .call(WEIGHING, None, &[level, hero], true)?
+                .st0
+                .unwrap_or(f64::NAN);
+            vectors.push(Weighing {
+                level,
+                hero,
+                weighing,
+            });
         }
     }
     Ok(vectors)

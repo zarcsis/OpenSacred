@@ -4310,6 +4310,27 @@ mod tests {
     }
 
     #[test]
+    fn a_hero_from_level_92_weighs_by_a_threshold_of_its_own() {
+        // The original's factors (`opensacred-oracle`'s vectors of `0x551530`, #1454): from level
+        // 92 the threshold is `(H − 6)/(H + 9)`, 86/101 at 92, so that a creature of level 80
+        // weighs `(89 − 86)/(101 − 86)`, not by `UnterExpAnteil`'s 0.85.
+        let levels = (0.85, 1.0, 1.1);
+        let near = |level, hero, original: f32| {
+            let ours = weighing(level, hero, levels);
+            assert!(
+                (ours - original).abs() < 1e-6,
+                "{level} against {hero}: {ours}, the original's {original}"
+            );
+        };
+        near(80, 92, 0.2);
+        near(91, 92, 0.933_333_35);
+        near(92, 93, 0.933_333_1);
+        near(50, 92, 0.04);
+        // Above `ObereEXPVoll`, `ObereEXPVoll/r`.
+        near(150, 92, 0.698_742_15);
+    }
+
+    #[test]
     fn every_creature_strikes_at_140_per_cent_but_the_wood_elf() {
         assert!((attack_speed(76) - 140.0).abs() < f32::EPSILON);
         assert!((attack_speed(5) - 100.0).abs() < f32::EPSILON);
