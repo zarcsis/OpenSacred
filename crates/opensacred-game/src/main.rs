@@ -45,6 +45,7 @@ mod frame;
 mod fx;
 mod game;
 mod glance;
+mod glitter;
 mod guns;
 mod held;
 mod help;
@@ -335,11 +336,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         fx::FxPlugin,
         game::GamePlugin,
         glance::GlancePlugin,
+        glitter::GlitterPlugin,
         guns::GunsPlugin,
         held::HeldPlugin,
-        help::HelpPlugin,
     ))
     .add_plugins((
+        help::HelpPlugin,
         hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
@@ -354,9 +356,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         menu_sound::MenuSoundPlugin,
         models::ModelsPlugin,
         music::MusicPlugin,
-        npcs::NpcsPlugin,
     ))
     .add_plugins((
+        npcs::NpcsPlugin,
         opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
@@ -371,9 +373,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sectors::SectorsPlugin,
         sets::SetsPlugin,
         settings::SettingsPlugin,
-        sfx::SfxPlugin,
     ))
     .add_plugins((
+        sfx::SfxPlugin,
         shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,

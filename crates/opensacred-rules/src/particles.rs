@@ -727,10 +727,98 @@ pub fn dust(points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
     }
 }
 
+/// The glitter's numbers (`0x8E808C`), whose sines move its sparks.
+const GLITTER: [f32; 16] = [
+    1.3452, 6.6458, 4.6646, 2.7472, 6.4337, 4.5351, 1.7371, 0.9962, 2.5993, 3.9645, 2.3992, 1.7379,
+    2.8925, 0.0085, 6.7786, 5.5555,
+];
+
+/// The sparks of the glitter at each `DETAILLEVEL`, 0 to 2 (2 in the installation).
+pub const GLITTER_SPARKS: [u8; 3] = [3, 5, 8];
+/// A spark's coloured square's half side, and its grey square's colour, in the frame's values.
+pub const SPARK_HALF: f32 = 4.0;
+pub const SPARK_GREY: f32 = 187.0 / 255.0;
+
+/// A spark of the glitter: its offset from the glitter's point (across, along, up), its coloured
+/// square's colour, and its grey square's half side, in the models' units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spark {
+    pub offset: [f32; 3],
+    pub colour: [f32; 3],
+    pub half: f32,
+}
+
+/// The glitter over an item that lies on the ground, at its time `t` (`sdk_GLOW`, `0x408B70`;
+/// docs/re/items.md, "The glitter"): the half of the game's seconds plus its object's phase. Each
+/// of its `count` sparks wanders within 10 of the point by the sines of [`GLITTER`], its coloured
+/// square turning round the hues in two seconds, its grey square from 1 to 3 across.
+pub fn glitter(t: f32, count: u8) -> Vec<Spark> {
+    let a = |i: i32| GLITTER[usize::try_from(i.rem_euclid(16)).unwrap_or(0)];
+    let wave = |i: i32, [p, q, r, s]: [i32; 4]| {
+        let first = (t * a(i + p) + a(i + q)).sin();
+        (first, first * ((t * a(i + r) + a(i + s)).sin() + 1.0) * 5.0)
+    };
+    (1..=i32::from(count))
+        .map(|i| {
+            let (_, across) = wave(i, [-6, -7, -5, 0]);
+            let (_, along) = wave(i, [7, -8, 5, 1]);
+            let (rise, up) = wave(i, [4, 6, 2, 3]);
+            let hue = (a(i + 4) - t).rem_euclid(1.0);
+            Spark {
+                offset: [across, along, up],
+                colour: hue_colour(hue, 250.0 / 255.0),
+                half: rise + 2.0,
+            }
+        })
+        .collect()
+}
+
+/// The colour of the hue `hue` (0 to 1) at the value `value` and full saturation, round the wheel
+/// from blue through cyan, green, yellow, red and magenta (`0x642420`).
+fn hue_colour(hue: f32, value: f32) -> [f32; 3] {
+    let at = hue.clamp(0.0, 1.0) * 6.0;
+    let sextant = at.floor().min(5.0);
+    let share = at - sextant;
+    let (rising, falling) = (share * value, (1.0 - share) * value);
+    match sextant {
+        0.0 => [0.0, rising, value],
+        1.0 => [0.0, value, falling],
+        2.0 => [rising, value, 0.0],
+        3.0 => [value, falling, 0.0],
+        4.0 => [value, 0.0, rising],
+        _ => [falling, 0.0, value],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn the_glitter_wanders_within_ten_its_sparks_in_full_hues() {
+        for step in 0..200 {
+            let t = step as f32 * 0.137;
+            let sparks = glitter(t, GLITTER_SPARKS[2]);
+            assert_eq!(sparks.len(), 8);
+            for spark in sparks {
+                assert!(spark.offset.iter().all(|v| v.abs() <= 10.0));
+                assert!((1.0..=3.0).contains(&spark.half));
+                let peak = spark.colour.iter().copied().fold(0.0, f32::max);
+                assert!((peak - 250.0 / 255.0).abs() < 1e-5);
+                assert!(spark.colour.contains(&0.0));
+            }
+        }
+        // The wheel runs on round its turn: blue at 0, yellow at a half, red at two thirds.
+        assert_eq!(hue_colour(0.0, 1.0), [0.0, 0.0, 1.0]);
+        assert_eq!(hue_colour(0.5, 1.0), [1.0, 1.0, 0.0]);
+        assert_eq!(hue_colour(4.0 / 6.0, 1.0), [1.0, 0.0, 0.0]);
+        let near_end = hue_colour(0.999, 1.0);
+        assert!(near_end[2] == 1.0 && near_end[0] < 0.01);
+        // A spark's hue turns once in two seconds of the game, its time running at half of them.
+        let (now, later) = (glitter(3.0, 3), glitter(4.0, 3));
+        assert!((now[0].colour[0] - later[0].colour[0]).abs() < 1e-4);
+    }
 
     #[test]
     fn a_ramp_runs_from_its_birth_to_its_death() {

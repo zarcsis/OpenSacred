@@ -50,7 +50,14 @@ pub struct Tables {
     /// Each type's price, its record's `+0x08` (`Weapon.pak +0x8C`), which a container's run of
     /// items takes off its value (`0x4A0C42`; #1381).
     prices: HashMap<u32, i64>,
+    /// The types that glitter lying on the ground: their `items.pak` record's first word's bit
+    /// 19, the byte `+0x02` bit 3 (`0x428460`; #1382, `glitter`).
+    glittering: std::collections::HashSet<u32>,
 }
+
+/// The bit of an `items.pak` record's byte `+0x02` of a type that glitters on the ground, its
+/// first word's bit 19 (`0x428460`).
+const GLITTERS: u8 = 0x08;
 
 /// The price of a type without a record (`0x5D3D36`).
 const DEFAULT_PRICE: i64 = 600;
@@ -98,6 +105,11 @@ impl Tables {
         let catalogue = Catalogue::new(items, weapons, &sets, &templates).with_runes(runes);
         let models = npcs::model_files(assets)?;
         let textures = npcs::texture_files(assets)?;
+        let glittering = items
+            .iter()
+            .filter(|item| item.subclass & GLITTERS != 0)
+            .map(|item| item.slot)
+            .collect();
         let looks = items
             .iter()
             .filter_map(|item| {
@@ -200,7 +212,15 @@ impl Tables {
             rune_arts,
             records: used,
             prices,
+            glittering,
         })
+    }
+
+    /// Whether an item of the type `item` glitters lying on the ground, by its derived type's
+    /// root's record.
+    pub fn glitters(&self, item: u32) -> bool {
+        let slot = self.catalogue.slot(item).unwrap_or(item);
+        self.glittering.contains(&item) || self.glittering.contains(&slot)
     }
 
     /// The values of `dropped` that its wearer's fight takes (#1290): its maker's where it gave it
