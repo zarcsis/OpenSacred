@@ -6302,10 +6302,11 @@ pub struct ScriptQueue(std::collections::VecDeque<Queued>);
 #[derive(Clone, Debug, PartialEq)]
 enum Queued {
     /// A run to `to` (`NPC_Goto`, the kind 1) onto the level `onto`, the creature's own as it
-    /// sets out where the record names no floor (**hypothesis** for when: the original takes the
-    /// creature's layer as the record runs, so that its walk after a teleport down never counts
-    /// as arrived and is dropped standing at its target); how many times it was ordered, and where
-    /// the creature stood as the count began.
+    /// sets out where the record names no floor, where the original takes the creature's layer as
+    /// the record runs (`0x49E210`), so that its walk after a teleport down never counts as
+    /// arrived and is dropped standing at its target (docs/decisions/netscript.md, "Queue's walk
+    /// onto the level it sets out on"); how many times it was ordered, and where the creature
+    /// stood as the count began.
     Walk {
         to: Vec3,
         onto: Option<Level>,
