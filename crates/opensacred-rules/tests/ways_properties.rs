@@ -215,6 +215,20 @@ proptest! {
     }
 
     #[test]
+    fn a_way_steps_onto_open_cells_and_cuts_no_corner((map, from, to) in ends()) {
+        let map = map.with(from, false);
+        if let Some(way) = way(&map, from, to) {
+            for step in way.windows(2) {
+                let (a, b) = (step[0].0, step[1].0);
+                prop_assert!((a.0 - b.0).abs() <= 1 && (a.1 - b.1).abs() <= 1 && a != b);
+                // A diagonal step passes between two open cells, not past a closed one.
+                prop_assert!(map.walkable(b), "{a:?} to {b:?}");
+                prop_assert!(map.walkable((b.0, a.1)) && map.walkable((a.0, b.1)), "{a:?} to {b:?}");
+            }
+        }
+    }
+
+    #[test]
     fn on_an_open_field_a_way_takes_the_fewest_steps(
         origin in prop::sample::select(ORIGINS.to_vec()),
         (dx, dy) in (-32..32_i32, -32..32_i32),
