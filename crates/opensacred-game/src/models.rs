@@ -102,6 +102,8 @@ pub struct InOrder {
     anchors: Handle<ShaderBuffer>,
     #[storage(101, read_only)]
     floors: Handle<ShaderBuffer>,
+    #[storage(102, read_only)]
+    lights: Handle<ShaderBuffer>,
     pass: Pass,
 }
 
@@ -158,8 +160,17 @@ impl MaterialExtension for InOrder {
         {
             return Ok(());
         }
+        // The fragment stage reads the model's light by its mesh's tag (`standard.wesl`).
+        descriptor
+            .vertex
+            .shader_defs
+            .push("VERTEX_OUTPUT_INSTANCE_INDEX".into());
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader_defs.push("NEAREST".into());
+            fragment
+                .shader_defs
+                .push("VERTEX_OUTPUT_INSTANCE_INDEX".into());
+            fragment.shader_defs.push("LIT_BY_SLOT".into());
             if key.bind_group_data.fringe {
                 fragment.shader_defs.push("FRINGE".into());
             }
@@ -178,13 +189,17 @@ impl MaterialExtension for InOrder {
 /// and the place in the cell. The place in the order is that centre at height 0, as the sprites'
 /// (#112). And the floor that the model stands on, if it stands on an upper storey's
 /// ([`statics::Floor::under`]), zero for any other; but for a [`Sunk`] model, how far back along
-/// the line of sight its place lies, in the third coordinate.
+/// the line of sight its place lies, in the third coordinate. And the share of its light's
+/// colour that its ambient light takes while the cursor is over it, first, zero for none
+/// (`hover`, #1460).
 #[derive(Resource)]
 pub struct Anchors {
     buffer: Handle<ShaderBuffer>,
     anchors: Vec<Vec4>,
     floor_buffer: Handle<ShaderBuffer>,
     floors: Vec<Vec4>,
+    light_buffer: Handle<ShaderBuffer>,
+    lights: Vec<Vec4>,
     free: Vec<u32>,
     changed: bool,
 }
@@ -198,6 +213,18 @@ impl Anchors {
     /// The shader's buffer of the floors and of how far back the sunk models' places lie, by slot.
     pub fn floor_buffer(&self) -> &Handle<ShaderBuffer> {
         &self.floor_buffer
+    }
+
+    /// Gives the model of `slot` the ambient share `share` of its light, 0 for none.
+    pub fn light(&mut self, slot: u32, share: f32) {
+        if let Some(light) = usize::try_from(slot)
+            .ok()
+            .and_then(|slot| self.lights.get_mut(slot))
+            && light.x != share
+        {
+            light.x = share;
+            self.changed = true;
+        }
     }
 }
 
@@ -215,6 +242,8 @@ impl FromWorld for Anchors {
             anchors: vec![Vec4::ZERO],
             floor_buffer: zero(),
             floors: vec![Vec4::ZERO],
+            light_buffer: zero(),
+            lights: vec![Vec4::ZERO],
             free: Vec::new(),
             changed: false,
         }
@@ -265,6 +294,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         extension: InOrder {
             anchors: anchors.buffer.clone(),
             floors: anchors.floor_buffer.clone(),
+            lights: anchors.light_buffer.clone(),
             pass,
         },
     }
@@ -396,8 +426,13 @@ fn hold(added: On<Add<Ordered>>, mut anchors: ResMut<Anchors>, mut roots: Query<
         let slot = u32::try_from(anchors.anchors.len()).ok()?;
         anchors.anchors.push(Vec4::ZERO);
         anchors.floors.push(Vec4::ZERO);
+        anchors.lights.push(Vec4::ZERO);
         Some(slot)
     });
+    // A slot taken again lights its new model plainly.
+    if let Some(slot) = slot {
+        anchors.light(slot, 0.0);
+    }
     ordered.0 = slot;
 }
 
@@ -620,6 +655,7 @@ pub fn place(
         for (handle, values) in [
             (&anchors.buffer, &anchors.anchors),
             (&anchors.floor_buffer, &anchors.floors),
+            (&anchors.light_buffer, &anchors.lights),
         ] {
             let data: Vec<[f32; 4]> = values.iter().map(|a| a.to_array()).collect();
             if let Some(mut buffer) = buffers.get_mut(handle) {

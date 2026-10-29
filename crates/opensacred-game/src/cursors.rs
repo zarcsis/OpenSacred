@@ -106,6 +106,11 @@ pub struct Shown(pub Look);
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Foe(pub Option<Entity>);
 
+/// What lies under the cursor that the original highlights, a foe or a container under the hand
+/// (`+0x14` bit `0x20000000`; `hover`, #1460).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Highlit(pub Option<Entity>);
+
 /// The item under the hand, whose name shows beside the cursor: the item, and the name of the
 /// game's texts that the scripts gave it (`npcs::TextName`).
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
@@ -184,7 +189,12 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
               filters"
 )]
 fn choose(
-    (mut shown, mut named, mut foe_shown): (ResMut<Shown>, ResMut<Named>, ResMut<Foe>),
+    (mut shown, mut named, mut foe_shown, mut highlit): (
+        ResMut<Shown>,
+        ResMut<Named>,
+        ResMut<Foe>,
+        ResMut<Highlit>,
+    ),
     (state, window, pointer): (
         Option<Res<State<AppState>>>,
         Option<Res<crate::talk::Shown>>,
@@ -207,7 +217,7 @@ fn choose(
     (items, doors, containers): (
         Query<(&GlobalTransform, &Lying, Option<&TextName>)>,
         Query<&GlobalTransform, With<Door>>,
-        Query<(&GlobalTransform, &crate::containers::Container)>,
+        Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
     ),
     (heights, buildings): (Option<Res<Heights>>, Option<Res<Buildings>>),
     heroes: Query<(Option<&Holding>, &Transform, &Body)>,
@@ -225,6 +235,7 @@ fn choose(
         .and_then(|(cursor, (camera, view))| camera.viewport_to_world(view, cursor).ok());
     let mut item = None;
     let mut foe_under = None;
+    let mut container_under = None;
     let look = match ray {
         Some(ray) if in_game && window.is_none() && !over_interface => {
             let near = |at: &GlobalTransform| {
@@ -280,12 +291,13 @@ fn choose(
             .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
             // A container that opens, not one emptied (`0x612843`, #1380).
             .or_else(|| {
-                nearest(&mut containers.iter().filter_map(|(at, container)| {
-                    container
-                        .opens()
-                        .then(|| Some((near(at)?, Look::Hand)))
-                        .flatten()
-                }))
+                let (_, entity) = containers
+                    .iter()
+                    .filter(|(_, at, container)| container.opens() && near(at).is_some())
+                    .filter_map(|(entity, at, _)| Some((near(at)?, entity)))
+                    .min_by(|a, b| a.0.total_cmp(&b.0))?;
+                container_under = Some(entity);
+                Some(Look::Hand)
             })
             .or_else(|| {
                 let (heights, buildings) = (heights.as_deref()?, buildings.as_deref()?);
@@ -302,6 +314,7 @@ fn choose(
     shown.set_if_neq(Shown(look));
     named.set_if_neq(Named(item.filter(|_| look == Look::Hand)));
     foe_shown.set_if_neq(Foe(foe_under));
+    highlit.set_if_neq(Highlit(foe_under.or(container_under)));
 }
 
 /// The item's name beside the cursor while the hand is over it (`0x611E70`, as it draws): its
@@ -363,6 +376,7 @@ impl Plugin for CursorsPlugin {
         app.init_resource::<Shown>()
             .init_resource::<Named>()
             .init_resource::<Foe>()
+            .init_resource::<Highlit>()
             .add_systems(Update, (choose, name_tag).chain());
     }
 }
