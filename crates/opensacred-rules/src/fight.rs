@@ -1246,6 +1246,26 @@ impl Templates {
             .map(|words| [38, 39, 40].map(|i| signed(words[i])))
     }
 
+    /// The type that the item maker's namer takes for an item of type `item` (`0x5C3130`): its
+    /// parent's while the type lies within 2000–2999 or 6500–7999, at most six times; `None`
+    /// where a type of the chain has no parent.
+    pub fn root(&self, item: u32) -> Option<u32> {
+        let mut item = item;
+        for _ in 0..6 {
+            if !matches!(item, 2000..=2999 | 6500..=7999) {
+                break;
+            }
+            item = *self.parents.get(&item)?;
+        }
+        Some(item)
+    }
+
+    /// The word 38 of the template of type `item` itself (`0x42CA70`), read as signed: the byte
+    /// of the made item's flags, which names its family, and its class for the namer.
+    pub fn word_38(&self, item: u32) -> Option<i64> {
+        self.by_type.get(&item).map(|words| signed(words[38]))
+    }
+
     /// The words 38 to 40 of the template that the drops' lookup `0x42CA70` finds for an item of
     /// type `item` (#596): its parent's, once, for a type within 2001–2998 or 6501–7998, none
     /// where that parent lies within 2000–2999 or 6500–7999 itself, else its own.

@@ -73,6 +73,7 @@ fn catalogue(types: &[(u32, u8, Record)]) -> Catalogue {
         slots: types.iter().map(|&(item, ..)| (item, item)).collect(),
         readable: HashSet::new(),
         runes: Vec::new(),
+        models: HashMap::new(),
     }
 }
 
@@ -591,6 +592,7 @@ fn a_type_that_drops_nothing_is_drawn_again_and_a_missing_record_five_times() {
             quality: 0,
             amount: 1,
             values: None,
+            named: None,
         })
     );
 }
@@ -637,9 +639,9 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
     };
     // The chance, the key 17, no potion, no rune, no gold, the ghosts' roll, a weapon of the
     // levels not tested and of any class, none found; the dagger at R(0, 1) twice, its damage's
-    // six rolls.
+    // six rolls and its name's roll.
     let dagger = take(&[
-        100, 9999, 180, 999, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+        100, 9999, 180, 999, 300, 600, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1,
     ]);
     assert_eq!(dagger.len(), 1);
     let drop = dagger[0];
@@ -660,6 +662,7 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
             quality: 0,
             amount: 20,
             values: None,
+            named: None,
         }]
     );
     // A failed chance drops nothing.
@@ -1001,16 +1004,18 @@ fn a_test_throws_an_item_of_its_kind_made_at_its_level() {
         assert!(dice.0.is_empty(), "{:?} left", dice.0);
         made
     };
-    // The dagger at level 7, of the maker's key 6 for the pass's key 10, its damage's rolls.
-    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0]).unwrap();
+    // The dagger at level 7, of the maker's key 6 for the pass's key 10, its damage's rolls and
+    // its name's roll.
+    let dagger = throw(DAGGER, 10, &[0, 0, 0, 0, 0, 0, 1]).unwrap();
     assert_eq!(
         (dagger.kind, dagger.level, dagger.key, dagger.quality),
         (Kind::Weapon, 7, 10, 6)
     );
     assert!(dagger.values.is_some());
+    assert_eq!(dagger.named, Some(true));
     // Plain at the key 16; the key 1 taken as 2.
-    assert_eq!(throw(DAGGER, 16, &[0; 6]).unwrap().quality, 0);
-    assert_eq!(throw(DAGGER, 1, &[0; 6]).unwrap().quality, 14);
+    assert_eq!(throw(DAGGER, 16, &[0; 7]).unwrap().quality, 0);
+    assert_eq!(throw(DAGGER, 1, &[0; 7]).unwrap().quality, 14);
     // Gold of the amount asked, a potion as it is, a rune as it is (#1183).
     let gold = throw(GOLD[2], 16, &[]).unwrap();
     assert_eq!((gold.kind, gold.amount, gold.level), (Kind::Gold, 250, 0));
@@ -1146,4 +1151,225 @@ fn a_rune_is_one_of_the_runes_and_a_creature_makes_one_until_another_does() {
         rune(592, &[180, 0, 0, 0], &mut last),
         (Kind::Potion, Some(5171))
     );
+}
+
+/// A template of the word 38 `word_38` for the type `item` alone.
+fn named_template(item: u32, word_38: i32) -> WeaponModifier {
+    let mut words = vec![item, 0, 0, 0, 0, 1];
+    words.resize(53, 0);
+    words[38] = word_38.cast_unsigned();
+    WeaponModifier {
+        words,
+        entries: Vec::new(),
+    }
+}
+
+/// The name that the maker gives a made item of type `item`, of the values `values` and the
+/// roll `coin`, of the names that `texts` holds.
+fn made_name(
+    tables: (&Rules, &Catalogue, &Templates),
+    (item, values, coin): (u32, ItemValues, bool),
+    texts: &[&str],
+) -> Option<String> {
+    let dropped = Dropped {
+        kind: Kind::Armour,
+        item,
+        level: 1,
+        key: 15,
+        quality: 1,
+        amount: 1,
+        values: Some(values),
+        named: Some(coin),
+    };
+    name(&dropped, tables, |key| texts.contains(&key))
+}
+
+#[test]
+fn a_made_item_goes_by_the_words_of_its_element_and_its_class() {
+    // The Daemonia's gloves 1221 (#1424): of the class 27, armour, their resistance poison's
+    // alone. The original named three of them `Gen_st_gi_Handschuhe`, `…1` and again `…`.
+    let rules = Rules::default();
+    let templates = Templates::new(&[named_template(1221, 27)], &[]);
+    let catalogue = catalogue(&[(1221, 6, record(ANY, [1, 1], [27, 0, 0]))]);
+    let tables = (&rules, &catalogue, &templates);
+    let poison = ItemValues {
+        resistance: [0.0, 0.0, 0.0, 4.0],
+        ..ItemValues::default()
+    };
+    let texts = [
+        "EWT_Handschuhe",
+        "Gen_st_gi_Handschuhe",
+        "Gen_st_gi_Handschuhe1",
+    ];
+    let named = |coin, texts: &[&str]| made_name(tables, (1221, poison, coin), texts);
+    assert_eq!(
+        named(false, &texts).as_deref(),
+        Some("Gen_st_gi_Handschuhe")
+    );
+    assert_eq!(
+        named(true, &texts).as_deref(),
+        Some("Gen_st_gi_Handschuhe1")
+    );
+    // Without a text for the words, the family's generic name; without that, the type's.
+    assert_eq!(named(true, &texts[..1]).as_deref(), Some("EWT_Handschuhe"));
+    assert_eq!(named(true, &[]), None);
+    // An item that the maker did not make goes by its type's name.
+    let fixed = Dropped {
+        kind: Kind::Armour,
+        item: 1221,
+        level: 1,
+        key: 15,
+        quality: 1,
+        amount: 1,
+        values: Some(poison),
+        named: None,
+    };
+    assert_eq!(name(&fixed, tables, |_| true), None);
+    // The elements by their shares: fire above 50 per cent of the most damage, magic above 40,
+    // poison of a bonus to its multiplier twice its value; else physical.
+    let elements = [
+        "Gen_st_ph_Handschuhe",
+        "Gen_st_fe_Handschuhe",
+        "Gen_st_ma_Handschuhe",
+        "Gen_st_gi_Handschuhe",
+    ];
+    let element = |values| made_name(tables, (1221, values, false), &elements);
+    let damage = |most: [f32; 4]| ItemValues {
+        damage: most.map(|most| [1.0, most]),
+        ..ItemValues::default()
+    };
+    assert_eq!(
+        element(damage([4.0, 6.0, 0.0, 0.0])).as_deref(),
+        Some(elements[1])
+    );
+    assert_eq!(
+        element(damage([5.0, 5.0, 0.0, 0.0])).as_deref(),
+        Some(elements[0])
+    );
+    assert_eq!(
+        element(damage([8.0, 2.0, 10.0, 0.0])).as_deref(),
+        Some(elements[2])
+    );
+    let mut bonus = ItemValues::default();
+    bonus.bonuses[2] = fight::Bonus {
+        condition: 0,
+        effect: 0x328,
+        value: 20,
+    };
+    assert_eq!(element(bonus).as_deref(), Some(elements[3]));
+}
+
+#[test]
+fn a_made_items_bonuses_count_by_their_weight_into_its_names_digit() {
+    // The effect 801's record: its first float 200, its third 0, its fourth 100.
+    let mut norms = vec![[1.0_f32; 6]; names::NORMS];
+    norms[1] = [200.0, 0.0, 0.0, 100.0, 0.0, 2.0];
+    let rules = Rules {
+        norms,
+        ..Rules::default()
+    };
+    let templates = Templates::new(&[named_template(1221, 27)], &[]);
+    let catalogue = catalogue(&[(1221, 6, record(ANY, [1, 1], [27, 0, 0]))]);
+    let tables = (&rules, &catalogue, &templates);
+    let with = |bonuses: &[(u16, u32, i16)]| {
+        let mut values = ItemValues::default();
+        for (slot, &(condition, effect, value)) in values.bonuses.iter_mut().zip(bonuses) {
+            *slot = fight::Bonus {
+                condition,
+                effect,
+                value,
+            };
+        }
+        values
+    };
+    let texts: Vec<String> = (1..=5)
+        .map(|digit| format!("Gen_st_ph_Handschuhe{digit}"))
+        .chain(["Gen_st_ph_Handschuhe".to_owned()])
+        .collect();
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let named = |values, texts: &[&str]| made_name(tables, (1221, values, false), texts);
+    // 50 of 801 weighs ⌊50·100/100 + 0.5⌋ = 50, 2.5 in the count, which keeps 2; the effect 840
+    // counts 1 more.
+    let two = with(&[(0, 801, 50)]);
+    assert_eq!(named(two, &texts).as_deref(), Some(texts[1]));
+    let three = with(&[(0, 801, 50), (0, 840, 1)]);
+    assert_eq!(named(three, &texts).as_deref(), Some(texts[2]));
+    // The highest digit with a text, down to the name without one.
+    assert_eq!(
+        named(three, &[texts[0], texts[5]]).as_deref(),
+        Some(texts[0])
+    );
+    assert_eq!(named(three, &[texts[5]]).as_deref(), Some(texts[5]));
+    // Against an opponent's class an eighth, 6, which weighs the least, 1; scaled by an
+    // attribute, by the first float, 25, 1.5.
+    let against = with(&[(5, 801, 50)]);
+    assert_eq!(named(against, &texts).as_deref(), Some(texts[0]));
+    let scaled = with(&[(0, 801 | 0x1_0000, 50)]);
+    assert_eq!(named(scaled, &texts).as_deref(), Some(texts[0]));
+    // At most 5.
+    let many = with(&[(0, 801, 500)]);
+    assert_eq!(named(many, &texts).as_deref(), Some(texts[4]));
+}
+
+#[test]
+fn a_made_item_keeps_its_own_name_or_takes_its_weapon_kinds_word() {
+    let rules = Rules::default();
+    // Gloves of the weapons' category keep a name of their own that has a text, unless of a set.
+    let templates = Templates::new(&[named_template(1221, 27)], &[]);
+    let values = ItemValues::default();
+    let own = ["1221", "Gen_st_ph_Handschuhe"];
+    let weapon = catalogue(&[(1221, 5, record(ANY, [1, 1], [27, 0, 0]))]);
+    assert_eq!(
+        made_name((&rules, &weapon, &templates), (1221, values, false), &own).as_deref(),
+        Some(own[0])
+    );
+    let piece = catalogue(&[(
+        1221,
+        5,
+        Record {
+            set: true,
+            ..record(ANY, [1, 1], [27, 0, 0])
+        },
+    )]);
+    assert_eq!(
+        made_name((&rules, &piece, &templates), (1221, values, false), &own).as_deref(),
+        Some(own[1])
+    );
+    // A template of the word 38 −1: a sword or an axe by its model, two-handed of the kind 2,
+    // and a bow of the kind 7.
+    let templates = Templates::new(&[named_template(1800, -1)], &[]);
+    let of_kind = |kind, model: &str| {
+        let mut catalogue = catalogue(&[(
+            1800,
+            5,
+            Record {
+                kind,
+                ..record(ANY, [1, 1], [-1, 0, 0])
+            },
+        )]);
+        catalogue.models.insert(1800, model.to_owned());
+        catalogue
+    };
+    let words = [
+        "Gen_st_ph_Schwert",
+        "Gen_st_ph_2HSchwert",
+        "Gen_st_ph_Axt",
+        "Gen_st_ph_2HAxt",
+        "Gen_st_ph_Bogen",
+    ];
+    let named = |catalogue: &Catalogue| {
+        made_name(
+            (&rules, catalogue, &templates),
+            (1800, values, false),
+            &words,
+        )
+    };
+    assert_eq!(named(&of_kind(1, "SWORD_A.GRN")).as_deref(), Some(words[0]));
+    assert_eq!(
+        named(&of_kind(2, "SCHWERT_B.GRN")).as_deref(),
+        Some(words[1])
+    );
+    assert_eq!(named(&of_kind(1, "AXE_C.GRN")).as_deref(), Some(words[2]));
+    assert_eq!(named(&of_kind(2, "AXT_D.GRN")).as_deref(), Some(words[3]));
+    assert_eq!(named(&of_kind(7, "BOW.GRN")).as_deref(), Some(words[4]));
 }

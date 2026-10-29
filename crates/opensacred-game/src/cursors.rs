@@ -15,13 +15,14 @@
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
+use opensacred_rules::drops::Dropped;
 use opensacred_rules::fight::Holds;
 use opensacred_rules::quests;
 
 use crate::ai::Mind;
 use crate::attack;
 use crate::buildings::Buildings;
-use crate::drops::Lying;
+use crate::drops::{Lying, Tables};
 use crate::fight::{Health, Holding};
 use crate::forms::Forms;
 use crate::game::{AppState, FONT};
@@ -100,27 +101,35 @@ impl Look {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Shown(pub Look);
 
-/// The item under the hand, whose name shows beside the cursor: its type, and the name of the
+/// The item under the hand, whose name shows beside the cursor: the item, and the name of the
 /// game's texts that the scripts gave it (`npcs::TextName`).
-#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
-struct Named(Option<(u32, Option<String>)>);
+#[derive(Resource, Clone, Debug, Default, PartialEq)]
+struct Named(Option<(Dropped, Option<String>)>);
 
 impl Named {
-    /// The item's name ([`item_name`]).
-    fn shown<'a>(&self, texts: &'a Texts) -> Option<&'a str> {
-        let (item, text) = self.0.as_ref()?;
-        item_name(texts, *item, text.as_deref())
+    /// The item's name ([`item_name`]), of the item maker's name where `tables` are given.
+    fn shown<'a>(&self, texts: &'a Texts, tables: Option<&Tables>) -> Option<&'a str> {
+        let (dropped, text) = self.0.as_ref()?;
+        item_name(texts, tables, dropped, text.as_deref())
     }
 }
 
-/// The name of an item of the type `item`: the text of its text name `text` where the scripts gave
-/// it one, which may have none, else its type's (`0x44A250`); none for an empty one.
-pub(crate) fn item_name<'a>(texts: &'a Texts, item: u32, text: Option<&str>) -> Option<&'a str> {
-    match text {
-        Some(text) => texts.named(text),
-        None => texts.named(&item.to_string()),
-    }
-    .filter(|name| !name.is_empty())
+/// The name of the item `dropped`, its object's key's text (`0x44A250`): the text of its text
+/// name `text` where the scripts gave it one, which may have none, else of the name that the item
+/// maker gave it where it made it ([`Tables::made_name`], #1424), else its type's; none for an
+/// empty one.
+pub(crate) fn item_name<'a>(
+    texts: &'a Texts,
+    tables: Option<&Tables>,
+    dropped: &Dropped,
+    text: Option<&str>,
+) -> Option<&'a str> {
+    let key = text.map(str::to_owned).unwrap_or_else(|| {
+        tables
+            .and_then(|tables| tables.made_name(texts, dropped))
+            .unwrap_or_else(|| dropped.item.to_string())
+    });
+    texts.named(&key).filter(|name| !name.is_empty())
 }
 
 /// The item's name's place from the cursor, in the original's pixels, and its size.
@@ -252,7 +261,7 @@ fn choose(
                             .resting
                             .then(|| near(at))
                             .flatten()
-                            .map(|d| (d, lying.dropped.item, text))
+                            .map(|d| (d, lying.dropped, text))
                     })
                     .min_by(|a, b| a.0.total_cmp(&b.0))?;
                 item = Some((kind, text.map(|text| text.0.clone())));
@@ -292,10 +301,12 @@ fn name_tag(
     named: Res<Named>,
     pointer: Res<Pointer>,
     ui_scale: Res<UiScale>,
-    (texts, assets): (Option<Res<Texts>>, Res<AssetServer>),
+    (texts, tables, assets): (Option<Res<Texts>>, Option<Res<Tables>>, Res<AssetServer>),
     mut tags: Query<(Entity, &mut Node, &mut Text), With<NameTag>>,
 ) {
-    let name = texts.as_deref().and_then(|texts| named.shown(texts));
+    let name = texts
+        .as_deref()
+        .and_then(|texts| named.shown(texts, tables.as_deref()));
     let (Some(name), Some(at)) = (name, pointer.0) else {
         for (tag, ..) in &tags {
             commands.entity(tag).despawn();
@@ -373,17 +384,29 @@ mod tests {
             message("QUEST_PLANT"),
             message("EMPTY")
         ));
-        let named = |item, text: Option<&str>| Named(Some((item, text.map(str::to_owned))));
-        assert_eq!(named(6001, None).shown(&texts), Some("a type's name"));
+        let named = |item, text: Option<&str>| {
+            let dropped = Dropped {
+                kind: opensacred_rules::drops::Kind::Other,
+                item,
+                level: 0,
+                key: 16,
+                quality: 0,
+                amount: 1,
+                values: None,
+                named: None,
+            };
+            Named(Some((dropped, text.map(str::to_owned))))
+        };
+        assert_eq!(named(6001, None).shown(&texts, None), Some("a type's name"));
         assert_eq!(
-            named(6001, Some("quest_plant")).shown(&texts),
+            named(6001, Some("quest_plant")).shown(&texts, None),
             Some("a quest's name")
         );
         // A text name of no text names the item nothing, not by its type; nor does an empty one.
-        assert_eq!(named(6001, Some("NO_TEXT")).shown(&texts), None);
-        assert_eq!(named(6001, Some("EMPTY")).shown(&texts), None);
-        assert_eq!(named(6002, None).shown(&texts), None);
-        assert_eq!(Named(None).shown(&texts), None);
+        assert_eq!(named(6001, Some("NO_TEXT")).shown(&texts, None), None);
+        assert_eq!(named(6001, Some("EMPTY")).shown(&texts, None), None);
+        assert_eq!(named(6002, None).shown(&texts, None), None);
+        assert_eq!(Named(None).shown(&texts, None), None);
     }
 
     #[test]
