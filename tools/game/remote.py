@@ -172,12 +172,19 @@ def lines(snapshot):
     return out
 
 
+def polled(port):
+    """The port to poll: `port`, or where it is a function, the port it finds now, as a session's game records its
+    port only as it starts (#1442)."""
+    return port() if callable(port) else port
+
+
 def wait(port, timeout, done, what):
-    """Polls the state until `done(snapshot)`, through the game's start too, for at most `timeout` seconds."""
+    """Polls the state until `done(snapshot)`, through the game's start too, for at most `timeout` seconds; `port` may
+    be a function that finds the port anew at each poll (`polled`)."""
     start = time.monotonic()
     while True:
         try:
-            snapshot = call(port, 'opensacred/state')
+            snapshot = call(polled(port), 'opensacred/state')
             if done(snapshot):
                 return snapshot
         except ConnectionError:
@@ -189,12 +196,13 @@ def wait(port, timeout, done, what):
 
 
 def wait_log(port, pattern, after, timeout):
-    """Polls the log from record `after` on until a record's `target: message` matches the regular expression."""
+    """Polls the log from record `after` on until a record's `target: message` matches the regular expression; `port`
+    may be a function that finds the port anew at each poll (`polled`)."""
     expression = re.compile(pattern)
     start = time.monotonic()
     while True:
         try:
-            for record in call(port, 'opensacred/logs', {'after': after}):
+            for record in call(polled(port), 'opensacred/logs', {'after': after}):
                 after = record['sequence'] + 1
                 if expression.search(f"{record['target']}: {record['message']}"):
                     return record
@@ -268,18 +276,20 @@ def record_line(record):
     return f"{record['sequence']} {record['seconds']:9.3f} {record['level']:<5} {record['target']}: {record['message']}"
 
 
-def run(port, args, after=0):
-    """Does one of the client's commands; `after` is where `logs` and `wait-log` start without `--after`. Gives the
-    sequence number after the last record printed, or `after`."""
+def run(port, args, after=0, waited=None):
+    """Does one of the client's commands; `after` is where `logs` and `wait-log` start without `--after`, and the
+    waits poll `waited` where it is given, else `port`. Gives the sequence number after the last record printed, or
+    `after`."""
+    waited = port if waited is None else waited
     if args.what == 'exec':
         print('\n'.join(call(port, 'opensacred/exec', {'line': args.line})['output']))
     elif args.what == 'state':
         snapshot = call(port, 'opensacred/state')
         print(json.dumps(snapshot, indent=2) if args.json else '\n'.join(lines(snapshot)))
     elif args.what == 'wait-ready':
-        print('\n'.join(lines(wait(port, args.timeout, lambda s: s['ready'], 'a ready game'))))
+        print('\n'.join(lines(wait(waited, args.timeout, lambda s: s['ready'], 'a ready game'))))
     elif args.what == 'wait-state':
-        print('\n'.join(lines(wait(port, args.timeout, lambda s: s['state'] == args.state, args.state))))
+        print('\n'.join(lines(wait(waited, args.timeout, lambda s: s['state'] == args.state, args.state))))
     elif args.what == 'key':
         params = {'key': args.name}
         if args.hold is not None:
@@ -300,7 +310,7 @@ def run(port, args, after=0):
             print(record_line(record))
             after = record['sequence'] + 1
     elif args.what == 'wait-log':
-        record = wait_log(port, args.pattern, after if args.after is None else args.after, args.timeout)
+        record = wait_log(waited, args.pattern, after if args.after is None else args.after, args.timeout)
         print(record_line(record))
         after = record['sequence'] + 1
     elif args.what == 'call':
@@ -428,13 +438,17 @@ def main():
                                  "client's own (:help)")
     args = parser.parse_args()
     found = None
+    given = args.port is not None
     try:
-        if args.port is None:
+        if not given:
             args.port, found = game_port()
         if args.what == 'shell':
             shell(args.port)
             return
-        run(args.port, args)
+        # A session's game that has not recorded its port yet, as it starts, is looked for anew at each poll of a
+        # wait (#1442).
+        waited = None if given or found else (lambda: game_port()[0])
+        run(args.port, args, waited=waited)
     except ConnectionError as e:
         stale = f' (the record of {found}: a game ended by force leaves it)' if found else ''
         print(f'error: {e}{stale}', file=sys.stderr)
