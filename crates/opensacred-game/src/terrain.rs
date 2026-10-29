@@ -307,6 +307,67 @@ fn walkable(flags: u8, ground: u8) -> bool {
 }
 
 impl Heights {
+    /// The tests' house, as in sector 50,40: on the ground of sector (0, 0), a mass of cells
+    /// 4..=6 on rows 4..=6 with its door at (5, 6), an entrance (nibble 9), and the cells in front
+    /// of it on row 7 building cells of nibble 10, exits; its inside, the layer `(0, 0, 1)` of
+    /// cells 4..=7 on rows 4..=7, free but its back wall, the door again, the exits in front of
+    /// it, and a column (7) that is walkable on the ground too.
+    #[cfg(test)]
+    pub(crate) fn house() -> Self {
+        use opensacred_data::world::Layer;
+
+        let cell = |ground, flags| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags,
+            ground,
+        };
+        let mut cells = vec![cell(0x40, 0); SIDE * SIDE];
+        for x in 4..=6 {
+            for y in 4..=6 {
+                cells[y * SIDE + x] = cell(0xD1, 0x1);
+            }
+            cells[7 * SIDE + x] = cell(0x4A, 0x1);
+        }
+        cells[6 * SIDE + 5] = cell(0xD9, 0x5);
+        let inside = |x: u32, y: u32| LayerCell {
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: if (x, y) == (1, 2) { 4 } else { 0 },
+            ground: match (x, y) {
+                (0..=2, 0) => 0xD1,
+                (1, 2) => 0xD9,
+                (0..=2, 3) => 0xDA,
+                _ => 0xD0,
+            },
+        };
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: vec![Layer {
+                x: 4,
+                y: 4,
+                width: 4,
+                height: 4,
+                cells: (0..4)
+                    .flat_map(|y| (0..4).map(move |x| inside(x, y)))
+                    .collect(),
+            }],
+            buildings: Vec::new(),
+        };
+        let mut heights = Self::default();
+        heights.add(&sector);
+        heights
+    }
+
     /// Adds the cells of `sector` and its inside layers.
     pub fn add(&mut self, sector: &Sector) {
         self.liquids.insert((sector.x, sector.y), sector.liquids);
@@ -1443,60 +1504,7 @@ mod tests {
 
     #[test]
     fn an_entrance_takes_the_hero_in_and_an_exit_out() {
-        let cell = |ground, flags| Cell {
-            tile: 0,
-            overlays: Vec::new(),
-            heights: [0; 4],
-            light: [255; 4],
-            heights2: [0; 4],
-            offsets: [0; 2],
-            flags,
-            ground,
-        };
-        // A house of cells 4..=6 on rows 4..=6 of sector (0, 0), as in sector 50,40: a mass with
-        // its door at (5, 6), an entrance (nibble 9), and the cells in front of it on row 7
-        // building cells of nibble 10, exits.
-        let mut cells = vec![cell(0x40, 0); SIDE * SIDE];
-        for x in 4..=6 {
-            for y in 4..=6 {
-                cells[y * SIDE + x] = cell(0xD1, 0x1);
-            }
-            cells[7 * SIDE + x] = cell(0x4A, 0x1);
-        }
-        cells[6 * SIDE + 5] = cell(0xD9, 0x5);
-        // Its inside, of cells 4..=7 on rows 4..=7: free but its back wall, the door again, the
-        // exits in front of it, and a column (7) that is walkable on the ground too.
-        let inside = |x: u32, y: u32| LayerCell {
-            heights2: [0; 4],
-            offsets: [0; 2],
-            flags: if (x, y) == (1, 2) { 4 } else { 0 },
-            ground: match (x, y) {
-                (0..=2, 0) => 0xD1,
-                (1, 2) => 0xD9,
-                (0..=2, 3) => 0xDA,
-                _ => 0xD0,
-            },
-        };
-        let sector = Sector {
-            x: 0,
-            y: 0,
-            id: 0,
-            liquids: [0; 2],
-            cells,
-            statics: Vec::new(),
-            layers: vec![Layer {
-                x: 4,
-                y: 4,
-                width: 4,
-                height: 4,
-                cells: (0..4)
-                    .flat_map(|y| (0..4).map(move |x| inside(x, y)))
-                    .collect(),
-            }],
-            buildings: Vec::new(),
-        };
-        let mut heights = Heights::default();
-        heights.add(&sector);
+        let heights = Heights::house();
         let house = Some((0, 0, 1));
         assert!(!heights.walkable((5, 5)) && heights.walkable_on((5, 5), house));
         assert!(!heights.walkable_on((5, 4), house));
