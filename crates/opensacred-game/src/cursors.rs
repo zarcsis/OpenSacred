@@ -111,6 +111,23 @@ pub struct Foe(pub Option<Entity>);
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Highlit(pub Option<Entity>);
 
+/// Whether the cursor glows (`hud`, #1461): the right button's selected art may be made now and
+/// admits what lies under the cursor, nothing on the cursor (`0x612DE3`: `0x580DF0`, `0x51D840`).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Glow(pub bool);
+
+/// Whether an art of the launch type `launch` (`making::launch`) admits what lies under the
+/// cursor, `foe` whether a foe does (`0x51D840`): an art on an enemy a foe, one on the ground, on
+/// its maker or of any target anything; one on a friend or on the dead nothing, their targets not
+/// followed for the glow.
+fn admits(launch: Option<u8>, foe: bool) -> bool {
+    match launch {
+        Some(1) => foe,
+        Some(0 | 3 | 5) => true,
+        _ => false,
+    }
+}
+
 /// The item under the hand, whose name shows beside the cursor: the item, and the name of the
 /// game's texts that the scripts gave it (`npcs::TextName`).
 #[derive(Resource, Clone, Debug, Default, PartialEq)]
@@ -220,7 +237,18 @@ fn choose(
         Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
     ),
     (heights, buildings): (Option<Res<Heights>>, Option<Res<Buildings>>),
-    heroes: Query<(Option<&Holding>, &Transform, &Body)>,
+    heroes: Query<(
+        Option<&Holding>,
+        &Transform,
+        &Body,
+        Option<&crate::effects::Effects>,
+    )>,
+    (selected, arts, pack, mut glow): (
+        Res<crate::making::Selected>,
+        Option<Res<crate::arts::HeroArts>>,
+        Option<Res<crate::pickup::Pack>>,
+        ResMut<Glow>,
+    ),
 ) {
     let in_game = state.is_some_and(|state| *state.get() == AppState::InGame);
     let over_interface = hovered.is_some_and(|hovered| {
@@ -301,7 +329,7 @@ fn choose(
             })
             .or_else(|| {
                 let (heights, buildings) = (heights.as_deref()?, buildings.as_deref()?);
-                let (_, transform, body) = hero?;
+                let (_, transform, body, _) = hero?;
                 let height = transform.translation.y;
                 let picked = pick::pick(ray, heights, buildings, (height, body.level()))?;
                 let cell = paths::cell_of(picked.point.x, picked.point.z);
@@ -315,6 +343,19 @@ fn choose(
     named.set_if_neq(Named(item.filter(|_| look == Look::Hand)));
     foe_shown.set_if_neq(Foe(foe_under));
     highlit.set_if_neq(Highlit(foe_under.or(container_under)));
+    let in_world = ray.is_some() && in_game && window.is_none() && !over_interface;
+    let glows = in_world
+        && pack.as_ref().is_none_or(|pack| pack.held.is_none())
+        && selected.0.zip(arts.as_deref()).is_some_and(|(art, arts)| {
+            let effects = heroes.iter().next().and_then(|(.., effects)| effects);
+            // The art of the hero's form for the selected one (`0x552370`).
+            let art = opensacred_rules::arts::right_button(art, arts.kind, |key| {
+                effects.is_some_and(|effects| effects.holds_any(&[key]))
+            });
+            crate::making::may_make(arts, art, effects).is_ok()
+                && admits(crate::making::launch(arts, art), foe_under.is_some())
+        });
+    glow.set_if_neq(Glow(glows));
 }
 
 /// The item's name beside the cursor while the hand is over it (`0x611E70`, as it draws): its
@@ -377,6 +418,7 @@ impl Plugin for CursorsPlugin {
             .init_resource::<Named>()
             .init_resource::<Foe>()
             .init_resource::<Highlit>()
+            .init_resource::<Glow>()
             .add_systems(Update, (choose, name_tag).chain());
     }
 }
@@ -384,6 +426,14 @@ impl Plugin for CursorsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cursor_glows_over_what_the_arts_launch_admits() {
+        assert!(admits(Some(1), true));
+        assert!(!admits(Some(1), false));
+        assert!(admits(Some(3), false) && admits(Some(5), false) && admits(Some(0), false));
+        assert!(!admits(Some(2), true) && !admits(Some(4), true) && !admits(None, true));
+    }
 
     #[test]
     fn a_foe_shows_the_weapon_held() {

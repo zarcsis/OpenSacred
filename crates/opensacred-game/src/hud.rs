@@ -21,7 +21,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage};
 use opensacred_data::texture;
 
-use crate::cursors::{Look, Shown};
+use crate::cursors::{Glow, Look, Shown};
 use crate::files;
 
 /// The height of the original's screen, which the interface is laid out on.
@@ -95,9 +95,76 @@ pub fn image(assets: &AssetServer, path: impl Into<String>) -> Handle<Image> {
         .load(path.into())
 }
 
-/// The top left `CURSOR_SIDE` square of an 8-bit RGBA texture, each pixel `scale` times wider
-/// and taller.
-fn cursor_image(path: &Path, scale: usize) -> Result<Image> {
+/// The glow's reach and step about the cursor's picture in the original's pixels, and the alpha
+/// of each of its copies (`0x6548A0`, docs/re/cursor.md, "The point, the size, the tint and the
+/// buttons").
+const GLOW_REACH: usize = 6;
+const GLOW_STEP: usize = 2;
+const GLOW_ALPHA: f32 = 8.0 / 255.0;
+
+/// A byte of a share of 1.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the share is held to 0..=1 first"
+)]
+fn byte(share: f32) -> u8 {
+    (share.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// `square`, `side` × `side` RGBA, with the original's glow about it, `GLOW_REACH` wider on each
+/// side: the picture drawn again at the offsets −6 to +6 by 2 on both axes, 49 times, its colours
+/// added at the alpha 8/255, then the picture over them (#1461). A system's cursor blends rather
+/// than adds, so the light added is given as a colour of its own alpha, its brightest channel.
+fn glowing(square: &[u8], side: usize) -> (Vec<u8>, usize) {
+    let wide = side + 2 * GLOW_REACH;
+    let mut light = vec![[0.0_f32; 3]; wide * wide];
+    for dy in (0..=2 * GLOW_REACH).step_by(GLOW_STEP) {
+        for dx in (0..=2 * GLOW_REACH).step_by(GLOW_STEP) {
+            for (i, texel) in square.as_chunks::<4>().0.iter().enumerate() {
+                let (x, y) = (i % side, i / side);
+                let alpha = f32::from(texel[3]) / 255.0 * GLOW_ALPHA;
+                let at = &mut light[(y + dy) * wide + x + dx];
+                for c in 0..3 {
+                    at[c] += f32::from(texel[c]) / 255.0 * alpha;
+                }
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(wide * wide * 4);
+    for (i, added) in light.iter().enumerate() {
+        let (x, y) = (i % wide, i / wide);
+        let glow = added.iter().copied().fold(0.0, f32::max).min(1.0);
+        let base = if glow > 0.0 {
+            added.map(|c| (c / glow).min(1.0))
+        } else {
+            [0.0; 3]
+        };
+        let inside = (GLOW_REACH..GLOW_REACH + side).contains(&x)
+            && (GLOW_REACH..GLOW_REACH + side).contains(&y);
+        let texel = inside.then(|| {
+            let j = ((y - GLOW_REACH) * side + x - GLOW_REACH) * 4;
+            &square[j..j + 4]
+        });
+        let over = texel.map_or(0.0, |texel| f32::from(texel[3]) / 255.0);
+        let alpha = over + glow * (1.0 - over);
+        for c in 0..3 {
+            let top = texel.map_or(0.0, |texel| f32::from(texel[c]) / 255.0);
+            let colour = if alpha > 0.0 {
+                (top * over + base[c] * glow * (1.0 - over)) / alpha
+            } else {
+                0.0
+            };
+            out.push(byte(colour));
+        }
+        out.push(byte(alpha));
+    }
+    (out, wide)
+}
+
+/// The top left `CURSOR_SIDE` square of an 8-bit RGBA texture, with its glow where `glows`
+/// ([`glowing`]), each pixel `scale` times wider and taller.
+fn cursor_image(path: &Path, scale: usize, glows: bool) -> Result<Image> {
     let data = files::read(path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
     let texture::Rgba {
         width,
@@ -107,12 +174,22 @@ fn cursor_image(path: &Path, scale: usize) -> Result<Image> {
     if width < CURSOR_SIDE || height < CURSOR_SIDE {
         bail!("{}: not an image of at least 32 x 32", path.display());
     }
-    let side = CURSOR_SIDE * scale;
+    let mut square = Vec::with_capacity(CURSOR_SIDE * CURSOR_SIDE * 4);
+    for y in 0..CURSOR_SIDE {
+        let row = y * width * 4;
+        square.extend_from_slice(&pixels[row..row + CURSOR_SIDE * 4]);
+    }
+    let (square, unscaled) = if glows {
+        glowing(&square, CURSOR_SIDE)
+    } else {
+        (square, CURSOR_SIDE)
+    };
+    let side = unscaled * scale;
     let mut out = Vec::with_capacity(side * side * 4);
     for y in 0..side {
         for x in 0..side {
-            let i = ((y / scale) * width + x / scale) * 4;
-            out.extend_from_slice(&pixels[i..i + 4]);
+            let i = ((y / scale) * unscaled + x / scale) * 4;
+            out.extend_from_slice(&square[i..i + 4]);
         }
     }
     let side = u32::try_from(side)?;
@@ -150,12 +227,13 @@ fn cursor_scale(display_scale: f32) -> usize {
 fn cursor(
     mut commands: Commands,
     hud: Res<Hud>,
-    look: Res<Shown>,
+    (look, glow): (Res<Shown>, Res<Glow>),
     window: Single<(Entity, &Window)>,
     mut images: ResMut<Assets<Image>>,
-    mut made: Local<HashMap<(Look, usize), Handle<Image>>>,
-    mut shown: Local<Option<(Look, usize)>>,
+    mut made: Local<HashMap<(Look, usize, bool), Handle<Image>>>,
+    mut shown: Local<Option<(Look, usize, bool)>>,
 ) {
+    let glows = glow.0;
     let (entity, window) = *window;
     let display_scale = window.resolution.base_scale_factor();
     let scale = cursor_scale(display_scale);
@@ -164,25 +242,25 @@ fn cursor(
     } else {
         Look::Arrow
     };
-    if *shown == Some((look, scale)) {
+    if *shown == Some((look, scale, glows)) {
         return;
     }
     let Some(path) = hud.cursors.get(&look) else {
         return;
     };
-    if shown.is_none_or(|(_, before)| before != scale) {
+    if shown.is_none_or(|(_, before, _)| before != scale) {
         info!(
             "cursor: {0} x {0} pixels at the display scale {display_scale}",
             CURSOR_SIDE * scale
         );
     }
-    *shown = Some((look, scale));
-    let handle = match made.get(&(look, scale)) {
+    *shown = Some((look, scale, glows));
+    let handle = match made.get(&(look, scale, glows)) {
         Some(handle) => handle.clone(),
-        None => match cursor_image(path, scale) {
+        None => match cursor_image(path, scale, glows) {
             Ok(image) => {
                 let handle = images.add(image);
-                made.insert((look, scale), handle.clone());
+                made.insert((look, scale, glows), handle.clone());
                 handle
             }
             Err(e) => {
@@ -191,11 +269,17 @@ fn cursor(
             }
         },
     };
+    // The glow widens the picture by its reach on each side, its point as far in.
+    let point = if glows {
+        u16::try_from(GLOW_REACH * scale).unwrap_or(0)
+    } else {
+        0
+    };
     commands
         .entity(entity)
         .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
             handle,
-            hotspot: (0, 0),
+            hotspot: (point, point),
             ..default()
         })));
 }
@@ -255,6 +339,22 @@ mod tests {
     }
 
     #[test]
+    fn the_glow_spreads_a_pictures_colours_six_pixels_about_it() {
+        // One opaque white pixel: 49 copies, each a 6-pixel step's reach, add 8/255 apiece.
+        let mut square = vec![0u8; 4 * 4 * 4];
+        square[..4].copy_from_slice(&[255, 255, 255, 255]);
+        let (out, wide) = glowing(&square, 4);
+        assert_eq!(wide, 16);
+        let at = |x: usize, y: usize| &out[(y * wide + x) * 4..(y * wide + x) * 4 + 4];
+        // The pixel itself, at the reach in from the corner, over its own copy.
+        assert_eq!(at(6, 6), &[255, 255, 255, 255]);
+        // A copy 6 to the right and 6 down, faint white; none between the steps.
+        assert_eq!(at(12, 12), &[255, 255, 255, 8]);
+        assert_eq!(at(7, 6)[3], 0);
+        assert_eq!(at(0, 0), &[255, 255, 255, 8]);
+    }
+
+    #[test]
     fn the_cursor_is_the_top_left_square_scaled_in_whole_steps() {
         let path = std::env::temp_dir().join(format!(
             "opensacred-game-cursor-{}.{}",
@@ -268,7 +368,7 @@ mod tests {
         rgba[far..far + 4].copy_from_slice(&[0, 255, 0, 255]);
         let file = texture::write(texture::Encoding::Rgba8, 64, 64, &[rgba]).unwrap();
         fs::write(&path, file).unwrap();
-        let image = cursor_image(&path, 2).unwrap();
+        let image = cursor_image(&path, 2, false).unwrap();
         fs::remove_file(&path).unwrap();
         assert_eq!((image.width(), image.height()), (64, 64));
         let data = image.data.unwrap();

@@ -132,6 +132,8 @@ pub struct Snapshot {
     /// The cursor's look in a game (`cursors`, #1147): `arrow`, `hand`, `sword`, `bow`, `gun`,
     /// `talk`, `merchant`, `combo`, `smith` or `horse-trader`.
     pub cursor: Option<&'static str>,
+    /// Whether the cursor glows, its right button's art ready for what lies under it (#1461).
+    pub glowing: bool,
     /// Whether the hero animates and every sector near it is in place.
     pub ready: bool,
 }
@@ -203,7 +205,8 @@ impl Snapshot {
             world.push(format!("sectors {spawned} +{building}"));
         }
         if let Some(cursor) = self.cursor {
-            world.push(format!("cursor {cursor}"));
+            let glowing = if self.glowing { " glowing" } else { "" };
+            world.push(format!("cursor {cursor}{glowing}"));
         }
         if !world.is_empty() {
             lines.push(world.join("  "));
@@ -298,6 +301,7 @@ pub struct Probe<'w, 's> {
     arts: Option<Res<'w, crate::arts::HeroArts>>,
     weather: Option<Res<'w, crate::weather::Weather>>,
     cursor: Option<Res<'w, crate::cursors::Shown>>,
+    glow: Option<Res<'w, crate::cursors::Glow>>,
 }
 
 impl Probe<'_, '_> {
@@ -442,6 +446,7 @@ impl Probe<'_, '_> {
                 .as_ref()
                 .and(self.cursor.as_deref())
                 .map(|shown| shown.0.name()),
+            glowing: self.glow.as_deref().is_some_and(|glow| glow.0),
             ready: self.ready.as_deref().is_some_and(|ready| ready.0)
                 && self
                     .bodies
