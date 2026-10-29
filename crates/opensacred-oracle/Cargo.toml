@@ -14,12 +14,24 @@ publish.workspace = true
 [features]
 # The emulator: Unicorn's C library, which unicorn-engine-sys builds with CMake, a C compiler and
 # Ninja, its bindings made by bindgen with libclang (docs/03 §3.4). Without it the oracle checks
-# its inputs and stops, so that the workspace builds without those tools.
-emulator = ["dep:unicorn-engine"]
+# its inputs and stops, so that the workspace builds without those tools. With it come the rules
+# and the balance's reader, which `fuzz` runs beside the emulated functions, and proptest's runner
+# that shrinks a mismatch (#1431).
+emulator = [
+    "dep:unicorn-engine",
+    "dep:opensacred-data",
+    "dep:opensacred-formats",
+    "dep:opensacred-rules",
+    "dep:proptest",
+]
 
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+opensacred-data = { workspace = true, optional = true }
+opensacred-formats = { workspace = true, optional = true }
+opensacred-rules = { workspace = true, optional = true }
+proptest = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
