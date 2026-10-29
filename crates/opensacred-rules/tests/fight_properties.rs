@@ -16,10 +16,17 @@ const TOP: u32 = 216;
 const MOST: f32 = 10_000.0;
 /// The hit chance against a defence within ±0.001, whatever the attack: `1 − 1/(1 + 10,000)`.
 const NO_DEFENCE: f32 = 1.0 - 1.0 / 10_001.0;
+/// The share of a value that the floats' rounding may take off it.
+const ROUNDING: f64 = 1e-6;
 
 /// A level, its bounds the more often.
 fn level() -> impl Strategy<Value = u32> {
     prop_oneof![1 => Just(1), 1 => Just(TOP), 8 => 1..=TOP]
+}
+
+/// A level below the top, its bounds the more often.
+fn below_top() -> impl Strategy<Value = u32> {
+    prop_oneof![1 => Just(1), 1 => Just(TOP - 1), 8 => 1..TOP]
 }
 
 /// An experience, at and about the levels' ends the more often, up past the top level's end.
@@ -61,9 +68,18 @@ fn ordered(values: BoxedStrategy<f32>) -> impl Strategy<Value = (f32, f32)> {
 
 proptest! {
     #[test]
-    fn a_levels_end_lies_below_the_next_and_is_where_the_next_starts(level in 1..TOP) {
+    fn a_levels_end_lies_below_the_next_and_is_where_the_next_starts(level in below_top()) {
         prop_assert!(level_end(level) < level_end(level + 1));
         prop_assert_eq!(level_start(level + 1), level_end(level));
+    }
+
+    #[test]
+    fn a_levels_end_is_a_whole_hundred_and_the_levels_spans_grow(level in below_top()) {
+        prop_assert_eq!(level_end(level) % 100, 0);
+        if level + 1 < TOP {
+            let span = |level| level_end(level + 1) - level_end(level);
+            prop_assert!(span(level) < span(level + 1));
+        }
     }
 
     #[test]
@@ -80,7 +96,7 @@ proptest! {
     }
 
     #[test]
-    fn a_levels_end_is_the_next_levels_first_experience(level in 1..TOP, held in level()) {
+    fn a_levels_end_is_the_next_levels_first_experience(level in below_top(), held in level()) {
         prop_assert_eq!(level_of(level_end(level), held), level + 1);
         if level >= 2 {
             prop_assert_eq!(level_of(level_end(level) - 1, held), level);
@@ -129,6 +145,38 @@ proptest! {
     ) {
         prop_assert!(dealt(damage, low, lesser) >= dealt(damage, high, lesser));
         prop_assert!(dealt(damage, low, lesser) <= dealt(damage, low, greater));
+    }
+
+    #[test]
+    fn against_no_resistance_a_damage_lets_all_but_a_ten_thousandth_through(
+        damage in amount(),
+        resistance in band(),
+        k in exponents(),
+    ) {
+        let through = f64::from(dealt(damage, resistance, k));
+        let least = f64::from(damage) * (1.0 - 1.0 / 10_001.0) * (1.0 - ROUNDING);
+        prop_assert!(through >= least, "{damage} against {resistance}: {through}");
+    }
+
+    #[test]
+    fn at_no_level_above_a_damage_lets_its_share_through(
+        damage in amount(),
+        resistance in dividing(),
+    ) {
+        let (d, r) = (f64::from(damage), f64::from(resistance));
+        let share = d * d / (d + r);
+        let through = f64::from(dealt(damage, resistance, exponent(0)));
+        prop_assert!(
+            (through - share).abs() <= 1e-5 * share.max(1.0),
+            "{damage} against {resistance}: {through}, d²/(d + r) {share}"
+        );
+    }
+
+    #[test]
+    fn the_exponent_rises_with_the_levels_above_up_to_98(
+        (fewer, more) in (0..98_u32).prop_flat_map(|fewer| (Just(fewer), fewer + 1..=98)),
+    ) {
+        prop_assert!(exponent(fewer) < exponent(more));
     }
 
     #[test]

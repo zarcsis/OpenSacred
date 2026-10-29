@@ -239,7 +239,7 @@ fn divides(divisor: f32) -> bool {
 #[test]
 #[ignore = "needs the game files in OriginalGame/"]
 fn the_fights_properties_hold_on_the_originals_vectors() {
-    // The levels' ends rise.
+    // The levels' ends rise, each a whole hundred, and the levels' spans grow.
     let mut ends: Vec<LevelEnd> = vectors("level_end");
     ends.sort_by_key(|v| v.level);
     for pair in ends.windows(2) {
@@ -247,6 +247,19 @@ fn the_fights_properties_hold_on_the_originals_vectors() {
             pair[0].end < pair[1].end,
             "the end of level {}",
             pair[0].level
+        );
+    }
+    for triple in ends.windows(3) {
+        assert_eq!(
+            triple[0].end % 100,
+            0,
+            "the end of level {}",
+            triple[0].level
+        );
+        assert!(
+            triple[1].end - triple[0].end < triple[2].end - triple[1].end,
+            "the span of level {}",
+            triple[1].level
         );
     }
     let level_at_end: HashMap<u64, u32> = ends.iter().map(|v| (v.end, v.level)).collect();
@@ -328,17 +341,30 @@ fn the_fights_properties_hold_on_the_originals_vectors() {
             }
         }
     }
-    // The damage let through lies within the damage, none of none; it falls as a resistance that
-    // divides rises and rises with the exponent.
+    // The damage let through lies within the damage, none of none; against no resistance all but a
+    // ten thousandth of it, and at no level above its share `d²/(d + r)`; it falls as a resistance
+    // that divides rises, rises with the exponent, and with the levels above up to 98.
     let dealts: Vec<Dealt> = vectors("dealt");
     for v in &dealts {
-        let damage = f64::from(v.damage);
+        let (damage, resistance) = (f64::from(v.damage), f64::from(v.resistance));
         assert!(
             (0.0..=damage).contains(&v.dealt),
             "{} against {}",
             v.damage,
             v.resistance
         );
+        if !divides(v.resistance) {
+            let least = damage * (1.0 - 1.0 / 10_001.0) * (1.0 - 1e-6);
+            assert!(v.dealt >= least, "{} against nothing", v.damage);
+        } else if v.above == 0 {
+            let share = damage * damage / (damage + resistance);
+            assert!(
+                (v.dealt - share).abs() <= 1e-5 * share.max(1.0),
+                "{} against {} at no level above",
+                v.damage,
+                v.resistance
+            );
+        }
     }
     for a in &dealts {
         for b in &dealts {
@@ -352,6 +378,16 @@ fn the_fights_properties_hold_on_the_originals_vectors() {
                     a.damage,
                     a.resistance,
                     b.resistance
+                );
+            }
+            if a.resistance == b.resistance && a.above < b.above && b.above <= 98 {
+                assert!(
+                    a.dealt <= b.dealt,
+                    "{} against {} at {} and {} above",
+                    a.damage,
+                    a.resistance,
+                    a.above,
+                    b.above
                 );
             }
             if a.resistance == b.resistance && exponent(a.above) < exponent(b.above) {
