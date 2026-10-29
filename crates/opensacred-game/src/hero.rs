@@ -893,7 +893,11 @@ pub fn run(
         &mut Transform,
         &mut Body,
         Has<crate::attack::Striking>,
-        (Has<crate::making::Playing>, Has<crate::pickup::Picking>),
+        (
+            Has<crate::making::Playing>,
+            Has<crate::pickup::Picking>,
+            Option<&crate::pickup::Collects>,
+        ),
         Has<Dies>,
         Has<Flies>,
         Option<&crate::effects::Effects>,
@@ -901,9 +905,18 @@ pub fn run(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
 ) {
-    for (me, mut transform, mut body, striking, (making, picking), dying, flies, effects) in
-        &mut bodies
+    for (
+        me,
+        mut transform,
+        mut body,
+        striking,
+        (making, picking, collects),
+        dying,
+        flies,
+        effects,
+    ) in &mut bodies
     {
+        let picking = picking || collects.is_some_and(crate::pickup::Collects::picks_up);
         // The Daemon in his form of 1094 wades where the ground is low (`0x4EBCA0` at
         // `0x4EBD62`, an effect keyed by 1094).
         let wades =

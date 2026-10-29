@@ -5,7 +5,13 @@
 //! cells to it (`0x4FCC80`), the hero turns to it and plays its pick-up, taking it once half the
 //! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), every
 //! other item into its pack, not yet into the hands or the slots (#1088).
+//!
+//! The bar's Collect button sends the hero collecting (the creature event `0x113`, the AI's state
+//! 12 without a target, `0x4EC560`; #1408): it walks to the first item about it that it may carry,
+//! by square rings of cells out to 19, plays its pick-up there and takes every item on the 3 × 3
+//! cells about it at the clip's half, and looks again as the clip ends, until nothing is left.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use bevy::ecs::system::SystemParam;
@@ -64,6 +70,47 @@ const LONGEST_BLEND: f32 = 0.2;
 /// The longest clip that the pick-up waits for: a clip of times longer, or negative, takes the
 /// item at once (`0x558080`).
 const SANE: f32 = 10.0;
+
+/// The rings of cells about the hero's cell that the collecting searches, 0 to 19 (`0x4EC560`).
+const COLLECTS_WITHIN: i32 = 19;
+/// How near an item's point the collecting hero stops (`+0x176`).
+const COLLECT_STOP: f32 = 20.0;
+/// How long before its pick-up's clip ends the collecting hero looks again, in seconds of the
+/// game (`0x4EC560`'s sub-state 3; **hypothesis**: of the clip's time at its rate).
+const LOOKS_AGAIN: f32 = 0.2;
+/// How far an item may lie above or below the height that the hero's level gives at its point and
+/// still lie on the hero's layer, which the collecting searches (**estimate**: well within a
+/// floor's height; the items keep no layer of their own).
+const SAME_LAYER: f32 = 20.0;
+
+/// The hero collecting the items about it (the AI's state 12 without a target, `0x4EC560`), as the
+/// bar's Collect button or the command `collect` sends it ([`collect`]).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Collects(Collecting);
+
+impl Collects {
+    /// Whether it plays its pick-up, whose clip the hero's walk leaves alone (`hero::run`).
+    pub fn picks_up(&self) -> bool {
+        matches!(self.0, Collecting::Picking { .. })
+    }
+}
+
+/// Where the collecting stands.
+#[derive(Clone, Copy, Debug)]
+enum Collecting {
+    /// It looks for the next item (the sub-state 0).
+    Seeking,
+    /// It walks to the item.
+    Walking(Entity),
+    /// It plays its pick-up (the sub-state 3): the clip's node, its length and rate, and whether
+    /// it took the items about it at the clip's half, once a clip (`+0x134`).
+    Picking {
+        node: AnimationNodeIndex,
+        length: f32,
+        rate: f32,
+        taken: bool,
+    },
+}
 
 /// What the hero carries: its gold (the stats' word `+0x46`), and the items it picked up, in the
 /// order taken.
@@ -357,9 +404,9 @@ pub(crate) fn pick(
         return;
     }
     // Any press ends the order, a pick-up under way with it: its clip given up, the item left
-    // lying where the clip had not reached its half.
+    // lying where the clip had not reached its half; and the collecting.
     for (hero, _) in &heroes {
-        commands.entity(hero).remove::<(Picks, Picking)>();
+        commands.entity(hero).remove::<(Picks, Picking, Collects)>();
     }
     let Some(cursor) = pointer.0 else {
         return;
@@ -411,7 +458,10 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
         .get_mut::<Body>(hero)
         .ok_or("the hero is not in the world yet")?;
     body.send(at + Vec3::new(BESIDE, 0.0, BESIDE));
-    world.entity_mut(hero).remove::<Opens>().insert(Picks(item));
+    world
+        .entity_mut(hero)
+        .remove::<(Opens, Collects)>()
+        .insert(Picks(item));
     Ok(format!(
         "the hero goes to take {:?} {} x{}, {:.0} away",
         lying.dropped.kind,
@@ -447,6 +497,27 @@ pub(crate) struct Taking<'w, 's> {
 }
 
 impl Taking<'_, '_> {
+    /// Whether the hero may carry `item`, as the collecting asks before it walks to one
+    /// (`0x4EC560`): gold, a quest's item that the scripts laid, the weapon it hurled, or an item
+    /// for which the backpack's grid has room (`0x5DABA0`); the filter `PICKUPAUTO` of the
+    /// options passes every item at its default (`0x4EC330`).
+    fn carries(&self, item: Entity) -> bool {
+        let Ok((lying, quest, _)) = self.items.get(item) else {
+            return false;
+        };
+        let size = self
+            .tables
+            .as_deref()
+            .map_or((1, 1), |tables| tables.size(lying.dropped.item));
+        lying.dropped.kind == Kind::Gold
+            || quest.is_some()
+            || self
+                .arsenal
+                .as_deref()
+                .is_some_and(|arsenal| arsenal.takes_back(&lying.dropped))
+            || self.pack.grid.first_fit(size).is_some()
+    }
+
     /// Takes `item` (`cCreature::pickupItem`, `0x558080`), if it still lies there: gold sounds
     /// `GOLD01` and the weapon taken back into the hero's hand `UI_INV_PUTMETAL01` (the events
     /// `(9, 0x83)` and `(9, 5)`; #1167), and the scripts' collecting sounds any other item
@@ -584,31 +655,63 @@ pub(crate) fn take(
         // (`0x44DD90`, `0x53A170`'s sub-state 3), at its attack speed, quickened by the
         // Dwarf's frenzy (`0x584FE0`).
         transform.rotation = hero::facing((at - here).with_y(0.0));
-        let rate = rate(combat.map_or(100.0, |combat| {
-            opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
-        }));
-        let clip = clips
-            .as_deref()
-            .and_then(|clips| Some((clips.pickup.clone()?, clips.player?)));
-        if let Some(((node, clip), player)) = clip
-            && let Ok((mut player, mut transitions)) = players.get_mut(player)
+        let rate = hero_rate(combat, frenzy);
+        if let Some((node, length)) =
+            play_pickup(clips.as_deref(), &mut players, &animations, (speed.0, rate))
         {
-            let length = animations.get(&clip).map_or(0.0, AnimationClip::duration);
-            if length > 0.0 && length <= SANE {
-                transitions
-                    .play(&mut player, node, blend(rate))
-                    .set_speed(speed.0 * rate);
-                taking.commands.entity(hero).insert(Picking {
-                    item: picks.0,
-                    node,
-                    length,
-                    taken: false,
-                });
-                continue;
-            }
+            taking.commands.entity(hero).insert(Picking {
+                item: picks.0,
+                node,
+                length,
+                taken: false,
+            });
+            continue;
         }
         taking.take(picks.0);
     }
+}
+
+/// The rate of the hero's pick-up's clip, by its attack speed quickened by the Dwarf's frenzy
+/// (`0x584FE0`).
+fn hero_rate(combat: Option<&fight::Combat>, frenzy: Option<&fight::Frenzy>) -> f32 {
+    rate(combat.map_or(100.0, |combat| {
+        opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
+    }))
+}
+
+/// Plays the hero's pick-up (the motion 172, `MOTION_PICKUP`) at the game's speed `speed` times its
+/// rate `rate`: the clip's node and length, none where its model has none or the clip's time is
+/// not sane, where the item is taken at once.
+fn play_pickup(
+    clips: Option<&hero::Clips>,
+    players: &mut Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    animations: &Assets<AnimationClip>,
+    (speed, rate): (f32, f32),
+) -> Option<(AnimationNodeIndex, f32)> {
+    let ((node, clip), player) =
+        clips.and_then(|clips| Some((clips.pickup.clone()?, clips.player?)))?;
+    let (mut player, mut transitions) = players.get_mut(player).ok()?;
+    let length = animations.get(&clip).map_or(0.0, AnimationClip::duration);
+    if length <= 0.0 || length > SANE {
+        return None;
+    }
+    transitions
+        .play(&mut player, node, blend(rate))
+        .set_speed(speed * rate);
+    Some((node, length))
+}
+
+/// Where the clip of `node` stands while it is the main one: its time, and whether it ended.
+fn playing(
+    player: &AnimationPlayer,
+    transitions: &AnimationTransitions,
+    node: AnimationNodeIndex,
+) -> Option<(f32, bool)> {
+    if transitions.get_main_animation() != Some(node) {
+        return None;
+    }
+    let active = player.animation(node)?;
+    Some((active.seek_time(), active.is_finished()))
 }
 
 /// Plays each hero's pick-up on: it takes the item once half the clip has played
@@ -625,20 +728,278 @@ pub(crate) fn picking(
             .as_deref()
             .and_then(|clips| clips.player)
             .and_then(|player| players.get(player).ok())
-            .filter(|(_, transitions)| transitions.get_main_animation() == Some(picking.node))
-            .and_then(|(player, _)| player.animation(picking.node));
-        let Some(active) = active else {
+            .and_then(|(player, transitions)| playing(player, transitions, picking.node));
+        let Some((time, finished)) = active else {
             taking.commands.entity(hero).remove::<Picking>();
             continue;
         };
-        if !picking.taken && active.seek_time() >= picking.length / 2.0 {
+        if !picking.taken && time >= picking.length / 2.0 {
             picking.taken = true;
             taking.take(picking.item);
         }
-        if active.is_finished() {
+        if finished {
             taking.commands.entity(hero).remove::<Picking>();
         }
     }
+}
+
+/// A hero that fights, shoots or makes an art, for which the collecting does not start and ends
+/// (`0x530C9F`: the AI's states 4, 6, 8, 10 and 11 and the action 7), or that dies.
+type Busy = Or<(
+    With<attack::Attack>,
+    With<attack::Striking>,
+    With<crate::making::Making>,
+    With<crate::making::Playing>,
+    With<crate::npcs::Dies>,
+)>;
+
+/// A left click on the bar's Collect button (`UI_TB_COLLECT`) sends the hero collecting: the
+/// creature event `0x113`, which the hero takes as the AI's state 12 without a target
+/// (`0x530C9F`), unless it is [`Busy`].
+fn collect_button(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    images: Res<crate::bar::UiImages>,
+    heroes: Query<Entity, With<Body>>,
+    busy: Query<(), Busy>,
+) {
+    let clicked = buttons.just_pressed(MouseButton::Left)
+        && crate::inventory::screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
+            let (index, corner) = crate::bar::COLLECT_BUTTON;
+            Rect::from_corners(corner, corner + images.size(index)).contains(at)
+        });
+    if !clicked {
+        return;
+    }
+    for hero in &heroes {
+        if busy.contains(hero) {
+            debug!("pickup: the hero fights and collects nothing");
+            continue;
+        }
+        info!("pickup: the hero collects the items about it");
+        commands
+            .entity(hero)
+            .remove::<(Picks, Picking, Opens)>()
+            .insert(Collects(Collecting::Seeking));
+    }
+}
+
+/// Sends the hero collecting (the command `collect`), as the bar's Collect button does: a line of
+/// what it does.
+pub fn start_collecting(world: &mut World) -> Result<String, String> {
+    let mut heroes = world.query_filtered::<Entity, With<Body>>();
+    let hero = heroes
+        .iter(world)
+        .next()
+        .ok_or("the hero is not in the world yet")?;
+    let mut busy = world.query_filtered::<(), Busy>();
+    if busy.get(world, hero).is_ok() {
+        return Err("the hero fights, makes an art or dies, and collects nothing".into());
+    }
+    world
+        .entity_mut(hero)
+        .remove::<(Picks, Picking, Opens)>()
+        .insert(Collects(Collecting::Seeking));
+    Ok("the hero collects the items about it".into())
+}
+
+/// Steps each collecting hero on (`0x4EC560` without a target). Looking, it finds the first item
+/// on its layer that it may carry ([`Taking::carries`]) by the square rings of cells about its
+/// cell ([`next_item`]) and walks to the item's point, stopping within [`COLLECT_STOP`]; nothing
+/// found, it goes idle (`0x54E6D0`). Standing, it plays its pick-up, takes every item of the
+/// 3 × 3 cells about it at the clip's half (`cCreature::pickupItem`, `0x558080`), or at once
+/// without a clip, and looks again [`LOOKS_AGAIN`] before the clip's end; nothing about it at
+/// the half, it goes idle. A fight, an art or another clip in its pick-up's place ends it.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+pub(crate) fn collect(
+    mut taking: Taking,
+    heights: Res<Heights>,
+    (clips, speed, animations): (
+        Option<Res<hero::Clips>>,
+        Res<hero::GameSpeed>,
+        Res<Assets<AnimationClip>>,
+    ),
+    lying: Query<(Entity, &GlobalTransform, &Lying)>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    busy: Query<(), Busy>,
+    mut heroes: Query<(
+        Entity,
+        &Transform,
+        &mut Body,
+        &mut Collects,
+        Option<&fight::Combat>,
+        Option<&fight::Frenzy>,
+    )>,
+) {
+    for (hero, transform, mut body, mut collects, combat, frenzy) in &mut heroes {
+        if busy.contains(hero) {
+            taking.commands.entity(hero).remove::<Collects>();
+            continue;
+        }
+        let here = transform.translation;
+        let level = body.level();
+        let on_layer = |at: Vec3| {
+            heights
+                .standing(at.x, at.z, level)
+                .is_some_and(|height| (height - at.y).abs() <= SAME_LAYER)
+        };
+        let on_layer_items = || {
+            lying
+                .iter()
+                .filter(|(_, _, item)| item.resting)
+                .map(|(item, at, _)| (item, at.translation()))
+                .filter(|&(_, at)| on_layer(at))
+                .collect::<Vec<_>>()
+        };
+        let rate = hero_rate(combat, frenzy);
+        match collects.0 {
+            Collecting::Seeking => match next_item(
+                here,
+                on_layer_items()
+                    .into_iter()
+                    .filter(|&(item, _)| taking.carries(item)),
+            ) {
+                Some((item, at)) => {
+                    debug!("pickup: the hero collects {item}");
+                    body.send_onto(at, level);
+                    collects.0 = Collecting::Walking(item);
+                }
+                None => {
+                    info!("pickup: the hero finds nothing more to collect");
+                    taking.commands.entity(hero).remove::<Collects>();
+                }
+            },
+            Collecting::Walking(item) => {
+                let Some(at) = lying
+                    .get(item)
+                    .ok()
+                    .filter(|(_, _, item)| item.resting)
+                    .map(|(_, at, _)| at.translation())
+                else {
+                    collects.0 = Collecting::Seeking;
+                    continue;
+                };
+                if (at - here).xz().length() <= COLLECT_STOP {
+                    body.stop();
+                } else if body.target().is_some() || body.ordered() {
+                    continue;
+                }
+                debug!(
+                    "pickup: the hero stands {:.0} from {item} and picks up",
+                    (at - here).xz().length()
+                );
+                match play_pickup(clips.as_deref(), &mut players, &animations, (speed.0, rate)) {
+                    Some((node, length)) => {
+                        collects.0 = Collecting::Picking {
+                            node,
+                            length,
+                            rate,
+                            taken: false,
+                        };
+                    }
+                    None if take_about(&mut taking, here, on_layer_items()) => {
+                        collects.0 = Collecting::Seeking;
+                    }
+                    None => {
+                        taking.commands.entity(hero).remove::<Collects>();
+                    }
+                }
+            }
+            Collecting::Picking {
+                node,
+                length,
+                rate,
+                taken,
+            } => {
+                let active = clips
+                    .as_deref()
+                    .and_then(|clips| clips.player)
+                    .and_then(|player| players.get(player).ok())
+                    .and_then(|(player, transitions)| playing(player, transitions, node));
+                let Some((time, finished)) = active else {
+                    debug!("pickup: another clip takes the collecting's pick-up's place");
+                    taking.commands.entity(hero).remove::<Collects>();
+                    continue;
+                };
+                if !taken && (finished || time >= length / 2.0) {
+                    collects.0 = Collecting::Picking {
+                        node,
+                        length,
+                        rate,
+                        taken: true,
+                    };
+                    if !take_about(&mut taking, here, on_layer_items()) {
+                        info!("pickup: the hero finds nothing about it to collect");
+                        taking.commands.entity(hero).remove::<Collects>();
+                        continue;
+                    }
+                }
+                if matches!(collects.0, Collecting::Picking { taken: true, .. })
+                    && (finished || time >= length - LOOKS_AGAIN * speed.0 * rate)
+                {
+                    collects.0 = Collecting::Seeking;
+                }
+            }
+        }
+    }
+}
+
+/// The cells of the square ring `radius` about the cell `centre`, by its rows from the least y to
+/// the greatest, each from the least x (`0x4EC560`).
+fn ring((x, y): paths::Cell, radius: i32) -> impl Iterator<Item = paths::Cell> {
+    (-radius..=radius).flat_map(move |dy| {
+        let edge = dy.abs() == radius;
+        (-radius..=radius)
+            .filter(move |&dx| edge || dx.abs() == radius)
+            .map(move |dx| (x + dx, y + dy))
+    })
+}
+
+/// The item that the collecting hero at `here` goes for among `items`, each at its point: of the
+/// first cell that holds one by the rings 0 to [`COLLECTS_WITHIN`] about the hero's cell
+/// ([`ring`]), the one nearest the hero (**hypothesis**: the original takes the first of the
+/// cell's chain).
+fn next_item<T: Copy>(here: Vec3, items: impl IntoIterator<Item = (T, Vec3)>) -> Option<(T, Vec3)> {
+    let centre = paths::cell_of(here.x, here.z);
+    let mut by_cell: HashMap<paths::Cell, Vec<(T, Vec3)>> = HashMap::new();
+    for (item, at) in items {
+        let cell = paths::cell_of(at.x, at.z);
+        if (cell.0 - centre.0).abs() <= COLLECTS_WITHIN
+            && (cell.1 - centre.1).abs() <= COLLECTS_WITHIN
+        {
+            by_cell.entry(cell).or_default().push((item, at));
+        }
+    }
+    (0..=COLLECTS_WITHIN)
+        .flat_map(|radius| ring(centre, radius))
+        .find_map(|cell| {
+            by_cell.get(&cell)?.iter().copied().min_by(|a, b| {
+                let d = |at: Vec3| (at - here).xz().length_squared();
+                d(a.1).total_cmp(&d(b.1))
+            })
+        })
+}
+
+/// Takes every item of `items` that lies on the 3 × 3 cells about the hero at `here`
+/// (`0x4EC560`'s sub-state 3): whether any lay there.
+fn take_about(taking: &mut Taking, here: Vec3, items: Vec<(Entity, Vec3)>) -> bool {
+    let centre = paths::cell_of(here.x, here.z);
+    let about: Vec<Entity> = items
+        .into_iter()
+        .filter(|&(_, at)| {
+            let cell = paths::cell_of(at.x, at.z);
+            (cell.0 - centre.0).abs() <= 1 && (cell.1 - centre.1).abs() <= 1
+        })
+        .map(|(item, _)| item)
+        .collect();
+    for &item in &about {
+        taking.take(item);
+    }
+    !about.is_empty()
 }
 
 /// Whether a hero standing at `hero` takes the item at `item`: within [`REACH`] of it on the
@@ -721,6 +1082,8 @@ impl Plugin for PickupPlugin {
                         .after(crate::doors::pick),
                     take.after(hero::run),
                     picking.after(take),
+                    collect_button.before(collect),
+                    collect.after(picking),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
@@ -752,6 +1115,59 @@ mod tests {
         assert!(takes(item + Vec3::new(100.0, 0.0, 0.0), item));
         assert!(takes(item + Vec3::new(70.0, 0.0, 71.0), item));
         assert!(!takes(item + Vec3::new(71.0, 0.0, 71.0), item));
+    }
+
+    #[test]
+    fn a_ring_goes_by_its_rows_from_the_least_y_each_from_the_least_x() {
+        assert_eq!(ring((10, 20), 0).collect::<Vec<_>>(), [(10, 20)]);
+        assert_eq!(
+            ring((10, 20), 1).collect::<Vec<_>>(),
+            [
+                (9, 19),
+                (10, 19),
+                (11, 19),
+                (9, 20),
+                (11, 20),
+                (9, 21),
+                (10, 21),
+                (11, 21)
+            ]
+        );
+        assert_eq!(ring((0, 0), 19).count(), 8 * 19);
+    }
+
+    #[test]
+    fn the_collecting_goes_for_the_first_ring_that_holds_an_item() {
+        let cell = |x: i32, y: i32| {
+            let centre = paths::centre((x, y));
+            Vec3::new(centre.x, 0.0, centre.y)
+        };
+        let here = cell(100, 100);
+        // The nearer ring wins over a nearer point of a farther one, and within the ring the
+        // row of the least y; nothing beyond 19 rings.
+        let items = [
+            (1, cell(102, 99)),
+            (2, cell(99, 101)),
+            (3, cell(101, 98)),
+            (4, cell(100, 120)),
+        ];
+        assert_eq!(next_item(here, items).map(|(item, _)| item), Some(2));
+        assert_eq!(next_item(here, [(4, cell(100, 120))]), None);
+        assert_eq!(
+            next_item(here, [(5, cell(100, 119))]).map(|(item, _)| item),
+            Some(5)
+        );
+        assert_eq!(
+            next_item(here, items[..1].iter().copied()).map(|(item, _)| item),
+            Some(1)
+        );
+        // In one ring, the row of the least y first, however near the other.
+        assert_eq!(
+            next_item(here, [items[0], items[2]]).map(|(item, _)| item),
+            Some(3)
+        );
+        let on_its_cell = [(6, cell(101, 101)), (7, here + Vec3::new(5.0, 0.0, 5.0))];
+        assert_eq!(next_item(here, on_its_cell).map(|(item, _)| item), Some(7));
     }
 
     #[test]

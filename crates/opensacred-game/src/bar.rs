@@ -57,12 +57,14 @@ const DISC_TURN: f32 = 0.004_363_323;
 const HOUSING: (u32, Vec2) = (11, Vec2::new(397.0, 680.0));
 /// The inventory's button (`UI_TB_INVENTORY`, `inventory`).
 pub(crate) const INVENTORY_BUTTON: (u32, Vec2) = (87, Vec2::new(399.0, 705.0));
+/// The collecting's button (`UI_TB_COLLECT`, `pickup`).
+pub(crate) const COLLECT_BUTTON: (u32, Vec2) = (134, Vec2::new(496.0, 743.0));
 const BUTTONS: [(u32, Vec2); 5] = [
     INVENTORY_BUTTON,
     (89, Vec2::new(434.0, 729.0)),
     (91, Vec2::new(558.0, 729.0)),
     (93, Vec2::new(594.0, 705.0)),
-    (134, Vec2::new(496.0, 743.0)),
+    COLLECT_BUTTON,
 ];
 /// The potions' belt's buttons, 32 × 32 each, the slots 1 to 5 (`belt`).
 pub(crate) const BELT: [Vec2; 5] = [
