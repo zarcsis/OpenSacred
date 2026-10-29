@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """Take an issue into work (#1401; CLAUDE.md, "Issues and pull requests"; docs/03 §3.5): refuse one that a session
-holds, else assign it, name its branch after it, push the branch as the claim and add its worktree.
+holds, or that another account wrote, else assign it, name its branch after it, push the branch as the claim and add
+its worktree.
 
 Purpose: every session works under one GitHub account, so an assignee alone does not say which session holds an issue,
-and the steps of taking one, repeated by hand, are easy to get wrong (#1210 lost usage to a branch renamed later). An
-issue is held when it is assigned (unless --mine: this session filed it assigned), when a branch `<type>/<N>-<slug>`
-exists, locally or on origin, or when an open pull request closes it (`Closes #N`) or comes from such a branch; a
-closed issue, or one without exactly one type label, is refused too. Otherwise origin is fetched, the issue assigned
-to the account, the branch `<label>/<N>-<SLUG>` made from origin/main (or --base) in the worktree
-`.claude/worktrees/<N>-<SLUG>` of the main checkout, and pushed at once, so that a session that looks next sees it; a
-branch that another session pushed meanwhile for the same issue is reported. CI runs on pull requests and on `main`
-alone, so the pushed branch costs no run.
+and the steps of taking one, repeated by hand, are easy to get wrong (#1210 lost usage to a branch renamed later). The
+repository is public, and a session reads the issue it takes as its task: only the issues and pull requests that the
+sessions' own account wrote are taken into work, so that another's text never reaches a session as an instruction
+(#1421, the maintainer's guard against prompt injection; the policy for the community's issues is to come). An issue
+that another account filed is refused, naming its author; the open pull requests of other accounts are not read, so
+they hold nothing, and --base on another's pull request is refused. An issue is held when it is assigned (unless
+--mine: this session filed it assigned), when a branch `<type>/<N>-<slug>` exists, locally or on origin, or when an
+open pull request of the account closes it (`Closes #N`) or comes from such a branch; a closed issue, or one without
+exactly one type label, is refused too. Otherwise origin is fetched, the issue assigned to the account, the branch
+`<label>/<N>-<SLUG>` made from origin/main (or --base) in the worktree `.claude/worktrees/<N>-<SLUG>` of the main
+checkout, and pushed at once, so that a session that looks next sees it; a branch that another session pushed meanwhile
+for the same issue is reported. CI runs on pull requests and on `main` alone, so the pushed branch costs no run.
 
 Example
   uv run python -I tools/stack/claim.py 1401 claim              # then EnterWorktree with the path it prints
@@ -45,12 +50,23 @@ class GitHub:
             raise SystemExit(f'gh {" ".join(args)}: {result.stderr.strip()}')
         return result.stdout
 
-    def issue(self, number):
-        return json.loads(self.run('issue', 'view', str(number), '--json', 'number,title,state,assignees,labels'))
+    def account(self):
+        return self.run('api', 'user', '--jq', '.login').strip()
 
-    def open_prs(self):
-        return json.loads(self.run('pr', 'list', '--state', 'open', '--limit', '500', '--json',
-                                   'number,headRefName,body'))
+    def issue(self, number):
+        return json.loads(self.run('issue', 'view', str(number), '--json',
+                                   'number,title,state,assignees,labels,author'))
+
+    def open_prs(self, author):
+        """The open pull requests of the account `author`, their bodies with them; another's are not read
+        (#1421)."""
+        return json.loads(self.run('pr', 'list', '--state', 'open', '--author', author, '--limit', '500', '--json',
+                                   'number,headRefName,body,author'))
+
+    def pr_of(self, branch):
+        """The author of the open pull request from `branch`, if there is one."""
+        prs = json.loads(self.run('pr', 'list', '--state', 'open', '--head', branch, '--json', 'author'))
+        return prs[0]['author']['login'] if prs else None
 
     def assign(self, number):
         self.run('issue', 'edit', str(number), '--add-assignee', '@me')
@@ -76,9 +92,24 @@ def pushed(git, number):
     return sorted(name for name in names if of_issue(name, number))
 
 
+def login(record):
+    """The login of the author of an issue or a pull request as `gh` gives it."""
+    return (record.get('author') or {}).get('login')
+
+
+def foreign(issue, account):
+    """Why the issue is not taken, being another account's (#1421), or None for the account's own."""
+    author = login(issue)
+    if author == account:
+        return None
+    return (f"#{issue['number']} ({issue['title']}) was filed by {author or 'an unknown account'}, not by {account}, "
+            'the account the sessions work under: an issue of another account is not taken into work until the '
+            "policy for the community's issues is set (#1421)")
+
+
 def holders(issue, prs, named, mine=False):
     """What holds the issue: its state, its assignees, the branches named after it and the open pull requests that
-    close it or come from such a branch."""
+    close it or come from such a branch (the account's own, `prs` read so)."""
     number, reasons = issue['number'], []
     if issue['state'] != 'OPEN':
         reasons.append(f"it is {issue['state'].lower()}")
@@ -108,8 +139,18 @@ def take(number, slug, base, root=ROOT, github=None, dry_run=False, mine=False):
         raise SystemExit(f'a slug is lower-case words joined by hyphens, not {slug!r}')
     git, github = Git(root), github or GitHub(root)
     git.run('fetch', '--quiet', REMOTE)
+    account = github.account()
     issue = github.issue(number)
-    reasons = holders(issue, github.open_prs(), branches(git, number), mine)
+    refusal = foreign(issue, account)
+    if refusal:
+        raise SystemExit(refusal)
+    base_branch = base.removeprefix(f'{REMOTE}/')
+    base_author = None if base_branch == MAIN else github.pr_of(base_branch)
+    if base_author not in (None, account):
+        raise SystemExit(f'the base {base} is the branch of a pull request by {base_author}, not by {account}: a '
+                         'stack is built on the account\'s own pull requests alone (#1421)')
+    prs = [pr for pr in github.open_prs(account) if login(pr) == account]
+    reasons = holders(issue, prs, branches(git, number), mine)
     if reasons:
         raise SystemExit(f"#{number} ({issue['title']}) is held: {'; '.join(reasons)}. Leave it to its holder, or ask "
                          'the peer sessions (ListAgents, SendMessage)')
