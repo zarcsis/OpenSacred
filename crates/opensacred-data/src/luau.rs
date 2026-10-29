@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// functions of 142 names in a campaign tree) by each of them (**hypothesis**: the client's
 /// lookup by name, `0x460590`, takes the first).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Index {
     pub functions: BTreeMap<String, Vec<Entry>>,
 }
@@ -18,6 +19,7 @@ pub struct Index {
 /// A function in a tree's sources: its file and its key in the file's table, its name or, for a
 /// name that the file holds already, the name and `#<n>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Entry {
     pub file: String,
     pub key: String,

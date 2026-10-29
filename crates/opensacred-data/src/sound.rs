@@ -15,6 +15,7 @@ pub const MASTER_EXTENSION: &str = "flac";
 
 /// The sound index, `sound.ron`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Sound {
     /// The original ids of the samples, which profiles and scripts name.
     pub samples: Vec<u32>,
@@ -28,6 +29,7 @@ pub struct Sound {
 
 /// A music file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Music {
     /// The sound id that the `music` profile names it by, matched by the file's name
     /// (`MUSIC_WOOD01.mp3`, `SOUND_FX_MUSIC_WOOD01`); none for the two files the program does not
@@ -50,6 +52,7 @@ pub fn sample_file(id: u32, extension: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct SoundName {
     pub id: u32,
     pub name: String,
@@ -58,6 +61,7 @@ pub struct SoundName {
 /// A sound profile: the sample variants of each of its 8 event groups, of which the game picks
 /// one at random.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Profile {
     /// The original slot, which the game's tables name.
     pub slot: u32,

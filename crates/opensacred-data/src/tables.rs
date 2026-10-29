@@ -47,6 +47,7 @@ pub const TYPE_NAMES: &str = "type_names.ron";
 
 /// A creature type of `Creature.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Creature {
     /// Also the item slot of the creature's model.
     pub id: u32,
@@ -67,6 +68,7 @@ pub struct Creature {
 
 /// A weapon or armour type of `Weapon.pak`, in table order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Weapon {
     /// The item type.
     pub id: u32,
@@ -84,6 +86,7 @@ pub struct Weapon {
 /// An object type: a used slot of `Items.pak`, or of the overlay `Items03.pak`, whose one slot
 /// (3999) is empty in `Items.pak`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Item {
     pub slot: u32,
     pub kind: u8,
@@ -134,12 +137,14 @@ impl Item {
 /// The creatures' voices (`0x6852B0`, docs/re/sound.md, "The fight's sounds"), `voices.ron`: the
 /// types that speak, by the case of each type in `Sacred.exe`'s byte table at `0x68BBD0`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Voices {
     pub voices: Vec<Voice>,
 }
 
 /// A creature type's voice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Voice {
     /// The creature's type, 1 to 714.
     pub creature: u16,
@@ -173,6 +178,7 @@ impl Voice {
 /// "Dialogues"): each type's part of a texture of the interface by `Sacred.exe`'s function
 /// `0x4345C0` and its images' table `0x9ECEB0`, and the default's of a type without one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Portraits {
     pub default: Portrait,
     pub creatures: Vec<CreaturePortrait>,
@@ -180,6 +186,7 @@ pub struct Portraits {
 
 /// A creature type's portrait.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct CreaturePortrait {
     pub creature: u16,
     pub portrait: Portrait,
@@ -188,6 +195,7 @@ pub struct CreaturePortrait {
 /// A portrait: the texture of `texture.pak` it is a part of, by its name lower-cased
 /// (`gui_portraitx34`), and its part, its left, top, width and height in pixels.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Portrait {
     pub texture: String,
     pub rect: [u16; 4],
@@ -195,6 +203,7 @@ pub struct Portrait {
 
 /// A type's name: the type's number (an `items.pak` slot) and its name (`TYPE_NPC_GOBLIN_WARRIOR`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct TypeName {
     pub kind: u32,
     pub name: String,
@@ -204,6 +213,7 @@ pub struct TypeName {
 /// lower-cased (`gui_main_03`), and its part, its left, top, width and height in pixels; the
 /// entry 0, `INVALID`, of no size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct UiImage {
     pub texture: String,
     pub rect: [u16; 4],
@@ -243,6 +253,7 @@ impl Portraits {
 /// what each type makes in the sound manager's update as a creature hostile to the hero and as
 /// one that is not, the two lists that the update follows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct IdleNoises {
     pub hostile: Vec<IdleNoise>,
     pub peaceful: Vec<IdleNoise>,
@@ -250,6 +261,7 @@ pub struct IdleNoises {
 
 /// A creature type's idle noise.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct IdleNoise {
     /// The creature's type, 1 to 714.
     pub creature: u16,
@@ -268,6 +280,7 @@ pub struct IdleNoise {
 /// A figure of the choice of the hero, of the table that `Sacred.exe` holds at `0x9E3248`, in the
 /// screen's order (docs/re/equipment.md, "The choice of the hero's figures"; #1130).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Figure {
     /// The hero's class, its creature type: 1 the Seraphim to 9 the Daemon.
     pub class: u32,
@@ -285,6 +298,7 @@ pub struct Figure {
 
 /// What an idle noise plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum IdleSound {
     /// A variant of the group 0 of a profile, a slot of `sndProfiles.pak`.
     Profile(u16),
@@ -295,6 +309,7 @@ pub enum IdleSound {
 /// The parameters of a motion of `MOTIONS.PAK`, in the global motion order: those of
 /// `models.pak`, then those of `models03.pak`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Motion {
     /// The motion's `.GRN` file.
     pub name: String,
@@ -308,6 +323,7 @@ pub struct Motion {
 /// balance text name by name, the image of all of them as stored, and the tables after the image
 /// ("The tail of `Balance.bin`"), the drops' by their meaning and the others as words.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Balance {
     /// The named variables, in the image's order.
     pub variables: Vec<BalanceVariable>,
@@ -336,6 +352,7 @@ pub struct Balance {
 
 /// An entry of the tail's first table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct BalanceList {
     pub key: u32,
     pub records: Vec<[u32; 3]>,
@@ -343,6 +360,7 @@ pub struct BalanceList {
 
 /// The weight of a quality key in the drops (docs/re/items.md, "A pass: the quality key").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct QualityWeight {
     pub key: u32,
     pub weight: u32,
@@ -350,6 +368,7 @@ pub struct QualityWeight {
 
 /// The value of the quality pass that a quality key of the item maker takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct QualityPass {
     pub key: u32,
     pub value: u32,
@@ -357,6 +376,7 @@ pub struct QualityPass {
 
 /// An entry of the tail's fourth table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct BalanceRow {
     pub key: u32,
     pub words: [u32; 7],
@@ -365,6 +385,7 @@ pub struct BalanceRow {
 /// The parameters of a chance by the value `v` of an effect (`0x5F23A0`):
 /// `(1 − a/(b + v))·100 + 0.5` per cent, at most `most`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct EffectChance {
     pub effect: u32,
     pub a: f32,
@@ -374,6 +395,7 @@ pub struct EffectChance {
 
 /// A balance variable that a key of the balance text names.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct BalanceVariable {
     /// The key, as the client's parser has it (a key that ends in `:` heads a row of values;
     /// `GoldProLevel[1]` names `GoldProLevel`'s second value).
@@ -385,6 +407,7 @@ pub struct BalanceVariable {
 
 /// A balance variable's value, of its kind.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum BalanceValue {
     F32(f32),
     I32(i32),
@@ -427,6 +450,7 @@ impl Balance {
 
 /// An item set of `bin/sets.bin`; slot 0 is unused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct ItemSet {
     pub slot: u32,
     pub items: [u32; 10],
@@ -436,6 +460,7 @@ pub struct ItemSet {
 
 /// A weapon modifier of `bin/wpmod.bin`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct WeaponModifier {
     /// The 53 words of the fixed part.
     pub words: Vec<u32>,
@@ -444,6 +469,7 @@ pub struct WeaponModifier {
 
 /// A mercenary position of `bin/merc.bin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Mercenary {
     pub x: u32,
     pub y: u32,
@@ -453,6 +479,7 @@ pub struct Mercenary {
 
 /// A multiplayer start point of `bin/MultiStart.bin`, in world coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct StartPoint {
     pub x: u32,
     pub y: u32,
@@ -462,6 +489,7 @@ pub struct StartPoint {
 /// docs/re/arts.md), each in its table's order. A value by the level `L` is a pair `[a, b]`,
 /// `a + L × b`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Arts {
     /// The first table's: the ids 1 to 72 but 54 and 68.
     pub spells: Vec<Spell>,
@@ -471,6 +499,7 @@ pub struct Arts {
 
 /// A spell, an art of the first table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Spell {
     pub id: u16,
     /// The `global.res` id of its name: the hash of the record's text index in decimal (docs/02
@@ -510,6 +539,7 @@ pub struct Spell {
 
 /// A weapon art, an art of the second table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct WeaponArt {
     pub id: u16,
     /// The `global.res` ids of its name and its descriptions, as a spell's.
@@ -546,6 +576,7 @@ pub struct WeaponArt {
 
 /// A used slot of `Triggers.PAK`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Trigger {
     pub slot: u32,
     pub id: u32,

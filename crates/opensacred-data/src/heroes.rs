@@ -15,11 +15,13 @@ pub const INDEX: &str = "heroes.ron";
 
 /// The index, `heroes.ron`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Heroes {
     pub heroes: Vec<HeroEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct HeroEntry {
     /// The file in the installation, such as `Templates/Hero00.ptx`.
     pub source: String,
@@ -44,6 +46,7 @@ pub struct HeroEntry {
 /// A combat art of a template: an entry of a creature's list of arts (docs/re/arts.md, "A
 /// creature's arts").
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct HeroArt {
     /// 1 an art of the first table, a spell; 2 of the second, a weapon art.
     pub table: u32,
@@ -63,6 +66,7 @@ pub struct HeroArt {
 
 /// An item a hero wears or holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Worn {
     /// The object's id in the template.
     pub id: u32,
@@ -75,6 +79,7 @@ pub struct Worn {
 
 /// An item in a hero's backpack.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Carried {
     /// The object's id in the template.
     pub id: u32,
@@ -90,11 +95,13 @@ pub struct Carried {
 
 /// A hero: the sections of the original file in slot order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Hero {
     pub sections: Vec<Section>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Section {
     /// The slot of the original table, 0–15.
     pub slot: u8,
