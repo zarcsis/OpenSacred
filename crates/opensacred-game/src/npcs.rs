@@ -3215,8 +3215,9 @@ impl Npcs {
         }
         let pools = pools(&records);
         // The pools' items, the weapons that an archer takes to melee and back (#396), the
-        // hero's (#486), and the bows and the weapons of kind 1 that a crossbow its holder cannot
-        // shoot becomes (#1217).
+        // hero's (#486), and every type of a `Weapon.pak` record: the bows and the weapons of
+        // kind 1 that a crossbow its holder cannot shoot becomes (#1217), and whatever weapon,
+        // shield or piece the hero picks up and puts into its hands or on (#1416).
         let gear = gear_table(
             &items,
             weapons,
@@ -3227,12 +3228,7 @@ impl Npcs {
                 .flatten()
                 .chain(&opensacred_rules::minds::SWITCHED)
                 .chain(worn)
-                .chain(
-                    weapons
-                        .iter()
-                        .filter(|w| matches!(w.bytes_1c[2], spawning::BOW | spawning::BLADE))
-                        .map(|w| &w.id),
-                ),
+                .chain(weapons.iter().map(|w| &w.id)),
         );
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
