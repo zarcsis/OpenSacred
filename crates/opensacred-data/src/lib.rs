@@ -8,6 +8,8 @@ pub mod heroes;
 pub mod luau;
 pub mod netscript;
 mod packed;
+#[cfg(test)]
+mod round_trips;
 pub mod sound;
 pub mod tables;
 pub mod text;

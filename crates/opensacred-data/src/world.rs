@@ -26,6 +26,7 @@ pub const DIAMONDS: u32 = 18;
 
 /// The world index, `world.ron`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct World {
     pub sectors: Vec<SectorEntry>,
     /// Image of every tile sheet, relative to `world.ron`: sheet `t / 18` of tile `t`.
@@ -42,6 +43,7 @@ pub struct World {
 
 /// A sector of the grid; 3,950 of the 10,000 positions have none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct SectorEntry {
     pub x: u32,
     pub y: u32,
@@ -78,6 +80,7 @@ fn is_zero(byte: &u8) -> bool {
 
 /// A kind of a sector's weather (`sectors.keyx +0x1EE`'s types 0, 1, 2 and 5; docs/02 §5.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum WeatherKind {
     Rain,
     Fog,
@@ -89,6 +92,7 @@ pub enum WeatherKind {
 /// seconds, and the least and the most intensity (docs/re/weather.md, "How the weather is
 /// chosen").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct SectorWeather {
     pub kind: WeatherKind,
     pub off: [u32; 2],
@@ -98,6 +102,7 @@ pub struct SectorWeather {
 
 /// A sector: 64 × 64 cells and the static objects placed on them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Sector {
     pub x: u32,
     pub y: u32,
@@ -118,6 +123,7 @@ pub struct Sector {
 /// A building (docs/re/movement.md, "Changing layers"): the first static of flag `0x10` in its
 /// anchor cell's chain, to which the offsets of its cells point; its children are its floors.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Building {
     /// The anchor, cell `r · 64 + c` of the sector.
     pub cell: u16,
@@ -140,6 +146,7 @@ pub struct Building {
 /// An inside layer: a grid of cells of a building's own, from its first cell's global position
 /// (docs/02 §5.2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Layer {
     pub x: u32,
     pub y: u32,
@@ -151,6 +158,7 @@ pub struct Layer {
 
 /// A cell of an inside layer: of a cell's fields, those its layer sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct LayerCell {
     /// The second heights (`+0x18`), in the inside layers 10, 15, 20, …: the heights a creature
     /// stands at inside, as [`Cell::heights2`].
@@ -167,6 +175,7 @@ pub struct LayerCell {
 /// A floor cell: a ground tile with overlays, heights and light at its four corners (left, top,
 /// right, bottom).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Cell {
     pub tile: u32,
     /// Tiles drawn over the ground, in order.
@@ -192,6 +201,7 @@ pub struct Cell {
 /// A floor overlay: the art tile's colour through the alpha of the mask tile, or of the art tile
 /// itself without one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Overlay {
     pub art: u32,
     pub mask: Option<u32>,
@@ -199,6 +209,7 @@ pub struct Overlay {
 
 /// A static object: a sprite or a model placed in the world.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct StaticObject {
     /// The cell whose chain holds the object.
     pub cell: u16,
@@ -233,6 +244,9 @@ pub struct StaticObject {
     /// [`type_flags`]: StaticObject::type_flags
     pub floor: Option<u16>,
     /// Objects that belong to this one, in chain order.
+    // None in the tests' random objects, which a type of its own cannot nest (#1434); the
+    // sector's `statics` take random objects.
+    #[cfg_attr(test, proptest(value = "Vec::new()"))]
     pub children: Vec<StaticObject>,
 }
 
@@ -240,6 +254,7 @@ pub struct StaticObject {
 /// the shadow atlas `SHADOW_TREE00` (16 × 16 cells of 32 × 32 texels) on the ground at the
 /// static's foot (docs/re/drawing.md, "The statics' shadows").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Shadow {
     /// The silhouette's cell, `16 · row + column`.
     pub cell: u16,
@@ -256,6 +271,7 @@ pub struct Shadow {
 
 /// A miniature: a square of an atlas, still or animated (community-reported, openheilig).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Miniature {
     /// Index into [`World::atlases`].
     pub atlas: u32,
@@ -266,6 +282,7 @@ pub struct Miniature {
 
 /// The sprites of the static objects: `mixed.pak` record `i` is `sprites[i]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Sprites {
     pub sprites: Vec<Option<Sprite>>,
 }
@@ -274,6 +291,7 @@ pub struct Sprites {
 /// ([`sprite_image`]), covers the rectangle `rect` of it, which the converter assembled from the
 /// sprite's pieces of `mixed.pak` (docs/02 §3.3, #838).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Sprite {
     pub width: u16,
     pub height: u16,

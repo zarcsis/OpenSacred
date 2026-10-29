@@ -1,3 +1,9 @@
 # rust-lld instead of link.exe: links large binaries (Bevy) noticeably faster on Windows.
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
+
+[env]
+# proptest's collections of a default size (`any::<Vec<T>>()`) hold at most 8 values rather than
+# 99: the open formats' round trips (opensacred-data, #1434) make random values of types whose
+# vectors nest four deep, which `Config::max_default_size_range` of a test's own does not reach.
+PROPTEST_MAX_DEFAULT_SIZE_RANGE = "8"
