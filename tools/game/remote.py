@@ -236,6 +236,7 @@ def add_commands(sub):
     p = sub.add_parser('key', help='press and release a key: F11, Escape, Enter, R, Backquote, ArrowUp, …, '
                                    'or keys held together: Control+V')
     p.add_argument('name')
+    p.add_argument('--hold', type=int, help='frames the key is held (1 by default)')
     p = sub.add_parser('type', help='type text, as into the console')
     p.add_argument('text')
     p = sub.add_parser('move', help='move the cursor to a pixel of the window')
@@ -280,7 +281,10 @@ def run(port, args, after=0):
     elif args.what == 'wait-state':
         print('\n'.join(lines(wait(port, args.timeout, lambda s: s['state'] == args.state, args.state))))
     elif args.what == 'key':
-        call(port, 'opensacred/input', {'key': args.name})
+        params = {'key': args.name}
+        if args.hold is not None:
+            params['hold'] = args.hold
+        call(port, 'opensacred/input', params)
     elif args.what == 'type':
         call(port, 'opensacred/input', {'text': args.text})
     elif args.what == 'move':

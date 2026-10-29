@@ -54,6 +54,7 @@ mod icons;
 mod inventory;
 mod iso;
 mod journal;
+mod labels;
 mod lines;
 mod liquids;
 mod making;
@@ -343,6 +344,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         icons::IconsPlugin,
         inventory::InventoryPlugin,
         journal::JournalPlugin,
+        labels::LabelsPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         making::MakingPlugin,
@@ -352,9 +354,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         music::MusicPlugin,
         npcs::NpcsPlugin,
         opus::OpusPlugin,
-        overlay::OverlayPlugin,
     ))
     .add_plugins((
+        overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
         puffs::PuffsPlugin,
@@ -369,9 +371,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         settings::SettingsPlugin,
         sfx::SfxPlugin,
         shaders::ShaderLibrary,
-        shadows::ShadowsPlugin,
     ))
     .add_plugins((
+        shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,
         sound::SoundPlugin,

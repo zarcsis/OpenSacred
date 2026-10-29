@@ -106,16 +106,21 @@ pub struct Shown(pub Look);
 struct Named(Option<(u32, Option<String>)>);
 
 impl Named {
-    /// The item's name: its text name's text where the scripts gave it one, which may have none,
-    /// else its type's (`0x44A250`); none for an empty one.
+    /// The item's name ([`item_name`]).
     fn shown<'a>(&self, texts: &'a Texts) -> Option<&'a str> {
         let (item, text) = self.0.as_ref()?;
-        match text {
-            Some(text) => texts.named(text),
-            None => texts.named(&item.to_string()),
-        }
-        .filter(|name| !name.is_empty())
+        item_name(texts, *item, text.as_deref())
     }
+}
+
+/// The name of an item of the type `item`: the text of its text name `text` where the scripts gave
+/// it one, which may have none, else its type's (`0x44A250`); none for an empty one.
+pub(crate) fn item_name<'a>(texts: &'a Texts, item: u32, text: Option<&str>) -> Option<&'a str> {
+    match text {
+        Some(text) => texts.named(text),
+        None => texts.named(&item.to_string()),
+    }
+    .filter(|name| !name.is_empty())
 }
 
 /// The item's name's place from the cursor, in the original's pixels, and its size.

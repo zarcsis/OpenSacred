@@ -389,13 +389,19 @@ impl Pack {
 
 /// On a press of the left button that went to no attack, the item lying nearest the cursor's
 /// line of sight, if one is near it, becomes the hero's to take, before a door (the pick's
-/// classes, `0x626C50`: the items 2, the doors 3), and the hero walks to it; any press ends the
-/// last such order.
+/// classes, `0x626C50`: the items 2, the doors 3), else with Alt held the item of the label
+/// under the cursor (`0x6270A0`, `labels`), and the hero walks to it; any press ends the last
+/// such order.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 pub(crate) fn pick(
     mut commands: Commands,
-    buttons: Res<ButtonInput<MouseButton>>,
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, Res<ButtonInput<KeyCode>>),
     pointer: Res<Pointer>,
     aim: Res<Aim>,
+    labels: Res<crate::labels::Shown>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     items: Query<(Entity, &GlobalTransform, &Lying)>,
     mut heroes: Query<(Entity, &mut Body)>,
@@ -425,6 +431,13 @@ pub(crate) fn pick(
         .filter(|&(_, _, distance)| distance <= attack::PICKED_WITHIN)
         .min_by(|a, b| a.2.total_cmp(&b.2))
         .map(|(item, at, _)| (item, at))
+        .or_else(|| {
+            let item = labels
+                .under(cursor)
+                .filter(|_| crate::labels::held(&keys))?;
+            let (item, at, _) = items.get(item).ok()?;
+            Some((item, at.translation()))
+        })
     else {
         return;
     };
