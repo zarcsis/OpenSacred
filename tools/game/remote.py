@@ -6,7 +6,9 @@ send the player's keys, text and clicks, take screenshots. The game listens on 1
 Protocol, JSON-RPC 2.0 over HTTP, port 15702 by default); this client calls the game's own methods
 (`opensacred/exec`, `opensacred/state`, `opensacred/input`, `opensacred/screenshot`, `opensacred/logs`) or any other.
 With `--port 15703` it drives the original Sacred.exe under `tools/original/host.py`, which serves the same methods
-(docs/03 §3.8).
+(docs/03 §3.8). Under a Claude Code session, a game started with `--remote` and no port listens on a port of the
+session's own, which it records under the session and its working directory (#1397); without `--port` this client
+finds it there, so that two sessions, or two worktrees of one, never drive each other's games.
 
 Example
   cargo run --release -p opensacred-game -- --remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log
@@ -29,10 +31,59 @@ to the standard error with the exit code 1. `shell` reads lines until `:quit` or
 of the game, a line starting with `:` one of this client's own (`:help` lists them), and an error ends the line
 rather than the shell. Dependencies: the standard library.
 """
-import argparse, json, os, re, shlex, sys, time, urllib.error, urllib.request
+import argparse, glob, json, os, re, shlex, sys, tempfile, time, urllib.error, urllib.request
 
 HOST = '127.0.0.1'
 PORT = 15702
+# Where the games of Claude Code sessions record their ports (#1397), as crates/opensacred-game's remote.rs writes them:
+# `<session>-<directory>.port`, the game's port, pid and working directory in JSON.
+RECORDS = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(), 'OpenSacred', 'remote')
+SESSION = re.compile(r'[A-Za-z0-9-]+')
+
+
+def fnv1a(data):
+    """FNV-1a of 64 bits, as the game hashes a working directory."""
+    value = 0xcbf29ce484222325
+    for byte in data:
+        value = ((value ^ byte) * 0x100000001b3) & 0xffffffffffffffff
+    return value
+
+
+def record_key(session, directory):
+    """The name of a session's record for a game started in `directory`: the session, then the hash of the directory,
+    in lower case with backslashes on Windows, as the game makes it."""
+    if os.name == 'nt':
+        directory = directory.replace('/', '\\').lower()
+    return f'{session}-{fnv1a(directory.encode("utf-8")):016x}'
+
+
+def read_record(path):
+    """A game's record of its port, or None when it cannot be read."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return record if isinstance(record, dict) and isinstance(record.get('port'), int) else None
+
+
+def game_port(session=None, directory=None, records=RECORDS):
+    """The port of the game to drive when no --port is given, and where it was found: the record of the game that this
+    Claude Code session started in the working directory, else this session's only record, else 15702 (outside a
+    session, or for a game given its port)."""
+    session = os.environ.get('CLAUDE_CODE_SESSION_ID') if session is None else session
+    if not session or not SESSION.fullmatch(session):
+        return PORT, None
+    own = os.path.join(records, record_key(session, directory or os.getcwd()) + '.port')
+    paths = [own] if os.path.exists(own) else sorted(glob.glob(os.path.join(records, f'{session}-*.port')))
+    found = [(path, record) for path, record in ((p, read_record(p)) for p in paths) if record]
+    if len(found) > 1:
+        listed = ', '.join(f"{record['port']} ({record.get('dir')})" for _, record in found)
+        raise ConnectionError(f"this session's games listen on {listed}, none started here: pass --port")
+    if found:
+        record = found[0][1]
+        return record['port'], f"this session's game started in {record.get('dir')} (pid {record.get('pid')})"
+    return PORT, None
 
 
 def call(port, method, params=None):
@@ -365,18 +416,26 @@ def shell(port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('--port', type=int, default=PORT, help=f"the game's port ({PORT} by default)")
+    parser.add_argument('--port', type=int,
+                        help=f"the game's port: by default this Claude Code session's game's (#1397), else {PORT}")
     sub = parser.add_subparsers(dest='what', required=True)
     add_commands(sub)
     sub.add_parser('shell', help="read lines until ':quit': a command of the game each, or with ':' one of this "
                                  "client's own (:help)")
     args = parser.parse_args()
-    if args.what == 'shell':
-        shell(args.port)
-        return
+    found = None
     try:
+        if args.port is None:
+            args.port, found = game_port()
+        if args.what == 'shell':
+            shell(args.port)
+            return
         run(args.port, args)
-    except (ConnectionError, RuntimeError, TimeoutError) as e:
+    except ConnectionError as e:
+        stale = f' (the record of {found}: a game ended by force leaves it)' if found else ''
+        print(f'error: {e}{stale}', file=sys.stderr)
+        sys.exit(1)
+    except (RuntimeError, TimeoutError) as e:
         print(f'error: {e}', file=sys.stderr)
         sys.exit(1)
 

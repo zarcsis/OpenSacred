@@ -291,6 +291,8 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 
 * A game started with `--remote` listens for remote control on `127.0.0.1:15702`, Bevy's Remote Protocol with the game's own methods (docs/10 §8); `tools/game/remote.py` is its client.
   Bevy 0.20's `RemoteHttpPlugin` also serves the render sub-app, on 15703 unless told otherwise, the original's driver's port (below): the game moves that server to a port the system picks, which nothing calls (#528).
+  Under a Claude Code session (`CLAUDE_CODE_SESSION_ID` in the environment), `--remote` without a port listens on a port that the system gives instead, recorded with the game's pid and working directory in `%LOCALAPPDATA%\OpenSacred\remote\<session>-<directory>.port` and removed as the game ends (#1397).
+  `remote.py`, `compare.py` and `conformance.py` without a port call the game that their session started in their directory, else the session's only game, else 15702, so that two sessions, or two worktrees of one, never drive each other's games.
 * Claude Code starts the game in the background so that it neither covers the maintainer's screen nor touches the maintainer's settings, history and log: muted, with files of its own, and its window hidden (`--hidden`, #556): on no screen, taskbar or Alt-Tab, as the original's driver keeps its own (§3.8).
   Bevy creates every window hidden and shows it after; `--hidden` leaves it so.
   A hidden window cannot be shown again: the game hangs when one is (Bevy 0.20 on Windows, observed with the window hidden at the start or later, 2026-10-22).

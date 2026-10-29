@@ -165,10 +165,11 @@ struct Cli {
     /// Run the commands of this file from the start, a line each, after those of --exec
     #[arg(long, value_name = "FILE")]
     script: Option<PathBuf>,
-    /// Listen for remote control on this port of 127.0.0.1 (Bevy's Remote Protocol, 15702 by
-    /// default); the window then opens without taking the focus
-    #[arg(long, value_name = "PORT", num_args = 0..=1, default_missing_value = "15702")]
-    remote: Option<u16>,
+    /// Listen for remote control on this port of 127.0.0.1 (Bevy's Remote Protocol): given none,
+    /// 15702, or under a Claude Code session a port of the session's own that its
+    /// tools/game/remote.py finds; the window then opens without taking the focus
+    #[arg(long, value_name = "PORT", num_args = 0..=1)]
+    remote: Option<Option<u16>>,
     /// Keep the window hidden, a window as with --windowed, for a run driven from afar: it is on no
     /// screen, taskbar or Alt-Tab, and draws on and takes its screenshots
     #[arg(long, conflicts_with = "borderless")]
@@ -457,7 +458,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     }
     app.insert_resource(script);
     if let Some(port) = cli.remote {
-        app.add_plugins(remote::RemoteControlPlugin { port });
+        app.add_plugins(remote::RemoteControlPlugin::new(port)?);
     }
     Ok(app.run())
 }

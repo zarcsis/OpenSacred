@@ -2,8 +2,9 @@
 """A conformance run of opensacred-game against the original (#600, docs/03 §3.7, §3.8).
 
 Purpose: the checks of the game's rules against the original's, repeated with one command after a change. Both games
-must run with their remote control, the game with `--remote` (127.0.0.1:15702) and the original under
-`tools/original/host.py` (127.0.0.1:15703). The run starts them afresh (`new-game --class seraphim` in the game, `load
+must run with their remote control, the game with `--remote` (this Claude Code session's port as remote.py finds it,
+#1397, else 127.0.0.1:15702) and the original under `tools/original/host.py` (127.0.0.1:15703). The run starts them
+afresh (`new-game --class seraphim` in the game, `load
 SAVE` in the original, a save of the Seraphim's new game) and goes through its suites, each check printing PASS or
 FAIL:
 
@@ -434,10 +435,10 @@ def main():
     parser.add_argument('--levels', default='1,10,25,40', help="the stats suite's levels")
     parser.add_argument('--assets', default=os.path.join(ROOT, 'assets-src'),
                         help="the masters, whose tables/ the drops suite reads (assets/ holds the game's archives)")
-    parser.add_argument('--game-port', type=int, default=15702)
+    parser.add_argument('--game-port', type=int, help="the game's port (this session's game's by default)")
     parser.add_argument('--original-port', type=int, default=15703)
     args = parser.parse_args()
-    game = compare.Endpoint('the game', args.game_port)
+    game = compare.Endpoint('the game', compare.game_port(args.game_port))
     original = compare.Endpoint('the original', args.original_port)
     report = Report()
     suites = args.suites.split(',')

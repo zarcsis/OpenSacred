@@ -2,6 +2,12 @@
 //! HTTP on the loopback alone (`127.0.0.1`, port 15702 by default), so that Claude Code and
 //! scripts drive a running game. Off unless the command line asks, and never from the settings.
 //!
+//! Under a Claude Code session (`CLAUDE_CODE_SESSION_ID` in the environment), `--remote` without a
+//! port listens on a port that the system gives and records it in
+//! `%LOCALAPPDATA%\OpenSacred\remote\<session>-<directory>.port` for that session's clients
+//! (`tools/game/remote.py`), so that two sessions, or two worktrees of one, never drive each other's
+//! games (#1397); the record goes as the game ends.
+//!
 //! The game's own methods, beside Bevy's (`rpc.discover`, `world.query`, …):
 //!
 //! - `opensacred/exec {"line": …}`: runs a command (`command`) and gives its output lines;
@@ -18,7 +24,10 @@
 //! error for an entity that is gone instead of ending the game (#456).
 
 use std::collections::VecDeque;
+use std::net::{Ipv4Addr, TcpListener};
+use std::path::PathBuf;
 
+use anyhow::anyhow;
 use bevy::input::ButtonState;
 use bevy::input::InputSystems;
 use bevy::input::keyboard::{Key, KeyboardInput};
@@ -438,9 +447,117 @@ fn send(
     pending.0 = later;
 }
 
+/// The port of the remote control when `--remote` names none outside a Claude Code session.
+pub const PORT: u16 = 15702;
+
+/// A session's record of its game's port (#1397), removed as the game ends unless a game started
+/// later in the same session and directory has taken its place.
+#[derive(Resource)]
+struct PortRecord {
+    path: PathBuf,
+    pid: u32,
+}
+
+impl Drop for PortRecord {
+    fn drop(&mut self) {
+        let ours = std::fs::read_to_string(&self.path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .is_some_and(|record| record["pid"].as_u64() == Some(u64::from(self.pid)));
+        if ours {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// FNV-1a of 64 bits, as `tools/game/remote.py` hashes a working directory.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The name of a session's record for a game started in `directory`: the session, then the hash
+/// of the directory, in lower case with backslashes on Windows, as `tools/game/remote.py` makes it.
+fn record_key(session: &str, directory: &std::path::Path) -> String {
+    let text = directory.to_string_lossy();
+    let text = if cfg!(windows) {
+        text.replace('/', "\\").to_lowercase()
+    } else {
+        text.into_owned()
+    };
+    format!("{session}-{:016x}", fnv1a(text.as_bytes()))
+}
+
+/// A port of the loopback that the system gives, free when asked.
+fn free_port() -> anyhow::Result<u16> {
+    TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .and_then(|listener| listener.local_addr())
+        .map(|address| address.port())
+        .map_err(|e| anyhow!("a free port of 127.0.0.1: {e}"))
+}
+
+/// A port of the session `session` of its own for a game started in `directory`, recorded in a
+/// file of `records` with the game's pid: the port and the file.
+fn session_port(
+    session: &str,
+    directory: &std::path::Path,
+    records: &std::path::Path,
+) -> anyhow::Result<(u16, PathBuf)> {
+    let port = free_port()?;
+    std::fs::create_dir_all(records).map_err(|e| anyhow!("creating {}: {e}", records.display()))?;
+    let path = records.join(format!("{}.port", record_key(session, directory)));
+    let record = json!({
+        "port": port,
+        "pid": std::process::id(),
+        "dir": directory.to_string_lossy(),
+    });
+    std::fs::write(&path, format!("{record}\n"))
+        .map_err(|e| anyhow!("writing {}: {e}", path.display()))?;
+    Ok((port, path))
+}
+
 /// Bevy's Remote Protocol on `port` of the loopback, with the game's methods.
 pub struct RemoteControlPlugin {
     pub port: u16,
+    /// The session's record of the port, which the game removes as it ends.
+    record: Option<PathBuf>,
+}
+
+impl RemoteControlPlugin {
+    /// The remote control on the port `--remote` names, else under a Claude Code session on a
+    /// port of the session's own, recorded for its clients, else on [`PORT`].
+    pub fn new(port: Option<u16>) -> anyhow::Result<Self> {
+        let session = std::env::var("CLAUDE_CODE_SESSION_ID")
+            .ok()
+            .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+        match (port, session) {
+            (Some(port), _) => Ok(Self::on(port)),
+            (None, None) => Ok(Self::on(PORT)),
+            (None, Some(session)) => {
+                let directory =
+                    std::env::current_dir().map_err(|e| anyhow!("the working directory: {e}"))?;
+                let (port, path) = session_port(&session, &directory, &records_dir())?;
+                Ok(Self {
+                    port,
+                    record: Some(path),
+                })
+            }
+        }
+    }
+
+    /// The remote control on `port`, recorded nowhere.
+    pub fn on(port: u16) -> Self {
+        Self { port, record: None }
+    }
+}
+
+/// Where the sessions' games record their ports.
+fn records_dir() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA")
+        .map_or_else(std::env::temp_dir, PathBuf::from)
+        .join("OpenSacred")
+        .join("remote")
 }
 
 impl Plugin for RemoteControlPlugin {
@@ -464,7 +581,20 @@ impl Plugin for RemoteControlPlugin {
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.insert_resource(HostPort(0));
         }
-        info!("remote control on 127.0.0.1:{}", self.port);
+        match &self.record {
+            Some(path) => {
+                app.insert_resource(PortRecord {
+                    path: path.clone(),
+                    pid: std::process::id(),
+                });
+                info!(
+                    "remote control on 127.0.0.1:{}, this Claude Code session's port, recorded in {}",
+                    self.port,
+                    path.display()
+                );
+            }
+            None => info!("remote control on 127.0.0.1:{}", self.port),
+        }
     }
 }
 
@@ -584,10 +714,55 @@ mod tests {
         let mut render = SubApp::new();
         render.init_resource::<bevy::render::RenderScheduleOrder>();
         app.insert_sub_app(RenderApp, render);
-        app.add_plugins(RemoteControlPlugin { port: 15702 });
+        app.add_plugins(RemoteControlPlugin::on(15702));
         let render = app.sub_app(RenderApp).world();
         assert_eq!(render.resource::<HostPort>().0, 0);
         assert_eq!(app.world().resource::<HostPort>().0, 15702);
+    }
+
+    #[test]
+    fn a_session_keys_its_record_as_its_client_does() {
+        // tools/game/test_remote.py expects the same key.
+        let session = "57b5a8bd-0dfa-4826-be0a-8d52cf51dcd0";
+        let key = record_key(session, std::path::Path::new(r"c:\users\dev\opensacred"));
+        assert_eq!(key, format!("{session}-6bacac6e8af29895"));
+        if cfg!(windows) {
+            assert_eq!(
+                record_key(session, std::path::Path::new("C:/Users/Dev/OpenSacred")),
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_gets_a_port_of_its_own_recorded_until_the_game_ends() {
+        let records = std::env::temp_dir().join(format!(
+            "opensacred-game-remote-records-{}",
+            std::process::id()
+        ));
+        let directory = std::path::Path::new("worktree-of-the-test");
+        let (port, path) = session_port("test-session", directory, &records).unwrap();
+        assert_ne!(port, PORT);
+        assert_eq!(
+            path,
+            records.join(format!("{}.port", record_key("test-session", directory)))
+        );
+        let record: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(record["port"], port);
+        assert_eq!(record["pid"], std::process::id());
+        assert_eq!(record["dir"], "worktree-of-the-test");
+        // A record that a later game of the session took stays as that game wrote it.
+        drop(PortRecord {
+            path: path.clone(),
+            pid: std::process::id() + 1,
+        });
+        assert!(path.exists());
+        drop(PortRecord {
+            path: path.clone(),
+            pid: std::process::id(),
+        });
+        assert!(!path.exists());
+        std::fs::remove_dir_all(&records).unwrap();
     }
 
     #[test]
@@ -611,7 +786,7 @@ mod tests {
         .add_plugins(bevy::input::InputPlugin)
         .add_message::<CursorMoved>()
         .add_message::<WindowEvent>()
-        .add_plugins(RemoteControlPlugin { port });
+        .add_plugins(RemoteControlPlugin::on(port));
         let (file, settings) = crate::settings::SettingsFile::read(Some(
             std::env::temp_dir().join(format!("opensacred-game-remote-{port}.toml")),
         ));

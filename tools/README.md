@@ -53,6 +53,7 @@ $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadle
 ## The game's remote control
 
 `tools/game/remote.py` drives an `opensacred-game` started with `--remote` (docs/10 §8, docs/03 §3.7): it runs the game's commands, reads its state and log, sends the player's keys, text and clicks, and takes screenshots, through the game's Remote Protocol on `127.0.0.1`; the standard library alone.
+Without `--port` it calls the game of its Claude Code session, which `--remote` without a port gives a port of the session's own (#1397), else 15702; tests: `uv run python -I -m unittest discover -s tools/game -p "test_*.py"`.
 
 ```bash
 uv run python -I tools/game/remote.py wait-state menu
