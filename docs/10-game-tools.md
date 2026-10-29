@@ -6,7 +6,7 @@
   The tools let the maintainer test the game as a game, and let Claude Code drive a running game by itself.
 * **Settings:** `settings.toml` in the user's directory; borderless full screen by default, F11 for a window, both kept.
 * **Menu:** a main menu (New Game, Quit) and the choice of the hero, which needs the game to start and end inside one process: states, and a loading in the background.
-  Esc in the game pauses it under a small menu: Continue, Main menu, Quit.
+  Esc in the game, or the taskbar's Options button, pauses it under the original's Esc menu (#1410).
 * **On the screen:** the HUD's portrait, health bar and gait go, the original's bar and portrait coming in their place with #1087; F3 shows a debug overlay (the frame rate and times, the hero's place), F4 the log, which a file keeps too.
 * **Commands:** one set of commands, which the command line's scripts, the console on `~` and the remote protocol run alike; the command line's options become commands.
 * **Remote control:** Bevy's Remote Protocol (JSON-RPC over HTTP, loopback only, off by default) with the game's own methods: run a command, read the state, send the player's input, take a screenshot, read the log; a client in `tools/game/` and the project skill `game` for Claude Code, no MCP server.
@@ -85,6 +85,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The sound pauses too, the music, the ambient loops and the footsteps fading out and, on Continue, in again from where they stopped: paused rather than muted, so that a track does not run on unheard.
   With the console open, Esc closes the console instead.
   Done 2026-10-19 (#178): a module `pause` with a sub-state `Play { Running, Paused }` of `InGame`, Bevy's virtual time paused, the three channels of the sound paused and resumed with a fade of 0.2 s, and a set `frame::Unpaused` of what stops with the pause, the hero's keys and clicks, the zoom, and the systems that start a sound; the menu is the third screen of `menu`.
+  Since #1410 the menu is the original's Esc menu (`esc_menu`, docs/re/menus.md): its framed window, Options, Save Game and Export greyed while their screens are not there, Quit asking first in the original's dialog, OK leaving for the main menu, and Continue; the taskbar's Options button opens it too.
   The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
 * A game named on the command line (`--class` or another of the game's options but `--zoom` and `--no-music`, which only say how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.

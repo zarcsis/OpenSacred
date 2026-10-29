@@ -35,6 +35,7 @@ mod doors;
 mod drops;
 mod effects;
 mod equipment;
+mod esc_menu;
 mod fight;
 mod files;
 mod fliers;
@@ -325,6 +326,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         drops::DropsPlugin,
         effects::EffectsPlugin,
         equipment::EquipmentPlugin,
+        esc_menu::EscMenuPlugin,
         fight::FightPlugin,
         fliers::FliersPlugin,
         followers::FollowersPlugin,
@@ -336,9 +338,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         guns::GunsPlugin,
         held::HeldPlugin,
         help::HelpPlugin,
-        hero::HeroPlugin,
     ))
     .add_plugins((
+        hero::HeroPlugin,
         hud::HudPlugin,
         hurled::HurledPlugin,
         icons::IconsPlugin,
@@ -353,9 +355,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         models::ModelsPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,
-        opus::OpusPlugin,
     ))
     .add_plugins((
+        opus::OpusPlugin,
         overlay::OverlayPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
@@ -370,9 +372,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         sets::SetsPlugin,
         settings::SettingsPlugin,
         sfx::SfxPlugin,
-        shaders::ShaderLibrary,
     ))
     .add_plugins((
+        shaders::ShaderLibrary,
         shadows::ShadowsPlugin,
         skies::SkiesPlugin,
         souls::SoulsPlugin,

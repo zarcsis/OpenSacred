@@ -1,4 +1,4 @@
-//! The pause (docs/10 §4): Esc in the game stops it under a small menu (`menu`), and again goes
+//! The pause (docs/10 §4): Esc in the game stops it under the original's Esc menu (`esc_menu`), and again goes
 //! on. Bevy's virtual time stops, so that everything on the game's time stands still: the hero,
 //! the NPCs and their clips, the clock, the liquids. The world takes no keys or clicks
 //! (`frame::Unpaused`), and the sound pauses, fading out, to go on from where it stopped: paused
@@ -38,7 +38,7 @@ type Channels<'w> = (
 );
 
 /// Esc pauses the game, and again goes on.
-fn toggle(
+pub(crate) fn toggle(
     keys: Res<ButtonInput<KeyCode>>,
     play: Res<State<Play>>,
     mut next: ResMut<NextState<Play>>,

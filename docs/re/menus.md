@@ -137,3 +137,19 @@ Read 2026-10-26 in the code (#1128) and in the original's traces of `playSFX` (`
   There is no loop of ambience.
 - On the choice of the hero, the cursor resting on a figure for half a second plays its class's introduction, stopped as it leaves the figures or the screen: `SOUND_FX_1060` (17000) the Gladiator's, `1061` (18120) the Seraphim's, `1062` (16600) the Dark Elf's, `1063` (17370) the Wood Elf's, `1064` (17750) the Battle Mage's, `1065` (18510) the Vampiress's, `SOUND_FX_STARTUP_DEMON` (21219) and `SOUND_FX_STARTUP_DWARF` (21545), at the middle and the sample's rate (**confirmed**; **seen** for the Gladiator).
 - The items make no sound under the cursor or as they are clicked (**seen**); the buttons hold `SOUND_FX_UI_CLICK01` (7000) for a press but none played.
+
+## The menu over a game (Esc)
+
+Seen 2026-10-29 with the driver of #448 (#1410: the Seraphim's new game, its window's controls listed by `ui`, the cursor moved over each item) and read in the code where marked.
+
+- In a game of one player, Esc and the taskbar's Options button (`UI_TB_OPTIONS`) open the window `UI_WND_ESCMENU` (`cUI_EscMenu`) over the world, and Esc again closes it; under it the game's time stands (the driver's state `paused`).
+- The window is the rectangle (380, 284)–(644, 484), 264 × 200, dark and translucent, with the frame of the choice of the hero's panel about the box (400, 304)–(624, 464): the crest's halves at the middle of its top and its foot, the corners, the edges along the top and the foot (the foot's 12 below the box) and the sides (the right's 15 out of the box), the same pieces at the same sizes (`UI_STATIC_FRAME`, its 36 controls listed).
+- Its five items are texts of the class `cUI_StaticText64`, not buttons: `UI_ESC_OPTIONS`, `UI_ESC_SAVE`, `UI_ESC_EXPORT`, `UI_ESC_QUIT` and `UI_ESC_CONTINUE`, each 32 high and the window's width, at the rows 8, 44, 80, 116 and 152 of the window, their words centred (`0x6BBBD0`, **confirmed**); their words are the texts 1050, 1051, 1049, 1052 and 1053 of `global.res` (the hashes of those numbers find them in the order the window shows them).
+  They stand in a golden letter, the one under the cursor lit, as the main menu's.
+- Options opens `UI_WND_OPTIONS`, Save Game `UI_WND_SAVEGAME` (both through the window's events, `0x6BBBD0`; not followed: the options #1096 and the saves #1095 are not there), Export the character's window (`UI_CHARACTER`, not read), Continue closes the menu, and Quit asks first in `DEFAULT_BUSYDLG` (`cUI_BusyDlg`, the text `UI_BUSY_2MAINMENU`).
+- That dialog darkens the whole screen (`UI_STATIC_BG`, 1024 × 768), lays its dark box (288, 288)–(736, 480) with the same frame about (320, 320)–(704, 448), its question in white in the middle, and two buttons of the choice of the hero's kind under it, OK (the text 1024) and Cancel (1025): OK leaves the game for the main menu, and Cancel closes the dialog alone, the menu staying (**seen**).
+
+## In `opensacred-game`
+
+The main menu, its submenus and the choices of the hero follow the sections above (`menu`, `choice`, #1118, #1119).
+Since #1410 the menu over a game is the original's (`esc_menu`): Esc and the taskbar's Options button pause the game under the window at its place, its fill and the standard frame drawn with the choice of the hero's pieces (`choice::frame_about`), its items in Carolingia at the main menu's size, pale and lit white under the cursor (seen: the letters (228, 212, 169), the lit (249, 249, 249)); Options, Save Game and Export stand greyed while their screens are not there (#1096, #1095, M9), Continue goes on, and Quit opens the dialog, the screen darkened by half (**estimate**), its box, frame, question and the buttons OK and Cancel at their places (**estimate** to a few pixels), OK leaving for the main menu and Cancel, or Esc, closing it alone.
