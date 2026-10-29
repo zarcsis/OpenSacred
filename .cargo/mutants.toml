@@ -15,4 +15,7 @@ exclude_re = [
     'Rng::(of|next)\b',
     # The text of an error or a value, which no rule reads.
     '<impl (std::)?(fmt::)?(Debug|Display) for ',
+    # Equivalent: `weighing`'s `r > upper` as `>=` gives `upper/r` at `r == upper`, exactly 1, as
+    # the next branch does (#1454, #1472); the function's one `>`.
+    'replace > with >= in weighing$',
 ]
