@@ -37,7 +37,7 @@ Always pass `--hidden` (or `--windowed` for a one-shot script), `--no-music`, an
 | `exec "LINE"` | a command of the game; `exec help` lists them, `exec "help go"` explains one; `wait` is for scripts: from the client, use `wait-ready` or `wait-state` |
 | `state` (`--json`) | the overlay's values: the state (menu, loading, game, paused), frames, the hero's cell, sector, gait, target, the clock, the zoom, the sectors, the NPCs, objects and entities, the nearest creature's health and level, the hero's level, health and experience, the drops nearest the hero, the version, GPU and window, whether the scene is ready (`--json` has them all; `exec state` prints the game's own lines) |
 | `wait-state menu\|loading\|game\|paused`, `wait-ready` | poll until then, through the game's start too (`--timeout`, 120 s) |
-| `key NAME` | press and release a key by its place: `Escape`, `Enter`, `F1`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
+| `key NAME` (`--hold N`) | press and release a key by its place, held N frames (Alt over a screenshot of the items' labels): `Escape`, `Enter`, `F1`, `F3`, `F4`, `F11`, `R`, `Backquote` (the console), `ArrowUp`, …, or keys held together: `Control+V` (the console pastes the system's clipboard; it is the maintainer's: keep what it held and put it back) |
 | `type "TEXT"` | type text, as into the console |
 | `click X Y` (`--button`, `--hold`) | click a pixel of the window: a menu's item, or the ground for the hero to walk there |
 | `move X Y`, `wheel N` | the cursor, the wheel (the zoom) |

@@ -128,9 +128,11 @@ pub(crate) fn from_line(ray: Ray3d, point: Vec3) -> f32 {
 }
 
 /// On a press of the left button, the hero's attack: a hostile creature alive under the cursor
-/// becomes its target; with Ctrl held it strikes at once, at the creature or in the air at the
-/// cursor; a press elsewhere ends the attack once its strike ends, and steers the hero. On the
-/// button's release the attack ends with its strike, unless a click still asks for one.
+/// becomes its target, unless Alt is held over an item or its label, which comes first then
+/// (the pick's classes in the order 2, 1, 0, 3, `0x95F934`; `labels`); with Ctrl held it strikes
+/// at once, at the creature or in the air at the cursor; a press elsewhere ends the attack once
+/// its strike ends, and steers the hero. On the button's release the attack ends with its strike,
+/// unless a click still asks for one.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -144,10 +146,14 @@ pub(crate) fn aim(
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     mut aim: ResMut<Aim>,
     // A creature of a dialogue is spoken to, hostile or not (`0x53A170`, `crate::talk`).
-    creatures: Query<
-        (Entity, &GlobalTransform, &Mind, &Health),
-        (Without<Dies>, Without<crate::npcs::Talk>),
-    >,
+    (creatures, items, labels): (
+        Query<
+            (Entity, &GlobalTransform, &Mind, &Health),
+            (Without<Dies>, Without<crate::npcs::Talk>),
+        >,
+        Query<(&GlobalTransform, &crate::drops::Lying)>,
+        Res<crate::labels::Shown>,
+    ),
     mut heroes: Query<
         (
             Entity,
@@ -176,9 +182,14 @@ pub(crate) fn aim(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
+    let items_first = crate::labels::held(&keys)
+        && (labels.under(cursor).is_some()
+            || items.iter().any(|(at, lying)| {
+                lying.resting && from_line(ray, at.translation()) <= PICKED_WITHIN
+            }));
     let picked = creatures
         .iter()
-        .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
+        .filter(|(_, _, mind, health)| !items_first && mind.hostile() && health.current > 0)
         .map(|(entity, at, ..)| (entity, from_line(ray, at.translation())))
         .filter(|&(_, distance)| distance <= PICKED_WITHIN)
         .min_by(|a, b| a.1.total_cmp(&b.1))

@@ -13,7 +13,7 @@
 //! - `opensacred/exec {"line": …}`: runs a command (`command`) and gives its output lines;
 //! - `opensacred/state`: the overlay's values (`overlay::Snapshot`);
 //! - `opensacred/input {…}`: the player's input as if from the system, one of `{"key": "F11"}`
-//!   (or keys held together, `{"key": "Control+V"}`),
+//!   (or keys held together, `{"key": "Control+V"}`, held `hold` frames, 1 by default),
 //!   `{"text": "zoom 2"}`, `{"move": [x, y]}`, `{"click": [x, y], "button": "left", "hold": 2}`
 //!   or `{"wheel": 1}`, in the window's pixels: the keys and clicks go through the game's own code,
 //!   the menus' and the console's too, and the system's cursor stays where it is;
@@ -168,6 +168,8 @@ struct Input {
     click: Option<[f32; 2]>,
     /// `left` (by default), `right` or `middle`.
     button: Option<String>,
+    /// The frames a click's button is held, 2 by default, or a key's, 1 by default (Alt held over
+    /// a screenshot, #1409).
     hold: Option<u32>,
     /// The wheel turned by lines, up positive.
     wheel: Option<f32>,
@@ -322,7 +324,7 @@ fn input(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
         })
     };
     if let Some(names) = &input.key {
-        // `Control+V`: the keys pressed in order, and released together a frame later.
+        // `Control+V`: the keys pressed in order, and released together `hold` frames later.
         let mut chord = Vec::new();
         for name in names.split('+') {
             chord.push(key(name).ok_or_else(|| failure(format!("no key {name}")))?);
@@ -339,8 +341,9 @@ fn input(In(params): In<Option<Value>>, world: &mut World) -> BrpResult {
                 keyboard(*code, logical.clone(), text, ButtonState::Pressed),
             ));
         }
+        let held = input.hold.unwrap_or(1).max(1);
         for (code, logical, text) in chord.into_iter().rev() {
-            sent.push((1, keyboard(code, logical, text, ButtonState::Released)));
+            sent.push((held, keyboard(code, logical, text, ButtonState::Released)));
         }
     }
     if let Some(text) = &input.text {
