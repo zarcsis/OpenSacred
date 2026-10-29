@@ -32,7 +32,7 @@
 //! `CreateNPC`s of the area that carry `0x6B` of 0 take (`npcs::AREA_TURN`, [`ScriptAreaTypes`],
 //! #1063, #1102).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -43,7 +43,7 @@ use bevy::prelude::{
     NonSendMut, OnEnter, OnExit, Plugin, Query, Res, ResMut, Resource, Transform, Update, With,
     Without, World,
 };
-use opensacred_data::luau::{BYTECODE, INDEX, Index};
+use opensacred_data::luau::{BYTECODE, CALLS, INDEX, Index, calls, differing_calls};
 use opensacred_data::netscript::{self, Function, Record, Tree, Value};
 use opensacred_rules::quests::{self, Counted, Transition};
 use opensacred_rules::spawning::Rng;
@@ -343,9 +343,51 @@ pub fn run(
     })
 }
 
+/// Whether the scripts in `assets` were translated with this game's calls (#1399): the converter
+/// lists the calls it translated with beside the trees, and a game of another commit would run
+/// them only in part, its host knowing other calls than theirs (#1393's English names).
+fn check_calls(assets: &Path) -> Result<()> {
+    const AGAIN: &str = "make the assets again (opensacred-convert netscript, then build), or \
+                         run the game of the commit that made them";
+    let path = assets.join("netscript").join(CALLS);
+    let text = files::read_to_string(&path).with_context(|| {
+        format!(
+            "reading {}: the scripts were translated before their calls were listed (#1399); \
+             {AGAIN}",
+            path.display()
+        )
+    })?;
+    let theirs: BTreeMap<u16, String> =
+        ron::from_str(&text).with_context(|| format!("reading {}", path.display()))?;
+    let ours = calls();
+    let differing = differing_calls(&ours, &theirs);
+    if differing.is_empty() {
+        return Ok(());
+    }
+    let listed: Vec<String> = differing
+        .iter()
+        .take(8)
+        .map(|&(kind, here, there)| {
+            format!(
+                "type {kind}: {} here, {} there",
+                here.unwrap_or("none"),
+                there.unwrap_or("none")
+            )
+        })
+        .collect();
+    anyhow::bail!(
+        "the scripts in {} were translated with other calls than this game's, {} of them ({}); \
+         {AGAIN}",
+        path.parent().unwrap_or(&path).display(),
+        differing.len(),
+        listed.join("; ")
+    )
+}
+
 /// The runtime of the tree `tree` of the index `index`, which loads its files' bytecode from
-/// `assets` (`netscript/<tree>/`).
+/// `assets` (`netscript/<tree>/`), once the scripts' calls are this game's ([`check_calls`]).
 fn runtime(assets: &Path, tree: &str, index: Index) -> Result<Runtime> {
+    check_calls(assets)?;
     let dir = assets.join("netscript").join(tree);
     Runtime::new(tree, index, move |file| {
         let stem = file.strip_suffix(".luau").unwrap_or(file);
@@ -3494,5 +3536,35 @@ mod tests {
         assert_eq!(state.variables.get("grabstein_dialog_0"), Some(7));
         assert_eq!(state.variables.get("grabstein_dialog_193"), Some(7));
         assert_eq!(state.variables.get("grabstein_dialog_194"), None);
+    }
+
+    #[test]
+    fn scripts_of_other_calls_than_the_games_are_refused() {
+        let assets =
+            std::env::temp_dir().join(format!("opensacred-game-calls-{}", std::process::id()));
+        let dir = assets.join("netscript");
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |calls: &BTreeMap<u16, String>| {
+            let text = ron::ser::to_string(calls).unwrap();
+            std::fs::write(dir.join(CALLS), text).unwrap();
+        };
+        let missing = check_calls(&assets).unwrap_err();
+        assert!(format!("{missing:#}").contains("#1399"), "{missing:#}");
+        write(&calls());
+        check_calls(&assets).unwrap();
+        // The scripts of a converter before #1393, which called the type 125 by its keyword.
+        let mut older = calls();
+        older.insert(125, "gewinn".to_owned());
+        write(&older);
+        let refused = format!("{:#}", check_calls(&assets).unwrap_err());
+        assert!(
+            refused.contains("1 of them (type 125: prize here, gewinn there)"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("opensacred-convert netscript"),
+            "{refused}"
+        );
+        std::fs::remove_dir_all(&assets).unwrap();
     }
 }

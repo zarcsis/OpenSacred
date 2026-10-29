@@ -663,6 +663,9 @@ return F
         assert!(masters_alone("netscript/netscript.ron"));
         assert!(!masters_alone("netscript/type_npc_seraphim/index.ron"));
         assert!(!masters_alone("netscript/type_npc_seraphim/start.luau"));
+        // And the calls they were translated with, which the game checks (#1399).
+        assert!(!masters_alone("netscript/calls.ron"));
+        assert_eq!(archive_of("netscript/calls.ron"), "data.zip");
         assert_eq!(archive_of("sound/samples/00002.flac"), "sound.zip");
         assert_eq!(archive_of("textures/texture/00001-a.png"), "textures.zip");
         assert!(deflated("tables/items.ron"));
