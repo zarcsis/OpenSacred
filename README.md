@@ -34,7 +34,7 @@ It is not a game you can play through yet: the inventory is partly made, and the
 - **Windows:** Visual Studio Build Tools 2026 with the "Desktop development with C++" workload and the Windows SDK. The workspace links with `rust-lld` ([.cargo/config.toml](.cargo/config.toml)).
 - **CMake** in `PATH`: the game's build compiles libopus with it.
 - **FFmpeg** in `PATH`: the converter runs it for the sound, the videos and a few textures.
-- **Cargo tools** for development: `cargo install cargo-nextest cargo-deny`.
+- **Cargo tools** for development: `cargo install cargo-nextest cargo-deny`, and `cargo-mutants` for mutation testing ([docs/03-toolchain.md](docs/03-toolchain.md), §3.4).
 - **[uv](https://docs.astral.sh/uv/)** for the Python tools in [tools/](tools/README.md), the Claude Code hooks and the tests that cross-check against the research scripts: it installs Python 3.15 and the packages of [pyproject.toml](pyproject.toml) for the project alone, never into the system's Python; `uv run python -I <script>`.
 
 The full tool list is in [docs/03-toolchain.md](docs/03-toolchain.md).

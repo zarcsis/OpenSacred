@@ -1,0 +1,18 @@
+# cargo-mutants' settings (https://mutants.rs/), for CI's job on each pull request and the local full
+# runs (docs/03 §3.4, #1432).
+
+# The tests through cargo-nextest, as CI runs them.
+test_tool = "nextest"
+# The workspace's lints off in the mutants' builds: a mutant that leaves a variable unused still
+# builds.
+cap_lints = true
+
+# Mutants no test is meant to catch, each with its reason.
+exclude_re = [
+    # The game's own generator's mixing of its seed and state (SplitMix64): its numbers' quality,
+    # which no test of the rules measures; the original rolls the C library's rand() (#1433). The
+    # bound of `Rng::below` stays.
+    'Rng::(of|next)\b',
+    # The text of an error or a value, which no rule reads.
+    '<impl (std::)?(fmt::)?(Debug|Display) for ',
+]

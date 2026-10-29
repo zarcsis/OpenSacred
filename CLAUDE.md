@@ -56,6 +56,7 @@ cargo nextest run -p opensacred-rules --run-ignored only -E 'binary(oracle)'   #
 cargo nextest run --workspace --run-ignored only -E 'test(scene)'   # the screenshot test (a GPU)
 UPDATE_SCREENSHOTS=1 cargo nextest run --workspace --run-ignored only -E 'test(scene)'   # new reference
 cargo deny check                                    # licenses, vulnerabilities, sources
+cargo mutants -p opensacred-rules --jobs 16 --output <scratch>   # the crate's mutants, the missed ones in <scratch>/mutants.out/missed.txt (.cargo/mutants.toml; --iterate skips those caught before, --in-diff FILE keeps to a diff's lines; docs/03 §3.4)
 uv run python -I tools/analysis/formats/<script>.py --game-dir ./OriginalGame   # Python prototypes
 ```
 

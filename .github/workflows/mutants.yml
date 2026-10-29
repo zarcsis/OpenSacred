@@ -1,0 +1,98 @@
+# cargo-mutants on the lines a pull request changes in the crates without Bevy (docs/03 §3.4, #1432): a
+# mutant that every test lets through marks code that no test pins. The job reports and fails nothing
+# for its mutants: their counts and the missed ones go into its summary, mutants.out/ into an artifact.
+# It fails only when it could not measure them (a usage error, a baseline whose tests fail). Not a
+# required check (docs/03 §3.6).
+name: Mutants
+
+on:
+  pull_request:
+    paths:
+      - crates/opensacred-rules/**
+      - crates/opensacred-data/**
+      - crates/opensacred-formats/**
+      - .cargo/mutants.toml
+      - .github/workflows/mutants.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: "0"
+
+jobs:
+  mutants:
+    name: Mutants
+    runs-on: ubuntu-latest
+    steps:
+      # The pull request's merge commit and its first parent, the base: their diff is the pull
+      # request's changes as they would merge.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest,cargo-mutants
+      # The mutants of the changed lines, each built in a copy of the tree and tested with the tests
+      # of the three crates (.cargo/mutants.toml: nextest, the lints capped, the exclusions): those of
+      # opensacred-data take the tests of opensacred-rules and opensacred-formats, its users without
+      # Bevy. cargo-mutants exits with 2 for missed mutants and 3 for timeouts, which the summary
+      # reports; any other failure is the job's.
+      - id: mutants
+        name: Mutants on the changed lines
+        run: |
+          git diff HEAD^1 HEAD > "$RUNNER_TEMP/pull-request.diff"
+          start=$(date +%s)
+          status=0
+          cargo mutants --in-diff "$RUNNER_TEMP/pull-request.diff" --output "$RUNNER_TEMP" --jobs 2 \
+            -p opensacred-rules -p opensacred-data -p opensacred-formats \
+            --test-package opensacred-rules,opensacred-data,opensacred-formats || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "minutes=$(( ($(date +%s) - start + 59) / 60 ))" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        if: always() && steps.mutants.outputs.status != ''
+        env:
+          MINUTES: ${{ steps.mutants.outputs.minutes }}
+        run: |
+          out="$RUNNER_TEMP/mutants.out"
+          count() { if [ -f "$out/$1.txt" ]; then grep -c . "$out/$1.txt" || true; else echo 0; fi; }
+          caught=$(count caught); missed=$(count missed); timeouts=$(count timeout); unviable=$(count unviable)
+          {
+            echo "## Mutants on this pull request's lines"
+            echo
+            if [ $((caught + missed + timeouts + unviable)) -eq 0 ]; then
+              echo "No mutants on the changed lines ($MINUTES min)."
+            else
+              echo "$((caught + missed + timeouts + unviable)) mutants in $MINUTES min: $caught caught, $missed missed, $timeouts timed out, $unviable unviable."
+            fi
+            for kind in missed timeout; do
+              if [ -s "$out/$kind.txt" ]; then
+                echo
+                echo "### ${kind^}"
+                echo
+                echo '```'
+                cat "$out/$kind.txt"
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: always() && steps.mutants.outputs.status != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants.out
+          path: ${{ runner.temp }}/mutants.out
+          if-no-files-found: ignore
+      - name: Fail when the mutants could not be measured
+        if: steps.mutants.outputs.status != '0' && steps.mutants.outputs.status != '2' && steps.mutants.outputs.status != '3'
+        env:
+          STATUS: ${{ steps.mutants.outputs.status }}
+        run: |
+          echo "cargo mutants exited with $STATUS: see its log above"
+          exit 1

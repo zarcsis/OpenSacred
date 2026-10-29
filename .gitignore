@@ -45,6 +45,8 @@
 *.exp
 
 # --- Tooling ---
+# cargo-mutants' output of a run without --output (docs/03 §3.4)
+/mutants.out*/
 __pycache__/
 *.pyc
 .venv/
