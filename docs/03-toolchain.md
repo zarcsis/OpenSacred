@@ -191,6 +191,11 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   A decision (a row of a subsystem's table in `docs/decisions/`, added, changed or removed), `CLAUDE.md` or the rest of `.claude/` (the skills) does not stop the merge.
   Whether the change waits for the maintainer instead (§3.6) the guard cannot judge: Claude Code labels such a pull request `needs-maintainer`, and the guard refuses it by the label.
   Tests: `uv run python -I -m unittest discover -s .claude/hooks -p "test_*.py"`.
+* **The rules' watch** (`.claude/hooks/rules_watch.py`, a `SessionStart` and a `UserPromptSubmit` hook, #1400): a session reads `CLAUDE.md` as it starts, and one that runs for hours would not see a rule merged meanwhile.
+  As a session starts, the hook records `CLAUDE.md` and this document as its branch took them from `main` (at the merge base of `HEAD` and `origin/main`, so that the session's own changes are not taken for main's), in `%LOCALAPPDATA%\OpenSacred\rules-read\<session>.json`.
+  At each prompt it fetches `origin/main`, at most once in five minutes, and when either file there differs from the text recorded, adds the diff to the session's context, or the command that shows it when the diff is longer than 6,000 characters, and records the new text.
+  A prompt takes about 0.2 s, and 2.5 s with the fetch (2026-10-28); a directory outside a repository, or a git that fails, adds nothing.
+  Its tests sit beside the merge guard's.
 * **Converter golden data (planned):** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
   Today the readers are cross-checked against the Python prototypes of `tools/analysis/` and the counts of docs/02, in the tests that need the game files.
 * **Oracle vectors (#363):** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
