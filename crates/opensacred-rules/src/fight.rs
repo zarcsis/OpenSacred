@@ -10,7 +10,7 @@ use opensacred_data::tables::{Balance, Creature, Weapon, WeaponModifier};
 
 use crate::arts;
 use crate::drops::Difficulty;
-use crate::spawning::{Dice, Rng, SpawnValues};
+use crate::spawning::{Dice, SpawnValues};
 
 /// The hero's level, which the creatures' levels follow: the hero gains none yet.
 pub const HERO_LEVEL: u32 = 1;
@@ -149,8 +149,8 @@ impl Rank {
     /// roll of 5 for 343 that changes nothing); 37, 48, 55 and 84 a boss or a champion by a coin,
     /// 127 and 49 so in one case of two; else, `hostile` to the hero, a champion when a roll of 0
     /// to 1,000 is below `HarteSau`.
-    pub fn of_fill(creature: u32, hostile: bool, rng: &mut Rng, rules: &Rules) -> Self {
-        let coin = |rng: &mut Rng| {
+    pub fn of_fill<D: Dice>(creature: u32, hostile: bool, rng: &mut D, rules: &Rules) -> Self {
+        let coin = |rng: &mut D| {
             if rng.below(2) == 1 {
                 Self::Boss
             } else {
@@ -2373,7 +2373,7 @@ pub enum Side {
 /// span, `(most − least)·r·0.01 + least`. 15 physical when every kind's is below 1; then each
 /// times `factor` (`ProzDmg` for a creature striking the hero, `0x56B130`, after the record) at
 /// 53 bits, stored as a float.
-fn roll_damage(damage: &[[f32; 2]; KINDS], factor: f32, rng: &mut Rng) -> [f32; KINDS] {
+fn roll_damage(damage: &[[f32; 2]; KINDS], factor: f32, rng: &mut impl Dice) -> [f32; KINDS] {
     let step = match damage[0][1] {
         most if most < 100.0 => Some((100.0, HUNDREDTH)),
         most if most < 1000.0 => Some((10.0, f64::from(0.1_f32))),
@@ -2425,7 +2425,12 @@ pub(crate) fn truncated(value: f64) -> i64 {
 /// of bronze; the sum, a float, times the factor of the attacker's level and the strike's factor
 /// ([`taken`]), at least 1, held at a player's cap, whole. `blow` holds those factors, `k`, the
 /// rolled damage's and the cap.
-pub fn strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Option<u32> {
+pub fn strike(
+    attacker: &Combat,
+    defender: &Combat,
+    blow: Blow,
+    rng: &mut impl Dice,
+) -> Option<u32> {
     strike_landed(attacker, defender, blow, rng).map(|landed| landed.damage)
 }
 
@@ -2434,7 +2439,7 @@ pub fn strike_landed(
     attacker: &Combat,
     defender: &Combat,
     blow: Blow,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<Landed> {
     let chance = hit_chance(attacker.attack, defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
@@ -2447,12 +2452,17 @@ pub fn strike_landed(
 /// Gladiator's 1016's effect sends (`0x562730` at `0x563310`) and the Seraphim's bolts send
 /// (`0x5ABD80`; seen: the resolution `0x56B130` takes no chance from `0x43EEE0` for them, #854):
 /// its damage as a plain strike's ([`strike`]).
-pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> u32 {
+pub fn sure_strike(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice) -> u32 {
     sure_landed(attacker, defender, blow, rng).damage
 }
 
 /// [`sure_strike`], with what landed ([`Landed`]).
-pub fn sure_landed(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Landed {
+pub fn sure_landed(
+    attacker: &Combat,
+    defender: &Combat,
+    blow: Blow,
+    rng: &mut impl Dice,
+) -> Landed {
     damage(attacker, defender, blow, rng)
 }
 
@@ -2465,7 +2475,7 @@ pub fn art_strike(
     defender: &Combat,
     blow: Blow,
     level: u32,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<u32> {
     art_landed(attacker, defender, blow, level, rng).map(|landed| landed.damage)
 }
@@ -2476,7 +2486,7 @@ pub fn art_landed(
     defender: &Combat,
     blow: Blow,
     level: u32,
-    rng: &mut Rng,
+    rng: &mut impl Dice,
 ) -> Option<Landed> {
     let chance = hit_chance(art_attack(attacker.attack, level), defender.defence);
     if chance < to_f32(rng.below(1001)) / 1000.0 {
@@ -2507,7 +2517,7 @@ const POISON: usize = 3;
 
 /// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
 /// the damping, summed, and what the sum takes off the health ([`taken`]).
-fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> Landed {
+fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut impl Dice) -> Landed {
     let rolled = roll_damage(&attacker.damage, blow.rolled, rng);
     let through: Vec<f32> = rolled
         .iter()
@@ -2534,7 +2544,7 @@ fn damage(attacker: &Combat, defender: &Combat, blow: Blow, rng: &mut Rng) -> La
 /// infinite and its integers indefinite (docs/decisions/fight.md, "No poison against no
 /// resistance"). The poison's own strikes, the hits of the kinds 17 and 18, give none: the
 /// caller leaves them out.
-pub fn poisons(landed: &Landed, rng: &mut Rng) -> Option<Poison> {
+pub fn poisons(landed: &Landed, rng: &mut impl Dice) -> Option<Poison> {
     let [p, q, through] = landed.poison;
     if p <= q || q <= 0.0 {
         return None;
@@ -2911,6 +2921,7 @@ mod tests {
     use opensacred_data::tables::{BalanceValue, BalanceVariable};
 
     use super::*;
+    use crate::spawning::Rng;
 
     #[test]
     fn a_type_without_a_record_is_made_as_the_originals_crab() {

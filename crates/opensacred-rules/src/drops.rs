@@ -1561,7 +1561,7 @@ fn ratio(e: u32, hero: u32) -> f32 {
 /// The game's roll of a whole number between `least` and `most` (`R`, `0x443B20`): a negative
 /// least counts as 0, a negative most as 1, the two swapped when reversed; no roll when they are
 /// equal.
-pub(crate) fn between(least: i64, most: i64, dice: &mut impl Dice) -> i64 {
+pub fn between(least: i64, most: i64, dice: &mut impl Dice) -> i64 {
     let (a, b) = (least.max(0), if most < 0 { 1 } else { most });
     let (low, high) = (a.min(b), a.max(b));
     if low == high {
