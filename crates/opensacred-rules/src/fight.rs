@@ -903,7 +903,11 @@ impl Rules {
     /// levels hold it, else the last pair, which the original takes without its test, so that
     /// the factor goes on along the last segment's line above the last point (#418); the pair's
     /// first weight plus the level times its slope, the level taken whole rather than from the
-    /// first point (the original's own). 1 without two points.
+    /// first point (the original's own). 1 without two points. As the client's FPU computes it
+    /// (`0x565BF9` to `0x565C2E`): the slope first, then the level and the first weight, in
+    /// double precision, the factor stored as a float; in floats throughout, 2.4400005 at level
+    /// 216 took a most health of 109,259 to 266,592, where the original's 2.4400003 takes it to
+    /// 266,591 (#1449).
     fn level_factor(&self, level: f32) -> f32 {
         let pairs = self.points.windows(2);
         let last = pairs.clone().last();
@@ -913,7 +917,8 @@ impl Rules {
             .or(last)
             .map_or(1.0, |pair| {
                 let ((s0, w0), (s1, w1)) = (pair[0], pair[1]);
-                w0 + level * (w1 - w0) / (s1 - s0)
+                let [s0, w0, s1, w1, level] = [s0, w0, s1, w1, level].map(f64::from);
+                stored(w0 + level * ((w1 - w0) / (s1 - s0)))
             })
     }
 }
@@ -2834,7 +2839,7 @@ pub fn most_health(
         level,
         health_raise(skills, rules),
         rank,
-        f64::from(rules.level_factor(level_f32) * rules.factor),
+        f64::from(rules.level_factor(level_f32)) * f64::from(rules.factor),
     )
 }
 
