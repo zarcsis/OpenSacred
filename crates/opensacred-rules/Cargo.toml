@@ -14,9 +14,10 @@ serde.workspace = true
 
 [dev-dependencies]
 # The vectors of opensacred-oracle and the balance, which tests/oracle.rs reads; the scripts'
-# state's round trip.
+# state's round trip; the properties of the fight's formulas (#1428).
 opensacred-formats.workspace = true
 postcard.workspace = true
+proptest.workspace = true
 serde_json.workspace = true
 
 [lints]
