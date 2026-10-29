@@ -2308,12 +2308,19 @@ pub fn hit_chance(attack: f32, defence: f32) -> f32 {
 
 /// The part of a kind's damage `damage` that its resistance `resistance` lets through with the
 /// exponent `k` (`0x43EEE0`): `d·(1 − 1/(1 + d/r)^k)`, `d²/(d + r)` for the exponent 1; against a
-/// resistance within ±0.001, `d·(1 − 10,001^−k)`, 0.9999 of it for `k` 1; none of none.
+/// resistance within ±0.001, `d·(1 − 10,001^−k)`, 0.9999 of it for `k` 1; none of none. In double
+/// precision as the client's FPU computes it, stored as a float: in floats, `1 + d/r` of a small
+/// ratio kept too little of it, and a high exponent carried that past 10⁻⁵ of the result (#1448).
 pub fn dealt(damage: f32, resistance: f32, k: f32) -> f32 {
     if damage <= 0.0 {
         return 0.0;
     }
-    damage * (1.0 - 1.0 / (1.0 + ratio(damage, resistance)).powf(k))
+    let ratio = if f64::from(resistance).abs() <= 0.001 {
+        10_000.0
+    } else {
+        f64::from(damage) / f64::from(resistance)
+    };
+    stored(f64::from(damage) * (1.0 - 1.0 / (1.0 + ratio).powf(f64::from(k))))
 }
 
 /// The factor of the attack of a strike with a ranged weapon (the kinds 7, 12, 13 and 14,
