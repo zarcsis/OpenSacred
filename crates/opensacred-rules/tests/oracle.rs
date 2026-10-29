@@ -17,7 +17,7 @@ use opensacred_formats::bin_tables::{self, BALANCE_KEYS, Kind};
 use opensacred_rules::drops::between;
 use opensacred_rules::fight::{
     Rules, creature_earns, dealt, exponent, hero_health, hit_chance, level_end, level_of,
-    most_health,
+    most_health, weighing,
 };
 use opensacred_rules::spawning::Script;
 use serde::Deserialize;
@@ -258,6 +258,43 @@ fn a_roll_between_two_takes_the_originals_values() {
             v.least,
             v.most,
             v.rolls
+        );
+    }
+}
+
+#[derive(Deserialize)]
+struct Weighing {
+    level: u32,
+    hero: u32,
+    weighing: f64,
+}
+
+/// `0x551530`: the factor of the levels of a creature against a hero, which the kill's experience
+/// and the drops take, the creature's level on bronze's scale (#1454).
+#[test]
+#[ignore = "needs the game files in OriginalGame/"]
+fn the_levels_weigh_as_the_originals() {
+    let vectors: Vec<Weighing> = vectors("weighing");
+    let balance = balance();
+    let rules = Rules::of(Some(&balance));
+    let value = |name: &str| {
+        balance
+            .f32(name)
+            .unwrap_or_else(|| panic!("Balance.bin: no {name}"))
+    };
+    let levels = (
+        value("UnterExpAnteil"),
+        value("UnterExpVoll"),
+        value("ObereEXPVoll"),
+    );
+    for v in vectors {
+        let ours = f64::from(weighing(rules.on_bronze(v.level), v.hero, levels));
+        assert!(
+            (ours - v.weighing).abs() <= 1e-6,
+            "the level {} against the hero's {}: {ours}, the original's {}",
+            v.level,
+            v.hero,
+            v.weighing
         );
     }
 }

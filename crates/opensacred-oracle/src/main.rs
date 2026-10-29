@@ -247,6 +247,15 @@ fn run(image: &Image, balance: &[u8], out: &Path, precision: u8, exe: &str) -> R
         vectors::write(
             out,
             about(
+                "weighing",
+                0x55_1530,
+                "the factor of the levels of a creature against a hero, on bronze",
+            ),
+            &fight::weighings(&mut machine)?,
+        )?,
+        vectors::write(
+            out,
+            about(
                 "between",
                 0x44_3B20,
                 "the game's roll of a whole number between two bounds, rand() answering a \
