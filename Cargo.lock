@@ -4703,6 +4703,10 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "opensacred-data",
+ "opensacred-formats",
+ "opensacred-rules",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

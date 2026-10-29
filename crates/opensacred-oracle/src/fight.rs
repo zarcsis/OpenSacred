@@ -171,16 +171,20 @@ const DEFENCES: [f32; 10] = [
     0.0, 0.0005, 0.001, 0.0011, 1.0, 13.0, 16.0, 20.6, 100.0, 5000.0,
 ];
 
-/// The hit chances of the attacks against the defences (`0x43EEE0` as `0x56B130` calls it).
+/// The hit chance of `attack` against `defence` (`0x43EEE0` as `0x56B130` calls it).
+pub fn chance(machine: &mut Machine<'_>, attack: f32, defence: f32) -> Result<f32> {
+    Ok(weight(machine, attack, defence, 1.0, 0.5)?.1)
+}
+
+/// The hit chances of the attacks against the defences.
 pub fn chances(machine: &mut Machine<'_>) -> Result<Vec<Chance>> {
     let mut vectors = Vec::new();
     for attack in ATTACKS {
         for defence in DEFENCES {
-            let (_, chance) = weight(machine, attack, defence, 1.0, 0.5)?;
             vectors.push(Chance {
                 attack,
                 defence,
-                chance,
+                chance: chance(machine, attack, defence)?,
             });
         }
     }
@@ -200,27 +204,39 @@ pub struct Dealt {
     pub dealt: f64,
 }
 
-const DAMAGES: [f32; 10] = [
-    0.0, 0.01, 1.0, 3.33, 4.43, 12.04, 15.0, 21.67, 100.0, 1234.5,
+/// The damages, the resistances and the levels above of the set; 29.338514 against 6485.0073 the
+/// fuzzing's mismatch at 98 above (#1448).
+const DAMAGES: [f32; 11] = [
+    0.0, 0.01, 1.0, 3.33, 4.43, 12.04, 15.0, 21.67, 29.338_514, 100.0, 1234.5,
 ];
-const RESISTANCES: [f32; 9] = [0.0, 0.0005, 0.001, 0.002, 1.0, 4.48, 6.62, 30.0, 1000.0];
+const RESISTANCES: [f32; 10] = [
+    0.0, 0.0005, 0.001, 0.002, 1.0, 4.48, 6.62, 30.0, 1000.0, 6485.0073,
+];
 const ABOVE: [u32; 8] = [0, 1, 10, 50, 98, 99, 100, 150];
 
-/// The damages that the resistances let through, by the levels above (`0x43EEE0` as `0x56B130`
-/// calls it for each kind).
+/// The part of `damage` that `resistance` lets through for an attacker `above` levels above its
+/// defender (`0x43EEE0` as `0x56B130` calls it for each kind).
+pub fn let_through(
+    machine: &mut Machine<'_>,
+    damage: f32,
+    resistance: f32,
+    above: u32,
+) -> Result<f64> {
+    Ok(weight(machine, damage, resistance, 1.0, share(above))?.0)
+}
+
+/// The damages that the resistances let through, by the levels above.
 pub fn dealt(machine: &mut Machine<'_>) -> Result<Vec<Dealt>> {
     let mut vectors = Vec::new();
     for above in ABOVE {
-        let p = share(above);
         for damage in DAMAGES {
             for resistance in RESISTANCES {
-                let (dealt, _) = weight(machine, damage, resistance, 1.0, p)?;
                 vectors.push(Dealt {
                     damage,
                     resistance,
                     above,
-                    p,
-                    dealt,
+                    p: share(above),
+                    dealt: let_through(machine, damage, resistance, above)?,
                 });
             }
         }
@@ -258,8 +274,9 @@ pub struct MostHealth {
 }
 
 /// The base attributes of the set: the wolf's of docs/re/fight.md (512), the example of
-/// `opensacred-rules`' test, nothing, a strong one past the exponent's bound of 60, and others.
-const BASES: [[u16; 6]; 8] = [
+/// `opensacred-rules`' test, nothing, a strong one past the exponent's bound of 60, others, and
+/// the fuzzing's mismatch at level 216 (#1449).
+const BASES: [[u16; 6]; 9] = [
     [8, 10, 18, 13, 0, 1],
     [14, 12, 20, 16, 2, 4],
     [20, 0, 10, 15, 0, 0],
@@ -268,50 +285,59 @@ const BASES: [[u16; 6]; 8] = [
     [1, 1, 1, 1, 1, 1],
     [25, 25, 25, 25, 25, 25],
     [12, 30, 5, 22, 8, 3],
+    [193, 0, 0, 23, 0, 0],
 ];
 const LEVELS: [u16; 9] = [1, 2, 5, 10, 30, 60, 100, 150, 216];
 
-/// The most health of the bases at the levels, of a hero's type and not (`0x5658F0`), on the
-/// first difficulty, with the balance's level factor.
+/// The most health of `base` at `level`, of a hero's type or not (`0x5658F0`), on the first
+/// difficulty, with the balance's level factor.
+pub fn health(
+    machine: &mut Machine<'_>,
+    base: [u16; 6],
+    level: u16,
+    hero: bool,
+) -> Result<MostHealth> {
+    machine.restub(IS_HERO, u32::from(hero))?;
+    machine.clear_objects();
+    let creature = machine.object(CREATURE_SIZE)?;
+    let stats = machine.object(STATS_SIZE)?;
+    let attributes = base.map(|b| {
+        let grown = u32::from(b) * (u32::from(level) - 1) / 10;
+        b.saturating_add(u16::try_from(grown).unwrap_or(u16::MAX))
+    });
+    let words =
+        |values: [u16; 6]| -> Vec<u8> { values.iter().flat_map(|v| v.to_le_bytes()).collect() };
+    machine.write(stats + STATS_CREATURE, &creature.to_le_bytes())?;
+    machine.write(stats + STATS_TYPE, &1_u32.to_le_bytes())?;
+    machine.write(stats + STATS_ATTRIBUTES, &words(attributes))?;
+    machine.write(stats + STATS_BASE, &words(base))?;
+    machine.write(stats + STATS_LEVEL, &level.to_le_bytes())?;
+    // A new creature's health and value shown, which the most health fills.
+    machine.write(stats + STATS_SHOWN, &100_i32.to_le_bytes())?;
+    machine.write(stats + STATS_HEALTH, &100_i32.to_le_bytes())?;
+    machine.call(MOST_HEALTH, Some(stats), &[], false)?;
+    let int = |machine: &Machine<'_>, at: u32| -> Result<i32> {
+        let bytes: [u8; 4] = machine.read(stats + at, 4)?.try_into().unwrap_or_default();
+        Ok(i32::from_le_bytes(bytes))
+    };
+    Ok(MostHealth {
+        base,
+        level,
+        hero,
+        attributes,
+        most: int(machine, STATS_MOST)?,
+        health: int(machine, STATS_HEALTH)?,
+        shown: int(machine, STATS_SHOWN)?,
+    })
+}
+
+/// The most health of the bases at the levels, of a hero's type and not.
 pub fn most_health(machine: &mut Machine<'_>) -> Result<Vec<MostHealth>> {
     let mut vectors = Vec::new();
     for hero in [true, false] {
-        machine.restub(IS_HERO, u32::from(hero))?;
         for base in BASES {
             for level in LEVELS {
-                machine.clear_objects();
-                let creature = machine.object(CREATURE_SIZE)?;
-                let stats = machine.object(STATS_SIZE)?;
-                let attributes = base.map(|b| {
-                    let grown = u32::from(b) * (u32::from(level) - 1) / 10;
-                    b.saturating_add(u16::try_from(grown).unwrap_or(u16::MAX))
-                });
-                let words = |values: [u16; 6]| -> Vec<u8> {
-                    values.iter().flat_map(|v| v.to_le_bytes()).collect()
-                };
-                machine.write(stats + STATS_CREATURE, &creature.to_le_bytes())?;
-                machine.write(stats + STATS_TYPE, &1_u32.to_le_bytes())?;
-                machine.write(stats + STATS_ATTRIBUTES, &words(attributes))?;
-                machine.write(stats + STATS_BASE, &words(base))?;
-                machine.write(stats + STATS_LEVEL, &level.to_le_bytes())?;
-                // A new creature's health and value shown, which the most health fills.
-                machine.write(stats + STATS_SHOWN, &100_i32.to_le_bytes())?;
-                machine.write(stats + STATS_HEALTH, &100_i32.to_le_bytes())?;
-                machine.call(MOST_HEALTH, Some(stats), &[], false)?;
-                let int = |machine: &Machine<'_>, at: u32| -> Result<i32> {
-                    let bytes: [u8; 4] =
-                        machine.read(stats + at, 4)?.try_into().unwrap_or_default();
-                    Ok(i32::from_le_bytes(bytes))
-                };
-                vectors.push(MostHealth {
-                    base,
-                    level,
-                    hero,
-                    attributes,
-                    most: int(machine, STATS_MOST)?,
-                    health: int(machine, STATS_HEALTH)?,
-                    shown: int(machine, STATS_SHOWN)?,
-                });
+                vectors.push(health(machine, base, level, hero)?);
             }
         }
     }
