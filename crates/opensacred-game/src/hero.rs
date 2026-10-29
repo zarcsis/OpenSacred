@@ -1013,7 +1013,11 @@ pub fn run(
                 // that cannot be reached, up to what blocks it.
                 // From where it stands it climbs no more: the stair it stands on, if any, it has
                 // climbed already or arrived on.
-                let onto = body.onto;
+                // The level it walks onto, as it will stand on it: through the target cell's
+                // entrance or exit, as the creatures' (`npcs::walk`, #1438).
+                let onto = body
+                    .onto
+                    .map(|onto| heights.transition(paths::cell_of(target.x, target.z), onto));
                 // A target beyond 25 cells along an axis it heads for a leg at a time, brought
                 // nearer along the line to the farthest cell within 25 that it may stand on, on
                 // the target's floor of the building there, else on the ground (`0x4FABE0`'s test
