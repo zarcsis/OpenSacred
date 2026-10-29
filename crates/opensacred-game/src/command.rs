@@ -183,6 +183,9 @@ enum Command {
     /// The hero goes to take the item lying nearest it, as a left click on it does, and takes
     /// it once it stands within its reach
     Take,
+    /// The hero collects the items lying about it, as the bar's Collect button sends it: it walks
+    /// to each that it may carry within 19 cells and picks up those about it, until none is left
+    Collect,
     /// The hero goes to speak to the creature ID, or to the nearest of a dialogue, as a left click
     /// on it does; ID as `creatures` prints it
     Talk { id: Option<String> },
@@ -1263,6 +1266,10 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
         Command::Take => {
             in_game(world)?;
             Ok(Outcome::say(crate::pickup::take_nearest(world)?))
+        }
+        Command::Collect => {
+            in_game(world)?;
+            Ok(Outcome::say(crate::pickup::start_collecting(world)?))
         }
         Command::Talk { id } => {
             in_game(world)?;

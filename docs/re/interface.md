@@ -44,7 +44,7 @@ The bar checks the level whenever the mouse is tested against it (`0x6DFD60`) an
 | Options (`UI_TB_OPTIONS`) | (434, 729), 34 × 34 | 89 ((136, 0), a gear), down 90 ((136, 34)) | toggles `UI_WND_ESCMENU`; tooltip 9908; **measured** |
 | Map (`UI_TB_MAP`) | (558, 729), 34 × 34 | 91 ((170, 0), a grid), down 92 ((170, 34)) | toggles `UI_WND_MEGAMAP`; tooltip 9910; **measured** |
 | Book (`UI_TB_BOOK`) | (594, 705), 34 × 34 | 93 ((204, 0), a book), down 94 ((204, 34)) | toggles `UI_WND_QUESTBOOK`; tooltip 9911; **measured** |
-| Collect (`UI_TB_COLLECT`), single player | (496, 743), 36 × 26 | 134 (`GUI_main_01` (184, 230)–(219, 255)), down 135 ((220, 230)–(255, 255)) | sends the hero the creature event `0x113` (not read; **hypothesis**: pick up the items about the hero); tooltip 9909; **measured** |
+| Collect (`UI_TB_COLLECT`), single player | (496, 743), 36 × 26 | 134 (`GUI_main_01` (184, 230)–(219, 255)), down 135 ((220, 230)–(255, 255)) | sends the hero the creature event `0x113`, which sends it collecting the items about it (the AI's state 12, docs/re/items.md, "The automatic pick-up"; read 2026-10-28, #1408); tooltip 9909; **measured** |
 | Net info (`UI_TB_NETINFO`), network game | (496, 743), 34 × 25 | 140 ((185, 203)–(218, 227)), down 141 ((149, 230)–(182, 254)) | toggles `UI_WND_NETINFO`; tooltip 9917 |
 | Potions' belt, 5 buttons | (435, 667), (465, 653), (497, 649), (530, 653), (560, 667), 32 × 32 each | filled: 176 (`GUI_main_05` (129, 65)–(160, 96), red), 179 ((129, 164), purple), 177 ((129, 98), blue), 178 ((129, 131), green), 180 ((129, 197), yellow), slot 1 to 5; empty: 175 ((195, 65)–(226, 96), a grey flask) | a slot shows its colour while `0x5DA8C0(slot, 0)` is not 0, else the empty flask; a click sends the engine event `0x17` with the slot (1–5) and which button, the left drinking its potion (seen, #1311); tooltip the item's description; only while `SHOWPOTIONS` is 1; **measured** (slot 1 red, slots 2–5 empty) |
 | Belt's clips | (424, 690) 16 × 18, (586, 690) 18 × 18 | images 39 and 40 (`GUI_main_03` (240, 201), (238, 183)) | fully transparent in this `GUI_main_03` (**measured**): they draw nothing |
@@ -173,7 +173,7 @@ Done by 2026-10-28: items 1 to 3, the sets' keys and slots of item 4 (#1348), an
 - The sender and meaning of the taskbar's message `0x35` (the burn).
 - What `sdk_MARKER_RESOLVE`'s four markers are (the quests' goals by their kinds, **hypothesis**) and the frame of its direction.
 - The right rail's middle piece in the frames matches neither image 9 nor 10 well at x 570 (its chain's knot at 641–660 fits image 9; the wavy line left of it does not show).
-- The creature event `0x113` of the Collect button; `0x5D96C0`; `0x6D60E0`; the control at `+0x160`.
+- `0x5D96C0`; `0x6D60E0`; the control at `+0x160`.
 - How the bar scales at the original's other resolutions (the windows' rectangles are fixed at 1024 × 768 here).
 - Whether the sonars' alpha falls linearly with the radius.
 
@@ -192,4 +192,5 @@ The belt's flasks are lit by the potions of their kinds since #1311 (`belt`).
 The left slots draw their weapon sets' items since #1347 (`sets`), as above: each set's two models, the right hand's over the left's, by a camera of their own into a picture over the bar.
 Since #1348 a click on a left slot, the cursor empty, or the keys 1 to 5 choose its set: the slot takes the selected orb and ring, the hero's hands its items, its arms made anew with them (`arsenal::Maker`: their models, the clips of their class, its values and its weapons' sounds), and a change of their class stops the hero; the event `0x114` and the keys' choice of the art slots (`COMBINE_SLOTS`) not followed.
 Since #1349 the inventory open is the left slots' edit mode: a click takes an item out of a set or puts the held one in, and the halves that would take the held item glow under the ring (`sets`, docs/re/inventory.md, §5); the hero's skill of two weapons, which lets a second one-handed weapon into the left hand, not followed (none of the templates has it).
+Since #1408 a click on the Collect button sends the hero collecting the items about it (`pickup`, docs/re/items.md, "The automatic pick-up").
 Not followed yet: the other buttons' windows and the pressed images, the right slots' selection and edit mode, the damage icons in the left slots, the compass, the burn, the glows and sparkles, the tooltips, the low health's pulse and alarm, the points' "+", the followers' entries and the mount's bar.
