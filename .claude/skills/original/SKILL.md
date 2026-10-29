@@ -25,7 +25,7 @@ The host checks `Sacred.exe` against the manifest and refuses to start while a `
 
 Stopping the host's background task ends the game within a second (a job object). A run that hangs is ended by stopping that task, never by killing `Sacred.exe` by hand while the host lives.
 
-One original runs on the machine, whichever worktree starts it. `--holder` takes this session's name as `ListAgents` shows it: while the host runs it records the holder, the Claude Code session, the branch and the worktree in `%LOCALAPPDATA%\OpenSacred\original-holder.json`, removed as the host ends, and a host started meanwhile refuses with them and how long they have held it (#1398); a record whose host is gone is taken over. Tell the peer sessions before starting the host and after `exec quit` (`ListAgents`, `SendMessage`); when the host refuses, ask the holder it names to say when the original is free (a session idle may still hold it), never ending another session's original (docs/03 §3.5).
+One original runs on the machine, whichever worktree starts it. `--holder` takes this session's name as `ListAgents` shows it: while the host runs it records the holder, the Claude Code session, the branch and the worktree in `%LOCALAPPDATA%\OpenSacred\original-holder.json`, removed as the host ends, and a host started meanwhile refuses with them and how long they have held it (#1398); a record whose host is gone is taken over. When the host refuses, ask the holder it names (`ListAgents`, `SendMessage`) to say when the original is free (a session idle may still hold it), never ending another session's original (docs/03 §3.5).
 
 | Option | What it does |
 |---|---|
