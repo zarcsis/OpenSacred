@@ -5257,7 +5257,14 @@ pub fn walk(
         way.level = walk.level;
         let level = walk.level;
         let target = walk.target;
-        let onto = walk.onto;
+        // The level it walks onto, as it will stand on it: on the ground of an entrance, the
+        // building's inside, and on an exit, the ground, which the cell takes it onto as it
+        // steps there (`0x5FCCB0`). Sent onto the ground of the chapel's door, the novice had
+        // stepped onto it, inside, and gone back out through the exit before it, round at every
+        // frame (#1438).
+        let onto = walk
+            .onto
+            .map(|onto| heights.transition(paths::cell_of(target.x, target.z), onto));
         // A cell it may step into: walkable, no object and no other creature in it (`0x4F7E10`:
         // an NPC, of an id above 16, is stopped by any).
         let free =
@@ -9115,6 +9122,90 @@ mod tests {
         let mut run = Walk::run(Vec3::ZERO, None, 140.0);
         run.moved = true;
         assert_eq!(clips.moving(&run), Some(node(2)));
+    }
+
+    /// Where an NPC standing at `from` on `level` of the tests' house (`Heights::house`) stands
+    /// once its walk `order` ends, run by [`walk`] a frame of 16 ms at a time, on which level, and
+    /// the most it turned in one frame, in radians; `None` while it walks on after 300 frames.
+    fn walked_in_the_house(from: Vec3, level: Level, order: Walk) -> Option<(Vec3, Level, f32)> {
+        let heights = Heights::house();
+        let layered = buildings::Layered::at(&heights, from.x, from.z, level);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                Duration::from_millis(16),
+            ))
+            .insert_resource(heights)
+            .init_resource::<crowd::Crowd>()
+            .init_resource::<hero::GameSpeed>()
+            .add_systems(Update, walk);
+        let npc = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(from),
+                order,
+                layered,
+                crowd::InTheWay::of(0, 0, level),
+                Npc {
+                    gltf: Handle::default(),
+                    model: String::new(),
+                    names: ClipNames::default(),
+                    graph: None,
+                    player: None,
+                    hands_empty: true,
+                    instrument: None,
+                    share: 1.0,
+                    pace: 1.0,
+                },
+            ))
+            .id();
+        let mut turned = 0.0_f32;
+        let mut facing = None;
+        for _ in 0..300 {
+            app.update();
+            let world = app.world();
+            let at = world.get::<Transform>(npc)?;
+            if let Some(before) = facing.replace(at.rotation) {
+                turned = turned.max(at.rotation.angle_between(before));
+            }
+            if world.get::<Walk>(npc).is_none() {
+                return Some((
+                    at.translation,
+                    world.get::<crowd::InTheWay>(npc)?.level,
+                    turned,
+                ));
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_walk_onto_the_ground_of_an_entrance_ends_inside() {
+        // The chapel's door as the house has it: the door (5, 6) an entrance on the ground, the
+        // cells in front of it on row 7 exits of the inside. The novice, on the ground three cells
+        // out, is sent onto the door's ground, as her queue's walk is onto her own level (#1438).
+        let house = Some((0, 0, 1));
+        let point = |cell| {
+            let point = paths::centre(cell);
+            Vec3::new(point.x, 0.0, point.y)
+        };
+        let (door, out) = (point((5, 6)), point((5, 9)));
+        let (at, level, turned) =
+            walked_in_the_house(out, None, Walk::run(door, None, 276.0).onto(None))
+                .expect("the walk ends");
+        // It stands at the door inside, where the entrance took it.
+        assert!((at - door).length() <= hero::ARRIVED, "{at}");
+        assert_eq!(level, house);
+        assert!(turned < 0.1, "{turned}");
+        // Its queue, finding it on another level than the walk's, orders the walk again from
+        // there: it had gone out through the exit before the door to come in onto its ground
+        // again, round at every frame, its walk never ending; now the walk ends where it stands.
+        let (again, level, turned) =
+            walked_in_the_house(at, house, Walk::run(door, house, 276.0).onto(None))
+                .expect("the walk ends");
+        assert!((again - at).length() < 1.0, "{again}");
+        assert_eq!(level, house);
+        assert!(turned < 0.1, "{turned}");
     }
 
     #[test]
