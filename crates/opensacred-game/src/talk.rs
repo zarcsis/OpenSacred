@@ -445,7 +445,7 @@ fn shown_text(text: &str) -> String {
 
 /// The key of a name of the scripts' resources, `res:<key>` (case aside), as the window looks
 /// its string up: `res:17095` the string of `17095`.
-fn resource(name: &str) -> &str {
+pub(crate) fn resource(name: &str) -> &str {
     match name.get(..4) {
         Some(prefix) if prefix.eq_ignore_ascii_case("res:") => &name[4..],
         _ => name,
