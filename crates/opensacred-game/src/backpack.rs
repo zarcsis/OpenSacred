@@ -8,7 +8,7 @@
 //!
 //! What the hero picks up goes into the grid at its first fit by columns (`pickup::Pack`); while
 //! the cursor holds an item over the grid, the cells under it are tinted by where it would go
-//! (#1269, `held`); the red cells of an item the hero cannot use are #1270's.
+//! (#1269, `held`), and the cells of an item the hero cannot use are red (#1417).
 
 use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
@@ -264,12 +264,23 @@ pub(crate) fn posed(centre: Vec3, pose: Pose) -> Transform {
 }
 
 /// Tints the cells while the inventory shows: under an item held over the grid by where it
-/// would go, green, purple or red (`0x5DC430`); else blue under an item.
+/// would go, green, purple or red (`0x5DC430`); else under an item blue, or red where the hero
+/// may not use it (`0x54ABE0`, #1417).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn tint(
     shown: Res<Shown>,
     pack: Res<Pack>,
     (pointer, ui_scale): (Res<Pointer>, Res<UiScale>),
     windows: Query<&Window>,
+    (hero, experience, rules, tables): (
+        Option<Res<crate::hero::Hero>>,
+        Res<crate::fight::Experience>,
+        Res<crate::fight::Rules>,
+        Option<Res<Tables>>,
+    ),
     mut tints: Query<(&Tint, &mut BackgroundColor)>,
 ) {
     if !shown.0 {
@@ -281,6 +292,18 @@ fn tint(
         let cell = held_at((at.x, at.y), held.size);
         Some((cell, held.size, pack.grid.highlight(cell, held.size)))
     });
+    let refused = |key: u32| {
+        let (Some(hero), Some(tables)) = (hero.as_deref(), tables.as_deref()) else {
+            return false;
+        };
+        pack.items
+            .iter()
+            .find(|(k, _)| *k == key)
+            .is_some_and(|(_, dropped)| {
+                let asks = tables.asks(dropped, &rules);
+                !opensacred_rules::equipment::may_use(hero.creature, experience.0.level, &asks)
+            })
+    };
     for (tint, mut colour) in &mut tints {
         let wanted = match held {
             Some((at, size, highlight)) if Grid::held_over(tint.0, at, size) => match highlight {
@@ -288,8 +311,11 @@ fn tint(
                 Highlight::Swaps => SWAPS_TINT,
                 Highlight::Refused => REFUSED_TINT,
             },
-            _ if pack.grid.at(tint.0).is_some() => ITEM_TINT,
-            _ => Color::NONE,
+            _ => match pack.grid.at(tint.0) {
+                Some(placed) if refused(placed.key) => REFUSED_TINT,
+                Some(_) => ITEM_TINT,
+                None => Color::NONE,
+            },
         };
         colour.set_if_neq(BackgroundColor(wanted));
     }
