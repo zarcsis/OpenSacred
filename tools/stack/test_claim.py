@@ -18,25 +18,40 @@ def git(cwd, *args):
     return subprocess.run(['git', '-C', str(cwd), *args], check=True, capture_output=True, text=True).stdout
 
 
+ACCOUNT = 'zarcsis'
+
+
 class FakeGitHub:
-    """The issue and the open pull requests that `gh` would give, and the assignments asked for."""
+    """The account, the issue and the open pull requests that `gh` would give, and the assignments asked for; the
+    pull requests of `open_prs` filtered by their author, as `gh pr list --author` does."""
 
     def __init__(self, issue, prs=()):
-        self.issue_, self.prs, self.assigned = issue, list(prs), []
+        self.issue_, self.prs, self.assigned, self.read = issue, list(prs), [], []
+
+    def account(self):
+        return ACCOUNT
 
     def issue(self, number):
         return self.issue_
 
-    def open_prs(self):
-        return self.prs
+    def open_prs(self, author):
+        self.read.append(author)
+        return [pr for pr in self.prs if pr['author']['login'] == author]
+
+    def pr_of(self, branch):
+        return next((pr['author']['login'] for pr in self.prs if pr['headRefName'] == branch), None)
 
     def assign(self, number):
         self.assigned.append(number)
 
 
-def issue(number=7, state='OPEN', assignees=(), labels=('infra',)):
+def issue(number=7, state='OPEN', assignees=(), labels=('infra',), author=ACCOUNT):
     return {'number': number, 'title': 'A task', 'state': state, 'assignees': [{'login': a} for a in assignees],
-            'labels': [{'name': name} for name in labels]}
+            'labels': [{'name': name} for name in labels], 'author': {'login': author}}
+
+
+def pr(number, head, body='', author=ACCOUNT):
+    return {'number': number, 'headRefName': head, 'body': body, 'author': {'login': author}}
 
 
 class Take(unittest.TestCase):
@@ -83,10 +98,25 @@ class Take(unittest.TestCase):
         self.take(FakeGitHub(issue(assignees=['zarcsis'])), mine=True)
 
     def test_an_open_pull_request_that_closes_it_holds_it(self):
-        prs = [{'number': 9, 'headRefName': 'feature/70-other', 'body': 'Closes #7\n\n## What and why'}]
+        prs = [pr(9, 'feature/70-other', 'Closes #7\n\n## What and why')]
         self.assertIn('the open pull request #9', self.refused(FakeGitHub(issue(), prs)))
-        unrelated = [{'number': 10, 'headRefName': 'feature/70-other', 'body': 'Closes #70'}]
+        unrelated = [pr(10, 'feature/70-other', 'Closes #70')]
         self.take(FakeGitHub(issue(), unrelated))
+
+    def test_an_issue_of_another_account_is_refused(self):
+        reason = self.refused(FakeGitHub(issue(author='someone')))
+        self.assertIn('was filed by someone, not by zarcsis', reason)
+
+    def test_a_pull_request_of_another_account_is_not_read(self):
+        github = FakeGitHub(issue(), [pr(9, 'feature/70-other', 'Closes #7', author='someone')])
+        self.take(github)
+        self.assertEqual(github.read, [ACCOUNT])
+
+    def test_a_stack_on_another_accounts_pull_request_is_refused(self):
+        github = FakeGitHub(issue(), [pr(9, 'feature/70-other', author='someone')])
+        with self.assertRaises(SystemExit) as refused:
+            claim.take(7, 'claim', 'origin/feature/70-other', root=self.checkout, github=github)
+        self.assertIn('a pull request by someone', str(refused.exception))
 
     def test_a_closed_issue_or_one_without_a_type_is_refused(self):
         self.assertIn('it is closed', self.refused(FakeGitHub(issue(state='CLOSED'))))
