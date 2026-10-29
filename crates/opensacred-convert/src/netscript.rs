@@ -460,6 +460,12 @@ pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary
         .context("writing netscript.ron")?;
     let path = dir.join(INDEX);
     fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
+    // The calls the sources were translated with, which `build` packs beside them and the game
+    // compares with its own as it loads them (#1399).
+    let calls = ron::ser::to_string_pretty(&opensacred_data::luau::calls(), crate::utf8::pretty())
+        .context("writing the scripts' calls")?;
+    let path = dir.join(opensacred_data::luau::CALLS);
+    fs::write(&path, calls).with_context(|| format!("writing {}", path.display()))?;
     Ok(summary)
 }
 
@@ -584,6 +590,11 @@ mod tests {
             ])
         );
         assert_eq!(summary.warnings, Vec::<String>::new());
+        let calls: std::collections::BTreeMap<u16, String> = ron::from_str(
+            &fs::read_to_string(output_dir(&out).join(opensacred_data::luau::CALLS)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(calls, opensacred_data::luau::calls());
         let index: NetScript =
             ron::from_str(&fs::read_to_string(output_dir(&out).join(INDEX)).unwrap()).unwrap();
         let camp = index

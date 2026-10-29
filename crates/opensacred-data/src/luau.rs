@@ -101,6 +101,37 @@ pub fn kind_of(call: &str) -> Option<u16> {
     }
 }
 
+/// The file beside the trees (`netscript/calls.ron`) that lists the calls the converter translated
+/// the scripts with ([`calls`]), which the game compares with its own as it loads them (#1399).
+pub const CALLS: &str = "calls.ron";
+
+/// The call of every record type that has one ([`call_name`]), by its type.
+pub fn calls() -> BTreeMap<u16, String> {
+    crate::netscript::KEYWORDS
+        .iter()
+        .map(|&(_, kind)| kind)
+        .chain([DIALOG, 39, 47])
+        .filter_map(|kind| call_name(kind).map(|call| (kind, call)))
+        .collect()
+}
+
+/// The record types whose calls differ between `ours` and `theirs`: each with its call on either
+/// side, none where that side has none.
+pub fn differing_calls<'a>(
+    ours: &'a BTreeMap<u16, String>,
+    theirs: &'a BTreeMap<u16, String>,
+) -> Vec<(u16, Option<&'a str>, Option<&'a str>)> {
+    let kinds: std::collections::BTreeSet<u16> =
+        ours.keys().chain(theirs.keys()).copied().collect();
+    kinds
+        .into_iter()
+        .filter_map(|kind| {
+            let (a, b) = (ours.get(&kind), theirs.get(&kind));
+            (a != b).then(|| (kind, a.map(String::as_str), b.map(String::as_str)))
+        })
+        .collect()
+}
+
 /// A keyword in snake case: `CreateNPC` → `create_npc`, `NPC_TalkTo` → `npc_talk_to`.
 pub fn snake(keyword: &str) -> String {
     let chars: Vec<char> = keyword.chars().collect();
@@ -165,5 +196,34 @@ mod tests {
                 assert!(calls.insert(call));
             }
         }
+    }
+
+    #[test]
+    fn the_calls_list_every_type_that_has_one() {
+        let all = calls();
+        let named: BTreeMap<u16, String> = (0..=u16::MAX)
+            .filter_map(|kind| call_name(kind).map(|call| (kind, call)))
+            .collect();
+        assert_eq!(all, named);
+        assert_eq!(all.get(&125).map(String::as_str), Some("prize"));
+        assert_eq!(all.get(&DIALOG).map(String::as_str), Some(DIALOG_ENTRY));
+        assert!(differing_calls(&all, &all).is_empty());
+    }
+
+    #[test]
+    fn calls_that_differ_are_named_with_each_side() {
+        let ours = calls();
+        let mut theirs = ours.clone();
+        theirs.insert(125, "gewinn".to_owned());
+        theirs.remove(&124);
+        theirs.insert(999, "new_call".to_owned());
+        assert_eq!(
+            differing_calls(&ours, &theirs),
+            [
+                (124, Some("free_region"), None),
+                (125, Some("prize"), Some("gewinn")),
+                (999, None, Some("new_call")),
+            ]
+        );
     }
 }
