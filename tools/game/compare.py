@@ -8,8 +8,9 @@ come in each game lists its creatures (`creatures RADIUS`). The creatures are pa
 of the other game's within --pair cells, and the report prints the pairs whose level, most health, hostility or rank
 differ, then the creatures of one game that found no pair, by type, with their levels. The game's lines and the
 original's driver's carry the same fields (`ID type T cell X,Y [floor F] health H/M level L hostile|peaceful
-[champion|boss]`). Both games must run with their remote control: the game with `--remote` (127.0.0.1:15702) and the
-original under `tools/original/host.py` (127.0.0.1:15703), each in a game. Nothing is written: the report goes to the
+[champion|boss]`). Both games must run with their remote control: the game with `--remote` (this Claude Code
+session's port as remote.py finds it, #1397, else 127.0.0.1:15702) and the original under `tools/original/host.py`
+(127.0.0.1:15703), each in a game. Nothing is written: the report goes to the
 standard output, and it names creatures by their types and cells alone, so it may go into an issue (docs/08 §3).
 
 Example
@@ -33,11 +34,21 @@ by more than the game's one decimal (the most health, `A`, `D` and the attack sp
 resistances, than two thousandths (`type 76 level 5: D 31 / 32`, the game's first), and a count at the end.
 Dependencies: the standard library.
 """
-import argparse, json, re, struct, sys, time, urllib.request
+import argparse, importlib.util, json, os, re, struct, sys, time, urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location('remote', os.path.join(HERE, 'remote.py'))
+remote = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(remote)
 
 LINE = re.compile(r'^(\S+) type (\d+) cell (-?\d+),(-?\d+)(?: floor (\d+))?.*? health (\d+)/(\d+) level (\d+)'
                   r'(?: (hostile|peaceful))?(?: awake)?(?: fighting)?(?: (champion|boss))?')
 CELL = re.compile(r'^\s*(\d+)\s*,\s*(\d+)\s*$')
+
+
+def game_port(given):
+    """The game's port: the one given, else this Claude Code session's game's as remote.py finds it (#1397)."""
+    return given if given is not None else remote.game_port()[0]
 
 
 class Endpoint:
@@ -208,10 +219,10 @@ def main():
         parser.add_argument('--types-file', help='a file of types, one a line, # comments')
         parser.add_argument('--levels', default='1', help='levels, comma-separated (1)')
         parser.add_argument('--at', default='+3,+3', help="where to make them, from the hero's cell (+3,+3)")
-        parser.add_argument('--game-port', type=int, default=15702)
+        parser.add_argument('--game-port', type=int, help="the game's port (this session's game's by default)")
         parser.add_argument('--original-port', type=int, default=15703)
         args = parser.parse_args()
-        stats_sweep(Endpoint('the game', args.game_port), Endpoint('the original', args.original_port), args)
+        stats_sweep(Endpoint('the game', game_port(args.game_port)), Endpoint('the original', args.original_port), args)
         return
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('cells', nargs='*', help='X,Y global cells')
@@ -222,7 +233,7 @@ def main():
     parser.add_argument('--timeout', type=float, default=60, help='seconds to wait for the game to be ready')
     parser.add_argument('--level', type=int, help="the heroes' level first (each game's `level`)")
     parser.add_argument('--time', help='the clock first, HH:MM')
-    parser.add_argument('--game-port', type=int, default=15702)
+    parser.add_argument('--game-port', type=int, help="the game's port (this session's game's by default)")
     parser.add_argument('--original-port', type=int, default=15703)
     args = parser.parse_args()
     cells = list(args.cells)
@@ -237,7 +248,7 @@ def main():
         parsed.append((int(match[1]), int(match[2])))
     if not parsed:
         parser.error('no cells given')
-    game, original = Endpoint('the game', args.game_port), Endpoint('the original', args.original_port)
+    game, original = Endpoint('the game', game_port(args.game_port)), Endpoint('the original', args.original_port)
     for endpoint in (game, original):
         if args.level:
             endpoint.exec(f'level {args.level}')

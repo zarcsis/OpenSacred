@@ -198,6 +198,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 ## 8. Remote control (#175, #176)
 
 * `--remote [PORT]` turns on Bevy's Remote Protocol: JSON-RPC 2.0 over HTTP on `127.0.0.1:15702` by default, on the loopback only, off by default and never from the settings.
+  Under a Claude Code session, `--remote` without a port takes a port of the session's own, which the client finds (docs/03 §3.7, #1397).
 * The game's own methods:
 
   | Method | What it does |
