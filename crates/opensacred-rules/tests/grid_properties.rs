@@ -166,6 +166,34 @@ proptest! {
     }
 
     #[test]
+    fn an_item_fits_where_its_cells_lie_in_the_grid_and_no_item_covers_them(
+        ops in prop::collection::vec(op(), 0..60),
+        size in item_size(),
+    ) {
+        let (grid, _) = run(&ops).map_err(TestCaseError::fail)?;
+        // Each cell's item, of the items' rectangles.
+        let span = |from: u8, cells: u8| u16::from(from)..u16::from(from) + u16::from(cells);
+        let owner = |(column, row): (u16, u16)| {
+            grid.items.iter().find(|item| {
+                span(item.at.0, item.size.0).contains(&column)
+                    && span(item.at.1, item.size.1).contains(&row)
+            })
+        };
+        for at in cells(false) {
+            let cell = (u16::from(at.0), u16::from(at.1));
+            prop_assert_eq!(grid.at(at).map(|item| item.key), owner(cell).map(|item| item.key));
+            let fits = span(at.0, size.0).all(|column| {
+                span(at.1, size.1).all(|row| {
+                    column < u16::from(COLUMNS)
+                        && row < u16::from(ROWS)
+                        && owner((column, row)).is_none()
+                })
+            });
+            prop_assert_eq!(grid.fits(at, size), fits, "{:?} at {:?}", size, at);
+        }
+    }
+
+    #[test]
     fn the_sort_by_area_orders_its_items_from_the_smallest_up(
         sizes in prop::collection::vec(item_size(), 0..30),
     ) {

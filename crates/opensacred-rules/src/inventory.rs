@@ -409,6 +409,9 @@ mod tests {
         assert_eq!(size(4600, [0, 0], 6), (2, 3));
         assert_eq!(size(5171, [0, 0], 9), (1, 1));
         assert_eq!(size(4098, [0, 0], 16), (1, 2));
+        // A record's size that its category's would not give, and a helmet's of none.
+        assert_eq!(size(1712, [2, 2], 5), (2, 2));
+        assert_eq!(size(4200, [0, 0], 17), (2, 2));
     }
 
     #[test]
