@@ -97,7 +97,14 @@ Each item goes into the world at the container's point (`0x5FCCB0`), is lifted (
 - with an opener, to the opener's point `±R(20, 50)` along each axis (`0x44DED0(x, y, 0, −1000, 80, 0.9)`): the −1000 makes `0x44DFE0` fly it from where it stands to that point in 0.9 s, along an arc peaking at 80 (`80·(1 − 4(s − ½)²)`), to the hero's feet;
 - without one, at `(±R(20, 50), ±R(20, 50), 100)` and turning `R(−6, 6)`.
 
-Landed (`0x44F4D0`), the piles and the runes stand upright; gold tells the quests' manager (`0x4AEBD0`) and a rune counts in the statistics; where the local player's marked item lies without a straight walkable line from the hero (`0x4EBCA0`, `0x4FCC80`) it is moved (where, not read).
+Landed (`0x44F4D0`), the piles and the runes stand upright; gold tells the quests' manager (`0x4AEBD0`) and a rune counts in the statistics.
+
+The local player's marked item (`+0xB0` bit `0x8000000`), once it lands, is tested from the local hero (`0x603E30`, at `0x44F62C`) (**confirmed** by code, read 2026-10-28, #1407):
+
+- where the hero may not stand on its cell (the hero's test of a cell `0x4EBCA0`, on the item's cell position `0x6224E0` and its layer `+0x2C`), or no straight line of walkable cells leads to it from the hero (`0x4FCC80`), the item leaves the world's map (`0x5FC8B0`) and comes back into it at the hero's own place (`0x5FCCB0` with the hero's `+0x18`), its transform made again (`0x44D520`): it lies at the hero's feet;
+- in a network game (`0x182EBEC`) it stays where it lies if any of the players 1 to 16 stands within 2,000 of it (the integer root), on its level, with a straight walkable line to it.
+
+Besides the container's throw (`0x5C9E9C`), the bit is set by the jump of an item without room (`0x5592B0`, docs/re/items.md) and by a throw from a creature's place at `0x556565` (its function not read), found by a scan of the stores of `0x8000000`.
 
 ## The triggers and the locks
 
@@ -125,7 +132,7 @@ On 2026-10-28 (#1379, the driver of #448, the save `start-seraphim`, traces of `
 
 ## Not read
 
-What the sound events `(9, 0x16)` and `(9, 0x17)` play; `0x5D57C0`'s level and the arguments of `0x5C7FA0` here; where `0x45FF80` puts the ghost; whether the flight stops at a blocked cell and where an item that cannot be reached goes; whether `0x4FCC80` passes the container's own closed cell; whether the saves keep the emptied bit; `cChest3D`'s `+0x44` (`0x5C9800`) and `0x608080`.
+What the sound events `(9, 0x16)` and `(9, 0x17)` play; `0x5D57C0`'s level and the arguments of `0x5C7FA0` here; where `0x45FF80` puts the ghost; whether the flight stops at a blocked cell; whether `0x4FCC80` passes the container's own closed cell; whether the saves keep the emptied bit; `cChest3D`'s `+0x44` (`0x5C9800`) and `0x608080`.
 To see in the running original: the same chest's contents after a reload and after the hero gains experience; the share of containers that give nothing and the gold's range over many; the graves' and the shrines' ghosts; a dwarves' chest and the cells of the barrels after it; a town stash; a chest against a wall; quest 1111's chest.
 
 ## In `opensacred-game`
@@ -135,4 +142,5 @@ The cursor shows the hand over a container that opens, none over one emptied (`c
 **Seen** in the game: the Seraphim's start's `chest_sera2` opened by a click 0.75 s after it, the hero beside it, its lid up, `fillchest_sera` run.
 Since #1381 the container's `FillChest`s, taken out of the records its function ran, make what it holds (`opensacred_rules::containers::fill`, `SPAWN_ITEM`): seeded by the hero's type, its experience and the container's point and placement, the value's nothing or ghost, the run of items with their prices (`Weapon.pak +0x8C`, 600 without a record) off the value, the gold, the books and the type named, a rune of which may be replaced; each thrown from the container to a point `R(20, 50)` from the hero along each axis, in 0.9 s along an arc that peaks at 80 (`drops::Flight::to_point`), a raised creature beside the hero.
 **Seen** in the game: `chest_sera2` threw the rune 5394 and the item 2149, as the original's did, both landing 36 and 43 from the Seraphim.
+Since #1407 the thrown items are marked as the hero's (`drops::throw_to`), and one that lands on a cell that the hero may not stand on, or without a straight line of walkable cells to it from the hero, is moved to the hero's point (`drops::fly`), where the hero picks it up; before, it lay out of the hero's reach, a click on it giving up.
 Not followed yet: the town stash's window, the straight line of walkable cells that the opening wants, `FillChest`'s random items of `0x57` (their categories' table `0x890B60` is not read), the class's variant of a type (`0x43CA20`), and the item maker's own level and key for the contents (docs/decisions/items.md, "Containers' items at the hero's level").

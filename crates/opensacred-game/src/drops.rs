@@ -373,12 +373,15 @@ pub struct Lying {
     pub resting: bool,
 }
 
-/// A drop in flight, the level it flies on, and whether it stays upright.
+/// A drop in flight, the level it flies on, whether it stays upright, and whether it is the
+/// hero's marked item (`+0xB0` bit `0x8000000`, which a container's throw `0x5C9BA0` sets),
+/// which lands within the hero's reach.
 #[derive(Component)]
 struct Flying {
     flight: Flight,
     level: Level,
     upright: bool,
+    marked: bool,
 }
 
 /// World units of the height of `height` units of the models' height (`terrain`).
@@ -431,7 +434,8 @@ pub(crate) fn carrying(
 }
 
 /// Throws `dropped` from a container at `from` to `to` on `level` (`0x5C9BA0`), along the arc of
-/// [`Flight::to_point`].
+/// [`Flight::to_point`], marked as the hero's: where it lands out of the hero's reach it is
+/// moved to the hero ([`fly`]).
 pub(crate) fn throw_to(
     commands: &mut Commands,
     (assets, tables): (&AssetServer, &Tables),
@@ -439,7 +443,7 @@ pub(crate) fn throw_to(
     dropped: Dropped,
 ) {
     let flight = Flight::to_point([from.x, from.z], [to.x, to.z]);
-    lay(commands, (assets, tables), (flight, level), dropped);
+    lay(commands, (assets, tables), (flight, level, true), dropped);
 }
 
 /// Makes the item of a container's contents, `item` at `level` (`0x5D57C0` as `FillChest` calls
@@ -488,7 +492,7 @@ pub(crate) fn lay_reward(
     )?;
     let line = listed(&[dropped]);
     let flight = Flight::dropped(at.x, at.z, &mut dice.0);
-    lay(commands, (assets, tables), (flight, level), dropped);
+    lay(commands, (assets, tables), (flight, level, false), dropped);
     Some(line)
 }
 
@@ -572,16 +576,16 @@ fn throw(
 ) {
     for dropped in made {
         let flight = Flight::thrown(at.x, at.z, dice);
-        lay(commands, (assets, tables), (flight, level), dropped);
+        lay(commands, (assets, tables), (flight, level, false), dropped);
     }
 }
 
-/// Puts `dropped` into the world on its `flight` on `level`, its model, if it was converted, with
-/// its texture.
+/// Puts `dropped` into the world on its `flight` on `level`, marked as the hero's or not, its
+/// model, if it was converted, with its texture.
 fn lay(
     commands: &mut Commands,
     (assets, tables): (&AssetServer, &Tables),
-    (flight, level): (Flight, Level),
+    (flight, level, marked): (Flight, Level, bool),
     dropped: Dropped,
 ) {
     let upright = drops::upright(dropped.item);
@@ -595,6 +599,7 @@ fn lay(
             flight,
             level,
             upright,
+            marked,
         },
         DespawnOnExit(AppState::InGame),
     ));
@@ -626,7 +631,7 @@ pub(crate) fn drop_at(
 ) {
     let at = crate::paths::centre(cell);
     let flight = Flight::dropped(at.x, at.y, &mut dice.0);
-    lay(commands, (assets, tables), (flight, level), dropped);
+    lay(commands, (assets, tables), (flight, level, false), dropped);
 }
 
 /// The line of the log of a creature's drops.
@@ -768,11 +773,16 @@ fn dies(
 
 /// Flies each drop a frame on (`0x44DFE0`): it rises and falls about where it was thrown, its
 /// velocity along the ground turning back at every frame as the original's (#478), and lies at
-/// the height a creature stands at there; the gold piles and the runes stay upright.
+/// the height a creature stands at there; the gold piles and the runes stay upright. The hero's
+/// marked item that lands out of its reach ([`out_of_reach`]) is moved to the hero's point
+/// (`0x44F4D0`: `0x5FC8B0`, then `0x5FCCB0` with the hero's place), so that the hero can pick it
+/// up; the original's network game leaves it where another player within 2,000 on its level
+/// reaches it.
 fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Option<Res<Heights>>,
+    heroes: Query<(&Transform, &Body), Without<Flying>>,
     mut flying: Query<(Entity, &mut Flying, &mut Lying, &mut Transform)>,
 ) {
     let Some(heights) = heights else {
@@ -795,6 +805,18 @@ fn fly(
         };
         if flying.flight.resting {
             lying.resting = true;
+            if flying.marked
+                && let Some((hero, body)) = heroes.iter().next()
+                && out_of_reach(hero.translation.xz(), transform.translation.xz(), |cell| {
+                    heights.walkable_on(cell, body.level())
+                })
+            {
+                debug!(
+                    "drops: {} lands out of the hero's reach and is moved to it",
+                    lying.dropped.item
+                );
+                transform.translation = hero.translation;
+            }
             let at = transform.translation;
             debug!(
                 "drops: {} lies at {:.0},{:.0},{:.0}",
@@ -803,6 +825,13 @@ fn fly(
             commands.entity(entity).remove::<Flying>();
         }
     }
+}
+
+/// Whether an item at `item` lies out of the reach of the hero at `hero` (`0x44F4D0`): on a cell
+/// that the hero may not stand on (`0x4EBCA0`), or with no straight line of walkable cells to it
+/// from the hero (`0x4FCC80`).
+fn out_of_reach(hero: Vec2, item: Vec2, walkable: impl Fn(crate::paths::Cell) -> bool) -> bool {
+    !walkable(crate::paths::cell_of(item.x, item.y)) || !crate::paths::clear(hero, item, walkable)
 }
 
 /// Counts the time played.
@@ -1101,5 +1130,16 @@ mod tests {
             1,
         );
         assert_eq!(near, [("gold".to_owned(), 5132, 17, 30.0, true)]);
+    }
+
+    #[test]
+    fn the_heros_marked_item_lies_out_of_its_reach_on_or_beyond_a_closed_cell() {
+        // A wall of closed cells across the cells' column 5.
+        let walkable = |(x, _): crate::paths::Cell| x != 5;
+        let hero = crate::paths::centre((2, 2));
+        let at = |x, y| crate::paths::centre((x, y));
+        assert!(!out_of_reach(hero, at(3, 4), walkable));
+        assert!(out_of_reach(hero, at(5, 3), walkable));
+        assert!(out_of_reach(hero, at(7, 2), walkable));
     }
 }
