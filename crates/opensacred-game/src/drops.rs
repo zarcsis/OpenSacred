@@ -811,9 +811,10 @@ fn fly(
                     heights.walkable_on(cell, body.level())
                 })
             {
+                let at = transform.translation;
                 debug!(
-                    "drops: {} lands out of the hero's reach and is moved to it",
-                    lying.dropped.item
+                    "drops: {} lands at {:.0},{:.0} out of the hero's reach and is moved to it",
+                    lying.dropped.item, at.x, at.z
                 );
                 transform.translation = hero.translation;
             }
